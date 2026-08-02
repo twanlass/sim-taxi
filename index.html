@@ -57,28 +57,27 @@
       body.shot-mode #hud, body.shot-mode #toast, body.shot-mode #run-end { display: none; }
 
       #boost {
-        position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 20;
-        width: 72px; height: 72px; border-radius: 50%; border: 0; cursor: pointer;
-        font-size: 27px; line-height: 1; color: #23303a;
-        /* The dial reads like the fare ring: a filled arc that drains and refills. */
-        background:
-          radial-gradient(circle at center, #F5C130 0 58%, transparent 59%),
-          conic-gradient(#F5C130 var(--pct, 100%), rgba(255, 255, 255, 0.16) 0);
+        position: fixed; bottom: 26px; left: 26px; z-index: 20;
+        padding: 14px 26px; border-radius: 999px; cursor: pointer;
+        /* Black outline so the pill holds its shape against pale asphalt and the yellow taxi. */
+        border: 2px solid #16120a;
+        font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        letter-spacing: 0.02em; color: #16120a; white-space: nowrap;
+        /* The dial drains left-to-right rather than around a circle, because the button is now a
+           pill. Same reading as the fare ring: filled means time remaining. */
+        background: linear-gradient(90deg, #F5C130 var(--pct, 100%), rgba(255, 255, 255, 0.18) 0);
         transition: box-shadow 0.15s ease, transform 0.1s ease;
       }
-      #boost:active { transform: translateX(-50%) scale(0.94); }
+      #boost:active { transform: scale(0.95); }
       #boost.is-active {
-        color: #4a3400;
-        background:
-          radial-gradient(circle at center, #FFE873 0 58%, transparent 59%),
-          conic-gradient(#FFE873 var(--pct, 100%), rgba(255, 255, 255, 0.16) 0);
+        /* Solid white behind the drained portion, not a translucent wash — over pale asphalt the
+           translucent version read as the same tan as the road and the dial lost its edge. */
+        background: linear-gradient(90deg, #FFE873 var(--pct, 100%), #fff 0);
         box-shadow: 0 0 30px rgba(255, 232, 115, 0.85);
       }
-      #boost.is-charging { cursor: default; color: rgba(255, 255, 255, 0.45); }
       #boost.is-charging {
-        background:
-          radial-gradient(circle at center, rgba(255, 255, 255, 0.12) 0 58%, transparent 59%),
-          conic-gradient(#6f8899 var(--pct, 0%), rgba(255, 255, 255, 0.12) 0);
+        cursor: default; color: rgba(255, 255, 255, 0.5);
+        background: linear-gradient(90deg, #6f8899 var(--pct, 0%), rgba(255, 255, 255, 0.12) 0);
       }
       body.shot-mode #boost { display: none; }
 
@@ -136,7 +135,7 @@
       <div class="money">$<span id="money">0</span></div>
     </div>
 
-    <button id="boost" type="button" aria-label="Crazy taxi">⚡</button>
+    <button id="boost" type="button" aria-label="Loco Mode">Loco Mode</button>
     <div id="toast"></div>
     <div id="run-end" hidden></div>
 

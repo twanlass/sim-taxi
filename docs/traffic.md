@@ -148,4 +148,13 @@ no fault of the player — so the fare deadline carries a `DISRUPTION_ALLOWANCE`
 This is also why the player can **tailgate**: following the police car through town is a legitimate
 way to cross the map quickly.
 
+It **fades in and out** at the ends of its run (`FADE_BAND = 18`), reaching fully invisible by
+`|s| = 68` — well before the turnaround at 76, so the hard `visible = false` always lands on an
+already-transparent car. The point lights fade with the bodywork, since leaving them lit would keep
+washing red and blue across the tarmac from a car that is no longer there. The fade keys off `|s|`,
+so it covers entry as well as exit; the pop existed at both ends.
+
+`propMaterial()` returns a fresh instance per call, which is what makes this safe — turning on
+transparency here affects the police car alone and not the merged prop meshes.
+
 > Once fixed: the police car drove straight through a park. It now respects closed segments.

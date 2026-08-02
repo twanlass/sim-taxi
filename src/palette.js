@@ -13,8 +13,8 @@ export const PALETTE = {
   hemiSky: '#F0C79B',
   hemiGround: '#6B5A48',
 
-  asphalt: '#4E535B',
-  asphaltEdge: '#565B63',
+  asphalt: '#636972',
+  asphaltEdge: '#6B717A',
   laneMark: '#D6D2C4',
   crosswalk: '#DAD7CB',
   sidewalk: '#9E9C94',

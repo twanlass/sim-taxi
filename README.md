@@ -17,7 +17,7 @@ The 60-second clock does **not** reset at pickup: one deadline covers spawn to d
 collecting a rider quickly is what buys the time to deliver them. Let a clock expire and the run
 ends.
 
-⚡ (bottom centre) is **crazy-taxi mode** — 15 seconds of double speed that blows through red
+**Loco Mode** (bottom left) is the crazy-taxi button — 15 seconds of double speed that blows through red
 lights and squeals around corners, then 15 seconds of recharge.
 
 The whole city is always on screen. There is nothing to pan or zoom, so every tap is unambiguous.

@@ -17,6 +17,19 @@ import { setPriorityCorridor, ROAD_Y } from './traffic.js';
 const SPEED = 19;
 const RUN_MARGIN = 26;          // how far off-map it starts and ends
 
+// The car used to appear and vanish at full opacity out past the edge of the asphalt, against
+// bare background — a hard pop at both ends of every run. It now dissolves across this band,
+// reaching fully invisible before it hits the turnaround, so the disappearance never lands on a
+// single frame.
+const FADE_BAND = 18;
+
+/** 1 while over the city, easing to 0 as the car runs off the slab. */
+function edgeFade(s) {
+  const beyond = Math.abs(s) - HALF_SPAN;
+  if (beyond <= 0) return 1;
+  return Math.max(0, 1 - beyond / FADE_BAND);
+}
+
 function policeGeometry() {
   const parts = [];
 
@@ -77,10 +90,16 @@ function lightBar(group) {
 
 export function createPolice(rng, scene) {
   const group = new THREE.Group();
-  group.add(new THREE.Mesh(policeGeometry(), propMaterial()));
+  const body = new THREE.Mesh(policeGeometry(), propMaterial());
+  group.add(body);
   const lights = lightBar(group);
   group.visible = false;
   scene.add(group);
+
+  // Every material this car owns. `propMaterial()` hands back a fresh instance per call, so
+  // making these transparent affects the police car alone and not the merged prop meshes.
+  const skin = [body.material, lights.red.material, lights.blue.material];
+  for (const material of skin) material.transparent = true;
 
   const state = {
     active: false,
@@ -164,14 +183,19 @@ export function createPolice(rng, scene) {
 
     place();
 
+    // The lamps fade with the bodywork. Leaving them at full strength would keep washing colour
+    // across the tarmac from a car that is no longer there.
+    const fade = edgeFade(state.s);
+    for (const material of skin) material.opacity = fade;
+
     // Alternating bar, six changes a second.
     const on = Math.floor(state.flash * 6) % 2 === 0;
     lights.red.visible = on;
     lights.blue.visible = !on;
     // Never fully dark on either side — a hard on/off strobe reads as flicker rather than a
     // siren, so the off colour keeps a low glow.
-    lights.redLamp.intensity = on ? 90 : 14;
-    lights.blueLamp.intensity = on ? 14 : 90;
+    lights.redLamp.intensity = (on ? 90 : 14) * fade;
+    lights.blueLamp.intensity = (on ? 14 : 90) * fade;
   }
 
   return { state, update, group };

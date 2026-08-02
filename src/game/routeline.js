@@ -20,9 +20,114 @@ import { intersectionCentre } from './fares.js';
 const WIDTH_PX = 2;
 const MAX_POINTS = 32;
 
+// Corners are rounded rather than mitred to a point. The route is a driving line, and a car
+// cannot take a 90° corner as a 90° corner — a square turn reads as a wire diagram laid over the
+// city instead of a path something is about to drive.
+//
+// Radius is a little over half a lane: wide enough to read as an arc at play zoom, tight enough
+// that the line still visibly belongs to the junction it turns at rather than cutting the block.
+const CORNER_RADIUS = 5;
+const CORNER_STEPS = 8;
+
+// Each corner expands into CORNER_STEPS + 1 points, plus the two endpoints.
+const MAX_PATH = MAX_POINTS * (CORNER_STEPS + 1) + 2;
+
+/**
+ * Replace every interior corner with a quadratic Bézier fillet, using the corner itself as the
+ * control point. The curve is tangent to both legs, so the rounded path leaves and rejoins the
+ * road centreline pointing exactly the way the original polyline did.
+ */
+function roundCorners(pts) {
+  if (pts.length < 3) return pts;
+
+  const out = [pts[0]];
+
+  for (let k = 1; k < pts.length - 1; k++) {
+    const prev = pts[k - 1];
+    const here = pts[k];
+    const next = pts[k + 1];
+
+    const inX = here.x - prev.x;
+    const inZ = here.z - prev.z;
+    const outX = next.x - here.x;
+    const outZ = next.z - here.z;
+    const inLen = Math.hypot(inX, inZ);
+    const outLen = Math.hypot(outX, outZ);
+    if (inLen < 0.001 || outLen < 0.001) continue;
+
+    // Going straight on. Rounding a zero-angle corner just emits a run of duplicate points.
+    const turn = (inX * outZ - inZ * outX) / (inLen * outLen);
+    if (Math.abs(turn) < 0.001) { out.push(here); continue; }
+
+    // Never eat more than half of either leg, or fillets at consecutive junctions overlap and the
+    // line starts cutting across blocks.
+    const r = Math.min(CORNER_RADIUS, inLen / 2, outLen / 2);
+    const from = { x: here.x - (inX / inLen) * r, z: here.z - (inZ / inLen) * r };
+    const to = { x: here.x + (outX / outLen) * r, z: here.z + (outZ / outLen) * r };
+
+    out.push(from);
+    for (let s = 1; s < CORNER_STEPS; s++) {
+      const t = s / CORNER_STEPS;
+      const u = 1 - t;
+      out.push({
+        x: u * u * from.x + 2 * u * t * here.x + t * t * to.x,
+        z: u * u * from.z + 2 * u * t * here.z + t * t * to.z,
+      });
+    }
+    out.push(to);
+  }
+
+  out.push(pts[pts.length - 1]);
+  return out.length > MAX_PATH ? out.slice(0, MAX_PATH) : out;
+}
+
+/**
+ * Half-width offset at each path point, along the mitre of its two adjacent segments, so the
+ * ribbon keeps a constant width around a bend instead of gapping on the outside of every join.
+ */
+function mitreOffsets(path, halfWidth) {
+  const dirs = [];
+  for (let k = 0; k < path.length - 1; k++) {
+    const dx = path[k + 1].x - path[k].x;
+    const dz = path[k + 1].z - path[k].z;
+    const len = Math.hypot(dx, dz) || 1;
+    dirs.push({ x: dx / len, z: dz / len });
+  }
+  if (!dirs.length) dirs.push({ x: 1, z: 0 });
+
+  const offsets = [];
+  for (let k = 0; k < path.length; k++) {
+    const into = dirs[Math.min(Math.max(k - 1, 0), dirs.length - 1)];
+    const outOf = dirs[Math.min(k, dirs.length - 1)];
+
+    const nx = -outOf.z;                 // normal of the outgoing segment
+    const nz = outOf.x;
+
+    let tx = into.x + outOf.x;
+    let tz = into.z + outOf.z;
+    const tLen = Math.hypot(tx, tz);
+    if (tLen < 1e-4) {                   // doubled back on itself; there is no meaningful mitre
+      offsets.push({ x: nx * halfWidth, z: nz * halfWidth });
+      continue;
+    }
+    tx /= tLen;
+    tz /= tLen;
+
+    const mx = -tz;
+    const mz = tx;
+    const denom = mx * nx + mz * nz;
+    // A near-zero denominator is an almost-reversed join, where the true mitre runs to infinity.
+    // Fall back to a butt join rather than firing a spike across the map.
+    const scale = Math.abs(denom) > 0.25 ? halfWidth / denom : halfWidth;
+    offsets.push({ x: mx * scale, z: mz * scale });
+  }
+
+  return offsets;
+}
+
 export function createRouteLine(scene, getWorldPerPixel = () => 0.13) {
-  // Two triangles per segment.
-  const positions = new Float32Array(MAX_POINTS * 6 * 3);
+  // Two triangles per segment of the *densified* path.
+  const positions = new Float32Array(MAX_PATH * 6 * 3);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
@@ -63,25 +168,26 @@ export function createRouteLine(scene, getWorldPerPixel = () => 0.13) {
       if (pts.length >= MAX_POINTS) break;
     }
 
+    const path = roundCorners(pts);
+
     const halfWidth = (WIDTH_PX * getWorldPerPixel()) / 2;
     const y = KERB_H + 0.14;
     let v = 0;
     const push = (x, z) => { positions[v++] = x; positions[v++] = y; positions[v++] = z; };
 
-    for (let k = 0; k < pts.length - 1; k++) {
-      const a = pts[k];
-      const b = pts[k + 1];
-      const dx = b.x - a.x;
-      const dz = b.z - a.z;
-      const len = Math.hypot(dx, dz);
-      if (len < 0.001) continue;
+    // Offset each point along its mitre rather than offsetting each segment independently.
+    // Independent segments leave a wedge of empty road on the outside of every join — invisible
+    // at 90° corners because the corner was the notch, but obvious across an eight-step arc.
+    const offsets = mitreOffsets(path, halfWidth);
 
-      // Perpendicular in the ground plane.
-      const nx = (-dz / len) * halfWidth;
-      const nz = (dx / len) * halfWidth;
+    for (let k = 0; k < path.length - 1; k++) {
+      const a = path[k];
+      const b = path[k + 1];
+      const oa = offsets[k];
+      const ob = offsets[k + 1];
 
-      push(a.x + nx, a.z + nz); push(b.x + nx, b.z + nz); push(b.x - nx, b.z - nz);
-      push(a.x + nx, a.z + nz); push(b.x - nx, b.z - nz); push(a.x - nx, a.z - nz);
+      push(a.x + oa.x, a.z + oa.z); push(b.x + ob.x, b.z + ob.z); push(b.x - ob.x, b.z - ob.z);
+      push(a.x + oa.x, a.z + oa.z); push(b.x - ob.x, b.z - ob.z); push(a.x - oa.x, a.z - oa.z);
     }
 
     geometry.setDrawRange(0, v / 3);

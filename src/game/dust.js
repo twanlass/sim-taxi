@@ -24,7 +24,9 @@ export function createDust(scene, camera, rng) {
   geometry.setAttribute('aAlpha', new THREE.InstancedBufferAttribute(alphas, 1));
 
   const material = new THREE.MeshLambertMaterial({
-    color: '#EFEDE6',
+    // Pure white. The off-white it started as was already being warmed by the golden-hour sun,
+    // which landed it close enough to the road's own tan that the puffs stopped reading as dust.
+    color: '#FFFFFF',
     flatShading: true,
     transparent: true,
     depthWrite: false,

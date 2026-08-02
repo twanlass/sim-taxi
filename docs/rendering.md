@@ -118,6 +118,36 @@ property of the *selection*, not of the world.
 Once planned it does **not** re-path as the taxi drives; a line that keeps changing under you is
 unreadable.
 
+**Corners are filleted**, not mitred to a point: each junction becomes a quadratic Bézier using the
+junction itself as the control point, so the curve stays tangent to both legs. Radius 5, 8 steps,
+clamped to half of either leg so fillets at adjacent junctions can't overlap and cut across a block.
+A square 90° turn read as a wire diagram laid over the city rather than a path something is about
+to drive.
+
+That forced the second half: the ribbon offsets each *point* along its mitre rather than offsetting
+each segment independently. Independent segments leave a wedge of bare road on the outside of every
+join — invisible when the corner *was* the notch, obvious across an eight-step arc. Measured on a
+real turn: sharpest drawn angle 90° → 14.3°, width held to 0.2600–0.2620 against a 0.2600 target,
+and the arc strays at most 1.25 units from the centreline (road half-width is 4).
+
+### Pin outline and bounce — `geometry/marker.js`
+
+The destination pin is outlined by an **inverted hull**: the same geometry drawn a little larger
+with `side: BackSide` and a black basic material, so the enlarged back faces sit behind the real
+surface everywhere except around the silhouette. Cheaper than a post-processing edge pass and it
+needs no render targets — this is one small object, not a whole-scene effect. Each hull is a *child*
+of the mesh it wraps, so it inherits animation for free and survives `setColor` retinting.
+
+The post's hull is scaled `(1.6, 1, 1.6)` — widened but not lengthened, because a uniform scale
+would push its end caps past the post's own, and both ends are meant to stay tucked (one in the
+ground, one inside the head).
+
+The head bounces on `Math.abs(Math.sin(t * 3.4)) * 0.45`: never below the rest position, with a
+sharp cusp at the bottom that reads as a landing rather than a float. **Only the head hops** —
+lifting the whole pin would pull its foot off the pavement. Amplitude is bounded by the 0.8 units
+of overlap between head and post top; at 0.45 the head bottom peaks at 8.15 against a post top of
+8.50, so no gap ever opens. It freezes while hidden, which keeps screenshots deterministic.
+
 ### Car motion
 
 Cars get a subtle vertical bounce while driving and **roll into corners** for weight. The roll is

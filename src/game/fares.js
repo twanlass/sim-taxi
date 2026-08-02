@@ -163,6 +163,8 @@ export function createFareSystem(rng, scene) {
 
     // Wave the waiting rider. Driven off sim time so it stays deterministic for screenshots.
     if (state.stage === 'waiting' && passenger.standing) passenger.standing.wave(state.elapsed);
+    // Bounce the drop-off pin, so the thing you are being asked to drive to is the thing moving.
+    destination.update(dt);
     state.elapsed += dt;
 
     state.timeLeft -= dt;

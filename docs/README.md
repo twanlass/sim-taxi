@@ -24,7 +24,7 @@ tap the destination that appears at pickup. The clock does **not** reset at pick
 covers spawn to drop-off, which is the whole tension of the game. Each delivery pays $20. Let a
 clock expire and the run ends.
 
-⚡ (bottom centre) is crazy-taxi mode: 15 seconds of double speed that runs red lights, then 15
+**Loco Mode** (bottom left) is the crazy-taxi button: 15 seconds of double speed that runs red lights, then 15
 seconds of recharge.
 
 ## Conventions worth knowing before editing

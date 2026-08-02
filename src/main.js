@@ -193,7 +193,7 @@ function updateBoostButton() {
 
 boostButton?.addEventListener('click', () => {
   if (fares.state.gameOver) return;
-  if (boost.activate()) flash('Crazy taxi!');
+  if (boost.activate()) flash('Loco Mode!');
 });
 
 // Rubber gets laid from the rear wheels while boosting through a corner, spaced by distance so
