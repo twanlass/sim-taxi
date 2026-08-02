@@ -1,0 +1,40 @@
+# Taxi Lab — documentation index
+
+Start here. Each doc covers one system: what it does, which files own it, and the decisions
+behind it that aren't obvious from the code.
+
+| Doc | Covers | Main files |
+|---|---|---|
+| [architecture.md](architecture.md) | Module map, the frame loop, seeding and determinism, how a change flows through the app | `src/main.js` |
+| [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts, ground/buildings/props | `src/city/` |
+| [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police priority corridor | `src/sim/` |
+| [gameplay.md](gameplay.md) | The fare loop, routing, picking, the travelling timer ring, economy, crazy-taxi mode | `src/game/` |
+| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, effects | `src/game/scene.js`, `src/geometry/` |
+| [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
+
+## The 60-second version
+
+A 5×5 block city on a fixed 3/4 orthographic camera. Ambient cars drive a lane-following traffic
+model with real signals. **The player's taxi is one of those cars** — the only difference is that
+its turn at each junction comes from a planned route rather than a dice roll, so it obeys every
+red light exactly like everyone else and cannot cheat its way to a destination.
+
+A passenger appears at an intersection with a 60-second clock. Tap them to route the taxi there;
+tap the destination that appears at pickup. The clock does **not** reset at pickup — one deadline
+covers spawn to drop-off, which is the whole tension of the game. Each delivery pays $20. Let a
+clock expire and the run ends.
+
+⚡ (bottom centre) is crazy-taxi mode: 15 seconds of double speed that runs red lights, then 15
+seconds of recharge.
+
+## Conventions worth knowing before editing
+
+- **Zero external assets.** Every mesh is generated in code. There is no loader, no texture, no
+  model file. If something needs to look different, it changes in geometry or in `palette.js`.
+- **Seeded generation.** The city is one seed, the run situation is another; see
+  [architecture.md](architecture.md#seeding).
+- **Comments carry the "why".** Most non-obvious lines already explain themselves in place —
+  particularly the ones recording a measurement or a failed first attempt. These docs summarise;
+  the code is the detail.
+- **`npm run check` before believing anything.** The whole headless suite is under two seconds.
+  See [testing.md](testing.md).

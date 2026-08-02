@@ -1,0 +1,28 @@
+# Netlify deploy config.
+#
+# Vite emits a fully static bundle, so there is nothing to configure beyond the build command and
+# the publish directory. No functions, no edge handlers, no environment variables.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Vite 7 needs Node 20.19+ / 22.12+. Pinned so a Netlify default bump can't break the build
+  # without the change showing up in a commit.
+  NODE_VERSION = "22"
+
+# Vite fingerprints everything under /assets, so those files are safe to cache forever. index.html
+# deliberately is not — it's the file that points at the current bundle hash.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# Deliberately no SPA catch-all redirect: the game is a single page with no client-side routes, so
+# rewriting every unmatched path to index.html would only hide genuine 404s.

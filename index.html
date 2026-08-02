@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sim Taxi 🚕</title>
+    <style>
+      :root { color-scheme: light; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #c6dde8; }
+      canvas { display: block; touch-action: none; cursor: pointer; }
+
+      #hud {
+        position: fixed; top: 18px; left: 18px;
+        font: 600 14px/1.5 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        color: #fff; text-shadow: 0 2px 6px rgba(20, 40, 55, 0.65);
+        pointer-events: none; user-select: none;
+      }
+      #hud .money { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+      /* Earnings fly off the taxi so the payout is visibly connected to the drop-off, rather
+         than a counter quietly incrementing in a corner. */
+      .earning {
+        position: fixed; z-index: 25; pointer-events: none; user-select: none;
+        font: 800 27px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        color: #6BE08A; text-shadow: 0 2px 10px rgba(10, 30, 20, 0.65);
+        animation: earning 1.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+      @keyframes earning {
+        0%   { opacity: 0; transform: translate(-50%, -50%) translateY(4px)   scale(0.8); }
+        14%  { opacity: 1; transform: translate(-50%, -50%) translateY(-22px) scale(1.06); }
+        22%  { opacity: 1; transform: translate(-50%, -50%) translateY(-26px) scale(1); }
+        62%  { opacity: 1; transform: translate(-50%, -50%) translateY(-30px) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, -50%) translateY(-74px) scale(1); }
+      }
+
+      #toast {
+        position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+        font: 600 15px/1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+        color: #fff; background: rgba(24, 44, 58, 0.72); padding: 10px 18px; border-radius: 999px;
+        opacity: 0; transition: opacity 0.25s ease; pointer-events: none; user-select: none;
+      }
+
+      #run-end {
+        position: fixed; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 10px;
+        background: rgba(16, 30, 40, 0.72); color: #fff; text-align: center;
+        font: 500 16px/1.5 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+        user-select: none;
+      }
+      /* `display: flex` above beats the UA stylesheet's `[hidden] { display: none }`, so without
+         this the game-over overlay renders from the first frame and dims the whole game. */
+      #run-end[hidden] { display: none; }
+      #run-end strong { font-size: 30px; font-weight: 700; }
+      #run-end .small { font-size: 13px; opacity: 0.75; }
+
+      body.shot-mode #hud, body.shot-mode #toast, body.shot-mode #run-end { display: none; }
+
+      #boost {
+        position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 20;
+        width: 72px; height: 72px; border-radius: 50%; border: 0; cursor: pointer;
+        font-size: 27px; line-height: 1; color: #23303a;
+        /* The dial reads like the fare ring: a filled arc that drains and refills. */
+        background:
+          radial-gradient(circle at center, #F5C130 0 58%, transparent 59%),
+          conic-gradient(#F5C130 var(--pct, 100%), rgba(255, 255, 255, 0.16) 0);
+        transition: box-shadow 0.15s ease, transform 0.1s ease;
+      }
+      #boost:active { transform: translateX(-50%) scale(0.94); }
+      #boost.is-active {
+        color: #4a3400;
+        background:
+          radial-gradient(circle at center, #FFE873 0 58%, transparent 59%),
+          conic-gradient(#FFE873 var(--pct, 100%), rgba(255, 255, 255, 0.16) 0);
+        box-shadow: 0 0 30px rgba(255, 232, 115, 0.85);
+      }
+      #boost.is-charging { cursor: default; color: rgba(255, 255, 255, 0.45); }
+      #boost.is-charging {
+        background:
+          radial-gradient(circle at center, rgba(255, 255, 255, 0.12) 0 58%, transparent 59%),
+          conic-gradient(#6f8899 var(--pct, 0%), rgba(255, 255, 255, 0.12) 0);
+      }
+      body.shot-mode #boost { display: none; }
+
+      /* --- tweak panel --- */
+      #dbg-toggle {
+        position: fixed; top: 16px; right: 16px; z-index: 20;
+        width: 38px; height: 38px; border: 0; border-radius: 10px; cursor: pointer;
+        font-size: 18px; line-height: 1; background: rgba(20, 34, 44, 0.72); color: #fff;
+      }
+      #dbg-toggle:hover { background: rgba(20, 34, 44, 0.9); }
+
+      #dbg-panel {
+        position: fixed; top: 62px; right: 16px; z-index: 20; width: 258px;
+        padding: 12px 14px 14px; border-radius: 12px;
+        background: rgba(18, 30, 39, 0.92); color: #e8eef2;
+        font: 500 12px/1.4 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+        max-height: calc(100vh - 90px); overflow: auto;
+      }
+      #dbg-panel[hidden] { display: none; }
+      #dbg-panel h4 {
+        margin: 10px 0 6px; font-size: 11px; text-transform: uppercase;
+        letter-spacing: 0.08em; opacity: 0.55; font-weight: 700;
+      }
+      #dbg-panel h4:first-child { margin-top: 0; }
+      .dbg-row { display: grid; grid-template-columns: 84px 1fr; gap: 4px 8px; align-items: center; margin-bottom: 7px; }
+      .dbg-row span { opacity: 0.8; }
+      .dbg-row em { grid-column: 2; font-style: normal; font-size: 11px; opacity: 0.6; font-variant-numeric: tabular-nums; }
+      .dbg-row input[type="range"] { width: 100%; accent-color: #F5C130; }
+      .dbg-row input[type="color"] { width: 100%; height: 22px; padding: 0; border: 0; background: none; }
+      .dbg-actions { display: flex; gap: 6px; margin-top: 10px; }
+      .dbg-wide {
+        width: 100%; margin-top: 10px; padding: 7px 4px; border: 0; border-radius: 8px;
+        cursor: pointer; background: #4E7FC0; color: #fff; font: 700 11px/1 inherit;
+      }
+      .dbg-out {
+        width: 100%; margin-top: 8px; padding: 7px; border: 0; border-radius: 8px; resize: vertical;
+        background: rgba(0, 0, 0, 0.35); color: #cfe0ea;
+        font: 500 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .dbg-actions button {
+        flex: 1; padding: 7px 4px; border: 0; border-radius: 8px; cursor: pointer;
+        background: #F5C130; color: #23303a; font: 700 11px/1 inherit;
+      }
+      body.shot-mode #dbg-toggle, body.shot-mode #dbg-panel { display: none; }
+
+      #error {
+        position: fixed; inset: 0; padding: 24px; background: #2b1b1b; color: #ffb4a8;
+        font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap; overflow: auto; z-index: 10;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <div class="money">$<span id="money">0</span></div>
+    </div>
+
+    <button id="boost" type="button" aria-label="Crazy taxi">⚡</button>
+    <div id="toast"></div>
+    <div id="run-end" hidden></div>
+
+    <div id="error" hidden></div>
+    <script>
+      window.addEventListener('error', (e) => {
+        const el = document.getElementById('error');
+        el.hidden = false;
+        el.textContent += `${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`;
+      });
+      window.addEventListener('unhandledrejection', (e) => {
+        const el = document.getElementById('error');
+        el.hidden = false;
+        el.textContent += `Unhandled rejection: ${e.reason?.stack ?? e.reason}\n\n`;
+      });
+    </script>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
