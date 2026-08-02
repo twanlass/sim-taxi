@@ -135,7 +135,7 @@ projects the taxi's world position to screen space to anchor the element.
 
 ## Crazy-taxi mode
 
-The ⚡ button, bottom centre. 15 seconds active, 15 seconds recharging, no partial spend — so the
+The **Loco Mode** button, bottom left. 15 seconds active, 15 seconds recharging, no partial spend — so the
 only decision is *when* to press it. The button doubles as the dial: a `--pct` CSS variable drains
 while active and fills while recharging.
 

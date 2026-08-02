@@ -24,6 +24,34 @@ function paint(w, d, x, z, col, y = MARK_Y) {
   return bakeColor(geo, col);
 }
 
+const SLAB = SPAN + ROAD_W * 3;
+
+// Rounded corners, so the city reads as an island rather than a sheet cut out with scissors.
+//
+// The ceiling is ~27: any larger and the arc eats into the corner where the two outermost roads
+// meet, leaving the ring road hanging over nothing. 22 is clearly round with room to spare.
+const SLAB_RADIUS = 22;
+
+/** A square with rounded corners, lying flat on the ground plane. */
+function roundedSlab(size, radius) {
+  const h = size / 2;
+  const shape = new THREE.Shape();
+
+  shape.moveTo(-h + radius, -h);
+  shape.lineTo(h - radius, -h);
+  shape.absarc(h - radius, -h + radius, radius, -Math.PI / 2, 0, false);
+  shape.lineTo(h, h - radius);
+  shape.absarc(h - radius, h - radius, radius, 0, Math.PI / 2, false);
+  shape.lineTo(-h + radius, h);
+  shape.absarc(-h + radius, h - radius, radius, Math.PI / 2, Math.PI, false);
+  shape.lineTo(-h, -h + radius);
+  shape.absarc(-h + radius, -h + radius, radius, Math.PI, Math.PI * 1.5, false);
+
+  const geo = new THREE.ShapeGeometry(shape, 14);
+  geo.rotateX(-Math.PI / 2);
+  return geo;
+}
+
 /**
  * Roads, kerbs, sidewalks and paint. All of it merges into a single static mesh — the geometry
  * never changes at runtime, so there's no reason for it to cost more than one draw call.
@@ -33,9 +61,7 @@ export function createGround(rng, blocks) {
 
   // Asphalt slab under everything. Kept tight to the outer roads — a wide apron reads as a
   // grey void around the city once there's no fog to hide where it ends.
-  const asphalt = new THREE.PlaneGeometry(SPAN + ROAD_W * 3, SPAN + ROAD_W * 3);
-  asphalt.rotateX(-Math.PI / 2);
-  parts.push(bakeColor(asphalt, color('asphalt')));
+  parts.push(bakeColor(roundedSlab(SLAB, SLAB_RADIUS), color('asphalt')));
 
   // --- Park districts first: a single platform spanning both blocks and the road that used to
   // run between them, so the green reads as one continuous mass.

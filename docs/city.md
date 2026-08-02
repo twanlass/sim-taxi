@@ -87,9 +87,19 @@ routable. Closing the wrong pair of roads could strand a corner of the city with
 
 | File | Produces | Notes |
 |---|---|---|
-| `ground.js` | road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
+| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | blocky towers | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. |
 | `props.js` | trees, lamps, street furniture | Merged per material via `bakeColor`, so hundreds of props cost one draw call. |
+
+### The slab has rounded corners
+
+The asphalt base is a `Shape` with true circular corner arcs rather than a plane, so the city reads
+as an island instead of a sheet cut out with scissors.
+
+`SLAB_RADIUS` has a hard ceiling around **27**: any larger and the arc bites into the corner where
+the two outermost roads meet, leaving the ring road hanging over nothing. It is set to 22, which
+leaves 2.2 units of clearance at the tightest point — the diagonal through a road corner at
+`(±54, ±54)`. Change it and re-check that clearance.
 
 All three use the same technique: generate small geometries, bake colour into vertex attributes
 with `bakeColor()` from `util/geo.js`, then merge into a single non-indexed mesh with
