@@ -126,8 +126,16 @@ function marker(bodyColor, postColor, kind, buildStanding, withRing = true) {
 
   // Oversized invisible hit volume spanning both pieces — at full zoom-out the visible geometry
   // is only a few pixels across and would be miserable to tap.
+  //
+  // It has to cover the *junction* and the kerb corner, which are two different places: the box is
+  // centred on the junction, and the standing pin is pushed out to a corner a little over 4 units
+  // away. The first version was 9 units square, so the rider stood right on its edge and half of
+  // every tap aimed at the figure missed. 20 covers the corner with real margin on every side —
+  // about 155px across at play zoom, comfortably past the 44px a fingertip needs — while still
+  // being well inside the 20-unit block pitch, so two adjacent junctions can never both be hit.
+  const HIT = 20;
   const hit = new THREE.Mesh(
-    new THREE.BoxGeometry(9, PIN_H + 6, 9),
+    new THREE.BoxGeometry(HIT, PIN_H + 6, HIT),
     new THREE.MeshBasicMaterial({ visible: false }),
   );
   hit.position.y = (PIN_H + 6) / 2;

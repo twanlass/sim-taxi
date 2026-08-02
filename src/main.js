@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
 import { createScene } from './game/scene.js';
-import { createCityCamera } from './game/camera.js';
+import { createCityCamera, attachDragPan } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
@@ -52,8 +52,9 @@ scene.add(createProps(makeRng(seed + 33), layout));
 const traffic = createTraffic(makeRng(runSeed + 44), scene, getCarCount());
 const fares = createFareSystem(makeRng(runSeed + 55), scene);
 const police = createPolice(makeRng(runSeed + 66), scene);
-// Fixed camera framing the whole city. No panning, so every click is unambiguous — this is why
-// city-lab's attachCameraControls (which binds pointerdown to drag-pan) is deliberately unused.
+// One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and
+// the game is playable without ever touching it on a desktop — but in portrait the frustum is
+// sized by height, so a phone cuts off both sides of the map and panning stops being optional.
 const aspect = () => window.innerWidth / window.innerHeight;
 const controller = createCityCamera(aspect(), {
   zoom: shot?.zoom ?? 52,
@@ -61,6 +62,9 @@ const controller = createCityCamera(aspect(), {
 });
 const { camera } = controller;
 controller.update(aspect());
+
+// Screenshots frame themselves, and a shot run has no user to drag anything.
+const pan = shot ? null : attachDragPan(controller, renderer.domElement, aspect);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
 
@@ -100,16 +104,28 @@ createPicker(
   camera,
   renderer.domElement,
   () => [traffic.taxiGroup, ...fares.pickables()],
-  (kind) => {
+  (kind, hit) => {
     if (fares.state.gameOver) return;
+    if (kind !== 'passenger' && kind !== 'destination') return;
 
-    if (kind === 'passenger' || kind === 'destination') {
-      if (routeTo(fares.state.target)) {
-        fares.markDirected();
-        flash('On the way');
-      }
+    // With two fares on the board, *which* pin was tapped is the whole instruction — routing at
+    // "the" target the way the single-fare version did would send the taxi at the wrong one.
+    const fare = fares.fareFor(hit.object);
+    if (!fare) return;
+
+    // One seat. Refusing the tap outright, rather than driving there and quietly not picking
+    // anyone up, is what teaches the rule the first time a second rider appears.
+    if (kind === 'passenger' && fares.carrying()) {
+      flash('Drop off your rider first');
+      return;
+    }
+
+    if (routeTo(fare.target)) {
+      fares.markDirected(fare);
+      flash('On the way');
     }
   },
+  () => Boolean(pan?.didPan()),
 );
 
 // --- HUD --------------------------------------------------------------------
@@ -255,21 +271,27 @@ function frame() {
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
 
-  const event = fares.update(dt, traffic.taxi);
-  if (event === 'pickup') {
-    flash('Passenger aboard — tap the destination');
-    traffic.taxi.route = [];
-    traffic.taxi.pendingTarget = null;
-    traffic.taxi.parked = true;   // sit at the kerb until told where to go
-    // The taxi now wears this rider's colour, and so does their destination pin.
-    traffic.setTaxiFareColor(fares.state.fareColor);
-  } else if (event === 'delivered') {
-    popEarning(FARE_VALUE);
-    traffic.taxi.route = [];
-    traffic.taxi.pendingTarget = null;
-    traffic.setTaxiFareColor(null);
-  } else if (event === 'spawned') {
-    flash('New fare waiting');
+  // More than one thing can land in a frame now — delivering the last fare clears the board and
+  // spawns the next one in the same tick — so this is a list rather than a single event.
+  for (const { type, fare } of fares.update(dt, traffic.taxi)) {
+    if (type === 'pickup') {
+      flash('Passenger aboard — tap the destination');
+      traffic.taxi.route = [];
+      traffic.taxi.pendingTarget = null;
+      traffic.taxi.parked = true;   // sit at the kerb until told where to go
+      // The taxi now wears this rider's colour, and so does their destination pin.
+      traffic.setTaxiFareColor(fare.color);
+    } else if (type === 'delivered') {
+      popEarning(FARE_VALUE);
+      traffic.taxi.route = [];
+      traffic.taxi.pendingTarget = null;
+      traffic.setTaxiFareColor(null);
+    } else if (type === 'spawned') {
+      // A fare that appears while you are already carrying one is the interesting case: it says
+      // "there is now a clock you cannot start yet", which is a different message from the idle
+      // board filling back up.
+      flash(fares.carrying() ? 'Another fare waiting' : 'New fare waiting');
+    }
   }
 
   // The route is a property of the selection, not of the world — deselecting clears it from view
@@ -291,24 +313,27 @@ if (shot) {
   traffic.warmup(shot.warmup ?? 12);
   fares.update(0.016, traffic.taxi);          // spawn the first fare
 
+  // Send the taxi at whichever fare the shot is about, and keep it directed there.
+  const send = (fare = fares.focus()) => {
+    if (fare && routeTo(fare.target)) fares.markDirected(fare);
+    return fare;
+  };
+
   // Some shots are about the carrying state, which only exists after a pickup. Auto-play the
   // fare loop forward until it happens rather than pointing a camera at an arbitrary moment.
   if (shot.untilPickup) {
-    routeTo(fares.state.target);
-    fares.markDirected();
-    for (let guard = 0; guard < 90 * 60 && fares.state.stage !== 'riding'; guard++) {
+    send();
+    for (let guard = 0; guard < 90 * 60 && !fares.carrying(); guard++) {
       traffic.update(1 / 60);
-      const e = fares.update(1 / 60, traffic.taxi);
-      if (e === 'pickup') {
-        traffic.setTaxiFareColor(fares.state.fareColor);
-        routeTo(fares.state.target);
-        fares.markDirected();
+      for (const { type, fare } of fares.update(1 / 60, traffic.taxi)) {
+        if (type !== 'pickup') continue;
+        traffic.setTaxiFareColor(fare.color);
+        send(fare);
         // Let the timer finish flying to the taxi, or the shot catches it mid-transfer.
         for (let settle = 0; settle < 90; settle++) {
           traffic.update(1 / 60);
           fares.update(1 / 60, traffic.taxi);
         }
-        break;
       }
     }
   }
@@ -328,16 +353,17 @@ if (shot) {
   }
 
   // Frame the waiting rider rather than the middle of the map.
-  if (shot.atPassenger && fares.state.target) {
+  const framed = fares.focus();
+  if (shot.atPassenger && framed) {
     // Aim at the kerb the rider is standing on, not the middle of the junction — at close zoom
     // the corner building sits squarely between the camera and the figure otherwise.
-    const c = cornerFor(fares.state.target.i, fares.state.target.j);
+    const c = cornerFor(framed.target.i, framed.target.j);
     controller.state.target.set(c.x, 0, c.z);
     controller.update(aspect());
   }
 
 
-  if (shot.route) { routeTo(fares.state.target); fares.markDirected(); }
+  if (shot.route) send();
   if (selected && traffic.taxi.pendingTarget) {
     routeLine.update(traffic.taxi, traffic.taxi.route);
   }
@@ -368,13 +394,14 @@ window.__taxi = {
   fares,
   routeTo,
   findRoute,
+  camera: controller,
   isSelected: () => selected,
   /** Screen-space helpers so the browser smoke test can click real pixels. */
   taxiScreenPosition: taxiScreenPos,
-  targetScreenPosition: () => {
-    const t = fares.state.target;
-    if (!t) return null;
-    const c = fares.intersectionCentre(t.i, t.j);
+  /** The pin the player is meant to be driving at — the newest one if two are on the board. */
+  targetScreenPosition: (fare = fares.focus()) => {
+    if (!fare) return null;
+    const c = fares.intersectionCentre(fare.target.i, fare.target.j);
     const v = new THREE.Vector3(c.x, 5, c.z).project(camera);
     return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight };
   },

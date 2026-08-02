@@ -32,8 +32,16 @@ DISTANCE = 400
 zoom     = 52             // vertical world span is exactly 2 * zoom
 ```
 
-No pan, no zoom. That's a gameplay decision, not a limitation — a fixed frame is what makes every
-tap unambiguous and lets the whole city stay on screen.
+No zoom, and one fixed default framing — that's a gameplay decision, not a limitation. A fixed
+frame is what makes every tap unambiguous and lets the whole city stay on screen.
+
+**Drag-to-pan is the one concession**, and a phone is what forced it: the frustum is sized by
+*height*, so in portrait the city runs off both sides and half the fares spawn where you cannot
+see them. `attachDragPan` only treats a press as a drag once it has moved `PAN_SLOP = 8px` — below
+that it stays a tap, because on a phone every selection lands with a few pixels of finger travel
+and a camera that answers all of it slides the map every time you pick a fare. It reports
+`didPan()` so the picker can swallow the click that closes out a drag, and it clamps the target to
+`HALF_SPAN`, so the map can never be pushed off screen with nothing left to steer back by.
 
 The `VIEW_DIR` diagonal has consequences elsewhere: screen-up is world `(-1, 0, -1)`, which is why
 the timer ring starts its sweep at `-3π/4`, and why riders are placed on the `-X-Z` kerb of a

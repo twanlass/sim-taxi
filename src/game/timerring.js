@@ -14,11 +14,42 @@ const RING = { inner: 2.35 * 1.18, outer: 3.05 * 1.18 };
 const SEGMENTS = 96;
 const TRANSFER_TIME = 0.65;
 
+// Black rim, drawn as a slightly wider annulus underneath the other two so it shows on both edges
+// of the band. Same job and roughly the same weight as the inverted-hull outlines on the marker
+// pins (0.18 units there), so the two read as the same drawing.
+//
+// It earns its place at play zoom, where the ring is ~25px across on road that is barely darker
+// than the yellow stage colour: without a rim the arc's edge dissolves into the tarmac and the
+// clock stops being readable at a glance, which is the only thing it is for.
+const OUTLINE_W = 0.22;
+
+/**
+ * The renderOrder anything that stands *inside* the ring must use — the rider on the kerb, and the
+ * taxi once the clock has flown to it.
+ *
+ * The ring draws with `depthTest: false` so it stays legible through buildings, and at this camera
+ * angle the far half of a flat circle projects *upward* across whatever is standing at its centre.
+ * Without this the ring cut its own owner in half. Because the ring writes no depth, an ordinary
+ * depth-tested object drawn afterwards simply lands on top and still self-occludes correctly.
+ *
+ * It has to clear every layer of the ring — outline 7, track 8, arc 9 — and the taxi's selection
+ * disk at 5. All of them are opaque, which is what makes renderOrder decide the outcome at all:
+ * a translucent layer would draw after every opaque object regardless.
+ */
+export const ABOVE_RING = 12;
+
 // Screen-space top. The camera looks down the +X+Z diagonal, so screen-up is world (-1, 0, -1),
 // which is this angle. Sweeping from here with increasing theta reads as clockwise on screen.
 const START_ANGLE = -Math.PI * 0.75;
 
-const TRACK = new THREE.Color('#16222B');
+// The unfilled part of the circle. Opaque, with the dimming already baked in — this is what
+// #16222B at 0.45 used to composite to over asphalt.
+//
+// It was a translucent wash, and that put it in three's transparent queue, which always draws
+// after every opaque object no matter what renderOrder says. The rider stands at the centre of
+// this ring and the far half of it projects *up* across their body at this camera angle, so a
+// transparent track painted a dark band over the figure that no draw order could undo.
+const TRACK = new THREE.Color('#404952');
 
 // Four discrete states, deliberately not interpolated.
 //
@@ -93,8 +124,6 @@ export function createTimerRing(scene) {
     sweepAnnulus(RING.inner, RING.outer),
     new THREE.MeshBasicMaterial({
       color: TRACK,
-      transparent: true,
-      opacity: 0.45,
       depthWrite: false,
       depthTest: false,
       side: THREE.DoubleSide,
@@ -102,6 +131,20 @@ export function createTimerRing(scene) {
   );
   track.renderOrder = 8;   // just beneath the live arc
   mesh.add(track);         // child, so position/visibility follow the arc for free
+
+  // A full circle, not a swept arc: the rim belongs to the ring as an object, so it stays whole
+  // while the arc inside it drains. Beneath the track, which paints over everything but the edges.
+  const outline = new THREE.Mesh(
+    sweepAnnulus(RING.inner - OUTLINE_W, RING.outer + OUTLINE_W),
+    new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      depthWrite: false,
+      depthTest: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  outline.renderOrder = 7;
+  mesh.add(outline);
 
   scene.add(mesh);
 

@@ -4,10 +4,18 @@ import * as THREE from 'three';
 // comes from small HSL jitters around these bases, never from free colour choices.
 
 export const PALETTE = {
-  // Golden hour: deep blue overhead falling to a warm haze at the horizon.
-  skyTop: '#5E96C7',
-  skyBottom: '#DED7D0',
-  fog: '#C6DDE8',
+  // Light sky blue overhead, going paler — not white — at the horizon.
+  //
+  // This used to be golden hour: the same blue falling into a warm beige haze. The haze read as
+  // smog against pale asphalt and dragged the whole frame towards sepia, which is a strange look
+  // for a bright, toy-coloured city. The sun and the hemisphere fill are still warm, so the light
+  // on the buildings is unchanged — only what's behind them moved.
+  //
+  // Must be kept in step with the 16.4 keyframe in game/daylight.js, which is where the parked
+  // sky actually comes from: createDaylight() applies its keyframe over these on construction.
+  skyTop: '#8CC4E8',
+  skyBottom: '#DCEDF7',
+  fog: '#DCEDF7',
 
   sun: '#FFDEBB',
   hemiSky: '#F0C79B',
