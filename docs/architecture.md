@@ -72,9 +72,11 @@ const event = fares.update(dt, traffic.taxi);   // 4. arrival is judged against 
    last frame's signal state and the corridor would lag a frame behind the car creating it.
 3. Fares resolve last, against positions that are already final for the frame.
 
-`fares.update` returns a single event string (`'spawned'`, `'pickup'`, `'delivered'`, or nothing)
-rather than firing callbacks. The fare system therefore has no reference to the taxi mesh, the
-HUD, or the toast — `main.js` translates the event into all of those.
+`fares.update` returns the frame's events as `{type, fare}` objects (`'spawned'`, `'pickup'`,
+`'delivered'`, `'failed'`) rather than firing callbacks. The fare system therefore has no reference
+to the taxi mesh, the HUD, or the toast — `main.js` translates the events into all of those. It is
+a list rather than one value because two fares run at once and more than one thing can resolve in
+the same frame.
 
 ## Seeding
 

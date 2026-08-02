@@ -18,7 +18,11 @@ const KEYS = [
   { hour: 6.5,  top: '#3E6EA0', bottom: '#F0B080', sun: '#FFB05A', power: 2.10, fill: 0.95, sky: '#E8BFA0', ground: '#5E5245' },
   { hour: 9,    top: '#65A0CE', bottom: '#CFE0EA', sun: '#FFF0D2', power: 3.60, fill: 1.40, sky: '#DCEAF4', ground: '#7A7A6E' },
   { hour: 13,   top: '#6FA9D4', bottom: '#CDE3EE', sun: '#FFF4DE', power: 3.85, fill: 1.55, sky: '#D6E8F4', ground: '#84847A' },
-  { hour: 16.4, top: '#5E96C7', bottom: '#DED7D0', sun: '#FFDEBB', power: 3.55, fill: 1.50, sky: '#F0C79B', ground: '#6B5A48' },
+  // The parked look — this is the sky the game actually ships with, since the cycle is off by
+  // default and createDaylight() applies this keyframe on construction. Light blue rather than the
+  // warm haze the rest of late afternoon has; see the note in palette.js. The sun and fill stay
+  // golden, so only the backdrop changed.
+  { hour: 16.4, top: '#8CC4E8', bottom: '#DCEDF7', sun: '#FFDEBB', power: 3.55, fill: 1.50, sky: '#F0C79B', ground: '#6B5A48' },
   { hour: 18.6, top: '#35507E', bottom: '#F09A60', sun: '#FF8C46', power: 1.70, fill: 0.88, sky: '#E8A276', ground: '#4E4038' },
   { hour: 20,   top: '#1B2A44', bottom: '#40395A', sun: '#4A4060', power: 0.28, fill: 0.48, sky: '#5A5A7A', ground: '#232630' },
   { hour: 24,   top: '#0A1320', bottom: '#16202E', sun: '#2A3550', power: 0.00, fill: 0.34, sky: '#33506E', ground: '#141C26' },

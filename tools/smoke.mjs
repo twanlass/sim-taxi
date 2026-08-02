@@ -151,9 +151,34 @@ try {
   check('signals still hold for the taxi',
     (await evaluate('window.__taxi.traffic.stats.violations')) === 0);
 
-  // --- The camera is deliberately fixed, so a drag must not move it.
-  const camBefore = await evaluate('window.__taxi.traffic ? JSON.stringify(0) : null');
-  check('camera has no pan controls bound', camBefore !== null);
+  // --- Drag pans, tap does not. The two share one gesture, so both halves need asserting: this
+  // is the check that would catch drag-panning eating taps, which is what sank the first attempt
+  // at a movable camera here. (The old version of this check compared a literal against null and
+  // could not fail.)
+  const camTarget = () => evaluate(
+    'JSON.stringify(window.__taxi.camera.state.target.toArray())');
+
+  const dragFrom = async (x, y, dx, dy) => {
+    await evaluate(`(() => {
+      const c = document.querySelector('canvas');
+      const ev = (type, cx, cy) => c.dispatchEvent(new PointerEvent(type, {
+        pointerId: 1, isPrimary: true, clientX: cx, clientY: cy, bubbles: true, cancelable: true }));
+      c.setPointerCapture = () => {};
+      ev('pointerdown', ${x}, ${y});
+      for (let s = 1; s <= 6; s++) ev('pointermove', ${x} + ${dx} * s / 6, ${y} + ${dy} * s / 6);
+      ev('pointerup', ${x} + ${dx}, ${y} + ${dy});
+    })()`);
+    await sleep(200);
+  };
+
+  const beforeDrag = await camTarget();
+  await dragFrom(450, 300, 120, 80);
+  check('dragging pans the camera', (await camTarget()) !== beforeDrag);
+
+  // A press that never crosses the slop must leave the camera exactly where it was.
+  const beforeTap = await camTarget();
+  await dragFrom(450, 300, 3, 2);
+  check('a tap does not pan the camera', (await camTarget()) === beforeTap);
 
   check('no uncaught exceptions', client.errors.length === 0, client.errors.join(' | '));
 } catch (err) {

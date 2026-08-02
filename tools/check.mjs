@@ -18,7 +18,9 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
 const TOOLS = [
   { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },
   { name: 'routing', args: ['tools/taxi.mjs', '30'],   pick: /arrived (\S+)/ },
-  { name: 'fares',   args: ['tools/soak.mjs', '25', '4'], pick: /delivered (\S+)/ },
+  // Nine seeds, not one. A single soak run is trip-length luck more than it is difficulty, so a
+  // one-seed gate went red or green on which junction the spawner happened to pick.
+  { name: 'fares',   args: ['tools/soak.mjs', '25', '4', '9'], pick: /delivered (\S+ median)/ },
   { name: 'signals', args: ['tools/signals.mjs'],      pick: /throughput\s+: (\S+)/, info: true },
 ];
 

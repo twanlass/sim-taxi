@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
+import { ABOVE_RING } from '../game/timerring.js';
 import { wheelGeometries } from '../sim/traffic.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
@@ -43,6 +44,9 @@ export function createTaxiMesh() {
 
   const shell = new THREE.Mesh(merged, propMaterial());
   shell.castShadow = true;
+  // Once a fare is aboard, the timer ring flies here and sits on the road around the car — so the
+  // car has to draw over it, for the same reason the rider does. See ABOVE_RING.
+  shell.renderOrder = ABOVE_RING;
   // Marks this subtree as the taxi for the picker, which raycasts recursively.
   shell.userData.pickable = 'taxi';
   group.add(shell);
@@ -92,6 +96,7 @@ export function createTaxiMesh() {
     new THREE.MeshLambertMaterial({ color: new THREE.Color(PALETTE.taxiSign), flatShading: true }),
   );
   sign.castShadow = true;
+  sign.renderOrder = ABOVE_RING;
   sign.userData.pickable = 'taxi';
   group.add(sign);
 

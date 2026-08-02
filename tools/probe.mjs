@@ -15,12 +15,13 @@ import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, getPriorityCorridor, isUnsignalised, ringAxisAt } from '../src/sim/traffic.js';
 import { createPolice } from '../src/sim/police.js';
-import { createFareSystem, cornerFor } from '../src/game/fares.js';
+import { createFareSystem, cornerFor, MAX_FARES, SECOND_FARE_AFTER } from '../src/game/fares.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, lineCoord, GRID } from '../src/city/grid.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 
 const seed = Number(process.argv[2] ?? 71624);
+const CARS_DEFAULT = 7;    // the game's default density, for checks about the game as played
 const results = [];
 const check = (name, pass, detail = '') => {
   results.push({ name, pass });
@@ -161,9 +162,9 @@ check('no two cars occupy the same space', worst > 1.6,
   const fScene = new THREE.Scene();
   const fTraffic = createTraffic(makeRng(seed + 44), fScene, 24);
   const fares = createFareSystem(makeRng(seed + 55), fScene);
-  const ring = fares.timer.mesh;
   fTraffic.warmup(5);
 
+  let ring = null;
   let onRider = false;
   let transferred = false;
   let followsTaxi = false;
@@ -172,27 +173,41 @@ check('no two cars occupy the same space', worst > 1.6,
 
   while (elapsed < 220 && !fares.state.gameOver) {
     fTraffic.update(1 / 60);
-    const event = fares.update(1 / 60, fTraffic.taxi);
+    const events = fares.update(1 / 60, fTraffic.taxi);
     elapsed += 1 / 60;
 
-    const route = () => {
-      const r = findRoute(planOrigin(fTraffic.taxi), fares.state.target);
-      if (r) { fTraffic.taxi.route = r; fTraffic.taxi.routeConsumed = false; fares.markDirected(); }
+    const route = (fare) => {
+      const r = findRoute(planOrigin(fTraffic.taxi), fare.target);
+      if (r) { fTraffic.taxi.route = r; fTraffic.taxi.routeConsumed = false; fares.markDirected(fare); }
     };
 
-    if (event === 'spawned') {
-      // Under the rider on the kerb, not at the junction centre.
-      const c = cornerFor(fares.state.target.i, fares.state.target.j);
-      onRider = Math.hypot(ring.position.x - c.x, ring.position.z - c.z) < 0.01;
-      route();
+    let done = false;
+    for (const { type, fare } of events) {
+      if (type === 'spawned' && !ring) {
+        // Follow the first fare all the way through; a later one appearing mid-ride is a
+        // different assertion, made further down.
+        ring = fare.slot.timer.mesh;
+        // Under the rider on the kerb, not at the junction centre.
+        const c = cornerFor(fare.target.i, fare.target.j);
+        onRider = Math.hypot(ring.position.x - c.x, ring.position.z - c.z) < 0.01;
+        route(fare);
+      }
+      if (type === 'pickup' && fare.slot.timer.mesh === ring) {
+        transferred = fare.slot.timer.isTransferring();
+        route(fare);
+      }
+      // The run may end on the timer rather than a delivery; the ring must be cleared either way.
+      if ((type === 'delivered' || type === 'failed') && fare.slot.timer.mesh === ring) {
+        hiddenAfter = !ring.visible;
+        done = true;
+      }
     }
-    if (event === 'pickup') { transferred = fares.timer.isTransferring(); route(); }
-    if (transferred && !fares.timer.isTransferring() && !followsTaxi) {
+    if (done) break;
+
+    const carried = fares.carrying();
+    if (transferred && carried && !carried.slot.timer.isTransferring() && !followsTaxi) {
       followsTaxi = Math.hypot(ring.position.x - fTraffic.taxi.x, ring.position.z - fTraffic.taxi.z) < 0.05;
     }
-    // A 24s fare clock means the run may end on the timer rather than a delivery; the ring must
-    // be cleared either way.
-    if (event === 'delivered' || event === 'failed') { hiddenAfter = !ring.visible; break; }
   }
 
   check('the timer waits under the rider', onRider);
@@ -202,16 +217,79 @@ check('no two cars occupy the same space', worst > 1.6,
 
   // Colour has to carry the urgency on its own — drain it and read the hue back.
   // The ring is hidden after a delivery and update() no-ops while hidden, so show it first.
-  ring.visible = true;
+  const probeRing = fares.slots[0].timer;
+  probeRing.mesh.visible = true;
   const hues = [1, 0.75, 0.5, 0.25, 0.05].map((f) => {
-    fares.timer.update(0.016, { x: 0, z: 0 }, f);
-    return ring.material.color.getHexString();
+    probeRing.update(0.016, { x: 0, z: 0 }, f);
+    return probeRing.mesh.material.color.getHexString();
   });
   const [full, , mid, , low] = hues;
   const green = (h) => parseInt(h.slice(2, 4), 16) > parseInt(h.slice(0, 2), 16);
   const red = (h) => parseInt(h.slice(0, 2), 16) > parseInt(h.slice(2, 4), 16) * 1.4;
   check('the timer ramps green to red as it drains', green(full) && !green(mid) && red(low),
     hues.join(' -> '));
+}
+
+// --- Two fares, staggered ---------------------------------------------------
+// The second rider is the difficulty of the game, and every rule about when they appear is a
+// timing rule — invisible in a still image and easy to break by accident. So: play a perfect run
+// and assert the shape of the board at every single frame of it.
+{
+  const mScene = new THREE.Scene();
+  const mTraffic = createTraffic(makeRng(seed + 44), mScene, CARS_DEFAULT);
+  const fares = createFareSystem(makeRng(seed + 55), mScene);
+  mTraffic.warmup(5);
+
+  let mostAtOnce = 0;
+  let mostWaiting = 0;
+  let secondBeforeDelivery = false;
+  let spawnedWhileRiding = 0;
+  let spawnedIdle = 0;
+  let elapsed = 0;
+
+  // Serve the carried rider first, then whoever is on the kerb — the only order one taxi can
+  // work in, and the same policy the soak uses.
+  const aim = () => {
+    const job = fares.carrying() ?? fares.waiting();
+    if (!job || job.directed) return;
+    const r = findRoute(planOrigin(mTraffic.taxi), job.target);
+    if (r) { mTraffic.taxi.route = r; mTraffic.taxi.routeConsumed = false; fares.markDirected(job); }
+  };
+
+  while (elapsed < 400 && !fares.state.gameOver && fares.state.delivered < 6) {
+    mTraffic.update(1 / 60);
+    for (const { type } of fares.update(1 / 60, mTraffic.taxi)) {
+      if (type !== 'spawned') continue;
+      if (fares.state.fares.length > 1) {
+        if (fares.state.delivered < SECOND_FARE_AFTER) secondBeforeDelivery = true;
+        spawnedWhileRiding += 1;
+      } else {
+        spawnedIdle += 1;
+      }
+    }
+    aim();
+    elapsed += 1 / 60;
+
+    mostAtOnce = Math.max(mostAtOnce, fares.state.fares.length);
+    mostWaiting = Math.max(mostWaiting, fares.state.fares.filter((f) => f.stage === 'waiting').length);
+  }
+
+  check('two fares run at once', mostAtOnce === 2, `peak ${mostAtOnce}, ${fares.state.delivered} delivered`);
+  check('never more than MAX_FARES', mostAtOnce <= MAX_FARES);
+  check('the second fare waits behind a rider already aboard', !secondBeforeDelivery
+    && spawnedWhileRiding > 0, `${spawnedWhileRiding} staggered, ${spawnedIdle} on an empty board`);
+  // Falls out of the stagger rule rather than being enforced separately, which is exactly why it
+  // is worth asserting: it is what lets "tap a rider" stay unambiguous with two fares live.
+  check('never two riders waiting at once', mostWaiting <= 1, `peak ${mostWaiting}`);
+
+  // The one-seat rule, from the outside: a kerbside rider cannot be directed at while carrying.
+  const carried = fares.carrying();
+  const kerb = fares.waiting();
+  if (carried && kerb) {
+    check('a waiting rider cannot be taken while carrying', fares.markDirected(kerb) === false);
+  } else {
+    check('a waiting rider cannot be taken while carrying', true, 'board not doubled up at exit');
+  }
 }
 
 // --- Ring road and signal health -------------------------------------------

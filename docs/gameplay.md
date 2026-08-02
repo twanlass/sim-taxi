@@ -2,19 +2,50 @@
 
 ## The fare loop
 
-`src/game/fares.js` is a three-stage machine: `idle → waiting → riding → idle`.
+`src/game/fares.js`. Each fare is its own little machine — `waiting → riding → gone` — carrying its
+own clock, pins and ring. Up to `MAX_FARES = 2` run at once.
 
 1. A passenger spawns at a random intersection (never the one the taxi is already about to reach)
    with a **60-second clock** (`FARE_SECONDS`).
 2. Tap them → the taxi routes there.
 3. On arrival the passenger boards, a destination pin appears, and the taxi **parks** until the
    player taps that destination.
-4. Deliver → **$20** (`FARE_VALUE`), and a new passenger spawns.
-5. Either clock expiring ends the run.
+4. Deliver → **$20** (`FARE_VALUE`), and the board refills.
+5. **Any** fare's clock expiring ends the run.
 
-`fares.update()` returns one event string per frame (`'spawned' | 'pickup' | 'delivered'`) rather
-than firing callbacks, so the fare system holds no reference to the taxi mesh, the HUD or the
-toast. `main.js` translates events into all of that.
+`fares.update()` returns the events that happened this frame — `{type, fare}`, with type one of
+`'spawned' | 'pickup' | 'delivered' | 'failed'` — rather than firing callbacks, so the fare system
+holds no reference to the taxi mesh, the HUD or the toast. `main.js` translates events into all of
+that. It is a list because more than one can land together: delivering the last fare clears the
+board, and the refill follows on the next frame.
+
+## The second fare
+
+The taxi has **one seat**, so a second fare is always someone *waiting* — a clock draining on the
+kerb while you finish the job you are on. Tapping a waiting rider while carrying one is refused
+outright with a toast, rather than driving there and quietly not picking anyone up.
+
+Three rules govern when they appear, and all three exist to keep them fair:
+
+| Rule | Value | Why |
+|---|---|---|
+| `SECOND_FARE_AFTER` | 1 delivery | The first fare teaches the loop with nothing else on screen. |
+| `SECOND_FARE_DELAY` | 5s aboard | A pickup and a spawn are never the same event. |
+| `SECOND_FARE_RANGE` | 45 units | They appear only as the taxi closes on its drop-off. |
+| `SECOND_FARE_RADIUS` | 3 blocks | And near it, so the hand-off is a short hop. |
+
+The last two are the ones that matter. A second rider pays a tax no first rider does: their 60s
+covers the rest of the current delivery *and* a full pickup drive before their own trip starts.
+Charging them for a whole drop-off leg took the median run from **7 fares to 3** (40 seeds, 1.5s
+reaction). Gating on range and radius puts it at **5** — about a third shorter than the one-fare
+game, which is the intended difficulty, rather than a different game.
+
+Because a second fare only ever spawns behind a rider already aboard, **two riders are never
+waiting at once**. That falls out of the stagger rule rather than being enforced separately, and it
+is what keeps "tap a rider" unambiguous with two fares live. `tools/probe.mjs` asserts it.
+
+Colour is still assigned only at pickup, so both boards read the same way: a kerbside rider is
+white because any taxi could take them, and the ring's stage colour carries their urgency.
 
 ### The clock does not reset at pickup
 
@@ -29,8 +60,8 @@ both legs plus reaction time is tight but fair.
 A fare only resolves — pickup or drop-off — if the player actually **sent** the taxi at it.
 
 Without this rule a taxi cruising on random turns wanders into the pin by itself: measured at
-**11 of 40 seeds** completing a drop-off with no tap at all. `state.directed` is cleared whenever a
-new target appears and set by the tap that routes the taxi.
+**11 of 40 seeds** completing a drop-off with no tap at all. `directed` lives on the fare, is set by
+the tap that routes the taxi at it, and clears whenever that fare's target changes.
 
 ### Fare colours
 
@@ -44,9 +75,10 @@ is colour-coded by time remaining, so fare identity needed somewhere else to liv
 Colours avoid every hue already doing a job: signal red/amber/green, the taxi's own yellow, and
 the white of an unclaimed passenger. Consecutive fares never repeat a colour.
 
-With one taxi this is flavour. With several it becomes the entire read of the board — and the fact
-that colour is assigned only at pickup is what leaves the interesting decision (which taxi takes
-which rider) to the player rather than to the spawner.
+With one taxi and one seat this is still mostly flavour — only one fare is ever coloured at a time,
+and the second is white on the kerb. It becomes the entire read of the board the day there is more
+than one taxi, and assigning colour only at pickup is what would leave the interesting decision
+(which taxi takes which rider) to the player rather than to the spawner.
 
 ## Routing
 
@@ -66,9 +98,21 @@ every later turn lands one intersection early. Planning starts from the intersec
 `src/game/pick.js` raycasts against objects that opt in via `userData.pickable`, a string kind. The
 ray walks up each hit's parents to find the tag, so a click on any child of the taxi group counts.
 
-A plain `click` handler is enough because the camera is fixed — there is no drag gesture to
-disambiguate from a tap. This is exactly why `city-lab`'s `attachCameraControls` (which binds
-pointerdown to drag-panning) is deliberately unused here; it fought tap-to-select.
+Still a plain `click` handler, even though the camera drag-pans now. The disambiguation lives in
+`attachDragPan`: a press only becomes a drag once it crosses `PAN_SLOP = 8px`, and the picker
+ignores the click that closes out one. So a tap is an ordinary click and only a gesture that
+actually moved the map is swallowed. This is exactly why `city-lab`'s `attachCameraControls`
+(which binds pointerdown to dragging unconditionally) is still unused here; it fought
+tap-to-select.
+
+Every marker carries an oversized invisible hit box, 20 units square — the visible figure is a
+handful of pixels at play zoom, and it stands on a kerb corner four units off the junction the box
+is centred on, so a box merely the size of the junction put the rider on its own edge and lost half
+the taps aimed at it.
+
+**Which** pin was tapped is the instruction, not just that one was: `fares.fareFor(hit.object)`
+walks up from the hit to the fare that owns it. Tapping a kerbside rider while already carrying one
+is refused with a toast rather than routing a taxi that could never collect them.
 
 **The taxi is permanently selected.** There is only ever one, so a selection step was pure
 ceremony: every tap on it was either a no-op or an accidental deselect that made the next tap on a
@@ -102,11 +146,31 @@ olive through the whole first half — and a colour that changes imperceptibly t
 nothing. Snapping makes each change an event you notice.
 
 A dimmed **track** ring sits beneath the live arc. Without it a half-drained arc looks like a
-crescent floating beside its owner rather than a ring centred on it.
+crescent floating beside its owner rather than a ring centred on it. It is opaque, with the
+dimming baked into the colour rather than done with alpha — see the render-order note below.
 
-The ring draws **on top of everything** (`depthTest: false`, `renderOrder 9`). The taxi and the
+A **black rim** underneath both, the same weight as the outlines on the marker pins. At play zoom
+the ring is ~25px across on road barely darker than its own yellow stage colour, and without the
+rim the arc's edge dissolves into the tarmac.
+
+The ring draws **on top of everything** (`depthTest: false`, `renderOrder 7-9`). The taxi and the
 rider duck behind buildings constantly at this camera angle, and a clock you cannot see is
 worthless — legibility beats depth correctness here.
+
+### …except its own owner
+
+Which creates the one exception. The ring lies flat on the ground, its owner stands in the middle
+of it, and at this camera angle the **far half of a flat circle projects upward on screen** across
+whatever is standing at the centre. Drawn with the depth test off, the ring sliced the rider — and
+later the taxi — in half.
+
+The fix is draw order, not depth: the ring writes no depth, so anything drawn *after* it lands on
+top while still self-occluding normally. `ABOVE_RING` is that renderOrder, worn by the rider's
+meshes and the taxi's shell and sign.
+
+This is why the track had to stop being translucent. A transparent object draws after **every**
+opaque one no matter what its renderOrder says, so as a wash it painted a dark band across the
+figure that no ordering could undo.
 
 The taxi's ground indicators nest deliberately: highlight disk innermost, selection ring around
 it, timer ring outside both. The first attempt put the timer at the same radius as the selection

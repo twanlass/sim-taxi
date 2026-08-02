@@ -31,6 +31,11 @@ export { ringAxisAt, isUnsignalised };   // re-exported: callers of the sim ask 
 
 const SPEED = 8.5;
 
+// Forward distance the boosting taxi takes to cross the one lane width out to the centreline.
+// 9 units on a 20-unit pitch: under half a block, so the manoeuvre finishes well before the next
+// junction, and the implied steering angle — atan(LANE / this) — stays a believable 13°.
+const LANE_CHANGE_LEN = 9;
+
 const SIGNAL = {
   // 16s, not the 28s first tried. A sweep of cycle length against throughput came back monotonic
   // — 14s gave 3.80 units/s per car, 28s gave 2.36 — because with sparse, randomly-turning
@@ -271,6 +276,7 @@ function spawnCars(rng, count) {
       boost: false,
       wasBoosting: false,
       lateral: 0,   // 0 = own lane, 1 = out on the centreline overtaking
+      steer: 0,     // yaw offset while crossing between the two, so the car points where it slides
       // Ambient cars leave `route` empty and fall through to random turns. The taxi's route is
       // filled in by the game layer; see the turn decision below.
       route: [],
@@ -444,9 +450,28 @@ export function createTraffic(rng, scene, count = 24) {
     taxi.wasBoosting = taxi.boost;
 
     // Ease out to the centreline and back, so overtaking is a manoeuvre rather than a teleport.
+    //
+    // Paced by *distance travelled*, not by elapsed time, and only while running straight. The
+    // first version ramped on a 0.45s timer regardless of what the car was doing, which produced
+    // the two things that read as a bug rather than an overtake: it slid sideways while sitting
+    // still at a red, and starting or ending mid-corner pushed the car off its own Bézier arc
+    // partway round. Distance pacing means a stopped car cannot drift at all, and freezing the
+    // ramp through a junction keeps the whole corner on one consistent offset.
     const lateralTarget = taxi.boost ? 1 : 0;
-    taxi.lateral += Math.sign(lateralTarget - taxi.lateral)
-      * Math.min(Math.abs(lateralTarget - taxi.lateral), dt / 0.45);
+    let lateralRate = 0;
+    if (taxi.state === 'drive') {
+      const delta = lateralTarget - taxi.lateral;
+      const step = Math.min(Math.abs(delta), (taxi.v * dt) / LANE_CHANGE_LEN);
+      taxi.lateral += Math.sign(delta) * step;
+      lateralRate = (Math.sign(delta) * step) / Math.max(dt, 1e-6);
+    }
+
+    // Steer into it. Without a yaw offset the car crabs — translating sideways across the road
+    // while still pointing straight down it — and *that* is what actually looked broken, not the
+    // offset itself. Distance pacing makes the angle constant, atan(LANE / LANE_CHANGE_LEN) ≈ 13°,
+    // at any speed; the ease is only there so the wheel straightens instead of snapping.
+    const steerTarget = Math.atan2(lateralRate * LANE, Math.max(taxi.v, 1));
+    taxi.steer += (steerTarget - taxi.steer) * Math.min(1, dt / 0.1);
 
     // --- Index cars by lane so each one can see the vehicle immediately ahead.
     // A car mid-turn keeps a presence in its entry lane for the first part of the turn,
@@ -789,10 +814,14 @@ export function createTraffic(rng, scene, count = 24) {
 
       // Overtaking offset. Applied at render only: the simulation keeps the car on its lane
       // coordinate, and the boosting taxi is excluded from lane bookkeeping anyway.
+      //
+      // Order matters — the offset is perpendicular to the *lane*, so it has to be taken off the
+      // unsteered heading before the steering angle is added on top.
       if (car.lateral > 0.001) {
         car.x -= Math.sin(car.yaw) * LANE * car.lateral;
         car.z -= Math.cos(car.yaw) * LANE * car.lateral;
       }
+      if (car.steer) car.yaw += car.steer;
 
       // A little vertical bob, scaled by how fast the car is actually going, so stopped traffic
       // sits still instead of idling like a boat.

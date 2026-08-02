@@ -7,7 +7,11 @@ export const BOOST_DURATION = 15;
 export const BOOST_RECHARGE = 15;
 
 export function createBoost(duration = BOOST_DURATION, recharge = BOOST_RECHARGE) {
-  const state = { mode: 'ready', remaining: 0 };
+  // Starts on the charger, not ready. The first fare is the one that teaches the loop, and a
+  // boost available from the first frame gets spent on it out of curiosity rather than judgement —
+  // by the time the city is busy enough to need it, it's on cooldown. Making the player wait out
+  // one full recharge puts the first press somewhere around the first drop-off instead.
+  const state = { mode: 'recharging', remaining: recharge };
 
   return {
     state,

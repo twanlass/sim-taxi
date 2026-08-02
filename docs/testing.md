@@ -29,12 +29,20 @@ can be made and verified in a single step.
 | **modules** | inline in `check.mjs` | Every browser-only module imports *and constructs* in node, and a full simulated day swings the sun from 0.00 to >3 |
 | **probe** | `tools/probe.mjs` | Traffic invariants: no car in a park, no car off-map, no signal violations, all 5,184 (approach, destination) pairs routable |
 | **routing** | `tools/taxi.mjs 30` | Given a target, the routed taxi actually **arrives** — while still stopping at every red |
-| **fares** | `tools/soak.mjs 25 4` | Auto-plays the fare loop with a fixed "player reaction" delay |
+| **fares** | `tools/soak.mjs 25 4 9` | Auto-plays the fare loop over **9 run seeds** with a fixed "player reaction" delay, and gates on the median |
 | **signals** | `tools/signals.mjs` | Throughput, stationary fraction, green-wave hit rate. Informational — it reports rather than fails |
 
-`taxi.mjs` is the assertion that matters most and the one **no screenshot can make**. `soak.mjs`
-is the fairness check: if a perfect player with a fixed reaction delay ever fails on a timer, the
-deadline formula is unfair, because a real player is strictly slower.
+`taxi.mjs` is the assertion that matters most and the one **no screenshot can make**.
+
+`soak.mjs` is the difficulty gauge. One flat clock covering both legs means a perfect player is
+*meant* to lose eventually, so it does not gate on "never fails" — it gates on the median run being
+long enough that the loop got going at all.
+
+**It sweeps seeds, and that is the point.** A single run is trip-length luck more than it is
+difficulty: one corner-to-corner fare eats 40s against a 17s average, and on some seeds even a
+perfect player loses the very first fare. Tuning against one seed is tuning against noise — it is
+how a 30% harder game once measured as a 75% harder one, and how a one-seed gate stayed green on
+luck rather than on merit.
 
 The module-construction step exists because a scope slip in `scene.js` once shipped undetected —
 nothing headless imported it. Anything browser-only belongs in that file's `BOOT` list.
@@ -44,7 +52,7 @@ nothing headless imported it. Anything browser-only belongs in that file's `BOOT
 ```bash
 node tools/probe.mjs                          # individually, for detail on a failure
 node tools/taxi.mjs 60                        # more trials
-node tools/soak.mjs 40 3                      # 40 fares, 3s reaction delay
+node tools/soak.mjs 40 3 20                   # 40 fares, 3s reaction, 20 run seeds
 node tools/signals.mjs                        # signal metrics, incl. cycle-length sweeps
 node tools/diag.mjs                           # ad-hoc scratch diagnostics
 node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM
