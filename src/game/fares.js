@@ -344,7 +344,7 @@ export function createFareSystem(rng, scene) {
       const anchor = fare.stage === 'waiting'
         ? { ...cornerFor(fare.target.i, fare.target.j), y: KERB_H + 0.05 }
         : { x: taxiCar.x, z: taxiCar.z, y: 0.09 };   // the taxi rides on the road, not the kerb
-      timer.update(dt, anchor, Math.max(0, fare.timeLeft / fare.limit));
+      timer.update(dt, anchor, Math.max(0, fare.timeLeft / fare.limit), fare.timeLeft);
 
       if (fare.timeLeft <= 0) {
         state.gameOver = true;
