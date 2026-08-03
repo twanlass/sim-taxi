@@ -71,13 +71,24 @@ export function createPerson() {
   // frame — the set is fixed for the lifetime of the person.
   const meshes = [torso, legL, legR, armL, armR];
 
-  /** Set the whole figure's opacity. `1` returns the meshes to opaque (no blend cost). */
+  /**
+   * Set the whole figure's opacity. `1` returns the meshes to opaque (no blend cost).
+   *
+   * `material.transparent` and `depthWrite` are shader-define switches — flipping them at
+   * runtime does nothing until `needsUpdate` triggers a program recompile. The old version
+   * changed `opacity` but the material stayed opaque, so the rider never faded and popped off
+   * when `visible` finally flipped. Track the last-set flag to only invalidate on transitions.
+   */
   function setOpacity(a) {
     for (const mesh of meshes) {
       const opaque = a >= 1;
-      mesh.material.transparent = !opaque;
+      const wasTransparent = mesh.material.transparent;
+      if (opaque === wasTransparent) {
+        mesh.material.transparent = !opaque;
+        mesh.material.depthWrite = opaque;
+        mesh.material.needsUpdate = true;
+      }
       mesh.material.opacity = a;
-      mesh.material.depthWrite = opaque;
     }
   }
 
