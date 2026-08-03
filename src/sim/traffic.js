@@ -273,6 +273,10 @@ function spawnCars(rng, count) {
       phase: rng.range(0, Math.PI * 2),
       speedFactor: 0,
       v: SPEED,     // already rolling, so the city doesn't lurch into motion on frame one
+      prevV: SPEED, // paired with car.v so accel = Δv/dt on frame one is a clean zero, not a spike
+      // Longitudinal-accel rocking. Spring-damped, so both a stop and a pull-away end on a bounce.
+      pitch: 0,
+      pitchV: 0,
       boost: false,
       wasBoosting: false,
       lateral: 0,   // 0 = own lane, 1 = out on the centreline overtaking
@@ -840,21 +844,33 @@ export function createTraffic(rng, scene, count = 24) {
         }
       }
 
-      // Roll pivots on the car's centreline at road level, so leaning would drive the outer
-      // bottom edge underground. Lifting by the sagitta of the lean keeps that edge on the
-      // tarmac and reads as suspension travel rather than clipping.
-      const lift = Math.abs(Math.sin(roll)) * (CAR_W / 2);
+      // Rocking. Pitch is a spring-damper driven by longitudinal acceleration: braking dips the
+      // nose forward, easing off the brake lifts it, and the underdamping (ζ ≈ 0.4) makes both
+      // events end on a small bounce so it reads as suspension travel. Impulse to pitchV works
+      // out as K·SCALE·Δv, independent of dt — a one-frame velocity jump (boost kick, stop-line
+      // snap) delivers the same rock at any frame rate.
+      const accel = dt > 1e-6 ? (car.v - car.prevV) / dt : 0;
+      car.prevV = car.v;
+      const targetPitch = Math.max(-0.13, Math.min(0.13, accel * 0.014));
+      car.pitchV += ((targetPitch - car.pitch) * 60 - car.pitchV * 6) * dt;
+      car.pitch += car.pitchV * dt;
+
+      // Roll and pitch both pivot on the car's origin at road level, so tilting drives one edge
+      // underground. Lifting by the sagitta of each keeps the low edge on the tarmac and reads as
+      // suspension travel rather than clipping.
+      const lift = Math.abs(Math.sin(roll)) * (CAR_W / 2)
+        + Math.abs(Math.sin(car.pitch)) * (CAR_LEN / 2);
 
       if (car.isTaxi) {
         taxiGroup.position.set(car.x, ROAD_Y + bob + lift, car.z);
-        taxiGroup.rotation.set(roll, car.yaw, 0);
-        // Decal stays flat on the road, unaffected by roll or bob.
+        taxiGroup.rotation.set(roll, car.yaw, car.pitch);
+        // Decal stays flat on the road, unaffected by roll, pitch or bob.
         taxiSelection.position.set(car.x, ROAD_Y + 0.02, car.z);
         continue;
       }
 
       pos.set(car.x, ROAD_Y + bob + lift, car.z);
-      quat.setFromEuler(euler.set(roll, car.yaw, 0, 'YXZ'));
+      quat.setFromEuler(euler.set(roll, car.yaw, car.pitch, 'YXZ'));
       matrix.compose(pos, quat, scl);
       mesh.setMatrixAt(car.instanceIndex, matrix);
     }
