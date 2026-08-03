@@ -75,9 +75,11 @@ const PAN_LIMIT = HALF_SPAN;
  * and half the fares spawn where you cannot see, let alone tap them.
  *
  * So panning is back, but gated on the slop above rather than on pointerdown, and it reports
- * whether the gesture became a drag so the picker can ignore the click that follows one.
+ * whether the gesture became a drag so the picker can ignore the click that follows one. Callers
+ * can pass `isEnabled` to disable panning on wide viewports where the whole city already fits —
+ * kept as a live check so a resize re-enables it without a reload.
  */
-export function attachDragPan(controller, domElement, getAspect) {
+export function attachDragPan(controller, domElement, getAspect, isEnabled = () => true) {
   let drag = null;
   let panned = false;
 
@@ -93,6 +95,7 @@ export function attachDragPan(controller, domElement, getAspect) {
     // Single finger only. A second touch belongs to a pinch, and feeding it into the same
     // drag makes the map jump to wherever that finger landed.
     if (!event.isPrimary) return;
+    if (!isEnabled()) return;
     drag = { x: event.clientX, y: event.clientY, moved: 0 };
     panned = false;
     domElement.setPointerCapture(event.pointerId);
