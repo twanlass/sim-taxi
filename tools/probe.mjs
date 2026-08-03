@@ -372,6 +372,54 @@ check('the taxi is an ordinary car in the traffic array',
   traffic.cars.includes(traffic.taxi) && traffic.taxi.isTaxi,
   'so signals and following distance apply to it');
 
+// --- Parked taxi with a same-intersection destination ---------------------
+// The taxi picks up a rider, then the player taps a destination that happens to be the
+// intersection the taxi is already heading toward. findRoute returns [] ("already at target"),
+// which used to leave the parked check with an empty route — allowed = 0 forever, no arrival,
+// no way out even with Loco Mode. Mirrors main.js:routeTo, which now clears `parked` too.
+{
+  const sScene = new THREE.Scene();
+  const sTraffic = createTraffic(makeRng(seed + 44), sScene, CARS_DEFAULT);
+  const sFares = createFareSystem(makeRng(seed + 55), sScene);
+  const sTaxi = sTraffic.taxi;
+  sTraffic.warmup(5);
+
+  const routeTo = (target) => {
+    const r = findRoute(planOrigin(sTaxi), target);
+    if (!r) return false;
+    sTaxi.route = r; sTaxi.routeConsumed = false; sTaxi.parked = false;
+    return true;
+  };
+
+  let pickedUp = false;
+  let tapped = false;
+  let elapsed = 0;
+  while (elapsed < 120 && !sFares.state.gameOver && sFares.state.delivered === 0) {
+    sTraffic.update(1 / 60);
+    for (const { type } of sFares.update(1 / 60, sTaxi)) {
+      if (type === 'pickup') { sTaxi.route = []; sTaxi.parked = true; pickedUp = true; }
+    }
+    elapsed += 1 / 60;
+
+    const waiting = sFares.waiting();
+    if (waiting && !waiting.directed && !pickedUp) {
+      if (routeTo(waiting.target)) sFares.markDirected(waiting);
+    }
+    if (pickedUp && !tapped) {
+      const c = sFares.carrying();
+      if (c) {
+        c.target = { i: sTaxi.i, j: sTaxi.j };   // destination = taxi's current target junction
+        if (routeTo(c.target)) sFares.markDirected(c);
+        tapped = true;
+      }
+    }
+  }
+
+  check('a parked taxi still delivers when the destination is its own next junction',
+    sFares.state.delivered === 1,
+    `${sFares.state.delivered} delivered after ${elapsed.toFixed(1)}s`);
+}
+
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
 // how many cars happen to be moving at the instant the sim stops.
 const throughput = stats.distance / stats.time / traffic.cars.length;

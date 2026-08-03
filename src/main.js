@@ -99,6 +99,11 @@ function routeTo(target) {
   car.route = route;
   car.routeConsumed = false;
   car.pendingTarget = target;
+  // The player has just directed the taxi somewhere, so release the kerb hold even if the route
+  // is empty (destination equals the intersection the taxi is already heading toward). Without
+  // this the parked check in traffic.js keeps allowed = 0 forever — the taxi never enters the
+  // junction, so arrival never fires, and Loco Mode can't help because parked overrides boost.
+  car.parked = false;
   return true;
 }
 
