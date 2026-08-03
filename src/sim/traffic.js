@@ -133,6 +133,10 @@ export function setPriorityJunction(next) {
 export const corridorCovers = (i, j) =>
   Boolean(corridor) && (corridor.axis === 'x' ? j === corridor.line : i === corridor.line);
 
+/** Whether the boosting taxi's priority junction is this one. */
+const priorityCovers = (i, j) =>
+  Boolean(priorityJunction) && priorityJunction.i === i && priorityJunction.j === j;
+
 /**
  * Signal state at an intersection. `axis` is the axis currently permitted to move; yellow is
  * treated as stop, which keeps the rule "may I enter?" a single boolean everywhere else.
@@ -568,11 +572,12 @@ export function createTraffic(rng, scene, count = 24) {
     stats.time += dt;
     const t = stats.time;
 
-    // Set before any car evaluates a signal this frame. Ring junctions are left alone — they are
-    // yield-controlled, so there is no phase to override and the taxi waits for a gap like anyone.
-    // A stunned or crashed taxi is off the lane grid: releasing its priority hold lets signals run.
+    // Set before any car evaluates a signal this frame. Ring junctions get an override too —
+    // the ring-vs-cross branches below check `priorityCovers` and route the boosting taxi through
+    // `canProceed`, which then yields the crossing ring traffic to the taxi's axis. A stunned or
+    // crashed taxi is off the lane grid: releasing its priority hold lets signals run.
     const taxiActive = !taxi.crashed;
-    setPriorityJunction(taxiActive && taxi.boost && !taxi.stunned && !isUnsignalised(taxi.i, taxi.j)
+    setPriorityJunction(taxiActive && taxi.boost && !taxi.stunned
       ? { i: taxi.i, j: taxi.j, axis: isXAxis(taxi.d) ? 'x' : 'z' }
       : null);
 
@@ -710,7 +715,10 @@ export function createTraffic(rng, scene, count = 24) {
         let allowed = Infinity;
 
         // The signal ahead, read now rather than on arrival — this is what lets it slow early.
-        const ringAxis = corridorCovers(car.i, car.j) ? null : ringAxisAt(car.i, car.j);
+        // A corridor or a boosting-taxi priority hold both temporarily signalise the ring, so the
+        // taxi's axis reads as green and cross ring traffic yields to it.
+        const ringAxis = corridorCovers(car.i, car.j) || priorityCovers(car.i, car.j)
+          ? null : ringAxisAt(car.i, car.j);
         const onRingNow = ringAxis !== null && (isXAxis(car.d) ? 'x' : 'z') === ringAxis;
         const open = ringAxis !== null
           ? onRingNow
@@ -745,8 +753,10 @@ export function createTraffic(rng, scene, count = 24) {
         // never fired and the car drove off the map forever.
         if (distToLine - step <= 0) {
           // About to reach the stop line — decide whether to enter the intersection.
-          // A corridor temporarily signalises the ring, so the siren's green path is unbroken.
-          const ring = corridorCovers(car.i, car.j) ? null : ringAxisAt(car.i, car.j);
+          // A corridor or a boosting-taxi priority hold temporarily signalises the ring, so the
+          // siren's or the taxi's green path is unbroken.
+          const ring = corridorCovers(car.i, car.j) || priorityCovers(car.i, car.j)
+            ? null : ringAxisAt(car.i, car.j);
           const onRing = ring !== null && (isXAxis(car.d) ? 'x' : 'z') === ring;
 
           let green;

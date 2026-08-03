@@ -138,7 +138,10 @@ A boosting taxi does not slow for corners at all — without this it braked at e
 the whole mode read as choppy rather than fast.
 
 A boosting taxi also sets `priorityJunction`, which forces its next junction green — that's the
-"runs red lights" part, expressed through the signal model rather than by skipping the check.
+"runs red lights" part, expressed through the signal model rather than by skipping the check. Ring
+junctions are covered too: the ring/cross branches check `priorityCovers` and route the boosting
+taxi through `canProceed`, so joining ring traffic yields to the taxi's axis exactly the way a
+siren's corridor yields it.
 
 The meter itself lives in `game/boost.js` as a pure clock with no knowledge of the taxi or the
 DOM. Hold-to-enable: the tank drains only while the button is held (15s from full), releasing just
