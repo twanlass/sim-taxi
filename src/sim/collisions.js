@@ -7,12 +7,18 @@ import { CAR_LEN, CAR_W } from './traffic.js';
 //
 // Bodies are approximated as a pair of circles per car, offset ±CAR_LEN/4 along the yaw axis.
 // A full OBB SAT test would be more accurate at odd angles, but cars are axis-aligned almost all
-// the time and the two-circle proxy is a few lines instead of a helper file. The taxi is a small
-// bit *further* inset (its lateral offset already reads as being out of the lane) so a graze on
-// the boost line doesn't count.
-
+// the time and the two-circle proxy is a few lines instead of a helper file.
+//
+// Radius picked so a boost-line pass counts as a crash. When boosting, the taxi shifts to the
+// centreline (0) while same-direction leaders sit at +LANE=2 and oncoming traffic at -LANE=-2,
+// so every straight-road encounter is 2 units apart centre-to-centre. With CIRCLE_R = 0.55·CAR_W
+// the summed envelope was 1.87, leaving 0.13 units of clearance — every rear-end and head-on
+// glided past, so the only crash the game could produce was a T-bone at a junction. Raising to
+// 0.68 makes the envelope 2.31, i.e. a 0.31-unit overlap on any same-road encounter, which is
+// what Loco Mode should feel like. Ambient-vs-ambient never runs through here, so widening is
+// safe for lane-following queues (MIN_GAP still gives ~1 unit of longitudinal clearance).
 const CIRCLE_OFFSET = CAR_LEN * 0.28;
-const CIRCLE_R = CAR_W * 0.55;
+const CIRCLE_R = CAR_W * 0.68;
 
 // One stun packet drives both the drift physics and the post-recovery cooldown — see
 // recoverFromStun in traffic.js. Values picked so the pair visibly separates before either car
