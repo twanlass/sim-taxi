@@ -100,6 +100,11 @@ const ARRIVE_RADIUS = 7;       // how close the taxi must get to count as arrive
 // transfer's 0.65s so the ring lands on the taxi a beat before the rider disappears into it.
 const BOARD_SECONDS = 0.9;
 
+// How long the delivered rider is visible for after they leave the cab. Longer than BOARD_SECONDS
+// because the animation carries an extra beat — a fade after the run — so a departing rider is
+// on-screen while the earnings pop is still travelling to the counter.
+const EXIT_SECONDS = 1.4;
+
 const NO_EVENTS = Object.freeze([]);
 
 /**
@@ -167,6 +172,12 @@ export function createFareSystem(rng, scene) {
 
   const slots = Array.from({ length: MAX_FARES }, (_, index) => createSlot(scene, index));
 
+  // Delivered riders that are still animating out of the taxi. Kept separate from `state.fares` so
+  // an exit-in-progress does not gate the next spawn — the puzzle is over the moment a fare is
+  // delivered, and the animation is only skin. Each entry pins the slot it uses until it clears,
+  // so a new fare cannot land on the same slot while its previous rider is still running away.
+  const exits = [];
+
   // The marker group sits on the junction (its ring is the "drive here" cue); only the standing
   // pin is pushed out to the pavement corner so it doesn't hover over the carriageway.
   const place = (pin, i, j) => {
@@ -230,7 +241,8 @@ export function createFareSystem(rng, scene) {
   const focus = () => state.fares.find((f) => f.directed) ?? carrying() ?? waiting() ?? null;
 
   function spawnFare(taxiCar, near = null) {
-    const slot = slots.find((s) => !state.fares.some((f) => f.slot === s));
+    const slot = slots.find((s) => !state.fares.some((f) => f.slot === s)
+      && !exits.some((e) => e.slot === s));
     if (!slot) return null;
 
     const spot = pickIntersection(taxiCar, near);
@@ -303,6 +315,47 @@ export function createFareSystem(rng, scene) {
     fare.slot.timer.hide();
     const at = state.fares.indexOf(fare);
     if (at !== -1) state.fares.splice(at, 1);
+  }
+
+  /**
+   * Start the "rider gets out and walks to the sidewalk" animation.
+   *
+   * The passenger figure was hidden the moment they finished the boarding animation on pickup —
+   * this un-hides it, drops it onto the taxi's current position, and hands the slot to `exits`
+   * where its own tick will drive it home. The fare has already been removed from `state.fares`
+   * by the caller, so the slot is free to be reused as soon as the animation completes.
+   */
+  function beginExit(slot, target, taxiCar) {
+    place(slot.passenger, target.i, target.j);
+    slot.passenger.standing?.rest?.();
+    slot.passenger.group.visible = true;
+    slot.destination.group.visible = false;
+    slot.timer.hide();
+    exits.push({
+      slot,
+      target,
+      // Captured now rather than looked up each frame — the taxi is about to drive off, and the
+      // rider needs to land where the drop-off happened, not where the taxi currently is.
+      exitFrom: { x: taxiCar.x, z: taxiCar.z },
+      elapsed: 0,
+    });
+  }
+
+  function updateExits(dt) {
+    for (let i = exits.length - 1; i >= 0; i--) {
+      const e = exits[i];
+      e.elapsed += dt;
+      const t = Math.min(1, e.elapsed / EXIT_SECONDS);
+      const kerb = cornerFor(e.target.i, e.target.j);
+      const dx = e.exitFrom.x - kerb.x;
+      const dz = e.exitFrom.z - kerb.z;
+      e.slot.passenger.standing?.exit?.(t, dx, dz);
+      if (t >= 1) {
+        e.slot.passenger.group.visible = false;
+        e.slot.passenger.standing?.rest?.();
+        exits.splice(i, 1);
+      }
+    }
   }
 
   const distanceToTarget = (fare, taxiCar) => {
@@ -419,6 +472,11 @@ export function createFareSystem(rng, scene) {
           ? 'A passenger gave up waiting.'
           : 'A fare was not delivered in time.';
         for (const other of [...state.fares]) clear(other);
+        for (const e of exits) {
+          e.slot.passenger.group.visible = false;
+          e.slot.passenger.standing?.rest?.();
+        }
+        exits.length = 0;
         emit('failed', fare);
         return events;
       }
@@ -436,11 +494,17 @@ export function createFareSystem(rng, scene) {
         // grab?" an economic decision rather than a coin flip.
         state.money += fare.value;
         state.delivered += 1;
-        clear(fare);
+        // Pull the fare out of the puzzle immediately — the board is free to refill — while
+        // handing the slot's passenger figure over to the exit animation. The next spawner
+        // will skip this slot until the animation is done, so nothing lands on top of it.
+        const at = state.fares.indexOf(fare);
+        if (at !== -1) state.fares.splice(at, 1);
+        beginExit(fare.slot, fare.target, taxiCar);
         emit('delivered', fare);
       }
     }
 
+    updateExits(dt);
     return events ?? NO_EVENTS;
   }
 
@@ -474,6 +538,12 @@ export function createFareSystem(rng, scene) {
     state.failTitle = title;
     state.failReason = reason;
     for (const other of [...state.fares]) clear(other);
+    // An exit animation in progress freezes with the rest of the world under the run-end banner.
+    for (const e of exits) {
+      e.slot.passenger.group.visible = false;
+      e.slot.passenger.standing?.rest?.();
+    }
+    exits.length = 0;
   }
 
   /** Which fare owns a picked object, walking up from the hit the way the picker does. */
