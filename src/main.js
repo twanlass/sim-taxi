@@ -16,6 +16,7 @@ import { createDust } from './game/dust.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
+import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
 import { findRoute, planOrigin } from './game/route.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount } from './util/shot.js';
@@ -140,6 +141,10 @@ function snapToRider(fare) {
 }
 
 const riderFinder = createRiderFinder({ onTap: snapToRider });
+const dropoffIndicator = createDropoffIndicator({
+  camera,
+  intersectionCentre: fares.intersectionCentre,
+});
 
 // --- HUD --------------------------------------------------------------------
 
@@ -321,6 +326,7 @@ function frame() {
   kickDust();
   updateHud(dt);
   riderFinder.update(dt, fares.waiting());
+  dropoffIndicator.update(fares.carrying());
   renderer.render(scene, camera);
 }
 

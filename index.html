@@ -131,6 +131,26 @@
       #rider-finder canvas { display: block; width: 56px; height: 56px; }
       body.shot-mode #rider-finder { display: none; }
 
+      /* Off-screen drop-off pointer. A colour-coded arrow that clamps to the viewport edge and
+         rotates to point at the destination pin, so the direction to drive stays readable when
+         the pin has slipped off the frame (portrait, or after panning). Colour comes from the
+         fare's own palette entry — same one that tints the taxi's sign and the pin head — so the
+         arrow and the pin are recognisably the same fare. */
+      #dropoff-indicator {
+        position: fixed; left: 50%; top: 50%; z-index: 18;
+        width: 34px; height: 34px; pointer-events: none; user-select: none;
+        transform: translate(-50%, -50%);
+      }
+      #dropoff-indicator[hidden] { display: none; }
+      #dropoff-indicator svg { display: block; width: 100%; height: 100%;
+        filter: drop-shadow(0 2px 4px rgba(10, 20, 30, 0.45)); }
+      /* Matches the pin-head outline weight so the arrow reads as the same graphic vocabulary. */
+      #dropoff-indicator polygon {
+        fill: var(--dropoff-color, #E24BC4);
+        stroke: #16120a; stroke-width: 3; stroke-linejoin: round;
+      }
+      body.shot-mode #dropoff-indicator { display: none; }
+
       /* --- tweak panel --- */
       #dbg-toggle {
         position: fixed; top: 16px; right: 16px; z-index: 20;
@@ -189,6 +209,11 @@
     <button id="rider-finder" type="button" aria-label="Snap camera to waiting rider" hidden>
       <span class="chip"><canvas width="56" height="56"></canvas></span>
     </button>
+    <div id="dropoff-indicator" aria-hidden="true" hidden>
+      <svg viewBox="-16 -16 32 32">
+        <polygon points="13,0 -9,-10 -4,0 -9,10" />
+      </svg>
+    </div>
     <div id="toast"></div>
     <div id="run-end" hidden></div>
 
