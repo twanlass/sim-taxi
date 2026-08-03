@@ -13,6 +13,25 @@ const CAR_LEN = 3.4;
 const CAR_W = 1.7;
 const TAXI_SCALE = 1.18;
 
+// World-space nudge along the view axis, applied to each ghost mesh's matrixWorld just before
+// render (see the ghost material comment). Big enough to reliably beat the coplanar shell in the
+// depth test on any surface orientation; small enough that the ghost silhouette lands on the
+// shell's silhouette to within a hair. Along the exact view axis so the ortho projection maps it
+// to zero screen offset — the ghost sits under the shell, not next to it.
+const GHOST_DEPTH_NUDGE = 0.4;
+const _ghostPos = new THREE.Vector3();
+const _ghostAxis = new THREE.Vector3();
+function pushGhostTowardCamera(mesh, camera) {
+  // camera.getWorldDirection points from the camera into the scene; negate to point back toward
+  // the viewer. For an orthographic camera every point in the scene sees the same view axis, so
+  // one direction lookup covers all ghost meshes for this frame.
+  camera.getWorldDirection(_ghostAxis).negate();
+  _ghostPos.setFromMatrixPosition(mesh.matrixWorld).addScaledVector(_ghostAxis, GHOST_DEPTH_NUDGE);
+  mesh.matrixWorld.setPosition(_ghostPos);
+  // matrixWorld is regenerated from local × parent every frame, so this shift lives only for the
+  // one render call.
+}
+
 export function createTaxiMesh() {
   const group = new THREE.Group();
   group.name = 'taxi';
@@ -58,11 +77,17 @@ export function createTaxiMesh() {
   // test and no fade are needed — the visible portion of the taxi renders normally and the ghost
   // only fills in the occluded pixels.
   //
-  // Coplanar with the shell (same merged geometry), so `Greater` on equal depth is a FP coin-flip
-  // and used to speckle the ghost onto the visible sprite. A small negative polygonOffset biases
-  // the ghost's depth toward the camera by a fraction of a unit — enough to reliably fail
-  // GreaterDepth against the shell on visible pixels, still comfortably deeper than any building
-  // in front of the taxi on occluded pixels.
+  // Coplanar with the shell (same merged geometry), so `Greater` on equal depth is a FP coin-flip.
+  // polygonOffset used to be the tie-breaker but doesn't survive this camera: the projection is
+  // orthographic, and on the taxi's surfaces most nearly perpendicular to the view axis (which
+  // rotates with the taxi's heading, so at some yaws it's the flanks, at others the front and
+  // back) the factor × dz/dxy term collapses toward zero. Only polygonOffsetUnits contributes,
+  // and one unit is a 24-bit-buffer least-significant-bit — a coin-flip against the coplanar
+  // shell. The ghost was punching through the visible taxi on a park block with nothing in front
+  // of it. Instead the ghost meshes shift themselves ~0.4 world units toward the camera in
+  // `onBeforeRender` — see `pushGhostTowardCamera` — which gives a guaranteed depth offset
+  // regardless of surface orientation, and along the view axis so the on-screen silhouette
+  // doesn't drift out from under the shell in ortho.
   //
   // `transparent: true` isn't for blending — the fill is fully opaque — it's the only reliable way
   // to force the ghost into the transparent queue so it renders *after* opaque and tests against
@@ -75,9 +100,6 @@ export function createTaxiMesh() {
     opacity: 1,
     depthWrite: false,
     depthFunc: THREE.GreaterDepth,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
   });
 
   const ghostGroup = new THREE.Group();
@@ -86,6 +108,7 @@ export function createTaxiMesh() {
   const shellFill = new THREE.Mesh(merged, ghostFillMat);
   shellFill.renderOrder = ABOVE_RING;
   shellFill.name = 'taxiShellGhost';
+  shellFill.onBeforeRender = (_r, _s, camera) => pushGhostTowardCamera(shellFill, camera);
   ghostGroup.add(shellFill);
 
   // The selection indicator, and the taxi's only one. Rings are reserved for fares now — the
@@ -142,6 +165,7 @@ export function createTaxiMesh() {
   const signGhost = new THREE.Mesh(signGeo, ghostFillMat);
   signGhost.renderOrder = ABOVE_RING;
   signGhost.name = 'taxiSignGhost';
+  signGhost.onBeforeRender = (_r, _s, camera) => pushGhostTowardCamera(signGhost, camera);
   ghostGroup.add(signGhost);
   group.add(ghostGroup);
 
