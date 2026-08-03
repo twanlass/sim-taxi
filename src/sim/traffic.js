@@ -347,7 +347,7 @@ export function createTraffic(rng, scene, count = 24) {
   // simply drawn as its own mesh instead of an instance, so it can be raycast and highlighted.
   const taxi = cars[0];
   taxi.isTaxi = true;
-  const { group: taxiGroup, selection: taxiSelection, setFareColor: setTaxiFareColor } = createTaxiMesh();
+  const { group: taxiGroup, selection: taxiSelection, ghost: taxiGhost, setFareColor: setTaxiFareColor } = createTaxiMesh();
   scene.add(taxiGroup);
   scene.add(taxiSelection);   // ground decal, kept out of the car so it never tilts
 
@@ -926,5 +926,5 @@ export function createTraffic(rng, scene, count = 24) {
     for (let elapsed = 0; elapsed < seconds; elapsed += step) update(step);
   }
 
-  return { cars, taxi, taxiGroup, taxiSelection, setTaxiFareColor, mesh, barMesh, update, warmup, stats, lightPhase };
+  return { cars, taxi, taxiGroup, taxiSelection, taxiGhost, setTaxiFareColor, mesh, barMesh, update, warmup, stats, lightPhase };
 }

@@ -54,24 +54,26 @@ export function createTaxiMesh() {
   // Ghost silhouette. The taxi frequently ducks behind buildings on the 3/4 view and the player
   // loses track of where it is; this pass draws the same geometry in flat white, but only where
   // something is in front of it — depthFunc: GreaterDepth means the fragment writes only where an
-  // occluder has already put a nearer value in the depth buffer. When the taxi is visible its own
-  // shell wins the depth test and the ghost stays invisible, so it never doubles up on the live
-  // sprite. No shadow, no depth write, transparent — it should read as an X-ray hint, not a solid
-  // object.
-  const ghost = new THREE.Mesh(
-    merged,
-    new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.55,
-      depthWrite: false,
-      depthFunc: THREE.GreaterDepth,
-    }),
-  );
-  ghost.castShadow = false;
-  ghost.receiveShadow = false;
-  ghost.name = 'taxiGhost';
-  group.add(ghost);
+  // occluder has already put a nearer value in the depth buffer. Its own visibility is gated by a
+  // sampled-raycast occlusion check in main.js: on the frames the shell is mostly visible the
+  // ghost group is hidden outright, so coplanar z-fighting between shell and ghost can never
+  // sneak through as speckled pixels over the real car.
+  const ghostMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+    depthFunc: THREE.GreaterDepth,
+  });
+  const ghostGroup = new THREE.Group();
+  ghostGroup.name = 'taxiGhostGroup';
+  ghostGroup.visible = false;   // main.js flips this on when the taxi is >50% occluded
+
+  const shellGhost = new THREE.Mesh(merged, ghostMat);
+  shellGhost.castShadow = false;
+  shellGhost.receiveShadow = false;
+  shellGhost.name = 'taxiShellGhost';
+  ghostGroup.add(shellGhost);
 
   // The selection indicator, and the taxi's only one. Rings are reserved for fares now — the
   // rider's clock is a ring, so using one here too would say two different things with the same
@@ -124,9 +126,10 @@ export function createTaxiMesh() {
 
   // The roof sign is what makes a taxi silhouette read as a taxi from above, so it joins the ghost
   // pass. Shares the same depth trick as the shell ghost.
-  const signGhost = new THREE.Mesh(signGeo, ghost.material);
+  const signGhost = new THREE.Mesh(signGeo, ghostMat);
   signGhost.name = 'taxiSignGhost';
-  group.add(signGhost);
+  ghostGroup.add(signGhost);
+  group.add(ghostGroup);
 
   // Slightly oversized against ambient traffic. The player has to find this car at a glance in a
   // street full of identically shaped vehicles.
@@ -138,5 +141,5 @@ export function createTaxiMesh() {
     sign.material.color.set(hex ?? PALETTE.taxiSign);
   };
 
-  return { group, selection: disk, sign, setFareColor };
+  return { group, selection: disk, sign, ghost: ghostGroup, setFareColor };
 }
