@@ -139,16 +139,16 @@ export const corridorCovers = (i, j) =>
  */
 export function lightPhase(i, j, t) {
   if (priorityJunction && priorityJunction.i === i && priorityJunction.j === j) {
-    return { axis: priorityJunction.axis, yellow: false };
+    return { axis: priorityJunction.axis, yellow: false, remaining: Infinity };
   }
 
   // A siren outranks everything, including the ring — otherwise a corridor crossing the ring
   // would leave a gap in the middle of the green path it is supposed to be clearing.
-  if (corridorCovers(i, j)) return { axis: corridor.axis, yellow: false };
+  if (corridorCovers(i, j)) return { axis: corridor.axis, yellow: false, remaining: Infinity };
 
   // Otherwise, unsignalised ring junctions have no phase to report: the ring simply has priority.
   const ring = ringAxisAt(i, j);
-  if (ring) return { axis: ring, yellow: false };
+  if (ring) return { axis: ring, yellow: false, remaining: Infinity };
 
   const { cycle, yellow, arterialShare } = SIGNAL;
   const xArterial = SIGNAL.arterialX.has(j);
@@ -181,16 +181,41 @@ export function lightPhase(i, j, t) {
   }
 
   const local = (((t + offset) % cycle) + cycle) % cycle;
-  if (local < greenX) return { axis: 'x', yellow: false };
-  if (local < greenX + yellow) return { axis: 'x', yellow: true };
-  if (local < greenX + yellow + greenZ) return { axis: 'z', yellow: false };
-  return { axis: 'z', yellow: true };
+  if (local < greenX) return { axis: 'x', yellow: false, remaining: greenX - local };
+  if (local < greenX + yellow) return { axis: 'x', yellow: true, remaining: greenX + yellow - local };
+  if (local < greenX + yellow + greenZ) {
+    return { axis: 'z', yellow: false, remaining: greenX + yellow + greenZ - local };
+  }
+  return { axis: 'z', yellow: true, remaining: cycle - local };
 }
 
 const canProceed = (d, i, j, t) => {
   const phase = lightPhase(i, j, t);
   return phase.axis === (isXAxis(d) ? 'x' : 'z') && !phase.yellow;
 };
+
+/**
+ * The taxi runs yellows. A yellow on the taxi's axis stops being a hard "no": it becomes
+ * "yes if we can still clear the junction before it goes red." That is what a real driver
+ * does when they have already committed, and it is why running a yellow does not feel like
+ * running a red — cross traffic still has their own yellow buffer before they start moving.
+ *
+ * Ambient traffic keeps stopping on yellow, so the streets don't turn into a demolition derby.
+ * "Clear" here means the front of the car is past the far edge of the junction; that is the
+ * point past which cross traffic on their fresh green no longer has to weave. Half a yellow
+ * length of slack on top, because the taxi is aggressive by design and cross cars have to
+ * launch from standing anyway.
+ */
+function taxiClearsYellow(car, distToLine, t) {
+  if (!car.isTaxi) return false;
+  const phase = lightPhase(car.i, car.j, t);
+  if (!phase.yellow || phase.axis !== (isXAxis(car.d) ? 'x' : 'z')) return false;
+  const clearDist = Math.max(0, distToLine) + STOP_SETBACK + HALF_ROAD * 2;
+  // A near-stopped taxi still commits: without this floor a car that just crept up to the line
+  // would refuse to move even with the whole yellow left to use.
+  const v = Math.max(car.v, SPEED * 0.7);
+  return clearDist / v <= phase.remaining + SIGNAL.yellow * 0.5;
+}
 
 // --- Cars -------------------------------------------------------------------
 
@@ -582,7 +607,9 @@ export function createTraffic(rng, scene, count = 24) {
         // The signal ahead, read now rather than on arrival — this is what lets it slow early.
         const ringAxis = corridorCovers(car.i, car.j) ? null : ringAxisAt(car.i, car.j);
         const onRingNow = ringAxis !== null && (isXAxis(car.d) ? 'x' : 'z') === ringAxis;
-        const open = ringAxis !== null ? onRingNow : canProceed(car.d, car.i, car.j, t);
+        const open = ringAxis !== null
+          ? onRingNow
+          : canProceed(car.d, car.i, car.j, t) || taxiClearsYellow(car, distToLine, t);
         if (!open) allowed = Math.min(allowed, Math.max(0, distToLine));
 
         // The car ahead — irrelevant to a boosting taxi, which is out on the centreline.
@@ -624,7 +651,8 @@ export function createTraffic(rng, scene, count = 24) {
             green = onRing || ringGapClear(car, ring, approaching);
           } else {
             const held = heldAt.has(`${car.i},${car.j}`);
-            green = canProceed(car.d, car.i, car.j, t) && !held;
+            green = (canProceed(car.d, car.i, car.j, t) || taxiClearsYellow(car, distToLine, t))
+              && !held;
 
             // Right on red. Permitted only as a right turn, only with a gap in the traffic that
             // currently holds the green, and never into a junction an emergency vehicle is
@@ -731,7 +759,8 @@ export function createTraffic(rng, scene, count = 24) {
           // the turn logic can't quietly start running red lights. Ring junctions are exempt —
           // they have no phase to obey.
           if (viaRightOnRed) stats.rightOnRed += 1;
-          else if (ring === null && !canProceed(car.d, car.i, car.j, t)) stats.violations += 1;
+          else if (ring === null && !canProceed(car.d, car.i, car.j, t)
+              && !taxiClearsYellow(car, distToLine, t)) stats.violations += 1;
 
           car.entry = entryPoint(car.d, car.i, car.j);
           car.exit = exitPoint(dOut, car.i, car.j);

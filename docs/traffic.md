@@ -99,6 +99,18 @@ bar sits 5.65 from the junction centre, so the centre has to hold at ~7.35 for t
 ring's, because a right turn merges into the near lane rather than crossing it. The landing is
 still governed by the usual don't-block-the-box check.
 
+**The taxi runs yellows** (`taxiClearsYellow`). Ambient traffic still stops on yellow — the streets
+would otherwise turn into a demolition derby — but the player's taxi treats a yellow-on-axis as
+passable whenever it can still clear the far edge of the junction before the phase changes. That is
+what a real driver does when they are already committed, and it stops the taxi braking to a crawl
+half a block out for a light that is about to be gone. The physics is honest: at the taxi's actual
+speed (with a floor so a car creeping up to the line still commits), does `distToLine + junction
+width` divide out inside the remaining yellow, plus half a yellow of slack because cross traffic
+still has to launch from standing when their green begins.
+
+`lightPhase` returns `remaining` in seconds alongside `axis` / `yellow` so this check can be
+made without recomputing the cycle. Corridor, priority, and ring branches return `Infinity`.
+
 **Turns** follow a quadratic Bézier through `entryPoint → turnControl → exitPoint`, with yaw
 interpolated by `lerpAngle` so a car never spins the long way round.
 
