@@ -3,7 +3,8 @@
 ## The fare loop
 
 `src/game/fares.js`. Each fare is its own little machine — `waiting → riding → gone` — carrying its
-own clock, pins and ring. Up to `MAX_FARES = 2` run at once.
+own clock, pins and ring. Up to `MAX_FARES = 3` run at once, and because the taxi has one seat,
+that means up to two riders can be waiting on the kerb at the same time.
 
 1. A passenger spawns at a random intersection (never the one the taxi is already about to reach)
    with a **60-second clock** (`FARE_SECONDS`).
@@ -19,33 +20,48 @@ holds no reference to the taxi mesh, the HUD or the toast. `main.js` translates 
 that. It is a list because more than one can land together: delivering the last fare clears the
 board, and the refill follows on the next frame.
 
-## The second fare
+## Extra fares and prioritisation
 
-The taxi has **one seat**, so a second fare is always someone *waiting* — a clock draining on the
-kerb while you finish the job you are on. Tapping a waiting rider while carrying one is refused
-outright with a toast, rather than driving there and quietly not picking anyone up.
+The taxi has **one seat**, so any extra fare beyond the one aboard is someone *waiting* — a clock
+draining on the kerb while you decide who to grab. Tapping a waiting rider while already carrying
+one is refused outright with a toast, rather than driving there and quietly not picking anyone up.
 
-Three rules govern when they appear, and all three exist to keep them fair:
+Two waiting riders on the board at the same time is the whole difficulty of the game: you can't
+take both, and the wrong pick loses one of the two clocks. `fares.waiting()` returns the *most
+urgent* waiter (lowest `timeLeft`) so the finder button and the "perfect player" in the soak both
+default to serving that one first.
+
+Rules for when the extras appear:
 
 | Rule | Value | Why |
 |---|---|---|
 | `SECOND_FARE_AFTER` | 1 delivery | The first fare teaches the loop with nothing else on screen. |
+| `THIRD_FARE_AFTER`  | 3 deliveries | Two clocks is where the game turns into a prioritisation puzzle. Piling a third on top before the player has settled into that shape collapsed the survival curve — measured 2-fare median at 1.5s reaction against 3 with the ramp. |
+| `SPAWN_MIN_GAP` | 15s | Extras arrive one at a time. Spawning them in the same frame gives one hard moment then a lull; staggering makes each clock a decision. |
 | `SECOND_FARE_DELAY` | 5s aboard | A pickup and a spawn are never the same event. |
-| `SECOND_FARE_RANGE` | 45 units | They appear only as the taxi closes on its drop-off. |
-| `SECOND_FARE_RADIUS` | 3 blocks | And near it, so the hand-off is a short hop. |
+| `SECOND_FARE_RANGE` | 45 units | When someone is aboard and closing on their drop-off, the new rider appears near it. |
+| `SECOND_FARE_RADIUS` | 3 blocks | And within a short hop of it, so the hand-off is fair. Also the fallback radius around the taxi when no drop-off is active. |
+| `SECOND_FARE_MIN_CLOCK` | 18s | No rider flashes into existence a few seconds before an unrelated timer ends the run. |
 
-The last two are the ones that matter. A second rider pays a tax no first rider does: their 60s
-covers the rest of the current delivery *and* a full pickup drive before their own trip starts.
-Charging them for a whole drop-off leg took the median run from **7 fares to 3** (40 seeds, 1.5s
-reaction). Gating on range and radius puts it at **5** — about a third shorter than the one-fare
-game, which is the intended difficulty, rather than a different game.
+The bias rules shape where an extra rider lands relative to the taxi. When someone is aboard and
+closing on their drop-off, the new rider appears near that drop-off — the classic "second fare
+while carrying" hand-off. When nobody is aboard, the extra lands near the taxi's current
+intersection instead; a rider dropped in the far corner of the map has a 60-second clock the taxi
+cannot possibly reach in time, which turns "prioritise" into "roll the dice". Either way the
+radius is the same, so the two paths read alike.
 
-Because a second fare only ever spawns behind a rider already aboard, **two riders are never
-waiting at once**. That falls out of the stagger rule rather than being enforced separately, and it
-is what keeps "tap a rider" unambiguous with two fares live. `tools/probe.mjs` asserts it.
+`SPAWN_MIN_GAP` is what turns the board into a prioritisation puzzle rather than a burst: extras
+land staggered by several seconds, so their kerbside clocks drain out of phase and the player has
+to keep picking which to serve. `tools/probe.mjs` asserts both the peak (>= 2 waiting) and the
+minimum spacing between spawns.
 
-Colour is still assigned only at pickup, so both boards read the same way: a kerbside rider is
-white because any taxi could take them, and the ring's stage colour carries their urgency.
+The measured tax at 1.5s reaction across nine seeds: a perfect player survives a median of
+**3 fares** against the **4-fare** two-fare baseline. The mean drops much harder (6.6 → 2.3) and
+the ceiling collapses from 25 to 3 — the game stops being winnable indefinitely, which is the
+intended shape of a score-attack that ramps.
+
+Colour is still assigned only at pickup, so every waiting rider on the board reads the same way:
+white because any taxi could take any of them, and each ring's stage colour carries its urgency.
 
 ### The clock does not reset at pickup
 

@@ -22,48 +22,45 @@ export const FARE_SECONDS = 60;
 export const FARE_VALUE = 20;
 
 /**
- * Two fares, never three.
+ * Three fares, never four.
  *
- * The taxi has one seat, so a second fare can only ever be someone *waiting* — a clock draining
- * on the kerb while you finish the job you're on. That is the whole added difficulty, and it
- * doesn't compound: a third would just be a second clock you equally cannot do anything about,
- * and the board would stop being readable at play zoom long before it stopped being solvable.
+ * The taxi has one seat, so any extra fare is someone *waiting* — a clock draining on the kerb
+ * while you decide who to grab. Two waiting riders is where the game turns into a prioritisation
+ * puzzle: you can't take both, and the wrong pick loses one of the two clocks. Three waiting was
+ * tried and the board stops being readable at play zoom before it stops being solvable.
  */
-export const MAX_FARES = 2;
+export const MAX_FARES = 3;
 
 /**
- * Deliveries before the second slot opens.
+ * Deliveries before the board is allowed to hold two fares (SECOND) and three (THIRD).
  *
  * The first fare has to be allowed to teach the loop — spawn, tap, collect, tap, deliver — with
- * nothing else on screen. Someone learning which pin means what while a second clock burns learns
- * neither.
+ * nothing else on screen. Someone learning which pin means what while extra clocks burn learns
+ * neither. THIRD_FARE_AFTER staggers the ramp on top of that: two clocks is where the game turns
+ * into a prioritisation puzzle, and adding a third on top before the player has settled into that
+ * shape collapses the survival curve — measured median 2/25 with no ramp against 3/25 with one.
  */
 export const SECOND_FARE_AFTER = 1;
+export const THIRD_FARE_AFTER = 3;
 
-// When the second rider appears, and where.
+// Cadence and placement of every fare beyond the first.
 //
-// The stagger is the point of the whole feature. Spawning both at once gives two clocks running in
-// lockstep — one hard moment, then an empty board. Landing the second one partway through a
-// drop-off route means their clock is already part-spent by the time you are free to take them:
-// you inherit a fare mid-emergency rather than starting one fresh.
+// SPAWN_MIN_GAP is the one that turns the game into a prioritisation puzzle rather than a burst
+// event: after the tutorial delivery the board refills toward MAX_FARES one rider at a time, so
+// two clocks land staggered by a few seconds. Their kerbside times drain out of phase and the
+// player has to keep picking which one to serve. Spawning them all in the same frame gives one
+// hard moment and then a quiet board, which is the wrong shape.
 //
-// But the second rider pays a tax no first rider ever pays. Their 60s has to cover the rest of the
-// current delivery *and* a full pickup drive, before their own trip even starts. Charging them for
-// a whole drop-off leg is ruinous — median run over 40 seeds at a 1.5s reaction, `tools/soak.mjs
-// 40 1.5 40`, went 7 fares to 3. So two things bound the tax:
-//
-//   RANGE  — they appear only once the taxi is closing on its drop-off, so the wait they inherit
-//            is the tail of a delivery rather than all of one. 45 units is a bit over two blocks.
-//   RADIUS — and they appear near that drop-off, never on the far corner of the map, so the
-//            hand-off between the two fares is a short hop.
-//
-// Those two put it back at a median of 5 against the one-fare baseline of 7 — about a third
-// shorter, and still a game about how well you drive rather than which junction the spawner picked.
-//
-// DELAY keeps them off the kerb for the first seconds of a ride, so a pickup and a spawn are never
-// the same event. MIN_CLOCK stops a rider flashing into existence a few seconds before an
-// unrelated timer ends the run, which reads as the game taunting you.
-const SECOND_FARE_DELAY = 5;         // seconds aboard before a second rider may appear
+// RANGE / RADIUS / DELAY / MIN_CLOCK still shape the classic "second fare while carrying"
+// hand-off: when someone is aboard and closing on their drop-off, the new rider appears near that
+// drop-off so the pickup is a short hop. Their 60s has to cover the tail of the current delivery
+// and a fresh pickup drive; charging them for a whole drop-off leg is ruinous (measured 7-fare
+// median → 3 at 1.5s reaction). When that shape doesn't apply — the third rider on the kerb, or a
+// refill while the taxi is on its way to a pickup — the spawn is still biased, but around the
+// taxi's current intersection instead. A rider dropped in the far corner of the map has a 60s
+// clock the taxi cannot possibly reach in time, which turns "prioritise" into "roll the dice".
+const SPAWN_MIN_GAP = 15;            // seconds between successive spawns on a non-empty board
+const SECOND_FARE_DELAY = 5;         // seconds aboard before the near-the-drop-off bias applies
 const SECOND_FARE_RANGE = 45;        // world units from the taxi to its drop-off
 const SECOND_FARE_RADIUS = 3;        // blocks from that drop-off they may spawn within
 const SECOND_FARE_MIN_CLOCK = 18;    // seconds the current fare must still have
@@ -127,12 +124,15 @@ function createSlot(scene, index) {
 
 export function createFareSystem(rng, scene) {
   const state = {
-    // Active fares, newest last. At most MAX_FARES, and — because a second one only ever spawns
-    // behind a rider who is already aboard — never two waiting at the same time.
+    // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
+    // waiting on the kerb at once — the whole prioritisation puzzle.
     fares: [],
     elapsed: 0,
     money: 0,
     delivered: 0,
+    // Time of the most recent spawn, so refills stagger by SPAWN_MIN_GAP instead of bursting.
+    // -Infinity so the very first spawn is unrestricted.
+    lastSpawnAt: -Infinity,
     gameOver: false,
     failReason: null,
   };
@@ -152,9 +152,9 @@ export function createFareSystem(rng, scene) {
   /**
    * Pick an intersection that isn't the taxi's next one, and isn't already spoken for.
    *
-   * `near` biases the draw to within SECOND_FARE_RADIUS blocks of another junction, and is only
-   * ever used for the staggered second rider — see the note on that constant. The unbiased path is
-   * left exactly as it was, draw for draw, so a seed still produces the same one-fare run.
+   * `near` biases the draw to within SECOND_FARE_RADIUS blocks of another junction — either the
+   * current drop-off or the taxi's own intersection, see `spawnBias`. The unbiased path is left
+   * exactly as it was, draw for draw, so a seed still produces the same one-fare run.
    */
   function pickIntersection(taxiCar, near = null) {
     const avoid = [{ i: taxiCar.i, j: taxiCar.j }, ...state.fares.map((f) => f.target)];
@@ -190,7 +190,11 @@ export function createFareSystem(rng, scene) {
   }
 
   const carrying = () => state.fares.find((f) => f.stage === 'riding') ?? null;
-  const waiting = () => state.fares.find((f) => f.stage === 'waiting') ?? null;
+  // With more than one rider on the kerb the "waiting fare" the game means is the one about to
+  // time out — that is who the finder button should surface and who a perfect player takes next.
+  const waiting = () => state.fares
+    .filter((f) => f.stage === 'waiting')
+    .reduce((best, f) => (best === null || f.timeLeft < best.timeLeft ? f : best), null);
 
   /** The fare the player is currently working: whichever one the taxi was last sent at. */
   const focus = () => state.fares.find((f) => f.directed) ?? carrying() ?? waiting() ?? null;
@@ -257,20 +261,42 @@ export function createFareSystem(rng, scene) {
   };
 
   /**
-   * Should a second rider appear this frame?
+   * Should the board be topped up this frame?
    *
-   * Only behind a fare that is already aboard and a few seconds into its drop-off route, which is
-   * what staggers the two clocks apart. Everything else — the very first fare, and the replacement
-   * after a delivery clears the board — falls through the "nothing running" case above it.
+   * An empty board always refills — the ordinary one-fare loop. Beyond that, refills are gated
+   * on the tutorial delivery (SECOND_FARE_AFTER), on the board having room, and on
+   * SPAWN_MIN_GAP since the last spawn so the extra clocks arrive staggered rather than in a
+   * single burst.
    */
-  function shouldStagger(taxiCar) {
-    if (state.delivered < SECOND_FARE_AFTER) return false;
-    if (state.fares.length !== 1) return false;
-    const [only] = state.fares;
-    return only.stage === 'riding'
-      && only.ridingFor >= SECOND_FARE_DELAY
-      && distanceToTarget(only, taxiCar) <= SECOND_FARE_RANGE
-      && only.timeLeft > SECOND_FARE_MIN_CLOCK;
+  function shouldRefill() {
+    if (state.fares.length >= MAX_FARES) return false;
+    if (state.fares.length === 0) return true;
+    if (state.fares.length === 1 && state.delivered < SECOND_FARE_AFTER) return false;
+    if (state.fares.length === 2 && state.delivered < THIRD_FARE_AFTER) return false;
+    return state.elapsed - state.lastSpawnAt >= SPAWN_MIN_GAP;
+  }
+
+  /**
+   * Where to bias the next spawn. Extras only land where the taxi will actually be — otherwise a
+   * rider spawned in the far corner has a 60-second clock the taxi cannot possibly reach in time,
+   * which turns "prioritise" into "roll the dice".
+   *
+   *   Someone aboard and closing on their drop-off → bias near that drop-off (the classic
+   *   two-fare hand-off, and the same fairness tax the original game paid).
+   *   Otherwise → bias near the taxi's next intersection so extras are at least reachable, using
+   *   the same block radius so the two paths read alike.
+   */
+  function spawnBias(taxiCar) {
+    const riding = state.fares.find((f) => f.stage === 'riding');
+    if (riding
+      && riding.ridingFor >= SECOND_FARE_DELAY
+      && distanceToTarget(riding, taxiCar) <= SECOND_FARE_RANGE
+      && riding.timeLeft > SECOND_FARE_MIN_CLOCK) {
+      return riding.target;
+    }
+    // Around wherever the taxi is heading — the intersection it's about to reach, not the one it
+    // just left, so a spawn one step ahead is still a real hop away.
+    return { i: taxiCar.i, j: taxiCar.j };
   }
 
   /**
@@ -291,15 +317,15 @@ export function createFareSystem(rng, scene) {
 
     // Refill the board at the top of the frame rather than the bottom, so a fare delivered last
     // frame has visibly cleared its ring before its slot gets handed to the next one. An empty
-    // board refills at once — that is the ordinary one-fare loop — but the second slot only ever
-    // opens mid-drop-off.
-    if (state.fares.length === 0) {
-      const spawned = spawnFare(taxiCar);
-      if (spawned) emit('spawned', spawned);
-    } else if (shouldStagger(taxiCar)) {
-      // Near the drop-off the taxi is already driving at, not anywhere on the map.
-      const spawned = spawnFare(taxiCar, state.fares[0].target);
-      if (spawned) emit('spawned', spawned);
+    // board refills at once; further slots open one at a time, staggered by SPAWN_MIN_GAP, so the
+    // extra clocks arrive out of phase and the board turns into a prioritisation puzzle instead
+    // of a single hard moment followed by a lull.
+    if (shouldRefill()) {
+      const spawned = spawnFare(taxiCar, spawnBias(taxiCar));
+      if (spawned) {
+        state.lastSpawnAt = state.elapsed;
+        emit('spawned', spawned);
+      }
     }
 
     state.elapsed += dt;

@@ -52,9 +52,10 @@ function play(runSeed) {
   let routeFailures = 0;
   const margins = [];      // seconds left when each leg completed
 
-  // With two fares on the board the "perfect player" needs a policy, not just a reflex: finish the
-  // rider you are carrying, then go straight to whoever is waiting. That is the only order one
-  // taxi can serve them in anyway, so it is the strategy rather than a simplification.
+  // With more than one rider on the board the "perfect player" needs a policy, not just a reflex:
+  // finish the rider you are carrying, then go straight to whichever waiting rider is closest to
+  // timing out. `fares.waiting()` already returns the most-urgent waiter — deferring to it here is
+  // the strategy, and the only order one taxi can serve them in.
   const nextJob = () => fares.carrying() ?? fares.waiting();
 
   while (fares.state.delivered < FARES && !fares.state.gameOver && elapsed < 4000) {
