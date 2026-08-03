@@ -183,18 +183,19 @@ export function createPerson() {
     group.rotation.y = Math.atan2(-dx, -dz);
 
     if (t < HOP_END) {
-      // Reversed board() landing: start tucked and small (as if just clearing the roof), untuck
-      // and grow to full size as they hit the ground next to the car.
-      const hop = t / HOP_END;
-      const arcY = Math.sin((1 - hop) * Math.PI * 0.5) * 1.6;
-      const tuck = 1 - hop;
-      legL.rotation.set(-1.35 * tuck, 0, 0);
-      legR.rotation.set(-1.35 * tuck, 0, 0);
-      armL.rotation.set(0.6 * tuck, 0, 0);
-      armR.rotation.set(0.6 * tuck, 0, 0);
-      group.rotation.x = -0.4 * tuck;
-      group.position.set(dx, arcY, dz);
-      group.scale.setScalar(0.3 + hop * 0.7);
+      // Exactly `board`'s jump section played backwards. `jump` runs 1→0 across the hop, so the
+      // sub-expressions (slide 1.15→1.0, arc from 0.9 back down through the sine to 0, tuck
+      // relaxing, scale 0.3→1.0) match the boarding landing frame-for-frame in reverse.
+      const jump = 1 - t / HOP_END;
+      const slide = 1 + 0.15 * jump;
+      const arcY = Math.sin(jump * Math.PI) * 1.6 + jump * 0.9;
+      legL.rotation.set(-1.35 * jump, 0, 0);
+      legR.rotation.set(-1.35 * jump, 0, 0);
+      armL.rotation.set(0.6 * jump, 0, 0);
+      armR.rotation.set(0.6 * jump, 0, 0);
+      group.rotation.x = -0.4 * jump;
+      group.position.set(dx * slide, arcY, dz * slide);
+      group.scale.setScalar(1 - jump * 0.7);
       setOpacity(1);
     } else if (t < RUN_END) {
       // Straight sprint from the car back to the kerb, cycling arms and legs in opposition — same
