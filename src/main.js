@@ -15,6 +15,7 @@ import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
+import { createRiderFinder } from './game/riderfinder.js';
 import { createRouteLine } from './game/routeline.js';
 import { findRoute, planOrigin } from './game/route.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount } from './util/shot.js';
@@ -127,6 +128,18 @@ createPicker(
   },
   () => Boolean(pan?.didPan()),
 );
+
+// Camera shortcut: frame the waiting rider on demand. At play zoom on a phone the rider is a
+// handful of pixels somewhere on a map that no longer fits in one screen, so a button that snaps
+// the camera onto them is faster than hunting for the light shaft by hand.
+function snapToRider(fare) {
+  if (!fare) return;
+  const c = cornerFor(fare.target.i, fare.target.j);
+  controller.state.target.set(c.x, 0, c.z);
+  controller.update(aspect());
+}
+
+const riderFinder = createRiderFinder({ onTap: snapToRider });
 
 // --- HUD --------------------------------------------------------------------
 
@@ -305,6 +318,7 @@ function frame() {
   layRubber();
   kickDust();
   updateHud(dt);
+  riderFinder.update(dt, fares.waiting());
   renderer.render(scene, camera);
 }
 
