@@ -83,6 +83,41 @@
       }
       body.shot-mode #boost { display: none; }
 
+      /* Rider finder — mirror of the Loco Mode pill on the opposite corner. A circular chip so
+         the timer ring around it reads as the fare's clock, same colours as the ring in-world.
+         The conic-gradient makes the border itself the countdown; the inner disc is a plain dark
+         chip that the mini three.js canvas draws the figure onto. */
+      #rider-finder {
+        position: fixed; bottom: 22px; right: 22px; z-index: 20;
+        width: 72px; height: 72px; padding: 0; border: 0; border-radius: 50%;
+        cursor: pointer; background: transparent;
+        display: grid; place-items: center;
+        transition: transform 0.1s ease;
+      }
+      #rider-finder:active { transform: scale(0.95); }
+      #rider-finder[hidden] { display: none; }
+      /* Ring: an 8px-wide annulus painted with the fare colour, filling counter-clockwise as the
+         clock drains — same reading as the in-world timer. `--pct` and `--ring-color` come from
+         the update loop; the black band underneath is the rim, matching the outline weight on
+         the timer ring's black rim. */
+      #rider-finder::before {
+        content: ''; position: absolute; inset: 0; border-radius: 50%;
+        background:
+          conic-gradient(from -90deg, var(--ring-color, #26E05A) var(--pct, 100%),
+                                      rgba(255, 255, 255, 0.15) 0);
+        padding: 4px;
+        -webkit-mask: radial-gradient(circle, transparent 55%, #000 56%);
+                mask: radial-gradient(circle, transparent 55%, #000 56%);
+      }
+      /* The dark chip the figure stands in front of. Same tint as the toast pill. */
+      #rider-finder .chip {
+        position: relative; width: 56px; height: 56px; border-radius: 50%;
+        background: rgba(24, 44, 58, 0.72);
+        display: grid; place-items: center; overflow: hidden;
+      }
+      #rider-finder canvas { display: block; width: 56px; height: 56px; }
+      body.shot-mode #rider-finder { display: none; }
+
       /* --- tweak panel --- */
       #dbg-toggle {
         position: fixed; top: 16px; right: 16px; z-index: 20;
@@ -138,6 +173,9 @@
     </div>
 
     <button id="boost" type="button" aria-label="Loco Mode">Loco Mode</button>
+    <button id="rider-finder" type="button" aria-label="Snap camera to waiting rider" hidden>
+      <span class="chip"><canvas width="56" height="56"></canvas></span>
+    </button>
     <div id="toast"></div>
     <div id="run-end" hidden></div>
 
