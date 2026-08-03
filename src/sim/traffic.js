@@ -9,6 +9,7 @@ import {
   laneOffsetCoord, entryPoint, exitPoint, turnControl, nextIntersection, legalExits, isSegmentClosed,
   ringAxisAt, isUnsignalised,
 } from '../city/grid.js';
+import { isArcade, ARCADE } from './physics-mode.js';
 
 export { ringAxisAt, isUnsignalised };   // re-exported: callers of the sim ask it about junctions
 
@@ -350,6 +351,15 @@ function spawnCars(rng, count) {
       stunned: null,
       collisionCooldown: 0,
       crashed: false,
+      // Arcade-mode cosmetic roll spring. Driven by the change in yaw across a frame — a real
+      // lateral acceleration signal — rather than reusing the existing corner-lean, so it can
+      // also pick up the boost lane-change and future steering inputs.
+      arcadeRoll: 0,
+      arcadeRollV: 0,
+      prevYaw: dirYaw(d),
+      // Last time this car was involved in an arcade contact, so a slow rub doesn't fire the
+      // full effect every single frame. Only used when isArcade() is on.
+      lastContactAt: -Infinity,
     });
   }
 
@@ -564,9 +574,15 @@ export function createTraffic(rng, scene, count = 24) {
     return true;
   }
 
+  // Contacts recorded during this update(). Cleared at the top of each call; the game layer reads
+  // this after update() returns so it can spark and shake the camera. Empty when arcade is off.
+  const contacts = [];
+
   function update(dt) {
     stats.time += dt;
     const t = stats.time;
+    const arcade = isArcade();
+    contacts.length = 0;
 
     // Set before any car evaluates a signal this frame. Ring junctions are left alone — they are
     // yield-controlled, so there is no phase to override and the taxi waits for a gap like anyone.
@@ -1013,31 +1029,62 @@ export function createTraffic(rng, scene, count = 24) {
       }
       if (car.steer) car.yaw += car.steer;
 
+      // Arcade tilt/bob/pitch applies to the TAXI only — ambient traffic keeps the calm baseline
+      // so the player's car reads as the loose, over-sprung one it is meant to be.
+      const arcadeForCar = arcade && car.isTaxi;
+
       // A little vertical bob, scaled by how fast the car is actually going, so stopped traffic
-      // sits still instead of idling like a boat.
-      const bob = Math.sin(car.travelled * 2.4 + car.phase) * 0.045 * car.speedFactor;
+      // sits still instead of idling like a boat. Arcade widens it on the taxi for that
+      // soft-suspension feel.
+      const bobAmp = 0.045 * (arcadeForCar ? ARCADE.BOB_GAIN : 1);
+      const bob = Math.sin(car.travelled * 2.4 + car.phase) * bobAmp * car.speedFactor;
 
       // Body roll through a corner. Leans *outward* — away from the turn centre — because that
-      // is what weight transfer does, and leaning inward reads as a motorbike.
+      // is what weight transfer does, and leaning inward reads as a motorbike. Arcade widens the
+      // amplitude but keeps the shape.
       let roll = 0;
       if (car.state === 'turn') {
         const along01 = (Math.min(car.turnT, 1) * car.turnLen - car.leadIn)
           / Math.max(1e-6, car.turnLen - car.leadIn);
         if (along01 > 0) {
           const turnDir = car.dOut === rightOf(car.d) ? 1 : car.dOut === leftOf(car.d) ? -1 : 0;
-          const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
+          const leanAmp = arcadeForCar ? ARCADE.ROLL_AMP : 0.3;
+          const lean = leanAmp * Math.min(2.2, Math.max(0.7, car.v / SPEED));
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }
+      }
+
+      // Arcade only: preload the lean off the boost lane-change steer angle so the taxi visibly
+      // commits into the slide *before* the corner state kicks in. Also drives a critically-damped
+      // roll spring off the frame-to-frame yaw change, which reads as weight transfer against a
+      // sudden heading swing rather than a snap.
+      if (arcadeForCar) {
+        const yawDelta = ((car.yaw - car.prevYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        car.prevYaw = car.yaw;
+        // steer is signed; positive steer = turning right in yaw, which should lean the body left
+        // (outward from the turn), i.e. negative roll. Same sign convention as the corner block.
+        const steerLean = -car.steer * ARCADE.ROLL_FROM_STEER * Math.min(1.5, car.v / SPEED);
+        const yawLean = dt > 1e-6 ? -(yawDelta / dt) * 0.08 : 0;
+        const target = steerLean + yawLean;
+        // omega=9, zeta≈0.45 — underdamped so a snap settles with one visible overshoot.
+        car.arcadeRollV += ((target - car.arcadeRoll) * 81 - car.arcadeRollV * 8) * dt;
+        car.arcadeRoll += car.arcadeRollV * dt;
+        // Blend on top of the corner roll rather than replacing it. Clamped so the sagitta lift
+        // below still catches the ground contact.
+        roll = Math.max(-0.7, Math.min(0.7, roll + car.arcadeRoll));
       }
 
       // Rocking. Pitch is a spring-damper driven by longitudinal acceleration: braking dips the
       // nose forward, easing off the brake lifts it, and the underdamping (ζ ≈ 0.4) makes both
       // events end on a small bounce so it reads as suspension travel. Impulse to pitchV works
       // out as K·SCALE·Δv, independent of dt — a one-frame velocity jump (boost kick, stop-line
-      // snap) delivers the same rock at any frame rate.
+      // snap) delivers the same rock at any frame rate. Arcade widens the clamp and gain so
+      // braking dives harder and pull-away squats deeper.
       const accel = dt > 1e-6 ? (car.v - car.prevV) / dt : 0;
       car.prevV = car.v;
-      const targetPitch = Math.max(-0.13, Math.min(0.13, accel * 0.014));
+      const pitchClamp = arcadeForCar ? ARCADE.PITCH_CLAMP : 0.13;
+      const pitchGain = arcadeForCar ? ARCADE.PITCH_GAIN : 0.014;
+      const targetPitch = Math.max(-pitchClamp, Math.min(pitchClamp, accel * pitchGain));
       car.pitchV += ((targetPitch - car.pitch) * 60 - car.pitchV * 6) * dt;
       car.pitch += car.pitchV * dt;
 
@@ -1060,6 +1107,67 @@ export function createTraffic(rng, scene, count = 24) {
       matrix.compose(pos, quat, scl);
       mesh.setMatrixAt(car.instanceIndex, matrix);
     }
+
+    // --- Arcade contact: routed taxi vs ambient cars.
+    //
+    // Only checks the ONE taxi against everyone else, so it stays O(N) not O(N²). Uses the resolved
+    // (x, z) — a boosting taxi sits on car.lateral off its lane coordinate, and only the resolved
+    // position accounts for that. Nothing about the sim runs on car.s here: nudging the other car's
+    // synthetic lane coord would fight the next frame's resolve, so the shove is applied to (x, z)
+    // directly and to `s` in the direction of travel so the visual and the lane bookkeeping agree.
+    if (arcade) {
+      const threshold = ARCADE.CONTACT_DIST;
+      const threshSq = threshold * threshold;
+      for (let k = 1; k < cars.length; k++) {
+        const other = cars[k];
+        const dx = taxi.x - other.x;
+        const dz = taxi.z - other.z;
+        const dsq = dx * dx + dz * dz;
+        if (dsq >= threshSq) continue;
+
+        // One event per (car, taxi) pair per cooldown window; a slow rub against a queued car
+        // otherwise fires the scrub-and-shake on every single frame it stays in contact.
+        if (t - other.lastContactAt < ARCADE.CONTACT_COOLDOWN) continue;
+        other.lastContactAt = t;
+        taxi.lastContactAt = t;
+
+        const dist = Math.sqrt(dsq) || 0.0001;
+        const overlap = threshold - dist;
+        // Normal points from other -> taxi. Push the OTHER car back along -normal; taxi stays on
+        // its lane (moving the taxi is the sim's job, not the collision effect's).
+        const nx = dx / dist;
+        const nz = dz / dist;
+        const push = overlap * ARCADE.CONTACT_PUSH;
+        other.x -= nx * push;
+        other.z -= nz * push;
+        // Keep the along-lane coordinate in step with the visual shove, so the next resolve pass
+        // doesn't snap the car straight back onto the old lane position.
+        const laneSign = dirSign(other.d);
+        const shoveAlong = isXAxis(other.d) ? -nx * push * laneSign : -nz * push * laneSign;
+        other.s += shoveAlong;
+
+        // 30% off both. Not clamping to zero — the intent is a check, not a pit stop.
+        taxi.v *= ARCADE.CONTACT_SCRUB;
+        other.v *= ARCADE.CONTACT_SCRUB;
+
+        // Write back the shoved car's transform this frame so the visual matches immediately;
+        // otherwise the shove is only seen next frame and reads as a lag.
+        pos.set(other.x, ROAD_Y, other.z);
+        quat.setFromEuler(euler.set(0, other.yaw, other.pitch, 'YXZ'));
+        matrix.compose(pos, quat, scl);
+        if (other.instanceIndex >= 0) mesh.setMatrixAt(other.instanceIndex, matrix);
+
+        // Contact point roughly halfway between the two, at ground level — the game layer decides
+        // what to do with it (spark burst, camera shake).
+        contacts.push({
+          x: (taxi.x + other.x) * 0.5,
+          z: (taxi.z + other.z) * 0.5,
+          nx, nz,
+          impulse: ARCADE.SHAKE_IMPULSE,
+        });
+      }
+    }
+
     mesh.instanceMatrix.needsUpdate = true;
 
     // --- Stop bar colours, one per approach.
@@ -1080,5 +1188,5 @@ export function createTraffic(rng, scene, count = 24) {
     for (let elapsed = 0; elapsed < seconds; elapsed += step) update(step);
   }
 
-  return { cars, taxi, taxiGroup, taxiSelection, setTaxiFareColor, mesh, barMesh, update, warmup, stats, lightPhase };
+  return { cars, taxi, taxiGroup, taxiSelection, setTaxiFareColor, mesh, barMesh, update, warmup, stats, lightPhase, contacts };
 }

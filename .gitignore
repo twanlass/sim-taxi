@@ -3,3 +3,4 @@ dist
 shots
 .netlify
 .DS_Store
+.claude/
