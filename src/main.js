@@ -8,7 +8,7 @@ import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
 import { createTraffic } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
-import { createPolice } from './sim/police.js';
+import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createBoost } from './game/boost.js';
@@ -114,6 +114,36 @@ collisions.onImpact(({ x, z }) => {
   boost.release();
   fares.crash();
 });
+
+/**
+ * Boost past a cop and you're done — reuses the wreck cinematic (zoom, slow-mo, delayed banner)
+ * so the beat is the same as a collision, but the taxi stays visible (no debris, no smoke) since
+ * nothing hit it. The taxi is flagged crashed so it freezes on the spot for the pull-in, and the
+ * fare system's title/reason drive the "Busted" banner.
+ */
+function bustByPolice() {
+  if (fares.state.gameOver || traffic.taxi.crashed) return;
+  const px = (traffic.taxi.x + police.group.position.x) / 2;
+  const pz = (traffic.taxi.z + police.group.position.z) / 2;
+  controller.kickShake(0.9);
+  wreckSpot = { x: px, z: pz };
+  crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
+  slowMoUntil = performance.now() + SLOW_MO_DURATION;
+  traffic.taxi.crashed = true;
+  traffic.taxi.v = 0;
+  boost.release();
+  fares.crash('You were caught by the police for reckless driving.', 'Busted');
+}
+
+function checkPoliceBust() {
+  if (!boost.isActive()) return;
+  if (!police.state.active) return;
+  if (fares.state.gameOver || traffic.taxi.crashed) return;
+  const dx = traffic.taxi.x - police.group.position.x;
+  const dz = traffic.taxi.z - police.group.position.z;
+  if (dx * dx + dz * dz > POLICE_BUST_RANGE * POLICE_BUST_RANGE) return;
+  bustByPolice();
+}
 
 // Orthographic camera: the vertical world span is exactly 2 * zoom, so world-units-per-pixel
 // falls straight out of the frustum height.
@@ -323,7 +353,7 @@ function updateHud(dt) {
     // land before the retry screen appears. Timeouts have no such beat — reveal immediately.
     if (crashBannerAt !== null && performance.now() < crashBannerAt) return;
     hud.banner.hidden = false;
-    hud.banner.innerHTML = `<strong>Game Over</strong><span>${s.failReason}</span>`
+    hud.banner.innerHTML = `<strong>${s.failTitle}</strong><span>${s.failReason}</span>`
       + `<span>${s.delivered} fares · $${s.money}</span>`
       + '<button type="button" class="retry">Retry</button>';
     hud.banner.querySelector('.retry')?.addEventListener('click', () => location.reload());
@@ -463,6 +493,7 @@ function frame() {
   // A detected impact stuns both cars for the next frame; the sim already knows how to handle
   // that state, so no further plumbing is needed here.
   collisions.update();
+  checkPoliceBust();
 
   // Loco Mode chases the taxi on narrow viewports where the fixed framing has already given up —
   // in portrait the taxi is often off-screen, so the follow is the only way to see the boost. On
