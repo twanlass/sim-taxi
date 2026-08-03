@@ -128,8 +128,9 @@ the whole mode read as choppy rather than fast.
 A boosting taxi also sets `priorityJunction`, which forces its next junction green — that's the
 "runs red lights" part, expressed through the signal model rather than by skipping the check.
 
-The duty cycle itself lives in `game/boost.js` as a pure clock with no knowledge of the taxi or
-the DOM: 15s active, then 15s recharging, no partial spend. The only decision is *when* to press.
+The meter itself lives in `game/boost.js` as a pure clock with no knowledge of the taxi or the
+DOM. Hold-to-enable: the tank drains only while the button is held (15s from full), releasing just
+pauses it, and once empty it refills over 15s before it can be held again.
 
 ## Police priority corridor
 

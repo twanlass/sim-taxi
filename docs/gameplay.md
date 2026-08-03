@@ -220,9 +220,16 @@ projects the taxi's world position to screen space to anchor the element.
 
 ## Crazy-taxi mode
 
-The **Loco Mode** button, bottom left. 15 seconds active, 15 seconds recharging, no partial spend — so the
-only decision is *when* to press it. The button doubles as the dial: a `--pct` CSS variable drains
-while active and fills while recharging.
+The **Loco Mode** button, bottom left. **Hold to enable, release to pause.** The meter only moves
+while held — a short tap costs a short slice, a long hold flows until the tank is empty. Full tank
+is 15 seconds of boost; from empty it recharges in 15 seconds and, if you kept holding through the
+recharge, engages again the moment it's full. The decision is now *how long* to press as well as
+*when*. The button doubles as the dial: a `--pct` CSS variable tracks the fuel level, dropping as
+you drain and climbing as it recharges.
+
+Pointer capture on `pointerdown` keeps the boost held even if the finger slides off the pill;
+`pointerup`, `pointercancel`, `lostpointercapture` and the window `blur` all release it, so
+alt-tabbing or switching apps never leaves the boost stuck on.
 
 While active the taxi runs at 2.2× speed, forces its next junction green, doesn't slow for
 corners, lays **skid marks** through turns, and kicks up **dust**. See

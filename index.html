@@ -78,6 +78,10 @@
         border: 2px solid #16120a;
         font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
         letter-spacing: 0.02em; color: #16120a; white-space: nowrap;
+        /* Hold-to-enable, so kill the mobile long-press UI: no text selection, no callout,
+           no double-tap zoom pause between the press and the boost engaging. */
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+        touch-action: manipulation;
         /* The dial drains left-to-right rather than around a circle, because the button is now a
            pill. Same reading as the fare ring: filled means time remaining. */
         background: linear-gradient(90deg, #F5C130 var(--pct, 100%), rgba(255, 255, 255, 0.18) 0);

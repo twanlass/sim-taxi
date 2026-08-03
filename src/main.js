@@ -227,9 +227,27 @@ function updateBoostButton() {
   boostButton.disabled = mode === 'recharging';
 }
 
-boostButton?.addEventListener('click', () => {
+// Hold-to-enable, release-to-pause. Pointer events cover both mouse and touch; capturing the
+// pointer on press means dragging off the pill still counts as held, and the matching pointerup
+// fires reliably wherever the finger lifts.
+function pressBoost(event) {
   if (fares.state.gameOver) return;
-  if (boost.activate()) flash('Loco Mode!');
+  event.preventDefault();
+  boostButton.setPointerCapture?.(event.pointerId);
+  if (boost.press()) flash('Loco Mode!');
+}
+function releaseBoost(event) {
+  boost.release();
+  boostButton.releasePointerCapture?.(event.pointerId);
+}
+boostButton?.addEventListener('pointerdown', pressBoost);
+boostButton?.addEventListener('pointerup', releaseBoost);
+boostButton?.addEventListener('pointercancel', releaseBoost);
+boostButton?.addEventListener('lostpointercapture', releaseBoost);
+// Alt-tabbing away or switching apps mid-hold should not leave the boost stuck on.
+window.addEventListener('blur', () => boost.release());
+window.addEventListener('contextmenu', (e) => {
+  if (e.target === boostButton) e.preventDefault();
 });
 
 // Rubber gets laid from the rear wheels while boosting through a corner, spaced by distance so
