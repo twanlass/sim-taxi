@@ -55,6 +55,19 @@
       #run-end[hidden] { display: none; }
       #run-end strong { font-size: 30px; font-weight: 700; }
       #run-end .small { font-size: 13px; opacity: 0.75; }
+      /* Same pill treatment as #boost — the retry action reads as the primary yellow button. */
+      #run-end .retry {
+        margin-top: 14px; padding: 14px 26px; border-radius: 999px; cursor: pointer;
+        border: 2px solid #16120a; background: #F5C130; color: #16120a;
+        font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        letter-spacing: 0.02em; white-space: nowrap;
+        transition: box-shadow 0.15s ease, transform 0.1s ease;
+      }
+      #run-end .retry:active { transform: scale(0.95); }
+
+      /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
+         they are noise behind the retry pill. */
+      body.game-over #boost, body.game-over #dbg-toggle, body.game-over #dbg-panel { display: none; }
 
       body.shot-mode #hud, body.shot-mode #toast, body.shot-mode #run-end { display: none; }
 
