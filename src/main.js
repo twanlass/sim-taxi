@@ -85,15 +85,23 @@ const smoke = createSmoke(scene, makeRng(runSeed + 99));
 
 // Collision detection between the taxi and ambient cars. Only fires while boosting — see
 // src/sim/collisions.js. On impact the taxi is wrecked: a big spark burst plus a lingering smoke
-// plume mark the spot, the camera shakes, the taxi mesh is hidden, boost is released, and the
-// fare system flips into game-over. The other car still stuns and recovers to a lane afterward.
+// plume mark the spot, the camera shakes and pulls in to a close-up of the wreck, boost is
+// released, and the fare system flips into game-over — but the Game Over banner is held for
+// CRASH_BANNER_DELAY so the moment can breathe. The taxi mesh is left visible on purpose: the
+// traffic sim skips crashed cars in its render loop, so the wreck sits at the impact spot on its
+// own. The other car still stuns and recovers to a lane afterward.
+const CRASH_BANNER_DELAY = 2000;
+const WRECK_ZOOM = 26;
+let wreckSpot = null;
+let crashBannerAt = null;
+
 const collisions = createCollisions(traffic.cars, traffic.taxi);
 collisions.onImpact(({ x, z }) => {
   sparks.burst(x, z, 42);
   smoke.burst(x, z);
   controller.kickShake(1.6);
-  traffic.taxiGroup.visible = false;
-  traffic.taxiSelection.visible = false;
+  wreckSpot = { x, z };
+  crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
   boost.release();
   fares.crash();
 });
@@ -302,6 +310,9 @@ function updateHud(dt) {
   }
 
   if (s.gameOver && hud.banner && hud.banner.hidden) {
+    // A crash holds the banner for CRASH_BANNER_DELAY so the smoke, sparks and camera pull-in
+    // land before the retry screen appears. Timeouts have no such beat — reveal immediately.
+    if (crashBannerAt !== null && performance.now() < crashBannerAt) return;
     hud.banner.hidden = false;
     hud.banner.innerHTML = `<strong>Game Over</strong><span>${s.failReason}</span>`
       + `<span>${s.delivered} fares · $${s.money}</span>`
@@ -439,7 +450,13 @@ function frame() {
   // way out means releasing the button leaves the camera wherever it landed instead of snapping
   // back. A user drag during boost is overridden on the next frame — panning is a planning
   // gesture and boost is the opposite of planning.
-  if (boost.isActive() && !fares.state.gameOver && isNarrow()) {
+  //
+  // Wreck focus outranks the boost-follow (and runs on every viewport, not only narrow ones):
+  // the camera eases into the crash site so the smoke and sparks fill the frame before the retry
+  // screen shows.
+  if (wreckSpot) {
+    controller.focusOn(wreckSpot.x, wreckSpot.z, WRECK_ZOOM, dt, aspect());
+  } else if (boost.isActive() && !fares.state.gameOver && isNarrow()) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, 3.2, aspect());
   }
 

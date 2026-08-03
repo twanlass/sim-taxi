@@ -81,6 +81,18 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
       state.target.z = THREE.MathUtils.clamp(state.target.z, -HALF_SPAN, HALF_SPAN);
       apply(aspectRatio);
     },
+    /**
+     * Ease target and zoom toward a fixed focus point — for cinematic beats like the wreck close-up
+     * where both the framing *and* the zoom level need to change together. Same rate on both so a
+     * caller can just keep calling it every frame and know they'll converge in step.
+     */
+    focusOn(x, z, targetZoom, dt, aspectRatio, smoothing = 2.4) {
+      const t = 1 - Math.exp(-dt * smoothing);
+      state.target.x += (x - state.target.x) * t;
+      state.target.z += (z - state.target.z) * t;
+      state.zoom += (targetZoom - state.zoom) * t;
+      apply(aspectRatio);
+    },
   };
 }
 
