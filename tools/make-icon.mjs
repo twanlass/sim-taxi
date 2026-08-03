@@ -159,65 +159,133 @@ const svgPath = path.join(outDir, 'apple-touch-icon.svg');
 await writeFile(svgPath, svg);
 console.log(`wrote ${svgPath}`);
 
-// ----- Rasterize to PNGs via headless Chromium -----
-// iOS wants a PNG for apple-touch-icon; we also ship a 512px variant so browsers that pick a
-// larger icon (Android home-screen, PWA) get a clean source rather than upscaling 180.
-async function rasterize(out, size) {
-  // Prefer an absolute path if present (Playwright-managed Chromium under /opt/pw-browsers on
-  // web sessions), fall back to PATH lookups for local developer machines.
-  const candidates = [
-    '/opt/pw-browsers/chromium',
-    '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-    'chromium', 'chromium-browser', 'google-chrome',
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  ];
-  const bin = candidates.find((c) => !c.startsWith('/') || existsSync(c));
-  if (!bin) throw new Error('no chromium binary found');
+// ----- Rasterize to PNGs via headless Chromium over CDP -----
+// One chromium instance, many targets. Chromium's `--screenshot` flag misbehaves at small window
+// sizes (16/32) — it clamps the viewport to a minimum and captures a blank frame — so we drive
+// it explicitly with Emulation.setDeviceMetricsOverride, same pattern as tools/shoot.mjs.
 
-  // Pointing chromium at the raw SVG makes it screenshot at the viewBox's intrinsic size
-  // (512×512) regardless of --window-size, and referencing the SVG via <img src="file:…"> in a
-  // shell races the screenshot against the image load — small windows land a partial capture
-  // whose background is chromium's default (white) rather than the SVG's purple. The
-  // combination that actually renders is: inline the SVG into the shell (no external load
-  // needed), size html/body to the target and paint the fallback background purple, and give
-  // chromium a virtual time budget so layout is done before capture.
-  const inlineSvg = svg
-    .replace(/width="\d+"/, `width="${size}"`)
-    .replace(/height="\d+"/, `height="${size}"`);
-  const shell = path.join(tmpdir(), `sim-taxi-icon-${size}.html`);
-  await writeFile(shell,
-`<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=${size},height=${size},initial-scale=1,user-scalable=no">
-<style>html,body{margin:0;padding:0;overflow:hidden;width:${size}px;height:${size}px;background:${BG};}
-svg{display:block;}</style>
-</head><body>${inlineSvg}</body></html>`);
+const CHROME_BIN = [
+  '/opt/pw-browsers/chromium',
+  '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+  'chromium', 'chromium-browser', 'google-chrome',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+].find((c) => !c.startsWith('/') || existsSync(c));
+if (!CHROME_BIN) throw new Error('no chromium binary found');
 
-  const args = [
-    '--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-sandbox',
-    `--screenshot=${out}`,
-    `--window-size=${size},${size}`,
-    `--force-device-scale-factor=1`,
-    `--virtual-time-budget=3000`,
-    `--default-background-color=00000000`,
-    `file://${shell}`,
-  ];
-  try {
-    await new Promise((resolve, reject) => {
-      const proc = spawn(bin, args, { stdio: ['ignore', 'ignore', 'ignore'] });
-      proc.on('exit', (code) => code === 0 ? resolve() : reject(new Error(`chromium exit ${code}`)));
-      proc.on('error', reject);
-    });
-    console.log(`wrote ${out} (${size}×${size})`);
-  } finally {
-    if (!process.env.KEEP_ICON_SCRATCH) await unlink(shell).catch(() => {});
-  }
+const CDP_PORT = 9334;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function connectCdp(wsUrl) {
+  const ws = new WebSocket(wsUrl);
+  const pending = new Map();
+  let nextId = 1;
+  ws.addEventListener('message', (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.id && pending.has(msg.id)) {
+      const { resolve, reject } = pending.get(msg.id);
+      pending.delete(msg.id);
+      msg.error ? reject(new Error(msg.error.message)) : resolve(msg.result);
+    }
+  });
+  const ready = new Promise((resolve, reject) => {
+    ws.addEventListener('open', resolve, { once: true });
+    ws.addEventListener('error', () => reject(new Error('CDP socket failed')), { once: true });
+  });
+  return {
+    ready,
+    send(method, params = {}) {
+      const id = nextId++;
+      return new Promise((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+    },
+    close: () => ws.close(),
+  };
 }
 
+async function fetchJson(pathname, method = 'GET') {
+  const res = await fetch(`http://127.0.0.1:${CDP_PORT}${pathname}`, { method });
+  return JSON.parse(await res.text());
+}
+
+// One shared shell page: the SVG scales to whatever viewport CDP dials up, so we don't need a
+// per-size HTML file. `preserveAspectRatio` guarantees square output; the fallback body colour
+// covers any subpixel bleed at the borders.
+const shell = path.join(tmpdir(), `sim-taxi-icon-shell.html`);
+const shellSvg = svg
+  .replace(/width="\d+"/, `width="100%"`)
+  .replace(/height="\d+"/, `height="100%"`)
+  .replace('<svg ', '<svg preserveAspectRatio="xMidYMid meet" ');
+await writeFile(shell,
+`<!doctype html><html><head><meta charset="utf-8">
+<style>html,body{margin:0;padding:0;overflow:hidden;width:100%;height:100%;background:${BG};}
+svg{display:block;width:100%;height:100%;}</style>
+</head><body>${shellSvg}</body></html>`);
+
+const profile = await (await import('node:fs/promises')).mkdtemp(path.join(tmpdir(), 'icon-chrome-'));
+const chrome = spawn(CHROME_BIN, [
+  '--headless=new', `--remote-debugging-port=${CDP_PORT}`,
+  `--user-data-dir=${profile}`,
+  '--disable-gpu', '--no-sandbox', '--hide-scrollbars', '--no-first-run',
+  '--disable-extensions', 'about:blank',
+], { stdio: 'ignore' });
+
+let exitCode = 0;
 try {
+  // Wait for the debugging endpoint to come up rather than sleeping a fixed amount.
+  const deadline = Date.now() + 30000;
+  let up = false;
+  while (Date.now() < deadline) {
+    try { await fetchJson('/json/version'); up = true; break; } catch { await sleep(150); }
+  }
+  if (!up) throw new Error('chromium never opened its debugging port');
+
+  async function rasterize(out, size) {
+    const target = await fetchJson(`/json/new?${encodeURIComponent('about:blank')}`, 'PUT');
+    const cdp = connectCdp(target.webSocketDebuggerUrl);
+    await cdp.ready;
+    try {
+      await cdp.send('Page.enable');
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: size, height: size, deviceScaleFactor: 1, mobile: false,
+      });
+      await cdp.send('Emulation.setDefaultBackgroundColorOverride', {
+        color: { r: 0, g: 0, b: 0, a: 0 },
+      });
+      await cdp.send('Page.navigate', { url: `file://${shell}` });
+      // A short settle after loadEventFired is enough — no image loads, just inline SVG.
+      await new Promise((resolve) => {
+        const done = () => resolve();
+        cdp.send('Page.setLifecycleEventsEnabled', { enabled: true });
+        const t = setTimeout(done, 2000);
+        cdp.send('Runtime.evaluate', { expression: 'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))', awaitPromise: true })
+          .then(() => { clearTimeout(t); done(); });
+      });
+      const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' });
+      await writeFile(out, Buffer.from(data, 'base64'));
+      console.log(`wrote ${out} (${size}×${size})`);
+    } finally {
+      cdp.close();
+      await fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target.id}`).catch(() => {});
+    }
+  }
+
+  // apple-touch-icon: iOS home screen (180 is the current standard).
   await rasterize(path.join(outDir, 'apple-touch-icon.png'), 180);
+  // Larger source for Android home-screen / PWA installs.
   await rasterize(path.join(outDir, 'apple-touch-icon-512.png'), 512);
+  // Tab favicons. Two sizes because the browser picks whichever is closer to its target rather
+  // than downscaling one big source — 16 for the tab, 32 for retina and the bookmarks list.
+  await rasterize(path.join(outDir, 'favicon-16.png'), 16);
+  await rasterize(path.join(outDir, 'favicon-32.png'), 32);
 } catch (err) {
   console.error(`rasterize failed: ${err.message}`);
   console.error('The SVG was written; you can convert to PNG by other means if needed.');
-  process.exit(1);
+  exitCode = 1;
+} finally {
+  chrome.kill();
+  if (!process.env.KEEP_ICON_SCRATCH) await unlink(shell).catch(() => {});
+  await (await import('node:fs/promises')).rm(profile, { recursive: true, force: true }).catch(() => {});
 }
+process.exit(exitCode);
