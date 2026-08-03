@@ -161,6 +161,7 @@ export function createFareSystem(rng, scene) {
     // -Infinity so the very first spawn is unrestricted.
     lastSpawnAt: -Infinity,
     gameOver: false,
+    failTitle: 'Game Over',
     failReason: null,
   };
 
@@ -461,13 +462,16 @@ export function createFareSystem(rng, scene) {
   }
 
   /**
-   * End the run outside the ordinary fare loop — the collision path uses this. Clears every live
-   * fare so the pins/rings vanish under the "Game Over" banner rather than being frozen on-screen
-   * next to a wrecked taxi. Idempotent: a second call after game-over is already set is a no-op.
+   * End the run outside the ordinary fare loop — the collision and police-bust paths both use
+   * this. Clears every live fare so the pins/rings vanish under the run-end banner rather than
+   * being frozen on-screen next to the frozen taxi. `title` overrides the banner heading (defaults
+   * to "Game Over") so a bust can read "Busted" while a wreck reads plainly. Idempotent: a second
+   * call after game-over is already set is a no-op.
    */
-  function crash(reason = 'Wrecked in a collision.') {
+  function crash(reason = 'Wrecked in a collision.', title = 'Game Over') {
     if (state.gameOver) return;
     state.gameOver = true;
+    state.failTitle = title;
     state.failReason = reason;
     for (const other of [...state.fares]) clear(other);
   }

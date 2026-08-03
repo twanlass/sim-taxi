@@ -17,6 +17,12 @@ import { setPriorityCorridor, ROAD_Y } from './traffic.js';
 const SPEED = 19;
 const RUN_MARGIN = 26;          // how far off-map it starts and ends
 
+// Boosting inside this radius while the police car is on a run ends the run — reckless driving in
+// front of a cop. One block in world units (PITCH = 20 in src/city/grid.js): the taxi and the
+// siren have to be sharing a junction for the bust to fire, so it reads as being caught in the
+// act rather than pinched from a street over.
+export const POLICE_BUST_RANGE = 20;
+
 // The car used to appear and vanish at full opacity out past the edge of the asphalt, against
 // bare background — a hard pop at both ends of every run. It now dissolves across this band,
 // reaching fully invisible before it hits the turnaround, so the disappearance never lands on a

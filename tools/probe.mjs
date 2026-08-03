@@ -15,7 +15,7 @@ import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, getPriorityCorridor, isUnsignalised, ringAxisAt } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
-import { createPolice } from '../src/sim/police.js';
+import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import { createFareSystem, cornerFor, MAX_FARES, SECOND_FARE_AFTER } from '../src/game/fares.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, lineCoord, GRID } from '../src/city/grid.js';
@@ -487,6 +487,64 @@ check('the taxi is an ordinary car in the traffic array',
   }
   check('no collisions fire while the taxi is not boosting', quietHits === 0,
     `${quietHits} impacts over 30s`);
+}
+
+// --- Busted by the police --------------------------------------------------
+// Boosting near an active police car ends the run with a distinct "Busted" title. Mirrors the
+// wiring in src/main.js: proximity < POLICE_BUST_RANGE while boosting → fares.crash('...',
+// 'Busted'). No wreck plume, so the check is about the state transition, not particle effects.
+{
+  const bScene = new THREE.Scene();
+  const bTraffic = createTraffic(makeRng(seed + 44), bScene, CARS_DEFAULT);
+  const bFares = createFareSystem(makeRng(seed + 55), bScene);
+  const bPolice = createPolice(makeRng(seed + 66), bScene);
+  const bTaxi = bTraffic.taxi;
+
+  // Fast-forward to a live police run — the corridor logic drives when the car appears.
+  bPolice.state.cooldown = 0;
+  for (let step = 0; step < 60 * 60 && !bPolice.state.active; step++) {
+    bPolice.update(1 / 60);
+    bTraffic.update(1 / 60);
+  }
+  check('police run activates for the bust test', bPolice.state.active);
+
+  // Put the taxi within bust range of the cop, boost engaged.
+  bTaxi.x = bPolice.group.position.x + 5;
+  bTaxi.z = bPolice.group.position.z + 5;
+  bTaxi.boost = true;
+
+  const dx = bTaxi.x - bPolice.group.position.x;
+  const dz = bTaxi.z - bPolice.group.position.z;
+  const near = dx * dx + dz * dz < POLICE_BUST_RANGE * POLICE_BUST_RANGE;
+  if (near && bTaxi.boost && bPolice.state.active && !bFares.state.gameOver && !bTaxi.crashed) {
+    bTaxi.crashed = true;
+    bFares.crash('You were caught by the police for reckless driving.', 'Busted');
+  }
+
+  check('boosting near the police ends the run', bFares.state.gameOver);
+  check('bust banner title is "Busted"', bFares.state.failTitle === 'Busted',
+    bFares.state.failTitle);
+  check('bust reason mentions the police', /police/i.test(bFares.state.failReason ?? ''),
+    bFares.state.failReason);
+
+  // Well outside bust range: same setup, no trigger.
+  const fScene = new THREE.Scene();
+  const fTraffic = createTraffic(makeRng(seed + 44), fScene, CARS_DEFAULT);
+  const fFares = createFareSystem(makeRng(seed + 55), fScene);
+  const fPolice = createPolice(makeRng(seed + 66), fScene);
+  fPolice.state.cooldown = 0;
+  for (let step = 0; step < 60 * 60 && !fPolice.state.active; step++) {
+    fPolice.update(1 / 60);
+    fTraffic.update(1 / 60);
+  }
+  const fTaxi = fTraffic.taxi;
+  fTaxi.x = fPolice.group.position.x + POLICE_BUST_RANGE + 20;
+  fTaxi.z = fPolice.group.position.z;
+  fTaxi.boost = true;
+  const fdx = fTaxi.x - fPolice.group.position.x;
+  const fdz = fTaxi.z - fPolice.group.position.z;
+  const farClear = fdx * fdx + fdz * fdz > POLICE_BUST_RANGE * POLICE_BUST_RANGE;
+  check('boosting far from the police leaves the run running', farClear && !fFares.state.gameOver);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
