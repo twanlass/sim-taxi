@@ -395,6 +395,16 @@ function frame() {
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
 
+  // Loco Mode chases the taxi. The default framing keeps the whole city visible so every fare is
+  // reachable in a tap — good for planning, but during a boost the action is a moving car, not a
+  // map, and staying wide leaves the taxi a speck. Follow only while boost is active: no gate on
+  // the way out means releasing the button just leaves the camera wherever it landed instead of
+  // snapping back. A user drag during boost is overridden on the next frame — that's intended,
+  // panning is a planning gesture and boost is the opposite of planning.
+  if (boost.isActive() && !fares.state.gameOver) {
+    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, 3.2, aspect());
+  }
+
   // More than one thing can land in a frame now — delivering the last fare clears the board and
   // spawns the next one in the same tick — so this is a list rather than a single event.
   for (const { type, fare } of fares.update(dt, traffic.taxi)) {

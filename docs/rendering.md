@@ -35,6 +35,13 @@ zoom     = 52             // vertical world span is exactly 2 * zoom
 No zoom, and one fixed default framing — that's a gameplay decision, not a limitation. A fixed
 frame is what makes every tap unambiguous and lets the whole city stay on screen.
 
+**Loco Mode overrides the fixed framing** and smooth-follows the taxi. `controller.followXZ` in
+`camera.js` closes a fraction `1 - exp(-dt * 3.2)` of the gap per frame toward the taxi's
+`(x, z)`, so the chase is framerate-independent and lags just enough that the car reads as
+leading the camera. `main.js` calls it only while `boost.isActive()`; releasing the button leaves
+the camera wherever it landed rather than snapping back, and a drag during boost is quietly
+overridden on the next frame — panning is a planning gesture, boost is the opposite.
+
 **Drag-to-pan is the one concession**, and a phone is what forced it: the frustum is sized by
 *height*, so in portrait the city runs off both sides and half the fares spawn where you cannot
 see them. `attachDragPan` only treats a press as a drag once it has moved `PAN_SLOP = 8px` — below
