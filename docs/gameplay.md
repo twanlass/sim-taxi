@@ -161,6 +161,11 @@ A continuous ramp spends most of its life in muddy in-between hues — the first
 olive through the whole first half — and a colour that changes imperceptibly tells the player
 nothing. Snapping makes each change an event you notice.
 
+**Below 5 seconds** the whole ring pulses — a ~3.5Hz sine scaling between 1.0 and 1.15. Threshold
+is in seconds, not fraction, so "five left" stays five left when the debug panel has tuned
+`fareSeconds` away from 60. The pulse and the red stage are the same object, so the two urgency
+cues stack rather than compete for the eye.
+
 A dimmed **track** ring sits beneath the live arc. Without it a half-drained arc looks like a
 crescent floating beside its owner rather than a ring centred on it. It is opaque, with the
 dimming baked into the colour rather than done with alpha — see the render-order note below.

@@ -67,6 +67,18 @@ const STAGES = [
 export const fareStageColour = (fraction) => STAGES.find((stage) => fraction > stage.above).color;
 const colourFor = fareStageColour;
 
+// Panic pulse. Below PULSE_BELOW_S the ring beats — same object the eye is already reading for
+// colour, so the two cues stack ("red AND getting bigger") rather than compete. Threshold is in
+// seconds, not fraction, so it stays "five seconds left" whether fareSeconds is the shipped 60 or
+// something the debug panel has tuned to 20.
+//
+// Amplitude and frequency chosen against the ring's ~25px play-zoom size: 15% scale is a visible
+// twitch there without spilling far enough to overlap adjacent lanes, and ~3.5Hz is fast enough to
+// read as urgency without turning into a strobe.
+const PULSE_BELOW_S = 5;
+const PULSE_HZ = 3.5;
+const PULSE_AMPLITUDE = 0.15;
+
 /**
  * A flat annulus built as an explicit triangle list in sweep order.
  *
@@ -151,12 +163,19 @@ export function createTimerRing(scene) {
   const anchor = new THREE.Vector3();
   const from = new THREE.Vector3();
   let transfer = -1;
+  let pulseTime = 0;
+
+  function resetPulse() {
+    pulseTime = 0;
+    mesh.scale.setScalar(1);
+  }
 
   function placeAt(x, z, y = KERB_H + 0.05) {
     anchor.set(x, y, z);
     mesh.position.copy(anchor);
     mesh.visible = true;
     transfer = -1;
+    resetPulse();
   }
 
   function beginTransfer() {
@@ -164,7 +183,7 @@ export function createTimerRing(scene) {
     transfer = 0;
   }
 
-  function update(dt, target, fraction) {
+  function update(dt, target, fraction, secondsLeft = Infinity) {
     if (!mesh.visible) return;
 
     anchor.set(target.x, target.y ?? KERB_H + 0.05, target.z);
@@ -183,6 +202,14 @@ export function createTimerRing(scene) {
     const clamped = Math.max(0, Math.min(1, fraction));
     geometry.setDrawRange(0, Math.round(clamped * SEGMENTS) * 6);
     mesh.material.color.copy(colourFor(clamped));
+
+    if (secondsLeft <= PULSE_BELOW_S) {
+      pulseTime += dt;
+      const wave = 0.5 + 0.5 * Math.sin(pulseTime * PULSE_HZ * Math.PI * 2);
+      mesh.scale.setScalar(1 + PULSE_AMPLITUDE * wave);
+    } else if (pulseTime !== 0) {
+      resetPulse();
+    }
   }
 
   return {
@@ -190,7 +217,7 @@ export function createTimerRing(scene) {
     placeAt,
     beginTransfer,
     update,
-    hide: () => { mesh.visible = false; transfer = -1; },
+    hide: () => { mesh.visible = false; transfer = -1; resetPulse(); },
     isTransferring: () => transfer >= 0,
   };
 }
