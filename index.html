@@ -98,6 +98,15 @@
         cursor: default; color: rgba(255, 255, 255, 0.5);
         background: linear-gradient(90deg, #6f8899 var(--pct, 0%), rgba(255, 255, 255, 0.12) 0);
       }
+      /* Delivery bonus: a green pulse that matches the flying "$20" so the top-up reads as part
+         of the same payout. The bar itself grows for ~0.3s from the fuel poured in each frame;
+         this glow is the flash that draws the eye to it. */
+      #boost.is-topping-up { animation: boost-topup 0.65s ease-out; }
+      @keyframes boost-topup {
+        0%   { box-shadow: 0 0 0    rgba(107, 224, 138, 0); }
+        25%  { box-shadow: 0 0 26px rgba(107, 224, 138, 0.95); }
+        100% { box-shadow: 0 0 0    rgba(107, 224, 138, 0); }
+      }
       body.shot-mode #boost { display: none; }
 
       /* Rider finder — mirror of the Loco Mode pill on the opposite corner. A circular chip so

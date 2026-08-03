@@ -19,7 +19,12 @@ export function createBoost(duration = BOOST_DURATION, recharge = BOOST_RECHARGE
     mode: 'recharging',   // 'ready' | 'active' | 'recharging'
     fuel: 0,              // seconds of boost still in the tank, 0..duration
     held: false,          // is the button currently pressed?
+    pending: 0,           // fuel queued by top-ups, poured in over ~0.4s so the bar animates
   };
+
+  // Half a tank per second. A 15% top-up lands in ~0.3s, slow enough to read as *filling* rather
+  // than snapping, fast enough that it's obviously connected to the drop-off that triggered it.
+  const POUR_RATE = duration * 0.5;
 
   return {
     state,
@@ -42,23 +47,44 @@ export function createBoost(duration = BOOST_DURATION, recharge = BOOST_RECHARGE
       if (state.mode === 'active') state.mode = 'ready';
     },
 
+    /**
+     * Queue a fuel top-up (fraction of a full tank). Drips in over time so the meter *fills* on
+     * screen rather than snapping — the animation is how the player sees they got a bonus.
+     */
+    topUp(fraction) {
+      if (fraction <= 0) return;
+      state.pending += fraction * duration;
+    },
+
     update(dt) {
+      // Mode-driven change first: drain while held, refill while empty.
       if (state.mode === 'active') {
         state.fuel -= dt;
-        if (state.fuel <= 0) {
-          state.fuel = 0;
-          state.mode = 'recharging';
-        }
       } else if (state.mode === 'recharging') {
         state.fuel += dt * (duration / recharge);
-        if (state.fuel >= duration) {
-          state.fuel = duration;
-          // Rolling through a full recharge without letting go re-engages boost, so a very long
-          // hold flows through the recharge instead of dropping the player back at the button.
+      }
+
+      // Bonus fuel pours in on top of whatever the mode is doing, so a top-up mid-drain slows the
+      // drain visibly and a top-up mid-recharge accelerates the fill.
+      if (state.pending > 0) {
+        const drip = Math.min(state.pending, POUR_RATE * dt);
+        state.fuel += drip;
+        state.pending -= drip;
+      }
+
+      // One clamp point covers all three sources of change (drain, refill, top-up).
+      if (state.fuel <= 0) {
+        state.fuel = 0;
+        if (state.mode === 'active') state.mode = 'recharging';
+      } else if (state.fuel >= duration) {
+        state.fuel = duration;
+        if (state.mode === 'recharging') {
+          // A recharge that finishes while the button is still held rolls straight back into
+          // boost — same reason a top-up that finishes a recharge should feel like the drop-off
+          // just handed the player a live boost, not a "press again" moment.
           state.mode = state.held ? 'active' : 'ready';
         }
       }
-      // 'ready' is a paused meter — no drain, no fill, waits on the next press.
     },
 
     /** 0..1 of the dial that should be filled: drops while active, climbs while recharging. */

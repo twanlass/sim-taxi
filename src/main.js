@@ -240,6 +240,18 @@ function releaseBoost(event) {
   boost.release();
   boostButton.releasePointerCapture?.(event.pointerId);
 }
+// Green glow on top-up. Removing then re-adding the class restarts the CSS animation, so
+// back-to-back deliveries each get their own flash instead of the second one being ignored.
+function flashBoostTopUp() {
+  if (!boostButton) return;
+  boostButton.classList.remove('is-topping-up');
+  void boostButton.offsetWidth;
+  boostButton.classList.add('is-topping-up');
+}
+boostButton?.addEventListener('animationend', (e) => {
+  if (e.animationName === 'boost-topup') boostButton.classList.remove('is-topping-up');
+});
+
 boostButton?.addEventListener('pointerdown', pressBoost);
 boostButton?.addEventListener('pointerup', releaseBoost);
 boostButton?.addEventListener('pointercancel', releaseBoost);
@@ -321,6 +333,11 @@ function frame() {
       traffic.setTaxiFareColor(fare.color);
     } else if (type === 'delivered') {
       popEarning(FARE_VALUE);
+      // Small pour of boost fuel as a delivery reward — the meter's frame-by-frame update paints
+      // the bar visibly *filling*, and the green glow ties the top-up to the same payout the
+      // earnings pop is announcing.
+      boost.topUp(0.15);
+      flashBoostTopUp();
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       traffic.setTaxiFareColor(null);

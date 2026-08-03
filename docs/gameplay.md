@@ -231,6 +231,11 @@ Pointer capture on `pointerdown` keeps the boost held even if the finger slides 
 `pointerup`, `pointercancel`, `lostpointercapture` and the window `blur` all release it, so
 alt-tabbing or switching apps never leaves the boost stuck on.
 
+Every successful drop-off tops the tank up by **15%** — `boost.topUp(0.15)` queues the fuel as
+*pending* and pours it in over ~0.3s so the bar visibly fills rather than snaps. A short green
+pulse behind the pill (`.is-topping-up`, matching the flying `$20`) is the flash that ties the
+top-up to the same payout the earnings pop is announcing.
+
 While active the taxi runs at 2.2× speed, forces its next junction green, doesn't slow for
 corners, lays **skid marks** through turns, and kicks up **dust**. See
 [rendering.md](rendering.md#effects) for how those two are drawn.
