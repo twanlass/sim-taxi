@@ -230,10 +230,11 @@ check('no two cars occupy the same space', worst > 1.6,
     hues.join(' -> '));
 }
 
-// --- Two fares, staggered ---------------------------------------------------
-// The second rider is the difficulty of the game, and every rule about when they appear is a
-// timing rule — invisible in a still image and easy to break by accident. So: play a perfect run
-// and assert the shape of the board at every single frame of it.
+// --- Multiple fares, staggered ----------------------------------------------
+// The board fills to MAX_FARES with extras arriving one at a time, so more than one clock can
+// drain on the kerb and the player has to pick which to grab first. Every rule about when they
+// appear is a timing rule — invisible in a still image and easy to break by accident. So: play a
+// perfect run and assert the shape of the board at every frame of it.
 {
   const mScene = new THREE.Scene();
   const mTraffic = createTraffic(makeRng(seed + 44), mScene, CARS_DEFAULT);
@@ -242,13 +243,15 @@ check('no two cars occupy the same space', worst > 1.6,
 
   let mostAtOnce = 0;
   let mostWaiting = 0;
-  let secondBeforeDelivery = false;
-  let spawnedWhileRiding = 0;
+  let extrasBeforeDelivery = false;
+  let spawnedWhileBusy = 0;
   let spawnedIdle = 0;
   let elapsed = 0;
+  let prevSpawnAt = -Infinity;
+  let minSpawnGap = Infinity;
 
-  // Serve the carried rider first, then whoever is on the kerb — the only order one taxi can
-  // work in, and the same policy the soak uses.
+  // Serve the carried rider first, then the most urgent one on the kerb — the only order one
+  // taxi can work in, and the same policy the soak uses.
   const aim = () => {
     const job = fares.carrying() ?? fares.waiting();
     if (!job || job.directed) return;
@@ -261,11 +264,15 @@ check('no two cars occupy the same space', worst > 1.6,
     for (const { type } of fares.update(1 / 60, mTraffic.taxi)) {
       if (type !== 'spawned') continue;
       if (fares.state.fares.length > 1) {
-        if (fares.state.delivered < SECOND_FARE_AFTER) secondBeforeDelivery = true;
-        spawnedWhileRiding += 1;
+        if (fares.state.delivered < SECOND_FARE_AFTER) extrasBeforeDelivery = true;
+        spawnedWhileBusy += 1;
+        // The stagger is what turns this into a prioritisation puzzle — every extra rider must
+        // arrive at least SPAWN_MIN_GAP after the previous one, not in the same burst.
+        minSpawnGap = Math.min(minSpawnGap, elapsed - prevSpawnAt);
       } else {
         spawnedIdle += 1;
       }
+      prevSpawnAt = elapsed;
     }
     aim();
     elapsed += 1 / 60;
@@ -274,13 +281,20 @@ check('no two cars occupy the same space', worst > 1.6,
     mostWaiting = Math.max(mostWaiting, fares.state.fares.filter((f) => f.stage === 'waiting').length);
   }
 
-  check('two fares run at once', mostAtOnce === 2, `peak ${mostAtOnce}, ${fares.state.delivered} delivered`);
+  check('the board can fill past two fares', mostAtOnce >= 2,
+    `peak ${mostAtOnce}, ${fares.state.delivered} delivered`);
   check('never more than MAX_FARES', mostAtOnce <= MAX_FARES);
-  check('the second fare waits behind a rider already aboard', !secondBeforeDelivery
-    && spawnedWhileRiding > 0, `${spawnedWhileRiding} staggered, ${spawnedIdle} on an empty board`);
-  // Falls out of the stagger rule rather than being enforced separately, which is exactly why it
-  // is worth asserting: it is what lets "tap a rider" stay unambiguous with two fares live.
-  check('never two riders waiting at once', mostWaiting <= 1, `peak ${mostWaiting}`);
+  check('the extra fares only arrive after the tutorial delivery',
+    !extrasBeforeDelivery && spawnedWhileBusy > 0,
+    `${spawnedWhileBusy} extras, ${spawnedIdle} on an empty board`);
+  // Two waiting riders is the whole point of the change — a single-choice board would leave
+  // "prioritise which one to grab" as words in the docs and nothing in the game.
+  check('more than one rider can wait on the kerb at once', mostWaiting >= 2,
+    `peak ${mostWaiting}`);
+  // The stagger is the fairness guarantee: extras land at least SPAWN_MIN_GAP apart, so their
+  // clocks drain out of phase instead of ending on the same tick.
+  check('extra fares arrive staggered', minSpawnGap >= 6.5,
+    `min gap ${Number.isFinite(minSpawnGap) ? minSpawnGap.toFixed(2) : '-'}s`);
 
   // The one-seat rule, from the outside: a kerbside rider cannot be directed at while carrying.
   const carried = fares.carrying();
