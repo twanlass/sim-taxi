@@ -272,12 +272,14 @@ that decision trivial.
 
 ## Crazy-taxi mode
 
-The **Loco Mode** button, bottom left. **Hold to enable, release to pause.** The meter only moves
-while held — a short tap costs a short slice, a long hold flows until the tank is empty. Full tank
-is 15 seconds of boost; from empty it recharges in 15 seconds and, if you kept holding through the
-recharge, engages again the moment it's full. The decision is now *how long* to press as well as
-*when*. The button doubles as the dial: a `--pct` CSS variable tracks the fuel level, dropping as
-you drain and climbing as it recharges.
+The **Loco Mode** button, bottom left. **Hold to enable, release to pause.** A short tap costs a
+short slice, a long hold flows until the tank is empty. Full tank is 15 seconds of boost; from
+empty it recharges in 15 seconds and, if you kept holding through the recharge, engages again the
+moment it's full. Release with fuel still in the tank and it trickles back up at a fifth of the
+empty-recharge rate — enough that a couple of quick taps aren't stranded halfway, slow enough
+that a full drain still calls for the fast recharge. The decision is now *how long* to press as
+well as *when*. The button doubles as the dial: a `--pct` CSS variable tracks the fuel level,
+dropping as you drain and climbing as it recharges.
 
 Pointer capture on `pointerdown` keeps the boost held even if the finger slides off the pill;
 `pointerup`, `pointercancel`, `lostpointercapture` and the window `blur` all release it, so
