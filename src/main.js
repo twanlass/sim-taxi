@@ -325,7 +325,7 @@ function frame() {
   layRubber();
   kickDust();
   updateHud(dt);
-  riderFinder.update(dt, fares.waiting());
+  riderFinder.update(dt, fares.waitingAll());
   dropoffIndicator.update(fares.carrying());
   renderer.render(scene, camera);
 }

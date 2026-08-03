@@ -191,10 +191,12 @@ export function createFareSystem(rng, scene) {
 
   const carrying = () => state.fares.find((f) => f.stage === 'riding') ?? null;
   // With more than one rider on the kerb the "waiting fare" the game means is the one about to
-  // time out — that is who the finder button should surface and who a perfect player takes next.
+  // time out — that is who a perfect player takes next.
   const waiting = () => state.fares
     .filter((f) => f.stage === 'waiting')
     .reduce((best, f) => (best === null || f.timeLeft < best.timeLeft ? f : best), null);
+  // Every waiting fare, for the HUD stack that surfaces one chip per rider on the kerb.
+  const waitingAll = () => state.fares.filter((f) => f.stage === 'waiting');
 
   /** The fare the player is currently working: whichever one the taxi was last sent at. */
   const focus = () => state.fares.find((f) => f.directed) ?? carrying() ?? waiting() ?? null;
@@ -410,6 +412,7 @@ export function createFareSystem(rng, scene) {
     markDirected,
     carrying,
     waiting,
+    waitingAll,
     focus,
     slots,
     intersectionCentre,
