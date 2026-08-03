@@ -9,6 +9,8 @@ import { createProps } from './city/props.js';
 import { createTraffic } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
+import { createRigidWorld } from './sim/rigid.js';
+import { isRigid } from './sim/physics-mode.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createBoost } from './game/boost.js';
@@ -478,6 +480,10 @@ function frame() {
   // A detected impact stuns both cars for the next frame; the sim already knows how to handle
   // that state, so no further plumbing is needed here.
   collisions.update();
+  // Rigid physics runs *after* traffic.update and collisions so the taxi's kinematic pose and any
+  // promoted ambient car's freshly-computed rail pose are what physics reads this frame; dynamic
+  // cars' Rapier step then overwrites their {x, z, yaw} before fares.update reads them.
+  rigid?.step(dt);
 
   // Arcade contacts (empty when arcade is off). Each contact fires an arcade-spark burst at the
   // impact point and a small shake pulse; camera shake is applied further down so it can be
@@ -575,6 +581,11 @@ function frame() {
   }
 }
 
+// Physics world. Async because Rapier's WASM has to decode; awaited before frame() starts so the
+// first tick already has the static colliders in place. Screenshots skip physics entirely — the
+// shot pipeline demands deterministic hand-stepping and waiting on WASM would race shotReady.
+const rigid = shot ? null : (isRigid() ? await createRigidWorld(scene, traffic) : null);
+
 if (shot) {
   document.body.classList.add('shot-mode');
   traffic.warmup(shot.warmup ?? 12);
@@ -662,6 +673,7 @@ window.__taxi = {
   routeTo,
   findRoute,
   camera: controller,
+  physics: rigid ?? null,
   isSelected: () => selected,
   /** Screen-space helpers so the browser smoke test can click real pixels. */
   taxiScreenPosition: taxiScreenPos,
