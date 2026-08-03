@@ -18,13 +18,11 @@ export const BOOST_RECHARGE = 15;
 const SLOW_REGEN_FACTOR = 0.2;
 
 export function createBoost(duration = BOOST_DURATION, recharge = BOOST_RECHARGE) {
-  // Starts on the charger, not ready. The first fare is the one that teaches the loop, and a
-  // boost available from the first frame gets spent on it out of curiosity rather than judgement —
-  // by the time the city is busy enough to need it, it's on cooldown. Making the player wait out
-  // one full recharge puts the first hold somewhere around the first drop-off instead.
+  // Starts full and ready — the player can hold Loco Mode from the very first frame. Trades the
+  // "learn the loop before you get the toy" pacing for immediate access to the crazy-taxi feel.
   const state = {
-    mode: 'recharging',   // 'ready' | 'active' | 'recharging'
-    fuel: 0,              // seconds of boost still in the tank, 0..duration
+    mode: 'ready',        // 'ready' | 'active' | 'recharging'
+    fuel: duration,       // seconds of boost still in the tank, 0..duration
     held: false,          // is the button currently pressed?
     pending: 0,           // fuel queued by top-ups, poured in over ~0.4s so the bar animates
   };
