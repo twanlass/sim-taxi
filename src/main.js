@@ -16,6 +16,7 @@ import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
 import { createSparks } from './game/sparks.js';
 import { createSmoke } from './game/smoke.js';
+import { createDebris } from './game/debris.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
@@ -82,26 +83,34 @@ const pan = shot ? null : attachDragPan(controller, renderer.domElement, aspect,
 const dust = createDust(scene, camera, makeRng(seed + 77));
 const sparks = createSparks(scene, makeRng(runSeed + 88));
 const smoke = createSmoke(scene, makeRng(runSeed + 99));
+const debris = createDebris(scene, makeRng(runSeed + 111));
 
 // Collision detection between the taxi and ambient cars. Only fires while boosting — see
-// src/sim/collisions.js. On impact the taxi is wrecked: a big spark burst plus a lingering smoke
-// plume mark the spot, the camera shakes and pulls in to a close-up of the wreck, boost is
-// released, and the fare system flips into game-over — but the Game Over banner is held for
-// CRASH_BANNER_DELAY so the moment can breathe. The taxi mesh is left visible on purpose: the
-// traffic sim skips crashed cars in its render loop, so the wreck sits at the impact spot on its
-// own. The other car still stuns and recovers to a lane afterward.
+// src/sim/collisions.js. On impact the taxi is wrecked: the merged taxi shell hides, debris
+// pieces fire outward in its place, sparks burst, a smoke plume rises, the camera shakes and
+// pulls into a close-up, the sim drops into slow-mo, boost is released, and the fare system
+// flips into game-over — but the Game Over banner is held for CRASH_BANNER_DELAY (wallclock, so
+// the delay is unaffected by the slow-mo). The other car still stuns and recovers to a lane
+// afterward.
 const CRASH_BANNER_DELAY = 2000;
 const WRECK_ZOOM = 26;
+const SLOW_MO_MIN = 0.22;                // sim runs at this fraction of real time at impact
+const SLOW_MO_DURATION = 1500;           // ms wallclock to ramp back to 1.0
 let wreckSpot = null;
 let crashBannerAt = null;
+let slowMoUntil = 0;
 
 const collisions = createCollisions(traffic.cars, traffic.taxi);
 collisions.onImpact(({ x, z }) => {
   sparks.burst(x, z, 42);
   smoke.burst(x, z);
+  debris.burst(x, z);
   controller.kickShake(1.6);
   wreckSpot = { x, z };
   crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
+  slowMoUntil = performance.now() + SLOW_MO_DURATION;
+  traffic.taxiGroup.visible = false;
+  traffic.taxiSelection.visible = false;
   boost.release();
   fares.crash();
 });
@@ -422,7 +431,18 @@ const clock = new THREE.Clock();
 
 function frame() {
   requestAnimationFrame(frame);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  let dt = Math.min(clock.getDelta(), 0.05);
+
+  // Time dilation for the crash. Scale the whole frame's dt so debris, smoke, camera pull-in and
+  // shake decay all slow together — that's what sells it as a single cinematic beat rather than
+  // one element being pushed around while everything else runs normally. Ramps linearly from
+  // SLOW_MO_MIN back to 1.0 across SLOW_MO_DURATION ms wallclock; the banner delay is separately
+  // wallclock-anchored so this doesn't change when the retry screen appears.
+  const nowMs = performance.now();
+  if (nowMs < slowMoUntil) {
+    const t = 1 - (slowMoUntil - nowMs) / SLOW_MO_DURATION;
+    dt *= SLOW_MO_MIN + (1 - SLOW_MO_MIN) * t;
+  }
 
   boost.update(dt);
   // Never re-arm boost on a wrecked taxi — the flag would flick on the next frame otherwise and
@@ -433,6 +453,7 @@ function frame() {
   dust.update(dt);
   sparks.update(dt);
   smoke.update(dt);
+  debris.update(dt);
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 
