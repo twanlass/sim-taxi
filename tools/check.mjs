@@ -15,7 +15,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/lightshaft.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/dust.js', '../src/game/sparks.js', '../src/game/smoke.js',
   '../src/game/debris.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
-  '../src/game/dropoffindicator.js'];
+  '../src/game/dropoffindicator.js', '../src/city/signals.js'];
 
 const TOOLS = [
   { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },

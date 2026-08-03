@@ -9,6 +9,7 @@ import {
   laneOffsetCoord, entryPoint, exitPoint, turnControl, nextIntersection, legalExits, isSegmentClosed,
   ringAxisAt, isUnsignalised,
 } from '../city/grid.js';
+import { createSignalVisual } from '../city/signals.js';
 
 export { ringAxisAt, isUnsignalised };   // re-exported: callers of the sim ask it about junctions
 
@@ -442,7 +443,7 @@ function lerpAngle(a, b, t) {
   return a + delta * t;
 }
 
-export function createTraffic(rng, scene, count = 24) {
+export function createTraffic(rng, scene, count = 24, signalStyle = 'bar') {
   const cars = spawnCars(rng, count);
 
   // The player's taxi is an ordinary car in this same array — that is what subjects it to
@@ -472,56 +473,12 @@ export function createTraffic(rng, scene, count = 24) {
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   scene.add(mesh);
 
-  // --- Stop bars ------------------------------------------------------------
+  // --- Signal visuals -------------------------------------------------------
   //
-  // The signal lives on the road, not on a pole. Corner-mounted heads were unreadable from this
-  // camera: one head served two opposing approaches, it sat nearer the block corner than the road
-  // it governed, and nothing about it said which direction it applied to. A bar painted across
-  // the lane you are driving, at the point you would stop, removes both ambiguities — there is
-  // exactly one bar for your approach and it is directly in front of you.
-  //
-  // Placed just outside the crosswalk, so a car holding at the line sits behind the bar rather
-  // than on top of it.
-  const BAR_DISTANCE = HALF_ROAD + 2.05;
-
-  const barGeo = bakeColor(new THREE.PlaneGeometry(0.7, 3.6), new THREE.Color(1, 1, 1));
-  barGeo.rotateX(-Math.PI / 2);
-
-  const bars = [];
-  for (let i = 0; i <= GRID; i++) {
-    for (let j = 0; j <= GRID; j++) {
-      if (isUnsignalised(i, j)) continue;         // ring junctions are yield-controlled
-      for (let d = 0; d < 4; d++) {
-        // Only worth a bar if traffic can actually arrive on this approach.
-        if (!nextIntersection(opposite(d), i, j)) continue;
-        if (isSegmentClosed(i, j, opposite(d))) continue;
-
-        const lane = laneOffsetCoord(d, i, j);
-        const back = -dirSign(d) * BAR_DISTANCE;
-        bars.push({
-          i,
-          j,
-          d,
-          x: isXAxis(d) ? lineCoord(i) + back : lane,
-          z: isXAxis(d) ? lane : lineCoord(j) + back,
-          turned: !isXAxis(d),
-        });
-      }
-    }
-  }
-
-  const barMesh = new THREE.InstancedMesh(barGeo, propMaterial(), bars.length);
-  barMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-  barMesh.name = 'stopBars';
-  const dummy = new THREE.Object3D();
-  bars.forEach((bar, index) => {
-    dummy.position.set(bar.x, 0.05, bar.z);
-    dummy.rotation.set(0, bar.turned ? Math.PI / 2 : 0, 0);
-    dummy.updateMatrix();
-    barMesh.setMatrixAt(index, dummy.matrix);
-  });
-  barMesh.instanceMatrix.needsUpdate = true;
-  scene.add(barMesh);
+  // Style is chosen by ?signals= at page load; each style shows the same phase data in a
+  // different form (painted bar, overhead mast arm, corner pedestal, glowing bollard). Traffic
+  // logic never touches this — signals are read-only for the sim.
+  const signalVisual = createSignalVisual(signalStyle, scene);
 
   // `distance` is the honest throughput measure. Counting how many cars are moving at one
   // instant is far too noisy to tune signal timing against — it swings with whatever the
@@ -536,7 +493,6 @@ export function createTraffic(rng, scene, count = 24) {
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3(1, 1, 1);
   const euler = new THREE.Euler();
-  const headColor = new THREE.Color();
 
   /**
    * May a car joining the ring pull out? Only if nothing on the ring is bearing down on the
@@ -1072,17 +1028,8 @@ export function createTraffic(rng, scene, count = 24) {
     }
     mesh.instanceMatrix.needsUpdate = true;
 
-    // --- Stop bar colours, one per approach.
-    for (let index = 0; index < bars.length; index++) {
-      const bar = bars[index];
-      const phase = lightPhase(bar.i, bar.j, t);
-      const mine = phase.axis === (isXAxis(bar.d) ? 'x' : 'z');
-      headColor.set(mine
-        ? (phase.yellow ? PALETTE.lightYellow : PALETTE.lightGreen)
-        : PALETTE.lightRed);
-      barMesh.setColorAt(index, headColor);
-    }
-    if (barMesh.instanceColor) barMesh.instanceColor.needsUpdate = true;
+    // --- Signal colours, whichever visual style is running.
+    signalVisual.update(t, lightPhase);
   }
 
   /** Fixed-step warm-up so screenshots show settled traffic, deterministically. */
@@ -1090,5 +1037,8 @@ export function createTraffic(rng, scene, count = 24) {
     for (let elapsed = 0; elapsed < seconds; elapsed += step) update(step);
   }
 
-  return { cars, taxi, taxiGroup, taxiSelection, setTaxiFareColor, mesh, barMesh, update, warmup, stats, lightPhase };
+  return {
+    cars, taxi, taxiGroup, taxiSelection, setTaxiFareColor, mesh,
+    signalVisual, update, warmup, stats, lightPhase,
+  };
 }
