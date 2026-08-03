@@ -7,12 +7,14 @@ import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
 import { createTraffic } from './sim/traffic.js';
+import { createCollisions } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createBoost } from './game/boost.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
+import { createSparks } from './game/sparks.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
@@ -77,6 +79,16 @@ const isNarrow = () => window.innerWidth < NARROW_VIEWPORT;
 const pan = shot ? null : attachDragPan(controller, renderer.domElement, aspect, isNarrow);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
+const sparks = createSparks(scene, makeRng(runSeed + 88));
+
+// Collision detection between the taxi and ambient cars. Only fires while boosting — see
+// src/sim/collisions.js. Impact events drop a spark burst; the stun state itself is handled by
+// the traffic sim so lane bookkeeping goes back to being authoritative as soon as the pair
+// recovers onto lane centres.
+const collisions = createCollisions(traffic.cars, traffic.taxi);
+collisions.onImpact(({ x, z }) => {
+  sparks.burst(x, z);
+});
 
 // Orthographic camera: the vertical world span is exactly 2 * zoom, so world-units-per-pixel
 // falls straight out of the frustum height.
@@ -398,10 +410,15 @@ function frame() {
   updateBoostButton();
   skids.update(dt);
   dust.update(dt);
+  sparks.update(dt);
   daylight.update(dt);
 
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
+  // After traffic has settled positions for the frame — that's what the overlap check reads.
+  // A detected impact stuns both cars for the next frame; the sim already knows how to handle
+  // that state, so no further plumbing is needed here.
+  collisions.update();
 
   // Loco Mode chases the taxi on narrow viewports where the fixed framing has already given up —
   // in portrait the taxi is often off-screen, so the follow is the only way to see the boost. On

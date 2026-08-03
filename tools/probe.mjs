@@ -14,6 +14,7 @@ import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, getPriorityCorridor, isUnsignalised, ringAxisAt } from '../src/sim/traffic.js';
+import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice } from '../src/sim/police.js';
 import { createFareSystem, cornerFor, MAX_FARES, SECOND_FARE_AFTER } from '../src/game/fares.js';
 import { planOrigin } from '../src/game/route.js';
@@ -418,6 +419,53 @@ check('the taxi is an ordinary car in the traffic array',
   check('a parked taxi still delivers when the destination is its own next junction',
     sFares.state.delivered === 1,
     `${sFares.state.delivered} delivered after ${elapsed.toFixed(1)}s`);
+}
+
+// --- Taxi-vs-car collisions ------------------------------------------------
+// The whole feature only fires while boosting, and its two failure modes are silent: no impact
+// ever detected (broken detection), or cars stuck in the stun state (broken recovery). Drive the
+// taxi head-on into an unsuspecting car and assert the round-trip through impact → stun → snap.
+{
+  const cScene = new THREE.Scene();
+  const cTraffic = createTraffic(makeRng(seed + 44), cScene, CARS_DEFAULT);
+  const cTaxi = cTraffic.taxi;
+  const collisions = createCollisions(cTraffic.cars, cTaxi);
+  let hits = 0;
+  collisions.onImpact(() => { hits += 1; });
+
+  cTraffic.warmup(3);
+
+  // Park the taxi on top of an ambient car and start boosting. Skip the taxi itself so we're
+  // finding a genuine other car.
+  const victim = cTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive');
+  cTaxi.x = victim.x;
+  cTaxi.z = victim.z;
+  cTaxi.boost = true;
+
+  for (let step = 0; step < 60; step++) {
+    collisions.update();
+    cTraffic.update(1 / 60);
+    if (hits > 0 && !cTaxi.stunned && !victim.stunned) break;
+  }
+
+  check('boosting into another car fires an impact', hits >= 1, `${hits} impacts`);
+  check('both cars recover from the stun', !cTaxi.stunned && !victim.stunned,
+    `taxi ${cTaxi.stunned ? 'stuck' : 'ok'}, victim ${victim.stunned ? 'stuck' : 'ok'}`);
+  check('post-recovery cars are back to driving on lanes',
+    cTaxi.state === 'drive' && victim.state === 'drive');
+
+  // A non-boosting taxi must never trigger a collision — normal lane logic keeps them apart.
+  const qScene = new THREE.Scene();
+  const qTraffic = createTraffic(makeRng(seed + 44), qScene, CARS_DEFAULT);
+  const qCollisions = createCollisions(qTraffic.cars, qTraffic.taxi);
+  let quietHits = 0;
+  qCollisions.onImpact(() => { quietHits += 1; });
+  for (let step = 0; step < 60 * 30; step++) {
+    qCollisions.update();
+    qTraffic.update(1 / 60);
+  }
+  check('no collisions fire while the taxi is not boosting', quietHits === 0,
+    `${quietHits} impacts over 30s`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
