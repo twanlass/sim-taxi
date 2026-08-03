@@ -296,9 +296,39 @@ function updateBoostButton() {
   boostButton.disabled = mode === 'recharging';
 }
 
-boostButton?.addEventListener('click', () => {
+// Hold-to-enable, release-to-pause. Pointer events cover both mouse and touch; capturing the
+// pointer on press means dragging off the pill still counts as held, and the matching pointerup
+// fires reliably wherever the finger lifts.
+function pressBoost(event) {
   if (fares.state.gameOver) return;
-  if (boost.activate()) flash('Loco Mode!');
+  event.preventDefault();
+  boostButton.setPointerCapture?.(event.pointerId);
+  if (boost.press()) flash('Loco Mode!');
+}
+function releaseBoost(event) {
+  boost.release();
+  boostButton.releasePointerCapture?.(event.pointerId);
+}
+// Green glow on top-up. Removing then re-adding the class restarts the CSS animation, so
+// back-to-back deliveries each get their own flash instead of the second one being ignored.
+function flashBoostTopUp() {
+  if (!boostButton) return;
+  boostButton.classList.remove('is-topping-up');
+  void boostButton.offsetWidth;
+  boostButton.classList.add('is-topping-up');
+}
+boostButton?.addEventListener('animationend', (e) => {
+  if (e.animationName === 'boost-topup') boostButton.classList.remove('is-topping-up');
+});
+
+boostButton?.addEventListener('pointerdown', pressBoost);
+boostButton?.addEventListener('pointerup', releaseBoost);
+boostButton?.addEventListener('pointercancel', releaseBoost);
+boostButton?.addEventListener('lostpointercapture', releaseBoost);
+// Alt-tabbing away or switching apps mid-hold should not leave the boost stuck on.
+window.addEventListener('blur', () => boost.release());
+window.addEventListener('contextmenu', (e) => {
+  if (e.target === boostButton) e.preventDefault();
 });
 
 // Rubber gets laid from the rear wheels while boosting through a corner, spaced by distance so
@@ -372,6 +402,11 @@ function frame() {
       traffic.setTaxiFareColor(fare.color);
     } else if (type === 'delivered') {
       popEarning(fare.value);
+      // Small pour of boost fuel as a delivery reward — the meter's frame-by-frame update paints
+      // the bar visibly *filling*, and the green glow ties the top-up to the same payout the
+      // earnings pop is announcing.
+      boost.topUp(0.15);
+      flashBoostTopUp();
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       traffic.setTaxiFareColor(null);
