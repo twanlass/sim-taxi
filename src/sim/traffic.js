@@ -771,9 +771,15 @@ export function createTraffic(rng, scene, count = 24) {
         // straight and then shed a third of it to cross an empty junction in a straight line.
         const straightOn = car.dOut === car.d;
         const cruise = car.boost ? SPEED * BOOST_SPEED : SPEED;
-        // Crazy mode doesn't lift for corners — it goes round them at full pelt. The lean and
-        // the rubber on the road are what sell it instead of a speed drop.
-        const cornerTarget = straightOn || car.boost ? cruise : CORNER_SPEED;
+        // Crazy mode doesn't lift for right-turns or straights — it goes round them at full pelt,
+        // and the lean plus the rubber on the road sell it instead of a speed drop. Left turns are
+        // the exception: they cut across the near corner (chord ≈ HALF_ROAD − LANE per leg) instead
+        // of the far diagonal, so at full boost the whole arc completes in ~0.35s vs a right's
+        // ~0.7s and reads as *sped up*. A softer target on lefts (0.75× cruise) keeps the
+        // no-brakes feel while giving the tight arc back its visual weight.
+        const isLeft = !straightOn && car.dOut === leftOf(car.d);
+        const boostTurn = car.boost ? (isLeft ? cruise * 0.75 : cruise) : CORNER_SPEED;
+        const cornerTarget = straightOn ? cruise : boostTurn;
         car.v = car.v > cornerTarget
           ? Math.max(cornerTarget, car.v - BRAKE * dt)
           : Math.min(cornerTarget, car.v + (car.boost ? BOOST_ACCEL : ACCEL) * dt);
