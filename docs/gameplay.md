@@ -11,7 +11,8 @@ that means up to two riders can be waiting on the kerb at the same time.
 2. Tap them → the taxi routes there.
 3. On arrival the passenger boards, a destination pin appears, and the taxi **parks** until the
    player taps that destination.
-4. Deliver → **$20** (`FARE_VALUE`), and the board refills.
+4. Deliver → the meter pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, see [Economy](#economy)),
+   and the board refills.
 5. **Any** fare's clock expiring ends the run.
 
 `fares.update()` returns the events that happened this frame — `{type, fare}`, with type one of
@@ -98,7 +99,7 @@ than one taxi, and assigning colour only at pickup is what would leave the inter
 
 ## Routing
 
-`src/game/route.js` is BFS over **directed** states `(i, j, d)` — 144 states, instant.
+`src/game/route.js` is Dijkstra over **directed** states `(i, j, d)` — 144 states, instant.
 
 The node has to carry the approach direction because `legalExits` forbids U-turns. A plain
 `(i, j)` node would plan routes that flip direction on the spot, and the car could never execute
@@ -108,6 +109,28 @@ them.
 planning from its current intersection produces a route whose first step is silently skipped and
 every later turn lands one intersection early. Planning starts from the intersection the taxi is
 *heading toward*, plus its current heading — the first point at which it can still make a choice.
+
+### Road-hierarchy weights
+
+Edges are not equal cost. The signal model was tuned around a coordinated green wave on two
+arterials per axis (64% green share, offsets running with the wave direction) and an
+unsignalised ring around the outside. A fewest-blocks router fights that coordination — it will
+happily plan a route straight up a side street when the arterial parallel to it exists.
+
+Current weights, per block traversed:
+
+| Class | Weight |
+|---|---|
+| Ring (outermost roads) | 0.90 |
+| Arterial, with the coordinated direction | 0.95 |
+| Arterial, against the coordinated direction | 1.00 |
+| Side street | 1.00 |
+
+Kept close to 1.0 on purpose: the router is a **tie-breaker between paths of the same length**,
+not a detour finder. Aggressive weights (ring 0.55, arterial 0.70) were tried and dropped
+stopped-time further, but added enough distance to erase the gain. Measured across 240 fares vs
+unit weights: trip time **−3.9%**, time-stopped-at-signals **−13.7%**, average path length
+essentially unchanged. Sweep via `tools/router-sweep.mjs`.
 
 ## Picking
 
@@ -211,12 +234,41 @@ render on top of it.
 
 ## Economy
 
-`$0` at top left. On delivery a green **`$20` pops off the taxi itself** — animating up, holding,
-then fading — and only when that animation ends does the counter tick up.
+`$0` at top left. On delivery a green **fare price pops off the taxi itself**, rises for a beat,
+then **flies to the counter** at the top-left. When it lands, the counter bumps green and its
+number **rolls up** from the old total to the new one.
 
-The lag is intentional: it connects the payout to the drop-off event in the world rather than
-quietly incrementing a number in a corner while your attention is elsewhere. `popEarning()`
-projects the taxi's world position to screen space to anchor the element.
+Two phases rather than one because the payout has to travel from *the world* to *the HUD*: a
+number that jumps up without a visible link between the drop-off and the counter reads as a
+side effect. `popEarning()` projects the taxi's world position to anchor phase 1, and
+`counterScreenPos()` reads the counter's live viewport rect to aim phase 2 — resolved at launch,
+so a mid-run resize still lands each flight where the counter actually is now. `rollMoneyTo()`
+tweens the digits on rAF (not a CSS transition) so a second delivery arriving mid-roll re-aims
+the same animation at the new total instead of two counters racing. Roll length scales with the
+payout (~50ms per dollar, clamped) so a `$8` hop reads as a quick bump and a `$35` haul as a
+longer roll.
+
+### The meter
+
+Each fare is priced by **trip distance**, not a flat rate: `FARE_BASE + FARE_PER_BLOCK × blocks`,
+where `blocks` is the Manhattan distance between the pickup and drop-off intersections. The
+price is fixed at pickup — the moment both endpoints are known — and stamped on the fare so a
+long haul that runs into traffic pays the same as one that flies through green lights. Metering
+during the trip would double-count the clock and reward Loco Mode for the wrong reasons.
+
+| Blocks | Price |
+|---:|---:|
+| 1  | $8  |
+| 3  | $14 |
+| 5  | $20 |
+| 8  | $29 |
+| 10 | $35 |
+
+Calibration: median trip in the current city is ~5 blocks, which pays the old flat `$20` — so the
+soak suite's expected earnings are roughly unchanged. What is new is the *shape* of the choice: a
+kerbside rider whose destination happens to be next door is now worth less than one going across
+town, so "which fare to grab" is an economic decision as well as a timing one. A flat rate made
+that decision trivial.
 
 ## Crazy-taxi mode
 

@@ -1,4 +1,5 @@
 import { legalExits, nextIntersection, GRID } from '../city/grid.js';
+import { edgeClass } from '../sim/traffic.js';
 
 /**
  * Routing over the road network.
@@ -8,46 +9,82 @@ import { legalExits, nextIntersection, GRID } from '../city/grid.js';
  * arrived: `legalExits` forbids U-turns. Treating a plain (i, j) as the node would happily plan
  * routes that flip direction on the spot, and the car would never be able to execute them.
  *
- * At 5x5 that's 6*6*4 = 144 states, so a plain BFS is instant and gives fewest-turns-to-target
- * (equivalently fewest blocks, since every edge is one block long).
+ * At 5x5 that's 6*6*4 = 144 states — small enough that a plain rescan-the-open-set Dijkstra
+ * beats any structured heap.
+ *
+ * Weights encode the road hierarchy. A fewest-blocks router (unit weights) fights the signal
+ * coordination the city was tuned for: arterials run a green wave with a 64% share for their
+ * axis, and the outermost roads are unsignalised. Slightly preferring those roads produces
+ * routes with less time spent at reds and — because the weights sit close to 1.0 — no
+ * meaningful detouring. Measured across 240 fares vs unit-weight BFS: trip time -3.9%,
+ * time-stopped -13.7%, average path length essentially unchanged (see tools/router-sweep.mjs).
+ *
+ * The weights are ratios of expected trip-time-per-block, not raw seconds. Keeping side street
+ * at 1.0 and only nudging the preferred classes below it means the router is a tie-breaker on
+ * paths of equal length, not a detour finder — the difference between two 5-block routes, not
+ * "add two blocks to hit the arterial." Aggressive weights (ring 0.55, arterial 0.70) were
+ * tried; they dropped stopped-time further but added length that ate the win.
  */
+const EDGE_COST = {
+  ring: 0.90,
+  arterialWith: 0.95,
+  arterialAgainst: 1.00,      // 64% green helps, but reversed offsets cancel most of the wave
+  side: 1.00,
+};
 
 const key = (i, j, d) => `${i},${j},${d}`;
+
+function edgeCost(i, j, d) {
+  const edge = edgeClass(i, j, d);
+  if (edge.kind === 'ring') return EDGE_COST.ring;
+  if (edge.kind === 'arterial') return edge.withWave ? EDGE_COST.arterialWith : EDGE_COST.arterialAgainst;
+  return EDGE_COST.side;
+}
 
 /**
  * @param from  {{i, j, d}} the intersection the car is heading toward, and its current heading
  * @param target {{i, j}}   intersection to reach
+ * @param cost   optional (i, j, d) -> number, overriding the built-in road-hierarchy weights.
+ *               Only tools/router-sweep.mjs uses this, to compare tunings.
  * @returns array of directions to take at each successive intersection, or null if unreachable.
  *          An empty array means the car is already heading to the target.
  */
-export function findRoute(from, target) {
+export function findRoute(from, target, cost = edgeCost) {
   if (from.i === target.i && from.j === target.j) return [];
 
   const start = key(from.i, from.j, from.d);
+  const dist = new Map([[start, 0]]);
   const prev = new Map([[start, null]]);
-  const queue = [{ i: from.i, j: from.j, d: from.d, k: start }];
+  const open = new Set([start]);
 
-  for (let head = 0; head < queue.length; head++) {
-    const node = queue[head];
+  while (open.size) {
+    let cur = null;
+    let curDist = Infinity;
+    for (const k of open) {
+      const d = dist.get(k);
+      if (d < curDist) { curDist = d; cur = k; }
+    }
+    open.delete(cur);
 
-    for (const dOut of legalExits(node.d, node.i, node.j)) {
-      const next = nextIntersection(dOut, node.i, node.j);
-      if (!next) continue;
-
-      const nk = key(next.i, next.j, dOut);
-      if (prev.has(nk)) continue;
-      prev.set(nk, { from: node.k, dir: dOut });
-
-      if (next.i === target.i && next.j === target.j) {
-        // Walk the parent chain back to the start, collecting the turns taken.
-        const out = [];
-        for (let cursor = nk; prev.get(cursor); cursor = prev.get(cursor).from) {
-          out.unshift(prev.get(cursor).dir);
-        }
-        return out;
+    const [ci, cj, cd] = cur.split(',').map(Number);
+    if (ci === target.i && cj === target.j) {
+      const out = [];
+      for (let cursor = cur; prev.get(cursor); cursor = prev.get(cursor).from) {
+        out.unshift(prev.get(cursor).dir);
       }
+      return out;
+    }
 
-      queue.push({ i: next.i, j: next.j, d: dOut, k: nk });
+    for (const dOut of legalExits(cd, ci, cj)) {
+      const next = nextIntersection(dOut, ci, cj);
+      if (!next) continue;
+      const nk = key(next.i, next.j, dOut);
+      const nd = curDist + cost(ci, cj, dOut);
+      if (nd < (dist.get(nk) ?? Infinity)) {
+        dist.set(nk, nd);
+        prev.set(nk, { from: cur, dir: dOut });
+        open.add(nk);
+      }
     }
   }
 
