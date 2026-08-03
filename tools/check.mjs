@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geometry/taxi.js',
   '../src/geometry/lightshaft.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/dust.js', '../src/game/sparks.js', '../src/game/smoke.js',
-  '../src/game/debris.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
+  '../src/game/debris.js', '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
   '../src/game/dropoffindicator.js'];
 
 const TOOLS = [

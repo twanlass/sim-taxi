@@ -13,6 +13,11 @@ const CAR_LEN = 3.4;
 const CAR_W = 1.7;
 const TAXI_SCALE = 1.18;
 
+// World-space distance from the taxi origin back to the bumper — used by the tailpipe flame burst
+// (main.js). Kept here rather than in flames.js so both offsets follow if the mesh ever resizes.
+export const TAXI_TAILPIPE_BACK = (CAR_LEN / 2) * TAXI_SCALE;
+export const TAXI_TAILPIPE_HEIGHT = 0.42;
+
 export function createTaxiMesh() {
   const group = new THREE.Group();
   group.name = 'taxi';

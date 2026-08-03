@@ -124,6 +124,25 @@ point is to make speed itself read.
 An earlier version used camera-facing billboards. They sat in the same plane as the road and read
 as flat stickers next to the faceted cars.
 
+### Loco Mode kickoff — `game/flames.js`, plus a wheelie in `sim/traffic.js`
+
+Two effects on the press that first engages Loco Mode. Fired from `kickLocoMode()` in `main.js`
+only when `boost.press()` returns true — the ready→active transition — so a re-press during a
+running boost doesn't re-fire either.
+
+- **Tailpipe flame.** One-shot `InstancedMesh` burst of additive-blended orange motes, emitted
+  from the taxi's rear bumper (`TAXI_TAILPIPE_BACK` / `TAXI_TAILPIPE_HEIGHT` exported from
+  `geometry/taxi.js`) shooting backwards along `-yaw`. Short-lived (~0.38s), grows fast, air-brakes
+  quickly; alpha snaps to 1 then eases out. Additive blend so it *brightens* the road behind it
+  rather than reading as an opaque decal.
+
+- **Wheelie pop.** A hand-shaped bump on `car.pitch` — sine ease-out to peak by t=0.28,
+  smoothstep back to zero — layered on top of the pitch spring. Handled outside the spring
+  because the spring is calibrated for tiny suspension travel; a 15°+ pop through it would either
+  be swallowed by damping or need a wildly out-of-scale impulse. Lift compensation reuses the
+  same `Math.abs(Math.sin(pitch)) * (CAR_LEN / 2)` so the rear stays on the road as the nose
+  comes up.
+
 ### Route line — `game/routeline.js`
 
 A ribbon on the road showing the planned route. Held at a constant ~2px using the
