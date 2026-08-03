@@ -36,6 +36,12 @@ const SPEED = 8.5;
 // junction, and the implied steering angle — atan(LANE / this) — stays a believable 13°.
 const LANE_CHANGE_LEN = 9;
 
+// Wheelie profile for the Loco Mode kickoff — see the pitch-composition block below where the
+// shape is applied. Peak is about 17°: enough to read as the nose jumping off the line, short of
+// the point where the underside of the car would clip through the road on a long ramp-up.
+const WHEELIE_PEAK = 0.30;
+const WHEELIE_DUR = 0.55;
+
 const SIGNAL = {
   // 16s, not the 28s first tried. A sweep of cycle length against throughput came back monotonic
   // — 14s gave 3.80 units/s per car, 28s gave 2.36 — because with sparse, randomly-turning
@@ -1051,15 +1057,38 @@ export function createTraffic(rng, scene, count = 24) {
       car.pitchV += ((targetPitch - car.pitch) * 60 - car.pitchV * 6) * dt;
       car.pitch += car.pitchV * dt;
 
+      // Loco Mode kickoff: a short, one-shot wheelie added on top of the pitch spring. Handled
+      // outside the spring on purpose — the spring is calibrated for tiny suspension travel, so a
+      // 15° pop through it would either be swallowed by damping or need a wildly out-of-scale
+      // impulse. A hand-shaped bump ramps up fast, holds a beat, drops with a small settle, and
+      // never leaves the pitch bookkeeping in a weird state when it ends.
+      let wheelieBoost = 0;
+      if (car.wheelieT !== undefined && car.wheelieT !== null) {
+        car.wheelieT += dt;
+        const dur = WHEELIE_DUR;
+        if (car.wheelieT >= dur) {
+          car.wheelieT = null;
+        } else {
+          const t = car.wheelieT / dur;
+          // Rise: ease-out sine to 1 by t=0.28. Fall: smoothstep back to 0 with a small
+          // bounce back to zero so it doesn't overshoot into a nose-dip.
+          const shape = t < 0.28
+            ? Math.sin((t / 0.28) * (Math.PI / 2))
+            : (1 - (t - 0.28) / 0.72) ** 1.6;
+          wheelieBoost = WHEELIE_PEAK * shape;
+        }
+      }
+      const shownPitch = car.pitch + wheelieBoost;
+
       // Roll and pitch both pivot on the car's origin at road level, so tilting drives one edge
       // underground. Lifting by the sagitta of each keeps the low edge on the tarmac and reads as
       // suspension travel rather than clipping.
       const lift = Math.abs(Math.sin(roll)) * (CAR_W / 2)
-        + Math.abs(Math.sin(car.pitch)) * (CAR_LEN / 2);
+        + Math.abs(Math.sin(shownPitch)) * (CAR_LEN / 2);
 
       if (car.isTaxi) {
         taxiGroup.position.set(car.x, ROAD_Y + bob + lift, car.z);
-        taxiGroup.rotation.set(roll, car.yaw, car.pitch);
+        taxiGroup.rotation.set(roll, car.yaw, shownPitch);
         // Decal stays flat on the road, unaffected by roll, pitch or bob.
         taxiSelection.position.set(car.x, ROAD_Y + 0.02, car.z);
         continue;

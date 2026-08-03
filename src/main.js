@@ -17,6 +17,8 @@ import { createDust } from './game/dust.js';
 import { createSparks } from './game/sparks.js';
 import { createSmoke } from './game/smoke.js';
 import { createDebris } from './game/debris.js';
+import { createFlames } from './game/flames.js';
+import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
@@ -84,6 +86,7 @@ const dust = createDust(scene, camera, makeRng(seed + 77));
 const sparks = createSparks(scene, makeRng(runSeed + 88));
 const smoke = createSmoke(scene, makeRng(runSeed + 99));
 const debris = createDebris(scene, makeRng(runSeed + 111));
+const flames = createFlames(scene, makeRng(runSeed + 133));
 
 // Collision detection between the taxi and ambient cars. Only fires while boosting — see
 // src/sim/collisions.js. On impact the taxi is wrecked: the merged taxi shell hides, debris
@@ -386,7 +389,28 @@ function pressBoost(event) {
   if (fares.state.gameOver) return;
   event.preventDefault();
   boostButton.setPointerCapture?.(event.pointerId);
-  if (boost.press()) flash('Loco Mode!');
+  if (boost.press()) {
+    flash('Loco Mode!');
+    kickLocoMode();
+  }
+}
+
+// Fires only on the transition into Loco Mode — not while it's already active — so a re-press
+// during a running boost doesn't stack a fresh wheelie on top of one already animating (and
+// doesn't double-fire the flame). `boost.press()` returns true only on that transition, which is
+// why the whole kick is gated on it above.
+function kickLocoMode() {
+  const car = traffic.taxi;
+  if (car.crashed) return;
+  car.wheelieT = 0;
+  const bx = -Math.cos(car.yaw);
+  const bz = Math.sin(car.yaw);
+  flames.burst(
+    car.x + bx * TAXI_TAILPIPE_BACK,
+    TAXI_TAILPIPE_HEIGHT,
+    car.z + bz * TAXI_TAILPIPE_BACK,
+    car.yaw,
+  );
 }
 function releaseBoost(event) {
   boost.release();
@@ -484,6 +508,7 @@ function frame() {
   sparks.update(dt);
   smoke.update(dt);
   debris.update(dt);
+  flames.update(dt);
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 
