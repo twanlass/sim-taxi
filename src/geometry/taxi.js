@@ -63,8 +63,16 @@ export function createTaxiMesh() {
   // the ghost's depth toward the camera by a fraction of a unit — enough to reliably fail
   // GreaterDepth against the shell on visible pixels, still comfortably deeper than any building
   // in front of the taxi on occluded pixels.
+  //
+  // `transparent: true` isn't for blending — the fill is fully opaque — it's the only reliable way
+  // to force the ghost into the transparent queue so it renders *after* opaque and tests against
+  // the shell's depth. Left in the opaque queue the sort order between shell and ghost isn't
+  // guaranteed, and a ghost-first draw sees ground/building depth in the buffer instead of shell
+  // and the GreaterDepth test can pass on visible pixels.
   const ghostFillMat = new THREE.MeshBasicMaterial({
     color: 0xffffff,
+    transparent: true,
+    opacity: 1,
     depthWrite: false,
     depthFunc: THREE.GreaterDepth,
     polygonOffset: true,
