@@ -99,7 +99,7 @@ than one taxi, and assigning colour only at pickup is what would leave the inter
 
 ## Routing
 
-`src/game/route.js` is BFS over **directed** states `(i, j, d)` — 144 states, instant.
+`src/game/route.js` is Dijkstra over **directed** states `(i, j, d)` — 144 states, instant.
 
 The node has to carry the approach direction because `legalExits` forbids U-turns. A plain
 `(i, j)` node would plan routes that flip direction on the spot, and the car could never execute
@@ -109,6 +109,28 @@ them.
 planning from its current intersection produces a route whose first step is silently skipped and
 every later turn lands one intersection early. Planning starts from the intersection the taxi is
 *heading toward*, plus its current heading — the first point at which it can still make a choice.
+
+### Road-hierarchy weights
+
+Edges are not equal cost. The signal model was tuned around a coordinated green wave on two
+arterials per axis (64% green share, offsets running with the wave direction) and an
+unsignalised ring around the outside. A fewest-blocks router fights that coordination — it will
+happily plan a route straight up a side street when the arterial parallel to it exists.
+
+Current weights, per block traversed:
+
+| Class | Weight |
+|---|---|
+| Ring (outermost roads) | 0.90 |
+| Arterial, with the coordinated direction | 0.95 |
+| Arterial, against the coordinated direction | 1.00 |
+| Side street | 1.00 |
+
+Kept close to 1.0 on purpose: the router is a **tie-breaker between paths of the same length**,
+not a detour finder. Aggressive weights (ring 0.55, arterial 0.70) were tried and dropped
+stopped-time further, but added enough distance to erase the gain. Measured across 240 fares vs
+unit weights: trip time **−3.9%**, time-stopped-at-signals **−13.7%**, average path length
+essentially unchanged. Sweep via `tools/router-sweep.mjs`.
 
 ## Picking
 

@@ -20,7 +20,7 @@ src/
 
   game/                 the player's layer
     fares.js            fare state machine, spawning, scoring
-    route.js            directed BFS over the road grid
+    route.js            directed Dijkstra with road-hierarchy weights
     routeline.js        the route ribbon on the road
     pick.js             raycast click picking
     timerring.js        the fare clock, as a physical object

@@ -56,6 +56,31 @@ export function configureSignals(config) {
 
 export const signalCycle = () => SIGNAL.cycle;
 
+/**
+ * Road hierarchy of the edge you get by leaving (i, j) in direction d.
+ *
+ * 'ring'     — outermost road, unsignalised except at the four corners
+ * 'arterial' — one of the two main streets: 64% green share, offsets timed for the wave
+ * 'side'     — everything else
+ *
+ * `withWave` matters only for arterials: an arterial's offsets are computed with a
+ * coordinated travel direction; traversing it that way meets consecutive greens, the other
+ * way meets consecutive reds. For a side street the concept doesn't apply.
+ */
+export function edgeClass(i, j, d) {
+  const axisIsX = isXAxis(d);
+  const line = axisIsX ? j : i;
+  const onOuter = line === 0 || line === GRID;
+  if (onOuter) return { kind: 'ring', withWave: true };
+
+  const arterialSet = axisIsX ? SIGNAL.arterialX : SIGNAL.arterialZ;
+  if (arterialSet.has(line)) {
+    const coordinated = (axisIsX ? SIGNAL.dirX : SIGNAL.dirZ).get(line) ?? 1;
+    return { kind: 'arterial', withWave: dirSign(d) === Math.sign(coordinated) };
+  }
+  return { kind: 'side', withWave: false };
+}
+
 /** Seconds a platoon takes to cover one block at cruising speed — the basis of every offset. */
 const blockTime = () => PITCH / SPEED;
 
