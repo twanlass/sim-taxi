@@ -7,9 +7,9 @@ import * as THREE from 'three';
 // touch and then snuffs out instead of drifting.
 
 const MAX_FLAMES = 48;
-const LIFE = 0.38;
-const START_SIZE = 0.18;
-const END_SIZE = 0.55;
+const LIFE = 0.76;
+const START_SIZE = 0.36;
+const END_SIZE = 1.10;
 
 export function createFlames(scene, rng) {
   const geometry = new THREE.IcosahedronGeometry(0.5, 0);
