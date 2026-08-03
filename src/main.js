@@ -78,71 +78,6 @@ const pan = shot ? null : attachDragPan(controller, renderer.domElement, aspect,
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
 
-// --- Ghost taxi occlusion gate ---------------------------------------------
-// The ghost silhouette (see geometry/taxi.js) uses depthFunc: GreaterDepth so it draws only where
-// something has already put nearer depth in the buffer. That alone isn't enough — when the taxi is
-// fully visible, shell and ghost sit on the same geometry, and floating-point ties on the GreaterDepth
-// test speckle a few ghost pixels straight onto the live sprite. So we also gate the whole ghost
-// group with a real occlusion test: cast rays from the camera at nine points around the taxi
-// bounding box against the buildings mesh, count how many are blocked closer than the sample point,
-// and only show the ghost once a majority (>50%) are.
-const buildingsMesh = scene.getObjectByName('buildings');
-const occRay = new THREE.Raycaster();
-const occNdc = new THREE.Vector2();
-const occSamples = [];
-// 8 bounding-box corners + centre. Rough taxi extents in world units, matching the scaled shell.
-{
-  const HX = 2.2, HY = 1.4, HZ = 1.1;    // slightly generous half-extents (TAXI_SCALE ≈ 1.18)
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    occSamples.push([sx * HX, 0.4, sz * HZ]);       // low corners
-    occSamples.push([sx * HX, HY * 1.4, sz * HZ]);  // top corners (include the roof-sign height)
-  }
-  occSamples.push([0, HY, 0]);                      // centre
-}
-const occWorld = new THREE.Vector3();
-const OCC_THRESHOLD = Math.floor(occSamples.length / 2) + 1;   // strictly more than half: 5 of 9
-
-// Fade instead of a hard pop when the occlusion state flips. tau ≈ 0.12s reads as an eased
-// transition without lagging so far behind the taxi that the ghost stays lit half a block after
-// it's cleared the building.
-const GHOST_FADE_TAU = 0.12;
-let ghostAlpha = 0;
-
-function updateGhostVisibility(dt) {
-  if (!buildingsMesh || !traffic.taxiGhost) return;
-  const car = traffic.taxi;
-  const cx = Math.cos(car.yaw), sy = Math.sin(car.yaw);
-  const baseY = 0;
-  let blocked = 0;
-  for (let i = 0; i < occSamples.length; i++) {
-    const [lx, ly, lz] = occSamples[i];
-    // Rotate the local sample by the taxi's yaw and translate to its world position.
-    occWorld.set(
-      car.x + lx * cx + lz * sy,
-      baseY + ly,
-      car.z - lx * sy + lz * cx,
-    );
-    const ndc = occWorld.clone().project(camera);
-    // If the sample is outside the frustum it's not visually occluded, it's just off-screen; skip.
-    if (ndc.z < -1 || ndc.z > 1 || Math.abs(ndc.x) > 1 || Math.abs(ndc.y) > 1) continue;
-    occNdc.set(ndc.x, ndc.y);
-    occRay.setFromCamera(occNdc, camera);
-    // Distance along the ray from origin to the sample — works for both perspective and ortho.
-    const targetDist = occWorld.clone().sub(occRay.ray.origin).dot(occRay.ray.direction);
-    const hits = occRay.intersectObject(buildingsMesh, false);
-    if (hits.length && hits[0].distance < targetDist - 0.5) blocked++;
-  }
-  const targetAlpha = blocked >= OCC_THRESHOLD ? 1 : 0;
-  // Framerate-independent exponential ease: close a fraction (1 - exp(-dt/tau)) of the gap each
-  // frame, so the rate feels the same at 30 and 144 fps.
-  ghostAlpha += (targetAlpha - ghostAlpha) * (1 - Math.exp(-Math.max(dt, 0) / GHOST_FADE_TAU));
-  const mats = traffic.taxiGhostMaterials;
-  if (mats) for (const m of mats) m.opacity = ghostAlpha;
-  // Skip the draw call altogether once fully faded out — nothing to blend, saves the transparent
-  // pass entirely. Threshold well below one-frame's-worth of ease so the tail never blinks off.
-  traffic.taxiGhost.visible = ghostAlpha > 0.01;
-}
-
 // Orthographic camera: the vertical world span is exactly 2 * zoom, so world-units-per-pixel
 // falls straight out of the frustum height.
 const boost = createBoost();
@@ -517,7 +452,6 @@ function frame() {
 
   layRubber();
   kickDust();
-  updateGhostVisibility(dt);
   updateHud(dt);
   riderFinder.update(dt, fares.waitingAll());
   dropoffIndicator.update(fares.carrying());
@@ -583,8 +517,6 @@ if (shot) {
   if (selected && traffic.taxi.pendingTarget) {
     routeLine.update(traffic.taxi, traffic.taxi.route);
   }
-  // Screenshots are one-shot, so warm the fade all the way rather than catching it mid-lerp.
-  for (let i = 0; i < 30; i++) updateGhostVisibility(0.05);
   renderer.render(scene, camera);
   document.body.dataset.shotReady = 'true';
 } else {

@@ -351,7 +351,6 @@ export function createTraffic(rng, scene, count = 24) {
     group: taxiGroup,
     selection: taxiSelection,
     ghost: taxiGhost,
-    ghostMaterials: taxiGhostMaterials,
     setFareColor: setTaxiFareColor,
   } = createTaxiMesh();
   scene.add(taxiGroup);
@@ -932,5 +931,5 @@ export function createTraffic(rng, scene, count = 24) {
     for (let elapsed = 0; elapsed < seconds; elapsed += step) update(step);
   }
 
-  return { cars, taxi, taxiGroup, taxiSelection, taxiGhost, taxiGhostMaterials, setTaxiFareColor, mesh, barMesh, update, warmup, stats, lightPhase };
+  return { cars, taxi, taxiGroup, taxiSelection, taxiGhost, setTaxiFareColor, mesh, barMesh, update, warmup, stats, lightPhase };
 }
