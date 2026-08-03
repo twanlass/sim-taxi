@@ -42,6 +42,18 @@ export const PALETTE = {
   // Windows stay dark in every lighting condition, which is what sells scale on a blocky mass.
   window: '#3A424C',
 
+  // Landmark palette. Chosen so each named landmark reads instantly at play zoom — the copper
+  // green dome, the pale limestone clocktower and cathedral, the dark red lattice on the radio
+  // tower. Kept muted enough that the taxi and fare pins still win at picking colour attention.
+  limestone: '#DED6C0',
+  copperDome: '#6FA595',
+  brass: '#D4B24A',
+  cathedralStone: '#C9BFA6',
+  cathedralRoof: '#4F5E58',
+  latticeRed: '#B45241',
+  beacon: '#F0554A',
+  hotelGlass: '#4E6478',
+
   // Yellow is reserved for the taxi. An amber car used to sit in this list and was genuinely
   // mistakable for the player's vehicle at play zoom, where both are a few pixels of warm colour.
   carBody: ['#C9503F', '#2F8F94', '#4E7FC0', '#E4E1DA', '#3F8A63', '#8A6BB0', '#D9D2C3', '#455160'],
