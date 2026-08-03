@@ -92,6 +92,14 @@ export const getFareSeconds = () => fareSeconds;
 
 const ARRIVE_RADIUS = 7;       // how close the taxi must get to count as arrived
 
+// How long the rider takes to run from the kerb and hop into the taxi after pickup fires.
+//
+// The pickup *event* still fires the instant the taxi is inside ARRIVE_RADIUS — game logic, HUD
+// and the timer transfer all start immediately. This only defers the moment the rider marker
+// physically hides, so a run-and-jump animation gets to play across it. Tuned against the timer
+// transfer's 0.65s so the ring lands on the taxi a beat before the rider disappears into it.
+const BOARD_SECONDS = 0.9;
+
 const NO_EVENTS = Object.freeze([]);
 
 /**
@@ -246,6 +254,10 @@ export function createFareSystem(rng, scene) {
     state.fares.push(fare);
 
     place(slot.passenger, spot.i, spot.j);
+    // Slot reuse: the previous rider on this slot may have left the figure shrunk and tumbled at
+    // the end of their board() pose. Reset so the new waiter starts clean on this frame — wave()
+    // would fix it on the next tick, but there is one frame between spawn and first wave.
+    slot.passenger.standing?.rest?.();
     slot.destination.group.visible = false;
     // Under the rider, not at the junction centre — the clock belongs to the person.
     const kerb = cornerFor(spot.i, spot.j);
@@ -254,6 +266,11 @@ export function createFareSystem(rng, scene) {
   }
 
   function beginRide(fare, taxiCar) {
+    // Remember where the pickup happened before we overwrite `target` with the drop-off. The
+    // boarding animation needs the kerb corner as its origin so the figure can run from it.
+    fare.boardingFrom = cornerFor(fare.target.i, fare.target.j);
+    fare.boarding = 0;
+
     // Destination first, colour second — the draw order is load-bearing. Both come off the same
     // stream, so swapping them reshuffles every intersection a seed produces and the headless
     // baselines stop describing the same run.
@@ -269,7 +286,10 @@ export function createFareSystem(rng, scene) {
     fare.value = priceFor(fare.pickup, spot);
     // Deliberately does not touch limit or timeLeft: the clock started when the rider appeared
     // and keeps running straight through the pickup.
-    fare.slot.passenger.group.visible = false;
+    //
+    // The rider stays *visible* here — the pickup event fires this frame, but they still need to
+    // run to the taxi and hop in. board() in the update tick drives that and hides the marker
+    // when the animation ends.
     place(fare.slot.destination, fare.target.i, fare.target.j);
     // The rider is aboard, so the deadline is the car's problem now — send the clock after it,
     // and let it draw over the city so the taxi never loses its timer behind a building.
@@ -365,7 +385,24 @@ export function createFareSystem(rng, scene) {
       // Wave the waiting rider. Driven off sim time so it stays deterministic for screenshots.
       if (fare.stage === 'waiting' && passenger.standing) passenger.standing.wave(state.elapsed);
       // Bounce the drop-off pin, so the thing you are being asked to drive to is the thing moving.
-      if (fare.stage === 'riding') { destination.update(dt); fare.ridingFor += dt; }
+      if (fare.stage === 'riding') {
+        destination.update(dt);
+        fare.ridingFor += dt;
+        // Boarding animation: the marker stays visible for BOARD_SECONDS after pickup while the
+        // figure runs across the kerb and hops into the taxi. `boardingFrom` was captured at the
+        // pickup instant; the delta to the taxi's *current* position is re-read every frame so a
+        // slight drift while the car settles into `parked` still lands the rider on the car.
+        if (fare.boarding !== undefined && passenger.standing?.board) {
+          fare.boarding += dt;
+          const t = Math.min(1, fare.boarding / BOARD_SECONDS);
+          const kerb = fare.boardingFrom;
+          passenger.standing.board(t, taxiCar.x - kerb.x, taxiCar.z - kerb.z);
+          if (t >= 1) {
+            passenger.group.visible = false;
+            fare.boarding = undefined;
+          }
+        }
+      }
 
       fare.timeLeft -= dt;
 
