@@ -100,6 +100,19 @@
         background: linear-gradient(90deg, #FFE873 var(--pct, 100%), #fff 0);
         box-shadow: 0 0 30px rgba(255, 232, 115, 0.85);
       }
+      /* A mirror of the dial floated above the pill, only shown while the button is active. The
+         finger holding the button covers the fill on mobile; this thin bar reads the same `--pct`
+         and stays visible above the touch. Width tracks the pill (left/right pinned to 0), so it
+         resizes with the button and stays perfectly aligned. */
+      #boost::before {
+        content: ''; position: absolute; left: 0; right: 0; bottom: calc(100% + 8px);
+        height: 12px; border-radius: 100px; border: 2px solid #16120a;
+        background: linear-gradient(90deg, #FFE873 var(--pct, 100%), #fff 0);
+        opacity: 0; transform: translateY(4px);
+        transition: opacity 0.12s ease, transform 0.12s ease;
+        pointer-events: none;
+      }
+      #boost.is-active::before { opacity: 1; transform: translateY(0); }
       #boost.is-charging {
         cursor: default; color: rgba(255, 255, 255, 0.5);
         background: linear-gradient(90deg, #6f8899 var(--pct, 0%), rgba(255, 255, 255, 0.12) 0);
