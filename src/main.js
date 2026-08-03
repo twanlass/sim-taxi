@@ -196,9 +196,11 @@ function updateHud(dt) {
 
   if (s.gameOver && hud.banner && hud.banner.hidden) {
     hud.banner.hidden = false;
-    hud.banner.innerHTML = `<strong>Run over</strong><span>${s.failReason}</span>`
+    hud.banner.innerHTML = `<strong>Game Over</strong><span>${s.failReason}</span>`
       + `<span>${s.delivered} fares · $${s.money}</span>`
-      + '<span class="small">refresh to try again</span>';
+      + '<button type="button" class="retry">Retry</button>';
+    hud.banner.querySelector('.retry')?.addEventListener('click', () => location.reload());
+    document.body.classList.add('game-over');
   }
 }
 
