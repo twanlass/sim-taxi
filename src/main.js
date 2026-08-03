@@ -23,7 +23,7 @@ import { createRiderFinder } from './game/riderfinder.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
 import { findRoute, planOrigin } from './game/route.js';
-import { getActiveShot, getSeed, getRunSeed, getCarCount } from './util/shot.js';
+import { getActiveShot, getSeed, getRunSeed, getCarCount, getSignalStyle } from './util/shot.js';
 
 const seed = getSeed();                             // the city itself — stable, so it's learnable
 const shot = getActiveShot();
@@ -55,7 +55,7 @@ scene.add(createGround(makeRng(seed + 11), layout));
 scene.add(createBuildings(makeRng(seed + 22), layout).mesh);
 scene.add(createProps(makeRng(seed + 33), layout));
 
-const traffic = createTraffic(makeRng(runSeed + 44), scene, getCarCount());
+const traffic = createTraffic(makeRng(runSeed + 44), scene, getCarCount(), getSignalStyle());
 const fares = createFareSystem(makeRng(runSeed + 55), scene);
 const police = createPolice(makeRng(runSeed + 66), scene);
 // One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and

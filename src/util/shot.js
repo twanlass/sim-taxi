@@ -62,6 +62,19 @@ export function getRunSeed(citySeed, deterministic) {
   return (Math.random() * 0xffffffff) >>> 0;
 }
 
+/**
+ * Which signal visual to render. `?signals=overhead|post|bollard|bar`, default `bar` (the painted
+ * stop line on the tarmac). The other three are alternate designs kept around for review — each
+ * shows the same phase data, just as a different piece of geometry.
+ */
+export function getSignalStyle(fallback = 'bar') {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('signals');
+  if (!raw) return fallback;
+  const allowed = new Set(['bar', 'overhead', 'post', 'bollard']);
+  return allowed.has(raw) ? raw : fallback;
+}
+
 export function getSeed(fallback = 71624) {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('seed');
