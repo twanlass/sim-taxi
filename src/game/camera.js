@@ -39,6 +39,21 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
     state,
     resize: (aspectRatio) => apply(aspectRatio),
     update: (aspectRatio) => apply(aspectRatio),
+    /**
+     * Ease the camera target toward `(x, z)`. Framerate-independent: `smoothing` is a per-second
+     * rate, so `1 - exp(-dt * smoothing)` is the fraction closed each frame. Higher = snappier.
+     * Callers hold their own gate on when to follow (e.g. only while boost is active); this just
+     * does the one step and leaves the state alone otherwise, so releasing the gate stops the
+     * chase without any rubber-band back.
+     */
+    followXZ(x, z, dt, smoothing = 3.2, aspectRatio) {
+      const t = 1 - Math.exp(-dt * smoothing);
+      state.target.x += (x - state.target.x) * t;
+      state.target.z += (z - state.target.z) * t;
+      state.target.x = THREE.MathUtils.clamp(state.target.x, -HALF_SPAN, HALF_SPAN);
+      state.target.z = THREE.MathUtils.clamp(state.target.z, -HALF_SPAN, HALF_SPAN);
+      apply(aspectRatio);
+    },
   };
 }
 
