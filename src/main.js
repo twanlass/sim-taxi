@@ -154,8 +154,11 @@ const hud = {
   toast: document.getElementById('toast'),
 };
 
-// The counter lags the payout on purpose: the flying "$20" lands first, then the total ticks.
+// The counter lags the payout on purpose: the flying "$X" rises off the taxi, travels to the HUD,
+// and only when it lands does the total tick up — so the payout has a visible path from the world
+// into the counter rather than a number silently changing in the corner.
 let shownMoney = 0;
+let moneyRoll = null;
 
 /** Screen position of the taxi, for anchoring the earnings pop. */
 function taxiScreenPos() {
@@ -166,20 +169,86 @@ function taxiScreenPos() {
   };
 }
 
+/** Centre of the money counter in viewport coordinates — the flight's target. */
+function counterScreenPos() {
+  // Anchor on the `.money` wrapper rather than the `#money` span so the flight lands on the
+  // whole "$X" unit, `$` prefix and all, rather than just the digits.
+  const box = hud.money?.parentElement;
+  if (!box) return null;
+  const r = box.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+/**
+ * Roll the counter from its current value up to `target`. Uses rAF rather than a CSS tween so a
+ * second delivery landing mid-roll simply re-aims the same animation at the new total instead of
+ * two counters racing. The bump class is toggled off then on across a reflow, because a class that
+ * stays put doesn't re-fire the keyframe.
+ */
+function rollMoneyTo(target) {
+  if (!hud.money) return;
+  if (moneyRoll) cancelAnimationFrame(moneyRoll);
+  const from = shownMoney;
+  const delta = target - from;
+  if (delta <= 0) { shownMoney = target; hud.money.textContent = String(target); return; }
+  // ~50ms per dollar so a $8 tick reads as a quick bump and a $35 one as a longer roll, clamped so
+  // neither extreme feels wrong.
+  const dur = Math.min(700, Math.max(240, delta * 50));
+  const t0 = performance.now();
+  const step = (now) => {
+    const t = Math.min(1, (now - t0) / dur);
+    const eased = 1 - (1 - t) * (1 - t);
+    shownMoney = Math.round(from + delta * eased);
+    hud.money.textContent = String(shownMoney);
+    if (t < 1) moneyRoll = requestAnimationFrame(step);
+    else { shownMoney = target; moneyRoll = null; }
+  };
+  moneyRoll = requestAnimationFrame(step);
+  // Bump the whole "$X" unit — the `$` prefix lives on the parent — so the payout registers as one
+  // visual event rather than just a digit changing. Toggle off / reflow / on to re-fire keyframes.
+  const bump = hud.money.parentElement;
+  if (bump) {
+    bump.classList.remove('money-bumped');
+    void bump.offsetWidth;
+    bump.classList.add('money-bumped');
+  }
+}
+
 function popEarning(amount) {
-  const at = taxiScreenPos();
+  const start = taxiScreenPos();
   const el = document.createElement('div');
   el.className = 'earning';
   el.textContent = `$${amount}`;
-  el.style.left = `${at.x}px`;
-  el.style.top = `${at.y}px`;
+  el.style.left = `${start.x}px`;
+  el.style.top = `${start.y}px`;
   document.body.append(el);
 
-  el.addEventListener('animationend', () => {
-    el.remove();
-    shownMoney = fares.state.money;
-    if (hud.money) hud.money.textContent = String(shownMoney);
-  }, { once: true });
+  // The counter's position is resolved *at launch* rather than baked into a CSS keyframe, so a
+  // window resize between deliveries still aims each flight at where the counter actually is now.
+  const target = counterScreenPos() ?? { x: start.x, y: start.y - 74 };
+  const dx = target.x - start.x;
+  const dy = target.y - start.y;
+
+  // Phase 1: rise off the taxi. Reads as "the payout leaving the world" — same shape as the old
+  // pop, just shorter so it can hand off to phase 2 without dragging.
+  const rise = el.animate([
+    { opacity: 0, transform: 'translate(-50%, -50%) translateY(4px)   scale(0.8)' },
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-22px) scale(1.06)', offset: 0.5 },
+    { opacity: 1, transform: 'translate(-50%, -50%) translateY(-30px) scale(1)' },
+  ], { duration: 620, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
+
+  rise.onfinish = () => {
+    // Phase 2: fly to the counter and shrink, landing on top of it. Slight scale-down at the end
+    // so the flight has a target rather than a vague fade-in-the-middle.
+    const fly = el.animate([
+      { opacity: 1, transform: 'translate(-50%, -50%) translateY(-30px) scale(1)' },
+      { opacity: 0, transform: `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(0.55)` },
+    ], { duration: 460, easing: 'cubic-bezier(0.42, 0, 0.58, 1)', fill: 'forwards' });
+    fly.onfinish = () => {
+      el.remove();
+      rollMoneyTo(fares.state.money);
+    };
+  };
 }
 
 let toastTimer = 0;
