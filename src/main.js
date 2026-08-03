@@ -65,8 +65,16 @@ const controller = createCityCamera(aspect(), {
 const { camera } = controller;
 controller.update(aspect());
 
+// Below this viewport width the frustum is sized by height, so the city runs off both sides and
+// the fixed framing stops working — that's where drag-to-pan and boost-follow earn their keep.
+// Above it (any typical desktop or landscape tablet) the whole city already fits, so both would
+// only move things around for no reason. Live viewport width rather than a media query lets a
+// resize flip modes without a reload.
+const NARROW_VIEWPORT = 768;
+const isNarrow = () => window.innerWidth < NARROW_VIEWPORT;
+
 // Screenshots frame themselves, and a shot run has no user to drag anything.
-const pan = shot ? null : attachDragPan(controller, renderer.domElement, aspect);
+const pan = shot ? null : attachDragPan(controller, renderer.domElement, aspect, isNarrow);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
 
@@ -395,13 +403,14 @@ function frame() {
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
 
-  // Loco Mode chases the taxi. The default framing keeps the whole city visible so every fare is
-  // reachable in a tap — good for planning, but during a boost the action is a moving car, not a
-  // map, and staying wide leaves the taxi a speck. Follow only while boost is active: no gate on
-  // the way out means releasing the button just leaves the camera wherever it landed instead of
-  // snapping back. A user drag during boost is overridden on the next frame — that's intended,
-  // panning is a planning gesture and boost is the opposite of planning.
-  if (boost.isActive() && !fares.state.gameOver) {
+  // Loco Mode chases the taxi on narrow viewports where the fixed framing has already given up —
+  // in portrait the taxi is often off-screen, so the follow is the only way to see the boost. On
+  // desktop the whole city is in frame at all times and following would just slide the map under
+  // the player for no reason, so we skip it. Follow only while boost is active: no gate on the
+  // way out means releasing the button leaves the camera wherever it landed instead of snapping
+  // back. A user drag during boost is overridden on the next frame — panning is a planning
+  // gesture and boost is the opposite of planning.
+  if (boost.isActive() && !fares.state.gameOver && isNarrow()) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, 3.2, aspect());
   }
 
