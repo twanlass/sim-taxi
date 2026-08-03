@@ -115,40 +115,48 @@
       }
       body.shot-mode #boost { display: none; }
 
-      /* Rider finder — mirror of the Loco Mode pill on the opposite corner. A circular chip so
-         the timer ring around it reads as the fare's clock, same colours as the ring in-world.
-         The conic-gradient makes the border itself the countdown; the inner disc is a plain dark
-         chip that the mini three.js canvas draws the figure onto. */
-      #rider-finder {
-        position: fixed; bottom: 22px; right: 22px; z-index: 20;
-        width: 72px; height: 72px; padding: 0; border: 0; border-radius: 50%;
-        cursor: pointer; background: transparent;
+      /* Rider finder — one chip per waiting fare, in a row along the bottom-right so the whole
+         group mirrors the Loco Mode pill on the opposite corner. Sized to the same 49px height as
+         Loco Mode so the two controls read as a matched pair; the row grows leftward as extra
+         riders spawn, keeping the corner-most chip anchored where the single button used to sit.
+         Each chip is a circular disc with a conic-gradient ring for the fare's clock — same
+         four-stage colour as the in-world timer — and a mini three.js canvas drawing the figure. */
+      #rider-finder-stack {
+        position: fixed; bottom: 26px; right: 22px; z-index: 20;
+        display: flex; flex-direction: row-reverse; align-items: center; gap: 8px;
+        pointer-events: none;
+      }
+      body.shot-mode #rider-finder-stack { display: none; }
+
+      .rider-finder-chip {
+        position: relative;
+        width: 49px; height: 49px; padding: 0; border: 0; border-radius: 50%;
+        cursor: pointer; background: transparent; pointer-events: auto;
         display: grid; place-items: center;
         transition: transform 0.1s ease;
       }
-      #rider-finder:active { transform: scale(0.95); }
-      #rider-finder[hidden] { display: none; }
-      /* Ring: an 8px-wide annulus painted with the fare colour, filling counter-clockwise as the
-         clock drains — same reading as the in-world timer. `--pct` and `--ring-color` come from
-         the update loop; the black band underneath is the rim, matching the outline weight on
-         the timer ring's black rim. */
-      #rider-finder::before {
+      .rider-finder-chip:active { transform: scale(0.95); }
+      .rider-finder-chip[hidden] { display: none; }
+      /* Ring: an annulus painted with the fare colour, filling counter-clockwise as the clock
+         drains — same reading as the in-world timer. `--pct` and `--ring-color` come from the
+         update loop. Widths scaled from the original 72px chip by 49/72 so the ring/chip ratio
+         stays the same at the smaller size. */
+      .rider-finder-chip::before {
         content: ''; position: absolute; inset: 0; border-radius: 50%;
         background:
           conic-gradient(from -90deg, var(--ring-color, #26E05A) var(--pct, 100%),
                                       rgba(255, 255, 255, 0.15) 0);
-        padding: 4px;
+        padding: 3px;
         -webkit-mask: radial-gradient(circle, transparent 55%, #000 56%);
                 mask: radial-gradient(circle, transparent 55%, #000 56%);
       }
       /* The dark chip the figure stands in front of. Same tint as the toast pill. */
-      #rider-finder .chip {
-        position: relative; width: 56px; height: 56px; border-radius: 50%;
+      .rider-finder-chip .chip {
+        position: relative; width: 38px; height: 38px; border-radius: 50%;
         background: rgba(24, 44, 58, 0.72);
         display: grid; place-items: center; overflow: hidden;
       }
-      #rider-finder canvas { display: block; width: 56px; height: 56px; }
-      body.shot-mode #rider-finder { display: none; }
+      .rider-finder-chip canvas { display: block; width: 38px; height: 38px; }
 
       /* Off-screen drop-off pointer. A colour-coded arrow that clamps to the viewport edge and
          rotates to point at the destination pin, so the direction to drive stays readable when
@@ -225,9 +233,7 @@
     </div>
 
     <button id="boost" type="button" aria-label="Loco Mode">Loco Mode</button>
-    <button id="rider-finder" type="button" aria-label="Snap camera to waiting rider" hidden>
-      <span class="chip"><canvas width="56" height="56"></canvas></span>
-    </button>
+    <div id="rider-finder-stack" role="group" aria-label="Waiting riders"></div>
     <div id="dropoff-indicator" aria-hidden="true" hidden>
       <svg viewBox="-16 -16 32 32">
         <polygon points="13,0 -9,-10 -4,0 -9,10" />
