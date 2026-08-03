@@ -8,7 +8,7 @@ import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
 import { createTraffic } from './sim/traffic.js';
 import { createPolice } from './sim/police.js';
-import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, FARE_VALUE } from './game/fares.js';
+import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createBoost } from './game/boost.js';
 import { createSkidMarks } from './game/skidmarks.js';
@@ -302,7 +302,7 @@ function frame() {
       // The taxi now wears this rider's colour, and so does their destination pin.
       traffic.setTaxiFareColor(fare.color);
     } else if (type === 'delivered') {
-      popEarning(FARE_VALUE);
+      popEarning(fare.value);
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       traffic.setTaxiFareColor(null);

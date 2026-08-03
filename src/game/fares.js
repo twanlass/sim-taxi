@@ -18,8 +18,27 @@ import { PALETTE } from '../palette.js';
 // is tight but fair.
 export const FARE_SECONDS = 60;
 
-/** Flat rate per delivered fare. */
-export const FARE_VALUE = 20;
+/**
+ * Fare price = FARE_BASE + FARE_PER_BLOCK × Manhattan distance in blocks between the pickup and
+ * drop-off intersections. Real taxis charge a flag drop plus a per-mile meter, and a flat rate
+ * made every rider worth the same regardless of the effort — a corner-to-corner haul paid the same
+ * as a one-block hop right next door. The base survives the tiniest trip (a 1-block ride still
+ * pays enough to be worth taking), and the per-block slope makes the choice of *which* fare to
+ * grab into an economic decision as well as a timing one.
+ *
+ * Calibrated so a median-length trip (~5 blocks) pays $20 — the old flat rate — which keeps the
+ * soak suite's earnings roughly where they were. Range: $8 (1 block) → $35 (10 blocks, the
+ * diameter of the grid).
+ */
+export const FARE_BASE = 5;
+export const FARE_PER_BLOCK = 3;
+
+/** Blocks between two intersections. */
+const blockDistance = (a, b) => Math.abs(a.i - b.i) + Math.abs(a.j - b.j);
+
+/** What a trip from `pickup` to `dropoff` is worth. */
+export const priceFor = (pickup, dropoff) =>
+  FARE_BASE + FARE_PER_BLOCK * blockDistance(pickup, dropoff);
 
 /**
  * Three fares, never four.
@@ -208,6 +227,9 @@ export function createFareSystem(rng, scene) {
       slot,
       stage: 'waiting',
       target: spot,
+      // Where they were picked up. `target` moves to the drop-off at `beginRide`, so without a
+      // separate copy the trip distance (and its fare) can't be measured later.
+      pickup: spot,
       limit: fareSeconds,
       timeLeft: fareSeconds,
       // Arrival only resolves once the player has actually sent the taxi at this fare. Without
@@ -216,6 +238,8 @@ export function createFareSystem(rng, scene) {
       directed: false,
       color: null,
       ridingFor: 0,
+      // Priced at pickup, once both endpoints are known. See `priceFor`.
+      value: 0,
     };
     state.fares.push(fare);
 
@@ -238,6 +262,9 @@ export function createFareSystem(rng, scene) {
     fare.target = spot;
     fare.directed = false;
     fare.ridingFor = 0;
+    // The trip's price is fixed the moment both endpoints are known. A hidden meter that ticks
+    // while driving would punish traffic and reward Loco Mode for the wrong reasons.
+    fare.value = priceFor(fare.pickup, spot);
     // Deliberately does not touch limit or timeLeft: the clock started when the rider appeared
     // and keeps running straight through the pickup.
     fare.slot.passenger.group.visible = false;
@@ -364,9 +391,10 @@ export function createFareSystem(rng, scene) {
         beginRide(fare, taxiCar);
         emit('pickup', fare);
       } else {
-        // Flat fare. The clock already supplies the pressure; paying more for a fast delivery
-        // would double-count it and make an unlucky long fare feel like a penalty.
-        state.money += FARE_VALUE;
+        // Priced at pickup by the trip's block distance, so longer hauls pay more. The clock
+        // still supplies the *time* pressure; the meter is what makes "which fare should I
+        // grab?" an economic decision rather than a coin flip.
+        state.money += fare.value;
         state.delivered += 1;
         clear(fare);
         emit('delivered', fare);
