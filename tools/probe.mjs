@@ -14,6 +14,7 @@ import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, getPriorityCorridor, isUnsignalised, ringAxisAt } from '../src/sim/traffic.js';
+import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice } from '../src/sim/police.js';
 import { createFareSystem, cornerFor, MAX_FARES, SECOND_FARE_AFTER } from '../src/game/fares.js';
 import { planOrigin } from '../src/game/route.js';
@@ -21,7 +22,7 @@ import { HALF_SPAN, ROAD_W, LANE, lineCoord, GRID } from '../src/city/grid.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 
 const seed = Number(process.argv[2] ?? 71624);
-const CARS_DEFAULT = 7;    // the game's default density, for checks about the game as played
+const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
 const results = [];
 const check = (name, pass, detail = '') => {
   results.push({ name, pass });
@@ -418,6 +419,59 @@ check('the taxi is an ordinary car in the traffic array',
   check('a parked taxi still delivers when the destination is its own next junction',
     sFares.state.delivered === 1,
     `${sFares.state.delivered} delivered after ${elapsed.toFixed(1)}s`);
+}
+
+// --- Taxi-vs-car collisions ------------------------------------------------
+// The whole feature only fires while boosting, and its silent failure modes are: no impact ever
+// detected, an impact that doesn't wreck the taxi, or the other car stuck in the stun state.
+// Drive the taxi head-on into an unsuspecting car and assert the whole crash chain.
+{
+  const cScene = new THREE.Scene();
+  const cTraffic = createTraffic(makeRng(seed + 44), cScene, CARS_DEFAULT);
+  const cFares = createFareSystem(makeRng(seed + 55), cScene);
+  const cTaxi = cTraffic.taxi;
+  const collisions = createCollisions(cTraffic.cars, cTaxi);
+  let hits = 0;
+  collisions.onImpact(() => {
+    hits += 1;
+    // Mirror the main.js wiring: an impact wrecks the taxi and ends the run.
+    cFares.crash();
+  });
+
+  cTraffic.warmup(3);
+
+  // Park the taxi on top of an ambient car and start boosting.
+  const victim = cTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive');
+  cTaxi.x = victim.x;
+  cTaxi.z = victim.z;
+  cTaxi.boost = true;
+
+  for (let step = 0; step < 90; step++) {
+    collisions.update();
+    cTraffic.update(1 / 60);
+    if (hits > 0 && !victim.stunned) break;
+  }
+
+  check('boosting into another car fires an impact', hits >= 1, `${hits} impacts`);
+  check('the taxi is wrecked by the impact', cTaxi.crashed);
+  check('game over fires with a collision reason', cFares.state.gameOver
+    && /collision/i.test(cFares.state.failReason ?? ''), cFares.state.failReason);
+  check('the other car recovers from stun onto a lane',
+    !victim.stunned && victim.state === 'drive');
+  check('a wrecked taxi does not fire further impacts', hits === 1, `${hits} impacts`);
+
+  // A non-boosting taxi must never trigger a collision — normal lane logic keeps them apart.
+  const qScene = new THREE.Scene();
+  const qTraffic = createTraffic(makeRng(seed + 44), qScene, CARS_DEFAULT);
+  const qCollisions = createCollisions(qTraffic.cars, qTraffic.taxi);
+  let quietHits = 0;
+  qCollisions.onImpact(() => { quietHits += 1; });
+  for (let step = 0; step < 60 * 30; step++) {
+    qCollisions.update();
+    qTraffic.update(1 / 60);
+  }
+  check('no collisions fire while the taxi is not boosting', quietHits === 0,
+    `${quietHits} impacts over 30s`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

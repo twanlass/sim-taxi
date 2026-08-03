@@ -7,12 +7,16 @@ import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
 import { createTraffic } from './sim/traffic.js';
+import { createCollisions } from './sim/collisions.js';
 import { createPolice } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createBoost } from './game/boost.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
+import { createSparks } from './game/sparks.js';
+import { createSmoke } from './game/smoke.js';
+import { createDebris } from './game/debris.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
@@ -77,6 +81,39 @@ const isNarrow = () => window.innerWidth < NARROW_VIEWPORT;
 const pan = shot ? null : attachDragPan(controller, renderer.domElement, aspect, isNarrow);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
+const sparks = createSparks(scene, makeRng(runSeed + 88));
+const smoke = createSmoke(scene, makeRng(runSeed + 99));
+const debris = createDebris(scene, makeRng(runSeed + 111));
+
+// Collision detection between the taxi and ambient cars. Only fires while boosting — see
+// src/sim/collisions.js. On impact the taxi is wrecked: the merged taxi shell hides, debris
+// pieces fire outward in its place, sparks burst, a smoke plume rises, the camera shakes and
+// pulls into a close-up, the sim drops into slow-mo, boost is released, and the fare system
+// flips into game-over — but the Game Over banner is held for CRASH_BANNER_DELAY (wallclock, so
+// the delay is unaffected by the slow-mo). The other car still stuns and recovers to a lane
+// afterward.
+const CRASH_BANNER_DELAY = 2000;
+const WRECK_ZOOM = 26;
+const SLOW_MO_MIN = 0.22;                // sim runs at this fraction of real time at impact
+const SLOW_MO_DURATION = 1500;           // ms wallclock to ramp back to 1.0
+let wreckSpot = null;
+let crashBannerAt = null;
+let slowMoUntil = 0;
+
+const collisions = createCollisions(traffic.cars, traffic.taxi);
+collisions.onImpact(({ x, z }) => {
+  sparks.burst(x, z, 42);
+  smoke.burst(x, z);
+  debris.burst(x, z);
+  controller.kickShake(1.6);
+  wreckSpot = { x, z };
+  crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
+  slowMoUntil = performance.now() + SLOW_MO_DURATION;
+  traffic.taxiGroup.visible = false;
+  traffic.taxiSelection.visible = false;
+  boost.release();
+  fares.crash();
+});
 
 // Orthographic camera: the vertical world span is exactly 2 * zoom, so world-units-per-pixel
 // falls straight out of the frustum height.
@@ -282,6 +319,9 @@ function updateHud(dt) {
   }
 
   if (s.gameOver && hud.banner && hud.banner.hidden) {
+    // A crash holds the banner for CRASH_BANNER_DELAY so the smoke, sparks and camera pull-in
+    // land before the retry screen appears. Timeouts have no such beat — reveal immediately.
+    if (crashBannerAt !== null && performance.now() < crashBannerAt) return;
     hud.banner.hidden = false;
     hud.banner.innerHTML = `<strong>Game Over</strong><span>${s.failReason}</span>`
       + `<span>${s.delivered} fares · $${s.money}</span>`
@@ -391,17 +431,38 @@ const clock = new THREE.Clock();
 
 function frame() {
   requestAnimationFrame(frame);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  let dt = Math.min(clock.getDelta(), 0.05);
+
+  // Time dilation for the crash. Scale the whole frame's dt so debris, smoke, camera pull-in and
+  // shake decay all slow together — that's what sells it as a single cinematic beat rather than
+  // one element being pushed around while everything else runs normally. Ramps linearly from
+  // SLOW_MO_MIN back to 1.0 across SLOW_MO_DURATION ms wallclock; the banner delay is separately
+  // wallclock-anchored so this doesn't change when the retry screen appears.
+  const nowMs = performance.now();
+  if (nowMs < slowMoUntil) {
+    const t = 1 - (slowMoUntil - nowMs) / SLOW_MO_DURATION;
+    dt *= SLOW_MO_MIN + (1 - SLOW_MO_MIN) * t;
+  }
 
   boost.update(dt);
-  traffic.taxi.boost = boost.isActive();
+  // Never re-arm boost on a wrecked taxi — the flag would flick on the next frame otherwise and
+  // the collision detector already only checks `if (taxi.boost)`.
+  if (!traffic.taxi.crashed) traffic.taxi.boost = boost.isActive();
   updateBoostButton();
   skids.update(dt);
   dust.update(dt);
+  sparks.update(dt);
+  smoke.update(dt);
+  debris.update(dt);
+  controller.updateShake(dt, aspect());
   daylight.update(dt);
 
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
+  // After traffic has settled positions for the frame — that's what the overlap check reads.
+  // A detected impact stuns both cars for the next frame; the sim already knows how to handle
+  // that state, so no further plumbing is needed here.
+  collisions.update();
 
   // Loco Mode chases the taxi on narrow viewports where the fixed framing has already given up —
   // in portrait the taxi is often off-screen, so the follow is the only way to see the boost. On
@@ -410,7 +471,13 @@ function frame() {
   // way out means releasing the button leaves the camera wherever it landed instead of snapping
   // back. A user drag during boost is overridden on the next frame — panning is a planning
   // gesture and boost is the opposite of planning.
-  if (boost.isActive() && !fares.state.gameOver && isNarrow()) {
+  //
+  // Wreck focus outranks the boost-follow (and runs on every viewport, not only narrow ones):
+  // the camera eases into the crash site so the smoke and sparks fill the frame before the retry
+  // screen shows.
+  if (wreckSpot) {
+    controller.focusOn(wreckSpot.x, wreckSpot.z, WRECK_ZOOM, dt, aspect());
+  } else if (boost.isActive() && !fares.state.gameOver && isNarrow()) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, 3.2, aspect());
   }
 

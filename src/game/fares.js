@@ -460,6 +460,18 @@ export function createFareSystem(rng, scene) {
     return state.fares.map((f) => (f.stage === 'waiting' ? f.slot.passenger : f.slot.destination).group);
   }
 
+  /**
+   * End the run outside the ordinary fare loop — the collision path uses this. Clears every live
+   * fare so the pins/rings vanish under the "Game Over" banner rather than being frozen on-screen
+   * next to a wrecked taxi. Idempotent: a second call after game-over is already set is a no-op.
+   */
+  function crash(reason = 'Wrecked in a collision.') {
+    if (state.gameOver) return;
+    state.gameOver = true;
+    state.failReason = reason;
+    for (const other of [...state.fares]) clear(other);
+  }
+
   /** Which fare owns a picked object, walking up from the hit the way the picker does. */
   function fareFor(object) {
     for (let node = object; node; node = node.parent) {
@@ -472,6 +484,7 @@ export function createFareSystem(rng, scene) {
   return {
     state,
     update,
+    crash,
     pickables,
     fareFor,
     markDirected,

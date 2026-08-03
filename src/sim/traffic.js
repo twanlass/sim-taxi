@@ -219,8 +219,8 @@ function taxiClearsYellow(car, distToLine, t) {
 
 // --- Cars -------------------------------------------------------------------
 
-const CAR_LEN = 3.4;
-const CAR_W = 1.7;
+export const CAR_LEN = 3.4;
+export const CAR_W = 1.7;
 const MIN_GAP = CAR_LEN + 1.9;   // centre-to-centre
 const YIELD_RANGE = 15;          // how far ahead oncoming traffic blocks a left turn
 const TURN_WEIGHTS = [0.62, 0.24, 0.14]; // straight, right, left
@@ -342,6 +342,14 @@ function spawnCars(rng, count) {
       isTaxi: false,
       instanceIndex: -1,
       x: 0, z: 0, yaw: dirYaw(d),
+      // Impact state. `stunned` is a small drift-physics packet set by src/sim/collisions.js;
+      // while it's non-null the car is off the lane grid and the usual driving/turning logic is
+      // skipped. `collisionCooldown` blocks a re-collision for a beat after recovery. `crashed`
+      // is set on the taxi only, permanently — every loop below skips it so the wreck sits still
+      // while the run-end banner comes up.
+      stunned: null,
+      collisionCooldown: 0,
+      crashed: false,
     });
   }
 
@@ -349,6 +357,72 @@ function spawnCars(rng, count) {
 }
 
 const laneKeyFor = (d, i, j) => (isXAxis(d) ? `x|${d}|${j}` : `z|${d}|${i}`);
+
+/**
+ * Put a stunned car back onto the lane grid so normal driving logic can pick it up next frame.
+ * Snaps position to the nearest lane centre along the car's travel axis and points it at the
+ * next intersection in that direction. A car mid-turn adopts its exit direction, which is what
+ * it was heading for anyway; the route (if any) survives, but a routed step that's no longer a
+ * legal exit will be dropped by the normal turn logic and counted as a desync.
+ */
+function recoverFromStun(car) {
+  const d = car.state === 'turn' ? car.dOut : car.d;
+  const sign = dirSign(d);
+
+  if (isXAxis(d)) {
+    let bestJ = 0;
+    let bestErr = Infinity;
+    for (let j = 0; j <= GRID; j++) {
+      const err = Math.abs(car.z - (lineCoord(j) + sign * LANE));
+      if (err < bestErr) { bestErr = err; bestJ = j; }
+    }
+    let targetI = null;
+    if (sign > 0) {
+      for (let i = 0; i <= GRID; i++) if (lineCoord(i) > car.x + 0.5) { targetI = i; break; }
+      if (targetI === null) targetI = GRID;
+    } else {
+      for (let i = GRID; i >= 0; i--) if (lineCoord(i) < car.x - 0.5) { targetI = i; break; }
+      if (targetI === null) targetI = 0;
+    }
+    car.i = targetI;
+    car.j = bestJ;
+    car.z = lineCoord(bestJ) + sign * LANE;
+    car.s = car.x;
+    car.laneKey = `x|${d}|${bestJ}`;
+  } else {
+    let bestI = 0;
+    let bestErr = Infinity;
+    for (let i = 0; i <= GRID; i++) {
+      const err = Math.abs(car.x - (lineCoord(i) - sign * LANE));
+      if (err < bestErr) { bestErr = err; bestI = i; }
+    }
+    let targetJ = null;
+    if (sign > 0) {
+      for (let j = 0; j <= GRID; j++) if (lineCoord(j) > car.z + 0.5) { targetJ = j; break; }
+      if (targetJ === null) targetJ = GRID;
+    } else {
+      for (let j = GRID; j >= 0; j--) if (lineCoord(j) < car.z - 0.5) { targetJ = j; break; }
+      if (targetJ === null) targetJ = 0;
+    }
+    car.i = bestI;
+    car.j = targetJ;
+    car.x = lineCoord(bestI) - sign * LANE;
+    car.s = car.z;
+    car.laneKey = `z|${d}|${bestI}`;
+  }
+
+  car.d = d;
+  car.dOut = d;
+  car.yaw = dirYaw(d);
+  car.state = 'drive';
+  car.turnT = 0;
+  car.v = 0;
+  car.prevV = 0;
+  car.lateral = 0;
+  car.steer = 0;
+  car.collisionCooldown = car.stunned?.postCooldown ?? 0.8;
+  car.stunned = null;
+}
 
 function bezier(p0, p1, p2, t) {
   const mt = 1 - t;
@@ -496,14 +570,19 @@ export function createTraffic(rng, scene, count = 24) {
 
     // Set before any car evaluates a signal this frame. Ring junctions are left alone — they are
     // yield-controlled, so there is no phase to override and the taxi waits for a gap like anyone.
-    setPriorityJunction(taxi.boost && !isUnsignalised(taxi.i, taxi.j)
+    // A stunned or crashed taxi is off the lane grid: releasing its priority hold lets signals run.
+    const taxiActive = !taxi.crashed;
+    setPriorityJunction(taxiActive && taxi.boost && !taxi.stunned && !isUnsignalised(taxi.i, taxi.j)
       ? { i: taxi.i, j: taxi.j, axis: isXAxis(taxi.d) ? 'x' : 'z' }
       : null);
 
-    if (taxi.boost && !taxi.wasBoosting) taxi.v = Math.max(taxi.v, SPEED * BOOST_KICK);
+    if (taxiActive && taxi.boost && !taxi.wasBoosting && !taxi.stunned) {
+      taxi.v = Math.max(taxi.v, SPEED * BOOST_KICK);
+    }
     taxi.wasBoosting = taxi.boost;
 
     // Ease out to the centreline and back, so overtaking is a manoeuvre rather than a teleport.
+    // Skipped while the taxi is stunned — the drift physics owns its position for the moment.
     //
     // Paced by *distance travelled*, not by elapsed time, and only while running straight. The
     // first version ramped on a 0.45s timer regardless of what the car was doing, which produced
@@ -511,21 +590,23 @@ export function createTraffic(rng, scene, count = 24) {
     // still at a red, and starting or ending mid-corner pushed the car off its own Bézier arc
     // partway round. Distance pacing means a stopped car cannot drift at all, and freezing the
     // ramp through a junction keeps the whole corner on one consistent offset.
-    const lateralTarget = taxi.boost ? 1 : 0;
-    let lateralRate = 0;
-    if (taxi.state === 'drive') {
-      const delta = lateralTarget - taxi.lateral;
-      const step = Math.min(Math.abs(delta), (taxi.v * dt) / LANE_CHANGE_LEN);
-      taxi.lateral += Math.sign(delta) * step;
-      lateralRate = (Math.sign(delta) * step) / Math.max(dt, 1e-6);
-    }
+    if (taxiActive && !taxi.stunned) {
+      const lateralTarget = taxi.boost ? 1 : 0;
+      let lateralRate = 0;
+      if (taxi.state === 'drive') {
+        const delta = lateralTarget - taxi.lateral;
+        const step = Math.min(Math.abs(delta), (taxi.v * dt) / LANE_CHANGE_LEN);
+        taxi.lateral += Math.sign(delta) * step;
+        lateralRate = (Math.sign(delta) * step) / Math.max(dt, 1e-6);
+      }
 
-    // Steer into it. Without a yaw offset the car crabs — translating sideways across the road
-    // while still pointing straight down it — and *that* is what actually looked broken, not the
-    // offset itself. Distance pacing makes the angle constant, atan(LANE / LANE_CHANGE_LEN) ≈ 13°,
-    // at any speed; the ease is only there so the wheel straightens instead of snapping.
-    const steerTarget = Math.atan2(lateralRate * LANE, Math.max(taxi.v, 1));
-    taxi.steer += (steerTarget - taxi.steer) * Math.min(1, dt / 0.1);
+      // Steer into it. Without a yaw offset the car crabs — translating sideways across the road
+      // while still pointing straight down it — and *that* is what actually looked broken, not the
+      // offset itself. Distance pacing makes the angle constant, atan(LANE / LANE_CHANGE_LEN) ≈ 13°,
+      // at any speed; the ease is only there so the wheel straightens instead of snapping.
+      const steerTarget = Math.atan2(lateralRate * LANE, Math.max(taxi.v, 1));
+      taxi.steer += (steerTarget - taxi.steer) * Math.min(1, dt / 0.1);
+    }
 
     // --- Index cars by lane so each one can see the vehicle immediately ahead.
     // A car mid-turn keeps a presence in its entry lane for the first part of the turn,
@@ -545,8 +626,10 @@ export function createTraffic(rng, scene, count = 24) {
       let laneS = 0;
       let laneDir = car.d;
 
-      // A boosting taxi has left its lane, so nobody should be queueing behind it.
-      if (car.boost) continue;
+      // A boosting taxi has left its lane, so nobody should be queueing behind it. A stunned car
+      // is off the grid entirely — followers just have to see it as an obstacle at render time.
+      // A crashed taxi is not in traffic at all.
+      if (car.boost || car.stunned || car.crashed) continue;
 
       if (car.state === 'drive') {
         key = car.laneKey;
@@ -595,6 +678,28 @@ export function createTraffic(rng, scene, count = 24) {
     stats.waiting = 0;
 
     for (const car of cars) {
+      if (car.crashed) continue;
+      if (car.collisionCooldown > 0) car.collisionCooldown = Math.max(0, car.collisionCooldown - dt);
+
+      if (car.stunned) {
+        // Drift under the impact kick, wobble in yaw, sit at v=0 so exit-speedFactor logic doesn't
+        // spike. Damping settles both linear and angular so the car isn't still sliding when the
+        // timer runs out and recovery snaps it back to a lane centre.
+        const s = car.stunned;
+        s.timeLeft -= dt;
+        car.x += s.vx * dt;
+        car.z += s.vz * dt;
+        car.yaw += s.yawRate * dt;
+        const damp = Math.exp(-4 * dt);
+        s.vx *= damp;
+        s.vz *= damp;
+        s.yawRate *= damp * 0.85;
+        car.v = 0;
+        car.speedFactor = 0;
+        if (s.timeLeft <= 0) recoverFromStun(car);
+        continue;
+      }
+
       if (car.state === 'drive') {
         const sign = dirSign(car.d);
         const stopS = along(car.d, entryPoint(car.d, car.i, car.j));
@@ -854,6 +959,26 @@ export function createTraffic(rng, scene, count = 24) {
     // --- Resolve render transforms.
     for (let index = 0; index < cars.length; index++) {
       const car = cars[index];
+
+      // A crashed taxi's mesh was hidden by the collision handler; nothing to compose.
+      if (car.crashed) continue;
+
+      if (car.stunned) {
+        // Position and yaw were stepped by the stun physics; write them straight into the mesh
+        // with a slight lift so the car reads as jolted rather than sunken into the tarmac.
+        const lift = 0.06;
+        if (car.isTaxi) {
+          taxiGroup.position.set(car.x, ROAD_Y + lift, car.z);
+          taxiGroup.rotation.set(0, car.yaw, 0);
+          taxiSelection.position.set(car.x, ROAD_Y + 0.02, car.z);
+        } else {
+          pos.set(car.x, ROAD_Y + lift, car.z);
+          quat.setFromEuler(euler.set(0, car.yaw, 0, 'YXZ'));
+          matrix.compose(pos, quat, scl);
+          mesh.setMatrixAt(car.instanceIndex, matrix);
+        }
+        continue;
+      }
 
       if (car.state === 'drive') {
         const lane = laneOffsetCoord(car.d, car.i, car.j);

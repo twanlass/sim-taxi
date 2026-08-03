@@ -32,7 +32,7 @@ export function getActiveShot() {
  * from the simulation rather than just hiding them, so there are no invisible obstacles left to
  * block the taxi.
  */
-export function getCarCount(fallback = 7) {
+export function getCarCount(fallback = 12) {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('cars');
   if (raw === null) return fallback;
