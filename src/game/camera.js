@@ -98,9 +98,11 @@ export function attachDragPan(controller, domElement, getAspect) {
 
     panned = true;
     // World units per pixel falls straight out of the orthographic frustum: its height is
-    // exactly 2 * zoom, whatever the aspect ratio.
+    // exactly 2 * zoom, whatever the aspect ratio. Vertical isn't drag-the-map: swipe up pans
+    // the camera up (revealing what's above), swipe down pans it down — on a phone this reads
+    // as "scroll to see more" rather than shoving the ground around.
     const scale = (controller.state.zoom * 2) / domElement.clientHeight;
-    panBy(-dx * scale, -dy * scale);
+    panBy(-dx * scale, dy * scale);
   });
 
   return {
