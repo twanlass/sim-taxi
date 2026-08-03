@@ -15,8 +15,10 @@ import { createBoost } from './game/boost.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
 import { createSparks } from './game/sparks.js';
+import { createArcadeSparks } from './game/arcade-sparks.js';
 import { createSmoke } from './game/smoke.js';
 import { createDebris } from './game/debris.js';
+import { isArcade, ARCADE } from './sim/physics-mode.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
@@ -119,6 +121,10 @@ collisions.onImpact(({ x, z }) => {
 // falls straight out of the frustum height.
 const boost = createBoost();
 const skids = createSkidMarks(scene);
+// Arcade-only spark burst pool for taxi-vs-car contact. Distinct from `sparks` above (crash-time
+// wreck sparks). Constructed unconditionally — the pool is tiny (48 slots at scale 0 until a burst
+// fires) and staying uniform in setup keeps scene composition predictable across physics modes.
+const arcadeSparks = createArcadeSparks(scene);
 
 const routeLine = createRouteLine(
   scene,
@@ -427,6 +433,15 @@ function kickDust() {
   dust.add(car.x - Math.cos(car.yaw) * 1.9, car.z + Math.sin(car.yaw) * 1.9, car.yaw);
 }
 
+// Arcade-only camera shake. A pulse energy that decays exponentially; each frame the camera
+// target is offset by a small pseudo-random amount scaled by the current energy, then restored
+// before the next frame's ease. Kept out of camera.js because a shake is a per-event impulse,
+// not a persistent controller mode.
+const arcadeShake = { energy: 0 };
+function pingShake(amount) {
+  arcadeShake.energy = Math.min(1.6, arcadeShake.energy + amount);
+}
+
 const clock = new THREE.Clock();
 
 function frame() {
@@ -463,6 +478,18 @@ function frame() {
   // A detected impact stuns both cars for the next frame; the sim already knows how to handle
   // that state, so no further plumbing is needed here.
   collisions.update();
+
+  // Arcade contacts (empty when arcade is off). Each contact fires an arcade-spark burst at the
+  // impact point and a small shake pulse; camera shake is applied further down so it can be
+  // layered on top of the boost follow-cam without one overriding the other. Main's wreck sparks
+  // (updated inside the crash flow) are a separate pool — see `sparks` above.
+  arcadeSparks.update(dt);
+  if (isArcade() && traffic.contacts.length) {
+    for (const c of traffic.contacts) {
+      arcadeSparks.burst(c.x, c.z, c.nx, c.nz, ARCADE.SPARK_COUNT);
+      pingShake(c.impulse);
+    }
+  }
 
   // Loco Mode chases the taxi on narrow viewports where the fixed framing has already given up —
   // in portrait the taxi is often off-screen, so the follow is the only way to see the boost. On
@@ -522,7 +549,30 @@ function frame() {
   updateHud(dt);
   riderFinder.update(dt, fares.waitingAll());
   dropoffIndicator.update(fares.carrying());
+
+  // Arcade camera shake: apply an offset around the current target for this frame's render only,
+  // then restore. Doing it here (after follow, right before render) keeps the shake orthogonal to
+  // both drag-pan and the boost follow-cam — neither of them see the offset. Exponential decay.
+  let shakeApplied = null;
+  if (arcadeShake.energy > 0.001) {
+    const e = arcadeShake.energy;
+    const target = controller.state.target;
+    const ox = (Math.random() * 2 - 1) * e;
+    const oz = (Math.random() * 2 - 1) * e;
+    shakeApplied = { x: target.x, z: target.z };
+    target.x += ox;
+    target.z += oz;
+    controller.update(aspect());
+    arcadeShake.energy *= Math.exp(-8 * dt);   // half-life ~87ms
+  }
+
   renderer.render(scene, camera);
+
+  if (shakeApplied) {
+    controller.state.target.x = shakeApplied.x;
+    controller.state.target.z = shakeApplied.z;
+    controller.update(aspect());
+  }
 }
 
 if (shot) {
