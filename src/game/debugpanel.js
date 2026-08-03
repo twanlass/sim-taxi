@@ -1,3 +1,5 @@
+import { getPhysicsMode, MODES } from '../sim/physics-mode.js';
+
 // A small tweak panel behind a gear button.
 //
 // Split by cost: anything that can be applied to live objects (lighting, fare clock) updates on
@@ -150,6 +152,25 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount }) 
   carsValue.textContent = String(carCount);
   cars.addEventListener('input', () => { carsValue.textContent = cars.value; });
 
+  // Physics is a per-session choice — it needs a fresh world (the rigid mode loads Rapier WASM
+  // and builds static colliders at boot). Same shape as Cars: change here + click Restart.
+  const physics = document.createElement('select');
+  const PHYSICS_LABELS = { [MODES.OFF]: 'Off (rail sim)',
+                           [MODES.ARCADE]: 'Arcade (tilt + bumps)',
+                           [MODES.RIGID]: 'Rigid (Rapier bubble)' };
+  for (const value of Object.values(MODES)) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = PHYSICS_LABELS[value];
+    physics.append(opt);
+  }
+  physics.value = getPhysicsMode();
+  const physicsValue = row(panel, 'Physics', physics);
+  physicsValue.textContent = physics.value === MODES.OFF ? '' : 'restart to apply';
+  physics.addEventListener('input', () => {
+    physicsValue.textContent = physics.value === MODES.OFF ? '' : 'restart to apply';
+  });
+
   const actions = document.createElement('div');
   actions.className = 'dbg-actions';
 
@@ -159,6 +180,9 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount }) 
   restart.addEventListener('click', () => {
     const params = new URLSearchParams(window.location.search);
     params.set('cars', cars.value);
+    // Physics default is off; omit the param in that case to keep URLs clean.
+    if (physics.value === MODES.OFF) params.delete('physics');
+    else params.set('physics', physics.value);
     params.delete('run');                     // a genuinely fresh situation
     window.location.search = params.toString();
   });
@@ -195,6 +219,7 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount }) 
     game: {
       fareSeconds: fares.getSeconds(),
       cars: Number(cars.value),
+      physics: physics.value,
     },
   });
 
