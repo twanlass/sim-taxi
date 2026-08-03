@@ -250,7 +250,7 @@ let lastDustAt = 0;
 function kickDust() {
   const car = traffic.taxi;
   if (!car.boost || car.v < 2) { lastDustAt = car.travelled; return; }
-  if (car.travelled - lastDustAt < 0.7) return;
+  if (car.travelled - lastDustAt < 0.47) return;
   lastDustAt = car.travelled;
   dust.add(car.x - Math.cos(car.yaw) * 1.9, car.z + Math.sin(car.yaw) * 1.9, car.yaw);
 }
