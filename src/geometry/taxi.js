@@ -52,28 +52,51 @@ export function createTaxiMesh() {
   group.add(shell);
 
   // Ghost silhouette. The taxi frequently ducks behind buildings on the 3/4 view and the player
-  // loses track of where it is; this pass draws the same geometry in flat white, but only where
-  // something is in front of it — depthFunc: GreaterDepth means the fragment writes only where an
-  // occluder has already put a nearer value in the depth buffer. Its own visibility is gated by a
-  // sampled-raycast occlusion check in main.js: on the frames the shell is mostly visible the
-  // ghost group is hidden outright, so coplanar z-fighting between shell and ghost can never
-  // sneak through as speckled pixels over the real car.
-  const ghostMat = new THREE.MeshBasicMaterial({
+  // loses track of where it is; the ghost pass draws the same geometry only where something is in
+  // front of it (depthFunc: GreaterDepth — the fragment writes only where an occluder has already
+  // put a nearer value in the depth buffer).
+  //
+  // Rendered as a solid opaque white fill with a black inverted-hull outline, so it reads as one
+  // silhouette rather than a stack of six semi-transparent boxes. Both materials still declare
+  // transparent: true — not for alpha compositing, but so main.js can lerp `opacity` between 0 and
+  // 1 for a soft fade when the occlusion state flips, instead of the ghost popping in.
+  //
+  // Coplanar z-fighting between shell and fill is impossible because the whole group is gated
+  // hidden by the sampled-raycast occlusion check in main.js unless the taxi is >50% occluded.
+  const ghostFillMat = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     transparent: true,
-    opacity: 0.55,
+    opacity: 0,
     depthWrite: false,
     depthFunc: THREE.GreaterDepth,
   });
+  const ghostOutlineMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    side: THREE.BackSide,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    depthFunc: THREE.GreaterDepth,
+  });
+
   const ghostGroup = new THREE.Group();
   ghostGroup.name = 'taxiGhostGroup';
   ghostGroup.visible = false;   // main.js flips this on when the taxi is >50% occluded
 
-  const shellGhost = new THREE.Mesh(merged, ghostMat);
-  shellGhost.castShadow = false;
-  shellGhost.receiveShadow = false;
-  shellGhost.name = 'taxiShellGhost';
-  ghostGroup.add(shellGhost);
+  // Widened but not lengthened. Same discipline as the pin outline: uniform scale on merged
+  // geometry with baked-in translations would drift every part outward from its correct height as
+  // well as sideways; scaling x/z only keeps every part on the road plane it belongs to and still
+  // paints a visible rim on the 3/4 view where the horizontal silhouette is what reads.
+  const shellOutline = new THREE.Mesh(merged, ghostOutlineMat);
+  shellOutline.scale.set(1.06, 1, 1.06);
+  shellOutline.renderOrder = ABOVE_RING;
+  shellOutline.name = 'taxiShellGhostOutline';
+  ghostGroup.add(shellOutline);
+
+  const shellFill = new THREE.Mesh(merged, ghostFillMat);
+  shellFill.renderOrder = ABOVE_RING + 1;   // over the outline in the transparent queue
+  shellFill.name = 'taxiShellGhost';
+  ghostGroup.add(shellFill);
 
   // The selection indicator, and the taxi's only one. Rings are reserved for fares now — the
   // rider's clock is a ring, so using one here too would say two different things with the same
@@ -125,8 +148,15 @@ export function createTaxiMesh() {
   group.add(sign);
 
   // The roof sign is what makes a taxi silhouette read as a taxi from above, so it joins the ghost
-  // pass. Shares the same depth trick as the shell ghost.
-  const signGhost = new THREE.Mesh(signGeo, ghostMat);
+  // pass. Same fill+outline treatment as the shell.
+  const signOutline = new THREE.Mesh(signGeo, ghostOutlineMat);
+  signOutline.scale.set(1.18, 1, 1.18);   // small box, needs relatively more x/z widening to read
+  signOutline.renderOrder = ABOVE_RING;
+  signOutline.name = 'taxiSignGhostOutline';
+  ghostGroup.add(signOutline);
+
+  const signGhost = new THREE.Mesh(signGeo, ghostFillMat);
+  signGhost.renderOrder = ABOVE_RING + 1;
   signGhost.name = 'taxiSignGhost';
   ghostGroup.add(signGhost);
   group.add(ghostGroup);
@@ -141,5 +171,12 @@ export function createTaxiMesh() {
     sign.material.color.set(hex ?? PALETTE.taxiSign);
   };
 
-  return { group, selection: disk, sign, ghost: ghostGroup, setFareColor };
+  return {
+    group,
+    selection: disk,
+    sign,
+    ghost: ghostGroup,
+    ghostMaterials: [ghostFillMat, ghostOutlineMat],
+    setFareColor,
+  };
 }

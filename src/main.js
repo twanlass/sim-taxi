@@ -102,7 +102,13 @@ const occSamples = [];
 const occWorld = new THREE.Vector3();
 const OCC_THRESHOLD = Math.floor(occSamples.length / 2) + 1;   // strictly more than half: 5 of 9
 
-function updateGhostVisibility() {
+// Fade instead of a hard pop when the occlusion state flips. tau ≈ 0.12s reads as an eased
+// transition without lagging so far behind the taxi that the ghost stays lit half a block after
+// it's cleared the building.
+const GHOST_FADE_TAU = 0.12;
+let ghostAlpha = 0;
+
+function updateGhostVisibility(dt) {
   if (!buildingsMesh || !traffic.taxiGhost) return;
   const car = traffic.taxi;
   const cx = Math.cos(car.yaw), sy = Math.sin(car.yaw);
@@ -126,7 +132,15 @@ function updateGhostVisibility() {
     const hits = occRay.intersectObject(buildingsMesh, false);
     if (hits.length && hits[0].distance < targetDist - 0.5) blocked++;
   }
-  traffic.taxiGhost.visible = blocked >= OCC_THRESHOLD;
+  const targetAlpha = blocked >= OCC_THRESHOLD ? 1 : 0;
+  // Framerate-independent exponential ease: close a fraction (1 - exp(-dt/tau)) of the gap each
+  // frame, so the rate feels the same at 30 and 144 fps.
+  ghostAlpha += (targetAlpha - ghostAlpha) * (1 - Math.exp(-Math.max(dt, 0) / GHOST_FADE_TAU));
+  const mats = traffic.taxiGhostMaterials;
+  if (mats) for (const m of mats) m.opacity = ghostAlpha;
+  // Skip the draw call altogether once fully faded out — nothing to blend, saves the transparent
+  // pass entirely. Threshold well below one-frame's-worth of ease so the tail never blinks off.
+  traffic.taxiGhost.visible = ghostAlpha > 0.01;
 }
 
 // Orthographic camera: the vertical world span is exactly 2 * zoom, so world-units-per-pixel
@@ -503,7 +517,7 @@ function frame() {
 
   layRubber();
   kickDust();
-  updateGhostVisibility();
+  updateGhostVisibility(dt);
   updateHud(dt);
   riderFinder.update(dt, fares.waitingAll());
   dropoffIndicator.update(fares.carrying());
@@ -569,7 +583,8 @@ if (shot) {
   if (selected && traffic.taxi.pendingTarget) {
     routeLine.update(traffic.taxi, traffic.taxi.route);
   }
-  updateGhostVisibility();
+  // Screenshots are one-shot, so warm the fade all the way rather than catching it mid-lerp.
+  for (let i = 0; i < 30; i++) updateGhostVisibility(0.05);
   renderer.render(scene, camera);
   document.body.dataset.shotReady = 'true';
 } else {
