@@ -22,7 +22,7 @@ import { HALF_SPAN, ROAD_W, LANE, lineCoord, GRID } from '../src/city/grid.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 
 const seed = Number(process.argv[2] ?? 71624);
-const CARS_DEFAULT = 7;    // the game's default density, for checks about the game as played
+const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
 const results = [];
 const check = (name, pass, detail = '') => {
   results.push({ name, pass });
