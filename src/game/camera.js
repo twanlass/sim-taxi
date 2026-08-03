@@ -17,6 +17,9 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
   const state = {
     zoom,                       // half-height of the view frustum, in world units
     target: new THREE.Vector3(target[0], 0, target[1]),
+    // Current shake magnitude, in world units. Non-zero means apply() jitters camera.position by
+    // ±this on each axis before lookAt. Decayed each frame from main.js via updateShake().
+    shake: 0,
   };
 
   function apply(aspectRatio) {
@@ -29,6 +32,11 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
     camera.updateProjectionMatrix();
 
     camera.position.copy(state.target).addScaledVector(VIEW_DIR, DISTANCE);
+    if (state.shake > 0.001) {
+      camera.position.x += (Math.random() * 2 - 1) * state.shake;
+      camera.position.y += (Math.random() * 2 - 1) * state.shake;
+      camera.position.z += (Math.random() * 2 - 1) * state.shake;
+    }
     camera.lookAt(state.target);
   }
 
@@ -39,6 +47,25 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
     state,
     resize: (aspectRatio) => apply(aspectRatio),
     update: (aspectRatio) => apply(aspectRatio),
+    /**
+     * Kick a new shake, in world units of amplitude. Takes the max of the existing shake and the
+     * new value so a bigger impact can override a still-decaying smaller one, but a tiny
+     * secondary hit can't cancel the big one.
+     */
+    kickShake(amplitude) {
+      state.shake = Math.max(state.shake, amplitude);
+    },
+    /**
+     * Decay the shake and repaint the camera. Called every frame from main.js so a running shake
+     * refreshes independent of any pan/follow. Exponential decay reads as a natural fall-off
+     * rather than a hard cut, and the low-threshold snap-to-zero avoids repainting forever.
+     */
+    updateShake(dt, aspectRatio) {
+      if (state.shake <= 0.001) return;
+      state.shake *= Math.exp(-dt * 5);
+      if (state.shake < 0.01) state.shake = 0;
+      apply(aspectRatio);
+    },
     /**
      * Ease the camera target toward `(x, z)`. Framerate-independent: `smoothing` is a per-second
      * rate, so `1 - exp(-dt * smoothing)` is the fraction closed each frame. Higher = snappier.

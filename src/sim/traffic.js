@@ -319,9 +319,12 @@ function spawnCars(rng, count) {
       x: 0, z: 0, yaw: dirYaw(d),
       // Impact state. `stunned` is a small drift-physics packet set by src/sim/collisions.js;
       // while it's non-null the car is off the lane grid and the usual driving/turning logic is
-      // skipped. `collisionCooldown` blocks a re-collision for a beat after recovery.
+      // skipped. `collisionCooldown` blocks a re-collision for a beat after recovery. `crashed`
+      // is set on the taxi only, permanently — every loop below skips it so the wreck sits still
+      // while the run-end banner comes up.
       stunned: null,
       collisionCooldown: 0,
+      crashed: false,
     });
   }
 
@@ -542,12 +545,15 @@ export function createTraffic(rng, scene, count = 24) {
 
     // Set before any car evaluates a signal this frame. Ring junctions are left alone — they are
     // yield-controlled, so there is no phase to override and the taxi waits for a gap like anyone.
-    // A stunned taxi is off the lane grid: releasing its priority hold lets normal signals run.
-    setPriorityJunction(taxi.boost && !taxi.stunned && !isUnsignalised(taxi.i, taxi.j)
+    // A stunned or crashed taxi is off the lane grid: releasing its priority hold lets signals run.
+    const taxiActive = !taxi.crashed;
+    setPriorityJunction(taxiActive && taxi.boost && !taxi.stunned && !isUnsignalised(taxi.i, taxi.j)
       ? { i: taxi.i, j: taxi.j, axis: isXAxis(taxi.d) ? 'x' : 'z' }
       : null);
 
-    if (taxi.boost && !taxi.wasBoosting && !taxi.stunned) taxi.v = Math.max(taxi.v, SPEED * BOOST_KICK);
+    if (taxiActive && taxi.boost && !taxi.wasBoosting && !taxi.stunned) {
+      taxi.v = Math.max(taxi.v, SPEED * BOOST_KICK);
+    }
     taxi.wasBoosting = taxi.boost;
 
     // Ease out to the centreline and back, so overtaking is a manoeuvre rather than a teleport.
@@ -559,7 +565,7 @@ export function createTraffic(rng, scene, count = 24) {
     // still at a red, and starting or ending mid-corner pushed the car off its own Bézier arc
     // partway round. Distance pacing means a stopped car cannot drift at all, and freezing the
     // ramp through a junction keeps the whole corner on one consistent offset.
-    if (!taxi.stunned) {
+    if (taxiActive && !taxi.stunned) {
       const lateralTarget = taxi.boost ? 1 : 0;
       let lateralRate = 0;
       if (taxi.state === 'drive') {
@@ -597,7 +603,8 @@ export function createTraffic(rng, scene, count = 24) {
 
       // A boosting taxi has left its lane, so nobody should be queueing behind it. A stunned car
       // is off the grid entirely — followers just have to see it as an obstacle at render time.
-      if (car.boost || car.stunned) continue;
+      // A crashed taxi is not in traffic at all.
+      if (car.boost || car.stunned || car.crashed) continue;
 
       if (car.state === 'drive') {
         key = car.laneKey;
@@ -646,6 +653,7 @@ export function createTraffic(rng, scene, count = 24) {
     stats.waiting = 0;
 
     for (const car of cars) {
+      if (car.crashed) continue;
       if (car.collisionCooldown > 0) car.collisionCooldown = Math.max(0, car.collisionCooldown - dt);
 
       if (car.stunned) {
@@ -922,6 +930,9 @@ export function createTraffic(rng, scene, count = 24) {
     // --- Resolve render transforms.
     for (let index = 0; index < cars.length; index++) {
       const car = cars[index];
+
+      // A crashed taxi's mesh was hidden by the collision handler; nothing to compose.
+      if (car.crashed) continue;
 
       if (car.stunned) {
         // Position and yaw were stepped by the stun physics; write them straight into the mesh

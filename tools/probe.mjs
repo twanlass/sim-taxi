@@ -422,37 +422,43 @@ check('the taxi is an ordinary car in the traffic array',
 }
 
 // --- Taxi-vs-car collisions ------------------------------------------------
-// The whole feature only fires while boosting, and its two failure modes are silent: no impact
-// ever detected (broken detection), or cars stuck in the stun state (broken recovery). Drive the
-// taxi head-on into an unsuspecting car and assert the round-trip through impact → stun → snap.
+// The whole feature only fires while boosting, and its silent failure modes are: no impact ever
+// detected, an impact that doesn't wreck the taxi, or the other car stuck in the stun state.
+// Drive the taxi head-on into an unsuspecting car and assert the whole crash chain.
 {
   const cScene = new THREE.Scene();
   const cTraffic = createTraffic(makeRng(seed + 44), cScene, CARS_DEFAULT);
+  const cFares = createFareSystem(makeRng(seed + 55), cScene);
   const cTaxi = cTraffic.taxi;
   const collisions = createCollisions(cTraffic.cars, cTaxi);
   let hits = 0;
-  collisions.onImpact(() => { hits += 1; });
+  collisions.onImpact(() => {
+    hits += 1;
+    // Mirror the main.js wiring: an impact wrecks the taxi and ends the run.
+    cFares.crash();
+  });
 
   cTraffic.warmup(3);
 
-  // Park the taxi on top of an ambient car and start boosting. Skip the taxi itself so we're
-  // finding a genuine other car.
+  // Park the taxi on top of an ambient car and start boosting.
   const victim = cTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive');
   cTaxi.x = victim.x;
   cTaxi.z = victim.z;
   cTaxi.boost = true;
 
-  for (let step = 0; step < 60; step++) {
+  for (let step = 0; step < 90; step++) {
     collisions.update();
     cTraffic.update(1 / 60);
-    if (hits > 0 && !cTaxi.stunned && !victim.stunned) break;
+    if (hits > 0 && !victim.stunned) break;
   }
 
   check('boosting into another car fires an impact', hits >= 1, `${hits} impacts`);
-  check('both cars recover from the stun', !cTaxi.stunned && !victim.stunned,
-    `taxi ${cTaxi.stunned ? 'stuck' : 'ok'}, victim ${victim.stunned ? 'stuck' : 'ok'}`);
-  check('post-recovery cars are back to driving on lanes',
-    cTaxi.state === 'drive' && victim.state === 'drive');
+  check('the taxi is wrecked by the impact', cTaxi.crashed);
+  check('game over fires with a collision reason', cFares.state.gameOver
+    && /collision/i.test(cFares.state.failReason ?? ''), cFares.state.failReason);
+  check('the other car recovers from stun onto a lane',
+    !victim.stunned && victim.state === 'drive');
+  check('a wrecked taxi does not fire further impacts', hits === 1, `${hits} impacts`);
 
   // A non-boosting taxi must never trigger a collision — normal lane logic keeps them apart.
   const qScene = new THREE.Scene();

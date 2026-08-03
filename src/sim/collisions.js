@@ -51,8 +51,9 @@ export function createCollisions(cars, taxi) {
   const emit = (event) => { for (const cb of listeners) cb(event); };
 
   function update() {
-    // Nothing to detect unless the taxi has left the safety of its lane. Cooldown blocks the
-    // instant-re-collision that would otherwise happen while the pair is still separating.
+    // Nothing to detect unless the taxi has left the safety of its lane. A crashed taxi is done
+    // for good; a still-stunned other car is already spinning out from the last hit.
+    if (taxi.crashed) return;
     if (!taxi.boost || taxi.stunned || taxi.collisionCooldown > 0) return;
 
     for (const other of cars) {
@@ -71,13 +72,11 @@ export function createCollisions(cars, taxi) {
       const px = (taxi.x + other.x) / 2;
       const pz = (taxi.z + other.z) / 2;
 
-      taxi.stunned = {
-        timeLeft: STUN_DURATION,
-        vx: ux * KICK_SPEED,
-        vz: uz * KICK_SPEED,
-        yawRate: YAW_KICK,
-        postCooldown: STUN_COOLDOWN,
-      };
+      // Taxi is wrecked — main.js hides the mesh, kicks the smoke and sparks, and ends the run.
+      // The other car still stuns and snaps back onto a lane afterward.
+      taxi.crashed = true;
+      taxi.boost = false;
+      taxi.v = 0;
       other.stunned = {
         timeLeft: STUN_DURATION,
         vx: -ux * KICK_SPEED,
@@ -87,7 +86,7 @@ export function createCollisions(cars, taxi) {
       };
 
       emit({ x: px, z: pz, taxi, other });
-      return;   // one impact per frame is plenty — the next pair-up will re-fire next frame.
+      return;   // one impact per frame is plenty — the taxi is done anyway.
     }
   }
 

@@ -15,6 +15,7 @@ import { createBoost } from './game/boost.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
 import { createSparks } from './game/sparks.js';
+import { createSmoke } from './game/smoke.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
@@ -80,14 +81,21 @@ const pan = shot ? null : attachDragPan(controller, renderer.domElement, aspect,
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
 const sparks = createSparks(scene, makeRng(runSeed + 88));
+const smoke = createSmoke(scene, makeRng(runSeed + 99));
 
 // Collision detection between the taxi and ambient cars. Only fires while boosting — see
-// src/sim/collisions.js. Impact events drop a spark burst; the stun state itself is handled by
-// the traffic sim so lane bookkeeping goes back to being authoritative as soon as the pair
-// recovers onto lane centres.
+// src/sim/collisions.js. On impact the taxi is wrecked: a big spark burst plus a lingering smoke
+// plume mark the spot, the camera shakes, the taxi mesh is hidden, boost is released, and the
+// fare system flips into game-over. The other car still stuns and recovers to a lane afterward.
 const collisions = createCollisions(traffic.cars, traffic.taxi);
 collisions.onImpact(({ x, z }) => {
-  sparks.burst(x, z);
+  sparks.burst(x, z, 42);
+  smoke.burst(x, z);
+  controller.kickShake(1.6);
+  traffic.taxiGroup.visible = false;
+  traffic.taxiSelection.visible = false;
+  boost.release();
+  fares.crash();
 });
 
 // Orthographic camera: the vertical world span is exactly 2 * zoom, so world-units-per-pixel
@@ -406,11 +414,15 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
 
   boost.update(dt);
-  traffic.taxi.boost = boost.isActive();
+  // Never re-arm boost on a wrecked taxi — the flag would flick on the next frame otherwise and
+  // the collision detector already only checks `if (taxi.boost)`.
+  if (!traffic.taxi.crashed) traffic.taxi.boost = boost.isActive();
   updateBoostButton();
   skids.update(dt);
   dust.update(dt);
   sparks.update(dt);
+  smoke.update(dt);
+  controller.updateShake(dt, aspect());
   daylight.update(dt);
 
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
