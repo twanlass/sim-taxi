@@ -3,12 +3,19 @@
 // Kept as a pure clock with no knowledge of the taxi or the DOM, so the sim, the button and the
 // headless tests can all read the same state without any of them owning it.
 //
-// The meter only moves while held (drains) or while empty (recharges). Releasing mid-spend just
-// pauses it, so a short tap costs a short slice of fuel and a long hold keeps flowing until it
-// runs out — the decision is now *how long* to press, not just *when*.
+// Releasing mid-spend just pauses the drain, so a short tap costs a short slice of fuel and a
+// long hold keeps flowing until it runs out — the decision is *how long* to press as well as
+// *when*. A partial tank left idle also trickles back up (see SLOW_REGEN_FACTOR), so short taps
+// don't leave the meter stranded, while a full drain still calls for the fast empty-recharge.
 
 export const BOOST_DURATION = 15;
 export const BOOST_RECHARGE = 15;
+
+// Idle trickle when the button isn't held and the tank is partial. 1/5 of the empty-recharge
+// rate — a full tank from idle takes 75s, so the fast recharge (15s from empty) is still the
+// right move if you want to top up quickly; this just keeps a half-spent meter from sitting
+// there forever after a couple of short taps.
+const SLOW_REGEN_FACTOR = 0.2;
 
 export function createBoost(duration = BOOST_DURATION, recharge = BOOST_RECHARGE) {
   // Starts on the charger, not ready. The first fare is the one that teaches the loop, and a
@@ -57,11 +64,14 @@ export function createBoost(duration = BOOST_DURATION, recharge = BOOST_RECHARGE
     },
 
     update(dt) {
-      // Mode-driven change first: drain while held, refill while empty.
+      // Mode-driven change first: drain while held, fast refill while empty, slow trickle when
+      // idle with a partial tank.
       if (state.mode === 'active') {
         state.fuel -= dt;
       } else if (state.mode === 'recharging') {
         state.fuel += dt * (duration / recharge);
+      } else if (state.mode === 'ready' && state.fuel < duration) {
+        state.fuel += dt * (duration / recharge) * SLOW_REGEN_FACTOR;
       }
 
       // Bonus fuel pours in on top of whatever the mode is doing, so a top-up mid-drain slows the
