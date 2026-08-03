@@ -126,6 +126,12 @@
         pointer-events: none;
       }
       #boost.is-active::before { opacity: 1; transform: translateY(0); }
+      /* Desktop has a cursor, not a thumb — nothing covers the pill, so the mirror bar is
+         just visual noise. Gate on a fine pointer with hover so hybrid touchscreens (Surface,
+         iPad with trackpad) that also expose touch still keep it. */
+      @media (hover: hover) and (pointer: fine) {
+        #boost::before, #boost.is-active::before { display: none; }
+      }
       #boost.is-charging {
         cursor: default; color: rgba(255, 255, 255, 0.5);
         background: linear-gradient(90deg, #6f8899 var(--pct, 0%), rgba(255, 255, 255, 0.12) 0);
