@@ -339,6 +339,21 @@ check('no two cars occupy the same space', worst > 1.6,
   const perCar = rTraffic.stats.distance / rTraffic.stats.time / rTraffic.cars.length;
   check('traffic moves better than the old fixed-phase grid', perCar > 4.14,
     `${perCar.toFixed(2)} vs 4.14 units/s per car`);
+
+  // Loco Mode should fly through ring junctions too, not just interior signalised ones. The
+  // priority-junction override used to skip ring junctions on the grounds that they had no phase
+  // to override; the ring/cross branches now consult `priorityCovers` and route through the
+  // signal model, so `lightPhase` at the taxi's target junction reads green on its axis whether
+  // it's a signalised interior or a yield-controlled ring approach.
+  const boostScene = new THREE.Scene();
+  const boostTraffic = createTraffic(makeRng(seed + 77), boostScene, 1);
+  const bTaxi = boostTraffic.taxi;
+  bTaxi.boost = true;
+  bTaxi.d = 3; bTaxi.i = 2; bTaxi.j = 0;   // heading NZ toward a non-corner ring junction
+  boostTraffic.update(1 / 60);
+  const ringPhase = lightPhase(bTaxi.i, bTaxi.j, boostTraffic.stats.time);
+  check('boost forces the ring junction green on the taxi axis',
+    ringPhase.axis === 'z' && !ringPhase.yellow, `axis=${ringPhase.axis} yellow=${ringPhase.yellow}`);
 }
 
 // --- Routing ---------------------------------------------------------------
