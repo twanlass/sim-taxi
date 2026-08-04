@@ -154,9 +154,11 @@ green and every crossing road red. The override lives inside `lightPhase` — `c
 single place any car asks "may I enter?", so the whole city reacts correctly without car logic
 being touched at all.
 
-It drives the road **centreline**, straddling both lanes, at `SPEED = 19` (about twice traffic).
-That's partly character and partly practical: it sidesteps lane-following and collision entirely,
-so it never queues behind anyone. A red/blue point light rides with it.
+It drives its **lane** — right-hand traffic, one `LANE` off the road centreline — at `SPEED = 19`
+(about twice traffic). It skips the lane-following and collision machinery entirely, so it never
+queues behind anyone; the priority corridor holds every downstream light green, so same-direction
+cars in the lane are already launching or moving by the time the cruiser arrives behind them.
+A red/blue point light rides with it.
 
 The soak test caught the cost of this immediately — a taxi held at a corridor loses time through
 no fault of the player — so the fare deadline carries a `DISRUPTION_ALLOWANCE` to cover it.

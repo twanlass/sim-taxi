@@ -2,17 +2,18 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
-import { GRID, HALF_SPAN, lineCoord, isSegmentClosed } from '../city/grid.js';
+import { GRID, HALF_SPAN, LANE, lineCoord, isSegmentClosed } from '../city/grid.js';
 import { setPriorityCorridor, setPolicePresence, ROAD_Y } from './traffic.js';
 
 // A police car running a priority corridor across the city: every signal on its road goes green,
 // every crossing road goes red, and the traffic model reacts on its own because the override lives
 // inside lightPhase.
 //
-// It drives the *centreline*, straddling both lanes. That is partly character — an emergency
-// vehicle overtaking down the middle — and partly practical: it sidesteps the lane-following and
-// collision machinery entirely, so it can move at twice the speed of traffic without needing to
-// queue behind anyone or clip them.
+// It drives its lane like any other car — right-hand traffic, one LANE off the road centreline in
+// the direction of travel. Speed is still 19 (about twice traffic), so it will visually catch up
+// to same-direction traffic on the corridor road; there is no collision/queueing coupling because
+// the priority corridor holds every downstream light green, so ambient cars in the lane are
+// generally launching or already moving when the cruiser arrives behind them.
 
 const SPEED = 19;
 const RUN_MARGIN = 26;          // how far off-map it starts and ends
@@ -154,11 +155,13 @@ export function createPolice(rng, scene) {
 
   function place() {
     const c = lineCoord(state.line);
+    // Right-hand traffic: lane sits one LANE off the road centreline, on the right of travel.
+    // Matches laneOffsetCoord() in grid.js so the cruiser lines up with ambient cars in the lane.
     if (state.axis === 'x') {
-      group.position.set(state.s, ROAD_Y, c);
+      group.position.set(state.s, ROAD_Y, c + state.dir * LANE);
       group.rotation.y = state.dir > 0 ? 0 : Math.PI;
     } else {
-      group.position.set(c, ROAD_Y, state.s);
+      group.position.set(c - state.dir * LANE, ROAD_Y, state.s);
       group.rotation.y = state.dir > 0 ? -Math.PI / 2 : Math.PI / 2;
     }
   }
