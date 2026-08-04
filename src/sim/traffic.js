@@ -369,6 +369,43 @@ function spawnCars(rng, count) {
 const laneKeyFor = (d, i, j) => (isXAxis(d) ? `x|${d}|${j}` : `z|${d}|${i}`);
 
 /**
+ * Move a car onto the approach heading toward intersection (i, j) in direction d. Called with
+ * the taxi when a level pins its start, so the placement pretends the taxi has been driving the
+ * previous block already — same shape spawnCars produces for a random car, no separate path.
+ */
+function placeTaxiAtStart(taxi, { i, j, d }) {
+  const prev = nextIntersection(opposite(d), i, j);
+  // If the level asked the taxi to spawn heading out of the map, fall back to a corner-in start.
+  const fromI = prev ? prev.i : i;
+  const fromJ = prev ? prev.j : j;
+  const segS = prev
+    ? (isXAxis(d)
+        ? (lineCoord(fromI) + lineCoord(i)) / 2
+        : (lineCoord(fromJ) + lineCoord(j)) / 2)
+    : (isXAxis(d) ? lineCoord(i) - dirSign(d) * (PITCH / 2) : lineCoord(j) - dirSign(d) * (PITCH / 2));
+
+  taxi.d = d;
+  taxi.dOut = d;
+  taxi.i = i;
+  taxi.j = j;
+  taxi.state = 'drive';
+  taxi.turnT = 0;
+  taxi.yaw = dirYaw(d);
+  taxi.lateral = 0;
+  taxi.steer = 0;
+  if (isXAxis(d)) {
+    taxi.x = segS;
+    taxi.z = laneOffsetCoord(d, i, j);
+    taxi.s = taxi.x;
+  } else {
+    taxi.x = laneOffsetCoord(d, i, j);
+    taxi.z = segS;
+    taxi.s = taxi.z;
+  }
+  taxi.laneKey = laneKeyFor(d, i, j);
+}
+
+/**
  * Put a stunned car back onto the lane grid so normal driving logic can pick it up next frame.
  * Snaps position to the nearest lane centre along the car's travel axis and points it at the
  * next intersection in that direction. A car mid-turn adopts its exit direction, which is what
@@ -448,7 +485,7 @@ function lerpAngle(a, b, t) {
   return a + delta * t;
 }
 
-export function createTraffic(rng, scene, count = 24) {
+export function createTraffic(rng, scene, count = 24, taxiStart = null) {
   const cars = spawnCars(rng, count);
 
   // The player's taxi is an ordinary car in this same array — that is what subjects it to
@@ -456,6 +493,12 @@ export function createTraffic(rng, scene, count = 24) {
   // simply drawn as its own mesh instead of an instance, so it can be raycast and highlighted.
   const taxi = cars[0];
   taxi.isTaxi = true;
+
+  // A hand-authored level may pin the taxi's start intersection and heading. It's placed on the
+  // approach one block back from (i, j) heading direction d, matching how ambient cars sit on a
+  // segment: this keeps the follower-gap and signal logic on the same footing from the first
+  // frame, no special-case for "spawned mid-junction".
+  if (taxiStart) placeTaxiAtStart(taxi, taxiStart);
   const { group: taxiGroup, selection: taxiSelection, setFareColor: setTaxiFareColor } = createTaxiMesh();
   scene.add(taxiGroup);
   scene.add(taxiSelection);   // ground decal, kept out of the car so it never tilts

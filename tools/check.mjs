@@ -15,7 +15,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/lightshaft.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/dust.js', '../src/game/sparks.js', '../src/game/smoke.js',
   '../src/game/debris.js', '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
-  '../src/game/dropoffindicator.js'];
+  '../src/game/dropoffindicator.js', '../src/city/level.js', '../src/editor/overlay.js'];
 
 const TOOLS = [
   { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },
@@ -54,6 +54,46 @@ try {
 } catch (error) {
   failed += 1;
   console.log(`FAIL  modules  ${error.message}`);
+}
+
+// Level format round-trip: a procedural map serialised to JSON, then reloaded, should produce a
+// layout the router can still solve — that's the invariant the editor's Play button depends on.
+try {
+  const { makeRng } = await import('../src/util/rng.js');
+  const { proceduralLayout, layoutFromLevel } = await import('../src/city/layout.js');
+  const { serialize, validate, encodeUrl, decodeUrl } = await import('../src/city/level.js');
+  const { findRoute, allIntersections } = await import('../src/game/route.js');
+  const { DIR } = await import('../src/city/grid.js');
+
+  const original = proceduralLayout(makeRng(71624));
+  const level = serialize(original);
+  const errors = validate(level);
+  if (errors.length) throw new Error(`serialize failed validation: ${errors.join('; ')}`);
+
+  const round = decodeUrl(encodeUrl(level));
+  if (JSON.stringify(round) !== JSON.stringify(level)) throw new Error('base64url round-trip changed the payload');
+
+  const reloaded = layoutFromLevel(level);
+  if (reloaded.length !== original.length) throw new Error(`block count changed: ${original.length} → ${reloaded.length}`);
+  for (let i = 0; i < original.length; i++) {
+    if (original[i].type !== reloaded[i].type) {
+      throw new Error(`block ${i} type changed: ${original[i].type} → ${reloaded[i].type}`);
+    }
+  }
+
+  const nodes = allIntersections();
+  let broken = 0;
+  for (const from of nodes) {
+    for (const to of nodes) {
+      if (from.i === to.i && from.j === to.j) continue;
+      if (!findRoute({ i: from.i, j: from.j, d: DIR.PX }, to)) broken += 1;
+    }
+  }
+  if (broken > 0) throw new Error(`${broken} approach → destination pairs unroutable after round-trip`);
+  console.log(`ok    level    round-trip stable · ${nodes.length} nodes, ${original.length} blocks, ${level.closed.length} closures`);
+} catch (error) {
+  failed += 1;
+  console.log(`FAIL  level    ${error.message}`);
 }
 
 for (const tool of TOOLS) {

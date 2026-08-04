@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
 import { createScene } from './game/scene.js';
 import { createCityCamera, attachDragPan } from './game/camera.js';
-import { createLayout } from './city/layout.js';
+import { proceduralLayout, layoutFromLevel } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
+import { createEditor } from './editor/editor.js';
 import { createTraffic } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
@@ -25,11 +26,12 @@ import { createRiderFinder } from './game/riderfinder.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
 import { findRoute, planOrigin } from './game/route.js';
-import { getActiveShot, getSeed, getRunSeed, getCarCount } from './util/shot.js';
+import { getActiveShot, getSeed, getRunSeed, getCarCount, getLevel } from './util/shot.js';
 
 const seed = getSeed();                             // the city itself — stable, so it's learnable
 const shot = getActiveShot();
 const runSeed = getRunSeed(seed, Boolean(shot));    // this run's situation — random unless pinned
+const level = getLevel();                           // hand-authored map from the editor, if any
 
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
@@ -51,13 +53,38 @@ daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
 
 // Every generator draws from its own stream so that changing one system doesn't reshuffle the
-// others — editing building code shouldn't move the parks.
-const layout = createLayout(makeRng(seed));
-scene.add(createGround(makeRng(seed + 11), layout));
-scene.add(createBuildings(makeRng(seed + 22), layout).mesh);
-scene.add(createProps(makeRng(seed + 33), layout));
+// others — editing building code shouldn't move the parks. A hand-authored level replaces the
+// procedural layout only — the ground/buildings/props RNGs still key off `seed` so the same
+// level rendered twice looks identical, and swapping the seed only changes the trim.
+let layout = level ? layoutFromLevel(level) : proceduralLayout(makeRng(seed));
 
-const traffic = createTraffic(makeRng(runSeed + 44), scene, getCarCount());
+// City geometry lives under a container so the editor can rebuild it in place. Each rebuild
+// disposes the old meshes' geometries and drops in fresh ones — cheap (a few ms) and reuses the
+// same generators the boot path runs, so an in-editor preview reads identically to what Play
+// would produce.
+const cityGroup = new THREE.Group();
+cityGroup.name = 'city';
+scene.add(cityGroup);
+
+function buildCityMeshes(target, forLayout) {
+  target.add(createGround(makeRng(seed + 11), forLayout));
+  target.add(createBuildings(makeRng(seed + 22), forLayout).mesh);
+  target.add(createProps(makeRng(seed + 33), forLayout));
+}
+
+function rebuildCity(fromLevel) {
+  while (cityGroup.children.length) {
+    const child = cityGroup.children.pop();
+    child.geometry?.dispose?.();
+    child.material?.dispose?.();
+  }
+  layout = layoutFromLevel(fromLevel);
+  buildCityMeshes(cityGroup, layout);
+}
+
+buildCityMeshes(cityGroup, layout);
+
+const traffic = createTraffic(makeRng(runSeed + 44), scene, getCarCount(), level?.taxiStart ?? null);
 const fares = createFareSystem(makeRng(runSeed + 55), scene);
 const police = createPolice(makeRng(runSeed + 66), scene);
 // One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and
@@ -222,7 +249,7 @@ createPicker(
       flash('On the way');
     }
   },
-  () => Boolean(pan?.didPan()),
+  () => editing || Boolean(pan?.didPan()),
 );
 
 // Camera shortcut: frame the waiting rider on demand. At play zoom on a phone the rider is a
@@ -505,11 +532,50 @@ function kickDust() {
   dust.add(car.x - Math.cos(car.yaw) * 1.9, car.z + Math.sin(car.yaw) * 1.9, car.yaw);
 }
 
+// --- Editor (not in shot mode; screenshots have no user) --------------------
+//
+// The editor is a paint-and-play tool for the map: tap blocks to change their type, tap roads to
+// close them or mark them as arterials, then Play to reload the game against the new layout. While
+// it is open the sim pauses and the game HUD hides; nothing about the city geometry is rebuilt in
+// place — Play round-trips through sessionStorage + reload, so the boot path stays the single
+// authority on how a level becomes a live scene.
+let editing = false;
+const editor = shot ? null : createEditor({
+  scene,
+  camera,
+  domElement: renderer.domElement,
+  initialLevel: level,
+  currentLayout: layout,
+  onEnter: () => {
+    editing = true;
+    document.body.classList.add('editing');
+    // Hide the taxi selection ring — a fixed yellow marker under the taxi is noise while
+    // painting blocks around it, and the taxi itself is enough of a placement reference.
+    traffic.taxiSelection.visible = false;
+    routeLine.hide();
+  },
+  onExit: () => {
+    editing = false;
+    document.body.classList.remove('editing');
+    traffic.taxiSelection.visible = true;
+  },
+  onEdit: rebuildCity,
+});
+
 const clock = new THREE.Clock();
 
 function frame() {
   requestAnimationFrame(frame);
   let dt = Math.min(clock.getDelta(), 0.05);
+
+  // Editor mode: keep rendering (the map is what's being edited) but freeze the sim and skip the
+  // gameplay bookkeeping. Effects and daylight are also on hold — a paused frame that keeps
+  // ticking dust and smoke would show them accumulating behind the editor UI.
+  if (editing) {
+    controller.updateShake(0, aspect());
+    renderer.render(scene, camera);
+    return;
+  }
 
   // Time dilation for the crash. Scale the whole frame's dt so debris, smoke, camera pull-in and
   // shake decay all slow together — that's what sells it as a single cinematic beat rather than
@@ -689,6 +755,9 @@ window.__taxi = {
   skids,
   police,
   fares,
+  editor,
+  layout,
+  level,
   routeTo,
   findRoute,
   camera: controller,
