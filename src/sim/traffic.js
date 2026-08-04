@@ -182,9 +182,12 @@ const priorityCovers = (i, j) =>
 /**
  * Signal state at an intersection. `axis` is the axis currently permitted to move; yellow is
  * treated as stop, which keeps the rule "may I enter?" a single boolean everywhere else.
+ *
+ * `ignorePriority` skips the boosting taxi's hold — see `displayPhase` for why the lamps want the
+ * un-overridden answer.
  */
-export function lightPhase(i, j, t) {
-  if (priorityJunction && priorityJunction.i === i && priorityJunction.j === j) {
+export function lightPhase(i, j, t, ignorePriority = false) {
+  if (!ignorePriority && priorityJunction && priorityJunction.i === i && priorityJunction.j === j) {
     return { axis: priorityJunction.axis, yellow: false, remaining: Infinity };
   }
 
@@ -234,6 +237,22 @@ export function lightPhase(i, j, t) {
   }
   return { axis: 'z', yellow: true, remaining: cycle - local };
 }
+
+/**
+ * What the signal heads should *show*. Same as `lightPhase` except the boosting taxi's priority
+ * hold is invisible: the lamps keep running their real cycle while Loco Mode barges through.
+ *
+ * The hold is a simulation-only courtesy — cross traffic yields so the taxi never has to be
+ * resolved out of a collision it can't be resolved out of — but wiring it to the lamps meant every
+ * junction visibly flipped green a beat before the taxi got there. That reads as the city politely
+ * opening up, which is the opposite of the intended feel: Loco Mode should look like running every
+ * red in the grid. The cross traffic that yields under a green of its own now reads as drivers
+ * balking at a maniac rather than as obedience.
+ *
+ * The police corridor is deliberately *not* excepted — emergency preemption really does turn the
+ * lights, and seeing the green path open ahead of the siren is the point of it.
+ */
+export const displayPhase = (i, j, t) => lightPhase(i, j, t, true);
 
 const canProceed = (d, i, j, t) => {
   const phase = lightPhase(i, j, t);
@@ -1163,7 +1182,7 @@ export function createTraffic(rng, scene, count = 24) {
     // --- Stop bar colours, one per approach.
     for (let index = 0; index < bars.length; index++) {
       const bar = bars[index];
-      const phase = lightPhase(bar.i, bar.j, t);
+      const phase = displayPhase(bar.i, bar.j, t);
       const mine = phase.axis === (isXAxis(bar.d) ? 'x' : 'z');
       headColor.set(mine
         ? (phase.yellow ? PALETTE.lightYellow : PALETTE.lightGreen)
@@ -1178,5 +1197,8 @@ export function createTraffic(rng, scene, count = 24) {
     for (let elapsed = 0; elapsed < seconds; elapsed += step) update(step);
   }
 
-  return { cars, taxi, taxiGroup, setTaxiFareColor, mesh, barMesh, update, warmup, stats, lightPhase };
+  return {
+    cars, taxi, taxiGroup, setTaxiFareColor, mesh, barMesh, update, warmup, stats,
+    lightPhase, displayPhase,
+  };
 }

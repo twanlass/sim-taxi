@@ -13,7 +13,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, getPriorityCorridor, isUnsignalised, ringAxisAt } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import { createFareSystem, cornerFor, MAX_FARES, SECOND_FARE_AFTER } from '../src/game/fares.js';
@@ -355,6 +355,16 @@ check('no two cars occupy the same space', worst > 1.6,
   const ringPhase = lightPhase(bTaxi.i, bTaxi.j, boostTraffic.stats.time);
   check('boost forces the ring junction green on the taxi axis',
     ringPhase.axis === 'z' && !ringPhase.yellow, `axis=${ringPhase.axis} yellow=${ringPhase.yellow}`);
+
+  // ...but the lamps must not follow the hold. Loco Mode is meant to *look* like running every
+  // red — the yielding happens underneath, in `canProceed`. Heads that flipped green as the taxi
+  // arrived made the city read as politely opening up instead.
+  const shown = displayPhase(bTaxi.i, bTaxi.j, boostTraffic.stats.time);
+  setPriorityJunction(null);
+  const honest = lightPhase(bTaxi.i, bTaxi.j, boostTraffic.stats.time);
+  check('the signal heads ignore the boost hold',
+    shown.axis === honest.axis && shown.yellow === honest.yellow && shown.axis !== ringPhase.axis,
+    `shown ${shown.axis}/${shown.yellow}, honest ${honest.axis}/${honest.yellow}`);
 }
 
 // --- Routing ---------------------------------------------------------------

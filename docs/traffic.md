@@ -68,13 +68,16 @@ from spreading the offsets, not from slowing the cycle. Cycle is now **16s** wit
 
 Checked in this order, first match wins:
 
-1. `corridorCovers(i, j)` — an emergency corridor is running through this junction
-2. `priorityJunction` — the boosting taxi's next junction
+1. `priorityJunction` — the boosting taxi's next junction
+2. `corridorCovers(i, j)` — an emergency corridor is running through this junction
 3. `ringAxisAt(i, j)` — unsignalised ring road
 4. the normal phase for this junction
 
 A siren outranks the ring deliberately: otherwise a corridor crossing the ring would have a hole
 in the middle of the green path it exists to create.
+
+`displayPhase(i, j, t)` is the same resolution with step 1 dropped — it's what the stop bars are
+drawn from, so the boosting taxi's hold never shows up on a lamp. See [Boost](#boost-crazy-taxi-mode).
 
 ## Car physics
 
@@ -142,6 +145,15 @@ A boosting taxi also sets `priorityJunction`, which forces its next junction gre
 junctions are covered too: the ring/cross branches check `priorityCovers` and route the boosting
 taxi through `canProceed`, so joining ring traffic yields to the taxi's axis exactly the way a
 siren's corridor yields it.
+
+**The lamps don't show the hold.** Stop bars are coloured from `displayPhase`, which is
+`lightPhase` with the priority branch skipped, so the heads keep running their real cycle while the
+taxi barges through. Wired to `lightPhase` they flipped green a beat before the taxi arrived, and
+Loco Mode read as the city politely opening up rather than as running every red in the grid — the
+opposite of the point. The yielding still happens, it just happens *underneath*: cross traffic
+balking under a green of its own reads as drivers getting out of a maniac's way. The police
+corridor is deliberately not excepted — emergency preemption really does turn the lights, and
+watching the green path open ahead of the siren is the whole effect.
 
 The meter itself lives in `game/boost.js` as a pure clock with no knowledge of the taxi or the
 DOM. Hold-to-enable: the tank drains only while the button is held (15s from full), releasing just
