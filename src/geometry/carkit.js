@@ -14,19 +14,23 @@ import { PALETTE } from '../palette.js';
 // Orientation: +X is the nose, -X the tail (the sedan's cabin sits at -0.2, biased rearward).
 // The origin is on the road surface under the car's centre, like every vehicle in the game.
 //
-// The body is not a box but an extruded side profile: a chain of (x, y) points, each a fraction
-// of body length / height, running nose-bottom up over the roofline to tail-bottom and closing
-// flat along the ground. A rectangular chain *is* the old box (identical envelope, which is what
-// keeps the sedan pin true); dragging the chain is what the editor's silhouette mode does.
-// Fractions rather than units so the length and height sliders keep composing with a drawn
-// profile instead of invalidating it.
+// Body, cabin and cargo box are each an extruded side profile — a chain of (x, y) points, each
+// a fraction of that part's length / height, running front-bottom over the top to rear-bottom
+// and closing flat along its base. A rectangular chain *is* a box (identical envelope, which is
+// what keeps the sedan pin true); dragging a chain is what the editor's silhouette mode does.
+// Fractions rather than units so the size sliders keep composing with a drawn profile.
+//
+// A chain may double back on itself — a bumper that juts at mid-height, a spoiler lip — so
+// validity is "the closed polygon is simple", checked edge against edge, not "x is monotonic".
+// The editor rejects a drag that would cross the outline; sanitizeChain() repairs or falls back
+// for imported JSON.
 
-const WHEEL_COLOR = new THREE.Color(0.16, 0.16, 0.18);
-// Cabin and cargo sink this far into the surface below them, so lighting never opens a seam
-// between stacked boxes. The sedan's cabin at y 1.45 = body top 1.18 − 0.03 + half-height 0.30.
+const WHEEL_COLOR = '#6f6f76';   // sRGB for the linear (0.16, 0.16, 0.18) the game's wheels bake
 const SINK = 0.03;
+// Cabin and cargo sink SINK into the surface below them, so lighting never opens a seam
+// between stacked volumes. The sedan's cabin at y 1.45 = body top 1.18 − 0.03 + half-height 0.30.
 
-export const PROFILE_MIN_POINTS = 4;
+export const CHAIN_MIN_POINTS = 3;
 export const PROFILE_MAX_POINTS = 12;
 const RECT_PROFILE = [[0.5, 0], [0.5, 1], [-0.5, 1], [-0.5, 0]];
 
@@ -46,21 +50,33 @@ export const LIMITS = {
   'wheels.width': [0.14, 0.6],
   'wheels.insetFrac': [0.18, 0.44],
   'wheels.axles': [2, 3],
+  'wheels.segments': [6, 24],
   'cargo.boxHeight': [0.6, 2.4],
+  'cargo.boxWidthFrac': [0.7, 1.15],
+  'cargo.boxOverhang': [0, 0.6],
   'cargo.bedWall': [0.15, 0.9],
+  'cargo.bedThickness': [0.05, 0.2],
 };
 
 export const DEFAULT_SPEC = {
   name: 'Sedan',
   body: { len: 3.4, width: 1.7, height: 0.8, clearance: 0.38, profile: RECT_PROFILE },
-  // Fractions of body length, so stretching the body carries the cabin with it. The rakes shear
-  // the cabin's top face inward in world units — a raked windshield and rear screen.
-  cabin: { lenFrac: 0.5, offsetFrac: -0.2 / 3.4, height: 0.6, widthFrac: 0.86, rakeFront: 0, rakeBack: 0 },
-  wheels: { radius: 0.32, width: 0.26, insetFrac: 0.3, axles: 2 },
+  // Fractions of body length, so stretching the body carries the cabin with it. The rakes lean
+  // the windscreen and rear screen in; profile null means "shaped by the rakes" — a trapezoid —
+  // and a chain drawn in the editor replaces the rakes as the cabin's silhouette.
+  cabin: {
+    lenFrac: 0.5, offsetFrac: -0.2 / 3.4, height: 0.6, widthFrac: 0.86,
+    rakeFront: 0, rakeBack: 0, profile: null,
+  },
+  wheels: { radius: 0.32, width: 0.26, insetFrac: 0.3, axles: 2, segments: 8 },
   // type: 'none' | 'bed' (open pickup walls) | 'box' (tall cargo body). color 'body' follows
-  // the body colour, so recolouring the truck doesn't leave a stale bed behind.
-  cargo: { type: 'none', boxHeight: 1.6, bedWall: 0.4, color: 'body' },
-  colors: { body: PALETTE.carBody[2], glass: PALETTE.carGlass },
+  // the body colour, so recolouring the truck doesn't leave a stale bed behind. boxOverhang
+  // extends the box past the rear bumper, box-truck style; profile shapes the box's flank.
+  cargo: {
+    type: 'none', boxHeight: 1.6, boxWidthFrac: 1.05, boxOverhang: 0,
+    bedWall: 0.4, bedThickness: 0.09, color: 'body', profile: null,
+  },
+  colors: { body: PALETTE.carBody[2], glass: PALETTE.carGlass, wheels: WHEEL_COLOR },
   // Per-part overrides on top of the role colours, keyed by manifest part name ('body',
   // 'cabin', 'wheels', 'bed', 'box', 'stripe', 'sign', 'lightbar'). Written by the editor's
   // click-to-select; absent keys fall through to colors/cargo defaults.
@@ -80,7 +96,7 @@ export const PRESETS = {
   taxi: {
     ...DEFAULT_SPEC,
     name: 'Taxi',
-    colors: { body: PALETTE.taxiBody, glass: PALETTE.carGlass },
+    colors: { ...DEFAULT_SPEC.colors, body: PALETTE.taxiBody },
     extras: { ...DEFAULT_SPEC.extras, stripe: 'flank', sign: true },
   },
   sports: {
@@ -90,40 +106,40 @@ export const PRESETS = {
       len: 3.7, width: 1.75, height: 0.95, clearance: 0.3,
       profile: [[0.5, 0], [0.5, 0.4], [0.1, 0.78], [-0.18, 1], [-0.44, 0.96], [-0.5, 0.5], [-0.5, 0]],
     },
-    cabin: { lenFrac: 0.4, offsetFrac: -0.12, height: 0.34, widthFrac: 0.88, rakeFront: 0.45, rakeBack: 0.3 },
-    wheels: { radius: 0.34, width: 0.3, insetFrac: 0.34, axles: 2 },
+    cabin: { ...DEFAULT_SPEC.cabin, lenFrac: 0.4, offsetFrac: -0.12, height: 0.34, widthFrac: 0.88, rakeFront: 0.45, rakeBack: 0.3 },
+    wheels: { ...DEFAULT_SPEC.wheels, radius: 0.34, width: 0.3, insetFrac: 0.34 },
     cargo: { ...DEFAULT_SPEC.cargo },
-    colors: { body: PALETTE.carBody[0], glass: PALETTE.carGlass },
+    colors: { ...DEFAULT_SPEC.colors, body: PALETTE.carBody[0] },
     partColors: {},
     extras: { ...DEFAULT_SPEC.extras },
   },
   van: {
     name: 'Van',
     body: { len: 3.9, width: 1.8, height: 1.4, clearance: 0.4, profile: RECT_PROFILE },
-    cabin: { lenFrac: 0.72, offsetFrac: -0.04, height: 0.5, widthFrac: 0.88, rakeFront: 0.3, rakeBack: 0 },
-    wheels: { radius: 0.34, width: 0.28, insetFrac: 0.32, axles: 2 },
+    cabin: { ...DEFAULT_SPEC.cabin, lenFrac: 0.72, offsetFrac: -0.04, height: 0.5, widthFrac: 0.88, rakeFront: 0.3 },
+    wheels: { ...DEFAULT_SPEC.wheels, radius: 0.34, width: 0.28, insetFrac: 0.32 },
     cargo: { ...DEFAULT_SPEC.cargo },
-    colors: { body: PALETTE.carBody[1], glass: PALETTE.carGlass },
+    colors: { ...DEFAULT_SPEC.colors, body: PALETTE.carBody[1] },
     partColors: {},
     extras: { ...DEFAULT_SPEC.extras },
   },
   pickup: {
     name: 'Pickup',
     body: { len: 4.1, width: 1.8, height: 0.75, clearance: 0.45, profile: RECT_PROFILE },
-    cabin: { lenFrac: 0.34, offsetFrac: 0.1, height: 0.65, widthFrac: 0.88, rakeFront: 0.28, rakeBack: 0 },
-    wheels: { radius: 0.36, width: 0.3, insetFrac: 0.32, axles: 2 },
+    cabin: { ...DEFAULT_SPEC.cabin, lenFrac: 0.34, offsetFrac: 0.1, height: 0.65, widthFrac: 0.88, rakeFront: 0.28 },
+    wheels: { ...DEFAULT_SPEC.wheels, radius: 0.36, width: 0.3, insetFrac: 0.32 },
     cargo: { ...DEFAULT_SPEC.cargo, type: 'bed', bedWall: 0.4 },
-    colors: { body: PALETTE.carBody[0], glass: PALETTE.carGlass },
+    colors: { ...DEFAULT_SPEC.colors, body: PALETTE.carBody[0] },
     partColors: {},
     extras: { ...DEFAULT_SPEC.extras },
   },
   boxtruck: {
     name: 'Box truck',
     body: { len: 4.9, width: 2, height: 0.7, clearance: 0.5, profile: RECT_PROFILE },
-    cabin: { lenFrac: 0.24, offsetFrac: 0.33, height: 0.85, widthFrac: 0.95, rakeFront: 0.35, rakeBack: 0 },
-    wheels: { radius: 0.38, width: 0.32, insetFrac: 0.34, axles: 3 },
-    cargo: { ...DEFAULT_SPEC.cargo, type: 'box', boxHeight: 1.9, color: PALETTE.pale },
-    colors: { body: PALETTE.carBody[0], glass: PALETTE.carGlass },
+    cabin: { ...DEFAULT_SPEC.cabin, lenFrac: 0.24, offsetFrac: 0.33, height: 0.85, widthFrac: 0.95, rakeFront: 0.35 },
+    wheels: { ...DEFAULT_SPEC.wheels, radius: 0.38, width: 0.32, insetFrac: 0.34, axles: 3 },
+    cargo: { ...DEFAULT_SPEC.cargo, type: 'box', boxHeight: 1.9, boxOverhang: 0.35, color: PALETTE.pale },
+    colors: { ...DEFAULT_SPEC.colors, body: PALETTE.carBody[0] },
     partColors: {},
     extras: { ...DEFAULT_SPEC.extras },
   },
@@ -132,10 +148,10 @@ export const PRESETS = {
     // Matches policeGeometry() in sim/police.js: 3.6 × 1.8 body, white 1.9-long roof at −0.2,
     // a wrap-around skirt stripe, wheels at ±1.08. The "glass" slot carries the white roof.
     body: { len: 3.6, width: 1.8, height: 0.8, clearance: 0.38, profile: RECT_PROFILE },
-    cabin: { lenFrac: 1.9 / 3.6, offsetFrac: -0.2 / 3.6, height: 0.62, widthFrac: 1.6 / 1.8, rakeFront: 0, rakeBack: 0 },
-    wheels: { radius: 0.32, width: 0.26, insetFrac: 0.3, axles: 2 },
+    cabin: { ...DEFAULT_SPEC.cabin, lenFrac: 1.9 / 3.6, offsetFrac: -0.2 / 3.6, height: 0.62, widthFrac: 1.6 / 1.8 },
+    wheels: { ...DEFAULT_SPEC.wheels },
     cargo: { ...DEFAULT_SPEC.cargo },
-    colors: { body: PALETTE.policeBody, glass: PALETTE.policeRoof },
+    colors: { ...DEFAULT_SPEC.colors, body: PALETTE.policeBody, glass: PALETTE.policeRoof },
     partColors: {},
     extras: {
       ...DEFAULT_SPEC.extras,
@@ -158,44 +174,99 @@ function set(obj, path, value) {
   keys.reduce((o, k) => (o[k] ??= {}), obj)[last] = value;
 }
 
+// --- Chain geometry helpers ---------------------------------------------------------------
+
+const cross = (ox, oy, ax, ay, bx, by) => (ax - ox) * (by - oy) - (ay - oy) * (bx - ox);
+
+/** Proper or improper intersection of segments ab and cd (touching counts as intersecting). */
+function segmentsCross(a, b, c, d) {
+  const d1 = cross(c[0], c[1], d[0], d[1], a[0], a[1]);
+  const d2 = cross(c[0], c[1], d[0], d[1], b[0], b[1]);
+  const d3 = cross(a[0], a[1], b[0], b[1], c[0], c[1]);
+  const d4 = cross(a[0], a[1], b[0], b[1], d[0], d[1]);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+  const on = (p, q, r) => Math.min(p[0], q[0]) - 1e-9 <= r[0] && r[0] <= Math.max(p[0], q[0]) + 1e-9
+    && Math.min(p[1], q[1]) - 1e-9 <= r[1] && r[1] <= Math.max(p[1], q[1]) + 1e-9;
+  if (Math.abs(d1) < 1e-12 && on(c, d, a)) return true;
+  if (Math.abs(d2) < 1e-12 && on(c, d, b)) return true;
+  if (Math.abs(d3) < 1e-12 && on(a, b, c)) return true;
+  if (Math.abs(d4) < 1e-12 && on(a, b, d)) return true;
+  return false;
+}
+
 /**
- * A profile chain is valid when x never increases along it (ties allowed — that's a vertical
- * edge) and both ends sit on the ground. With the bottom closure running straight back along
- * y = 0, a monotonic top chain can never self-intersect — which is the whole reason the editor
- * constrains drags this way rather than validating polygons after the fact.
+ * True when the chain, closed along its base, is a simple polygon. This is the validity rule
+ * that lets a chain double back — obtuse noses, spoiler lips — while a drag that would fold the
+ * outline through itself is refused by the editor before it ever reaches the mesh.
  */
-function sanitizeProfile(input) {
-  if (!Array.isArray(input)) return structuredClone(RECT_PROFILE);
-  const pts = input
+export function chainIsSimple(pts) {
+  const n = pts.length;
+  if (n < CHAIN_MIN_POINTS) return false;
+  const at = (i) => pts[i % n];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      // Adjacent edges share an endpoint; the first and last edge close the polygon together.
+      if (j === i + 1 || (i === 0 && j === n - 1)) continue;
+      if (segmentsCross(at(i), at(i + 1), at(j), at(j + 1))) return false;
+    }
+  }
+  return true;
+}
+
+function chainArea(pts) {
+  let area = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x0, y0] = pts[i];
+    const [x1, y1] = pts[(i + 1) % pts.length];
+    area += x0 * y1 - x1 * y0;
+  }
+  return area / 2;
+}
+
+/**
+ * Clamp, weld and validate an imported chain. Returns null when nothing usable survives — the
+ * caller decides the fallback (the rectangle for the body, "shaped by the rakes" for a cabin).
+ * A crossing chain is first repaired by forcing x monotonic, which is simple by construction;
+ * only if that still fails does it give up.
+ */
+export function sanitizeChain(input) {
+  if (!Array.isArray(input)) return null;
+  let pts = input
     .filter((p) => Array.isArray(p) && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1])))
     .slice(0, PROFILE_MAX_POINTS)
     .map(([x, y]) => [clamp(Number(x), -0.5, 0.5), clamp(Number(y), 0, 1)]);
-  if (pts.length < PROFILE_MIN_POINTS) return structuredClone(RECT_PROFILE);
-  for (let i = 1; i < pts.length; i++) pts[i][0] = Math.min(pts[i][0], pts[i - 1][0]);
+  pts = pts.filter((p, i) => i === 0 || Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) > 1e-6);
+  if (pts.length < CHAIN_MIN_POINTS) return null;
   pts[0][1] = 0;
   pts[pts.length - 1][1] = 0;
-  // A chain that never gets off the ground extrudes to nothing.
-  if (Math.max(...pts.map((p) => p[1])) < 0.15) return structuredClone(RECT_PROFILE);
+  for (let i = 1; i < pts.length - 1; i++) pts[i][1] = Math.max(pts[i][1], 0.02);
+  if (!chainIsSimple(pts)) {
+    for (let i = 1; i < pts.length; i++) pts[i][0] = Math.min(pts[i][0], pts[i - 1][0]);
+    pts = pts.filter((p, i) => i === 0 || Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) > 1e-6);
+    if (pts.length < CHAIN_MIN_POINTS || !chainIsSimple(pts)) return null;
+  }
+  // A sliver or a chain that never gets off the ground extrudes to nothing.
+  if (Math.abs(chainArea(pts)) < 0.05 || Math.max(...pts.map((p) => p[1])) < 0.15) return null;
   return pts;
 }
 
-/** The profile's height (fraction) directly above fraction-x, taking the max over vertical edges. */
-function profileYAt(profile, fx) {
+/** The chain's height (fraction) directly above fraction-x, over every edge covering that x. */
+function chainYAt(profile, fx) {
   let top = 0;
   for (let i = 0; i < profile.length - 1; i++) {
     const [x0, y0] = profile[i];
     const [x1, y1] = profile[i + 1];
-    if (fx > x0 || fx < x1) continue;
+    if (fx < Math.min(x0, x1) || fx > Math.max(x0, x1)) continue;
     top = Math.max(top, x0 === x1 ? Math.max(y0, y1) : y0 + ((fx - x0) / (x1 - x0)) * (y1 - y0));
   }
   return top;
 }
 
-/** The highest point of the profile across a fraction-x span — what a part sits on. */
+/** The highest point of the chain across a fraction-x span — what a part stacked on it sits on. */
 export function profileTopOver(profile, fxLo, fxHi) {
   const lo = Math.max(-0.5, Math.min(fxLo, fxHi));
   const hi = Math.min(0.5, Math.max(fxLo, fxHi));
-  let top = Math.max(profileYAt(profile, lo), profileYAt(profile, hi));
+  let top = Math.max(chainYAt(profile, lo), chainYAt(profile, hi));
   for (const [x, y] of profile) if (x >= lo && x <= hi) top = Math.max(top, y);
   return top;
 }
@@ -213,8 +284,13 @@ export function normalizeSpec(spec = {}) {
     if (Number.isFinite(v)) set(out, path, clamp(v, lo, hi));
   }
   out.wheels.axles = Math.round(out.wheels.axles);
-  out.body.profile = sanitizeProfile(spec.body?.profile ?? out.body.profile);
-  // The cabin's top face has to keep some length after both rakes shear it inward.
+  out.wheels.segments = Math.round(out.wheels.segments);
+  out.body.profile = sanitizeChain(spec.body?.profile ?? out.body.profile) ?? structuredClone(RECT_PROFILE);
+  // null means "no drawn silhouette": the cabin falls back to its rake trapezoid, the cargo box
+  // to a rectangle. An invalid drawn chain degrades to that same null rather than to junk.
+  out.cabin.profile = spec.cabin?.profile == null ? null : sanitizeChain(spec.cabin.profile);
+  out.cargo.profile = spec.cargo?.profile == null ? null : sanitizeChain(spec.cargo.profile);
+  // The cabin's top edge has to keep some length after both rakes lean in.
   const cabinLen = out.body.len * out.cabin.lenFrac;
   const rakeRoom = Math.max(0, cabinLen - 0.3);
   if (out.cabin.rakeFront + out.cabin.rakeBack > rakeRoom) {
@@ -234,6 +310,7 @@ export function normalizeSpec(spec = {}) {
   };
   out.colors.body = color(spec.colors?.body ?? out.colors.body, out.colors.body);
   out.colors.glass = color(spec.colors?.glass ?? out.colors.glass, out.colors.glass);
+  out.colors.wheels = color(spec.colors?.wheels ?? out.colors.wheels, out.colors.wheels);
   out.cargo.color = color(spec.cargo?.color ?? out.cargo.color, 'body');
   out.extras.stripeColor = color(spec.extras?.stripeColor ?? out.extras.stripeColor, out.extras.stripeColor);
   out.extras.signColor = color(spec.extras?.signColor ?? out.extras.signColor, out.extras.signColor);
@@ -254,6 +331,65 @@ export function normalizeSpec(spec = {}) {
   return out;
 }
 
+/**
+ * The silhouette actually in force for each profiled part of a normalized spec. A cabin with no
+ * drawn chain is its rake trapezoid — which extrudes to exactly the sheared box the rakes used
+ * to produce — and a cargo box with none is a rectangle. `box` is null when there is no box.
+ */
+export function effectiveChains(s) {
+  const cabinLen = s.body.len * s.cabin.lenFrac;
+  return {
+    body: s.body.profile,
+    cabin: s.cabin.profile ?? [
+      [0.5, 0],
+      [0.5 - s.cabin.rakeFront / cabinLen, 1],
+      [-0.5 + s.cabin.rakeBack / cabinLen, 1],
+      [-0.5, 0],
+    ],
+    box: s.cargo.type === 'box' ? (s.cargo.profile ?? structuredClone(RECT_PROFILE)) : null,
+  };
+}
+
+/**
+ * Where each profiled part sits: origin (x at centre, y at base), length, height and half-width
+ * of its extrusion. One computation shared by the builder and the editor's silhouette handles,
+ * so the handles can never drift off the mesh they claim to edit.
+ */
+export function layoutOf(s) {
+  const { len, width, height, clearance, profile } = s.body;
+  const cabinLen = len * s.cabin.lenFrac;
+  const cabinX = len * s.cabin.offsetFrac;
+  const cabinBase = clearance
+    + height * profileTopOver(profile, s.cabin.offsetFrac - s.cabin.lenFrac / 2, s.cabin.offsetFrac + s.cabin.lenFrac / 2)
+    - SINK;
+  const layout = {
+    body: { x: 0, y: clearance, len, height, halfW: width / 2 },
+    cabin: { x: cabinX, y: cabinBase, len: cabinLen, height: s.cabin.height, halfW: (width * s.cabin.widthFrac) / 2 },
+    box: null,
+    bed: null,
+  };
+
+  const cargoFront = cabinX - cabinLen / 2 - 0.08;
+  const cargoRear = -len / 2;
+  if (s.cargo.type !== 'none' && cargoFront - cargoRear > 0.3) {
+    const deckTop = clearance + height * profileTopOver(profile, cargoFront / len, cargoRear / len);
+    if (s.cargo.type === 'box') {
+      // The overhang extends the box past the rear bumper, box-truck style.
+      const rear = cargoRear - s.cargo.boxOverhang;
+      layout.box = {
+        x: (cargoFront + rear) / 2,
+        y: deckTop - 2 * SINK,
+        len: cargoFront - rear,
+        height: s.cargo.boxHeight,
+        halfW: (width * s.cargo.boxWidthFrac) / 2,
+      };
+    } else {
+      layout.bed = { front: cargoFront, rear: cargoRear, deckTop, width };
+    }
+  }
+  return layout;
+}
+
 /** Every wheel's x position along the body. A third axle doubles up the rear, truck-style. */
 function axlePositions(s) {
   const inset = s.body.len * s.wheels.insetFrac;
@@ -269,6 +405,16 @@ function axlePositions(s) {
 export function partAtFace(manifest, faceIndex) {
   const vertex = faceIndex * 3;
   return manifest.find((p) => vertex >= p.start && vertex < p.start + p.count)?.name ?? null;
+}
+
+/** A chain extruded across `depth`, in its part's local frame (x, y at the origin, z centred). */
+function extrudeChain(chain, spanLen, height, depth) {
+  const shape = new THREE.Shape();
+  shape.moveTo(chain[0][0] * spanLen, chain[0][1] * height);
+  for (let i = 1; i < chain.length; i++) shape.lineTo(chain[i][0] * spanLen, chain[i][1] * height);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
+  geo.translate(0, 0, -depth / 2);
+  return geo;
 }
 
 /**
@@ -287,78 +433,52 @@ export function buildVehicleGeometry(spec) {
   const paint = (name, fallback) => new THREE.Color(s.partColors[name] ?? fallback);
   const add = (name, geo, colorInput) => parts.push({ name, geo: bakeColor(geo, colorInput) });
 
-  const { len, width, height, clearance, profile } = s.body;
+  const { len, width, clearance } = s.body;
   const bodyColor = paint('body', s.colors.body);
+  const chains = effectiveChains(s);
+  const frames = layoutOf(s);
 
-  // The side profile, extruded across the width. The chain runs nose → tail and closes along
-  // the ground; a rectangular chain builds the exact box the game's carGeometry() uses.
-  const shape = new THREE.Shape();
-  shape.moveTo(profile[0][0] * len, profile[0][1] * height);
-  for (let i = 1; i < profile.length; i++) shape.lineTo(profile[i][0] * len, profile[i][1] * height);
-  const body = new THREE.ExtrudeGeometry(shape, { depth: width, bevelEnabled: false });
-  body.translate(0, clearance, -width / 2);
+  const body = extrudeChain(chains.body, len, s.body.height, width);
+  body.translate(0, clearance, 0);
   add('body', body, bodyColor);
 
-  const cabinLen = len * s.cabin.lenFrac;
-  const cabinX = len * s.cabin.offsetFrac;
-  // The cabin sits on the roofline beneath it, not on a nominal box top — on a wedge profile
-  // the glass follows the body down.
-  const cabinBase = clearance
-    + height * profileTopOver(profile, s.cabin.offsetFrac - s.cabin.lenFrac / 2, s.cabin.offsetFrac + s.cabin.lenFrac / 2)
-    - SINK;
-  const cabinTop = cabinBase + s.cabin.height;
-  const cabin = new THREE.BoxGeometry(cabinLen, s.cabin.height, width * s.cabin.widthFrac);
-  // Shear the top face inward: a raked windscreen (front) and rear screen (back). Applied to
-  // the indexed box so every duplicate of a corner moves together — the same welding rule as
-  // jitterVertices(), for the same tearing reason.
-  {
-    const pos = cabin.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      if (pos.getY(i) > 0) {
-        pos.setX(i, pos.getX(i) + (pos.getX(i) > 0 ? -s.cabin.rakeFront : s.cabin.rakeBack));
-      }
-    }
-  }
-  cabin.translate(cabinX, cabinBase + s.cabin.height / 2, 0);
+  const cabin = extrudeChain(chains.cabin, frames.cabin.len, frames.cabin.height, frames.cabin.halfW * 2);
+  cabin.translate(frames.cabin.x, frames.cabin.y, 0);
   add('cabin', cabin, paint('cabin', s.colors.glass));
 
   for (const x of axlePositions(s)) {
     for (const sz of [-1, 1]) {
-      const wheel = new THREE.CylinderGeometry(s.wheels.radius, s.wheels.radius, s.wheels.width, 8);
+      const wheel = new THREE.CylinderGeometry(s.wheels.radius, s.wheels.radius, s.wheels.width, s.wheels.segments);
       wheel.rotateX(Math.PI / 2);   // axle across the car
       wheel.translate(x, s.wheels.radius, sz * (width / 2 - 0.02));
-      add('wheels', wheel, paint('wheels', WHEEL_COLOR));
+      add('wheels', wheel, paint('wheels', s.colors.wheels));
     }
   }
 
   // Cargo occupies whatever the cabin leaves free at the tail. If the cabin reaches nearly to
-  // the rear bumper there is no bed to build, so it quietly disappears rather than inverting.
+  // the rear bumper there is no bed or box to build, so it quietly disappears rather than
+  // inverting — layoutOf() already made that call.
   const cargoDefault = s.cargo.color === 'body' ? bodyColor : new THREE.Color(s.cargo.color);
-  const cargoFront = cabinX - cabinLen / 2 - 0.08;
-  const cargoRear = -len / 2;
-  if (s.cargo.type !== 'none' && cargoFront - cargoRear > 0.3) {
-    const span = cargoFront - cargoRear;
-    const mid = (cargoFront + cargoRear) / 2;
-    const deckTop = clearance + height * profileTopOver(profile, cargoFront / len, cargoRear / len);
-    if (s.cargo.type === 'box') {
-      // Slightly wider than the body, box-truck style, so the box reads as its own volume.
-      const box = new THREE.BoxGeometry(span, s.cargo.boxHeight, width * 1.05);
-      box.translate(mid, deckTop - 2 * SINK + s.cargo.boxHeight / 2, 0);
-      add('box', box, paint('box', cargoDefault));
-    } else {
-      // Open bed: four thin walls around the body top, which itself reads as the bed floor.
-      const t = 0.09;
-      const y = deckTop - 0.05 + s.cargo.bedWall / 2;
-      for (const [bx, bz, lx, lz] of [
-        [cargoFront - t / 2, 0, t, width],            // headboard, behind the cabin
-        [cargoRear + t / 2, 0, t, width],             // tailgate
-        [mid, width / 2 - t / 2, span, t],
-        [mid, -(width / 2 - t / 2), span, t],
-      ]) {
-        const wall = new THREE.BoxGeometry(lx, s.cargo.bedWall, lz);
-        wall.translate(bx, y, bz);
-        add('bed', wall, paint('bed', cargoDefault));
-      }
+  if (frames.box) {
+    const box = extrudeChain(chains.box, frames.box.len, frames.box.height, frames.box.halfW * 2);
+    box.translate(frames.box.x, frames.box.y, 0);
+    add('box', box, paint('box', cargoDefault));
+  } else if (frames.bed) {
+    // Open bed: four thin walls around the body top, which itself reads as the bed floor.
+    const { front, rear, deckTop } = frames.bed;
+    const t = s.cargo.bedThickness;
+    const span = front - rear;
+    const mid = (front + rear) / 2;
+    const y = deckTop - 0.05 + s.cargo.bedWall / 2;
+    for (const [bx, bz, lx, lz] of [
+      [front - t / 2, 0, t, width],            // headboard, behind the cabin
+      [rear + t / 2, 0, t, width],             // tailgate
+      [mid, width / 2 - t / 2, span, t],
+      [mid, -(width / 2 - t / 2), span, t],
+    ]) {
+      const wall = new THREE.BoxGeometry(lx, s.cargo.bedWall, lz);
+      wall.translate(bx, y, bz);
+      add('bed', wall, paint('bed', cargoDefault));
     }
   }
 
@@ -366,7 +486,7 @@ export function buildVehicleGeometry(spec) {
     // The taxi's chequer band: a thin box proud of each flank, at the same relative height.
     for (const side of [-1, 1]) {
       const stripe = new THREE.BoxGeometry(len * 0.82, 0.22, 0.06);
-      stripe.translate(0, clearance + height * 0.55, side * (width / 2 + 0.02));
+      stripe.translate(0, clearance + s.body.height * 0.55, side * (width / 2 + 0.02));
       add('stripe', stripe, paint('stripe', s.extras.stripeColor));
     }
   } else if (s.extras.stripe === 'skirt') {
@@ -376,9 +496,12 @@ export function buildVehicleGeometry(spec) {
     add('stripe', stripe, paint('stripe', s.extras.stripeColor));
   }
 
-  // Roof furniture recentres on the raked top face — with a fast windscreen the flat part of
-  // the roof is further back than the cabin's own centre.
-  const roofX = cabinX + (s.cabin.rakeBack - s.cabin.rakeFront) / 2;
+  // Roof furniture sits on the cabin chain's highest run, recentred on it — with a fast
+  // windscreen (or a drawn silhouette) the flat part of the roof is not the cabin's centre.
+  const cabinPeak = Math.max(...chains.cabin.map((p) => p[1]));
+  const peaks = chains.cabin.filter((p) => p[1] >= cabinPeak - 1e-6);
+  const roofX = frames.cabin.x + (peaks.reduce((sum, p) => sum + p[0], 0) / peaks.length) * frames.cabin.len;
+  const cabinTop = frames.cabin.y + cabinPeak * frames.cabin.height;
 
   if (s.extras.sign) {
     const sign = new THREE.BoxGeometry(0.75, 0.34, 0.4);
@@ -444,6 +567,7 @@ export function randomSpec(rand = Math.random) {
   jitter('cabin.rakeFront', 0.15);
   jitter('wheels.radius', 0.06);
   jitter('wheels.insetFrac', 0.03);
+  base.wheels.segments = [6, 8, 8, 10, 12][Math.floor(rand() * 5)];
   base.colors.body = PALETTE.carBody[Math.floor(rand() * PALETTE.carBody.length)];
   base.name = `Random ${base.name.toLowerCase()}`;
   return normalizeSpec(base);

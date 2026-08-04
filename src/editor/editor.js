@@ -6,7 +6,7 @@ import { propMaterial, bakeColor } from '../util/geo.js';
 import { LANE, HALF_ROAD } from '../city/grid.js';
 import {
   PRESETS, LIMITS, normalizeSpec, buildVehicleGeometry, randomSpec, partAtFace,
-  PROFILE_MIN_POINTS, PROFILE_MAX_POINTS,
+  effectiveChains, layoutOf, chainIsSimple, CHAIN_MIN_POINTS, PROFILE_MAX_POINTS,
 } from '../geometry/carkit.js';
 
 // The vehicle editor: a workbench for carkit.js specs, served at /editor.html alongside the
@@ -149,15 +149,18 @@ function replaceSpec(next) {
   renderPanel();
 }
 
-// --- Silhouette mode. The body profile's points become draggable handle spheres on the car's
-// near flank; dragging moves them in the side plane, double-click inserts on the outline or
-// deletes a point. The camera swings to a near-side view and orbiting pauses — a drag has to
-// mean "move this point", not two things at once.
+// --- Silhouette mode. Every profiled part's chain — body, cabin, cargo box — becomes a set of
+// draggable handle spheres on its own near flank, colour-coded by part. Dragging moves a point
+// in that part's side plane, double-click inserts on the nearest outline or deletes a point.
+// The camera swings to a near-side view and orbiting pauses — a drag has to mean "move this
+// point", not two things at once.
 const silhouette = { on: false, saved: null };
 const handles = new THREE.Group();
 scene.add(handles);
 const raycaster = new THREE.Raycaster();
 const clampNum = THREE.MathUtils.clamp;
+
+const HANDLE_COLORS = { body: '#F5C130', cabin: '#F2F4F7', box: '#4D9BFF' };
 
 function ndcFrom(e) {
   return new THREE.Vector2(
@@ -166,53 +169,92 @@ function ndcFrom(e) {
   );
 }
 
+/** The chains on show right now, paired with the frames that place them in the world. */
+function editableChains() {
+  const s = normalizeSpec(spec);
+  const chains = effectiveChains(s);
+  const frames = layoutOf(s);
+  const out = [
+    { part: 'body', chain: chains.body, frame: frames.body },
+    { part: 'cabin', chain: chains.cabin, frame: frames.cabin },
+  ];
+  if (frames.box && chains.box) out.push({ part: 'box', chain: chains.box, frame: frames.box });
+  return out;
+}
+
 function syncHandles() {
-  const profile = spec.body.profile;
-  const { len, width, height, clearance } = spec.body;
-  while (handles.children.length > profile.length) {
+  const sets = editableChains();
+  const total = sets.reduce((sum, s) => sum + s.chain.length, 0);
+  while (handles.children.length > total) {
     const h = handles.children.pop();
     h.geometry.dispose();
     h.material.dispose();
   }
-  while (handles.children.length < profile.length) {
+  while (handles.children.length < total) {
     handles.add(new THREE.Mesh(
       new THREE.SphereGeometry(0.11, 12, 8),
-      new THREE.MeshBasicMaterial({ color: '#F5C130', depthTest: false }),
+      new THREE.MeshBasicMaterial({ depthTest: false }),
     ));
   }
-  profile.forEach(([fx, fy], i) => {
-    const h = handles.children[i];
-    h.renderOrder = 20;
-    h.userData.index = i;
-    h.position.set(fx * len, clearance + fy * height, width / 2 + 0.06);
-  });
+  let i = 0;
+  for (const { part, chain, frame } of sets) {
+    chain.forEach(([fx, fy], index) => {
+      const h = handles.children[i++];
+      h.renderOrder = 20;
+      h.material.color.set(HANDLE_COLORS[part]);
+      h.userData.part = part;
+      h.userData.index = index;
+      h.position.set(frame.x + fx * frame.len, frame.y + fy * frame.height, frame.halfW + 0.06);
+    });
+  }
 }
 
+/** { part, index } of the handle under the pointer, or null. */
 function pickHandle(e) {
   raycaster.setFromCamera(ndcFrom(e), camera);
-  return raycaster.intersectObjects(handles.children)[0]?.object.userData.index ?? null;
+  const hit = raycaster.intersectObjects(handles.children)[0];
+  return hit ? { part: hit.object.userData.part, index: hit.object.userData.index } : null;
 }
 
-/** Where the pointer lands on the car's near-side plane, in world units. */
-function sidePlanePoint(e) {
+/** Where the pointer lands on a part's near-side plane, in world units. */
+function sidePlanePoint(e, frame) {
   raycaster.setFromCamera(ndcFrom(e), camera);
-  const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -(spec.body.width / 2));
+  const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -frame.halfW);
   const out = new THREE.Vector3();
   return raycaster.ray.intersectPlane(plane, out) ? out : null;
 }
 
-function dragHandleTo(i, e) {
-  const p = sidePlanePoint(e);
+// The cabin's default chain is generated from its rakes, the box's is a rectangle; the first
+// edit turns that implicit shape into an explicit spec.body-style profile it can then keep.
+function materializeChain(part) {
+  const s = normalizeSpec(spec);
+  if (part === 'cabin' && !spec.cabin.profile) spec.cabin.profile = effectiveChains(s).cabin;
+  if (part === 'box' && !spec.cargo.profile) spec.cargo.profile = effectiveChains(s).box;
+}
+
+function chainRefOf(part) {
+  if (part === 'body') return spec.body.profile;
+  if (part === 'cabin') return spec.cabin.profile;
+  return spec.cargo.profile;
+}
+
+function dragHandleTo(sel, e) {
+  const found = editableChains().find((c) => c.part === sel.part);
+  if (!found) return;
+  const p = sidePlanePoint(e, found.frame);
   if (!p) return;
-  const prof = spec.body.profile;
-  const n = prof.length;
-  let fx = p.x / spec.body.len;
-  let fy = (p.y - spec.body.clearance) / spec.body.height;
-  // The chain stays x-monotonic — clamped between its neighbours — so it can never
-  // self-intersect, and the endpoints stay on the ground (they close the polygon).
-  if (i === 0) { fx = clampNum(fx, prof[1][0], 0.5); fy = 0; }
-  else if (i === n - 1) { fx = clampNum(fx, -0.5, prof[n - 2][0]); fy = 0; }
-  else { fx = clampNum(fx, prof[i + 1][0], prof[i - 1][0]); fy = clampNum(fy, 0.02, 1); }
+  materializeChain(sel.part);
+  const prof = chainRefOf(sel.part);
+  const i = sel.index;
+  if (!prof || !prof[i]) return;
+  let fx = clampNum((p.x - found.frame.x) / found.frame.len, -0.5, 0.5);
+  let fy = clampNum((p.y - found.frame.y) / found.frame.height, 0.02, 1);
+  // Endpoints stay on the ground — they close the polygon along the part's base.
+  if (i === 0 || i === prof.length - 1) fy = 0;
+  // Obtuse angles and doubled-back noses are allowed; a fold through the outline is not. Try
+  // the move, keep it only if the closed chain stays a simple polygon.
+  const candidate = prof.map((pt, k) => (k === i ? [fx, fy] : pt));
+  if (!chainIsSimple(candidate)) return;
   prof[i] = [fx, fy];
   spec = normalizeSpec(spec);
   rebuild();
@@ -265,15 +307,24 @@ const SLIDERS = {
     ['cabin.offsetFrac', 'Position', 0.01, (v) => `${Math.round(v * 100)}%`],
     ['cabin.height', 'Height', 0.02, (v) => v.toFixed(2)],
     ['cabin.widthFrac', 'Width', 0.01, (v) => `${Math.round(v * 100)}%`],
-    ['cabin.rakeFront', 'Screen rake', 0.02, (v) => v.toFixed(2)],
-    ['cabin.rakeBack', 'Rear rake', 0.02, (v) => v.toFixed(2)],
   ],
   Wheels: [
     ['wheels.radius', 'Radius', 0.01, (v) => v.toFixed(2)],
     ['wheels.width', 'Width', 0.01, (v) => v.toFixed(2)],
     ['wheels.insetFrac', 'Stance', 0.01, (v) => `${Math.round(v * 100)}%`],
+    ['wheels.segments', 'Sides', 1, (v) => `${Math.round(v)}`],
   ],
 };
+
+// The rakes only shape the cabin while no silhouette has been drawn for it — a drawn chain
+// *is* the shape, so the sliders bow out rather than pretending to act. Same rule as the
+// game's debug panel: never show a control that silently does nothing.
+const RAKE_SLIDERS = [
+  ['cabin.rakeFront', 'Screen rake', 0.02, (v) => v.toFixed(2)],
+  ['cabin.rakeBack', 'Rear rake', 0.02, (v) => v.toFixed(2)],
+];
+
+const WHEEL_SWATCHES = ['#6f6f76', '#2E3640', '#14161A', '#F2F4F7', '#C9503F', '#F5C130'];
 
 const BODY_SWATCHES = [...PALETTE.carBody, PALETTE.taxiBody, PALETTE.policeBody];
 const GLASS_SWATCHES = [PALETTE.carGlass, PALETTE.policeRoof, '#1B2026'];
@@ -413,8 +464,19 @@ function renderPanel() {
       if (silhouette.on) {
         panel.append(el('div', {
           className: 'hint',
-          textContent: 'Drag the points to reshape the body. Double-click the side to add a point, double-click a point to remove it. Esc to finish.',
+          textContent: 'Drag points to reshape — yellow is the body, white the cabin, blue the cargo box. Double-click an outline to add a point, double-click a point to remove it. Esc to finish.',
         }));
+      }
+    }
+    if (section === 'Cabin') {
+      if (spec.cabin.profile) {
+        panel.append(el('div', { className: 'hint', textContent: 'Cabin has a drawn silhouette — the rakes hand over to it.' }));
+        panel.append(el('div', { className: 'actions' }, el('button', {
+          textContent: 'Reset cabin shape',
+          onclick: () => { spec.cabin.profile = null; rebuild(); renderPanel(); },
+        })));
+      } else {
+        for (const def of RAKE_SLIDERS) panel.append(sliderRow(def));
       }
     }
     if (section === 'Wheels') {
@@ -423,6 +485,7 @@ function renderPanel() {
         (v) => spec.wheels.axles === v,
         (v) => { spec.wheels.axles = v; },
       ));
+      panel.append(swatchRow(WHEEL_SWATCHES, 'colors.wheels'));
     }
   }
 
@@ -431,8 +494,21 @@ function renderPanel() {
     (v) => spec.cargo.type === v,
     (v) => { spec.cargo.type = v; },
   ));
-  if (spec.cargo.type === 'bed') panel.append(sliderRow(['cargo.bedWall', 'Wall height', 0.02, (v) => v.toFixed(2)]));
-  if (spec.cargo.type === 'box') panel.append(sliderRow(['cargo.boxHeight', 'Box height', 0.05, (v) => v.toFixed(2)]));
+  if (spec.cargo.type === 'bed') {
+    panel.append(sliderRow(['cargo.bedWall', 'Wall height', 0.02, (v) => v.toFixed(2)]));
+    panel.append(sliderRow(['cargo.bedThickness', 'Wall gauge', 0.01, (v) => v.toFixed(2)]));
+  }
+  if (spec.cargo.type === 'box') {
+    panel.append(sliderRow(['cargo.boxHeight', 'Box height', 0.05, (v) => v.toFixed(2)]));
+    panel.append(sliderRow(['cargo.boxWidthFrac', 'Box width', 0.01, (v) => `${Math.round(v * 100)}%`]));
+    panel.append(sliderRow(['cargo.boxOverhang', 'Overhang', 0.02, (v) => v.toFixed(2)]));
+    if (spec.cargo.profile) {
+      panel.append(el('div', { className: 'actions' }, el('button', {
+        textContent: 'Reset cargo shape',
+        onclick: () => { spec.cargo.profile = null; rebuild(); renderPanel(); },
+      })));
+    }
+  }
   if (spec.cargo.type !== 'none') {
     panel.append(swatchRow([PALETTE.pale, PALETTE.concrete, ...PALETTE.carBody.slice(0, 4)], 'cargo.color', { allowBody: true }));
   }
@@ -547,25 +623,52 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   pointerState = null;
 });
 
-// In silhouette mode, double-click edits the point set: on a handle it deletes that point, on
-// the outline it inserts one at the pointer, keeping the chain's front-to-back order.
+// In silhouette mode, double-click edits the point sets: on a handle it deletes that point; on
+// open space it inserts a point into whichever part's outline is nearest the pointer, on the
+// edge it lands closest to — so adding to the cabin over a body that surrounds it just works.
 renderer.domElement.addEventListener('dblclick', (e) => {
   if (!silhouette.on) return;
-  const prof = spec.body.profile;
   const h = pickHandle(e);
-  if (h != null) {
-    if (h > 0 && h < prof.length - 1 && prof.length > PROFILE_MIN_POINTS) prof.splice(h, 1);
-  } else if (prof.length < PROFILE_MAX_POINTS) {
-    const p = sidePlanePoint(e);
-    if (!p) return;
-    const fx = clampNum(p.x / spec.body.len, -0.5, 0.5);
-    const fy = clampNum((p.y - spec.body.clearance) / spec.body.height, 0.02, 1);
-    let at = prof.length - 1;
-    for (let i = 0; i < prof.length - 1; i++) {
-      if (fx <= prof[i][0] && fx >= prof[i + 1][0]) { at = i + 1; break; }
+  if (h) {
+    materializeChain(h.part);
+    const prof = chainRefOf(h.part);
+    if (h.index > 0 && h.index < prof.length - 1 && prof.length > CHAIN_MIN_POINTS) {
+      prof.splice(h.index, 1);
+      spec = normalizeSpec(spec);
+      rebuild();
     }
-    prof.splice(at, 0, [fx, fy]);
+    return;
   }
+
+  // Nearest edge across every visible chain, measured in that chain's own side plane.
+  let best = null;
+  for (const { part, chain, frame } of editableChains()) {
+    if (chain.length >= PROFILE_MAX_POINTS) continue;
+    const p = sidePlanePoint(e, frame);
+    if (!p) continue;
+    const fx = clampNum((p.x - frame.x) / frame.len, -0.5, 0.5);
+    const fy = clampNum((p.y - frame.y) / frame.height, 0.02, 1);
+    for (let i = 0; i < chain.length - 1; i++) {
+      const [ax, ay] = chain[i];
+      const [bx, by] = chain[i + 1];
+      // Distance in world units so parts of different sizes compete fairly.
+      const t = clampNum(
+        ((fx - ax) * (bx - ax) + (fy - ay) * (by - ay))
+          / (((bx - ax) ** 2 + (by - ay) ** 2) || 1e-9),
+        0, 1,
+      );
+      const dx = (fx - (ax + t * (bx - ax))) * frame.len;
+      const dy = (fy - (ay + t * (by - ay))) * frame.height;
+      const d = Math.hypot(dx, dy);
+      if (!best || d < best.d) best = { d, part, at: i + 1, fx, fy };
+    }
+  }
+  if (!best || best.d > 1.5) return;   // a double-click in the void shouldn't grow anything
+  materializeChain(best.part);
+  const prof = chainRefOf(best.part);
+  const candidate = [...prof.slice(0, best.at), [best.fx, best.fy], ...prof.slice(best.at)];
+  if (!chainIsSimple(candidate)) return;
+  prof.splice(best.at, 0, [best.fx, best.fy]);
   spec = normalizeSpec(spec);
   rebuild();
 });
@@ -659,8 +762,14 @@ window.__editor = {
     const h = handles.children[i];
     if (!h) return null;
     const v = h.position.clone().project(camera);
-    return { x: ((v.x + 1) / 2) * window.innerWidth, y: ((1 - v.y) / 2) * window.innerHeight };
+    return {
+      x: ((v.x + 1) / 2) * window.innerWidth,
+      y: ((1 - v.y) / 2) * window.innerHeight,
+      part: h.userData.part,
+      index: h.userData.index,
+    };
   },
+  get handleCount() { return handles.children.length; },
 };
 
 rebuild();

@@ -18,26 +18,39 @@ game's exact discipline — non-indexed, baked vertex colours via `bakeColor()`,
 `propMaterial()` — so a design is drop-in compatible with the meshes in `sim/traffic.js`,
 `sim/police.js` and `geometry/taxi.js`.
 
-A spec is fractions, chains and boxes:
+A spec is fractions, chains and boxes. Body, cabin and cargo box are each an **extruded side
+profile** — a chain of `[x, y]` points (fractions of that part's length/height) running
+front-bottom, up over the top, to rear-bottom, closing flat along its base. A rectangular chain
+*is* a box; a drawn one is a wedge, a fastback, a chopped tail. Fractions so the size sliders
+keep composing with a drawn profile.
 
-- **body** — length / width / height / ground clearance, and a **profile**: a chain of
-  `[x, y]` points (fractions of length/height) running nose-bottom, up over the roofline, to
-  tail-bottom, closing flat along the ground and extruded across the width. A rectangular
-  chain *is* a box; a drawn one is a wedge, a fastback, a chopped tail. Fractions so the
-  length/height sliders keep composing with a drawn profile. The chain is kept x-monotonic
-  (ties allowed — vertical edges), which is what makes self-intersection impossible.
-- **cabin** — a glass box on the body, sized and positioned as *fractions of body length*, so
-  stretching the body carries the cabin with it; it sits on the roofline beneath it, not on a
-  nominal top. **rakeFront/rakeBack** shear its top face inward — a raked windscreen and rear
-  screen. The shear moves every duplicate of a corner together (the `jitterVertices` welding
-  rule; per-copy movement tears the surface).
-- **wheels** — radius, tyre width, stance (axle inset), 2 or 3 axles (the third doubles the rear,
-  truck-style)
-- **cargo** — `none`, an open pickup **bed** (four walls; the body top reads as the floor), or a
-  **box** (a cargo volume slightly wider than the body). Cargo colour `'body'` follows the paint.
+**Validity is "the closed polygon is simple", not "x is monotonic"** — a chain may double back
+on itself (an obtuse nose that juts at mid-height, a spoiler lip). `chainIsSimple()` checks
+edge against edge; the editor refuses a drag that would fold the outline through itself, and
+`sanitizeChain()` repairs imported junk by forcing monotonic (simple by construction) before
+giving up to the fallback shape.
+
+- **body** — length / width / height / ground clearance, plus its profile chain
+- **cabin** — glass, placed as *fractions of body length* so stretching the body carries it;
+  it sits on the body roofline beneath it, not on a nominal top. `profile: null` means "shaped
+  by the rakes": **rakeFront/rakeBack** lean the windscreen and rear screen in, and the cabin
+  extrudes their trapezoid. The first silhouette edit materializes that trapezoid into an
+  explicit chain — from then on the chain is the shape and the rake sliders bow out (same rule
+  as the game's debug panel: never show a control that silently does nothing).
+- **wheels** — radius, tyre width, stance (axle inset), 2 or 3 axles (the third doubles the
+  rear, truck-style), **segments** (6 chunky facets to 24 near-round), and a wheel colour role
+- **cargo** — `none`, an open pickup **bed** (four walls; the body top reads as the floor; wall
+  height and gauge are sliders), or a **box** with height, width (relative to the body),
+  **rear overhang** past the bumper, and its own profile chain. Cargo colour `'body'` follows
+  the paint.
 - **extras** — the taxi's flank stripe or the police skirt wrap, a roof sign, a baked light bar
 - **partColors** — per-part colour overrides keyed by manifest name, written by
   click-to-select; absent keys fall through to the role colours
+
+`layoutOf()` computes where each profiled part sits (origin, length, height, half-width) —
+one computation shared by the builder and the editor's handles, so the handles can never drift
+off the mesh they claim to edit. `effectiveChains()` resolves each part's chain in force,
+including the cabin's rake trapezoid and the box's default rectangle.
 
 Everything numeric is clamped through `LIMITS` in `normalizeSpec()`, which also fills gaps from
 the default — imported or hand-edited JSON degrades to a buildable car, never NaN geometry.
@@ -71,10 +84,11 @@ frame.
   a copy taken at build time; the chosen swatch lands in `partColors`. Esc or empty space
   deselects.
 - **Silhouette mode** (✎ under the Body sliders, or `?silhouette=1`) — the camera swings to the
-  side, the profile points become draggable handles on the near flank, and orbiting pauses so a
-  drag means "move this point". Drags are clamped between neighbours (the chain stays
-  monotonic); double-click the side to insert a point, double-click a point to delete it.
-  Endpoints slide along the ground only — they close the polygon.
+  side and every profiled part's chain becomes a set of handles on its own flank, colour-coded:
+  yellow body, white cabin, blue cargo box. Orbiting pauses so a drag means "move this point".
+  A drag is accepted only if the chain stays a simple polygon — obtuse angles yes, folds no.
+  Double-click inserts a point into whichever outline is nearest the pointer; double-click a
+  point to delete it. Endpoints slide along the ground only — they close the polygon.
 - **Play-zoom inset** (bottom left) — an orthographic camera down the game's `VIEW_DIR`, sized so
   one world unit covers the same pixels as at play zoom (frustum half-height 52 over the window
   height). Whether a design *reads* at seven-ish pixels per unit is the question that matters,

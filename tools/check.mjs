@@ -100,6 +100,47 @@ try {
     if (!(wedge.boundingBox.max.y < 1.9)) throw new Error('sports wedge lost its chopped roofline');
     wedge.dispose();
   }
+  // Obtuse angles: a chain that doubles back (a nose jutting at mid-height) is legal as long
+  // as the outline stays simple; a chain that folds through itself gets repaired, not kept.
+  {
+    const nose = normalizeSpec({ body: { profile: [[0.4, 0], [0.5, 0.45], [0.3, 1], [-0.5, 1], [-0.5, 0]] } });
+    if (!(nose.body.profile[1][0] > nose.body.profile[0][0])) {
+      throw new Error('simple doubled-back chain was flattened to monotonic');
+    }
+    buildVehicleGeometry(nose).dispose();
+    const crossed = normalizeSpec({ body: { profile: [[0.5, 0], [-0.5, 1], [0.5, 1], [-0.5, 0]] } });
+    for (let i = 1; i < crossed.body.profile.length; i++) {
+      if (crossed.body.profile[i][0] > crossed.body.profile[i - 1][0] + 1e-9) {
+        throw new Error('crossing chain survived sanitisation un-repaired');
+      }
+    }
+    buildVehicleGeometry(crossed).dispose();
+  }
+  // Cabin and cargo silhouettes: a drawn chain builds, and cargo shape controls move the mesh.
+  {
+    const shaped = buildVehicleGeometry({
+      ...PRESETS.boxtruck,
+      cabin: { ...PRESETS.boxtruck.cabin, profile: [[0.5, 0], [0.1, 1], [-0.5, 0.9], [-0.5, 0]] },
+      cargo: { ...PRESETS.boxtruck.cargo, boxOverhang: 0.5, profile: [[0.5, 0], [0.5, 1], [-0.45, 1], [-0.5, 0.6], [-0.5, 0]] },
+    });
+    shaped.computeBoundingBox();
+    if (!(shaped.boundingBox.min.x < -(4.9 / 2) - 0.4)) throw new Error('box overhang did not extend past the bumper');
+    shaped.dispose();
+  }
+  // Wheel controls: the segment count must reach the cylinders, the colour must bake.
+  {
+    const coarse = buildVehicleGeometry({ ...PRESETS.sedan, wheels: { ...PRESETS.sedan.wheels, segments: 6 } });
+    const fine = buildVehicleGeometry({ ...PRESETS.sedan, wheels: { ...PRESETS.sedan.wheels, segments: 16 } });
+    if (coarse.attributes.position.count >= fine.attributes.position.count) {
+      throw new Error('wheel segments did not change the mesh');
+    }
+    coarse.dispose();
+    const red = buildVehicleGeometry({ ...PRESETS.sedan, colors: { ...PRESETS.sedan.colors, wheels: '#ff0000' } });
+    const wheels = red.userData.manifest.find((p) => p.name === 'wheels');
+    if (!(red.attributes.color.getX(wheels.start) > 0.9)) throw new Error('wheel colour did not bake');
+    red.dispose();
+    fine.dispose();
+  }
   const sedan = buildVehicleGeometry(PRESETS.sedan);
   sedan.computeBoundingBox();
   const s = sedan.boundingBox;
