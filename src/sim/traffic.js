@@ -51,6 +51,25 @@ const SWERVE_PHASE2 = 1.7;    // offset so the two waves don't start out in step
 // Units of road over which the weave fades in and out with the boost. Paced by distance, like
 // the weave itself, so releasing the button at a red doesn't drift the parked car straight.
 const SWERVE_FADE = 7;
+export const LOCO_WEAVE_FADE = SWERVE_FADE;
+
+/**
+ * The Loco Mode weave, as a function of distance driven straight (`u`, world units). Returns the
+ * lane-relative offset and its slope — the slope *is* the tangent of the steering angle, since the
+ * offset is a function of distance rather than of time, so there is nothing to divide by v.
+ *
+ * Exported because the police car drives the same weave when it locks onto the taxi
+ * (`sim/police.js`). One definition, so the two maniacs in the city are demonstrably the same
+ * kind of maniac and the room budget above only has to be reasoned about once.
+ */
+export function locoWeave(u) {
+  const k1 = (Math.PI * 2) / SWERVE_WAVE;
+  const k2 = (Math.PI * 2) / SWERVE_WAVE2;
+  return {
+    lateral: SWERVE_AMP * Math.sin(k1 * u) + SWERVE_AMP2 * Math.sin(k2 * u + SWERVE_PHASE2),
+    slope: SWERVE_AMP * k1 * Math.cos(k1 * u) + SWERVE_AMP2 * k2 * Math.cos(k2 * u + SWERVE_PHASE2),
+  };
+}
 
 // Wheelie profile for the Loco Mode kickoff — see the pitch-composition block below where the
 // shape is applied. Peak is about 17°: enough to read as the nose jumping off the line, short of
@@ -694,11 +713,8 @@ export function createTraffic(rng, scene, count = 24) {
         taxi.swerve += Math.sign(delta) * Math.min(Math.abs(delta), ds / SWERVE_FADE);
       }
 
-      const k1 = (Math.PI * 2) / SWERVE_WAVE;
-      const k2 = (Math.PI * 2) / SWERVE_WAVE2;
-      const u = taxi.swervePhase;
-      taxi.lateral = taxi.swerve
-        * (SWERVE_AMP * Math.sin(k1 * u) + SWERVE_AMP2 * Math.sin(k2 * u + SWERVE_PHASE2));
+      const wave = locoWeave(taxi.swervePhase);
+      taxi.lateral = taxi.swerve * wave.lateral;
 
       // Point where it is sliding. Without a yaw offset the car crabs — translating sideways
       // across the road while still aimed straight down it — and that is what read as broken
@@ -707,10 +723,7 @@ export function createTraffic(rng, scene, count = 24) {
       // nothing to divide by v here: atan(0.40·k1 + 0.12·k2) ≈ 12° at the peak, against the 13°
       // the old lane change held. Mid-corner the yaw belongs to the arc, so the weave's share of
       // it eases out; the 0.1s ease is only so the wheel straightens instead of snapping.
-      const slope = taxi.state === 'drive'
-        ? taxi.swerve * (SWERVE_AMP * k1 * Math.cos(k1 * u)
-          + SWERVE_AMP2 * k2 * Math.cos(k2 * u + SWERVE_PHASE2))
-        : 0;
+      const slope = taxi.state === 'drive' ? taxi.swerve * wave.slope : 0;
       taxi.steer += (Math.atan(slope) - taxi.steer) * Math.min(1, dt / 0.1);
     }
 
