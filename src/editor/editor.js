@@ -5,7 +5,8 @@ import { PALETTE } from '../palette.js';
 import { propMaterial, bakeColor } from '../util/geo.js';
 import { LANE, HALF_ROAD } from '../city/grid.js';
 import {
-  PRESETS, LIMITS, normalizeSpec, buildVehicleGeometry, randomSpec,
+  PRESETS, LIMITS, normalizeSpec, buildVehicleGeometry, randomSpec, partAtFace,
+  PROFILE_MIN_POINTS, PROFILE_MAX_POINTS,
 } from '../geometry/carkit.js';
 
 // The vehicle editor: a workbench for carkit.js specs, served at /editor.html alongside the
@@ -111,9 +112,31 @@ try {
 const pinned = new URLSearchParams(location.search).get('preset');
 if (PRESETS[pinned]) spec = normalizeSpec(structuredClone(PRESETS[pinned]));
 
+// --- Part selection. The mesh stays merged; the manifest's vertex ranges are what make a
+// raycast hit name a part, and the pulse highlight is a per-frame rewrite of that range's
+// slice of the colour attribute, restored from a copy taken at build time.
+let selected = null;
+let baseColors = null;
+const PART_LABELS = {
+  body: 'Body', cabin: 'Cabin glass', wheels: 'Wheels', bed: 'Pickup bed',
+  box: 'Cargo box', stripe: 'Stripe', sign: 'Roof sign', lightbar: 'Light bar',
+};
+
+function setSelected(name) {
+  if (baseColors) {
+    vehicle.geometry.attributes.color.array.set(baseColors);
+    vehicle.geometry.attributes.color.needsUpdate = true;
+  }
+  selected = name;
+}
+
 function rebuild() {
   vehicle.geometry.dispose();
   vehicle.geometry = buildVehicleGeometry(spec);
+  baseColors = vehicle.geometry.attributes.color.array.slice();
+  // The selected part can genuinely vanish — toggling cargo off deletes the bed.
+  if (selected && !vehicle.geometry.userData.manifest.some((p) => p.name === selected)) selected = null;
+  if (silhouette.on) syncHandles();
   localStorage.setItem(STORE_CURRENT, JSON.stringify(spec));
   statsEl.textContent =
     `${spec.body.len.toFixed(1)} × ${spec.body.width.toFixed(1)} u · `
@@ -123,6 +146,96 @@ function rebuild() {
 function replaceSpec(next) {
   spec = normalizeSpec(next);
   rebuild();
+  renderPanel();
+}
+
+// --- Silhouette mode. The body profile's points become draggable handle spheres on the car's
+// near flank; dragging moves them in the side plane, double-click inserts on the outline or
+// deletes a point. The camera swings to a near-side view and orbiting pauses — a drag has to
+// mean "move this point", not two things at once.
+const silhouette = { on: false, saved: null };
+const handles = new THREE.Group();
+scene.add(handles);
+const raycaster = new THREE.Raycaster();
+const clampNum = THREE.MathUtils.clamp;
+
+function ndcFrom(e) {
+  return new THREE.Vector2(
+    (e.clientX / window.innerWidth) * 2 - 1,
+    -(e.clientY / window.innerHeight) * 2 + 1,
+  );
+}
+
+function syncHandles() {
+  const profile = spec.body.profile;
+  const { len, width, height, clearance } = spec.body;
+  while (handles.children.length > profile.length) {
+    const h = handles.children.pop();
+    h.geometry.dispose();
+    h.material.dispose();
+  }
+  while (handles.children.length < profile.length) {
+    handles.add(new THREE.Mesh(
+      new THREE.SphereGeometry(0.11, 12, 8),
+      new THREE.MeshBasicMaterial({ color: '#F5C130', depthTest: false }),
+    ));
+  }
+  profile.forEach(([fx, fy], i) => {
+    const h = handles.children[i];
+    h.renderOrder = 20;
+    h.userData.index = i;
+    h.position.set(fx * len, clearance + fy * height, width / 2 + 0.06);
+  });
+}
+
+function pickHandle(e) {
+  raycaster.setFromCamera(ndcFrom(e), camera);
+  return raycaster.intersectObjects(handles.children)[0]?.object.userData.index ?? null;
+}
+
+/** Where the pointer lands on the car's near-side plane, in world units. */
+function sidePlanePoint(e) {
+  raycaster.setFromCamera(ndcFrom(e), camera);
+  const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -(spec.body.width / 2));
+  const out = new THREE.Vector3();
+  return raycaster.ray.intersectPlane(plane, out) ? out : null;
+}
+
+function dragHandleTo(i, e) {
+  const p = sidePlanePoint(e);
+  if (!p) return;
+  const prof = spec.body.profile;
+  const n = prof.length;
+  let fx = p.x / spec.body.len;
+  let fy = (p.y - spec.body.clearance) / spec.body.height;
+  // The chain stays x-monotonic — clamped between its neighbours — so it can never
+  // self-intersect, and the endpoints stay on the ground (they close the polygon).
+  if (i === 0) { fx = clampNum(fx, prof[1][0], 0.5); fy = 0; }
+  else if (i === n - 1) { fx = clampNum(fx, -0.5, prof[n - 2][0]); fy = 0; }
+  else { fx = clampNum(fx, prof[i + 1][0], prof[i - 1][0]); fy = clampNum(fy, 0.02, 1); }
+  prof[i] = [fx, fy];
+  spec = normalizeSpec(spec);
+  rebuild();
+}
+
+function setSilhouette(on) {
+  silhouette.on = on;
+  if (on) {
+    silhouette.saved = { yaw: orbit.yaw, pitch: orbit.pitch, dist: orbit.dist };
+    view.turntable = false;
+    vehicle.rotation.y = 0;   // handles live in world space; the car has to face them
+    orbit.yaw = Math.PI / 2;
+    orbit.pitch = 0.12;
+    orbit.dist = Math.max(9, spec.body.len * 2.6);
+    syncHandles();
+  } else {
+    if (silhouette.saved) Object.assign(orbit, silhouette.saved);
+    while (handles.children.length) {
+      const h = handles.children.pop();
+      h.geometry.dispose();
+      h.material.dispose();
+    }
+  }
   renderPanel();
 }
 
@@ -152,6 +265,8 @@ const SLIDERS = {
     ['cabin.offsetFrac', 'Position', 0.01, (v) => `${Math.round(v * 100)}%`],
     ['cabin.height', 'Height', 0.02, (v) => v.toFixed(2)],
     ['cabin.widthFrac', 'Width', 0.01, (v) => `${Math.round(v * 100)}%`],
+    ['cabin.rakeFront', 'Screen rake', 0.02, (v) => v.toFixed(2)],
+    ['cabin.rakeBack', 'Rear rake', 0.02, (v) => v.toFixed(2)],
   ],
   Wheels: [
     ['wheels.radius', 'Radius', 0.01, (v) => v.toFixed(2)],
@@ -221,7 +336,8 @@ function swatchRow(swatches, path, { allowBody = false } = {}) {
   }
   const picker = el('input', {
     type: 'color',
-    value: current === 'body' ? '#888888' : current,
+    // A part with no override yet has no current colour to show; grey is the empty well.
+    value: !current || current === 'body' ? '#888888' : current,
     title: 'custom colour',
   });
   picker.oninput = () => { set(spec, path, picker.value); rebuild(); };
@@ -271,9 +387,36 @@ function renderPanel() {
     (key) => { spec = normalizeSpec(structuredClone(PRESETS[key])); },
   ));
 
+  // The selected part, when there is one — click the car to pick, Esc or empty space clears.
+  if (selected) {
+    panel.append(heading(`Selected · ${PART_LABELS[selected] ?? selected}`));
+    panel.append(swatchRow([...BODY_SWATCHES, ...GLASS_SWATCHES], `partColors.${selected}`));
+    panel.append(el('div', { className: 'actions' },
+      el('button', {
+        textContent: 'Reset part colour',
+        onclick: () => { delete spec.partColors[selected]; rebuild(); renderPanel(); },
+      }),
+      el('button', { textContent: 'Deselect', onclick: () => { setSelected(null); renderPanel(); } })));
+  } else if (!silhouette.on) {
+    panel.append(el('div', { className: 'hint', textContent: 'Click a part of the car to recolour it.' }));
+  }
+
   for (const [section, rows] of Object.entries(SLIDERS)) {
     panel.append(heading(section));
     for (const def of rows) panel.append(sliderRow(def));
+    if (section === 'Body') {
+      panel.append(chipRow(
+        [['silhouette', silhouette.on ? '✓ Done shaping' : '✎ Edit silhouette']],
+        () => silhouette.on,
+        () => setSilhouette(!silhouette.on),
+      ));
+      if (silhouette.on) {
+        panel.append(el('div', {
+          className: 'hint',
+          textContent: 'Drag the points to reshape the body. Double-click the side to add a point, double-click a point to remove it. Esc to finish.',
+        }));
+      }
+    }
     if (section === 'Wheels') {
       panel.append(chipRow(
         [[2, '2 axles'], [3, '3 axles']],
@@ -366,21 +509,72 @@ function renderPanel() {
 }
 
 // ---------------------------------------------------------------------------
-// Input: drag to orbit, wheel to zoom. The first drag switches the turntable off — spinning
-// against the user's own rotation is worse than either alone.
-let dragging = null;
+// Input: drag to orbit (or to move a silhouette handle), wheel to zoom, and a sub-slop press
+// is a click that picks a part — the same press-vs-drag split the game's pan makes, and for
+// the same reason: every real click lands with a few pixels of travel.
+const CLICK_SLOP = 5;
+let pointerState = null;
 renderer.domElement.addEventListener('pointerdown', (e) => {
-  dragging = { x: e.clientX, y: e.clientY };
+  pointerState = silhouette.on
+    ? { handle: pickHandle(e) }
+    : { x: e.clientX, y: e.clientY, downX: e.clientX, downY: e.clientY, moved: false };
   renderer.domElement.setPointerCapture(e.pointerId);
 });
 renderer.domElement.addEventListener('pointermove', (e) => {
-  if (!dragging) return;
-  if (view.turntable) { view.turntable = false; renderPanel(); }
-  orbit.yaw += (e.clientX - dragging.x) * 0.008;
-  orbit.pitch = THREE.MathUtils.clamp(orbit.pitch + (e.clientY - dragging.y) * 0.006, 0.06, 1.35);
-  dragging = { x: e.clientX, y: e.clientY };
+  if (!pointerState) return;
+  if (silhouette.on) {
+    if (pointerState.handle != null) dragHandleTo(pointerState.handle, e);
+    return;
+  }
+  if (Math.hypot(e.clientX - pointerState.downX, e.clientY - pointerState.downY) > CLICK_SLOP) {
+    pointerState.moved = true;
+    if (view.turntable) { view.turntable = false; renderPanel(); }
+  }
+  if (pointerState.moved) {
+    orbit.yaw += (e.clientX - pointerState.x) * 0.008;
+    orbit.pitch = THREE.MathUtils.clamp(orbit.pitch + (e.clientY - pointerState.y) * 0.006, 0.06, 1.35);
+  }
+  pointerState.x = e.clientX;
+  pointerState.y = e.clientY;
 });
-renderer.domElement.addEventListener('pointerup', () => { dragging = null; });
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (pointerState && !silhouette.on && !pointerState.moved) {
+    raycaster.setFromCamera(ndcFrom(e), camera);
+    const hit = raycaster.intersectObject(vehicle)[0];
+    setSelected(hit ? partAtFace(vehicle.geometry.userData.manifest, hit.faceIndex) : null);
+    renderPanel();
+  }
+  pointerState = null;
+});
+
+// In silhouette mode, double-click edits the point set: on a handle it deletes that point, on
+// the outline it inserts one at the pointer, keeping the chain's front-to-back order.
+renderer.domElement.addEventListener('dblclick', (e) => {
+  if (!silhouette.on) return;
+  const prof = spec.body.profile;
+  const h = pickHandle(e);
+  if (h != null) {
+    if (h > 0 && h < prof.length - 1 && prof.length > PROFILE_MIN_POINTS) prof.splice(h, 1);
+  } else if (prof.length < PROFILE_MAX_POINTS) {
+    const p = sidePlanePoint(e);
+    if (!p) return;
+    const fx = clampNum(p.x / spec.body.len, -0.5, 0.5);
+    const fy = clampNum((p.y - spec.body.clearance) / spec.body.height, 0.02, 1);
+    let at = prof.length - 1;
+    for (let i = 0; i < prof.length - 1; i++) {
+      if (fx <= prof[i][0] && fx >= prof[i + 1][0]) { at = i + 1; break; }
+    }
+    prof.splice(at, 0, [fx, fy]);
+  }
+  spec = normalizeSpec(spec);
+  rebuild();
+});
+
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (silhouette.on) setSilhouette(false);
+  else if (selected) { setSelected(null); renderPanel(); }
+});
 renderer.domElement.addEventListener('wheel', (e) => {
   e.preventDefault();
   orbit.dist = THREE.MathUtils.clamp(orbit.dist * Math.exp(e.deltaY * 0.0012), 5, 45);
@@ -399,10 +593,27 @@ resize();
 const pipFrame = document.getElementById('pip-frame');
 const clock = new THREE.Clock();
 
+let pulseT = 0;
+
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
-  if (view.turntable) vehicle.rotation.y += dt * 0.45;
+  if (view.turntable && !silhouette.on) vehicle.rotation.y += dt * 0.45;
   applyOrbit();
+
+  // Pulse the selected part toward white so the selection reads on any base colour. Rewrites
+  // only that part's slice of the colour attribute; baseColors is the truth it returns to.
+  pulseT += dt;
+  if (selected && baseColors) {
+    const entry = vehicle.geometry.userData.manifest.find((p) => p.name === selected);
+    if (entry) {
+      const colors = vehicle.geometry.attributes.color;
+      const k = 0.3 + 0.18 * Math.sin(pulseT * 5.5);
+      for (let i = entry.start * 3; i < (entry.start + entry.count) * 3; i++) {
+        colors.array[i] = baseColors[i] + (1 - baseColors[i]) * k;
+      }
+      colors.needsUpdate = true;
+    }
+  }
 
   renderer.setScissorTest(false);
   renderer.render(scene, camera);
@@ -439,6 +650,21 @@ function frame() {
   requestAnimationFrame(frame);
 }
 
+// Test hook, in the spirit of the game's window.__taxi: enough state for a headless driver to
+// aim real pointer events at real screen positions instead of guessing pixels.
+window.__editor = {
+  get spec() { return spec; },
+  get selected() { return selected; },
+  handleScreen(i) {
+    const h = handles.children[i];
+    if (!h) return null;
+    const v = h.position.clone().project(camera);
+    return { x: ((v.x + 1) / 2) * window.innerWidth, y: ((1 - v.y) / 2) * window.innerHeight };
+  },
+};
+
 rebuild();
 renderPanel();
+// ?silhouette=1 opens straight into shaping mode — for screenshots and shared links.
+if (new URLSearchParams(location.search).has('silhouette')) setSilhouette(true);
 requestAnimationFrame(frame);

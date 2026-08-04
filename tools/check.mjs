@@ -60,7 +60,7 @@ try {
 // keep matching carGeometry() in sim/traffic.js — the kit is only a trustworthy editing surface
 // for the game's vehicles while its baseline *is* the game's vehicle.
 try {
-  const { PRESETS, buildVehicleGeometry, normalizeSpec, randomSpec } = await import('../src/geometry/carkit.js');
+  const { PRESETS, buildVehicleGeometry, normalizeSpec, randomSpec, partAtFace } = await import('../src/geometry/carkit.js');
   for (const [key, preset] of Object.entries(PRESETS)) {
     const geo = buildVehicleGeometry(preset);
     if (!geo.attributes.position?.count || !geo.attributes.color) {
@@ -72,7 +72,33 @@ try {
     if (b.min.y < -1e-6 || b.max.y > 4 || b.max.x - b.min.x > 8) {
       throw new Error(`${key} bounds look wrong: ${JSON.stringify(b)}`);
     }
+    // The manifest is the editor's picking truth: ranges must tile the geometry exactly.
+    const manifest = geo.userData.manifest;
+    let cursor = 0;
+    for (const part of manifest) {
+      if (part.start !== cursor || part.count <= 0) throw new Error(`${key} manifest has a gap at ${part.name}`);
+      cursor += part.count;
+    }
+    if (cursor !== geo.attributes.position.count) throw new Error(`${key} manifest does not cover the geometry`);
+    if (new Set(manifest.map((p) => p.name)).size !== manifest.length) throw new Error(`${key} manifest repeats a name`);
+    if (partAtFace(manifest, 0) !== 'body') throw new Error(`${key} face 0 should belong to the body`);
     geo.dispose();
+  }
+  // A part colour override must actually land in the baked vertex colours.
+  {
+    const geo = buildVehicleGeometry({ ...PRESETS.sedan, partColors: { body: '#ff0000' } });
+    const c = geo.attributes.color;
+    if (!(Math.abs(c.getX(0) - 1) < 1e-4 && c.getY(0) < 1e-4)) throw new Error('partColors override did not bake');
+    geo.dispose();
+  }
+  // A wrecked profile must degrade to the rectangle, and a real one must change the shape.
+  {
+    const junk = normalizeSpec({ body: { profile: [[9, 'x'], [null], 3] } });
+    if (junk.body.profile.length !== 4) throw new Error('junk profile did not fall back to the rectangle');
+    const wedge = buildVehicleGeometry(PRESETS.sports);
+    wedge.computeBoundingBox();
+    if (!(wedge.boundingBox.max.y < 1.9)) throw new Error('sports wedge lost its chopped roofline');
+    wedge.dispose();
   }
   const sedan = buildVehicleGeometry(PRESETS.sedan);
   sedan.computeBoundingBox();
