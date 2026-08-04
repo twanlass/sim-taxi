@@ -235,7 +235,19 @@ function snapToRider(fare) {
   controller.update(aspect());
 }
 
-const riderFinder = createRiderFinder({ onTap: snapToRider });
+// Double-tap the chip to actually dispatch the taxi at that rider — same effect as tapping their
+// pin on the map, without having to find it first. A pickup while already carrying someone would
+// be refused at the picker; keep the rule consistent here by showing the same toast.
+function dispatchToRider(fare) {
+  if (!fare || fares.state.gameOver) return;
+  if (fares.carrying()) { flash('Drop off your rider first'); return; }
+  if (routeTo(fare.target)) {
+    fares.markDirected(fare);
+    flash('On the way');
+  }
+}
+
+const riderFinder = createRiderFinder({ onTap: snapToRider, onDoubleTap: dispatchToRider });
 const dropoffIndicator = createDropoffIndicator({
   camera,
   intersectionCentre: fares.intersectionCentre,
