@@ -495,9 +495,8 @@ export function createTraffic(rng, scene, count = 24) {
   // simply drawn as its own mesh instead of an instance, so it can be raycast and highlighted.
   const taxi = cars[0];
   taxi.isTaxi = true;
-  const { group: taxiGroup, selection: taxiSelection, setFareColor: setTaxiFareColor } = createTaxiMesh();
+  const { group: taxiGroup, setFareColor: setTaxiFareColor } = createTaxiMesh();
   scene.add(taxiGroup);
-  scene.add(taxiSelection);   // ground decal, kept out of the car so it never tilts
 
   const ambient = cars.filter((c) => !c.isTaxi);
   ambient.forEach((car, index) => { car.instanceIndex = index; });
@@ -1034,7 +1033,6 @@ export function createTraffic(rng, scene, count = 24) {
         if (car.isTaxi) {
           taxiGroup.position.set(car.x, ROAD_Y + lift, car.z);
           taxiGroup.rotation.set(0, car.yaw, 0);
-          taxiSelection.position.set(car.x, ROAD_Y + 0.02, car.z);
         } else {
           pos.set(car.x, ROAD_Y + lift, car.z);
           quat.setFromEuler(euler.set(0, car.yaw, 0, 'YXZ'));
@@ -1152,8 +1150,6 @@ export function createTraffic(rng, scene, count = 24) {
       if (car.isTaxi) {
         taxiGroup.position.set(car.x, ROAD_Y + bob + lift, car.z);
         taxiGroup.rotation.set(roll, car.yaw, shownPitch);
-        // Decal stays flat on the road, unaffected by roll, pitch or bob.
-        taxiSelection.position.set(car.x, ROAD_Y + 0.02, car.z);
         continue;
       }
 
@@ -1182,5 +1178,5 @@ export function createTraffic(rng, scene, count = 24) {
     for (let elapsed = 0; elapsed < seconds; elapsed += step) update(step);
   }
 
-  return { cars, taxi, taxiGroup, taxiSelection, setTaxiFareColor, mesh, barMesh, update, warmup, stats, lightPhase };
+  return { cars, taxi, taxiGroup, setTaxiFareColor, mesh, barMesh, update, warmup, stats, lightPhase };
 }

@@ -55,10 +55,6 @@ export const PALETTE = {
   taxiBody: '#F5C130',
   taxiTrim: '#2B2B30',
   taxiSign: '#F2F0E8',
-  // Back to the taxi's own yellow. White collided with the unclaimed-passenger marker, which is
-  // also white — two white rings on screen meaning different things. Yellow is safe because the
-  // fare palette deliberately excludes it.
-  select: '#FFE873',
   // A waiting passenger is deliberately colourless — before pickup any taxi could take any rider,
   // so a colour there would imply a commitment that doesn't exist yet.
   passenger: '#FFFFFF',
@@ -73,7 +69,10 @@ export const PALETTE = {
   fareColors: ['#25D9D2', '#E24BC4', '#A46BFF', '#4D9BFF', '#FF6B9D'],
   destination: '#E24BC4',
   destinationPost: '#8C2E79',
-  routeLine: '#FFD84D',
+  // The taxi's own yellow, lightened. This used to be `select` as well, worn by a pool on the road
+  // marking the taxi as selected; that pool is gone and the route band is the only thing wearing
+  // it now. Yellow rather than white because white is the unclaimed-passenger marker.
+  routeLine: '#FFE873',
 
   lightRed: '#E24B3C',
   lightYellow: '#F0B23A',

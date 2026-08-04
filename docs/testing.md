@@ -69,6 +69,22 @@ is set for the capture to wait on.
 Rendering costs about **2s per shot** against ~1s for the entire assertion suite, so screenshots
 are for *looking at* the game, not for verifying it.
 
+Shot 9 (`route-far`) is the odd one out: instead of routing at whichever fare the seed produced — often
+two blocks away, where the route band's two end fades meet in the middle and show you nothing — it
+sends the taxi to the **opposite corner of the map**, so a full-length band with several turns is
+in frame.
+
+Both browser tools take the same two env overrides, for boxes that aren't a Mac desktop:
+
+```bash
+CHROME=/opt/pw-browsers/chromium CHROME_FLAGS=--no-sandbox node tools/shoot.mjs --url http://localhost:4173
+```
+
+`--url` may carry query params of its own — `--url 'http://localhost:4173/?run=7'` picks which
+situation gets shot, since `?shot=` is merged in rather than concatenated. `?blend=<name>` pins the
+route band's blend mode the same way, which is the only way to shoot it: the ⚙️ panel that switches
+it live doesn't exist in shot mode.
+
 ## Working notes
 
 These are the things that have actually cost time on this project:
