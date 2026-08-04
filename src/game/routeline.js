@@ -18,8 +18,8 @@ import {
  * next junction shrank as the car closed on it and the path visibly re-shaped every few metres.
  *
  * Now it follows the same lane centreline and the same junction arcs the car itself drives, at
- * lane width, in the yellow of the pool under the taxi. Nothing ahead of the car depends on where
- * the car is, so the band only ever gets *shorter* from behind — it never re-shapes.
+ * lane width. Nothing ahead of the car depends on where the car is, so the band only ever gets
+ * *shorter* from behind — it never re-shapes.
  */
 
 // The taxi drives one lane, so the band covers one lane: ROAD_W is both lanes.
@@ -34,17 +34,46 @@ const HALF_WIDTH = WIDTH / 2;
 // Both ends fade rather than stopping at an edge. A hard end at the taxi reads as a second object
 // butted against the car; a hard end at the destination reads as a wall across the road.
 //
-// The head fade is the shorter of the two: it starts under the taxi's own pool, which already
-// covers the faintest part of it, so a long one would just make the near stretch — the part the
-// player is actually reading — washy. Half a block (PITCH is 20) at the far end.
-const FADE_HEAD = 5;
+// The head end holds off entirely first. The band is what the taxi is about to drive over, not
+// something it is dragging, and paint emerging from under the bumper reads as the latter — so
+// nothing is drawn for the first HEAD_GAP units. The taxi's nose is (CAR_LEN / 2) * TAXI_SCALE ≈
+// 2.0 units ahead of its centre, which the path measures from, so 4 leaves a clear couple of units
+// of bare road in front of the car before the fade even starts.
+const HEAD_GAP = 4;
+const FADE_HEAD = 6;
 const FADE_TAIL = 10;
 
-// Above the road paint (MARK_Y = 0.02) and below the taxi's pool (ROAD_Y + 0.02 = 0.06). Unlike
-// the fare rings this is depth-tested, so traffic drives *over* the band instead of the band
-// painting across every car it passes under — at 2px that didn't matter, at lane width it does.
+// Above the road paint (MARK_Y = 0.02) and below the cars (ROAD_Y = 0.04). Unlike the fare rings
+// this is depth-tested, so traffic drives *over* the band instead of the band painting across
+// every car it passes under — at 2px that didn't matter, at lane width it does.
 const Y = 0.03;
-const OPACITY = 0.38;      // same as the pool under the taxi; the band is that pool, stretched
+const OPACITY = 0.38;
+
+/**
+ * How the band combines with the road under it. `normal` is the default; the rest are here because
+ * the road is dark and a flat wash over it flattens the markings and kerbs it crosses, and which
+ * one reads best is a judgement call — the ⚙️ panel switches between them live.
+ *
+ * The shader writes premultiplied colour, so `screen` and `additive` are alpha-weighted rather
+ * than blowing out at full strength. `multiply` is the exception and shapes its own output: it
+ * needs `mix(white, colour, alpha)` against a `dst * src` blend, since premultiplied black at low
+ * alpha would just paint a hole.
+ */
+export const ROUTE_BLENDS = {
+  normal: { blending: THREE.NormalBlending },
+  additive: { blending: THREE.AdditiveBlending },
+  screen: {
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcColorFactor,
+  },
+  multiply: {
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.ZeroFactor,
+    blendDst: THREE.SrcColorFactor,
+  },
+};
+export const ROUTE_BLEND_DEFAULT = 'normal';
 
 // Junction arcs are sampled, straights are not — the fade is computed per fragment from a
 // distance-along-the-path varying, so a 20-unit straight needs no interior vertices at all.
@@ -205,8 +234,10 @@ export function createRouteLine(scene) {
       uColor: { value: new THREE.Color(PALETTE.routeLine) },
       uOpacity: { value: OPACITY },
       uLength: { value: 1 },
+      uHeadGap: { value: HEAD_GAP },
       uFadeHead: { value: FADE_HEAD },
       uFadeTail: { value: FADE_TAIL },
+      uMultiply: { value: 0 },
     },
     vertexShader: /* glsl */`
       attribute float aDist;
@@ -217,29 +248,53 @@ export function createRouteLine(scene) {
       }
     `,
     // `colorspace_fragment` is not optional: a ShaderMaterial gets none of the built-in chunks,
-    // and without it this yellow renders linear — visibly darker than the pool under the taxi,
-    // which is a MeshBasicMaterial of the same colour.
+    // and without it this yellow renders linear — visibly darker than every MeshBasicMaterial
+    // marker beside it. It runs *before* the premultiply, because premultiplied colour is not in
+    // a colour space any more and converting it is wrong by however much alpha isn't 1.
     fragmentShader: /* glsl */`
       uniform vec3 uColor;
       uniform float uOpacity;
       uniform float uLength;
+      uniform float uHeadGap;
       uniform float uFadeHead;
       uniform float uFadeTail;
+      uniform float uMultiply;
       varying float vDist;
       void main() {
-        float head = smoothstep(0.0, uFadeHead, vDist);
+        float head = smoothstep(uHeadGap, uHeadGap + uFadeHead, vDist);
         float tail = smoothstep(0.0, uFadeTail, uLength - vDist);
-        gl_FragColor = vec4(uColor, uOpacity * head * tail);
+        float a = uOpacity * head * tail;
+        gl_FragColor = vec4(uColor, a);
         #include <colorspace_fragment>
+        gl_FragColor = uMultiply > 0.5
+          ? vec4(mix(vec3(1.0), gl_FragColor.rgb, a), 1.0)
+          : vec4(gl_FragColor.rgb * a, a);
       }
     `,
     transparent: true,
     depthWrite: false,
+    premultipliedAlpha: true,
     side: THREE.DoubleSide,
   });
 
+  let blendName = ROUTE_BLEND_DEFAULT;
+
+  /** Switch how the band combines with the road. Unknown names fall back to `normal`. */
+  function setBlend(name) {
+    blendName = ROUTE_BLENDS[name] ? name : ROUTE_BLEND_DEFAULT;
+    const mode = ROUTE_BLENDS[blendName];
+    // Reset every factor first: three only reads blendSrc/blendDst under CustomBlending, but a
+    // leftover pair would apply again the moment another custom mode is picked.
+    material.blending = mode.blending;
+    material.blendSrc = mode.blendSrc ?? THREE.SrcAlphaFactor;
+    material.blendDst = mode.blendDst ?? THREE.OneMinusSrcAlphaFactor;
+    material.uniforms.uMultiply.value = blendName === 'multiply' ? 1 : 0;
+    material.needsUpdate = true;
+  }
+  setBlend(ROUTE_BLEND_DEFAULT);
+
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.renderOrder = 4;   // under the taxi's pool (5) and the fare rings (7-9)
+  mesh.renderOrder = 4;   // under the fare rings (7-9)
   mesh.frustumCulled = false;
   mesh.visible = false;
   scene.add(mesh);
@@ -257,10 +312,12 @@ export function createRouteLine(scene) {
     const total = s[s.length - 1];
     if (total < 0.01) { mesh.visible = false; return; }
 
-    // A one-block hop is shorter than the two fades put together. Scale them down together rather
-    // than letting them overlap into a band that never reaches full opacity anywhere.
-    const squeeze = Math.min(1, (total * 0.9) / (FADE_HEAD + FADE_TAIL));
+    // A one-block hop (PITCH is 20) is barely longer than the gap and the two fades put together.
+    // Scale all three down in proportion rather than letting them overlap into a band that never
+    // reaches full opacity anywhere — or, worse, one the head gap swallows whole.
+    const squeeze = Math.min(1, (total * 0.9) / (HEAD_GAP + FADE_HEAD + FADE_TAIL));
     material.uniforms.uLength.value = total;
+    material.uniforms.uHeadGap.value = HEAD_GAP * squeeze;
     material.uniforms.uFadeHead.value = FADE_HEAD * squeeze;
     material.uniforms.uFadeTail.value = FADE_TAIL * squeeze;
 
@@ -296,5 +353,5 @@ export function createRouteLine(scene) {
     mesh.visible = n > 0;
   }
 
-  return { mesh, update, hide: () => { mesh.visible = false; } };
+  return { mesh, update, setBlend, blend: () => blendName, hide: () => { mesh.visible = false; } };
 }

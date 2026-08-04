@@ -148,11 +148,15 @@ running boost doesn't re-fire either.
 
 ### Route band — `game/routeline.js`
 
-A band of paint down the **lane the taxi will drive**, from under the car to its destination:
-lane width (0.85 of it), in the same yellow at the same 0.38 alpha as the pool under the taxi, so
-it reads as that pool stretched along the road. Shown only while the taxi has a pending target —
-the route is a property of the *selection*, not of the world. Once planned it does **not** re-path
-as the taxi drives; a line that keeps changing under you is unreadable.
+A band of paint down the **lane the taxi will drive**, from just ahead of the car to its
+destination: lane width (0.85 of it), the taxi's yellow at 0.38 alpha. Shown only while the taxi
+has a pending target — the route is a property of the *selection*, not of the world. Once planned
+it does **not** re-path as the taxi drives; a line that keeps changing under you is unreadable.
+
+There used to be a yellow pool on the road under the taxi marking it as selected. It is gone: the
+taxi is permanently selected and there is only one of it, so the pool labelled something that was
+never in question — and sitting directly under the band in the same yellow, it read as the band
+leaking out around the car.
 
 It was a 2px hairline down the road *centreline* first, and that was wrong twice over:
 
@@ -179,24 +183,41 @@ every right turn and folds over itself — and a translucent band folded on itse
 darker wedge. 0.85 leaves 0.3 units of inner radius and 0.3 of asphalt showing at the kerb, which
 reads as *in* the lane rather than *instead of* it.
 
-**Both ends fade out.** A hard end at the taxi reads as a second object butted against the car; a
-hard end at the destination reads as a wall across the road. Head fade 5 units, tail fade 10 — the
-head is shorter because it starts under the taxi's own pool, which already covers the faintest part
-of it, and a long one would wash out the near stretch the player is actually reading. On a hop
-shorter than the two fades together they scale down in proportion rather than overlapping into a
-band that never reaches full opacity anywhere.
+**The head end holds off, then fades in; the tail just fades.** A hard end at the taxi reads as a
+second object butted against the car; a hard end at the destination reads as a wall across the
+road. But a fade alone still starts *under* the car, and paint emerging from under the bumper reads
+as something the taxi is dragging rather than something it is about to drive over — so nothing is
+drawn for the first `HEAD_GAP` = 4 units, then it fades up over 6. The taxi's nose is
+`(CAR_LEN / 2) * TAXI_SCALE` ≈ 2.0 units ahead of the point the path measures from, so that leaves
+a clear couple of units of bare road in front of the car. Tail fade is 10 — half a block.
+
+On a hop shorter than the gap and the two fades together (one block is 20 units, they total 20)
+all three scale down in proportion, rather than overlapping into a band that never reaches full
+opacity anywhere — or one the gap swallows whole.
 
 The fade is a **`ShaderMaterial` with a distance-along-the-path attribute**, evaluated per fragment.
 Per-vertex alpha would mean re-tessellating the path at both fade boundaries every frame (and, as
 with `instanceColor`, a 4-component colour attribute takes a different code path); one float per
 vertex interpolates the length of a 20-unit straight for free. The fragment shader has to
 `#include <colorspace_fragment>` by hand — a `ShaderMaterial` gets none of the built-in chunks, and
-without it the yellow renders linear and lands visibly darker than the `MeshBasicMaterial` pool it
-is supposed to match.
+without it the yellow renders linear and lands visibly darker than every `MeshBasicMaterial` marker
+beside it. It runs *before* the premultiply below, because premultiplied colour is not in a colour
+space any more and converting it is wrong by however much alpha isn't 1.
+
+**Blend mode is switchable** — `normal` (the default), `additive`, `screen`, `multiply` — from the
+⚙️ panel live, or pinned for a screenshot with `?blend=<name>`. The road is dark, and a flat
+`normal` wash over it flattens the markings, crosswalks and kerbs the band crosses; the other three
+let what is underneath come through to different degrees. Which one is right is a judgement call
+about the whole frame, which is why it is a control rather than a constant.
+
+The shader writes **premultiplied** colour so `additive` and `screen` are alpha-weighted rather
+than blowing out at full strength. `multiply` is the exception and shapes its own output —
+`mix(white, colour, alpha)` against a `dst * src` blend — because premultiplied black at low alpha
+would paint a hole rather than tint the road.
 
 Unlike the fare rings the band is **depth-tested**, at y = 0.03: above the road paint (0.02), below
-the taxi's pool (0.06), and *under* passing traffic. At 2px a route drawn over the cars didn't
-matter; at lane width it would paint yellow across every car it passes.
+the cars (0.04), and so *under* passing traffic. At 2px a route drawn over the cars didn't matter;
+at lane width it would paint yellow across every car it passes.
 
 The band still offsets each *point* along its mitre rather than offsetting each segment
 independently. Independent segments leave a wedge of bare road on the outside of every join —

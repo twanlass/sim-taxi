@@ -133,7 +133,6 @@ collisions.onImpact(({ x, z }) => {
   crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
   traffic.taxiGroup.visible = false;
-  traffic.taxiSelection.visible = false;
   boost.release();
   fares.crash();
   setTimeout(() => {
@@ -183,13 +182,17 @@ const skids = createSkidMarks(scene);
 // rather than an overlay drawn at a constant screen weight.
 const routeLine = createRouteLine(scene);
 
+// `?blend=additive` picks how the band combines with the road. A URL parameter as well as the
+// ⚙️ dropdown because a screenshot has to be able to pin it: the panel doesn't exist in shot mode.
+const blendParam = new URLSearchParams(window.location.search).get('blend');
+if (blendParam) routeLine.setBlend(blendParam);
+
 // --- Selection and routing --------------------------------------------------
 
 // The taxi is permanently selected. There is only ever one, so a selection step was pure
 // ceremony: every tap on it was either a no-op or an accidental deselect that made the next tap
-// on a fare do nothing.
+// on a fare do nothing. Nothing draws on the road to say so any more either — see taxi.js.
 const selected = true;
-traffic.taxiSelection.visible = true;
 
 /**
  * Route the taxi to an intersection. Planning starts from the intersection the taxi is *heading
@@ -680,6 +683,11 @@ if (shot) {
   // long enough to judge the band that draws it.
   if (shot.routeFar) {
     routeTo({ i: traffic.taxi.i > GRID / 2 ? 0 : GRID, j: traffic.taxi.j > GRID / 2 ? 0 : GRID });
+    // Framed on the taxi rather than the middle of the map: the head of the band — the gap in
+    // front of the bumper and the fade after it — is the part that needs looking at, and where
+    // the taxi starts moves with the run seed.
+    controller.state.target.set(traffic.taxi.x, 0, traffic.taxi.z);
+    controller.update(aspect());
   }
 
   if (shot.route) send();
@@ -701,6 +709,7 @@ if (!shot) {
     daylight,
     carCount: getCarCount(),
     fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds },
+    routeLine,
   });
 }
 

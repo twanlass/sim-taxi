@@ -216,9 +216,9 @@ This is why the track had to stop being translucent. A transparent object draws 
 opaque one no matter what its renderOrder says, so as a wash it painted a dark band across the
 figure that no ordering could undo.
 
-The taxi's ground indicators nest deliberately: highlight disk innermost, selection ring around
-it, timer ring outside both. The first attempt put the timer at the same radius as the selection
-ring and it vanished inside its band.
+The taxi wears nothing else on the ground now, so the timer ring is simply sized to clear the car.
+It used to sit outside a selection pool — and before that outside a selection ring, where the first
+attempt put the timer at the same radius and it vanished inside the other ring's band.
 
 ## Beacon
 

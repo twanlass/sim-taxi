@@ -81,7 +81,9 @@ CHROME=/opt/pw-browsers/chromium CHROME_FLAGS=--no-sandbox node tools/shoot.mjs 
 ```
 
 `--url` may carry query params of its own — `--url 'http://localhost:4173/?run=7'` picks which
-situation gets shot, since `?shot=` is merged in rather than concatenated.
+situation gets shot, since `?shot=` is merged in rather than concatenated. `?blend=<name>` pins the
+route band's blend mode the same way, which is the only way to shoot it: the ⚙️ panel that switches
+it live doesn't exist in shot mode.
 
 ## Working notes
 

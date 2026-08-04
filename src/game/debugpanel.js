@@ -1,3 +1,5 @@
+import { ROUTE_BLENDS } from './routeline.js';
+
 // A small tweak panel behind a gear button.
 //
 // Split by cost: anything that can be applied to live objects (lighting, fare clock) updates on
@@ -26,13 +28,25 @@ const slider = (min, max, step, value) => {
   return el;
 };
 
+const dropdown = (options, value) => {
+  const el = document.createElement('select');
+  for (const name of options) {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    el.append(option);
+  }
+  el.value = value;
+  return el;
+};
+
 const clockLabel = (hour) => {
   const h = Math.floor(hour);
   const m = String(Math.round((hour - h) * 60) % 60).padStart(2, '0');
   return `${String(h).padStart(2, '0')}:${m}`;
 };
 
-export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount }) {
+export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, routeLine }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
   toggle.type = 'button';
@@ -142,6 +156,12 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount }) 
     fareValue.textContent = `${fareTime.value}s · next fare`;
   });
 
+  // Live because it is the whole point: the four modes differ by how much of the road, markings
+  // and kerbs they let through, and that is only judgeable against a moving city.
+  const blend = dropdown(Object.keys(ROUTE_BLENDS), routeLine.blend());
+  row(panel, 'Route blend', blend);
+  blend.addEventListener('change', () => routeLine.setBlend(blend.value));
+
   // --- Needs a rebuild ------------------------------------------------------
   heading('Restart to apply');
 
@@ -195,6 +215,7 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount }) 
     game: {
       fareSeconds: fares.getSeconds(),
       cars: Number(cars.value),
+      routeBlend: routeLine.blend(),
     },
   });
 

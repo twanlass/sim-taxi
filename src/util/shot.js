@@ -19,7 +19,7 @@ export const SHOTS = [
   // The route band is the one element a short hop tells you nothing about: with the fare two
   // blocks away the two end fades meet in the middle. This one sends the taxi to the far corner
   // instead, so a full-length band with several turns is in frame.
-  { name: 'route-far', description: 'the route band, taxi to the far corner', target: [0, 0], zoom: 52, warmup: 12, select: true, routeFar: true },
+  { name: 'route-far', description: 'the route band, taxi to the far corner', target: [0, 0], zoom: 22, warmup: 12, select: true, routeFar: true },
 ];
 
 export function getActiveShot() {
