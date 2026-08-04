@@ -6,7 +6,10 @@ import {
   DIR, GRID, HALF_SPAN, LANE, PITCH, dirSign, isXAxis, legalExits, lineCoord,
   isSegmentClosed, nextIntersection, opposite,
 } from '../city/grid.js';
-import { setPriorityCorridor, setPolicePresence, locoWeave, LOCO_WEAVE_FADE, ROAD_Y } from './traffic.js';
+import {
+  setPriorityCorridor, setPolicePresence, locoWeave, locoWheelie,
+  LOCO_WEAVE_FADE, WHEELIE_DUR, ROAD_Y,
+} from './traffic.js';
 
 // A police car running a priority corridor across the city: every signal on its road goes green,
 // every crossing road goes red, and the traffic model reacts on its own because the override lives
@@ -49,11 +52,39 @@ const YAW_EASE = 0.12;          // seconds for the nose to catch up with the dir
 // width from its lane to the opposing one while the nose comes round.
 const UTURN_DUR = 0.45;
 const UTURN_SPEED = 5;          // it has to scrub off nearly all of 19 to swing this tight
+// Brake into the swing, power out of it, rather than holding one speed all the way through. Costs
+// nothing in path terms and buys the whole handbrake-turn read, because both ends go through the
+// pitch spring: nose dives, car pivots, tail squats, it leaves.
+const UTURN_BRAKE = 45;
 const UTURN_BEHIND = 6;         // only if the taxi is at least this far back; a near-level target
                                 // is caught faster by carrying on to the junction ahead
 // Backstop so a chase can never run forever if the greedy router ends up circling a target it
 // cannot line up on: give up and hold position. The cinematic is over in ~2s of sim time.
 const CHASE_TIMEOUT = 7;
+
+// --- How it carries itself --------------------------------------------------
+//
+// The routing above is only half of "aggressive". A car that tracks a perfect line at a constant
+// speed reads as a machine no matter how fast it is going; what sells Loco Mode on the taxi is the
+// body — it squats when it plants the throttle, dives when it stands on the brakes, and leans out
+// of every corner. The cruiser now does all three, off the same shapes (`locoWheelie`, and the
+// pitch spring's constants below match the taxi's), so the two cars are recognisably driven the
+// same way.
+const CHASE_KICK = 1.32;        // instant surge on lock-on, the cruiser's BOOST_KICK
+// Pitch spring: same constants as the taxi's, and the same reason for them — an underdamped
+// spring driven by longitudinal acceleration ends both the dive and the squat on a small bounce,
+// which is what reads as suspension travel rather than as the model being rotated.
+const PITCH_GAIN = 0.014;
+const PITCH_LIMIT = 0.13;
+// Roll comes off yaw rate × speed — lateral acceleration, near enough. The taxi derives it from
+// which way the Bézier goes, which this car has no equivalent of; going through the motion means
+// the weave leans it as well as the corners do, and at the right proportion for free. Gain is set
+// so a corner at chase speed lands on ~0.30 rad, matching the lean the taxi holds through one.
+const ROLL_GAIN = 0.0026;
+const ROLL_LIMIT = 0.34;
+const ROLL_EASE = 0.09;         // seconds; the body takes a beat to load up, it doesn't snap over
+const CAR_LEN = 3.6;            // for the tilt lift below — matches policeGeometry()
+const CAR_W = 1.8;
 
 const smoothstep = (t) => t * t * (3 - 2 * t);
 
@@ -167,6 +198,15 @@ export function createPolice(rng, scene) {
     uturn: null,         // 0..1 while swinging round, null otherwise
     uturnYaw0: 0,
     yaw: 0,              // eased heading while chasing; the corridor run takes railYaw() directly
+    yawRate: 0,          // rad/s, read for the roll and by main.js to decide when it is laying rubber
+    travelled: 0,        // distance driven since lock-on; paces the rubber and the dust
+    // Body. Only ever non-zero during a chase — the corridor run is a car driving in a straight
+    // line and has nothing to lean into.
+    pitch: 0,
+    pitchV: 0,
+    prevV: SPEED,
+    roll: 0,
+    wheelieT: null,
   };
 
   /**
@@ -301,12 +341,23 @@ export function createPolice(rng, scene) {
     state.chasing = true;
     state.quarry = quarry;
     state.elapsed = 0;
-    state.v = SPEED;
     state.swerve = 0;
     state.swervePhase = 0;
+    state.travelled = 0;
+    state.yawRate = 0;
+    state.pitch = 0;
+    state.pitchV = 0;
+    state.roll = 0;
     drawn.x = group.position.x;
     drawn.z = group.position.z;
     state.yaw = group.rotation.y;
+
+    // It plants the throttle the instant it decides — the cruiser's version of BOOST_KICK. The
+    // step in v goes through the pitch spring as a one-frame acceleration spike, so the squat is
+    // the same impulse the taxi gets off the line, and the wheelie rides on top of it.
+    state.v = SPEED * CHASE_KICK;
+    state.prevV = SPEED;
+    state.wheelieT = 0;
 
     // Quarry already behind it: swing round on the spot rather than driving on to the next
     // junction and taking three sides of a block to come back. This is the beat that sells the
@@ -323,6 +374,7 @@ export function createPolice(rng, scene) {
     state.chasing = false;
     state.arrived = true;
     state.v = 0;
+    state.yawRate = 0;
     // A stopped car has no corridor to hold; the lights go back to their cycle. The presence stays
     // published, so ambient traffic keeps giving the parked cruiser a wide berth.
     setPriorityCorridor(null);
@@ -335,7 +387,10 @@ export function createPolice(rng, scene) {
 
     if (state.uturn !== null) {
       state.uturn = Math.min(1, state.uturn + dt / UTURN_DUR);
-      state.v = UTURN_SPEED;
+      // Hard on the brakes into the swing, hard on the throttle out of it.
+      state.v = state.uturn < 0.5
+        ? Math.max(UTURN_SPEED, state.v - UTURN_BRAKE * dt)
+        : Math.min(CHASE_SPEED, state.v + CHASE_ACCEL * dt);
       if (state.uturn >= 1) state.uturn = null;
     } else {
       // Slow down only once it is on the quarry's own road and pointed at it. Braking on straight
@@ -389,8 +444,9 @@ export function createPolice(rng, scene) {
     if (step > cap) { stepX *= cap / step; stepZ *= cap / step; }
     drawn.x += stepX;
     drawn.z += stepZ;
-    group.position.set(drawn.x, ROAD_Y, drawn.z);
+    state.travelled += Math.abs(state.v) * dt;
 
+    const wasYaw = state.yaw;
     if (state.uturn !== null) {
       // Left-hand swing. dirYaw runs anticlockwise-positive, so a left turn is always +yaw and a
       // U-turn is +π from wherever it started — no shortest-arc case to get wrong.
@@ -410,7 +466,47 @@ export function createPolice(rng, scene) {
       const shortest = Math.atan2(Math.sin(want - state.yaw), Math.cos(want - state.yaw));
       state.yaw += shortest * Math.min(1, dt / YAW_EASE);
     }
-    group.rotation.y = state.yaw;
+    const turned = Math.atan2(Math.sin(state.yaw - wasYaw), Math.cos(state.yaw - wasYaw));
+    state.yawRate = dt > 1e-6 ? turned / dt : 0;
+    bodyStep(dt);
+  }
+
+  /**
+   * Roll, pitch and the tilt lift, applied to the mesh. Split out because it runs after the car
+   * has stopped too: parked at the bust it keeps the spring going, so the arrival dive settles
+   * back to level with a bounce instead of freezing the cruiser nose-down.
+   */
+  function bodyStep(dt) {
+    // Lean *outward*, away from the turn centre, because that is what weight transfer does —
+    // leaning inward reads as a motorbike. Eased so the body loads up over a beat instead of
+    // snapping over the moment the nose starts to move.
+    const wantRoll = Math.max(-ROLL_LIMIT, Math.min(ROLL_LIMIT,
+      state.yawRate * state.v * ROLL_GAIN));
+    state.roll += (wantRoll - state.roll) * Math.min(1, dt / ROLL_EASE);
+
+    // Pitch spring, driven by longitudinal acceleration. The kick on lock-on, the dive into the
+    // U-turn and the stand-on-the-brakes arrival all arrive here as Δv and come out as the body
+    // rocking on its suspension.
+    const accel = dt > 1e-6 ? (state.v - state.prevV) / dt : 0;
+    state.prevV = state.v;
+    const targetPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, accel * PITCH_GAIN));
+    state.pitchV += ((targetPitch - state.pitch) * 60 - state.pitchV * 6) * dt;
+    state.pitch += state.pitchV * dt;
+
+    let shownPitch = state.pitch;
+    if (state.wheelieT !== null) {
+      state.wheelieT += dt;
+      if (state.wheelieT >= WHEELIE_DUR) state.wheelieT = null;
+      else shownPitch += locoWheelie(state.wheelieT);
+    }
+
+    // Both tilts pivot on the car's origin at road level, so either one on its own drives an edge
+    // under the tarmac. Lifting by the sagitta of each keeps the low corner on the road — same
+    // correction the ambient cars get, with this body's dimensions.
+    const lift = Math.abs(Math.sin(state.roll)) * (CAR_W / 2)
+      + Math.abs(Math.sin(shownPitch)) * (CAR_LEN / 2);
+    group.position.set(drawn.x, ROAD_Y + lift, drawn.z);
+    group.rotation.set(state.roll, state.yaw, shownPitch);
   }
 
   function siren(fade) {
@@ -430,8 +526,10 @@ export function createPolice(rng, scene) {
   function update(dt) {
     state.flash += dt;
 
-    // Pulled up at the bust: parked, lights still going, still keeping traffic off it.
+    // Pulled up at the bust: parked, lights still going, still keeping traffic off it. The body
+    // keeps ticking so the dive it stopped on rocks back to level.
     if (state.arrived) {
+      bodyStep(dt);
       setPolicePresence({ axis: state.axis, line: state.line, s: state.s });
       siren(1);
       return;

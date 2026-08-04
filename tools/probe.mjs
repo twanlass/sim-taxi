@@ -13,7 +13,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, ROAD_Y } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -888,6 +888,11 @@ check('the taxi is an ordinary car in the traffic array',
   let worstYawRate = 0;
   let failed = null;
   let uturns = 0;
+  let peakRoll = 0;
+  let noseUp = 0;
+  let noseDown = 0;
+  let sunk = 0;
+  let peakKick = 0;
 
   for (const kase of cases) {
     const cScene = new THREE.Scene();
@@ -914,6 +919,9 @@ check('the taxi is an ordinary car in the traffic array',
     cPolice.chase(quarry);
     if (!cPolice.state.chasing) { failed = `${kase.name}: chase() did not engage`; break; }
     if (cPolice.state.dir !== before) uturns += 1;
+    // Read before the first update: the kick has to be a step in speed on the frame it decides,
+    // not something the accel ramp gets to a few frames later.
+    peakKick = Math.max(peakKick, cPolice.state.v);
 
     let t = 0;
     let prev = { x: cPolice.group.position.x, z: cPolice.group.position.z, y: cPolice.group.rotation.y };
@@ -933,6 +941,12 @@ check('the taxi is an ordinary car in the traffic array',
       const dYaw = Math.abs(Math.atan2(Math.sin(raw), Math.cos(raw)));
       worstYawRate = Math.max(worstYawRate, dYaw);
       prev = { x: now.x, z: now.z, y: cPolice.group.rotation.y };
+
+      // Body: it should lean, rock both ways, and never drop an edge through the tarmac.
+      peakRoll = Math.max(peakRoll, Math.abs(cPolice.group.rotation.x));
+      noseUp = Math.max(noseUp, cPolice.group.rotation.z);
+      noseDown = Math.min(noseDown, cPolice.group.rotation.z);
+      if (now.y < ROAD_Y - 1e-6) sunk += 1;
     }
     if (!cPolice.state.arrived) { failed = `${kase.name}: never arrived`; break; }
 
@@ -962,6 +976,18 @@ check('the taxi is an ordinary car in the traffic array',
   check('the chase never teleports', worstStep < 0.55, `biggest step ${worstStep.toFixed(3)} units`);
   check('the nose never snaps round', worstYawRate < 0.28,
     `fastest yaw ${(worstYawRate * 180 / Math.PI).toFixed(1)}°/frame`);
+
+  // The body language, which is what makes the chase read as aggressive rather than as a fast
+  // machine tracking a line. Bounds are the caps in police.js: ROLL_LIMIT, and PITCH_LIMIT plus
+  // the kickoff wheelie riding on top of it.
+  check('the cruiser leans through what it throws the car at', peakRoll > 0.08 && peakRoll <= 0.34,
+    `peak lean ${(peakRoll * 180 / Math.PI).toFixed(1)}°`);
+  check('it squats and dives, both', noseUp > 0.02 && noseDown < -0.02,
+    `pitch ${(noseDown * 180 / Math.PI).toFixed(1)}°..+${(noseUp * 180 / Math.PI).toFixed(1)}°`);
+  check('no tilt puts a corner through the tarmac', sunk === 0, `${sunk} frames below road level`);
+  // CHASE_KICK against the corridor cruise of 19: the lock-on is a step in speed, not a ramp.
+  check('it plants the throttle on lock-on', peakKick > 24,
+    `${peakKick.toFixed(1)} units/s on the deciding frame, up from 19`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
