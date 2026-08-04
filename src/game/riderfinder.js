@@ -2,13 +2,16 @@ import * as THREE from 'three';
 import { createPerson } from '../geometry/person.js';
 import { fareStageColour } from './timerring.js';
 
-// A HUD stack bottom-right, mirror of the Loco Mode pill on the other corner.
+// A HUD stack in the bottom-left, above the Loco Mode pill, so both controls sit under the same
+// thumb.
 //
 // A waiting rider is a handful of pixels among a hundred buildings, and on a phone the whole city
 // doesn't fit in one screen. Each waiting fare gets its own chip here — same animated figure the
 // player is hunting for, with the fare's own countdown ring around it — and a tap snaps the
-// camera onto that rider. Two clocks on the kerb means two chips on screen; the stack grows
-// upward so the closest-to-Loco-Mode slot stays put and extra riders pile above it.
+// camera onto that rider. Double-tap the chip to actually route the taxi at that fare, so the
+// dispatch loop works without ever having to find the pin on the map. Two clocks on the kerb
+// means two chips on screen; the column grows upward so the bottom slot stays put next to the
+// Loco Mode pill and extra riders pile above it.
 //
 // One WebGL renderer per chip. MAX_FARES caps the pool at three, so the extra contexts are well
 // under any browser limit. Cheaper alternatives (one renderer, blit to N canvases) exist but the
@@ -20,8 +23,10 @@ import { fareStageColour } from './timerring.js';
 // travelling timer so the two read as the same clock.
 
 const SIZE = 38;      // matches the visible chip disc inside the button
+const DOUBLE_TAP_MS = 320;   // upper bound of a comfortable double tap; browser `dblclick` won't
+                             // fire reliably from touch, so we detect the pair ourselves.
 
-function createChip(onTap) {
+function createChip(onTap, onDoubleTap) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'rider-finder-chip';
@@ -60,8 +65,21 @@ function createChip(onTap) {
   camera.lookAt(0, 1.55, 0);
 
   let currentFare = null;
+  // Manual double-tap detection. The first tap always snaps the camera (single-tap behaviour is
+  // unchanged); a second tap within DOUBLE_TAP_MS on the same chip fires the routing callback.
+  // We still snap on the first tap of a pair — the camera move is cheap and reversible, and
+  // suppressing it would make a mistimed double-tap feel like the first tap was eaten.
+  let lastTap = 0;
   button.addEventListener('click', () => {
-    if (currentFare && onTap) onTap(currentFare);
+    if (!currentFare) return;
+    const now = performance.now();
+    if (onDoubleTap && now - lastTap < DOUBLE_TAP_MS) {
+      onDoubleTap(currentFare);
+      lastTap = 0;
+      return;
+    }
+    lastTap = now;
+    if (onTap) onTap(currentFare);
   });
 
   return {
@@ -72,7 +90,7 @@ function createChip(onTap) {
   };
 }
 
-export function createRiderFinder({ onTap }) {
+export function createRiderFinder({ onTap, onDoubleTap }) {
   const stack = document.getElementById('rider-finder-stack');
   if (!stack) return { update: () => {} };
 
@@ -81,7 +99,7 @@ export function createRiderFinder({ onTap }) {
 
   function chipAt(i) {
     if (chips[i]) return chips[i];
-    const chip = createChip(onTap);
+    const chip = createChip(onTap, onDoubleTap);
     stack.appendChild(chip.button);
     chips[i] = chip;
     return chip;

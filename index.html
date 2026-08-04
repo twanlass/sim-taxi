@@ -147,15 +147,17 @@
       }
       body.shot-mode #boost { display: none; }
 
-      /* Rider finder — one chip per waiting fare, in a row along the bottom-right so the whole
-         group mirrors the Loco Mode pill on the opposite corner. Sized to the same 49px height as
-         Loco Mode so the two controls read as a matched pair; the row grows leftward as extra
-         riders spawn, keeping the corner-most chip anchored where the single button used to sit.
-         Each chip is a circular disc with a conic-gradient ring for the fare's clock — same
-         four-stage colour as the in-world timer — and a mini three.js canvas drawing the figure. */
+      /* Rider finder — one chip per waiting fare, stacked vertically above the Loco Mode pill in
+         the bottom-left corner so both live in the same reach zone for a right-thumb hold. Sized
+         to the same 49px height as Loco Mode so the two controls read as a matched pair; the
+         column grows upward as extra riders spawn, keeping the bottom-most chip anchored just
+         above the Loco Mode dial. Offset from the button leaves clearance for the mirror bar that
+         floats above the pill while boost is active (see #boost::before). Each chip is a circular
+         disc with a conic-gradient ring for the fare's clock — same four-stage colour as the
+         in-world timer — and a mini three.js canvas drawing the figure. */
       #rider-finder-stack {
-        position: fixed; bottom: 26px; right: 22px; z-index: 20;
-        display: flex; flex-direction: row-reverse; align-items: center; gap: 8px;
+        position: fixed; left: 26px; bottom: 155px; z-index: 20;
+        display: flex; flex-direction: column-reverse; align-items: center; gap: 8px;
         pointer-events: none;
       }
       body.shot-mode #rider-finder-stack { display: none; }
@@ -166,6 +168,12 @@
         cursor: pointer; background: transparent; pointer-events: auto;
         display: grid; place-items: center;
         transition: transform 0.1s ease;
+        /* Double-tap on the chip is a routing gesture, not a zoom-in — kill the mobile
+           double-tap-to-zoom (and its 300ms click delay) so the second tap hits the button
+           instead of the viewport. Also suppress the long-press callout and text selection
+           since neither has anything to sell on a bare figure canvas. */
+        touch-action: manipulation;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
       }
       .rider-finder-chip:active { transform: scale(0.95); }
       .rider-finder-chip[hidden] { display: none; }
