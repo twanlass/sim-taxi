@@ -4,6 +4,8 @@
 // `select` and `route` put the game into the state a given shot is meant to show — a screenshot
 // of an unselected taxi says nothing about whether selection or routing renders correctly.
 
+import { SESSION_KEY, decodeUrl, validate } from '../city/level.js';
+
 export const SHOTS = [
   { name: 'city', description: 'whole city, taxi and waiting fare', target: [0, 0], zoom: 52, warmup: 12 },
   { name: 'routed', description: 'taxi selected with its route drawn', target: [0, 0], zoom: 52, warmup: 12, select: true, route: true },
@@ -68,4 +70,44 @@ export function getSeed(fallback = 71624) {
   if (!raw) return fallback;
   const parsed = Number.parseInt(raw, 10);
   return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+/**
+ * A hand-authored level to boot from instead of the procedural generator. Three sources:
+ *
+ *   ?level=session — the editor has just clicked "Play"; read the level out of sessionStorage.
+ *                    Survives the reload the editor triggers but not the tab, so a stale one
+ *                    can't lock the game out of a normal start.
+ *   ?level=raw:X   — a shareable link. The level is packed into the URL itself as base64url
+ *                    JSON, so nothing needs a backend.
+ *
+ * Returns the parsed, validated level, or null if none was requested or something is wrong (a
+ * bad level surfaces in the console and falls back to the procedural map — a broken shareable
+ * URL should never soft-lock the page).
+ */
+export function getLevel() {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('level');
+  if (!raw) return null;
+
+  try {
+    let level = null;
+    if (raw === 'session') {
+      const stored = sessionStorage.getItem(SESSION_KEY);
+      level = stored ? JSON.parse(stored) : null;
+    } else if (raw.startsWith('raw:')) {
+      level = decodeUrl(raw.slice(4));
+    }
+
+    if (!level) return null;
+    const errors = validate(level);
+    if (errors.length) {
+      console.error('[taxi] level invalid, falling back to procedural:', errors);
+      return null;
+    }
+    return level;
+  } catch (err) {
+    console.error('[taxi] failed to load level:', err);
+    return null;
+  }
 }

@@ -84,7 +84,8 @@
 
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */
-      body.game-over #boost, body.game-over #dbg-toggle, body.game-over #dbg-panel { display: none; }
+      body.game-over #boost, body.game-over #dbg-toggle, body.game-over #dbg-panel,
+      body.game-over #editor-toggle { display: none; }
 
       body.shot-mode #hud, body.shot-mode #toast, body.shot-mode #run-end { display: none; }
 
@@ -257,6 +258,62 @@
         font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
         white-space: pre-wrap; overflow: auto; z-index: 10;
       }
+
+      /* --- Editor mode --- */
+      /* Toggle sits next to the tweak (⚙) button so both live-config affordances share a corner. */
+      #editor-toggle {
+        position: fixed; top: 16px; right: 60px; z-index: 20;
+        height: 38px; padding: 0 14px; border: 0; border-radius: 10px; cursor: pointer;
+        font: 700 12px/1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+        background: rgba(20, 34, 44, 0.72); color: #fff; letter-spacing: 0.04em;
+      }
+      #editor-toggle:hover { background: rgba(20, 34, 44, 0.9); }
+      body.shot-mode #editor-toggle { display: none; }
+
+      /* While the editor is open the game HUD steps aside — the run isn't running. */
+      body.editing #boost, body.editing #rider-finder-stack,
+      body.editing #dropoff-indicator, body.editing #dbg-toggle, body.editing #dbg-panel,
+      body.editing #hud { display: none; }
+
+      #editor { position: fixed; inset: 0; z-index: 18; pointer-events: none; }
+      #editor[hidden] { display: none; }
+      #editor .editor-bar {
+        position: absolute; display: flex; gap: 6px; padding: 8px; pointer-events: auto;
+        background: rgba(18, 30, 39, 0.92); color: #e8eef2; border-radius: 12px;
+        font: 700 12px/1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+      }
+      #editor .editor-tools { top: 62px; left: 16px; flex-direction: column; }
+      #editor .editor-actions { top: 62px; right: 16px; flex-direction: column; }
+      /* Wider on desktop so labels have room; on portrait phones we stack instead of overlap. */
+      #editor .editor-bar button {
+        min-width: 108px; padding: 9px 10px; border: 0; border-radius: 8px; cursor: pointer;
+        background: rgba(255, 255, 255, 0.08); color: inherit; font: inherit; text-align: left;
+      }
+      #editor .editor-bar button:hover { background: rgba(255, 255, 255, 0.16); }
+      #editor .editor-tool.is-active { background: #F5C130; color: #16120a; }
+      #editor .editor-play {
+        background: #6BE08A !important; color: #16120a !important; text-align: center;
+      }
+      #editor .editor-exit { background: transparent !important; text-align: center; }
+      #editor .editor-exit:hover { background: rgba(226, 75, 75, 0.35) !important; }
+
+      #editor .editor-status {
+        position: absolute; left: 50%; top: 16px; transform: translateX(-50%);
+        max-width: min(80vw, 640px);
+        padding: 8px 14px; border-radius: 999px; pointer-events: none;
+        background: rgba(24, 44, 58, 0.82); color: #fff;
+        font: 500 13px/1.3 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+        opacity: 0; transition: opacity 0.2s ease;
+      }
+      #editor .editor-status.is-flashing { opacity: 1; }
+
+      #editor .editor-json {
+        position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+        width: min(720px, 90vw); height: 180px; padding: 10px; pointer-events: auto;
+        background: rgba(0, 0, 0, 0.75); color: #cfe0ea; border: 0; border-radius: 10px;
+        font: 500 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical;
+      }
+      #editor .editor-json[hidden] { display: none; }
     </style>
   </head>
   <body>
