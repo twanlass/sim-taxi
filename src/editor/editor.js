@@ -33,6 +33,7 @@ export function createEditor({
   currentLayout,    // the block array as passed to createGround et al — used to seed the state
   onEnter,
   onExit,
+  onEdit,           // callback(level) — main.js rebuilds the city meshes in place
 }) {
   const overlay = createEditorOverlay();
   scene.add(overlay.group);
@@ -58,6 +59,7 @@ export function createEditor({
     const s = levelToEditorState(JSON.parse(prev));
     Object.assign(state, s);
     overlay.syncState(state);
+    onEdit?.(editorStateToLevel(state));
   };
 
   // --- DOM ---
@@ -261,6 +263,7 @@ export function createEditor({
       cycleTaxiStart(picked.i, picked.j);
     }
     overlay.syncState(state);
+    onEdit?.(editorStateToLevel(state));
   }
 
   function onKey(event) {
@@ -355,6 +358,7 @@ export function createEditor({
       const next = levelToEditorState(parsed);
       Object.assign(state, next);
       overlay.syncState(state);
+      onEdit?.(editorStateToLevel(state));
       flash('Imported.');
     } catch (err) {
       flash(`Import failed: ${err.message}`);
@@ -390,6 +394,7 @@ export function createEditor({
     state.dirZ.clear();
     state.taxiStart = null;
     overlay.syncState(state);
+    onEdit?.(editorStateToLevel(state));
     flash('Reset.');
   }
 

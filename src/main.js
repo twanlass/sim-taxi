@@ -56,10 +56,33 @@ daylight.setCycling(false);
 // others — editing building code shouldn't move the parks. A hand-authored level replaces the
 // procedural layout only — the ground/buildings/props RNGs still key off `seed` so the same
 // level rendered twice looks identical, and swapping the seed only changes the trim.
-const layout = level ? layoutFromLevel(level) : proceduralLayout(makeRng(seed));
-scene.add(createGround(makeRng(seed + 11), layout));
-scene.add(createBuildings(makeRng(seed + 22), layout).mesh);
-scene.add(createProps(makeRng(seed + 33), layout));
+let layout = level ? layoutFromLevel(level) : proceduralLayout(makeRng(seed));
+
+// City geometry lives under a container so the editor can rebuild it in place. Each rebuild
+// disposes the old meshes' geometries and drops in fresh ones — cheap (a few ms) and reuses the
+// same generators the boot path runs, so an in-editor preview reads identically to what Play
+// would produce.
+const cityGroup = new THREE.Group();
+cityGroup.name = 'city';
+scene.add(cityGroup);
+
+function buildCityMeshes(target, forLayout) {
+  target.add(createGround(makeRng(seed + 11), forLayout));
+  target.add(createBuildings(makeRng(seed + 22), forLayout).mesh);
+  target.add(createProps(makeRng(seed + 33), forLayout));
+}
+
+function rebuildCity(fromLevel) {
+  while (cityGroup.children.length) {
+    const child = cityGroup.children.pop();
+    child.geometry?.dispose?.();
+    child.material?.dispose?.();
+  }
+  layout = layoutFromLevel(fromLevel);
+  buildCityMeshes(cityGroup, layout);
+}
+
+buildCityMeshes(cityGroup, layout);
 
 const traffic = createTraffic(makeRng(runSeed + 44), scene, getCarCount(), level?.taxiStart ?? null);
 const fares = createFareSystem(makeRng(runSeed + 55), scene);
@@ -524,6 +547,7 @@ const editor = shot ? null : createEditor({
     document.body.classList.remove('editing');
     traffic.taxiSelection.visible = true;
   },
+  onEdit: rebuildCity,
 });
 
 const clock = new THREE.Clock();

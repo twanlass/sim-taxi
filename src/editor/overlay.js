@@ -129,18 +129,6 @@ export function createEditorOverlay() {
   const taxiMat = new THREE.MeshBasicMaterial({
     color: 0xF5C130, side: THREE.DoubleSide, depthWrite: false,
   });
-  // Block-type overlays. Translucent because the built-city geometry stays behind them — Play
-  // rebuilds the ground/buildings/props, so during editing the overlay is a preview of what a
-  // block will become, not a replacement for what it is right now.
-  const blockOverlayMats = {
-    park:  new THREE.MeshBasicMaterial({ color: 0x6BE08A, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }),
-    plaza: new THREE.MeshBasicMaterial({ color: 0xE4E1D5, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }),
-    // Built has the calmest wash — most blocks are built in most maps, so a strong tint here
-    // would flood the whole editor view. The subtle warmth is just enough to distinguish it
-    // from an *original* park whose green ground is still showing underneath (that green will
-    // vanish on Play, but until then this wash tells you what a paint stroke did).
-    built: new THREE.MeshBasicMaterial({ color: 0xE0B888, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }),
-  };
 
   function clearGroup(g) {
     while (g.children.length) {
@@ -222,38 +210,13 @@ export function createEditorOverlay() {
   }
 
   /**
-   * A translucent coloured wash over a block, so the tool's effect is visible immediately
-   * rather than only after the round-trip through Play.
-   */
-  function addBlockOverlay(bi, bj, type) {
-    const mat = blockOverlayMats[type];
-    if (!mat) return;
-    const x0 = lineCoord(bi) + HALF_ROAD;
-    const z0 = lineCoord(bj) + HALF_ROAD;
-    const size = PITCH - ROAD_W;
-    const geo = new THREE.PlaneGeometry(size, size);
-    geo.rotateX(-Math.PI / 2);
-    geo.translate(x0 + size / 2, HOVER_Y - 0.005, z0 + size / 2);
-    state.add(new THREE.Mesh(geo, mat));
-  }
-
-  /**
    * Rebuild the state layer from a fresh editor snapshot. Cheap enough to redo on every edit —
-   * the layer is at most a few dozen quads.
+   * the layer is a few dozen quads. Block types don't need overlays: the main.js `onEdit` hook
+   * rebuilds the actual ground/buildings/props on every paint, so a painted park renders as an
+   * actual park in place.
    */
   function syncState(editorState) {
     clearGroup(state);
-
-    // Block-type overlays for every block. Painting anything changes the tint immediately, so
-    // the user sees the effect of the tool without waiting for Play. Painting "built" over an
-    // original park replaces the green wash with the tan built wash — no ambiguity about what
-    // the block will be after the reload.
-    for (let bi = 0; bi < GRID; bi++) {
-      for (let bj = 0; bj < GRID; bj++) {
-        const type = editorState.cellTypes.get(`${bi},${bj}`) ?? 'built';
-        addBlockOverlay(bi, bj, type);
-      }
-    }
 
     // Closures.
     for (const key of editorState.closed) {
