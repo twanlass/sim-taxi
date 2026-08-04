@@ -4,12 +4,12 @@ import * as THREE from 'three';
 // pattern as dust.js and sparks.js — different tuning: darker, larger, slower, longer-lived, and
 // with a mild upward pull so the plume actually reads as smoke rather than a puff of dust.
 
-const MAX_PUFFS = 90;
-const LIFE = 3.6;
-const START_ALPHA = 0.78;
-const START_SIZE = 0.6;
-const END_SIZE = 3.8;
-const RISE = 1.4;              // constant upward velocity added each frame
+const MAX_PUFFS = 160;
+const LIFE = 4.4;
+const START_ALPHA = 0.82;
+const START_SIZE = 0.8;
+const END_SIZE = 5.6;
+const RISE = 1.6;              // constant upward velocity added each frame
 
 export function createSmoke(scene, rng) {
   const geometry = new THREE.IcosahedronGeometry(0.5, 0);
@@ -65,23 +65,23 @@ export function createSmoke(scene, rng) {
   let next = 0;
 
   /** Puff up from (x, z), spread outward, drift upward. */
-  function burst(x, z, count = 22) {
+  function burst(x, z, count = 56) {
     for (let k = 0; k < count; k++) {
       const slot = next;
       next = (next + 1) % MAX_PUFFS;
 
-      life[slot] = LIFE * rng.range(0.85, 1.15);
-      px[slot] = x + rng.jitter(0.6);
-      py[slot] = 0.5 + rng.range(0, 0.8);
-      pz[slot] = z + rng.jitter(0.6);
+      life[slot] = LIFE * rng.range(0.85, 1.2);
+      px[slot] = x + rng.jitter(1.1);
+      py[slot] = 0.5 + rng.range(0, 1.2);
+      pz[slot] = z + rng.jitter(1.1);
       const angle = rng.range(0, Math.PI * 2);
-      const speed = rng.range(0.4, 1.6);
+      const speed = rng.range(0.6, 2.6);
       vx[slot] = Math.cos(angle) * speed;
-      vy[slot] = rng.range(1.0, 2.4);
+      vy[slot] = rng.range(1.4, 3.4);
       vz[slot] = Math.sin(angle) * speed;
       spin[slot] = rng.range(0, Math.PI * 2);
-      tilt[slot] = rng.range(-0.8, 0.8);
-      wide[slot] = rng.range(0.85, 1.25);
+      tilt[slot] = rng.range(-1.0, 1.0);
+      wide[slot] = rng.range(0.9, 1.35);
       alphas[slot] = START_ALPHA;
     }
   }

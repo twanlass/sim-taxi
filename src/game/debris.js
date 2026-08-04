@@ -16,6 +16,15 @@ const GRAVITY = 24;
 const LIFE = 3.4;
 const FADE_TAIL = 1.0;
 
+// Small shrapnel — cheap boxes and tets, tuned to fly farther and spin harder than the big
+// chunks. Twenty extra motes on top of the recognisable body parts turns the burst from
+// "the taxi came apart" into "the taxi came *apart*".
+const SHRAPNEL_COUNT = 20;
+const SHRAPNEL_SPEED_MIN = 6;
+const SHRAPNEL_SPEED_MAX = 13;
+const SHRAPNEL_UP_MIN = 6;
+const SHRAPNEL_UP_MAX = 12;
+
 /** One mesh with its own physics state slot. */
 function makePiece(scene, geometry, baseMaterial, pieces) {
   const material = baseMaterial.clone();
@@ -69,6 +78,27 @@ export function createDebris(scene, rng) {
     makePiece(scene, new THREE.BoxGeometry(0.6, 0.2, 0.08), trimMat, pieces);
   }
 
+  // Shrapnel: twenty small chunks alternating between the body colour and dark trim/rubber, in
+  // three shapes (little cubes, thin plates, faceted tets) so the burst reads as jagged debris
+  // rather than a repeat of the same speck. Marked with `shrapnel = true` so the burst step
+  // knows to launch them harder and higher than the recognisable body parts.
+  const shrapnelMats = [bodyMat, trimMat, wheelMat, signMat];
+  for (let i = 0; i < SHRAPNEL_COUNT; i++) {
+    const mat = shrapnelMats[i % shrapnelMats.length];
+    let geo;
+    const shape = i % 3;
+    if (shape === 0) {
+      const s = 0.14 + (i % 4) * 0.05;
+      geo = new THREE.BoxGeometry(s, s, s);
+    } else if (shape === 1) {
+      geo = new THREE.BoxGeometry(0.28, 0.06, 0.18);
+    } else {
+      geo = new THREE.TetrahedronGeometry(0.18);
+    }
+    makePiece(scene, geo, mat, pieces);
+    pieces[pieces.length - 1].shrapnel = true;
+  }
+
   /** Fire the whole set outward from (x, z). Idempotent — a second call re-shoots the same pool. */
   function burst(x, z) {
     for (const p of pieces) {
@@ -80,13 +110,18 @@ export function createDebris(scene, rng) {
         z + rng.jitter(0.35),
       );
       const angle = rng.range(0, Math.PI * 2);
-      const speed = rng.range(4, 9);
+      const speed = p.shrapnel
+        ? rng.range(SHRAPNEL_SPEED_MIN, SHRAPNEL_SPEED_MAX)
+        : rng.range(4, 9);
       p.vx = Math.cos(angle) * speed;
-      p.vy = rng.range(4.5, 8.5);
+      p.vy = p.shrapnel
+        ? rng.range(SHRAPNEL_UP_MIN, SHRAPNEL_UP_MAX)
+        : rng.range(4.5, 8.5);
       p.vz = Math.sin(angle) * speed;
-      p.wx = rng.range(-9, 9);
-      p.wy = rng.range(-9, 9);
-      p.wz = rng.range(-9, 9);
+      const spin = p.shrapnel ? 18 : 9;
+      p.wx = rng.range(-spin, spin);
+      p.wy = rng.range(-spin, spin);
+      p.wz = rng.range(-spin, spin);
       p.mesh.rotation.set(
         rng.range(0, Math.PI * 2),
         rng.range(0, Math.PI * 2),
@@ -107,15 +142,18 @@ export function createDebris(scene, rng) {
       p.vy -= GRAVITY * dt;
 
       // Ground bounce. One meaningful rebound then it settles — a per-piece resting height keeps
-      // small pieces from Z-fighting with each other at exactly the same y.
+      // small pieces from Z-fighting with each other at exactly the same y. Shrapnel bounces
+      // livelier than the big chunks so the tail of the burst still has motion in it.
       if (p.mesh.position.y < 0.15) {
         p.mesh.position.y = 0.15;
-        p.vy = -p.vy * 0.35;
-        p.vx *= 0.65;
-        p.vz *= 0.65;
-        p.wx *= 0.55;
-        p.wy *= 0.55;
-        p.wz *= 0.55;
+        const restitution = p.shrapnel ? 0.6 : 0.35;
+        const friction = p.shrapnel ? 0.85 : 0.65;
+        p.vy = -p.vy * restitution;
+        p.vx *= friction;
+        p.vz *= friction;
+        p.wx *= 0.75;
+        p.wy *= 0.75;
+        p.wz *= 0.75;
       }
 
       p.mesh.rotation.x += p.wx * dt;
