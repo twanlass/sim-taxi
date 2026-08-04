@@ -8,8 +8,9 @@ import { urgencyLevel, URGENCY_SEGMENTS } from './urgency.js';
 import { distanceTier } from './triptier.js';
 import { PALETTE } from '../palette.js';
 
-// The fare loop: a passenger waits at an intersection with their drop-off already pinned across
-// town, the taxi collects them, the taxi delivers. Any fare's timer running out ends the run.
+// The fare loop: a passenger waits at an intersection under a meter saying how long they'll wait
+// and how far they're going, the taxi collects them, a drop-off pin appears, the taxi delivers.
+// Any fare's timer running out ends the run.
 //
 // Each fare is its own little state machine (`waiting → riding → gone`) carrying its own clock,
 // pins and ring, and up to MAX_FARES of them run at once.
@@ -145,7 +146,7 @@ function createSlot(scene, index) {
   // stops it reappearing over the delivered rider when beginExit un-hides the passenger group at
   // the far end of the trip.
   //
-  // This is also what used to be a shaft of light: at play zoom the meter is a bright 84 x 34px
+  // This is also what used to be a shaft of light: at play zoom the meter is a bright ~67 x 27px
   // block over the rider's head, which marks them at range better than the shaft did *and* says
   // something while doing it.
   const meter = createRiderMeter();
@@ -307,11 +308,11 @@ export function createFareSystem(rng, scene) {
     // stream, so swapping them reshuffles every intersection a seed produces and the headless
     // baselines stop describing the same run.
     //
-    // Both used to be drawn at pickup. They happen here now because the whole trip is public from
-    // the start: a rider you can see is a rider whose drop-off you can see, and whose colour ties
-    // the two together. The unbiased draw is deliberate — the *pickup* is biased toward where the
-    // taxi can reach (see spawnBias), but a drop-off next door to every other drop-off would flatten
-    // the trip lengths the player is now being asked to choose between.
+    // The trip is *decided* here even though its far end stays hidden until pickup: the meter's
+    // distance bar needs the length, and the price is fixed from it. What the player gets up front
+    // is how far, not where. The unbiased draw is deliberate — the *pickup* is biased toward where
+    // the taxi can reach (see spawnBias), but a drop-off next door to every other drop-off would
+    // flatten the trip lengths the distance bar exists to tell apart.
     fare.dropoff = pickIntersection(taxiCar);
     fare.color = nextFareColor();
     fare.blocks = blockDistance(spot, fare.dropoff);
@@ -326,12 +327,10 @@ export function createFareSystem(rng, scene) {
     // would fix it on the next tick, but there is one frame between spawn and first wave.
     slot.passenger.standing?.rest?.();
 
-    // The drop-off pin goes up with the rider, in the fare's colour and at preview size — the
-    // player can now weigh where a trip ends before committing to it, instead of finding out
-    // only once someone is in the back seat.
-    place(slot.destination, fare.dropoff.i, fare.dropoff.j);
-    slot.destination.setColor(fare.color);
-    slot.destination.setPreview(true);
+    // Where they're going stays theirs until they're in the car. The meter says how far, which is
+    // the whole of the "is this worth taking?" decision; a pin on the far kerb as well turned the
+    // board into three riders and three destinations to read at once.
+    slot.destination.group.visible = false;
     // Full urgency and the trip's tier. The clock has not started draining yet this frame, so the
     // bar opens at 4/4 by construction rather than by rounding.
     slot.meter.show(URGENCY_SEGMENTS, distanceTier(fare.blocks));
@@ -360,7 +359,7 @@ export function createFareSystem(rng, scene) {
 
     fare.stage = 'riding';
     // Both ends were drawn at spawn; the pickup is done, so the drop-off becomes the thing the
-    // taxi is being sent at. The pin does not move — it is promoted from preview to live.
+    // taxi is being sent at.
     fare.target = fare.dropoff;
     fare.directed = false;
     fare.ridingFor = 0;
@@ -370,7 +369,10 @@ export function createFareSystem(rng, scene) {
     // The rider stays *visible* here — the pickup event fires this frame, but they still need to
     // run to the taxi and hop in. board() in the update tick drives that and hides the marker
     // when the animation ends.
-    fare.slot.destination.setPreview(false);
+    // The drop-off is revealed now, at the junction drawn when this fare spawned. It never moves —
+    // it was always going to be here, the player just could not see it yet.
+    place(fare.slot.destination, fare.dropoff.i, fare.dropoff.j);
+    fare.slot.destination.setColor(fare.color);
     // The meter has done its job the moment the choice is made. Both its questions are answered:
     // this rider is taken, and where they're going is now the pin the taxi is driving at.
     fare.slot.meter.hide();
@@ -515,8 +517,6 @@ export function createFareSystem(rng, scene) {
       // Wave the waiting rider. Driven off sim time so it stays deterministic for screenshots.
       if (fare.stage === 'waiting' && passenger.standing) passenger.standing.wave(state.elapsed);
       // Bounce the drop-off pin, so the thing you are being asked to drive to is the thing moving.
-      // Only the live one: a waiting fare's drop-off is already on the map as a smaller, still
-      // preview, and three bouncing pins would leave nothing telling the player which is the job.
       if (fare.stage === 'riding') {
         destination.update(dt);
         fare.ridingFor += dt;
@@ -604,21 +604,9 @@ export function createFareSystem(rng, scene) {
     return true;
   }
 
-  /**
-   * Objects the picker may hit.
-   *
-   * A waiting fare shows both ends of its trip, so both are targets and both mean the same thing:
-   * "work this fare". `target` is still the pickup at that point, so the caller's ordinary
-   * routeTo(fare.target) needs no special case — but a visible marker that swallows taps would be
-   * worse than not drawing it at all, which is why the preview pin is in this list.
-   */
+  /** Objects the picker may hit — every live fare's one visible marker. */
   function pickables() {
-    const out = [];
-    for (const f of state.fares) {
-      if (f.stage === 'waiting') out.push(f.slot.passenger.group);
-      out.push(f.slot.destination.group);
-    }
-    return out;
+    return state.fares.map((f) => (f.stage === 'waiting' ? f.slot.passenger : f.slot.destination).group);
   }
 
   /**

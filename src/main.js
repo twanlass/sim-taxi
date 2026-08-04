@@ -229,9 +229,8 @@ createPicker(
     // One seat. Refusing the tap outright, rather than driving there and quietly not picking
     // anyone up, is what teaches the rule the first time a second rider appears.
     //
-    // Gated on the fare's stage, not on which of its two markers was hit: a waiting rider's
-    // drop-off pin is on the map from the moment they appear, and tapping it is still a request to
-    // go and collect *them*.
+    // Gated on the fare's stage rather than on `kind`: the two agree today, since a waiting fare's
+    // only visible marker is its rider, but the rule is about the fare, not about which mesh was hit.
     if (fare.stage === 'waiting' && fares.carrying()) {
       flash('Drop off your rider first');
       return;

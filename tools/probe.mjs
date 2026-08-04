@@ -334,10 +334,10 @@ check('no two cars occupy the same space', worst > 1.6,
 }
 
 // --- The trip is public from the moment the rider is --------------------------
-// The drop-off pin and the meter over the rider's head are the whole basis of "is this a
-// short hop or a haul across town?", and every failure mode here is silent: a pin that never
-// appears, a count that disagrees with the route, two riders sharing a colour so the player pairs
-// the wrong rider with the wrong pin, or a drop-off that quietly moves at pickup.
+// The meter over the rider's head is the whole basis of "is this a short hop or a haul across
+// town?", and the drop-off it describes stays hidden until pickup. Every failure mode is silent: a
+// meter that never appears, a tier that disagrees with the route, a drop-off pin leaking onto the
+// map early, or one that quietly moves between being drawn and being shown.
 {
   const tScene = new THREE.Scene();
   const tTraffic = createTraffic(makeRng(seed + 44), tScene, CARS_DEFAULT);
@@ -349,12 +349,13 @@ check('no two cars occupy the same space', worst > 1.6,
   let wrongCount = 0;
   let wrongPrice = 0;
   let movedAtPickup = 0;
+  let leakedPin = 0;
+  let pinHiddenAtPickup = 0;
   let pickups = 0;
   let stillMetered = 0;
   let wrongTier = 0;
   let sharedColour = 0;
   let sharedJunction = 0;
-  let previewScales = new Set();
   let elapsed = 0;
 
   // Same perfect-player policy as the multi-fare block above, so the board actually doubles up.
@@ -370,13 +371,13 @@ check('no two cars occupy the same space', worst > 1.6,
     for (const { type, fare } of fares.update(1 / 60, tTraffic.taxi)) {
       if (type === 'spawned') {
         shownOnSpawn += 1;
-        if (!fare.slot.destination.group.visible || !fare.slot.meter.group.visible) missingPin += 1;
+        if (!fare.slot.meter.group.visible) missingPin += 1;
+        if (fare.slot.destination.group.visible) leakedPin += 1;
         // The meter is the only thing saying how far this rider is going, so the tier it lights
         // has to be the tier their actual trip falls in.
         if (litDistance(fare.slot.meter) !== distanceTier(fare.blocks)) wrongTier += 1;
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
         if (fare.value !== priceFor(fare.pickup, fare.dropoff)) wrongPrice += 1;
-        previewScales.add(fare.slot.destination.postGroup.scale.x.toFixed(2));
       }
       if (type === 'pickup') {
         pickups += 1;
@@ -384,35 +385,39 @@ check('no two cars occupy the same space', worst > 1.6,
         // preview a lie and every judgement made from it worthless.
         if (fare.target.i !== fare.dropoff.i || fare.target.j !== fare.dropoff.j) movedAtPickup += 1;
         if (fare.slot.meter.group.visible) stillMetered += 1;
+        if (!fare.slot.destination.group.visible) pinHiddenAtPickup += 1;
       }
     }
     aim();
     elapsed += 1 / 60;
 
-    // Colour is what pairs a rider with their pin now, so no two live fares may wear the same one.
+    // Colour is assigned when the trip is drawn, so no two live fares may wear the same one — a
+    // carried fare must never match the one the board is about to hand over to.
     const live = fares.state.fares;
     const colours = new Set(live.map((f) => f.color));
     if (colours.size !== live.length) sharedColour += 1;
-    // And no two markers may stand on the same junction. A waiting fare has two on the board; a
-    // riding one has only its drop-off, which is exactly what `target` already points at.
+    // No two fares may claim the same junction at either end, even while the far ends are hidden:
+    // a rider spawning on another fare's drop-off ends up sharing a kerb corner once it appears.
+    // A riding fare's `target` *is* its drop-off, so it contributes one junction, not two.
     const ends = live.flatMap((f) => (f.stage === 'waiting'
       ? [`${f.target.i},${f.target.j}`, `${f.dropoff.i},${f.dropoff.j}`]
       : [`${f.target.i},${f.target.j}`]));
     if (new Set(ends).size !== ends.length) sharedJunction += 1;
   }
 
-  check('a waiting rider shows their drop-off and their meter', shownOnSpawn > 0 && missingPin === 0,
+  check('a waiting rider shows their meter', shownOnSpawn > 0 && missingPin === 0,
     `${shownOnSpawn} spawns, ${missingPin} missing`);
   check('the block count matches the trip', wrongCount === 0, `${wrongCount} mismatched`);
   check('the distance bar lights the trip\'s tier', wrongTier === 0, `${wrongTier} mistiered`);
   check('the price agrees with the advertised distance', wrongPrice === 0, `${wrongPrice} mispriced`);
-  check('the drop-off pin does not move at pickup', pickups > 0 && movedAtPickup === 0,
-    `${pickups} pickups, ${movedAtPickup} moved`);
+  check('the drop-off stays hidden while the rider waits', leakedPin === 0, `${leakedPin} leaked`);
+  check('the drop-off appears at pickup', pickups > 0 && pinHiddenAtPickup === 0,
+    `${pickups} pickups, ${pinHiddenAtPickup} still hidden`);
+  check('the drop-off lands where it was drawn at spawn', movedAtPickup === 0,
+    `${movedAtPickup} moved`);
   check('the meter clears at pickup', stillMetered === 0, `${stillMetered} left up`);
   check('no two live fares share a colour', sharedColour === 0, `${sharedColour} frames`);
-  check('no two markers stand on the same junction', sharedJunction === 0, `${sharedJunction} frames`);
-  check('a previewed drop-off stands smaller than a live one',
-    previewScales.size === 1 && Number([...previewScales][0]) < 1, `scale ${[...previewScales]}`);
+  check('no two fares claim the same junction', sharedJunction === 0, `${sharedJunction} frames`);
 
   // --- The urgency bar drains.
   //
@@ -442,19 +447,19 @@ check('no two cars occupy the same space', worst > 1.6,
     check('each level wears its own colour', wrongColour.length === 0, wrongColour.join('; '));
   }
 
-  // Both ends of a waiting fare are tappable — a visible marker that swallows taps is worse than
-  // no marker. `pickables()` is what the picker raycasts against, so this is the real check.
+  // A waiting fare offers exactly one target: its rider. Offering the hidden drop-off too would
+  // put an invisible 20-unit hit box on a junction the player cannot see anything at.
   const kerb = fares.waiting();
   if (kerb) {
     const hittable = fares.pickables();
-    check('both ends of a waiting fare are tappable',
-      hittable.includes(kerb.slot.passenger.group) && hittable.includes(kerb.slot.destination.group));
-    check('a tap on either end resolves to the same fare',
-      fares.fareFor(kerb.slot.destination.group) === kerb
-      && fares.fareFor(kerb.slot.passenger.group) === kerb);
+    check('a waiting fare offers only its rider as a target',
+      hittable.includes(kerb.slot.passenger.group)
+      && !hittable.includes(kerb.slot.destination.group));
+    check('a tap on the rider resolves to their fare',
+      fares.fareFor(kerb.slot.passenger.group) === kerb);
   } else {
-    check('both ends of a waiting fare are tappable', true, 'no waiter at exit');
-    check('a tap on either end resolves to the same fare', true, 'no waiter at exit');
+    check('a waiting fare offers only its rider as a target', true, 'no waiter at exit');
+    check('a tap on the rider resolves to their fare', true, 'no waiter at exit');
   }
 }
 

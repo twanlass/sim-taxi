@@ -20,8 +20,8 @@ import { DISTANCE_TIERS } from '../game/triptier.js';
 
 // The spec for this is written in pixels, so the layout is too, converted once here. 1 world unit
 // is about 7.7px at play zoom (the orthographic frustum's height is exactly 2 * zoom), which makes
-// the whole meter 84 x 34px — noticeably bigger than the ~25px ring it replaces, and deliberately:
-// it's now the only thing marking a rider at range.
+// the whole meter 84 x 34px, which SCALE below takes to 67 x 27px — still bigger than the ~25px
+// ring it replaces, and it needs to be: it's now the only thing marking a rider at range.
 const PX = 1 / 7.7;
 
 const BAR_W = 70 * PX;          // both bars, so they align stacked
@@ -44,9 +44,15 @@ const BOX_RADIUS = 8 * PX;
 const BOX_W = BAR_W + PAD_X * 2;
 const BOX_H = URG_H + STACK_GAP + DIST_H + PAD_Y * 2;
 
-// Clear of the rider's head (the figure tops out a little over 3.3) with a gap, so the meter reads
-// as floating above them rather than worn as a hat.
-const LIFT = 6.0;
+// Clear of the rider's head (the figure tops out a little over 3.3), with enough air under it that
+// it reads as floating above them rather than worn as a hat. 1.3 units is 10px at play zoom.
+const LIFT = 7.3;
+
+// Drawn to the spec's pixel figures above, then taken down a fifth. Full size was accurate to the
+// sheet and too loud on the map: three of them is three 84 x 34px slabs over a city whose blocks
+// are only ~92px across. Applied as a group scale rather than folded into PX so the geometry still
+// matches the spec one-to-one and this stays a single knob to turn.
+const SCALE = 0.8;
 
 // The backing is genuinely translucent, so it lands in three's transparent queue whatever we do —
 // and the queue draws after every opaque object regardless of renderOrder. The segments follow it
@@ -125,6 +131,7 @@ function segment(geometry, x, y) {
 export function createRiderMeter() {
   const group = new THREE.Group();
   group.quaternion.copy(FACING);
+  group.scale.setScalar(SCALE);
   group.position.y = LIFT;
   group.visible = false;
 

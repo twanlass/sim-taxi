@@ -7,43 +7,35 @@ own clock, pins and ring. Up to `MAX_FARES = 3` run at once, and because the tax
 that means up to two riders can be waiting on the kerb at the same time.
 
 1. A passenger spawns at a random intersection (never the one the taxi is already about to reach)
-   with a **60-second clock** (`FARE_SECONDS`). Both ends of their trip are drawn at once: the
-   rider on one kerb, their drop-off pin on another, and a bar over the rider saying which of them
-   is a long haul. See [The whole trip is visible](#the-whole-trip-is-visible-before-you-take-it).
-2. Tap either end → the taxi routes to the rider.
-3. On arrival the passenger boards, their drop-off pin goes from preview to live, and the taxi
-   **parks** until the player taps it.
+   with a **60-second clock** (`FARE_SECONDS`) and a [meter](#the-meter-over-a-waiting-rider) over
+   their head: how long they'll wait, and how far they're going. The whole trip is drawn now, but
+   only its length is shown — see [How far, not where](#how-far-not-where).
+2. Tap them → the taxi routes there.
+3. On arrival the passenger boards, their drop-off pin appears, and the taxi **parks** until the
+   player taps it.
 4. Deliver → the meter pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, see [Economy](#economy)),
    and the board refills.
 5. **Any** fare's clock expiring ends the run.
 
-## The whole trip is visible before you take it
+## How far, not where
 
-Both endpoints are drawn from the moment a rider appears — the drop-off used to be a surprise
-sprung at pickup, which made "which fare do I grab?" a coin flip dressed up as a decision. Three
-things carry it:
+Both ends of a trip are **drawn** the moment a rider spawns — the meter's distance bar needs the
+length, and the price is fixed from it — but the drop-off is not **shown** until they're aboard.
+What the player gets up front is how far, not where.
 
-| | |
-|---|---|
-| **The drop-off pin**, at preview size | Standing on its own kerb in the fare's colour, at `PREVIEW_SCALE = 0.78` and with its bounce held. The live drop-off — the one the taxi is actually being sent at — keeps full size and keeps bouncing, which is what stops three pins on the board from reading alike. |
-| **The distance bar**, over the rider | Three segments on [the rider's meter](#the-meter-over-a-waiting-rider): short, medium, long. |
-| **The fare's colour**, on the pin | Assigned at spawn now rather than at pickup, and worn by that fare's drop-off pin. `nextFareColor()` refuses any colour a live fare is already wearing, so two pins on the board are never the same colour. |
+The middle ground was tried: a preview pin standing on the far kerb from spawn, smaller than a live
+one and with its bounce held. It made "which fare do I grab?" a real decision instead of a coin
+flip, but it also meant three riders and three destinations on the board at once, and the distance
+bar turned out to carry the decision on its own. Where a trip ends is worth less to the player than
+how long it is, and it costs a lot more screen.
 
-Screen distance is not trip distance: two pins forty pixels apart can be a four-block drive or a
-one-block one depending on which way the streets run, and at play zoom the player cannot count
-blocks by eye. Hence a bar on the rider rather than leaving it to the pin's position.
+The pin lands exactly where it was drawn at spawn — it never moves — so nothing about the reveal is
+a re-roll. `tools/probe.mjs` asserts both halves: hidden while the rider waits, and at the drawn
+junction the frame it appears.
 
-Both markers are tappable and both mean the same thing, "work this fare"; while a rider waits,
-`fare.target` is still their pickup, so the tap on either resolves to the same route. A visible
-marker that silently swallowed taps would be worse than not drawing it.
-
-The meter clears at pickup. Once the choice is made both of its questions are answered — this rider
-is taken, and where they're going is now the pin the taxi is driving at.
-
-> **Known gap.** Nothing on the rider carries their fare colour, so with two on the kerb there is
-> no signal saying which drop-off pin belongs to which of them. The colour used to live on the
-> trip-length plate the meter replaced. The pins are still distinct from each other; they just
-> aren't tied back to a person.
+Screen distance would not have been trip distance anyway: two pins forty pixels apart can be a
+four-block drive or a one-block one depending on which way the streets run, and at play zoom nobody
+counts blocks by eye. The bar says it directly.
 
 `fares.update()` returns the events that happened this frame — `{type, fare}`, with type one of
 `'spawned' | 'pickup' | 'delivered' | 'failed'` — rather than firing callbacks, so the fare system
@@ -116,17 +108,15 @@ the tap that routes the taxi at it, and clears whenever that fare's target chang
 The passenger **figure** is white — deliberately colourless. Before pickup any taxi could take any
 rider, so a colour on the *person* would imply a commitment that doesn't exist.
 
-The fare's colour is assigned at **spawn** and worn by that fare's drop-off pin; at pickup the
-taxi's roof sign joins it. The *sign* carries it rather than
+The fare's colour is assigned when the trip is drawn, at **spawn**, and first shows at pickup on
+that fare's drop-off pin and the taxi's roof sign together. The *sign* carries it rather than
 a ring, because the rings are spoken for — the timer ring is colour-coded by time remaining, so
 fare identity needed somewhere else to live.
 
-Colour used to be assigned at pickup, on the grounds that only one fare was ever coloured at a
-time. Showing every fare's drop-off from the start broke that: three pins standing on three kerbs
-say nothing about whose is whose without a colour tying each back to a rider. So it moves earlier,
-and `nextFareColor()` now refuses any colour a **live** fare is wearing rather than only the
-previous one — five colours against `MAX_FARES = 3` means that always resolves, and it still costs
-exactly one draw off the stream.
+`nextFareColor()` refuses any colour a **live** fare is wearing, not just the previous one — five
+colours against `MAX_FARES = 3` means that always resolves, and it still costs exactly one draw off
+the stream. With one visible pin at a time this is belt and braces rather than load-bearing; it was
+load-bearing during the spell when every waiting rider's drop-off was on the board too.
 
 Colours avoid every hue already doing a job: signal red/amber/green, the taxi's own yellow, and
 the white of an unclaimed passenger.
@@ -275,7 +265,7 @@ cheap" against "slow and worth it", and a shape is read faster than a digit. The
 It replaced three things, and is a straight win over all of them:
 
 - **A shaft of light** over the rider, which marked them at range and said nothing else. At play
-  zoom the meter is a bright 84 × 34px block — a bigger target than the shaft's base, and it earns
+  zoom the meter is a bright ~67 × 27px block — a bigger target than the shaft's base, and it earns
   the screen space by carrying information.
 - **A ring on the kerb**, which drained the same clock the urgency bar does now.
 - **A seven-segment block count**, which was more precision than the decision needed and cost a

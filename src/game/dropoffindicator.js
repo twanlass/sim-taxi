@@ -7,10 +7,9 @@ import * as THREE from 'three';
 // costs a beat. This arrow rides the viewport edge in the drop-off's fare colour, pointing at the
 // pin the taxi is meant to reach, so the direction is always readable from the HUD.
 //
-// The indicator only shows for a *riding* fare. Waiting riders now show their drop-off too, but as
-// a preview — there can be three of those on the board at once, and three arrows fighting over the
-// viewport edge would say nothing about which one is the job. One pointer, aimed at the trip
-// actually under way.
+// The indicator only shows for a *riding* fare, which is also the only fare with a drop-off pin on
+// the map: a waiting rider's destination stays hidden until they board. One pointer, aimed at the
+// trip actually under way.
 
 const EDGE_MARGIN = 36;   // px kept clear from the viewport edge, so the arrow lives on the HUD
                           // rather than sliced by it
