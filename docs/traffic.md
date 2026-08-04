@@ -200,11 +200,16 @@ The other half is the corner rule:
 ```js
 const straightOn = car.dOut === car.d;
 const cruise = car.boost ? SPEED * BOOST_SPEED : SPEED;
-const cornerTarget = straightOn || car.boost ? cruise : CORNER_SPEED;
+const boostTurn = car.boost ? (isRight ? cruise * 0.75 : cruise) : CORNER_SPEED;
+const cornerTarget = straightOn ? cruise : boostTurn;
 ```
 
-A boosting taxi does not slow for corners at all — without this it braked at every junction and
-the whole mode read as choppy rather than fast.
+A boosting taxi doesn't lift for straights or left turns — without that it braked at every junction
+and the whole mode read as choppy rather than fast. Right turns are the one exception: with
+right-hand traffic they cut the near corner instead of sweeping the far diagonal, so at full boost
+the arc is over in ~0.35s against a left's ~0.7s and reads as *sped up*. 0.75× cruise gives the
+tight arc its weight back. It is the only deliberate speed drop left in the mode, and it accounts
+for ~9% of boosted frames.
 
 **It stays in its lane and weaves inside it.** The first version slid a full `LANE` out onto the
 road centreline to overtake, and that is what made the mode a lottery: on the centreline the taxi
@@ -243,6 +248,55 @@ A boosting taxi also sets `priorityJunction`, which forces its next junction gre
 junctions are covered too: the ring/cross branches check `priorityCovers` and route the boosting
 taxi through `canProceed`, so joining ring traffic yields to the taxi's axis exactly the way a
 siren's corridor yields it.
+
+`priorityJunction.block` names one further direction denied at that junction despite its axis
+reading green. It is only ever the direction *opposite* the taxi, and only while the taxi's route
+calls for a left turn — see [What was still braking it](#what-was-still-braking-it).
+
+### What was still braking it
+
+Loco Mode is meant to be go-go-go, and it wasn't. Attributing every frame the boosting taxi spent
+below its 18.7 u/s cap, over 12 minutes per density:
+
+| what was limiting it | ?cars=12 | 24 | 40 |
+|---|---|---|---|
+| signals | 0.0% | 0.0% | 0.0% |
+| queued behind the car in front | 9.2% | 15.0% | 25.2% |
+| stopped at the line | 2.8% | 4.9% | 11.0% |
+| ...of which: exit lane full (don't-block-the-box) | 2.7% | 4.1% | 9.7% |
+| ...of which: left turn yielding to oncoming | 0.1% | 0.7% | 0.8% |
+
+The signal work was already done — **none** of it was lights. All of it was ordinary traffic, and
+the taxi cannot go round: the lane is 4 wide against a 2.31-unit collision envelope, which is the
+whole reason the centreline overtake was abandoned. So the traffic moves instead.
+
+**Scatter.** A car with the boosting taxi behind it in its own lane — or sitting on the exit point
+the taxi is about to land on — floors it (`SCATTER_SPEED` = 2.0× cruise, kept just under the taxi's
+2.2 so the taxi still closes and the flee reads as *not quite enough*) and all but stops rolling
+"carry straight on" when it reaches the next junction. Speed buys the second it takes to get there;
+turning off is what actually clears the lane. It eases in over ~0.1s and out over ~0.8s, so a car
+doesn't visibly deflate the instant the taxi turns away.
+
+**Don't-block-the-box, priced in time.** The 1.5× following-distance margin on the exit lane exists
+because the lane can back up during the second or so a turn takes. A boosting taxi crosses in
+0.35–0.7s, so it is charged the plain `MIN_GAP` instead. Mid-junction stalls went *down*, not up
+(2.6% → 1.0% of boosted frames at `?cars=40`), because scatter clears the exit lane anyway.
+
+**Left turns.** Oncoming traffic shares the taxi's axis, so the priority hold left it green and the
+left-turn yield then refused to let the taxi go — waiting on a car that was itself waiting. Hence
+`block`: the oncoming lane holds at its own line for the beat it takes to cross, and the taxi only
+checks for something already inside the junction.
+
+Net, per density: dead stops at the line **2.8/4.9/11.0% → 1.1/1.7/4.2%**, time queued behind a
+leader **9.2/15.0/25.2% → 5.1/9.0/16.7%**, mean speed **95/92/89% → 96/94/92%** of the cap. Crash
+rate fell too — 13.3s → 15.7s between impacts at `?cars=12` — because the cars in front move away
+rather than being run into.
+
+Aggregate speed is *not* asserted in `tools/probe.mjs`. It was tried and thrown out: changing the
+turn weights reroutes the whole city's rng stream, so a before/after pair is two different worlds,
+and the seed-to-seed spread (73%–96% across eight cities) swamps a two-point effect. What the probe
+checks instead is the mechanism — that traffic in front of a boosting taxi exceeds ambient cruise,
+and that a boosting taxi takes its left turn while the oncoming car holds.
 
 **The lamps don't show the hold.** Stop bars are coloured from `displayPhase`, which is
 `lightPhase` with the priority branch skipped, so the heads keep running their real cycle while the
