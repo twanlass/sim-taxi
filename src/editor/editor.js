@@ -15,13 +15,15 @@ import { createEditorOverlay } from './overlay.js';
 // in-place rebuild code — the cost is one page reload and a fresh run.
 
 const TOOLS = [
-  { id: 'built',    label: 'Buildings', desc: 'Paint block as built (towers)' },
-  { id: 'park',     label: 'Park',      desc: 'Paint block as park. Two adjacent parks pair into a district and close the road between them.' },
-  { id: 'plaza',    label: 'Plaza',     desc: 'Paint block as an empty plaza (no towers, no trees)' },
-  { id: 'close',    label: 'Close road', desc: 'Click a road segment to close it off. Click again to reopen.' },
+  { id: 'built',    label: 'Buildings', desc: 'Paint block as built. Click a road to close it (paint over it).' },
+  { id: 'park',     label: 'Park',      desc: 'Paint block as park. Two adjacent parks pair into a district. Click a road to close it.' },
+  { id: 'plaza',    label: 'Plaza',     desc: 'Paint block as an empty plaza. Click a road to close it.' },
+  { id: 'road',     label: 'Road',      desc: 'Eraser for road closures — click a closed segment to reopen it.' },
   { id: 'arterial', label: 'Arterial',  desc: 'Click a road to make it a main street. Click again to flip its coordinated direction, once more to remove.' },
-  { id: 'taxi',     label: 'Taxi start', desc: 'Click an intersection to spawn the taxi there. The direction rotates with each click.' },
+  { id: 'taxi',     label: 'Taxi start', desc: 'Click an intersection to spawn the taxi there. Each click rotates through the four headings.' },
 ];
+
+const PAINT_TOOLS = new Set(['built', 'park', 'plaza']);
 
 export function createEditor({
   scene,
@@ -165,12 +167,6 @@ export function createEditor({
     return id;
   }
 
-  function toggleClosure(key) {
-    push();
-    if (state.closed.has(key)) state.closed.delete(key);
-    else state.closed.add(key);
-  }
-
   /**
    * Arterial rotation: off → +1 → -1 → off. So the same tool covers three states with a familiar
    * click-to-cycle idiom. Because arterials live on *lines* not segments, we translate the picked
@@ -219,10 +215,12 @@ export function createEditor({
     for (const hit of raycaster.intersectObjects(overlay.pickTargets, true)) {
       const ud = hit.object.userData;
       if (!ud?.pickable) continue;
-      // Filter to what the current tool cares about, so a hover over a segment doesn't glow when
-      // the paint tool is selected.
-      if ((currentTool === 'built' || currentTool === 'park' || currentTool === 'plaza') && ud.pickable !== 'block') continue;
-      if ((currentTool === 'close' || currentTool === 'arterial') && ud.pickable !== 'segment') continue;
+      // Filter to what the current tool cares about, so a hover doesn't glow on things this
+      // tool can't affect. Paint tools accept both blocks and road segments: painting on a road
+      // closes it, which is the "paint over the pavement" gesture the user expected.
+      if (PAINT_TOOLS.has(currentTool) && ud.pickable !== 'block' && ud.pickable !== 'segment') continue;
+      if (currentTool === 'road' && ud.pickable !== 'segment') continue;
+      if (currentTool === 'arterial' && ud.pickable !== 'segment') continue;
       if (currentTool === 'taxi' && ud.pickable !== 'intersection') continue;
       return ud;
     }
@@ -242,10 +240,21 @@ export function createEditor({
     const picked = pickAt(event);
     if (!picked) return;
 
-    if (picked.pickable === 'block') {
+    if (picked.pickable === 'block' && PAINT_TOOLS.has(currentTool)) {
       applyBlockPaint(picked.bi, picked.bj, currentTool);
-    } else if (picked.pickable === 'segment' && currentTool === 'close') {
-      toggleClosure(picked.key);
+    } else if (picked.pickable === 'segment' && PAINT_TOOLS.has(currentTool)) {
+      // Painting on the pavement closes the road. Doesn't reopen an already-closed one — Road
+      // is the eraser for that, so a paint stroke that hits both blocks and roads never
+      // accidentally un-does closures the user just painted.
+      if (!state.closed.has(picked.key)) {
+        push();
+        state.closed.add(picked.key);
+      }
+    } else if (picked.pickable === 'segment' && currentTool === 'road') {
+      if (state.closed.has(picked.key)) {
+        push();
+        state.closed.delete(picked.key);
+      }
     } else if (picked.pickable === 'segment' && currentTool === 'arterial') {
       cycleArterial(picked.i, picked.j, picked.d);
     } else if (picked.pickable === 'intersection' && currentTool === 'taxi') {

@@ -16,14 +16,18 @@ HUD hides; the city geometry is what you're editing around, so it stays visible.
 - **Buildings / Park / Plaza** — paint the block under the cursor. Painting a park adjacent to
   another park automatically pairs them into a district and closes the road between them, matching
   what the procedural generator does. Painting anything else over one member of a district breaks
-  the pairing and reopens that road.
-- **Close road** — toggle a road segment closed. Cars route around it, the router plans around it
-  for free — exactly the same `setClosedSegments` path the procedural generator uses.
+  the pairing and reopens that road. Clicking a paint tool on a *road* segment closes that road
+  (paints over the pavement) — the same `setClosedSegments` path the generator uses.
+- **Road** — eraser for road closures. Click a closed segment to reopen it.
 - **Arterial** — click a road segment to make its whole line an arterial (green wave, larger
   signal share, solid double centre line). Click again to flip the coordinated direction. Click
   once more to remove.
 - **Taxi start** — pin the taxi's spawn intersection and heading. Each click rotates through the
   four cardinal directions and then clears the pin.
+
+While the editor is open every block wears a translucent colour wash — green for park, off-white
+for plaza, warm tan for built — so a paint stroke shows immediately without waiting for Play.
+Closed segments carry a red X; arterials carry green chevrons pointing the coordinated direction.
 
 `Ctrl+Z` / `Cmd+Z` undoes the last edit.
 
