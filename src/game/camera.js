@@ -5,7 +5,10 @@ import { HALF_SPAN } from '../city/grid.js';
 // than perspective is what makes it read as a city *sim* — parallel lines stay parallel, so
 // blocks at the far edge look the same size as blocks under the cursor.
 
-const VIEW_DIR = new THREE.Vector3(1, 0.92, 1).normalize();
+// Exported because anything that has to *face* this camera needs the same number. The view never
+// rotates — only the target and the zoom move — so a billboard is a constant orientation computed
+// once from this, not a per-frame lookAt.
+export const VIEW_DIR = new THREE.Vector3(1, 0.92, 1).normalize();
 const DISTANCE = 400;
 
 // Screen right is world (+X, -Z) for this view direction; screen up is (-X, -Z).

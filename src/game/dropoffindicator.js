@@ -7,8 +7,9 @@ import * as THREE from 'three';
 // costs a beat. This arrow rides the viewport edge in the drop-off's fare colour, pointing at the
 // pin the taxi is meant to reach, so the direction is always readable from the HUD.
 //
-// The indicator only shows for a *riding* fare — a waiting rider has the light shaft and the
-// finder button already, and colour hasn't been assigned yet so a coloured pointer would lie.
+// The indicator only shows for a *riding* fare, which is also the only fare with a drop-off pin on
+// the map: a waiting rider's destination stays hidden until they board. One pointer, aimed at the
+// trip actually under way.
 
 const EDGE_MARGIN = 36;   // px kept clear from the viewport edge, so the arrow lives on the HUD
                           // rather than sliced by it
@@ -28,8 +29,7 @@ export function createDropoffIndicator({ camera, pinLocation }) {
   setVisible(false);
 
   function update(fare) {
-    // No pointer for a waiting rider: the light shaft and finder chip already handle that job,
-    // and the fare's colour is not assigned until pickup.
+    // No pointer for a waiting rider: their meter and their finder chip already handle that job.
     if (!fare || fare.stage !== 'riding') {
       setVisible(false);
       return;

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createPerson } from '../geometry/person.js';
-import { fareStageColour } from './timerring.js';
+import { urgencyColorFor } from './urgency.js';
 
 // A HUD stack in the bottom-left, above the Loco Mode pill, so both controls sit under the same
 // thumb.
@@ -19,8 +19,8 @@ import { fareStageColour } from './timerring.js';
 // with the main one keeps this module short.
 //
 // The chip disc is a plain dark bubble the three.js canvas draws the figure onto; the countdown
-// ring around it is a CSS conic-gradient driven from the same four-stage palette as the fare's
-// travelling timer so the two read as the same clock.
+// ring around it is a CSS conic-gradient driven from game/urgency.js — the same scale as the bar
+// over the rider on the map and the ring that rides with the taxi, so all three read as one clock.
 
 const SIZE = 38;      // matches the visible chip disc inside the button
 const DOUBLE_TAP_MS = 320;   // upper bound of a comfortable double tap; browser `dblclick` won't
@@ -122,7 +122,7 @@ export function createRiderFinder({ onTap, onDoubleTap }) {
 
       const fraction = Math.max(0, Math.min(1, fare.timeLeft / fare.limit));
       chip.button.style.setProperty('--pct', `${(fraction * 100).toFixed(1)}%`);
-      chip.button.style.setProperty('--ring-color', fareStageColour(fraction).getStyle());
+      chip.button.style.setProperty('--ring-color', urgencyColorFor(fraction).getStyle());
 
       chip.render();
     }

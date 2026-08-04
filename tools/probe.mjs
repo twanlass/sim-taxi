@@ -16,11 +16,16 @@ import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
-import { createFareSystem, cornerFor, MAX_FARES, SECOND_FARE_AFTER } from '../src/game/fares.js';
+import {
+  createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, SECOND_FARE_AFTER,
+} from '../src/game/fares.js';
+import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
+import { DISTANCE_TIERS, distanceTier } from '../src/game/triptier.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis } from '../src/city/grid.js';
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
+import { PALETTE } from '../src/palette.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -36,6 +41,13 @@ const time = (label, fn) => {
   console.log(`  ${label}: ${(Number(process.hrtime.bigint() - t0) / 1e6).toFixed(1)}ms`);
   return out;
 };
+
+// Read a meter's bars back the way a player does — by counting lit segments, not by trusting the
+// argument we passed in. "Lit" is any colour other than the shared unfilled grey.
+const EMPTY_HEX = PALETTE.meterEmpty.replace('#', '').toLowerCase();
+const lit = (bar) => bar.filter((m) => m.material.color.getHexString() !== EMPTY_HEX).length;
+const litUrgency = (meter) => lit(meter.bars.urgency);
+const litDistance = (meter) => lit(meter.bars.distance);
 
 const scene = new THREE.Scene();
 
@@ -159,7 +171,9 @@ check('no two cars occupy the same space', worst > 1.6,
 // --- The fare's travelling timer -------------------------------------------
 // The clock belongs to the fare, not to a marker: it waits with the rider and then flies to the
 // taxi at pickup. None of that is checkable from a still image, and a silent failure would leave
-// the player with a timer stuck at an empty kerb.
+// the player with a timer stuck at an empty kerb. The kerb half of the clock is the meter's
+// urgency bar now, so the ring must stay *off* the map until the rider is aboard — and then it has
+// to launch from the corner they were standing on, or the hand-off reads as a ring teleporting in.
 {
   const fScene = new THREE.Scene();
   const fTraffic = createTraffic(makeRng(seed + 44), fScene, 24);
@@ -167,10 +181,12 @@ check('no two cars occupy the same space', worst > 1.6,
   fTraffic.warmup(5);
 
   let ring = null;
-  let onRider = false;
+  let ringHiddenWhileWaiting = false;
+  let launchedFromKerb = false;
   let transferred = false;
   let followsTaxi = false;
   let hiddenAfter = false;
+  let kerbAtSpawn = null;
   let elapsed = 0;
 
   while (elapsed < 220 && !fares.state.gameOver) {
@@ -189,13 +205,16 @@ check('no two cars occupy the same space', worst > 1.6,
         // Follow the first fare all the way through; a later one appearing mid-ride is a
         // different assertion, made further down.
         ring = fare.slot.timer.mesh;
-        // Under the rider on the kerb, not at the junction centre.
-        const c = cornerFor(fare.target.i, fare.target.j);
-        onRider = Math.hypot(ring.position.x - c.x, ring.position.z - c.z) < 0.01;
+        // The rider's own clock is the meter over their head; no ring on the kerb.
+        ringHiddenWhileWaiting = !ring.visible;
+        kerbAtSpawn = cornerFor(fare.target.i, fare.target.j);
         route(fare);
       }
       if (type === 'pickup' && fare.slot.timer.mesh === ring) {
         transferred = fare.slot.timer.isTransferring();
+        // Launched from the corner the rider was standing on, not from wherever the ring last was.
+        launchedFromKerb = ring.visible
+          && Math.hypot(ring.position.x - kerbAtSpawn.x, ring.position.z - kerbAtSpawn.z) < 0.01;
         route(fare);
       }
       // The run may end on the timer rather than a delivery; the ring must be cleared either way.
@@ -212,7 +231,8 @@ check('no two cars occupy the same space', worst > 1.6,
     }
   }
 
-  check('the timer waits under the rider', onRider);
+  check('no ring stands on the kerb while the rider waits', ringHiddenWhileWaiting);
+  check('the ring takes the clock over from the rider\'s corner', launchedFromKerb);
   check('the timer flies to the taxi at pickup', transferred);
   check('the timer then rides with the taxi', followsTaxi);
   check('the timer clears on delivery', hiddenAfter);
@@ -276,6 +296,15 @@ check('no two cars occupy the same space', worst > 1.6,
       }
       prevSpawnAt = elapsed;
     }
+
+    // Sampled here, before aim() can direct anything: at this point every waiting fare's meter has
+    // just been ticked against the `directed` it had going into the frame, so the ring and the flag
+    // must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
+    for (const f of fares.state.fares) {
+      if (f.stage !== 'waiting') continue;
+      if (f.slot.meter.isSelected() !== f.directed) selectionOutOfStep += 1;
+    }
+
     aim();
     elapsed += 1 / 60;
 
@@ -305,6 +334,150 @@ check('no two cars occupy the same space', worst > 1.6,
     check('a waiting rider cannot be taken while carrying', fares.markDirected(kerb) === false);
   } else {
     check('a waiting rider cannot be taken while carrying', true, 'board not doubled up at exit');
+  }
+}
+
+// --- The trip is public from the moment the rider is --------------------------
+// The meter over the rider's head is the whole basis of "is this a short hop or a haul across
+// town?", and the drop-off it describes stays hidden until pickup. Every failure mode is silent: a
+// meter that never appears, a tier that disagrees with the route, a drop-off pin leaking onto the
+// map early, or one that quietly moves between being drawn and being shown.
+{
+  const tScene = new THREE.Scene();
+  const tTraffic = createTraffic(makeRng(seed + 44), tScene, CARS_DEFAULT);
+  const fares = createFareSystem(makeRng(seed + 55), tScene);
+  tTraffic.warmup(5);
+
+  let shownOnSpawn = 0;
+  let missingPin = 0;
+  let wrongCount = 0;
+  let wrongPrice = 0;
+  let movedAtPickup = 0;
+  let leakedPin = 0;
+  let pinHiddenAtPickup = 0;
+  let selectionOutOfStep = 0;
+  let pickups = 0;
+  let stillMetered = 0;
+  let wrongTier = 0;
+  let sharedColour = 0;
+  let sharedJunction = 0;
+  let elapsed = 0;
+
+  // Same perfect-player policy as the multi-fare block above, so the board actually doubles up.
+  const aim = () => {
+    const job = fares.carrying() ?? fares.waiting();
+    if (!job || job.directed) return;
+    const r = findRoute(planOrigin(tTraffic.taxi), job.target);
+    if (r) { tTraffic.taxi.route = r; tTraffic.taxi.routeConsumed = false; fares.markDirected(job); }
+  };
+
+  while (elapsed < 400 && !fares.state.gameOver && fares.state.delivered < 6) {
+    tTraffic.update(1 / 60);
+    for (const { type, fare } of fares.update(1 / 60, tTraffic.taxi)) {
+      if (type === 'spawned') {
+        shownOnSpawn += 1;
+        if (!fare.slot.meter.group.visible) missingPin += 1;
+        if (fare.slot.destination.group.visible) leakedPin += 1;
+        // The meter is the only thing saying how far this rider is going, so the tier it lights
+        // has to be the tier their actual trip falls in.
+        if (litDistance(fare.slot.meter) !== distanceTier(fare.blocks)) wrongTier += 1;
+        if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
+        if (fare.value !== priceFor(fare.pickup, fare.dropoff)) wrongPrice += 1;
+      }
+      if (type === 'pickup') {
+        pickups += 1;
+        // The pin is promoted, not replanted — a drop-off that jumped at pickup would make the
+        // preview a lie and every judgement made from it worthless.
+        if (fare.target.i !== fare.dropoff.i || fare.target.j !== fare.dropoff.j) movedAtPickup += 1;
+        if (fare.slot.meter.group.visible) stillMetered += 1;
+        if (!fare.slot.destination.group.visible) pinHiddenAtPickup += 1;
+      }
+    }
+
+    // Sampled here, before aim() can direct anything: at this point every waiting fare's meter has
+    // just been ticked against the `directed` it had going into the frame, so the ring and the flag
+    // must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
+    for (const f of fares.state.fares) {
+      if (f.stage !== 'waiting') continue;
+      if (f.slot.meter.isSelected() !== f.directed) selectionOutOfStep += 1;
+    }
+
+    aim();
+    elapsed += 1 / 60;
+
+    // Colour is assigned when the trip is drawn, so no two live fares may wear the same one — a
+    // carried fare must never match the one the board is about to hand over to.
+    const live = fares.state.fares;
+    const colours = new Set(live.map((f) => f.color));
+    if (colours.size !== live.length) sharedColour += 1;
+    // No two fares may claim the same junction at either end, even while the far ends are hidden:
+    // a rider spawning on another fare's drop-off ends up sharing a kerb corner once it appears.
+    // A riding fare's `target` *is* its drop-off, so it contributes one junction, not two.
+    const ends = live.flatMap((f) => (f.stage === 'waiting'
+      ? [`${f.target.i},${f.target.j}`, `${f.dropoff.i},${f.dropoff.j}`]
+      : [`${f.target.i},${f.target.j}`]));
+    if (new Set(ends).size !== ends.length) sharedJunction += 1;
+  }
+
+  check('a waiting rider shows their meter', shownOnSpawn > 0 && missingPin === 0,
+    `${shownOnSpawn} spawns, ${missingPin} missing`);
+  check('the block count matches the trip', wrongCount === 0, `${wrongCount} mismatched`);
+  check('the distance bar lights the trip\'s tier', wrongTier === 0, `${wrongTier} mistiered`);
+  check('the price agrees with the advertised distance', wrongPrice === 0, `${wrongPrice} mispriced`);
+  check('the drop-off stays hidden while the rider waits', leakedPin === 0, `${leakedPin} leaked`);
+  check('the drop-off appears at pickup', pickups > 0 && pinHiddenAtPickup === 0,
+    `${pickups} pickups, ${pinHiddenAtPickup} still hidden`);
+  check('the drop-off lands where it was drawn at spawn', movedAtPickup === 0,
+    `${movedAtPickup} moved`);
+  check('the meter clears at pickup', stillMetered === 0, `${stillMetered} left up`);
+  // The yellow ring around the plate is the only thing saying "the taxi is on its way to this
+  // one", which matters most on a board with two riders waiting.
+  check('the selection ring tracks whether the taxi was sent', selectionOutOfStep === 0,
+    `${selectionOutOfStep} frames out of step`);
+  check('no two live fares share a colour', sharedColour === 0, `${sharedColour} frames`);
+  check('no two fares claim the same junction', sharedJunction === 0, `${sharedJunction} frames`);
+
+  // --- The urgency bar drains.
+  //
+  // This is the whole point of the bar and none of it is visible in a still image: the level has to
+  // fall one segment at a time as the clock runs down, never climb, and the colour has to be the
+  // one that level owns. Drive a fare's clock by hand and read the bar back segment by segment.
+  {
+    const meter = fares.slots[0].meter;
+    const seen = [];
+    const wrongColour = [];
+    for (let step = 0; step <= 20; step++) {
+      const fraction = 1 - step / 20;
+      const level = urgencyLevel(fraction);
+      meter.show(level, 1);
+      seen.push(litUrgency(meter));
+      const want = urgencyColor(level).getHexString();
+      const got = meter.bars.urgency[0].material.color.getHexString();
+      // Segment 1 is lit at every level above zero, so its colour is the level's colour.
+      if (level > 0 && got !== want) wrongColour.push(`${level}: ${got} != ${want}`);
+    }
+    const monotonic = seen.every((v, i) => i === 0 || v <= seen[i - 1]);
+    check('the urgency bar drains from full to empty',
+      seen[0] === URGENCY_SEGMENTS && seen.at(-1) === 0 && monotonic, seen.join(''));
+    check('it sheds one segment at a time',
+      new Set(seen).size === URGENCY_SEGMENTS + 1
+      && seen.every((v, i) => i === 0 || seen[i - 1] - v <= 1), `${new Set(seen).size} distinct`);
+    check('each level wears its own colour', wrongColour.length === 0, wrongColour.join('; '));
+  }
+
+  // A waiting fare offers exactly one target: its rider. Offering the hidden drop-off too would
+  // put an invisible 20-unit hit box on a junction the player cannot see anything at.
+  const kerb = fares.waiting();
+  if (kerb) {
+    const hittable = fares.pickables();
+    check('a waiting fare offers only its rider as a target',
+      hittable.includes(kerb.slot.passenger.group)
+      && !hittable.includes(kerb.slot.destination.group));
+    check('a tap on the rider resolves to their fare',
+      fares.fareFor(kerb.slot.passenger.group) === kerb);
+  } else {
+    check('a waiting fare offers only its rider as a target', true, 'no waiter at exit');
+    check('a tap on the rider resolves to their fare', true, 'no waiter at exit');
   }
 }
 

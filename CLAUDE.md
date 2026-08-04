@@ -61,8 +61,9 @@ down.
 ## Traps that have bitten before
 
 - **Don't name a file `beacon.js`** (or an element `#banner`). Ad blockers match those against
-  filter lists — `ERR_BLOCKED_BY_CLIENT` takes the whole module graph down. Hence `lightshaft.js`
-  and `#run-end`.
+  filter lists — `ERR_BLOCKED_BY_CLIENT` takes the whole module graph down. Hence `#run-end`
+  rather than `#banner`, and why the rider's shaft of light was `lightshaft.js` for as long as it
+  existed.
 - **`car.state === 'turn'` includes going straight through a junction.** A real turn is
   `car.dOut !== car.d`.
 - **No `distToLine > 0` guard on the stop decision.** A car spawning within `STOP_SETBACK` of its

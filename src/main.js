@@ -228,7 +228,10 @@ createPicker(
 
     // One seat. Refusing the tap outright, rather than driving there and quietly not picking
     // anyone up, is what teaches the rule the first time a second rider appears.
-    if (kind === 'passenger' && fares.carrying()) {
+    //
+    // Gated on the fare's stage rather than on `kind`: the two agree today, since a waiting fare's
+    // only visible marker is its rider, but the rule is about the fare, not about which mesh was hit.
+    if (fare.stage === 'waiting' && fares.carrying()) {
       flash('Drop off your rider first');
       return;
     }
@@ -243,7 +246,7 @@ createPicker(
 
 // Camera shortcut: frame the waiting rider on demand. At play zoom on a phone the rider is a
 // handful of pixels somewhere on a map that no longer fits in one screen, so a button that snaps
-// the camera onto them is faster than hunting for the light shaft by hand.
+// the camera onto them is faster than hunting for their meter by hand.
 function snapToRider(fare) {
   if (!fare) return;
   const c = cornerFor(fare.target.i, fare.target.j);
