@@ -235,10 +235,31 @@ break off, come about, and pull up alongside.
 **It drives the taxi's Loco Mode.** Same weave, shared out of `traffic.js` as `locoWeave()` so
 there is one definition of it: the offset is a function of distance driven, so its slope *is* the
 tangent of the steering angle. On top of that, `CHASE_SPEED = 26` (the boosting taxi tops out at
-18.7, so the gap actually closes), and a hard **U-turn** if the taxi is behind it — a left-hand
-swing across the full width of the road, which is the beat that sells the lock-on. The light bar
-goes double-time, 11 changes a second instead of 6, and that rate change is the only cue the
-player gets that the run has become about them.
+18.7, so the gap actually closes), a `CHASE_KICK` step in speed the frame it decides — the
+cruiser's `BOOST_KICK` — and a hard **U-turn** if the taxi is behind it: a left-hand swing across
+the full width of the road, braking in at `UTURN_BRAKE` and powering out, which is the beat that
+sells the lock-on. The light bar goes double-time, 11 changes a second instead of 6, and that rate
+change is the only cue the player gets that the run has become about them.
+
+**Half of "aggressive" is the body, not the routing.** A car that tracks a perfect line at a
+constant speed reads as a machine however fast it is going. So the cruiser carries itself the way
+the boosting taxi does, off the same shapes:
+
+- **Pitch** is the taxi's spring-damper on longitudinal acceleration, same constants. The kick, the
+  dive into the U-turn and the stand-on-the-brakes arrival all arrive as Δv and come out as the
+  body rocking, ending each event on a small bounce because it is underdamped.
+- **A kickoff wheelie** on lock-on, `locoWheelie()` shared with the taxi.
+- **Roll** leans *outward* — weight transfer; leaning inward reads as a motorbike. It comes off yaw
+  rate × speed rather than off the geometry of a turn, since this car has no Bézier to ask. Going
+  through the motion means the weave leans it as well as the corners do, in proportion, for free.
+- **Rubber and dust**, laid from `main.js` where the effect pools live, off the yaw rate and
+  distance `police.js` publishes. The slide threshold sits above the weave and below a corner
+  (`POLICE_SLIDE_RATE`); below that gap the cruiser laid a continuous streak down every straight,
+  which reads as permanently out of control rather than as being thrown about.
+
+Both tilts pivot on the car's origin at road level, so each one alone drives an edge under the
+tarmac; the same sagitta lift the ambient cars use keeps the low corner on the road. The body keeps
+ticking after it parks, so the dive it stops on settles back to level instead of freezing nose-down.
 
 **Routing** is greedy Manhattan, decided one junction at a time and scored on where each road
 *goes* — the distance from the far end of the segment to the taxi — rather than on which way the

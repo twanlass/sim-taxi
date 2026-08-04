@@ -568,6 +568,49 @@ function kickDust() {
   dust.add(car.x - Math.cos(car.yaw) * 1.9, car.z + Math.sin(car.yaw) * 1.9, car.yaw);
 }
 
+// The cruiser gets the same treatment while it is running the taxi down — rubber when it throws
+// the car sideways, dust off the back the whole way. Driven from here rather than from
+// sim/police.js because the effect pools live on this side; police.js publishes the yaw rate and
+// the distance travelled and this reads them.
+//
+// 2.6 rad/s is chosen to sit above the weave and below a corner: the Loco Mode wave peaks at about
+// 1.4 rad/s of yaw through the eased nose, a junction taken at chase speed hits 4.5, and the
+// U-turn always counts. Below the gap the cruiser laid a continuous streak down every straight,
+// which reads as a car that is permanently out of control rather than one being thrown about.
+const POLICE_SLIDE_RATE = 2.6;
+let lastPoliceSkidAt = 0;
+let lastPoliceDustAt = 0;
+function policeRubber() {
+  const p = police.state;
+  if (!p.chasing) return;
+
+  const yaw = police.group.rotation.y;
+  const fx = Math.cos(yaw);
+  const fz = -Math.sin(yaw);
+  const rx = Math.sin(yaw);
+  const rz = Math.cos(yaw);
+
+  const sliding = p.uturn !== null || Math.abs(p.yawRate) > POLICE_SLIDE_RATE;
+  if (!sliding) {
+    lastPoliceSkidAt = p.travelled;
+  } else if (p.travelled - lastPoliceSkidAt >= 0.42) {
+    lastPoliceSkidAt = p.travelled;
+    // Rear wheels, at the offsets policeGeometry() puts them.
+    for (const side of [-1, 1]) {
+      skids.add(
+        police.group.position.x - fx * 1.08 + rx * side * 0.88,
+        police.group.position.z - fz * 1.08 + rz * side * 0.88,
+        yaw,
+      );
+    }
+  }
+
+  if (p.v < 2) { lastPoliceDustAt = p.travelled; return; }
+  if (p.travelled - lastPoliceDustAt < 0.47) return;
+  lastPoliceDustAt = p.travelled;
+  dust.add(police.group.position.x - fx * 1.9, police.group.position.z - fz * 1.9, yaw);
+}
+
 const clock = new THREE.Clock();
 
 function frame() {
@@ -663,6 +706,7 @@ function frame() {
 
   layRubber();
   kickDust();
+  policeRubber();
   updateHud(dt);
   riderFinder.update(dt, fares.waitingAll());
   dropoffIndicator.update(fares.carrying());
