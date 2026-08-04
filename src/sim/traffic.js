@@ -135,6 +135,42 @@ export function setPriorityJunction(next) {
   priorityJunction = next;
 }
 
+// --- Panic --------------------------------------------------------------------
+//
+// Where the police car actually is on its road, published by src/sim/police.js each frame while a
+// run is live. Corridor already tells us which axis/line the siren is running on, but not *where*
+// along it — and the frantic reaction below is a proximity effect, not a per-road one, so it needs
+// the s coordinate too. Cleared on stop.
+let policePresence = null;   // { axis: 'x' | 'z', line: number, s: number }
+
+export function setPolicePresence(next) {
+  policePresence = next;
+}
+
+// Cars on the police car's own road react as it approaches: swerve outward toward the kerb,
+// wobble in yaw, dip the throttle. The siren straddles the centreline at ~2× traffic speed, so
+// both same-direction and oncoming lanes get rushed past — the reaction has to work for both.
+const PANIC_RANGE = 26;        // world units at which the reaction begins to fade in
+const PANIC_LATERAL = 0.9;     // outward push in world units at full panic (kerb sits ~1.15 out)
+const PANIC_WOBBLE = 0.16;     // yaw jitter amplitude (radians) at full panic
+const PANIC_BRAKE = 0.35;      // fraction of cruise speed shed at full panic
+
+/**
+ * How rattled a car should be right now: 1 next to the siren, 0 outside PANIC_RANGE, and only
+ * ever non-zero for cars on the very road the police is running down. A junction is on two roads,
+ * so a car pointed across the siren's road still counts.
+ */
+function panicTargetFor(car) {
+  if (!policePresence || car.isTaxi || car.stunned || car.crashed) return 0;
+  const carAxis = isXAxis(car.d) ? 'x' : 'z';
+  if (carAxis !== policePresence.axis) return 0;
+  const carLine = carAxis === 'x' ? car.j : car.i;
+  if (carLine !== policePresence.line) return 0;
+  const dist = Math.abs(car.s - policePresence.s);
+  if (dist >= PANIC_RANGE) return 0;
+  return 1 - dist / PANIC_RANGE;
+}
+
 /** Whether a live corridor passes through this junction. */
 export const corridorCovers = (i, j) =>
   Boolean(corridor) && (corridor.axis === 'x' ? j === corridor.line : i === corridor.line);
@@ -360,6 +396,9 @@ function spawnCars(rng, count) {
       stunned: null,
       collisionCooldown: 0,
       crashed: false,
+      // Frantic reaction to a nearby police siren. Eased toward panicTargetFor() each frame and
+      // applied at render as an outward shove, a yaw wobble, and a mild speed dip.
+      panic: 0,
     });
   }
 
@@ -692,6 +731,11 @@ export function createTraffic(rng, scene, count = 24) {
       if (car.crashed) continue;
       if (car.collisionCooldown > 0) car.collisionCooldown = Math.max(0, car.collisionCooldown - dt);
 
+      // Ease panic toward its target on every car every frame, so it decays smoothly whether the
+      // car is driving, turning, or otherwise skipped by the physics branch below.
+      const panicTarget = panicTargetFor(car);
+      car.panic += (panicTarget - car.panic) * Math.min(1, dt * 6);
+
       if (car.stunned) {
         // Drift under the impact kick, wobble in yaw, sit at v=0 so exit-speedFactor logic doesn't
         // spike. Damping settles both linear and angular so the car isn't still sliding when the
@@ -743,7 +787,11 @@ export function createTraffic(rng, scene, count = 24) {
         }
 
         // Fastest speed still stoppable inside `allowed`, approached under real accel limits.
-        const topSpeed = car.boost ? SPEED * BOOST_SPEED : SPEED;
+        // A panicking car — one currently reacting to the siren — dips off the throttle. The
+        // deeper reaction is visual (the swerve and the wobble at render time); this just keeps
+        // it from serenely holding cruise while jerking around the road.
+        const cruiseCap = SPEED * (1 - PANIC_BRAKE * car.panic);
+        const topSpeed = car.boost ? SPEED * BOOST_SPEED : cruiseCap;
         const accel = car.boost ? BOOST_ACCEL : ACCEL;
         const desired = Math.min(topSpeed, Math.sqrt(2 * BRAKE * Math.max(0, allowed)));
         car.v = desired > car.v
@@ -1028,6 +1076,21 @@ export function createTraffic(rng, scene, count = 24) {
         car.z -= Math.cos(car.yaw) * LANE * car.lateral;
       }
       if (car.steer) car.yaw += car.steer;
+
+      // Panic offset: shove kerb-ward and jitter the yaw when the siren is close. The taxi is
+      // skipped in panicTargetFor(), so this only ever fires on ambient traffic. Skipped mid-turn
+      // — a sideways nudge on the Bézier arc reads as the car popping off its own line rather
+      // than as a swerve. (car.right = (sin(yaw), cos(yaw)); the taxi's overtake uses the same
+      // basis with the sign flipped.)
+      if (car.panic > 0.001 && car.state === 'drive') {
+        const push = PANIC_LATERAL * car.panic;
+        car.x += Math.sin(car.yaw) * push;
+        car.z += Math.cos(car.yaw) * push;
+        // Fast wobble driven by travelled distance so a stopped car doesn't shimmy. Phase offset
+        // per car so a queue rattles out of sync rather than all one way.
+        const wobble = Math.sin(car.travelled * 5.5 + car.phase) * PANIC_WOBBLE * car.panic;
+        car.yaw += wobble;
+      }
 
       // A little vertical bob, scaled by how fast the car is actually going, so stopped traffic
       // sits still instead of idling like a boat.
