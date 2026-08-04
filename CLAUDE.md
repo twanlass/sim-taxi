@@ -20,7 +20,7 @@ about to change.
 | [docs/README.md](docs/README.md) | **Index — start here** |
 | [docs/architecture.md](docs/architecture.md) | Module map, frame loop, seeding, `window.__taxi` test hook |
 | [docs/city.md](docs/city.md) | Coordinates, direction encoding, layout, park districts |
-| [docs/traffic.md](docs/traffic.md) | Signals, arterials, ring road, car physics, boost, police corridor |
+| [docs/traffic.md](docs/traffic.md) | Signals, arterials, ring road, car physics, boost, police corridor, the bust chase |
 | [docs/gameplay.md](docs/gameplay.md) | Fare loop, routing, picking, timer ring, economy |
 | [docs/rendering.md](docs/rendering.md) | Low-poly technique, camera, lighting, day/night, effects |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
@@ -61,8 +61,9 @@ down.
 ## Traps that have bitten before
 
 - **Don't name a file `beacon.js`** (or an element `#banner`). Ad blockers match those against
-  filter lists — `ERR_BLOCKED_BY_CLIENT` takes the whole module graph down. Hence `lightshaft.js`
-  and `#run-end`.
+  filter lists — `ERR_BLOCKED_BY_CLIENT` takes the whole module graph down. Hence `#run-end`
+  rather than `#banner`, and why the rider's shaft of light was `lightshaft.js` for as long as it
+  existed.
 - **`car.state === 'turn'` includes going straight through a junction.** A real turn is
   `car.dOut !== car.d`.
 - **No `distToLine > 0` guard on the stop decision.** A car spawning within `STOP_SETBACK` of its

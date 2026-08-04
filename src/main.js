@@ -113,9 +113,28 @@ const CRASH_BANNER_DELAY = 2600;
 const WRECK_ZOOM = 26;
 const SLOW_MO_MIN = 0.18;                // sim runs at this fraction of real time at impact
 const SLOW_MO_DURATION = 2100;           // ms wallclock to ramp back to 1.0
+
+// The bust runs the same cinematic on its own dial. It has something to show that a wreck does
+// not — the cruiser breaking off its corridor run and coming for you — so the banner waits about
+// a second longer, and the sim runs at less than half the slow-mo depth: at 0.18 the chase was
+// wading through treacle, which is the opposite of "it came after you". BUST_BANNER_DELAY buys
+// ~2.8s of sim time, against ~1.2s for the longest approach the bust range can set up (a 28-unit
+// dog-leg at CHASE_SPEED) plus the 0.45s U-turn.
+//
+// But the delay is a floor, not the schedule: the banner waits for the cruiser to actually pull
+// up. A park district can close the one road between the two cars and leave the only legal route
+// three sides of a block long — 68 units and 3.5s on seed 8888 — and cutting to the retry screen
+// mid-chase throws away the one beat this whole thing exists for. BUST_BANNER_MAX caps the wait
+// for the pathological case; BUST_BANNER_HOLD is the beat after it stops, alongside.
+const BUST_BANNER_DELAY = 3400;
+const BUST_BANNER_MAX = 4800;
+const BUST_BANNER_HOLD = 500;
+const BUST_SLOW_MO_MIN = 0.42;
 let wreckSpot = null;
 let crashBannerAt = null;
 let slowMoUntil = 0;
+let slowMoMin = SLOW_MO_MIN;
+let bustAt = 0;              // wallclock ms of the bust, while the banner is still waiting on the cop
 
 const collisions = createCollisions(traffic.cars, traffic.taxi);
 collisions.onImpact(({ x, z }) => {
@@ -132,6 +151,7 @@ collisions.onImpact(({ x, z }) => {
   wreckSpot = { x, z };
   crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
+  slowMoMin = SLOW_MO_MIN;
   traffic.taxiGroup.visible = false;
   boost.release();
   fares.crash();
@@ -148,18 +168,25 @@ collisions.onImpact(({ x, z }) => {
  * so the beat is the same as a collision, but the taxi stays visible (no debris, no smoke) since
  * nothing hit it. The taxi is flagged crashed so it freezes on the spot for the pull-in, and the
  * fare system's title/reason drive the "Busted" banner.
+ *
+ * The cruiser abandons its corridor run here and comes for the taxi — see `chase()` in
+ * sim/police.js. That is the whole point of the delay before the banner: without it the cop sailed
+ * on down its road as if nothing had happened, and being busted read as a rule firing somewhere
+ * off-screen rather than as a cop noticing you. The camera frames the *taxi*, not the midpoint of
+ * the two, so the siren swings into a held shot instead of the shot chasing the siren.
  */
 function bustByPolice() {
   if (fares.state.gameOver || traffic.taxi.crashed) return;
-  const px = (traffic.taxi.x + police.group.position.x) / 2;
-  const pz = (traffic.taxi.z + police.group.position.z) / 2;
   controller.kickShake(0.9);
-  wreckSpot = { x: px, z: pz };
-  crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
+  wreckSpot = { x: traffic.taxi.x, z: traffic.taxi.z };
+  bustAt = performance.now();
+  crashBannerAt = bustAt + BUST_BANNER_DELAY;
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
+  slowMoMin = BUST_SLOW_MO_MIN;
   traffic.taxi.crashed = true;
   traffic.taxi.v = 0;
   boost.release();
+  police.chase(traffic.taxi);
   fares.crash('You were caught by the police for reckless driving.', 'Busted');
 }
 
@@ -228,7 +255,10 @@ createPicker(
 
     // One seat. Refusing the tap outright, rather than driving there and quietly not picking
     // anyone up, is what teaches the rule the first time a second rider appears.
-    if (kind === 'passenger' && fares.carrying()) {
+    //
+    // Gated on the fare's stage rather than on `kind`: the two agree today, since a waiting fare's
+    // only visible marker is its rider, but the rule is about the fare, not about which mesh was hit.
+    if (fare.stage === 'waiting' && fares.carrying()) {
       flash('Drop off your rider first');
       return;
     }
@@ -243,7 +273,7 @@ createPicker(
 
 // Camera shortcut: frame the waiting rider on demand. At play zoom on a phone the rider is a
 // handful of pixels somewhere on a map that no longer fits in one screen, so a button that snaps
-// the camera onto them is faster than hunting for the light shaft by hand.
+// the camera onto them is faster than hunting for their meter by hand.
 function snapToRider(fare) {
   if (!fare) return;
   const c = cornerFor(fare.target.i, fare.target.j);
@@ -394,6 +424,20 @@ function updateHud(dt) {
     if (toastTimer <= 0 && hud.toast) hud.toast.style.opacity = '0';
   }
 
+  // A bust holds the banner until the cruiser is alongside — see the BUST_BANNER_* block. The
+  // floor keeps a chase that ends in half a block from cutting to the retry screen while the
+  // camera is still moving; the ceiling covers a route the park closures made long.
+  if (bustAt) {
+    const elapsed = performance.now() - bustAt;
+    if (police.state.arrived || elapsed >= BUST_BANNER_MAX) {
+      crashBannerAt = bustAt + Math.min(BUST_BANNER_MAX,
+        Math.max(BUST_BANNER_DELAY, elapsed + BUST_BANNER_HOLD));
+      bustAt = 0;
+    } else {
+      crashBannerAt = Infinity;
+    }
+  }
+
   if (s.gameOver && hud.banner && hud.banner.hidden) {
     // A crash holds the banner for CRASH_BANNER_DELAY so the smoke, sparks and camera pull-in
     // land before the retry screen appears. Timeouts have no such beat — reveal immediately.
@@ -454,6 +498,11 @@ function kickLocoMode() {
     car.z + bz * TAXI_TAILPIPE_BACK,
     car.yaw,
   );
+  // Break traction on the launch as well as in the corners. One pair stamped here so a standing
+  // start (pressing while held at a red) still leaves a patch under the wheels — the distance
+  // spacing in layRubber can't produce anything until the car actually moves.
+  stampRearRubber(car);
+  launchSkidT = LAUNCH_SKID_TIME;
 }
 function releaseBoost(event) {
   boost.release();
@@ -481,25 +530,19 @@ window.addEventListener('contextmenu', (e) => {
   if (e.target === boostButton) e.preventDefault();
 });
 
-// Rubber gets laid from the rear wheels while boosting through a corner, spaced by distance so
-// the trail is even regardless of frame rate.
+// Rubber gets laid from the rear wheels while boosting through a corner or off the line, spaced
+// by distance so the trail is even regardless of frame rate.
 let lastSkidAt = 0;
-function layRubber() {
-  const car = traffic.taxi;
 
-  // `state === 'turn'` covers every junction crossing, including going straight on — which is why
-  // rubber was appearing on the straights. An actual turn means the exit direction differs from
-  // the entry one, and only after the straight run-up to the junction is done.
-  const cornering = car.boost
-    && car.state === 'turn'
-    && car.dOut !== car.d
-    && Math.min(car.turnT, 1) * car.turnLen > car.leadIn;
+// How long the launch keeps laying rubber after the button goes down. Time-boxed rather than
+// distance-boxed: pressing while stopped at a red would otherwise hold the streak in reserve and
+// spend it whenever the light finally changed. At boost speed 0.5s is roughly two car lengths of
+// rubber, which reads as a chirp off the line without turning every tap into a burnout.
+const LAUNCH_SKID_TIME = 0.5;
+let launchSkidT = 0;
 
-  if (!cornering) { lastSkidAt = car.travelled; return; }
-  // Closer than one mark length, so consecutive stamps overlap into a continuous streak.
-  if (car.travelled - lastSkidAt < 0.42) return;
-  lastSkidAt = car.travelled;
-
+/** One pair of marks under the rear wheels, at the car's current pose. */
+function stampRearRubber(car) {
   const fx = Math.cos(car.yaw);
   const fz = -Math.sin(car.yaw);
   const rx = Math.sin(car.yaw);
@@ -513,6 +556,30 @@ function layRubber() {
   }
 }
 
+function layRubber(dt) {
+  const car = traffic.taxi;
+  if (launchSkidT > 0) launchSkidT = Math.max(0, launchSkidT - dt);
+
+  // `state === 'turn'` covers every junction crossing, including going straight on — which is why
+  // rubber was appearing on the straights. An actual turn means the exit direction differs from
+  // the entry one, and only after the straight run-up to the junction is done.
+  const cornering = car.boost
+    && car.state === 'turn'
+    && car.dOut !== car.d
+    && Math.min(car.turnT, 1) * car.turnLen > car.leadIn;
+
+  // Releasing mid-launch cuts the streak short — `car.boost` is the same gate the corners use, so
+  // letting go always stops the rubber wherever the car happens to be.
+  const launching = car.boost && launchSkidT > 0;
+
+  if (!cornering && !launching) { lastSkidAt = car.travelled; return; }
+  // Closer than one mark length, so consecutive stamps overlap into a continuous streak.
+  if (car.travelled - lastSkidAt < 0.42) return;
+  lastSkidAt = car.travelled;
+
+  stampRearRubber(car);
+}
+
 // Dust comes off the back of the car whenever it's boosting and actually moving — not only in
 // corners like the rubber, since the point is to make speed itself read.
 let lastDustAt = 0;
@@ -524,6 +591,49 @@ function kickDust() {
   dust.add(car.x - Math.cos(car.yaw) * 1.9, car.z + Math.sin(car.yaw) * 1.9, car.yaw);
 }
 
+// The cruiser gets the same treatment while it is running the taxi down — rubber when it throws
+// the car sideways, dust off the back the whole way. Driven from here rather than from
+// sim/police.js because the effect pools live on this side; police.js publishes the yaw rate and
+// the distance travelled and this reads them.
+//
+// 2.6 rad/s is chosen to sit above the weave and below a corner: the Loco Mode wave peaks at about
+// 1.4 rad/s of yaw through the eased nose, a junction taken at chase speed hits 4.5, and the
+// U-turn always counts. Below the gap the cruiser laid a continuous streak down every straight,
+// which reads as a car that is permanently out of control rather than one being thrown about.
+const POLICE_SLIDE_RATE = 2.6;
+let lastPoliceSkidAt = 0;
+let lastPoliceDustAt = 0;
+function policeRubber() {
+  const p = police.state;
+  if (!p.chasing) return;
+
+  const yaw = police.group.rotation.y;
+  const fx = Math.cos(yaw);
+  const fz = -Math.sin(yaw);
+  const rx = Math.sin(yaw);
+  const rz = Math.cos(yaw);
+
+  const sliding = p.uturn !== null || Math.abs(p.yawRate) > POLICE_SLIDE_RATE;
+  if (!sliding) {
+    lastPoliceSkidAt = p.travelled;
+  } else if (p.travelled - lastPoliceSkidAt >= 0.42) {
+    lastPoliceSkidAt = p.travelled;
+    // Rear wheels, at the offsets policeGeometry() puts them.
+    for (const side of [-1, 1]) {
+      skids.add(
+        police.group.position.x - fx * 1.08 + rx * side * 0.88,
+        police.group.position.z - fz * 1.08 + rz * side * 0.88,
+        yaw,
+      );
+    }
+  }
+
+  if (p.v < 2) { lastPoliceDustAt = p.travelled; return; }
+  if (p.travelled - lastPoliceDustAt < 0.47) return;
+  lastPoliceDustAt = p.travelled;
+  dust.add(police.group.position.x - fx * 1.9, police.group.position.z - fz * 1.9, yaw);
+}
+
 const clock = new THREE.Clock();
 
 function frame() {
@@ -533,12 +643,13 @@ function frame() {
   // Time dilation for the crash. Scale the whole frame's dt so debris, smoke, camera pull-in and
   // shake decay all slow together — that's what sells it as a single cinematic beat rather than
   // one element being pushed around while everything else runs normally. Ramps linearly from
-  // SLOW_MO_MIN back to 1.0 across SLOW_MO_DURATION ms wallclock; the banner delay is separately
-  // wallclock-anchored so this doesn't change when the retry screen appears.
+  // `slowMoMin` back to 1.0 across SLOW_MO_DURATION ms wallclock; the banner delay is separately
+  // wallclock-anchored so this doesn't change when the retry screen appears. The depth is per
+  // event — a wreck bottoms out at SLOW_MO_MIN, a bust much shallower so the chase still moves.
   const nowMs = performance.now();
   if (nowMs < slowMoUntil) {
     const t = 1 - (slowMoUntil - nowMs) / SLOW_MO_DURATION;
-    dt *= SLOW_MO_MIN + (1 - SLOW_MO_MIN) * t;
+    dt *= slowMoMin + (1 - slowMoMin) * t;
   }
 
   boost.update(dt);
@@ -616,8 +727,9 @@ function frame() {
     routeLine.hide();
   }
 
-  layRubber();
+  layRubber(dt);
   kickDust();
+  policeRubber();
   updateHud(dt);
   riderFinder.update(dt, fares.waitingAll());
   dropoffIndicator.update(fares.carrying());

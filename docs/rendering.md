@@ -93,8 +93,8 @@ Sun elevation follows a day arc and azimuth swings 10° → 175°, so shadows sw
 throws shadows up through everything.
 
 Night is genuinely dark (sun 0.00, fill 0.34, deep navy) but stays playable because every game
-marker — fare rings, beacon, route band — is unlit (`MeshBasicMaterial`, or in the band's case a
-plain `ShaderMaterial` that never reads a light).
+marker — fare rings, rider meters, route band — is unlit (`MeshBasicMaterial`, or in the band's
+case a plain `ShaderMaterial` that never reads a light).
 
 Screenshot mode freezes the cycle: a rendered shot has to be reproducible.
 
@@ -102,13 +102,20 @@ Screenshot mode freezes the cycle: a rendered shot has to be reproducible.
 
 ### Skid marks — `game/skidmarks.js`
 
-A ring buffer of flat quads stamped onto the road while boosting **through a corner**. Alpha lives
-in a 4-component vertex colour attribute. Pure black, `MARK_LENGTH = 1.5`, `MARK_WIDTH = 0.58`,
+A ring buffer of flat quads stamped onto the road while boosting **through a corner**, and for the
+first `LAUNCH_SKID_TIME = 0.5s` **off the line** when Loco Mode is first pressed. Alpha lives in a
+4-component vertex colour attribute. Pure black, `MARK_LENGTH = 1.5`, `MARK_WIDTH = 0.58`,
 `START_ALPHA = 0.85`, spaced closer than one mark length so stamps overlap into a streak.
 
 > `car.state === 'turn'` covers **every** junction crossing including going straight on, which is
 > why rubber first appeared on the straights. A real turn is `car.dOut !== car.d`, and only after
 > the straight run-up (`leadIn`) is done.
+
+> The launch streak is **time**-boxed while the spacing between stamps is **distance**-boxed.
+> Distance-boxing the window too would let a press at a red light bank the streak and spend it
+> whenever the light changed. `kickLocoMode` also stamps one pair directly, so a standing start
+> leaves a patch under the wheels before the car has travelled far enough to trigger the next
+> stamp. Releasing mid-launch cuts it short — `car.boost` gates it exactly as it gates the corners.
 
 ### Dust — `game/dust.js`
 
@@ -230,7 +237,20 @@ The destination pin is outlined by an **inverted hull**: the same geometry drawn
 with `side: BackSide` and a black basic material, so the enlarged back faces sit behind the real
 surface everywhere except around the silhouette. Cheaper than a post-processing edge pass and it
 needs no render targets — this is one small object, not a whole-scene effect. Each hull is a *child*
-of the mesh it wraps, so it inherits animation for free and survives `setColor` retinting.
+of the mesh it wraps, so it inherits animation for free.
+
+**The pin is Loco Mode's yellow, fixed at build time.** There is only ever one drop-off on the
+board — the rider currently aboard — so there is nothing for a per-fare hue to tell it apart from,
+and it is now the far end of the same statement the route band makes on the road. Two weights of
+the one yellow: the head and post take the pill's `#F5C130`, the ring on the tarmac takes
+`routeLine` (`#FFE873`, that yellow lightened), which is exactly what the band leading into it is
+painted in. The fare's own colour still lives on the taxi's roof sign — see
+[gameplay.md](gameplay.md#fare-colours).
+
+The post carries a low **emissive** (0.18 of its colour, against the head's 0.35). It is the only
+post that is ever visible — a waiting rider's figure replaces theirs — and the fixed camera sees
+the face turned *away* from the sun, so pure Lambert shaded the `#E0AE2A` pole down to
+rgb(110, 68, 6): a brown stick under a gold head. With the lift it lands at rgb(152, 106, 19).
 
 The post's hull is scaled `(1.6, 1, 1.6)` — widened but not lengthened, because a uniform scale
 would push its end caps past the post's own, and both ends are meant to stay tucked (one in the
@@ -241,6 +261,42 @@ sharp cusp at the bottom that reads as a landing rather than a float. **Only the
 lifting the whole pin would pull its foot off the pavement. Amplitude is bounded by the 0.8 units
 of overlap between head and post top; at 0.45 the head bottom peaks at 8.15 against a post top of
 8.50, so no gap ever opens. It freezes while hidden, which keeps screenshots deterministic.
+
+The drop-off's target ring is **filled in**, at the route band's own `ROUTE_OPACITY` — the band on
+the road and the disc at the end of it are one statement in two places, and at different weights one
+reads as the louder half. Depth-tested like the band, so a car crossing the junction drives over the
+disc rather than the disc painting across the car. Being translucent puts it in the transparent
+queue, so its far half washes up over the base of the post at its centre; that is invisible because
+the post is the same yellow one shade down.
+
+### Rider meter — `geometry/ridermeter.js`
+
+The urgency and distance bars over a waiting rider. What they *mean* is in
+[gameplay.md](gameplay.md#the-meter-over-a-waiting-rider); this is how they are drawn.
+
+The plate is a **billboard against a camera that never rotates**, so its orientation is one
+constant `Quaternion` resolved from the exported `VIEW_DIR` at module load — not a `lookAt` run
+every frame on three floating meters.
+
+**The layout is specified in pixels**, and converted once at the top of the module: 1 world unit is
+about 7.7px at play zoom, since the orthographic frustum's height is exactly `2 * zoom`. The whole
+meter is 84 × 34px as specified, which a `SCALE = 0.8` on the group takes to **67 × 27px** — still
+over the ~25px timer ring that is the project's floor for "legible without zooming", and it needs
+to be, because it is now the only thing marking a rider at range. Full size was accurate to the
+sheet and too loud: three of them is three slabs over a city whose blocks are only ~92px across.
+The scale is a group transform rather than a smaller `PX`, so the geometry still matches the spec
+one-to-one and there is a single knob to turn.
+
+Nothing about the layout ever changes size — always four urgency segments and three distance ones,
+lit or not — so the meter is **three shared geometries** (plate, urgency segment, distance segment)
+and per-frame work is a colour copy. Each is built at its own size rather than scaled from one unit
+shape: scaling a rounded rect stretches its corners, and at a 2px radius on a 16px segment that is
+the difference between a soft edge and a visibly lopsided one.
+
+Every layer is `transparent`. The plate genuinely is (0.75 alpha), which puts it in three's
+transparent queue — and that queue draws after every opaque object regardless of renderOrder, so
+opaque segments would be buried by their own backing. Flagging both puts them in the same queue,
+where renderOrder decides.
 
 ### Car motion
 

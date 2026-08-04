@@ -7,7 +7,7 @@ behind it that aren't obvious from the code.
 |---|---|---|
 | [architecture.md](architecture.md) | Module map, the frame loop, seeding and determinism, how a change flows through the app | `src/main.js` |
 | [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts, ground/buildings/props | `src/city/` |
-| [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police priority corridor | `src/sim/` |
+| [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
 | [gameplay.md](gameplay.md) | The fare loop, routing, picking, the travelling timer ring, economy, crazy-taxi mode | `src/game/` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, effects | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
@@ -19,10 +19,12 @@ model with real signals. **The player's taxi is one of those cars** — the only
 its turn at each junction comes from a planned route rather than a dice roll, so it obeys every
 red light exactly like everyone else and cannot cheat its way to a destination.
 
-A passenger appears at an intersection with a 60-second clock. Tap them to route the taxi there;
-tap the destination that appears at pickup. The clock does **not** reset at pickup — one deadline
-covers spawn to drop-off, which is the whole tension of the game. Each delivery pays $20. Let a
-clock expire and the run ends.
+A passenger appears at an intersection under a **meter**: an urgency bar counting down their
+60-second patience, and a distance bar saying whether this is a short, medium or long trip. Tap
+them to route the taxi there; their drop-off appears once they're aboard, and you tap that to
+deliver. The clock does **not** reset at pickup — one deadline covers spawn to drop-off, which is
+the whole tension of the game. A delivery pays by distance, $8 for a one-block hop up to $35
+across town. Let a clock expire and the run ends.
 
 **Loco Mode** (bottom left) is the crazy-taxi button: **hold** for double speed that runs red
 lights, release to pause the meter. A full tank is 15 seconds of boost; from empty it recharges in
