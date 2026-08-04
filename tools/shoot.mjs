@@ -22,7 +22,9 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// Overridable because the CI/sandbox boxes this runs on are Linux, where Chromium lives
+// somewhere else entirely (e.g. CHROME=/opt/pw-browsers/chromium).
+const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9333;
 const WIDTH = 1280;
 const HEIGHT = 800;
@@ -103,6 +105,10 @@ const chrome = spawn(CHROME, [
   '--hide-scrollbars',
   '--no-first-run',
   '--disable-extensions',
+  // Containers without a usable user namespace (and anything running as root) need
+  // --no-sandbox here. Kept in an env var so the ordinary desktop run keeps its sandbox:
+  //   CHROME=/opt/pw-browsers/chromium CHROME_FLAGS=--no-sandbox node tools/shoot.mjs
+  ...(process.env.CHROME_FLAGS ? process.env.CHROME_FLAGS.split(' ').filter(Boolean) : []),
   'about:blank',
 ], { stdio: 'ignore' });
 
@@ -151,7 +157,11 @@ try {
       width: WIDTH, height: HEIGHT, deviceScaleFactor: 1, mobile: false,
     });
 
-    const url = `${baseUrl}/?shot=${shot}`;
+    // Built through URL rather than by concatenation so a base that already carries query params
+    // keeps them: `--url 'http://localhost:4173/?run=7'` picks which situation gets shot.
+    const shotUrl = new URL(baseUrl);
+    shotUrl.searchParams.set('shot', shot);
+    const url = shotUrl.href;
     await client.send('Page.navigate', { url });
 
     // Poll for the page's own ready flag — the only signal that actually means "drawn".

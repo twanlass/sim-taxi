@@ -26,7 +26,7 @@ import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
 import { findRoute, planOrigin } from './game/route.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount } from './util/shot.js';
-import { isCityConnected } from './city/grid.js';
+import { isCityConnected, GRID } from './city/grid.js';
 
 const shot = getActiveShot();
 // A fresh city every load. `?seed=N` still pins one you want to replay, and shot mode always
@@ -179,10 +179,9 @@ function checkPoliceBust() {
 const boost = createBoost();
 const skids = createSkidMarks(scene);
 
-const routeLine = createRouteLine(
-  scene,
-  () => (2 * controller.state.zoom) / renderer.domElement.clientHeight,
-);
+// Lane-width, so it is sized in world units and needs no pixel factor: it is paint on the road
+// rather than an overlay drawn at a constant screen weight.
+const routeLine = createRouteLine(scene);
 
 // --- Selection and routing --------------------------------------------------
 
@@ -676,6 +675,12 @@ if (shot) {
     controller.update(aspect());
   }
 
+
+  // Not at a fare: at the opposite corner of the map, which is the only way to get a route
+  // long enough to judge the band that draws it.
+  if (shot.routeFar) {
+    routeTo({ i: traffic.taxi.i > GRID / 2 ? 0 : GRID, j: traffic.taxi.j > GRID / 2 ? 0 : GRID });
+  }
 
   if (shot.route) send();
   if (selected && traffic.taxi.pendingTarget) {

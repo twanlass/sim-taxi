@@ -73,7 +73,10 @@ export const PALETTE = {
   fareColors: ['#25D9D2', '#E24BC4', '#A46BFF', '#4D9BFF', '#FF6B9D'],
   destination: '#E24BC4',
   destinationPost: '#8C2E79',
-  routeLine: '#FFD84D',
+  // Deliberately the same yellow as `select`, the pool under the taxi: the route band is that
+  // pool stretched down the lane the taxi is about to drive, and two near-identical yellows a
+  // few units apart read as a mistake rather than as two things.
+  routeLine: '#FFE873',
 
   lightRed: '#E24B3C',
   lightYellow: '#F0B23A',

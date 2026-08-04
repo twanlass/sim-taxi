@@ -16,6 +16,10 @@ export const SHOTS = [
   { name: 'vehicles', description: 'extreme close-up for vehicle detail', target: [0, 0], zoom: 9, warmup: 12, select: true, untilPickup: true },
   { name: 'police', description: 'police corridor: its road green, crossings red', target: [0, 0], zoom: 30, warmup: 12, untilPolice: true },
   { name: 'rider', description: 'waiting rider on the kerb', target: [0, 0], zoom: 11, warmup: 12, atPassenger: true },
+  // The route band is the one element a short hop tells you nothing about: with the fare two
+  // blocks away the two end fades meet in the middle. This one sends the taxi to the far corner
+  // instead, so a full-length band with several turns is in frame.
+  { name: 'route-far', description: 'the route band, taxi to the far corner', target: [0, 0], zoom: 52, warmup: 12, select: true, routeFar: true },
 ];
 
 export function getActiveShot() {

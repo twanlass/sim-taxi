@@ -55,7 +55,9 @@ the timer ring starts its sweep at `-3π/4`, and why riders are placed on the `-
 junction — the block on the `+X+Z` side sits between the camera and anything standing on it.
 
 Because the camera is orthographic, world-units-per-pixel falls straight out of the frustum
-height: `(2 * zoom) / clientHeight`. The route line uses this to hold a constant pixel width.
+height: `(2 * zoom) / clientHeight`. Drag-panning converts pointer pixels into world units with it
+(`camera.js`). The route band used to as well, to hold a constant 2px width; it no longer does,
+because it is now paint on a lane and has to shrink with the road when you zoom out.
 
 > This also explains why an early "invisible" skid mark wasn't invisible at all — it was 0.3 units
 > wide, and at play zoom 1 unit ≈ 7.7px, so it rendered as 2px. Effects that need to *read* at play
@@ -91,7 +93,8 @@ Sun elevation follows a day arc and azimuth swings 10° → 175°, so shadows sw
 throws shadows up through everything.
 
 Night is genuinely dark (sun 0.00, fill 0.34, deep navy) but stays playable because every game
-marker — fare rings, beacon, route line — is `MeshBasicMaterial` and therefore unlit.
+marker — fare rings, beacon, route band — is unlit (`MeshBasicMaterial`, or in the band's case a
+plain `ShaderMaterial` that never reads a light).
 
 Screenshot mode freezes the cycle: a rendered shot has to be reproducible.
 
@@ -143,26 +146,61 @@ running boost doesn't re-fire either.
   same `Math.abs(Math.sin(pitch)) * (CAR_LEN / 2)` so the rear stays on the road as the nose
   comes up.
 
-### Route line — `game/routeline.js`
+### Route band — `game/routeline.js`
 
-A ribbon on the road showing the planned route. Held at a constant ~2px using the
-world-units-per-pixel factor above. Shown only while the taxi has a pending target — the route is a
-property of the *selection*, not of the world.
+A band of paint down the **lane the taxi will drive**, from under the car to its destination:
+lane width (0.85 of it), in the same yellow at the same 0.38 alpha as the pool under the taxi, so
+it reads as that pool stretched along the road. Shown only while the taxi has a pending target —
+the route is a property of the *selection*, not of the world. Once planned it does **not** re-path
+as the taxi drives; a line that keeps changing under you is unreadable.
 
-Once planned it does **not** re-path as the taxi drives; a line that keeps changing under you is
-unreadable.
+It was a 2px hairline down the road *centreline* first, and that was wrong twice over:
 
-**Corners are filleted**, not mitred to a point: each junction becomes a quadratic Bézier using the
-junction itself as the control point, so the curve stays tangent to both legs. Radius 5, 8 steps,
-clamped to half of either leg so fillets at adjacent junctions can't overlap and cut across a block.
-A square 90° turn read as a wire diagram laid over the city rather than a path something is about
-to drive.
+- A route drawn on the centreline sits **between** the two lanes, so it never says which side of
+  the road the taxi is on — the one thing a driving line is for.
+- It was filleted against the taxi's **own position**: the corner radius at the next junction was
+  clamped to half the distance to the car, so the drawn corner shrank and re-shaped as the taxi
+  closed on it. That squirm is what the band exists to remove.
 
-That forced the second half: the ribbon offsets each *point* along its mitre rather than offsetting
-each segment independently. Independent segments leave a wedge of bare road on the outside of every
-join — invisible when the corner *was* the notch, obvious across an eight-step arc. Measured on a
-real turn: sharpest drawn angle 90° → 14.3°, width held to 0.2600–0.2620 against a 0.2600 target,
-and the arc strays at most 1.25 units from the centreline (road half-width is 4).
+`routePath(car, route)` now walks the same lane centrelines and the same junction Béziers the car
+itself drives — `entryPoint` → `turnControl` → `exitPoint` from `city/grid.js`, and for a car
+already mid-junction it picks its own arc up at `car.turnT`. **Nothing ahead of the car depends on
+where the car is**, so the band only ever gets shorter from behind. `tools/probe.mjs` asserts
+exactly that: every point of every later path still lies on the path drawn when the route was
+planned, measured at a max drift of **0.021 units** over 2,175 frames of a cross-town route — and
+that drift is bezier re-sampling, not motion.
+
+The start point is the **lane** position rather than `car.x/car.z`: the taxi slides out toward the
+centreline to overtake, and the band belongs to the lane, not to that manoeuvre.
+
+**Width is 0.85 of a lane, not a full one.** A right turn's lane-to-lane arc has a radius of
+`HALF_ROAD - LANE` = 2, so at a half-width of 2 the inside edge of the band collapses to a point at
+every right turn and folds over itself — and a translucent band folded on itself paints a visibly
+darker wedge. 0.85 leaves 0.3 units of inner radius and 0.3 of asphalt showing at the kerb, which
+reads as *in* the lane rather than *instead of* it.
+
+**Both ends fade out.** A hard end at the taxi reads as a second object butted against the car; a
+hard end at the destination reads as a wall across the road. Head fade 5 units, tail fade 10 — the
+head is shorter because it starts under the taxi's own pool, which already covers the faintest part
+of it, and a long one would wash out the near stretch the player is actually reading. On a hop
+shorter than the two fades together they scale down in proportion rather than overlapping into a
+band that never reaches full opacity anywhere.
+
+The fade is a **`ShaderMaterial` with a distance-along-the-path attribute**, evaluated per fragment.
+Per-vertex alpha would mean re-tessellating the path at both fade boundaries every frame (and, as
+with `instanceColor`, a 4-component colour attribute takes a different code path); one float per
+vertex interpolates the length of a 20-unit straight for free. The fragment shader has to
+`#include <colorspace_fragment>` by hand — a `ShaderMaterial` gets none of the built-in chunks, and
+without it the yellow renders linear and lands visibly darker than the `MeshBasicMaterial` pool it
+is supposed to match.
+
+Unlike the fare rings the band is **depth-tested**, at y = 0.03: above the road paint (0.02), below
+the taxi's pool (0.06), and *under* passing traffic. At 2px a route drawn over the cars didn't
+matter; at lane width it would paint yellow across every car it passes.
+
+The band still offsets each *point* along its mitre rather than offsetting each segment
+independently. Independent segments leave a wedge of bare road on the outside of every join —
+invisible when the corner *was* the notch, obvious across a ten-step arc.
 
 ### Pin outline and bounce — `geometry/marker.js`
 
