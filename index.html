@@ -198,11 +198,11 @@
       }
       .rider-finder-chip canvas { display: block; width: 38px; height: 38px; }
 
-      /* Off-screen drop-off pointer. A colour-coded arrow that clamps to the viewport edge and
-         rotates to point at the destination pin, so the direction to drive stays readable when
-         the pin has slipped off the frame (portrait, or after panning). Colour comes from the
-         fare's own palette entry — same one that tints the taxi's sign and the pin head — so the
-         arrow and the pin are recognisably the same fare. */
+      /* Off-screen drop-off pointer. An arrow that clamps to the viewport edge and rotates to
+         point at the destination pin, so the direction to drive stays readable when the pin has
+         slipped off the frame (portrait, or after panning). Wears the pin's own Loco Mode yellow —
+         there is only ever one drop-off on the board, so the arrow does not have to identify which
+         fare it belongs to, only where that pin is. */
       #dropoff-indicator {
         position: fixed; left: 50%; top: 50%; z-index: 18;
         width: 34px; height: 34px; pointer-events: none; user-select: none;
@@ -213,7 +213,7 @@
         filter: drop-shadow(0 2px 4px rgba(10, 20, 30, 0.45)); }
       /* Matches the pin-head outline weight so the arrow reads as the same graphic vocabulary. */
       #dropoff-indicator polygon {
-        fill: var(--dropoff-color, #E24BC4);
+        fill: #F5C130;   /* PALETTE.destination — the pin head this arrow stands in for */
         stroke: #16120a; stroke-width: 3; stroke-linejoin: round;
       }
       body.shot-mode #dropoff-indicator { display: none; }

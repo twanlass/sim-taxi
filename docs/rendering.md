@@ -230,7 +230,20 @@ The destination pin is outlined by an **inverted hull**: the same geometry drawn
 with `side: BackSide` and a black basic material, so the enlarged back faces sit behind the real
 surface everywhere except around the silhouette. Cheaper than a post-processing edge pass and it
 needs no render targets — this is one small object, not a whole-scene effect. Each hull is a *child*
-of the mesh it wraps, so it inherits animation for free and survives `setColor` retinting.
+of the mesh it wraps, so it inherits animation for free.
+
+**The pin is Loco Mode's yellow, fixed at build time.** There is only ever one drop-off on the
+board — the rider currently aboard — so there is nothing for a per-fare hue to tell it apart from,
+and it is now the far end of the same statement the route band makes on the road. Two weights of
+the one yellow: the head and post take the pill's `#F5C130`, the ring on the tarmac takes
+`routeLine` (`#FFE873`, that yellow lightened), which is exactly what the band leading into it is
+painted in. The fare's own colour still lives on the taxi's roof sign — see
+[gameplay.md](gameplay.md#fare-colours).
+
+The post carries a low **emissive** (0.18 of its colour, against the head's 0.35). It is the only
+post that is ever visible — a waiting rider's figure replaces theirs — and the fixed camera sees
+the face turned *away* from the sun, so pure Lambert shaded the `#E0AE2A` pole down to
+rgb(110, 68, 6): a brown stick under a gold head. With the lift it lands at rgb(152, 106, 19).
 
 The post's hull is scaled `(1.6, 1, 1.6)` — widened but not lengthened, because a uniform scale
 would push its end caps past the post's own, and both ends are meant to stay tucked (one in the
@@ -247,7 +260,7 @@ the road and the disc at the end of it are one statement in two places, and at d
 reads as the louder half. Depth-tested like the band, so a car crossing the junction drives over the
 disc rather than the disc painting across the car. Being translucent puts it in the transparent
 queue, so its far half washes up over the base of the post at its centre; that is invisible because
-`setColor` paints the post the same hue.
+the post is the same yellow one shade down.
 
 ### Rider meter — `geometry/ridermeter.js`
 

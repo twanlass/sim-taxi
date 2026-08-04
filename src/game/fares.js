@@ -371,8 +371,10 @@ export function createFareSystem(rng, scene) {
     // when the animation ends.
     // The drop-off is revealed now, at the junction drawn when this fare spawned. It never moves —
     // it was always going to be here, the player just could not see it yet.
+    // No retint: the pin is Loco Mode's yellow at build time and stays there. One rider is aboard
+    // at a time, so there is only ever one drop-off on the board and nothing for a per-fare hue to
+    // distinguish it from — the fare's colour lives on the taxi's roof sign now.
     place(fare.slot.destination, fare.dropoff.i, fare.dropoff.j);
-    fare.slot.destination.setColor(fare.color);
     // The meter has done its job the moment the choice is made. Both its questions are answered:
     // this rider is taken, and where they're going is now the pin the taxi is driving at.
     fare.slot.meter.hide();

@@ -52,7 +52,7 @@ const RING_TUBE = 0.16;
  *
  * Being translucent puts the disc in three's transparent queue, which draws after every opaque
  * object regardless of order, so the far half of it washes up over the base of the post standing at
- * its centre. That is invisible in practice because `setColor` paints the post the same hue.
+ * its centre. That is invisible in practice because the post is the same yellow one shade down.
  */
 function targetRing(colorHex) {
   const group = new THREE.Group();
@@ -79,10 +79,10 @@ function targetRing(colorHex) {
   fill.renderOrder = 3;   // under the rim, so the rim still reads as an edge
   group.add(fill);
 
-  return { group, tint: (c) => { rim.material.color.copy(c); fill.material.color.copy(c); } };
+  return { group };
 }
 
-function marker(bodyColor, postColor, kind, buildStanding, withRing = true) {
+function marker(bodyColor, postColor, kind, buildStanding, ringColor = null) {
   const group = new THREE.Group();
   group.name = kind;
 
@@ -93,8 +93,9 @@ function marker(bodyColor, postColor, kind, buildStanding, withRing = true) {
 
   // The waiting rider gets no ring of its own — the fare's travelling timer sits under them.
   // The destination's ring lives on postGroup so it follows the pole to the kerb corner instead
-  // of being stranded at the junction centre.
-  const ring = withRing ? targetRing(bodyColor) : null;
+  // of being stranded at the junction centre. Its own colour rather than the pin's: the disc is
+  // road paint and matches the route band, the pin above it is the solid yellow of the taxi.
+  const ring = ringColor ? targetRing(ringColor) : null;
   if (ring) postGroup.add(ring.group);
 
   // A marker can stand up as a signpost or as a figure; the ring below is identical either way.
@@ -104,9 +105,18 @@ function marker(bodyColor, postColor, kind, buildStanding, withRing = true) {
     postGroup.add(standing.group);
   }
 
+  // Emissive like the head, at half its strength. Only the drop-off pin ever shows its post — a
+  // rider's figure replaces it — and the face the fixed camera sees is the one turned away from
+  // the sun, so pure Lambert shaded the gold pole down to rgb(110, 68, 6): a brown stick under a
+  // gold head. With the lift it renders at rgb(152, 106, 19), still shaded but still gold.
   const post = new THREE.Mesh(
     new THREE.CylinderGeometry(0.3, 0.3, PIN_H, 6),
-    new THREE.MeshLambertMaterial({ color: new THREE.Color(postColor), flatShading: true }),
+    new THREE.MeshLambertMaterial({
+      color: new THREE.Color(postColor),
+      emissive: new THREE.Color(postColor),
+      emissiveIntensity: 0.18,
+      flatShading: true,
+    }),
   );
   post.position.y = PIN_H / 2;
   post.visible = !buildStanding;
@@ -147,15 +157,6 @@ function marker(bodyColor, postColor, kind, buildStanding, withRing = true) {
     head.position.y = headBaseY + Math.abs(Math.sin(bounce * BOUNCE_RATE)) * BOUNCE_HEIGHT;
   }
 
-  /** Retint the whole marker — used when a fare colour is assigned at spawn. */
-  const setColor = (hex, postHex) => {
-    const c = new THREE.Color(hex);
-    if (ring) ring.tint(c);
-    head.material.color.copy(c);
-    head.material.emissive.copy(c);
-    post.material.color.set(postHex ?? hex);
-  };
-
   // Oversized invisible hit volume spanning both pieces — at full zoom-out the visible geometry
   // is only a few pixels across and would be miserable to tap.
   //
@@ -174,11 +175,11 @@ function marker(bodyColor, postColor, kind, buildStanding, withRing = true) {
   hit.userData.pickable = kind;
   group.add(hit);
 
-  return { group, ring, postGroup, head, setColor, standing, update };
+  return { group, ring, postGroup, head, standing, update };
 }
 
 export const createPassengerPin = (buildStanding) =>
-  marker(PALETTE.passenger, PALETTE.passengerPost, 'passenger', buildStanding, false);
+  marker(PALETTE.passenger, PALETTE.passengerPost, 'passenger', buildStanding);
 
 export const createDestinationPin = () =>
-  marker(PALETTE.destination, PALETTE.destinationPost, 'destination');
+  marker(PALETTE.destination, PALETTE.destinationPost, 'destination', null, PALETTE.routeLine);
