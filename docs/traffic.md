@@ -311,6 +311,45 @@ The meter itself lives in `game/boost.js` as a pure clock with no knowledge of t
 DOM. Hold-to-enable: the tank drains only while the button is held (15s from full), releasing just
 pauses it, and once empty it refills over 15s before it can be held again.
 
+## The wreck
+
+`sim/collisions.js` detects the impact, `main.js` stages it, `game/vanish.js` clears the bodywork
+away.
+
+**Both cars are destroyed.** The one the taxi hits used to be *stunned*: kicked sideways under a
+little drift-physics packet, spun out, then snapped back onto the lane grid and driven off. Two
+cars meet at a combined ~30 u/s, one is scrap and the other shakes it off — the survivor made the
+player's own wreck look like a rule firing rather than a crash. Both are now marked `crashed`,
+which is the flag every loop in `traffic.js` already skipped for the taxi: out of the lane
+bookkeeping, out of the physics, out of the render pass, permanently. The stun path is gone with
+it, and so is `recoverFromStun`.
+
+**Each car detonates where it stands.** Sparks, a fireball, a smoke plume and a shower of debris at
+the impact point, and the same set again at the other car's centre. The two are only a couple of
+units apart, but that is enough to spread the blast across both bodies instead of stacking it on
+the seam between them. A debris pool re-shoots its own pieces on every call, so the two cars get
+**a pool each** — one shared pool would snap the taxi's wreckage across to the other car's the
+instant the second burst fired. The victim's pool is repainted at burst time in that car's colour
+(glass, rubber and the cabin lid keep theirs), so what lands on the road is visibly two cars.
+
+**The shells shrink and fade into the fireballs** rather than being hidden. The old version cut:
+`taxiGroup.visible = false` fired on the impact frame, one frame before the fireball had grown
+large enough to hide anything, so the eye read a car blinking out and then, separately, a bang.
+`vanish.take()` collapses each shell over 0.34s of sim time instead — stepped with the frame's
+already-slowed `dt`, so it stretches to nearly two seconds on screen under the crash slow-mo,
+which is exactly how long the fireball is at its biggest. The fade leads the collapse (halfway
+through: three-quarters size, a quarter opaque), because matching the two curves left a small,
+solid, brightly lit nugget riding the middle of the fireball to the last frame.
+
+The taxi has its own group to fade, steered wheels and all. An ambient car is spread across two
+`InstancedMesh`es — the body, plus one instance per steered front wheel — and neither has anywhere
+to put a per-instance opacity, since `instanceColor` is RGB only. So `wreckShell()` copies the car
+out into a standalone group (body plus both wheels at the lock the impact caught them at) sharing
+one tinted, fadeable material, and collapses **every** instance behind it to zero scale. Collapsing
+only the body would leave two wheels parked on the road; `tools/probe.mjs` asserts all three. This
+is cheaper than the alternative — a custom alpha attribute plus an `onBeforeCompile` patch on the
+traffic material — for something that happens once per run.
+
 ## Police priority corridor
 
 `src/sim/police.js`. A police car crosses the city on a cycle, holding every signal on its road

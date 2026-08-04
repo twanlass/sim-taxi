@@ -26,14 +26,6 @@ import { CAR_LEN, CAR_W } from './traffic.js';
 const CIRCLE_OFFSET = CAR_LEN * 0.28;
 const CIRCLE_R = CAR_W * 0.68;
 
-// One stun packet drives both the drift physics and the post-recovery cooldown — see
-// recoverFromStun in traffic.js. Values picked so the pair visibly separates before either car
-// re-enters the lane grid, and the taxi can't hit the same car again immediately.
-const STUN_DURATION = 0.7;
-const STUN_COOLDOWN = 0.9;
-const KICK_SPEED = 6;
-const YAW_KICK = 1.4;
-
 function carCircles(car) {
   const fx = Math.cos(car.yaw) * CIRCLE_OFFSET;
   const fz = -Math.sin(car.yaw) * CIRCLE_OFFSET;
@@ -64,38 +56,33 @@ export function createCollisions(cars, taxi) {
 
   function update() {
     // Nothing to detect unless the taxi has left the safety of its lane. A crashed taxi is done
-    // for good; a still-stunned other car is already spinning out from the last hit.
+    // for good, and so is anything it has already hit.
     if (taxi.crashed) return;
-    if (!taxi.boost || taxi.stunned || taxi.collisionCooldown > 0) return;
+    if (!taxi.boost) return;
 
     for (const other of cars) {
       if (other === taxi) continue;
-      if (other.stunned || other.collisionCooldown > 0) continue;
+      if (other.crashed) continue;
       // Cheap broad phase before the circle-vs-circle work.
       if (Math.abs(other.x - taxi.x) > CAR_LEN || Math.abs(other.z - taxi.z) > CAR_LEN) continue;
       if (!overlap(taxi, other)) continue;
 
-      const nx = taxi.x - other.x;
-      const nz = taxi.z - other.z;
-      const nlen = Math.hypot(nx, nz) || 1;
-      const ux = nx / nlen;
-      const uz = nz / nlen;
-
       const px = (taxi.x + other.x) / 2;
       const pz = (taxi.z + other.z) / 2;
 
-      // Taxi is wrecked — main.js hides the mesh, kicks the smoke and sparks, and ends the run.
-      // The other car still stuns and snaps back onto a lane afterward.
+      // Both cars are wrecked. `crashed` is what takes a car out of the simulation entirely —
+      // every loop in traffic.js skips it — so neither body drives, queues or is queued behind
+      // again. main.js detonates each one and shrink-fades the two shells out from under the
+      // fireballs, then ends the run.
+      //
+      // The car used to be merely stunned: kicked sideways, spun out, then snapped back onto a
+      // lane and driven off. Two cars meet at a combined ~30 u/s, one is scrap and the other
+      // shakes it off and carries on — the survivor made the taxi's own wreck look arbitrary.
       taxi.crashed = true;
       taxi.boost = false;
       taxi.v = 0;
-      other.stunned = {
-        timeLeft: STUN_DURATION,
-        vx: -ux * KICK_SPEED,
-        vz: -uz * KICK_SPEED,
-        yawRate: -YAW_KICK,
-        postCooldown: STUN_COOLDOWN,
-      };
+      other.crashed = true;
+      other.v = 0;
 
       emit({ x: px, z: pz, taxi, other });
       return;   // one impact per frame is plenty — the taxi is done anyway.
