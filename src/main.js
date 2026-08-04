@@ -250,7 +250,10 @@ function dispatchToRider(fare) {
 const riderFinder = createRiderFinder({ onTap: snapToRider, onDoubleTap: dispatchToRider });
 const dropoffIndicator = createDropoffIndicator({
   camera,
-  intersectionCentre: fares.intersectionCentre,
+  // Aim at the kerb corner where the pin actually stands, not the intersection centre — the
+  // pointer's job is to show where the marker went off-screen, and the marker isn't at the
+  // junction.
+  pinLocation: cornerFor,
 });
 
 // --- HUD --------------------------------------------------------------------

@@ -13,7 +13,7 @@ import * as THREE from 'three';
 const EDGE_MARGIN = 36;   // px kept clear from the viewport edge, so the arrow lives on the HUD
                           // rather than sliced by it
 
-export function createDropoffIndicator({ camera, intersectionCentre }) {
+export function createDropoffIndicator({ camera, pinLocation }) {
   const el = document.getElementById('dropoff-indicator');
   if (!el) return { update: () => {} };
 
@@ -37,7 +37,7 @@ export function createDropoffIndicator({ camera, intersectionCentre }) {
 
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const c = intersectionCentre(fare.target.i, fare.target.j);
+    const c = pinLocation(fare.target.i, fare.target.j);
     // Aim at the pin head, not the road, so a pointer clamped to the edge still reads as "the
     // marker" rather than a spot on the tarmac.
     projected.set(c.x, 5, c.z).project(camera);
