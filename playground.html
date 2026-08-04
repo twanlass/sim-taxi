@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sim Taxi — Wreck Playground</title>
+    <!--
+      Hidden internal tool. This file lives at the project root but is not linked from
+      index.html, and Vite's default `vite build` only bundles files reachable from
+      index.html — so `dist/` never includes it and the deployed game can't reach it.
+      Run `npm run dev` and hit /playground.html to open it.
+    -->
+    <style>
+      :root { color-scheme: dark; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #17222a; color: #dfe7ec; }
+      canvas { display: block; }
+
+      body {
+        font: 500 12px/1.4 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        display: grid; grid-template-columns: 320px 1fr; height: 100vh;
+      }
+
+      #panel {
+        overflow-y: auto; overflow-x: hidden;
+        background: #101820; border-right: 1px solid #253340;
+        padding: 14px 14px 60px;
+      }
+      #panel h1 {
+        font: 700 15px/1 inherit; margin-bottom: 8px;
+        letter-spacing: 0.02em; color: #F5C130;
+      }
+      #panel .sub { font-size: 11px; opacity: 0.55; margin-bottom: 14px; }
+
+      #panel h3 {
+        font: 700 10px/1 inherit; text-transform: uppercase; letter-spacing: 0.1em;
+        opacity: 0.55; margin: 18px 0 8px; padding-bottom: 5px;
+        border-bottom: 1px solid #253340;
+        cursor: pointer; user-select: none;
+        display: flex; justify-content: space-between; align-items: center;
+      }
+      #panel h3::after { content: '▾'; font-size: 8px; opacity: 0.6; }
+      #panel h3.collapsed::after { content: '▸'; }
+      #panel h3.collapsed + .section-body { display: none; }
+
+      .section-body { padding-top: 2px; }
+
+      .row {
+        display: grid; grid-template-columns: 100px 1fr 42px; gap: 6px;
+        align-items: center; margin-bottom: 5px;
+      }
+      .row label { font-size: 11px; opacity: 0.78; }
+      .row input[type="range"] { width: 100%; accent-color: #F5C130; }
+      .row input[type="color"] { width: 100%; height: 20px; padding: 0; border: 0; background: none; cursor: pointer; }
+      .row .val {
+        font: 500 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        text-align: right; opacity: 0.6; font-variant-numeric: tabular-nums;
+      }
+
+      #transport {
+        position: sticky; top: 0; z-index: 5;
+        background: #101820; margin: -14px -14px 0; padding: 14px;
+        border-bottom: 1px solid #253340;
+      }
+      #transport .buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 8px; }
+      #transport button {
+        padding: 8px 4px; border: 0; border-radius: 6px; cursor: pointer;
+        background: #253340; color: #dfe7ec; font: 700 11px/1 inherit;
+        letter-spacing: 0.02em;
+        transition: background 0.12s ease, transform 0.08s ease;
+      }
+      #transport button:hover { background: #34455a; }
+      #transport button:active { transform: scale(0.95); }
+      #transport button.primary { background: #F5C130; color: #16120a; }
+      #transport button.primary:hover { background: #ffd54a; }
+      #transport button:disabled { opacity: 0.35; cursor: default; }
+
+      #transport .status {
+        display: flex; justify-content: space-between; align-items: center;
+        font: 500 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        opacity: 0.7;
+      }
+      #transport .status .pill {
+        padding: 3px 8px; border-radius: 999px; background: #253340;
+      }
+      #transport .status .pill.playing { background: #26a04b; color: #fff; }
+      #transport .status .pill.paused { background: #a05426; color: #fff; }
+
+      .toggle-row {
+        display: flex; align-items: center; gap: 8px;
+        margin: 6px 0 8px; padding: 6px 0; opacity: 0.9;
+      }
+      .toggle-row input { accent-color: #F5C130; }
+
+      .export {
+        margin-top: 20px; padding-top: 14px; border-top: 1px solid #253340;
+      }
+      .export button {
+        width: 100%; padding: 9px; border: 0; border-radius: 6px; cursor: pointer;
+        background: #4E7FC0; color: #fff; font: 700 12px/1 inherit;
+      }
+      .export button:hover { background: #6395d6; }
+      .export textarea {
+        width: 100%; height: 220px; margin-top: 8px; padding: 8px; resize: vertical;
+        background: #0a1218; color: #cfe0ea; border: 1px solid #253340; border-radius: 6px;
+        font: 500 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      #stage { position: relative; }
+      #stage-hud {
+        position: absolute; top: 12px; left: 12px; z-index: 5;
+        font: 500 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: rgba(220, 232, 240, 0.5);
+        pointer-events: none;
+      }
+      #stage-hud .frame { color: #F5C130; }
+    </style>
+  </head>
+  <body>
+    <div id="panel"></div>
+    <div id="stage">
+      <div id="stage-hud">
+        <div>Wreck Playground</div>
+        <div>t=<span id="hud-t" class="frame">0.00</span>s · <span id="hud-mode">idle</span></div>
+      </div>
+    </div>
+    <script type="module" src="/src/playground/main.js"></script>
+  </body>
+</html>
