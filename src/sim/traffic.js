@@ -81,7 +81,25 @@ export function locoWeave(u) {
 // shape is applied. Peak is about 17°: enough to read as the nose jumping off the line, short of
 // the point where the underside of the car would clip through the road on a long ramp-up.
 const WHEELIE_PEAK = 0.30;
-const WHEELIE_DUR = 0.55;
+export const WHEELIE_DUR = 0.55;
+
+/**
+ * The kickoff wheelie as a pitch offset, given seconds since it fired. Rise is an ease-out sine to
+ * the peak by t=0.28 of the duration; the fall is shaped so it settles back to zero without
+ * overshooting into a nose-dip.
+ *
+ * Hand-shaped rather than run through the pitch spring, which is calibrated for tiny suspension
+ * travel: a 17° pop through it would either be swallowed by the damping or need a wildly
+ * out-of-scale impulse. Exported so the police car plants its nose the same way when it locks on.
+ */
+export function locoWheelie(elapsed) {
+  const t = elapsed / WHEELIE_DUR;
+  if (t < 0 || t >= 1) return 0;
+  const shape = t < 0.28
+    ? Math.sin((t / 0.28) * (Math.PI / 2))
+    : (1 - (t - 0.28) / 0.72) ** 1.6;
+  return WHEELIE_PEAK * shape;
+}
 
 const SIGNAL = {
   // 16s, not the 28s first tried. A sweep of cycle length against throughput came back monotonic
@@ -1297,26 +1315,14 @@ export function createTraffic(rng, scene, count = 24) {
       car.pitchV += ((targetPitch - car.pitch) * 60 - car.pitchV * 6) * dt;
       car.pitch += car.pitchV * dt;
 
-      // Loco Mode kickoff: a short, one-shot wheelie added on top of the pitch spring. Handled
-      // outside the spring on purpose — the spring is calibrated for tiny suspension travel, so a
-      // 15° pop through it would either be swallowed by damping or need a wildly out-of-scale
-      // impulse. A hand-shaped bump ramps up fast, holds a beat, drops with a small settle, and
-      // never leaves the pitch bookkeeping in a weird state when it ends.
+      // Loco Mode kickoff: a short, one-shot wheelie added on top of the pitch spring — see
+      // locoWheelie() for why it is shaped by hand rather than run through the spring. Clearing
+      // the timer at the end keeps the pitch bookkeeping out of a weird state.
       let wheelieBoost = 0;
       if (car.wheelieT !== undefined && car.wheelieT !== null) {
         car.wheelieT += dt;
-        const dur = WHEELIE_DUR;
-        if (car.wheelieT >= dur) {
-          car.wheelieT = null;
-        } else {
-          const t = car.wheelieT / dur;
-          // Rise: ease-out sine to 1 by t=0.28. Fall: smoothstep back to 0 with a small
-          // bounce back to zero so it doesn't overshoot into a nose-dip.
-          const shape = t < 0.28
-            ? Math.sin((t / 0.28) * (Math.PI / 2))
-            : (1 - (t - 0.28) / 0.72) ** 1.6;
-          wheelieBoost = WHEELIE_PEAK * shape;
-        }
+        if (car.wheelieT >= WHEELIE_DUR) car.wheelieT = null;
+        else wheelieBoost = locoWheelie(car.wheelieT);
       }
       const shownPitch = car.pitch + wheelieBoost;
 

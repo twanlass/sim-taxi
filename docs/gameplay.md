@@ -363,5 +363,9 @@ pulse behind the pill (`.is-topping-up`, matching the flying `$20`) is the flash
 top-up to the same payout the earnings pop is announcing.
 
 While active the taxi runs at 2.2× speed, forces its next junction green, doesn't slow for
-corners, lays **skid marks** through turns, and kicks up **dust**. See
+corners, lays **skid marks** off the line and through turns, and kicks up **dust**. See
 [rendering.md](rendering.md#effects) for how those two are drawn.
+
+The press itself also fires a **wheelie**, a tailpipe **flame burst** and a half-second launch
+streak of rubber — all three gated on `boost.press()` returning true, so they fire on the
+transition into Loco Mode and not on a re-press during a boost that's already running.
