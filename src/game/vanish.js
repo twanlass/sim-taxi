@@ -22,7 +22,9 @@ export function createVanish() {
    */
   function take(object, duration = VANISH_TIME) {
     if (!object) return;
-    const materials = [];
+    // A Set, not an array: a wrecked ambient car's body and both its front wheels share one
+    // material, and stepping the same opacity three times a frame is just noise.
+    const materials = new Set();
     object.traverse((node) => {
       const list = Array.isArray(node.material) ? node.material : (node.material ? [node.material] : []);
       for (const material of list) {
@@ -34,7 +36,7 @@ export function createVanish() {
         // `transparent` is part of the program cache key, so flipping it at runtime needs the
         // recompile flag. One recompile, on the frame a run ends.
         material.needsUpdate = true;
-        materials.push(material);
+        materials.add(material);
       }
     });
     entries.push({ object, materials, base: object.scale.clone(), t: 0, duration });

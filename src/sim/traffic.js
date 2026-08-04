@@ -3,6 +3,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H } from '../city/ground.js';
+import {
+  WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries,
+} from '../geometry/wheels.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
   GRID, PITCH, HALF_ROAD, LANE, lineCoord, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
@@ -11,6 +14,9 @@ import {
 } from '../city/grid.js';
 
 export { ringAxisAt, isUnsignalised };   // re-exported: callers of the sim ask it about junctions
+// Wheels and ride height live in geometry/wheels.js — see the note there on why they are not in
+// this file. Passed straight through so callers have one import for "a vehicle".
+export { WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries };
 
 // --- Signals ----------------------------------------------------------------
 
@@ -389,30 +395,54 @@ const BOOST_ACCEL = 24;       // reaches full boost speed in well under a block
 const BOOST_KICK = 1.25;      // instant surge on activation, so the press has a feel
 const BRAKE = 11;             // units/s^2 shedding speed; ~3.3 units to stop from cruise
 const CORNER_SPEED = SPEED * 0.7;
-export const WHEEL_R = 0.32;
+
 // Vehicles previously rode at KERB_H + 0.05, floating 0.4 above the tarmac — invisible without
 // wheels, glaring with them. They now sit just clear of the road markings.
 export const ROAD_Y = 0.04;
 
-/**
- * Wheels for a vehicle whose origin sits on the road surface.
- *
- * Baked dark rather than white: the shared material reads vertex colours and instanceColor
- * multiplies on top, so a dark base stays dark whatever colour the car is tinted.
- */
-export function wheelGeometries(len = CAR_LEN, width = CAR_W) {
-  const out = [];
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      const wheel = new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, 0.26, 8);
-      wheel.rotateX(Math.PI / 2);   // axle across the car
-      wheel.translate(sx * (len * 0.3), WHEEL_R, sz * (width / 2 - 0.02));
-      out.push(bakeColor(wheel, new THREE.Color(0.16, 0.16, 0.18)));
-    }
-  }
-  return out;
-}
+// Front-wheel steering. The angle is read back from the path the car actually described this
+// frame — atan(WHEELBASE · dψ/ds) is the Ackermann angle that produces the curvature it is
+// driving — rather than from the turn decision. One rule then covers the junction arc, the Loco
+// Mode weave, and the straight in between, and nothing has to be kept in step with the turn
+// state machine.
+//
+// Measured over 240s of traffic, on the raw angle: a right turn holds 38.7° all the way round the
+// arc, a left 15.0°, the boost weave sits at 7° (p90), and going straight on through a junction is
+// a flat 0. Right beats left by more than 2:1 because right-hand traffic cuts the near corner
+// while a left sweeps the far diagonal — the tighter arc genuinely wants more lock, so the spread
+// is the model being right rather than something to flatten out.
+//
+// The gain is for legibility, not physics. Even on the doubled wheel, 15° of a 10px tread moves
+// the outline by about a pixel. 1.6× puts a right turn on the clamp (~34°, about where a real
+// front wheel stops) and a left at 24°, and everything below the clamp keeps its relative size —
+// a weave still reads as a flick and a corner as full lock.
+//
+// Unwinding is the ease and nothing else: measured, a car is down to 6.8° one unit out of the
+// junction and under 3° by three, which is a driver straightening up as the car does.
+const WHEELBASE = CAR_LEN * 0.6;   // hub to hub — the anchors sit at ±0.3·CAR_LEN
+const STEER_GAIN = 1.6;
+export const STEER_MAX = 0.6;      // ~34°, about where a real front wheel stops
+const STEER_EASE = 1.2;            // units of road to reach the target, not seconds — see below
 
+/**
+ * Step a front-wheel angle toward the lock the path implies, and hand it back.
+ *
+ * Exported because the police cruiser runs the same rule from `sim/police.js`. It is not in the
+ * `cars` array — it has no lane, no turn state and no collision coupling — so the only thing the
+ * two vehicles can share is this, and sharing it is what stops the cruiser's wheels drifting out
+ * of step with everyone else's the next time the gain is touched.
+ *
+ * Both yaws come in raw and the difference is taken the short way round, so a caller sweeping
+ * through ±π (the cruiser's U-turn) needs no special case. Nothing happens on a stationary
+ * vehicle: the wheels keep the lock they stopped with, and the divide is never reached.
+ */
+export function steerToward(angle, yaw, prevYaw, ds, wheelbase = WHEELBASE) {
+  if (!(ds > 1e-4)) return angle;
+  const dYaw = ((yaw - prevYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  const target = Math.max(-STEER_MAX, Math.min(STEER_MAX,
+    Math.atan((wheelbase * dYaw) / ds) * STEER_GAIN));
+  return angle + (target - angle) * Math.min(1, ds / STEER_EASE);
+}
 function carGeometry() {
   // Body is left white so the per-instance colour tints it; the glass is dark enough that the
   // same multiply leaves it dark whatever colour the car is.
@@ -420,14 +450,14 @@ function carGeometry() {
 
   // Body sits clear of the wheels so they actually show below the sill.
   const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
-  body.translate(0, 0.78, 0);
+  body.translate(0, 0.78 + CHASSIS_LIFT, 0);
   parts.push(bakeColor(body, new THREE.Color(1, 1, 1)));
 
   const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, 0.6, CAR_W * 0.86);
-  cabin.translate(-0.2, 1.45, 0);
+  cabin.translate(-0.2, 1.45 + CHASSIS_LIFT, 0);
   parts.push(bakeColor(cabin, color('carGlass')));
 
-  parts.push(...wheelGeometries());
+  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -482,6 +512,11 @@ function spawnCars(rng, count) {
       wasBoosting: false,
       lateral: 0,      // world-unit offset from the lane centre; + is toward the road centreline
       steer: 0,        // yaw offset while sliding across, so the car points where it is going
+      // Front-wheel angle, and the two values it is differenced from. Seeded straight, and paired
+      // so that dψ/ds is measured over exactly the step the car took.
+      wheelAngle: 0,
+      prevSteerYaw: dirYaw(d),
+      prevTravelled: 0,
       swerve: 0,       // 0..1 envelope on the Loco Mode weave, faded in and out with the boost
       swervePhase: 0,  // distance driven straight, the weave's argument — see SWERVE_* above
       // Ambient cars leave `route` empty and fall through to random turns. The taxi's route is
@@ -536,7 +571,9 @@ export function createTraffic(rng, scene, count = 24) {
   // simply drawn as its own mesh instead of an instance, so it can be raycast and highlighted.
   const taxi = cars[0];
   taxi.isTaxi = true;
-  const { group: taxiGroup, setFareColor: setTaxiFareColor } = createTaxiMesh();
+  const {
+    group: taxiGroup, setFareColor: setTaxiFareColor, setSteer: setTaxiSteer,
+  } = createTaxiMesh();
   scene.add(taxiGroup);
 
   const ambient = cars.filter((c) => !c.isTaxi);
@@ -547,15 +584,33 @@ export function createTraffic(rng, scene, count = 24) {
   mesh.castShadow = true;
   mesh.name = 'cars';
 
+  // The steered front wheels, as their own instanced mesh: two per ambient car, each carrying the
+  // car's transform with a yaw of its own applied on top. They can't ride in the body geometry
+  // because every instance of that shares one matrix, and these two have to turn independently
+  // of it.
+  const FRONT = wheelAnchors(CAR_LEN, CAR_W).filter((a) => a.front);
+  const wheelMesh = new THREE.InstancedMesh(
+    wheelGeometry(), propMaterial(), ambient.length * FRONT.length,
+  );
+  wheelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  wheelMesh.castShadow = true;
+  wheelMesh.name = 'carWheels';
+
   const tint = new THREE.Color();
   ambient.forEach((car, index) => {
     tint.set(PALETTE.carBody[car.colorIndex]);
     mesh.setColorAt(index, tint);
+    // Tinted with the body it belongs to, not left neutral. The tyre is baked dark and the
+    // instance colour multiplies on top, so a front wheel that skipped this would sit a shade
+    // off its own rear wheel on every car in the city.
+    for (let w = 0; w < FRONT.length; w++) wheelMesh.setColorAt(index * FRONT.length + w, tint);
   });
   // With ?cars=1 there are no ambient vehicles at all, so setColorAt is never called and
   // instanceColor is still null.
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
   scene.add(mesh);
+  scene.add(wheelMesh);
 
   // --- Stop bars ------------------------------------------------------------
   //
@@ -628,29 +683,74 @@ export function createTraffic(rng, scene, count = 24) {
    * Take a wrecked car off the road and hand its bodywork to the game layer, which shrinks and
    * fades it into the explosion — see game/vanish.js. Called for both cars in a crash.
    *
-   * The taxi owns its own group, so that comes straight back. An ambient car is one instance of a
-   * shared InstancedMesh, which has nowhere to put a per-instance opacity — `instanceColor` is RGB
-   * only, so fading one would mean a custom attribute plus an onBeforeCompile patch for something
-   * that happens once per run. It is copied out into a standalone mesh wearing its own tinted,
-   * transparent-able material instead, and the instance is collapsed to zero scale in place.
+   * The taxi owns its own group — steered wheels and all — so that comes straight back. An ambient
+   * car is spread across two InstancedMeshes (body, plus one instance per steered front wheel),
+   * neither of which has anywhere to put a per-instance opacity: `instanceColor` is RGB only, so
+   * fading one would mean a custom attribute plus an onBeforeCompile patch for something that
+   * happens once per run. It is copied out into a standalone group wearing one tinted,
+   * transparent-able material instead, and every instance behind it collapses to zero scale.
    */
   function wreckShell(car) {
     car.crashed = true;
     if (car.isTaxi) return taxiGroup;
 
-    mesh.getMatrixAt(car.instanceIndex, matrix);
-    const shell = new THREE.Mesh(mesh.geometry, propMaterial());
-    matrix.decompose(shell.position, shell.quaternion, shell.scale);
+    // One material across body and wheels, so the fade takes the whole copy down together.
     // Baked vertex colours multiply by material.color exactly as they did by instanceColor, so
     // the copy comes out the same car in the same paint.
-    shell.material.color.set(PALETTE.carBody[car.colorIndex]);
-    shell.castShadow = true;
+    const material = propMaterial();
+    material.color.set(PALETTE.carBody[car.colorIndex]);
+
+    const shell = new THREE.Group();
+    mesh.getMatrixAt(car.instanceIndex, matrix);
+    matrix.decompose(shell.position, shell.quaternion, shell.scale);
+
+    const body = new THREE.Mesh(mesh.geometry, material);
+    body.castShadow = true;
+    shell.add(body);
+
+    // The front wheels hang off the body matrix as separate instances — see writeAmbient. Copied
+    // here at the lock the impact caught them at, since a wreck isn't steering any more.
+    for (const anchor of FRONT) {
+      const wheel = new THREE.Mesh(wheelMesh.geometry, material);
+      wheel.position.set(anchor.x, anchor.y, anchor.z);
+      wheel.rotation.y = car.wheelAngle;
+      wheel.castShadow = true;
+      shell.add(wheel);
+    }
     scene.add(shell);
 
+    // Collapse everything the copy replaces — body instance and both wheel instances.
     matrix.compose(pos.set(car.x, ROAD_Y, car.z), quat.identity(), ZERO_SCALE);
     mesh.setMatrixAt(car.instanceIndex, matrix);
+    for (let w = 0; w < FRONT.length; w++) {
+      wheelMesh.setMatrixAt(car.instanceIndex * FRONT.length + w, matrix);
+    }
     mesh.instanceMatrix.needsUpdate = true;
+    wheelMesh.instanceMatrix.needsUpdate = true;
     return shell;
+  }
+
+  const wheelMatrix = new THREE.Matrix4();
+  const wheelLocal = new THREE.Matrix4();
+  const wheelQuat = new THREE.Quaternion();
+  const wheelPos = new THREE.Vector3();
+  const UP = new THREE.Vector3(0, 1, 0);
+
+  /**
+   * Write one ambient car's body matrix and the two front wheels hanging off it. The wheels are
+   * composed *through* the body matrix rather than in world space, so they inherit the bob, the
+   * corner lean and the pitch rock for free and stay bolted to the arches through all three.
+   */
+  function writeAmbient(car) {
+    mesh.setMatrixAt(car.instanceIndex, matrix);
+    wheelQuat.setFromAxisAngle(UP, car.wheelAngle);
+    for (let w = 0; w < FRONT.length; w++) {
+      const anchor = FRONT[w];
+      wheelPos.set(anchor.x, anchor.y, anchor.z);
+      wheelLocal.compose(wheelPos, wheelQuat, scl);
+      wheelMatrix.multiplyMatrices(matrix, wheelLocal);
+      wheelMesh.setMatrixAt(car.instanceIndex * FRONT.length + w, wheelMatrix);
+    }
   }
 
   /**
@@ -1202,6 +1302,22 @@ export function createTraffic(rng, scene, count = 24) {
       }
       if (car.steer) car.yaw += car.steer;
 
+      // --- Front wheels point where the car is going.
+      //
+      // Differenced against the heading the *lane* gave it — after the weave, which is a genuine
+      // steering input, and deliberately before the panic wobble below, which is not. The wobble
+      // is a shimmy through the body at PANIC_WOBBLE·5.5 ≈ 0.9 rad per unit of road; run through
+      // this it would slam the wheels lock to lock several times a second.
+      //
+      // Paced by distance, like the weave and for the same reason: a car held at a red keeps the
+      // lock it rolled up to the line with instead of straightening under a time-based ease, and
+      // one stopped mid-turn — waiting for room to land — holds its wheels round the corner. That
+      // is also what makes the divide safe, since a stationary car never reaches it.
+      const ds = car.travelled - car.prevTravelled;
+      car.prevTravelled = car.travelled;
+      car.wheelAngle = steerToward(car.wheelAngle, car.yaw, car.prevSteerYaw, ds);
+      car.prevSteerYaw = car.yaw;
+
       // Panic offset: shove kerb-ward and jitter the yaw when the siren is close. The taxi is
       // skipped in panicTargetFor(), so this only ever fires on ambient traffic. Skipped mid-turn
       // — a sideways nudge on the Bézier arc reads as the car popping off its own line rather
@@ -1265,15 +1381,17 @@ export function createTraffic(rng, scene, count = 24) {
       if (car.isTaxi) {
         taxiGroup.position.set(car.x, ROAD_Y + bob + lift, car.z);
         taxiGroup.rotation.set(roll, car.yaw, shownPitch);
+        setTaxiSteer(car.wheelAngle);
         continue;
       }
 
       pos.set(car.x, ROAD_Y + bob + lift, car.z);
       quat.setFromEuler(euler.set(roll, car.yaw, car.pitch, 'YXZ'));
       matrix.compose(pos, quat, scl);
-      mesh.setMatrixAt(car.instanceIndex, matrix);
+      writeAmbient(car);
     }
     mesh.instanceMatrix.needsUpdate = true;
+    wheelMesh.instanceMatrix.needsUpdate = true;
 
     // --- Stop bar colours, one per approach.
     for (let index = 0; index < bars.length; index++) {
@@ -1294,7 +1412,8 @@ export function createTraffic(rng, scene, count = 24) {
   }
 
   return {
-    cars, taxi, taxiGroup, setTaxiFareColor, mesh, barMesh, update, warmup, wreckShell, stats,
+    cars, taxi, taxiGroup, setTaxiFareColor, mesh, wheelMesh, barMesh, update, warmup,
+    wreckShell, stats,
     lightPhase, displayPhase,
   };
 }

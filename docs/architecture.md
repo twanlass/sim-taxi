@@ -36,7 +36,7 @@ src/
     vanish.js           shrink-and-fade for wrecked bodywork, so it is consumed not deleted
 
   geometry/             one-off models, all procedural
-    taxi.js  marker.js  person.js  ridermeter.js
+    taxi.js  wheels.js  marker.js  person.js  ridermeter.js
 
   util/
     rng.js              seeded RNG (mulberry32) + value noise
