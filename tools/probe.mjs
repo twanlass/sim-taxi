@@ -18,7 +18,7 @@ import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import { createFareSystem, cornerFor, MAX_FARES, SECOND_FARE_AFTER } from '../src/game/fares.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis } from '../src/city/grid.js';
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 
@@ -365,6 +365,36 @@ check('no two cars occupy the same space', worst > 1.6,
   check('the signal heads ignore the boost hold',
     shown.axis === honest.axis && shown.yellow === honest.yellow && shown.axis !== ringPhase.axis,
     `shown ${shown.axis}/${shown.yellow}, honest ${honest.axis}/${honest.yellow}`);
+
+  // Loco Mode weaves *inside its lane*. It used to slide a full LANE out onto the road centreline
+  // to overtake, which put it 2 units from same-direction and oncoming traffic alike — inside the
+  // 2.31-unit collision envelope, so every car it passed was a crash (one every 9.7s of boosting,
+  // against one every 25.1s now). Two failures to guard against, and this checks both: the weave
+  // growing back out of the lane, and the weave quietly going flat.
+  const wScene = new THREE.Scene();
+  const wTraffic = createTraffic(makeRng(seed + 91), wScene, CARS_DEFAULT);
+  const wTaxi = wTraffic.taxi;
+  wTraffic.warmup(10);
+  wTaxi.boost = true;
+  let widest = 0;
+  let straightFrames = 0;
+  for (let f = 0; f < 60 * 20; f++) {
+    wTraffic.update(1 / 60);
+    if (wTaxi.state !== 'drive') continue;
+    straightFrames += 1;
+    // Distance from the lane centre, measured off the rendered position — the offset is applied
+    // at render, so reading `car.x/car.z` is reading what the player sees. On the travel axis the
+    // coordinate runs along the road and says nothing; only the cross-axis one is the lane.
+    const cross = isXAxis(wTaxi.d) ? wTaxi.z : wTaxi.x;
+    widest = Math.max(widest, Math.abs(distToLine(cross) - LANE));
+  }
+  // 0.52 is the two waves' peak sum; the margin covers a frame landing mid-corner-exit. The frame
+  // floor is the sample size: at boost speed a junction arrives about every 1.1s, so barely half
+  // of these 20s are spent in the 'drive' state at all.
+  check('the boosting taxi holds its lane', widest < 0.6 && straightFrames > 400,
+    `widest ${widest.toFixed(2)} units off the lane centre over ${straightFrames} frames`);
+  check('the boosting taxi actually weaves', widest > 0.25, `widest ${widest.toFixed(2)}`);
+  setPriorityJunction(null);
 }
 
 // --- Routing ---------------------------------------------------------------

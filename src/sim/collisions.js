@@ -9,14 +9,20 @@ import { CAR_LEN, CAR_W } from './traffic.js';
 // A full OBB SAT test would be more accurate at odd angles, but cars are axis-aligned almost all
 // the time and the two-circle proxy is a few lines instead of a helper file.
 //
-// Radius picked so a boost-line pass counts as a crash. When boosting, the taxi shifts to the
-// centreline (0) while same-direction leaders sit at +LANE=2 and oncoming traffic at -LANE=-2,
-// so every straight-road encounter is 2 units apart centre-to-centre. With CIRCLE_R = 0.55·CAR_W
-// the summed envelope was 1.87, leaving 0.13 units of clearance — every rear-end and head-on
-// glided past, so the only crash the game could produce was a T-bone at a junction. Raising to
-// 0.68 makes the envelope 2.31, i.e. a 0.31-unit overlap on any same-road encounter, which is
-// what Loco Mode should feel like. Ambient-vs-ambient never runs through here, so widening is
-// safe for lane-following queues (MIN_GAP still gives ~1 unit of longitudinal clearance).
+// Radius 0.68·CAR_W puts the summed envelope at 2.31 units, comfortably wider than the 1.87 that
+// 0.55 gave — at 0.55 cars glided through each other at odd angles and the mode produced almost
+// no impacts at all.
+//
+// What that envelope catches has changed. It was tuned when a boosting taxi drove the road
+// centreline: leaders sat 2 units to one side and oncoming traffic 2 to the other, so 2.31
+// overlapped *every* straight-road encounter and Loco Mode was less a skill than a lottery over
+// which car you died on. The taxi now weaves inside its own lane (see SWERVE_* in traffic.js) and
+// tailgates at BOOST_GAP, so same-road traffic clears: a leader is ≥4.5 back, oncoming is a lane
+// away at ~3.5 even at the weave's peak. What is left is what the player can read and avoid —
+// cross traffic in a junction being run, and cars turning across the taxi's path. Measured over
+// 18 minutes of continuous boosting, that took the crash rate from one every 9.7s to one every
+// 25.1s. Ambient-vs-ambient never runs through here, so the width is safe for lane-following
+// queues (MIN_GAP still gives ~1 unit of longitudinal clearance).
 const CIRCLE_OFFSET = CAR_LEN * 0.28;
 const CIRCLE_R = CAR_W * 0.68;
 

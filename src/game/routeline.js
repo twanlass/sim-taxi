@@ -139,8 +139,8 @@ export function routePath(car, route) {
     i = after.i;
     j = after.j;
   } else {
-    // The lane point, not `car.x/car.z`: the taxi slides out toward the centreline to overtake,
-    // and the band belongs to the lane rather than to that manoeuvre.
+    // The lane point, not `car.x/car.z`: the taxi weaves inside its lane in Loco Mode, and the
+    // band belongs to the lane rather than to that manoeuvre.
     push(lanePoint(d, i, j, car.s));
   }
 

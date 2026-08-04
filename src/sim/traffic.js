@@ -31,10 +31,26 @@ export { ringAxisAt, isUnsignalised };   // re-exported: callers of the sim ask 
 
 const SPEED = 8.5;
 
-// Forward distance the boosting taxi takes to cross the one lane width out to the centreline.
-// 9 units on a 20-unit pitch: under half a block, so the manoeuvre finishes well before the next
-// junction, and the implied steering angle — atan(LANE / this) — stays a believable 13°.
-const LANE_CHANGE_LEN = 9;
+// Loco Mode weave. The boosting taxi used to pull a full LANE out onto the road centreline to
+// overtake, and that is what made the mode a lottery rather than a skill: on the centreline it
+// sits 2 units from a same-direction leader and 2 from oncoming traffic, while the collision
+// envelope in sim/collisions.js is 2.31 wide — so *every* car it drew level with was a crash,
+// whichever way that car was pointing. It now holds its lane and weaves inside it, and the
+// crashes that remain are the ones the player can actually see coming: cross traffic at a
+// junction it is running, and cars turning into its path.
+//
+// Room budget: the lane centre sits LANE (2) from the road centreline and 2 from the kerb, so
+// with half a car body (0.85) taken off there is ~1.1 units of play either side. Two waves of
+// different wavelength peak at 0.40 + 0.12 = 0.52 — half the room, and because the periods do
+// not divide they never settle into a metronome.
+const SWERVE_AMP = 0.40;      // world units, the long wave
+const SWERVE_WAVE = 18;       // units of road per cycle — about 1 Hz at boost speed (18.7 u/s)
+const SWERVE_AMP2 = 0.12;     // shorter wave laid on top, to break up the rhythm
+const SWERVE_WAVE2 = 9.5;
+const SWERVE_PHASE2 = 1.7;    // offset so the two waves don't start out in step
+// Units of road over which the weave fades in and out with the boost. Paced by distance, like
+// the weave itself, so releasing the button at a red doesn't drift the parked car straight.
+const SWERVE_FADE = 7;
 
 // Wheelie profile for the Loco Mode kickoff — see the pitch-composition block below where the
 // shape is applied. Peak is about 17°: enough to read as the nose jumping off the line, short of
@@ -287,6 +303,12 @@ function taxiClearsYellow(car, distToLine, t) {
 export const CAR_LEN = 3.4;
 export const CAR_W = 1.7;
 const MIN_GAP = CAR_LEN + 1.9;   // centre-to-centre
+// What a boosting taxi keeps instead. It stays in its lane now, so a leader it doesn't see is a
+// leader it rear-ends — but queueing at the ambient distance would read as the maniac politely
+// joining the back. 4.5 centre-to-centre puts the near collision circles (offset ±0.95 along the
+// body) 2.6 apart against an envelope of 2.31: close enough to look like tailgating, still 0.29
+// clear of a crash, and `step` is clamped to `allowed` so it cannot overshoot into that margin.
+const BOOST_GAP = MIN_GAP * 0.85;
 const YIELD_RANGE = 15;          // how far ahead oncoming traffic blocks a left turn
 const TURN_WEIGHTS = [0.62, 0.24, 0.14]; // straight, right, left
 
@@ -394,8 +416,10 @@ function spawnCars(rng, count) {
       pitchV: 0,
       boost: false,
       wasBoosting: false,
-      lateral: 0,   // 0 = own lane, 1 = out on the centreline overtaking
-      steer: 0,     // yaw offset while crossing between the two, so the car points where it slides
+      lateral: 0,      // world-unit offset from the lane centre; + is toward the road centreline
+      steer: 0,        // yaw offset while sliding across, so the car points where it is going
+      swerve: 0,       // 0..1 envelope on the Loco Mode weave, faded in and out with the boost
+      swervePhase: 0,  // distance driven straight, the weave's argument — see SWERVE_* above
       // Ambient cars leave `route` empty and fall through to random turns. The taxi's route is
       // filled in by the game layer; see the turn decision below.
       route: [],
@@ -488,6 +512,9 @@ function recoverFromStun(car) {
   car.prevV = 0;
   car.lateral = 0;
   car.steer = 0;
+  // Drop the weave envelope too, so a car put back on its lane centre is actually on it and the
+  // weave fades back in from there rather than resuming at whatever offset it was spun out on.
+  car.swerve = 0;
   car.collisionCooldown = car.stunned?.postCooldown ?? 0.8;
   car.stunned = null;
 }
@@ -649,31 +676,42 @@ export function createTraffic(rng, scene, count = 24) {
     }
     taxi.wasBoosting = taxi.boost;
 
-    // Ease out to the centreline and back, so overtaking is a manoeuvre rather than a teleport.
-    // Skipped while the taxi is stunned — the drift physics owns its position for the moment.
+    // Weave inside the lane while boosting — the "he is driving like a maniac" tell, now that the
+    // taxi holds its own lane instead of straddling the centreline. Skipped while it is stunned:
+    // the drift physics owns its position for the moment.
     //
-    // Paced by *distance travelled*, not by elapsed time, and only while running straight. The
-    // first version ramped on a 0.45s timer regardless of what the car was doing, which produced
-    // the two things that read as a bug rather than an overtake: it slid sideways while sitting
-    // still at a red, and starting or ending mid-corner pushed the car off its own Bézier arc
-    // partway round. Distance pacing means a stopped car cannot drift at all, and freezing the
-    // ramp through a junction keeps the whole corner on one consistent offset.
+    // Both the wave's argument and its envelope are paced by *distance travelled*, not by elapsed
+    // time, and neither advances unless the car is running straight. The centreline version this
+    // replaced learned that the hard way twice: a time-paced offset slid the car sideways while it
+    // sat still at a red, and a ramp that ran through a corner pushed it off its own Bézier arc
+    // partway round. Freezing the phase mid-turn also means the corner ends on the offset it
+    // started on, with no jump back onto the wave on the way out.
     if (taxiActive && !taxi.stunned) {
-      const lateralTarget = taxi.boost ? 1 : 0;
-      let lateralRate = 0;
       if (taxi.state === 'drive') {
-        const delta = lateralTarget - taxi.lateral;
-        const step = Math.min(Math.abs(delta), (taxi.v * dt) / LANE_CHANGE_LEN);
-        taxi.lateral += Math.sign(delta) * step;
-        lateralRate = (Math.sign(delta) * step) / Math.max(dt, 1e-6);
+        const ds = taxi.v * dt;
+        taxi.swervePhase += ds;
+        const delta = (taxi.boost ? 1 : 0) - taxi.swerve;
+        taxi.swerve += Math.sign(delta) * Math.min(Math.abs(delta), ds / SWERVE_FADE);
       }
 
-      // Steer into it. Without a yaw offset the car crabs — translating sideways across the road
-      // while still pointing straight down it — and *that* is what actually looked broken, not the
-      // offset itself. Distance pacing makes the angle constant, atan(LANE / LANE_CHANGE_LEN) ≈ 13°,
-      // at any speed; the ease is only there so the wheel straightens instead of snapping.
-      const steerTarget = Math.atan2(lateralRate * LANE, Math.max(taxi.v, 1));
-      taxi.steer += (steerTarget - taxi.steer) * Math.min(1, dt / 0.1);
+      const k1 = (Math.PI * 2) / SWERVE_WAVE;
+      const k2 = (Math.PI * 2) / SWERVE_WAVE2;
+      const u = taxi.swervePhase;
+      taxi.lateral = taxi.swerve
+        * (SWERVE_AMP * Math.sin(k1 * u) + SWERVE_AMP2 * Math.sin(k2 * u + SWERVE_PHASE2));
+
+      // Point where it is sliding. Without a yaw offset the car crabs — translating sideways
+      // across the road while still aimed straight down it — and that is what read as broken
+      // about the old overtake, not the offset itself. Because the offset is a function of
+      // distance, its slope *is* the tangent of the steering angle at any speed, so there is
+      // nothing to divide by v here: atan(0.40·k1 + 0.12·k2) ≈ 12° at the peak, against the 13°
+      // the old lane change held. Mid-corner the yaw belongs to the arc, so the weave's share of
+      // it eases out; the 0.1s ease is only so the wheel straightens instead of snapping.
+      const slope = taxi.state === 'drive'
+        ? taxi.swerve * (SWERVE_AMP * k1 * Math.cos(k1 * u)
+          + SWERVE_AMP2 * k2 * Math.cos(k2 * u + SWERVE_PHASE2))
+        : 0;
+      taxi.steer += (Math.atan(slope) - taxi.steer) * Math.min(1, dt / 0.1);
     }
 
     // --- Index cars by lane so each one can see the vehicle immediately ahead.
@@ -694,10 +732,14 @@ export function createTraffic(rng, scene, count = 24) {
       let laneS = 0;
       let laneDir = car.d;
 
-      // A boosting taxi has left its lane, so nobody should be queueing behind it. A stunned car
-      // is off the grid entirely — followers just have to see it as an obstacle at render time.
-      // A crashed taxi is not in traffic at all.
-      if (car.boost || car.stunned || car.crashed) continue;
+      // A stunned car is off the grid entirely — followers just have to see it as an obstacle at
+      // render time. A crashed taxi is not in traffic at all. A *boosting* taxi used to be
+      // skipped here too, on the grounds that it had left its lane; now that it only weaves
+      // within it, it belongs in the bookkeeping like anyone else. That cuts both ways and both
+      // matter: it sees the car it is closing on, and traffic behind it sees it when the car in
+      // front makes it brake — an ambient car rear-ending the taxi ended the run through no fault
+      // of the player.
+      if (car.stunned || car.crashed) continue;
 
       if (car.state === 'drive') {
         key = car.laneKey;
@@ -793,10 +835,14 @@ export function createTraffic(rng, scene, count = 24) {
           : canProceed(car.d, car.i, car.j, t) || taxiClearsYellow(car, distToLine, t);
         if (!open) allowed = Math.min(allowed, Math.max(0, distToLine));
 
-        // The car ahead — irrelevant to a boosting taxi, which is out on the centreline.
-        const aheadS = car.boost ? undefined : leaderGap.get(car);
+        // The car ahead. A boosting taxi used to ignore this entirely — it was out on the
+        // centreline and went round. In its own lane it has to see the leader or it drives into
+        // the back of it, so it tailgates at BOOST_GAP instead: still visibly impatient, still
+        // clear of the collision envelope, and it takes the gap the instant the leader turns off.
+        const aheadS = leaderGap.get(car);
         if (aheadS !== undefined) {
-          allowed = Math.min(allowed, Math.max(0, (aheadS - car.s) * sign - MIN_GAP));
+          const gap = car.boost ? BOOST_GAP : MIN_GAP;
+          allowed = Math.min(allowed, Math.max(0, (aheadS - car.s) * sign - gap));
         }
 
         if (car.parked) {
@@ -1083,21 +1129,23 @@ export function createTraffic(rng, scene, count = 24) {
         }
       }
 
-      // Overtaking offset. Applied at render only: the simulation keeps the car on its lane
-      // coordinate, and the boosting taxi is excluded from lane bookkeeping anyway.
+      // Weave offset, in world units, + toward the road centreline. Applied at render only: the
+      // simulation keeps the car on its lane coordinate, so following distances, stop lines and
+      // turn arcs are all measured against the lane the car is nominally in — which is what makes
+      // it safe to move the body around inside that lane at all.
       //
       // Order matters — the offset is perpendicular to the *lane*, so it has to be taken off the
       // unsteered heading before the steering angle is added on top.
-      if (car.lateral > 0.001) {
-        car.x -= Math.sin(car.yaw) * LANE * car.lateral;
-        car.z -= Math.cos(car.yaw) * LANE * car.lateral;
+      if (Math.abs(car.lateral) > 0.001) {
+        car.x -= Math.sin(car.yaw) * car.lateral;
+        car.z -= Math.cos(car.yaw) * car.lateral;
       }
       if (car.steer) car.yaw += car.steer;
 
       // Panic offset: shove kerb-ward and jitter the yaw when the siren is close. The taxi is
       // skipped in panicTargetFor(), so this only ever fires on ambient traffic. Skipped mid-turn
       // — a sideways nudge on the Bézier arc reads as the car popping off its own line rather
-      // than as a swerve. (car.right = (sin(yaw), cos(yaw)); the taxi's overtake uses the same
+      // than as a swerve. (car.right = (sin(yaw), cos(yaw)); the taxi's weave uses the same
       // basis with the sign flipped.)
       if (car.panic > 0.001 && car.state === 'drive') {
         const push = PANIC_LATERAL * car.panic;
