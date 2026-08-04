@@ -353,6 +353,12 @@ that a full drain still calls for the fast recharge. The decision is now *how lo
 well as *when*. The button doubles as the dial: a `--pct` CSS variable tracks the fuel level,
 dropping as you drain and climbing as it recharges.
 
+**One case where holding it does nothing, on purpose.** A taxi that has just picked someone up is
+`parked` — it waits at the kerb until you tap a destination — and `parked` sets `allowed = 0` ahead
+of anything boost can do. Loco Mode is speed, not a direction; there is nowhere to go yet. Every
+other reason the taxi used to slow while boosting was traffic, and those are dealt with in
+[traffic.md](traffic.md#what-was-still-braking-it).
+
 Pointer capture on `pointerdown` keeps the boost held even if the finger slides off the pill;
 `pointerup`, `pointercancel`, `lostpointercapture` and the window `blur` all release it, so
 alt-tabbing or switching apps never leaves the boost stuck on.

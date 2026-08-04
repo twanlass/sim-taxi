@@ -13,7 +13,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, ROAD_Y } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, laneKeyFor, ROAD_Y } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -22,7 +22,7 @@ import {
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { DISTANCE_TIERS, distanceTier } from '../src/game/triptier.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
@@ -568,6 +568,100 @@ check('no two cars occupy the same space', worst > 1.6,
   check('the boosting taxi holds its lane', widest < 0.6 && straightFrames > 400,
     `widest ${widest.toFixed(2)} units off the lane centre over ${straightFrames} frames`);
   check('the boosting taxi actually weaves', widest > 0.25, `widest ${widest.toFixed(2)}`);
+  setPriorityJunction(null);
+
+  // --- Loco Mode is supposed to be go-go-go, and for a long time it wasn't.
+  //
+  // Attributing every frame the boosting taxi spent below full speed put signals at 0.0% — the
+  // priority hold was already doing its job — and ordinary traffic at everything else: queued
+  // behind a leader, or stopped dead at a green line because the exit lane was full. Hence
+  // `scatter` in traffic.js. These two checks pin the parts of it that can go quietly wrong: the
+  // flee not firing, and oncoming traffic re-acquiring its veto over a left turn.
+  //
+  // Both are two-car scenarios placed by hand, so nothing else can be the reason either car moves
+  // or doesn't. The aggregate version — mean speed over a long routed drive through heavy traffic
+  // — was written and then thrown away: changing the turn weights reroutes the whole city's rng
+  // stream, so a before/after pair is two different worlds rather than a comparison, and the
+  // seed-to-seed spread (73%-96% of the cap across eight cities) swamped a two-point effect.
+  //
+  // Not a fixed junction either: park districts close whole segments, so on some cities the left
+  // out of the middle intersection doesn't exist and the taxi's route desyncs into a random turn.
+  // Take the first signalised junction where both the left and the facing approach are legal.
+  let jI = -1;
+  let jJ = -1;
+  let dIn = -1;
+  outer: for (let i = 1; i < GRID && dIn < 0; i++) {
+    for (let j = 1; j < GRID && dIn < 0; j++) {
+      if (ringAxisAt(i, j)) continue;
+      for (const d of [0, 1, 2, 3]) {
+        if (!legalExits(d, i, j).includes(leftOf(d))) continue;
+        if (!legalExits(opposite(d), i, j).length) continue;
+        jI = i; jJ = j; dIn = d;
+        break;
+      }
+    }
+  }
+  const junctionLine = isXAxis(dIn) ? lineCoord(jI) : lineCoord(jJ);
+  const place = (car, d, back) => {
+    car.d = d; car.dOut = d; car.i = jI; car.j = jJ;
+    car.s = junctionLine - dirSign(d) * (ROAD_W / 2 + back);
+    car.laneKey = laneKeyFor(d, jI, jJ);
+    car.state = 'drive'; car.turnT = 0; car.route = []; car.parked = false;
+  };
+
+  // 1. A leader with the boosting taxi on its bumper gets going. The taxi starts 30 units out and
+  // the leader 18, well inside SCATTER_RANGE, on an otherwise empty road.
+  const sScene = new THREE.Scene();
+  const sTraffic = createTraffic(makeRng(seed + 103), sScene, 2);
+  const [sTaxi, leader] = sTraffic.cars;
+  place(sTaxi, dIn, 30);
+  place(leader, dIn, 18);
+  sTaxi.boost = true;
+  let fleeSpeed = 0;
+  let fleePeak = 0;      // peak of the scatter envelope, not its value at the end — the leader
+                         // turns off the taxi's road partway through and it decays from there
+  let taxiFloor = Infinity;
+  for (let f = 0; f < 60 * 2; f++) {
+    sTraffic.update(1 / 60);
+    sTaxi.boost = true;
+    fleePeak = Math.max(fleePeak, leader.scatter);
+    if (leader.state === 'drive') fleeSpeed = Math.max(fleeSpeed, leader.speedFactor);
+    // Skip the first few frames: the taxi is still spinning up from cruise.
+    if (f > 20 && sTaxi.state === 'drive') taxiFloor = Math.min(taxiFloor, sTaxi.speedFactor);
+  }
+  // speedFactor is v/SPEED, so anything over 1 is a car exceeding the ambient cruise, and 2.2 is
+  // full boost. The numbers are city-independent — the scenario is two cars on an empty road — and
+  // came out identical on every seed tried: 1.00x / 1.09x before scatter against 2.00x / 1.34x
+  // after. The taxi's floor is where it eases up behind the leader as the leader turns off.
+  check('traffic gets out of the boosting taxi\'s way',
+    dIn >= 0 && fleePeak > 0.9 && fleeSpeed > 1.5 && taxiFloor > 1.25,
+    `leader peaked at ${fleeSpeed.toFixed(2)}x cruise, taxi never fell below ${taxiFloor.toFixed(2)}x`);
+
+  // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
+  // axis, so it kept its green, and the left-turn yield then refused to let the taxi go — waiting
+  // on a car that was itself waiting. The priority hold now denies that one direction (`block` in
+  // traffic.js) and the taxi only looks for something already inside the junction.
+  const dScene = new THREE.Scene();
+  const dTraffic = createTraffic(makeRng(seed + 117), dScene, 2);
+  const [dTaxi, oncoming] = dTraffic.cars;
+  place(dTaxi, dIn, 24);
+  place(oncoming, opposite(dIn), 18);
+  dTaxi.route = [leftOf(dIn)];
+  dTaxi.routeConsumed = false;
+  dTaxi.boost = true;
+
+  let turned = false;
+  let oncomingEntered = false;
+  for (let f = 0; f < 60 * 6 && !turned; f++) {
+    dTraffic.update(1 / 60);
+    dTaxi.boost = true;
+    if (dTaxi.state === 'turn' && dTaxi.dOut === leftOf(dIn)) turned = true;
+    if (oncoming.state === 'turn') oncomingEntered = true;
+  }
+  check('Loco Mode takes its left turn instead of yielding',
+    dIn >= 0 && turned && !oncomingEntered,
+    `turned=${turned}, oncoming entered the junction=${oncomingEntered}`);
+
   setPriorityJunction(null);
 }
 
