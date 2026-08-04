@@ -7,9 +7,9 @@ import * as THREE from 'three';
 // The mark is small hot cubes rather than round puffs so a collision reads differently from the
 // speed dust behind the boosting taxi — sharp facets, ballistic arcs, gravity pulling them down.
 
-const MAX_SPARKS = 96;
-const LIFE = 0.55;
-const START_SIZE = 0.16;
+const MAX_SPARKS = 192;
+const LIFE = 0.85;
+const START_SIZE = 0.18;
 const GRAVITY = 14;
 
 export function createSparks(scene, rng) {
@@ -96,13 +96,13 @@ export function createSparks(scene, rng) {
       vy[slot] -= GRAVITY * dt;
       spin[slot] += tilt[slot] * dt;
 
-      // Bounce once off the tarmac, then flatten out. Kills the "raining into the floor" look
-      // without needing a proper collision test.
+      // Bounce off the tarmac. Higher restitution than the settled look sparks used to have —
+      // the crash wants motes still hopping when the smoke thickens, not a rain of dead specks.
       if (py[slot] < 0.04) {
         py[slot] = 0.04;
-        vy[slot] = -vy[slot] * 0.25;
-        vx[slot] *= 0.55;
-        vz[slot] *= 0.55;
+        vy[slot] = -vy[slot] * 0.55;
+        vx[slot] *= 0.78;
+        vz[slot] *= 0.78;
       }
 
       const size = START_SIZE * (1 - t * 0.4);

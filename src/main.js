@@ -95,20 +95,26 @@ const flames = createFlames(scene, makeRng(runSeed + 133));
 // flips into game-over — but the Game Over banner is held for CRASH_BANNER_DELAY (wallclock, so
 // the delay is unaffected by the slow-mo). The other car still stuns and recovers to a lane
 // afterward.
-const CRASH_BANNER_DELAY = 2000;
+const CRASH_BANNER_DELAY = 2600;
 const WRECK_ZOOM = 26;
-const SLOW_MO_MIN = 0.22;                // sim runs at this fraction of real time at impact
-const SLOW_MO_DURATION = 1500;           // ms wallclock to ramp back to 1.0
+const SLOW_MO_MIN = 0.18;                // sim runs at this fraction of real time at impact
+const SLOW_MO_DURATION = 2100;           // ms wallclock to ramp back to 1.0
 let wreckSpot = null;
 let crashBannerAt = null;
 let slowMoUntil = 0;
 
 const collisions = createCollisions(traffic.cars, traffic.taxi);
 collisions.onImpact(({ x, z }) => {
-  sparks.burst(x, z, 42);
+  // Layered detonation: sparks and a first fireball at the point of impact, a big shower of
+  // debris in place of the merged taxi shell, and a fat smoke plume climbing out of it. A second
+  // fireball fires a beat later so the crash reads as an explosion with a follow-up flare rather
+  // than a single one-frame pop — the setTimeout is wallclock so the follow-up lands during the
+  // slow-mo ramp and stretches out cinematically.
+  sparks.burst(x, z, 96);
   smoke.burst(x, z);
+  flames.blast(x, z, 48);
   debris.burst(x, z);
-  controller.kickShake(1.6);
+  controller.kickShake(2.4);
   wreckSpot = { x, z };
   crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
@@ -116,6 +122,12 @@ collisions.onImpact(({ x, z }) => {
   traffic.taxiSelection.visible = false;
   boost.release();
   fares.crash();
+  setTimeout(() => {
+    flames.blast(x, z, 32);
+    smoke.burst(x, z, 28);
+    sparks.burst(x, z, 32);
+    controller.kickShake(1.1);
+  }, 260);
 });
 
 /**
