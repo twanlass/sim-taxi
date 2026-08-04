@@ -69,6 +69,16 @@ is set for the capture to wait on.
 Rendering costs about **2s per shot** against ~1s for the entire assertion suite, so screenshots
 are for *looking at* the game, not for verifying it.
 
+The Chrome path defaults to the local mac install. `CHROME_BIN` points it at another build and
+`CHROME_FLAGS` adds switches, which is what a Linux box or a container needs:
+
+```bash
+CHROME_BIN=/path/to/chromium CHROME_FLAGS=--no-sandbox ./shots.sh 0 8
+```
+
+Without `--no-sandbox` in a container with no user namespaces, Chrome exits before it opens the
+debugging port and the harness reports only that the port never appeared.
+
 ## Working notes
 
 These are the things that have actually cost time on this project:

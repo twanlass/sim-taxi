@@ -16,7 +16,9 @@ import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, getPriorityCorridor, isUnsignalised, ringAxisAt } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
-import { createFareSystem, cornerFor, MAX_FARES, SECOND_FARE_AFTER } from '../src/game/fares.js';
+import {
+  createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, SECOND_FARE_AFTER,
+} from '../src/game/fares.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, lineCoord, GRID } from '../src/city/grid.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
@@ -304,6 +306,98 @@ check('no two cars occupy the same space', worst > 1.6,
     check('a waiting rider cannot be taken while carrying', fares.markDirected(kerb) === false);
   } else {
     check('a waiting rider cannot be taken while carrying', true, 'board not doubled up at exit');
+  }
+}
+
+// --- The trip is public from the moment the rider is --------------------------
+// The drop-off pin and the block count over the rider's head are the whole basis of "is this a
+// short hop or a haul across town?", and every failure mode here is silent: a pin that never
+// appears, a count that disagrees with the route, two riders sharing a colour so the player pairs
+// the wrong rider with the wrong pin, or a drop-off that quietly moves at pickup.
+{
+  const tScene = new THREE.Scene();
+  const tTraffic = createTraffic(makeRng(seed + 44), tScene, CARS_DEFAULT);
+  const fares = createFareSystem(makeRng(seed + 55), tScene);
+  tTraffic.warmup(5);
+
+  let shownOnSpawn = 0;
+  let missingPin = 0;
+  let wrongCount = 0;
+  let wrongPrice = 0;
+  let movedAtPickup = 0;
+  let pickups = 0;
+  let stillLabelled = 0;
+  let sharedColour = 0;
+  let sharedJunction = 0;
+  let previewScales = new Set();
+  let elapsed = 0;
+
+  // Same perfect-player policy as the multi-fare block above, so the board actually doubles up.
+  const aim = () => {
+    const job = fares.carrying() ?? fares.waiting();
+    if (!job || job.directed) return;
+    const r = findRoute(planOrigin(tTraffic.taxi), job.target);
+    if (r) { tTraffic.taxi.route = r; tTraffic.taxi.routeConsumed = false; fares.markDirected(job); }
+  };
+
+  while (elapsed < 400 && !fares.state.gameOver && fares.state.delivered < 6) {
+    tTraffic.update(1 / 60);
+    for (const { type, fare } of fares.update(1 / 60, tTraffic.taxi)) {
+      if (type === 'spawned') {
+        shownOnSpawn += 1;
+        if (!fare.slot.destination.group.visible || !fare.slot.trip.group.visible) missingPin += 1;
+        if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
+        if (fare.value !== priceFor(fare.pickup, fare.dropoff)) wrongPrice += 1;
+        previewScales.add(fare.slot.destination.postGroup.scale.x.toFixed(2));
+      }
+      if (type === 'pickup') {
+        pickups += 1;
+        // The pin is promoted, not replanted — a drop-off that jumped at pickup would make the
+        // preview a lie and every judgement made from it worthless.
+        if (fare.target.i !== fare.dropoff.i || fare.target.j !== fare.dropoff.j) movedAtPickup += 1;
+        if (fare.slot.trip.group.visible) stillLabelled += 1;
+      }
+    }
+    aim();
+    elapsed += 1 / 60;
+
+    // Colour is what pairs a rider with their pin now, so no two live fares may wear the same one.
+    const live = fares.state.fares;
+    const colours = new Set(live.map((f) => f.color));
+    if (colours.size !== live.length) sharedColour += 1;
+    // And no two markers may stand on the same junction. A waiting fare has two on the board; a
+    // riding one has only its drop-off, which is exactly what `target` already points at.
+    const ends = live.flatMap((f) => (f.stage === 'waiting'
+      ? [`${f.target.i},${f.target.j}`, `${f.dropoff.i},${f.dropoff.j}`]
+      : [`${f.target.i},${f.target.j}`]));
+    if (new Set(ends).size !== ends.length) sharedJunction += 1;
+  }
+
+  check('a waiting rider shows their drop-off and trip length', shownOnSpawn > 0 && missingPin === 0,
+    `${shownOnSpawn} spawns, ${missingPin} missing`);
+  check('the block count matches the trip', wrongCount === 0, `${wrongCount} mismatched`);
+  check('the meter agrees with the advertised distance', wrongPrice === 0, `${wrongPrice} mispriced`);
+  check('the drop-off pin does not move at pickup', pickups > 0 && movedAtPickup === 0,
+    `${pickups} pickups, ${movedAtPickup} moved`);
+  check('the trip length clears at pickup', stillLabelled === 0, `${stillLabelled} left up`);
+  check('no two live fares share a colour', sharedColour === 0, `${sharedColour} frames`);
+  check('no two markers stand on the same junction', sharedJunction === 0, `${sharedJunction} frames`);
+  check('a previewed drop-off stands smaller than a live one',
+    previewScales.size === 1 && Number([...previewScales][0]) < 1, `scale ${[...previewScales]}`);
+
+  // Both ends of a waiting fare are tappable — a visible marker that swallows taps is worse than
+  // no marker. `pickables()` is what the picker raycasts against, so this is the real check.
+  const kerb = fares.waiting();
+  if (kerb) {
+    const hittable = fares.pickables();
+    check('both ends of a waiting fare are tappable',
+      hittable.includes(kerb.slot.passenger.group) && hittable.includes(kerb.slot.destination.group));
+    check('a tap on either end resolves to the same fare',
+      fares.fareFor(kerb.slot.destination.group) === kerb
+      && fares.fareFor(kerb.slot.passenger.group) === kerb);
+  } else {
+    check('both ends of a waiting fare are tappable', true, 'no waiter at exit');
+    check('a tap on either end resolves to the same fare', true, 'no waiter at exit');
   }
 }
 

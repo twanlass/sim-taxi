@@ -7,13 +7,42 @@ own clock, pins and ring. Up to `MAX_FARES = 3` run at once, and because the tax
 that means up to two riders can be waiting on the kerb at the same time.
 
 1. A passenger spawns at a random intersection (never the one the taxi is already about to reach)
-   with a **60-second clock** (`FARE_SECONDS`).
-2. Tap them → the taxi routes there.
-3. On arrival the passenger boards, a destination pin appears, and the taxi **parks** until the
-   player taps that destination.
+   with a **60-second clock** (`FARE_SECONDS`). Both ends of their trip are drawn at once: the
+   rider on one kerb, their drop-off pin on another, and the block count between them over their
+   head. See [The whole trip is visible](#the-whole-trip-is-visible-before-you-take-it).
+2. Tap either end → the taxi routes to the rider.
+3. On arrival the passenger boards, their drop-off pin goes from preview to live, and the taxi
+   **parks** until the player taps it.
 4. Deliver → the meter pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, see [Economy](#economy)),
    and the board refills.
 5. **Any** fare's clock expiring ends the run.
+
+## The whole trip is visible before you take it
+
+Both endpoints are drawn from the moment a rider appears — the drop-off used to be a surprise
+sprung at pickup, which made "which fare do I grab?" a coin flip dressed up as a decision. Three
+things carry it:
+
+| | |
+|---|---|
+| **The drop-off pin**, at preview size | Standing on its own kerb in the fare's colour, at `PREVIEW_SCALE = 0.78` and with its bounce held. The live drop-off — the one the taxi is actually being sent at — keeps full size and keeps bouncing, which is what stops three pins on the board from reading alike. |
+| **The block count**, over the rider | `geometry/triplength.js`. Seven-segment digits on a plate in the fare's colour: 2 is a hop, 9 is a haul. |
+| **The fare's colour**, on both | Assigned at spawn now rather than at pickup, and worn by the plate and the pin together. With two riders on the kerb that pairing is the only thing saying whose drop-off is whose, so `nextFareColor()` refuses any colour a live fare is already wearing. |
+
+Screen distance is not trip distance: two pins forty pixels apart can be a four-block drive or a
+one-block one depending on which way the streets run, and at play zoom the player cannot count
+blocks by eye. Hence a number rather than leaving it to the pin's position.
+
+Seven-segment digits rather than a canvas glyph for two reasons — the project generates every mesh
+in code and a texture-baked font would be the first exception, and `createFareSystem` is
+constructed by the headless tools under `node`, where there is no DOM to draw into.
+
+Both markers are tappable and both mean the same thing, "work this fare"; while a rider waits,
+`fare.target` is still their pickup, so the tap on either resolves to the same route. A visible
+marker that silently swallowed taps would be worse than not drawing it.
+
+The trip length clears at pickup. Once the choice is made the number is answering a question
+nobody is asking any more, and the drop-off pin itself is now the instruction.
 
 `fares.update()` returns the events that happened this frame — `{type, fare}`, with type one of
 `'spawned' | 'pickup' | 'delivered' | 'failed'` — rather than firing callbacks, so the fare system
@@ -61,8 +90,9 @@ The measured tax at 1.5s reaction across nine seeds: a perfect player survives a
 the ceiling collapses from 25 to 3 — the game stops being winnable indefinitely, which is the
 intended shape of a score-attack that ramps.
 
-Colour is still assigned only at pickup, so every waiting rider on the board reads the same way:
-white because any taxi could take any of them, and each ring's stage colour carries its urgency.
+The rider *figure* is still white whatever else is on the board — see
+[Fare colours](#fare-colours) — so every waiting rider reads the same way, with each ring's stage
+colour carrying its urgency.
 
 ### The clock does not reset at pickup
 
@@ -82,20 +112,26 @@ the tap that routes the taxi at it, and clears whenever that fare's target chang
 
 ### Fare colours
 
-A waiting passenger is **white — deliberately colourless**. Before pickup any taxi could take any
-rider, so a colour there would imply a commitment that doesn't exist.
+The passenger **figure** is white — deliberately colourless. Before pickup any taxi could take any
+rider, so a colour on the *person* would imply a commitment that doesn't exist.
 
-At pickup a colour is assigned and worn by both the taxi's roof sign and that rider's destination
-pin. The *sign* carries it rather than a ring, because the rings are spoken for — the timer ring
-is colour-coded by time remaining, so fare identity needed somewhere else to live.
+The fare's colour is assigned at **spawn** and worn by that fare's drop-off pin and the trip-length
+plate over its rider; at pickup the taxi's roof sign joins them. The *sign* carries it rather than
+a ring, because the rings are spoken for — the timer ring is colour-coded by time remaining, so
+fare identity needed somewhere else to live.
+
+Colour used to be assigned at pickup, on the grounds that only one fare was ever coloured at a
+time. Showing every fare's drop-off from the start broke that: three pins standing on three kerbs
+say nothing about whose is whose without a colour tying each back to a rider. So it moves earlier,
+and `nextFareColor()` now refuses any colour a **live** fare is wearing rather than only the
+previous one — five colours against `MAX_FARES = 3` means that always resolves, and it still costs
+exactly one draw off the stream.
 
 Colours avoid every hue already doing a job: signal red/amber/green, the taxi's own yellow, and
-the white of an unclaimed passenger. Consecutive fares never repeat a colour.
+the white of an unclaimed passenger.
 
-With one taxi and one seat this is still mostly flavour — only one fare is ever coloured at a time,
-and the second is white on the kerb. It becomes the entire read of the board the day there is more
-than one taxi, and assigning colour only at pickup is what would leave the interesting decision
-(which taxi takes which rider) to the player rather than to the spawner.
+The one decision this defers is still deferred: colour says which *trip* a marker belongs to, never
+which taxi is taking it. The day there is more than one taxi, that stays the player's call.
 
 ## Routing
 
@@ -252,9 +288,12 @@ longer roll.
 
 Each fare is priced by **trip distance**, not a flat rate: `FARE_BASE + FARE_PER_BLOCK × blocks`,
 where `blocks` is the Manhattan distance between the pickup and drop-off intersections. The
-price is fixed at pickup — the moment both endpoints are known — and stamped on the fare so a
+price is fixed at spawn — the moment both endpoints are known — and stamped on the fare so a
 long haul that runs into traffic pays the same as one that flies through green lights. Metering
 during the trip would double-count the clock and reward Loco Mode for the wrong reasons.
+
+The block count over the rider's head is that same `blocks`, so the number on the plate *is* the
+price in disguise: the player is reading the meter before deciding, not after.
 
 | Blocks | Price |
 |---:|---:|

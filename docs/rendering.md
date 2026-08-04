@@ -182,6 +182,36 @@ lifting the whole pin would pull its foot off the pavement. Amplitude is bounded
 of overlap between head and post top; at 0.45 the head bottom peaks at 8.15 against a post top of
 8.50, so no gap ever opens. It freezes while hidden, which keeps screenshots deterministic.
 
+`setPreview(true)` is what a drop-off wears while its rider is still on the kerb: the standing
+group scales to 0.78 and the head is parked at rest. Only the fare actually under way keeps full
+size and its bounce, which is the whole difference between "this is where that rider is going" and
+"drive here".
+
+### Trip length — `geometry/triplength.js`
+
+The block count over a waiting rider is **seven-segment digits built from quads**, not a canvas
+texture. Two reasons: every mesh in this project is generated in code, and the module is
+constructed by the headless tools under `node`, where there is no DOM to draw into.
+
+The plate is a **billboard against a camera that never rotates**, so its orientation is one
+constant `Quaternion` resolved from the exported `VIEW_DIR` at module load — not a `lookAt` run
+every frame on three floating plates.
+
+Sized against the camera, where 1 world unit ≈ 7.7px at play zoom: the digit is 3.0 units (~23px)
+tall on a ~27px plate. The timer ring is ~25px and is the floor for "legible without zooming", and
+a glyph you have to *read* needs more than an arc you only have to see the colour of.
+
+Every layer is flagged `transparent` while being fully opaque — the inverse of the trick the timer
+ring's track had to play. The light shaft stands over exactly this spot and *is* transparent, so
+three.js draws it after the entire opaque queue whatever renderOrder either one claims. Left
+opaque, the plate took an additive white wash up its middle and the shaft's facet seams stepped
+across the digits. In the transparent queue together, renderOrder decides: the shaft's 1 against
+the plate's 13-and-up.
+
+Horizontal segments span the **full** digit width so their ends finish flush with the outer edge of
+the verticals. The first version ran them centre-to-centre, which left every upright poking half a
+stroke past each bar it met — at this size that reads as a ragged shape rather than a digit.
+
 ### Car motion
 
 Cars get a subtle vertical bounce while driving and **roll into corners** for weight. The roll is

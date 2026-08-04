@@ -22,7 +22,12 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// The default is the local mac install. `CHROME_BIN` points it at another build — a Linux box or
+// a CI container has Chrome somewhere else, and `CHROME_FLAGS` is there for the extra switches
+// those environments need (a container without user namespaces wants `--no-sandbox`, and without
+// it Chrome dies before it opens the debugging port).
+const CHROME = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const EXTRA_FLAGS = process.env.CHROME_FLAGS ? process.env.CHROME_FLAGS.split(' ').filter(Boolean) : [];
 const PORT = 9333;
 const WIDTH = 1280;
 const HEIGHT = 800;
@@ -91,6 +96,7 @@ const profile = await mkdtemp(join(tmpdir(), 'lowpoly-chrome-'));
 
 const chrome = spawn(CHROME, [
   '--headless=new',
+  ...EXTRA_FLAGS,
   `--remote-debugging-port=${PORT}`,
   `--user-data-dir=${profile}`,
   `--window-size=${WIDTH},${HEIGHT}`,

@@ -4,10 +4,11 @@ import { createPassengerPin, createDestinationPin } from '../geometry/marker.js'
 import { createPerson } from '../geometry/person.js';
 import { createTimerRing } from './timerring.js';
 import { createLightShaft } from '../geometry/lightshaft.js';
+import { createTripLength } from '../geometry/triplength.js';
 import { PALETTE } from '../palette.js';
 
-// The fare loop: a passenger waits at an intersection, the taxi collects them, a destination
-// appears, the taxi delivers. Any fare's timer running out ends the run.
+// The fare loop: a passenger waits at an intersection with their drop-off already pinned across
+// town, the taxi collects them, the taxi delivers. Any fare's timer running out ends the run.
 //
 // Each fare is its own little state machine (`waiting → riding → gone`) carrying its own clock,
 // pins and ring, and up to MAX_FARES of them run at once.
@@ -34,7 +35,7 @@ export const FARE_BASE = 5;
 export const FARE_PER_BLOCK = 3;
 
 /** Blocks between two intersections. */
-const blockDistance = (a, b) => Math.abs(a.i - b.i) + Math.abs(a.j - b.j);
+export const blockDistance = (a, b) => Math.abs(a.i - b.i) + Math.abs(a.j - b.j);
 
 /** What a trip from `pickup` to `dropoff` is worth. */
 export const priceFor = (pickup, dropoff) =>
@@ -141,6 +142,12 @@ function createSlot(scene, index) {
   // kerb placement and hides with the rider automatically.
   passenger.postGroup.add(createLightShaft().mesh);
 
+  // How far this rider is going, over their head. Same parent as the shaft, so it rides along with
+  // the kerb placement — but it keeps its own `visible` flag, which is what stops it reappearing
+  // over the delivered rider when beginExit un-hides the passenger group at the far end of the trip.
+  const trip = createTripLength();
+  passenger.postGroup.add(trip.group);
+
   // Stamped on the roots so a click can be traced back to the fare that owns what was hit. The
   // picker already walks up parents looking for `pickable`; this rides along the same walk.
   passenger.group.userData.fareSlot = index;
@@ -151,7 +158,7 @@ function createSlot(scene, index) {
   scene.add(passenger.group);
   scene.add(destination.group);
 
-  return { index, passenger, destination, timer };
+  return { index, passenger, destination, timer, trip };
 }
 
 export function createFareSystem(rng, scene) {
@@ -193,11 +200,18 @@ export function createFareSystem(rng, scene) {
    * Pick an intersection that isn't the taxi's next one, and isn't already spoken for.
    *
    * `near` biases the draw to within SECOND_FARE_RADIUS blocks of another junction — either the
-   * current drop-off or the taxi's own intersection, see `spawnBias`. The unbiased path is left
-   * exactly as it was, draw for draw, so a seed still produces the same one-fare run.
+   * current drop-off or the taxi's own intersection, see `spawnBias`. Drop-offs are always drawn
+   * unbiased: the whole point of showing a trip's length up front is that they differ.
    */
   function pickIntersection(taxiCar, near = null) {
-    const avoid = [{ i: taxiCar.i, j: taxiCar.j }, ...state.fares.map((f) => f.target)];
+    // Every junction already spoken for, which is now both ends of every live fare: a waiting
+    // rider's drop-off pin is on the map from the moment they appear, so dropping a second rider
+    // (or a second drop-off) on top of it would put two markers on one kerb corner.
+    const avoid = [{ i: taxiCar.i, j: taxiCar.j }];
+    for (const f of state.fares) {
+      avoid.push(f.target);
+      if (f.dropoff) avoid.push(f.dropoff);
+    }
     const free = (i, j) => !avoid.some((a) => a.i === i && a.j === j);
 
     if (near) {
@@ -220,11 +234,26 @@ export function createFareSystem(rng, scene) {
 
   let lastColorIndex = -1;
 
-  /** A different colour from the previous fare, so consecutive rides never look identical. */
+  /**
+   * A colour no other live fare is wearing, and not the one the previous fare had either.
+   *
+   * "Different from the last one" was enough while colour was assigned at pickup and only the
+   * carried fare ever had one. Now every fare on the board is coloured from the moment it spawns —
+   * that colour is what pairs a rider with their drop-off pin across the map — so two fares sharing
+   * one would point the player at the wrong junction. Five colours against MAX_FARES = 3 means the
+   * walk below always finds a free one, and it still costs exactly one draw so the stream stays
+   * predictable.
+   */
   function nextFareColor() {
     const palette = PALETTE.fareColors;
+    const taken = new Set(state.fares.map((f) => f.color).filter(Boolean));
     let index = rng.int(0, palette.length - 1);
-    if (index === lastColorIndex) index = (index + 1) % palette.length;
+    for (let step = 0; step < palette.length; step++) {
+      const candidate = (index + step) % palette.length;
+      if (candidate === lastColorIndex || taken.has(palette[candidate])) continue;
+      index = candidate;
+      break;
+    }
     lastColorIndex = index;
     return palette[index];
   }
@@ -254,6 +283,11 @@ export function createFareSystem(rng, scene) {
       // Where they were picked up. `target` moves to the drop-off at `beginRide`, so without a
       // separate copy the trip distance (and its fare) can't be measured later.
       pickup: spot,
+      // Where they are going, known from the moment they appear. `target` is what the taxi is
+      // being sent at right now; `dropoff` is the far end of the trip, and it stays put across
+      // the hand-off at pickup.
+      dropoff: null,
+      blocks: 0,
       limit: fareSeconds,
       timeLeft: fareSeconds,
       // Arrival only resolves once the player has actually sent the taxi at this fare. Without
@@ -262,49 +296,69 @@ export function createFareSystem(rng, scene) {
       directed: false,
       color: null,
       ridingFor: 0,
-      // Priced at pickup, once both endpoints are known. See `priceFor`.
       value: 0,
     };
     state.fares.push(fare);
+
+    // Destination first, colour second — the draw order is load-bearing. Both come off the same
+    // stream, so swapping them reshuffles every intersection a seed produces and the headless
+    // baselines stop describing the same run.
+    //
+    // Both used to be drawn at pickup. They happen here now because the whole trip is public from
+    // the start: a rider you can see is a rider whose drop-off you can see, and whose colour ties
+    // the two together. The unbiased draw is deliberate — the *pickup* is biased toward where the
+    // taxi can reach (see spawnBias), but a drop-off next door to every other drop-off would flatten
+    // the trip lengths the player is now being asked to choose between.
+    fare.dropoff = pickIntersection(taxiCar);
+    fare.color = nextFareColor();
+    fare.blocks = blockDistance(spot, fare.dropoff);
+    // Priced by the trip's block distance, fixed here because both endpoints are already known. A
+    // hidden meter that ticked while driving would punish traffic and reward Loco Mode for the
+    // wrong reasons.
+    fare.value = priceFor(spot, fare.dropoff);
 
     place(slot.passenger, spot.i, spot.j);
     // Slot reuse: the previous rider on this slot may have left the figure shrunk and tumbled at
     // the end of their board() pose. Reset so the new waiter starts clean on this frame — wave()
     // would fix it on the next tick, but there is one frame between spawn and first wave.
     slot.passenger.standing?.rest?.();
-    slot.destination.group.visible = false;
+
+    // The drop-off pin goes up with the rider, in the fare's colour and at preview size — the
+    // player can now weigh where a trip ends before committing to it, instead of finding out
+    // only once someone is in the back seat.
+    place(slot.destination, fare.dropoff.i, fare.dropoff.j);
+    slot.destination.setColor(fare.color);
+    slot.destination.setPreview(true);
+    slot.trip.set(fare.blocks, fare.color);
+
     // Under the rider, not at the junction centre — the clock belongs to the person.
     const kerb = cornerFor(spot.i, spot.j);
     slot.timer.placeAt(kerb.x, kerb.z);
     return fare;
   }
 
-  function beginRide(fare, taxiCar) {
+  function beginRide(fare) {
     // Remember where the pickup happened before we overwrite `target` with the drop-off. The
     // boarding animation needs the kerb corner as its origin so the figure can run from it.
     fare.boardingFrom = cornerFor(fare.target.i, fare.target.j);
     fare.boarding = 0;
 
-    // Destination first, colour second — the draw order is load-bearing. Both come off the same
-    // stream, so swapping them reshuffles every intersection a seed produces and the headless
-    // baselines stop describing the same run.
-    const spot = pickIntersection(taxiCar);
-    fare.color = nextFareColor();
-    fare.slot.destination.setColor(fare.color);
     fare.stage = 'riding';
-    fare.target = spot;
+    // Both ends were drawn at spawn; the pickup is done, so the drop-off becomes the thing the
+    // taxi is being sent at. The pin does not move — it is promoted from preview to live.
+    fare.target = fare.dropoff;
     fare.directed = false;
     fare.ridingFor = 0;
-    // The trip's price is fixed the moment both endpoints are known. A hidden meter that ticks
-    // while driving would punish traffic and reward Loco Mode for the wrong reasons.
-    fare.value = priceFor(fare.pickup, spot);
     // Deliberately does not touch limit or timeLeft: the clock started when the rider appeared
     // and keeps running straight through the pickup.
     //
     // The rider stays *visible* here — the pickup event fires this frame, but they still need to
     // run to the taxi and hop in. board() in the update tick drives that and hides the marker
     // when the animation ends.
-    place(fare.slot.destination, fare.target.i, fare.target.j);
+    fare.slot.destination.setPreview(false);
+    // The trip length has done its job the moment the choice is made; leaving it up would put a
+    // number over a rider who is no longer a decision.
+    fare.slot.trip.hide();
     // The rider is aboard, so the deadline is the car's problem now — send the clock after it,
     // and let it draw over the city so the taxi never loses its timer behind a building.
     fare.slot.timer.beginTransfer();
@@ -313,6 +367,7 @@ export function createFareSystem(rng, scene) {
   function clear(fare) {
     fare.slot.passenger.group.visible = false;
     fare.slot.destination.group.visible = false;
+    fare.slot.trip.hide();
     fare.slot.timer.hide();
     const at = state.fares.indexOf(fare);
     if (at !== -1) state.fares.splice(at, 1);
@@ -331,6 +386,9 @@ export function createFareSystem(rng, scene) {
     slot.passenger.standing?.rest?.();
     slot.passenger.group.visible = true;
     slot.destination.group.visible = false;
+    // Already hidden at pickup, but the passenger group it hangs off is being un-hidden right
+    // here — belt and braces so a delivered rider never walks away still wearing a trip length.
+    slot.trip.hide();
     slot.timer.hide();
     exits.push({
       slot,
@@ -440,6 +498,8 @@ export function createFareSystem(rng, scene) {
       // Wave the waiting rider. Driven off sim time so it stays deterministic for screenshots.
       if (fare.stage === 'waiting' && passenger.standing) passenger.standing.wave(state.elapsed);
       // Bounce the drop-off pin, so the thing you are being asked to drive to is the thing moving.
+      // Only the live one: a waiting fare's drop-off is already on the map as a smaller, still
+      // preview, and three bouncing pins would leave nothing telling the player which is the job.
       if (fare.stage === 'riding') {
         destination.update(dt);
         fare.ridingFor += dt;
@@ -487,12 +547,13 @@ export function createFareSystem(rng, scene) {
       if (!fare.directed || distanceToTarget(fare, taxiCar) >= ARRIVE_RADIUS) continue;
 
       if (fare.stage === 'waiting') {
-        beginRide(fare, taxiCar);
+        beginRide(fare);
         emit('pickup', fare);
       } else {
-        // Priced at pickup by the trip's block distance, so longer hauls pay more. The clock
-        // still supplies the *time* pressure; the meter is what makes "which fare should I
-        // grab?" an economic decision rather than a coin flip.
+        // Priced at spawn by the trip's block distance, so longer hauls pay more — and the block
+        // count over the rider's head was that same number, so the player already knew what this
+        // was worth when they chose it. The clock still supplies the *time* pressure; the meter is
+        // what makes "which fare should I grab?" an economic decision rather than a coin flip.
         state.money += fare.value;
         state.delivered += 1;
         // Pull the fare out of the puzzle immediately — the board is free to refill — while
@@ -521,9 +582,21 @@ export function createFareSystem(rng, scene) {
     return true;
   }
 
-  /** Objects the picker may hit — every live fare's current marker. */
+  /**
+   * Objects the picker may hit.
+   *
+   * A waiting fare shows both ends of its trip, so both are targets and both mean the same thing:
+   * "work this fare". `target` is still the pickup at that point, so the caller's ordinary
+   * routeTo(fare.target) needs no special case — but a visible marker that swallows taps would be
+   * worse than not drawing it at all, which is why the preview pin is in this list.
+   */
   function pickables() {
-    return state.fares.map((f) => (f.stage === 'waiting' ? f.slot.passenger : f.slot.destination).group);
+    const out = [];
+    for (const f of state.fares) {
+      if (f.stage === 'waiting') out.push(f.slot.passenger.group);
+      out.push(f.slot.destination.group);
+    }
+    return out;
   }
 
   /**

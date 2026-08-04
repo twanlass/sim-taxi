@@ -118,13 +118,23 @@ function marker(bodyColor, postColor, kind, buildStanding, withRing = true) {
     head.position.y = headBaseY + Math.abs(Math.sin(bounce * BOUNCE_RATE)) * BOUNCE_HEIGHT;
   }
 
-  /** Retint the whole marker — used when a fare colour is assigned at pickup. */
+  /** Retint the whole marker — used when a fare colour is assigned at spawn. */
   const setColor = (hex, postHex) => {
     const c = new THREE.Color(hex);
     if (ring) ring.material.color.copy(c);
     head.material.color.copy(c);
     head.material.emissive.copy(c);
     post.material.color.set(postHex ?? hex);
+  };
+
+  // A drop-off shown while its rider is still on the kerb is a *preview*: it says where this fare
+  // is going, not where the taxi is being sent. With up to three of these on the board at once,
+  // the one that is actually live has to win the eye — so a preview stands smaller and its head
+  // holds still, while the active drop-off keeps its full size and its bounce.
+  const PREVIEW_SCALE = 0.78;
+  const setPreview = (on) => {
+    postGroup.scale.setScalar(on ? PREVIEW_SCALE : 1);
+    if (on) head.position.y = headBaseY;
   };
 
   // Oversized invisible hit volume spanning both pieces — at full zoom-out the visible geometry
@@ -145,7 +155,7 @@ function marker(bodyColor, postColor, kind, buildStanding, withRing = true) {
   hit.userData.pickable = kind;
   group.add(hit);
 
-  return { group, ring, postGroup, head, setColor, standing, update };
+  return { group, ring, postGroup, head, setColor, setPreview, standing, update };
 }
 
 export const createPassengerPin = (buildStanding) =>

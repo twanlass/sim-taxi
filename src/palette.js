@@ -71,6 +71,9 @@ export const PALETTE = {
   // Chosen to avoid every colour already doing a job: traffic signals (red / amber / green), the
   // taxi's own yellow body, and the white of an unclaimed passenger.
   fareColors: ['#25D9D2', '#E24BC4', '#A46BFF', '#4D9BFF', '#FF6B9D'],
+  // Digits on the trip-length plate over a waiting rider. Near-black rather than the plate's own
+  // outline black, so the segments sit *on* the colour instead of merging with the rim around it.
+  tripInk: '#141A20',
   destination: '#E24BC4',
   destinationPost: '#8C2E79',
   routeLine: '#FFD84D',
