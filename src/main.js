@@ -498,6 +498,11 @@ function kickLocoMode() {
     car.z + bz * TAXI_TAILPIPE_BACK,
     car.yaw,
   );
+  // Break traction on the launch as well as in the corners. One pair stamped here so a standing
+  // start (pressing while held at a red) still leaves a patch under the wheels — the distance
+  // spacing in layRubber can't produce anything until the car actually moves.
+  stampRearRubber(car);
+  launchSkidT = LAUNCH_SKID_TIME;
 }
 function releaseBoost(event) {
   boost.release();
@@ -525,25 +530,19 @@ window.addEventListener('contextmenu', (e) => {
   if (e.target === boostButton) e.preventDefault();
 });
 
-// Rubber gets laid from the rear wheels while boosting through a corner, spaced by distance so
-// the trail is even regardless of frame rate.
+// Rubber gets laid from the rear wheels while boosting through a corner or off the line, spaced
+// by distance so the trail is even regardless of frame rate.
 let lastSkidAt = 0;
-function layRubber() {
-  const car = traffic.taxi;
 
-  // `state === 'turn'` covers every junction crossing, including going straight on — which is why
-  // rubber was appearing on the straights. An actual turn means the exit direction differs from
-  // the entry one, and only after the straight run-up to the junction is done.
-  const cornering = car.boost
-    && car.state === 'turn'
-    && car.dOut !== car.d
-    && Math.min(car.turnT, 1) * car.turnLen > car.leadIn;
+// How long the launch keeps laying rubber after the button goes down. Time-boxed rather than
+// distance-boxed: pressing while stopped at a red would otherwise hold the streak in reserve and
+// spend it whenever the light finally changed. At boost speed 0.5s is roughly two car lengths of
+// rubber, which reads as a chirp off the line without turning every tap into a burnout.
+const LAUNCH_SKID_TIME = 0.5;
+let launchSkidT = 0;
 
-  if (!cornering) { lastSkidAt = car.travelled; return; }
-  // Closer than one mark length, so consecutive stamps overlap into a continuous streak.
-  if (car.travelled - lastSkidAt < 0.42) return;
-  lastSkidAt = car.travelled;
-
+/** One pair of marks under the rear wheels, at the car's current pose. */
+function stampRearRubber(car) {
   const fx = Math.cos(car.yaw);
   const fz = -Math.sin(car.yaw);
   const rx = Math.sin(car.yaw);
@@ -555,6 +554,30 @@ function layRubber() {
       car.yaw,
     );
   }
+}
+
+function layRubber(dt) {
+  const car = traffic.taxi;
+  if (launchSkidT > 0) launchSkidT = Math.max(0, launchSkidT - dt);
+
+  // `state === 'turn'` covers every junction crossing, including going straight on — which is why
+  // rubber was appearing on the straights. An actual turn means the exit direction differs from
+  // the entry one, and only after the straight run-up to the junction is done.
+  const cornering = car.boost
+    && car.state === 'turn'
+    && car.dOut !== car.d
+    && Math.min(car.turnT, 1) * car.turnLen > car.leadIn;
+
+  // Releasing mid-launch cuts the streak short — `car.boost` is the same gate the corners use, so
+  // letting go always stops the rubber wherever the car happens to be.
+  const launching = car.boost && launchSkidT > 0;
+
+  if (!cornering && !launching) { lastSkidAt = car.travelled; return; }
+  // Closer than one mark length, so consecutive stamps overlap into a continuous streak.
+  if (car.travelled - lastSkidAt < 0.42) return;
+  lastSkidAt = car.travelled;
+
+  stampRearRubber(car);
 }
 
 // Dust comes off the back of the car whenever it's boosting and actually moving — not only in
@@ -661,7 +684,7 @@ function frame() {
     routeLine.hide();
   }
 
-  layRubber();
+  layRubber(dt);
   kickDust();
   updateHud(dt);
   riderFinder.update(dt, fares.waitingAll());
