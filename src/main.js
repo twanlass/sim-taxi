@@ -26,9 +26,23 @@ import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
 import { findRoute, planOrigin } from './game/route.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount } from './util/shot.js';
+import { isCityConnected } from './city/grid.js';
 
-const seed = getSeed();                             // the city itself — stable, so it's learnable
 const shot = getActiveShot();
+// A fresh city every load. `?seed=N` still pins one you want to replay, and shot mode always
+// pins to a known layout so screenshots stay comparable. On the ~1-in-a-lot chance a random
+// pair of park closures makes some corner unreachable, reroll until the router can plan any
+// (from, to) — the fare loop depends on that never being false.
+let seed = getSeed({ deterministic: Boolean(shot) });
+let layout;
+let attempts = 0;
+while (true) {
+  attempts += 1;
+  layout = createLayout(makeRng(seed));
+  if (isCityConnected()) break;
+  if (attempts > 32) throw new Error('city seed generator kept producing disconnected layouts');
+  seed = (Math.random() * 0xffffffff) >>> 0;
+}
 const runSeed = getRunSeed(seed, Boolean(shot));    // this run's situation — random unless pinned
 
 const renderer = new THREE.WebGLRenderer({
@@ -51,8 +65,8 @@ daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
 
 // Every generator draws from its own stream so that changing one system doesn't reshuffle the
-// others — editing building code shouldn't move the parks.
-const layout = createLayout(makeRng(seed));
+// others — editing building code shouldn't move the parks. `layout` was already produced above
+// so the connectivity guard could reroll before we spent time meshing.
 scene.add(createGround(makeRng(seed + 11), layout));
 scene.add(createBuildings(makeRng(seed + 22), layout).mesh);
 scene.add(createProps(makeRng(seed + 33), layout));
@@ -704,5 +718,12 @@ window.__taxi = {
   },
 };
 
-console.log('[taxi] ready', { seed, runSeed, shot: shot?.name ?? 'interactive', cars: traffic.cars.length });
+// The city is random by default now, so surface the seed prominently — a player who wants that
+// map back needs `?seed=<this>`. `attempts > 1` means the guard rerolled a disconnected layout.
+console.log('[taxi] ready', {
+  seed, runSeed, shot: shot?.name ?? 'interactive',
+  cars: traffic.cars.length,
+  ...(attempts > 1 ? { seedAttempts: attempts } : {}),
+});
+window.__taxi.seed = seed;         // pin this city with ?seed=<this>
 window.__taxi.runSeed = runSeed;   // reproduce a run with ?run=<this>

@@ -84,12 +84,17 @@ Two independent seeds, and keeping them separate matters:
 
 | Seed | Controls | URL | Default |
 |---|---|---|---|
-| **city seed** | layout, buildings, props, parks, arterials | `?seed=` | `71624` |
+| **city seed** | layout, buildings, props, parks, arterials | `?seed=` | random each load (shot mode pins `71624`) |
 | **run seed** | car spawns, fare spawns, police timing | `?run=` | random each load |
 
-The city is stable so it stays *learnable* — you should be able to recognise the map. The
-situation is fresh every load so the game isn't the same puzzle twice. Pinning `?run=` makes a
-run reproducible, which is what the screenshot harness uses.
+Both are random by default: every load is a fresh city with a fresh situation on it. `?seed=N`
+pins a map you want to keep playing — the accepted seed is logged to the console on every load
+and mirrored to `window.__taxi.seed` so it's easy to grab. Shot mode always pins the city seed
+so review screenshots don't shift under a change unrelated to the layout.
+
+`main.js` also runs a connectivity check after `createLayout` and rerolls the city seed if the
+random park closures happen to strand part of the map — the fare loop depends on `findRoute`
+never returning null, so a bad seed can't be allowed to reach the meshers.
 
 Within a seed, every generator draws from its own offset stream:
 

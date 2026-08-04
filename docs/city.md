@@ -80,6 +80,11 @@ This is the one generation step that can silently break the game, so the probe a
 no vehicle is ever inside a park's bounds, **and** all 5,184 `(approach, destination)` pairs remain
 routable. Closing the wrong pair of roads could strand a corner of the city with no error at all.
 
+Now that the city seed is random each load ([architecture.md](architecture.md#seeding)),
+`main.js` runs `isCityConnected()` (grid.js) after every `createLayout` and rerolls the seed if
+the directed state graph isn't strongly connected. Two BFS passes on 144 nodes — cheap, and it
+never gets to spend time meshing a broken city.
+
 > A known limitation: districts are pairs of blocks only. Larger ones would close more roads and
 > need a connectivity guarantee stronger than the current all-pairs check.
 
