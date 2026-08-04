@@ -138,3 +138,59 @@ export function legalExits(dIn, i, j) {
   }
   return out;
 }
+
+/**
+ * Can every possible taxi state route to every intersection? This is the property `findRoute`
+ * must never violate — a null return would leave the player unable to dispatch a fare.
+ *
+ * Strong connectivity of the directed state graph would be too strict: states like (0, 0, d=+X)
+ * are graph-legal but unreachable in play (a car would have had to arrive from off-map), so
+ * they have no predecessors and any backward BFS from them collapses. What actually matters is
+ * *forward* reachability from every state to every target intersection.
+ *
+ * Checked via one reverse BFS per target intersection, seeded with all four directed arrivals
+ * at that target. Every directed state must be visited by every one of those searches, since
+ * "state X can reach some (T, d')" is the same thing as "the reverse graph from (T, *) visits X".
+ * (GRID+1)² BFS runs of ~144 nodes each — under a millisecond at 5×5.
+ *
+ * Called from main.js so a bad park-closure combination on a random seed rerolls before the
+ * meshers spend time on it. Never skip: a silent unroutable seed strands fares.
+ */
+export function isCityConnected() {
+  const N = (GRID + 1) * (GRID + 1) * 4;
+  const key = (i, j, d) => (i * (GRID + 1) + j) * 4 + d;
+
+  const preds = new Array(N);
+  for (let i = 0; i <= GRID; i++) {
+    for (let j = 0; j <= GRID; j++) {
+      for (let dIn = 0; dIn < 4; dIn++) {
+        for (const dOut of legalExits(dIn, i, j)) {
+          const n = nextIntersection(dOut, i, j);
+          if (!n) continue;
+          const to = key(n.i, n.j, dOut);
+          (preds[to] ??= []).push(key(i, j, dIn));
+        }
+      }
+    }
+  }
+
+  for (let ti = 0; ti <= GRID; ti++) {
+    for (let tj = 0; tj <= GRID; tj++) {
+      const seen = new Uint8Array(N);
+      const queue = [];
+      for (let d = 0; d < 4; d++) {
+        const k = key(ti, tj, d);
+        seen[k] = 1;
+        queue.push(k);
+      }
+      let reached = 4;
+      for (let head = 0; head < queue.length; head++) {
+        for (const p of preds[queue[head]] ?? []) {
+          if (!seen[p]) { seen[p] = 1; reached += 1; queue.push(p); }
+        }
+      }
+      if (reached !== N) return false;
+    }
+  }
+  return true;
+}

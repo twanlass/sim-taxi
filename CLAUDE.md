@@ -49,9 +49,10 @@ once shipped undetected because nothing headless imported it.
 
 **Colours live in `palette.js`.** Geometry constants live in `city/grid.js`. Don't inline either.
 
-**Two seeds, kept separate.** `?seed=` is the city (stable, so it stays learnable); `?run=` is the
-situation (random each load). Each generator draws from its own offset stream so that editing one
-system doesn't reshuffle every other one.
+**Two seeds, kept separate.** `?seed=` is the city and `?run=` is the situation; both are random
+each load unless pinned. Shot mode pins the city seed so screenshots don't move under an
+unrelated change. Each generator draws from its own offset stream so that editing one system
+doesn't reshuffle every other one.
 
 **Comments carry the "why".** Many record a measurement or a failed first attempt. If you change
 behaviour a comment describes, update the comment — and if you measure something, write the number
