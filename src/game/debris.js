@@ -11,19 +11,60 @@ import { color } from '../palette.js';
 // under an exponentially damped angular velocity. Lifetimes are short — the wreck focus and the
 // smoke plume carry the rest of the beat — with a per-piece opacity fade in the last second so
 // nothing pops out.
+//
+// Every tunable lives in DEBRIS_DEFAULTS so the playground can override at construction.
+// Overrides that change pool composition (chunkCount, shrapnelCount, wheelCount, trimCount) only
+// take effect at create time — live edits to those need a rebuild.
 
-const GRAVITY = 24;
-const LIFE = 3.4;
-const FADE_TAIL = 1.0;
+export const DEBRIS_DEFAULTS = {
+  gravity: 24,
+  life: 3.4,
+  lifeJitterMin: 0.85,
+  lifeJitterMax: 1.2,
+  fadeTail: 1.0,
 
-// Small shrapnel — cheap boxes and tets, tuned to fly farther and spin harder than the big
-// chunks. Twenty extra motes on top of the recognisable body parts turns the burst from
-// "the taxi came apart" into "the taxi came *apart*".
-const SHRAPNEL_COUNT = 20;
-const SHRAPNEL_SPEED_MIN = 6;
-const SHRAPNEL_SPEED_MAX = 13;
-const SHRAPNEL_UP_MIN = 6;
-const SHRAPNEL_UP_MAX = 12;
+  chunkCount: 2,
+  wheelCount: 4,
+  trimCount: 2,
+
+  // Big-chunk launch tuning.
+  bigSpeedMin: 4,
+  bigSpeedMax: 9,
+  bigUpMin: 4.5,
+  bigUpMax: 8.5,
+  bigSpin: 9,
+
+  // Small shrapnel — cheap boxes and tets, tuned to fly farther and spin harder than the big
+  // chunks. Twenty extra motes on top of the recognisable body parts turns the burst from
+  // "the taxi came apart" into "the taxi came *apart*".
+  shrapnelCount: 20,
+  shrapnelSpeedMin: 6,
+  shrapnelSpeedMax: 13,
+  shrapnelUpMin: 6,
+  shrapnelUpMax: 12,
+  shrapnelSpin: 18,
+
+  // Where each piece starts, relative to the wreck spot.
+  spawnJitterXZ: 0.35,
+  spawnHeightMin: 0.9,
+  spawnHeightMax: 1.4,
+
+  // Ground bounce — one meaningful rebound then it settles.
+  groundY: 0.15,
+  bigRestitution: 0.35,
+  bigFriction: 0.65,
+  shrapnelRestitution: 0.6,
+  shrapnelFriction: 0.85,
+  spinDamp: 0.6,
+
+  // Piece geometry sizes.
+  bodySize: [1.4, 0.55, 1.3],
+  cabinSize: [1.5, 0.55, 1.4],
+  signSize: [0.75, 0.34, 0.4],
+  wheelRadius: 0.34,
+  wheelWidth: 0.26,
+  trimSize: [0.6, 0.2, 0.08],
+};
 
 /** One mesh with its own physics state slot. */
 function makePiece(scene, geometry, baseMaterial, pieces) {
@@ -43,7 +84,8 @@ function makePiece(scene, geometry, baseMaterial, pieces) {
   });
 }
 
-export function createDebris(scene, rng) {
+export function createDebris(scene, rng, opts = {}) {
+  const cfg = { ...DEBRIS_DEFAULTS, ...opts };
   const pieces = [];
 
   const bodyMat = new THREE.MeshLambertMaterial({ color: color('taxiBody'), flatShading: true });
@@ -56,34 +98,34 @@ export function createDebris(scene, rng) {
   });
 
   // Two body chunks, big and yellow — the parts a viewer's eye will land on first.
-  for (let i = 0; i < 2; i++) {
-    makePiece(scene, new THREE.BoxGeometry(1.4, 0.55, 1.3), bodyMat, pieces);
+  for (let i = 0; i < cfg.chunkCount; i++) {
+    makePiece(scene, new THREE.BoxGeometry(...cfg.bodySize), bodyMat, pieces);
   }
 
   // Cabin lid, in glass colour.
-  makePiece(scene, new THREE.BoxGeometry(1.5, 0.55, 1.4), cabinMat, pieces);
+  makePiece(scene, new THREE.BoxGeometry(...cfg.cabinSize), cabinMat, pieces);
 
   // Roof sign — same proportions as the intact one, so it reads as the sign specifically.
-  makePiece(scene, new THREE.BoxGeometry(0.75, 0.34, 0.4), signMat, pieces);
+  makePiece(scene, new THREE.BoxGeometry(...cfg.signSize), signMat, pieces);
 
   // Four wheels. Cylinder rotated onto its side so the flat face shows the tyre disc.
-  for (let i = 0; i < 4; i++) {
-    const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.26, 12);
+  for (let i = 0; i < cfg.wheelCount; i++) {
+    const wheelGeo = new THREE.CylinderGeometry(cfg.wheelRadius, cfg.wheelRadius, cfg.wheelWidth, 12);
     wheelGeo.rotateZ(Math.PI / 2);
     makePiece(scene, wheelGeo, wheelMat, pieces);
   }
 
   // Trim strips off the flanks.
-  for (let i = 0; i < 2; i++) {
-    makePiece(scene, new THREE.BoxGeometry(0.6, 0.2, 0.08), trimMat, pieces);
+  for (let i = 0; i < cfg.trimCount; i++) {
+    makePiece(scene, new THREE.BoxGeometry(...cfg.trimSize), trimMat, pieces);
   }
 
-  // Shrapnel: twenty small chunks alternating between the body colour and dark trim/rubber, in
+  // Shrapnel: small chunks alternating between the body colour and dark trim/rubber, in
   // three shapes (little cubes, thin plates, faceted tets) so the burst reads as jagged debris
   // rather than a repeat of the same speck. Marked with `shrapnel = true` so the burst step
   // knows to launch them harder and higher than the recognisable body parts.
   const shrapnelMats = [bodyMat, trimMat, wheelMat, signMat];
-  for (let i = 0; i < SHRAPNEL_COUNT; i++) {
+  for (let i = 0; i < cfg.shrapnelCount; i++) {
     const mat = shrapnelMats[i % shrapnelMats.length];
     let geo;
     const shape = i % 3;
@@ -103,22 +145,22 @@ export function createDebris(scene, rng) {
   function burst(x, z) {
     for (const p of pieces) {
       p.mesh.visible = true;
-      p.life = LIFE * rng.range(0.85, 1.2);
+      p.life = cfg.life * rng.range(cfg.lifeJitterMin, cfg.lifeJitterMax);
       p.mesh.position.set(
-        x + rng.jitter(0.35),
-        0.9 + rng.range(0, 0.5),
-        z + rng.jitter(0.35),
+        x + rng.jitter(cfg.spawnJitterXZ),
+        cfg.spawnHeightMin + rng.range(0, cfg.spawnHeightMax - cfg.spawnHeightMin),
+        z + rng.jitter(cfg.spawnJitterXZ),
       );
       const angle = rng.range(0, Math.PI * 2);
       const speed = p.shrapnel
-        ? rng.range(SHRAPNEL_SPEED_MIN, SHRAPNEL_SPEED_MAX)
-        : rng.range(4, 9);
+        ? rng.range(cfg.shrapnelSpeedMin, cfg.shrapnelSpeedMax)
+        : rng.range(cfg.bigSpeedMin, cfg.bigSpeedMax);
       p.vx = Math.cos(angle) * speed;
       p.vy = p.shrapnel
-        ? rng.range(SHRAPNEL_UP_MIN, SHRAPNEL_UP_MAX)
-        : rng.range(4.5, 8.5);
+        ? rng.range(cfg.shrapnelUpMin, cfg.shrapnelUpMax)
+        : rng.range(cfg.bigUpMin, cfg.bigUpMax);
       p.vz = Math.sin(angle) * speed;
-      const spin = p.shrapnel ? 18 : 9;
+      const spin = p.shrapnel ? cfg.shrapnelSpin : cfg.bigSpin;
       p.wx = rng.range(-spin, spin);
       p.wy = rng.range(-spin, spin);
       p.wz = rng.range(-spin, spin);
@@ -139,15 +181,15 @@ export function createDebris(scene, rng) {
       p.mesh.position.x += p.vx * dt;
       p.mesh.position.y += p.vy * dt;
       p.mesh.position.z += p.vz * dt;
-      p.vy -= GRAVITY * dt;
+      p.vy -= cfg.gravity * dt;
 
       // Ground bounce. One meaningful rebound then it settles — a per-piece resting height keeps
       // small pieces from Z-fighting with each other at exactly the same y. Shrapnel bounces
       // livelier than the big chunks so the tail of the burst still has motion in it.
-      if (p.mesh.position.y < 0.15) {
-        p.mesh.position.y = 0.15;
-        const restitution = p.shrapnel ? 0.6 : 0.35;
-        const friction = p.shrapnel ? 0.85 : 0.65;
+      if (p.mesh.position.y < cfg.groundY) {
+        p.mesh.position.y = cfg.groundY;
+        const restitution = p.shrapnel ? cfg.shrapnelRestitution : cfg.bigRestitution;
+        const friction = p.shrapnel ? cfg.shrapnelFriction : cfg.bigFriction;
         p.vy = -p.vy * restitution;
         p.vx *= friction;
         p.vz *= friction;
@@ -162,14 +204,14 @@ export function createDebris(scene, rng) {
 
       // Air-damp the spin, otherwise every piece keeps tumbling at full speed even after
       // hitting the ground and reads as spring-loaded rather than heavy.
-      const damp = Math.exp(-0.6 * dt);
+      const damp = Math.exp(-cfg.spinDamp * dt);
       p.wx *= damp;
       p.wy *= damp;
       p.wz *= damp;
 
       // Fade only in the final tail so most of the flight is at full opacity.
-      if (p.life < FADE_TAIL) {
-        p.material.opacity = Math.max(0, p.life / FADE_TAIL);
+      if (p.life < cfg.fadeTail) {
+        p.material.opacity = Math.max(0, p.life / cfg.fadeTail);
       }
 
       if (p.life <= 0) {
@@ -179,5 +221,13 @@ export function createDebris(scene, rng) {
     }
   }
 
-  return { burst, update };
+  function reset() {
+    for (const p of pieces) {
+      p.life = 0;
+      p.mesh.visible = false;
+      p.material.opacity = 1;
+    }
+  }
+
+  return { burst, update, reset, cfg, pieces };
 }

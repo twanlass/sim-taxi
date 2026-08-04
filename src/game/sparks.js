@@ -7,19 +7,40 @@ import * as THREE from 'three';
 // The mark is small hot cubes rather than round puffs so a collision reads differently from the
 // speed dust behind the boosting taxi — sharp facets, ballistic arcs, gravity pulling them down.
 
-const MAX_SPARKS = 192;
-const LIFE = 0.85;
-const START_SIZE = 0.18;
-const GRAVITY = 14;
+export const SPARKS_DEFAULTS = {
+  maxSparks: 192,
+  life: 0.85,
+  lifeJitterMin: 0.75,
+  lifeJitterMax: 1.15,
+  startSize: 0.18,
+  gravity: 14,
 
-export function createSparks(scene, rng) {
+  spawnJitterXZ: 0.2,
+  spawnHeight: 0.9,
+  speedMin: 3.5,
+  speedMax: 7.5,
+  upMin: 2.5,
+  upMax: 5.5,
+
+  // Bounce off the tarmac. Higher restitution than the settled look sparks used to have —
+  // the crash wants motes still hopping when the smoke thickens, not a rain of dead specks.
+  groundY: 0.04,
+  restitution: 0.55,
+  friction: 0.78,
+
+  color: '#FFDE6B',
+};
+
+export function createSparks(scene, rng, opts = {}) {
+  const cfg = { ...SPARKS_DEFAULTS, ...opts };
+
   const geometry = new THREE.BoxGeometry(1, 1, 1);
 
-  const alphas = new Float32Array(MAX_SPARKS);
+  const alphas = new Float32Array(cfg.maxSparks);
   geometry.setAttribute('aAlpha', new THREE.InstancedBufferAttribute(alphas, 1));
 
   const material = new THREE.MeshBasicMaterial({
-    color: '#FFDE6B',
+    color: cfg.color,
     transparent: true,
     depthWrite: false,
   });
@@ -33,25 +54,25 @@ export function createSparks(scene, rng) {
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
 
-  const mesh = new THREE.InstancedMesh(geometry, material, MAX_SPARKS);
+  const mesh = new THREE.InstancedMesh(geometry, material, cfg.maxSparks);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.renderOrder = 4;      // above dust and rubber
   mesh.frustumCulled = false;
   scene.add(mesh);
 
-  const life = new Float32Array(MAX_SPARKS);
-  const px = new Float32Array(MAX_SPARKS);
-  const py = new Float32Array(MAX_SPARKS);
-  const pz = new Float32Array(MAX_SPARKS);
-  const vx = new Float32Array(MAX_SPARKS);
-  const vy = new Float32Array(MAX_SPARKS);
-  const vz = new Float32Array(MAX_SPARKS);
-  const spin = new Float32Array(MAX_SPARKS);
-  const tilt = new Float32Array(MAX_SPARKS);
+  const life = new Float32Array(cfg.maxSparks);
+  const px = new Float32Array(cfg.maxSparks);
+  const py = new Float32Array(cfg.maxSparks);
+  const pz = new Float32Array(cfg.maxSparks);
+  const vx = new Float32Array(cfg.maxSparks);
+  const vy = new Float32Array(cfg.maxSparks);
+  const vz = new Float32Array(cfg.maxSparks);
+  const spin = new Float32Array(cfg.maxSparks);
+  const tilt = new Float32Array(cfg.maxSparks);
 
   const dummy = new THREE.Object3D();
 
-  for (let slot = 0; slot < MAX_SPARKS; slot++) {
+  for (let slot = 0; slot < cfg.maxSparks; slot++) {
     dummy.scale.setScalar(0);
     dummy.updateMatrix();
     mesh.setMatrixAt(slot, dummy.matrix);
@@ -64,16 +85,16 @@ export function createSparks(scene, rng) {
   function burst(x, z, count = 14) {
     for (let k = 0; k < count; k++) {
       const slot = next;
-      next = (next + 1) % MAX_SPARKS;
+      next = (next + 1) % cfg.maxSparks;
       const angle = rng.range(0, Math.PI * 2);
-      const speed = rng.range(3.5, 7.5);
+      const speed = rng.range(cfg.speedMin, cfg.speedMax);
 
-      life[slot] = LIFE * rng.range(0.75, 1.15);
-      px[slot] = x + rng.jitter(0.2);
-      py[slot] = 0.9;
-      pz[slot] = z + rng.jitter(0.2);
+      life[slot] = cfg.life * rng.range(cfg.lifeJitterMin, cfg.lifeJitterMax);
+      px[slot] = x + rng.jitter(cfg.spawnJitterXZ);
+      py[slot] = cfg.spawnHeight;
+      pz[slot] = z + rng.jitter(cfg.spawnJitterXZ);
       vx[slot] = Math.cos(angle) * speed;
-      vy[slot] = rng.range(2.5, 5.5);
+      vy[slot] = rng.range(cfg.upMin, cfg.upMax);
       vz[slot] = Math.sin(angle) * speed;
       spin[slot] = rng.range(0, Math.PI * 2);
       tilt[slot] = rng.range(-4, 4);
@@ -83,29 +104,27 @@ export function createSparks(scene, rng) {
 
   function update(dt) {
     let touched = false;
-    for (let slot = 0; slot < MAX_SPARKS; slot++) {
+    for (let slot = 0; slot < cfg.maxSparks; slot++) {
       if (life[slot] <= 0) continue;
       touched = true;
 
       life[slot] -= dt;
-      const t = 1 - Math.max(0, life[slot]) / LIFE;
+      const t = 1 - Math.max(0, life[slot]) / cfg.life;
 
       px[slot] += vx[slot] * dt;
       py[slot] += vy[slot] * dt;
       pz[slot] += vz[slot] * dt;
-      vy[slot] -= GRAVITY * dt;
+      vy[slot] -= cfg.gravity * dt;
       spin[slot] += tilt[slot] * dt;
 
-      // Bounce off the tarmac. Higher restitution than the settled look sparks used to have —
-      // the crash wants motes still hopping when the smoke thickens, not a rain of dead specks.
-      if (py[slot] < 0.04) {
-        py[slot] = 0.04;
-        vy[slot] = -vy[slot] * 0.55;
-        vx[slot] *= 0.78;
-        vz[slot] *= 0.78;
+      if (py[slot] < cfg.groundY) {
+        py[slot] = cfg.groundY;
+        vy[slot] = -vy[slot] * cfg.restitution;
+        vx[slot] *= cfg.friction;
+        vz[slot] *= cfg.friction;
       }
 
-      const size = START_SIZE * (1 - t * 0.4);
+      const size = cfg.startSize * (1 - t * 0.4);
       dummy.position.set(px[slot], py[slot], pz[slot]);
       dummy.rotation.set(tilt[slot] * 0.15, spin[slot], 0);
       dummy.scale.setScalar(size);
@@ -127,5 +146,17 @@ export function createSparks(scene, rng) {
     }
   }
 
-  return { mesh, burst, update };
+  function reset() {
+    for (let slot = 0; slot < cfg.maxSparks; slot++) {
+      life[slot] = 0;
+      alphas[slot] = 0;
+      dummy.scale.setScalar(0);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(slot, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    geometry.attributes.aAlpha.needsUpdate = true;
+  }
+
+  return { mesh, burst, update, reset, cfg };
 }

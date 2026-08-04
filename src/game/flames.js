@@ -5,29 +5,57 @@ import * as THREE from 'three';
 // orange, additive blending so it brightens whatever's behind it, no gravity (flame doesn't fall),
 // a short life so it's a bark rather than a plume, and a fast size ramp so each mote grows a
 // touch and then snuffs out instead of drifting.
+//
+// Two firing shapes share the pool: burst() shoots a cone backwards along a heading (Loco Mode
+// tailpipe), blast() shoots outward from a point (crash fireball). Per-slot life/size lets both
+// coexist in one InstancedMesh.
 
-const MAX_FLAMES = 128;
-const LIFE = 0.76;
-const START_SIZE = 0.36;
-const END_SIZE = 1.10;
+export const FLAMES_DEFAULTS = {
+  maxFlames: 128,
 
-// Crash fireball tuning — bigger, longer, and thrown outward from the wreck rather than back
-// along a heading. Additive orange over the smoke plume reads as a real detonation instead of
-// exhaust.
-const BLAST_LIFE = 1.15;
-const BLAST_START_SIZE = 0.7;
-const BLAST_END_SIZE = 2.4;
+  // Tailpipe burst.
+  life: 0.76,
+  lifeJitterMin: 0.7,
+  lifeJitterMax: 1.1,
+  startSize: 0.36,
+  endSize: 1.10,
+  burstSpeedMin: 5.0,
+  burstSpeedMax: 9.0,
+  burstSideSpread: 1.4,
+  burstUpMin: 0.4,
+  burstUpMax: 1.4,
+  burstDrag: 4.2,
 
-export function createFlames(scene, rng) {
+  // Crash fireball — bigger, longer, thrown outward.
+  blastLife: 1.15,
+  blastLifeJitterMin: 0.7,
+  blastLifeJitterMax: 1.15,
+  blastStartSize: 0.7,
+  blastEndSize: 2.4,
+  blastOutMin: 2.0,
+  blastOutMax: 6.5,
+  blastUpMin: 1.5,
+  blastUpMax: 5.0,
+  blastSpawnJitterXZ: 0.5,
+  blastSpawnHeightMin: 0.6,
+  blastSpawnHeightMax: 1.6,
+  blastDrag: 2.6,
+
+  color: '#FF8A2A',
+};
+
+export function createFlames(scene, rng, opts = {}) {
+  const cfg = { ...FLAMES_DEFAULTS, ...opts };
+
   const geometry = new THREE.IcosahedronGeometry(0.5, 0);
 
-  const alphas = new Float32Array(MAX_FLAMES);
+  const alphas = new Float32Array(cfg.maxFlames);
   geometry.setAttribute('aAlpha', new THREE.InstancedBufferAttribute(alphas, 1));
 
   // Additive so the flame *lights up* the road behind it rather than sitting on it as an opaque
   // blob — a taillight-orange decal would just read as another sticker.
   const material = new THREE.MeshBasicMaterial({
-    color: '#FF8A2A',
+    color: cfg.color,
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
@@ -42,33 +70,33 @@ export function createFlames(scene, rng) {
       .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
   };
 
-  const mesh = new THREE.InstancedMesh(geometry, material, MAX_FLAMES);
+  const mesh = new THREE.InstancedMesh(geometry, material, cfg.maxFlames);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.renderOrder = 6;     // above sparks and smoke — the flame is the brightest thing on screen
   mesh.frustumCulled = false;
   scene.add(mesh);
 
-  const life = new Float32Array(MAX_FLAMES);
+  const life = new Float32Array(cfg.maxFlames);
   // Per-slot initial life and size range so tailpipe puffs and crash fireballs can share the same
   // pool with different tunings — otherwise a longer-lived blast would divide by the wrong LIFE
   // and start life with a negative t.
-  const life0 = new Float32Array(MAX_FLAMES);
-  const size0 = new Float32Array(MAX_FLAMES);
-  const size1 = new Float32Array(MAX_FLAMES);
-  const dragK = new Float32Array(MAX_FLAMES);
-  const px = new Float32Array(MAX_FLAMES);
-  const py = new Float32Array(MAX_FLAMES);
-  const pz = new Float32Array(MAX_FLAMES);
-  const vx = new Float32Array(MAX_FLAMES);
-  const vy = new Float32Array(MAX_FLAMES);
-  const vz = new Float32Array(MAX_FLAMES);
-  const spin = new Float32Array(MAX_FLAMES);
-  const tilt = new Float32Array(MAX_FLAMES);
-  const wide = new Float32Array(MAX_FLAMES);
+  const life0 = new Float32Array(cfg.maxFlames);
+  const size0 = new Float32Array(cfg.maxFlames);
+  const size1 = new Float32Array(cfg.maxFlames);
+  const dragK = new Float32Array(cfg.maxFlames);
+  const px = new Float32Array(cfg.maxFlames);
+  const py = new Float32Array(cfg.maxFlames);
+  const pz = new Float32Array(cfg.maxFlames);
+  const vx = new Float32Array(cfg.maxFlames);
+  const vy = new Float32Array(cfg.maxFlames);
+  const vz = new Float32Array(cfg.maxFlames);
+  const spin = new Float32Array(cfg.maxFlames);
+  const tilt = new Float32Array(cfg.maxFlames);
+  const wide = new Float32Array(cfg.maxFlames);
 
   const dummy = new THREE.Object3D();
 
-  for (let slot = 0; slot < MAX_FLAMES; slot++) {
+  for (let slot = 0; slot < cfg.maxFlames; slot++) {
     dummy.scale.setScalar(0);
     dummy.updateMatrix();
     mesh.setMatrixAt(slot, dummy.matrix);
@@ -92,19 +120,19 @@ export function createFlames(scene, rng) {
 
     for (let k = 0; k < count; k++) {
       const slot = next;
-      next = (next + 1) % MAX_FLAMES;
+      next = (next + 1) % cfg.maxFlames;
 
       // Speed is heavy along -forward with a small side splay, so the cone opens up behind the
       // bumper instead of firing a single hard stripe.
-      const back = rng.range(5.0, 9.0);
-      const side = rng.jitter(1.4);
-      const up = rng.range(0.4, 1.4);
+      const back = rng.range(cfg.burstSpeedMin, cfg.burstSpeedMax);
+      const side = rng.jitter(cfg.burstSideSpread);
+      const up = rng.range(cfg.burstUpMin, cfg.burstUpMax);
 
-      life[slot] = LIFE * rng.range(0.7, 1.1);
+      life[slot] = cfg.life * rng.range(cfg.lifeJitterMin, cfg.lifeJitterMax);
       life0[slot] = life[slot];
-      size0[slot] = START_SIZE;
-      size1[slot] = END_SIZE;
-      dragK[slot] = 4.2;
+      size0[slot] = cfg.startSize;
+      size1[slot] = cfg.endSize;
+      dragK[slot] = cfg.burstDrag;
       px[slot] = x + rng.jitter(0.12);
       py[slot] = y + rng.jitter(0.08);
       pz[slot] = z + rng.jitter(0.12);
@@ -126,20 +154,20 @@ export function createFlames(scene, rng) {
   function blast(x, z, count = 36) {
     for (let k = 0; k < count; k++) {
       const slot = next;
-      next = (next + 1) % MAX_FLAMES;
+      next = (next + 1) % cfg.maxFlames;
 
       const angle = rng.range(0, Math.PI * 2);
-      const out = rng.range(2.0, 6.5);
-      const up = rng.range(1.5, 5.0);
+      const out = rng.range(cfg.blastOutMin, cfg.blastOutMax);
+      const up = rng.range(cfg.blastUpMin, cfg.blastUpMax);
 
-      life[slot] = BLAST_LIFE * rng.range(0.7, 1.15);
+      life[slot] = cfg.blastLife * rng.range(cfg.blastLifeJitterMin, cfg.blastLifeJitterMax);
       life0[slot] = life[slot];
-      size0[slot] = BLAST_START_SIZE;
-      size1[slot] = BLAST_END_SIZE;
-      dragK[slot] = 2.6;
-      px[slot] = x + rng.jitter(0.5);
-      py[slot] = 0.6 + rng.range(0, 1.0);
-      pz[slot] = z + rng.jitter(0.5);
+      size0[slot] = cfg.blastStartSize;
+      size1[slot] = cfg.blastEndSize;
+      dragK[slot] = cfg.blastDrag;
+      px[slot] = x + rng.jitter(cfg.blastSpawnJitterXZ);
+      py[slot] = cfg.blastSpawnHeightMin + rng.range(0, cfg.blastSpawnHeightMax - cfg.blastSpawnHeightMin);
+      pz[slot] = z + rng.jitter(cfg.blastSpawnJitterXZ);
       vx[slot] = Math.cos(angle) * out;
       vy[slot] = up;
       vz[slot] = Math.sin(angle) * out;
@@ -152,7 +180,7 @@ export function createFlames(scene, rng) {
 
   function update(dt) {
     let touched = false;
-    for (let slot = 0; slot < MAX_FLAMES; slot++) {
+    for (let slot = 0; slot < cfg.maxFlames; slot++) {
       if (life[slot] <= 0) continue;
       touched = true;
 
@@ -194,5 +222,17 @@ export function createFlames(scene, rng) {
     }
   }
 
-  return { mesh, burst, blast, update };
+  function reset() {
+    for (let slot = 0; slot < cfg.maxFlames; slot++) {
+      life[slot] = 0;
+      alphas[slot] = 0;
+      dummy.scale.setScalar(0);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(slot, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    geometry.attributes.aAlpha.needsUpdate = true;
+  }
+
+  return { mesh, burst, blast, update, reset, cfg };
 }
