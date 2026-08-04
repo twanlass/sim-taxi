@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { GRID, HALF_SPAN, LANE, lineCoord, isSegmentClosed } from '../city/grid.js';
-import { setPriorityCorridor, ROAD_Y } from './traffic.js';
+import { setPriorityCorridor, setPolicePresence, ROAD_Y } from './traffic.js';
 
 // A police car running a priority corridor across the city: every signal on its road goes green,
 // every crossing road goes red, and the traffic model reacts on its own because the override lives
@@ -172,6 +172,7 @@ export function createPolice(rng, scene) {
     state.active = false;
     group.visible = false;
     setPriorityCorridor(null);
+    setPolicePresence(null);
     state.cooldown = rng.range(16, 30);
   }
 
@@ -191,6 +192,10 @@ export function createPolice(rng, scene) {
     if (past) { stop(); return; }
 
     place();
+    // Ambient traffic on this road reads the siren's `s` from here and reacts around it. Set
+    // every frame rather than on start so cars ahead brake and swerve as the car catches up,
+    // rather than reacting only to a snapshot from when the run began.
+    setPolicePresence({ axis: state.axis, line: state.line, s: state.s });
 
     // The lamps fade with the bodywork. Leaving them at full strength would keep washing colour
     // across the tarmac from a car that is no longer there.

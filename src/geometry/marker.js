@@ -4,12 +4,13 @@ import { PALETTE } from '../palette.js';
 // Pickup and drop-off markers.
 //
 // A marker is two pieces with different jobs:
-//   - a flat timer ring sitting on the road at the intersection centre. It says "drive here", and
-//     being on the carriageway means nothing can occlude it.
 //   - a tall pin on the pavement corner, for silhouette.
+//   - a flat ring on the kerb around that pin's base, so the pin and its "here" ring read as one
+//     object rather than a pole with a stray circle drawn on the road beside it.
 //
-// The first version put everything on the pavement corner, where it landed inside a park and
-// disappeared behind the trees.
+// The ring used to sit at the intersection centre — the idea being that a ring on the carriageway
+// would never be occluded — but it left a visible gap between the pole and the ring, and the eye
+// couldn't tell they belonged to each other. Sharing the corner fixes that.
 
 const PIN_H = 8.5;
 
@@ -56,14 +57,16 @@ function marker(bodyColor, postColor, kind, buildStanding, withRing = true) {
   const group = new THREE.Group();
   group.name = kind;
 
-  // The waiting rider gets no ring of its own — the fare's travelling timer sits under them.
-  const ring = withRing ? targetRing(bodyColor) : null;
-  if (ring) group.add(ring);
-
   // Everything that stands up lives in here, so the caller can shift it to a pavement corner
-  // while the ring stays centred on the junction.
+  // as a single unit.
   const postGroup = new THREE.Group();
   group.add(postGroup);
+
+  // The waiting rider gets no ring of its own — the fare's travelling timer sits under them.
+  // The destination's ring lives on postGroup so it follows the pole to the kerb corner instead
+  // of being stranded at the junction centre.
+  const ring = withRing ? targetRing(bodyColor) : null;
+  if (ring) postGroup.add(ring);
 
   // A marker can stand up as a signpost or as a figure; the ring below is identical either way.
   let standing = null;

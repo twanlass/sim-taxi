@@ -62,10 +62,18 @@ export function getRunSeed(citySeed, deterministic) {
   return (Math.random() * 0xffffffff) >>> 0;
 }
 
-export function getSeed(fallback = 71624) {
+/**
+ * The city itself. Random by default so no two loads share a layout, `?seed=N` to pin one you
+ * want back. Shot mode always pins it to the same historical default so review screenshots
+ * don't move — a random city per screenshot would make every diff also a layout diff.
+ */
+export function getSeed({ deterministic = false } = {}) {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('seed');
-  if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isNaN(parsed) ? fallback : parsed;
+  if (raw !== null) {
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  if (deterministic) return 71624;
+  return (Math.random() * 0xffffffff) >>> 0;
 }
