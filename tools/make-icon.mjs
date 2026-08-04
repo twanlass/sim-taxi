@@ -36,11 +36,12 @@ const HUB       = '#3A3D45';
 // ----- Geometry (world units — same numbers as src/geometry/taxi.js) -----
 const CAR_LEN = 3.4;
 const CAR_W   = 1.7;
-const BODY_Y0 = 0.38, BODY_Y1 = 1.18;
+const LIFT = 0.32;                          // CHASSIS_LIFT in src/geometry/wheels.js
+const BODY_Y0 = 0.38 + LIFT, BODY_Y1 = 1.18 + LIFT;
 const CABIN_L = CAR_LEN * 0.5, CABIN_W = CAR_W * 0.86, CABIN_CX = -0.2;
-const CABIN_Y0 = 1.15, CABIN_Y1 = 1.75;
-const SIGN_X0 = -0.475, SIGN_X1 = 0.275, SIGN_Y0 = 1.75, SIGN_Y1 = 2.09, SIGN_Z0 = -0.2, SIGN_Z1 = 0.2;
-const WHEEL_R = 0.32;
+const CABIN_Y0 = 1.15 + LIFT, CABIN_Y1 = 1.75 + LIFT;
+const SIGN_X0 = -0.475, SIGN_X1 = 0.275, SIGN_Y0 = 1.75 + LIFT, SIGN_Y1 = 2.09 + LIFT, SIGN_Z0 = -0.2, SIGN_Z1 = 0.2;
+const WHEEL_R = 0.64;
 
 // ----- Iso projection (30° / 30°). +x maps to right-down, +z to left-down, +y up.
 // Camera is on the +x, +y, +z octant so the top, +x front, and +z side faces are visible.
@@ -97,7 +98,7 @@ layers.push(...boxFaces(-CAR_LEN / 2, CAR_LEN / 2, BODY_Y0, BODY_Y1, -CAR_W / 2,
 // so it draws cleanly over it.
 {
   const stripeZ = CAR_W / 2 + 0.005;
-  const stripeY0 = 0.71, stripeY1 = 0.93;
+  const stripeY0 = 0.71 + LIFT, stripeY1 = 0.93 + LIFT;
   const stripeL = CAR_LEN * 0.82;
   const cells = 6;
   const step = stripeL / cells;

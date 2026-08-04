@@ -117,6 +117,72 @@ made without recomputing the cycle. Corridor, priority, and ring branches return
 **Turns** follow a quadratic Bézier through `entryPoint → turnControl → exitPoint`, with yaw
 interpolated by `lerpAngle` so a car never spins the long way round.
 
+### Front wheels
+
+The front pair steers. The angle is **read back from the path the car actually took** rather than
+from the turn decision: `atan(WHEELBASE · dψ/ds)` is the Ackermann angle that produces the
+curvature the car is describing, so one rule covers the junction arc, the Loco Mode weave and the
+straight in between, and nothing has to be kept in step with the turn state machine.
+
+Two things are deliberately outside it. The panic wobble is added *after* the difference is taken —
+it is a shimmy through the body at ~0.9 rad per unit of road, and steering the wheels with it would
+slam them lock to lock several times a second. And the ease is paced by **distance**, like the
+weave and for the same reason: a car held at a red keeps the lock it rolled up to the line with,
+and one stopped mid-turn waiting for room to land holds its wheels round the corner. That is also
+what makes the divide safe — a stationary car never reaches it.
+
+Measured over 240s of traffic, on the raw angle:
+
+| | raw | rendered |
+|---|---|---|
+| right turn | 38.7° | 34° (on the clamp) |
+| left turn | 15.0° | 24° |
+| boost weave (p90) | 7° | 11° |
+| straight on through a junction | 0° | 0° |
+
+Right beats left by more than 2:1 because right-hand traffic cuts the near corner while a left
+sweeps the far diagonal — the tighter arc genuinely wants more lock. `STEER_GAIN` of 1.6 is for
+legibility, not physics: even on the doubled wheel, 15° moves the outline by about a pixel.
+Everything under the clamp keeps its relative size, so a weave still reads as a flick and a corner
+as full lock. Unwinding is the ease and nothing else — a car is down to 6.8° one unit out of the
+junction and under 3° by three.
+
+### Wheel size and ride height
+
+`src/geometry/wheels.js` owns both, and owns them for every vehicle in the game. It is a module of
+its own because `traffic.js` and `geometry/taxi.js` already import each other — a cycle that was
+harmless while only functions crossed it, and stopped being harmless the moment a constant did.
+
+The wheels are **double** what they shipped at (0.64 radius, 0.52 tread). At 0.32 the steering was
+there and unreadable: a wheel was about 5px long at play zoom and its whole travel from straight to
+full lock moved the outline by roughly a pixel.
+
+Doubling alone is not enough, and the two failed attempts are the reason `CHASSIS_LIFT` exists:
+
+- **Big wheels under an unchanged body** is the monster-truck look — the tops cleared the waistline
+  and the car sat sunk between them.
+- **Tucking them inside the flank** fixed the proportions and threw away the point. Occluded from
+  this camera a wheel shows as a notch in the sill, and its angle goes straight back to being
+  unreadable.
+
+So the body rises with the wheel and the tread stays proud. Every y in the vehicle geometry — cars,
+taxi, cruiser, and the app icon in `tools/make-icon.mjs` — is still written as the number it was
+designed at, plus `CHASSIS_LIFT`, which is derived from `WHEEL_R` so the two can't drift apart.
+The result reads as a chunky toy car up close and as an ordinary car at play zoom, which is the
+zoom that matters.
+
+The wheels don't **roll**, on purpose. At cruise a 0.32-radius wheel turns 0.44 rad per frame at
+60fps against a facet every 0.79 rad on an 8-sided cylinder — past the half-facet point, so it
+would strobe backwards. A 5px wheel spinning the wrong way is worse than one that doesn't spin.
+
+Ambient cars carry theirs as a **second InstancedMesh** of two instances per car, each composed
+*through* the body's matrix so it inherits the bob, the corner lean and the pitch rock for free.
+They can't ride in the body geometry, which is one shared matrix per car. The taxi's are ordinary
+meshes on its group, since it is drawn as a group anyway.
+
+The rule itself is `steerToward()`, exported because the police cruiser runs it too — see
+[The bust chase](#the-bust-chase).
+
 ## Boost (crazy-taxi mode)
 
 ```js
@@ -335,6 +401,25 @@ heading over `YAW_EASE` rather than snapping the full 90°.
 > Once fixed: heading was read off the smoothed motion instead of the rail. The frame after a
 > corner snap the rail can sit *behind* the drawn car, so the step pointed back down the road and
 > the nose flicked through 160° in one frame.
+
+**Its front wheels steer too**, on the same `steerToward()` every car in `traffic.js` runs — the
+cruiser is not in the `cars` array (no lane, no turn state, no collision coupling), so that
+function is the only thing the two can share, and sharing it is what keeps the cruiser's wheels
+from drifting out of step the next time the gain is touched. The difference is taken over the
+**drawn** position and heading rather than the rail's, because the arc the player sees is the eased
+one. Measured across five seeds:
+
+| | p50 | max |
+|---|---|---|
+| corridor run | 0° | 0° |
+| chase | 5.2° | 34° (on the clamp) |
+| U-turn | 25.8° | 33° |
+| parked after the arrest | 2.8° | 3.3° |
+
+The corridor run is a flat zero because it is a straight rail — which is exactly why the cruiser
+had no business having steered wheels before the chase existed. It also means the assertion that
+matters is the chase one: a corridor-only check would pass an implementation that never turned
+them at all.
 
 **The banner waits for the arrest.** `BUST_BANNER_DELAY` is a floor, not the schedule — the retry
 screen holds until the cruiser stops, plus a beat. A park district can close the one road between

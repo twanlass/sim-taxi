@@ -13,7 +13,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, laneKeyFor, ROAD_Y } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, laneKeyFor, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -118,6 +118,84 @@ for (let a = 0; a < positions.length; a++) {
 }
 check('no two cars occupy the same space', worst > 1.6,
   `closest pair ${worst.toFixed(2)} (${worstPair?.[0].state}/${worstPair?.[1].state})`);
+
+// --- Front-wheel steering ---------------------------------------------------
+// Render-only state, so every other assertion in this file would stay green if it broke
+// completely. Three things have to hold: the wheels reach a real lock through a corner, they come
+// back to straight once the car is on the straight, and they never go past full lock.
+{
+  const wScene = new THREE.Scene();
+  const wTraffic = createTraffic(makeRng(seed + 44), wScene, 24);
+  const sinceJunction = new Map();
+  let maxLock = 0;
+  let cornerLock = 0;
+  let cockedOnStraight = 0;
+  // The taxi's fronts are meshes on the group rather than instances, so they are wired up
+  // separately and can be dropped separately. Read the angle back off the rig itself.
+  let taxiLock = 0;
+  let rigLock = 0;
+
+  for (let step = 0; step < 60 * 60; step++) {
+    wTraffic.update(1 / 60);
+    taxiLock = Math.max(taxiLock, Math.abs(wTraffic.taxi.wheelAngle));
+    for (const part of wTraffic.taxiGroup.children) {
+      rigLock = Math.max(rigLock, Math.abs(part.rotation.y));
+    }
+    for (const car of wTraffic.cars) {
+      if (car.stunned || car.crashed) continue;
+      const lock = Math.abs(car.wheelAngle);
+      maxLock = Math.max(maxLock, lock);
+
+      if (car.state === 'turn') {
+        sinceJunction.set(car, 0);
+        // Straight on through a junction is still 'turn'; only a real corner should show lock.
+        if (car.dOut !== car.d) cornerLock = Math.max(cornerLock, lock);
+        continue;
+      }
+
+      const run = (sinceJunction.get(car) ?? 0) + car.v / 60;
+      sinceJunction.set(car, run);
+      // Six units clear of the junction, anything left is a wheel stuck over rather than one
+      // still unwinding — measured, a car is under 0.2° by then.
+      if (run > 6 && lock > 0.05) cockedOnStraight += 1;
+    }
+  }
+
+  const asDeg = (r) => `${((r * 180) / Math.PI).toFixed(0)}°`;
+  check('the front wheels reach a real lock through a corner', cornerLock > 0.3,
+    `${asDeg(cornerLock)} at the tightest`);
+  check('the front wheels straighten up on the straight', cockedOnStraight === 0,
+    `${cockedOnStraight} frames still cocked`);
+  check('the front wheels never pass full lock', maxLock <= STEER_MAX + 1e-6,
+    `${asDeg(maxLock)} peak`);
+  check('the taxi\'s own front wheels are steered too',
+    taxiLock > 0.2 && Math.abs(rigLock - taxiLock) < 1e-9,
+    `rig ${asDeg(rigLock)} vs model ${asDeg(taxiLock)}`);
+
+  // The ambient wheels are instances composed through the car's own matrix, which nothing else
+  // here exercises — a multiply the wrong way round leaves them at the world origin, or orbiting
+  // the city at the car's distance from it. Checked on straight-driving cars only, so the corner
+  // lean isn't in the way.
+  const front = wheelAnchors().filter((anchor) => anchor.front);
+  const reach = Math.hypot(front[0].x, front[0].z);
+  const wheelMatrix = new THREE.Matrix4();
+  const wheelPos = new THREE.Vector3();
+  let adrift = 0;
+  let checked = 0;
+  for (const car of wTraffic.cars) {
+    if (car.isTaxi || car.state !== 'drive' || car.stunned) continue;
+    for (let w = 0; w < front.length; w++) {
+      wTraffic.wheelMesh.getMatrixAt(car.instanceIndex * front.length + w, wheelMatrix);
+      wheelPos.setFromMatrixPosition(wheelMatrix);
+      checked += 1;
+      const out = Math.hypot(wheelPos.x - car.x, wheelPos.z - car.z);
+      if (Math.abs(out - reach) > 0.25) adrift += 1;
+      else if (wheelPos.y < WHEEL_R - 0.25 || wheelPos.y > WHEEL_R + 0.45) adrift += 1;
+    }
+  }
+  check('every front wheel is bolted to its car', adrift === 0 && checked > 0,
+    `${adrift} adrift of ${checked}`);
+}
 
 // --- Police priority corridor ----------------------------------------------
 // The override lives inside lightPhase, so the assertion is about signals, not about the car:
@@ -987,6 +1065,14 @@ check('the taxi is an ordinary car in the traffic array',
   let noseDown = 0;
   let sunk = 0;
   let peakKick = 0;
+  // Front wheels. The corridor run is a straight rail, so anything but a flat zero there means
+  // the difference is picking up noise; the chase corners, weaves and U-turns, so it has to reach
+  // a real lock. `rigLock` reads the angle back off the meshes rather than off the model.
+  let corridorLock = 0;
+  let chaseLock = 0;
+  let rigLock = 0;
+  // Only the steered wheels yaw; the light-bar boxes and the body sit at 0.
+  const wheelLock = (p) => Math.max(...p.group.children.map((c) => Math.abs(c.rotation.y)));
 
   for (const kase of cases) {
     const cScene = new THREE.Scene();
@@ -995,6 +1081,7 @@ check('the taxi is an ordinary car in the traffic array',
     // Run it up to mid-city so there is room on every side for the quarry.
     for (let step = 0; step < 60 * 90; step++) {
       cPolice.update(1 / 60);
+      if (cPolice.state.active) corridorLock = Math.max(corridorLock, Math.abs(cPolice.state.wheelAngle));
       if (cPolice.state.active && Math.abs(cPolice.state.s) < PITCH) break;
     }
     if (!cPolice.state.active) { failed = `${kase.name}: no run to chase from`; break; }
@@ -1034,6 +1121,8 @@ check('the taxi is an ordinary car in the traffic array',
       const raw = cPolice.group.rotation.y - prev.y;
       const dYaw = Math.abs(Math.atan2(Math.sin(raw), Math.cos(raw)));
       worstYawRate = Math.max(worstYawRate, dYaw);
+      chaseLock = Math.max(chaseLock, Math.abs(cPolice.state.wheelAngle));
+      rigLock = Math.max(rigLock, wheelLock(cPolice));
       prev = { x: now.x, z: now.z, y: cPolice.group.rotation.y };
 
       // Body: it should lean, rock both ways, and never drop an edge through the tarmac.
@@ -1071,6 +1160,7 @@ check('the taxi is an ordinary car in the traffic array',
   check('the nose never snaps round', worstYawRate < 0.28,
     `fastest yaw ${(worstYawRate * 180 / Math.PI).toFixed(1)}°/frame`);
 
+
   // The body language, which is what makes the chase read as aggressive rather than as a fast
   // machine tracking a line. Bounds are the caps in police.js: ROLL_LIMIT, and PITCH_LIMIT plus
   // the kickoff wheelie riding on top of it.
@@ -1082,6 +1172,14 @@ check('the taxi is an ordinary car in the traffic array',
   // CHASE_KICK against the corridor cruise of 19: the lock-on is a step in speed, not a ramp.
   check('it plants the throttle on lock-on', peakKick > 24,
     `${peakKick.toFixed(1)} units/s on the deciding frame, up from 19`);
+
+  // The cruiser runs the same steerToward() as every car in traffic.js, so what is checked here is
+  // that it is wired to a heading that actually moves — a corridor run alone would pass any
+  // implementation, including one that never turned the wheels at all.
+  check('the cruiser holds its wheels straight down a corridor', corridorLock < 1e-6,
+    `${(corridorLock * 180 / Math.PI).toFixed(1)}° peak on the rail`);
+  check('the cruiser steers into the chase', chaseLock > 0.3 && Math.abs(rigLock - chaseLock) < 1e-9,
+    `rig ${(rigLock * 180 / Math.PI).toFixed(0)}° vs model ${(chaseLock * 180 / Math.PI).toFixed(0)}°`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

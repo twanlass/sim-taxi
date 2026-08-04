@@ -33,7 +33,7 @@ src/
     dust.js             instanced dust puffs
 
   geometry/             one-off models, all procedural
-    taxi.js  marker.js  person.js  ridermeter.js
+    taxi.js  wheels.js  marker.js  person.js  ridermeter.js
 
   util/
     rng.js              seeded RNG (mulberry32) + value noise
