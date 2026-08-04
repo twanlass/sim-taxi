@@ -102,13 +102,20 @@ Screenshot mode freezes the cycle: a rendered shot has to be reproducible.
 
 ### Skid marks — `game/skidmarks.js`
 
-A ring buffer of flat quads stamped onto the road while boosting **through a corner**. Alpha lives
-in a 4-component vertex colour attribute. Pure black, `MARK_LENGTH = 1.5`, `MARK_WIDTH = 0.58`,
+A ring buffer of flat quads stamped onto the road while boosting **through a corner**, and for the
+first `LAUNCH_SKID_TIME = 0.5s` **off the line** when Loco Mode is first pressed. Alpha lives in a
+4-component vertex colour attribute. Pure black, `MARK_LENGTH = 1.5`, `MARK_WIDTH = 0.58`,
 `START_ALPHA = 0.85`, spaced closer than one mark length so stamps overlap into a streak.
 
 > `car.state === 'turn'` covers **every** junction crossing including going straight on, which is
 > why rubber first appeared on the straights. A real turn is `car.dOut !== car.d`, and only after
 > the straight run-up (`leadIn`) is done.
+
+> The launch streak is **time**-boxed while the spacing between stamps is **distance**-boxed.
+> Distance-boxing the window too would let a press at a red light bank the streak and spend it
+> whenever the light changed. `kickLocoMode` also stamps one pair directly, so a standing start
+> leaves a patch under the wheels before the car has travelled far enough to trigger the next
+> stamp. Releasing mid-launch cuts it short — `car.boost` gates it exactly as it gates the corners.
 
 ### Dust — `game/dust.js`
 
