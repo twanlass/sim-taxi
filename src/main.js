@@ -113,9 +113,28 @@ const CRASH_BANNER_DELAY = 2600;
 const WRECK_ZOOM = 26;
 const SLOW_MO_MIN = 0.18;                // sim runs at this fraction of real time at impact
 const SLOW_MO_DURATION = 2100;           // ms wallclock to ramp back to 1.0
+
+// The bust runs the same cinematic on its own dial. It has something to show that a wreck does
+// not — the cruiser breaking off its corridor run and coming for you — so the banner waits about
+// a second longer, and the sim runs at less than half the slow-mo depth: at 0.18 the chase was
+// wading through treacle, which is the opposite of "it came after you". BUST_BANNER_DELAY buys
+// ~2.8s of sim time, against ~1.2s for the longest approach the bust range can set up (a 28-unit
+// dog-leg at CHASE_SPEED) plus the 0.45s U-turn.
+//
+// But the delay is a floor, not the schedule: the banner waits for the cruiser to actually pull
+// up. A park district can close the one road between the two cars and leave the only legal route
+// three sides of a block long — 68 units and 3.5s on seed 8888 — and cutting to the retry screen
+// mid-chase throws away the one beat this whole thing exists for. BUST_BANNER_MAX caps the wait
+// for the pathological case; BUST_BANNER_HOLD is the beat after it stops, alongside.
+const BUST_BANNER_DELAY = 3400;
+const BUST_BANNER_MAX = 4800;
+const BUST_BANNER_HOLD = 500;
+const BUST_SLOW_MO_MIN = 0.42;
 let wreckSpot = null;
 let crashBannerAt = null;
 let slowMoUntil = 0;
+let slowMoMin = SLOW_MO_MIN;
+let bustAt = 0;              // wallclock ms of the bust, while the banner is still waiting on the cop
 
 const collisions = createCollisions(traffic.cars, traffic.taxi);
 collisions.onImpact(({ x, z }) => {
@@ -132,6 +151,7 @@ collisions.onImpact(({ x, z }) => {
   wreckSpot = { x, z };
   crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
+  slowMoMin = SLOW_MO_MIN;
   traffic.taxiGroup.visible = false;
   boost.release();
   fares.crash();
@@ -148,18 +168,25 @@ collisions.onImpact(({ x, z }) => {
  * so the beat is the same as a collision, but the taxi stays visible (no debris, no smoke) since
  * nothing hit it. The taxi is flagged crashed so it freezes on the spot for the pull-in, and the
  * fare system's title/reason drive the "Busted" banner.
+ *
+ * The cruiser abandons its corridor run here and comes for the taxi — see `chase()` in
+ * sim/police.js. That is the whole point of the delay before the banner: without it the cop sailed
+ * on down its road as if nothing had happened, and being busted read as a rule firing somewhere
+ * off-screen rather than as a cop noticing you. The camera frames the *taxi*, not the midpoint of
+ * the two, so the siren swings into a held shot instead of the shot chasing the siren.
  */
 function bustByPolice() {
   if (fares.state.gameOver || traffic.taxi.crashed) return;
-  const px = (traffic.taxi.x + police.group.position.x) / 2;
-  const pz = (traffic.taxi.z + police.group.position.z) / 2;
   controller.kickShake(0.9);
-  wreckSpot = { x: px, z: pz };
-  crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
+  wreckSpot = { x: traffic.taxi.x, z: traffic.taxi.z };
+  bustAt = performance.now();
+  crashBannerAt = bustAt + BUST_BANNER_DELAY;
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
+  slowMoMin = BUST_SLOW_MO_MIN;
   traffic.taxi.crashed = true;
   traffic.taxi.v = 0;
   boost.release();
+  police.chase(traffic.taxi);
   fares.crash('You were caught by the police for reckless driving.', 'Busted');
 }
 
@@ -394,6 +421,20 @@ function updateHud(dt) {
     if (toastTimer <= 0 && hud.toast) hud.toast.style.opacity = '0';
   }
 
+  // A bust holds the banner until the cruiser is alongside — see the BUST_BANNER_* block. The
+  // floor keeps a chase that ends in half a block from cutting to the retry screen while the
+  // camera is still moving; the ceiling covers a route the park closures made long.
+  if (bustAt) {
+    const elapsed = performance.now() - bustAt;
+    if (police.state.arrived || elapsed >= BUST_BANNER_MAX) {
+      crashBannerAt = bustAt + Math.min(BUST_BANNER_MAX,
+        Math.max(BUST_BANNER_DELAY, elapsed + BUST_BANNER_HOLD));
+      bustAt = 0;
+    } else {
+      crashBannerAt = Infinity;
+    }
+  }
+
   if (s.gameOver && hud.banner && hud.banner.hidden) {
     // A crash holds the banner for CRASH_BANNER_DELAY so the smoke, sparks and camera pull-in
     // land before the retry screen appears. Timeouts have no such beat — reveal immediately.
@@ -533,12 +574,13 @@ function frame() {
   // Time dilation for the crash. Scale the whole frame's dt so debris, smoke, camera pull-in and
   // shake decay all slow together — that's what sells it as a single cinematic beat rather than
   // one element being pushed around while everything else runs normally. Ramps linearly from
-  // SLOW_MO_MIN back to 1.0 across SLOW_MO_DURATION ms wallclock; the banner delay is separately
-  // wallclock-anchored so this doesn't change when the retry screen appears.
+  // `slowMoMin` back to 1.0 across SLOW_MO_DURATION ms wallclock; the banner delay is separately
+  // wallclock-anchored so this doesn't change when the retry screen appears. The depth is per
+  // event — a wreck bottoms out at SLOW_MO_MIN, a bust much shallower so the chase still moves.
   const nowMs = performance.now();
   if (nowMs < slowMoUntil) {
     const t = 1 - (slowMoUntil - nowMs) / SLOW_MO_DURATION;
-    dt *= SLOW_MO_MIN + (1 - SLOW_MO_MIN) * t;
+    dt *= slowMoMin + (1 - slowMoMin) * t;
   }
 
   boost.update(dt);

@@ -678,6 +678,119 @@ check('the taxi is an ordinary car in the traffic array',
   check('boosting far from the police leaves the run running', farClear && !fFares.state.gameOver);
 }
 
+// --- The bust chase --------------------------------------------------------
+// On the bust the cruiser breaks off its corridor run and hunts the (now frozen) taxi down. What
+// has to hold: it gets there, it gets there inside the cinematic's time budget, and it stays on
+// the road grid while doing it — the greedy router turns at junctions, so a bug there sends it
+// across a block rather than merely somewhere unhelpful.
+{
+  // Distance from a point to the nearest road centreline, on whichever axis is closer. A car in
+  // its lane sits LANE (2) off; a car cutting a corner is inside the junction box (HALF_ROAD = 4
+  // either way). Anything much past 4 means it left the asphalt.
+  const offRoad = (x, z) => {
+    let dx = Infinity;
+    let dz = Infinity;
+    for (let k = 0; k <= GRID; k++) {
+      dx = Math.min(dx, Math.abs(x - lineCoord(k)));
+      dz = Math.min(dz, Math.abs(z - lineCoord(k)));
+    }
+    return Math.min(dx, dz);
+  };
+
+  // Four quarries around the cruiser, spread over the envelope the bust can actually produce:
+  // POLICE_BUST_RANGE is 20, one block, so nothing here is further out than that plus the width of
+  // the taxi's own road. Offsets are relative to the cruiser's heading — `along` down its road,
+  // `across` in whole blocks sideways — and always land on a lane of a real road.
+  const cases = [
+    { name: 'ahead on the same road', along: 18, across: 0 },
+    { name: 'behind it (U-turn)', along: -18, across: 0 },
+    { name: 'one road over', along: 0, across: 1 },
+    { name: 'one road over and behind', along: -12, across: 1 },
+  ];
+
+  let slowest = 0;
+  let worstGap = 0;
+  let worstOffRoad = 0;
+  let worstStep = 0;
+  let worstYawRate = 0;
+  let failed = null;
+  let uturns = 0;
+
+  for (const kase of cases) {
+    const cScene = new THREE.Scene();
+    const cPolice = createPolice(makeRng(seed + 66), cScene);
+    cPolice.state.cooldown = 0;
+    // Run it up to mid-city so there is room on every side for the quarry.
+    for (let step = 0; step < 60 * 90; step++) {
+      cPolice.update(1 / 60);
+      if (cPolice.state.active && Math.abs(cPolice.state.s) < PITCH) break;
+    }
+    if (!cPolice.state.active) { failed = `${kase.name}: no run to chase from`; break; }
+
+    // Place the quarry relative to the cruiser's own heading. Sideways steps go toward the middle
+    // of the map so the target road exists whichever line the run happened to pick.
+    const inward = cPolice.state.line <= GRID / 2 ? 1 : -1;
+    const alongCoord = cPolice.state.s + cPolice.state.dir * kase.along;
+    const crossLine = cPolice.state.line + kase.across * inward;
+    const crossCoord = lineCoord(crossLine) + LANE;
+    const quarry = cPolice.state.axis === 'x'
+      ? { x: alongCoord, z: crossCoord }
+      : { x: crossCoord, z: alongCoord };
+
+    const before = cPolice.state.dir;
+    cPolice.chase(quarry);
+    if (!cPolice.state.chasing) { failed = `${kase.name}: chase() did not engage`; break; }
+    if (cPolice.state.dir !== before) uturns += 1;
+
+    let t = 0;
+    let prev = { x: cPolice.group.position.x, z: cPolice.group.position.z, y: cPolice.group.rotation.y };
+    while (!cPolice.state.arrived && t < 10) {
+      cPolice.update(1 / 60);
+      t += 1 / 60;
+      const now = cPolice.group.position;
+      worstOffRoad = Math.max(worstOffRoad, offRoad(now.x, now.z));
+      // The rail underneath this car turns corners square and flips a whole road width on the
+      // U-turn. Only the smoothing keeps that off the screen, so both the step and the yaw rate
+      // are watched frame by frame — a snap that reaches the mesh is a visible teleport.
+      worstStep = Math.max(worstStep, Math.hypot(now.x - prev.x, now.z - prev.z));
+      // Shortest-arc difference: the U-turn sweep ends on uturnYaw0 + π, which can be a whole
+      // turn away from the atan2 the next frame produces for the same heading. Identical on
+      // screen, so the metric has to see it that way too.
+      const raw = cPolice.group.rotation.y - prev.y;
+      const dYaw = Math.abs(Math.atan2(Math.sin(raw), Math.cos(raw)));
+      worstYawRate = Math.max(worstYawRate, dYaw);
+      prev = { x: now.x, z: now.z, y: cPolice.group.rotation.y };
+    }
+    if (!cPolice.state.arrived) { failed = `${kase.name}: never arrived`; break; }
+
+    slowest = Math.max(slowest, t);
+    worstGap = Math.max(worstGap, Math.hypot(
+      cPolice.group.position.x - quarry.x, cPolice.group.position.z - quarry.z,
+    ));
+
+    if (getPriorityCorridor()) { failed = `${kase.name}: corridor still held after arrival`; break; }
+  }
+
+  check('the cruiser runs down the taxi from every side', failed === null, failed ?? '4 approaches');
+  // The banner waits for the arrest, but only so long: BUST_BANNER_MAX at BUST_SLOW_MO_MIN works
+  // out at ~4.2s of sim time (see main.js). A typical approach is ~2.2s; the worst measured is
+  // seed 8888's, where a park closes the only direct road and the legal route runs 68 units.
+  check('the chase lands before the banner stops waiting', slowest < 4.1,
+    `slowest ${slowest.toFixed(2)}s`);
+  check('it pulls up next to the taxi, not on top of it', worstGap > 2 && worstGap < 9,
+    `widest final gap ${worstGap.toFixed(2)}`);
+  check('the chase never leaves the road grid', worstOffRoad < 4.4,
+    `furthest off a centreline ${worstOffRoad.toFixed(2)}`);
+  check('a quarry behind the cruiser makes it swing round', uturns >= 1, `${uturns} U-turns`);
+  // Both numbers are the caps in police.js showing through: the drawn step is bounded at
+  // CHASE_SPEED * 1.2 (0.52 units at 60fps), and easing the nose at YAW_EASE spreads the rail's
+  // instant 90° corner over ~0.35s — 13.3°/frame at the sharpest, measured across eight seeds.
+  // Unbounded, the corner snap put them at 0.83 units and 79° in a single frame.
+  check('the chase never teleports', worstStep < 0.55, `biggest step ${worstStep.toFixed(3)} units`);
+  check('the nose never snaps round', worstYawRate < 0.28,
+    `fastest yaw ${(worstYawRate * 180 / Math.PI).toFixed(1)}°/frame`);
+}
+
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of
 // how many cars happen to be moving at the instant the sim stops.
 const throughput = stats.distance / stats.time / traffic.cars.length;
