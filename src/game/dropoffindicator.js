@@ -4,8 +4,8 @@ import * as THREE from 'three';
 //
 // When a fare is aboard the destination pin can sit behind the viewport edge — the map is bigger
 // than the frame on portrait and the player has been panning. Losing sight of where to drive at
-// costs a beat. This arrow rides the viewport edge in the drop-off's fare colour, pointing at the
-// pin the taxi is meant to reach, so the direction is always readable from the HUD.
+// costs a beat. This arrow rides the viewport edge in the drop-off pin's own yellow, pointing at
+// the pin the taxi is meant to reach, so the direction is always readable from the HUD.
 //
 // The indicator only shows for a *riding* fare, which is also the only fare with a drop-off pin on
 // the map: a waiting rider's destination stays hidden until they board. One pointer, aimed at the
@@ -73,7 +73,6 @@ export function createDropoffIndicator({ camera, pinLocation }) {
     el.style.left = `${px}px`;
     el.style.top = `${py}px`;
     el.style.transform = `translate(-50%, -50%) rotate(${angleDeg.toFixed(2)}deg)`;
-    if (fare.color) el.style.setProperty('--dropoff-color', fare.color);
   }
 
   return { update };

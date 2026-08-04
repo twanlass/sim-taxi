@@ -108,15 +108,22 @@ the tap that routes the taxi at it, and clears whenever that fare's target chang
 The passenger **figure** is white — deliberately colourless. Before pickup any taxi could take any
 rider, so a colour on the *person* would imply a commitment that doesn't exist.
 
-The fare's colour is assigned when the trip is drawn, at **spawn**, and first shows at pickup on
-that fare's drop-off pin and the taxi's roof sign together. The *sign* carries it rather than
-a ring, because the rings are spoken for — the timer ring is colour-coded by time remaining, so
-fare identity needed somewhere else to live.
+The fare's colour is assigned when the trip is drawn, at **spawn**, and shows from pickup on the
+taxi's **roof sign**. The sign carries it rather than a ring, because the rings are spoken for —
+the timer ring is colour-coded by time remaining, so fare identity needed somewhere else to live.
 
-`nextFareColor()` refuses any colour a **live** fare is wearing, not just the previous one — five
-colours against `MAX_FARES = 3` means that always resolves, and it still costs exactly one draw off
-the stream. With one visible pin at a time this is belt and braces rather than load-bearing; it was
-load-bearing during the spell when every waiting rider's drop-off was on the board too.
+**The drop-off pin no longer wears it.** It used to, so that a pin and a taxi could be paired by
+hue; but one rider is aboard at a time and only that rider's pin is on the board, so the pairing
+had nothing to disambiguate and a rotating hue was making the same marker look different run to
+run. The pin, its ring and the off-screen pointer are now fixed to **Loco Mode's yellow** — the
+taxi's own — so the route band, the car, and the place it is driving to are one colour saying "this
+is the job". See [rendering.md](rendering.md#pin-outline-and-bounce--geometrymarkerjs).
+
+`nextFareColor()` still refuses any colour a **live** fare is wearing, not just the previous one —
+five colours against `MAX_FARES = 3` means that always resolves, and it still costs exactly one
+draw off the stream. With only the sign wearing it this is belt and braces rather than
+load-bearing; it was load-bearing during the spell when every waiting rider's drop-off was on the
+board too.
 
 Colours avoid every hue already doing a job: signal red/amber/green, the taxi's own yellow, and
 the white of an unclaimed passenger.
