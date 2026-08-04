@@ -26,6 +26,7 @@ import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis } from '../src
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
+import { createVanish } from '../src/game/vanish.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -742,41 +743,82 @@ check('the taxi is an ordinary car in the traffic array',
 
 // --- Taxi-vs-car collisions ------------------------------------------------
 // The whole feature only fires while boosting, and its silent failure modes are: no impact ever
-// detected, an impact that doesn't wreck the taxi, or the other car stuck in the stun state.
-// Drive the taxi head-on into an unsuspecting car and assert the whole crash chain.
+// detected, an impact that doesn't wreck the taxi, or a wrecked car left driving around because
+// something forgot to take it out of the sim. Drive the taxi head-on into an unsuspecting car and
+// assert the whole crash chain, both cars included.
 {
   const cScene = new THREE.Scene();
   const cTraffic = createTraffic(makeRng(seed + 44), cScene, CARS_DEFAULT);
   const cFares = createFareSystem(makeRng(seed + 55), cScene);
   const cTaxi = cTraffic.taxi;
   const collisions = createCollisions(cTraffic.cars, cTaxi);
+  const cVanish = createVanish();
   let hits = 0;
-  collisions.onImpact(() => {
+  let impact = null;
+  const shells = [];
+  collisions.onImpact((event) => {
     hits += 1;
-    // Mirror the main.js wiring: an impact wrecks the taxi and ends the run.
+    impact = event;
+    // Mirror the main.js wiring: both cars hand over their bodywork to the shrink-and-fade, and
+    // the run ends.
+    for (const car of [event.taxi, event.other]) {
+      const shell = cTraffic.wreckShell(car);
+      shells.push(shell);
+      cVanish.take(shell);
+    }
     cFares.crash();
   });
 
   cTraffic.warmup(3);
 
   // Park the taxi on top of an ambient car and start boosting.
-  const victim = cTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive');
-  cTaxi.x = victim.x;
-  cTaxi.z = victim.z;
+  const target = cTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive');
+  cTaxi.x = target.x;
+  cTaxi.z = target.z;
   cTaxi.boost = true;
 
   for (let step = 0; step < 90; step++) {
     collisions.update();
     cTraffic.update(1 / 60);
-    if (hits > 0 && !victim.stunned) break;
+    if (hits > 0) break;
   }
 
   check('boosting into another car fires an impact', hits >= 1, `${hits} impacts`);
   check('the taxi is wrecked by the impact', cTaxi.crashed);
   check('game over fires with a collision reason', cFares.state.gameOver
     && /collision/i.test(cFares.state.failReason ?? ''), cFares.state.failReason);
-  check('the other car recovers from stun onto a lane',
-    !victim.stunned && victim.state === 'drive');
+
+  const victim = impact?.other;
+  check('the car it hit is wrecked too', Boolean(victim?.crashed));
+
+  // A wrecked car must be gone from the road, not merely marked: same place a second later, and
+  // its instance collapsed to nothing so the InstancedMesh isn't still drawing it.
+  const restX = victim.x;
+  const restZ = victim.z;
+  for (let step = 0; step < 60; step++) cTraffic.update(1 / 60);
+  check('the wrecked car stops driving', victim.x === restX && victim.z === restZ,
+    `${victim.x.toFixed(2)},${victim.z.toFixed(2)} vs ${restX.toFixed(2)},${restZ.toFixed(2)}`);
+
+  const instanceScale = new THREE.Vector3();
+  const instanceMatrix = new THREE.Matrix4();
+  cTraffic.mesh.getMatrixAt(victim.instanceIndex, instanceMatrix);
+  instanceMatrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), instanceScale);
+  check('its instance is collapsed out of the traffic mesh', instanceScale.x === 0,
+    `scale ${instanceScale.x}`);
+
+  // Two shells handed over — the taxi group and a standalone copy of the ambient car — and both
+  // shrink and fade rather than cutting out on the impact frame.
+  check('both wrecks hand over a shell to fade', shells.length === 2 && shells[0] !== shells[1]);
+  const baseScale = shells[1].scale.x;
+  cVanish.update(0.17);
+  check('a wreck shell shrinks and fades under the explosion',
+    shells[1].scale.x < baseScale && shells[1].scale.x > 0
+    && shells[1].material.opacity < 1 && shells[1].material.opacity > 0,
+    `scale ${shells[1].scale.x.toFixed(2)}, opacity ${shells[1].material.opacity.toFixed(2)}`);
+  cVanish.update(0.4);
+  check('a wreck shell ends hidden at zero size',
+    !shells[1].visible && shells[1].scale.x === 0 && cVanish.pending() === 0);
+
   check('a wrecked taxi does not fire further impacts', hits === 1, `${hits} impacts`);
 
   // A non-boosting taxi must never trigger a collision — normal lane logic keeps them apart.

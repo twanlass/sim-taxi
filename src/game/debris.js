@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { color } from '../palette.js';
 
-// Taxi wreckage. Individual meshes rather than instances — there are only ~10 pieces per crash
+// Vehicle wreckage. Individual meshes rather than instances — there are only ~10 pieces per crash
 // and each one carries its own material for the per-piece opacity fade, so the instancing cost
 // wouldn't pay off. Shapes mirror what taxi.js merges into the shell (body, cabin, sign, four
 // wheels, two trim stripes) so the burst reads as *this taxi* flying apart, not as generic
-// rubble.
+// rubble. A crash wrecks two cars, so main.js keeps two pools: the taxi's, and one repainted at
+// burst time in the colour of the car it hit.
 //
 // Ballistic physics: initial radial-plus-up velocity, gravity, one damped ground bounce, spin
 // under an exponentially damped angular velocity. Lifetimes are short — the wreck focus and the
@@ -25,8 +26,11 @@ const SHRAPNEL_SPEED_MAX = 13;
 const SHRAPNEL_UP_MIN = 6;
 const SHRAPNEL_UP_MAX = 12;
 
-/** One mesh with its own physics state slot. */
-function makePiece(scene, geometry, baseMaterial, pieces) {
+/**
+ * One mesh with its own physics state slot. `paint` marks the pieces that carry the car's colour
+ * rather than glass or rubber — those are what a tinted burst recolours.
+ */
+function makePiece(scene, geometry, baseMaterial, pieces, paint = false) {
   const material = baseMaterial.clone();
   material.transparent = true;
   material.depthWrite = false;
@@ -34,13 +38,16 @@ function makePiece(scene, geometry, baseMaterial, pieces) {
   mesh.castShadow = true;
   mesh.visible = false;
   scene.add(mesh);
-  pieces.push({
+  const piece = {
     mesh,
     material,
+    paint,
     life: 0,
     vx: 0, vy: 0, vz: 0,
     wx: 0, wy: 0, wz: 0,
-  });
+  };
+  pieces.push(piece);
+  return piece;
 }
 
 export function createDebris(scene, rng) {
@@ -57,14 +64,14 @@ export function createDebris(scene, rng) {
 
   // Two body chunks, big and yellow — the parts a viewer's eye will land on first.
   for (let i = 0; i < 2; i++) {
-    makePiece(scene, new THREE.BoxGeometry(1.4, 0.55, 1.3), bodyMat, pieces);
+    makePiece(scene, new THREE.BoxGeometry(1.4, 0.55, 1.3), bodyMat, pieces, true);
   }
 
   // Cabin lid, in glass colour.
   makePiece(scene, new THREE.BoxGeometry(1.5, 0.55, 1.4), cabinMat, pieces);
 
   // Roof sign — same proportions as the intact one, so it reads as the sign specifically.
-  makePiece(scene, new THREE.BoxGeometry(0.75, 0.34, 0.4), signMat, pieces);
+  makePiece(scene, new THREE.BoxGeometry(0.75, 0.34, 0.4), signMat, pieces, true);
 
   // Four wheels. Cylinder rotated onto its side so the flat face shows the tyre disc.
   for (let i = 0; i < 4; i++) {
@@ -75,7 +82,7 @@ export function createDebris(scene, rng) {
 
   // Trim strips off the flanks.
   for (let i = 0; i < 2; i++) {
-    makePiece(scene, new THREE.BoxGeometry(0.6, 0.2, 0.08), trimMat, pieces);
+    makePiece(scene, new THREE.BoxGeometry(0.6, 0.2, 0.08), trimMat, pieces, true);
   }
 
   // Shrapnel: twenty small chunks alternating between the body colour and dark trim/rubber, in
@@ -83,6 +90,7 @@ export function createDebris(scene, rng) {
   // rather than a repeat of the same speck. Marked with `shrapnel = true` so the burst step
   // knows to launch them harder and higher than the recognisable body parts.
   const shrapnelMats = [bodyMat, trimMat, wheelMat, signMat];
+  const shrapnelPaint = [true, true, false, true];   // parallel to shrapnelMats — rubber isn't paint
   for (let i = 0; i < SHRAPNEL_COUNT; i++) {
     const mat = shrapnelMats[i % shrapnelMats.length];
     let geo;
@@ -95,13 +103,19 @@ export function createDebris(scene, rng) {
     } else {
       geo = new THREE.TetrahedronGeometry(0.18);
     }
-    makePiece(scene, geo, mat, pieces);
-    pieces[pieces.length - 1].shrapnel = true;
+    makePiece(scene, geo, mat, pieces, shrapnelPaint[i % shrapnelMats.length]).shrapnel = true;
   }
 
-  /** Fire the whole set outward from (x, z). Idempotent — a second call re-shoots the same pool. */
-  function burst(x, z) {
+  /**
+   * Fire the whole set outward from (x, z). Idempotent — a second call re-shoots the same pool,
+   * which is why the taxi and the car it hits each get a pool of their own rather than sharing.
+   *
+   * `tint` repaints the bodywork pieces (glass, rubber and the cabin lid keep their own colours),
+   * so an ambient car's wreckage comes apart in that car's paint instead of in taxi yellow.
+   */
+  function burst(x, z, tint = null) {
     for (const p of pieces) {
+      if (tint && p.paint) p.material.color.set(tint);
       p.mesh.visible = true;
       p.life = LIFE * rng.range(0.85, 1.2);
       p.mesh.position.set(
