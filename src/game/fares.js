@@ -178,8 +178,9 @@ export function createFareSystem(rng, scene) {
   // so a new fare cannot land on the same slot while its previous rider is still running away.
   const exits = [];
 
-  // The marker group sits on the junction (its ring is the "drive here" cue); only the standing
-  // pin is pushed out to the pavement corner so it doesn't hover over the carriageway.
+  // The marker root sits on the junction so intersection-space arithmetic elsewhere still works;
+  // the standing pin (and, on the destination, the ring around it) shifts out to the pavement
+  // corner as a single unit, so the pole and its ring read as one object.
   const place = (pin, i, j) => {
     const centre = intersectionCentre(i, j);
     const corner = cornerFor(i, j);
