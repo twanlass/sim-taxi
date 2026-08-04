@@ -75,6 +75,9 @@ export const PALETTE = {
   meterBack: '#14161A',        // the plate behind both bars, drawn at 0.75 alpha
   meterEmpty: '#3A3F47',       // an unlit segment on either bar
   meterDistance: '#8A4FE8',    // a lit distance segment — flat, the same purple at every tier
+  // Ring around the plate once the taxi has been sent at this rider. The Loco Mode pill's yellow,
+  // which is the taxi's own — the two things on screen that mean "you told me to do this".
+  meterSelected: '#F5C130',
 
   // Urgency, indexed by how many of the four segments are still lit. Deliberately not a ramp: a
   // colour that changes imperceptibly tells the player nothing, so it snaps at each segment lost.

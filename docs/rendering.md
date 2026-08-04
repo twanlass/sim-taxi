@@ -241,6 +241,13 @@ lifting the whole pin would pull its foot off the pavement. Amplitude is bounded
 of overlap between head and post top; at 0.45 the head bottom peaks at 8.15 against a post top of
 8.50, so no gap ever opens. It freezes while hidden, which keeps screenshots deterministic.
 
+The drop-off's target ring is **filled in**, at the route band's own `ROUTE_OPACITY` — the band on
+the road and the disc at the end of it are one statement in two places, and at different weights one
+reads as the louder half. Depth-tested like the band, so a car crossing the junction drives over the
+disc rather than the disc painting across the car. Being translucent puts it in the transparent
+queue, so its far half washes up over the base of the post at its centre; that is invisible because
+`setColor` paints the post the same hue.
+
 ### Rider meter — `geometry/ridermeter.js`
 
 The urgency and distance bars over a waiting rider. What they *mean* is in

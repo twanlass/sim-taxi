@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
+import { ROUTE_OPACITY } from '../game/routeline.js';
 
 // Pickup and drop-off markers.
 //
@@ -37,20 +38,48 @@ function outlineHull(geometry, scale) {
   return mesh;
 }
 
+const RING_R = 3.5;
+const RING_TUBE = 0.16;
+
 /**
- * A thin static target ring. The countdown itself lives in game/timerring.js and travels with the
- * fare, so this only has to say "here" — it never drains.
+ * A static target ring with its circle filled in. The countdown itself lives in game/timerring.js
+ * and travels with the fare, so this only has to say "here" — it never drains.
+ *
+ * The fill is at the route band's own opacity (see game/routeline.js): the band on the road and the
+ * disc at the end of it are one statement in two places, and at different weights one of them reads
+ * as the louder half of it. Depth-tested like the band for the same reason — a car crossing the
+ * junction should drive *over* the disc rather than the disc painting across the car.
+ *
+ * Being translucent puts the disc in three's transparent queue, which draws after every opaque
+ * object regardless of order, so the far half of it washes up over the base of the post standing at
+ * its centre. That is invisible in practice because `setColor` paints the post the same hue.
  */
 function targetRing(colorHex) {
-  const geo = new THREE.TorusGeometry(3.5, 0.16, 6, 48);
-  geo.rotateX(-Math.PI / 2);
-  const mesh = new THREE.Mesh(
-    geo,
+  const group = new THREE.Group();
+  group.position.y = 0.08;
+
+  const rim = new THREE.Mesh(
+    new THREE.TorusGeometry(RING_R, RING_TUBE, 6, 48).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: new THREE.Color(colorHex), depthWrite: false }),
   );
-  mesh.position.y = 0.08;
-  mesh.renderOrder = 4;
-  return mesh;
+  rim.renderOrder = 4;
+  group.add(rim);
+
+  // Overlaps into the rim's tube rather than stopping at its inner edge, so no hairline of road
+  // shows between the two where the torus tessellates.
+  const fill = new THREE.Mesh(
+    new THREE.CircleGeometry(RING_R - RING_TUBE / 2, 48).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({
+      color: new THREE.Color(colorHex),
+      transparent: true,
+      opacity: ROUTE_OPACITY,
+      depthWrite: false,
+    }),
+  );
+  fill.renderOrder = 3;   // under the rim, so the rim still reads as an edge
+  group.add(fill);
+
+  return { group, tint: (c) => { rim.material.color.copy(c); fill.material.color.copy(c); } };
 }
 
 function marker(bodyColor, postColor, kind, buildStanding, withRing = true) {
@@ -66,7 +95,7 @@ function marker(bodyColor, postColor, kind, buildStanding, withRing = true) {
   // The destination's ring lives on postGroup so it follows the pole to the kerb corner instead
   // of being stranded at the junction centre.
   const ring = withRing ? targetRing(bodyColor) : null;
-  if (ring) postGroup.add(ring);
+  if (ring) postGroup.add(ring.group);
 
   // A marker can stand up as a signpost or as a figure; the ring below is identical either way.
   let standing = null;
@@ -121,7 +150,7 @@ function marker(bodyColor, postColor, kind, buildStanding, withRing = true) {
   /** Retint the whole marker — used when a fare colour is assigned at spawn. */
   const setColor = (hex, postHex) => {
     const c = new THREE.Color(hex);
-    if (ring) ring.material.color.copy(c);
+    if (ring) ring.tint(c);
     head.material.color.copy(c);
     head.material.emissive.copy(c);
     post.material.color.set(postHex ?? hex);

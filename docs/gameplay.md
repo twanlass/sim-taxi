@@ -258,6 +258,12 @@ long have I got, and is this worth taking — without them reading anything.
 | **Urgency**, on top | 4, draining as the clock runs down. Green → yellow → orange → red, [by level](#urgency-is-one-scale). | How long this rider will keep waiting. |
 | **Distance**, below | 3, fixed at spawn. Flat purple at every tier. | Short (1-3 blocks), medium (4-6), long (7+). |
 
+The plate takes a **yellow ring** once the taxi has been sent at that rider — the Loco Mode pill's
+yellow, which is the taxi's own. On a board with two riders waiting it is the only thing saying
+which of them the car is already on its way to. `markDirected` pushes it so the ring lands on the
+same frame as the route band; the per-frame tick reconciles it, because `directed` is also *cleared*
+from elsewhere and one place that reflects the flag cannot drift from it.
+
 Three tiers rather than a block figure: nobody weighs 5 blocks against 6, they weigh "quick and
 cheap" against "slow and worth it", and a shape is read faster than a digit. The tiers live in
 `game/triptier.js`.

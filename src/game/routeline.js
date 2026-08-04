@@ -47,7 +47,10 @@ const FADE_TAIL = 10;
 // this is depth-tested, so traffic drives *over* the band instead of the band painting across
 // every car it passes under — at 2px that didn't matter, at lane width it does.
 const Y = 0.03;
-const OPACITY = 0.38;
+// Exported because the drop-off's filled circle matches it: the band and the disc are the same
+// statement ("this is the job") in two places, and they have to sit at the same weight over the
+// road or one of them reads as louder than the other.
+export const ROUTE_OPACITY = 0.38;
 
 /**
  * How the band combines with the road under it. `normal` is the default; the rest are here because
@@ -232,7 +235,7 @@ export function createRouteLine(scene) {
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: new THREE.Color(PALETTE.routeLine) },
-      uOpacity: { value: OPACITY },
+      uOpacity: { value: ROUTE_OPACITY },
       uLength: { value: 1 },
       uHeadGap: { value: HEAD_GAP },
       uFadeHead: { value: FADE_HEAD },

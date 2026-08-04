@@ -543,6 +543,10 @@ export function createFareSystem(rng, scene) {
       // reset across it — see beginRide.
       if (fare.stage === 'waiting') {
         meter.setUrgency(urgencyLevel(urgencyOf(fare)));
+        // Reconciled every frame on top of the push in markDirected: `directed` is also *cleared*
+        // from elsewhere (the hand-off at pickup, a fare that changes target), and one place that
+        // reflects the flag cannot drift from it the way a set of push sites would.
+        meter.setSelected(fare.directed);
       } else {
         // The taxi rides on the road, not the kerb.
         timer.update(dt, { x: taxiCar.x, z: taxiCar.z, y: 0.09 },
@@ -601,6 +605,10 @@ export function createFareSystem(rng, scene) {
     if (!fare || !state.fares.includes(fare)) return false;
     if (fare.stage === 'waiting' && carrying()) return false;
     fare.directed = true;
+    // Pushed here as well as reconciled per frame, so the ring lands on the same frame as the route
+    // band rather than a tick later. It also means a caller that directs a fare without running the
+    // sim afterwards — shot mode does exactly that — still renders the state it just set.
+    fare.slot.meter.setSelected(true);
     return true;
   }
 

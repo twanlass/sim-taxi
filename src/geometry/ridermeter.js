@@ -55,11 +55,16 @@ const LIFT = 7.3;
 const SCALE = 0.8;
 
 // The backing is genuinely translucent, so it lands in three's transparent queue whatever we do —
-// and the queue draws after every opaque object regardless of renderOrder. The segments follow it
-// there so the two sort against each other rather than the segments being buried by their own
-// plate. Above ABOVE_RING (12) either way, so the travelling timer ring can't paint over it.
-const BOX_ORDER = 13;
-const SEG_ORDER = 14;
+// and the queue draws after every opaque object regardless of renderOrder. Every layer follows it
+// there so they sort against each other rather than being buried by their own plate. All above
+// ABOVE_RING (12) either way, so the travelling timer ring can't paint over them.
+const SELECT_ORDER = 13;
+const BOX_ORDER = 14;
+const SEG_ORDER = 15;
+
+// The selection ring's weight. 2.5px is the lightest that still reads as a deliberate edge at play
+// zoom rather than an artefact of the plate's own corner radius.
+const SELECT_W = 2.5 * PX;
 
 /**
  * A rounded rectangle centred on the origin, in the XY plane.
@@ -90,6 +95,9 @@ function roundedRect(w, h, radius) {
 // Three shapes for the whole meter, shared by every rider — the layout never changes size, only
 // the colours in it do.
 const BOX_GEO = roundedRect(BOX_W, BOX_H, BOX_RADIUS);
+const SELECT_GEO = roundedRect(
+  BOX_W + SELECT_W * 2, BOX_H + SELECT_W * 2, BOX_RADIUS + SELECT_W,
+);
 const URG_GEO = roundedRect(URG_W, URG_H, SEG_RADIUS);
 const DIST_GEO = roundedRect(DIST_W, DIST_H, SEG_RADIUS);
 
@@ -134,6 +142,21 @@ export function createRiderMeter() {
   group.scale.setScalar(SCALE);
   group.position.y = LIFT;
   group.visible = false;
+
+  // Shown once the player has sent the taxi at this rider. It is drawn as a larger plate *behind*
+  // the backing rather than as a stroke, which is the same inverted-hull trick the marker pins use
+  // for their outlines: the only part of it that survives is the margin around the edge.
+  const selected = new THREE.Mesh(SELECT_GEO, new THREE.MeshBasicMaterial({
+    color: new THREE.Color(PALETTE.meterSelected),
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  }));
+  selected.renderOrder = SELECT_ORDER;
+  selected.position.z = -0.01;
+  selected.visible = false;
+  selected.raycast = () => {};
+  group.add(selected);
 
   const box = new THREE.Mesh(BOX_GEO, new THREE.MeshBasicMaterial({
     color: new THREE.Color(PALETTE.meterBack),
@@ -181,11 +204,19 @@ export function createRiderMeter() {
 
   return {
     group,
+    // The segment meshes themselves, so a test can count what is lit the way a player reads it
+    // rather than trusting the argument it passed in. Indexing `group.children` was the first
+    // version and broke the moment a layer was added in front of them.
+    bars: { urgency, distance },
     setUrgency,
-    /** Show the meter for a fare that has just appeared. */
+    /** Ring the plate once the taxi has been sent at this rider. */
+    setSelected(on) { selected.visible = on; },
+    isSelected: () => selected.visible,
+    /** Show the meter for a fare that has just appeared — nobody has been sent at it yet. */
     show(level, tier) {
       setUrgency(level);
       setDistance(tier);
+      selected.visible = false;
       group.visible = true;
     },
     hide() { group.visible = false; },

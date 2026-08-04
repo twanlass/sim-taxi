@@ -43,16 +43,11 @@ const time = (label, fn) => {
 };
 
 // Read a meter's bars back the way a player does — by counting lit segments, not by trusting the
-// argument we passed in. The urgency bar is the first URGENCY_SEGMENTS children after the backing
-// plate, the distance bar the DISTANCE_TIERS after that; "lit" is any colour other than the shared
-// unfilled grey.
+// argument we passed in. "Lit" is any colour other than the shared unfilled grey.
 const EMPTY_HEX = PALETTE.meterEmpty.replace('#', '').toLowerCase();
-const litIn = (meter, from, count) => {
-  const bars = meter.group.children.slice(from, from + count);
-  return bars.filter((m) => m.material.color.getHexString() !== EMPTY_HEX).length;
-};
-const litUrgency = (meter) => litIn(meter, 1, URGENCY_SEGMENTS);
-const litDistance = (meter) => litIn(meter, 1 + URGENCY_SEGMENTS, DISTANCE_TIERS);
+const lit = (bar) => bar.filter((m) => m.material.color.getHexString() !== EMPTY_HEX).length;
+const litUrgency = (meter) => lit(meter.bars.urgency);
+const litDistance = (meter) => lit(meter.bars.distance);
 
 const scene = new THREE.Scene();
 
@@ -301,6 +296,15 @@ check('no two cars occupy the same space', worst > 1.6,
       }
       prevSpawnAt = elapsed;
     }
+
+    // Sampled here, before aim() can direct anything: at this point every waiting fare's meter has
+    // just been ticked against the `directed` it had going into the frame, so the ring and the flag
+    // must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
+    for (const f of fares.state.fares) {
+      if (f.stage !== 'waiting') continue;
+      if (f.slot.meter.isSelected() !== f.directed) selectionOutOfStep += 1;
+    }
+
     aim();
     elapsed += 1 / 60;
 
@@ -351,6 +355,7 @@ check('no two cars occupy the same space', worst > 1.6,
   let movedAtPickup = 0;
   let leakedPin = 0;
   let pinHiddenAtPickup = 0;
+  let selectionOutOfStep = 0;
   let pickups = 0;
   let stillMetered = 0;
   let wrongTier = 0;
@@ -388,6 +393,15 @@ check('no two cars occupy the same space', worst > 1.6,
         if (!fare.slot.destination.group.visible) pinHiddenAtPickup += 1;
       }
     }
+
+    // Sampled here, before aim() can direct anything: at this point every waiting fare's meter has
+    // just been ticked against the `directed` it had going into the frame, so the ring and the flag
+    // must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
+    for (const f of fares.state.fares) {
+      if (f.stage !== 'waiting') continue;
+      if (f.slot.meter.isSelected() !== f.directed) selectionOutOfStep += 1;
+    }
+
     aim();
     elapsed += 1 / 60;
 
@@ -416,6 +430,10 @@ check('no two cars occupy the same space', worst > 1.6,
   check('the drop-off lands where it was drawn at spawn', movedAtPickup === 0,
     `${movedAtPickup} moved`);
   check('the meter clears at pickup', stillMetered === 0, `${stillMetered} left up`);
+  // The yellow ring around the plate is the only thing saying "the taxi is on its way to this
+  // one", which matters most on a board with two riders waiting.
+  check('the selection ring tracks whether the taxi was sent', selectionOutOfStep === 0,
+    `${selectionOutOfStep} frames out of step`);
   check('no two live fares share a colour', sharedColour === 0, `${sharedColour} frames`);
   check('no two fares claim the same junction', sharedJunction === 0, `${sharedJunction} frames`);
 
@@ -434,7 +452,7 @@ check('no two cars occupy the same space', worst > 1.6,
       meter.show(level, 1);
       seen.push(litUrgency(meter));
       const want = urgencyColor(level).getHexString();
-      const got = meter.group.children[1].material.color.getHexString();
+      const got = meter.bars.urgency[0].material.color.getHexString();
       // Segment 1 is lit at every level above zero, so its colour is the level's colour.
       if (level > 0 && got !== want) wrongColour.push(`${level}: ${got} != ${want}`);
     }
