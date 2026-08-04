@@ -1,11 +1,14 @@
 import * as THREE from 'three';
 import { KERB_H } from '../city/ground.js';
+import { urgencyColorFor } from './urgency.js';
 
 // The fare's clock, as a physical object.
 //
-// It belongs to the *fare*, not to a marker: it sits under the rider while they wait, then flies
-// to the taxi when they get in. The clock does not restart at pickup — one deadline covers spawn
-// all the way to drop-off, which is where the difficulty of the game lives.
+// It belongs to the *fare*, not to a marker. While the rider is on the kerb their deadline is the
+// urgency bar on the meter over their head; the instant they board, this ring is placed on that
+// same corner and flies to the taxi, so the hand-off reads as the clock following them into the
+// car. It does not restart at pickup — one deadline covers spawn all the way to drop-off, which is
+// where the difficulty of the game lives.
 
 // Sized to clear the taxi comfortably — it used to be sized against the pool that marked the taxi
 // as selected, and before that imported from a ring the taxi wore itself. Both are gone; the ring
@@ -52,21 +55,14 @@ const START_ANGLE = -Math.PI * 0.75;
 // transparent track painted a dark band over the figure that no draw order could undo.
 const TRACK = new THREE.Color('#404952');
 
-// Four discrete states, deliberately not interpolated.
+// Colour comes from the shared urgency model, not from a ramp of this ring's own.
 //
-// A continuous ramp spends most of its life in muddy in-between hues — the old blend read as
-// olive through the whole first half — and a colour that changes imperceptibly tells the player
-// nothing. Snapping makes each change an event you notice. High chroma so they carry against
-// grey asphalt and the dark track beneath.
-const STAGES = [
-  { above: 0.60, color: new THREE.Color('#26E05A') },   // green
-  { above: 0.35, color: new THREE.Color('#FFE12E') },   // yellow
-  { above: 0.15, color: new THREE.Color('#FF8C1A') },   // orange
-  { above: -1, color: new THREE.Color('#FF2E2E') },     // red
-];
-
-export const fareStageColour = (fraction) => STAGES.find((stage) => fraction > stage.above).color;
-const colourFor = fareStageColour;
+// It used to keep its own four bands here. That was fine while the ring was the only clock, but the
+// meter over a waiting rider now shows the same deadline as a count of lit segments — a rider on
+// two orange segments whose ring turns yellow the moment they board is two answers to one question.
+// One scale, three surfaces: see game/urgency.js.
+export const fareStageColour = urgencyColorFor;
+const colourFor = urgencyColorFor;
 
 // Panic pulse. Below PULSE_BELOW_S the ring beats — same object the eye is already reading for
 // colour, so the two cues stack ("red AND getting bigger") rather than compete. Threshold is in
@@ -119,7 +115,7 @@ export function createTimerRing(scene) {
     // camera angle, and a clock you cannot see is worthless — correctness about occlusion loses
     // to legibility here.
     new THREE.MeshBasicMaterial({
-      color: STAGES[0].color.clone(),
+      color: urgencyColorFor(1).clone(),
       depthWrite: false,
       depthTest: false,
       side: THREE.DoubleSide,

@@ -67,9 +67,20 @@ export const PALETTE = {
   // Chosen to avoid every colour already doing a job: traffic signals (red / amber / green), the
   // taxi's own yellow body, and the white of an unclaimed passenger.
   fareColors: ['#25D9D2', '#E24BC4', '#A46BFF', '#4D9BFF', '#FF6B9D'],
-  // Digits on the trip-length plate over a waiting rider. Near-black rather than the plate's own
-  // outline black, so the segments sit *on* the colour instead of merging with the rim around it.
-  tripInk: '#141A20',
+
+  // --- The meter over a waiting rider: an urgency bar above a distance bar.
+  //
+  // Both bars share one unfilled colour and one dark backing, so the only thing that ever changes
+  // is how many segments are lit and what colour the urgency ones are.
+  meterBack: '#14161A',        // the plate behind both bars, drawn at 0.75 alpha
+  meterEmpty: '#3A3F47',       // an unlit segment on either bar
+  meterDistance: '#8A4FE8',    // a lit distance segment — flat, the same purple at every tier
+
+  // Urgency, indexed by how many of the four segments are still lit. Deliberately not a ramp: a
+  // colour that changes imperceptibly tells the player nothing, so it snaps at each segment lost.
+  // 1 and 0 share red — by then the number of segments is the news, not the hue.
+  urgency: ['#E8433A', '#E8433A', '#E8922E', '#E0D233', '#3ECF5A'],
+
   destination: '#E24BC4',
   destinationPost: '#8C2E79',
   // The taxi's own yellow, lightened. This used to be `select` as well, worn by a pool on the road

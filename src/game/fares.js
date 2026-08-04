@@ -3,8 +3,9 @@ import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
 import { createPerson } from '../geometry/person.js';
 import { createTimerRing } from './timerring.js';
-import { createLightShaft } from '../geometry/lightshaft.js';
-import { createTripLength } from '../geometry/triplength.js';
+import { createRiderMeter } from '../geometry/ridermeter.js';
+import { urgencyLevel, URGENCY_SEGMENTS } from './urgency.js';
+import { distanceTier } from './triptier.js';
 import { PALETTE } from '../palette.js';
 
 // The fare loop: a passenger waits at an intersection with their drop-off already pinned across
@@ -135,18 +136,20 @@ export const intersectionCentre = (i, j) => ({ x: lineCoord(i), z: lineCoord(j) 
 function createSlot(scene, index) {
   const passenger = createPassengerPin(createPerson);
   const destination = createDestinationPin();
-  // One clock for the whole fare. It waits with the rider, then rides with the taxi.
+  // One clock for the whole fare, in two bodies: the meter's urgency bar while the rider is on the
+  // kerb, then this ring once they're aboard. It does not restart at the hand-off.
   const timer = createTimerRing(scene);
 
-  // Stands over the waiting rider. Lives on the marker's standing group, so it follows the same
-  // kerb placement and hides with the rider automatically.
-  passenger.postGroup.add(createLightShaft().mesh);
-
-  // How far this rider is going, over their head. Same parent as the shaft, so it rides along with
-  // the kerb placement — but it keeps its own `visible` flag, which is what stops it reappearing
-  // over the delivered rider when beginExit un-hides the passenger group at the far end of the trip.
-  const trip = createTripLength();
-  passenger.postGroup.add(trip.group);
+  // Urgency and trip distance, floating over the waiting rider. Hangs off the marker's standing group
+  // so it follows the same kerb placement — but it keeps its own `visible` flag, which is what
+  // stops it reappearing over the delivered rider when beginExit un-hides the passenger group at
+  // the far end of the trip.
+  //
+  // This is also what used to be a shaft of light: at play zoom the meter is a bright 84 x 34px
+  // block over the rider's head, which marks them at range better than the shaft did *and* says
+  // something while doing it.
+  const meter = createRiderMeter();
+  passenger.postGroup.add(meter.group);
 
   // Stamped on the roots so a click can be traced back to the fare that owns what was hit. The
   // picker already walks up parents looking for `pickable`; this rides along the same walk.
@@ -158,7 +161,7 @@ function createSlot(scene, index) {
   scene.add(passenger.group);
   scene.add(destination.group);
 
-  return { index, passenger, destination, timer, trip };
+  return { index, passenger, destination, timer, meter };
 }
 
 export function createFareSystem(rng, scene) {
@@ -329,13 +332,25 @@ export function createFareSystem(rng, scene) {
     place(slot.destination, fare.dropoff.i, fare.dropoff.j);
     slot.destination.setColor(fare.color);
     slot.destination.setPreview(true);
-    slot.trip.set(fare.blocks, fare.color);
+    // Full urgency and the trip's tier. The clock has not started draining yet this frame, so the
+    // bar opens at 4/4 by construction rather than by rounding.
+    slot.meter.show(URGENCY_SEGMENTS, distanceTier(fare.blocks));
 
-    // Under the rider, not at the junction centre — the clock belongs to the person.
-    const kerb = cornerFor(spot.i, spot.j);
-    slot.timer.placeAt(kerb.x, kerb.z);
+    // No ring on the kerb: while the rider waits their clock is the meter's urgency bar. The ring
+    // is placed and launched at pickup, from this same corner, so the hand-off still reads as the
+    // clock leaving the rider and chasing the taxi.
     return fare;
   }
+
+  /**
+   * How much time this fare has left, 1 (just spawned) down to 0.
+   *
+   * Every rider drains at the same rate today — one flat `fareSeconds` for all of them — so this is
+   * just the clock. It exists as its own function because that is the seam: a patience mechanic
+   * where some riders are pricklier than others changes what goes in here, and nothing downstream
+   * of it. The meter, the ring and the finder chips already speak in levels, not seconds.
+   */
+  const urgencyOf = (fare) => Math.max(0, Math.min(1, fare.timeLeft / fare.limit));
 
   function beginRide(fare) {
     // Remember where the pickup happened before we overwrite `target` with the drop-off. The
@@ -356,18 +371,20 @@ export function createFareSystem(rng, scene) {
     // run to the taxi and hop in. board() in the update tick drives that and hides the marker
     // when the animation ends.
     fare.slot.destination.setPreview(false);
-    // The trip length has done its job the moment the choice is made; leaving it up would put a
-    // number over a rider who is no longer a decision.
-    fare.slot.trip.hide();
-    // The rider is aboard, so the deadline is the car's problem now — send the clock after it,
-    // and let it draw over the city so the taxi never loses its timer behind a building.
+    // The meter has done its job the moment the choice is made. Both its questions are answered:
+    // this rider is taken, and where they're going is now the pin the taxi is driving at.
+    fare.slot.meter.hide();
+    // The rider is aboard, so the deadline is the car's problem now. The ring picks the clock up
+    // from the kerb the meter was standing over and chases the taxi with it, drawing over the city
+    // so the timer never gets lost behind a building.
+    fare.slot.timer.placeAt(fare.boardingFrom.x, fare.boardingFrom.z);
     fare.slot.timer.beginTransfer();
   }
 
   function clear(fare) {
     fare.slot.passenger.group.visible = false;
     fare.slot.destination.group.visible = false;
-    fare.slot.trip.hide();
+    fare.slot.meter.hide();
     fare.slot.timer.hide();
     const at = state.fares.indexOf(fare);
     if (at !== -1) state.fares.splice(at, 1);
@@ -387,8 +404,8 @@ export function createFareSystem(rng, scene) {
     slot.passenger.group.visible = true;
     slot.destination.group.visible = false;
     // Already hidden at pickup, but the passenger group it hangs off is being un-hidden right
-    // here — belt and braces so a delivered rider never walks away still wearing a trip length.
-    slot.trip.hide();
+    // here — belt and braces so a delivered rider never walks away still wearing a meter.
+    slot.meter.hide();
     slot.timer.hide();
     exits.push({
       slot,
@@ -493,7 +510,7 @@ export function createFareSystem(rng, scene) {
     state.elapsed += dt;
 
     for (const fare of live) {
-      const { passenger, destination, timer } = fare.slot;
+      const { passenger, destination, timer, meter } = fare.slot;
 
       // Wave the waiting rider. Driven off sim time so it stays deterministic for screenshots.
       if (fare.stage === 'waiting' && passenger.standing) passenger.standing.wave(state.elapsed);
@@ -521,11 +538,16 @@ export function createFareSystem(rng, scene) {
 
       fare.timeLeft -= dt;
 
-      // Waiting: the clock sits on the rider's junction. Riding: it follows the taxi.
-      const anchor = fare.stage === 'waiting'
-        ? { ...cornerFor(fare.target.i, fare.target.j), y: KERB_H + 0.05 }
-        : { x: taxiCar.x, z: taxiCar.z, y: 0.09 };   // the taxi rides on the road, not the kerb
-      timer.update(dt, anchor, Math.max(0, fare.timeLeft / fare.limit), fare.timeLeft);
+      // One clock, two bodies. On the kerb it's the meter's urgency bar; once the rider is aboard
+      // it's the ring following the taxi. The hand-off happens at pickup and the seconds never
+      // reset across it — see beginRide.
+      if (fare.stage === 'waiting') {
+        meter.setUrgency(urgencyLevel(urgencyOf(fare)));
+      } else {
+        // The taxi rides on the road, not the kerb.
+        timer.update(dt, { x: taxiCar.x, z: taxiCar.z, y: 0.09 },
+          urgencyOf(fare), fare.timeLeft);
+      }
 
       if (fare.timeLeft <= 0) {
         state.gameOver = true;

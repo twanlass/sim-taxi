@@ -247,7 +247,7 @@ createPicker(
 
 // Camera shortcut: frame the waiting rider on demand. At play zoom on a phone the rider is a
 // handful of pixels somewhere on a map that no longer fits in one screen, so a button that snaps
-// the camera onto them is faster than hunting for the light shaft by hand.
+// the camera onto them is faster than hunting for their meter by hand.
 function snapToRider(fare) {
   if (!fare) return;
   const c = cornerFor(fare.target.i, fare.target.j);

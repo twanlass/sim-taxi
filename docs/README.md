@@ -19,11 +19,11 @@ model with real signals. **The player's taxi is one of those cars** — the only
 its turn at each junction comes from a planned route rather than a dice roll, so it obeys every
 red light exactly like everyone else and cannot cheat its way to a destination.
 
-A passenger appears at an intersection with a 60-second clock, **their drop-off pin already on the
-map in their own colour** and a block count over their head saying how far they are going. Tap
-either end to route the taxi at them; once they're aboard, tap the drop-off to deliver. The clock
-does **not** reset at pickup — one deadline covers spawn to drop-off, which is the whole tension of
-the game. A delivery pays by distance, $8 for a one-block hop up to $35 across town. Let a clock
+A passenger appears at an intersection with **their drop-off pin already on the map** and a meter
+over their head: an urgency bar counting down their 60-second patience, and a distance bar saying
+whether this is a short, medium or long trip. Tap either end to route the taxi at them; once
+they're aboard, tap the drop-off to deliver. The clock does **not** reset at pickup — one deadline
+covers spawn to drop-off, which is the whole tension of the game. A delivery pays by distance, $8 for a one-block hop up to $35 across town. Let a clock
 expire and the run ends.
 
 **Loco Mode** (bottom left) is the crazy-taxi button: **hold** for double speed that runs red

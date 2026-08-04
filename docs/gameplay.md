@@ -8,8 +8,8 @@ that means up to two riders can be waiting on the kerb at the same time.
 
 1. A passenger spawns at a random intersection (never the one the taxi is already about to reach)
    with a **60-second clock** (`FARE_SECONDS`). Both ends of their trip are drawn at once: the
-   rider on one kerb, their drop-off pin on another, and the block count between them over their
-   head. See [The whole trip is visible](#the-whole-trip-is-visible-before-you-take-it).
+   rider on one kerb, their drop-off pin on another, and a bar over the rider saying which of them
+   is a long haul. See [The whole trip is visible](#the-whole-trip-is-visible-before-you-take-it).
 2. Tap either end → the taxi routes to the rider.
 3. On arrival the passenger boards, their drop-off pin goes from preview to live, and the taxi
    **parks** until the player taps it.
@@ -26,23 +26,24 @@ things carry it:
 | | |
 |---|---|
 | **The drop-off pin**, at preview size | Standing on its own kerb in the fare's colour, at `PREVIEW_SCALE = 0.78` and with its bounce held. The live drop-off — the one the taxi is actually being sent at — keeps full size and keeps bouncing, which is what stops three pins on the board from reading alike. |
-| **The block count**, over the rider | `geometry/triplength.js`. Seven-segment digits on a plate in the fare's colour: 2 is a hop, 9 is a haul. |
-| **The fare's colour**, on both | Assigned at spawn now rather than at pickup, and worn by the plate and the pin together. With two riders on the kerb that pairing is the only thing saying whose drop-off is whose, so `nextFareColor()` refuses any colour a live fare is already wearing. |
+| **The distance bar**, over the rider | Three segments on [the rider's meter](#the-meter-over-a-waiting-rider): short, medium, long. |
+| **The fare's colour**, on the pin | Assigned at spawn now rather than at pickup, and worn by that fare's drop-off pin. `nextFareColor()` refuses any colour a live fare is already wearing, so two pins on the board are never the same colour. |
 
 Screen distance is not trip distance: two pins forty pixels apart can be a four-block drive or a
 one-block one depending on which way the streets run, and at play zoom the player cannot count
-blocks by eye. Hence a number rather than leaving it to the pin's position.
-
-Seven-segment digits rather than a canvas glyph for two reasons — the project generates every mesh
-in code and a texture-baked font would be the first exception, and `createFareSystem` is
-constructed by the headless tools under `node`, where there is no DOM to draw into.
+blocks by eye. Hence a bar on the rider rather than leaving it to the pin's position.
 
 Both markers are tappable and both mean the same thing, "work this fare"; while a rider waits,
 `fare.target` is still their pickup, so the tap on either resolves to the same route. A visible
 marker that silently swallowed taps would be worse than not drawing it.
 
-The trip length clears at pickup. Once the choice is made the number is answering a question
-nobody is asking any more, and the drop-off pin itself is now the instruction.
+The meter clears at pickup. Once the choice is made both of its questions are answered — this rider
+is taken, and where they're going is now the pin the taxi is driving at.
+
+> **Known gap.** Nothing on the rider carries their fare colour, so with two on the kerb there is
+> no signal saying which drop-off pin belongs to which of them. The colour used to live on the
+> trip-length plate the meter replaced. The pins are still distinct from each other; they just
+> aren't tied back to a person.
 
 `fares.update()` returns the events that happened this frame — `{type, fare}`, with type one of
 `'spawned' | 'pickup' | 'delivered' | 'failed'` — rather than firing callbacks, so the fare system
@@ -91,8 +92,8 @@ the ceiling collapses from 25 to 3 — the game stops being winnable indefinitel
 intended shape of a score-attack that ramps.
 
 The rider *figure* is still white whatever else is on the board — see
-[Fare colours](#fare-colours) — so every waiting rider reads the same way, with each ring's stage
-colour carrying its urgency.
+[Fare colours](#fare-colours) — so every waiting rider reads the same way, with the urgency bar over
+their head carrying how close each one is to giving up.
 
 ### The clock does not reset at pickup
 
@@ -115,8 +116,8 @@ the tap that routes the taxi at it, and clears whenever that fare's target chang
 The passenger **figure** is white — deliberately colourless. Before pickup any taxi could take any
 rider, so a colour on the *person* would imply a commitment that doesn't exist.
 
-The fare's colour is assigned at **spawn** and worn by that fare's drop-off pin and the trip-length
-plate over its rider; at pickup the taxi's roof sign joins them. The *sign* carries it rather than
+The fare's colour is assigned at **spawn** and worn by that fare's drop-off pin; at pickup the
+taxi's roof sign joins it. The *sign* carries it rather than
 a ring, because the rings are spoken for — the timer ring is colour-coded by time remaining, so
 fare identity needed somewhere else to live.
 
@@ -256,17 +257,46 @@ The taxi wears nothing else on the ground now, so the timer ring is simply sized
 It used to sit outside a selection pool — and before that outside a selection ring, where the first
 attempt put the timer at the same radius and it vanished inside the other ring's band.
 
-## Beacon
+## The meter over a waiting rider
 
-`src/geometry/lightshaft.js` — a white shaft of light standing over a waiting rider. At play zoom
-a person is a handful of pixels among a hundred buildings; the shaft is what makes "someone needs
-picking up" readable from anywhere on the map without zooming or panning. The rider and their ring
-render on top of it.
+`src/geometry/ridermeter.js` — an urgency bar above a distance bar, on a dark plate floating over
+the rider's head. It answers the only two questions the player has about someone on the kerb — how
+long have I got, and is this worth taking — without them reading anything.
 
-> The file is named `lightshaft.js`, **not** `beacon.js`, on purpose. Ad blockers match request
-> URLs against tracking-beacon filter lists and block `beacon.js` outright with
-> `ERR_BLOCKED_BY_CLIENT`, which takes the whole module graph down with it. The HUD element is
-> `#run-end` rather than `#banner` for the same reason.
+| Bar | Segments | Says |
+|---|---|---|
+| **Urgency**, on top | 4, draining as the clock runs down. Green → yellow → orange → red, [by level](#urgency-is-one-scale). | How long this rider will keep waiting. |
+| **Distance**, below | 3, fixed at spawn. Flat purple at every tier. | Short (1-3 blocks), medium (4-6), long (7+). |
+
+Three tiers rather than a block figure: nobody weighs 5 blocks against 6, they weigh "quick and
+cheap" against "slow and worth it", and a shape is read faster than a digit. The tiers live in
+`game/triptier.js`.
+
+It replaced three things, and is a straight win over all of them:
+
+- **A shaft of light** over the rider, which marked them at range and said nothing else. At play
+  zoom the meter is a bright 84 × 34px block — a bigger target than the shaft's base, and it earns
+  the screen space by carrying information.
+- **A ring on the kerb**, which drained the same clock the urgency bar does now.
+- **A seven-segment block count**, which was more precision than the decision needed and cost a
+  read to parse.
+
+### Urgency is one scale
+
+`src/game/urgency.js`. Four levels, even quarters of the clock, each with its own colour. The
+number of lit segments *is* the level.
+
+Three surfaces show it — the bar over the rider, the ring that rides with the taxi, and the
+countdown around each rider-finder chip — and they all read from here. A rider showing two orange
+segments on the map whose chip is yellow in the corner is two answers to one question.
+
+Even quarters rather than the ring's old 0.60 / 0.35 / 0.15 bands: those were fine for a colour but
+wrong for a bar, holding four segments through the first 40% of the clock and then shedding the
+other three in a rush.
+
+Per-rider patience is not in yet — every rider drains at the same flat `fareSeconds`. The seam is
+`urgencyOf(fare)` in `fares.js`: a patience mechanic changes what goes into that function and
+nothing downstream of it, because every surface already speaks in levels rather than seconds.
 
 ## Economy
 
@@ -292,8 +322,8 @@ price is fixed at spawn — the moment both endpoints are known — and stamped 
 long haul that runs into traffic pays the same as one that flies through green lights. Metering
 during the trip would double-count the clock and reward Loco Mode for the wrong reasons.
 
-The block count over the rider's head is that same `blocks`, so the number on the plate *is* the
-price in disguise: the player is reading the meter before deciding, not after.
+The distance bar over the rider's head is a tier of that same `blocks`, so the bar is a coarse read
+on the price: the player is glancing at the meter before deciding, not after.
 
 | Blocks | Price |
 |---:|---:|

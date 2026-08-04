@@ -19,10 +19,13 @@ import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
   createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, SECOND_FARE_AFTER,
 } from '../src/game/fares.js';
+import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
+import { DISTANCE_TIERS, distanceTier } from '../src/game/triptier.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID } from '../src/city/grid.js';
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
+import { PALETTE } from '../src/palette.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -38,6 +41,18 @@ const time = (label, fn) => {
   console.log(`  ${label}: ${(Number(process.hrtime.bigint() - t0) / 1e6).toFixed(1)}ms`);
   return out;
 };
+
+// Read a meter's bars back the way a player does — by counting lit segments, not by trusting the
+// argument we passed in. The urgency bar is the first URGENCY_SEGMENTS children after the backing
+// plate, the distance bar the DISTANCE_TIERS after that; "lit" is any colour other than the shared
+// unfilled grey.
+const EMPTY_HEX = PALETTE.meterEmpty.replace('#', '').toLowerCase();
+const litIn = (meter, from, count) => {
+  const bars = meter.group.children.slice(from, from + count);
+  return bars.filter((m) => m.material.color.getHexString() !== EMPTY_HEX).length;
+};
+const litUrgency = (meter) => litIn(meter, 1, URGENCY_SEGMENTS);
+const litDistance = (meter) => litIn(meter, 1 + URGENCY_SEGMENTS, DISTANCE_TIERS);
 
 const scene = new THREE.Scene();
 
@@ -161,7 +176,9 @@ check('no two cars occupy the same space', worst > 1.6,
 // --- The fare's travelling timer -------------------------------------------
 // The clock belongs to the fare, not to a marker: it waits with the rider and then flies to the
 // taxi at pickup. None of that is checkable from a still image, and a silent failure would leave
-// the player with a timer stuck at an empty kerb.
+// the player with a timer stuck at an empty kerb. The kerb half of the clock is the meter's
+// urgency bar now, so the ring must stay *off* the map until the rider is aboard — and then it has
+// to launch from the corner they were standing on, or the hand-off reads as a ring teleporting in.
 {
   const fScene = new THREE.Scene();
   const fTraffic = createTraffic(makeRng(seed + 44), fScene, 24);
@@ -169,10 +186,12 @@ check('no two cars occupy the same space', worst > 1.6,
   fTraffic.warmup(5);
 
   let ring = null;
-  let onRider = false;
+  let ringHiddenWhileWaiting = false;
+  let launchedFromKerb = false;
   let transferred = false;
   let followsTaxi = false;
   let hiddenAfter = false;
+  let kerbAtSpawn = null;
   let elapsed = 0;
 
   while (elapsed < 220 && !fares.state.gameOver) {
@@ -191,13 +210,16 @@ check('no two cars occupy the same space', worst > 1.6,
         // Follow the first fare all the way through; a later one appearing mid-ride is a
         // different assertion, made further down.
         ring = fare.slot.timer.mesh;
-        // Under the rider on the kerb, not at the junction centre.
-        const c = cornerFor(fare.target.i, fare.target.j);
-        onRider = Math.hypot(ring.position.x - c.x, ring.position.z - c.z) < 0.01;
+        // The rider's own clock is the meter over their head; no ring on the kerb.
+        ringHiddenWhileWaiting = !ring.visible;
+        kerbAtSpawn = cornerFor(fare.target.i, fare.target.j);
         route(fare);
       }
       if (type === 'pickup' && fare.slot.timer.mesh === ring) {
         transferred = fare.slot.timer.isTransferring();
+        // Launched from the corner the rider was standing on, not from wherever the ring last was.
+        launchedFromKerb = ring.visible
+          && Math.hypot(ring.position.x - kerbAtSpawn.x, ring.position.z - kerbAtSpawn.z) < 0.01;
         route(fare);
       }
       // The run may end on the timer rather than a delivery; the ring must be cleared either way.
@@ -214,7 +236,8 @@ check('no two cars occupy the same space', worst > 1.6,
     }
   }
 
-  check('the timer waits under the rider', onRider);
+  check('no ring stands on the kerb while the rider waits', ringHiddenWhileWaiting);
+  check('the ring takes the clock over from the rider\'s corner', launchedFromKerb);
   check('the timer flies to the taxi at pickup', transferred);
   check('the timer then rides with the taxi', followsTaxi);
   check('the timer clears on delivery', hiddenAfter);
@@ -311,7 +334,7 @@ check('no two cars occupy the same space', worst > 1.6,
 }
 
 // --- The trip is public from the moment the rider is --------------------------
-// The drop-off pin and the block count over the rider's head are the whole basis of "is this a
+// The drop-off pin and the meter over the rider's head are the whole basis of "is this a
 // short hop or a haul across town?", and every failure mode here is silent: a pin that never
 // appears, a count that disagrees with the route, two riders sharing a colour so the player pairs
 // the wrong rider with the wrong pin, or a drop-off that quietly moves at pickup.
@@ -327,7 +350,8 @@ check('no two cars occupy the same space', worst > 1.6,
   let wrongPrice = 0;
   let movedAtPickup = 0;
   let pickups = 0;
-  let stillLabelled = 0;
+  let stillMetered = 0;
+  let wrongTier = 0;
   let sharedColour = 0;
   let sharedJunction = 0;
   let previewScales = new Set();
@@ -346,7 +370,10 @@ check('no two cars occupy the same space', worst > 1.6,
     for (const { type, fare } of fares.update(1 / 60, tTraffic.taxi)) {
       if (type === 'spawned') {
         shownOnSpawn += 1;
-        if (!fare.slot.destination.group.visible || !fare.slot.trip.group.visible) missingPin += 1;
+        if (!fare.slot.destination.group.visible || !fare.slot.meter.group.visible) missingPin += 1;
+        // The meter is the only thing saying how far this rider is going, so the tier it lights
+        // has to be the tier their actual trip falls in.
+        if (litDistance(fare.slot.meter) !== distanceTier(fare.blocks)) wrongTier += 1;
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
         if (fare.value !== priceFor(fare.pickup, fare.dropoff)) wrongPrice += 1;
         previewScales.add(fare.slot.destination.postGroup.scale.x.toFixed(2));
@@ -356,7 +383,7 @@ check('no two cars occupy the same space', worst > 1.6,
         // The pin is promoted, not replanted — a drop-off that jumped at pickup would make the
         // preview a lie and every judgement made from it worthless.
         if (fare.target.i !== fare.dropoff.i || fare.target.j !== fare.dropoff.j) movedAtPickup += 1;
-        if (fare.slot.trip.group.visible) stillLabelled += 1;
+        if (fare.slot.meter.group.visible) stillMetered += 1;
       }
     }
     aim();
@@ -374,17 +401,46 @@ check('no two cars occupy the same space', worst > 1.6,
     if (new Set(ends).size !== ends.length) sharedJunction += 1;
   }
 
-  check('a waiting rider shows their drop-off and trip length', shownOnSpawn > 0 && missingPin === 0,
+  check('a waiting rider shows their drop-off and their meter', shownOnSpawn > 0 && missingPin === 0,
     `${shownOnSpawn} spawns, ${missingPin} missing`);
   check('the block count matches the trip', wrongCount === 0, `${wrongCount} mismatched`);
-  check('the meter agrees with the advertised distance', wrongPrice === 0, `${wrongPrice} mispriced`);
+  check('the distance bar lights the trip\'s tier', wrongTier === 0, `${wrongTier} mistiered`);
+  check('the price agrees with the advertised distance', wrongPrice === 0, `${wrongPrice} mispriced`);
   check('the drop-off pin does not move at pickup', pickups > 0 && movedAtPickup === 0,
     `${pickups} pickups, ${movedAtPickup} moved`);
-  check('the trip length clears at pickup', stillLabelled === 0, `${stillLabelled} left up`);
+  check('the meter clears at pickup', stillMetered === 0, `${stillMetered} left up`);
   check('no two live fares share a colour', sharedColour === 0, `${sharedColour} frames`);
   check('no two markers stand on the same junction', sharedJunction === 0, `${sharedJunction} frames`);
   check('a previewed drop-off stands smaller than a live one',
     previewScales.size === 1 && Number([...previewScales][0]) < 1, `scale ${[...previewScales]}`);
+
+  // --- The urgency bar drains.
+  //
+  // This is the whole point of the bar and none of it is visible in a still image: the level has to
+  // fall one segment at a time as the clock runs down, never climb, and the colour has to be the
+  // one that level owns. Drive a fare's clock by hand and read the bar back segment by segment.
+  {
+    const meter = fares.slots[0].meter;
+    const seen = [];
+    const wrongColour = [];
+    for (let step = 0; step <= 20; step++) {
+      const fraction = 1 - step / 20;
+      const level = urgencyLevel(fraction);
+      meter.show(level, 1);
+      seen.push(litUrgency(meter));
+      const want = urgencyColor(level).getHexString();
+      const got = meter.group.children[1].material.color.getHexString();
+      // Segment 1 is lit at every level above zero, so its colour is the level's colour.
+      if (level > 0 && got !== want) wrongColour.push(`${level}: ${got} != ${want}`);
+    }
+    const monotonic = seen.every((v, i) => i === 0 || v <= seen[i - 1]);
+    check('the urgency bar drains from full to empty',
+      seen[0] === URGENCY_SEGMENTS && seen.at(-1) === 0 && monotonic, seen.join(''));
+    check('it sheds one segment at a time',
+      new Set(seen).size === URGENCY_SEGMENTS + 1
+      && seen.every((v, i) => i === 0 || seen[i - 1] - v <= 1), `${new Set(seen).size} distinct`);
+    check('each level wears its own colour', wrongColour.length === 0, wrongColour.join('; '));
+  }
 
   // Both ends of a waiting fare are tappable — a visible marker that swallows taps is worse than
   // no marker. `pickables()` is what the picker raycasts against, so this is the real check.

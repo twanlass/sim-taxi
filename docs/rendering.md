@@ -93,8 +93,8 @@ Sun elevation follows a day arc and azimuth swings 10° → 175°, so shadows sw
 throws shadows up through everything.
 
 Night is genuinely dark (sun 0.00, fill 0.34, deep navy) but stays playable because every game
-marker — fare rings, beacon, route band — is unlit (`MeshBasicMaterial`, or in the band's case a
-plain `ShaderMaterial` that never reads a light).
+marker — fare rings, rider meters, route band — is unlit (`MeshBasicMaterial`, or in the band's
+case a plain `ShaderMaterial` that never reads a light).
 
 Screenshot mode freezes the cycle: a rendered shot has to be reproducible.
 
@@ -246,30 +246,30 @@ group scales to 0.78 and the head is parked at rest. Only the fare actually unde
 size and its bounce, which is the whole difference between "this is where that rider is going" and
 "drive here".
 
-### Trip length — `geometry/triplength.js`
+### Rider meter — `geometry/ridermeter.js`
 
-The block count over a waiting rider is **seven-segment digits built from quads**, not a canvas
-texture. Two reasons: every mesh in this project is generated in code, and the module is
-constructed by the headless tools under `node`, where there is no DOM to draw into.
+The urgency and distance bars over a waiting rider. What they *mean* is in
+[gameplay.md](gameplay.md#the-meter-over-a-waiting-rider); this is how they are drawn.
 
 The plate is a **billboard against a camera that never rotates**, so its orientation is one
 constant `Quaternion` resolved from the exported `VIEW_DIR` at module load — not a `lookAt` run
-every frame on three floating plates.
+every frame on three floating meters.
 
-Sized against the camera, where 1 world unit ≈ 7.7px at play zoom: the digit is 3.0 units (~23px)
-tall on a ~27px plate. The timer ring is ~25px and is the floor for "legible without zooming", and
-a glyph you have to *read* needs more than an arc you only have to see the colour of.
+**The layout is specified in pixels**, and converted once at the top of the module: 1 world unit is
+about 7.7px at play zoom, since the orthographic frustum's height is exactly `2 * zoom`. The whole
+meter is 84 × 34px — well over the ~25px timer ring that is the project's floor for "legible
+without zooming", and deliberately so, because it is now the only thing marking a rider at range.
 
-Every layer is flagged `transparent` while being fully opaque — the inverse of the trick the timer
-ring's track had to play. The light shaft stands over exactly this spot and *is* transparent, so
-three.js draws it after the entire opaque queue whatever renderOrder either one claims. Left
-opaque, the plate took an additive white wash up its middle and the shaft's facet seams stepped
-across the digits. In the transparent queue together, renderOrder decides: the shaft's 1 against
-the plate's 13-and-up.
+Nothing about the layout ever changes size — always four urgency segments and three distance ones,
+lit or not — so the meter is **three shared geometries** (plate, urgency segment, distance segment)
+and per-frame work is a colour copy. Each is built at its own size rather than scaled from one unit
+shape: scaling a rounded rect stretches its corners, and at a 2px radius on a 16px segment that is
+the difference between a soft edge and a visibly lopsided one.
 
-Horizontal segments span the **full** digit width so their ends finish flush with the outer edge of
-the verticals. The first version ran them centre-to-centre, which left every upright poking half a
-stroke past each bar it met — at this size that reads as a ragged shape rather than a digit.
+Every layer is `transparent`. The plate genuinely is (0.75 alpha), which puts it in three's
+transparent queue — and that queue draws after every opaque object regardless of renderOrder, so
+opaque segments would be buried by their own backing. Flagging both puts them in the same queue,
+where renderOrder decides.
 
 ### Car motion
 
