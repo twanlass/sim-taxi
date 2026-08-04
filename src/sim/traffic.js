@@ -3,6 +3,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H } from '../city/ground.js';
+import {
+  WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries,
+} from '../geometry/wheels.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
   GRID, PITCH, HALF_ROAD, LANE, lineCoord, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
@@ -11,6 +14,9 @@ import {
 } from '../city/grid.js';
 
 export { ringAxisAt, isUnsignalised };   // re-exported: callers of the sim ask it about junctions
+// Wheels and ride height live in geometry/wheels.js — see the note there on why they are not in
+// this file. Passed straight through so callers have one import for "a vehicle".
+export { WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries };
 
 // --- Signals ----------------------------------------------------------------
 
@@ -182,7 +188,13 @@ export const getPriorityCorridor = () => corridor;
 // red — which would drive it through cross traffic that has a legitimate green, and this game has
 // no collision resolution at all — the junction ahead simply yields. Same outcome for the player,
 // nothing overlaps.
-let priorityJunction = null;
+//
+// `block` names one further direction that is denied even though its axis reads green. It is only
+// ever the direction opposite the taxi, and only when the taxi's route calls for a left turn:
+// a green axis lets oncoming traffic through, and a left turn has to yield to it, so a boosting
+// taxi turning left stopped dead at a junction it supposedly owned. Holding the oncoming lane for
+// the beat it takes to cross is the same courtesy the cross streets already extend.
+let priorityJunction = null;   // { i, j, axis, block }
 
 export function setPriorityJunction(next) {
   priorityJunction = next;
@@ -208,13 +220,32 @@ const PANIC_LATERAL = 0.9;     // outward push in world units at full panic (ker
 const PANIC_WOBBLE = 0.16;     // yaw jitter amplitude (radians) at full panic
 const PANIC_BRAKE = 0.35;      // fraction of cruise speed shed at full panic
 
+// --- Scatter ------------------------------------------------------------------
+//
+// Loco Mode's premise is that the city yields: the junction ahead flips to the taxi's axis and
+// cross traffic balks. The one thing that never yielded was the car directly in front, and that
+// is what actually takes the mode's speed away. Measured over 12 minutes of continuous boosting
+// at the default density, the taxi spent 9% of its frames queued at BOOST_GAP behind an 8.5 u/s
+// ambient car — a 55% speed cut with the button still held — rising to 25% at ?cars=40. Signals
+// accounted for 0.0%; the priority hold was already doing its job.
+//
+// The taxi cannot go round. The lane is 4 wide against a 2.31 collision envelope, which is the
+// whole reason the centreline overtake was abandoned (see sim/collisions.js). So the traffic
+// moves instead: a car with the boosting taxi on its bumper floors it, and takes the next turn
+// it can rather than staying on the taxi's road. The first buys the ~1s to the junction with no
+// speed drop, the second is what actually clears the lane.
+const SCATTER_RANGE = 40;      // how far back the taxi is felt — two blocks, ~2s at boost speed
+const SCATTER_SPEED = 2.0;     // multiplier on cruise while fleeing. Just under the taxi's 2.2, so
+                               // it still closes and the flee reads as *not quite enough*.
+const SCATTER_STRAIGHT_W = 0.04;  // what the "carry straight on" turn weight collapses to
+
 /**
  * How rattled a car should be right now: 1 next to the siren, 0 outside PANIC_RANGE, and only
  * ever non-zero for cars on the very road the police is running down. A junction is on two roads,
  * so a car pointed across the siren's road still counts.
  */
 function panicTargetFor(car) {
-  if (!policePresence || car.isTaxi || car.stunned || car.crashed) return 0;
+  if (!policePresence || car.isTaxi || car.crashed) return 0;
   const carAxis = isXAxis(car.d) ? 'x' : 'z';
   if (carAxis !== policePresence.axis) return 0;
   const carLine = carAxis === 'x' ? car.j : car.i;
@@ -308,6 +339,8 @@ export function lightPhase(i, j, t, ignorePriority = false) {
 export const displayPhase = (i, j, t) => lightPhase(i, j, t, true);
 
 const canProceed = (d, i, j, t) => {
+  if (priorityJunction && priorityJunction.block === d
+      && priorityJunction.i === i && priorityJunction.j === j) return false;
   const phase = lightPhase(i, j, t);
   return phase.axis === (isXAxis(d) ? 'x' : 'z') && !phase.yellow;
 };
@@ -362,30 +395,54 @@ const BOOST_ACCEL = 24;       // reaches full boost speed in well under a block
 const BOOST_KICK = 1.25;      // instant surge on activation, so the press has a feel
 const BRAKE = 11;             // units/s^2 shedding speed; ~3.3 units to stop from cruise
 const CORNER_SPEED = SPEED * 0.7;
-export const WHEEL_R = 0.32;
+
 // Vehicles previously rode at KERB_H + 0.05, floating 0.4 above the tarmac — invisible without
 // wheels, glaring with them. They now sit just clear of the road markings.
 export const ROAD_Y = 0.04;
 
-/**
- * Wheels for a vehicle whose origin sits on the road surface.
- *
- * Baked dark rather than white: the shared material reads vertex colours and instanceColor
- * multiplies on top, so a dark base stays dark whatever colour the car is tinted.
- */
-export function wheelGeometries(len = CAR_LEN, width = CAR_W) {
-  const out = [];
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      const wheel = new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, 0.26, 8);
-      wheel.rotateX(Math.PI / 2);   // axle across the car
-      wheel.translate(sx * (len * 0.3), WHEEL_R, sz * (width / 2 - 0.02));
-      out.push(bakeColor(wheel, new THREE.Color(0.16, 0.16, 0.18)));
-    }
-  }
-  return out;
-}
+// Front-wheel steering. The angle is read back from the path the car actually described this
+// frame — atan(WHEELBASE · dψ/ds) is the Ackermann angle that produces the curvature it is
+// driving — rather than from the turn decision. One rule then covers the junction arc, the Loco
+// Mode weave, and the straight in between, and nothing has to be kept in step with the turn
+// state machine.
+//
+// Measured over 240s of traffic, on the raw angle: a right turn holds 38.7° all the way round the
+// arc, a left 15.0°, the boost weave sits at 7° (p90), and going straight on through a junction is
+// a flat 0. Right beats left by more than 2:1 because right-hand traffic cuts the near corner
+// while a left sweeps the far diagonal — the tighter arc genuinely wants more lock, so the spread
+// is the model being right rather than something to flatten out.
+//
+// The gain is for legibility, not physics. Even on the doubled wheel, 15° of a 10px tread moves
+// the outline by about a pixel. 1.6× puts a right turn on the clamp (~34°, about where a real
+// front wheel stops) and a left at 24°, and everything below the clamp keeps its relative size —
+// a weave still reads as a flick and a corner as full lock.
+//
+// Unwinding is the ease and nothing else: measured, a car is down to 6.8° one unit out of the
+// junction and under 3° by three, which is a driver straightening up as the car does.
+const WHEELBASE = CAR_LEN * 0.6;   // hub to hub — the anchors sit at ±0.3·CAR_LEN
+const STEER_GAIN = 1.6;
+export const STEER_MAX = 0.6;      // ~34°, about where a real front wheel stops
+const STEER_EASE = 1.2;            // units of road to reach the target, not seconds — see below
 
+/**
+ * Step a front-wheel angle toward the lock the path implies, and hand it back.
+ *
+ * Exported because the police cruiser runs the same rule from `sim/police.js`. It is not in the
+ * `cars` array — it has no lane, no turn state and no collision coupling — so the only thing the
+ * two vehicles can share is this, and sharing it is what stops the cruiser's wheels drifting out
+ * of step with everyone else's the next time the gain is touched.
+ *
+ * Both yaws come in raw and the difference is taken the short way round, so a caller sweeping
+ * through ±π (the cruiser's U-turn) needs no special case. Nothing happens on a stationary
+ * vehicle: the wheels keep the lock they stopped with, and the divide is never reached.
+ */
+export function steerToward(angle, yaw, prevYaw, ds, wheelbase = WHEELBASE) {
+  if (!(ds > 1e-4)) return angle;
+  const dYaw = ((yaw - prevYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  const target = Math.max(-STEER_MAX, Math.min(STEER_MAX,
+    Math.atan((wheelbase * dYaw) / ds) * STEER_GAIN));
+  return angle + (target - angle) * Math.min(1, ds / STEER_EASE);
+}
 function carGeometry() {
   // Body is left white so the per-instance colour tints it; the glass is dark enough that the
   // same multiply leaves it dark whatever colour the car is.
@@ -393,14 +450,14 @@ function carGeometry() {
 
   // Body sits clear of the wheels so they actually show below the sill.
   const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
-  body.translate(0, 0.78, 0);
+  body.translate(0, 0.78 + CHASSIS_LIFT, 0);
   parts.push(bakeColor(body, new THREE.Color(1, 1, 1)));
 
   const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, 0.6, CAR_W * 0.86);
-  cabin.translate(-0.2, 1.45, 0);
+  cabin.translate(-0.2, 1.45 + CHASSIS_LIFT, 0);
   parts.push(bakeColor(cabin, color('carGlass')));
 
-  parts.push(...wheelGeometries());
+  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -455,6 +512,11 @@ function spawnCars(rng, count) {
       wasBoosting: false,
       lateral: 0,      // world-unit offset from the lane centre; + is toward the road centreline
       steer: 0,        // yaw offset while sliding across, so the car points where it is going
+      // Front-wheel angle, and the two values it is differenced from. Seeded straight, and paired
+      // so that dψ/ds is measured over exactly the step the car took.
+      wheelAngle: 0,
+      prevSteerYaw: dirYaw(d),
+      prevTravelled: 0,
       swerve: 0,       // 0..1 envelope on the Loco Mode weave, faded in and out with the boost
       swervePhase: 0,  // distance driven straight, the weave's argument — see SWERVE_* above
       // Ambient cars leave `route` empty and fall through to random turns. The taxi's route is
@@ -468,93 +530,24 @@ function spawnCars(rng, count) {
       isTaxi: false,
       instanceIndex: -1,
       x: 0, z: 0, yaw: dirYaw(d),
-      // Impact state. `stunned` is a small drift-physics packet set by src/sim/collisions.js;
-      // while it's non-null the car is off the lane grid and the usual driving/turning logic is
-      // skipped. `collisionCooldown` blocks a re-collision for a beat after recovery. `crashed`
-      // is set on the taxi only, permanently — every loop below skips it so the wreck sits still
-      // while the run-end banner comes up.
-      stunned: null,
-      collisionCooldown: 0,
+      // Impact state, set by src/sim/collisions.js on both cars in a crash and never cleared —
+      // every loop below skips a crashed car, so it leaves the lane grid for good and its shell
+      // is handed to the wreck effects while the run-end banner comes up.
       crashed: false,
       // Frantic reaction to a nearby police siren. Eased toward panicTargetFor() each frame and
       // applied at render as an outward shove, a yaw wobble, and a mild speed dip.
       panic: 0,
+      // Getting out of the boosting taxi's way. Eased toward 1 while the taxi is behind this car
+      // in its own lane; drives a higher speed cap and a turn-off-at-the-next-junction bias.
+      scatter: 0,
     });
   }
 
   return cars;
 }
 
-const laneKeyFor = (d, i, j) => (isXAxis(d) ? `x|${d}|${j}` : `z|${d}|${i}`);
-
-/**
- * Put a stunned car back onto the lane grid so normal driving logic can pick it up next frame.
- * Snaps position to the nearest lane centre along the car's travel axis and points it at the
- * next intersection in that direction. A car mid-turn adopts its exit direction, which is what
- * it was heading for anyway; the route (if any) survives, but a routed step that's no longer a
- * legal exit will be dropped by the normal turn logic and counted as a desync.
- */
-function recoverFromStun(car) {
-  const d = car.state === 'turn' ? car.dOut : car.d;
-  const sign = dirSign(d);
-
-  if (isXAxis(d)) {
-    let bestJ = 0;
-    let bestErr = Infinity;
-    for (let j = 0; j <= GRID; j++) {
-      const err = Math.abs(car.z - (lineCoord(j) + sign * LANE));
-      if (err < bestErr) { bestErr = err; bestJ = j; }
-    }
-    let targetI = null;
-    if (sign > 0) {
-      for (let i = 0; i <= GRID; i++) if (lineCoord(i) > car.x + 0.5) { targetI = i; break; }
-      if (targetI === null) targetI = GRID;
-    } else {
-      for (let i = GRID; i >= 0; i--) if (lineCoord(i) < car.x - 0.5) { targetI = i; break; }
-      if (targetI === null) targetI = 0;
-    }
-    car.i = targetI;
-    car.j = bestJ;
-    car.z = lineCoord(bestJ) + sign * LANE;
-    car.s = car.x;
-    car.laneKey = `x|${d}|${bestJ}`;
-  } else {
-    let bestI = 0;
-    let bestErr = Infinity;
-    for (let i = 0; i <= GRID; i++) {
-      const err = Math.abs(car.x - (lineCoord(i) - sign * LANE));
-      if (err < bestErr) { bestErr = err; bestI = i; }
-    }
-    let targetJ = null;
-    if (sign > 0) {
-      for (let j = 0; j <= GRID; j++) if (lineCoord(j) > car.z + 0.5) { targetJ = j; break; }
-      if (targetJ === null) targetJ = GRID;
-    } else {
-      for (let j = GRID; j >= 0; j--) if (lineCoord(j) < car.z - 0.5) { targetJ = j; break; }
-      if (targetJ === null) targetJ = 0;
-    }
-    car.i = bestI;
-    car.j = targetJ;
-    car.x = lineCoord(bestI) - sign * LANE;
-    car.s = car.z;
-    car.laneKey = `z|${d}|${bestI}`;
-  }
-
-  car.d = d;
-  car.dOut = d;
-  car.yaw = dirYaw(d);
-  car.state = 'drive';
-  car.turnT = 0;
-  car.v = 0;
-  car.prevV = 0;
-  car.lateral = 0;
-  car.steer = 0;
-  // Drop the weave envelope too, so a car put back on its lane centre is actually on it and the
-  // weave fades back in from there rather than resuming at whatever offset it was spun out on.
-  car.swerve = 0;
-  car.collisionCooldown = car.stunned?.postCooldown ?? 0.8;
-  car.stunned = null;
-}
+// Exported so a test can place a car on a lane without hand-rolling the key format.
+export const laneKeyFor = (d, i, j) => (isXAxis(d) ? `x|${d}|${j}` : `z|${d}|${i}`);
 
 function bezier(p0, p1, p2, t) {
   const mt = 1 - t;
@@ -578,7 +571,9 @@ export function createTraffic(rng, scene, count = 24) {
   // simply drawn as its own mesh instead of an instance, so it can be raycast and highlighted.
   const taxi = cars[0];
   taxi.isTaxi = true;
-  const { group: taxiGroup, setFareColor: setTaxiFareColor } = createTaxiMesh();
+  const {
+    group: taxiGroup, setFareColor: setTaxiFareColor, setSteer: setTaxiSteer,
+  } = createTaxiMesh();
   scene.add(taxiGroup);
 
   const ambient = cars.filter((c) => !c.isTaxi);
@@ -589,15 +584,33 @@ export function createTraffic(rng, scene, count = 24) {
   mesh.castShadow = true;
   mesh.name = 'cars';
 
+  // The steered front wheels, as their own instanced mesh: two per ambient car, each carrying the
+  // car's transform with a yaw of its own applied on top. They can't ride in the body geometry
+  // because every instance of that shares one matrix, and these two have to turn independently
+  // of it.
+  const FRONT = wheelAnchors(CAR_LEN, CAR_W).filter((a) => a.front);
+  const wheelMesh = new THREE.InstancedMesh(
+    wheelGeometry(), propMaterial(), ambient.length * FRONT.length,
+  );
+  wheelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  wheelMesh.castShadow = true;
+  wheelMesh.name = 'carWheels';
+
   const tint = new THREE.Color();
   ambient.forEach((car, index) => {
     tint.set(PALETTE.carBody[car.colorIndex]);
     mesh.setColorAt(index, tint);
+    // Tinted with the body it belongs to, not left neutral. The tyre is baked dark and the
+    // instance colour multiplies on top, so a front wheel that skipped this would sit a shade
+    // off its own rear wheel on every car in the city.
+    for (let w = 0; w < FRONT.length; w++) wheelMesh.setColorAt(index * FRONT.length + w, tint);
   });
   // With ?cars=1 there are no ambient vehicles at all, so setColorAt is never called and
   // instanceColor is still null.
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
   scene.add(mesh);
+  scene.add(wheelMesh);
 
   // --- Stop bars ------------------------------------------------------------
   //
@@ -664,6 +677,81 @@ export function createTraffic(rng, scene, count = 24) {
   const scl = new THREE.Vector3(1, 1, 1);
   const euler = new THREE.Euler();
   const headColor = new THREE.Color();
+  const ZERO_SCALE = new THREE.Vector3(0, 0, 0);
+
+  /**
+   * Take a wrecked car off the road and hand its bodywork to the game layer, which shrinks and
+   * fades it into the explosion — see game/vanish.js. Called for both cars in a crash.
+   *
+   * The taxi owns its own group — steered wheels and all — so that comes straight back. An ambient
+   * car is spread across two InstancedMeshes (body, plus one instance per steered front wheel),
+   * neither of which has anywhere to put a per-instance opacity: `instanceColor` is RGB only, so
+   * fading one would mean a custom attribute plus an onBeforeCompile patch for something that
+   * happens once per run. It is copied out into a standalone group wearing one tinted,
+   * transparent-able material instead, and every instance behind it collapses to zero scale.
+   */
+  function wreckShell(car) {
+    car.crashed = true;
+    if (car.isTaxi) return taxiGroup;
+
+    // One material across body and wheels, so the fade takes the whole copy down together.
+    // Baked vertex colours multiply by material.color exactly as they did by instanceColor, so
+    // the copy comes out the same car in the same paint.
+    const material = propMaterial();
+    material.color.set(PALETTE.carBody[car.colorIndex]);
+
+    const shell = new THREE.Group();
+    mesh.getMatrixAt(car.instanceIndex, matrix);
+    matrix.decompose(shell.position, shell.quaternion, shell.scale);
+
+    const body = new THREE.Mesh(mesh.geometry, material);
+    body.castShadow = true;
+    shell.add(body);
+
+    // The front wheels hang off the body matrix as separate instances — see writeAmbient. Copied
+    // here at the lock the impact caught them at, since a wreck isn't steering any more.
+    for (const anchor of FRONT) {
+      const wheel = new THREE.Mesh(wheelMesh.geometry, material);
+      wheel.position.set(anchor.x, anchor.y, anchor.z);
+      wheel.rotation.y = car.wheelAngle;
+      wheel.castShadow = true;
+      shell.add(wheel);
+    }
+    scene.add(shell);
+
+    // Collapse everything the copy replaces — body instance and both wheel instances.
+    matrix.compose(pos.set(car.x, ROAD_Y, car.z), quat.identity(), ZERO_SCALE);
+    mesh.setMatrixAt(car.instanceIndex, matrix);
+    for (let w = 0; w < FRONT.length; w++) {
+      wheelMesh.setMatrixAt(car.instanceIndex * FRONT.length + w, matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    wheelMesh.instanceMatrix.needsUpdate = true;
+    return shell;
+  }
+
+  const wheelMatrix = new THREE.Matrix4();
+  const wheelLocal = new THREE.Matrix4();
+  const wheelQuat = new THREE.Quaternion();
+  const wheelPos = new THREE.Vector3();
+  const UP = new THREE.Vector3(0, 1, 0);
+
+  /**
+   * Write one ambient car's body matrix and the two front wheels hanging off it. The wheels are
+   * composed *through* the body matrix rather than in world space, so they inherit the bob, the
+   * corner lean and the pitch rock for free and stay bolted to the arches through all three.
+   */
+  function writeAmbient(car) {
+    mesh.setMatrixAt(car.instanceIndex, matrix);
+    wheelQuat.setFromAxisAngle(UP, car.wheelAngle);
+    for (let w = 0; w < FRONT.length; w++) {
+      const anchor = FRONT[w];
+      wheelPos.set(anchor.x, anchor.y, anchor.z);
+      wheelLocal.compose(wheelPos, wheelQuat, scl);
+      wheelMatrix.multiplyMatrices(matrix, wheelLocal);
+      wheelMesh.setMatrixAt(car.instanceIndex * FRONT.length + w, wheelMatrix);
+    }
+  }
 
   /**
    * May a car joining the ring pull out? Only if nothing on the ring is bearing down on the
@@ -701,21 +789,26 @@ export function createTraffic(rng, scene, count = 24) {
 
     // Set before any car evaluates a signal this frame. Ring junctions get an override too —
     // the ring-vs-cross branches below check `priorityCovers` and route the boosting taxi through
-    // `canProceed`, which then yields the crossing ring traffic to the taxi's axis. A stunned or
-    // crashed taxi is off the lane grid: releasing its priority hold lets signals run.
+    // `canProceed`, which then yields the crossing ring traffic to the taxi's axis. A crashed
+    // taxi is off the lane grid: releasing its priority hold lets signals run.
     const taxiActive = !taxi.crashed;
-    setPriorityJunction(taxiActive && taxi.boost && !taxi.stunned
-      ? { i: taxi.i, j: taxi.j, axis: isXAxis(taxi.d) ? 'x' : 'z' }
+    const taxiTurningLeft = taxi.route?.length > 0 && taxi.route[0] === leftOf(taxi.d);
+    setPriorityJunction(taxiActive && taxi.boost
+      ? {
+        i: taxi.i,
+        j: taxi.j,
+        axis: isXAxis(taxi.d) ? 'x' : 'z',
+        block: taxiTurningLeft ? opposite(taxi.d) : null,
+      }
       : null);
 
-    if (taxiActive && taxi.boost && !taxi.wasBoosting && !taxi.stunned) {
+    if (taxiActive && taxi.boost && !taxi.wasBoosting) {
       taxi.v = Math.max(taxi.v, SPEED * BOOST_KICK);
     }
     taxi.wasBoosting = taxi.boost;
 
     // Weave inside the lane while boosting — the "he is driving like a maniac" tell, now that the
-    // taxi holds its own lane instead of straddling the centreline. Skipped while it is stunned:
-    // the drift physics owns its position for the moment.
+    // taxi holds its own lane instead of straddling the centreline.
     //
     // Both the wave's argument and its envelope are paced by *distance travelled*, not by elapsed
     // time, and neither advances unless the car is running straight. The centreline version this
@@ -723,7 +816,7 @@ export function createTraffic(rng, scene, count = 24) {
     // sat still at a red, and a ramp that ran through a corner pushed it off its own Bézier arc
     // partway round. Freezing the phase mid-turn also means the corner ends on the offset it
     // started on, with no jump back onto the wave on the way out.
-    if (taxiActive && !taxi.stunned) {
+    if (taxiActive) {
       if (taxi.state === 'drive') {
         const ds = taxi.v * dt;
         taxi.swervePhase += ds;
@@ -763,14 +856,12 @@ export function createTraffic(rng, scene, count = 24) {
       let laneS = 0;
       let laneDir = car.d;
 
-      // A stunned car is off the grid entirely — followers just have to see it as an obstacle at
-      // render time. A crashed taxi is not in traffic at all. A *boosting* taxi used to be
-      // skipped here too, on the grounds that it had left its lane; now that it only weaves
-      // within it, it belongs in the bookkeeping like anyone else. That cuts both ways and both
-      // matter: it sees the car it is closing on, and traffic behind it sees it when the car in
-      // front makes it brake — an ambient car rear-ending the taxi ended the run through no fault
-      // of the player.
-      if (car.stunned || car.crashed) continue;
+      // A crashed car is not in traffic at all. A *boosting* taxi used to be skipped here too, on
+      // the grounds that it had left its lane; now that it only weaves within it, it belongs in
+      // the bookkeeping like anyone else. That cuts both ways and both matter: it sees the car it
+      // is closing on, and traffic behind it sees it when the car in front makes it brake — an
+      // ambient car rear-ending the taxi ended the run through no fault of the player.
+      if (car.crashed) continue;
 
       if (car.state === 'drive') {
         key = car.laneKey;
@@ -815,36 +906,61 @@ export function createTraffic(rng, scene, count = 24) {
       }
     }
 
+    // --- Who is in the boosting taxi's way?
+    //
+    // Both the lane it is driving and the lane it is about to land in: a queue sitting on the
+    // exit point is what turns the don't-block-the-box check below into a dead stop at a green
+    // line, which is the second-biggest thing that took Loco Mode's speed away.
+    const fleeing = new Set();
+    if (taxiActive && taxi.boost) {
+      const mark = (key, fromS, d) => {
+        const sign = dirSign(d);
+        for (const { car, laneS } of lanes.get(key) ?? []) {
+          if (car.isTaxi) continue;
+          const ahead = (laneS - fromS) * sign;
+          if (ahead > 0 && ahead <= SCATTER_RANGE) fleeing.add(car);
+        }
+      };
+
+      // The exit lane is measured from behind its exit point by the same clearance the box check
+      // wants, so the cars that would fail that check are exactly the ones told to move.
+      const markExit = (d) => mark(
+        laneKeyFor(d, taxi.i, taxi.j),
+        along(d, exitPoint(d, taxi.i, taxi.j)) - dirSign(d) * MIN_GAP * 1.5,
+        d,
+      );
+
+      if (taxi.state === 'drive') {
+        mark(taxi.laneKey, taxi.s, taxi.d);
+        // Only once the junction is close enough to matter — otherwise every car on every road
+        // the route touches is fleeing a taxi two blocks away.
+        const toLine = (along(taxi.d, entryPoint(taxi.d, taxi.i, taxi.j)) - taxi.s) * dirSign(taxi.d);
+        if (toLine <= SCATTER_RANGE) {
+          const dOut = taxi.route?.length ? taxi.route[0] : taxi.d;
+          if (legalExits(taxi.d, taxi.i, taxi.j).includes(dOut)) markExit(dOut);
+        }
+      } else {
+        markExit(taxi.dOut);
+      }
+    }
+
+    for (const car of cars) {
+      // Snaps on, lets go slowly. The flee has to start on the frame the taxi arrives behind, but
+      // dropping it the instant the taxi turns off would visibly deflate the car mid-block.
+      const target = fleeing.has(car) ? 1 : 0;
+      car.scatter += (target - car.scatter) * Math.min(1, dt * (target > car.scatter ? 12 : 1.2));
+    }
+
     stats.moving = 0;
     stats.waiting = 0;
 
     for (const car of cars) {
       if (car.crashed) continue;
-      if (car.collisionCooldown > 0) car.collisionCooldown = Math.max(0, car.collisionCooldown - dt);
 
       // Ease panic toward its target on every car every frame, so it decays smoothly whether the
       // car is driving, turning, or otherwise skipped by the physics branch below.
       const panicTarget = panicTargetFor(car);
       car.panic += (panicTarget - car.panic) * Math.min(1, dt * 6);
-
-      if (car.stunned) {
-        // Drift under the impact kick, wobble in yaw, sit at v=0 so exit-speedFactor logic doesn't
-        // spike. Damping settles both linear and angular so the car isn't still sliding when the
-        // timer runs out and recovery snaps it back to a lane centre.
-        const s = car.stunned;
-        s.timeLeft -= dt;
-        car.x += s.vx * dt;
-        car.z += s.vz * dt;
-        car.yaw += s.yawRate * dt;
-        const damp = Math.exp(-4 * dt);
-        s.vx *= damp;
-        s.vz *= damp;
-        s.yawRate *= damp * 0.85;
-        car.v = 0;
-        car.speedFactor = 0;
-        if (s.timeLeft <= 0) recoverFromStun(car);
-        continue;
-      }
 
       if (car.state === 'drive') {
         const sign = dirSign(car.d);
@@ -885,9 +1001,15 @@ export function createTraffic(rng, scene, count = 24) {
         // A panicking car — one currently reacting to the siren — dips off the throttle. The
         // deeper reaction is visual (the swerve and the wobble at render time); this just keeps
         // it from serenely holding cruise while jerking around the road.
-        const cruiseCap = SPEED * (1 - PANIC_BRAKE * car.panic);
+        // A car fleeing the boosting taxi lifts its ceiling and finds some urgency to go with it:
+        // at ACCEL it would need 24 units to reach the scatter speed and the junction is 20 away,
+        // so without the extra push the higher cap would never actually be reached.
+        const cruiseCap = SPEED * (1 + (SCATTER_SPEED - 1) * car.scatter)
+          * (1 - PANIC_BRAKE * car.panic);
         const topSpeed = car.boost ? SPEED * BOOST_SPEED : cruiseCap;
-        const accel = car.boost ? BOOST_ACCEL : ACCEL;
+        const accel = car.boost
+          ? BOOST_ACCEL
+          : ACCEL + (BOOST_ACCEL - ACCEL) * car.scatter;
         const desired = Math.min(topSpeed, Math.sqrt(2 * BRAKE * Math.max(0, allowed)));
         car.v = desired > car.v
           ? Math.min(desired, car.v + accel * dt)
@@ -961,7 +1083,11 @@ export function createTraffic(rng, scene, count = 24) {
               const weighted = [];
               options.forEach((d) => {
                 const kind = d === car.d ? 0 : d === leftOf(car.d) ? 2 : 1;
-                weighted.push({ d, w: TURN_WEIGHTS[kind] });
+                // Fleeing the boosting taxi: carrying straight on keeps this car in the taxi's
+                // lane for another whole block, so it barely rolls that option. Still a weight
+                // rather than a filter — at a T-junction straight may be the only legal exit.
+                const w = kind === 0 && car.scatter > 0.5 ? SCATTER_STRAIGHT_W : TURN_WEIGHTS[kind];
+                weighted.push({ d, w });
               });
               const total = weighted.reduce((sum, o) => sum + o.w, 0);
               let roll = rng.next() * total;
@@ -974,12 +1100,24 @@ export function createTraffic(rng, scene, count = 24) {
 
             // Left turns yield to oncoming traffic close to the same intersection.
             if (dOut === leftOf(car.d)) {
-              const oncoming = approaching.get(`${car.i},${car.j},${opposite(car.d)}`) ?? [];
-              const blocked = oncoming.some((other) => {
-                const otherStop = along(other.d, entryPoint(other.d, other.i, other.j));
-                const otherDist = (otherStop - other.s) * dirSign(other.d);
-                return otherDist >= 0 && otherDist < YIELD_RANGE;
-              });
+              let blocked;
+              if (car.boost && priorityCovers(car.i, car.j)) {
+                // The oncoming lane is already being held at its own line by the priority hold
+                // (see `block` on priorityJunction), so measuring the distance to it would mean
+                // waiting for a car that is waiting for us — a deadlock that read on screen as
+                // the brakes coming on under a green. Only a vehicle already inside the junction
+                // can still be turned into.
+                blocked = cars.some((other) => other !== car && other.state === 'turn'
+                  && other.i === car.i && other.j === car.j && !other.crashed
+                  && other.d === opposite(car.d));
+              } else {
+                const oncoming = approaching.get(`${car.i},${car.j},${opposite(car.d)}`) ?? [];
+                blocked = oncoming.some((other) => {
+                  const otherStop = along(other.d, entryPoint(other.d, other.i, other.j));
+                  const otherDist = (otherStop - other.s) * dirSign(other.d);
+                  return otherDist >= 0 && otherDist < YIELD_RANGE;
+                });
+              }
               if (blocked) dOut = null;
             }
 
@@ -990,15 +1128,20 @@ export function createTraffic(rng, scene, count = 24) {
               const exitKey = laneKeyFor(dOut, car.i, car.j);
               const exitS = along(dOut, exitPoint(dOut, car.i, car.j));
               const exitSign = dirSign(dOut);
+              // Extra margin on top of the following distance, because the exit lane can back up
+              // during the second or so the turn takes and holding mid-intersection is far more
+              // disruptive than simply waiting at the line. That margin is priced in time, not
+              // distance: a boosting taxi crosses in 0.35–0.7s rather than ~1.2s, so it has half
+              // as long to be overtaken by events and only needs the plain following distance.
+              // Charging it the full 1.5× was the single biggest cause of a dead stop under a
+              // green with the button held — 9.7% of boosted frames at ?cars=40.
+              const clearance = car.boost ? MIN_GAP : MIN_GAP * 1.5;
               const occupied = (lanes.get(exitKey) ?? []).some(({ car: other, laneS }) => {
                 if (other === car || other.state !== 'drive') return false;
                 // Clearance is needed on both sides: a car approaching from behind the exit
                 // point gets landed on just as hard as one already sitting in front of it.
-                // Extra margin on top of the following distance: the exit lane can still back
-                // up during the second or so the turn takes, and holding mid-intersection is
-                // far more disruptive than simply waiting at the line.
                 const ahead = (laneS - exitS) * exitSign;
-                return Math.abs(ahead) < MIN_GAP * 1.5;
+                return Math.abs(ahead) < clearance;
               });
               if (occupied) dOut = null;
             }
@@ -1119,24 +1262,10 @@ export function createTraffic(rng, scene, count = 24) {
     for (let index = 0; index < cars.length; index++) {
       const car = cars[index];
 
-      // A crashed taxi's mesh was hidden by the collision handler; nothing to compose.
+      // A crashed car's shell belongs to the wreck effects now — `wreckShell()` handed the game
+      // layer either the taxi group or a standalone copy of this instance to shrink and fade, and
+      // collapsed the instance itself. Composing a transform here would resurrect it.
       if (car.crashed) continue;
-
-      if (car.stunned) {
-        // Position and yaw were stepped by the stun physics; write them straight into the mesh
-        // with a slight lift so the car reads as jolted rather than sunken into the tarmac.
-        const lift = 0.06;
-        if (car.isTaxi) {
-          taxiGroup.position.set(car.x, ROAD_Y + lift, car.z);
-          taxiGroup.rotation.set(0, car.yaw, 0);
-        } else {
-          pos.set(car.x, ROAD_Y + lift, car.z);
-          quat.setFromEuler(euler.set(0, car.yaw, 0, 'YXZ'));
-          matrix.compose(pos, quat, scl);
-          mesh.setMatrixAt(car.instanceIndex, matrix);
-        }
-        continue;
-      }
 
       if (car.state === 'drive') {
         const lane = laneOffsetCoord(car.d, car.i, car.j);
@@ -1172,6 +1301,22 @@ export function createTraffic(rng, scene, count = 24) {
         car.z -= Math.cos(car.yaw) * car.lateral;
       }
       if (car.steer) car.yaw += car.steer;
+
+      // --- Front wheels point where the car is going.
+      //
+      // Differenced against the heading the *lane* gave it — after the weave, which is a genuine
+      // steering input, and deliberately before the panic wobble below, which is not. The wobble
+      // is a shimmy through the body at PANIC_WOBBLE·5.5 ≈ 0.9 rad per unit of road; run through
+      // this it would slam the wheels lock to lock several times a second.
+      //
+      // Paced by distance, like the weave and for the same reason: a car held at a red keeps the
+      // lock it rolled up to the line with instead of straightening under a time-based ease, and
+      // one stopped mid-turn — waiting for room to land — holds its wheels round the corner. That
+      // is also what makes the divide safe, since a stationary car never reaches it.
+      const ds = car.travelled - car.prevTravelled;
+      car.prevTravelled = car.travelled;
+      car.wheelAngle = steerToward(car.wheelAngle, car.yaw, car.prevSteerYaw, ds);
+      car.prevSteerYaw = car.yaw;
 
       // Panic offset: shove kerb-ward and jitter the yaw when the siren is close. The taxi is
       // skipped in panicTargetFor(), so this only ever fires on ambient traffic. Skipped mid-turn
@@ -1236,15 +1381,17 @@ export function createTraffic(rng, scene, count = 24) {
       if (car.isTaxi) {
         taxiGroup.position.set(car.x, ROAD_Y + bob + lift, car.z);
         taxiGroup.rotation.set(roll, car.yaw, shownPitch);
+        setTaxiSteer(car.wheelAngle);
         continue;
       }
 
       pos.set(car.x, ROAD_Y + bob + lift, car.z);
       quat.setFromEuler(euler.set(roll, car.yaw, car.pitch, 'YXZ'));
       matrix.compose(pos, quat, scl);
-      mesh.setMatrixAt(car.instanceIndex, matrix);
+      writeAmbient(car);
     }
     mesh.instanceMatrix.needsUpdate = true;
+    wheelMesh.instanceMatrix.needsUpdate = true;
 
     // --- Stop bar colours, one per approach.
     for (let index = 0; index < bars.length; index++) {
@@ -1265,7 +1412,8 @@ export function createTraffic(rng, scene, count = 24) {
   }
 
   return {
-    cars, taxi, taxiGroup, setTaxiFareColor, mesh, barMesh, update, warmup, stats,
+    cars, taxi, taxiGroup, setTaxiFareColor, mesh, wheelMesh, barMesh, update, warmup,
+    wreckShell, stats,
     lightPhase, displayPhase,
   };
 }

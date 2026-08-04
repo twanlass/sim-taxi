@@ -26,6 +26,9 @@ import { PALETTE } from '../palette.js';
 // for imported JSON.
 
 const WHEEL_COLOR = '#6f6f76';   // sRGB for the linear (0.16, 0.16, 0.18) the game's wheels bake
+// How far the tread stands out past the flank — geometry/wheels.js's rule, kept in step: wheels
+// anchor by their OUTER FACE, not their centre, so widening a tyre doesn't push the track out.
+const WHEEL_PROUD = 0.11;
 const SINK = 0.03;
 // Cabin and cargo sink SINK into the surface below them, so lighting never opens a seam
 // between stacked volumes. The sedan's cabin at y 1.45 = body top 1.18 − 0.03 + half-height 0.30.
@@ -39,15 +42,15 @@ export const LIMITS = {
   'body.len': [2.4, 6],
   'body.width': [1.2, 2.6],
   'body.height': [0.4, 2],
-  'body.clearance': [0.2, 0.8],
+  'body.clearance': [0.2, 1],
   'cabin.lenFrac': [0.15, 0.95],
   'cabin.offsetFrac': [-0.42, 0.42],
   'cabin.height': [0.2, 1.4],
   'cabin.widthFrac': [0.6, 1],
   'cabin.rakeFront': [0, 1.2],
   'cabin.rakeBack': [0, 1.2],
-  'wheels.radius': [0.2, 0.6],
-  'wheels.width': [0.14, 0.6],
+  'wheels.radius': [0.2, 0.85],
+  'wheels.width': [0.14, 0.7],
   'wheels.insetFrac': [0.18, 0.44],
   'wheels.axles': [2, 3],
   'wheels.segments': [6, 24],
@@ -60,7 +63,9 @@ export const LIMITS = {
 
 export const DEFAULT_SPEC = {
   name: 'Sedan',
-  body: { len: 3.4, width: 1.7, height: 0.8, clearance: 0.38, profile: RECT_PROFILE },
+  // Clearance 0.70 = the 0.38 the body was designed at plus the game's CHASSIS_LIFT (0.32),
+  // which followed the wheels doubling to r 0.64 so the steering would read at play zoom.
+  body: { len: 3.4, width: 1.7, height: 0.8, clearance: 0.7, profile: RECT_PROFILE },
   // Fractions of body length, so stretching the body carries the cabin with it. The rakes lean
   // the windscreen and rear screen in; profile null means "shaped by the rakes" — a trapezoid —
   // and a chain drawn in the editor replaces the rakes as the cabin's silhouette.
@@ -68,7 +73,7 @@ export const DEFAULT_SPEC = {
     lenFrac: 0.5, offsetFrac: -0.2 / 3.4, height: 0.6, widthFrac: 0.86,
     rakeFront: 0, rakeBack: 0, profile: null,
   },
-  wheels: { radius: 0.32, width: 0.26, insetFrac: 0.3, axles: 2, segments: 8 },
+  wheels: { radius: 0.64, width: 0.52, insetFrac: 0.3, axles: 2, segments: 8 },
   // type: 'none' | 'bed' (open pickup walls) | 'box' (tall cargo body). color 'body' follows
   // the body colour, so recolouring the truck doesn't leave a stale bed behind. boxOverhang
   // extends the box past the rear bumper, box-truck style; profile shapes the box's flank.
@@ -103,11 +108,11 @@ export const PRESETS = {
     name: 'Sports car',
     // The profile showcase: nose low, screen fast, tail chopped — none of it reachable with a box.
     body: {
-      len: 3.7, width: 1.75, height: 0.95, clearance: 0.3,
+      len: 3.7, width: 1.75, height: 0.95, clearance: 0.56,
       profile: [[0.5, 0], [0.5, 0.4], [0.1, 0.78], [-0.18, 1], [-0.44, 0.96], [-0.5, 0.5], [-0.5, 0]],
     },
     cabin: { ...DEFAULT_SPEC.cabin, lenFrac: 0.4, offsetFrac: -0.12, height: 0.34, widthFrac: 0.88, rakeFront: 0.45, rakeBack: 0.3 },
-    wheels: { ...DEFAULT_SPEC.wheels, radius: 0.34, width: 0.3, insetFrac: 0.34 },
+    wheels: { ...DEFAULT_SPEC.wheels, radius: 0.6, width: 0.5, insetFrac: 0.34 },
     cargo: { ...DEFAULT_SPEC.cargo },
     colors: { ...DEFAULT_SPEC.colors, body: PALETTE.carBody[0] },
     partColors: {},
@@ -115,9 +120,9 @@ export const PRESETS = {
   },
   van: {
     name: 'Van',
-    body: { len: 3.9, width: 1.8, height: 1.4, clearance: 0.4, profile: RECT_PROFILE },
+    body: { len: 3.9, width: 1.8, height: 1.4, clearance: 0.72, profile: RECT_PROFILE },
     cabin: { ...DEFAULT_SPEC.cabin, lenFrac: 0.72, offsetFrac: -0.04, height: 0.5, widthFrac: 0.88, rakeFront: 0.3 },
-    wheels: { ...DEFAULT_SPEC.wheels, radius: 0.34, width: 0.28, insetFrac: 0.32 },
+    wheels: { ...DEFAULT_SPEC.wheels, radius: 0.66, insetFrac: 0.32 },
     cargo: { ...DEFAULT_SPEC.cargo },
     colors: { ...DEFAULT_SPEC.colors, body: PALETTE.carBody[1] },
     partColors: {},
@@ -125,9 +130,9 @@ export const PRESETS = {
   },
   pickup: {
     name: 'Pickup',
-    body: { len: 4.1, width: 1.8, height: 0.75, clearance: 0.45, profile: RECT_PROFILE },
+    body: { len: 4.1, width: 1.8, height: 0.75, clearance: 0.79, profile: RECT_PROFILE },
     cabin: { ...DEFAULT_SPEC.cabin, lenFrac: 0.34, offsetFrac: 0.1, height: 0.65, widthFrac: 0.88, rakeFront: 0.28 },
-    wheels: { ...DEFAULT_SPEC.wheels, radius: 0.36, width: 0.3, insetFrac: 0.32 },
+    wheels: { ...DEFAULT_SPEC.wheels, radius: 0.7, width: 0.56, insetFrac: 0.32 },
     cargo: { ...DEFAULT_SPEC.cargo, type: 'bed', bedWall: 0.4 },
     colors: { ...DEFAULT_SPEC.colors, body: PALETTE.carBody[0] },
     partColors: {},
@@ -135,9 +140,9 @@ export const PRESETS = {
   },
   boxtruck: {
     name: 'Box truck',
-    body: { len: 4.9, width: 2, height: 0.7, clearance: 0.5, profile: RECT_PROFILE },
+    body: { len: 4.9, width: 2, height: 0.7, clearance: 0.86, profile: RECT_PROFILE },
     cabin: { ...DEFAULT_SPEC.cabin, lenFrac: 0.24, offsetFrac: 0.33, height: 0.85, widthFrac: 0.95, rakeFront: 0.35 },
-    wheels: { ...DEFAULT_SPEC.wheels, radius: 0.38, width: 0.32, insetFrac: 0.34, axles: 3 },
+    wheels: { ...DEFAULT_SPEC.wheels, radius: 0.74, width: 0.58, insetFrac: 0.34, axles: 3 },
     cargo: { ...DEFAULT_SPEC.cargo, type: 'box', boxHeight: 1.9, boxOverhang: 0.35, color: PALETTE.pale },
     colors: { ...DEFAULT_SPEC.colors, body: PALETTE.carBody[0] },
     partColors: {},
@@ -147,7 +152,7 @@ export const PRESETS = {
     name: 'Police',
     // Matches policeGeometry() in sim/police.js: 3.6 × 1.8 body, white 1.9-long roof at −0.2,
     // a wrap-around skirt stripe, wheels at ±1.08. The "glass" slot carries the white roof.
-    body: { len: 3.6, width: 1.8, height: 0.8, clearance: 0.38, profile: RECT_PROFILE },
+    body: { len: 3.6, width: 1.8, height: 0.8, clearance: 0.7, profile: RECT_PROFILE },
     cabin: { ...DEFAULT_SPEC.cabin, lenFrac: 1.9 / 3.6, offsetFrac: -0.2 / 3.6, height: 0.62, widthFrac: 1.6 / 1.8 },
     wheels: { ...DEFAULT_SPEC.wheels },
     cargo: { ...DEFAULT_SPEC.cargo },
@@ -450,7 +455,9 @@ export function buildVehicleGeometry(spec) {
     for (const sz of [-1, 1]) {
       const wheel = new THREE.CylinderGeometry(s.wheels.radius, s.wheels.radius, s.wheels.width, s.wheels.segments);
       wheel.rotateX(Math.PI / 2);   // axle across the car
-      wheel.translate(x, s.wheels.radius, sz * (width / 2 - 0.02));
+      // Anchored by the tread's outer face, like geometry/wheels.js — widening a tyre grows it
+      // inward under the body instead of pushing the track out onto outriggers.
+      wheel.translate(x, s.wheels.radius, sz * (width / 2 + WHEEL_PROUD - s.wheels.width / 2));
       add('wheels', wheel, paint('wheels', s.colors.wheels));
     }
   }

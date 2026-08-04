@@ -15,7 +15,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/ridermeter.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/dust.js', '../src/game/sparks.js', '../src/game/smoke.js',
   '../src/game/debris.js', '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
-  '../src/game/dropoffindicator.js', '../src/geometry/carkit.js'];
+  '../src/game/dropoffindicator.js', '../src/game/vanish.js', '../src/geometry/carkit.js'];
 
 const TOOLS = [
   { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },
@@ -144,10 +144,11 @@ try {
   const sedan = buildVehicleGeometry(PRESETS.sedan);
   sedan.computeBoundingBox();
   const s = sedan.boundingBox;
-  // carGeometry(): body 3.4 long, cabin roof at 1.75, wheels on the road and proud of the
-  // flanks — z centre ±0.83 plus half the 0.26 tyre width = ±0.96.
+  // carGeometry() after the doubled wheels and CHASSIS_LIFT: body 3.4 long, cabin roof at
+  // 1.45 + 0.32 + 0.3 = 2.07, wheels on the road and proud of the flanks — outer tread face at
+  // ±(0.85 + WHEEL_PROUD) = ±0.96, same as it always was, because wheels anchor by that face.
   const near = (a, b) => Math.abs(a - b) < 1e-4;
-  if (!(near(s.max.x, 1.7) && near(s.min.x, -1.7) && near(s.max.z, 0.96) && near(s.max.y, 1.75) && near(s.min.y, 0))) {
+  if (!(near(s.max.x, 1.7) && near(s.min.x, -1.7) && near(s.max.z, 0.96) && near(s.max.y, 2.07) && near(s.min.y, 0))) {
     throw new Error(`sedan drifted from the game car: ${JSON.stringify(s)}`);
   }
   sedan.dispose();

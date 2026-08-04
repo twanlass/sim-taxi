@@ -153,6 +153,18 @@ running boost doesn't re-fire either.
   same `Math.abs(Math.sin(pitch)) * (CAR_LEN / 2)` so the rear stays on the road as the nose
   comes up.
 
+### Wreck — `game/debris.js`, `game/vanish.js`, plus flames/smoke/sparks
+
+The crash is a stack of the effects above fired at two points at once — one per car, since a crash
+now destroys both. Debris runs a **pool per car** (a pool re-shoots its own pieces, so sharing one
+would yank the taxi's wreckage across to the other car's), and the victim's pool is repainted at
+burst time in that car's colour.
+
+`vanish.js` owns the disappearance: each shell shrinks and fades into its own fireball over 0.34s
+of sim time rather than being switched off. It steps on the frame's already-slowed `dt`, so it
+runs at the same rate as the debris and smoke through the crash slow-mo. See
+[traffic.md](traffic.md#the-wreck) for the rest of the staging.
+
 ### Route band — `game/routeline.js`
 
 A band of paint down the **lane the taxi will drive**, from just ahead of the car to its

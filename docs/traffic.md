@@ -117,6 +117,72 @@ made without recomputing the cycle. Corridor, priority, and ring branches return
 **Turns** follow a quadratic Bézier through `entryPoint → turnControl → exitPoint`, with yaw
 interpolated by `lerpAngle` so a car never spins the long way round.
 
+### Front wheels
+
+The front pair steers. The angle is **read back from the path the car actually took** rather than
+from the turn decision: `atan(WHEELBASE · dψ/ds)` is the Ackermann angle that produces the
+curvature the car is describing, so one rule covers the junction arc, the Loco Mode weave and the
+straight in between, and nothing has to be kept in step with the turn state machine.
+
+Two things are deliberately outside it. The panic wobble is added *after* the difference is taken —
+it is a shimmy through the body at ~0.9 rad per unit of road, and steering the wheels with it would
+slam them lock to lock several times a second. And the ease is paced by **distance**, like the
+weave and for the same reason: a car held at a red keeps the lock it rolled up to the line with,
+and one stopped mid-turn waiting for room to land holds its wheels round the corner. That is also
+what makes the divide safe — a stationary car never reaches it.
+
+Measured over 240s of traffic, on the raw angle:
+
+| | raw | rendered |
+|---|---|---|
+| right turn | 38.7° | 34° (on the clamp) |
+| left turn | 15.0° | 24° |
+| boost weave (p90) | 7° | 11° |
+| straight on through a junction | 0° | 0° |
+
+Right beats left by more than 2:1 because right-hand traffic cuts the near corner while a left
+sweeps the far diagonal — the tighter arc genuinely wants more lock. `STEER_GAIN` of 1.6 is for
+legibility, not physics: even on the doubled wheel, 15° moves the outline by about a pixel.
+Everything under the clamp keeps its relative size, so a weave still reads as a flick and a corner
+as full lock. Unwinding is the ease and nothing else — a car is down to 6.8° one unit out of the
+junction and under 3° by three.
+
+### Wheel size and ride height
+
+`src/geometry/wheels.js` owns both, and owns them for every vehicle in the game. It is a module of
+its own because `traffic.js` and `geometry/taxi.js` already import each other — a cycle that was
+harmless while only functions crossed it, and stopped being harmless the moment a constant did.
+
+The wheels are **double** what they shipped at (0.64 radius, 0.52 tread). At 0.32 the steering was
+there and unreadable: a wheel was about 5px long at play zoom and its whole travel from straight to
+full lock moved the outline by roughly a pixel.
+
+Doubling alone is not enough, and the two failed attempts are the reason `CHASSIS_LIFT` exists:
+
+- **Big wheels under an unchanged body** is the monster-truck look — the tops cleared the waistline
+  and the car sat sunk between them.
+- **Tucking them inside the flank** fixed the proportions and threw away the point. Occluded from
+  this camera a wheel shows as a notch in the sill, and its angle goes straight back to being
+  unreadable.
+
+So the body rises with the wheel and the tread stays proud. Every y in the vehicle geometry — cars,
+taxi, cruiser, and the app icon in `tools/make-icon.mjs` — is still written as the number it was
+designed at, plus `CHASSIS_LIFT`, which is derived from `WHEEL_R` so the two can't drift apart.
+The result reads as a chunky toy car up close and as an ordinary car at play zoom, which is the
+zoom that matters.
+
+The wheels don't **roll**, on purpose. At cruise a 0.32-radius wheel turns 0.44 rad per frame at
+60fps against a facet every 0.79 rad on an 8-sided cylinder — past the half-facet point, so it
+would strobe backwards. A 5px wheel spinning the wrong way is worse than one that doesn't spin.
+
+Ambient cars carry theirs as a **second InstancedMesh** of two instances per car, each composed
+*through* the body's matrix so it inherits the bob, the corner lean and the pitch rock for free.
+They can't ride in the body geometry, which is one shared matrix per car. The taxi's are ordinary
+meshes on its group, since it is drawn as a group anyway.
+
+The rule itself is `steerToward()`, exported because the police cruiser runs it too — see
+[The bust chase](#the-bust-chase).
+
 ## Boost (crazy-taxi mode)
 
 ```js
@@ -134,11 +200,16 @@ The other half is the corner rule:
 ```js
 const straightOn = car.dOut === car.d;
 const cruise = car.boost ? SPEED * BOOST_SPEED : SPEED;
-const cornerTarget = straightOn || car.boost ? cruise : CORNER_SPEED;
+const boostTurn = car.boost ? (isRight ? cruise * 0.75 : cruise) : CORNER_SPEED;
+const cornerTarget = straightOn ? cruise : boostTurn;
 ```
 
-A boosting taxi does not slow for corners at all — without this it braked at every junction and
-the whole mode read as choppy rather than fast.
+A boosting taxi doesn't lift for straights or left turns — without that it braked at every junction
+and the whole mode read as choppy rather than fast. Right turns are the one exception: with
+right-hand traffic they cut the near corner instead of sweeping the far diagonal, so at full boost
+the arc is over in ~0.35s against a left's ~0.7s and reads as *sped up*. 0.75× cruise gives the
+tight arc its weight back. It is the only deliberate speed drop left in the mode, and it accounts
+for ~9% of boosted frames.
 
 **It stays in its lane and weaves inside it.** The first version slid a full `LANE` out onto the
 road centreline to overtake, and that is what made the mode a lottery: on the centreline the taxi
@@ -178,6 +249,55 @@ junctions are covered too: the ring/cross branches check `priorityCovers` and ro
 taxi through `canProceed`, so joining ring traffic yields to the taxi's axis exactly the way a
 siren's corridor yields it.
 
+`priorityJunction.block` names one further direction denied at that junction despite its axis
+reading green. It is only ever the direction *opposite* the taxi, and only while the taxi's route
+calls for a left turn — see [What was still braking it](#what-was-still-braking-it).
+
+### What was still braking it
+
+Loco Mode is meant to be go-go-go, and it wasn't. Attributing every frame the boosting taxi spent
+below its 18.7 u/s cap, over 12 minutes per density:
+
+| what was limiting it | ?cars=12 | 24 | 40 |
+|---|---|---|---|
+| signals | 0.0% | 0.0% | 0.0% |
+| queued behind the car in front | 9.2% | 15.0% | 25.2% |
+| stopped at the line | 2.8% | 4.9% | 11.0% |
+| ...of which: exit lane full (don't-block-the-box) | 2.7% | 4.1% | 9.7% |
+| ...of which: left turn yielding to oncoming | 0.1% | 0.7% | 0.8% |
+
+The signal work was already done — **none** of it was lights. All of it was ordinary traffic, and
+the taxi cannot go round: the lane is 4 wide against a 2.31-unit collision envelope, which is the
+whole reason the centreline overtake was abandoned. So the traffic moves instead.
+
+**Scatter.** A car with the boosting taxi behind it in its own lane — or sitting on the exit point
+the taxi is about to land on — floors it (`SCATTER_SPEED` = 2.0× cruise, kept just under the taxi's
+2.2 so the taxi still closes and the flee reads as *not quite enough*) and all but stops rolling
+"carry straight on" when it reaches the next junction. Speed buys the second it takes to get there;
+turning off is what actually clears the lane. It eases in over ~0.1s and out over ~0.8s, so a car
+doesn't visibly deflate the instant the taxi turns away.
+
+**Don't-block-the-box, priced in time.** The 1.5× following-distance margin on the exit lane exists
+because the lane can back up during the second or so a turn takes. A boosting taxi crosses in
+0.35–0.7s, so it is charged the plain `MIN_GAP` instead. Mid-junction stalls went *down*, not up
+(2.6% → 1.0% of boosted frames at `?cars=40`), because scatter clears the exit lane anyway.
+
+**Left turns.** Oncoming traffic shares the taxi's axis, so the priority hold left it green and the
+left-turn yield then refused to let the taxi go — waiting on a car that was itself waiting. Hence
+`block`: the oncoming lane holds at its own line for the beat it takes to cross, and the taxi only
+checks for something already inside the junction.
+
+Net, per density: dead stops at the line **2.8/4.9/11.0% → 1.1/1.7/4.2%**, time queued behind a
+leader **9.2/15.0/25.2% → 5.1/9.0/16.7%**, mean speed **95/92/89% → 96/94/92%** of the cap. Crash
+rate fell too — 13.3s → 15.7s between impacts at `?cars=12` — because the cars in front move away
+rather than being run into.
+
+Aggregate speed is *not* asserted in `tools/probe.mjs`. It was tried and thrown out: changing the
+turn weights reroutes the whole city's rng stream, so a before/after pair is two different worlds,
+and the seed-to-seed spread (73%–96% across eight cities) swamps a two-point effect. What the probe
+checks instead is the mechanism — that traffic in front of a boosting taxi exceeds ambient cruise,
+and that a boosting taxi takes its left turn while the oncoming car holds.
+
 **The lamps don't show the hold.** Stop bars are coloured from `displayPhase`, which is
 `lightPhase` with the priority branch skipped, so the heads keep running their real cycle while the
 taxi barges through. Wired to `lightPhase` they flipped green a beat before the taxi arrived, and
@@ -190,6 +310,45 @@ watching the green path open ahead of the siren is the whole effect.
 The meter itself lives in `game/boost.js` as a pure clock with no knowledge of the taxi or the
 DOM. Hold-to-enable: the tank drains only while the button is held (15s from full), releasing just
 pauses it, and once empty it refills over 15s before it can be held again.
+
+## The wreck
+
+`sim/collisions.js` detects the impact, `main.js` stages it, `game/vanish.js` clears the bodywork
+away.
+
+**Both cars are destroyed.** The one the taxi hits used to be *stunned*: kicked sideways under a
+little drift-physics packet, spun out, then snapped back onto the lane grid and driven off. Two
+cars meet at a combined ~30 u/s, one is scrap and the other shakes it off — the survivor made the
+player's own wreck look like a rule firing rather than a crash. Both are now marked `crashed`,
+which is the flag every loop in `traffic.js` already skipped for the taxi: out of the lane
+bookkeeping, out of the physics, out of the render pass, permanently. The stun path is gone with
+it, and so is `recoverFromStun`.
+
+**Each car detonates where it stands.** Sparks, a fireball, a smoke plume and a shower of debris at
+the impact point, and the same set again at the other car's centre. The two are only a couple of
+units apart, but that is enough to spread the blast across both bodies instead of stacking it on
+the seam between them. A debris pool re-shoots its own pieces on every call, so the two cars get
+**a pool each** — one shared pool would snap the taxi's wreckage across to the other car's the
+instant the second burst fired. The victim's pool is repainted at burst time in that car's colour
+(glass, rubber and the cabin lid keep theirs), so what lands on the road is visibly two cars.
+
+**The shells shrink and fade into the fireballs** rather than being hidden. The old version cut:
+`taxiGroup.visible = false` fired on the impact frame, one frame before the fireball had grown
+large enough to hide anything, so the eye read a car blinking out and then, separately, a bang.
+`vanish.take()` collapses each shell over 0.34s of sim time instead — stepped with the frame's
+already-slowed `dt`, so it stretches to nearly two seconds on screen under the crash slow-mo,
+which is exactly how long the fireball is at its biggest. The fade leads the collapse (halfway
+through: three-quarters size, a quarter opaque), because matching the two curves left a small,
+solid, brightly lit nugget riding the middle of the fireball to the last frame.
+
+The taxi has its own group to fade, steered wheels and all. An ambient car is spread across two
+`InstancedMesh`es — the body, plus one instance per steered front wheel — and neither has anywhere
+to put a per-instance opacity, since `instanceColor` is RGB only. So `wreckShell()` copies the car
+out into a standalone group (body plus both wheels at the lock the impact caught them at) sharing
+one tinted, fadeable material, and collapses **every** instance behind it to zero scale. Collapsing
+only the body would leave two wheels parked on the road; `tools/probe.mjs` asserts all three. This
+is cheaper than the alternative — a custom alpha attribute plus an `onBeforeCompile` patch on the
+traffic material — for something that happens once per run.
 
 ## Police priority corridor
 
@@ -281,6 +440,25 @@ heading over `YAW_EASE` rather than snapping the full 90°.
 > Once fixed: heading was read off the smoothed motion instead of the rail. The frame after a
 > corner snap the rail can sit *behind* the drawn car, so the step pointed back down the road and
 > the nose flicked through 160° in one frame.
+
+**Its front wheels steer too**, on the same `steerToward()` every car in `traffic.js` runs — the
+cruiser is not in the `cars` array (no lane, no turn state, no collision coupling), so that
+function is the only thing the two can share, and sharing it is what keeps the cruiser's wheels
+from drifting out of step the next time the gain is touched. The difference is taken over the
+**drawn** position and heading rather than the rail's, because the arc the player sees is the eased
+one. Measured across five seeds:
+
+| | p50 | max |
+|---|---|---|
+| corridor run | 0° | 0° |
+| chase | 5.2° | 34° (on the clamp) |
+| U-turn | 25.8° | 33° |
+| parked after the arrest | 2.8° | 3.3° |
+
+The corridor run is a flat zero because it is a straight rail — which is exactly why the cruiser
+had no business having steered wheels before the chase existed. It also means the assertion that
+matters is the chase one: a corridor-only check would pass an implementation that never turned
+them at all.
 
 **The banner waits for the arrest.** `BUST_BANNER_DELAY` is a floor, not the schedule — the retry
 screen holds until the cruiser stops, plus a beat. A park district can close the one road between

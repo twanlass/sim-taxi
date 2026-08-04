@@ -13,7 +13,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, ROAD_Y } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, laneKeyFor, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -22,10 +22,11 @@ import {
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { DISTANCE_TIERS, distanceTier } from '../src/game/triptier.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
+import { createVanish } from '../src/game/vanish.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -118,6 +119,84 @@ for (let a = 0; a < positions.length; a++) {
 }
 check('no two cars occupy the same space', worst > 1.6,
   `closest pair ${worst.toFixed(2)} (${worstPair?.[0].state}/${worstPair?.[1].state})`);
+
+// --- Front-wheel steering ---------------------------------------------------
+// Render-only state, so every other assertion in this file would stay green if it broke
+// completely. Three things have to hold: the wheels reach a real lock through a corner, they come
+// back to straight once the car is on the straight, and they never go past full lock.
+{
+  const wScene = new THREE.Scene();
+  const wTraffic = createTraffic(makeRng(seed + 44), wScene, 24);
+  const sinceJunction = new Map();
+  let maxLock = 0;
+  let cornerLock = 0;
+  let cockedOnStraight = 0;
+  // The taxi's fronts are meshes on the group rather than instances, so they are wired up
+  // separately and can be dropped separately. Read the angle back off the rig itself.
+  let taxiLock = 0;
+  let rigLock = 0;
+
+  for (let step = 0; step < 60 * 60; step++) {
+    wTraffic.update(1 / 60);
+    taxiLock = Math.max(taxiLock, Math.abs(wTraffic.taxi.wheelAngle));
+    for (const part of wTraffic.taxiGroup.children) {
+      rigLock = Math.max(rigLock, Math.abs(part.rotation.y));
+    }
+    for (const car of wTraffic.cars) {
+      if (car.crashed) continue;
+      const lock = Math.abs(car.wheelAngle);
+      maxLock = Math.max(maxLock, lock);
+
+      if (car.state === 'turn') {
+        sinceJunction.set(car, 0);
+        // Straight on through a junction is still 'turn'; only a real corner should show lock.
+        if (car.dOut !== car.d) cornerLock = Math.max(cornerLock, lock);
+        continue;
+      }
+
+      const run = (sinceJunction.get(car) ?? 0) + car.v / 60;
+      sinceJunction.set(car, run);
+      // Six units clear of the junction, anything left is a wheel stuck over rather than one
+      // still unwinding — measured, a car is under 0.2° by then.
+      if (run > 6 && lock > 0.05) cockedOnStraight += 1;
+    }
+  }
+
+  const asDeg = (r) => `${((r * 180) / Math.PI).toFixed(0)}°`;
+  check('the front wheels reach a real lock through a corner', cornerLock > 0.3,
+    `${asDeg(cornerLock)} at the tightest`);
+  check('the front wheels straighten up on the straight', cockedOnStraight === 0,
+    `${cockedOnStraight} frames still cocked`);
+  check('the front wheels never pass full lock', maxLock <= STEER_MAX + 1e-6,
+    `${asDeg(maxLock)} peak`);
+  check('the taxi\'s own front wheels are steered too',
+    taxiLock > 0.2 && Math.abs(rigLock - taxiLock) < 1e-9,
+    `rig ${asDeg(rigLock)} vs model ${asDeg(taxiLock)}`);
+
+  // The ambient wheels are instances composed through the car's own matrix, which nothing else
+  // here exercises — a multiply the wrong way round leaves them at the world origin, or orbiting
+  // the city at the car's distance from it. Checked on straight-driving cars only, so the corner
+  // lean isn't in the way.
+  const front = wheelAnchors().filter((anchor) => anchor.front);
+  const reach = Math.hypot(front[0].x, front[0].z);
+  const wheelMatrix = new THREE.Matrix4();
+  const wheelPos = new THREE.Vector3();
+  let adrift = 0;
+  let checked = 0;
+  for (const car of wTraffic.cars) {
+    if (car.isTaxi || car.state !== 'drive' || car.crashed) continue;
+    for (let w = 0; w < front.length; w++) {
+      wTraffic.wheelMesh.getMatrixAt(car.instanceIndex * front.length + w, wheelMatrix);
+      wheelPos.setFromMatrixPosition(wheelMatrix);
+      checked += 1;
+      const out = Math.hypot(wheelPos.x - car.x, wheelPos.z - car.z);
+      if (Math.abs(out - reach) > 0.25) adrift += 1;
+      else if (wheelPos.y < WHEEL_R - 0.25 || wheelPos.y > WHEEL_R + 0.45) adrift += 1;
+    }
+  }
+  check('every front wheel is bolted to its car', adrift === 0 && checked > 0,
+    `${adrift} adrift of ${checked}`);
+}
 
 // --- Police priority corridor ----------------------------------------------
 // The override lives inside lightPhase, so the assertion is about signals, not about the car:
@@ -568,6 +647,100 @@ check('no two cars occupy the same space', worst > 1.6,
     `widest ${widest.toFixed(2)} units off the lane centre over ${straightFrames} frames`);
   check('the boosting taxi actually weaves', widest > 0.25, `widest ${widest.toFixed(2)}`);
   setPriorityJunction(null);
+
+  // --- Loco Mode is supposed to be go-go-go, and for a long time it wasn't.
+  //
+  // Attributing every frame the boosting taxi spent below full speed put signals at 0.0% — the
+  // priority hold was already doing its job — and ordinary traffic at everything else: queued
+  // behind a leader, or stopped dead at a green line because the exit lane was full. Hence
+  // `scatter` in traffic.js. These two checks pin the parts of it that can go quietly wrong: the
+  // flee not firing, and oncoming traffic re-acquiring its veto over a left turn.
+  //
+  // Both are two-car scenarios placed by hand, so nothing else can be the reason either car moves
+  // or doesn't. The aggregate version — mean speed over a long routed drive through heavy traffic
+  // — was written and then thrown away: changing the turn weights reroutes the whole city's rng
+  // stream, so a before/after pair is two different worlds rather than a comparison, and the
+  // seed-to-seed spread (73%-96% of the cap across eight cities) swamped a two-point effect.
+  //
+  // Not a fixed junction either: park districts close whole segments, so on some cities the left
+  // out of the middle intersection doesn't exist and the taxi's route desyncs into a random turn.
+  // Take the first signalised junction where both the left and the facing approach are legal.
+  let jI = -1;
+  let jJ = -1;
+  let dIn = -1;
+  outer: for (let i = 1; i < GRID && dIn < 0; i++) {
+    for (let j = 1; j < GRID && dIn < 0; j++) {
+      if (ringAxisAt(i, j)) continue;
+      for (const d of [0, 1, 2, 3]) {
+        if (!legalExits(d, i, j).includes(leftOf(d))) continue;
+        if (!legalExits(opposite(d), i, j).length) continue;
+        jI = i; jJ = j; dIn = d;
+        break;
+      }
+    }
+  }
+  const junctionLine = isXAxis(dIn) ? lineCoord(jI) : lineCoord(jJ);
+  const place = (car, d, back) => {
+    car.d = d; car.dOut = d; car.i = jI; car.j = jJ;
+    car.s = junctionLine - dirSign(d) * (ROAD_W / 2 + back);
+    car.laneKey = laneKeyFor(d, jI, jJ);
+    car.state = 'drive'; car.turnT = 0; car.route = []; car.parked = false;
+  };
+
+  // 1. A leader with the boosting taxi on its bumper gets going. The taxi starts 30 units out and
+  // the leader 18, well inside SCATTER_RANGE, on an otherwise empty road.
+  const sScene = new THREE.Scene();
+  const sTraffic = createTraffic(makeRng(seed + 103), sScene, 2);
+  const [sTaxi, leader] = sTraffic.cars;
+  place(sTaxi, dIn, 30);
+  place(leader, dIn, 18);
+  sTaxi.boost = true;
+  let fleeSpeed = 0;
+  let fleePeak = 0;      // peak of the scatter envelope, not its value at the end — the leader
+                         // turns off the taxi's road partway through and it decays from there
+  let taxiFloor = Infinity;
+  for (let f = 0; f < 60 * 2; f++) {
+    sTraffic.update(1 / 60);
+    sTaxi.boost = true;
+    fleePeak = Math.max(fleePeak, leader.scatter);
+    if (leader.state === 'drive') fleeSpeed = Math.max(fleeSpeed, leader.speedFactor);
+    // Skip the first few frames: the taxi is still spinning up from cruise.
+    if (f > 20 && sTaxi.state === 'drive') taxiFloor = Math.min(taxiFloor, sTaxi.speedFactor);
+  }
+  // speedFactor is v/SPEED, so anything over 1 is a car exceeding the ambient cruise, and 2.2 is
+  // full boost. The numbers are city-independent — the scenario is two cars on an empty road — and
+  // came out identical on every seed tried: 1.00x / 1.09x before scatter against 2.00x / 1.34x
+  // after. The taxi's floor is where it eases up behind the leader as the leader turns off.
+  check('traffic gets out of the boosting taxi\'s way',
+    dIn >= 0 && fleePeak > 0.9 && fleeSpeed > 1.5 && taxiFloor > 1.25,
+    `leader peaked at ${fleeSpeed.toFixed(2)}x cruise, taxi never fell below ${taxiFloor.toFixed(2)}x`);
+
+  // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
+  // axis, so it kept its green, and the left-turn yield then refused to let the taxi go — waiting
+  // on a car that was itself waiting. The priority hold now denies that one direction (`block` in
+  // traffic.js) and the taxi only looks for something already inside the junction.
+  const dScene = new THREE.Scene();
+  const dTraffic = createTraffic(makeRng(seed + 117), dScene, 2);
+  const [dTaxi, oncoming] = dTraffic.cars;
+  place(dTaxi, dIn, 24);
+  place(oncoming, opposite(dIn), 18);
+  dTaxi.route = [leftOf(dIn)];
+  dTaxi.routeConsumed = false;
+  dTaxi.boost = true;
+
+  let turned = false;
+  let oncomingEntered = false;
+  for (let f = 0; f < 60 * 6 && !turned; f++) {
+    dTraffic.update(1 / 60);
+    dTaxi.boost = true;
+    if (dTaxi.state === 'turn' && dTaxi.dOut === leftOf(dIn)) turned = true;
+    if (oncoming.state === 'turn') oncomingEntered = true;
+  }
+  check('Loco Mode takes its left turn instead of yielding',
+    dIn >= 0 && turned && !oncomingEntered,
+    `turned=${turned}, oncoming entered the junction=${oncomingEntered}`);
+
+  setPriorityJunction(null);
 }
 
 // --- Routing ---------------------------------------------------------------
@@ -742,41 +915,95 @@ check('the taxi is an ordinary car in the traffic array',
 
 // --- Taxi-vs-car collisions ------------------------------------------------
 // The whole feature only fires while boosting, and its silent failure modes are: no impact ever
-// detected, an impact that doesn't wreck the taxi, or the other car stuck in the stun state.
-// Drive the taxi head-on into an unsuspecting car and assert the whole crash chain.
+// detected, an impact that doesn't wreck the taxi, or a wrecked car left driving around because
+// something forgot to take it out of the sim. Drive the taxi head-on into an unsuspecting car and
+// assert the whole crash chain, both cars included.
 {
   const cScene = new THREE.Scene();
   const cTraffic = createTraffic(makeRng(seed + 44), cScene, CARS_DEFAULT);
   const cFares = createFareSystem(makeRng(seed + 55), cScene);
   const cTaxi = cTraffic.taxi;
   const collisions = createCollisions(cTraffic.cars, cTaxi);
+  const cVanish = createVanish();
   let hits = 0;
-  collisions.onImpact(() => {
+  let impact = null;
+  const shells = [];
+  collisions.onImpact((event) => {
     hits += 1;
-    // Mirror the main.js wiring: an impact wrecks the taxi and ends the run.
+    impact = event;
+    // Mirror the main.js wiring: both cars hand over their bodywork to the shrink-and-fade, and
+    // the run ends.
+    for (const car of [event.taxi, event.other]) {
+      const shell = cTraffic.wreckShell(car);
+      shells.push(shell);
+      cVanish.take(shell);
+    }
     cFares.crash();
   });
 
   cTraffic.warmup(3);
 
   // Park the taxi on top of an ambient car and start boosting.
-  const victim = cTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive');
-  cTaxi.x = victim.x;
-  cTaxi.z = victim.z;
+  const target = cTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive');
+  cTaxi.x = target.x;
+  cTaxi.z = target.z;
   cTaxi.boost = true;
 
   for (let step = 0; step < 90; step++) {
     collisions.update();
     cTraffic.update(1 / 60);
-    if (hits > 0 && !victim.stunned) break;
+    if (hits > 0) break;
   }
 
   check('boosting into another car fires an impact', hits >= 1, `${hits} impacts`);
   check('the taxi is wrecked by the impact', cTaxi.crashed);
   check('game over fires with a collision reason', cFares.state.gameOver
     && /collision/i.test(cFares.state.failReason ?? ''), cFares.state.failReason);
-  check('the other car recovers from stun onto a lane',
-    !victim.stunned && victim.state === 'drive');
+
+  const victim = impact?.other;
+  check('the car it hit is wrecked too', Boolean(victim?.crashed));
+
+  // A wrecked car must be gone from the road, not merely marked: same place a second later, and
+  // its instance collapsed to nothing so the InstancedMesh isn't still drawing it.
+  const restX = victim.x;
+  const restZ = victim.z;
+  for (let step = 0; step < 60; step++) cTraffic.update(1 / 60);
+  check('the wrecked car stops driving', victim.x === restX && victim.z === restZ,
+    `${victim.x.toFixed(2)},${victim.z.toFixed(2)} vs ${restX.toFixed(2)},${restZ.toFixed(2)}`);
+
+  // Body *and* both steered front wheels — the wheels are their own instanced mesh, so a wreck
+  // that only collapsed the body would leave two wheels parked on the road.
+  const instanceScale = new THREE.Vector3();
+  const instanceMatrix = new THREE.Matrix4();
+  const scaleOf = (instMesh, index) => {
+    instMesh.getMatrixAt(index, instanceMatrix);
+    instanceMatrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), instanceScale);
+    return instanceScale.x;
+  };
+  const wheelsPerCar = cTraffic.wheelMesh.count / (cTraffic.cars.length - 1);
+  const wheelScales = [];
+  for (let w = 0; w < wheelsPerCar; w++) {
+    wheelScales.push(scaleOf(cTraffic.wheelMesh, victim.instanceIndex * wheelsPerCar + w));
+  }
+  check('its instances are collapsed out of the traffic meshes',
+    scaleOf(cTraffic.mesh, victim.instanceIndex) === 0 && wheelScales.every((s) => s === 0),
+    `body + ${wheelScales.length} wheels`);
+
+  // Two shells handed over — the taxi group and a standalone copy of the ambient car — and both
+  // shrink and fade rather than cutting out on the impact frame.
+  check('both wrecks hand over a shell to fade', shells.length === 2 && shells[0] !== shells[1]);
+  // One material across the copy's body and wheels; read it off the body mesh.
+  const shellMaterial = shells[1].children[0].material;
+  const baseScale = shells[1].scale.x;
+  cVanish.update(0.17);
+  check('a wreck shell shrinks and fades under the explosion',
+    shells[1].scale.x < baseScale && shells[1].scale.x > 0
+    && shellMaterial.opacity < 1 && shellMaterial.opacity > 0,
+    `scale ${shells[1].scale.x.toFixed(2)}, opacity ${shellMaterial.opacity.toFixed(2)}`);
+  cVanish.update(0.4);
+  check('a wreck shell ends hidden at zero size',
+    !shells[1].visible && shells[1].scale.x === 0 && cVanish.pending() === 0);
+
   check('a wrecked taxi does not fire further impacts', hits === 1, `${hits} impacts`);
 
   // A non-boosting taxi must never trigger a collision — normal lane logic keeps them apart.
@@ -893,6 +1120,14 @@ check('the taxi is an ordinary car in the traffic array',
   let noseDown = 0;
   let sunk = 0;
   let peakKick = 0;
+  // Front wheels. The corridor run is a straight rail, so anything but a flat zero there means
+  // the difference is picking up noise; the chase corners, weaves and U-turns, so it has to reach
+  // a real lock. `rigLock` reads the angle back off the meshes rather than off the model.
+  let corridorLock = 0;
+  let chaseLock = 0;
+  let rigLock = 0;
+  // Only the steered wheels yaw; the light-bar boxes and the body sit at 0.
+  const wheelLock = (p) => Math.max(...p.group.children.map((c) => Math.abs(c.rotation.y)));
 
   for (const kase of cases) {
     const cScene = new THREE.Scene();
@@ -901,6 +1136,7 @@ check('the taxi is an ordinary car in the traffic array',
     // Run it up to mid-city so there is room on every side for the quarry.
     for (let step = 0; step < 60 * 90; step++) {
       cPolice.update(1 / 60);
+      if (cPolice.state.active) corridorLock = Math.max(corridorLock, Math.abs(cPolice.state.wheelAngle));
       if (cPolice.state.active && Math.abs(cPolice.state.s) < PITCH) break;
     }
     if (!cPolice.state.active) { failed = `${kase.name}: no run to chase from`; break; }
@@ -940,6 +1176,8 @@ check('the taxi is an ordinary car in the traffic array',
       const raw = cPolice.group.rotation.y - prev.y;
       const dYaw = Math.abs(Math.atan2(Math.sin(raw), Math.cos(raw)));
       worstYawRate = Math.max(worstYawRate, dYaw);
+      chaseLock = Math.max(chaseLock, Math.abs(cPolice.state.wheelAngle));
+      rigLock = Math.max(rigLock, wheelLock(cPolice));
       prev = { x: now.x, z: now.z, y: cPolice.group.rotation.y };
 
       // Body: it should lean, rock both ways, and never drop an edge through the tarmac.
@@ -977,6 +1215,7 @@ check('the taxi is an ordinary car in the traffic array',
   check('the nose never snaps round', worstYawRate < 0.28,
     `fastest yaw ${(worstYawRate * 180 / Math.PI).toFixed(1)}°/frame`);
 
+
   // The body language, which is what makes the chase read as aggressive rather than as a fast
   // machine tracking a line. Bounds are the caps in police.js: ROLL_LIMIT, and PITCH_LIMIT plus
   // the kickoff wheelie riding on top of it.
@@ -988,6 +1227,14 @@ check('the taxi is an ordinary car in the traffic array',
   // CHASE_KICK against the corridor cruise of 19: the lock-on is a step in speed, not a ramp.
   check('it plants the throttle on lock-on', peakKick > 24,
     `${peakKick.toFixed(1)} units/s on the deciding frame, up from 19`);
+
+  // The cruiser runs the same steerToward() as every car in traffic.js, so what is checked here is
+  // that it is wired to a heading that actually moves — a corridor run alone would pass any
+  // implementation, including one that never turned the wheels at all.
+  check('the cruiser holds its wheels straight down a corridor', corridorLock < 1e-6,
+    `${(corridorLock * 180 / Math.PI).toFixed(1)}° peak on the rail`);
+  check('the cruiser steers into the chase', chaseLock > 0.3 && Math.abs(rigLock - chaseLock) < 1e-9,
+    `rig ${(rigLock * 180 / Math.PI).toFixed(0)}° vs model ${(chaseLock * 180 / Math.PI).toFixed(0)}°`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

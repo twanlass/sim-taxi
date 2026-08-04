@@ -17,6 +17,7 @@ src/
   sim/                  things that move on their own
     traffic.js          signals + car physics + the single routing branch. The largest file.
     police.js           the priority-corridor car
+    collisions.js       taxi-vs-car impact test, boost only — wrecks both cars
 
   game/                 the player's layer
     fares.js            fare state machine, spawning, scoring
@@ -31,9 +32,11 @@ src/
     debugpanel.js       the ⚙️ tweak panel
     skidmarks.js        rubber ring buffer
     dust.js             instanced dust puffs
+    sparks/smoke/debris/flames.js   the crash detonation, one set fired per wrecked car
+    vanish.js           shrink-and-fade for wrecked bodywork, so it is consumed not deleted
 
   geometry/             one-off models, all procedural
-    taxi.js  marker.js  person.js  ridermeter.js
+    taxi.js  wheels.js  marker.js  person.js  ridermeter.js
 
   util/
     rng.js              seeded RNG (mulberry32) + value noise

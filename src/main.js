@@ -18,6 +18,7 @@ import { createSparks } from './game/sparks.js';
 import { createSmoke } from './game/smoke.js';
 import { createDebris } from './game/debris.js';
 import { createFlames } from './game/flames.js';
+import { createVanish } from './game/vanish.js';
 import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
@@ -27,6 +28,7 @@ import { createRouteLine } from './game/routeline.js';
 import { findRoute, planOrigin } from './game/route.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount } from './util/shot.js';
 import { isCityConnected, GRID } from './city/grid.js';
+import { PALETTE } from './palette.js';
 
 const shot = getActiveShot();
 // A fresh city every load. `?seed=N` still pins one you want to replay, and shot mode always
@@ -99,16 +101,19 @@ const pan = shot ? null : attachDragPan(controller, renderer.domElement, aspect,
 const dust = createDust(scene, camera, makeRng(seed + 77));
 const sparks = createSparks(scene, makeRng(runSeed + 88));
 const smoke = createSmoke(scene, makeRng(runSeed + 99));
+// One debris pool per car in a crash — a pool re-shoots its own pieces, so a shared one would
+// snap the taxi's wreckage across to the other car's the instant the second burst fired.
 const debris = createDebris(scene, makeRng(runSeed + 111));
+const victimDebris = createDebris(scene, makeRng(runSeed + 122));
 const flames = createFlames(scene, makeRng(runSeed + 133));
+const vanish = createVanish();
 
 // Collision detection between the taxi and ambient cars. Only fires while boosting — see
-// src/sim/collisions.js. On impact the taxi is wrecked: the merged taxi shell hides, debris
-// pieces fire outward in its place, sparks burst, a smoke plume rises, the camera shakes and
-// pulls into a close-up, the sim drops into slow-mo, boost is released, and the fare system
-// flips into game-over — but the Game Over banner is held for CRASH_BANNER_DELAY (wallclock, so
-// the delay is unaffected by the slow-mo). The other car still stuns and recovers to a lane
-// afterward.
+// src/sim/collisions.js. On impact *both* cars are wrecked: each detonates where it stands and
+// each shell shrinks and fades into its own fireball, debris fires outward in their place, sparks
+// burst, a smoke plume rises, the camera shakes and pulls into a close-up, the sim drops into
+// slow-mo, boost is released, and the fare system flips into game-over — but the Game Over banner
+// is held for CRASH_BANNER_DELAY (wallclock, so the delay is unaffected by the slow-mo).
 const CRASH_BANNER_DELAY = 2600;
 const WRECK_ZOOM = 26;
 const SLOW_MO_MIN = 0.18;                // sim runs at this fraction of real time at impact
@@ -137,7 +142,7 @@ let slowMoMin = SLOW_MO_MIN;
 let bustAt = 0;              // wallclock ms of the bust, while the banner is still waiting on the cop
 
 const collisions = createCollisions(traffic.cars, traffic.taxi);
-collisions.onImpact(({ x, z }) => {
+collisions.onImpact(({ x, z, other }) => {
   // Layered detonation: sparks and a first fireball at the point of impact, a big shower of
   // debris in place of the merged taxi shell, and a fat smoke plume climbing out of it. A second
   // fireball fires a beat later so the crash reads as an explosion with a follow-up flare rather
@@ -148,15 +153,36 @@ collisions.onImpact(({ x, z }) => {
   flames.blast(x, z, 48);
   debris.burst(x, z);
   controller.kickShake(2.4);
+
+  // The car that was hit gets the whole treatment too, fired at its own centre rather than at the
+  // shared impact point. The two are only a couple of units apart, but that is enough to spread
+  // the blast across both bodies instead of stacking it on the seam between them — and its
+  // wreckage comes apart in its own paint, so what lands on the road is visibly two cars.
+  //
+  // It used to spin out, snap back onto a lane and drive away. A boosting taxi arrives at ~19 u/s
+  // and the survivor shrugging that off made the player's own wreck look like a rule rather than
+  // a crash.
+  const ox = other.x;
+  const oz = other.z;
+  sparks.burst(ox, oz, 64);
+  smoke.burst(ox, oz, 40);
+  flames.blast(ox, oz, 40);
+  victimDebris.burst(ox, oz, PALETTE.carBody[other.colorIndex]);
+
+  // Both shells collapse into their own fireballs — see game/vanish.js for why they are faded out
+  // rather than simply hidden. `wreckShell` also takes each car off the road for good.
+  vanish.take(traffic.wreckShell(traffic.taxi));
+  vanish.take(traffic.wreckShell(other));
+
   wreckSpot = { x, z };
   crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
   slowMoMin = SLOW_MO_MIN;
-  traffic.taxiGroup.visible = false;
   boost.release();
   fares.crash();
   setTimeout(() => {
     flames.blast(x, z, 32);
+    flames.blast(ox, oz, 24);
     smoke.burst(x, z, 28);
     sparks.burst(x, z, 32);
     controller.kickShake(1.1);
@@ -662,15 +688,18 @@ function frame() {
   sparks.update(dt);
   smoke.update(dt);
   debris.update(dt);
+  victimDebris.update(dt);
   flames.update(dt);
+  vanish.update(dt);
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
-  // After traffic has settled positions for the frame — that's what the overlap check reads.
-  // A detected impact stuns both cars for the next frame; the sim already knows how to handle
-  // that state, so no further plumbing is needed here.
+  // After traffic has settled positions for the frame — that's what the overlap check reads, and
+  // what the two wreck shells are copied out of. A detected impact takes both cars out of the
+  // sim from this frame on; the loops in traffic.js already skip a crashed car, so no further
+  // plumbing is needed here.
   collisions.update();
   checkPoliceBust();
 
