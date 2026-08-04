@@ -369,6 +369,26 @@ const WHEELBASE = CAR_LEN * 0.6;   // hub to hub — the anchors sit at ±0.3·C
 const STEER_GAIN = 1.6;
 export const STEER_MAX = 0.6;      // ~34°, about where a real front wheel stops
 const STEER_EASE = 1.2;            // units of road to reach the target, not seconds — see below
+
+/**
+ * Step a front-wheel angle toward the lock the path implies, and hand it back.
+ *
+ * Exported because the police cruiser runs the same rule from `sim/police.js`. It is not in the
+ * `cars` array — it has no lane, no turn state and no collision coupling — so the only thing the
+ * two vehicles can share is this, and sharing it is what stops the cruiser's wheels drifting out
+ * of step with everyone else's the next time the gain is touched.
+ *
+ * Both yaws come in raw and the difference is taken the short way round, so a caller sweeping
+ * through ±π (the cruiser's U-turn) needs no special case. Nothing happens on a stationary
+ * vehicle: the wheels keep the lock they stopped with, and the divide is never reached.
+ */
+export function steerToward(angle, yaw, prevYaw, ds, wheelbase = WHEELBASE) {
+  if (!(ds > 1e-4)) return angle;
+  const dYaw = ((yaw - prevYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  const target = Math.max(-STEER_MAX, Math.min(STEER_MAX,
+    Math.atan((wheelbase * dYaw) / ds) * STEER_GAIN));
+  return angle + (target - angle) * Math.min(1, ds / STEER_EASE);
+}
 // Vehicles previously rode at KERB_H + 0.05, floating 0.4 above the tarmac — invisible without
 // wheels, glaring with them. They now sit just clear of the road markings.
 export const ROAD_Y = 0.04;
@@ -1277,12 +1297,7 @@ export function createTraffic(rng, scene, count = 24) {
       // is also what makes the divide safe, since a stationary car never reaches it.
       const ds = car.travelled - car.prevTravelled;
       car.prevTravelled = car.travelled;
-      if (ds > 1e-4) {
-        const dYaw = ((car.yaw - car.prevSteerYaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-        const target = Math.max(-STEER_MAX, Math.min(STEER_MAX,
-          Math.atan((WHEELBASE * dYaw) / ds) * STEER_GAIN));
-        car.wheelAngle += (target - car.wheelAngle) * Math.min(1, ds / STEER_EASE);
-      }
+      car.wheelAngle = steerToward(car.wheelAngle, car.yaw, car.prevSteerYaw, ds);
       car.prevSteerYaw = car.yaw;
 
       // Panic offset: shove kerb-ward and jitter the yaw when the siren is close. The taxi is

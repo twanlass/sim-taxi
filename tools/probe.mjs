@@ -966,6 +966,13 @@ check('the taxi is an ordinary car in the traffic array',
   let worstYawRate = 0;
   let failed = null;
   let uturns = 0;
+  // Front wheels. The corridor run is a straight rail, so anything but a flat zero there means
+  // the difference is picking up noise; the chase corners, weaves and U-turns, so it has to reach
+  // a real lock. `rigLock` reads the angle back off the meshes rather than off the model.
+  let corridorLock = 0;
+  let chaseLock = 0;
+  let rigLock = 0;
+  const wheelLock = (p) => Math.max(...p.group.children.map((c) => Math.abs(c.rotation.y)));
 
   for (const kase of cases) {
     const cScene = new THREE.Scene();
@@ -974,6 +981,7 @@ check('the taxi is an ordinary car in the traffic array',
     // Run it up to mid-city so there is room on every side for the quarry.
     for (let step = 0; step < 60 * 90; step++) {
       cPolice.update(1 / 60);
+      if (cPolice.state.active) corridorLock = Math.max(corridorLock, Math.abs(cPolice.state.wheelAngle));
       if (cPolice.state.active && Math.abs(cPolice.state.s) < PITCH) break;
     }
     if (!cPolice.state.active) { failed = `${kase.name}: no run to chase from`; break; }
@@ -1010,6 +1018,8 @@ check('the taxi is an ordinary car in the traffic array',
       const raw = cPolice.group.rotation.y - prev.y;
       const dYaw = Math.abs(Math.atan2(Math.sin(raw), Math.cos(raw)));
       worstYawRate = Math.max(worstYawRate, dYaw);
+      chaseLock = Math.max(chaseLock, Math.abs(cPolice.state.wheelAngle));
+      rigLock = Math.max(rigLock, wheelLock(cPolice));
       prev = { x: now.x, z: now.z, y: cPolice.group.rotation.y };
     }
     if (!cPolice.state.arrived) { failed = `${kase.name}: never arrived`; break; }
@@ -1040,6 +1050,13 @@ check('the taxi is an ordinary car in the traffic array',
   check('the chase never teleports', worstStep < 0.55, `biggest step ${worstStep.toFixed(3)} units`);
   check('the nose never snaps round', worstYawRate < 0.28,
     `fastest yaw ${(worstYawRate * 180 / Math.PI).toFixed(1)}°/frame`);
+  // The cruiser runs the same steerToward() as every car in traffic.js, so what is checked here is
+  // that it is wired to a heading that actually moves — a corridor run alone would pass any
+  // implementation, including one that never turned the wheels at all.
+  check('the cruiser holds its wheels straight down a corridor', corridorLock < 1e-6,
+    `${(corridorLock * 180 / Math.PI).toFixed(1)}° peak on the rail`);
+  check('the cruiser steers into the chase', chaseLock > 0.3 && Math.abs(rigLock - chaseLock) < 1e-9,
+    `rig ${(rigLock * 180 / Math.PI).toFixed(0)}° vs model ${(chaseLock * 180 / Math.PI).toFixed(0)}°`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

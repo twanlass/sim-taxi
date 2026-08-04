@@ -6,7 +6,10 @@ import {
   DIR, GRID, HALF_SPAN, LANE, PITCH, dirSign, isXAxis, legalExits, lineCoord,
   isSegmentClosed, nextIntersection, opposite,
 } from '../city/grid.js';
-import { setPriorityCorridor, setPolicePresence, locoWeave, LOCO_WEAVE_FADE, ROAD_Y } from './traffic.js';
+import {
+  setPriorityCorridor, setPolicePresence, locoWeave, LOCO_WEAVE_FADE, ROAD_Y,
+  wheelAnchors, wheelGeometries, wheelGeometry, steerToward,
+} from './traffic.js';
 
 // A police car running a priority corridor across the city: every signal on its road goes green,
 // every crossing road goes red, and the traffic model reacts on its own because the override lives
@@ -76,10 +79,17 @@ function edgeFade(s) {
   return Math.max(0, 1 - beyond / FADE_BAND);
 }
 
+// Body dimensions. The wheels come out of traffic.js against these, which reproduces the four the
+// cruiser used to place by hand — ±0.3·LEN along, ±(WIDTH/2 − 0.02) across — while keeping the
+// steering geometry identical in kind to every other car on the road.
+const CAR_LEN = 3.6;
+const CAR_W = 1.8;
+const WHEELBASE = CAR_LEN * 0.6;
+
 function policeGeometry() {
   const parts = [];
 
-  const body = new THREE.BoxGeometry(3.6, 0.8, 1.8);
+  const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
   body.translate(0, 0.78, 0);
   parts.push(bakeColor(body, color('policeBody')));
 
@@ -91,18 +101,34 @@ function policeGeometry() {
   stripe.translate(0, 0.62, 0);
   parts.push(bakeColor(stripe, color('policeRoof')));
 
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      const wheel = new THREE.CylinderGeometry(0.32, 0.32, 0.26, 8);
-      wheel.rotateX(Math.PI / 2);
-      wheel.translate(sx * 1.08, 0.32, sz * 0.88);
-      parts.push(bakeColor(wheel, new THREE.Color(0.16, 0.16, 0.18)));
-    }
-  }
+  // Rear pair only; the fronts steer, so they hang off the group as their own meshes.
+  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
   return merged;
+}
+
+/**
+ * The steered front pair, added to `group` and handed back so the fade can reach their material.
+ *
+ * The cruiser only earned these once it started chasing. On a corridor run it drives one straight
+ * line end to end and is faded out before the turnaround, so its heading never changed while it
+ * was on screen and the same rule would have rendered a flat 0° forever. A chase corners, weaves
+ * and U-turns.
+ */
+function steeredWheels(group) {
+  const material = propMaterial();
+  const wheels = wheelAnchors(CAR_LEN, CAR_W)
+    .filter((anchor) => anchor.front)
+    .map((anchor) => {
+      const wheel = new THREE.Mesh(wheelGeometry(), material);
+      wheel.position.set(anchor.x, anchor.y, anchor.z);
+      wheel.castShadow = true;
+      group.add(wheel);
+      return wheel;
+    });
+  return { wheels, material };
 }
 
 function lightBar(group) {
@@ -139,12 +165,15 @@ export function createPolice(rng, scene) {
   const body = new THREE.Mesh(policeGeometry(), propMaterial());
   group.add(body);
   const lights = lightBar(group);
+  const front = steeredWheels(group);
   group.visible = false;
   scene.add(group);
 
   // Every material this car owns. `propMaterial()` hands back a fresh instance per call, so
   // making these transparent affects the police car alone and not the merged prop meshes.
-  const skin = [body.material, lights.red.material, lights.blue.material];
+  // The wheels are in the list for the same reason the lamps are: leaving them opaque would fade
+  // the cruiser out and leave two tyres hanging over the tarmac.
+  const skin = [body.material, lights.red.material, lights.blue.material, front.material];
   for (const material of skin) material.transparent = true;
 
   const state = {
@@ -166,6 +195,13 @@ export function createPolice(rng, scene) {
     swervePhase: 0,
     uturn: null,         // 0..1 while swinging round, null otherwise
     uturnYaw0: 0,
+    // Front-wheel lock, and the pose it is differenced from. Same rule as every other car, run
+    // over the *drawn* position rather than the rail: the rail turns its corners square, and the
+    // arc the player sees is the eased one.
+    wheelAngle: 0,
+    prevYaw: 0,
+    prevX: 0,
+    prevZ: 0,
     yaw: 0,              // eased heading while chasing; the corridor run takes railYaw() directly
   };
 
@@ -200,6 +236,14 @@ export function createPolice(rng, scene) {
     state.runs += 1;
     group.visible = true;
     place();   // otherwise it is drawn at last run's position for one frame
+    // A new run starts somewhere else entirely, facing somewhere else. Re-baseline the steering
+    // difference against that pose so the jump across the map isn't read as a manoeuvre, and
+    // start the run with the wheels straight.
+    state.wheelAngle = 0;
+    front.wheels.forEach((wheel) => { wheel.rotation.y = 0; });
+    state.prevYaw = group.rotation.y;
+    state.prevX = group.position.x;
+    state.prevZ = group.position.z;
     setPriorityCorridor({ axis: state.axis, line: state.line });
   }
 
@@ -453,6 +497,22 @@ export function createPolice(rng, scene) {
       if (past) { stop(); return; }
       place();
     }
+
+    // --- Front wheels, off the pose that was just written.
+    //
+    // Taken here rather than inside either branch so the corridor run and the chase go through
+    // one path: the corridor run is dead straight and comes out at a flat 0°, and everything the
+    // chase does — the eased 90° at a junction, the weave, the U-turn — falls out of the same
+    // difference. Distance is measured on the drawn position, which is the arc the player sees;
+    // `state.s` is the rail's, and the rail turns its corners square.
+    const ds = Math.hypot(group.position.x - state.prevX, group.position.z - state.prevZ);
+    state.wheelAngle = steerToward(
+      state.wheelAngle, group.rotation.y, state.prevYaw, ds, WHEELBASE,
+    );
+    state.prevYaw = group.rotation.y;
+    state.prevX = group.position.x;
+    state.prevZ = group.position.z;
+    front.wheels.forEach((wheel) => { wheel.rotation.y = state.wheelAngle; });
 
     // Ambient traffic on this road reads the siren's `s` from here and reacts around it. Set
     // every frame rather than on start so cars ahead brake and swerve as the car catches up,

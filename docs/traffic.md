@@ -156,6 +156,9 @@ Ambient cars carry theirs as a **second InstancedMesh** of two instances per car
 They can't ride in the body geometry, which is one shared matrix per car. The taxi's are ordinary
 meshes on its group, since it is drawn as a group anyway.
 
+The rule itself is `steerToward()`, exported because the police cruiser runs it too — see
+[The bust chase](#the-bust-chase).
+
 ## Boost (crazy-taxi mode)
 
 ```js
@@ -299,6 +302,25 @@ heading over `YAW_EASE` rather than snapping the full 90°.
 > Once fixed: heading was read off the smoothed motion instead of the rail. The frame after a
 > corner snap the rail can sit *behind* the drawn car, so the step pointed back down the road and
 > the nose flicked through 160° in one frame.
+
+**Its front wheels steer too**, on the same `steerToward()` every car in `traffic.js` runs — the
+cruiser is not in the `cars` array (no lane, no turn state, no collision coupling), so that
+function is the only thing the two can share, and sharing it is what keeps the cruiser's wheels
+from drifting out of step the next time the gain is touched. The difference is taken over the
+**drawn** position and heading rather than the rail's, because the arc the player sees is the eased
+one. Measured across five seeds:
+
+| | p50 | max |
+|---|---|---|
+| corridor run | 0° | 0° |
+| chase | 5.2° | 34° (on the clamp) |
+| U-turn | 25.8° | 33° |
+| parked after the arrest | 2.8° | 3.3° |
+
+The corridor run is a flat zero because it is a straight rail — which is exactly why the cruiser
+had no business having steered wheels before the chase existed. It also means the assertion that
+matters is the chase one: a corridor-only check would pass an implementation that never turned
+them at all.
 
 **The banner waits for the arrest.** `BUST_BANNER_DELAY` is a floor, not the schedule — the retry
 screen holds until the cruiser stops, plus a beat. A park district can close the one road between
