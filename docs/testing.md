@@ -69,15 +69,21 @@ is set for the capture to wait on.
 Rendering costs about **2s per shot** against ~1s for the entire assertion suite, so screenshots
 are for *looking at* the game, not for verifying it.
 
-The Chrome path defaults to the local mac install. `CHROME_BIN` points it at another build and
-`CHROME_FLAGS` adds switches, which is what a Linux box or a container needs:
+Shot 9 (`route-far`) is the odd one out: instead of routing at whichever fare the seed produced — often
+two blocks away, where the route band's two end fades meet in the middle and show you nothing — it
+sends the taxi to the **opposite corner of the map**, so a full-length band with several turns is
+in frame.
+
+Both browser tools take the same two env overrides, for boxes that aren't a Mac desktop:
 
 ```bash
-CHROME_BIN=/path/to/chromium CHROME_FLAGS=--no-sandbox ./shots.sh 0 8
+CHROME=/opt/pw-browsers/chromium CHROME_FLAGS=--no-sandbox node tools/shoot.mjs --url http://localhost:4173
 ```
 
-Without `--no-sandbox` in a container with no user namespaces, Chrome exits before it opens the
-debugging port and the harness reports only that the port never appeared.
+`--url` may carry query params of its own — `--url 'http://localhost:4173/?run=7'` picks which
+situation gets shot, since `?shot=` is merged in rather than concatenated. `?blend=<name>` pins the
+route band's blend mode the same way, which is the only way to shoot it: the ⚙️ panel that switches
+it live doesn't exist in shot mode.
 
 ## Working notes
 

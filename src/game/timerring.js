@@ -7,8 +7,9 @@ import { KERB_H } from '../city/ground.js';
 // to the taxi when they get in. The clock does not restart at pickup — one deadline covers spawn
 // all the way to drop-off, which is where the difficulty of the game lives.
 
-// Sized to sit just outside the taxi's selection pool. These used to be imported from the taxi,
-// back when it wore a ring of its own; the ring shape belongs to fares now.
+// Sized to clear the taxi comfortably — it used to be sized against the pool that marked the taxi
+// as selected, and before that imported from a ring the taxi wore itself. Both are gone; the ring
+// shape belongs to fares now, and these numbers are simply what reads at play zoom.
 const RING = { inner: 2.35 * 1.18, outer: 3.05 * 1.18 };
 
 const SEGMENTS = 96;
@@ -110,15 +111,13 @@ function sweepAnnulus(inner, outer) {
 }
 
 export function createTimerRing(scene) {
-  // Matched to the taxi's selection ring in diameter and thickness, so the two read as the same
-  // family of object — one says "selected", the other says "this is your clock".
   const geometry = sweepAnnulus(RING.inner, RING.outer);
 
   const mesh = new THREE.Mesh(
     geometry,
-    // Same treatment as the taxi's selection ring: always drawn on top. The taxi and the rider
-    // both duck behind buildings constantly at this camera angle, and a clock you cannot see is
-    // worthless — correctness about occlusion loses to legibility here.
+    // Always drawn on top. The taxi and the rider both duck behind buildings constantly at this
+    // camera angle, and a clock you cannot see is worthless — correctness about occlusion loses
+    // to legibility here.
     new THREE.MeshBasicMaterial({
       color: STAGES[0].color.clone(),
       depthWrite: false,

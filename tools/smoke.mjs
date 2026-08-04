@@ -11,9 +11,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-// Same overrides as tools/shoot.mjs — see docs/testing.md.
-const CHROME = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const EXTRA_FLAGS = process.env.CHROME_FLAGS ? process.env.CHROME_FLAGS.split(' ').filter(Boolean) : [];
+// Same env overrides as tools/shoot.mjs: Linux boxes keep Chromium somewhere else, and a
+// container running as root needs CHROME_FLAGS=--no-sandbox.
+const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9338;
 
 const arg = (name, fallback) => {
@@ -73,11 +73,12 @@ function connect(wsUrl) {
 
 const profile = await mkdtemp(join(tmpdir(), 'taxi-smoke-'));
 const chrome = spawn(CHROME, [
-  '--headless=new', ...EXTRA_FLAGS,
-  `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
+  '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
   '--window-size=900,600',
   '--disable-gpu', '--enable-unsafe-swiftshader', '--use-gl=angle', '--use-angle=swiftshader',
-  '--no-first-run', '--disable-extensions', 'about:blank',
+  '--no-first-run', '--disable-extensions',
+  ...(process.env.CHROME_FLAGS ? process.env.CHROME_FLAGS.split(' ').filter(Boolean) : []),
+  'about:blank',
 ], { stdio: 'ignore' });
 
 let client;

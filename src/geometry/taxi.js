@@ -6,8 +6,8 @@ import { ABOVE_RING } from '../game/timerring.js';
 import { wheelGeometries } from '../sim/traffic.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
-// for two reasons: it needs to be raycast against for selection, and it needs a selection ring
-// that toggles independently of every other vehicle.
+// because it needs to be raycast against for picking, and because its shell has to draw over the
+// fare's timer ring once that ring has flown to the car.
 
 const CAR_LEN = 3.4;
 const CAR_W = 1.7;
@@ -56,30 +56,10 @@ export function createTaxiMesh() {
   shell.userData.pickable = 'taxi';
   group.add(shell);
 
-  // The selection indicator, and the taxi's only one. Rings are reserved for fares now — the
-  // rider's clock is a ring, so using one here too would say two different things with the same
-  // shape. A filled pool underneath is unambiguous and never competes with the timer.
-  // Built at final world size because it is *not* parented to the car — see below.
-  const diskGeo = new THREE.CircleGeometry(2.9 * TAXI_SCALE, 32);
-  diskGeo.rotateX(-Math.PI / 2);
-  const disk = new THREE.Mesh(
-    diskGeo,
-    new THREE.MeshBasicMaterial({
-      color: new THREE.Color(PALETTE.select),
-      transparent: true,
-      opacity: 0.38,
-      depthWrite: false,
-      // Depth-tested, unlike the fare ring. Without this the pool ignores the depth buffer and
-      // paints straight over the car it is supposed to be sitting beneath.
-      side: THREE.DoubleSide,
-    }),
-  );
-  disk.renderOrder = 5;
-  disk.name = 'taxiSelection';
-  disk.visible = false;   // shown only while selected
-  // Deliberately not added to the car group. The body now rolls hard through corners, and a
-  // decal that rolls with it dips below the road surface and z-fights against it. The sim keeps
-  // it flat under the car instead.
+  // There is no selection indicator under the car any more. It was a yellow pool marking the
+  // taxi as selected — but the taxi is permanently selected and there is only one of it, so the
+  // pool was labelling something that was never in question, and it sat directly under the route
+  // band in the same yellow, which read as the band leaking out around the car.
 
   // A generous invisible hit volume. The taxi is only a few units long on a fixed camera that
   // shows the whole city, so picking the visible mesh alone is a frustratingly small target.
@@ -115,5 +95,5 @@ export function createTaxiMesh() {
     sign.material.color.set(hex ?? PALETTE.taxiSign);
   };
 
-  return { group, selection: disk, sign, setFareColor };
+  return { group, sign, setFareColor };
 }

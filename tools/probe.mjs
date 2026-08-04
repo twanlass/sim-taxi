@@ -20,7 +20,8 @@ import {
   createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, SECOND_FARE_AFTER,
 } from '../src/game/fares.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, lineCoord, GRID } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID } from '../src/city/grid.js';
+import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -467,6 +468,96 @@ for (const from of ints) {
 }
 check('every intersection is routable from every approach', unroutable === 0,
   `${ints.length * ints.length * 4} pairs, longest ${longest} turns`);
+
+// --- The drawn route band --------------------------------------------------
+// The band is paint on the lane the taxi will drive, so it has to (a) stay on the tarmac,
+// (b) sit in the *right-hand* lane on every straight, and (c) never re-shape ahead of the car.
+// (c) is the one that matters and the one the centreline version failed: its corner fillet was
+// clamped against the distance to the car, so the drawn corner visibly moved as the taxi closed
+// on it. Nothing in the path may depend on where the car is except where the band starts.
+{
+  const rScene = new THREE.Scene();
+  const rTraffic2 = createTraffic(makeRng(seed + 91), rScene, 1);   // taxi alone: nothing to block it
+  const rTaxi = rTraffic2.taxi;
+
+  // Somewhere far enough away to cross the map and take several turns.
+  const dest = { i: rTaxi.i > GRID / 2 ? 0 : GRID, j: rTaxi.j > GRID / 2 ? 0 : GRID };
+  rTaxi.route = findRoute(planOrigin(rTaxi), dest);
+  rTaxi.routeConsumed = false;
+
+  const HALF_ROAD = ROAD_W / 2;
+  const BAND_HALF = ((ROAD_W / 2) * 0.85) / 2;
+  /** Coordinate of the road centreline nearest v, on either axis. */
+  const lineNear = (v) => lineCoord(Math.round((v + HALF_SPAN) / PITCH));
+
+  // Distance from a point to a polyline, so "the new path lies on the old one" is one number.
+  const distToPath = (p, path) => {
+    let best = Infinity;
+    for (let k = 0; k < path.length - 1; k++) {
+      const a = path[k];
+      const b = path[k + 1];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len2 = dx * dx + dz * dz;
+      const t = len2 < 1e-9 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / len2));
+      best = Math.min(best, Math.hypot(p.x - (a.x + t * dx), p.z - (a.z + t * dz)));
+    }
+    return best;
+  };
+
+  const planned = routePath(rTaxi, rTaxi.route);
+  let offRoad = 0;
+  let wrongLane = 0;
+  let straights = 0;
+  let drift = 0;
+  let frames = 0;
+
+  for (let step = 0; step < 120 * 60; step++) {
+    rTraffic2.update(1 / 60);
+    const path = routePath(rTaxi, rTaxi.route);
+    if (path.length < 2) break;
+    frames += 1;
+
+    for (const p of path) {
+      const dx = Math.abs(p.x - lineNear(p.x));
+      const dz = Math.abs(p.z - lineNear(p.z));
+      // Inside a junction box the tarmac runs both ways, so being near a centreline on either
+      // axis is enough. Out on a straight the band's own half-width has to fit as well: a lane
+      // centre is LANE (2) off the centreline and the band is 1.7 wide, which leaves 0.3 of
+      // asphalt showing at the kerb.
+      const inJunction = dx <= HALF_ROAD && dz <= HALF_ROAD;
+      if (!inJunction && Math.min(dx, dz) + BAND_HALF > HALF_ROAD) offRoad += 1;
+      drift = Math.max(drift, distToPath(p, planned));
+    }
+
+    // Right-hand lane on the straights: take mid-block segments (both ends clear of a junction
+    // box) and check the cross-axis offset is exactly one LANE, on the side travel dictates.
+    for (let k = 0; k < path.length - 1; k++) {
+      const a = path[k];
+      const b = path[k + 1];
+      const dirX = Math.abs(b.x - a.x) > Math.abs(b.z - a.z);
+      const cross = dirX ? a.z : a.x;
+      const alongMid = dirX ? (a.x + b.x) / 2 : (a.z + b.z) / 2;
+      if (Math.abs(alongMid - lineNear(alongMid)) < HALF_ROAD) continue;   // inside a junction box
+      if (Math.hypot(b.x - a.x, b.z - a.z) < 1) continue;
+      const crossLine = lineNear(cross);
+      const sign = dirX ? Math.sign(b.x - a.x) : Math.sign(b.z - a.z);
+      const want = dirX ? sign * LANE : -sign * LANE;
+      straights += 1;
+      if (Math.abs((cross - crossLine) - want) > 1e-6) wrongLane += 1;
+    }
+
+    if (!rTaxi.route.length && Math.hypot(rTaxi.x - lineCoord(dest.i), rTaxi.z - lineCoord(dest.j)) < 8) break;
+  }
+
+  check('the route band stays on the road', offRoad === 0, `${offRoad} points off tarmac`);
+  check('the route band sits in the right-hand lane', wrongLane === 0 && straights > 20,
+    `${straights - wrongLane}/${straights} straight segments in lane`);
+  // The band may only get shorter from behind: every point of every later path must still lie on
+  // the path drawn when the route was planned.
+  check('the route band never re-shapes ahead of the taxi', drift < 0.05 && frames > 300,
+    `max drift ${drift.toFixed(4)} units over ${frames} frames`);
+}
 
 // Park districts build over a road. The closure has to be real in the traffic model, not just
 // hidden in the ground mesh, and it must not strand any part of the city.
