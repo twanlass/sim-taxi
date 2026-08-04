@@ -117,6 +117,45 @@ made without recomputing the cycle. Corridor, priority, and ring branches return
 **Turns** follow a quadratic Bézier through `entryPoint → turnControl → exitPoint`, with yaw
 interpolated by `lerpAngle` so a car never spins the long way round.
 
+### Front wheels
+
+The front pair steers. The angle is **read back from the path the car actually took** rather than
+from the turn decision: `atan(WHEELBASE · dψ/ds)` is the Ackermann angle that produces the
+curvature the car is describing, so one rule covers the junction arc, the Loco Mode weave and the
+straight in between, and nothing has to be kept in step with the turn state machine.
+
+Two things are deliberately outside it. The panic wobble is added *after* the difference is taken —
+it is a shimmy through the body at ~0.9 rad per unit of road, and steering the wheels with it would
+slam them lock to lock several times a second. And the ease is paced by **distance**, like the
+weave and for the same reason: a car held at a red keeps the lock it rolled up to the line with,
+and one stopped mid-turn waiting for room to land holds its wheels round the corner. That is also
+what makes the divide safe — a stationary car never reaches it.
+
+Measured over 240s of traffic, on the raw angle:
+
+| | raw | rendered |
+|---|---|---|
+| right turn | 38.7° | 34° (on the clamp) |
+| left turn | 15.0° | 24° |
+| boost weave (p90) | 7° | 11° |
+| straight on through a junction | 0° | 0° |
+
+Right beats left by more than 2:1 because right-hand traffic cuts the near corner while a left
+sweeps the far diagonal — the tighter arc genuinely wants more lock. `STEER_GAIN` of 1.6 is for
+legibility, not physics: a wheel is about 5px long at play zoom, so 15° of it moves the outline by
+well under a pixel. Everything under the clamp keeps its relative size, so a weave still reads as a
+flick and a corner as full lock. Unwinding is the ease and nothing else — a car is down to 6.8° one
+unit out of the junction and under 3° by three.
+
+The wheels don't **roll**, on purpose. At cruise a 0.32-radius wheel turns 0.44 rad per frame at
+60fps against a facet every 0.79 rad on an 8-sided cylinder — past the half-facet point, so it
+would strobe backwards. A 5px wheel spinning the wrong way is worse than one that doesn't spin.
+
+Ambient cars carry theirs as a **second InstancedMesh** of two instances per car, each composed
+*through* the body's matrix so it inherits the bob, the corner lean and the pitch rock for free.
+They can't ride in the body geometry, which is one shared matrix per car. The taxi's are ordinary
+meshes on its group, since it is drawn as a group anyway.
+
 ## Boost (crazy-taxi mode)
 
 ```js

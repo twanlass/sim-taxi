@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { ABOVE_RING } from '../game/timerring.js';
-import { wheelGeometries } from '../sim/traffic.js';
+import { wheelGeometries, wheelGeometry, wheelAnchors } from '../sim/traffic.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
 // because it needs to be raycast against for picking, and because its shell has to draw over the
@@ -42,6 +42,7 @@ export function createTaxiMesh() {
     parts.push(bakeColor(stripe, color('taxiTrim')));
   }
 
+  // Rear wheels only — the fronts steer, so they hang off the group as their own meshes below.
   parts.push(...wheelGeometries(CAR_LEN, CAR_W));
 
   const merged = mergeGeometries(parts, false);
@@ -55,6 +56,22 @@ export function createTaxiMesh() {
   // Marks this subtree as the taxi for the picker, which raycasts recursively.
   shell.userData.pickable = 'taxi';
   group.add(shell);
+
+  // Steered front wheels. One shared material, one mesh each, pivoting about their own hubs — the
+  // group's transform carries them along, so nothing here has to know where the taxi is.
+  const wheelMaterial = propMaterial();
+  const steered = wheelAnchors(CAR_LEN, CAR_W)
+    .filter((anchor) => anchor.front)
+    .map((anchor) => {
+      const wheel = new THREE.Mesh(wheelGeometry(), wheelMaterial);
+      wheel.position.set(anchor.x, anchor.y, anchor.z);
+      wheel.castShadow = true;
+      // Same reason as the shell: these sit on the road, where the timer ring is drawn.
+      wheel.renderOrder = ABOVE_RING;
+      wheel.userData.pickable = 'taxi';
+      group.add(wheel);
+      return wheel;
+    });
 
   // There is no selection indicator under the car any more. It was a yellow pool marking the
   // taxi as selected — but the taxi is permanently selected and there is only one of it, so the
@@ -95,5 +112,11 @@ export function createTaxiMesh() {
     sign.material.color.set(hex ?? PALETTE.taxiSign);
   };
 
-  return { group, sign, setFareColor };
+  /** Front-wheel lock, in radians. Both wheels take the same angle — at this zoom the Ackermann
+   * difference between inner and outer is well under a pixel. */
+  const setSteer = (angle) => {
+    for (const wheel of steered) wheel.rotation.y = angle;
+  };
+
+  return { group, sign, setFareColor, setSteer };
 }
