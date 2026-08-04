@@ -204,11 +204,12 @@ without it the yellow renders linear and lands visibly darker than every `MeshBa
 beside it. It runs *before* the premultiply below, because premultiplied colour is not in a colour
 space any more and converting it is wrong by however much alpha isn't 1.
 
-**Blend mode is switchable** — `normal` (the default), `additive`, `screen`, `multiply` — from the
+**Blend mode is switchable** — `additive` (the default), `normal`, `screen`, `multiply` — from the
 ⚙️ panel live, or pinned for a screenshot with `?blend=<name>`. The road is dark, and a flat
 `normal` wash over it flattens the markings, crosswalks and kerbs the band crosses; the other three
-let what is underneath come through to different degrees. Which one is right is a judgement call
-about the whole frame, which is why it is a control rather than a constant.
+let what is underneath come through to different degrees, `additive` by brightening rather than
+covering. Which one is right is a judgement call about the whole frame, which is why it is a
+control rather than a constant.
 
 The shader writes **premultiplied** colour so `additive` and `screen` are alpha-weighted rather
 than blowing out at full strength. `multiply` is the exception and shapes its own output —

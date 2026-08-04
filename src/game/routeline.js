@@ -50,9 +50,10 @@ const Y = 0.03;
 const OPACITY = 0.38;
 
 /**
- * How the band combines with the road under it. `normal` is the default; the rest are here because
- * the road is dark and a flat wash over it flattens the markings and kerbs it crosses, and which
- * one reads best is a judgement call — the ⚙️ panel switches between them live.
+ * How the band combines with the road under it. `additive` is the default: the road is dark and a
+ * flat `normal` wash over it flattens the markings and kerbs the band crosses, where adding light
+ * keeps them showing through. The rest stay switchable because which one reads best is a judgement
+ * call about the whole frame — the ⚙️ panel switches between them live.
  *
  * The shader writes premultiplied colour, so `screen` and `additive` are alpha-weighted rather
  * than blowing out at full strength. `multiply` is the exception and shapes its own output: it
@@ -73,7 +74,7 @@ export const ROUTE_BLENDS = {
     blendDst: THREE.SrcColorFactor,
   },
 };
-export const ROUTE_BLEND_DEFAULT = 'normal';
+export const ROUTE_BLEND_DEFAULT = 'additive';
 
 // Junction arcs are sampled, straights are not — the fade is computed per fragment from a
 // distance-along-the-path varying, so a 20-unit straight needs no interior vertices at all.
