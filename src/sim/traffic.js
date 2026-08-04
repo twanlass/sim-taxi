@@ -3,6 +3,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H } from '../city/ground.js';
+import {
+  WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries,
+} from '../geometry/wheels.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
   GRID, PITCH, HALF_ROAD, LANE, lineCoord, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
@@ -11,6 +14,9 @@ import {
 } from '../city/grid.js';
 
 export { ringAxisAt, isUnsignalised };   // re-exported: callers of the sim ask it about junctions
+// Wheels and ride height live in geometry/wheels.js — see the note there on why they are not in
+// this file. Passed straight through so callers have one import for "a vehicle".
+export { WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries };
 
 // --- Signals ----------------------------------------------------------------
 
@@ -344,7 +350,10 @@ const BOOST_ACCEL = 24;       // reaches full boost speed in well under a block
 const BOOST_KICK = 1.25;      // instant surge on activation, so the press has a feel
 const BRAKE = 11;             // units/s^2 shedding speed; ~3.3 units to stop from cruise
 const CORNER_SPEED = SPEED * 0.7;
-export const WHEEL_R = 0.32;
+
+// Vehicles previously rode at KERB_H + 0.05, floating 0.4 above the tarmac — invisible without
+// wheels, glaring with them. They now sit just clear of the road markings.
+export const ROAD_Y = 0.04;
 
 // Front-wheel steering. The angle is read back from the path the car actually described this
 // frame — atan(WHEELBASE · dψ/ds) is the Ackermann angle that produces the curvature it is
@@ -358,10 +367,10 @@ export const WHEEL_R = 0.32;
 // while a left sweeps the far diagonal — the tighter arc genuinely wants more lock, so the spread
 // is the model being right rather than something to flatten out.
 //
-// The gain is for legibility, not physics. At play zoom a wheel is about 5px long, so 15° of it
-// moves the outline by well under a pixel. 1.6× puts a right turn on the clamp (~34°, about where
-// a real front wheel stops) and a left at 24°, and everything below the clamp keeps its relative
-// size — a weave still reads as a flick and a corner as full lock.
+// The gain is for legibility, not physics. Even on the doubled wheel, 15° of a 10px tread moves
+// the outline by about a pixel. 1.6× puts a right turn on the clamp (~34°, about where a real
+// front wheel stops) and a left at 24°, and everything below the clamp keeps its relative size —
+// a weave still reads as a flick and a corner as full lock.
 //
 // Unwinding is the ease and nothing else: measured, a car is down to 6.8° one unit out of the
 // junction and under 3° by three, which is a driver straightening up as the car does.
@@ -389,61 +398,6 @@ export function steerToward(angle, yaw, prevYaw, ds, wheelbase = WHEELBASE) {
     Math.atan((wheelbase * dYaw) / ds) * STEER_GAIN));
   return angle + (target - angle) * Math.min(1, ds / STEER_EASE);
 }
-// Vehicles previously rode at KERB_H + 0.05, floating 0.4 above the tarmac — invisible without
-// wheels, glaring with them. They now sit just clear of the road markings.
-export const ROAD_Y = 0.04;
-
-// Baked dark rather than white: the shared material reads vertex colours and instanceColor
-// multiplies on top, so a dark base stays dark whatever colour the car is tinted.
-const TYRE = new THREE.Color(0.16, 0.16, 0.18);
-
-/**
- * Where each wheel's hub sits in car-local space. +x is the nose — main.js puts the tailpipe at
- * -x and the cabin is set back the same way.
- */
-export function wheelAnchors(len = CAR_LEN, width = CAR_W) {
-  const out = [];
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      out.push({
-        front: sx > 0,
-        x: sx * (len * 0.3),
-        y: WHEEL_R,
-        z: sz * (width / 2 - 0.02),
-      });
-    }
-  }
-  return out;
-}
-
-/**
- * One wheel, centred on its own hub rather than placed on the car.
- *
- * The front pair steers, so it can't be baked into the body: each one needs a pivot of its own to
- * yaw about. Centring the geometry on the hub is what makes that pivot the axle rather than the
- * car's origin.
- */
-export function wheelGeometry() {
-  const wheel = new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, 0.26, 8);
-  wheel.rotateX(Math.PI / 2);   // axle across the car
-  return bakeColor(wheel, TYRE);
-}
-
-/**
- * The fixed wheels for a vehicle whose origin sits on the road surface — the rear pair only.
- * The front pair is drawn separately so it can be steered; see `wheelGeometry`.
- */
-export function wheelGeometries(len = CAR_LEN, width = CAR_W) {
-  return wheelAnchors(len, width)
-    .filter((a) => !a.front)
-    .map((a) => {
-      const wheel = new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, 0.26, 8);
-      wheel.rotateX(Math.PI / 2);
-      wheel.translate(a.x, a.y, a.z);
-      return bakeColor(wheel, TYRE);
-    });
-}
-
 function carGeometry() {
   // Body is left white so the per-instance colour tints it; the glass is dark enough that the
   // same multiply leaves it dark whatever colour the car is.
@@ -451,14 +405,14 @@ function carGeometry() {
 
   // Body sits clear of the wheels so they actually show below the sill.
   const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
-  body.translate(0, 0.78, 0);
+  body.translate(0, 0.78 + CHASSIS_LIFT, 0);
   parts.push(bakeColor(body, new THREE.Color(1, 1, 1)));
 
   const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, 0.6, CAR_W * 0.86);
-  cabin.translate(-0.2, 1.45, 0);
+  cabin.translate(-0.2, 1.45 + CHASSIS_LIFT, 0);
   parts.push(bakeColor(cabin, color('carGlass')));
 
-  parts.push(...wheelGeometries());
+  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -658,7 +612,7 @@ export function createTraffic(rng, scene, count = 24) {
   // car's transform with a yaw of its own applied on top. They can't ride in the body geometry
   // because every instance of that shares one matrix, and these two have to turn independently
   // of it.
-  const FRONT = wheelAnchors().filter((a) => a.front);
+  const FRONT = wheelAnchors(CAR_LEN, CAR_W).filter((a) => a.front);
   const wheelMesh = new THREE.InstancedMesh(
     wheelGeometry(), propMaterial(), ambient.length * FRONT.length,
   );

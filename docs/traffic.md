@@ -142,10 +142,34 @@ Measured over 240s of traffic, on the raw angle:
 
 Right beats left by more than 2:1 because right-hand traffic cuts the near corner while a left
 sweeps the far diagonal — the tighter arc genuinely wants more lock. `STEER_GAIN` of 1.6 is for
-legibility, not physics: a wheel is about 5px long at play zoom, so 15° of it moves the outline by
-well under a pixel. Everything under the clamp keeps its relative size, so a weave still reads as a
-flick and a corner as full lock. Unwinding is the ease and nothing else — a car is down to 6.8° one
-unit out of the junction and under 3° by three.
+legibility, not physics: even on the doubled wheel, 15° moves the outline by about a pixel.
+Everything under the clamp keeps its relative size, so a weave still reads as a flick and a corner
+as full lock. Unwinding is the ease and nothing else — a car is down to 6.8° one unit out of the
+junction and under 3° by three.
+
+### Wheel size and ride height
+
+`src/geometry/wheels.js` owns both, and owns them for every vehicle in the game. It is a module of
+its own because `traffic.js` and `geometry/taxi.js` already import each other — a cycle that was
+harmless while only functions crossed it, and stopped being harmless the moment a constant did.
+
+The wheels are **double** what they shipped at (0.64 radius, 0.52 tread). At 0.32 the steering was
+there and unreadable: a wheel was about 5px long at play zoom and its whole travel from straight to
+full lock moved the outline by roughly a pixel.
+
+Doubling alone is not enough, and the two failed attempts are the reason `CHASSIS_LIFT` exists:
+
+- **Big wheels under an unchanged body** is the monster-truck look — the tops cleared the waistline
+  and the car sat sunk between them.
+- **Tucking them inside the flank** fixed the proportions and threw away the point. Occluded from
+  this camera a wheel shows as a notch in the sill, and its angle goes straight back to being
+  unreadable.
+
+So the body rises with the wheel and the tread stays proud. Every y in the vehicle geometry — cars,
+taxi, cruiser, and the app icon in `tools/make-icon.mjs` — is still written as the number it was
+designed at, plus `CHASSIS_LIFT`, which is derived from `WHEEL_R` so the two can't drift apart.
+The result reads as a chunky toy car up close and as an ordinary car at play zoom, which is the
+zoom that matters.
 
 The wheels don't **roll**, on purpose. At cruise a 0.32-radius wheel turns 0.44 rad per frame at
 60fps against a facet every 0.79 rad on an 8-sided cylinder — past the half-facet point, so it

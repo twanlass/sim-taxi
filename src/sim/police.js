@@ -8,7 +8,7 @@ import {
 } from '../city/grid.js';
 import {
   setPriorityCorridor, setPolicePresence, locoWeave, LOCO_WEAVE_FADE, ROAD_Y,
-  wheelAnchors, wheelGeometries, wheelGeometry, steerToward,
+  wheelAnchors, wheelGeometries, wheelGeometry, steerToward, CHASSIS_LIFT,
 } from './traffic.js';
 
 // A police car running a priority corridor across the city: every signal on its road goes green,
@@ -90,15 +90,15 @@ function policeGeometry() {
   const parts = [];
 
   const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
-  body.translate(0, 0.78, 0);
+  body.translate(0, 0.78 + CHASSIS_LIFT, 0);
   parts.push(bakeColor(body, color('policeBody')));
 
   const roof = new THREE.BoxGeometry(1.9, 0.62, 1.6);
-  roof.translate(-0.2, 1.46, 0);
+  roof.translate(-0.2, 1.46 + CHASSIS_LIFT, 0);
   parts.push(bakeColor(roof, color('policeRoof')));
 
   const stripe = new THREE.BoxGeometry(3.62, 0.3, 1.82);
-  stripe.translate(0, 0.62, 0);
+  stripe.translate(0, 0.62 + CHASSIS_LIFT, 0);
   parts.push(bakeColor(stripe, color('policeRoof')));
 
   // Rear pair only; the fronts steer, so they hang off the group as their own meshes.
@@ -137,7 +137,7 @@ function lightBar(group) {
       new THREE.BoxGeometry(0.55, 0.26, 0.5),
       new THREE.MeshBasicMaterial({ color: new THREE.Color(hex) }),
     );
-    mesh.position.set(-0.2, 1.9, z);
+    mesh.position.set(-0.2, 1.9 + CHASSIS_LIFT, z);
     group.add(mesh);
     return mesh;
   };
@@ -147,7 +147,7 @@ function lightBar(group) {
   // past. No shadows — these are cheap fill, and shadow-casting point lights are not.
   const lamp = (hex, z) => {
     const light = new THREE.PointLight(new THREE.Color(hex), 0, 34, 1.7);
-    light.position.set(-0.2, 2.1, z);
+    light.position.set(-0.2, 2.1 + CHASSIS_LIFT, z);
     group.add(light);
     return light;
   };
