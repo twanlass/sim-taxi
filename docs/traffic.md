@@ -140,6 +140,38 @@ const cornerTarget = straightOn || car.boost ? cruise : CORNER_SPEED;
 A boosting taxi does not slow for corners at all — without this it braked at every junction and
 the whole mode read as choppy rather than fast.
 
+**It stays in its lane and weaves inside it.** The first version slid a full `LANE` out onto the
+road centreline to overtake, and that is what made the mode a lottery: on the centreline the taxi
+sits 2 units from a same-direction leader and 2 from oncoming traffic, while the collision envelope
+in `sim/collisions.js` is 2.31 wide — so *every* car it drew level with was a crash, whichever way
+that car was pointing. It now holds its lane centre and weaves within it, from two sine waves of
+different wavelength summed to a 0.52-unit peak (`SWERVE_AMP` 0.40 over 18 units, `SWERVE_AMP2`
+0.12 over 9.5, periods that don't divide so the weave never lands on a beat). The lane centre has
+about 1.1 units of play either side once half a car body is off, so the weave uses half of it.
+
+Both the wave's argument and the envelope that fades it in with the boost are paced by **distance
+travelled**, and neither advances outside the `drive` state. That is the same lesson the centreline
+ramp learned twice: a time-paced offset slid the car sideways while it sat still at a red, and a
+ramp running through a corner pushed it off its own Bézier partway round. Freezing the phase
+mid-turn also means a corner ends on the offset it began on, with no jump back onto the wave.
+
+Yaw follows the offset's slope. Because the offset is a function of distance rather than time, that
+slope *is* the tangent of the steering angle at any speed — no dividing by `v` — and it peaks at
+about 12°, against the 13° the old lane change held. Without it the car crabs, which is what
+actually looked broken about the old overtake.
+
+Holding the lane means the taxi has to **see the car ahead**, which the centreline version could
+ignore. It tailgates at `BOOST_GAP = MIN_GAP × 0.85` = 4.5 units instead of queueing at the ambient
+distance: close enough to read as impatient, still 0.29 clear of the collision envelope, and it
+takes the gap the moment the leader turns off. It is also back in the lane bookkeeping it used to
+be skipped in — which matters in both directions, because traffic behind it now sees it brake.
+An ambient car rear-ending the taxi used to end the run through no fault of the player.
+
+Measured over 18 minutes of continuous boosting: **one crash every 25.1s, against one every 9.7s**
+on the centreline, with mean speed unchanged (17.5 u/s against a 18.7 cap). `tools/probe.mjs`
+asserts both halves of it — the taxi never gets more than 0.6 units off its lane centre, and the
+weave never goes flat.
+
 A boosting taxi also sets `priorityJunction`, which forces its next junction green — that's the
 "runs red lights" part, expressed through the signal model rather than by skipping the check. Ring
 junctions are covered too: the ring/cross branches check `priorityCovers` and route the boosting

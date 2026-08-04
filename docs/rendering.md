@@ -174,8 +174,8 @@ exactly that: every point of every later path still lies on the path drawn when 
 planned, measured at a max drift of **0.021 units** over 2,175 frames of a cross-town route — and
 that drift is bezier re-sampling, not motion.
 
-The start point is the **lane** position rather than `car.x/car.z`: the taxi slides out toward the
-centreline to overtake, and the band belongs to the lane, not to that manoeuvre.
+The start point is the **lane** position rather than `car.x/car.z`: the taxi weaves inside its lane
+in Loco Mode, and the band belongs to the lane, not to that manoeuvre.
 
 **Width is 0.85 of a lane, not a full one.** A right turn's lane-to-lane arc has a radius of
 `HALF_ROAD - LANE` = 2, so at a half-width of 2 the inside edge of the band collapses to a point at
