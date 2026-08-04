@@ -15,7 +15,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/ridermeter.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/dust.js', '../src/game/sparks.js', '../src/game/smoke.js',
   '../src/game/debris.js', '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
-  '../src/game/dropoffindicator.js'];
+  '../src/game/dropoffindicator.js', '../src/geometry/carkit.js'];
 
 const TOOLS = [
   { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },
@@ -54,6 +54,43 @@ try {
 } catch (error) {
   failed += 1;
   console.log(`FAIL  modules  ${error.message}`);
+}
+
+// The vehicle kit behind /editor.html. Every preset has to build, and the sedan preset has to
+// keep matching carGeometry() in sim/traffic.js — the kit is only a trustworthy editing surface
+// for the game's vehicles while its baseline *is* the game's vehicle.
+try {
+  const { PRESETS, buildVehicleGeometry, normalizeSpec, randomSpec } = await import('../src/geometry/carkit.js');
+  for (const [key, preset] of Object.entries(PRESETS)) {
+    const geo = buildVehicleGeometry(preset);
+    if (!geo.attributes.position?.count || !geo.attributes.color) {
+      throw new Error(`${key} built without position/color attributes`);
+    }
+    if (geo.index) throw new Error(`${key} is indexed — flat shading needs non-indexed geometry`);
+    geo.computeBoundingBox();
+    const b = geo.boundingBox;
+    if (b.min.y < -1e-6 || b.max.y > 4 || b.max.x - b.min.x > 8) {
+      throw new Error(`${key} bounds look wrong: ${JSON.stringify(b)}`);
+    }
+    geo.dispose();
+  }
+  const sedan = buildVehicleGeometry(PRESETS.sedan);
+  sedan.computeBoundingBox();
+  const s = sedan.boundingBox;
+  // carGeometry(): body 3.4 long, cabin roof at 1.75, wheels on the road and proud of the
+  // flanks — z centre ±0.83 plus half the 0.26 tyre width = ±0.96.
+  const near = (a, b) => Math.abs(a - b) < 1e-4;
+  if (!(near(s.max.x, 1.7) && near(s.min.x, -1.7) && near(s.max.z, 0.96) && near(s.max.y, 1.75) && near(s.min.y, 0))) {
+    throw new Error(`sedan drifted from the game car: ${JSON.stringify(s)}`);
+  }
+  sedan.dispose();
+  // A malformed import must degrade to a buildable car, and a random roll must always build.
+  buildVehicleGeometry(normalizeSpec({ body: { len: 999, width: 'nope' }, cargo: { type: 'lorry' } })).dispose();
+  for (let i = 0; i < 20; i++) buildVehicleGeometry(randomSpec()).dispose();
+  console.log(`ok    carkit   ${Object.keys(PRESETS).length} presets build · sedan matches the game car`);
+} catch (error) {
+  failed += 1;
+  console.log(`FAIL  carkit   ${error.message}`);
 }
 
 for (const tool of TOOLS) {
