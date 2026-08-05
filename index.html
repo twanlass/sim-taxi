@@ -66,6 +66,11 @@
          them the ending rather than an overlay on top of one. */
       #run-end {
         position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+        /* Above every other overlay (the toast sits at 25, the tweak toggle and the rider chips at
+           20). Without a z-index of its own the blackout paints *under* them, so the waiting-rider
+           chips stayed lit in the bottom-left corner of the game-over screen — and a chip that is
+           still on top also swallows the tap that skips the tally. */
+        z-index: 30;
         background: rgba(0, 0, 0, 0.95); color: #fff; text-align: center;
         /* Centred by `margin: auto` on the card rather than by `justify-content`: if the content
            ever outgrows a short viewport, a centred flex line clips its own overflow at the *top*,
@@ -131,7 +136,7 @@
       #run-end .stat-label { text-align: left;  transform-origin: left center; }
       #run-end .stat-value { text-align: right; transform-origin: right center; }
       /* Tabular figures so a rolling counter doesn't jitter its own width as the digits change,
-         and the column stays put while all four count at once. */
+         and the column stays put while a row counts. */
       #run-end .stat-value { font-variant-numeric: tabular-nums; }
 
       /* Same pill treatment as #boost — the retry action reads as the primary yellow button. */
@@ -143,6 +148,11 @@
         transition: box-shadow 0.15s ease, transform 0.1s ease;
       }
       #run-end .retry:active { transform: scale(0.95); }
+      /* Disabled while the stats count themselves out — it is transparent until its entrance, and
+         a pill you can click before you can see it reloads the run out from under the tally. The
+         pointer has to pass *through* it while it waits: a tap there is a tap on the overlay, which
+         is what skips to the end of the sequence. */
+      #run-end .retry:disabled { pointer-events: none; }
 
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */

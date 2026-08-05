@@ -419,15 +419,37 @@ still doesn't fit, the overlay scrolls — centred by `margin: auto` on the cont
 **Nothing appears at once.** The card is revealed as a sequence, because the version before this
 one wrote a single line of `innerHTML` and the whole screen arrived in one frame — which reads as
 the game stopping rather than as a scoreboard. The order is title → reason → each stat in turn →
-**Play again**, off one stride constant (`STAT_STRIDE`), and each stat's label **scales down** into
-place as it fades up before its number rolls from zero. A number that rolls gets read; a number that
-is printed gets skipped past on the way to the button. The button is last on purpose, appearing only
-once the final stat has finished counting, so the player isn't invited to leave mid-tally.
+**Play again**, and each stat's label **scales down** into place as it fades up before its number
+rolls from zero. A number that rolls gets read; a number that is printed gets skipped past on the
+way to the button. The button is last on purpose, appearing only once the final stat has finished
+counting, so the player isn't invited to leave mid-tally.
 
-The whole cadence is ~2.1s and lives in the timeline constants at the top of the module rather
-than in CSS keyframe delays, so it can be re-paced from one place and so the stagger works for
-however many stats it is handed. Under `prefers-reduced-motion` the card prints its final values
-with no entrance and no roll — the stagger is the entire module, so there is nothing else to keep.
+**The stats are counted out one row at a time**, not staggered. A row's label arrives, its number
+rolls, the number lands and pops, and only after a held beat does the next label appear. An earlier
+pass overlapped the rows on a 165ms stride, and with four of them counting simultaneously the block
+read as one animation with numbers moving inside it — you watched the screen rather than any single
+figure. `STAT_STRIDE` is now *derived*: `ROW_MS + ROW_GAP`, where `ROW_MS` is a row's own beat
+(`COUNT_LEAD + COUNT_MS + LAND_MS`). "Finished before the next one starts" is therefore a property
+of the constants rather than something to keep re-checking by eye.
+
+The whole cadence is ~3.5s and lives in the timeline constants at the top of the module rather
+than in CSS keyframe delays, so it can be re-paced from one place and so the sequence works for
+however many stats it is handed. Playing the rows in turn roughly doubled the wait, so **a tap
+anywhere skips to the end** — finishing every animation and landing every number — and the retry
+pill is `disabled` (and so `pointer-events: none`) until then, which both keeps an invisible button
+from reloading the run mid-tally and lets a tap aimed at it fall through to the skip.
+
+The counters are anchored to their **first animation frame**, not to `performance.now()` at build
+time. A WAAPI animation starts on the frame after `animate()`, and the game-over frame is exactly
+where the page hitches — on a stalled boot the numbers ran ~500ms ahead of their own labels, which
+for a list played one row at a time meant a row counting before it had appeared.
+
+The overlay sits at **`z-index: 30`**, above the toast (25) and the tweak toggle and rider-finder
+chips (20). Without one the blackout painted *under* them and a waiting-rider chip stayed lit in
+the corner of the game-over screen — and a chip still on top also swallows the tap that skips.
+
+Under `prefers-reduced-motion` the card prints its final values with no entrance and no roll — the
+sequence is the entire module, so there is nothing else to keep.
 
 | Stat | Source | Notes |
 |---|---|---|
