@@ -75,26 +75,37 @@ export function createProps(rng, blocks) {
 
   for (const block of blocks) {
     if (block.districtId !== null && block.districtId !== undefined) continue;
-    const { x0, z0, x1, z1, cx, cz } = block.bounds;
 
-    if (block.type === 'park') {
-      const count = rng.int(5, 9);
-      for (let i = 0; i < count; i++) {
-        parts.push(...tree(
-          rng.range(x0 + 1.6, x1 - 1.6),
-          rng.range(z0 + 1.6, z1 - 1.6),
-          rng,
-        ));
+    // Per polygon, not per block: on the three blocks the avenue cuts, each sliver is its own
+    // piece of ground and wants its own kerb lamps and its own trees.
+    for (const poly of block.polys) {
+      const centroid = poly.reduce((acc, p) => ({ x: acc.x + p.x / poly.length, z: acc.z + p.z / poly.length }),
+        { x: 0, z: 0 });
+      // Pull each corner in toward the centroid rather than by a fixed dx/dz — a triangle's
+      // corners point in three different directions, so an axis-aligned inset walks two of the
+      // three lamps straight off the kerb and into the road.
+      const pull = (p, by) => {
+        const dx = centroid.x - p.x;
+        const dz = centroid.z - p.z;
+        const len = Math.hypot(dx, dz) || 1;
+        return { x: p.x + (dx / len) * by, z: p.z + (dz / len) * by };
+      };
+
+      if (block.type === 'park') {
+        const count = rng.int(5, 9);
+        for (let i = 0; i < count; i++) {
+          // Rejection-sample inside the polygon: barycentric-style mixing would bunch trees at
+          // the centroid, and the bounding box alone would plant them in the street.
+          const p = pull(poly[rng.int(0, poly.length - 1)], rng.range(1.6, 5));
+          parts.push(...tree(p.x, p.z, rng));
+        }
       }
-    }
 
-    // A lamp at each block corner, set in from the kerb.
-    const inset = 0.75;
-    for (const [lx, lz] of [
-      [x0 + inset, z0 + inset], [x1 - inset, z0 + inset],
-      [x0 + inset, z1 - inset], [x1 - inset, z1 - inset],
-    ]) {
-      parts.push(...lamp(lx, lz, rng));
+      const LAMP_INSET = 1.06;   // 0.75 on each axis, as the diagonal pull-in
+      for (const corner of poly) {
+        const p = pull(corner, LAMP_INSET);
+        parts.push(...lamp(p.x, p.z, rng));
+      }
     }
   }
 

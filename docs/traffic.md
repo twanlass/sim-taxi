@@ -50,6 +50,34 @@ The ring needs its own gate inside `lightPhase` rather than a permanent green: a
 for the ring reads as a permanent *red* for everyone else, and inner traffic would queue at the
 perimeter forever.
 
+### The avenue
+
+The [diagonal avenue](city.md#the-diagonal-avenue) crosses the grid unsignalised. A car on it has
+no phase of its own — `canProceed` compares the phase against `axisOf(d)`, and no signal ever
+returns `'ne'` or `'nw'` — so it falls through to `avenueGapClear()` and waits for a gap in
+whichever orthogonal axis currently holds the green. `AVENUE_YIELD` is 17 units, shorter than the
+ring's 24: the traffic it yields to is signalised and will be stopped again shortly, and a longer
+window at a junction whose green is only ~7s long never opens at all — the avenue backed up
+permanently at the first arterial it met.
+
+The one exception is a boosting taxi, whose priority hold names the avenue's *own* axis and hands
+the junction over wholesale. That is why `canProceed` compares axes rather than short-circuiting
+on `isDiagonal(d)`: written that way the taxi held the junction and then refused itself entry to
+it, parking mid-boost on an empty road for as long as the button was down.
+
+Two things also fell out of getting this right, both pre-existing and neither about the avenue:
+
+- **Nobody may enter a junction toward an exit lane another car is already turning into.** Two
+  mid-turn cars are both invisible to the don't-block-the-box test, which only sees `drive` cars,
+  so they converge on one landing point and complete on top of each other — measured at 0.01
+  units apart on seed 909, a ring car going straight on and a car yielding onto the ring.
+- **The bust chase scores exits by roads-to-go, not straight-line distance.** Euclidean distance
+  is not a metric on a road network with park closures in it, and four legs could score each other
+  into a loop (seed 5: `x3− z3− x1+ z4+` and back, running out `CHASE_TIMEOUT` 20 units short).
+  Reaching the quarry's *junction* is not the goal either — the cruiser only brakes once the
+  quarry is within `ON_ROAD` of its rail, so `landsOnQuarryRoad()` recognises the move onto their
+  actual stretch of road and always outscores everything else.
+
 ### The roundabout
 
 One interior junction ([city.md](city.md#one-junction-is-a-roundabout)) has no signal at all —

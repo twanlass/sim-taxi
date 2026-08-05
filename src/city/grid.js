@@ -26,63 +26,165 @@ export function blockBounds(bi, bj) {
 // --- Directions -------------------------------------------------------------
 // Encoded 0..3 as +X, +Z, -X, -Z. The ordering is deliberate: turning right is (d + 1) % 4 and
 // turning left is (d + 3) % 4, which removes every lookup table this would otherwise need.
+//
+// 4..7 are the diagonals, added for the avenue (see "Diagonal avenue" below). They are a strict
+// extension: every orthogonal direction keeps its number, its sign and its yaw, so the mod-4
+// arithmetic above still holds for the 0..3 that use it. What the diagonals cannot do is share
+// that arithmetic — `rightOf(4)` is meaningless — so anything that has to classify a turn in the
+// presence of a diagonal goes through `turnKind()` instead, which measures the actual heading
+// change and reduces to exactly straight/right/left on an orthogonal pair.
 
-export const DIR = { PX: 0, PZ: 1, NX: 2, NZ: 3 };
+export const DIR = { PX: 0, PZ: 1, NX: 2, NZ: 3, NE: 4, NW: 5, SW: 6, SE: 7 };
+
+// Grid step per direction, in (i, j). The diagonals move on both axes at once, which is the
+// entire difference — one avenue segment covers √2 blocks of Manhattan distance.
+const STEP = [
+  [1, 0], [0, 1], [-1, 0], [0, -1],
+  [1, 1], [-1, 1], [-1, -1], [1, -1],
+];
+
+export const isDiagonal = (d) => d >= 4;
 export const isXAxis = (d) => d === 0 || d === 2;
-export const dirSign = (d) => (d === 0 || d === 1 ? 1 : -1);
+
+// Which pair of directions share a travel axis, and which way along it each one runs. `s` in the
+// traffic model is a *signed axis coordinate*, not a forward projection, which is why +X and −X
+// can share one number line — and why NE/SW and NW/SE each need to as well.
+const AXIS = ['x', 'z', 'x', 'z', 'ne', 'nw', 'ne', 'nw'];
+const R2 = Math.SQRT1_2;
+const AXIS_VEC = {
+  x: { x: 1, z: 0 },
+  z: { x: 0, z: 1 },
+  ne: { x: R2, z: R2 },      // the (i+1, j+1) diagonal
+  nw: { x: -R2, z: R2 },     // the (i−1, j+1) diagonal
+};
+
+export const axisOf = (d) => AXIS[d];
+export const axisVec = (d) => AXIS_VEC[AXIS[d]];
+export const dirSign = (d) => (d === 0 || d === 1 || d === 4 || d === 5 ? 1 : -1);
 export const rightOf = (d) => (d + 1) % 4;
 export const leftOf = (d) => (d + 3) % 4;
-export const opposite = (d) => (d + 2) % 4;
+export const opposite = (d) => (d < 4 ? (d + 2) % 4 : ((d - 4 + 2) % 4) + 4);
 
 /** Yaw that points a +X-facing model along direction d. */
-export const dirYaw = (d) => [0, -Math.PI / 2, Math.PI, Math.PI / 2][d];
+export const dirYaw = (d) => -Math.atan2(STEP[d][1], STEP[d][0]);
+
+/** Unit vector one lane to the *right* of travel — right-hand traffic sits on it. */
+function rightVec(d) {
+  const [sx, sz] = STEP[d];
+  const len = Math.hypot(sx, sz);
+  return { x: -sz / len, z: sx / len };   // (1,0) → (0,1): right of +X is +Z
+}
+
+/** Signed coordinate of a point along direction d's travel axis. */
+export const alongAxis = (d, p) => {
+  const a = AXIS_VEC[AXIS[d]];
+  return p.x * a.x + p.z * a.z;
+};
+
+/**
+ * Identity of the road d runs on through (i, j) — the value that is constant all the way down
+ * it. For the grid that is the line index; for a diagonal it is which diagonal of the lattice
+ * the junction sits on. Lane bookkeeping keys off this, so cars on the same stretch of road
+ * queue behind each other and cars on a parallel one never do.
+ */
+export const roadLineId = (d, i, j) => {
+  const axis = AXIS[d];
+  if (axis === 'x') return j;
+  if (axis === 'z') return i;
+  return axis === 'ne' ? j - i : i + j;
+};
 
 /**
  * Lane centre for a car travelling direction d past intersection line (i, j).
  * Right-hand traffic: the lane sits on the right-hand side of the travel direction.
+ *
+ * Orthogonal only — it returns a bare coordinate on the cross axis, which a diagonal lane has no
+ * equivalent of. `lanePoint()` is the general form; this stays because the grid-only callers read
+ * far better with it.
  */
 export function laneOffsetCoord(d, i, j) {
   if (isXAxis(d)) return lineCoord(j) + dirSign(d) * LANE; // z of an x-travelling lane
   return lineCoord(i) - dirSign(d) * LANE;                 // x of a z-travelling lane
 }
 
-/** Point where a car travelling d enters the intersection box at (i, j). */
-export function entryPoint(d, i, j) {
+/**
+ * World point on d's lane at axis coordinate s, past intersection (i, j).
+ *
+ * The road centreline runs through the junction centre along d's axis, so the point is that
+ * centre slid to the requested axis coordinate and stepped one LANE to the right of travel. For
+ * an orthogonal d this is algebraically identical to the coordinate pair `laneOffsetCoord` builds.
+ */
+export function lanePoint(d, i, j, s) {
+  const a = axisVec(d);
+  const r = rightVec(d);
   const cx = lineCoord(i);
   const cz = lineCoord(j);
-  if (isXAxis(d)) return { x: cx - dirSign(d) * HALF_ROAD, z: laneOffsetCoord(d, i, j) };
-  return { x: laneOffsetCoord(d, i, j), z: cz - dirSign(d) * HALF_ROAD };
+  const slide = s - (cx * a.x + cz * a.z);
+  return { x: cx + a.x * slide + r.x * LANE, z: cz + a.z * slide + r.z * LANE };
+}
+
+/** Point where a car travelling d enters the intersection box at (i, j). */
+export function entryPoint(d, i, j) {
+  const c = { x: lineCoord(i), z: lineCoord(j) };
+  return lanePoint(d, i, j, alongAxis(d, c) - dirSign(d) * HALF_ROAD);
 }
 
 /** Point where a car travelling d leaves the intersection box at (i, j). */
 export function exitPoint(d, i, j) {
-  const cx = lineCoord(i);
-  const cz = lineCoord(j);
-  if (isXAxis(d)) return { x: cx + dirSign(d) * HALF_ROAD, z: laneOffsetCoord(d, i, j) };
-  return { x: laneOffsetCoord(d, i, j), z: cz + dirSign(d) * HALF_ROAD };
+  const c = { x: lineCoord(i), z: lineCoord(j) };
+  return lanePoint(d, i, j, alongAxis(d, c) + dirSign(d) * HALF_ROAD);
 }
 
+/** Unit vector in the direction of travel (not the canonical axis). */
+const travelVec = (d) => {
+  const a = axisVec(d);
+  const s = dirSign(d);
+  return { x: a.x * s, z: a.z * s };
+};
+
 /**
- * Bezier control point for a turn from `dIn` to `dOut`. For a turn this is where the two lane
- * centrelines cross, which produces a clean quarter arc; for straight-through it degenerates to
- * the midpoint, so the same curve code handles both without a special case at the call site.
+ * Bezier control point for a turn from `dIn` to `dOut`: where the two lane centrelines cross,
+ * which produces an arc leaving and rejoining each lane exactly tangent to it. Parallel lines
+ * (straight through) have no crossing, so it degenerates to the midpoint and the same curve code
+ * handles both without a special case at the call site.
+ *
+ * Written as a line intersection rather than the old axis-swap because a 45° turn on or off the
+ * avenue has no axis to swap — the swap was the two-perpendicular-axes case of exactly this.
  */
 export function turnControl(dIn, dOut, i, j) {
   const entry = entryPoint(dIn, i, j);
   const exit = exitPoint(dOut, i, j);
+  const u = travelVec(dIn);
+  const v = travelVec(dOut);
 
-  if (isXAxis(dIn) === isXAxis(dOut)) {
+  const denom = u.x * v.z - u.z * v.x;
+  if (Math.abs(denom) < 1e-9) {
     return { x: (entry.x + exit.x) / 2, z: (entry.z + exit.z) / 2 };
   }
-  return isXAxis(dIn)
-    ? { x: exit.x, z: entry.z }
-    : { x: entry.x, z: exit.z };
+  const t = ((exit.x - entry.x) * v.z - (exit.z - entry.z) * v.x) / denom;
+  return { x: entry.x + u.x * t, z: entry.z + u.z * t };
 }
+
+/**
+ * How a car turns going from dIn to dOut: 0 straight, 1 right, 2 left — the same three buckets
+ * the turn weights have always used, measured off the heading change so a 45° swing onto the
+ * avenue lands in the right one. Reduces exactly to `d === dIn` / `rightOf` / `leftOf` when both
+ * directions are orthogonal.
+ */
+export function turnKind(dIn, dOut) {
+  if (dIn === dOut) return 0;
+  const delta = ((dirYaw(dOut) - dirYaw(dIn) + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  return delta < 0 ? 1 : 2;   // negative yaw change is a right turn — see dirYaw
+}
+
+/** Absolute heading change of a turn, in radians. */
+export const turnAngle = (dIn, dOut) =>
+  Math.abs(((dirYaw(dOut) - dirYaw(dIn) + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
 
 /** Intersection reached by leaving (i, j) along d, or null if it would leave the grid. */
 export function nextIntersection(d, i, j) {
-  const ni = i + (d === DIR.PX ? 1 : d === DIR.NX ? -1 : 0);
-  const nj = j + (d === DIR.PZ ? 1 : d === DIR.NZ ? -1 : 0);
+  const ni = i + STEP[d][0];
+  const nj = j + STEP[d][1];
   if (ni < 0 || ni > GRID || nj < 0 || nj > GRID) return null;
   return { i: ni, j: nj };
 }
@@ -241,19 +343,72 @@ export function setClosedSegments(keys) {
   for (const key of keys) closedSegments.add(key);
 }
 
-/** True if the road from (i, j) heading d has been built over. */
+// --- Diagonal avenue ---------------------------------------------------------
+//
+// One street that ignores the grid: a 45° avenue running junction-to-junction across the middle
+// of the city, cutting the blocks it crosses into flatiron slivers. It is a real road — traffic
+// drives it, the router prefers it (one segment covers √2 blocks of Manhattan distance for √2
+// the cost, so it strictly wins on any trip along its line), and the ground mesh opens up for it.
+//
+// The avenue is stored as the set of junctions on it, in order. Diagonal segments exist *only*
+// between consecutive members, so `isSegmentClosed` returns true for every other diagonal on the
+// lattice and no other system has to know the avenue exists.
+let avenue = null;   // { axis: 'ne' | 'nw', junctions: [{i, j}], keys: Set }
+
+export function setAvenue(next) {
+  if (!next) { avenue = null; return; }
+  const keys = new Set();
+  for (let k = 0; k < next.junctions.length - 1; k++) {
+    const a = next.junctions[k];
+    const b = next.junctions[k + 1];
+    keys.add(segmentKey(a.i, a.j, b.i, b.j));
+  }
+  avenue = { ...next, keys };
+}
+
+export const getAvenue = () => avenue;
+
+/** Is (i, j) one of the junctions the avenue passes through? */
+export const onAvenue = (i, j) =>
+  Boolean(avenue) && avenue.junctions.some((p) => p.i === i && p.j === j);
+
+/** True if the road from (i, j) heading d has been built over — or never existed. */
 export function isSegmentClosed(i, j, d) {
   const next = nextIntersection(d, i, j);
   if (!next) return true;
+  // A diagonal is road only where the avenue put one. Every other diagonal of the lattice is
+  // block, so the default answer for 4..7 is "there is nothing there".
+  if (isDiagonal(d)) {
+    return !avenue || !avenue.keys.has(segmentKey(i, j, next.i, next.j));
+  }
   return closedSegments.has(segmentKey(i, j, next.i, next.j));
 }
 
-/** Directions a car may leave (i, j) on — no U-turn, no leaving the map, no closed roads. */
+// Sharpest turn a car will take at a junction. 90° is the grid's right and left; the avenue adds
+// 45° swings on and off it. What this excludes is the 135° hairpin — the two *backward* orthogonal
+// exits from a diagonal approach, which are geometrically legal and read as a car changing its
+// mind at speed. Every avenue junction still has three exits without them (straight on, and a 45°
+// either side), so nothing is ever cornered by the rule. The U-turn is 180° and excluded already.
+const MAX_TURN = Math.PI / 2 + 1e-6;
+
+/**
+ * Directions a car may leave (i, j) on — no U-turn, no hairpin, no leaving the map, no closed
+ * roads. Ordered straight, right, left, shallowest first, which is the order the grid-only
+ * version returned and the order the turn weights are rolled against.
+ */
 export function legalExits(dIn, i, j) {
   const out = [];
-  for (const d of [dIn, rightOf(dIn), leftOf(dIn)]) {
-    if (nextIntersection(d, i, j) && !isSegmentClosed(i, j, d)) out.push(d);
+  for (let d = 0; d < 8; d++) {
+    if (turnAngle(dIn, d) > MAX_TURN) continue;
+    if (!nextIntersection(d, i, j) || isSegmentClosed(i, j, d)) continue;
+    out.push(d);
   }
+  out.sort((a, b) => {
+    const ka = turnKind(dIn, a);
+    const kb = turnKind(dIn, b);
+    if (ka !== kb) return ka - kb;
+    return turnAngle(dIn, a) - turnAngle(dIn, b);
+  });
   return out;
 }
 
@@ -275,13 +430,27 @@ export function legalExits(dIn, i, j) {
  * meshers spend time on it. Never skip: a silent unroutable seed strands fares.
  */
 export function isCityConnected() {
-  const N = (GRID + 1) * (GRID + 1) * 4;
-  const key = (i, j, d) => (i * (GRID + 1) + j) * 4 + d;
+  // Eight directions since the avenue: a state is (junction, heading), and a heading can now be
+  // diagonal. Counting only four left every diagonal arrival unvisited and the check always red.
+  const N = (GRID + 1) * (GRID + 1) * 8;
+  const key = (i, j, d) => (i * (GRID + 1) + j) * 8 + d;
 
+  // Only states a car can actually be *in*. Arriving at (i, j) heading d means having driven the
+  // segment behind you, so that segment has to exist. This mattered the moment diagonals arrived:
+  // "at the map corner, heading south-west" is a graph-legal state with no road in and — because
+  // both 45° exits also leave the map — no road out either, so it fails a forward-reachability
+  // test it was never meant to be part of. The orthogonal version of the same state (corner,
+  // heading +X) happened to have an exit, which is why the old count of four never tripped on it.
+  const arrivable = (i, j, d) => Boolean(nextIntersection(opposite(d), i, j))
+    && !isSegmentClosed(i, j, opposite(d));
+
+  const live = [];
   const preds = new Array(N);
   for (let i = 0; i <= GRID; i++) {
     for (let j = 0; j <= GRID; j++) {
-      for (let dIn = 0; dIn < 4; dIn++) {
+      for (let dIn = 0; dIn < 8; dIn++) {
+        if (!arrivable(i, j, dIn)) continue;
+        live.push(key(i, j, dIn));
         for (const dOut of legalExits(dIn, i, j)) {
           const n = nextIntersection(dOut, i, j);
           if (!n) continue;
@@ -296,18 +465,18 @@ export function isCityConnected() {
     for (let tj = 0; tj <= GRID; tj++) {
       const seen = new Uint8Array(N);
       const queue = [];
-      for (let d = 0; d < 4; d++) {
+      for (let d = 0; d < 8; d++) {
+        if (!arrivable(ti, tj, d)) continue;
         const k = key(ti, tj, d);
         seen[k] = 1;
         queue.push(k);
       }
-      let reached = 4;
       for (let head = 0; head < queue.length; head++) {
         for (const p of preds[queue[head]] ?? []) {
-          if (!seen[p]) { seen[p] = 1; reached += 1; queue.push(p); }
+          if (!seen[p]) { seen[p] = 1; queue.push(p); }
         }
       }
-      if (reached !== N) return false;
+      if (live.some((k) => !seen[k])) return false;
     }
   }
   return true;

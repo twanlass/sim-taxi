@@ -24,9 +24,9 @@ export const SHOTS = [
   // *before* it was tapped, back when there was such a state; the taxi dispatches itself at pickup
   // now, so what this frames is the one pin the game has.
   { name: 'dropoff', description: 'the drop-off pin the taxi is driving at', target: [0, 0], zoom: 18, warmup: 12, untilPickup: true, atDropoff: true },
-  // The pinned seed (71624) puts the roundabout at junction (2,3) → world (−10, 10). If the
-  // layout draw ever changes, retarget this from `window.__taxi` or tools/probe's report.
-  { name: 'roundabout', description: 'the circulating island junction', target: [-10, 10], zoom: 24, warmup: 12 },
+  // Both avenues run through the middle of the map, so the city centre frames whichever one this
+  // seed drew — the flatiron slivers, the junctions where it meets the grid, and the traffic on it.
+  { name: 'avenue', description: 'the diagonal avenue cutting the grid', target: [0, 0], zoom: 20, warmup: 12 },
 ];
 
 export function getActiveShot() {

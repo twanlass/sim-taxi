@@ -71,8 +71,7 @@ function splitLot(x0, z0, x1, z1, depth, rng) {
   ];
 }
 
-function buildTower(lot, centrality, rng, parts) {
-  const inset = 0.85;
+function buildTower(lot, centrality, rng, parts, inset = 0.85) {
   const x0 = lot.x0 + inset;
   const z0 = lot.z0 + inset;
   const x1 = lot.x1 - inset;
@@ -134,15 +133,87 @@ function buildTower(lot, centrality, rng, parts) {
   }
 }
 
+/**
+ * The largest axis-aligned rectangle that fits inside a convex polygon, found by scanning
+ * candidate spans on a coarse grid. Crude, and it only has to be good enough for one building:
+ * the avenue's slivers are right triangles with ~6.3-unit legs, where the honest answer is a
+ * single small tower tucked into the right angle.
+ *
+ * The exact-rectangle problem is not worth solving here — a 16×16 scan lands within a few percent
+ * of optimal on a triangle and costs nothing at load time.
+ */
+function largestRect(poly) {
+  const xs = poly.map((p) => p.x);
+  const zs = poly.map((p) => p.z);
+  const x0 = Math.min(...xs);
+  const x1 = Math.max(...xs);
+  const z0 = Math.min(...zs);
+  const z1 = Math.max(...zs);
+
+  const inside = (x, z) => {
+    for (let k = 0; k < poly.length; k++) {
+      const a = poly[k];
+      const b = poly[(k + 1) % poly.length];
+      // Consistent winding is not guaranteed, so require the point on one side of every edge by
+      // testing against the polygon centroid's side instead.
+      const cross = (b.x - a.x) * (z - a.z) - (b.z - a.z) * (x - a.x);
+      if (k === 0) inside.sign = Math.sign(cross);
+      else if (cross !== 0 && Math.sign(cross) !== inside.sign) return false;
+    }
+    return true;
+  };
+
+  const N = 16;
+  let best = null;
+  let bestArea = 0;
+  for (let a = 0; a < N; a++) {
+    for (let b = a + 1; b <= N; b++) {
+      const rx0 = x0 + ((x1 - x0) * a) / N;
+      const rx1 = x0 + ((x1 - x0) * b) / N;
+      for (let c = 0; c < N; c++) {
+        for (let d = c + 1; d <= N; d++) {
+          const rz0 = z0 + ((z1 - z0) * c) / N;
+          const rz1 = z0 + ((z1 - z0) * d) / N;
+          const area = (rx1 - rx0) * (rz1 - rz0);
+          if (area <= bestArea) continue;
+          if (!inside(rx0, rz0) || !inside(rx1, rz0)
+            || !inside(rx1, rz1) || !inside(rx0, rz1)) continue;
+          bestArea = area;
+          best = { x0: rx0, z0: rz0, x1: rx1, z1: rz1 };
+        }
+      }
+    }
+  }
+  return best;
+}
+
+const isRectangle = (poly) => poly.length === 4
+  && Math.abs(poly[0].z - poly[1].z) < 1e-6 && Math.abs(poly[1].x - poly[2].x) < 1e-6;
+
 export function createBuildings(rng, blocks) {
   const parts = [];
 
   for (const block of blocks) {
     if (block.type !== 'built') continue;
-    const { x0, z0, x1, z1 } = block.bounds;
 
-    for (const lot of splitLot(x0, z0, x1, z1, 2, rng)) {
-      buildTower(lot, block.centrality, rng, parts);
+    for (const poly of block.polys) {
+      if (isRectangle(poly)) {
+        const x0 = Math.min(poly[0].x, poly[2].x);
+        const x1 = Math.max(poly[0].x, poly[2].x);
+        const z0 = Math.min(poly[0].z, poly[2].z);
+        const z1 = Math.max(poly[0].z, poly[2].z);
+        for (const lot of splitLot(x0, z0, x1, z1, 2, rng)) {
+          buildTower(lot, block.centrality, rng, parts);
+        }
+        continue;
+      }
+
+      // A flatiron sliver off the avenue. One tower, on the largest rectangle that fits, with a
+      // tighter kerb inset than a full block gets — at the standard 0.85 the tower that survives
+      // is under the 2-unit floor `buildTower` refuses to build below, and the sliver comes out
+      // as bare sidewalk.
+      const lot = largestRect(poly);
+      if (lot) buildTower(lot, block.centrality, rng, parts, 0.45);
     }
   }
 

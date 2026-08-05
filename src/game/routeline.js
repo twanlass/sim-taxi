@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import {
-  ROAD_W, isXAxis, dirSign, lineCoord, laneOffsetCoord, entryPoint, exitPoint, turnControl,
-  nextIntersection, isRoundabout, roundaboutPath,
+  ROAD_W, isXAxis, dirSign, lineCoord, entryPoint, exitPoint, turnControl,
+  nextIntersection, isRoundabout, roundaboutPath, alongAxis, lanePoint,
 } from '../city/grid.js';
 
 /**
@@ -87,13 +87,12 @@ const TURN_STEPS = 10;
 const MAX_STEPS = 32;      // routed junctions; the longest route across a 5×5 is well under this
 const MAX_POINTS = MAX_STEPS * (TURN_STEPS + 1) + TURN_STEPS + 4 + 96;
 
-const along = (d, p) => (isXAxis(d) ? p.x : p.z);
-
-/** Point on the lane for direction d past junction (i, j), at travel-axis coordinate s. */
-function lanePoint(d, i, j, s) {
-  const lane = laneOffsetCoord(d, i, j);
-  return isXAxis(d) ? { x: s, z: lane } : { x: lane, z: s };
-}
+// Both of these used to be local axis-aligned copies of what grid.js does, which was fine while
+// every road ran along x or z. On the avenue they described a lane that does not exist: the band
+// was drawn down a grid line the taxi was nowhere near, so it left the tarmac *and* re-shaped as
+// the car advanced. Taking them from grid.js is also the guarantee that the paint and the car
+// agree — one definition of "the lane", used by whoever asks.
+const along = alongAxis;
 
 const bezier = (a, c, b, t) => {
   const u = 1 - t;
@@ -199,7 +198,7 @@ export function routePath(car, route) {
   // The destination. Stop in the middle of the junction, still in lane — that is where the taxi
   // comes to rest, and running the band out to the far side would point past the pin.
   pushAhead(entryPoint(d, i, j), d);
-  pushAhead(lanePoint(d, i, j, isXAxis(d) ? lineCoord(i) : lineCoord(j)), d);
+  pushAhead(lanePoint(d, i, j, alongAxis(d, { x: lineCoord(i), z: lineCoord(j) })), d);
   return pts;
 }
 

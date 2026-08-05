@@ -24,7 +24,8 @@ the main change from `city-lab`, which used a 10×10 grid with a pannable camera
 
 ## Direction encoding
 
-Directions are `0..3` meaning `+X, +Z, -X, -Z`. The ordering is chosen so that:
+Directions are `0..7`. **0–3 are the grid**, meaning `+X, +Z, -X, -Z`; 4–7 are the diagonals of
+the [avenue](#the-diagonal-avenue) and are covered there. The grid ordering is chosen so that:
 
 ```js
 rightOf(d)   = (d + 1) % 4
@@ -35,7 +36,8 @@ dirSign(d)   = (d === 0 || d === 1) ? 1 : -1
 ```
 
 Every turn lookup table this would otherwise need disappears. If you add a direction-dependent
-behaviour, express it in this arithmetic rather than a `switch`.
+behaviour, express it in this arithmetic rather than a `switch` — but note that the arithmetic
+only holds for 0–3. Anything that may see a diagonal wants `turnKind()` / `axisOf()` instead.
 
 `laneOffsetCoord` places a car on the right-hand side of its travel direction (right-hand
 traffic), and `entryPoint` / `exitPoint` / `turnControl` give the three points of the quadratic
@@ -47,8 +49,11 @@ Bézier a car follows through a junction.
 
 - **no U-turns** — which is why routing has to plan over *directed* states; see
   [gameplay.md](gameplay.md#routing)
+- **no turn sharper than 90°** — which subsumes the U-turn, and rules out the 135° hairpin the
+  [avenue](#the-diagonal-avenue) would otherwise offer
 - **the map edge** — you cannot leave the grid
-- **closed segments** — a road inside a park district genuinely does not exist
+- **closed segments** — a road inside a park district genuinely does not exist, and neither does
+  any diagonal the avenue did not put there
 
 Because it is the only source of truth, closing a road automatically affects ambient traffic,
 route planning, and the connectivity assertions in the probe, with no extra plumbing.
@@ -108,9 +113,56 @@ they cannot disagree.
 The placement draw is appended to the end of layout's rng stream on purpose — parks and
 arterials on a given seed stay exactly where they were before the feature existed.
 
-A diagonal street was considered for the same job and rejected: directions are encoded `0..3`
-(§ above), and everything from `legalExits` to the signal model to the turn Béziers leans on
-that arithmetic. A roundabout reuses the whole junction model; a diagonal would fork all of it.
+## The diagonal avenue
+
+One street that ignores the grid: a 45° avenue running junction to junction across the middle of
+the city, cutting the three blocks it crosses into flatiron slivers. It is a real road — traffic
+drives it, the router plans down it, and it is the fastest way across town for any trip that runs
+its way.
+
+**Directions are now `0..7`.** 0–3 are the grid, unchanged: same numbers, same signs, same yaws,
+so `rightOf`/`leftOf`/`opposite` mod-4 arithmetic still holds for every caller that used it. 4–7
+are the diagonals, and they cannot join that arithmetic — `rightOf(4)` is meaningless. Anything
+that has to classify a turn with a diagonal in it goes through `turnKind()`, which measures the
+actual heading change and reduces to exactly straight/right/left on an orthogonal pair.
+
+The rest is one idea: **an axis is a unit vector, not a choice between x and z.** `car.s` was
+always a *signed coordinate on a travel axis* rather than a forward projection — which is how +X
+and −X share one number line — so NE/SW and NW/SE each get a number line of their own and every
+geometry helper generalises instead of branching:
+
+| was | is |
+|---|---|
+| `isXAxis(d) ? p.x : p.z` | `alongAxis(d, p)` — projection on `axisVec(d)` |
+| lane coordinate on the cross axis | `lanePoint(d, i, j, s)` — centre + axis·slide + right·LANE |
+| entry/exit by axis swap | the same, off `lanePoint` |
+| control point by axis swap | intersection of the two lane centrelines |
+| `x\|d\|j` / `z\|d\|i` | `axisOf(d)\|d\|roadLineId(d, i, j)` |
+
+Every orthogonal case comes out algebraically identical — asserted, not assumed.
+
+**Turns are capped at 90°** (`MAX_TURN`). What that excludes is the 135° hairpin: the two
+*backward* orthogonal exits from a diagonal approach, which are legal on the lattice and read as
+a car changing its mind at speed. It is also why the avenue stops one junction short of the ring
+corners — arriving at a corner on a diagonal, *both* remaining exits are hairpins, so the avenue
+would dead-end there and strand every car that drove it.
+
+**The road surface is free.** The slab under the whole city is already asphalt, so cutting the
+block platforms out of the avenue's path *is* the road. Blocks are described by `block.polys` —
+almost always the one rectangle they have always been, and on the three cut blocks the two
+slivers left either side. Ground, buildings and props all lay out polygons now, so none of them
+has to know the avenue exists.
+
+> `isCityConnected()` counts eight directions since, and only over *arrivable* states — a state
+> needs a road behind it to have been reached on. "At the map corner, heading south-west" has no
+> road in and (both 45° exits leaving the map) no road out, so it fails a forward-reachability
+> test it was never part of. The orthogonal version of that state happened to have an exit, which
+> is why the old count of four never tripped on it.
+
+> Also fixed here: `mulberry32`'s opening draw is barely mixed — over twelve ordinary seeds it
+> came back above 0.5 ten times — so the avenue's coin flip, taken as the very first pull, gave
+> every city the same one. The stream is warmed four draws before that bit is read. Nothing else
+> in the project had made a one-bit decision on the first pull.
 
 ## Ground, buildings, props
 

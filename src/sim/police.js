@@ -4,7 +4,7 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import {
   DIR, GRID, HALF_SPAN, LANE, PITCH, dirSign, isXAxis, legalExits, lineCoord,
-  isSegmentClosed, nextIntersection, opposite, getRoundabout,
+  isSegmentClosed, nextIntersection, opposite, getRoundabout, isDiagonal,
 } from '../city/grid.js';
 import {
   setPriorityCorridor, setPolicePresence, locoWeave, locoWheelie,
@@ -351,30 +351,120 @@ export function createPolice(rng, scene) {
   }
 
   /**
-   * Pick the exit at (i, j) and snap the rail onto it. Greedy Manhattan, scored on where each
-   * road *goes* — the distance from the far end of the segment to the quarry — rather than on
-   * which way the bonnet ends up pointing, so it commits to a road that closes the gap instead of
-   * turning toward a target it cannot reach that way. `legalExits` already drops U-turns, park
-   * closures and the map edge, so the routing inherits the park fix for free.
+   * Junctions-to-go from (i, j) to the quarry's nearest junction, over the roads a cruiser can
+   * actually use. Plain BFS on 36 nodes, rebuilt per junction — it costs nothing and it is what
+   * makes the routing below terminate.
    *
-   * Straight carries a small bonus. Without it two equal-cost exits alternate at every junction
-   * and the chase visibly dithers down a road it should just be driving down.
+   * Straight-line distance was the original measure and it could cycle: on a city where the
+   * direct road was closed, four legs scored each other into a loop (measured on seed 5:
+   * x3− z3− x1+ z4+ and back to x3−, running out the clock with the cruiser 20 units short).
+   * Euclidean distance is not a metric on a road network with holes in it; the number of roads
+   * left to drive is, and it strictly decreases every time the car takes the right one.
+   */
+  /**
+   * The stretch of road the quarry is sitting on: which axis it runs along, which line, and the
+   * two junctions either end of it.
+   *
+   * Worked out from the position rather than read off the car, because `chase()` takes anything
+   * with an x and a z — the probe hands it a bare point. A car is within LANE of the centreline of
+   * the road it is driving and half a block from the other axis, so the nearer of the two
+   * residuals names the road with a wide margin.
+   */
+  function quarryRoad() {
+    const q = state.quarry;
+    const gi = (q.x + HALF_SPAN) / PITCH;
+    const gj = (q.z + HALF_SPAN) / PITCH;
+    const clamp = (v) => Math.max(0, Math.min(GRID, v));
+    const alongX = Math.abs(gj - Math.round(gj)) <= Math.abs(gi - Math.round(gi));
+    return alongX
+      // Running along X: the line is j, and the segment spans two i values.
+      ? { axis: 'x', line: clamp(Math.round(gj)), a: clamp(Math.floor(gi)), b: clamp(Math.ceil(gi)) }
+      : { axis: 'z', line: clamp(Math.round(gi)), a: clamp(Math.floor(gj)), b: clamp(Math.ceil(gj)) };
+  }
+
+  /**
+   * Does leaving (i, j) along d put the cruiser on the quarry's own stretch of road, pointed at
+   * it? That is the move the whole chase is for, and it has to be recognised explicitly.
+   *
+   * Reaching the quarry's *junction* is not the same thing and was the bug: the cruiser would
+   * arrive at the right corner travelling across the quarry's road, find every exit one step
+   * further from the target than where it stood, and take the straight-on bonus clean past. It
+   * only ever brakes once the quarry is within ON_ROAD of its rail, so driving through the
+   * junction meant never braking at all — the loop the timeout was catching.
+   */
+  function landsOnQuarryRoad(d, i, j) {
+    const road = quarryRoad();
+    if (road.a === road.b) return false;          // quarry sits on a junction; the BFS handles it
+    if (isXAxis(d) !== (road.axis === 'x')) return false;
+    if ((road.axis === 'x' ? j : i) !== road.line) return false;
+    const from = road.axis === 'x' ? i : j;
+    const n = nextIntersection(d, i, j);
+    if (!n) return false;
+    const to = road.axis === 'x' ? n.i : n.j;
+    return Math.min(from, to) === road.a && Math.max(from, to) === road.b;
+  }
+
+  function stepsToQuarry(fromI, fromJ) {
+    const road = quarryRoad();
+    const ti = road.axis === 'x' ? road.b : road.line;
+    const tj = road.axis === 'x' ? road.line : road.b;
+    const seen = new Map([[`${ti},${tj}`, 0]]);
+    const queue = [{ i: ti, j: tj }];
+    for (let head = 0; head < queue.length; head++) {
+      const cur = queue[head];
+      const dist = seen.get(`${cur.i},${cur.j}`);
+      for (const d of [DIR.PX, DIR.PZ, DIR.NX, DIR.NZ]) {
+        const n = nextIntersection(d, cur.i, cur.j);
+        if (!n || isSegmentClosed(cur.i, cur.j, d)) continue;
+        const key = `${n.i},${n.j}`;
+        if (seen.has(key)) continue;
+        seen.set(key, dist + 1);
+        queue.push(n);
+      }
+    }
+    return seen.get(`${fromI},${fromJ}`) ?? Infinity;
+  }
+
+  /**
+   * Pick the exit at (i, j) and snap the rail onto it. Scored on where each road *goes* — how
+   * many junctions are left from the far end of the segment — rather than on which way the bonnet
+   * ends up pointing, so it commits to a road that closes the gap instead of turning toward a
+   * target it cannot reach that way. `legalExits` already drops U-turns, park closures and the
+   * map edge, so the routing inherits the park fix for free.
+   *
+   * Straight-line distance breaks the tie, so among roads that make equal progress it still picks
+   * the one aimed at the car. Straight on carries a small bonus on top: without it two equal-cost
+   * exits alternate at every junction and the chase visibly dithers down a road it should just be
+   * driving down.
    */
   function turnAt(i, j) {
     const dIn = railDir();
-    const exits = legalExits(dIn, i, j);
+    // Orthogonal exits only. The cruiser has no lane and no turn state — it rides an (axis, line,
+    // s) rail whose axis is 'x' or 'z' — so an avenue exit would set `state.axis` to a value
+    // `railPoint()` cannot resolve and put the car at NaN. It is the one vehicle in the city that
+    // cannot use the diagonal.
+    const exits = legalExits(dIn, i, j).filter((d) => !isDiagonal(d));
     let best = opposite(dIn);     // dead end (every exit closed): back the way it came
     let bestScore = Infinity;
     for (const d of exits) {
       const n = nextIntersection(d, i, j);
       if (!n) continue;
       // The roundabout is deliberately NOT penalised here, though the rail clips its island kerb
-      // by ~0.2 units on the way through. A avoid-it penalty was tried and made the greedy router
-      // orbit the junction until CHASE_TIMEOUT on seeds where the quarry sat behind it (seed
-      // 31337: 7s, arrested 34 units short). A frame of kerb graze at 26 u/s is invisible; a cop
-      // that gives up isn't.
-      const score = Math.hypot(lineCoord(n.i) - state.quarry.x, lineCoord(n.j) - state.quarry.z)
-        - (d === dIn ? 0.6 : 0);
+      // by ~0.2 units on the way through. A avoid-it penalty was tried and made the router orbit
+      // the junction until CHASE_TIMEOUT on seeds where the quarry sat behind it (seed 31337: 7s,
+      // arrested 34 units short). A frame of kerb graze at 26 u/s is invisible; a cop that gives
+      // up isn't.
+      //
+      // Roads-to-go dominates; the straight-line gap only separates roads that tie on it. Scaled
+      // by a whole PITCH so no amount of Euclidean closeness can outvote making real progress —
+      // which is the trap the old distance-only score fell into.
+      // Driving onto the quarry's own stretch of road ends the search — nothing scores better
+      // than the move that actually catches them, and no bonus may outvote it.
+      const score = landsOnQuarryRoad(d, i, j)
+        ? -PITCH
+        : stepsToQuarry(n.i, n.j) * PITCH
+          + Math.hypot(lineCoord(n.i) - state.quarry.x, lineCoord(n.j) - state.quarry.z) * 0.01
+          - (d === dIn ? 0.6 : 0);
       if (score < bestScore) { bestScore = score; best = d; }
     }
 
