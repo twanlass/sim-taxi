@@ -4,7 +4,7 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import {
   GRID, PITCH, ROAD_W, HALF_ROAD, SPAN, HALF_SPAN, lineCoord,
-  isUnsignalised, isSegmentClosed,
+  isUnsignalised, isSegmentClosed, ROUNDABOUT_ISLAND_R,
 } from './grid.js';
 
 const KERB_H = 0.35;
@@ -160,6 +160,31 @@ export function createGround(rng, blocks) {
         if (north) parts.push(paint(BAR_W, BAR_LEN, cx + t, cz + offset, crossColor));
       }
     }
+  }
+
+  // --- Roundabout island.
+  //
+  // A kerbed grass disc in the middle of the junction, in the same kerb-plus-green construction
+  // as every block platform so it reads as city furniture rather than an effect. The thin painted
+  // ring outside the kerb marks the circulating lane's inner edge — without it the island floats
+  // on blank asphalt and the junction reads as broken rather than as a roundabout.
+  if (blocks.roundabout) {
+    const cx = lineCoord(blocks.roundabout.i);
+    const cz = lineCoord(blocks.roundabout.j);
+
+    const kerb = new THREE.CylinderGeometry(ROUNDABOUT_ISLAND_R, ROUNDABOUT_ISLAND_R, KERB_H, 20);
+    kerb.translate(cx, KERB_H / 2, cz);
+    parts.push(bakeColor(kerb, jitterColor(PALETTE.kerb, rng, { l: 0.02 })));
+
+    const grass = new THREE.CircleGeometry(ROUNDABOUT_ISLAND_R - 0.12, 20);
+    grass.rotateX(-Math.PI / 2);
+    grass.translate(cx, KERB_H + 0.01, cz);
+    parts.push(bakeColor(grass, jitterColor(PALETTE.park, rng, { l: 0.03 })));
+
+    const ring = new THREE.RingGeometry(ROUNDABOUT_ISLAND_R + 0.18, ROUNDABOUT_ISLAND_R + 0.36, 28);
+    ring.rotateX(-Math.PI / 2);
+    ring.translate(cx, MARK_Y, cz);
+    parts.push(bakeColor(ring, color('laneMark')));
   }
 
   const merged = mergeGeometries(parts, false);

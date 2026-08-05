@@ -3,11 +3,11 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, jitterVertices, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import { KERB_H } from './ground.js';
+import { lineCoord } from './grid.js';
 
 /** Park tree — same construction as the terrain prototype's broadleaf, scaled for a city block. */
-function tree(x, z, rng) {
+function tree(x, z, rng, height = rng.range(3.4, 5.6)) {
   const parts = [];
-  const height = rng.range(3.4, 5.6);
   const trunkH = height * 0.42;
 
   const trunk = new THREE.CylinderGeometry(height * 0.035, height * 0.055, trunkH, 6);
@@ -96,6 +96,14 @@ export function createProps(rng, blocks) {
     ]) {
       parts.push(...lamp(lx, lz, rng));
     }
+  }
+
+  // One small tree on the roundabout island. The height is capped well under the park range:
+  // a 3.2 tree's canopy reaches ~1.1 from the trunk, inside the 1.75 a circulating car's body
+  // keeps from the junction centre — a park-sized crown would brush every roof that orbits it.
+  // Planted after every other draw so the extra rng pulls don't reshuffle the existing streets.
+  if (blocks.roundabout) {
+    parts.push(...tree(lineCoord(blocks.roundabout.i), lineCoord(blocks.roundabout.j), rng, 3.2));
   }
 
   const merged = mergeGeometries(parts, false);

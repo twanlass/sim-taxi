@@ -27,7 +27,7 @@ import { createCityCamera, attachDragPan } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { DISTANCE_TIERS, distanceTier } from '../src/game/triptier.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits, getRoundabout, isRoundabout, ROUNDABOUT_ISLAND_R } from '../src/city/grid.js';
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
@@ -78,7 +78,14 @@ const { stats } = traffic;
 check('no car entered an intersection on red', stats.violations === 0, `${stats.violations} violations`);
 check('traffic is flowing', stats.moving > traffic.cars.length * 0.35,
   `${stats.moving} moving / ${stats.waiting} waiting`);
-check('signals actually stop people', stats.waiting > 0, `${stats.waiting} waiting`);
+// `stats.waiting` is a per-frame snapshot, and a single frame can legitimately catch every car
+// rolling (it did, once the roundabout replaced one set of reds). Watch a couple of seconds.
+let everWaiting = stats.waiting;
+for (let step = 0; step < 120 && everWaiting === 0; step++) {
+  traffic.update(1 / 60);
+  everWaiting = stats.waiting;
+}
+check('signals actually stop people', everWaiting > 0, `${everWaiting} waiting`);
 
 // --- Positional invariants.
 const positions = traffic.cars.map((c) => ({ x: c.x, z: c.z, state: c.state }));
@@ -609,8 +616,11 @@ check('no two cars occupy the same space', worst > 1.6,
 
   const ringCorners = [[0, 0], [0, GRID], [GRID, 0], [GRID, GRID]];
   check('ring corners keep their signals', ringCorners.every(([i, j]) => !isUnsignalised(i, j)));
+  // Any interior junction except the roundabout, which is legitimately unsignalised.
+  const rbSeen = getRoundabout();
+  const plain = rbSeen && rbSeen.i === 1 && rbSeen.j === 1 ? [2, 1] : [1, 1];
   check('the rest of the ring has none',
-    isUnsignalised(1, 0) && isUnsignalised(0, 1) && !isUnsignalised(1, 1));
+    isUnsignalised(1, 0) && isUnsignalised(0, 1) && !isUnsignalised(plain[0], plain[1]));
 
   const perCar = rTraffic.stats.distance / rTraffic.stats.time / rTraffic.cars.length;
   check('traffic moves better than the old fixed-phase grid', perCar > 4.14,
@@ -694,6 +704,9 @@ check('no two cars occupy the same space', worst > 1.6,
   outer: for (let i = 1; i < GRID && dIn < 0; i++) {
     for (let j = 1; j < GRID && dIn < 0; j++) {
       if (ringAxisAt(i, j)) continue;
+      // The roundabout has no signal and no left-turn yield: both scenarios below are about
+      // signalised-junction behaviour, so it can't host them.
+      if (isRoundabout(i, j)) continue;
       for (const d of [0, 1, 2, 3]) {
         if (!legalExits(d, i, j).includes(leftOf(d))) continue;
         if (!legalExits(opposite(d), i, j).length) continue;
@@ -764,6 +777,80 @@ check('no two cars occupy the same space', worst > 1.6,
     `turned=${turned}, oncoming entered the junction=${oncomingEntered}`);
 
   setPriorityJunction(null);
+}
+
+// --- The roundabout ---------------------------------------------------------
+// One interior junction runs as a yield-controlled circulating island instead of a signal. Its
+// silent failure modes are all invisible in a still image: a car cutting across the island, two
+// cars meeting on the circle because the entry gate leaked, or the junction quietly never being
+// used at all. Watch a long sim frame by frame at the junction itself.
+{
+  const rb = getRoundabout();
+  check('one interior junction is a roundabout',
+    Boolean(rb) && rb.i > 0 && rb.i < GRID && rb.j > 0 && rb.j < GRID,
+    rb ? `(${rb.i},${rb.j})` : 'none');
+  check('the roundabout has no signal', Boolean(rb) && isUnsignalised(rb.i, rb.j));
+  check('the roundabout stays off the arterials',
+    Boolean(rb) && !layout.arterials.x.has(rb.j) && !layout.arterials.z.has(rb.i));
+
+  const raScene = new THREE.Scene();
+  const raTraffic = createTraffic(makeRng(seed + 44), raScene, 24);
+  const cx = lineCoord(rb.i);
+  const cz = lineCoord(rb.j);
+
+  let orbits = 0;          // cars that took the circulating path (straight or left)
+  let rights = 0;          // right turns, which keep the ordinary corner arc
+  let minCentre = Infinity; // closest any orbiting car gets to the junction centre
+  let maxCentre = 0;
+  let closestPair = Infinity;
+  const inTurn = new Set();
+
+  for (let step = 0; step < 60 * 240; step++) {
+    raTraffic.update(1 / 60);
+    const turning = raTraffic.cars.filter((c) => !c.crashed && c.state === 'turn'
+      && c.i === rb.i && c.j === rb.j);
+
+    for (const c of turning) {
+      if (!inTurn.has(c)) {
+        inTurn.add(c);
+        if (c.path) orbits += 1; else rights += 1;
+      }
+      // Only measure past the lead-in — the run-up from the hold line is outside the junction.
+      if (c.path && Math.min(c.turnT, 1) * c.turnLen >= c.leadIn) {
+        const r = Math.hypot(c.x - cx, c.z - cz);
+        minCentre = Math.min(minCentre, r);
+        maxCentre = Math.max(maxCentre, r);
+      }
+    }
+    for (const c of [...inTurn]) {
+      if (c.state !== 'turn' || c.i !== rb.i || c.j !== rb.j) inTurn.delete(c);
+    }
+    for (let a = 0; a < turning.length; a++) {
+      for (let b = a + 1; b < turning.length; b++) {
+        closestPair = Math.min(closestPair,
+          Math.hypot(turning[a].x - turning[b].x, turning[a].z - turning[b].z));
+      }
+    }
+  }
+
+  // A wiring check, not a traffic statistic: how busy the junction is swings hard with where
+  // the layout put it (4 orbits on seed 4, 40+ on the default). Any use at all proves the gate
+  // opens and both path kinds run.
+  check('traffic actually uses the roundabout', orbits >= 3 && rights >= 1,
+    `${orbits} orbits, ${rights} right turns in 240s`);
+  // The island kerb is 1.3 and half a car body 0.85, so a centre distance of 2.15 is paint on the
+  // kerb. The circulating circle holds 2.6; anything under 2.4 means a path cutting the island.
+  check('nothing drives over the island', minCentre >= ROUNDABOUT_ISLAND_R + 1.1,
+    `closest approach ${minCentre.toFixed(2)} vs island ${ROUNDABOUT_ISLAND_R}`);
+  // …and the whole orbit stays inside the junction box (entry/exit points sit at 4.47).
+  check('the orbit stays inside the junction', maxCentre <= 4.6,
+    `widest ${maxCentre.toFixed(2)}`);
+  // The entry gate is the only thing keeping circulating cars apart — mid-turn cars are outside
+  // the lane bookkeeping, so a leak here is two cars merging on the circle.
+  check('the entry gate keeps circulating cars apart', closestPair > 1.7,
+    `closest pair ${closestPair.toFixed(2)}`);
+  check('nobody runs a phantom red at the roundabout', raTraffic.stats.violations === 0,
+    `${raTraffic.stats.violations} violations`);
 }
 
 // --- Routing ---------------------------------------------------------------

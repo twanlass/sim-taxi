@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import {
   ROAD_W, isXAxis, dirSign, lineCoord, laneOffsetCoord, entryPoint, exitPoint, turnControl,
-  nextIntersection,
+  nextIntersection, isRoundabout, roundaboutPath,
 } from '../city/grid.js';
 
 /**
@@ -81,9 +81,11 @@ export const ROUTE_BLEND_DEFAULT = 'additive';
 
 // Junction arcs are sampled, straights are not — the fade is computed per fragment from a
 // distance-along-the-path varying, so a 20-unit straight needs no interior vertices at all.
+// The headroom on top covers the roundabout: its polyline runs ~31 points against a Bézier's 11,
+// and a route can legally pass through it more than once.
 const TURN_STEPS = 10;
 const MAX_STEPS = 32;      // routed junctions; the longest route across a 5×5 is well under this
-const MAX_POINTS = MAX_STEPS * (TURN_STEPS + 1) + TURN_STEPS + 4;
+const MAX_POINTS = MAX_STEPS * (TURN_STEPS + 1) + TURN_STEPS + 4 + 96;
 
 const along = (d, p) => (isXAxis(d) ? p.x : p.z);
 
@@ -128,7 +130,26 @@ export function routePath(car, route) {
   let j = car.j;
   let d = car.d;
 
-  if (car.state === 'turn' && car.entry && car.control && car.exit) {
+  if (car.state === 'turn' && car.path) {
+    // Mid-orbit at the roundabout: pick the polyline up at the car's arc distance and replay the
+    // remainder verbatim, so every point ahead of the car is a point of the planned path — the
+    // band shortens from behind and never re-shapes.
+    const travelled = Math.min(car.turnT, 1) * car.turnLen - car.leadIn;
+    const { points, cum } = car.path;
+    let k = 1;
+    while (k < cum.length - 1 && cum[k] < travelled) k += 1;
+    const span = cum[k] - cum[k - 1] || 1;
+    const t = Math.max(0, Math.min(1, (travelled - cum[k - 1]) / span));
+    const a = points[k - 1];
+    const b = points[k];
+    push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
+    for (; k < points.length; k++) push(points[k]);
+    const after = nextIntersection(car.dOut, i, j);
+    if (!after) return pts;
+    d = car.dOut;
+    i = after.i;
+    j = after.j;
+  } else if (car.state === 'turn' && car.entry && car.control && car.exit) {
     // Mid-junction: pick the arc up where the car is on it. `car.i/j` still name the junction it
     // is turning *at*, and its routed step is already consumed, so the remaining route applies
     // from the junction after this one.
@@ -154,7 +175,12 @@ export function routePath(car, route) {
     const exit = exitPoint(dOut, i, j);
 
     pushAhead(entry, d);
-    if (dOut === d) {
+    // Through the roundabout the band orbits the island exactly as the car will — same polyline,
+    // one source (`roundaboutPath`). Null for a right turn, which drives the ordinary corner arc.
+    const orbit = isRoundabout(i, j) ? roundaboutPath(d, dOut, i, j) : null;
+    if (orbit) {
+      for (const p of orbit.points) push(p);
+    } else if (dOut === d) {
       push(exit);
     } else {
       // The same quadratic the car drives: control point where the two lane centrelines cross,

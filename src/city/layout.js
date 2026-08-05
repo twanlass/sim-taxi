@@ -1,4 +1,6 @@
-import { GRID, blockBounds, HALF_SPAN, segmentKey, setClosedSegments } from './grid.js';
+import {
+  GRID, blockBounds, HALF_SPAN, segmentKey, setClosedSegments, setRoundabout,
+} from './grid.js';
 import { configureSignals } from '../sim/traffic.js';
 
 // Decides what each block *is* before anything is built. Ground, buildings and props all read
@@ -103,5 +105,25 @@ export function createLayout(rng) {
   // Handed to the ground mesh so the arterials are actually visible: a main street the player
   // can't identify is just an invisible timing tweak.
   blocks.arterials = { x: arterialX, z: arterialZ };
+
+  // --- Roundabout ------------------------------------------------------------
+  // One interior junction gives up its signal for a circulating island — the same job as a park
+  // district, breaking the grid's rhythm, but done to a junction instead of a block. Interior
+  // only (the ring is already unsignalised), and never on an arterial: through traffic yields
+  // almost to a stop here, which would undo the fast grain the arterial exists to provide.
+  //
+  // Drawn *after* every other layout decision on purpose: appending to the rng stream keeps the
+  // parks and arterials a given seed already produces exactly where they were.
+  const candidates = [];
+  for (let i = 1; i < GRID; i++) {
+    for (let j = 1; j < GRID; j++) {
+      if (arterialZ.has(i) || arterialX.has(j)) continue;
+      candidates.push({ i, j });
+    }
+  }
+  const roundabout = candidates.length ? rng.pick(candidates) : null;
+  setRoundabout(roundabout);
+  blocks.roundabout = roundabout;
+
   return blocks;
 }

@@ -102,7 +102,125 @@ export function ringAxisAt(i, j) {
   return null;
 }
 
-export const isUnsignalised = (i, j) => ringAxisAt(i, j) !== null;
+export const isUnsignalised = (i, j) => ringAxisAt(i, j) !== null || isRoundabout(i, j);
+
+// --- Roundabout --------------------------------------------------------------
+//
+// One interior junction per city trades its signal for a circulating island: traffic yields on
+// entry and orbits a kerbed island instead of waiting on a phase. It exists to break the grid's
+// rhythm the way park districts do — every other junction in the city works identically, so one
+// that visibly doesn't is a landmark.
+//
+// The geometry falls out of the lane offsets. Every entry and exit point sits at
+// √(HALF_ROAD² + LANE²) ≈ 4.47 from the junction centre, so a single circulating circle serves
+// all four approaches. R is the circulating lane's radius: 2.6 keeps a car (half-width 0.85)
+// clear of a 1.3 island kerb by 0.45, and stays inside the probe's junction-box bound.
+export const ROUNDABOUT_R = 2.6;
+export const ROUNDABOUT_ISLAND_R = 1.3;
+
+let roundabout = null;   // { i, j } — set by layout.js alongside the closed segments
+
+export function setRoundabout(next) {
+  roundabout = next;
+}
+
+export const getRoundabout = () => roundabout;
+
+export const isRoundabout = (i, j) =>
+  Boolean(roundabout) && roundabout.i === i && roundabout.j === j;
+
+// Entry blend radius: the arc that carries a car from its (straight) entry lane onto the
+// circulating circle, tangent to both. Solving |E + r·right| = r + R for the entry point
+// E = (−HALF_ROAD, LANE) gives r ≈ 11 at R = 2.6 — a gentle swing, which is what makes the
+// deflection read as steering around the island rather than a kink.
+const RAB_BLEND_R = (LANE * LANE + HALF_ROAD * HALF_ROAD - ROUNDABOUT_R * ROUNDABOUT_R)
+  / (2 * (ROUNDABOUT_R - LANE));
+// Where the blend meets the circle, as an angle back from the entry point's own angle. Derived
+// once from the tangency construction; the exit blend is its mirror image.
+const RAB_MERGE = (() => {
+  const centre = { x: -HALF_ROAD, z: LANE + RAB_BLEND_R };
+  const scale = ROUNDABOUT_R / (RAB_BLEND_R + ROUNDABOUT_R);
+  const t = { x: centre.x * scale, z: centre.z * scale };   // tangency point on the circle
+  return Math.atan2(t.z, t.x);   // ≈ 107° for the canonical +X entry at (−4, 2), θE ≈ 153°
+})();
+
+/** Rotate a canonical-frame (dIn = +X) point into direction d's frame. */
+function rotToDir(d, p) {
+  if (d === DIR.PX) return { x: p.x, z: p.z };
+  if (d === DIR.PZ) return { x: -p.z, z: p.x };
+  if (d === DIR.NX) return { x: -p.x, z: -p.z };
+  return { x: p.z, z: -p.x };
+}
+
+/**
+ * The path a car drives through the roundabout at (i, j), entering along dIn and leaving along
+ * dOut, as a sampled polyline: entry blend → circulating arc → exit blend, tangent at every join.
+ *
+ * Returns null for a right turn — the near-corner Bézier every junction already drives never
+ * reaches the circulating circle, so it *is* the roundabout right turn. Circulation runs in
+ * decreasing atan2 angle, which keeps the island on the driver's left (right-hand traffic).
+ *
+ * Shared by the traffic model (the car drives it) and the route band (the player sees it), so
+ * the two can never disagree about where the taxi will go.
+ */
+export function roundaboutPath(dIn, dOut, i, j) {
+  const turn = (dOut - dIn + 4) % 4;
+  if (turn === 1) return null;   // right turn: the ordinary corner arc, see above
+
+  const cx = lineCoord(i);
+  const cz = lineCoord(j);
+  const points = [];
+  const push = (p) => points.push({ x: cx + p.x, z: cz + p.z });
+
+  // Entry blend, in dIn's canonical frame: sweep around the blend-arc centre from the entry
+  // point (angle −90° from that centre) to the tangency with the circle.
+  const blendCentre = { x: -HALF_ROAD, z: LANE + RAB_BLEND_R };
+  const entryFrom = -Math.PI / 2;
+  const tangency = {
+    x: blendCentre.x * (ROUNDABOUT_R / (RAB_BLEND_R + ROUNDABOUT_R)),
+    z: blendCentre.z * (ROUNDABOUT_R / (RAB_BLEND_R + ROUNDABOUT_R)),
+  };
+  const entryEnd = Math.atan2(tangency.z - blendCentre.z, tangency.x - blendCentre.x);
+  const ENTRY_STEPS = 7;
+  for (let s = 0; s <= ENTRY_STEPS; s++) {
+    const a = entryFrom + (entryEnd - entryFrom) * (s / ENTRY_STEPS);
+    push(rotToDir(dIn, {
+      x: blendCentre.x + Math.cos(a) * RAB_BLEND_R,
+      z: blendCentre.z + Math.sin(a) * RAB_BLEND_R,
+    }));
+  }
+
+  // Circulating arc: from the entry tangency (RAB_MERGE, in dIn's frame) clockwise-in-angle down
+  // to the exit tangency, which by mirror symmetry sits at (π − RAB_MERGE) in dOut's frame.
+  // Express both in dIn's frame: each step of `turn` rotates the frame by −90° of angle.
+  const frameShift = { 0: 0, 3: -Math.PI / 2, 2: -Math.PI }[turn] ?? 0;
+  const exitAngle = (Math.PI - RAB_MERGE) + frameShift;
+  let sweep = RAB_MERGE - exitAngle;
+  while (sweep <= 0) sweep += Math.PI * 2;
+  const CIRC_STEP = 0.14;   // radians per sample ≈ 0.36 units of arc
+  const circSteps = Math.max(2, Math.ceil(sweep / CIRC_STEP));
+  for (let s = 1; s <= circSteps; s++) {
+    const a = RAB_MERGE - sweep * (s / circSteps);
+    push(rotToDir(dIn, { x: Math.cos(a) * ROUNDABOUT_R, z: Math.sin(a) * ROUNDABOUT_R }));
+  }
+
+  // Exit blend: the entry blend mirrored (x → −x in dOut's canonical frame), walked outward.
+  const exitCentre = { x: HALF_ROAD, z: LANE + RAB_BLEND_R };
+  const exitStart = Math.atan2(tangency.z - blendCentre.z, -(tangency.x - blendCentre.x));
+  for (let s = 1; s <= ENTRY_STEPS; s++) {
+    const a = exitStart + (-Math.PI / 2 - exitStart) * (s / ENTRY_STEPS);
+    push(rotToDir(dOut, {
+      x: exitCentre.x + Math.cos(a) * RAB_BLEND_R,
+      z: exitCentre.z + Math.sin(a) * RAB_BLEND_R,
+    }));
+  }
+
+  const cum = [0];
+  for (let k = 1; k < points.length; k++) {
+    cum.push(cum[k - 1] + Math.hypot(points[k].x - points[k - 1].x, points[k].z - points[k - 1].z));
+  }
+  return { points, cum, length: cum[cum.length - 1] };
+}
 
 // --- Closed segments --------------------------------------------------------
 //

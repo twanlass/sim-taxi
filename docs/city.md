@@ -88,6 +88,30 @@ never gets to spend time meshing a broken city.
 > A known limitation: districts are pairs of blocks only. Larger ones would close more roads and
 > need a connectivity guarantee stronger than the current all-pairs check.
 
+## One junction is a roundabout
+
+Same job as a park district — break the grid's rhythm — done to a junction instead of a block:
+one interior junction per city trades its signal for a kerbed island that traffic orbits,
+yielding on entry. `layout.js` picks it (never on an arterial, whose fast grain a near-stop
+junction would undo) and `setRoundabout()` in grid.js makes it real, the same pattern as
+`setClosedSegments()`.
+
+The geometry falls out of the lane offsets: every entry and exit point of a junction sits at
+`√(HALF_ROAD² + LANE²) ≈ 4.47` from its centre, so one circulating circle serves all four
+approaches. `roundaboutPath()` builds the drive path — an entry arc tangent to the lane and to
+the circulating circle (radius ≈ 11, which is what makes the deflection read as steering rather
+than a kink), the circle itself at `ROUNDABOUT_R = 2.6`, and the mirrored exit arc. Right turns
+return null: the ordinary near-corner Bézier never reaches the circle, so it already *is* the
+roundabout right turn. Both the traffic model and the route band draw from this one function, so
+they cannot disagree.
+
+The placement draw is appended to the end of layout's rng stream on purpose — parks and
+arterials on a given seed stay exactly where they were before the feature existed.
+
+A diagonal street was considered for the same job and rejected: directions are encoded `0..3`
+(§ above), and everything from `legalExits` to the signal model to the turn Béziers leans on
+that arithmetic. A roundabout reuses the whole junction model; a diagonal would fork all of it.
+
 ## Ground, buildings, props
 
 | File | Produces | Notes |

@@ -4,7 +4,7 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import {
   DIR, GRID, HALF_SPAN, LANE, PITCH, dirSign, isXAxis, legalExits, lineCoord,
-  isSegmentClosed, nextIntersection, opposite,
+  isSegmentClosed, nextIntersection, opposite, getRoundabout,
 } from '../city/grid.js';
 import {
   setPriorityCorridor, setPolicePresence, locoWeave, locoWheelie,
@@ -245,9 +245,13 @@ export function createPolice(rng, scene) {
   /**
    * A park district builds over the road that used to run between its two blocks. The police car
    * drives a whole line end to end, so a corridor down a line with a closed segment sends it
-   * straight through the trees.
+   * straight through the trees. The roundabout is the same obstacle in miniature: the cruiser's
+   * rail runs one LANE off the centreline, which is inside the island's kerb, so a line through
+   * that junction drives it over the island.
    */
   const lineIsClear = (axis, line) => {
+    const rab = getRoundabout();
+    if (rab && (axis === 'x' ? rab.j === line : rab.i === line)) return false;
     for (let k = 0; k < GRID; k++) {
       const closed = axis === 'x' ? isSegmentClosed(k, line, 0) : isSegmentClosed(line, k, 1);
       if (closed) return false;
@@ -364,6 +368,11 @@ export function createPolice(rng, scene) {
     for (const d of exits) {
       const n = nextIntersection(d, i, j);
       if (!n) continue;
+      // The roundabout is deliberately NOT penalised here, though the rail clips its island kerb
+      // by ~0.2 units on the way through. A avoid-it penalty was tried and made the greedy router
+      // orbit the junction until CHASE_TIMEOUT on seeds where the quarry sat behind it (seed
+      // 31337: 7s, arrested 34 units short). A frame of kerb graze at 26 u/s is invisible; a cop
+      // that gives up isn't.
       const score = Math.hypot(lineCoord(n.i) - state.quarry.x, lineCoord(n.j) - state.quarry.z)
         - (d === dIn ? 0.6 : 0);
       if (score < bestScore) { bestScore = score; best = d; }
