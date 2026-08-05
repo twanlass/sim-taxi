@@ -11,8 +11,8 @@ that means up to two riders can be waiting on the kerb at the same time.
    their head: how long they'll wait, and how far they're going. The whole trip is drawn now, but
    only its length is shown — see [How far, not where](#how-far-not-where).
 2. Tap them → the taxi routes there.
-3. On arrival the passenger boards, their drop-off pin appears, and the taxi **parks** until the
-   player taps it.
+3. On arrival the passenger boards, their drop-off pin appears **in teal**, and the taxi **parks**
+   until the player taps it — at which point the pin turns the taxi's yellow.
 4. Deliver → the meter pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, see [Economy](#economy)),
    and the board refills.
 5. **Any** fare's clock expiring ends the run.
@@ -115,8 +115,9 @@ the timer ring is colour-coded by time remaining, so fare identity needed somewh
 **The drop-off pin no longer wears it.** It used to, so that a pin and a taxi could be paired by
 hue; but one rider is aboard at a time and only that rider's pin is on the board, so the pairing
 had nothing to disambiguate and a rotating hue was making the same marker look different run to
-run. The pin, its ring and the off-screen pointer are now fixed to **Loco Mode's yellow** — the
-taxi's own — so the route band, the car, and the place it is driving to are one colour saying "this
+run. The pin, its ring and the off-screen pointer now carry the fare's **state** instead: **teal**
+while the drop-off is still waiting to be tapped, and **Loco Mode's yellow** — the taxi's own — once
+it has been, so the route band, the car and the place it is driving to are one colour saying "this
 is the job". See [rendering.md](rendering.md#pin-outline-and-bounce--geometrymarkerjs).
 
 `nextFareColor()` still refuses any colour a **live** fare is wearing, not just the previous one —

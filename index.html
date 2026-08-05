@@ -283,11 +283,13 @@
       #dropoff-indicator[hidden] { display: none; }
       #dropoff-indicator svg { display: block; width: 100%; height: 100%;
         filter: drop-shadow(0 2px 4px rgba(10, 20, 30, 0.45)); }
-      /* Matches the pin-head outline weight so the arrow reads as the same graphic vocabulary. */
+      /* Matches the pin-head outline weight so the arrow reads as the same graphic vocabulary, and
+         switches on the same tap the pin does — teal until the taxi has been sent, then yellow. */
       #dropoff-indicator polygon {
-        fill: #F5C130;   /* PALETTE.destination — the pin head this arrow stands in for */
+        fill: #17C8B8;   /* PALETTE.destination — the pin head this arrow stands in for */
         stroke: #16120a; stroke-width: 3; stroke-linejoin: round;
       }
+      #dropoff-indicator.is-selected polygon { fill: #F5C130; }   /* PALETTE.destinationSelected */
       body.shot-mode #dropoff-indicator { display: none; }
 
       /* --- tweak panel --- */
