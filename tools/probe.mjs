@@ -7,6 +7,7 @@
  * are spent only on questions that genuinely need eyes.
  */
 
+import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
@@ -20,6 +21,8 @@ import {
   createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, SECOND_FARE_AFTER,
 } from '../src/game/fares.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
+import { createTaxiMesh } from '../src/geometry/taxi.js';
+import { GHOST_MASK_ORDER, GHOST_RIM_ORDER } from '../src/geometry/ghostoutline.js';
 import { createCityCamera, attachDragPan } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { DISTANCE_TIERS, distanceTier } from '../src/game/triptier.js';
@@ -1383,6 +1386,57 @@ check('the taxi is an ordinary car in the traffic array',
   // 8.5 of something.
   check('top speed reads as a plausible mph', speedMph(boostTop) >= 45 && speedMph(boostTop) <= 60,
     `${speedMph(boostTop)} mph`);
+}
+
+// --- Ghost outline ----------------------------------------------------------
+//
+// The taxi's occluded-only outline (geometry/ghostoutline.js) is a two-pass stencil trick whose
+// failure modes are all silent and visual — a wrong depthFunc draws the outline over the visible
+// car, a missing mask fills the silhouette instead of tracing it. The material flags ARE the
+// behaviour, so assert them here where a regression costs milliseconds, not a screenshot.
+{
+  const { group } = createTaxiMesh();
+  const masks = [];
+  const rims = [];
+  group.traverse((node) => {
+    if (node.name === 'ghostMask') masks.push(node);
+    if (node.name === 'ghostRim') rims.push(node);
+  });
+
+  check('taxi wears a ghost outline on shell and sign', masks.length === 2 && rims.length === 2,
+    `${masks.length} masks, ${rims.length} rims`);
+
+  const rimsHidden = rims.every((r) => r.material.depthFunc === THREE.GreaterDepth
+    && r.material.depthWrite === false && r.material.side === THREE.BackSide);
+  check('ghost rim draws only where the taxi is hidden', rimsHidden,
+    'depthFunc GreaterDepth, no depth write, back faces');
+
+  // The mask stamps the car's footprint into the stencil; the rim tests against it. Break either
+  // half of the pairing and the outline turns into a filled ghost.
+  const masksStamp = masks.every((m) => m.material.colorWrite === false
+    && m.material.depthTest === false && m.material.stencilWrite
+    && m.material.stencilZPass === THREE.ReplaceStencilOp);
+  const rimsHollow = rims.every((r) => r.material.stencilWrite
+    && r.material.stencilFunc === THREE.NotEqualStencilFunc
+    && r.material.stencilRef === masks[0]?.material.stencilRef);
+  const ordered = masks.every((m) => m.renderOrder === GHOST_MASK_ORDER)
+    && rims.every((r) => r.renderOrder === GHOST_RIM_ORDER) && GHOST_MASK_ORDER < GHOST_RIM_ORDER;
+  check('ghost outline is hollow — mask stamps before rim tests', masksStamp && rimsHollow && ordered,
+    'stencil stamp/test paired, mask ordered first');
+
+  // The rim hull must actually stand off the shell, or the trace has no thickness to show.
+  const shellBox = new THREE.Box3().setFromBufferAttribute(masks[0].geometry.attributes.position);
+  const rimBox = new THREE.Box3().setFromBufferAttribute(rims[0].geometry.attributes.position);
+  const standoff = rimBox.max.x - shellBox.max.x;
+  check('ghost rim stands off the shell', standoff > 0.2 && standoff < 0.5,
+    `${standoff.toFixed(2)} units`);
+
+  // The stencil trick needs the renderer's stencil buffer, which three has defaulted OFF since
+  // r163. Nothing headless can construct a WebGLRenderer, so read the flag out of main.js —
+  // without it the stencil test silently passes everywhere and the outline fills in.
+  const mainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  check('renderer keeps its stencil buffer', /stencil:\s*true/.test(mainSource),
+    'main.js constructs WebGLRenderer with stencil: true');
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

@@ -55,6 +55,12 @@ export const PALETTE = {
   taxiBody: '#F5C130',
   taxiTrim: '#2B2B30',
   taxiSign: '#F2F0E8',
+  // The ghost outline traced where the taxi is hidden behind a building — see
+  // geometry/ghostoutline.js. The body yellow lightened a touch: it has to say "your taxi is
+  // here" while sitting on the dark side of a tower, where the body colour itself goes muddy.
+  // Deliberately close to `routeLine` — both are the taxi's own yellow speaking from under other
+  // geometry — but not the same entry, so the band can be retuned without moving the ghost.
+  taxiGhost: '#FFDD55',
   // A waiting passenger is deliberately colourless — before pickup any taxi could take any rider,
   // so a colour there would imply a commitment that doesn't exist yet.
   passenger: '#FFFFFF',
