@@ -23,6 +23,19 @@ boost; from empty it recharges in 15 seconds.
 
 The whole city is always on screen. There is nothing to pan or zoom, so every tap is unambiguous.
 
+## Weather and time of day
+
+A full day takes three minutes, and the weather runs on a clock of its own — clear, cloudy, fog,
+rain, snow, blending from one to the next rather than switching. After dusk the towers' windows
+come on, the street lamps throw pools onto the tarmac, and every car turns its headlights on; a
+downpour at three in the afternoon turns them on too.
+
+Night is genuinely dark and never dark enough to lose in. There is a floor under the total light in
+the scene that every darkening influence has to clear between them, because you steer this game by
+tapping things on a map and "you can't see the road" is a lost run rather than a mood.
+
+Pin a frame with `?hour=1` or `?weather=fog` — either stops its own clock.
+
 ## Test
 
 ```bash
@@ -30,11 +43,12 @@ npm run check        # the whole headless suite, ~1.8s
 ```
 
 ```
-ok    modules  all import and construct · sun 0.00→3.84
-ok    probe    28/28
+ok    modules  all import and construct · sun 0.00→3.84 · moon 1.00
+ok    probe    95/95
 ok    routing  30/30
 ok    fares    6/25
 ok    signals  7.05
+ok    sky      31/31
 ```
 
 The assertion that matters most is the one **no screenshot can make**: given a target, does the
@@ -53,7 +67,7 @@ decisions behind it.
 - [city.md](docs/city.md) — coordinates, layout, park districts
 - [traffic.md](docs/traffic.md) — signals, physics, boost, police corridor
 - [gameplay.md](docs/gameplay.md) — fares, routing, the travelling timer
-- [rendering.md](docs/rendering.md) — low-poly technique, lighting, effects
+- [rendering.md](docs/rendering.md) — low-poly technique, lighting, day/night, weather, effects
 - [testing.md](docs/testing.md) — the headless suite
 
 ## The idea worth stealing

@@ -122,9 +122,12 @@ function segment(geometry, x, y) {
     color: EMPTY.clone(),
     // Legibility beats depth correctness, the same bargain the timer ring makes: at this camera
     // angle a tower stands in front of a kerb constantly, and a clock you cannot see is worthless.
+    // `fog: false` is the same bargain again, against the weather rather than the buildings —
+    // this is the only thing marking a rider at range, and range is what fog takes away.
     transparent: true,
     depthTest: false,
     depthWrite: false,
+    fog: false,
   }));
   mesh.position.set(x, y, 0.01);
   mesh.renderOrder = SEG_ORDER;
@@ -151,6 +154,7 @@ export function createRiderMeter() {
     transparent: true,
     depthTest: false,
     depthWrite: false,
+    fog: false,
   }));
   selected.renderOrder = SELECT_ORDER;
   selected.position.z = -0.01;
@@ -164,6 +168,7 @@ export function createRiderMeter() {
     opacity: 0.75,
     depthTest: false,
     depthWrite: false,
+    fog: false,
   }));
   box.renderOrder = BOX_ORDER;
   box.raycast = () => {};

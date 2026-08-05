@@ -32,12 +32,15 @@ const BOUNCE_RATE = 3.4;
 function outlineHull(geometry, scale) {
   const mesh = new THREE.Mesh(
     geometry,
-    new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide }),
+    new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide, fog: false }),
   );
   mesh.scale.copy(scale);
   return mesh;
 }
 
+// Every material here sets `fog: false`. The pin, its ring and its outline are markers the player
+// has to find, so they are exempt from the weather the same way the rider's meter and the fare
+// clock are — see game/weather.js for what fog is otherwise allowed to do to the far edge of the city.
 const RING_R = 3.5;
 const RING_TUBE = 0.16;
 
@@ -60,7 +63,7 @@ function targetRing(colorHex) {
 
   const rim = new THREE.Mesh(
     new THREE.TorusGeometry(RING_R, RING_TUBE, 6, 48).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(colorHex), depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(colorHex), depthWrite: false, fog: false }),
   );
   rim.renderOrder = 4;
   group.add(rim);
@@ -74,6 +77,7 @@ function targetRing(colorHex) {
       transparent: true,
       opacity: ROUTE_OPACITY,
       depthWrite: false,
+      fog: false,
     }),
   );
   fill.renderOrder = 3;   // under the rim, so the rim still reads as an edge

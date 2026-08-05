@@ -22,7 +22,7 @@ about to change.
 | [docs/city.md](docs/city.md) | Coordinates, direction encoding, layout, park districts |
 | [docs/traffic.md](docs/traffic.md) | Signals, arterials, ring road, car physics, boost, police corridor, the bust chase |
 | [docs/gameplay.md](docs/gameplay.md) | Fare loop, routing, picking, timer ring, economy |
-| [docs/rendering.md](docs/rendering.md) | Low-poly technique, camera, lighting, day/night, effects |
+| [docs/rendering.md](docs/rendering.md) | Low-poly technique, camera, lighting, day/night, weather, effects |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
 
 ## Commands
@@ -52,7 +52,16 @@ once shipped undetected because nothing headless imported it.
 **Two seeds, kept separate.** `?seed=` is the city and `?run=` is the situation; both are random
 each load unless pinned. Shot mode pins the city seed so screenshots don't move under an
 unrelated change. Each generator draws from its own offset stream so that editing one system
-doesn't reshuffle every other one.
+doesn't reshuffle every other one — including the night lighting, which has streams of its own so
+that switching the city's lights on doesn't move a tower or a tree.
+
+**The sky is never allowed to go dark enough to lose in.** `VISIBILITY_FLOOR` in `daylight.js` is a
+playability constant, not an aesthetic one: every darkening influence (night, overcast, rain, fog)
+is a multiplier, they compose, and the floor is the one thing stopping them from reaching zero
+between them. `tools/sky.mjs` sweeps every hour against every kind of weather to prove it.
+
+**`?hour=` and `?weather=` pin a frame.** Either stops its own clock. Use them to look at one
+moment instead of chasing it.
 
 **Comments carry the "why".** Many record a measurement or a failed first attempt. If you change
 behaviour a comment describes, update the comment — and if you measure something, write the number
@@ -73,6 +82,16 @@ down.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and
   per-index jitter tears surfaces open.
 - **Effects must be sized against the camera.** At play zoom 1 world unit ≈ 7.7px.
+- **A raw `ShaderMaterial` gets no `#include <colorspace_fragment>`.** Without it a colour renders
+  linear — darker and more saturated than the hex says. The route band knew this; the sky dome
+  didn't, and every sky in the game was wrong by that amount until the cycle started running.
+- **This camera sees each building's +X and +Z faces.** A light placed anywhere else lights the far
+  side of the city and renders black boxes. It cost a whole night pass to find.
+- **Lamp pools stack.** Four per block corner, blocks 20 units apart — anything additive on the
+  road has to be tuned against three or four of itself overlapping, not against one.
+- **`tools/smoke.mjs` must click `body > canvas`.** Rider-finder chips own canvases that sit
+  earlier in document order, so a bare `querySelector('canvas')` clicks a 38px chip and the
+  picker never fires.
 
 ## Deploy
 

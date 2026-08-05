@@ -65,38 +65,221 @@ because it is now paint on a lane and has to shrink with the road when you zoom 
 
 ## Lighting
 
-`src/game/scene.js` returns `{ scene, sun, hemi, sky }`:
+`src/game/scene.js` returns `{ scene, sun, moon, hemi, sky }`:
 
 - **`sun`** — a directional light with shadows (`PCFSoftShadowMap`)
+- **`moon`** — a second directional light, off all day, **no shadows**
 - **`hemi`** — a hemisphere light for ambient fill
 - **`sky`** — the *material* of a sky dome, whose `topColor` / `bottomColor` uniforms are the only
   handle on sky colour
 
 The default is golden hour: 16:24, sun 28.5° up, `#FFDEBB` at 3.55 intensity.
 
+**Fog is off by default** and exists only while the weather says so — see [the weather](#weather).
+The old note here said fog was unusable on an orthographic camera. That was half right: three's
+fog is a function of view-space depth, and this camera stands a fixed 400 units back, so a range
+anchored near zero really does wash the whole city out evenly. But the city is ~140 units across
+the view diagonal, so depth genuinely varies 400 ± 70 — and a range written *relative to the
+standoff distance* fades the far edge and leaves the near one clear. That is exactly the depth cue
+that was thought unavailable, and `CAMERA_DISTANCE` is exported from `camera.js` so the range can
+be written against it.
+
+### The moon
+
+Night used to be lit by the hemisphere fill alone, and a hemisphere light has no direction to
+speak of: every roof, road and car took the same flat wash and the city became a silhouette. The
+moon gives every surface a lit side again.
+
+It **casts no shadows**, deliberately. A second shadow map is a second depth pass every frame for
+the twelve hours a day it contributes nothing to, and toggling `castShadow` to dodge that
+recompiles every material in the scene at dusk. Shadowless is also the better look — moonlight is
+diffuse, and hard black shadows at 0.9 intensity read as a second sun.
+
+Its arc is **on the same side of the sky as the sun**, sweeping the other way: 85° → 15° azimuth,
+22°..48° elevation. That is not astronomy, it is the fixed camera. This view stands at
+(+X, +Y, +Z) and sees each building's +X and +Z faces, and the sun's 10°→175° azimuth rakes
+exactly those. The first version put the moon opposite the sun, where a moon belongs — and lit
+every face the camera cannot see. The night render came back as black buildings standing in bright
+pools of street light. `tools/sky.mjs` now asserts the moon direction against the visible face
+normals rather than against an elevation angle, because the elevation was never what was wrong.
+
 ## Day/night cycle
 
-`src/game/daylight.js` owns the hour → lighting curve. **Currently switched off by default** —
-`main.js` calls `setCycling(false)`, so the game sits at the fixed golden hour above. The ⚙️ panel
-turns it on.
+`src/game/daylight.js` owns the hour → lighting curve. **It runs by default** — the night end of
+it now has moonlight, lit windows, street lamps and headlights to see by, which is what it was
+waiting on. `?hour=13.5` parks it, and the ⚙️ panel stops it.
 
-`createDaylight({ sun, hemi, sky })` gives you `apply(hour)`, `update(dt)`, `setCycling`,
-`setDayLength`. One full day takes `DAY_SECONDS = 180` by default.
+`createDaylight({ sun, moon, hemi, sky })` gives you `apply(hour)`, `update(dt)`, `look()`,
+`lit()`, `setCycling`, `setDayLength`, `setLookFilter`. One full day takes `DAY_SECONDS = 180`.
 
-**Eight keyframes** (midnight, pre-dawn, sunrise, morning, noon, golden, sunset, dusk) are lerped
-for sun colour, intensity, ambient fill, hemisphere sky/ground and both sky uniforms. Keyframes
-rather than a formula because a smooth analytic curve spends most of its range on a flat blue
-afternoon and rushes the two minutes that actually look like something.
+**Nine keyframes** (midnight, pre-dawn, sunrise, morning, noon, golden, sunset, dusk, midnight)
+are lerped for sun colour and intensity, **moon intensity**, ambient fill, hemisphere sky/ground,
+both sky uniforms, and `lit`. Keyframes rather than a formula because a smooth analytic curve
+spends most of its range on a flat blue afternoon and rushes the two minutes that actually look
+like something.
 
 Sun elevation follows a day arc and azimuth swings 10° → 175°, so shadows sweep across the city.
 **Elevation clamps at 6°** — at night intensity is 0 anyway, and a light below the ground plane
 throws shadows up through everything.
 
-Night is genuinely dark (sun 0.00, fill 0.34, deep navy) but stays playable because every game
-marker — fare rings, rider meters, route band — is unlit (`MeshBasicMaterial`, or in the band's
-case a plain `ShaderMaterial` that never reads a light).
+`lit` is its own keyframe rather than something derived from `power`, because *when a city
+switches its lights on* is a look decision, not a function of the sun. It is still 0.35 at sunrise
+and 0.45 at sunset: lights outlast dusk in both directions, which is what makes the two
+transitions read as transitions rather than as a switch throw. One number drives three consumers —
+the windows and street lamps, every car's headlights, and the cruiser's.
 
-Screenshot mode freezes the cycle: a rendered shot has to be reproducible.
+### The visibility floor
+
+```js
+export const VISIBILITY_FLOOR = 1.05;   // as sun + moon + ambient fill
+```
+
+A playability constant, not an aesthetic one. You steer this game by tapping things on a map, so
+"you can't see the road" is a lost run rather than a mood. Every darkening influence is a
+*multiplier* — the night keyframes, an overcast sky, a downpour, fog — and multipliers compose, so
+`apply()` enforces the floor **after** the weather has had its say and tops up the ambient fill if
+the total came in short. Fill rather than sun or moon, because it is the one term that can be
+raised without also moving the shadows or the colour of the light.
+
+It is a backstop, not the design: `tools/sky.mjs` checks both that nothing can get under it *and*
+that an ordinary midnight downpour clears it without the clamp doing any work.
+
+Night is genuinely deep in colour and nowhere near black in level. Every game marker is unlit
+anyway (`MeshBasicMaterial`, or the route band's plain `ShaderMaterial`), and the ones the player
+has to *find* — the fare clock, the rider's meter, the destination pin and its ring — also set
+`fog: false`, so the weather can never take them.
+
+### Sky colour space
+
+The sky dome is a raw `ShaderMaterial`, and it was writing linear colour straight to an sRGB
+framebuffer: `new THREE.Color('#8CC4E8')` converts sRGB → linear on the way in, and nothing
+converted back on the way out. Every sky in the game rendered darker and more saturated than the
+hex it was written as. It only became obvious once the cycle ran by default — sunset's `#F09A60`
+came out as rgb(222, 82, 29), and since this camera looks *down*, almost the whole visible dome
+sits within a few degrees of the horizon where the gradient is ~80% `bottom`, so dusk filled the
+entire frame with brick red.
+
+`#include <colorspace_fragment>` fixes it, exactly as in `routeline.js`. The daytime keyframes were
+then rewritten to the hexes that reproduce the sky the game actually shipped (`#8CC4E8` → `#438DCE`,
+`#DCEDF7` → `#B7D8ED`): **the pixels are unchanged, the numbers now describe them.** Sunrise and
+sunset were retuned properly, since neither had ever been on screen.
+
+## Weather
+
+`src/game/weather.js`, with the particles in `src/game/precip.js`. Five kinds — `clear`, `cloudy`,
+`fog`, `rain`, `snow` — walked by a clock that holds one for 30–70s and then blends to the next
+over 12s.
+
+It sits **on top of** the day/night cycle rather than beside it. `daylight.setLookFilter()` hands
+weather the sampled look for the current hour on its way to the lights, and `modify()` multiplies
+the sun down, pushes the sky toward a tint, decides how far up the city's lights have to come, and
+says how much fog and rain there is. One writer to the lights, one place the floor is enforced.
+
+Every number in a weather profile is a **multiplier or a blend, never an absolute**. That is what
+lets the same five kinds work at 3am and at noon: overcast at noon is a bright grey day, overcast
+at midnight is a moonless one, and neither needed its own keyframe. Colours are *pulled toward* the
+tint rather than replaced, for the same reason — replacing them would throw the hour away.
+
+Note that `fill` goes **up** in the murk. Fog and snow scatter light rather than removing it, so an
+overcast afternoon is flatter than a clear one but not darker; it is also the term that keeps the
+city legible when the sun has been cut to a third.
+
+`gloom` is a floor under `lit`: a rainy afternoon has every headlight on, which is most of what
+sells the rain.
+
+**Successors are a chain, not a uniform draw.** `clear → snow` in twelve seconds reads as a bug;
+`clear → cloudy → snow` reads as a front coming in. Every kind can reach every other kind, just not
+in one step — `tools/sky.mjs` BFSes the table to prove it rather than soaking until one turns up.
+
+Three things are not lights and are synced separately: `scene.fog` (colour, near, far), the ground
+mesh's `material.color` for wet tarmac — one multiply darkens road, kerb, markings and crosswalks
+in step, which is what rain actually does — and the two particle fields.
+
+**Lightning** is a flash of fill plus a whitened sky for a fraction of a second, armed only while
+there is rain on both sides of the blend.
+
+`?weather=rain` pins one kind and stops the clock; the ⚙️ panel has a cycle toggle and a forcing
+dropdown. Forcing from the panel does *not* stop the clock — it hands the sky over and lets it
+carry on, so you can pick `rain` and watch what it turns into.
+
+### Precipitation — `game/precip.js`
+
+Two instanced fields falling through a box around whatever the camera is looking at. The field is
+**wrapped in world space, not carried by the camera**: a group parented to the camera target would
+slide the whole downpour sideways on every pan, which reads as the weather moving rather than the
+view. Each particle keeps a world position and is wrapped modulo the field around the current
+focus, so panning reveals rain that was already there.
+
+Particles are written straight into `instanceMatrix.array`. Every drop shares one rotation (the
+lean into the wind) and one scale, so the 3×3 block is identical across the field and only the
+translation column changes per frame; `Object3D.updateMatrix()` would redo that rotation 1,500
+times a frame for nothing.
+
+Count scales with strength, opacity barely does — thinning the field is what reads as "it is easing
+off", while fading every drop to 10% alpha reads as a rendering bug. Rain is a thin box (the camera
+never rotates, so it needs no billboarding); snow is a 20-face icosahedron, same reasoning as the
+dust puffs.
+
+## City lights
+
+`src/game/nightlights.js` owns the materials and the one opacity; the geometry is built where the
+things themselves are built and handed over as a merged `BufferGeometry`, so `city/` still knows
+nothing about `game/`.
+
+- **Lit windows** — `city/buildings.js`. A seeded subset of panes, on their own grid rather than a
+  subdivision of the daytime window bands: those stop short of the parapet and skip the ground
+  floor, which is right for a floor line on a mass but left this city — whose towers top out around
+  eleven units — with *thirteen* band rows in total to hang a night skyline off. Occupancy is drawn
+  **per tower**, so some blocks blaze and some are dark; a flat 30% everywhere reads as texture.
+  The lit set is fixed per seed rather than flickering — a window that switches on and off is
+  something the player will look at, and there is nothing there to reward looking.
+- **Street lamps** — `city/props.js`. Three pieces each: the bulb, a cone of lit air, and a pool on
+  the tarmac. The pool is the one that matters, because after dark it is what you steer by. It sits
+  at y = 0.06 — above the road paint and the route band, below the sidewalk surface — so where it
+  overhangs a block the depth test hides it, which is right: a lamp lights the road.
+
+Both fade with `lit`, and both go `visible = false` outright below the threshold rather than being
+drawn at opacity ~0.
+
+**Two materials, not one.** Windows blend *normally* — a window is a surface with a light behind
+it, and additive would let the dark facade show through and turn every pane into a smear of the
+building's paint. Lamps blend *additively* — a pool is light arriving somewhere, not paint, and it
+has to brighten the asphalt and the markings under it without hiding either.
+
+The pools **stack**: four lamps per block corner, blocks 20 units apart, so three or four overlap
+additively on any downtown road. The first pass ran a peak of 0.5 over a 6.5 radius and the whole
+city centre came back as one continuous cream blanket with the roads lost inside it. It is 0.24
+over 5.4 with a squared falloff now.
+
+Night lighting draws from its own RNG streams (`seed + 202`, `seed + 203`) rather than from the
+building and prop streams — the same principle as the per-generator streams in `main.js`, one level
+down. Switching the city's lights on must not move a tower or a tree, so `?seed=N` is the city it
+has always been.
+
+## Vehicle lights
+
+`src/geometry/carlights.js` builds one merged geometry per vehicle class: two headlight lenses,
+two tail lights, a cone of lit air out of each lamp, and a wedge of light on the road. One geometry
+and one additive material, so all the ambient traffic's lights are a single instanced draw.
+
+Tail lights are two thirds the strength of the headlights; matching them makes it genuinely hard to
+tell at a glance which way a car three blocks away is pointing. The wedge on the road is **one
+across both lamps**, not one each — two overlapping wedges double the additive strength down the
+middle of the road, which is where the taxi's own lane markings are. It is an explicit triangle
+strip rather than a quad, because the falloff is not linear and four corners can only interpolate
+into a flat sheet with a hard end.
+
+**The rig rides an upright node, not the car body.** Position and yaw only: no bob, no corner lean,
+no pitch rock. The wedge sits 0.06 units above the tarmac, and a car leaning 17° into a boosted
+corner would swing half of it below the road surface where the depth test eats it — the beam would
+flicker out every time a car turned. `car.yaw` already carries the Loco Mode weave and the panic
+wobble at that point, so the beams still swing with the steering; it is only the suspension they
+sit out. Everything else the rig gives up is worth well under a pixel at play zoom — the bob is
+±0.045 units, a third of one. `tools/sky.mjs` asserts every rig is level and on its car.
+
+The police cruiser's rig is built **without** the wedge, so it can hang off the group and lean with
+a car that is being thrown around. A wreck's rig collapses to zero scale with the rest of its
+instances, so no pair of beams is left on the road pointing at nothing.
 
 ## Effects
 
@@ -326,11 +509,25 @@ with the body — it used to be, and tilting it into the road caused z-fighting.
 
 `src/game/debugpanel.js`, behind the ⚙️ button top right. Split by cost:
 
-- **Live** — day cycle on/off, day length, time of day, sun colour/strength, ambient fill, fare clock
+- **Light** — day cycle on/off, day length, time of day, sun colour/strength, ambient fill
+- **Weather** — weather cycle on/off, force a kind, and a live readout of the blend (a sky 40% of
+  the way from cloudy to rain has no checkbox that could show it)
+- **Game** — fare clock, route blend
 - **Restart to apply** — car count (writes a URL parameter and reloads)
 
 Pretending a rebuild-only value is live would just show a slider that silently does nothing.
 
-Touching any lighting control stops the day cycle, rather than letting the next frame overwrite the
-change. **Copy settings JSON** exports the live values (not the slider positions, so manual
-overrides are captured) for pasting back as new defaults.
+Touching any lighting control stops **both** clocks. The weather has to stop too, not just the day
+cycle: weather owns the final write to the lights, so a hand-picked sun colour would survive the
+day cycle being paused and then be stomped by the next overcast frame anyway.
+
+**Copy settings JSON** exports the live values (not the slider positions, so manual overrides are
+captured) for pasting back as new defaults.
+
+## URL parameters for a frame
+
+`?hour=13.5` parks the day/night cycle, `?weather=fog` pins one kind of weather. Both stop their
+clock — you asked for that frame, not for that frame drifting away while you look at it. Either
+works alone. They exist as parameters as well as panel controls because the panel doesn't exist in
+shot mode, and "what does the route band look like in fog at midnight" has to be a link you can
+send someone.

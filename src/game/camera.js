@@ -9,7 +9,11 @@ import { HALF_SPAN } from '../city/grid.js';
 // rotates — only the target and the zoom move — so a billboard is a constant orientation computed
 // once from this, not a per-frame lookAt.
 export const VIEW_DIR = new THREE.Vector3(1, 0.92, 1).normalize();
-const DISTANCE = 400;
+// How far back the camera stands. Exported because fog is a function of *view-space depth*, and
+// on an orthographic camera every point in the city sits within ~±80 units of this one number —
+// so a fog range is only meaningful when written relative to it. See game/weather.js.
+export const CAMERA_DISTANCE = 400;
+const DISTANCE = CAMERA_DISTANCE;
 
 // Screen right is world (+X, -Z) for this view direction; screen up is (-X, -Z).
 const RIGHT = new THREE.Vector3(1, 0, -1).normalize();

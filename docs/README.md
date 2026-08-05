@@ -9,7 +9,7 @@ behind it that aren't obvious from the code.
 | [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts, ground/buildings/props | `src/city/` |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
 | [gameplay.md](gameplay.md) | The fare loop, routing, picking, the travelling timer ring, economy, crazy-taxi mode | `src/game/` |
-| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, effects | `src/game/scene.js`, `src/geometry/` |
+| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, weather, effects | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 
 ## The 60-second version
@@ -36,6 +36,10 @@ lights, release to pause the meter. A full tank is 15 seconds of boost; from emp
   model file. If something needs to look different, it changes in geometry or in `palette.js`.
 - **Seeded generation.** The city is one seed, the run situation is another; see
   [architecture.md](architecture.md#seeding).
+- **The sky moves.** A full day takes 180 seconds, and the weather walks through clear, cloudy,
+  fog, rain and snow on a clock of its own. Night is genuinely dark but never below a level you
+  can still play in — see [the visibility floor](rendering.md#the-visibility-floor). `?hour=` and
+  `?weather=` pin either one.
 - **Comments carry the "why".** Most non-obvious lines already explain themselves in place —
   particularly the ones recording a measurement or a failed first attempt. These docs summarise;
   the code is the detail.

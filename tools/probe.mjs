@@ -54,12 +54,17 @@ const scene = new THREE.Scene();
 
 const layout = time('layout', () => createLayout(makeRng(seed)));
 const ground = time('ground', () => createGround(makeRng(seed + 11), layout));
-const buildings = time('buildings', () => createBuildings(makeRng(seed + 22), layout));
-const props = time('props', () => createProps(makeRng(seed + 33), layout));
+const buildings = time('buildings', () => createBuildings(makeRng(seed + 22), layout, makeRng(seed + 202)));
+const props = time('props', () => createProps(makeRng(seed + 33), layout, makeRng(seed + 203)));
 const traffic = time('traffic init', () => createTraffic(makeRng(seed + 44), scene, 24));
 
 const tris = (mesh) => mesh.geometry.attributes.position.count / 3;
-console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mesh)}, props ${tris(props)}`);
+const geoTris = (geo) => (geo ? geo.attributes.position.count / 3 : 0);
+console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mesh)}, props ${tris(props.mesh)}`);
+// The night layer, counted separately: it is only drawn after dusk, and it is the one part of
+// the city that can grow without the daytime frame noticing. What it *does* is asserted in
+// tools/sky.mjs; this is the number to watch if a night frame ever gets expensive.
+console.log(`  night geometry: ${buildings.litWindows} lit panes, ${props.lamps} street lamps, ${geoTris(buildings.windows) + geoTris(props.glow)} triangles`);
 
 check('layout covers every block', layout.length === GRID * GRID, `${layout.length} blocks`);
 check('some blocks are parks', layout.some((b) => b.type === 'park'),

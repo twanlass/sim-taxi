@@ -6,21 +6,22 @@
 npm run check
 ```
 
-Runs the whole headless suite in **~1.8s** and prints one compact summary:
+Runs the whole headless suite and prints one compact summary:
 
 ```
-ok    modules  all import and construct · sun 0.00→3.84
-ok    probe    28/28
+ok    modules  all import and construct · sun 0.00→3.84 · moon 1.00
+ok    probe    95/95
 ok    routing  30/30
 ok    fares    6/25
 ok    signals  7.05
+ok    sky      31/31
 
 all green · 1.8s
 ```
 
-The point is round trips, not compute. The tools below total well under a second between them, but
-running them separately costs four exchanges — so `tools/check.mjs` runs them together and a change
-can be made and verified in a single step.
+The point is round trips, not compute. The tools below total well under a second between them on
+the machine this was tuned on, but running them separately costs five exchanges — so
+`tools/check.mjs` runs them together and a change can be made and verified in a single step.
 
 ## What each step covers
 
@@ -31,8 +32,30 @@ can be made and verified in a single step.
 | **routing** | `tools/taxi.mjs 30` | Given a target, the routed taxi actually **arrives** — while still stopping at every red |
 | **fares** | `tools/soak.mjs 25 4 9` | Auto-plays the fare loop over **9 run seeds** with a fixed "player reaction" delay, and gates on the median |
 | **signals** | `tools/signals.mjs` | Throughput, stationary fraction, green-wave hit rate. Informational — it reports rather than fails |
+| **sky** | `tools/sky.mjs` | The day/night curve, the weather director, the visibility floor, and everything the two of them switch on and off |
 
 `taxi.mjs` is the assertion that matters most and the one **no screenshot can make**.
+
+`sky.mjs` is the other one. It asks a different kind of question from `probe.mjs`: not "is the
+simulation correct" but "**is the game still playable to look at**". The floor check is the one
+that earns its keep — every darkening influence in the game is a multiplier, night × overcast ×
+fog is three of them, and the only reason that combination can't black the city out is a single
+clamp in `daylight.js`. It sweeps all 24 hours against all five kinds of weather and asserts the
+total never drops under it, that there is always a light with a *direction* to it, and that no dark
+hour is left with the city's own lights still down.
+
+It also caught two bugs a screenshot would have shown but not explained, and one it would never
+have shown at all:
+
+- The moon was placed opposite the sun, where a moon belongs, and lit every building face the fixed
+  camera cannot see. It is asserted as a **direction** against the visible face normals now, not as
+  an elevation angle — the angle was never the thing that was wrong.
+- The weather's hold timer was never re-armed, so every change ran straight into the next. The pace
+  check is a **range**, not a floor: too few changes means it parked, too many means the hold isn't
+  holding.
+- The headlight rigs ride an upright node so a car leaning into a corner doesn't swing its beam
+  under the road. `sky.mjs` asserts every rig is level and on its car, which is invisible in a still
+  until the frame it is wrong in.
 
 `soak.mjs` is the difficulty gauge. One flat clock covering both legs means a perfect player is
 *meant* to lose eventually, so it does not gate on "never fails" — it gates on the median run being
@@ -62,9 +85,13 @@ node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM
 ## Screenshots
 
 `shots.sh` / `tools/shoot.mjs` drive headless Chrome over CDP. `?shot=<name>` puts the app in
-screenshot mode: the HUD hides, the day/night cycle freezes, the sim warms forward to a chosen
-moment (mid-pickup, mid-corridor, framed on the rider), and then `document.body.dataset.shotReady`
-is set for the capture to wait on.
+screenshot mode: the HUD hides, **both** the day/night and weather clocks freeze, the sim warms
+forward to a chosen moment (mid-pickup, mid-corridor, framed on the rider), and then
+`document.body.dataset.shotReady` is set for the capture to wait on.
+
+Shots 10–16 are the night and weather framings, and each pins an `hour` *and* a `weather`: the
+whole point of layering weather on the day cycle is that rain at 1am and rain at noon are different
+frames, so a shot that pinned only one of the two would be showing half a thing.
 
 Rendering costs about **2s per shot** against ~1s for the entire assertion suite, so screenshots
 are for *looking at* the game, not for verifying it.
@@ -82,8 +109,8 @@ CHROME=/opt/pw-browsers/chromium CHROME_FLAGS=--no-sandbox node tools/shoot.mjs 
 
 `--url` may carry query params of its own — `--url 'http://localhost:4173/?run=7'` picks which
 situation gets shot, since `?shot=` is merged in rather than concatenated. `?blend=<name>` pins the
-route band's blend mode the same way, which is the only way to shoot it: the ⚙️ panel that switches
-it live doesn't exist in shot mode.
+route band's blend mode the same way, and `?hour=` / `?weather=` pin the sky, which is the only way
+to shoot any of them: the ⚙️ panel that switches them live doesn't exist in shot mode.
 
 ## Working notes
 
@@ -107,9 +134,22 @@ These are the things that have actually cost time on this project:
 ## Test hook
 
 The tools drive the game through `window.__taxi` (`traffic`, `boost`, `skids`, `police`, `fares`,
-`daylight`, `routeTo`, `findRoute`, `isSelected`) rather than through the DOM. That's what makes
-the suite fast.
+`daylight`, `weather`, `nightLights`, `routeTo`, `findRoute`, `isSelected`) rather than through the
+DOM. That's what makes the suite fast.
 
 > `tools/smoke.mjs` clicks with synthetic DOM events. CDP's `Input.dispatchMouseEvent` is accepted
 > in this headless config but never produces a DOM click, so it tests nothing. The picker, raycast
 > and listener are covered; Chrome's OS-level input plumbing is not.
+
+> It dispatches them at **`body > canvas`**, not `canvas`. Every rider-finder chip owns a WebGL
+> renderer of its own, and `#rider-finder-stack` is in the static HTML — so its canvases come
+> *earlier* in document order than the game's, which `main.js` appends to the body at boot. A bare
+> `querySelector('canvas')` therefore starts returning a 38px chip the moment a fare is waiting,
+> and every click in the test lands on that instead of on the game: the picker's listener never
+> fires at all. It presented as flakiness, because it depended on whether a chip existed yet when
+> the click went out.
+
+> **Known failure:** `dragging pans the camera` fails in this harness. Drag-to-pan is gated to
+> viewports under `NARROW_VIEWPORT = 768px` (on a desktop the whole city is already in frame and
+> panning would only slide the map for no reason), and the harness window is 900px wide. The test
+> would need to size the viewport before it could pass.

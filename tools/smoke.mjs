@@ -116,8 +116,15 @@ try {
   // this headless configuration but never synthesises a DOM click — the page observes nothing at
   // all — so it silently tests neither the picker nor anything else. This does exercise the real
   // listener, raycast and hit-test path; it just doesn't cover Chrome's OS-level input plumbing.
+  //
+  // `body > canvas`, not `canvas`. Each rider-finder chip owns a WebGL renderer of its own, and
+  // `#rider-finder-stack` is in the static HTML — so its canvases come *earlier* in document order
+  // than the game's, which main.js appends to the body at boot. A bare `querySelector('canvas')`
+  // therefore starts returning a 38px chip the moment a fare is waiting, and every click in this
+  // test lands on that instead of on the game: the picker's listener never fires at all. It looked
+  // like flakiness because it depended on whether a chip existed yet when the click went out.
   const clickAt = async (pt) => {
-    await evaluate("(() => { const c = document.querySelector('canvas');"
+    await evaluate("(() => { const c = document.querySelector('body > canvas');"
       + " c.dispatchEvent(new MouseEvent('click', { clientX: " + Math.round(pt.x)
       + ", clientY: " + Math.round(pt.y) + ", bubbles: true, cancelable: true })); })()");
     await sleep(300);
@@ -164,7 +171,7 @@ try {
 
   const dragFrom = async (x, y, dx, dy) => {
     await evaluate(`(() => {
-      const c = document.querySelector('canvas');
+      const c = document.querySelector('body > canvas');
       const ev = (type, cx, cy) => c.dispatchEvent(new PointerEvent(type, {
         pointerId: 1, isPrimary: true, clientX: cx, clientY: cy, bubbles: true, cancelable: true }));
       c.setPointerCapture = () => {};

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor, glowMaterial, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import {
   DIR, GRID, HALF_SPAN, LANE, PITCH, dirSign, isXAxis, legalExits, lineCoord,
@@ -11,6 +11,7 @@ import {
   LOCO_WEAVE_FADE, WHEELIE_DUR, ROAD_Y,
   wheelAnchors, wheelGeometries, wheelGeometry, steerToward, CHASSIS_LIFT,
 } from './traffic.js';
+import { carLightGeometry } from '../geometry/carlights.js';
 
 // A police car running a priority corridor across the city: every signal on its road goes green,
 // every crossing road goes red, and the traffic model reacts on its own because the override lives
@@ -194,6 +195,18 @@ export function createPolice(rng, scene) {
   group.add(body);
   const lights = lightBar(group);
   const front = steeredWheels(group);
+
+  // Headlights after dark. A child of the group rather than an upright node of its own — unlike
+  // the traffic in traffic.js, the cruiser's rig is built **without** the wedge on the road, so
+  // there is no flat quad to be swung under the tarmac by the lean it takes into a chase. The
+  // lenses and the lit air in front of them are volumes and simply lean with it, which on a car
+  // that is being thrown around is the better read anyway.
+  const headlights = new THREE.Mesh(
+    carLightGeometry(CAR_LEN, CAR_W, { beam: false }), glowMaterial(),
+  );
+  headlights.name = 'policeLights';
+  group.add(headlights);
+  let nightLit = 0;
   group.visible = false;
   scene.add(group);
 
@@ -619,7 +632,21 @@ export function createPolice(rng, scene) {
     const fade = edgeFade(state.s);
     for (const material of skin) material.opacity = fade;
     siren(fade);
+    headlights.material.opacity = nightLit * fade;
+    headlights.visible = nightLit * fade > 0.01;
   }
 
-  return { state, update, chase, group };
+  return {
+    state,
+    update,
+    chase,
+    group,
+    /**
+     * Night level, 0..1, from the daylight curve. Multiplied by the cruiser's own fade rather than
+     * replacing it — it dissolves in and out at the ends of a corridor run, and headlights that
+     * stayed at full strength through that would be two dots hanging over the road after the car
+     * they belong to had gone.
+     */
+    setLit(lit) { nightLit = Math.min(1, Math.max(0, lit)); },
+  };
 }

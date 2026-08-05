@@ -20,6 +20,16 @@ export const SHOTS = [
   // blocks away the two end fades meet in the middle. This one sends the taxi to the far corner
   // instead, so a full-length band with several turns is in frame.
   { name: 'route-far', description: 'the route band, taxi to the far corner', target: [0, 0], zoom: 22, warmup: 12, select: true, routeFar: true },
+  // The night and weather framings. Each one pins an hour *and* a weather type, because either on
+  // its own is only half the picture: the whole point of building the weather on top of the day
+  // cycle is that rain at 1am and rain at noon are different frames.
+  { name: 'night', description: 'the city at 01:00 — moonlight, windows, headlights', target: [0, 0], zoom: 52, warmup: 12, hour: 1, weather: 'clear' },
+  { name: 'night-close', description: 'close on the taxi at night, beams on the road', target: [0, 0], zoom: 18, warmup: 12, hour: 1, weather: 'clear', select: true, route: true },
+  { name: 'dusk', description: 'the lights coming on at 19:15', target: [0, 0], zoom: 52, warmup: 12, hour: 19.25, weather: 'clear' },
+  { name: 'rain', description: 'a wet afternoon, headlights on', target: [0, 0], zoom: 52, warmup: 12, hour: 15, weather: 'rain' },
+  { name: 'night-rain', description: 'rain at 22:00 — the hardest thing to keep legible', target: [0, 0], zoom: 52, warmup: 12, hour: 22, weather: 'rain' },
+  { name: 'fog', description: 'fog: the far edge of the city dissolving into the sky', target: [0, 0], zoom: 52, warmup: 12, hour: 9, weather: 'fog' },
+  { name: 'snow', description: 'snow over the morning city', target: [0, 0], zoom: 52, warmup: 12, hour: 10, weather: 'snow' },
 ];
 
 export function getActiveShot() {
@@ -42,6 +52,26 @@ export function getCarCount(fallback = 12) {
   if (raw === null) return fallback;
   const parsed = Number.parseInt(raw, 10);
   return Number.isNaN(parsed) ? fallback : Math.max(1, parsed);
+}
+
+/**
+ * `?hour=13.5` parks the day/night cycle at one time of day, and `?weather=rain` pins one kind of
+ * weather. Both stop their clock: you asked for that frame, not for that frame drifting away
+ * while you look at it. Either can be used on its own — `?hour=2` is a clear night, `?weather=fog`
+ * is fog at whatever hour the cycle happens to be at.
+ *
+ * URL parameters as well as ⚙️ panel controls because the panel doesn't exist in shot mode, and
+ * "what does the route band look like in fog at midnight" has to be a link you can send someone.
+ */
+export function getHour() {
+  const raw = new URLSearchParams(window.location.search).get('hour');
+  if (raw === null) return null;
+  const parsed = Number.parseFloat(raw);
+  return Number.isNaN(parsed) ? null : ((parsed % 24) + 24) % 24;
+}
+
+export function getWeather() {
+  return new URLSearchParams(window.location.search).get('weather');
 }
 
 /**

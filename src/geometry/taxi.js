@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor, glowMaterial, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { ABOVE_RING } from '../game/timerring.js';
+import { carLightGeometry } from './carlights.js';
 import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT } from './wheels.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
@@ -11,7 +12,7 @@ import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT } from './wh
 
 const CAR_LEN = 3.4;
 const CAR_W = 1.7;
-const TAXI_SCALE = 1.18;
+export const TAXI_SCALE = 1.18;
 
 // World-space distance from the taxi origin back to the bumper — used by the tailpipe flame burst
 // (main.js). Kept here rather than in flames.js so both offsets follow if the mesh ever resizes.
@@ -107,6 +108,16 @@ export function createTaxiMesh() {
   group.scale.setScalar(TAXI_SCALE);
   group.rotation.order = 'YXZ';   // so roll applies about the car's own long axis
 
+  // The night rig — headlights, tail lights, beams. Handed back *unparented*, because it must not
+  // inherit the body's roll, pitch and bob: the wedge of light on the road is a flat quad six
+  // centimetres above the tarmac, and a 17° lean through a boosted corner would drop half of it
+  // under the road surface, where the depth test eats it. The caller carries it on an upright node
+  // driven from the same lane pose (sim/traffic.js). Everything the body's motion would have given
+  // it is worth well under a pixel at play zoom anyway — the bob is ±0.045 units, or a third of one.
+  const lights = new THREE.Mesh(carLightGeometry(CAR_LEN, CAR_W), glowMaterial());
+  lights.name = 'taxiLights';
+  lights.scale.setScalar(TAXI_SCALE);
+
   /** null clears the highlight; a hex string lights the roof sign in that fare's colour. */
   const setFareColor = (hex) => {
     sign.material.color.set(hex ?? PALETTE.taxiSign);
@@ -118,5 +129,5 @@ export function createTaxiMesh() {
     for (const wheel of steered) wheel.rotation.y = angle;
   };
 
-  return { group, sign, setFareColor, setSteer };
+  return { group, sign, lights, setFareColor, setSteer };
 }

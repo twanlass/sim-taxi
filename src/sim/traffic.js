@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor, glowMaterial, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H } from '../city/ground.js';
 import {
   WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries,
 } from '../geometry/wheels.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
+import { carLightGeometry } from '../geometry/carlights.js';
 import {
   GRID, PITCH, HALF_ROAD, LANE, lineCoord, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
   laneOffsetCoord, entryPoint, exitPoint, turnControl, nextIntersection, legalExits, isSegmentClosed,
@@ -572,9 +573,12 @@ export function createTraffic(rng, scene, count = 24) {
   const taxi = cars[0];
   taxi.isTaxi = true;
   const {
-    group: taxiGroup, setFareColor: setTaxiFareColor, setSteer: setTaxiSteer,
+    group: taxiGroup, lights: taxiLights,
+    setFareColor: setTaxiFareColor, setSteer: setTaxiSteer,
   } = createTaxiMesh();
   scene.add(taxiGroup);
+  taxiLights.visible = false;
+  scene.add(taxiLights);
 
   const ambient = cars.filter((c) => !c.isTaxi);
   ambient.forEach((car, index) => { car.instanceIndex = index; });
@@ -595,6 +599,43 @@ export function createTraffic(rng, scene, count = 24) {
   wheelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   wheelMesh.castShadow = true;
   wheelMesh.name = 'carWheels';
+
+  // --- Headlights ------------------------------------------------------------
+  //
+  // Every ambient car's night rig — lenses, tail lights, cones of lit air, the wedge on the road —
+  // as one more instanced draw over the same geometry. See geometry/carlights.js.
+  //
+  // It rides an **upright** matrix of its own rather than the body matrix: position and yaw only,
+  // no bob, no corner lean, no pitch rock. The wedge on the road sits 0.06 units above the tarmac,
+  // and a car leaning 17° into a corner would swing half of it below the road surface where the
+  // depth test eats it — the beam would flicker out every time a car turned. The rest of the rig
+  // is small enough that the motion it gives up is under a pixel.
+  //
+  // No shadows, obviously, and no per-instance colour: every car's lights are the same colour, and
+  // the material's own `opacity` is the one knob the day/night cycle turns for all of them at once.
+  const lightMaterial = glowMaterial();
+  const lightMesh = new THREE.InstancedMesh(
+    carLightGeometry(CAR_LEN, CAR_W), lightMaterial, ambient.length,
+  );
+  lightMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  lightMesh.name = 'carLights';
+  lightMesh.visible = false;
+  scene.add(lightMesh);
+
+  /**
+   * How far up the headlights are, 0..1 — the `lit` term from the daylight curve, which the
+   * weather can also force on in a downpour. Below the threshold the whole rig is skipped rather
+   * than drawn at opacity ~0.
+   */
+  let lightsOn = false;
+  function setLit(lit) {
+    const k = Math.min(1, Math.max(0, lit));
+    lightMaterial.opacity = k;
+    taxiLights.material.opacity = k;
+    lightsOn = k > 0.01;
+    lightMesh.visible = lightsOn;
+    taxiLights.visible = lightsOn && !taxi.crashed;
+  }
 
   const tint = new THREE.Color();
   ambient.forEach((car, index) => {
@@ -692,7 +733,10 @@ export function createTraffic(rng, scene, count = 24) {
    */
   function wreckShell(car) {
     car.crashed = true;
-    if (car.isTaxi) return taxiGroup;
+    if (car.isTaxi) {
+      taxiLights.visible = false;
+      return taxiGroup;
+    }
 
     // One material across body and wheels, so the fade takes the whole copy down together.
     // Baked vertex colours multiply by material.color exactly as they did by instanceColor, so
@@ -719,14 +763,18 @@ export function createTraffic(rng, scene, count = 24) {
     }
     scene.add(shell);
 
-    // Collapse everything the copy replaces — body instance and both wheel instances.
+    // Collapse everything the copy replaces — body instance, both wheel instances, and the light
+    // rig. A wreck's headlights going out is the correct read, and leaving the instance behind
+    // would strand a pair of beams on the road pointing at nothing.
     matrix.compose(pos.set(car.x, ROAD_Y, car.z), quat.identity(), ZERO_SCALE);
     mesh.setMatrixAt(car.instanceIndex, matrix);
     for (let w = 0; w < FRONT.length; w++) {
       wheelMesh.setMatrixAt(car.instanceIndex * FRONT.length + w, matrix);
     }
+    lightMesh.setMatrixAt(car.instanceIndex, matrix);
     mesh.instanceMatrix.needsUpdate = true;
     wheelMesh.instanceMatrix.needsUpdate = true;
+    lightMesh.instanceMatrix.needsUpdate = true;
     return shell;
   }
 
@@ -734,6 +782,9 @@ export function createTraffic(rng, scene, count = 24) {
   const wheelLocal = new THREE.Matrix4();
   const wheelQuat = new THREE.Quaternion();
   const wheelPos = new THREE.Vector3();
+  const uprightMatrix = new THREE.Matrix4();
+  const uprightQuat = new THREE.Quaternion();
+  const uprightPos = new THREE.Vector3();
   const UP = new THREE.Vector3(0, 1, 0);
 
   /**
@@ -1378,9 +1429,23 @@ export function createTraffic(rng, scene, count = 24) {
       const lift = Math.abs(Math.sin(roll)) * (CAR_W / 2)
         + Math.abs(Math.sin(shownPitch)) * (CAR_LEN / 2);
 
+      // The light rig's own pose: the lane, level and unrolled. `car.yaw` already carries the
+      // Loco Mode weave and the panic wobble at this point, so the beams still swing with the
+      // steering — it is only the suspension that they sit out.
+      //
+      // Skipped outright while the lights are off. `needsUpdate` on an instance matrix is a buffer
+      // upload to the GPU every frame, and doing that for a hidden mesh through the whole of
+      // daylight is the one part of this that is pure waste. `setLit` runs earlier in the same
+      // frame than `update`, so the flag is never a frame behind.
+      if (lightsOn) uprightQuat.setFromAxisAngle(UP, car.yaw);
+
       if (car.isTaxi) {
         taxiGroup.position.set(car.x, ROAD_Y + bob + lift, car.z);
         taxiGroup.rotation.set(roll, car.yaw, shownPitch);
+        if (lightsOn) {
+          taxiLights.position.set(car.x, ROAD_Y, car.z);
+          taxiLights.quaternion.copy(uprightQuat);
+        }
         setTaxiSteer(car.wheelAngle);
         continue;
       }
@@ -1389,9 +1454,16 @@ export function createTraffic(rng, scene, count = 24) {
       quat.setFromEuler(euler.set(roll, car.yaw, car.pitch, 'YXZ'));
       matrix.compose(pos, quat, scl);
       writeAmbient(car);
+
+      if (lightsOn) {
+        uprightPos.set(car.x, ROAD_Y, car.z);
+        uprightMatrix.compose(uprightPos, uprightQuat, scl);
+        lightMesh.setMatrixAt(car.instanceIndex, uprightMatrix);
+      }
     }
     mesh.instanceMatrix.needsUpdate = true;
     wheelMesh.instanceMatrix.needsUpdate = true;
+    if (lightsOn) lightMesh.instanceMatrix.needsUpdate = true;
 
     // --- Stop bar colours, one per approach.
     for (let index = 0; index < bars.length; index++) {
@@ -1412,7 +1484,8 @@ export function createTraffic(rng, scene, count = 24) {
   }
 
   return {
-    cars, taxi, taxiGroup, setTaxiFareColor, mesh, wheelMesh, barMesh, update, warmup,
+    cars, taxi, taxiGroup, taxiLights, setTaxiFareColor, mesh, wheelMesh, barMesh, lightMesh,
+    update, warmup, setLit,
     wreckShell, stats,
     lightPhase, displayPhase,
   };

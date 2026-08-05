@@ -13,9 +13,16 @@ export const PALETTE = {
   //
   // Must be kept in step with the 16.4 keyframe in game/daylight.js, which is where the parked
   // sky actually comes from: createDaylight() applies its keyframe over these on construction.
-  skyTop: '#8CC4E8',
-  skyBottom: '#DCEDF7',
-  fog: '#DCEDF7',
+  //
+  // These are `#8CC4E8` / `#DCEDF7` restated. The sky dome's shader was writing linear colour
+  // straight to an sRGB framebuffer — see the note on `colorspace_fragment` in game/scene.js —
+  // so every sky in the game rendered darker and more saturated than the hex it was written as.
+  // With the conversion in place the hexes finally mean what they say, and these are the ones
+  // that reproduce the sky the game actually shipped: the pixels are unchanged, the numbers now
+  // describe them.
+  skyTop: '#438DCE',
+  skyBottom: '#B7D8ED',
+  fog: '#B7D8ED',
 
   sun: '#FFDEBB',
   hemiSky: '#F0C79B',
@@ -39,8 +46,33 @@ export const PALETTE = {
   roof: '#565A61',
   rooftop: '#6B6F76',
 
-  // Windows stay dark in every lighting condition, which is what sells scale on a blocky mass.
+  // Windows stay dark in daylight, which is what sells scale on a blocky mass. After dusk a
+  // seeded subset of the panes lights up — see city/buildings.js.
   window: '#3A424C',
+
+  // --- Night. Everything here is drawn *unlit* (see glowMaterial in util/geo.js) and faded in by
+  // the day/night cycle, so these are the colours the light actually leaves on screen rather than
+  // surface colours that get shaded.
+  //
+  // Warm indoors against a cool night is the whole reason a lit city reads: the sky, the moonlight
+  // and the road are all blue after dusk, so anything sodium-coloured pops off it without needing
+  // to be bright. The cool pane is the office-at-2am exception, and stays rare.
+  windowLit: '#FFCB78',
+  windowLitCool: '#BFD8F5',
+  // Street lamps. The head is the same colour as the pool it throws, one bright and one very
+  // faint, so a lamp and the light under it read as one object.
+  lampLight: '#FFC070',
+  // Moonlight. Cool and desaturated rather than blue-grey: a saturated blue moon turns the whole
+  // city teal, and the buildings' own colours have to survive the night.
+  moon: '#AEC2E6',
+
+  headlight: '#FFF0CC',
+  tailLight: '#FF3B2E',
+
+  // Precipitation. Rain is barely coloured — it reads by moving, not by hue — and picks up
+  // whatever is behind it. Snow is warm-white so it doesn't disappear into an overcast sky.
+  rain: '#C3DAEC',
+  snow: '#FFFFFF',
 
   // Yellow is reserved for the taxi. An amber car used to sit in this list and was genuinely
   // mistakable for the player's vehicle at play zoom, where both are a few pixels of warm colour.

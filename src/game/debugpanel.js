@@ -1,4 +1,5 @@
 import { ROUTE_BLENDS } from './routeline.js';
+import { WEATHER, WEATHER_TYPES } from './weather.js';
 
 // A small tweak panel behind a gear button.
 //
@@ -46,7 +47,7 @@ const clockLabel = (hour) => {
   return `${String(h).padStart(2, '0')}:${m}`;
 };
 
-export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, routeLine }) {
+export function createDebugPanel({ sun, hemi, sky, daylight, weather, fares, carCount, routeLine }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
   toggle.type = 'button';
@@ -74,8 +75,18 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, ro
   row(panel, 'Day cycle', cycleBox);
   cycleBox.addEventListener('change', () => daylight.setCycling(cycleBox.checked));
 
-  /** Any manual touch stops the clock, rather than letting the next frame overwrite the change. */
+  /**
+   * Any manual touch stops both clocks, rather than letting the next frame overwrite the change.
+   *
+   * The weather has to stop too, not just the day cycle: weather owns the final write to the
+   * lights (see game/weather.js), so a hand-picked sun colour would survive the day cycle being
+   * paused and then be stomped by the next overcast frame anyway.
+   */
   function takeManualControl() {
+    if (weatherCycleBox?.checked) {
+      weatherCycleBox.checked = false;
+      weather?.setCycling(false);
+    }
     if (!cycleBox.checked) return;
     cycleBox.checked = false;
     daylight.setCycling(false);
@@ -121,6 +132,9 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, ro
     fillValue.textContent = hemi.intensity.toFixed(2);
   });
 
+  /** Set by the weather block above, once it exists. */
+  let refreshWeather = () => {};
+
   /** Pull the controls back into line with the live lights. */
   function refresh() {
     const { hour } = daylight.state;
@@ -131,13 +145,16 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, ro
     sunPowerValue.textContent = sun.intensity.toFixed(2);
     fill.value = String(hemi.intensity);
     fillValue.textContent = hemi.intensity.toFixed(2);
+    refreshWeather();
   }
 
   // Only runs while the panel is open — a closed panel has nothing to keep up to date.
   let polling = 0;
   function poll() {
     if (panel.hidden) { polling = 0; return; }
-    if (daylight.state.cycling) refresh();
+    // The weather moves the lights even with the day cycle stopped, so either clock running is
+    // reason enough to keep the readouts honest.
+    if (daylight.state.cycling || weather?.state.cycling) refresh();
     polling = requestAnimationFrame(poll);
   }
 
@@ -145,6 +162,40 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, ro
     panel.hidden = !panel.hidden;
     if (!panel.hidden && !polling) polling = requestAnimationFrame(poll);
   });
+
+  // --- Weather --------------------------------------------------------------
+  //
+  // Live, and it has to be: what a weather type looks like is a judgement about the whole frame at
+  // a particular hour, so the only way to tune one is against a running sky. The dropdown carries
+  // `auto` as well as the five types, because "does it move through them sensibly" is a different
+  // question from "does rain look right", and both need answering.
+  heading('Weather');
+
+  let weatherCycleBox = null;
+  if (weather) {
+    weatherCycleBox = document.createElement('input');
+    weatherCycleBox.type = 'checkbox';
+    weatherCycleBox.checked = weather.state.cycling;
+    const weatherState = row(panel, 'Weather cycle', weatherCycleBox);
+    weatherCycleBox.addEventListener('change', () => weather.setCycling(weatherCycleBox.checked));
+
+    const kinds = dropdown(WEATHER_TYPES, weather.current());
+    row(panel, 'Force', kinds);
+    kinds.addEventListener('change', () => {
+      // Forcing a type does *not* stop the clock — it hands the sky over and lets it carry on from
+      // there, so you can pick `rain` and then watch what it turns into. Untick the box above to
+      // hold it. The transition is deliberately not instant here either: what a change of weather
+      // looks like is most of what there is to judge.
+      weather.setType(kinds.value);
+    });
+
+    // Polled alongside the lighting readouts below — a blend that is 40% of the way from cloudy to
+    // rain has no checkbox or slider that could show it.
+    refreshWeather = () => {
+      weatherState.textContent = weather.describe();
+      if (weather.state.cycling) kinds.value = weather.current();
+    };
+  }
 
   // --- Game -----------------------------------------------------------------
   heading('Game');
@@ -212,6 +263,13 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, ro
       skyTop: `#${sky.uniforms.topColor.value.getHexString()}`,
       skyBottom: `#${sky.uniforms.bottomColor.value.getHexString()}`,
     },
+    weather: weather ? {
+      type: weather.current(),
+      blend: weather.describe(),
+      cycling: weather.state.cycling,
+      fog: Number(weather.state.blend.fog.toFixed(2)),
+      cityLightsUp: Number(daylight.lit().toFixed(2)),
+    } : null,
     game: {
       fareSeconds: fares.getSeconds(),
       cars: Number(cars.value),

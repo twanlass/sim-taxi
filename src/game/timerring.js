@@ -114,11 +114,15 @@ export function createTimerRing(scene) {
     // Always drawn on top. The taxi and the rider both duck behind buildings constantly at this
     // camera angle, and a clock you cannot see is worthless — correctness about occlusion loses
     // to legibility here.
+    // `fog: false` on all three layers, for the same reason they ignore depth: the fare clock is
+    // the run. Weather is at its thickest at the far edge of the city, which is exactly where a
+    // ring is hardest to find in the first place.
     new THREE.MeshBasicMaterial({
       color: urgencyColorFor(1).clone(),
       depthWrite: false,
       depthTest: false,
       side: THREE.DoubleSide,
+      fog: false,
     }),
   );
   mesh.renderOrder = 9;
@@ -134,6 +138,7 @@ export function createTimerRing(scene) {
       depthWrite: false,
       depthTest: false,
       side: THREE.DoubleSide,
+      fog: false,
     }),
   );
   track.renderOrder = 8;   // just beneath the live arc
@@ -148,6 +153,7 @@ export function createTimerRing(scene) {
       depthWrite: false,
       depthTest: false,
       side: THREE.DoubleSide,
+      fog: false,
     }),
   );
   outline.renderOrder = 7;

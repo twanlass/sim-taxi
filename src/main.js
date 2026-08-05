@@ -21,12 +21,14 @@ import { createFlames } from './game/flames.js';
 import { createVanish } from './game/vanish.js';
 import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
+import { createNightLights } from './game/nightlights.js';
+import { createWeather } from './game/weather.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
 import { findRoute, planOrigin } from './game/route.js';
-import { getActiveShot, getSeed, getRunSeed, getCarCount } from './util/shot.js';
+import { getActiveShot, getSeed, getRunSeed, getCarCount, getHour, getWeather } from './util/shot.js';
 import { isCityConnected, GRID } from './city/grid.js';
 import { PALETTE } from './palette.js';
 
@@ -57,21 +59,32 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-const { scene, sun, hemi, sky } = createScene();
+const { scene, sun, moon, hemi, sky } = createScene();
 
-// The clock that drives the sky. Parked at golden hour for now — the cycle works, but the night
-// end of it needs more tuning before it earns its place, so it's off until the ⚙️ panel turns it
-// on. Screenshots keep it frozen regardless: a rendered shot has to be reproducible.
-const daylight = createDaylight({ sun, hemi, sky });
+// The clock that drives the sky, starting at the golden hour the game used to be parked at. It
+// runs by default now: the night end of it has moonlight, lit windows, street lamps and
+// headlights to see by, which is what it was waiting on. `?hour=` pins one time of day and the
+// ⚙️ panel stops it; screenshots freeze it regardless, since a rendered shot has to be reproducible.
+const daylight = createDaylight({ sun, moon, hemi, sky });
 daylight.setDayLength(DAY_SECONDS);
-daylight.setCycling(false);
 
 // Every generator draws from its own stream so that changing one system doesn't reshuffle the
 // others — editing building code shouldn't move the parks. `layout` was already produced above
 // so the connectivity guard could reroll before we spent time meshing.
-scene.add(createGround(makeRng(seed + 11), layout));
-scene.add(createBuildings(makeRng(seed + 22), layout).mesh);
-scene.add(createProps(makeRng(seed + 33), layout));
+// The night lighting draws from streams of its own (`+ 202`, `+ 203`) rather than from the
+// building and prop streams. Same principle as the split above, one level down: switching the
+// city's lights on must not move a single tower or tree, so `?seed=N` is the city it always was.
+const ground = createGround(makeRng(seed + 11), layout);
+const buildings = createBuildings(makeRng(seed + 22), layout, makeRng(seed + 202));
+const props = createProps(makeRng(seed + 33), layout, makeRng(seed + 203));
+scene.add(ground);
+scene.add(buildings.mesh);
+scene.add(props.mesh);
+
+// The lights the city switches on for itself: the panes that are lit in the towers, and every
+// street lamp with its cone of air and its pool on the tarmac. Both are geometry the city
+// generators handed over; this owns the materials and the one fade that brings them up at dusk.
+const nightLights = createNightLights(scene, { windows: buildings.windows, glow: props.glow });
 
 const traffic = createTraffic(makeRng(runSeed + 44), scene, getCarCount());
 const fares = createFareSystem(makeRng(runSeed + 55), scene);
@@ -97,6 +110,33 @@ const isNarrow = () => window.innerWidth < NARROW_VIEWPORT;
 
 // Screenshots frame themselves, and a shot run has no user to drag anything.
 const pan = shot ? null : attachDragPan(controller, renderer.domElement, aspect, isNarrow);
+
+// Weather sits on top of the day/night cycle rather than beside it: it installs a filter on
+// `daylight` and multiplies the sun down, tints the sky, decides how much fog there is and how far
+// up the city's lights have to come. Created here rather than beside `daylight` because the
+// precipitation field wraps around whatever the camera is looking at, so it needs the controller.
+// `?weather=` pins one kind and stops the clock, the same way `?hour=` pins the time of day.
+const weather = createWeather({
+  scene,
+  ground,
+  daylight,
+  camera: controller,
+  rng: makeRng(runSeed + 144),
+  startType: 'clear',
+});
+
+const pinnedHour = shot?.hour ?? getHour();
+if (pinnedHour !== null && pinnedHour !== undefined) {
+  daylight.setCycling(false);
+  daylight.apply(pinnedHour);
+}
+const pinnedWeather = shot?.weather ?? getWeather();
+if (pinnedWeather) {
+  weather.setCycling(false);
+  weather.setType(pinnedWeather, { instant: true });
+}
+// A screenshot has to be reproducible, so both clocks stop even when neither was pinned.
+if (shot) { daylight.setCycling(false); weather.setCycling(false); }
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
 const sparks = createSparks(scene, makeRng(runSeed + 88));
@@ -692,7 +732,19 @@ function frame() {
   flames.update(dt);
   vanish.update(dt);
   controller.updateShake(dt, aspect());
+  // The hour first, then the weather on top of it — weather reads the freshly sampled look and
+  // writes the final one, so this order is what decides whether the sun is multiplied by this
+  // frame's overcast or last frame's.
   daylight.update(dt);
+  weather.update(dt);
+
+  // One number, three consumers: the windows and street lamps, every car's headlights, and the
+  // cruiser's. It is the daylight curve's `lit`, floored by however murky the weather is — which
+  // is why a downpour at three in the afternoon still has every headlight on.
+  const lit = daylight.lit();
+  nightLights.setLit(lit);
+  traffic.setLit(lit);
+  police.setLit(lit);
 
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
@@ -835,6 +887,17 @@ if (shot) {
   if (selected && traffic.taxi.pendingTarget) {
     routeLine.update(traffic.taxi, traffic.taxi.route);
   }
+
+  // Shot mode never enters the frame loop, so the three things it drives have to be brought up by
+  // hand: the city's lights, every headlight, and one step of precipitation — an unstepped rain
+  // field is 1,500 drops still sitting where the constructor scattered them, which is a
+  // recognisably wrong-looking downpour.
+  weather.update(1 / 60);
+  const shotLit = daylight.lit();
+  nightLights.setLit(shotLit);
+  traffic.setLit(shotLit);
+  police.setLit(shotLit);
+
   renderer.render(scene, camera);
   document.body.dataset.shotReady = 'true';
 } else {
@@ -848,6 +911,7 @@ if (!shot) {
     hemi,
     sky,
     daylight,
+    weather,
     carCount: getCarCount(),
     fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds },
     routeLine,
@@ -857,6 +921,8 @@ if (!shot) {
 window.__taxi = {
   traffic,
   daylight,
+  weather,
+  nightLights,
   boost,
   skids,
   police,

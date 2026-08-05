@@ -15,7 +15,8 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/ridermeter.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/dust.js', '../src/game/sparks.js', '../src/game/smoke.js',
   '../src/game/debris.js', '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
-  '../src/game/dropoffindicator.js', '../src/game/vanish.js'];
+  '../src/game/dropoffindicator.js', '../src/game/vanish.js', '../src/game/nightlights.js',
+  '../src/game/weather.js', '../src/game/precip.js', '../src/geometry/carlights.js'];
 
 const TOOLS = [
   { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },
@@ -24,6 +25,9 @@ const TOOLS = [
   // one-seed gate went red or green on which junction the spawner happened to pick.
   { name: 'fares',   args: ['tools/soak.mjs', '25', '4', '9'], pick: /delivered (\S+ median)/ },
   { name: 'signals', args: ['tools/signals.mjs'],      pick: /throughput\s+: (\S+)/, info: true },
+  // The day/night curve, the weather director, and the visibility floor that stops the two of them
+  // multiplying the city down to nothing between them. See tools/sky.mjs.
+  { name: 'sky',     args: ['tools/sky.mjs'],           pick: /(\d+\/\d+) checks passed/ },
 ];
 
 let failed = 0;
@@ -38,19 +42,27 @@ try {
 
   // Drive a whole day past the lights. Every keyframe gets applied, so a bad colour or a uniform
   // that moved out from under the daylight module surfaces here rather than at dusk in the browser.
+  // What the curve actually *looks* like is asserted properly in tools/sky.mjs; this is the
+  // construction smoke test, and it stays because it is the one that catches a scope slip.
   const daylight = createDaylight(world);
   let noon = 0;
   let midnight = 1;
+  let darkestMoon = 0;
   for (let step = 0; step < 240; step++) {
     daylight.update(DAY_SECONDS / 240);
     const hour = daylight.state.hour;
     if (hour > 12 && hour < 13) noon = world.sun.intensity;
-    if (hour < 1) midnight = Math.min(midnight, world.sun.intensity);
+    if (hour < 1) {
+      midnight = Math.min(midnight, world.sun.intensity);
+      darkestMoon = Math.max(darkestMoon, world.moon.intensity);
+    }
   }
-  if (!(noon > 3 && midnight < 0.05)) {
-    throw new Error(`day/night flat: noon ${noon.toFixed(2)}, midnight ${midnight.toFixed(2)}`);
+  if (!(noon > 3 && midnight < 0.05 && darkestMoon > 0.5)) {
+    throw new Error(`day/night flat: noon ${noon.toFixed(2)}, midnight ${midnight.toFixed(2)}, `
+      + `moon ${darkestMoon.toFixed(2)}`);
   }
-  console.log(`ok    modules  all import and construct · sun ${midnight.toFixed(2)}→${noon.toFixed(2)}`);
+  console.log(`ok    modules  all import and construct · sun ${midnight.toFixed(2)}→${noon.toFixed(2)}`
+    + ` · moon ${darkestMoon.toFixed(2)}`);
 } catch (error) {
   failed += 1;
   console.log(`FAIL  modules  ${error.message}`);
