@@ -536,9 +536,9 @@ check('no two cars occupy the same space', worst > 1.6,
   // --- The two colours themselves.
   //
   // Every check above reads the boolean, which would stay perfectly in step even if both states
-  // painted the same colour — so read the materials back. Head, post and ring all have to move
-  // together: a ring left on the resting teal under a yellow head is a marker in two minds, and
-  // the emissive has to follow the base colour or the pin lights in the hue it used to be.
+  // painted the same colour — so read the materials back. Head and ring both have to move together:
+  // a ring left on the resting teal under a yellow head is a marker in two minds, and the emissive
+  // has to follow the base colour or the pin lights in the hue it used to be.
   {
     const pin = createDestinationPin();
     const read = () => [

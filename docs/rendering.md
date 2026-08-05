@@ -264,7 +264,12 @@ invisible when the corner *was* the notch, obvious across a ten-step arc.
 
 ### Pin outline and bounce — `geometry/marker.js`
 
-The destination pin is outlined by an **inverted hull**: the same geometry drawn a little larger
+The destination pin is a **floating head and nothing else** — an octahedron at y = 9.6 over the
+target ring on the kerb. It stood on a gold post until that shaft was cut; the head alone is the
+cleaner read and it is what the eye tracked anyway. The head kept its height, so the marker still
+occupies the same slot in the skyline and no framing moved.
+
+The head is outlined by an **inverted hull**: the same geometry drawn a little larger
 with `side: BackSide` and a black basic material, so the enlarged back faces sit behind the real
 surface everywhere except around the silhouette. Cheaper than a post-processing edge pass and it
 needs no render targets — this is one small object, not a whole-scene effect. Each hull is a *child*
@@ -274,10 +279,10 @@ of the mesh it wraps, so it inherits animation for free.
 one drop-off on the board — the rider currently aboard — so there is nothing for a per-fare hue to
 tell it apart from, and the one thing worth saying about it is its own state.
 
-| State | Head | Post | Ring on the tarmac |
-|---|---|---|---|
-| Untapped — the taxi is parked, waiting to be told where to go | `#17C8B8` teal | `#12AC9E` | `#5FE9DC` |
-| Tapped — the taxi is on its way | `#F5C130` | `#E0AE2A` | `routeLine` `#FFE873` |
+| State | Head | Ring on the tarmac |
+|---|---|---|
+| Untapped — the taxi is parked, waiting to be told where to go | `#17C8B8` teal | `#5FE9DC` |
+| Tapped — the taxi is on its way | `#F5C130` | `routeLine` `#FFE873` |
 
 Teal because a drop-off appears the instant a rider boards, and at that moment it is a *question* —
 `parked` holds the taxi at the kerb until the pin is tapped, so a marker already wearing the taxi's
@@ -291,8 +296,8 @@ same "this is the job" statement the car and the route band are making. The sele
 are one mark rather than two yellows meeting at the kerb. The change is also the *acknowledgement* —
 on a phone the band can be drawn entirely off-screen, and the pin is what the finger was already on.
 
-`createDestinationPin().setSelected()` swaps all six materials (colour and emissive on head and post,
-rim and fill on the ring) and early-outs on no change; `fares.js` reconciles it against `directed`
+`createDestinationPin().setSelected()` swaps all four colours (colour and emissive on the head, rim
+and fill on the ring) and early-outs on no change; `fares.js` reconciles it against `directed`
 every frame the way it does the rider's meter ring, and pushes it in `markDirected` so the pin turns
 on the same frame as the band. The off-screen pointer follows the same rule — see the CSS for
 `#dropoff-indicator.is-selected`.
@@ -302,27 +307,22 @@ The fare's own colour still lives on the taxi's roof sign — see
 can show: every other carrying framing sends the taxi on at pickup, and that is what turns the pin
 yellow.
 
-The post carries a low **emissive** (0.18 of its colour, against the head's 0.35). It is the only
-post that is ever visible — a waiting rider's figure replaces theirs — and the fixed camera sees
-the face turned *away* from the sun, so pure Lambert shaded the `#E0AE2A` pole down to
-rgb(110, 68, 6): a brown stick under a gold head. With the lift it lands at rgb(152, 106, 19).
-
-The post's hull is scaled `(1.6, 1, 1.6)` — widened but not lengthened, because a uniform scale
-would push its end caps past the post's own, and both ends are meant to stay tucked (one in the
-ground, one inside the head).
+The head carries an **emissive** at 0.35 of its colour. The fixed camera sees the face turned *away*
+from the sun, and pure Lambert on its own shades that face a long way down — the lift keeps the
+crystal reading as its own hue rather than as a dark facet.
 
 The head bounces on `Math.abs(Math.sin(t * 3.4)) * 0.45`: never below the rest position, with a
-sharp cusp at the bottom that reads as a landing rather than a float. **Only the head hops** —
-lifting the whole pin would pull its foot off the pavement. Amplitude is bounded by the 0.8 units
-of overlap between head and post top; at 0.45 the head bottom peaks at 8.15 against a post top of
-8.50, so no gap ever opens. It freezes while hidden, which keeps screenshots deterministic.
+sharp cusp at the bottom that reads as a landing rather than a float. The amplitude used to be
+bounded by the 0.8 units of overlap between head and post top; with the post gone nothing constrains
+it but taste, and 0.45 is what the motion was tuned at. It freezes while hidden, which keeps
+screenshots deterministic.
 
 The drop-off's target ring is **filled in**, at the route band's own `ROUTE_OPACITY` — the band on
 the road and the disc at the end of it are one statement in two places, and at different weights one
 reads as the louder half. Depth-tested like the band, so a car crossing the junction drives over the
 disc rather than the disc painting across the car. Being translucent puts it in the transparent
-queue, so its far half washes up over the base of the post at its centre; that is invisible because
-the post is the same yellow one shade down.
+queue, which used to wash its far half up over the base of the post at its centre; with the post
+gone nothing stands in the disc for it to wash over.
 
 ### Rider meter — `geometry/ridermeter.js`
 
