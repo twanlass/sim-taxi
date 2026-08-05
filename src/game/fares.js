@@ -331,6 +331,9 @@ export function createFareSystem(rng, scene) {
     // the whole of the "is this worth taking?" decision; a pin on the far kerb as well turned the
     // board into three riders and three destinations to read at once.
     slot.destination.group.visible = false;
+    // Slot reuse again: the last fare on this slot may have left its pin yellow. A drop-off always
+    // opens in the resting teal, because it is a question until the player answers it.
+    slot.destination.setSelected(false);
     // Full urgency and the trip's tier. The clock has not started draining yet this frame, so the
     // bar opens at 4/4 by construction rather than by rounding.
     slot.meter.show(URGENCY_SEGMENTS, distanceTier(fare.blocks));
@@ -371,9 +374,11 @@ export function createFareSystem(rng, scene) {
     // when the animation ends.
     // The drop-off is revealed now, at the junction drawn when this fare spawned. It never moves —
     // it was always going to be here, the player just could not see it yet.
-    // No retint: the pin is Loco Mode's yellow at build time and stays there. One rider is aboard
-    // at a time, so there is only ever one drop-off on the board and nothing for a per-fare hue to
-    // distinguish it from — the fare's colour lives on the taxi's roof sign now.
+    // It opens in the resting teal: the taxi is parked at the kerb from this frame until the
+    // player taps the pin, so what it is saying is "where to?", and it turns the taxi's yellow when
+    // that is answered. No per-fare hue either way — one rider is aboard at a time, so there is
+    // only ever one drop-off on the board and nothing to tell it apart from. The fare's own colour
+    // lives on the taxi's roof sign now.
     place(fare.slot.destination, fare.dropoff.i, fare.dropoff.j);
     // The meter has done its job the moment the choice is made. Both its questions are answered:
     // this rider is taken, and where they're going is now the pin the taxi is driving at.
@@ -521,6 +526,10 @@ export function createFareSystem(rng, scene) {
       // Bounce the drop-off pin, so the thing you are being asked to drive to is the thing moving.
       if (fare.stage === 'riding') {
         destination.update(dt);
+        // Teal until the player sends the taxi here, then the taxi's own yellow — the same
+        // reconcile the waiting rider's meter gets below, and for the same reason: `directed` is
+        // cleared from elsewhere, so one place reflecting the flag cannot drift from it.
+        destination.setSelected(fare.directed);
         fare.ridingFor += dt;
         // Boarding animation: the marker stays visible for BOARD_SECONDS after pickup while the
         // figure runs across the kerb and hops into the taxi. `boardingFrom` was captured at the
@@ -607,10 +616,13 @@ export function createFareSystem(rng, scene) {
     if (!fare || !state.fares.includes(fare)) return false;
     if (fare.stage === 'waiting' && carrying()) return false;
     fare.directed = true;
-    // Pushed here as well as reconciled per frame, so the ring lands on the same frame as the route
-    // band rather than a tick later. It also means a caller that directs a fare without running the
-    // sim afterwards — shot mode does exactly that — still renders the state it just set.
-    fare.slot.meter.setSelected(true);
+    // Pushed here as well as reconciled per frame, so the marker turns on the same frame as the
+    // route band rather than a tick later. It also means a caller that directs a fare without
+    // running the sim afterwards — shot mode does exactly that — still renders the state it just
+    // set. Which surface carries it depends on the stage: a rider on the kerb wears it as the ring
+    // around their meter, a fare aboard wears it as the drop-off pin turning yellow.
+    if (fare.stage === 'waiting') fare.slot.meter.setSelected(true);
+    else fare.slot.destination.setSelected(true);
     return true;
   }
 

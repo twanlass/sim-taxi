@@ -11,8 +11,8 @@ that means up to two riders can be waiting on the kerb at the same time.
    their head: how long they'll wait, and how far they're going. The whole trip is drawn now, but
    only its length is shown — see [How far, not where](#how-far-not-where).
 2. Tap them → the taxi routes there.
-3. On arrival the passenger boards, their drop-off pin appears, and the taxi **parks** until the
-   player taps it.
+3. On arrival the passenger boards, their drop-off pin appears **in teal**, and the taxi **parks**
+   until the player taps it — at which point the pin turns the taxi's yellow.
 4. Deliver → the meter pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, see [Economy](#economy)),
    and the board refills.
 5. **Any** fare's clock expiring ends the run.
@@ -115,8 +115,9 @@ the timer ring is colour-coded by time remaining, so fare identity needed somewh
 **The drop-off pin no longer wears it.** It used to, so that a pin and a taxi could be paired by
 hue; but one rider is aboard at a time and only that rider's pin is on the board, so the pairing
 had nothing to disambiguate and a rotating hue was making the same marker look different run to
-run. The pin, its ring and the off-screen pointer are now fixed to **Loco Mode's yellow** — the
-taxi's own — so the route band, the car, and the place it is driving to are one colour saying "this
+run. The pin, its ring and the off-screen pointer now carry the fare's **state** instead: **teal**
+while the drop-off is still waiting to be tapped, and **Loco Mode's yellow** — the taxi's own — once
+it has been, so the route band, the car and the place it is driving to are one colour saying "this
 is the job". See [rendering.md](rendering.md#pin-outline-and-bounce--geometrymarkerjs).
 
 `nextFareColor()` still refuses any colour a **live** fare is wearing, not just the previous one —
@@ -375,3 +376,103 @@ corners, lays **skid marks** off the line and through turns, and kicks up **dust
 The press itself also fires a **wheelie**, a tailpipe **flame burst** and a half-second launch
 streak of rubber — all three gated on `boost.press()` returning true, so they fire on the
 transition into Loco Mode and not on a re-press during a boost that's already running.
+
+## The run-end screen
+
+`src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
+clock hitting zero, a collision, a police bust — and all three land on the same screen: a title, the
+reason, four stats, and **Play again**. The title is set by the caller, so a bust reads **Busted**
+while a timeout and a wreck read **Game Over**.
+
+It is a **full-screen blackout**, not a modal over the city. An earlier pass dimmed the world and
+floated a blurred card on top of it, and the card's edges turned out to be the loudest thing on the
+screen. Blacking the whole viewport out puts the run's numbers on nothing at all, which is what
+makes them the ending rather than an overlay on one.
+
+The stats are **one row each, label and value side by side**, and both are set in the *same* size,
+weight and colour. A small grey caption over a big yellow number made the label read as chrome and
+the number as the content, when the pairing is the content; matched type makes each row one phrase
+— "Fares  9" — and the four rows read as a list being counted out, which is what the stagger is
+doing.
+
+It reads as a **ledger**: label pinned to the left edge, value to the right, on a `1fr auto` grid
+so the label column takes the slack and the values stay flush right however long the names get.
+Both edges are then straight lines down the block, which is what lets four rows of identically
+styled text read as four separate stats — centring each row on its own left the list ragged.
+`.stat` is `display: contents` so its label and value become grid items of the row above; the
+wrapper only exists for the reveal to animate a stat as a unit. Each entrance is anchored to the
+edge its text is aligned to (`transform-origin: left`/`right`), so the label's oversized first
+frame and the value's landing bump both grow *inward* rather than out past the container.
+
+**The content container is capped at a phone's content width** — 358px, a 390px screen less its
+16px gutters — so the desktop layout *is* the mobile layout. Pushing label and value to opposite
+edges of a 1280px screen would strand each number three feet from its own name; at phone width the
+gap is a gutter rather than a void, and the fail reason wraps on desktop exactly as it does on a
+phone. On a phone the rows run right out to the screen edges, which is the layout the cap is
+borrowing.
+
+Type and rhythm scale with the viewport, off whichever axis is tighter: height for the list as a
+whole (a landscape phone runs it past the fold) and width for the rows (`"Top Speed  54 mph"` at
+30px is ~260px wide, and `nowrap` would push it off a 320px screen rather than wrap it). If it
+still doesn't fit, the overlay scrolls — centred by `margin: auto` on the content rather than
+`justify-content`, which clips its own overflow at the top, where the title is.
+
+**Nothing appears at once.** The card is revealed as a sequence, because the version before this
+one wrote a single line of `innerHTML` and the whole screen arrived in one frame — which reads as
+the game stopping rather than as a scoreboard. The order is title → reason → each stat in turn →
+**Play again**, and each stat's label **scales down** into place as it fades up before its number
+rolls from zero. A number that rolls gets read; a number that is printed gets skipped past on the
+way to the button. The button is last on purpose, appearing only once the final stat has finished
+counting, so the player isn't invited to leave mid-tally.
+
+**The stats are counted out one row at a time**, not staggered. A row's label arrives, its number
+rolls, the number lands and pops, and only after a held beat does the next label appear. An earlier
+pass overlapped the rows on a 165ms stride, and with four of them counting simultaneously the block
+read as one animation with numbers moving inside it — you watched the screen rather than any single
+figure. `STAT_STRIDE` is now *derived*: `ROW_MS + ROW_GAP`, where `ROW_MS` is a row's own beat
+(`COUNT_LEAD + COUNT_MS + LAND_MS`). "Finished before the next one starts" is therefore a property
+of the constants rather than something to keep re-checking by eye.
+
+The whole cadence is ~3.5s and lives in the timeline constants at the top of the module rather
+than in CSS keyframe delays, so it can be re-paced from one place and so the sequence works for
+however many stats it is handed. Playing the rows in turn roughly doubled the wait, so **a tap
+anywhere skips to the end** — finishing every animation and landing every number — and the retry
+pill is `disabled` (and so `pointer-events: none`) until then, which both keeps an invisible button
+from reloading the run mid-tally and lets a tap aimed at it fall through to the skip.
+
+The counters are anchored to their **first animation frame**, not to `performance.now()` at build
+time. A WAAPI animation starts on the frame after `animate()`, and the game-over frame is exactly
+where the page hitches — on a stalled boot the numbers ran ~500ms ahead of their own labels, which
+for a list played one row at a time meant a row counting before it had appeared.
+
+The overlay sits at **`z-index: 30`**, above the toast (25) and the tweak toggle and rider-finder
+chips (20). Without one the blackout painted *under* them and a waiting-rider chip stayed lit in
+the corner of the game-over screen — and a chip still on top also swallows the tap that skips.
+
+Under `prefers-reduced-motion` the card prints its final values with no entrance and no roll — the
+sequence is the entire module, so there is nothing else to keep.
+
+| Stat | Source | Notes |
+|---|---|---|
+| Fares | `fares.state.delivered` | |
+| Cash | `fares.state.money` | |
+| Red Lights | `traffic.stats.taxiRedLights` | reds the taxi *met*, one per light |
+| Top Speed | `traffic.stats.taxiTopSpeed` | u/s, shown in mph |
+
+Both traffic stats are taxi-only, accumulate over the whole run, and are never reset — a run ends
+by reloading the page. They exist for this card and nothing in the sim reads them, which is exactly
+why `tools/probe.mjs` asserts them: a counter that quietly stopped incrementing would otherwise
+only show up on the run-end screen at the end of somebody's run.
+
+**Red lights are counted per light, not per frame.** The junction is stamped on the taxi the first
+time a red holds it and cleared when the turn commits, so sitting at one light for four seconds is
+one red and coming back to the same junction later counts again. It reads the signal phase
+directly rather than the `green` flag, because `green` also goes false for a junction blocked by a
+stranded car — that is a jam, not a red. Ring junctions are exempt: they have no phase to be red.
+A right-on-red still counts; the light was red when the taxi reached the line.
+
+**Top speed is shown in mph** via `speedMph()` in `sim/traffic.js`. World units are metres-ish —
+`CAR_LEN` is 3.4 against a real compact at ~4.4m — which puts one u/s at about 2.9mph and lands
+the numbers where you'd want them anyway: cruise 8.5 → **25mph**, Loco Mode 18.7 → **54mph**.
+Nothing in the simulation uses the conversion; it exists so the stat is in a unit a player has a
+feel for.

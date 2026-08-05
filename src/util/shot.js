@@ -20,9 +20,17 @@ export const SHOTS = [
   // blocks away the two end fades meet in the middle. This one sends the taxi to the far corner
   // instead, so a full-length band with several turns is in frame.
   { name: 'route-far', description: 'the route band, taxi to the far corner', target: [0, 0], zoom: 22, warmup: 12, select: true, routeFar: true },
+  // The drop-off pin *before* it has been tapped, which no other shot can show: every other
+  // carrying framing sends the taxi on at pickup, and that is exactly what turns the pin yellow.
+  // `atDropoff` both holds the send back and frames the pin, since a parked taxi and its untapped
+  // destination are two different corners of the map.
+  { name: 'dropoff', description: 'the untapped drop-off pin — teal, waiting to be tapped', target: [0, 0], zoom: 18, warmup: 12, untilPickup: true, atDropoff: true },
   // The night and weather framings. Each one pins an hour *and* a weather type, because either on
   // its own is only half the picture: the whole point of building the weather on top of the day
   // cycle is that rain at 1am and rain at noon are different frames.
+  //
+  // Appended after `dropoff` rather than before it, so that shot stays at index 10 — docs/rendering.md
+  // sends the reader to `?shot=10` for the untapped pin by number.
   { name: 'night', description: 'the city at 01:00 — moonlight, windows, headlights', target: [0, 0], zoom: 52, warmup: 12, hour: 1, weather: 'clear' },
   { name: 'night-close', description: 'close on the taxi at night, beams on the road', target: [0, 0], zoom: 18, warmup: 12, hour: 1, weather: 'clear', select: true, route: true },
   { name: 'dusk', description: 'the lights coming on at 19:15', target: [0, 0], zoom: 52, warmup: 12, hour: 19.25, weather: 'clear' },

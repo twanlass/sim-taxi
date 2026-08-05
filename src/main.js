@@ -6,7 +6,7 @@ import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
-import { createTraffic } from './sim/traffic.js';
+import { createTraffic, speedMph } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds } from './game/fares.js';
@@ -19,6 +19,7 @@ import { createSmoke } from './game/smoke.js';
 import { createDebris } from './game/debris.js';
 import { createFlames } from './game/flames.js';
 import { createVanish } from './game/vanish.js';
+import { showRunEnd } from './game/runend.js';
 import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createNightLights } from './game/nightlights.js';
@@ -108,8 +109,29 @@ controller.update(aspect());
 const NARROW_VIEWPORT = 768;
 const isNarrow = () => window.innerWidth < NARROW_VIEWPORT;
 
+// The camera trails the taxi from the first frame of the run, and keeps doing it until the player
+// takes the framing over — a swipe, or a tap on a rider-finder chip. Both are the player saying
+// where they want to look, and a camera that slides back off it is fighting them.
+//
+// It exists for the same reason the boost-follow does: on a narrow viewport the fixed framing has
+// already given up, so a run opens with the taxi somewhere off-screen and the player's first job is
+// hunting for their own car. The follow is *gentler* than the boost's 3.2 — this one is ambient and
+// runs for as long as the player leaves it alone, where the boost chase is a burst that ends with
+// the button. At 1.5 the camera reads as drifting after the taxi rather than locked to it, and a
+// turn at the edge of frame doesn't whip the city round.
+//
+// Narrow only, like the boost-follow: on a desktop the whole city is in frame at all times, and
+// drag-to-pan is switched off there — so a follow would slide the map around under a player with
+// no way to stop it.
+const START_FOLLOW_SMOOTHING = 1.5;
+const BOOST_FOLLOW_SMOOTHING = 3.2;
+let cameraTakenOver = false;
+const releaseCameraToPlayer = () => { cameraTakenOver = true; };
+
 // Screenshots frame themselves, and a shot run has no user to drag anything.
-const pan = shot ? null : attachDragPan(controller, renderer.domElement, aspect, isNarrow);
+const pan = shot
+  ? null
+  : attachDragPan(controller, renderer.domElement, aspect, isNarrow, releaseCameraToPlayer);
 
 // Weather sits on top of the day/night cycle rather than beside it: it installs a filter on
 // `daylight` and multiplies the sun down, tints the sky, decides how much fog there is and how far
@@ -345,6 +367,10 @@ function snapToRider(fare) {
   const c = cornerFor(fare.target.i, fare.target.j);
   controller.state.target.set(c.x, 0, c.z);
   controller.update(aspect());
+  // Same as a swipe: the player has aimed the camera somewhere deliberately, so the opening
+  // follow-cam stops. Without this the taxi would tow the framing straight back off the rider the
+  // chip was pointing at.
+  releaseCameraToPlayer();
 }
 
 // Double-tap the chip to actually dispatch the taxi at that rider — same effect as tapping their
@@ -508,11 +534,20 @@ function updateHud(dt) {
     // A crash holds the banner for CRASH_BANNER_DELAY so the smoke, sparks and camera pull-in
     // land before the retry screen appears. Timeouts have no such beat — reveal immediately.
     if (crashBannerAt !== null && performance.now() < crashBannerAt) return;
-    hud.banner.hidden = false;
-    hud.banner.innerHTML = `<strong>${s.failTitle}</strong><span>${s.failReason}</span>`
-      + `<span>${s.delivered} fares · $${s.money}</span>`
-      + '<button type="button" class="retry">Retry</button>';
-    hud.banner.querySelector('.retry')?.addEventListener('click', () => location.reload());
+    showRunEnd(hud.banner, {
+      title: s.failTitle,
+      reason: s.failReason,
+      // Four numbers, in the order the run produced them: what you carried, what it paid, what
+      // the city made you sit through, and how fast you were going when it went wrong.
+      stats: [
+        { label: 'Fares', value: s.delivered, format: (n) => `${n}` },
+        { label: 'Cash', value: s.money, format: (n) => `$${n}` },
+        { label: 'Red Lights', value: traffic.stats.taxiRedLights, format: (n) => `${n}` },
+        { label: 'Top Speed', value: speedMph(traffic.stats.taxiTopSpeed),
+          format: (n) => `${n} mph` },
+      ],
+      onRetry: () => location.reload(),
+    });
     document.body.classList.add('game-over');
   }
 }
@@ -755,21 +790,21 @@ function frame() {
   collisions.update();
   checkPoliceBust();
 
-  // Loco Mode chases the taxi on narrow viewports where the fixed framing has already given up —
-  // in portrait the taxi is often off-screen, so the follow is the only way to see the boost. On
-  // desktop the whole city is in frame at all times and following would just slide the map under
-  // the player for no reason, so we skip it. Follow only while boost is active: no gate on the
-  // way out means releasing the button leaves the camera wherever it landed instead of snapping
-  // back. A user drag during boost is overridden on the next frame — panning is a planning
-  // gesture and boost is the opposite of planning.
+  // Two reasons to trail the taxi, both narrow-viewport only (see START_FOLLOW_SMOOTHING): the
+  // opening follow, which runs until the player takes the framing over, and Loco Mode, which
+  // chases harder and overrides them both. Boost ignores `cameraTakenOver` on purpose — a drag
+  // during a boost is quietly overridden on the next frame, because panning is a planning gesture
+  // and boost is the opposite of planning. Neither has a gate on the way *out*: the camera is left
+  // wherever it landed rather than snapping back.
   //
-  // Wreck focus outranks the boost-follow (and runs on every viewport, not only narrow ones):
-  // the camera eases into the crash site so the smoke and sparks fill the frame before the retry
-  // screen shows.
+  // Wreck focus outranks both (and runs on every viewport, not only narrow ones): the camera eases
+  // into the crash site so the smoke and sparks fill the frame before the retry screen shows.
+  const boosting = boost.isActive();
   if (wreckSpot) {
     controller.focusOn(wreckSpot.x, wreckSpot.z, WRECK_ZOOM, dt, aspect());
-  } else if (boost.isActive() && !fares.state.gameOver && isNarrow()) {
-    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, 3.2, aspect());
+  } else if ((boosting || !cameraTakenOver) && !fares.state.gameOver && isNarrow()) {
+    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt,
+      boosting ? BOOST_FOLLOW_SMOOTHING : START_FOLLOW_SMOOTHING, aspect());
   }
 
   // More than one thing can land in a frame now — delivering the last fare clears the board and
@@ -837,7 +872,9 @@ if (shot) {
       for (const { type, fare } of fares.update(1 / 60, traffic.taxi)) {
         if (type !== 'pickup') continue;
         traffic.setTaxiFareColor(fare.color);
-        send(fare);
+        // Held back for the drop-off shot: sending the taxi on is what turns the pin yellow, and
+        // that shot is about the state before the tap — a parked taxi and a pin still asking.
+        if (!shot.atDropoff) send(fare);
         // Let the timer finish flying to the taxi, or the shot catches it mid-transfer.
         for (let settle = 0; settle < 90; settle++) {
           traffic.update(1 / 60);
@@ -858,6 +895,15 @@ if (shot) {
     // Follow the car rather than hoping it drives through the middle of the frame.
     const pos = police.group.position;
     controller.state.target.set(pos.x, 0, pos.z);
+    controller.update(aspect());
+  }
+
+  // Frame the drop-off of the fare aboard, on the kerb corner the pin actually stands on rather
+  // than the junction centre — same reason as the rider below, the corner building is in the way.
+  const aboard = fares.carrying();
+  if (shot.atDropoff && aboard) {
+    const c = cornerFor(aboard.target.i, aboard.target.j);
+    controller.state.target.set(c.x, 0, c.z);
     controller.update(aspect());
   }
 

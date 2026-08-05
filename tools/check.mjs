@@ -15,8 +15,9 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/ridermeter.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/dust.js', '../src/game/sparks.js', '../src/game/smoke.js',
   '../src/game/debris.js', '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
-  '../src/game/dropoffindicator.js', '../src/game/vanish.js', '../src/game/nightlights.js',
-  '../src/game/weather.js', '../src/game/precip.js', '../src/geometry/carlights.js'];
+  '../src/game/dropoffindicator.js', '../src/game/vanish.js', '../src/game/runend.js',
+  '../src/game/nightlights.js', '../src/game/weather.js', '../src/game/precip.js',
+  '../src/geometry/carlights.js'];
 
 const TOOLS = [
   { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },

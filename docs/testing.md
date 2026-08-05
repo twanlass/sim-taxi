@@ -89,7 +89,7 @@ screenshot mode: the HUD hides, **both** the day/night and weather clocks freeze
 forward to a chosen moment (mid-pickup, mid-corridor, framed on the rider), and then
 `document.body.dataset.shotReady` is set for the capture to wait on.
 
-Shots 10–16 are the night and weather framings, and each pins an `hour` *and* a `weather`: the
+Shots 11–17 are the night and weather framings, and each pins an `hour` *and* a `weather`: the
 whole point of layering weather on the day cycle is that rain at 1am and rain at noon are different
 frames, so a shot that pinned only one of the two would be showing half a thing.
 
