@@ -89,28 +89,22 @@ export const PALETTE = {
   // 1 and 0 share red — by then the number of segments is the news, not the hue.
   urgency: ['#E8433A', '#E8433A', '#E8922E', '#E0D233', '#3ECF5A'],
 
-  // The drop-off marker, in two states. Only one is ever on the board — the rider currently aboard
-  // — so it has nothing to be told apart from, and a per-fare hue there was saying something the
-  // player could not use. What it says instead is whether you have answered it yet.
+  // The drop-off marker: the taxi's own yellow, one state, fixed. Only one is ever on the board —
+  // the rider currently aboard — so it has nothing to be told apart from, and a per-fare hue there
+  // was saying something the player could not use.
   //
-  // **Teal at rest**: a drop-off appears the moment a rider boards, and at that point it is a
-  // question — the taxi is parked at the kerb waiting to be told to go. Teal is the one clear
-  // colour left after the signals (red/amber/green), the taxi's yellow and the white of an
-  // unclaimed passenger, and it is far enough from the muted `#2F8F94` traffic car to never be
-  // mistaken for one at play zoom.
+  // It briefly had two states, teal until the pin was tapped and yellow after, on the grounds that
+  // a pin above a parked taxi was a question rather than an instruction. That window is gone: the
+  // taxi dispatches itself at pickup (see gameplay.md), so a drop-off is never unanswered and the
+  // teal was a state the game could no longer reach. Yellow from the first frame is now the honest
+  // reading — the route band, the car and the place it is driving to are one colour saying "this is
+  // the job".
   //
-  // **Yellow once tapped**: the answer. Yellow is the taxi's own — the Loco Mode pill, the car, the
-  // route band — so the moment the player commits, the pin joins the same "this is the job"
-  // statement the band is making on the road, and the change itself is the confirmation that the
-  // tap registered.
-  //
-  // Each state is two weights: the head, and the ring on the tarmac lightened. (There was a third —
-  // a post one shade under the head — until the pin lost its shaft and became a floating head.) The
-  // selected ring is `routeLine`, the exact paint the band leading into it is drawn in, so the band
-  // and the disc it lands in are one mark rather than two yellows meeting at the kerb.
-  destination: '#17C8B8',
-  destinationRing: '#5FE9DC',
-  destinationSelected: '#F5C130',
+  // Two weights: the head, and the ring on the tarmac lightened. (There was a third — a post one
+  // shade under the head — until the pin lost its shaft and became a floating head.) The ring is
+  // `routeLine`, the exact paint the band leading into it is drawn in, so the band and the disc it
+  // lands in are one mark rather than two yellows meeting at the kerb.
+  destination: '#F5C130',
   // The taxi's own yellow, lightened. This used to be `select` as well, worn by a pool on the road
   // marking the taxi as selected; that pool is gone and the route band is the only thing wearing
   // it now. Yellow rather than white because white is the unclaimed-passenger marker.

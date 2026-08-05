@@ -82,14 +82,7 @@ function targetRing(colorHex) {
   fill.renderOrder = 3;   // under the rim, so the rim still reads as an edge
   group.add(fill);
 
-  // Both layers repaint together — the fill is the rim's own colour at the band's opacity, so a rim
-  // that changed on its own would read as a ring with a stale disc sitting inside it.
-  const setColor = (hex) => {
-    rim.material.color.set(hex);
-    fill.material.color.set(hex);
-  };
-
-  return { group, setColor };
+  return { group };
 }
 
 function marker(bodyColor, kind, buildStanding, ringColor = null) {
@@ -168,51 +161,20 @@ function marker(bodyColor, kind, buildStanding, ringColor = null) {
   hit.userData.pickable = kind;
   group.add(hit);
 
-  /**
-   * Repaint the whole marker. Emissive tracks the colour on the head — it is a fraction of the base
-   * colour (see the material block above), so leaving it behind would light a repainted pin in the
-   * old hue. The outline hull is pure black and stays put.
-   */
-  function setColors({ body, ring: ringHex }) {
-    head.material.color.set(body);
-    head.material.emissive.set(body);
-    if (ring && ringHex) ring.setColor(ringHex);
-  }
-
-  return { group, ring, postGroup, head, standing, update, setColors };
+  return { group, ring, postGroup, head, standing, update };
 }
 
 export const createPassengerPin = (buildStanding) =>
   marker(PALETTE.passenger, 'passenger', buildStanding);
 
-// The two states of a drop-off. See palette.js for why they are these colours: teal is the pin
-// asking where to go, yellow is the taxi's own colour once you have answered it.
-const DESTINATION_RESTING = { body: PALETTE.destination, ring: PALETTE.destinationRing };
-const DESTINATION_SELECTED = { body: PALETTE.destinationSelected, ring: PALETTE.routeLine };
-
 /**
- * The drop-off pin, which changes colour when the player sends the taxi at it.
+ * The drop-off pin: the taxi's yellow, fixed at build time.
  *
- * A drop-off appears the instant a rider boards, and the taxi *parks* until it is tapped — so for
- * that stretch the pin is a question rather than an instruction, and it wears teal. The tap turns
- * it the taxi's yellow, joining the route band that appears on the road in the same frame. The
- * colour change is also the acknowledgement of the tap itself: on a phone the band can be drawn
- * entirely off-screen, and the pin is what the finger was already on.
- *
- * `setSelected` early-outs on no change so the per-frame reconcile in fares.js — which calls it
- * every frame a fare is aboard — isn't touching four materials for nothing.
+ * It briefly changed colour when the player tapped it — teal while the taxi was parked at the kerb
+ * asking where to go, yellow once told. The taxi dispatches itself at pickup now, so a drop-off is
+ * an instruction from the frame it appears and there is no unanswered state left to draw. The ring
+ * on the tarmac is `routeLine`, the same paint as the band running into it, so the band and the
+ * disc it lands in read as one mark.
  */
-export function createDestinationPin() {
-  const pin = marker(PALETTE.destination, 'destination', null, PALETTE.destinationRing);
-  let selected = false;
-
-  return {
-    ...pin,
-    setSelected(next) {
-      if (selected === next) return;
-      selected = next;
-      pin.setColors(next ? DESTINATION_SELECTED : DESTINATION_RESTING);
-    },
-    isSelected: () => selected,
-  };
-}
+export const createDestinationPin = () =>
+  marker(PALETTE.destination, 'destination', null, PALETTE.routeLine);

@@ -292,6 +292,33 @@ function routeTo(target) {
   return true;
 }
 
+/**
+ * A rider is in: send the taxi at their drop-off without waiting to be told.
+ *
+ * The destination was never a decision. It was drawn when they spawned, the price was fixed from
+ * it, and its pin is on the map the instant they board — so the tap that used to be required here
+ * confirmed a choice with exactly one option while the same flat clock that has to cover the
+ * delivery kept draining. The decision this game is actually about — which kerbside rider to grab
+ * with two clocks running — is untouched, and it is the seconds for *that* the tap was costing.
+ *
+ * Nothing is skipped: `directed` is still what resolves the drop-off (see fares.js), it is just
+ * set from the pickup rather than from a second tap. And the taxi no longer parks, so a pickup is
+ * a pause in a drive rather than a full stop and a restart.
+ *
+ * The fallback is unreachable in a shipped city — main.js rerolls any seed the router can't solve
+ * every pair on — but a taxi that couldn't be routed must still be recoverable by hand rather than
+ * cruising on random turns until the rider's clock runs out.
+ */
+function dispatchToDropoff(fare) {
+  if (routeTo(fare.target)) {
+    fares.markDirected(fare);
+    flash('Passenger aboard — off to the drop-off');
+    return;
+  }
+  traffic.taxi.parked = true;
+  flash('Passenger aboard — tap the destination');
+}
+
 createPicker(
   camera,
   renderer.domElement,
@@ -763,12 +790,13 @@ function frame() {
   // spawns the next one in the same tick — so this is a list rather than a single event.
   for (const { type, fare } of fares.update(dt, traffic.taxi)) {
     if (type === 'pickup') {
-      flash('Passenger aboard — tap the destination');
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
-      traffic.taxi.parked = true;   // sit at the kerb until told where to go
       // The taxi now wears this rider's colour, and so does their destination pin.
       traffic.setTaxiFareColor(fare.color);
+      // Straight on to where they're going, on the same frame the pin appears — no kerb hold and
+      // no confirming tap.
+      dispatchToDropoff(fare);
     } else if (type === 'delivered') {
       popEarning(fare.value);
       // Small pour of boost fuel as a delivery reward — the meter's frame-by-frame update paints
@@ -824,9 +852,9 @@ if (shot) {
       for (const { type, fare } of fares.update(1 / 60, traffic.taxi)) {
         if (type !== 'pickup') continue;
         traffic.setTaxiFareColor(fare.color);
-        // Held back for the drop-off shot: sending the taxi on is what turns the pin yellow, and
-        // that shot is about the state before the tap — a parked taxi and a pin still asking.
-        if (!shot.atDropoff) send(fare);
+        // Shot mode's stand-in for dispatchToDropoff — the interactive pickup path is in the frame
+        // loop, which a shot never runs.
+        send(fare);
         // Let the timer finish flying to the taxi, or the shot catches it mid-transfer.
         for (let settle = 0; settle < 90; settle++) {
           traffic.update(1 / 60);
