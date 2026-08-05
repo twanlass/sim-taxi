@@ -913,6 +913,67 @@ check('the taxi is an ordinary car in the traffic array',
     `${sFares.state.delivered} delivered after ${elapsed.toFixed(1)}s`);
 }
 
+// --- The drop-off dispatches itself ----------------------------------------
+// The player taps riders on the kerb and nothing else — no drop-off pin is ever tapped in this
+// run — and a delivery still has to land. Mirrors main.js:dispatchToDropoff, which routes at the
+// drop-off on the pickup frame instead of parking the taxi for a confirming tap.
+//
+// The pickup frame is the awkward one and the reason this is asserted rather than assumed: the
+// taxi is *inside* the junction when the rider boards (measured: `state === 'turn'` at every
+// pickup across four run seeds, still doing the full 8.5 u/s), so the route has to be planned from
+// a turn the car has already committed to. planOrigin handles that, and a route planned from the
+// wrong origin drops its first turn silently — the taxi would wander off and the fare would time
+// out with nothing in the log to say why.
+{
+  const aScene = new THREE.Scene();
+  const aTraffic = createTraffic(makeRng(seed + 44), aScene, CARS_DEFAULT);
+  const aFares = createFareSystem(makeRng(seed + 55), aScene);
+  const aTaxi = aTraffic.taxi;
+  aTraffic.warmup(5);
+
+  // Mirrors main.js:routeTo.
+  const routeTo = (target) => {
+    const r = findRoute(planOrigin(aTaxi), target);
+    if (!r) return false;
+    aTaxi.route = r; aTaxi.routeConsumed = false; aTaxi.parked = false;
+    return true;
+  };
+
+  let pickups = 0;
+  let dispatched = 0;
+  let parkedWhileCarrying = 0;
+  let elapsed = 0;
+
+  while (elapsed < 200 && !aFares.state.gameOver && aFares.state.delivered === 0) {
+    aTraffic.update(1 / 60);
+    for (const { type, fare } of aFares.update(1 / 60, aTaxi)) {
+      if (type !== 'pickup') continue;
+      pickups += 1;
+      aTaxi.route = [];
+      if (routeTo(fare.target)) { aFares.markDirected(fare); dispatched += 1; }
+      else aTaxi.parked = true;
+    }
+
+    // A pickup is a pause in a drive now, not a full stop: with a rider aboard the taxi is never
+    // held at the kerb waiting to be told where to go. Sampled every frame, not just the pickup
+    // one — `parked` is what Loco Mode used to be dead against.
+    if (aFares.carrying() && aTaxi.parked) parkedWhileCarrying += 1;
+
+    // The only tap the "player" makes in this run is on a rider standing on the kerb.
+    const waiting = aFares.waiting();
+    if (waiting && !waiting.directed && !aFares.carrying()) {
+      if (routeTo(waiting.target)) aFares.markDirected(waiting);
+    }
+    elapsed += 1 / 60;
+  }
+
+  check('a rider is delivered without the drop-off ever being tapped',
+    aFares.state.delivered === 1 && dispatched === pickups && pickups > 0,
+    `${aFares.state.delivered} delivered after ${elapsed.toFixed(1)}s`);
+  check('a carried rider never leaves the taxi parked', parkedWhileCarrying === 0,
+    `${parkedWhileCarrying} frames held at the kerb`);
+}
+
 // --- Taxi-vs-car collisions ------------------------------------------------
 // The whole feature only fires while boosting, and its silent failure modes are: no impact ever
 // detected, an impact that doesn't wreck the taxi, or a wrecked car left driving around because

@@ -524,8 +524,9 @@ export function createFareSystem(rng, scene) {
         fare.ridingFor += dt;
         // Boarding animation: the marker stays visible for BOARD_SECONDS after pickup while the
         // figure runs across the kerb and hops into the taxi. `boardingFrom` was captured at the
-        // pickup instant; the delta to the taxi's *current* position is re-read every frame so a
-        // slight drift while the car settles into `parked` still lands the rider on the car.
+        // pickup instant; the delta to the taxi's *current* position is re-read every frame, which
+        // is what lets the figure catch a car that is still moving — and it always is, since the
+        // pickup fires with the taxi mid-junction and it now drives straight on to the drop-off.
         if (fare.boarding !== undefined && passenger.standing?.board) {
           fare.boarding += dt;
           const t = Math.min(1, fare.boarding / BOARD_SECONDS);

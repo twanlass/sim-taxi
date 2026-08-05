@@ -11,7 +11,8 @@ npm run dev          # http://localhost:5173
 ```
 
 Tap the waiting passenger and the taxi drives there, **obeying every traffic signal**. Pick them
-up and a destination appears — tap it to deliver. Each fare pays **$20**.
+up and it carries straight on to their destination by itself — the only thing you choose is *which
+rider to grab*. A fare pays by distance, **$8** for a one-block hop up to **$35** across town.
 
 The 60-second clock does **not** reset at pickup: one deadline covers spawn to drop-off, so
 collecting a rider quickly is what buys the time to deliver them. Let a clock expire and the run
