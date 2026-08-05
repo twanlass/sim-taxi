@@ -283,13 +283,12 @@
       #dropoff-indicator[hidden] { display: none; }
       #dropoff-indicator svg { display: block; width: 100%; height: 100%;
         filter: drop-shadow(0 2px 4px rgba(10, 20, 30, 0.45)); }
-      /* Matches the pin-head outline weight so the arrow reads as the same graphic vocabulary, and
-         switches on the same tap the pin does — teal until the taxi has been sent, then yellow. */
+      /* Matches the pin-head outline weight so the arrow reads as the same graphic vocabulary, in
+         the one colour the pin has: the taxi's yellow. */
       #dropoff-indicator polygon {
-        fill: #17C8B8;   /* PALETTE.destination — the pin head this arrow stands in for */
+        fill: #F5C130;   /* PALETTE.destination — the pin head this arrow stands in for */
         stroke: #16120a; stroke-width: 3; stroke-linejoin: round;
       }
-      #dropoff-indicator.is-selected polygon { fill: #F5C130; }   /* PALETTE.destinationSelected */
       body.shot-mode #dropoff-indicator { display: none; }
 
       /* --- tweak panel --- */
@@ -350,7 +349,7 @@
       <div class="money">$<span id="money">0</span></div>
     </div>
 
-    <button id="boost" type="button" aria-label="Loco Mode">Loco Mode</button>
+    <button id="boost" type="button" aria-label="Punch It">Punch It</button>
     <div id="rider-finder-stack" role="group" aria-label="Waiting riders"></div>
     <div id="dropoff-indicator" aria-hidden="true" hidden>
       <svg viewBox="-16 -16 32 32">

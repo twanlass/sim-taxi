@@ -7,6 +7,7 @@
  * are spent only on questions that genuinely need eyes.
  */
 
+import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
@@ -20,6 +21,8 @@ import {
   createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, SECOND_FARE_AFTER,
 } from '../src/game/fares.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
+import { createTaxiMesh } from '../src/geometry/taxi.js';
+import { GHOST_MASK_ORDER, GHOST_RIM_ORDER } from '../src/geometry/ghostoutline.js';
 import { createCityCamera, attachDragPan } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { DISTANCE_TIERS, distanceTier } from '../src/game/triptier.js';
@@ -442,8 +445,6 @@ check('no two cars occupy the same space', worst > 1.6,
   let leakedPin = 0;
   let pinHiddenAtPickup = 0;
   let selectionOutOfStep = 0;
-  let pinOutOfStep = 0;
-  let pinSelectedAtPickup = 0;
   let pickups = 0;
   let stillMetered = 0;
   let wrongTier = 0;
@@ -479,24 +480,15 @@ check('no two cars occupy the same space', worst > 1.6,
         if (fare.target.i !== fare.dropoff.i || fare.target.j !== fare.dropoff.j) movedAtPickup += 1;
         if (fare.slot.meter.group.visible) stillMetered += 1;
         if (!fare.slot.destination.group.visible) pinHiddenAtPickup += 1;
-        // A pin arrives asking the question. The taxi parks at the kerb until it is tapped, so a
-        // drop-off that appeared already yellow would be claiming an instruction nobody gave — and
-        // on a reused slot that is exactly what the last fare left behind.
-        if (fare.slot.destination.isSelected()) pinSelectedAtPickup += 1;
       }
     }
 
-    // Sampled here, before aim() can direct anything: at this point every fare's marker has just
-    // been ticked against the `directed` it had going into the frame, so the two must agree
-    // exactly. Doing it after aim() would flag the one-frame lag as a bug.
+    // Sampled here, before aim() can direct anything: at this point every waiting fare's meter has
+    // just been ticked against the `directed` it had going into the frame, so the ring and the flag
+    // must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
     for (const f of fares.state.fares) {
-      if (f.stage === 'waiting') {
-        if (f.slot.meter.isSelected() !== f.directed) selectionOutOfStep += 1;
-      } else if (f.slot.destination.isSelected() !== f.directed) {
-        // The same rule one stage on: the pin is teal while it is still asking where to go and
-        // yellow once the player has answered, so its state is `directed` and nothing else.
-        pinOutOfStep += 1;
-      }
+      if (f.stage !== 'waiting') continue;
+      if (f.slot.meter.isSelected() !== f.directed) selectionOutOfStep += 1;
     }
 
     aim();
@@ -531,41 +523,23 @@ check('no two cars occupy the same space', worst > 1.6,
   // one", which matters most on a board with two riders waiting.
   check('the selection ring tracks whether the taxi was sent', selectionOutOfStep === 0,
     `${selectionOutOfStep} frames out of step`);
-  // The pin's own colour is the other half of the same statement, and the one the player is looking
-  // at while the taxi sits parked waiting to be told where to go.
-  check('the drop-off pin arrives unselected', pickups > 0 && pinSelectedAtPickup === 0,
-    `${pinSelectedAtPickup} of ${pickups} already yellow`);
-  check('the drop-off pin tracks whether the taxi was sent', pinOutOfStep === 0,
-    `${pinOutOfStep} frames out of step`);
-
-  // --- The two colours themselves.
+  // --- The pin's colour.
   //
-  // Every check above reads the boolean, which would stay perfectly in step even if both states
-  // painted the same colour — so read the materials back. Head, post and ring all have to move
-  // together: a ring left on the resting teal under a yellow head is a marker in two minds, and
-  // the emissive has to follow the base colour or the pin lights in the hue it used to be.
+  // One state, read off the materials rather than assumed: the taxi's yellow on the head, and
+  // specifically the route band's own yellow on the tarmac — the band and the disc it ends in are
+  // one mark of paint, not two that happen to be near each other. The emissive has to carry the
+  // same colour or the pin lights in a hue nothing else on screen is wearing.
   {
     const pin = createDestinationPin();
-    const read = () => [
+    const hex = (c) => new THREE.Color(c).getHexString();
+    const painted = [
       pin.head.material.color.getHexString(),
       pin.head.material.emissive.getHexString(),
       pin.ring.group.children.map((m) => m.material.color.getHexString()).join('/'),
     ].join(' ');
-    const resting = read();
-    pin.setSelected(true);
-    const chosen = read();
-    pin.setSelected(false);
-
-    const hex = (c) => new THREE.Color(c).getHexString();
-    check('an untapped drop-off is teal',
-      resting === `${hex(PALETTE.destination)} ${hex(PALETTE.destination)} `
-        + `${hex(PALETTE.destinationRing)}/${hex(PALETTE.destinationRing)}`, resting);
-    // Yellow, and specifically the route band's own yellow on the tarmac — the band and the disc it
-    // ends in are one mark of paint, not two that happen to be near each other.
-    check('a tapped drop-off is the taxi\'s yellow',
-      chosen === `${hex(PALETTE.destinationSelected)} ${hex(PALETTE.destinationSelected)} `
-        + `${hex(PALETTE.routeLine)}/${hex(PALETTE.routeLine)}`, chosen);
-    check('and it goes back', read() === resting);
+    check('the drop-off pin is the taxi\'s yellow, and its ring the route band\'s',
+      painted === `${hex(PALETTE.destination)} ${hex(PALETTE.destination)} `
+        + `${hex(PALETTE.routeLine)}/${hex(PALETTE.routeLine)}`, painted);
   }
   check('no two live fares share a colour', sharedColour === 0, `${sharedColour} frames`);
   check('no two fares claim the same junction', sharedJunction === 0, `${sharedJunction} frames`);
@@ -965,6 +939,67 @@ check('the taxi is an ordinary car in the traffic array',
   check('a parked taxi still delivers when the destination is its own next junction',
     sFares.state.delivered === 1,
     `${sFares.state.delivered} delivered after ${elapsed.toFixed(1)}s`);
+}
+
+// --- The drop-off dispatches itself ----------------------------------------
+// The player taps riders on the kerb and nothing else — no drop-off pin is ever tapped in this
+// run — and a delivery still has to land. Mirrors main.js:dispatchToDropoff, which routes at the
+// drop-off on the pickup frame instead of parking the taxi for a confirming tap.
+//
+// The pickup frame is the awkward one and the reason this is asserted rather than assumed: the
+// taxi is *inside* the junction when the rider boards (measured: `state === 'turn'` at every
+// pickup across four run seeds, still doing the full 8.5 u/s), so the route has to be planned from
+// a turn the car has already committed to. planOrigin handles that, and a route planned from the
+// wrong origin drops its first turn silently — the taxi would wander off and the fare would time
+// out with nothing in the log to say why.
+{
+  const aScene = new THREE.Scene();
+  const aTraffic = createTraffic(makeRng(seed + 44), aScene, CARS_DEFAULT);
+  const aFares = createFareSystem(makeRng(seed + 55), aScene);
+  const aTaxi = aTraffic.taxi;
+  aTraffic.warmup(5);
+
+  // Mirrors main.js:routeTo.
+  const routeTo = (target) => {
+    const r = findRoute(planOrigin(aTaxi), target);
+    if (!r) return false;
+    aTaxi.route = r; aTaxi.routeConsumed = false; aTaxi.parked = false;
+    return true;
+  };
+
+  let pickups = 0;
+  let dispatched = 0;
+  let parkedWhileCarrying = 0;
+  let elapsed = 0;
+
+  while (elapsed < 200 && !aFares.state.gameOver && aFares.state.delivered === 0) {
+    aTraffic.update(1 / 60);
+    for (const { type, fare } of aFares.update(1 / 60, aTaxi)) {
+      if (type !== 'pickup') continue;
+      pickups += 1;
+      aTaxi.route = [];
+      if (routeTo(fare.target)) { aFares.markDirected(fare); dispatched += 1; }
+      else aTaxi.parked = true;
+    }
+
+    // A pickup is a pause in a drive now, not a full stop: with a rider aboard the taxi is never
+    // held at the kerb waiting to be told where to go. Sampled every frame, not just the pickup
+    // one — `parked` is what Loco Mode used to be dead against.
+    if (aFares.carrying() && aTaxi.parked) parkedWhileCarrying += 1;
+
+    // The only tap the "player" makes in this run is on a rider standing on the kerb.
+    const waiting = aFares.waiting();
+    if (waiting && !waiting.directed && !aFares.carrying()) {
+      if (routeTo(waiting.target)) aFares.markDirected(waiting);
+    }
+    elapsed += 1 / 60;
+  }
+
+  check('a rider is delivered without the drop-off ever being tapped',
+    aFares.state.delivered === 1 && dispatched === pickups && pickups > 0,
+    `${aFares.state.delivered} delivered after ${elapsed.toFixed(1)}s`);
+  check('a carried rider never leaves the taxi parked', parkedWhileCarrying === 0,
+    `${parkedWhileCarrying} frames held at the kerb`);
 }
 
 // --- Taxi-vs-car collisions ------------------------------------------------
@@ -1388,6 +1423,60 @@ check('the taxi is an ordinary car in the traffic array',
   // 8.5 of something.
   check('top speed reads as a plausible mph', speedMph(boostTop) >= 45 && speedMph(boostTop) <= 60,
     `${speedMph(boostTop)} mph`);
+}
+
+// --- Ghost outline ----------------------------------------------------------
+//
+// The taxi's occluded-only outline (geometry/ghostoutline.js) is a two-pass stencil trick whose
+// failure modes are all silent and visual — a wrong depthFunc draws the outline over the visible
+// car, a missing mask fills the silhouette instead of tracing it. The material flags ARE the
+// behaviour, so assert them here where a regression costs milliseconds, not a screenshot.
+{
+  const { group } = createTaxiMesh();
+  const masks = [];
+  const rims = [];
+  group.traverse((node) => {
+    if (node.name === 'ghostMask') masks.push(node);
+    if (node.name === 'ghostRim') rims.push(node);
+  });
+
+  // Four parts: shell, roof sign, both steered wheels. Every opaque part of the car must be in
+  // the mask — a part left out counts as an occluder of the rim behind it, and the wheels being
+  // skipped painted a yellow streak along the rocker panel of a fully visible car.
+  check('taxi wears a ghost outline on every opaque part', masks.length === 4 && rims.length === 4,
+    `${masks.length} masks, ${rims.length} rims`);
+
+  const rimsHidden = rims.every((r) => r.material.depthFunc === THREE.GreaterDepth
+    && r.material.depthWrite === false && r.material.side === THREE.BackSide);
+  check('ghost rim draws only where the taxi is hidden', rimsHidden,
+    'depthFunc GreaterDepth, no depth write, back faces');
+
+  // The mask stamps the car's footprint into the stencil; the rim tests against it. Break either
+  // half of the pairing and the outline turns into a filled ghost.
+  const masksStamp = masks.every((m) => m.material.colorWrite === false
+    && m.material.depthTest === false && m.material.stencilWrite
+    && m.material.stencilZPass === THREE.ReplaceStencilOp);
+  const rimsHollow = rims.every((r) => r.material.stencilWrite
+    && r.material.stencilFunc === THREE.NotEqualStencilFunc
+    && r.material.stencilRef === masks[0]?.material.stencilRef);
+  const ordered = masks.every((m) => m.renderOrder === GHOST_MASK_ORDER)
+    && rims.every((r) => r.renderOrder === GHOST_RIM_ORDER) && GHOST_MASK_ORDER < GHOST_RIM_ORDER;
+  check('ghost outline is hollow — mask stamps before rim tests', masksStamp && rimsHollow && ordered,
+    'stencil stamp/test paired, mask ordered first');
+
+  // The rim hull must actually stand off the shell, or the trace has no thickness to show.
+  const shellBox = new THREE.Box3().setFromBufferAttribute(masks[0].geometry.attributes.position);
+  const rimBox = new THREE.Box3().setFromBufferAttribute(rims[0].geometry.attributes.position);
+  const standoff = rimBox.max.x - shellBox.max.x;
+  check('ghost rim stands off the shell', standoff > 0.2 && standoff < 0.5,
+    `${standoff.toFixed(2)} units`);
+
+  // The stencil trick needs the renderer's stencil buffer, which three has defaulted OFF since
+  // r163. Nothing headless can construct a WebGLRenderer, so read the flag out of main.js —
+  // without it the stencil test silently passes everywhere and the outline fills in.
+  const mainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  check('renderer keeps its stencil buffer', /stencil:\s*true/.test(mainSource),
+    'main.js constructs WebGLRenderer with stencil: true');
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

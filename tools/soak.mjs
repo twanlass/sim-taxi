@@ -74,7 +74,10 @@ function play(runSeed) {
     const job = nextJob();
     if (events.length && job && job !== pending && !job.directed) {
       pending = job;
-      reactIn = REACTION;
+      // The drop-off leg costs the player nothing: the game routes the taxi there itself on the
+      // pickup frame (main.js:dispatchToDropoff), so the only reaction a run pays for is on the
+      // kerbside legs — deciding which rider to grab, which is the decision the game is about.
+      reactIn = job.stage === 'riding' ? 0 : REACTION;
       taxi.route = [];
     }
 

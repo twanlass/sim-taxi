@@ -5,6 +5,7 @@ import { PALETTE, color } from '../palette.js';
 import { ABOVE_RING } from '../game/timerring.js';
 import { carLightGeometry } from './carlights.js';
 import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT } from './wheels.js';
+import { addGhostOutline } from './ghostoutline.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
 // because it needs to be raycast against for picking, and because its shell has to draw over the
@@ -58,6 +59,13 @@ export function createTaxiMesh() {
   shell.userData.pickable = 'taxi';
   group.add(shell);
 
+  // Traced outline shown only where the car is hidden behind other geometry, so the player can
+  // always see where their taxi is. Every opaque part of the car wears one — shell, roof sign
+  // and both steered wheels below. Not for their silhouettes alone: any taxi part left out of the
+  // stencil mask counts as an *occluder* of the rim behind it, and the wheels being skipped at
+  // first painted a yellow streak along the rocker panel of a fully visible car.
+  addGhostOutline(shell);
+
   // Steered front wheels. One shared material, one mesh each, pivoting about their own hubs — the
   // group's transform carries them along, so nothing here has to know where the taxi is.
   const wheelMaterial = propMaterial();
@@ -70,6 +78,10 @@ export function createTaxiMesh() {
       // Same reason as the shell: these sit on the road, where the timer ring is drawn.
       wheel.renderOrder = ABOVE_RING;
       wheel.userData.pickable = 'taxi';
+      // Small rim to match the part — and being in the mask is what stops the wheel occluding
+      // the shell's rim (see the note above addGhostOutline(shell)). Children of the wheel, so
+      // the ghost steers with it.
+      addGhostOutline(wheel, { rim: 0.12 });
       group.add(wheel);
       return wheel;
     });
@@ -102,6 +114,8 @@ export function createTaxiMesh() {
   sign.renderOrder = ABOVE_RING;
   sign.userData.pickable = 'taxi';
   group.add(sign);
+  // A smaller rim than the shell's: the default 0.3 on a 0.34-unit-tall sign would double it.
+  addGhostOutline(sign, { rim: 0.15 });
 
   // Slightly oversized against ambient traffic. The player has to find this car at a glance in a
   // street full of identically shaped vehicles.

@@ -21,8 +21,9 @@ red light exactly like everyone else and cannot cheat its way to a destination.
 
 A passenger appears at an intersection under a **meter**: an urgency bar counting down their
 60-second patience, and a distance bar saying whether this is a short, medium or long trip. Tap
-them to route the taxi there; their drop-off appears once they're aboard, and you tap that to
-deliver. The clock does **not** reset at pickup — one deadline covers spawn to drop-off, which is
+them to route the taxi there; once they're aboard their drop-off appears and the taxi drives on to
+it **without being told to** — the only choice on the board is which rider to grab. The clock does
+**not** reset at pickup — one deadline covers spawn to drop-off, which is
 the whole tension of the game. A delivery pays by distance, $8 for a one-block hop up to $35
 across town. Let a clock expire and the run ends.
 

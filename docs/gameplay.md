@@ -11,11 +11,49 @@ that means up to two riders can be waiting on the kerb at the same time.
    their head: how long they'll wait, and how far they're going. The whole trip is drawn now, but
    only its length is shown — see [How far, not where](#how-far-not-where).
 2. Tap them → the taxi routes there.
-3. On arrival the passenger boards, their drop-off pin appears **in teal**, and the taxi **parks**
-   until the player taps it — at which point the pin turns the taxi's yellow.
+3. On arrival the passenger boards, their drop-off pin appears and the taxi **drives straight on to
+   it** — the pin lands in the taxi's yellow, because the instruction it used to ask for is now
+   given for you. See [The drop-off dispatches itself](#the-drop-off-dispatches-itself).
 4. Deliver → the meter pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, see [Economy](#economy)),
    and the board refills.
 5. **Any** fare's clock expiring ends the run.
+
+## The drop-off dispatches itself
+
+**A rider getting in is the taxi's instruction to drive them.** `dispatchToDropoff` in `main.js`
+routes at the drop-off on the pickup frame; the player never taps a destination pin.
+
+The tap it replaced confirmed a choice with exactly one option. Where the rider is going was
+decided when they spawned — the meter's distance bar is a read on it, the price is fixed from it —
+and their pin is on the map the instant they board, so the second tap added no decision, only
+latency, and it spent that latency out of the *same* flat clock that still has to cover the
+delivery. Meanwhile the decision the game is actually about — which of two kerbside riders to grab
+while both clocks drain — is untouched.
+
+What it costs a slow player is the whole point, and the soak measures it. Modelled as reaction time
+paid on the kerbside legs only (`tools/soak.mjs`), a perfect player at **4s** reaction goes from a
+median of 2 fares to **3** (mean 1.9 → 2.8, worst run 0 → 2). At 1.5s it is unchanged at 2 — the
+faster the player, the less the tap was costing them, which is exactly the wrong way round for a
+tap that carried no decision.
+
+The pin stays tappable and `directed` still governs arrival, so nothing about
+[arrival requires direction](#arrival-requires-direction) is skipped — the flag is now set from the
+pickup instead of from a second tap.
+
+**The taxi no longer parks at a pickup.** It used to sit at the kerb with `parked = true` until
+told where to go; now a pickup is a pause in a drive rather than a full stop and a restart. In
+practice it was never much of a stop anyway: the pickup fires with the taxi *inside* the junction
+(`state === 'turn'` at every pickup across four run seeds, still doing the full 8.5 u/s), where the
+`parked` check isn't consulted at all — it coasted across, braked on the far side, and then pulled
+away again on the tap. The one surviving `parked = true` is the fallback for a drop-off the router
+can't reach, which a shipped city never has: `main.js` rerolls any seed where `findRoute` fails a
+pair. It exists so an unroutable taxi is still recoverable by hand rather than cruising on random
+turns until the clock runs out.
+
+Routing on the pickup frame means planning from a turn the car has already committed to —
+`planOrigin` handles exactly that, and `tools/probe.mjs` asserts a fare is delivered end to end
+with no drop-off ever tapped, because a route planned from the wrong origin silently drops its
+first turn and the only symptom is a fare quietly timing out.
 
 ## How far, not where
 
@@ -101,7 +139,13 @@ A fare only resolves — pickup or drop-off — if the player actually **sent** 
 
 Without this rule a taxi cruising on random turns wanders into the pin by itself: measured at
 **11 of 40 seeds** completing a drop-off with no tap at all. `directed` lives on the fare, is set by
-the tap that routes the taxi at it, and clears whenever that fare's target changes.
+whatever routes the taxi at it, and clears whenever that fare's target changes.
+
+On the drop-off leg [the game does the routing](#the-drop-off-dispatches-itself), so the flag is
+set there rather than by a tap — but it is set by the same call that plans the route, so a
+drop-off still only resolves for a taxi that was actually sent at it. Where the rule keeps its
+teeth is the kerb: `beginRide` clears `directed`, and a rider is only ever collected by a taxi the
+player pointed at them.
 
 ### Fare colours
 
@@ -115,10 +159,12 @@ the timer ring is colour-coded by time remaining, so fare identity needed somewh
 **The drop-off pin no longer wears it.** It used to, so that a pin and a taxi could be paired by
 hue; but one rider is aboard at a time and only that rider's pin is on the board, so the pairing
 had nothing to disambiguate and a rotating hue was making the same marker look different run to
-run. The pin, its ring and the off-screen pointer now carry the fare's **state** instead: **teal**
-while the drop-off is still waiting to be tapped, and **Loco Mode's yellow** — the taxi's own — once
-it has been, so the route band, the car and the place it is driving to are one colour saying "this
-is the job". See [rendering.md](rendering.md#pin-outline-and-bounce--geometrymarkerjs).
+run. The pin, its ring and the off-screen pointer are fixed to **Loco Mode's yellow** — the taxi's
+own — so the route band, the car and the place it is driving to are one colour saying "this is the
+job". They spent a spell carrying the fare's *state* instead, teal until the drop-off was tapped and
+yellow after; [the taxi dispatches itself now](#the-drop-off-dispatches-itself), so there is no
+untapped state left to draw. See
+[rendering.md](rendering.md#pin-outline-and-bounce--geometrymarkerjs).
 
 `nextFareColor()` still refuses any colour a **live** fare is wearing, not just the previous one —
 five colours against `MAX_FARES = 3` means that always resolves, and it still costs exactly one
@@ -354,10 +400,12 @@ that a full drain still calls for the fast recharge. The decision is now *how lo
 well as *when*. The button doubles as the dial: a `--pct` CSS variable tracks the fuel level,
 dropping as you drain and climbing as it recharges.
 
-**One case where holding it does nothing, on purpose.** A taxi that has just picked someone up is
-`parked` — it waits at the kerb until you tap a destination — and `parked` sets `allowed = 0` ahead
-of anything boost can do. Loco Mode is speed, not a direction; there is nowhere to go yet. Every
-other reason the taxi used to slow while boosting was traffic, and those are dealt with in
+**There is no longer a case where holding it does nothing.** A taxi that had just picked someone up
+used to be `parked` — waiting at the kerb for you to tap a destination — and `parked` sets
+`allowed = 0` ahead of anything boost can do, so Loco Mode was dead in the hand until you'd
+dispatched the car. Now [the drop-off dispatches itself](#the-drop-off-dispatches-itself) and the
+taxi is never parked with a rider aboard; boost applies from the pickup frame on. Every other
+reason the taxi slows while boosting is traffic, and those are dealt with in
 [traffic.md](traffic.md#what-was-still-braking-it).
 
 Pointer capture on `pointerdown` keeps the boost held even if the finger slides off the pill;
