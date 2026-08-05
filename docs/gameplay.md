@@ -375,3 +375,48 @@ corners, lays **skid marks** off the line and through turns, and kicks up **dust
 The press itself also fires a **wheelie**, a tailpipe **flame burst** and a half-second launch
 streak of rubber — all three gated on `boost.press()` returning true, so they fire on the
 transition into Loco Mode and not on a re-press during a boost that's already running.
+
+## The run-end screen
+
+`src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
+clock hitting zero, a collision, a police bust — and all three land on the same card: a title, the
+reason, four stats, and Retry. The title is set by the caller, so a bust reads **Busted** while a
+timeout and a wreck read **Game Over**.
+
+**Nothing appears at once.** The card is revealed as a sequence, because the version before this
+one wrote a single line of `innerHTML` and the whole screen arrived in one frame — which reads as
+the game stopping rather than as a scoreboard. The order is title → reason → each stat in turn →
+Retry, off one stride constant (`STAT_STRIDE`), and each stat's label **scales down** into place
+as it fades up before its number rolls from zero. A number that rolls gets read; a number that is
+printed gets skipped past on the way to the button. Retry is last on purpose, appearing only once
+the final stat has finished counting, so the player isn't invited to leave mid-tally.
+
+The whole cadence is ~2.1s and lives in the timeline constants at the top of the module rather
+than in CSS keyframe delays, so it can be re-paced from one place and so the stagger works for
+however many stats it is handed. Under `prefers-reduced-motion` the card prints its final values
+with no entrance and no roll — the stagger is the entire module, so there is nothing else to keep.
+
+| Stat | Source | Notes |
+|---|---|---|
+| Fares | `fares.state.delivered` | |
+| Cash | `fares.state.money` | |
+| Red Lights | `traffic.stats.taxiRedLights` | reds the taxi *met*, one per light |
+| Top Speed | `traffic.stats.taxiTopSpeed` | u/s, shown in mph |
+
+Both traffic stats are taxi-only, accumulate over the whole run, and are never reset — a run ends
+by reloading the page. They exist for this card and nothing in the sim reads them, which is exactly
+why `tools/probe.mjs` asserts them: a counter that quietly stopped incrementing would otherwise
+only show up on the retry screen at the end of somebody's run.
+
+**Red lights are counted per light, not per frame.** The junction is stamped on the taxi the first
+time a red holds it and cleared when the turn commits, so sitting at one light for four seconds is
+one red and coming back to the same junction later counts again. It reads the signal phase
+directly rather than the `green` flag, because `green` also goes false for a junction blocked by a
+stranded car — that is a jam, not a red. Ring junctions are exempt: they have no phase to be red.
+A right-on-red still counts; the light was red when the taxi reached the line.
+
+**Top speed is shown in mph** via `speedMph()` in `sim/traffic.js`. World units are metres-ish —
+`CAR_LEN` is 3.4 against a real compact at ~4.4m — which puts one u/s at about 2.9mph and lands
+the numbers where you'd want them anyway: cruise 8.5 → **25mph**, Loco Mode 18.7 → **54mph**.
+Nothing in the simulation uses the conversion; it exists so the stat is in a unit a player has a
+feel for.
