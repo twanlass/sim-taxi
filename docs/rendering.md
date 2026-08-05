@@ -262,6 +262,37 @@ The band still offsets each *point* along its mitre rather than offsetting each 
 independently. Independent segments leave a wedge of bare road on the outside of every join —
 invisible when the corner *was* the notch, obvious across a ten-step arc.
 
+### Taxi ghost outline — `geometry/ghostoutline.js`
+
+The taxi's silhouette, traced as a yellow rim (`taxiGhost` in the palette) drawn **only on pixels
+where the taxi is hidden** behind other geometry — so the player can always see where their car
+is, and a half-hidden car gets exactly a half outline. The pin's inverted hull turned inside out,
+in two passes, both hung as children of the shell and roof sign so they inherit steering, bounce
+and roll for free:
+
+1. **A mask pass** re-draws the taxi's own geometry with `colorWrite: false` and no depth test,
+   stamping the car's full screen footprint into the **stencil buffer**. This is what keeps the
+   interior hollow — a traced outline rather than a filled ghost.
+2. **A rim pass** draws the geometry inflated by 0.3 units (≈2.7px at play zoom), back faces
+   only, with `depthFunc: GreaterDepth` — the reverse of the usual test, so a fragment renders
+   only where something already in the depth buffer sits *in front of* it — plus a stencil test
+   of "not the mask", so the rim never paints over the car's own visible pixels.
+
+Where the taxi is visible the reversed test fails everywhere and the whole thing costs nothing;
+where a tower covers part of the car, exactly those rim fragments pass. No render targets and no
+post pass, but two things it cannot live without, both asserted headlessly in `tools/probe.mjs`:
+
+- **The renderer must be created with `stencil: true`** — three defaults it *off* since r163, and
+  without the buffer the stencil test silently passes everywhere and the outline fills in solid.
+- **The hull must not inflate downward.** Scaled uniformly it dipped below the road, the road
+  became an "occluder", and a fully visible taxi wore a permanent yellow smear at its bumper —
+  so the hull's underside is clamped just above the car's own base.
+
+Both passes are flagged `transparent` purely to land in the transparent queue, which draws after
+every opaque object — the depth buffer has to be complete before the mask stamps. `addGhostOutline`
+is per-mesh and reusable (the police cruiser could wear one as-is); extending it to the ambient
+traffic would need an instanced variant sharing the cars' `instanceMatrix`, which doesn't exist yet.
+
 ### Pin outline and bounce — `geometry/marker.js`
 
 The destination pin is a **floating head and nothing else** — an octahedron at y = 9.6 over the

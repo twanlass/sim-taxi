@@ -4,6 +4,7 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { ABOVE_RING } from '../game/timerring.js';
 import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT } from './wheels.js';
+import { addGhostOutline } from './ghostoutline.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
 // because it needs to be raycast against for picking, and because its shell has to draw over the
@@ -57,6 +58,12 @@ export function createTaxiMesh() {
   shell.userData.pickable = 'taxi';
   group.add(shell);
 
+  // Traced outline shown only where the car is hidden behind other geometry, so the player can
+  // always see where their taxi is. Shell and roof sign each wear their own — together they trace
+  // the whole recognisable profile. The front wheels skip it: inflated by the rim, the shell's
+  // hull already covers where they sit.
+  addGhostOutline(shell);
+
   // Steered front wheels. One shared material, one mesh each, pivoting about their own hubs — the
   // group's transform carries them along, so nothing here has to know where the taxi is.
   const wheelMaterial = propMaterial();
@@ -101,6 +108,8 @@ export function createTaxiMesh() {
   sign.renderOrder = ABOVE_RING;
   sign.userData.pickable = 'taxi';
   group.add(sign);
+  // A smaller rim than the shell's: the default 0.3 on a 0.34-unit-tall sign would double it.
+  addGhostOutline(sign, { rim: 0.15 });
 
   // Slightly oversized against ambient traffic. The player has to find this car at a glance in a
   // street full of identically shaped vehicles.

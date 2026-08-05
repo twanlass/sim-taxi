@@ -50,6 +50,10 @@ const runSeed = getRunSeed(seed, Boolean(shot));    // this run's situation — 
 
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
+  // Three defaults the stencil buffer OFF since r163. The taxi's ghost outline stamps its mask
+  // into it every frame (see geometry/ghostoutline.js); without the buffer the stencil test
+  // silently passes everywhere and the "outline" fills the whole hull.
+  stencil: true,
   preserveDrawingBuffer: Boolean(shot),
 });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
