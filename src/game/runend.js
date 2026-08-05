@@ -49,8 +49,8 @@ function riseIn(el, delay, { from = 14, scale = 0.94, duration = 520 } = {}) {
  * A stat's label: oversized and transparent, shrinking into its final size as it fades up. Scaling
  * *down* into place (rather than up) is what makes the word feel like it is settling onto the screen
  * instead of being pushed at the player, and it leaves the number beside it as the only thing still
- * moving once the label has landed. Label and value are set in the same type and sit side by side,
- * so the row reads as one phrase — "Fares  9" — rather than as a caption over a figure.
+ * moving once the label has landed. Label and value are set in the same type and sit at opposite
+ * edges of the row, so the list reads as a ledger rather than as captions over figures.
  */
 function scaleDownIn(el, delay) {
   el.animate([
@@ -118,8 +118,8 @@ export function showRunEnd(root, { title, reason, stats, onRetry }) {
     const value = document.createElement('span');
     value.className = 'stat-value';
     // Placeholder text before the roll starts, so the row is already at its final size when it
-    // fades in — a value column that widened as digits arrived would slide the shared spine, and
-    // rows that grew would shove the button down the screen.
+    // fades in — a value column that widened as digits arrived would drag the right-hand edge of
+    // the whole block with it, and rows that grew would shove the button down the screen.
     value.textContent = stat.format(0);
     cell.append(label, value);
     column.append(cell);

@@ -394,16 +394,25 @@ the number as the content, when the pairing is the content; matched type makes e
 — "Fares  9" — and the four rows read as a list being counted out, which is what the stagger is
 doing.
 
-The rows sit on a **shared spine**: a two-column grid with labels flush right and values flush
-left, the whole block centred. Centring each row on its own left the list ragged — with matched
-type there is no size difference to read the pairing by, so the gutter has to do it. `.stat` is
-`display: contents` so its label and value become grid items of the row above; the wrapper only
-exists for the reveal to animate a stat as a unit. Both entrances scale *away* from the gutter
-(`transform-origin: right`/`left`) so the spine doesn't shift while a row lands.
+It reads as a **ledger**: label pinned to the left edge, value to the right, on a `1fr auto` grid
+so the label column takes the slack and the values stay flush right however long the names get.
+Both edges are then straight lines down the block, which is what lets four rows of identically
+styled text read as four separate stats — centring each row on its own left the list ragged.
+`.stat` is `display: contents` so its label and value become grid items of the row above; the
+wrapper only exists for the reveal to animate a stat as a unit. Each entrance is anchored to the
+edge its text is aligned to (`transform-origin: left`/`right`), so the label's oversized first
+frame and the value's landing bump both grow *inward* rather than out past the container.
+
+**The content container is capped at a phone's content width** — 358px, a 390px screen less its
+16px gutters — so the desktop layout *is* the mobile layout. Pushing label and value to opposite
+edges of a 1280px screen would strand each number three feet from its own name; at phone width the
+gap is a gutter rather than a void, and the fail reason wraps on desktop exactly as it does on a
+phone. On a phone the rows run right out to the screen edges, which is the layout the cap is
+borrowing.
 
 Type and rhythm scale with the viewport, off whichever axis is tighter: height for the list as a
 whole (a landscape phone runs it past the fold) and width for the rows (`"Top Speed  54 mph"` at
-30px is ~290px wide, and `nowrap` would push it off a 320px screen rather than wrap it). If it
+30px is ~260px wide, and `nowrap` would push it off a 320px screen rather than wrap it). If it
 still doesn't fit, the overlay scrolls — centred by `margin: auto` on the content rather than
 `justify-content`, which clips its own overflow at the top, where the title is.
 

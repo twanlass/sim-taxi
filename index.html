@@ -80,9 +80,13 @@
 
       #run-end .run-end-card {
         display: flex; flex-direction: column; align-items: center; margin: auto;
-        /* No panel of its own — this only exists to hold the column together and to keep the fail
-           reason off the screen edges on a phone, where it wraps rather than running to the bezel. */
-        max-width: min(560px, 100%);
+        /* No panel of its own — this only holds the content together and gives it a width to be
+           measured against. Capped at a phone's content width (390px screen less the 16px gutters
+           either side) so the desktop layout *is* the mobile layout: the stats rows push label and
+           value to opposite edges, and on a 1280px screen that would otherwise strand a number
+           three feet away from its own name. The fail reason wraps here exactly as it does on a
+           phone, which is the point. */
+        width: 100%; max-width: min(358px, 100%);
       }
       /* Type and rhythm scale with the viewport. Height drives most of it — it is a short viewport
          (a landscape phone) that runs the list past the fold — and the clamps hold the full-size
@@ -94,19 +98,18 @@
       }
       #run-end .run-end-reason { margin-top: 6px; font-size: 15px; opacity: 0.72; }
 
-      /* One stat per row, label and value side by side, laid out as two columns against a shared
-         spine: labels flush right, values flush left. Centring each row on its own left the list
-         ragged — with matched type there is no size difference to read the pairing by, so the
-         gutter has to do it. `justify-content: center` sits the whole block in the middle while
-         the columns stay as wide as their longest entry. */
+      /* One stat per row, label pinned to the left edge and value to the right — a ledger, not a
+         centred pair. Both edges are then straight lines down the block, which is what lets four
+         rows of identically-styled text read as four separate stats. The label column takes the
+         slack (`1fr`) so the values stay flush right however long the names get. */
       #run-end .run-end-stats {
-        display: grid; grid-template-columns: auto auto; justify-content: center;
+        display: grid; grid-template-columns: 1fr auto; width: 100%;
         column-gap: clamp(12px, 2.4vh, 20px); row-gap: clamp(8px, 2.3vh, 16px);
         margin-top: clamp(12px, 3.8vh, 30px);
       }
       /* The wrapper exists so the reveal can animate a stat as a unit; `display: contents` drops it
          out of the layout so its label and value are grid items of the row above, which is what
-         puts every row on the same spine. */
+         keeps every row on the same two edges. */
       #run-end .stat { display: contents; }
       /* Label and value are deliberately the same size, weight and colour — the small grey caption
          over a big yellow number made the label look like chrome and the number like the content,
@@ -121,11 +124,12 @@
         font-size: clamp(19px, min(3.9vh, 7.2vw), 30px); font-weight: 800; line-height: 1.15;
         color: #F5C130; white-space: nowrap;
       }
-      /* Both entrances scale *away* from the gutter — the label's fade-in from 1.55x and the
-         value's landing bump — so the spine between the two columns never moves while the row
-         is animating. Scaling from the default centre made each row nudge sideways as it landed. */
-      #run-end .stat-label { text-align: right; transform-origin: right center; }
-      #run-end .stat-value { text-align: left;  transform-origin: left center; }
+      /* Each entrance is anchored to the edge its text is aligned to — the label's fade-in from
+         1.55x and the value's landing bump both grow inward, toward the slack between them, rather
+         than out past the container. Scaling from the default centre made each row nudge sideways
+         as it landed, and pushed the label's oversized first frame off the left edge. */
+      #run-end .stat-label { text-align: left;  transform-origin: left center; }
+      #run-end .stat-value { text-align: right; transform-origin: right center; }
       /* Tabular figures so a rolling counter doesn't jitter its own width as the digits change,
          and the column stays put while all four count at once. */
       #run-end .stat-value { font-variant-numeric: tabular-nums; }
