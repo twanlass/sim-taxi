@@ -10,6 +10,7 @@ behind it that aren't obvious from the code.
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
 | [gameplay.md](gameplay.md) | The fare loop, routing, picking, the travelling timer ring, economy, crazy-taxi mode | `src/game/` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, effects | `src/game/scene.js`, `src/geometry/` |
+| [editor.md](editor.md) | The vehicle editor at `/editor.html` and the parametric kit behind it | `src/geometry/carkit.js`, `src/editor/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 
 ## The 60-second version

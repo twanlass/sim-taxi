@@ -15,7 +15,8 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/ridermeter.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/dust.js', '../src/game/sparks.js', '../src/game/smoke.js',
   '../src/game/debris.js', '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
-  '../src/game/dropoffindicator.js', '../src/game/vanish.js', '../src/game/runend.js'];
+  '../src/game/dropoffindicator.js', '../src/game/vanish.js', '../src/game/runend.js',
+  '../src/geometry/carkit.js'];
 
 const TOOLS = [
   { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },
@@ -54,6 +55,111 @@ try {
 } catch (error) {
   failed += 1;
   console.log(`FAIL  modules  ${error.message}`);
+}
+
+// The vehicle kit behind /editor.html. Every preset has to build, and the sedan preset has to
+// keep matching carGeometry() in sim/traffic.js — the kit is only a trustworthy editing surface
+// for the game's vehicles while its baseline *is* the game's vehicle.
+try {
+  const { PRESETS, buildVehicleGeometry, normalizeSpec, randomSpec, partAtFace } = await import('../src/geometry/carkit.js');
+  for (const [key, preset] of Object.entries(PRESETS)) {
+    const geo = buildVehicleGeometry(preset);
+    if (!geo.attributes.position?.count || !geo.attributes.color) {
+      throw new Error(`${key} built without position/color attributes`);
+    }
+    if (geo.index) throw new Error(`${key} is indexed — flat shading needs non-indexed geometry`);
+    geo.computeBoundingBox();
+    const b = geo.boundingBox;
+    if (b.min.y < -1e-6 || b.max.y > 4 || b.max.x - b.min.x > 8) {
+      throw new Error(`${key} bounds look wrong: ${JSON.stringify(b)}`);
+    }
+    // The manifest is the editor's picking truth: ranges must tile the geometry exactly.
+    const manifest = geo.userData.manifest;
+    let cursor = 0;
+    for (const part of manifest) {
+      if (part.start !== cursor || part.count <= 0) throw new Error(`${key} manifest has a gap at ${part.name}`);
+      cursor += part.count;
+    }
+    if (cursor !== geo.attributes.position.count) throw new Error(`${key} manifest does not cover the geometry`);
+    if (new Set(manifest.map((p) => p.name)).size !== manifest.length) throw new Error(`${key} manifest repeats a name`);
+    if (partAtFace(manifest, 0) !== 'body') throw new Error(`${key} face 0 should belong to the body`);
+    geo.dispose();
+  }
+  // A part colour override must actually land in the baked vertex colours.
+  {
+    const geo = buildVehicleGeometry({ ...PRESETS.sedan, partColors: { body: '#ff0000' } });
+    const c = geo.attributes.color;
+    if (!(Math.abs(c.getX(0) - 1) < 1e-4 && c.getY(0) < 1e-4)) throw new Error('partColors override did not bake');
+    geo.dispose();
+  }
+  // A wrecked profile must degrade to the rectangle, and a real one must change the shape.
+  {
+    const junk = normalizeSpec({ body: { profile: [[9, 'x'], [null], 3] } });
+    if (junk.body.profile.length !== 4) throw new Error('junk profile did not fall back to the rectangle');
+    const wedge = buildVehicleGeometry(PRESETS.sports);
+    wedge.computeBoundingBox();
+    if (!(wedge.boundingBox.max.y < 1.9)) throw new Error('sports wedge lost its chopped roofline');
+    wedge.dispose();
+  }
+  // Obtuse angles: a chain that doubles back (a nose jutting at mid-height) is legal as long
+  // as the outline stays simple; a chain that folds through itself gets repaired, not kept.
+  {
+    const nose = normalizeSpec({ body: { profile: [[0.4, 0], [0.5, 0.45], [0.3, 1], [-0.5, 1], [-0.5, 0]] } });
+    if (!(nose.body.profile[1][0] > nose.body.profile[0][0])) {
+      throw new Error('simple doubled-back chain was flattened to monotonic');
+    }
+    buildVehicleGeometry(nose).dispose();
+    const crossed = normalizeSpec({ body: { profile: [[0.5, 0], [-0.5, 1], [0.5, 1], [-0.5, 0]] } });
+    for (let i = 1; i < crossed.body.profile.length; i++) {
+      if (crossed.body.profile[i][0] > crossed.body.profile[i - 1][0] + 1e-9) {
+        throw new Error('crossing chain survived sanitisation un-repaired');
+      }
+    }
+    buildVehicleGeometry(crossed).dispose();
+  }
+  // Cabin and cargo silhouettes: a drawn chain builds, and cargo shape controls move the mesh.
+  {
+    const shaped = buildVehicleGeometry({
+      ...PRESETS.boxtruck,
+      cabin: { ...PRESETS.boxtruck.cabin, profile: [[0.5, 0], [0.1, 1], [-0.5, 0.9], [-0.5, 0]] },
+      cargo: { ...PRESETS.boxtruck.cargo, boxOverhang: 0.5, profile: [[0.5, 0], [0.5, 1], [-0.45, 1], [-0.5, 0.6], [-0.5, 0]] },
+    });
+    shaped.computeBoundingBox();
+    if (!(shaped.boundingBox.min.x < -(4.9 / 2) - 0.4)) throw new Error('box overhang did not extend past the bumper');
+    shaped.dispose();
+  }
+  // Wheel controls: the segment count must reach the cylinders, the colour must bake.
+  {
+    const coarse = buildVehicleGeometry({ ...PRESETS.sedan, wheels: { ...PRESETS.sedan.wheels, segments: 6 } });
+    const fine = buildVehicleGeometry({ ...PRESETS.sedan, wheels: { ...PRESETS.sedan.wheels, segments: 16 } });
+    if (coarse.attributes.position.count >= fine.attributes.position.count) {
+      throw new Error('wheel segments did not change the mesh');
+    }
+    coarse.dispose();
+    const red = buildVehicleGeometry({ ...PRESETS.sedan, colors: { ...PRESETS.sedan.colors, wheels: '#ff0000' } });
+    const wheels = red.userData.manifest.find((p) => p.name === 'wheels');
+    if (!(red.attributes.color.getX(wheels.start) > 0.9)) throw new Error('wheel colour did not bake');
+    red.dispose();
+    fine.dispose();
+  }
+  const sedan = buildVehicleGeometry(PRESETS.sedan);
+  sedan.computeBoundingBox();
+  const s = sedan.boundingBox;
+  // carGeometry() after the doubled wheels and CHASSIS_LIFT: body 3.4 long, cabin roof at
+  // 1.45 + 0.32 + 0.3 = 2.07, wheels on the road and proud of the flanks — outer tread face at
+  // ±(0.85 + WHEEL_PROUD) = ±0.96, same as it always was, because wheels anchor by that face.
+  const near = (a, b) => Math.abs(a - b) < 1e-4;
+  if (!(near(s.max.x, 1.7) && near(s.min.x, -1.7) && near(s.max.z, 0.96) && near(s.max.y, 2.07) && near(s.min.y, 0))) {
+    throw new Error(`sedan drifted from the game car: ${JSON.stringify(s)}`);
+  }
+  sedan.dispose();
+  // A malformed import must degrade to a buildable car, and a random roll must always build.
+  buildVehicleGeometry(normalizeSpec({ body: { len: 999, width: 'nope' }, cargo: { type: 'lorry' } })).dispose();
+  for (let i = 0; i < 20; i++) buildVehicleGeometry(randomSpec()).dispose();
+  console.log(`ok    carkit   ${Object.keys(PRESETS).length} presets build · sedan matches the game car`);
+} catch (error) {
+  failed += 1;
+  console.log(`FAIL  carkit   ${error.message}`);
 }
 
 for (const tool of TOOLS) {

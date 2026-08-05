@@ -23,6 +23,7 @@ about to change.
 | [docs/traffic.md](docs/traffic.md) | Signals, arterials, ring road, car physics, boost, police corridor, the bust chase |
 | [docs/gameplay.md](docs/gameplay.md) | Fare loop, routing, picking, timer ring, economy |
 | [docs/rendering.md](docs/rendering.md) | Low-poly technique, camera, lighting, day/night, effects |
+| [docs/editor.md](docs/editor.md) | The vehicle editor at `/editor.html`, the parametric car kit |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
 
 ## Commands
