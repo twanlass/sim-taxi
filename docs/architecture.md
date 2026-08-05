@@ -34,7 +34,7 @@ src/
     dust.js             instanced dust puffs
     sparks/smoke/debris/flames.js   the crash detonation, one set fired per wrecked car
     vanish.js           shrink-and-fade for wrecked bodywork, so it is consumed not deleted
-    runend.js           the retry screen: staggered reveal + counting stats
+    runend.js           the run-end blackout: staggered reveal + counting stats
 
   geometry/             one-off models, all procedural
     taxi.js  wheels.js  marker.js  person.js  ridermeter.js

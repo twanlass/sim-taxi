@@ -379,17 +379,30 @@ transition into Loco Mode and not on a re-press during a boost that's already ru
 ## The run-end screen
 
 `src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
-clock hitting zero, a collision, a police bust — and all three land on the same card: a title, the
-reason, four stats, and Retry. The title is set by the caller, so a bust reads **Busted** while a
-timeout and a wreck read **Game Over**.
+clock hitting zero, a collision, a police bust — and all three land on the same screen: a title, the
+reason, four stats, and **Play again**. The title is set by the caller, so a bust reads **Busted**
+while a timeout and a wreck read **Game Over**.
+
+It is a **full-screen blackout**, not a modal over the city. An earlier pass dimmed the world and
+floated a blurred card on top of it, and the card's edges turned out to be the loudest thing on the
+screen. Blacking the whole viewport out puts the run's numbers on nothing at all, which is what
+makes them the ending rather than an overlay on one.
+
+The stats are **one vertical column**, and each stat's label and value are set in the *same* size,
+weight and colour. A small grey caption over a big yellow number made the label read as chrome and
+the number as the content, when the pairing is the content; matched type turns each stat into one
+two-line phrase — "Fares / 9" — and the column reads as a list being counted out, which is what the
+stagger is doing. Type and rhythm scale off viewport *height* (`clamp(…vh…)`), because the column
+is tall: it is a short viewport — a landscape phone — that runs it off the screen, never a narrow
+one.
 
 **Nothing appears at once.** The card is revealed as a sequence, because the version before this
 one wrote a single line of `innerHTML` and the whole screen arrived in one frame — which reads as
 the game stopping rather than as a scoreboard. The order is title → reason → each stat in turn →
-Retry, off one stride constant (`STAT_STRIDE`), and each stat's label **scales down** into place
-as it fades up before its number rolls from zero. A number that rolls gets read; a number that is
-printed gets skipped past on the way to the button. Retry is last on purpose, appearing only once
-the final stat has finished counting, so the player isn't invited to leave mid-tally.
+**Play again**, off one stride constant (`STAT_STRIDE`), and each stat's label **scales down** into
+place as it fades up before its number rolls from zero. A number that rolls gets read; a number that
+is printed gets skipped past on the way to the button. The button is last on purpose, appearing only
+once the final stat has finished counting, so the player isn't invited to leave mid-tally.
 
 The whole cadence is ~2.1s and lives in the timeline constants at the top of the module rather
 than in CSS keyframe delays, so it can be re-paced from one place and so the stagger works for
@@ -406,7 +419,7 @@ with no entrance and no roll — the stagger is the entire module, so there is n
 Both traffic stats are taxi-only, accumulate over the whole run, and are never reset — a run ends
 by reloading the page. They exist for this card and nothing in the sim reads them, which is exactly
 why `tools/probe.mjs` asserts them: a counter that quietly stopped incrementing would otherwise
-only show up on the retry screen at the end of somebody's run.
+only show up on the run-end screen at the end of somebody's run.
 
 **Red lights are counted per light, not per frame.** The junction is stamped on the taxi the first
 time a red holds it and cleared when the turn commits, so sitting at one light for four seconds is

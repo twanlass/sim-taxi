@@ -1,25 +1,25 @@
 /**
- * The run-end overlay: a title, a reason, four stats, and the retry button — revealed as a
- * sequence rather than all at once.
+ * The run-end overlay — a title, a reason, four stats and a play-again button on a full-screen
+ * blackout — revealed as a sequence rather than all at once.
  *
  * The old version wrote one line of `innerHTML` and the whole screen appeared in a single frame,
  * which read as "the game stopped" rather than as a scoreboard. Everything here is about giving
  * the run a curtain call: the title lands first, the reason follows it, then each stat's label
  * drops in and only *then* does its number roll up from zero. A number that rolls is a number
- * that gets read; a number that is simply printed gets skipped past on the way to Retry.
+ * that gets read; a number that is simply printed gets skipped past on the way to the button.
  *
  * Every beat is driven from the timeline constants below rather than from CSS keyframe delays, so
  * the whole cadence can be re-paced from one place and so the stat rows — however many there are —
- * stagger off a single stride. The retry button is deliberately last: it appears once the final
- * number has finished counting, so the player isn't invited to leave mid-tally.
+ * stagger off a single stride. The play-again button is deliberately last: it appears once the
+ * final number has finished counting, so the player isn't invited to leave mid-tally.
  *
  * The DOM is rebuilt on every call. This runs once per run, so nothing here is pooled or reused.
  */
 
 // --- The timeline, in ms ----------------------------------------------------
-// Tuned as a whole: the overlay is up for ~2.1s before Retry appears, which is long enough to read
-// four numbers and short enough that a player who already knows what they say isn't held hostage.
-const REVEAL_MS = 300;        // the dim behind the card
+// Tuned as a whole: the overlay is up for ~2.1s before the button appears, which is long enough to
+// read four stats and short enough that a player who already knows what they say isn't held hostage.
+const REVEAL_MS = 300;        // the blackout coming up behind everything else
 const TITLE_AT = 110;
 const REASON_AT = 250;
 const STATS_AT = 470;
@@ -36,7 +36,7 @@ const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)'
 
 /**
  * Rise-and-settle: up from below, slightly small, into place. The shared entrance for the title,
- * the reason and the retry button, so the three read as one family of moves.
+ * the reason and the play-again button, so the three read as one family of moves.
  */
 function riseIn(el, delay, { from = 14, scale = 0.94, duration = 520 } = {}) {
   el.animate([
@@ -46,10 +46,11 @@ function riseIn(el, delay, { from = 14, scale = 0.94, duration = 520 } = {}) {
 }
 
 /**
- * A stat's label: big and faint, shrinking into its final size as it fades up. Scaling *down* into
- * place (rather than up) is what makes the word feel like it is settling onto the card instead of
- * being pushed at the player, and it leaves the number below it as the only thing still moving
- * once the label has landed.
+ * A stat's label: oversized and transparent, shrinking into its final size as it fades up. Scaling
+ * *down* into place (rather than up) is what makes the word feel like it is settling onto the screen
+ * instead of being pushed at the player, and it leaves the number below it as the only thing still
+ * moving once the label has landed. Label and value are set in the same type, so the pair reads as
+ * one two-line phrase — "Fares / 9" — rather than as a caption over a figure.
  */
 function scaleDownIn(el, delay) {
   el.animate([
@@ -64,8 +65,8 @@ function scaleDownIn(el, delay) {
  * on a scale pop that says "this is the number".
  *
  * Very small values still take the full COUNT_MS — a "3" that counts 0-1-2-3 over half a second
- * reads as deliberate, whereas scaling the duration to the value made the fares column flick and
- * the cash column linger, and the four stats stopped feeling like one row.
+ * reads as deliberate, whereas scaling the duration to the value made Fares flick past while Cash
+ * laboured through three digits, and the four stats stopped feeling like one list.
  */
 function countUp(el, value, format, delay) {
   const t0 = performance.now() + delay;
@@ -105,8 +106,8 @@ export function showRunEnd(root, { title, reason, stats, onRetry }) {
   sub.className = 'run-end-reason';
   sub.textContent = reason ?? '';
 
-  const grid = document.createElement('div');
-  grid.className = 'run-end-stats';
+  const column = document.createElement('div');
+  column.className = 'run-end-stats';
 
   const cells = stats.map((stat) => {
     const cell = document.createElement('div');
@@ -116,21 +117,21 @@ export function showRunEnd(root, { title, reason, stats, onRetry }) {
     label.textContent = stat.label;
     const value = document.createElement('span');
     value.className = 'stat-value';
-    // Placeholder text before the roll starts, so the card is already at its final height when it
-    // fades in — a grid that grows as numbers arrive would shove the retry button down the screen.
+    // Placeholder text before the roll starts, so the column is already at its final height when
+    // it fades in — rows that grew as numbers arrived would shove the button down the screen.
     value.textContent = stat.format(0);
     cell.append(label, value);
-    grid.append(cell);
+    column.append(cell);
     return { label, value, stat };
   });
 
   const retry = document.createElement('button');
   retry.type = 'button';
   retry.className = 'retry';
-  retry.textContent = 'Retry';
+  retry.textContent = 'Play again';
   retry.addEventListener('click', onRetry);
 
-  card.append(heading, sub, grid, retry);
+  card.append(heading, sub, column, retry);
   root.append(card);
 
   const lastStatAt = STATS_AT + Math.max(0, cells.length - 1) * STAT_STRIDE;
