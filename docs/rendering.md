@@ -264,7 +264,12 @@ invisible when the corner *was* the notch, obvious across a ten-step arc.
 
 ### Pin outline and bounce — `geometry/marker.js`
 
-The destination pin is outlined by an **inverted hull**: the same geometry drawn a little larger
+The destination pin is a **floating head and nothing else** — an octahedron at y = 9.6 over the
+target ring on the kerb. It stood on a gold post until that shaft was cut; the head alone is the
+cleaner read and it is what the eye tracked anyway. The head kept its height, so the marker still
+occupies the same slot in the skyline and no framing moved.
+
+The head is outlined by an **inverted hull**: the same geometry drawn a little larger
 with `side: BackSide` and a black basic material, so the enlarged back faces sit behind the real
 surface everywhere except around the silhouette. Cheaper than a post-processing edge pass and it
 needs no render targets — this is one small object, not a whole-scene effect. Each hull is a *child*
@@ -274,9 +279,9 @@ of the mesh it wraps, so it inherits animation for free.
 board — the rider currently aboard — so there is nothing for a per-fare hue to tell it apart from,
 and by the time it is drawn the taxi is already driving at it.
 
-| Head | Post | Ring on the tarmac |
-|---|---|---|
-| `#F5C130` | `#E0AE2A` | `routeLine` `#FFE873` |
+| Head | Ring on the tarmac |
+|---|---|
+| `#F5C130` | `routeLine` `#FFE873` |
 
 Yellow is the taxi's own, so the pin is part of the same "this is the job" statement the car and the
 route band are making. The ring is exactly `routeLine`, the paint the band running into it is drawn
@@ -294,27 +299,22 @@ The fare's own colour still lives on the taxi's roof sign — see
 [gameplay.md](gameplay.md#fare-colours). `?shot=10` frames the pin on its kerb corner; it was added
 to catch the untapped state and now simply shows the pin close up, which no other shot does.
 
-The post carries a low **emissive** (0.18 of its colour, against the head's 0.35). It is the only
-post that is ever visible — a waiting rider's figure replaces theirs — and the fixed camera sees
-the face turned *away* from the sun, so pure Lambert shaded the `#E0AE2A` pole down to
-rgb(110, 68, 6): a brown stick under a gold head. With the lift it lands at rgb(152, 106, 19).
-
-The post's hull is scaled `(1.6, 1, 1.6)` — widened but not lengthened, because a uniform scale
-would push its end caps past the post's own, and both ends are meant to stay tucked (one in the
-ground, one inside the head).
+The head carries an **emissive** at 0.35 of its colour. The fixed camera sees the face turned *away*
+from the sun, and pure Lambert on its own shades that face a long way down — the lift keeps the
+crystal reading as its own hue rather than as a dark facet.
 
 The head bounces on `Math.abs(Math.sin(t * 3.4)) * 0.45`: never below the rest position, with a
-sharp cusp at the bottom that reads as a landing rather than a float. **Only the head hops** —
-lifting the whole pin would pull its foot off the pavement. Amplitude is bounded by the 0.8 units
-of overlap between head and post top; at 0.45 the head bottom peaks at 8.15 against a post top of
-8.50, so no gap ever opens. It freezes while hidden, which keeps screenshots deterministic.
+sharp cusp at the bottom that reads as a landing rather than a float. The amplitude used to be
+bounded by the 0.8 units of overlap between head and post top; with the post gone nothing constrains
+it but taste, and 0.45 is what the motion was tuned at. It freezes while hidden, which keeps
+screenshots deterministic.
 
 The drop-off's target ring is **filled in**, at the route band's own `ROUTE_OPACITY` — the band on
 the road and the disc at the end of it are one statement in two places, and at different weights one
 reads as the louder half. Depth-tested like the band, so a car crossing the junction drives over the
 disc rather than the disc painting across the car. Being translucent puts it in the transparent
-queue, so its far half washes up over the base of the post at its centre; that is invisible because
-the post is the same yellow one shade down.
+queue, which used to wash its far half up over the base of the post at its centre; with the post
+gone nothing stands in the disc for it to wash over.
 
 ### Rider meter — `geometry/ridermeter.js`
 

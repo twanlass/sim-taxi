@@ -58,7 +58,6 @@ export const PALETTE = {
   // A waiting passenger is deliberately colourless — before pickup any taxi could take any rider,
   // so a colour there would imply a commitment that doesn't exist yet.
   passenger: '#FFFFFF',
-  passengerPost: '#8A9099',
 
   // The fare colour is assigned at pickup and shared by the taxi and that rider's destination.
   // With one taxi this is flavour; with several it is the whole read of the board — which car is
@@ -95,15 +94,11 @@ export const PALETTE = {
   // reading — the route band, the car and the place it is driving to are one colour saying "this is
   // the job".
   //
-  // Three weights: head, post one shade under it, and the ring on the tarmac lightened. The ring is
+  // Two weights: the head, and the ring on the tarmac lightened. (There was a third — a post one
+  // shade under the head — until the pin lost its shaft and became a floating head.) The ring is
   // `routeLine`, the exact paint the band leading into it is drawn in, so the band and the disc it
   // lands in are one mark rather than two yellows meeting at the kerb.
   destination: '#F5C130',
-  // A shade under the head so the hop reads against a static post. Only a shade: the face the
-  // camera sees is the one turned away from the sun, so lighting darkens it a long way on its own.
-  // #A97C1A was the first try and shaded down to rgb(110, 68, 6) — a muddy bronze stick under a
-  // gold head. With the post's emissive in geometry/marker.js this lands at rgb(152, 106, 19).
-  destinationPost: '#E0AE2A',
   // The taxi's own yellow, lightened. This used to be `select` as well, worn by a pool on the road
   // marking the taxi as selected; that pool is gone and the route band is the only thing wearing
   // it now. Yellow rather than white because white is the unclaimed-passenger marker.

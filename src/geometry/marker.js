@@ -5,19 +5,22 @@ import { ROUTE_OPACITY } from '../game/routeline.js';
 // Pickup and drop-off markers.
 //
 // A marker is two pieces with different jobs:
-//   - a tall pin on the pavement corner, for silhouette.
-//   - a flat ring on the kerb around that pin's base, so the pin and its "here" ring read as one
-//     object rather than a pole with a stray circle drawn on the road beside it.
+//   - a head floating over the pavement corner, for silhouette.
+//   - a flat ring on the kerb below it, so the head and its "here" ring read as one object rather
+//     than a crystal with a stray circle drawn on the road beneath it.
 //
 // The ring used to sit at the intersection centre — the idea being that a ring on the carriageway
-// would never be occluded — but it left a visible gap between the pole and the ring, and the eye
+// would never be occluded — but it left a visible gap between the marker and the ring, and the eye
 // couldn't tell they belonged to each other. Sharing the corner fixes that.
+//
+// The head used to sit on top of a gold post planted on the pavement. The post is gone: the head
+// alone is the cleaner read, and it is what the eye was tracking anyway. Its height is unchanged,
+// so the marker still occupies the same slot in the skyline and nothing about the framing moves.
 
-const PIN_H = 8.5;
+const HEAD_Y = 9.6;
 
-// The head hops rather than the whole pin. Lifting the post too would pull its foot off the
-// pavement and leave a visible gap; the head has 0.8 units of overlap with the post top to play
-// with, so anything up to about 0.5 stays seated.
+// The head hops around its rest height. `Math.abs(sin)` never dips below it, so the marker only
+// ever floats *up* from the height the ring below it implies.
 const BOUNCE_HEIGHT = 0.45;
 const BOUNCE_RATE = 3.4;
 
@@ -51,8 +54,8 @@ const RING_TUBE = 0.16;
  * junction should drive *over* the disc rather than the disc painting across the car.
  *
  * Being translucent puts the disc in three's transparent queue, which draws after every opaque
- * object regardless of order, so the far half of it washes up over the base of the post standing at
- * its centre. That is invisible in practice because the post is the same yellow one shade down.
+ * object regardless of order. That used to wash the far half of it up over the base of the post
+ * standing at its centre; with the post gone nothing stands in the disc for it to wash over.
  */
 function targetRing(colorHex) {
   const group = new THREE.Group();
@@ -82,7 +85,7 @@ function targetRing(colorHex) {
   return { group };
 }
 
-function marker(bodyColor, postColor, kind, buildStanding, ringColor = null) {
+function marker(bodyColor, kind, buildStanding, ringColor = null) {
   const group = new THREE.Group();
   group.name = kind;
 
@@ -99,33 +102,12 @@ function marker(bodyColor, postColor, kind, buildStanding, ringColor = null) {
   const ring = ringColor ? targetRing(ringColor) : null;
   if (ring) postGroup.add(ring.group);
 
-  // A marker can stand up as a signpost or as a figure; the ring below is identical either way.
+  // A marker can stand up as a floating head or as a figure; the ring below is identical either way.
   let standing = null;
   if (buildStanding) {
     standing = buildStanding();
     postGroup.add(standing.group);
   }
-
-  // Emissive like the head, at half its strength. Only the drop-off pin ever shows its post — a
-  // rider's figure replaces it — and the face the fixed camera sees is the one turned away from
-  // the sun, so pure Lambert shaded the gold pole down to rgb(110, 68, 6): a brown stick under a
-  // gold head. With the lift it renders at rgb(152, 106, 19), still shaded but still gold.
-  const post = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.3, 0.3, PIN_H, 6),
-    new THREE.MeshLambertMaterial({
-      color: new THREE.Color(postColor),
-      emissive: new THREE.Color(postColor),
-      emissiveIntensity: 0.18,
-      flatShading: true,
-    }),
-  );
-  post.position.y = PIN_H / 2;
-  post.visible = !buildStanding;
-  postGroup.add(post);
-
-  // Widened but not lengthened — a uniform scale would push the outline's end caps past the
-  // post's own, and both ends are meant to stay tucked (one in the ground, one inside the head).
-  post.add(outlineHull(post.geometry, new THREE.Vector3(1.6, 1, 1.6)));
 
   // Octahedron: reads clearly from straight above, unlike a sphere, and matches the crystal
   // vocabulary already used elsewhere in these prototypes.
@@ -138,7 +120,7 @@ function marker(bodyColor, postColor, kind, buildStanding, ringColor = null) {
       flatShading: true,
     }),
   );
-  const headBaseY = PIN_H + 1.1;
+  const headBaseY = HEAD_Y;
   head.position.y = headBaseY;
   head.castShadow = true;
   head.visible = !buildStanding;
@@ -147,7 +129,7 @@ function marker(bodyColor, postColor, kind, buildStanding, ringColor = null) {
   // Child of the head, so it inherits the bounce for free.
   head.add(outlineHull(head.geometry, new THREE.Vector3(1.12, 1.12, 1.12)));
 
-  for (const part of [post, head]) part.userData.pickable = kind;
+  head.userData.pickable = kind;
 
   // `Math.abs(sin)` rather than a plain sine: it never dips below the rest position, and the
   // sharp cusp at the bottom of each cycle reads as a landing instead of a float.
@@ -158,7 +140,7 @@ function marker(bodyColor, postColor, kind, buildStanding, ringColor = null) {
     head.position.y = headBaseY + Math.abs(Math.sin(bounce * BOUNCE_RATE)) * BOUNCE_HEIGHT;
   }
 
-  // Oversized invisible hit volume spanning both pieces — at full zoom-out the visible geometry
+  // Oversized invisible hit volume spanning head and ring — at full zoom-out the visible geometry
   // is only a few pixels across and would be miserable to tap.
   //
   // It has to cover the *junction* and the kerb corner, which are two different places: the box is
@@ -168,11 +150,14 @@ function marker(bodyColor, postColor, kind, buildStanding, ringColor = null) {
   // about 155px across at play zoom, comfortably past the 44px a fingertip needs — while still
   // being well inside the 20-unit block pitch, so two adjacent junctions can never both be hit.
   const HIT = 20;
+  // Tall enough to clear the head's top (9.6 + 1.9 radius + bounce) with room to spare, and it
+  // starts at the ground so a tap on the ring or on a standing figure lands too.
+  const HIT_H = 14.5;
   const hit = new THREE.Mesh(
-    new THREE.BoxGeometry(HIT, PIN_H + 6, HIT),
+    new THREE.BoxGeometry(HIT, HIT_H, HIT),
     new THREE.MeshBasicMaterial({ visible: false }),
   );
-  hit.position.y = (PIN_H + 6) / 2;
+  hit.position.y = HIT_H / 2;
   hit.userData.pickable = kind;
   group.add(hit);
 
@@ -180,7 +165,7 @@ function marker(bodyColor, postColor, kind, buildStanding, ringColor = null) {
 }
 
 export const createPassengerPin = (buildStanding) =>
-  marker(PALETTE.passenger, PALETTE.passengerPost, 'passenger', buildStanding);
+  marker(PALETTE.passenger, 'passenger', buildStanding);
 
 /**
  * The drop-off pin: the taxi's yellow, fixed at build time.
@@ -192,4 +177,4 @@ export const createPassengerPin = (buildStanding) =>
  * disc it lands in read as one mark.
  */
 export const createDestinationPin = () =>
-  marker(PALETTE.destination, PALETTE.destinationPost, 'destination', null, PALETTE.routeLine);
+  marker(PALETTE.destination, 'destination', null, PALETTE.routeLine);
