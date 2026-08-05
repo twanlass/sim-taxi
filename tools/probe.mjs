@@ -13,12 +13,14 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, laneKeyFor, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, laneKeyFor, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
   createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, SECOND_FARE_AFTER,
 } from '../src/game/fares.js';
+import { createDestinationPin } from '../src/geometry/marker.js';
+import { createCityCamera, attachDragPan } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { DISTANCE_TIERS, distanceTier } from '../src/game/triptier.js';
 import { planOrigin } from '../src/game/route.js';
@@ -435,6 +437,8 @@ check('no two cars occupy the same space', worst > 1.6,
   let leakedPin = 0;
   let pinHiddenAtPickup = 0;
   let selectionOutOfStep = 0;
+  let pinOutOfStep = 0;
+  let pinSelectedAtPickup = 0;
   let pickups = 0;
   let stillMetered = 0;
   let wrongTier = 0;
@@ -470,15 +474,24 @@ check('no two cars occupy the same space', worst > 1.6,
         if (fare.target.i !== fare.dropoff.i || fare.target.j !== fare.dropoff.j) movedAtPickup += 1;
         if (fare.slot.meter.group.visible) stillMetered += 1;
         if (!fare.slot.destination.group.visible) pinHiddenAtPickup += 1;
+        // A pin arrives asking the question. The taxi parks at the kerb until it is tapped, so a
+        // drop-off that appeared already yellow would be claiming an instruction nobody gave — and
+        // on a reused slot that is exactly what the last fare left behind.
+        if (fare.slot.destination.isSelected()) pinSelectedAtPickup += 1;
       }
     }
 
-    // Sampled here, before aim() can direct anything: at this point every waiting fare's meter has
-    // just been ticked against the `directed` it had going into the frame, so the ring and the flag
-    // must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
+    // Sampled here, before aim() can direct anything: at this point every fare's marker has just
+    // been ticked against the `directed` it had going into the frame, so the two must agree
+    // exactly. Doing it after aim() would flag the one-frame lag as a bug.
     for (const f of fares.state.fares) {
-      if (f.stage !== 'waiting') continue;
-      if (f.slot.meter.isSelected() !== f.directed) selectionOutOfStep += 1;
+      if (f.stage === 'waiting') {
+        if (f.slot.meter.isSelected() !== f.directed) selectionOutOfStep += 1;
+      } else if (f.slot.destination.isSelected() !== f.directed) {
+        // The same rule one stage on: the pin is teal while it is still asking where to go and
+        // yellow once the player has answered, so its state is `directed` and nothing else.
+        pinOutOfStep += 1;
+      }
     }
 
     aim();
@@ -513,6 +526,42 @@ check('no two cars occupy the same space', worst > 1.6,
   // one", which matters most on a board with two riders waiting.
   check('the selection ring tracks whether the taxi was sent', selectionOutOfStep === 0,
     `${selectionOutOfStep} frames out of step`);
+  // The pin's own colour is the other half of the same statement, and the one the player is looking
+  // at while the taxi sits parked waiting to be told where to go.
+  check('the drop-off pin arrives unselected', pickups > 0 && pinSelectedAtPickup === 0,
+    `${pinSelectedAtPickup} of ${pickups} already yellow`);
+  check('the drop-off pin tracks whether the taxi was sent', pinOutOfStep === 0,
+    `${pinOutOfStep} frames out of step`);
+
+  // --- The two colours themselves.
+  //
+  // Every check above reads the boolean, which would stay perfectly in step even if both states
+  // painted the same colour — so read the materials back. Head, post and ring all have to move
+  // together: a ring left on the resting teal under a yellow head is a marker in two minds, and
+  // the emissive has to follow the base colour or the pin lights in the hue it used to be.
+  {
+    const pin = createDestinationPin();
+    const read = () => [
+      pin.head.material.color.getHexString(),
+      pin.head.material.emissive.getHexString(),
+      pin.ring.group.children.map((m) => m.material.color.getHexString()).join('/'),
+    ].join(' ');
+    const resting = read();
+    pin.setSelected(true);
+    const chosen = read();
+    pin.setSelected(false);
+
+    const hex = (c) => new THREE.Color(c).getHexString();
+    check('an untapped drop-off is teal',
+      resting === `${hex(PALETTE.destination)} ${hex(PALETTE.destination)} `
+        + `${hex(PALETTE.destinationRing)}/${hex(PALETTE.destinationRing)}`, resting);
+    // Yellow, and specifically the route band's own yellow on the tarmac — the band and the disc it
+    // ends in are one mark of paint, not two that happen to be near each other.
+    check('a tapped drop-off is the taxi\'s yellow',
+      chosen === `${hex(PALETTE.destinationSelected)} ${hex(PALETTE.destinationSelected)} `
+        + `${hex(PALETTE.routeLine)}/${hex(PALETTE.routeLine)}`, chosen);
+    check('and it goes back', read() === resting);
+  }
   check('no two live fares share a colour', sharedColour === 0, `${sharedColour} frames`);
   check('no two fares claim the same junction', sharedJunction === 0, `${sharedJunction} frames`);
 
@@ -1235,6 +1284,105 @@ check('the taxi is an ordinary car in the traffic array',
     `${(corridorLock * 180 / Math.PI).toFixed(1)}° peak on the rail`);
   check('the cruiser steers into the chase', chaseLock > 0.3 && Math.abs(rigLock - chaseLock) < 1e-9,
     `rig ${(rigLock * 180 / Math.PI).toFixed(0)}° vs model ${(chaseLock * 180 / Math.PI).toFixed(0)}°`);
+}
+
+// --- The pan gesture, and the opening follow-cam it hands off from ----------
+// A run opens with the camera trailing the taxi and stops the moment the player swipes, so the
+// whole handover hangs on `attachDragPan` deciding a press *became* a drag — the same 8px boundary
+// that decides tap-versus-pan. Both halves are silent when wrong: a slop that fires too eagerly
+// takes the camera off the taxi on the finger travel of an ordinary tap, and one that never fires
+// leaves the follow towing the map back off wherever the player just swiped to.
+//
+// This runs on a stub element rather than a DOM, which is enough: attachDragPan only ever calls
+// addEventListener, setPointerCapture and clientHeight on it.
+{
+  const listeners = new Map();
+  const el = {
+    clientHeight: 800,
+    addEventListener: (type, fn) => listeners.set(type, [...(listeners.get(type) ?? []), fn]),
+    setPointerCapture: () => {},
+    releasePointerCapture: () => {},
+  };
+  const fire = (type, x, y) => {
+    for (const fn of listeners.get(type) ?? []) fn({ isPrimary: true, pointerId: 1, clientX: x, clientY: y });
+  };
+
+  const cam = createCityCamera(1.5, { zoom: 52 });
+  let released = 0;
+  const dragPan = attachDragPan(cam, el, () => 1.5, () => true, () => { released += 1; });
+
+  // A tap with a few pixels of finger travel: still a tap. Nothing moves, and the follow-cam keeps
+  // the taxi — this is the case that made a fixed camera necessary in the first place.
+  const before = cam.state.target.clone();
+  fire('pointerdown', 400, 300);
+  fire('pointermove', 402, 301);
+  fire('pointermove', 403, 302);
+  fire('pointerup', 403, 302);
+  check('a tap leaves the camera alone', released === 0 && !dragPan.didPan()
+    && cam.state.target.equals(before), `${released} releases`);
+
+  // A real swipe: the map moves and the player owns the framing from here.
+  fire('pointerdown', 400, 300);
+  fire('pointermove', 430, 340);
+  fire('pointermove', 470, 380);
+  fire('pointerup', 470, 380);
+  check('a swipe hands the camera to the player', released === 1 && dragPan.didPan()
+    && !cam.state.target.equals(before), `${released} releases`);
+  // Once per gesture, not once per move event — the callback is what a run's opening follow-cam is
+  // switched off by, and a second one arriving mid-drag would be a bug hidden by idempotence.
+  fire('pointerdown', 400, 300);
+  fire('pointermove', 460, 360);
+  fire('pointermove', 480, 380);
+  fire('pointerup', 480, 380);
+  check('each swipe reports once', released === 2, `${released} releases over 2 swipes`);
+}
+
+// --- The run summary's stats -----------------------------------------------
+// Both numbers are for the retry screen and nothing else, which is exactly why they are checked
+// here: nothing in the sim reads them, so a counter that silently stopped incrementing (or one
+// that ticked every frame instead of every light) would never show up anywhere but on the card at
+// the end of somebody's run.
+{
+  const rScene = new THREE.Scene();
+  const rTraffic = createTraffic(makeRng(seed + 44), rScene, CARS_DEFAULT);
+  const rTaxi = rTraffic.taxi;
+  rTraffic.warmup(5);
+
+  // Junction crossings, counted independently of the stat: a red is only ever met on the approach
+  // to one, so reds can never legitimately outnumber them.
+  let crossings = 0;
+  let wasTurning = rTaxi.state === 'turn';
+  // Frames the taxi spent held at a line — the count a per-frame bug would produce instead.
+  let heldFrames = 0;
+
+  for (let step = 0; step < 60 * 150; step++) {
+    rTraffic.update(1 / 60);
+    const turning = rTaxi.state === 'turn';
+    if (turning && !wasTurning) crossings += 1;
+    wasTurning = turning;
+    if (!turning && rTaxi.v < 0.05) heldFrames += 1;
+  }
+
+  const reds = rTraffic.stats.taxiRedLights;
+  check('the run counts red lights', reds > 0, `${reds} reds over ${crossings} junctions`);
+  check('a red counts once, not once per frame', reds <= crossings && reds < heldFrames,
+    `${reds} reds vs ${crossings} junctions and ${heldFrames} held frames`);
+
+  // Cruise is 8.5 and the taxi is not boosting here, so the top speed has to sit at cruise: high
+  // enough that it is being sampled at all, and no higher.
+  const cruiseTop = rTraffic.stats.taxiTopSpeed;
+  check('top speed tracks the taxi at cruise', cruiseTop > 8 && cruiseTop < 9,
+    `${cruiseTop.toFixed(2)} units/s = ${speedMph(cruiseTop)} mph`);
+
+  rTaxi.boost = true;
+  for (let step = 0; step < 60 * 40; step++) rTraffic.update(1 / 60);
+  const boostTop = rTraffic.stats.taxiTopSpeed;
+  check('top speed follows Loco Mode up', boostTop > cruiseTop + 6,
+    `${cruiseTop.toFixed(1)} -> ${boostTop.toFixed(1)} units/s`);
+  // The whole point of the unit is that a player recognises it: city cruise and a fast run, not
+  // 8.5 of something.
+  check('top speed reads as a plausible mph', speedMph(boostTop) >= 45 && speedMph(boostTop) <= 60,
+    `${speedMph(boostTop)} mph`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

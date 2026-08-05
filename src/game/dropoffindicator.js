@@ -4,8 +4,12 @@ import * as THREE from 'three';
 //
 // When a fare is aboard the destination pin can sit behind the viewport edge — the map is bigger
 // than the frame on portrait and the player has been panning. Losing sight of where to drive at
-// costs a beat. This arrow rides the viewport edge in the drop-off pin's own yellow, pointing at
+// costs a beat. This arrow rides the viewport edge in the drop-off pin's own colour, pointing at
 // the pin the taxi is meant to reach, so the direction is always readable from the HUD.
+//
+// It wears the pin's *state* as well as its colour — teal while the drop-off is still waiting to be
+// tapped, the taxi's yellow once it has been. An arrow that stayed one colour would be the one
+// place on screen still asking the question the player has already answered.
 //
 // The indicator only shows for a *riding* fare, which is also the only fare with a drop-off pin on
 // the map: a waiting rider's destination stays hidden until they board. One pointer, aimed at the
@@ -20,6 +24,7 @@ export function createDropoffIndicator({ camera, pinLocation }) {
 
   const projected = new THREE.Vector3();
   let visible = false;
+  let selected = false;
 
   function setVisible(next) {
     if (visible === next) return;
@@ -28,12 +33,21 @@ export function createDropoffIndicator({ camera, pinLocation }) {
   }
   setVisible(false);
 
+  // Same yellow-once-tapped rule as the pin it stands in for; see geometry/marker.js.
+  function setSelected(next) {
+    if (selected === next) return;
+    selected = next;
+    el.classList.toggle('is-selected', next);
+  }
+
   function update(fare) {
     // No pointer for a waiting rider: their meter and their finder chip already handle that job.
     if (!fare || fare.stage !== 'riding') {
       setVisible(false);
       return;
     }
+
+    setSelected(Boolean(fare.directed));
 
     const w = window.innerWidth;
     const h = window.innerHeight;

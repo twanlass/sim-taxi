@@ -120,8 +120,13 @@ const PAN_LIMIT = HALF_SPAN;
  * whether the gesture became a drag so the picker can ignore the click that follows one. Callers
  * can pass `isEnabled` to disable panning on wide viewports where the whole city already fits —
  * kept as a live check so a resize re-enables it without a reload.
+ *
+ * `onPan` fires once per gesture, on the frame it crosses the slop. It is how the opening
+ * follow-cam knows the player has taken the framing over — a swipe is the player saying they want
+ * to look somewhere, and nothing should drag them back off it.
  */
-export function attachDragPan(controller, domElement, getAspect, isEnabled = () => true) {
+export function attachDragPan(controller, domElement, getAspect, isEnabled = () => true,
+  onPan = () => {}) {
   let drag = null;
   let panned = false;
 
@@ -156,6 +161,9 @@ export function attachDragPan(controller, domElement, getAspect, isEnabled = () 
     drag.y = event.clientY;
     if (drag.moved < PAN_SLOP) return;
 
+    // First frame past the slop is the moment the gesture becomes a drag; `panned` is reset on
+    // every pointerdown, so this is once per gesture rather than once per move event.
+    if (!panned) onPan();
     panned = true;
     // World units per pixel falls straight out of the orthographic frustum: its height is
     // exactly 2 * zoom, whatever the aspect ratio. Vertical isn't drag-the-map: swipe up pans

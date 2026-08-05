@@ -37,6 +37,13 @@ export { WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries };
 
 const SPEED = 8.5;
 
+// World units are metres-ish: CAR_LEN is 3.4 against a real compact at ~4.4m, so one unit is
+// about 1.29m and one u/s about 2.9mph. Nothing in the sim needs this — it exists so the run
+// summary can report a top speed in a unit a player has a feel for. It lands the numbers where
+// you'd want them anyway: cruise 8.5 → 25mph, Loco Mode 18.7 → 54mph.
+export const MPH_PER_UNIT = 2.9;
+export const speedMph = (v) => Math.round(v * MPH_PER_UNIT);
+
 // Loco Mode weave. The boosting taxi used to pull a full LANE out onto the road centreline to
 // overtake, and that is what made the mode a lottery rather than a skill: on the centreline it
 // sits 2 units from a same-direction leader and 2 from oncoming traffic, while the collision
@@ -528,6 +535,10 @@ function spawnCars(rng, count) {
       // the auto-play soak — releases it just by giving the car somewhere to go.
       parked: false,
       isTaxi: false,
+      // Which red this car is currently sitting at, `i,j,d`. Only the taxi reads it, and only so
+      // the run summary counts one red per light rather than one per frame spent at it. Cleared
+      // the moment the turn is committed, so coming back to the same junction counts again.
+      heldKey: null,
       instanceIndex: -1,
       x: 0, z: 0, yaw: dirYaw(d),
       // Impact state, set by src/sim/collisions.js on both cars in a crash and never cleared —
@@ -669,6 +680,9 @@ export function createTraffic(rng, scene, count = 24) {
   const stats = {
     time: 0, violations: 0, minGap: Infinity, moving: 0, waiting: 0,
     distance: 0, routeDesync: 0, rightOnRed: 0,
+    // Run summary, taxi only — see the run-end overlay. Both accumulate over the whole run and
+    // are never reset, because a run ends by reloading the page.
+    taxiTopSpeed: 0, taxiRedLights: 0,
   };
 
   const matrix = new THREE.Matrix4();
@@ -806,6 +820,11 @@ export function createTraffic(rng, scene, count = 24) {
       taxi.v = Math.max(taxi.v, SPEED * BOOST_KICK);
     }
     taxi.wasBoosting = taxi.boost;
+
+    // Sampled before this frame's physics, so the number is a speed the taxi actually held for a
+    // whole step rather than one it was assigned and then immediately clamped out of. A wrecked
+    // taxi is excluded: the crash leaves `v` wherever the impact left it.
+    if (taxiActive) stats.taxiTopSpeed = Math.max(stats.taxiTopSpeed, taxi.v);
 
     // Weave inside the lane while boosting — the "he is driving like a maniac" tell, now that the
     // taxi holds its own lane instead of straddling the centreline.
@@ -1050,6 +1069,21 @@ export function createTraffic(rng, scene, count = 24) {
             }
           }
 
+          // Run summary: one tick per red the taxi actually meets, not one per frame spent sat at
+          // it — hence the junction stamped on the car and cleared when the turn commits. Read
+          // from the phase rather than from `green`, which also goes false for a junction held by
+          // a stranded car; that is a jam, not a red. Ring junctions have no phase to be red at.
+          // A right-on-red still counts: the light was red when the taxi reached the line.
+          if (car.isTaxi) {
+            const atRed = ring === null && !canProceed(car.d, car.i, car.j, t)
+              && !taxiClearsYellow(car, distToLine, t);
+            const redKey = `${car.i},${car.j},${car.d}`;
+            if (atRed && car.heldKey !== redKey) {
+              car.heldKey = redKey;
+              stats.taxiRedLights += 1;
+            }
+          }
+
           let dOut = null;
 
           if (viaRightOnRed) {
@@ -1188,6 +1222,7 @@ export function createTraffic(rng, scene, count = 24) {
             + Math.hypot(car.exit.x - car.control.x, car.exit.z - car.control.z),
           );
           car.state = 'turn';
+          car.heldKey = null;
           stats.moving += 1;
           continue;
         }

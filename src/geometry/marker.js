@@ -79,7 +79,14 @@ function targetRing(colorHex) {
   fill.renderOrder = 3;   // under the rim, so the rim still reads as an edge
   group.add(fill);
 
-  return { group };
+  // Both layers repaint together — the fill is the rim's own colour at the band's opacity, so a rim
+  // that changed on its own would read as a ring with a stale disc sitting inside it.
+  const setColor = (hex) => {
+    rim.material.color.set(hex);
+    fill.material.color.set(hex);
+  };
+
+  return { group, setColor };
 }
 
 function marker(bodyColor, postColor, kind, buildStanding, ringColor = null) {
@@ -94,7 +101,8 @@ function marker(bodyColor, postColor, kind, buildStanding, ringColor = null) {
   // The waiting rider gets no ring of its own — the fare's travelling timer sits under them.
   // The destination's ring lives on postGroup so it follows the pole to the kerb corner instead
   // of being stranded at the junction centre. Its own colour rather than the pin's: the disc is
-  // road paint and matches the route band, the pin above it is the solid yellow of the taxi.
+  // road paint, a lightened version of whatever the pin above it is wearing — and once the pin is
+  // selected, exactly the paint the route band running into it is drawn in.
   const ring = ringColor ? targetRing(ringColor) : null;
   if (ring) postGroup.add(ring.group);
 
@@ -175,11 +183,58 @@ function marker(bodyColor, postColor, kind, buildStanding, ringColor = null) {
   hit.userData.pickable = kind;
   group.add(hit);
 
-  return { group, ring, postGroup, head, standing, update };
+  /**
+   * Repaint the whole marker. Emissive tracks the colour on both meshes — it is a fraction of the
+   * base colour on each (see the two material blocks above), so leaving it behind would light a
+   * repainted pin in the old hue. The outline hulls are pure black and stay put.
+   */
+  function setColors({ body, post: postHex, ring: ringHex }) {
+    head.material.color.set(body);
+    head.material.emissive.set(body);
+    post.material.color.set(postHex);
+    post.material.emissive.set(postHex);
+    if (ring && ringHex) ring.setColor(ringHex);
+  }
+
+  return { group, ring, postGroup, head, standing, update, setColors };
 }
 
 export const createPassengerPin = (buildStanding) =>
   marker(PALETTE.passenger, PALETTE.passengerPost, 'passenger', buildStanding);
 
-export const createDestinationPin = () =>
-  marker(PALETTE.destination, PALETTE.destinationPost, 'destination', null, PALETTE.routeLine);
+// The two states of a drop-off. See palette.js for why they are these colours: teal is the pin
+// asking where to go, yellow is the taxi's own colour once you have answered it.
+const DESTINATION_RESTING = {
+  body: PALETTE.destination, post: PALETTE.destinationPost, ring: PALETTE.destinationRing,
+};
+const DESTINATION_SELECTED = {
+  body: PALETTE.destinationSelected, post: PALETTE.destinationSelectedPost, ring: PALETTE.routeLine,
+};
+
+/**
+ * The drop-off pin, which changes colour when the player sends the taxi at it.
+ *
+ * A drop-off appears the instant a rider boards, and the taxi *parks* until it is tapped — so for
+ * that stretch the pin is a question rather than an instruction, and it wears teal. The tap turns
+ * it the taxi's yellow, joining the route band that appears on the road in the same frame. The
+ * colour change is also the acknowledgement of the tap itself: on a phone the band can be drawn
+ * entirely off-screen, and the pin is what the finger was already on.
+ *
+ * `setSelected` early-outs on no change so the per-frame reconcile in fares.js — which calls it
+ * every frame a fare is aboard — isn't touching four materials for nothing.
+ */
+export function createDestinationPin() {
+  const pin = marker(PALETTE.destination, PALETTE.destinationPost, 'destination', null,
+    PALETTE.destinationRing);
+  let selected = false;
+
+  return {
+    ...pin,
+    setSelected(next) {
+      if (selected === next) return;
+      selected = next;
+      pin.setColors(next ? DESTINATION_SELECTED : DESTINATION_RESTING);
+    },
+    isSelected: () => selected,
+  };
+}
