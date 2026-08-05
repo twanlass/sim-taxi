@@ -6,7 +6,7 @@ import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
-import { createTraffic } from './sim/traffic.js';
+import { createTraffic, speedMph } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds } from './game/fares.js';
@@ -19,6 +19,7 @@ import { createSmoke } from './game/smoke.js';
 import { createDebris } from './game/debris.js';
 import { createFlames } from './game/flames.js';
 import { createVanish } from './game/vanish.js';
+import { showRunEnd } from './game/runend.js';
 import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
@@ -468,11 +469,20 @@ function updateHud(dt) {
     // A crash holds the banner for CRASH_BANNER_DELAY so the smoke, sparks and camera pull-in
     // land before the retry screen appears. Timeouts have no such beat — reveal immediately.
     if (crashBannerAt !== null && performance.now() < crashBannerAt) return;
-    hud.banner.hidden = false;
-    hud.banner.innerHTML = `<strong>${s.failTitle}</strong><span>${s.failReason}</span>`
-      + `<span>${s.delivered} fares · $${s.money}</span>`
-      + '<button type="button" class="retry">Retry</button>';
-    hud.banner.querySelector('.retry')?.addEventListener('click', () => location.reload());
+    showRunEnd(hud.banner, {
+      title: s.failTitle,
+      reason: s.failReason,
+      // Four numbers, in the order the run produced them: what you carried, what it paid, what
+      // the city made you sit through, and how fast you were going when it went wrong.
+      stats: [
+        { label: 'Fares', value: s.delivered, format: (n) => `${n}` },
+        { label: 'Cash', value: s.money, format: (n) => `$${n}` },
+        { label: 'Red Lights', value: traffic.stats.taxiRedLights, format: (n) => `${n}` },
+        { label: 'Top Speed', value: speedMph(traffic.stats.taxiTopSpeed),
+          format: (n) => `${n} mph` },
+      ],
+      onRetry: () => location.reload(),
+    });
     document.body.classList.add('game-over');
   }
 }
