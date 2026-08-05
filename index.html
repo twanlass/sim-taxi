@@ -67,9 +67,9 @@
       #run-end {
         position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
         background: rgba(0, 0, 0, 0.95); color: #fff; text-align: center;
-        /* Centred by `margin: auto` on the card rather than by `justify-content`, because the
-           stacked column is tall: on a landscape phone it outgrows the viewport, and a centred
-           flex line clips its own overflow at the *top*, where the title is. This way it scrolls. */
+        /* Centred by `margin: auto` on the card rather than by `justify-content`: if the content
+           ever outgrows a short viewport, a centred flex line clips its own overflow at the *top*,
+           where the title is. This way it scrolls instead. */
         overflow-y: auto; padding: 24px 16px;
         font: 500 16px/1.5 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
         user-select: none;
@@ -84,32 +84,48 @@
            reason off the screen edges on a phone, where it wraps rather than running to the bezel. */
         max-width: min(560px, 100%);
       }
-      /* Type and rhythm scale with viewport *height*, not width — the column is tall and it is a
-         short viewport (a landscape phone) that runs it off the screen, never a narrow one. The
-         clamps hold the full-size layout down to ~620px tall and shrink it to fit below that,
-         which keeps "Play again" above the fold on a 390px-high phone in landscape. */
+      /* Type and rhythm scale with the viewport. Height drives most of it — it is a short viewport
+         (a landscape phone) that runs the list past the fold — and the clamps hold the full-size
+         layout down to ~560px tall, shrinking it below that so "Play again" stays above the fold
+         on a 390px-high phone in landscape. */
       #run-end .run-end-title {
         font-size: clamp(26px, 5.4vh, 40px); font-weight: 800; line-height: 1.1;
         letter-spacing: -0.01em;
       }
       #run-end .run-end-reason { margin-top: 6px; font-size: 15px; opacity: 0.72; }
 
-      /* One vertical column. A 2x2 grid read as a spec sheet; stacked, the four stats read as a
-         list being counted out, one after another, which is what the staggered reveal is doing. */
+      /* One stat per row, label and value side by side, laid out as two columns against a shared
+         spine: labels flush right, values flush left. Centring each row on its own left the list
+         ragged — with matched type there is no size difference to read the pairing by, so the
+         gutter has to do it. `justify-content: center` sits the whole block in the middle while
+         the columns stay as wide as their longest entry. */
       #run-end .run-end-stats {
-        display: flex; flex-direction: column; align-items: center;
-        gap: clamp(8px, 2.3vh, 18px); margin-top: clamp(12px, 3.8vh, 30px);
+        display: grid; grid-template-columns: auto auto; justify-content: center;
+        column-gap: clamp(12px, 2.4vh, 20px); row-gap: clamp(8px, 2.3vh, 16px);
+        margin-top: clamp(12px, 3.8vh, 30px);
       }
+      /* The wrapper exists so the reveal can animate a stat as a unit; `display: contents` drops it
+         out of the layout so its label and value are grid items of the row above, which is what
+         puts every row on the same spine. */
+      #run-end .stat { display: contents; }
       /* Label and value are deliberately the same size, weight and colour — the small grey caption
          over a big yellow number made the label look like chrome and the number like the content,
-         when the pairing *is* the content. Same type for both turns each stat into one two-line
-         phrase: "Fares / 9". */
-      #run-end .stat { display: flex; flex-direction: column; align-items: center; }
+         when the pairing *is* the content. Same type for both makes each row one phrase:
+         "Fares  9". */
+      /* Sized against whichever axis is tighter. Height is the usual constraint for the list as a
+         whole, but a side-by-side row has a width to fit too: "Top Speed  54 mph" set at 30px is
+         ~290px wide and would run past the gutters of a 320px phone, where `nowrap` pushes it off
+         the screen rather than wrapping it. */
       #run-end .stat-label,
       #run-end .stat-value {
-        font-size: clamp(19px, 3.9vh, 30px); font-weight: 800; line-height: 1.15;
+        font-size: clamp(19px, min(3.9vh, 7.2vw), 30px); font-weight: 800; line-height: 1.15;
         color: #F5C130; white-space: nowrap;
       }
+      /* Both entrances scale *away* from the gutter — the label's fade-in from 1.55x and the
+         value's landing bump — so the spine between the two columns never moves while the row
+         is animating. Scaling from the default centre made each row nudge sideways as it landed. */
+      #run-end .stat-label { text-align: right; transform-origin: right center; }
+      #run-end .stat-value { text-align: left;  transform-origin: left center; }
       /* Tabular figures so a rolling counter doesn't jitter its own width as the digits change,
          and the column stays put while all four count at once. */
       #run-end .stat-value { font-variant-numeric: tabular-nums; }

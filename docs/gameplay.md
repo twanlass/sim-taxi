@@ -388,13 +388,24 @@ floated a blurred card on top of it, and the card's edges turned out to be the l
 screen. Blacking the whole viewport out puts the run's numbers on nothing at all, which is what
 makes them the ending rather than an overlay on one.
 
-The stats are **one vertical column**, and each stat's label and value are set in the *same* size,
+The stats are **one row each, label and value side by side**, and both are set in the *same* size,
 weight and colour. A small grey caption over a big yellow number made the label read as chrome and
-the number as the content, when the pairing is the content; matched type turns each stat into one
-two-line phrase — "Fares / 9" — and the column reads as a list being counted out, which is what the
-stagger is doing. Type and rhythm scale off viewport *height* (`clamp(…vh…)`), because the column
-is tall: it is a short viewport — a landscape phone — that runs it off the screen, never a narrow
-one.
+the number as the content, when the pairing is the content; matched type makes each row one phrase
+— "Fares  9" — and the four rows read as a list being counted out, which is what the stagger is
+doing.
+
+The rows sit on a **shared spine**: a two-column grid with labels flush right and values flush
+left, the whole block centred. Centring each row on its own left the list ragged — with matched
+type there is no size difference to read the pairing by, so the gutter has to do it. `.stat` is
+`display: contents` so its label and value become grid items of the row above; the wrapper only
+exists for the reveal to animate a stat as a unit. Both entrances scale *away* from the gutter
+(`transform-origin: right`/`left`) so the spine doesn't shift while a row lands.
+
+Type and rhythm scale with the viewport, off whichever axis is tighter: height for the list as a
+whole (a landscape phone runs it past the fold) and width for the rows (`"Top Speed  54 mph"` at
+30px is ~290px wide, and `nowrap` would push it off a 320px screen rather than wrap it). If it
+still doesn't fit, the overlay scrolls — centred by `margin: auto` on the content rather than
+`justify-content`, which clips its own overflow at the top, where the title is.
 
 **Nothing appears at once.** The card is revealed as a sequence, because the version before this
 one wrote a single line of `innerHTML` and the whole screen arrived in one frame — which reads as
