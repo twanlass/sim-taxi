@@ -27,7 +27,7 @@ function costFor(w) {
   return (i, j, d) => {
     const e = edgeClass(i, j, d);
     if (e.kind === 'ring') return w.ring;
-    if (e.kind === 'arterial') return e.withWave ? w.artWith : w.artAgainst;
+    if (e.kind === 'arterial') return w.arterial;
     return w.side;
   };
 }
@@ -95,14 +95,14 @@ function evaluate(label, cost) {
   return { meanTrip, meanStop };
 }
 
-const UNIFORM = { ring: 1.0, artWith: 1.0, artAgainst: 1.0, side: 1.0 };
-const SHIPPED = { ring: 0.90, artWith: 0.95, artAgainst: 1.00, side: 1.00 };
+const UNIFORM = { ring: 1.0, arterial: 1.0, side: 1.0 };
+const SHIPPED = { ring: 0.90, arterial: 0.90, side: 1.00 };
 
 console.log(`# ${RUNS} fares × ${SEEDS} seeds = ${RUNS * SEEDS} trips per variant\n`);
 console.log('label                                                 trip    stop  share  blocks');
 console.log('-'.repeat(112));
 const base = evaluate('baseline (uniform weights = fewest blocks)', costFor(UNIFORM));
-const now = evaluate('shipped (ring 0.90 / with 0.95)', costFor(SHIPPED));
+const now = evaluate('shipped (ring 0.90 / arterial 0.90)', costFor(SHIPPED));
 console.log(`\ndelta shipped vs baseline: trip ${(now.meanTrip - base.meanTrip).toFixed(2)}s `
   + `(${(((now.meanTrip - base.meanTrip) / base.meanTrip) * 100).toFixed(1)}%), `
   + `stop ${(now.meanStop - base.meanStop).toFixed(2)}s `

@@ -1,5 +1,6 @@
-import { GRID, blockBounds, HALF_SPAN, segmentKey, setClosedSegments } from './grid.js';
-import { configureSignals } from '../sim/traffic.js';
+import {
+  GRID, blockBounds, HALF_SPAN, segmentKey, setClosedSegments, setArterialLines,
+} from './grid.js';
 
 // Decides what each block *is* before anything is built. Ground, buildings and props all read
 // this, so a park is a park in every system rather than three subsystems each rolling their own
@@ -56,21 +57,24 @@ export function createLayout(rng) {
   setClosedSegments(closed);
 
   // --- Arterials -------------------------------------------------------------
-  // Road hierarchy is a property of the city, so it is decided here alongside the blocks and
-  // handed to the signal model. Two roads per axis, never adjacent, each with a coordinated
-  // direction of travel — so the map has a grain: some streets simply move better than others,
-  // and in one direction more than the other.
+  // Road hierarchy is a property of the city, so it is decided here alongside the blocks.
   // Two main streets, one per axis, drawn from the middle lines so they genuinely run *through*
-  // the city rather than skirting an edge. Four arterials (the previous count) meant most
-  // junctions had an arterial on at least one axis, which flattened the hierarchy back out.
+  // the city rather than skirting an edge — together they form a cross. Four arterials (the
+  // previous count) meant most junctions had an arterial on at least one axis, which flattened
+  // the hierarchy back out.
+  //
+  // They run signal-free, like the ring: side streets yield into a gap, and the one junction
+  // where the two arterials cross each other keeps a light. (An arterial used to mean a 64%
+  // green share and a coordinated wave direction instead; dropping the lights entirely is what
+  // makes them read as *real* main roads rather than an invisible timing tweak.) Registering
+  // them with the grid is what strips the signals, stop bars and crosswalks off them — see
+  // freeFlowAxisAt() in grid.js.
   const middle = () => (rng.chance(0.5) ? 2 : 3);
 
   const arterialX = new Set([middle()]);   // runs east-west
   const arterialZ = new Set([middle()]);   // runs north-south
-  const dirX = new Map([...arterialX].map((j) => [j, rng.chance(0.5) ? 1 : -1]));
-  const dirZ = new Map([...arterialZ].map((i) => [i, rng.chance(0.5) ? 1 : -1]));
 
-  configureSignals({ arterialX, arterialZ, dirX, dirZ });
+  setArterialLines(arterialX, arterialZ);
 
   const blocks = [];
 

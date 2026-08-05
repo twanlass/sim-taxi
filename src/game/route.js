@@ -12,23 +12,26 @@ import { edgeClass } from '../sim/traffic.js';
  * At 5x5 that's 6*6*4 = 144 states — small enough that a plain rescan-the-open-set Dijkstra
  * beats any structured heap.
  *
- * Weights encode the road hierarchy. A fewest-blocks router (unit weights) fights the signal
- * coordination the city was tuned for: arterials run a green wave with a 64% share for their
- * axis, and the outermost roads are unsignalised. Slightly preferring those roads produces
- * routes with less time spent at reds and — because the weights sit close to 1.0 — no
- * meaningful detouring. Measured across 240 fares vs unit-weight BFS: trip time -3.9%,
- * time-stopped -13.7%, average path length essentially unchanged (see tools/router-sweep.mjs).
+ * Weights encode the road hierarchy. A fewest-blocks router (unit weights) fights the grain
+ * the city was tuned for: the ring and the two arterials run signal-free, so a car on them
+ * only ever stops for traffic. Slightly preferring those roads produces routes with less time
+ * spent at reds and — because the weights sit close to 1.0 — no meaningful detouring.
+ * Measured across 320 fares vs unit-weight BFS: trip time -6.7%, time-stopped -33.3%, average
+ * path length essentially unchanged (see tools/router-sweep.mjs). Both deltas grew when the
+ * arterials went signal-free — the roads the router prefers got genuinely faster.
  *
  * The weights are ratios of expected trip-time-per-block, not raw seconds. Keeping side street
  * at 1.0 and only nudging the preferred classes below it means the router is a tie-breaker on
  * paths of equal length, not a detour finder — the difference between two 5-block routes, not
  * "add two blocks to hit the arterial." Aggressive weights (ring 0.55, arterial 0.70) were
  * tried; they dropped stopped-time further but added length that ate the win.
+ *
+ * Arterials matched the ring at 0.90 when they went signal-free (they carried 0.95/1.00 by
+ * travel direction back when an arterial meant a 64% green share and a coordinated wave).
  */
 const EDGE_COST = {
   ring: 0.90,
-  arterialWith: 0.95,
-  arterialAgainst: 1.00,      // 64% green helps, but reversed offsets cancel most of the wave
+  arterial: 0.90,
   side: 1.00,
 };
 
@@ -37,7 +40,7 @@ const key = (i, j, d) => `${i},${j},${d}`;
 function edgeCost(i, j, d) {
   const edge = edgeClass(i, j, d);
   if (edge.kind === 'ring') return EDGE_COST.ring;
-  if (edge.kind === 'arterial') return edge.withWave ? EDGE_COST.arterialWith : EDGE_COST.arterialAgainst;
+  if (edge.kind === 'arterial') return EDGE_COST.arterial;
   return EDGE_COST.side;
 }
 

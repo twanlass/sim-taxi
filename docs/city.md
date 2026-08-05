@@ -61,9 +61,11 @@ all read one decision rather than each rolling their own dice and disagreeing.
 **Density falls off from the centre.** That's what produces a downtown instead of a uniform mat of
 identical towers, and it makes parks more likely out in the cheap suburbs.
 
-**Arterials.** Two roads per axis are marked as arterials and handed to `configureSignals()`. They
-take a larger green share, which gives the map a fast/slow grain worth learning. See
-[traffic.md](traffic.md#arterials).
+**Arterials.** One road per axis is marked as an arterial — the two form a cross through the
+middle of the city. They run signal-free like the ring (side streets yield in; only the junction
+where the two cross each other keeps a light), which gives the map a fast/slow grain worth
+learning. The layout registers them with `grid.js` via `setArterialLines()`. See
+[traffic.md](traffic.md#signal-free-arterials).
 
 ## Park districts close roads
 

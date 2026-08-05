@@ -48,9 +48,10 @@ tools/                  headless test + screenshot harness — see docs/testing.
 ```
 
 The dependency direction is one-way: `city/` knows nothing about `sim/`, `sim/` knows nothing
-about `game/`, and only `main.js` knows about everything. The one deliberate exception is
-`city/layout.js` calling `configureSignals()` in `sim/traffic.js` — the layout decides which roads
-are arterials, and that has to reach the signal model.
+about `game/`, and only `main.js` knows about everything. The layout decides which roads are
+arterials and registers them with `grid.js` (`setArterialLines`), the same way park districts
+register their closed segments — "is this junction signalised" is a property of the city that
+ground, traffic and the probe all ask about, so the answer lives below all of them.
 
 ## The frame loop
 

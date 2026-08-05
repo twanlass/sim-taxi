@@ -193,25 +193,27 @@ every later turn lands one intersection early. Planning starts from the intersec
 
 ### Road-hierarchy weights
 
-Edges are not equal cost. The signal model was tuned around a coordinated green wave on two
-arterials per axis (64% green share, offsets running with the wave direction) and an
-unsignalised ring around the outside. A fewest-blocks router fights that coordination — it will
-happily plan a route straight up a side street when the arterial parallel to it exists.
+Edges are not equal cost. The city has a fast/slow grain — the ring and the two arterials run
+signal-free, so a car on them only ever stops for traffic — and a fewest-blocks router fights
+it: it will happily plan a route straight up a side street when the arterial parallel to it
+exists.
 
 Current weights, per block traversed:
 
 | Class | Weight |
 |---|---|
 | Ring (outermost roads) | 0.90 |
-| Arterial, with the coordinated direction | 0.95 |
-| Arterial, against the coordinated direction | 1.00 |
+| Arterial | 0.90 |
 | Side street | 1.00 |
+
+(Arterials carried 0.95/1.00 split by travel direction back when they were signalised with a
+64% green share and a coordinated wave; going signal-free made both directions equally fast.)
 
 Kept close to 1.0 on purpose: the router is a **tie-breaker between paths of the same length**,
 not a detour finder. Aggressive weights (ring 0.55, arterial 0.70) were tried and dropped
-stopped-time further, but added enough distance to erase the gain. Measured across 240 fares vs
-unit weights: trip time **−3.9%**, time-stopped-at-signals **−13.7%**, average path length
-essentially unchanged. Sweep via `tools/router-sweep.mjs`.
+stopped-time further, but added enough distance to erase the gain. Measured across 320 fares vs
+unit weights: trip time **−6.7%**, time-stopped **−33.3%**, average path length essentially
+unchanged. Sweep via `tools/router-sweep.mjs`.
 
 ## Picking
 

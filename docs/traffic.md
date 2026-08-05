@@ -36,21 +36,37 @@ city for free, because offsets now spread continuously instead of into four buck
 Cycle length stays common across the city on purpose — a shared cycle is the *precondition* for
 coordination. Variety comes from splits and offsets, not from different cycle lengths.
 
-### Arterials
+### Signal-free arterials
 
-Two roads per axis take a **64% green share** where they meet a side street, giving the map a
-fast/slow grain. `layout.js` picks them; `configureSignals()` hands them over.
+One road per axis is an arterial, drawn from the middle lines so the two form a **cross** through
+the city. They run **signal-free**, the same way the ring does: arterial traffic never stops, side
+streets yield into a gap, and the one junction where the two arterials cross *each other* keeps a
+real signal — two free-flowing roads meeting head-on leave neither side a gap to yield into. Where
+an arterial reaches the ring, the ring wins and the arterial yields in like any other road.
+
+`layout.js` picks them and registers them with `grid.js` (`setArterialLines`), which is the single
+authority on "is this junction signalised" — `freeFlowAxisAt(i, j)` answers for the ring and the
+arterials together, and stop bars, crosswalks, the phase model and the probe all read it. The
+same registration is what strips the crosswalks and stop bars off the arterial's open junctions.
+
+Arterials originally stayed signalised with a **64% green share** and a coordinated wave
+direction. Dropping the lights entirely replaced both: an arterial is now faster in *both*
+directions, which is also why the router prices the two directions the same (see
+[gameplay.md](gameplay.md#road-hierarchy-weights)).
 
 ### A signal-free ring road
 
 The outermost roads carry no lights except at the four corners. Traffic joining from inside yields
-into a gap (`RING_YIELD = 24` units of clear road).
+into a gap (`FREE_FLOW_YIELD = 24` units of clear road — shared with the arterials, where the
+same gap must be clear in both directions because a side street can cross straight over).
 
 The ring needs its own gate inside `lightPhase` rather than a permanent green: a permanent green
 for the ring reads as a permanent *red* for everyone else, and inner traffic would queue at the
 perimeter forever.
 
 ### Results
+
+From the redesign, measured at the time (the arterials were still signalised with a 64% share):
 
 | | before | after |
 |---|---|---|
@@ -59,6 +75,12 @@ perimeter forever.
 | platoon meets green | 50% | 77% |
 | throughput | 4.14 | **5.25** units/s per car |
 | cars stationary | 51% | **39%** |
+
+Taking the arterials signal-free later left the citywide averages alone (throughput 7.27 → 7.32
+units/s per car on the code of the day, cars stationary 14% both sides) — with 24 cars spread over
+the whole grid, two roads can't move an average. What it moved is the *routed* numbers, which is
+where the player lives: trip time −6.7% and time-stopped −33.3% against a fewest-blocks router,
+up from −3.9% / −13.7% when the arterials were signalised (`tools/router-sweep.mjs`).
 
 A sweep of cycle length against throughput came back **monotonic** — 14s gave 3.80, 28s gave 2.36
 — so an early attempt at a "calmer" city with a 28s cycle made it materially worse. The calm comes
@@ -70,7 +92,7 @@ Checked in this order, first match wins:
 
 1. `priorityJunction` — the boosting taxi's next junction
 2. `corridorCovers(i, j)` — an emergency corridor is running through this junction
-3. `ringAxisAt(i, j)` — unsignalised ring road
+3. `freeFlowAxisAt(i, j)` — unsignalised ring road or open arterial
 4. the normal phase for this junction
 
 A siren outranks the ring deliberately: otherwise a corridor crossing the ring would have a hole

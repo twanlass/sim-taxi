@@ -14,7 +14,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, laneKeyFor, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, setPriorityCorridor, isUnsignalised, laneKeyFor, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -612,6 +612,25 @@ check('no two cars occupy the same space', worst > 1.6,
   check('the rest of the ring has none',
     isUnsignalised(1, 0) && isUnsignalised(0, 1) && !isUnsignalised(1, 1));
 
+  // The two arterials form a signal-free cross: every interior junction along them is
+  // yield-controlled, except the one where they cross each other — two free-flowing roads
+  // meeting head-on leave neither side a gap to yield into, so that one keeps a light.
+  const ax = [...layout.arterials.x][0];   // j of the east-west arterial
+  const az = [...layout.arterials.z][0];   // i of the north-south arterial
+  const openRuns = [];
+  for (let i = 1; i < GRID; i++) if (i !== az) openRuns.push([i, ax, 'x']);
+  for (let j = 1; j < GRID; j++) if (j !== ax) openRuns.push([az, j, 'z']);
+  check('arterials run signal-free between the ring and their crossing',
+    openRuns.every(([i, j]) => isUnsignalised(i, j)));
+  check('the arterial crossing keeps its signal', !isUnsignalised(az, ax));
+  // The police block above can end with a corridor still live, which would override the phase.
+  setPriorityCorridor(null);
+  check('an open arterial junction holds priority for the arterial axis',
+    openRuns.every(([i, j, axis]) => {
+      const p = lightPhase(i, j, rTraffic.stats.time);
+      return p.axis === axis && !p.yellow && p.remaining === Infinity;
+    }));
+
   const perCar = rTraffic.stats.distance / rTraffic.stats.time / rTraffic.cars.length;
   check('traffic moves better than the old fixed-phase grid', perCar > 4.14,
     `${perCar.toFixed(2)} vs 4.14 units/s per car`);
@@ -693,7 +712,7 @@ check('no two cars occupy the same space', worst > 1.6,
   let dIn = -1;
   outer: for (let i = 1; i < GRID && dIn < 0; i++) {
     for (let j = 1; j < GRID && dIn < 0; j++) {
-      if (ringAxisAt(i, j)) continue;
+      if (isUnsignalised(i, j)) continue;
       for (const d of [0, 1, 2, 3]) {
         if (!legalExits(d, i, j).includes(leftOf(d))) continue;
         if (!legalExits(opposite(d), i, j).length) continue;

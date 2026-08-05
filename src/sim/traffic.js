@@ -10,10 +10,11 @@ import { createTaxiMesh } from '../geometry/taxi.js';
 import {
   GRID, PITCH, HALF_ROAD, LANE, lineCoord, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
   laneOffsetCoord, entryPoint, exitPoint, turnControl, nextIntersection, legalExits, isSegmentClosed,
-  ringAxisAt, isUnsignalised,
+  ringAxisAt, freeFlowAxisAt, isArterialLine, isUnsignalised,
 } from '../city/grid.js';
 
-export { ringAxisAt, isUnsignalised };   // re-exported: callers of the sim ask it about junctions
+// Re-exported: callers of the sim ask it about junctions.
+export { ringAxisAt, freeFlowAxisAt, isUnsignalised };
 // Wheels and ride height live in geometry/wheels.js — see the note there on why they are not in
 // this file. Passed straight through so callers have one import for "a vehicle".
 export { WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries };
@@ -30,7 +31,8 @@ export { WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries };
 // Three things replace it:
 //   - offsets derived from travel time, so a platoon meets consecutive greens (a real green wave)
 //   - a longer cycle, so the city stops blinking and proportionally less time is lost to yellow
-//   - arterials, which take a larger share of green and give the map a fast/slow grain to learn
+//   - arterials, which run signal-free like the ring and give the map a fast/slow grain to learn
+//     (they started out signalised with a 64% green share; see grid.js for why the lights went)
 //
 // Cycle length stays common across the city on purpose: shared cycle length is the precondition
 // for coordination. Variety comes from splits and offsets instead.
@@ -115,16 +117,7 @@ const SIGNAL = {
   // The calm comes from spreading the offsets, not from slowing the cycle down.
   cycle: 16,
   yellow: 1.6,
-  arterialShare: 0.64,          // green share for an arterial where it meets a side street
-  arterialX: new Set(),         // j values: roads running along X
-  arterialZ: new Set(),         // i values: roads running along Z
-  dirX: new Map(),              // j -> +1 / -1, the coordinated direction of travel
-  dirZ: new Map(),
 };
-
-export function configureSignals(config) {
-  Object.assign(SIGNAL, config);
-}
 
 export const signalCycle = () => SIGNAL.cycle;
 
@@ -132,32 +125,25 @@ export const signalCycle = () => SIGNAL.cycle;
  * Road hierarchy of the edge you get by leaving (i, j) in direction d.
  *
  * 'ring'     — outermost road, unsignalised except at the four corners
- * 'arterial' — one of the two main streets: 64% green share, offsets timed for the wave
+ * 'arterial' — one of the two main streets: signal-free except where they cross each other
  * 'side'     — everything else
- *
- * `withWave` matters only for arterials: an arterial's offsets are computed with a
- * coordinated travel direction; traversing it that way meets consecutive greens, the other
- * way meets consecutive reds. For a side street the concept doesn't apply.
  */
 export function edgeClass(i, j, d) {
   const axisIsX = isXAxis(d);
   const line = axisIsX ? j : i;
-  const onOuter = line === 0 || line === GRID;
-  if (onOuter) return { kind: 'ring', withWave: true };
-
-  const arterialSet = axisIsX ? SIGNAL.arterialX : SIGNAL.arterialZ;
-  if (arterialSet.has(line)) {
-    const coordinated = (axisIsX ? SIGNAL.dirX : SIGNAL.dirZ).get(line) ?? 1;
-    return { kind: 'arterial', withWave: dirSign(d) === Math.sign(coordinated) };
-  }
-  return { kind: 'side', withWave: false };
+  if (line === 0 || line === GRID) return { kind: 'ring' };
+  if (isArterialLine(axisIsX, line)) return { kind: 'arterial' };
+  return { kind: 'side' };
 }
 
 /** Seconds a platoon takes to cover one block at cruising speed — the basis of every offset. */
 const blockTime = () => PITCH / SPEED;
 
-/** How much clear road a joining car needs before pulling out in front of ring traffic. */
-const RING_YIELD = 24;
+/**
+ * How much clear road a joining car needs before pulling out in front of free-flowing traffic —
+ * the ring or an open arterial, which never stop, so the gap has to be a real one.
+ */
+const FREE_FLOW_YIELD = 24;
 
 /**
  * Clearance a car needs before turning right on a red.
@@ -286,39 +272,21 @@ export function lightPhase(i, j, t, ignorePriority = false) {
   // would leave a gap in the middle of the green path it is supposed to be clearing.
   if (corridorCovers(i, j)) return { axis: corridor.axis, yellow: false, remaining: Infinity };
 
-  // Otherwise, unsignalised ring junctions have no phase to report: the ring simply has priority.
-  const ring = ringAxisAt(i, j);
-  if (ring) return { axis: ring, yellow: false, remaining: Infinity };
+  // Otherwise, unsignalised junctions — the ring and the open runs of the two arterials — have
+  // no phase to report: the free-flowing axis simply has priority.
+  const free = freeFlowAxisAt(i, j);
+  if (free) return { axis: free, yellow: false, remaining: Infinity };
 
-  const { cycle, yellow, arterialShare } = SIGNAL;
-  const xArterial = SIGNAL.arterialX.has(j);
-  const zArterial = SIGNAL.arterialZ.has(i);
-
-  // Split: an arterial crossing a side street takes the larger share. Arterial-meets-arterial and
-  // side-meets-side both fall back to an even split.
-  let xShare = 0.5;
-  if (xArterial && !zArterial) xShare = arterialShare;
-  else if (zArterial && !xArterial) xShare = 1 - arterialShare;
-
-  const totalGreen = cycle - 2 * yellow;
-  const greenX = totalGreen * xShare;
-  const greenZ = totalGreen - greenX;
+  // What is left carrying lights is side-meets-side, the four ring corners, and the junction
+  // where the two arterials cross: all take an even split. (Arterials used to be signalised with
+  // a 64% share and a coordinated wave direction here; going signal-free retired both.)
+  const { cycle, yellow } = SIGNAL;
+  const greenX = (cycle - 2 * yellow) / 2;
+  const greenZ = greenX;
 
   // Offset: shift this junction's green earlier by the time a platoon takes to reach it, so the
-  // wave travels with the traffic. Each junction coordinates with whichever road through it
-  // matters more; a junction of two side streets defaults to coordinating along X.
-  const alongX = xArterial || !zArterial;
-  const step = blockTime();
-
-  let offset;
-  if (alongX) {
-    const blocks = (SIGNAL.dirX.get(j) ?? 1) > 0 ? i : GRID - i;
-    offset = -blocks * step;
-  } else {
-    const blocks = (SIGNAL.dirZ.get(i) ?? 1) > 0 ? j : GRID - j;
-    // The Z green starts partway through the cycle, so the wave has to line up with that instead.
-    offset = greenX + yellow - blocks * step;
-  }
+  // wave travels with the traffic, running along +X.
+  const offset = -i * blockTime();
 
   const local = (((t + offset) % cycle) + cycle) % cycle;
   if (local < greenX) return { axis: 'x', yellow: false, remaining: greenX - local };
@@ -641,7 +609,7 @@ export function createTraffic(rng, scene, count = 24) {
   const bars = [];
   for (let i = 0; i <= GRID; i++) {
     for (let j = 0; j <= GRID; j++) {
-      if (isUnsignalised(i, j)) continue;         // ring junctions are yield-controlled
+      if (isUnsignalised(i, j)) continue;   // ring and arterial junctions are yield-controlled
       for (let d = 0; d < 4; d++) {
         // Only worth a bar if traffic can actually arrive on this approach.
         if (!nextIntersection(opposite(d), i, j)) continue;
@@ -767,10 +735,6 @@ export function createTraffic(rng, scene, count = 24) {
     }
   }
 
-  /**
-   * May a car joining the ring pull out? Only if nothing on the ring is bearing down on the
-   * junction — the ring never stops, so the gap has to be a real one.
-   */
   /** Is the cross traffic that currently holds the green far enough away to turn right on red? */
   function rightOnRedClear(car, t, approaching) {
     const phase = lightPhase(car.i, car.j, t);
@@ -785,13 +749,19 @@ export function createTraffic(rng, scene, count = 24) {
     return true;
   }
 
-  function ringGapClear(car, ring, approaching) {
-    const dirs = ring === 'x' ? [0, 2] : [1, 3];
+  /**
+   * May a car pull out in front of the free-flowing axis — the ring, or an open arterial? Only
+   * if nothing on it is bearing down on the junction: that traffic never stops, so the gap has
+   * to be a real one. Both directions are checked, because unlike a ring approach (a T junction
+   * from the inside) a side street can cross straight over an arterial.
+   */
+  function freeFlowGapClear(car, axis, approaching) {
+    const dirs = axis === 'x' ? [0, 2] : [1, 3];
     for (const d of dirs) {
       for (const other of approaching.get(`${car.i},${car.j},${d}`) ?? []) {
         const stop = along(other.d, entryPoint(other.d, other.i, other.j));
         const gap = (stop - other.s) * dirSign(other.d);
-        if (gap >= 0 && gap < RING_YIELD) return false;
+        if (gap >= 0 && gap < FREE_FLOW_YIELD) return false;
       }
     }
     return true;
@@ -991,13 +961,14 @@ export function createTraffic(rng, scene, count = 24) {
         let allowed = Infinity;
 
         // The signal ahead, read now rather than on arrival — this is what lets it slow early.
-        // A corridor or a boosting-taxi priority hold both temporarily signalise the ring, so the
-        // taxi's axis reads as green and cross ring traffic yields to it.
-        const ringAxis = corridorCovers(car.i, car.j) || priorityCovers(car.i, car.j)
-          ? null : ringAxisAt(car.i, car.j);
-        const onRingNow = ringAxis !== null && (isXAxis(car.d) ? 'x' : 'z') === ringAxis;
-        const open = ringAxis !== null
-          ? onRingNow
+        // A corridor or a boosting-taxi priority hold both temporarily signalise a free-flowing
+        // junction (ring or arterial), so the taxi's axis reads as green and the traffic that
+        // normally never stops yields to it.
+        const freeAxis = corridorCovers(car.i, car.j) || priorityCovers(car.i, car.j)
+          ? null : freeFlowAxisAt(car.i, car.j);
+        const onFreeRoadNow = freeAxis !== null && (isXAxis(car.d) ? 'x' : 'z') === freeAxis;
+        const open = freeAxis !== null
+          ? onFreeRoadNow
           : canProceed(car.d, car.i, car.j, t) || taxiClearsYellow(car, distToLine, t);
         if (!open) allowed = Math.min(allowed, Math.max(0, distToLine));
 
@@ -1043,17 +1014,18 @@ export function createTraffic(rng, scene, count = 24) {
         // never fired and the car drove off the map forever.
         if (distToLine - step <= 0) {
           // About to reach the stop line — decide whether to enter the intersection.
-          // A corridor or a boosting-taxi priority hold temporarily signalises the ring, so the
-          // siren's or the taxi's green path is unbroken.
-          const ring = corridorCovers(car.i, car.j) || priorityCovers(car.i, car.j)
-            ? null : ringAxisAt(car.i, car.j);
-          const onRing = ring !== null && (isXAxis(car.d) ? 'x' : 'z') === ring;
+          // A corridor or a boosting-taxi priority hold temporarily signalises a free-flowing
+          // junction, so the siren's or the taxi's green path is unbroken.
+          const free = corridorCovers(car.i, car.j) || priorityCovers(car.i, car.j)
+            ? null : freeFlowAxisAt(car.i, car.j);
+          const onFreeRoad = free !== null && (isXAxis(car.d) ? 'x' : 'z') === free;
 
           let green;
           let viaRightOnRed = false;
-          if (ring !== null) {
-            // No signal here. Ring traffic runs; anyone joining waits for a real gap.
-            green = onRing || ringGapClear(car, ring, approaching);
+          if (free !== null) {
+            // No signal here. Ring or arterial traffic runs; anyone joining or crossing waits
+            // for a real gap.
+            green = onFreeRoad || freeFlowGapClear(car, free, approaching);
           } else {
             const held = heldAt.has(`${car.i},${car.j}`);
             green = (canProceed(car.d, car.i, car.j, t) || taxiClearsYellow(car, distToLine, t))
@@ -1072,10 +1044,11 @@ export function createTraffic(rng, scene, count = 24) {
           // Run summary: one tick per red the taxi actually meets, not one per frame spent sat at
           // it — hence the junction stamped on the car and cleared when the turn commits. Read
           // from the phase rather than from `green`, which also goes false for a junction held by
-          // a stranded car; that is a jam, not a red. Ring junctions have no phase to be red at.
+          // a stranded car; that is a jam, not a red. Unsignalised junctions — the ring and the
+          // open arterials — have no phase to be red at.
           // A right-on-red still counts: the light was red when the taxi reached the line.
           if (car.isTaxi) {
-            const atRed = ring === null && !canProceed(car.d, car.i, car.j, t)
+            const atRed = free === null && !canProceed(car.d, car.i, car.j, t)
               && !taxiClearsYellow(car, distToLine, t);
             const redKey = `${car.i},${car.j},${car.d}`;
             if (atRed && car.heldKey !== redKey) {
@@ -1197,10 +1170,10 @@ export function createTraffic(rng, scene, count = 24) {
           }
 
           // Structurally impossible given the gate above, but asserted so a future change to
-          // the turn logic can't quietly start running red lights. Ring junctions are exempt —
-          // they have no phase to obey.
+          // the turn logic can't quietly start running red lights. Unsignalised junctions are
+          // exempt — they have no phase to obey.
           if (viaRightOnRed) stats.rightOnRed += 1;
-          else if (ring === null && !canProceed(car.d, car.i, car.j, t)
+          else if (free === null && !canProceed(car.d, car.i, car.j, t)
               && !taxiClearsYellow(car, distToLine, t)) stats.violations += 1;
 
           car.entry = entryPoint(car.d, car.i, car.j);

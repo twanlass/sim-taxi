@@ -102,7 +102,47 @@ export function ringAxisAt(i, j) {
   return null;
 }
 
-export const isUnsignalised = (i, j) => ringAxisAt(i, j) !== null;
+// --- Arterials ----------------------------------------------------------------
+//
+// The two main streets — one per axis, picked by layout.js — run signal-free the way the ring
+// does: traffic on them never stops, and a car entering from a side street yields into a gap
+// instead of being dealt a green. The one junction where the two arterials cross *each other*
+// keeps a real signal — two free-flowing roads meeting head-on leave neither side a gap to
+// yield into.
+//
+// Registered here rather than kept in the signal model because "is this junction signalised" is
+// a property of the city that ground.js (crosswalks), traffic.js (stop bars, physics) and the
+// probe all ask about — and traffic.js imports ground.js, so the answer has to live below both.
+
+const arterialLines = { x: new Set(), z: new Set() };   // x: j lines along X; z: i lines along Z
+
+export function setArterialLines(x, z) {
+  arterialLines.x = new Set(x);
+  arterialLines.z = new Set(z);
+}
+
+/** Is the road on this line (j for roads along X, i for roads along Z) an arterial? */
+export const isArterialLine = (axisIsX, line) =>
+  (axisIsX ? arterialLines.x : arterialLines.z).has(line);
+
+/**
+ * 'x' or 'z' if traffic on that axis flows through (i, j) without ever stopping — the junction
+ * is unsignalised and cross traffic yields — or null where a signal governs. The ring wins where
+ * an arterial meets it: those junctions are the ring's, and arriving arterial traffic yields in
+ * like anyone else.
+ */
+export function freeFlowAxisAt(i, j) {
+  const ring = ringAxisAt(i, j);
+  if (ring) return ring;
+  const onX = arterialLines.x.has(j);
+  const onZ = arterialLines.z.has(i);
+  if (onX && onZ) return null;         // the arterials' own crossing is signalised
+  if (onX) return 'x';
+  if (onZ) return 'z';
+  return null;
+}
+
+export const isUnsignalised = (i, j) => freeFlowAxisAt(i, j) !== null;
 
 // --- Closed segments --------------------------------------------------------
 //
