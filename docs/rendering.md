@@ -35,12 +35,31 @@ zoom     = 52             // vertical world span is exactly 2 * zoom
 No zoom, and one fixed default framing — that's a gameplay decision, not a limitation. A fixed
 frame is what makes every tap unambiguous and lets the whole city stay on screen.
 
-**Loco Mode overrides the fixed framing** and smooth-follows the taxi. `controller.followXZ` in
-`camera.js` closes a fraction `1 - exp(-dt * 3.2)` of the gap per frame toward the taxi's
-`(x, z)`, so the chase is framerate-independent and lags just enough that the car reads as
-leading the camera. `main.js` calls it only while `boost.isActive()`; releasing the button leaves
-the camera wherever it landed rather than snapping back, and a drag during boost is quietly
-overridden on the next frame — panning is a planning gesture, boost is the opposite.
+**Two things override the fixed framing**, both by smooth-following the taxi and both on narrow
+viewports only. `controller.followXZ` in `camera.js` closes a fraction `1 - exp(-dt * rate)` of the
+gap per frame toward the taxi's `(x, z)`, so the chase is framerate-independent and lags just enough
+that the car reads as leading the camera. Neither has a gate on the way *out*: the camera is left
+wherever it landed rather than snapping back.
+
+- **The opening follow**, at rate **1.5**. A run starts with the camera trailing the taxi and keeps
+  doing it until the player takes the framing over — a swipe past `PAN_SLOP`, or a tap on a
+  rider-finder chip. It exists for the same reason drag-to-pan does: in portrait the fixed framing
+  has already given up, so a run otherwise opens with the taxi off-screen and the player's first job
+  is hunting for their own car. Gentler than the boost chase because it is ambient and runs for as
+  long as it is left alone — at 1.5 the camera drifts after the taxi rather than locking to it, and
+  a turn at the edge of frame doesn't whip the city round.
+- **Loco Mode**, at rate **3.2**, which outranks it. Active only while `boost.isActive()`, and it
+  ignores the player's takeover: a drag during boost is quietly overridden on the next frame, because
+  panning is a planning gesture and boost is the opposite.
+
+`attachDragPan` reports the takeover through an `onPan` callback, fired once per gesture on the frame
+it crosses the slop — the same boundary that separates a tap from a drag. Both halves are asserted
+headless in `tools/probe.mjs` against a stub element: a few pixels of finger travel must leave the
+camera alone, and a real swipe must report exactly once.
+
+Desktop gets neither. The whole city is in frame at all times there, and drag-to-pan is switched off
+above `NARROW_VIEWPORT` — so a follow would slide the map around under a player with no way to stop
+it.
 
 **Drag-to-pan is the one concession**, and a phone is what forced it: the frustum is sized by
 *height*, so in portrait the city runs off both sides and half the fares spawn where you cannot
@@ -251,13 +270,37 @@ surface everywhere except around the silhouette. Cheaper than a post-processing 
 needs no render targets — this is one small object, not a whole-scene effect. Each hull is a *child*
 of the mesh it wraps, so it inherits animation for free.
 
-**The pin is Loco Mode's yellow, fixed at build time.** There is only ever one drop-off on the
-board — the rider currently aboard — so there is nothing for a per-fare hue to tell it apart from,
-and it is now the far end of the same statement the route band makes on the road. Two weights of
-the one yellow: the head and post take the pill's `#F5C130`, the ring on the tarmac takes
-`routeLine` (`#FFE873`, that yellow lightened), which is exactly what the band leading into it is
-painted in. The fare's own colour still lives on the taxi's roof sign — see
-[gameplay.md](gameplay.md#fare-colours).
+**The pin has two colours, and the difference is whether you have answered it.** There is only ever
+one drop-off on the board — the rider currently aboard — so there is nothing for a per-fare hue to
+tell it apart from, and the one thing worth saying about it is its own state.
+
+| State | Head | Post | Ring on the tarmac |
+|---|---|---|---|
+| Untapped — the taxi is parked, waiting to be told where to go | `#17C8B8` teal | `#12AC9E` | `#5FE9DC` |
+| Tapped — the taxi is on its way | `#F5C130` | `#E0AE2A` | `routeLine` `#FFE873` |
+
+Teal because a drop-off appears the instant a rider boards, and at that moment it is a *question* —
+`parked` holds the taxi at the kerb until the pin is tapped, so a marker already wearing the taxi's
+colour would be claiming an instruction nobody gave. It is also the one clear hue left after the
+signals, the taxi's yellow and the white of an unclaimed passenger, and far enough from the
+`#2F8F94` traffic car to never be mistaken for one at play zoom.
+
+Yellow is the answer: the taxi's own colour, so the moment the player commits, the pin joins the
+same "this is the job" statement the car and the route band are making. The selected ring is exactly
+`routeLine`, the paint the band running into it is drawn in, so the band and the disc it lands in
+are one mark rather than two yellows meeting at the kerb. The change is also the *acknowledgement* —
+on a phone the band can be drawn entirely off-screen, and the pin is what the finger was already on.
+
+`createDestinationPin().setSelected()` swaps all six materials (colour and emissive on head and post,
+rim and fill on the ring) and early-outs on no change; `fares.js` reconciles it against `directed`
+every frame the way it does the rider's meter ring, and pushes it in `markDirected` so the pin turns
+on the same frame as the band. The off-screen pointer follows the same rule — see the CSS for
+`#dropoff-indicator.is-selected`.
+
+The fare's own colour still lives on the taxi's roof sign — see
+[gameplay.md](gameplay.md#fare-colours). `?shot=10` frames the untapped state, which no other shot
+can show: every other carrying framing sends the taxi on at pickup, and that is what turns the pin
+yellow.
 
 The post carries a low **emissive** (0.18 of its colour, against the head's 0.35). It is the only
 post that is ever visible — a waiting rider's figure replaces theirs — and the fixed camera sees
