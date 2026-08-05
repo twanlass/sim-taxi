@@ -159,10 +159,12 @@ the timer ring is colour-coded by time remaining, so fare identity needed somewh
 **The drop-off pin no longer wears it.** It used to, so that a pin and a taxi could be paired by
 hue; but one rider is aboard at a time and only that rider's pin is on the board, so the pairing
 had nothing to disambiguate and a rotating hue was making the same marker look different run to
-run. The pin, its ring and the off-screen pointer now carry the fare's **state** instead: **teal**
-while the drop-off is still waiting to be tapped, and **Loco Mode's yellow** — the taxi's own — once
-it has been, so the route band, the car and the place it is driving to are one colour saying "this
-is the job". See [rendering.md](rendering.md#pin-outline-and-bounce--geometrymarkerjs).
+run. The pin, its ring and the off-screen pointer are fixed to **Loco Mode's yellow** — the taxi's
+own — so the route band, the car and the place it is driving to are one colour saying "this is the
+job". They spent a spell carrying the fare's *state* instead, teal until the drop-off was tapped and
+yellow after; [the taxi dispatches itself now](#the-drop-off-dispatches-itself), so there is no
+untapped state left to draw. See
+[rendering.md](rendering.md#pin-outline-and-bounce--geometrymarkerjs).
 
 `nextFareColor()` still refuses any colour a **live** fare is wearing, not just the previous one —
 five colours against `MAX_FARES = 3` means that always resolves, and it still costs exactly one

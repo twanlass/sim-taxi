@@ -20,11 +20,10 @@ export const SHOTS = [
   // blocks away the two end fades meet in the middle. This one sends the taxi to the far corner
   // instead, so a full-length band with several turns is in frame.
   { name: 'route-far', description: 'the route band, taxi to the far corner', target: [0, 0], zoom: 22, warmup: 12, select: true, routeFar: true },
-  // The drop-off pin *before* it has been tapped, which no other shot can show: every other
-  // carrying framing sends the taxi on at pickup, and that is exactly what turns the pin yellow.
-  // `atDropoff` both holds the send back and frames the pin, since a parked taxi and its untapped
-  // destination are two different corners of the map.
-  { name: 'dropoff', description: 'the untapped drop-off pin — teal, waiting to be tapped', target: [0, 0], zoom: 18, warmup: 12, untilPickup: true, atDropoff: true },
+  // The drop-off pin, framed on the kerb corner it stands on. It used to be the shot for the pin
+  // *before* it was tapped, back when there was such a state; the taxi dispatches itself at pickup
+  // now, so what this frames is the one pin the game has.
+  { name: 'dropoff', description: 'the drop-off pin the taxi is driving at', target: [0, 0], zoom: 18, warmup: 12, untilPickup: true, atDropoff: true },
 ];
 
 export function getActiveShot() {

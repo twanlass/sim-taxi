@@ -848,9 +848,9 @@ if (shot) {
       for (const { type, fare } of fares.update(1 / 60, traffic.taxi)) {
         if (type !== 'pickup') continue;
         traffic.setTaxiFareColor(fare.color);
-        // Held back for the drop-off shot: sending the taxi on is what turns the pin yellow, and
-        // that shot is about the state before the tap — a parked taxi and a pin still asking.
-        if (!shot.atDropoff) send(fare);
+        // Shot mode's stand-in for dispatchToDropoff — the interactive pickup path is in the frame
+        // loop, which a shot never runs.
+        send(fare);
         // Let the timer finish flying to the taxi, or the shot catches it mid-transfer.
         for (let settle = 0; settle < 90; settle++) {
           traffic.update(1 / 60);

@@ -270,37 +270,29 @@ surface everywhere except around the silhouette. Cheaper than a post-processing 
 needs no render targets — this is one small object, not a whole-scene effect. Each hull is a *child*
 of the mesh it wraps, so it inherits animation for free.
 
-**The pin has two colours, and the difference is whether you have answered it.** There is only ever
-one drop-off on the board — the rider currently aboard — so there is nothing for a per-fare hue to
-tell it apart from, and the one thing worth saying about it is its own state.
+**The pin is the taxi's yellow, fixed at build time.** There is only ever one drop-off on the
+board — the rider currently aboard — so there is nothing for a per-fare hue to tell it apart from,
+and by the time it is drawn the taxi is already driving at it.
 
-| State | Head | Post | Ring on the tarmac |
-|---|---|---|---|
-| Untapped — the taxi is parked, waiting to be told where to go | `#17C8B8` teal | `#12AC9E` | `#5FE9DC` |
-| Tapped — the taxi is on its way | `#F5C130` | `#E0AE2A` | `routeLine` `#FFE873` |
+| Head | Post | Ring on the tarmac |
+|---|---|---|
+| `#F5C130` | `#E0AE2A` | `routeLine` `#FFE873` |
 
-Teal because a drop-off appears the instant a rider boards, and at that moment it is a *question* —
-`parked` holds the taxi at the kerb until the pin is tapped, so a marker already wearing the taxi's
-colour would be claiming an instruction nobody gave. It is also the one clear hue left after the
-signals, the taxi's yellow and the white of an unclaimed passenger, and far enough from the
-`#2F8F94` traffic car to never be mistaken for one at play zoom.
+Yellow is the taxi's own, so the pin is part of the same "this is the job" statement the car and the
+route band are making. The ring is exactly `routeLine`, the paint the band running into it is drawn
+in, so the band and the disc it lands in are one mark rather than two yellows meeting at the kerb.
 
-Yellow is the answer: the taxi's own colour, so the moment the player commits, the pin joins the
-same "this is the job" statement the car and the route band are making. The selected ring is exactly
-`routeLine`, the paint the band running into it is drawn in, so the band and the disc it lands in
-are one mark rather than two yellows meeting at the kerb. The change is also the *acknowledgement* —
-on a phone the band can be drawn entirely off-screen, and the pin is what the finger was already on.
-
-`createDestinationPin().setSelected()` swaps all six materials (colour and emissive on head and post,
-rim and fill on the ring) and early-outs on no change; `fares.js` reconciles it against `directed`
-every frame the way it does the rider's meter ring, and pushes it in `markDirected` so the pin turns
-on the same frame as the band. The off-screen pointer follows the same rule — see the CSS for
-`#dropoff-indicator.is-selected`.
+**It briefly had two colours** — teal until the pin was tapped, yellow after — on the grounds that a
+drop-off above a `parked` taxi was a question rather than an instruction, and a marker already
+wearing the taxi's colour would be claiming an instruction nobody gave. That premise is gone: the
+taxi [dispatches itself at pickup](gameplay.md#the-drop-off-dispatches-itself), so there is no
+unanswered stretch and teal was a state the game could not reach. The state-swapping plumbing went
+with it, in the pin, in the `fares.js` reconcile and in the off-screen pointer's CSS — a marker that
+can only ever be one colour should not carry the machinery for two.
 
 The fare's own colour still lives on the taxi's roof sign — see
-[gameplay.md](gameplay.md#fare-colours). `?shot=10` frames the untapped state, which no other shot
-can show: every other carrying framing sends the taxi on at pickup, and that is what turns the pin
-yellow.
+[gameplay.md](gameplay.md#fare-colours). `?shot=10` frames the pin on its kerb corner; it was added
+to catch the untapped state and now simply shows the pin close up, which no other shot does.
 
 The post carries a low **emissive** (0.18 of its colour, against the head's 0.35). It is the only
 post that is ever visible — a waiting rider's figure replaces theirs — and the fixed camera sees
