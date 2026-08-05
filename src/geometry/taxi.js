@@ -59,9 +59,10 @@ export function createTaxiMesh() {
   group.add(shell);
 
   // Traced outline shown only where the car is hidden behind other geometry, so the player can
-  // always see where their taxi is. Shell and roof sign each wear their own — together they trace
-  // the whole recognisable profile. The front wheels skip it: inflated by the rim, the shell's
-  // hull already covers where they sit.
+  // always see where their taxi is. Every opaque part of the car wears one — shell, roof sign
+  // and both steered wheels below. Not for their silhouettes alone: any taxi part left out of the
+  // stencil mask counts as an *occluder* of the rim behind it, and the wheels being skipped at
+  // first painted a yellow streak along the rocker panel of a fully visible car.
   addGhostOutline(shell);
 
   // Steered front wheels. One shared material, one mesh each, pivoting about their own hubs — the
@@ -76,6 +77,10 @@ export function createTaxiMesh() {
       // Same reason as the shell: these sit on the road, where the timer ring is drawn.
       wheel.renderOrder = ABOVE_RING;
       wheel.userData.pickable = 'taxi';
+      // Small rim to match the part — and being in the mask is what stops the wheel occluding
+      // the shell's rim (see the note above addGhostOutline(shell)). Children of the wheel, so
+      // the ghost steers with it.
+      addGhostOutline(wheel, { rim: 0.12 });
       group.add(wheel);
       return wheel;
     });

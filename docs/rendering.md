@@ -267,8 +267,8 @@ invisible when the corner *was* the notch, obvious across a ten-step arc.
 The taxi's silhouette, traced as a yellow rim (`taxiGhost` in the palette) drawn **only on pixels
 where the taxi is hidden** behind other geometry — so the player can always see where their car
 is, and a half-hidden car gets exactly a half outline. The pin's inverted hull turned inside out,
-in two passes, both hung as children of the shell and roof sign so they inherit steering, bounce
-and roll for free:
+in two passes, both hung as children of every opaque part of the car — shell, roof sign and both
+steered wheels — so they inherit steering, bounce and roll for free:
 
 1. **A mask pass** re-draws the taxi's own geometry with `colorWrite: false` and no depth test,
    stamping the car's full screen footprint into the **stencil buffer**. This is what keeps the
@@ -280,13 +280,19 @@ and roll for free:
 
 Where the taxi is visible the reversed test fails everywhere and the whole thing costs nothing;
 where a tower covers part of the car, exactly those rim fragments pass. No render targets and no
-post pass, but two things it cannot live without, both asserted headlessly in `tools/probe.mjs`:
+post pass, but three things it cannot live without, all asserted headlessly in `tools/probe.mjs`:
 
 - **The renderer must be created with `stencil: true`** — three defaults it *off* since r163, and
   without the buffer the stencil test silently passes everywhere and the outline fills in solid.
 - **The hull must not inflate downward.** Scaled uniformly it dipped below the road, the road
   became an "occluder", and a fully visible taxi wore a permanent yellow smear at its bumper —
   so the hull's underside is clamped just above the car's own base.
+- **Every opaque part of the car must be in the mask.** The rim's rule is "draw where something
+  sits in front of the hull", and a taxi part missing from the mask *is* something in front of
+  the hull. The steered front wheels were skipped at first — they're separate meshes, outside
+  the merged shell — and the rim painted a yellow streak along the rocker panel of a fully
+  visible car, tracked down by tinting the rim magenta and re-capturing the same frame with the
+  wheels hidden.
 
 Both passes are flagged `transparent` purely to land in the transparent queue, which draws after
 every opaque object — the depth buffer has to be complete before the mask stamps. `addGhostOutline`
