@@ -24,6 +24,9 @@ export const SHOTS = [
   // *before* it was tapped, back when there was such a state; the taxi dispatches itself at pickup
   // now, so what this frames is the one pin the game has.
   { name: 'dropoff', description: 'the drop-off pin the taxi is driving at', target: [0, 0], zoom: 18, warmup: 12, untilPickup: true, atDropoff: true },
+  // Both avenues run through the middle of the map, so the city centre frames whichever one this
+  // seed drew — the flatiron slivers, the junctions where it meets the grid, and the traffic on it.
+  { name: 'avenue', description: 'the diagonal avenue cutting the grid', target: [0, 0], zoom: 20, warmup: 12 },
 ];
 
 export function getActiveShot() {

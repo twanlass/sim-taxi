@@ -30,12 +30,19 @@ const EDGE_COST = {
   arterialWith: 0.95,
   arterialAgainst: 1.00,      // 64% green helps, but reversed offsets cancel most of the wave
   side: 1.00,
+  // The avenue, priced at what it actually is: one segment is √2 blocks long, so it costs √2.
+  // That is what makes it worth taking without any thumb on the scale — three diagonal segments
+  // cost 4.24 against the six side-street blocks (6.00) they replace, so the router picks it up
+  // for exactly the reason a driver would, and ignores it when the trip doesn't run its way.
+  // A discount on top was tried and pulled every route across the city onto one street.
+  avenue: Math.SQRT2,
 };
 
 const key = (i, j, d) => `${i},${j},${d}`;
 
 function edgeCost(i, j, d) {
   const edge = edgeClass(i, j, d);
+  if (edge.kind === 'avenue') return EDGE_COST.avenue;
   if (edge.kind === 'ring') return EDGE_COST.ring;
   if (edge.kind === 'arterial') return edge.withWave ? EDGE_COST.arterialWith : EDGE_COST.arterialAgainst;
   return EDGE_COST.side;

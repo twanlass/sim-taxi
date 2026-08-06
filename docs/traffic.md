@@ -50,6 +50,67 @@ The ring needs its own gate inside `lightPhase` rather than a permanent green: a
 for the ring reads as a permanent *red* for everyone else, and inner traffic would queue at the
 perimeter forever.
 
+### The avenue
+
+The [diagonal avenue](city.md#the-diagonal-avenue) crosses the grid unsignalised. A car on it has
+no phase of its own — `canProceed` compares the phase against `axisOf(d)`, and no signal ever
+returns `'ne'` or `'nw'` — so it falls through to `avenueGapClear()` and waits for a gap in
+whichever orthogonal axis currently holds the green. `AVENUE_YIELD` is 17 units, shorter than the
+ring's 24: the traffic it yields to is signalised and will be stopped again shortly, and a longer
+window at a junction whose green is only ~7s long never opens at all — the avenue backed up
+permanently at the first arterial it met.
+
+The one exception is a boosting taxi, whose priority hold names the avenue's *own* axis and hands
+the junction over wholesale. That is why `canProceed` compares axes rather than short-circuiting
+on `isDiagonal(d)`: written that way the taxi held the junction and then refused itself entry to
+it, parking mid-boost on an empty road for as long as the button was down.
+
+Two things also fell out of getting this right, both pre-existing and neither about the avenue:
+
+- **Nobody may enter a junction toward an exit lane another car is already turning into.** Two
+  mid-turn cars are both invisible to the don't-block-the-box test, which only sees `drive` cars,
+  so they converge on one landing point and complete on top of each other — measured at 0.01
+  units apart on seed 909, a ring car going straight on and a car yielding onto the ring.
+- **The bust chase scores exits by roads-to-go, not straight-line distance.** Euclidean distance
+  is not a metric on a road network with park closures in it, and four legs could score each other
+  into a loop (seed 5: `x3− z3− x1+ z4+` and back, running out `CHASE_TIMEOUT` 20 units short).
+  Reaching the quarry's *junction* is not the goal either — the cruiser only brakes once the
+  quarry is within `ON_ROAD` of its rail, so `landsOnQuarryRoad()` recognises the move onto their
+  actual stretch of road and always outscores everything else.
+
+### The roundabout
+
+One interior junction ([city.md](city.md#one-junction-is-a-roundabout)) has no signal at all —
+not even the ring's implicit one. A car enters when `roundaboutGapClear()` says no circulating
+car reaches its entry point before it has cleared the merge. The comparison is in *time*: the
+entering car's exposure (its run to the entry plus the merge arc, under real acceleration from
+its current speed) against each circulating car's arrival (its upstream angle over the
+circulating rate). Angle is the right coordinate for the blockers — a distance test can't tell
+"just past my entry, leaving" from "just short of it, arriving" — and time is the right measure
+for the window, because exposure varies threefold with entry speed. Both fixed angular windows
+tried first failed on seed 8888: 100° let a circulating car meet a right-turner's corner arc
+almost side-on (closest pass 1.19 units), and 149° still let one catch a standing-start entry
+from behind (1.55). The gate deliberately assumes a circulating car never exits — its exit isn't
+knowable without replaying its path, and that error reads as caution where the opposite reads as
+a crash. Measured after the change, the closest pass on that seed is 2.94.
+
+The roundabout outranks corridors and the boost priority hold in the entry decision — there is
+no phase to force, only a gap to wait for, so it is the one junction even Loco Mode yields at
+(it then takes the 2.6-radius circle at the softened right-turn target, 0.75× cruise). The
+left-turn yield is skipped there: a roundabout left is three-quarters of a lap, and the oncoming
+car it would wait for is itself behind the entry gate. Mid-orbit the car follows the sampled
+polyline from `roundaboutPath()` instead of the quadratic (`car.path`), with heading read from a
+short look-ahead along it — a 270° sweep passes through headings no entry-to-exit yaw lerp can
+name. Stop bars, crosswalks and the red-light counter all skip the junction via
+`isUnsignalised`; the police corridor refuses lines through it (the cruiser's rail would cross
+the island). The bust chase does *not* avoid it: a penalty there made the greedy router orbit
+the junction until `CHASE_TIMEOUT` on seeds where the quarry sat behind it, and a one-frame
+kerb graze at 26 u/s is invisible where a cop that gives up is not.
+
+`tools/probe.mjs` watches the junction for 240s and asserts the failure modes a screenshot
+can't: no path inside the island kerb, no orbit outside the junction box, no two circulating
+cars closer than 1.7 units, and that traffic actually uses it.
+
 ### Results
 
 | | before | after |

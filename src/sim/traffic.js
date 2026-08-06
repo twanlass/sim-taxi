@@ -10,7 +10,8 @@ import { createTaxiMesh } from '../geometry/taxi.js';
 import {
   GRID, PITCH, HALF_ROAD, LANE, lineCoord, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
   laneOffsetCoord, entryPoint, exitPoint, turnControl, nextIntersection, legalExits, isSegmentClosed,
-  ringAxisAt, isUnsignalised,
+  ringAxisAt, isUnsignalised, isRoundabout, roundaboutPath, ROUNDABOUT_R,
+  isDiagonal, axisOf, alongAxis, lanePoint, roadLineId, turnKind,
 } from '../city/grid.js';
 
 export { ringAxisAt, isUnsignalised };   // re-exported: callers of the sim ask it about junctions
@@ -140,6 +141,11 @@ export const signalCycle = () => SIGNAL.cycle;
  * way meets consecutive reds. For a side street the concept doesn't apply.
  */
 export function edgeClass(i, j, d) {
+  // The avenue is its own class. It is unsignalised and yield-controlled, so neither the ring's
+  // free-flow nor an arterial's green wave describes it — what the router needs to know is that
+  // one segment of it covers √2 blocks of Manhattan distance.
+  if (isDiagonal(d)) return { kind: 'avenue', withWave: false };
+
   const axisIsX = isXAxis(d);
   const line = axisIsX ? j : i;
   const onOuter = line === 0 || line === GRID;
@@ -158,6 +164,29 @@ const blockTime = () => PITCH / SPEED;
 
 /** How much clear road a joining car needs before pulling out in front of ring traffic. */
 const RING_YIELD = 24;
+
+/**
+ * The same, for the avenue crossing the grid. Shorter than the ring's because the traffic it is
+ * yielding to is signalised and will be stopped again shortly, and because a longer window at a
+ * junction whose green is only ~7s long never opens at all — the avenue backed up permanently at
+ * the first arterial it met.
+ */
+const AVENUE_YIELD = 17;
+
+// Roundabout entry. The junction has no phase; a car enters when no circulating car will reach
+// its entry point while it is still merging. The comparison is in *time*, not a fixed angular
+// window, because the entering car's exposure varies threefold with its speed: rolling up at
+// cruise it is on and away in under a second, but from a standing start it needs ~2.2s to clear
+// the merge, and a circulating car covers 290° of the circle in that. Two fixed windows were
+// tried and measured out on seed 8888 — 100° let a circulating car meet a right-turner's arc
+// almost side-on (closest pass 1.19), and 149° still let one catch a standing-start entry from
+// behind at 1.55. Both failures are the same lesson: the window has to know how slow the
+// entering car is.
+const RAB_CLEARING = 0.7;    // radians past the entry still counted as sitting on it (~40°)
+const RAB_MARGIN = 0.35;     // seconds of slack on top of the computed exposure
+// Distance from the entry point to being clear of the merge: the entry blend arc
+// (RAB_BLEND_R × its sweep ≈ 3.3) plus a body length so the tail is out of the way too.
+const RAB_MERGE_RUN = 3.3 + 3.4;
 
 /**
  * Clearance a car needs before turning right on a red.
@@ -253,7 +282,7 @@ const SCATTER_STRAIGHT_W = 0.04;  // what the "carry straight on" turn weight co
  */
 function panicTargetFor(car) {
   if (!policePresence || car.isTaxi || car.crashed) return 0;
-  const carAxis = isXAxis(car.d) ? 'x' : 'z';
+  const carAxis = axisOf(car.d);
   if (carAxis !== policePresence.axis) return 0;
   const carLine = carAxis === 'x' ? car.j : car.i;
   if (carLine !== policePresence.line) return 0;
@@ -349,7 +378,12 @@ const canProceed = (d, i, j, t) => {
   if (priorityJunction && priorityJunction.block === d
       && priorityJunction.i === i && priorityJunction.j === j) return false;
   const phase = lightPhase(i, j, t);
-  return phase.axis === (isXAxis(d) ? 'x' : 'z') && !phase.yellow;
+  // Compared against the direction's own axis rather than a two-way x/z test. The avenue has no
+  // phase of its own, so a diagonal approach falls through to the yield gate — *except* under a
+  // boosting taxi's priority hold, which names the avenue's axis and hands the junction over.
+  // An outright `isDiagonal(d) → false` here was tried and it stranded Loco Mode on the avenue:
+  // the taxi held the junction and then refused itself entry to it.
+  return phase.axis === axisOf(d) && !phase.yellow;
 };
 
 /**
@@ -366,6 +400,7 @@ const canProceed = (d, i, j, t) => {
  */
 function taxiClearsYellow(car, distToLine, t) {
   if (!car.isTaxi) return false;
+  if (isDiagonal(car.d)) return false;   // no phase on the avenue, so no yellow to commit to
   const phase = lightPhase(car.i, car.j, t);
   if (!phase.yellow || phase.axis !== (isXAxis(car.d) ? 'x' : 'z')) return false;
   const clearDist = Math.max(0, distToLine) + STOP_SETBACK + HALF_ROAD * 2;
@@ -472,7 +507,9 @@ function carGeometry() {
 }
 
 /** Coordinate along the travel axis for a point. */
-const along = (d, p) => (isXAxis(d) ? p.x : p.z);
+// Signed coordinate of a point on d's travel axis. Lives in grid.js now that an axis can be a
+// diagonal — for +X/−X it still returns p.x, so nothing about the grid case changed.
+const along = alongAxis;
 
 function spawnCars(rng, count) {
   const cars = [];
@@ -495,7 +532,7 @@ function spawnCars(rng, count) {
     const i = isXAxis(d) ? targetIndex : line;
     const j = isXAxis(d) ? line : targetIndex;
 
-    const laneKey = isXAxis(d) ? `x|${d}|${j}` : `z|${d}|${i}`;
+    const laneKey = laneKeyFor(d, i, j);
     const clash = cars.some((c) => c.laneKey === laneKey && Math.abs(c.s - s) < MIN_GAP + 1);
     if (clash) continue;
 
@@ -505,6 +542,7 @@ function spawnCars(rng, count) {
       turnT: 0,
       turnLen: 1,
       entry: null, control: null, exit: null, hold: null, leadIn: 0, dOut: d,
+      path: null,   // sampled roundabout polyline while orbiting one; Bézier turns leave it null
       colorIndex: rng.int(0, PALETTE.carBody.length - 1),
       // Drives the idle bob. Per-car phase so a queue doesn't bounce in lockstep.
       travelled: 0,
@@ -558,7 +596,7 @@ function spawnCars(rng, count) {
 }
 
 // Exported so a test can place a car on a lane without hand-rolling the key format.
-export const laneKeyFor = (d, i, j) => (isXAxis(d) ? `x|${d}|${j}` : `z|${d}|${i}`);
+export const laneKeyFor = (d, i, j) => `${axisOf(d)}|${d}|${roadLineId(d, i, j)}`;
 
 function bezier(p0, p1, p2, t) {
   const mt = 1 - t;
@@ -566,6 +604,19 @@ function bezier(p0, p1, p2, t) {
     x: mt * mt * p0.x + 2 * mt * t * p1.x + t * t * p2.x,
     z: mt * mt * p0.z + 2 * mt * t * p1.z + t * t * p2.z,
   };
+}
+
+/** Point on a sampled polyline path at arc distance s, clamped to its ends. */
+function pathPoint(path, s) {
+  const { points, cum } = path;
+  const d = Math.max(0, Math.min(s, path.length));
+  let k = 1;
+  while (k < cum.length - 1 && cum[k] < d) k += 1;
+  const span = cum[k] - cum[k - 1] || 1;
+  const t = (d - cum[k - 1]) / span;
+  const a = points[k - 1];
+  const b = points[k];
+  return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t };
 }
 
 /** Shortest-path angular interpolation, so a car turning past ±π doesn't spin the long way. */
@@ -785,6 +836,27 @@ export function createTraffic(rng, scene, count = 24) {
     return true;
   }
 
+  /**
+   * May a car on the avenue cross the grid? The avenue is unsignalised, so its traffic yields to
+   * whichever orthogonal axis currently holds the green — the same shape as `rightOnRedClear`,
+   * and for the same reason: the cars that can legally be moving are the ones worth looking for.
+   *
+   * A longer window than the right-on-red one (which merges into the near lane) because this is a
+   * car crossing both lanes of a road at 45°, and it is doing it from a standstill.
+   */
+  function avenueGapClear(car, t, approaching) {
+    const phase = lightPhase(car.i, car.j, t);
+    const movingDirs = phase.axis === 'x' ? [0, 2] : [1, 3];
+    for (const d of movingDirs) {
+      for (const other of approaching.get(`${car.i},${car.j},${d}`) ?? []) {
+        const stop = along(other.d, entryPoint(other.d, other.i, other.j));
+        const gap = (stop - other.s) * dirSign(other.d);
+        if (gap >= 0 && gap < AVENUE_YIELD) return false;
+      }
+    }
+    return true;
+  }
+
   function ringGapClear(car, ring, approaching) {
     const dirs = ring === 'x' ? [0, 2] : [1, 3];
     for (const d of dirs) {
@@ -793,6 +865,47 @@ export function createTraffic(rng, scene, count = 24) {
         const gap = (stop - other.s) * dirSign(other.d);
         if (gap >= 0 && gap < RING_YIELD) return false;
       }
+    }
+    return true;
+  }
+
+  /**
+   * May a car pull onto the roundabout? Only if no car already inside it reaches this car's
+   * entry point before this car has cleared the merge. Circulation runs toward *decreasing*
+   * atan2 angle (that is what keeps the island on the driver's left), so a positive angle
+   * difference from my entry is a car on its way here, and its arrival time is that angle over
+   * the circulating rate. Every car in the junction is in the 'turn' state with a live rendered
+   * position, which is exactly the coordinate this needs.
+   *
+   * Deliberately assumes a circulating car never exits — its actual exit isn't knowable here
+   * without replaying its path. That errs conservative: a queued entry waits out a car that
+   * would in fact have left, which reads as caution, where the opposite error reads as a crash.
+   */
+  function roundaboutGapClear(car) {
+    const cx = lineCoord(car.i);
+    const cz = lineCoord(car.j);
+    const e = entryPoint(car.d, car.i, car.j);
+    const entryAngle = Math.atan2(e.z - cz, e.x - cx);
+
+    // How long this car stays exposed: from where it is now, through the entry arc, to a body
+    // length past the merge — under its real acceleration from its current speed.
+    const run = Math.max(0, (along(car.d, e) - car.s) * dirSign(car.d)) + RAB_MERGE_RUN;
+    const v0 = Math.min(Math.max(car.v, 0.5), CORNER_SPEED);
+    const tCap = (CORNER_SPEED - v0) / ACCEL;
+    const dCap = v0 * tCap + 0.5 * ACCEL * tCap * tCap;
+    const exposure = dCap >= run
+      ? (Math.sqrt(v0 * v0 + 2 * ACCEL * run) - v0) / ACCEL
+      : tCap + (run - dCap) / CORNER_SPEED;
+
+    const omega = CORNER_SPEED / ROUNDABOUT_R;   // rad/s of circulating traffic
+    const TAU = Math.PI * 2;
+    for (const other of cars) {
+      if (other === car || other.crashed || other.state !== 'turn') continue;
+      if (other.i !== car.i || other.j !== car.j) continue;
+      const a = Math.atan2(other.z - cz, other.x - cx);
+      const upstream = (((a - entryAngle) % TAU) + TAU) % TAU;
+      if (upstream > TAU - RAB_CLEARING) return false;          // still sitting on the entry
+      if (upstream / omega < exposure + RAB_MARGIN) return false;
     }
     return true;
   }
@@ -806,12 +919,17 @@ export function createTraffic(rng, scene, count = 24) {
     // `canProceed`, which then yields the crossing ring traffic to the taxi's axis. A crashed
     // taxi is off the lane grid: releasing its priority hold lets signals run.
     const taxiActive = !taxi.crashed;
-    const taxiTurningLeft = taxi.route?.length > 0 && taxi.route[0] === leftOf(taxi.d);
+    const taxiTurningLeft = taxi.route?.length > 0
+      && turnKind(taxi.d, taxi.route[0]) === 2;
     setPriorityJunction(taxiActive && taxi.boost
       ? {
         i: taxi.i,
         j: taxi.j,
-        axis: isXAxis(taxi.d) ? 'x' : 'z',
+        // A boosting taxi on the avenue holds the junction on an axis no orthogonal car can
+        // match, so every grid approach reads red and the whole junction is its own. Without
+        // this the hold named 'x' or 'z' — a phase the taxi itself could not use, since a
+        // diagonal approach has no phase — and Loco Mode stopped dead at every avenue junction.
+        axis: axisOf(taxi.d),
         block: taxiTurningLeft ? opposite(taxi.d) : null,
       }
       : null);
@@ -993,12 +1111,26 @@ export function createTraffic(rng, scene, count = 24) {
         // The signal ahead, read now rather than on arrival — this is what lets it slow early.
         // A corridor or a boosting-taxi priority hold both temporarily signalise the ring, so the
         // taxi's axis reads as green and cross ring traffic yields to it.
-        const ringAxis = corridorCovers(car.i, car.j) || priorityCovers(car.i, car.j)
+        //
+        // A roundabout outranks both: there is no phase to force, only a gap to wait for, and
+        // that goes for the boosting taxi too — the one junction in town even Loco Mode yields at.
+        const rab = isRoundabout(car.i, car.j);
+        // A car on the avenue has no phase of its own — it yields into a gap in whichever grid
+        // traffic currently holds the green, the same deal a car joining the ring gets. The one
+        // exception is a boosting taxi's hold, which names the avenue's own axis and so hands the
+        // junction over wholesale.
+        const onAvenueNow = isDiagonal(car.d) && !priorityCovers(car.i, car.j);
+        const ringAxis = rab || onAvenueNow
+          || corridorCovers(car.i, car.j) || priorityCovers(car.i, car.j)
           ? null : ringAxisAt(car.i, car.j);
-        const onRingNow = ringAxis !== null && (isXAxis(car.d) ? 'x' : 'z') === ringAxis;
-        const open = ringAxis !== null
-          ? onRingNow
-          : canProceed(car.d, car.i, car.j, t) || taxiClearsYellow(car, distToLine, t);
+        const onRingNow = ringAxis !== null && axisOf(car.d) === ringAxis;
+        const open = rab
+          ? roundaboutGapClear(car)
+          : onAvenueNow
+            ? avenueGapClear(car, t, approaching)
+            : ringAxis !== null
+              ? onRingNow
+              : canProceed(car.d, car.i, car.j, t) || taxiClearsYellow(car, distToLine, t);
         if (!open) allowed = Math.min(allowed, Math.max(0, distToLine));
 
         // The car ahead. A boosting taxi used to ignore this entirely — it was out on the
@@ -1045,13 +1177,22 @@ export function createTraffic(rng, scene, count = 24) {
           // About to reach the stop line — decide whether to enter the intersection.
           // A corridor or a boosting-taxi priority hold temporarily signalises the ring, so the
           // siren's or the taxi's green path is unbroken.
-          const ring = corridorCovers(car.i, car.j) || priorityCovers(car.i, car.j)
+          const ring = rab || onAvenueNow
+            || corridorCovers(car.i, car.j) || priorityCovers(car.i, car.j)
             ? null : ringAxisAt(car.i, car.j);
-          const onRing = ring !== null && (isXAxis(car.d) ? 'x' : 'z') === ring;
+          const onRing = ring !== null && axisOf(car.d) === ring;
 
           let green;
           let viaRightOnRed = false;
-          if (ring !== null) {
+          if (rab) {
+            // Yield-controlled: a gap in the circulating traffic, and no stranded car mid-turn
+            // waiting for room to land.
+            green = !heldAt.has(`${car.i},${car.j}`) && roundaboutGapClear(car);
+          } else if (onAvenueNow) {
+            // The avenue crosses the grid unsignalised, so its traffic waits for a gap in
+            // whichever axis currently holds the green — plus the usual no-entering-a-jammed-box.
+            green = !heldAt.has(`${car.i},${car.j}`) && avenueGapClear(car, t, approaching);
+          } else if (ring !== null) {
             // No signal here. Ring traffic runs; anyone joining waits for a real gap.
             green = onRing || ringGapClear(car, ring, approaching);
           } else {
@@ -1063,6 +1204,7 @@ export function createTraffic(rng, scene, count = 24) {
             // currently holds the green, and never into a junction an emergency vehicle is
             // clearing or one already blocked by a stranded car.
             if (!green && !held && !corridorCovers(car.i, car.j)
+                && !isDiagonal(car.d)
                 && legalExits(car.d, car.i, car.j).includes(rightOf(car.d))
                 && rightOnRedClear(car, t, approaching)) {
               viaRightOnRed = true;
@@ -1072,10 +1214,11 @@ export function createTraffic(rng, scene, count = 24) {
           // Run summary: one tick per red the taxi actually meets, not one per frame spent sat at
           // it — hence the junction stamped on the car and cleared when the turn commits. Read
           // from the phase rather than from `green`, which also goes false for a junction held by
-          // a stranded car; that is a jam, not a red. Ring junctions have no phase to be red at.
-          // A right-on-red still counts: the light was red when the taxi reached the line.
+          // a stranded car; that is a jam, not a red. Ring junctions have no phase to be red at,
+          // and neither does the roundabout or the avenue — a yield is not a light.
           if (car.isTaxi) {
-            const atRed = ring === null && !canProceed(car.d, car.i, car.j, t)
+            const atRed = !rab && !onAvenueNow && ring === null
+              && !canProceed(car.d, car.i, car.j, t)
               && !taxiClearsYellow(car, distToLine, t);
             const redKey = `${car.i},${car.j},${car.d}`;
             if (atRed && car.heldKey !== redKey) {
@@ -1116,7 +1259,7 @@ export function createTraffic(rng, scene, count = 24) {
               // Weight straight/right/left, then fall back to whatever is legal here.
               const weighted = [];
               options.forEach((d) => {
-                const kind = d === car.d ? 0 : d === leftOf(car.d) ? 2 : 1;
+                const kind = turnKind(car.d, d);
                 // Fleeing the boosting taxi: carrying straight on keeps this car in the taxi's
                 // lane for another whole block, so it barely rolls that option. Still a weight
                 // rather than a filter — at a T-junction straight may be the only legal exit.
@@ -1132,8 +1275,11 @@ export function createTraffic(rng, scene, count = 24) {
               dOut ??= options[0];
             }
 
-            // Left turns yield to oncoming traffic close to the same intersection.
-            if (dOut === leftOf(car.d)) {
+            // Left turns yield to oncoming traffic close to the same intersection. Not at the
+            // roundabout: a left there is three-quarters of a lap, and the "oncoming" car it
+            // would wait for is itself behind the entry gate — the circulating window is the
+            // only conflict that exists.
+            if (!rab && turnKind(car.d, dOut) === 2) {
               let blocked;
               if (car.boost && priorityCovers(car.i, car.j)) {
                 // The oncoming lane is already being held at its own line by the priority hold
@@ -1179,6 +1325,16 @@ export function createTraffic(rng, scene, count = 24) {
               });
               if (occupied) dOut = null;
             }
+
+            // ...and nobody may already be crossing this junction toward the same exit lane.
+            // Two cars mid-turn are both invisible to the clearance test above — neither is a
+            // 'drive' car in the lane bookkeeping — so they converge on one landing point and
+            // complete on top of each other. Measured on seed 909: a ring car going straight on
+            // and a car yielding onto the ring, 0.01 units apart at the same exit. The second
+            // one simply waits at the line; the first is a second from being out of the way.
+            if (dOut !== null && cars.some((other) => other !== car && !other.crashed
+              && other.state === 'turn' && other.dOut === dOut
+              && other.i === car.i && other.j === car.j)) dOut = null;
           }
 
           if (dOut === null) {
@@ -1197,15 +1353,21 @@ export function createTraffic(rng, scene, count = 24) {
           }
 
           // Structurally impossible given the gate above, but asserted so a future change to
-          // the turn logic can't quietly start running red lights. Ring junctions are exempt —
-          // they have no phase to obey.
+          // the turn logic can't quietly start running red lights. Ring junctions and the
+          // roundabout are exempt — they have no phase to obey.
           if (viaRightOnRed) stats.rightOnRed += 1;
-          else if (ring === null && !canProceed(car.d, car.i, car.j, t)
+          else if (!rab && !onAvenueNow && ring === null
+              && !canProceed(car.d, car.i, car.j, t)
               && !taxiClearsYellow(car, distToLine, t)) stats.violations += 1;
 
           car.entry = entryPoint(car.d, car.i, car.j);
           car.exit = exitPoint(dOut, car.i, car.j);
           car.control = turnControl(car.d, dOut, car.i, car.j);
+          // Through the roundabout the car orbits the island instead of driving the quadratic —
+          // except a right turn, whose near-corner arc never reaches the circulating circle and
+          // needs no path of its own. Null everywhere else, so the render below falls through to
+          // the Bézier it has always drawn.
+          car.path = rab ? roundaboutPath(car.d, dOut, car.i, car.j) : null;
           car.dOut = dOut;
           car.turnT = 0;
 
@@ -1213,14 +1375,13 @@ export function createTraffic(rng, scene, count = 24) {
           // run-up followed by the arc. Keeping the arc itself anchored at the boundary is what
           // preserves crisp corners — starting the curve from the hold line instead would turn
           // every corner into a long lazy sweep.
-          const lane = laneOffsetCoord(car.d, car.i, car.j);
-          car.hold = isXAxis(car.d) ? { x: holdS, z: lane } : { x: lane, z: holdS };
+          car.hold = lanePoint(car.d, car.i, car.j, holdS);
           car.leadIn = STOP_SETBACK;
-          car.turnLen = car.leadIn + Math.max(
+          car.turnLen = car.leadIn + (car.path ? car.path.length : Math.max(
             0.1,
             Math.hypot(car.control.x - car.entry.x, car.control.z - car.entry.z)
             + Math.hypot(car.exit.x - car.control.x, car.exit.z - car.control.z),
-          );
+          ));
           car.state = 'turn';
           car.heldKey = null;
           stats.moving += 1;
@@ -1240,7 +1401,9 @@ export function createTraffic(rng, scene, count = 24) {
         // this state, including going straight on, and clamping all of them to a corner speed made
         // cars sag at every block — the boosting taxi especially, which would hit top speed on the
         // straight and then shed a third of it to cross an empty junction in a straight line.
-        const straightOn = car.dOut === car.d;
+        // A roundabout path is a corner whatever the exit direction — "straight through" still
+        // orbits the island — so it never takes the full-cruise straight-on branch.
+        const straightOn = car.dOut === car.d && !car.path;
         const cruise = car.boost ? SPEED * BOOST_SPEED : SPEED;
         // Crazy mode doesn't lift for left-turns or straights — it goes round them at full pelt,
         // and the lean plus the rubber on the road sell it instead of a speed drop. Right turns
@@ -1248,9 +1411,10 @@ export function createTraffic(rng, scene, count = 24) {
         // HALF_ROAD − LANE per leg) instead of the far diagonal a left turn sweeps, so at full
         // boost the whole arc completes in ~0.35s vs a left's ~0.7s and reads as *sped up*. A
         // softer target on rights (0.75× cruise) keeps the no-brakes feel while giving the tight
-        // arc back its visual weight.
-        const isRight = !straightOn && car.dOut === rightOf(car.d);
-        const boostTurn = car.boost ? (isRight ? cruise * 0.75 : cruise) : CORNER_SPEED;
+        // arc back its visual weight. The roundabout's 2.6-radius circle is tighter than either,
+        // so a boosting taxi takes it at the same softened target.
+        const isRight = !straightOn && turnKind(car.d, car.dOut) === 1;
+        const boostTurn = car.boost ? (isRight || car.path ? cruise * 0.75 : cruise) : CORNER_SPEED;
         const cornerTarget = straightOn ? cruise : boostTurn;
         car.v = car.v > cornerTarget
           ? Math.max(cornerTarget, car.v - BRAKE * dt)
@@ -1303,9 +1467,9 @@ export function createTraffic(rng, scene, count = 24) {
       if (car.crashed) continue;
 
       if (car.state === 'drive') {
-        const lane = laneOffsetCoord(car.d, car.i, car.j);
-        car.x = isXAxis(car.d) ? car.s : lane;
-        car.z = isXAxis(car.d) ? lane : car.s;
+        const p = lanePoint(car.d, car.i, car.j, car.s);
+        car.x = p.x;
+        car.z = p.z;
         car.yaw = dirYaw(car.d);
       } else {
         const travelled = Math.min(car.turnT, 1) * car.turnLen;
@@ -1315,6 +1479,20 @@ export function createTraffic(rng, scene, count = 24) {
           car.x = car.hold.x + (car.entry.x - car.hold.x) * t;
           car.z = car.hold.z + (car.entry.z - car.hold.z) * t;
           car.yaw = dirYaw(car.d);
+        } else if (car.path) {
+          // Orbiting the roundabout. Heading comes from a short look-ahead along the polyline
+          // rather than from lerping the entry yaw to the exit yaw — a left there sweeps 270° of
+          // heading through intermediate directions no two-endpoint lerp can name.
+          const s = travelled - car.leadIn;
+          const p = pathPoint(car.path, s);
+          car.x = p.x;
+          car.z = p.z;
+          const AHEAD = 0.5;
+          const from = s + AHEAD <= car.path.length ? p : pathPoint(car.path, s - AHEAD);
+          const to = s + AHEAD <= car.path.length ? pathPoint(car.path, s + AHEAD) : p;
+          const dx = to.x - from.x;
+          const dz = to.z - from.z;
+          car.yaw = dx * dx + dz * dz > 1e-8 ? Math.atan2(-dz, dx) : dirYaw(car.dOut);
         } else {
           const t = (travelled - car.leadIn) / (car.turnLen - car.leadIn);
           const p = bezier(car.entry, car.control, car.exit, t);
@@ -1379,7 +1557,8 @@ export function createTraffic(rng, scene, count = 24) {
         const along01 = (Math.min(car.turnT, 1) * car.turnLen - car.leadIn)
           / Math.max(1e-6, car.turnLen - car.leadIn);
         if (along01 > 0) {
-          const turnDir = car.dOut === rightOf(car.d) ? 1 : car.dOut === leftOf(car.d) ? -1 : 0;
+          const kind = turnKind(car.d, car.dOut);
+          const turnDir = kind === 1 ? 1 : kind === 2 ? -1 : 0;
           const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }

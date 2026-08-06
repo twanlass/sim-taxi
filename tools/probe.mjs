@@ -14,7 +14,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, laneKeyFor, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, setPriorityCorridor, setPolicePresence, isUnsignalised, ringAxisAt, laneKeyFor, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -27,7 +27,7 @@ import { createCityCamera, attachDragPan } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { DISTANCE_TIERS, distanceTier } from '../src/game/triptier.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits, getRoundabout, isRoundabout, ROUNDABOUT_ISLAND_R, getAvenue, isDiagonal, onAvenue, alongAxis, lanePoint, isSegmentClosed } from '../src/city/grid.js';
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
@@ -78,10 +78,31 @@ const { stats } = traffic;
 check('no car entered an intersection on red', stats.violations === 0, `${stats.violations} violations`);
 check('traffic is flowing', stats.moving > traffic.cars.length * 0.35,
   `${stats.moving} moving / ${stats.waiting} waiting`);
-check('signals actually stop people', stats.waiting > 0, `${stats.waiting} waiting`);
+// `stats.waiting` is a per-frame snapshot, and a single frame can legitimately catch every car
+// rolling (it did, once the roundabout replaced one set of reds). Watch a couple of seconds.
+let everWaiting = stats.waiting;
+for (let step = 0; step < 120 && everWaiting === 0; step++) {
+  traffic.update(1 / 60);
+  everWaiting = stats.waiting;
+}
+check('signals actually stop people', everWaiting > 0, `${everWaiting} waiting`);
 
 // --- Positional invariants.
-const positions = traffic.cars.map((c) => ({ x: c.x, z: c.z, state: c.state }));
+const positions = traffic.cars.map((c) => ({ x: c.x, z: c.z, state: c.state, d: c.d }));
+
+// Perpendicular distance from the avenue's centreline. Its lanes are the one place in the city
+// where "distance to the nearest road centreline" says nothing, because the avenue runs at 45°
+// to every line the grid has.
+const avenueOffset = (p) => {
+  const av = getAvenue();
+  if (!av) return Infinity;
+  const a = av.junctions[0];
+  const k = av.axis === 'ne'
+    ? lineCoord(a.j) - lineCoord(a.i)
+    : lineCoord(a.j) + lineCoord(a.i);
+  const field = av.axis === 'ne' ? p.z - p.x - k : p.z + p.x - k;
+  return Math.abs(field) / Math.SQRT2;
+};
 // The outermost road centrelines sit exactly at ±HALF_SPAN, so a car in the far lane is
 // legitimately LANE units beyond that. The original bound here was simply too tight.
 const limit = HALF_SPAN + LANE + 1;
@@ -99,6 +120,11 @@ const distToLine = (v) => {
 // somewhere along a road on the other.
 const offLane = positions.filter((p) => {
   if (p.state !== 'drive') return false;
+  // A car on the avenue is nowhere near a grid centreline by construction; its lane is measured
+  // off the diagonal instead. Without this branch the check passes only for as long as the
+  // sampled instant happens to catch nobody on the avenue — which is most instants, and exactly
+  // the kind of assertion that goes green until it matters.
+  if (isDiagonal(p.d)) return Math.abs(avenueOffset(p) - LANE) >= 0.05;
   const dx = distToLine(p.x);
   const dz = distToLine(p.z);
   const onXLane = Math.abs(dz - LANE) < 0.05;
@@ -250,6 +276,16 @@ check('no two cars occupy the same space', worst > 1.6,
   check('traffic still flows with corridors active',
     pTraffic.stats.distance / pTraffic.stats.time / pTraffic.cars.length > 1,
     `${(pTraffic.stats.distance / pTraffic.stats.time / pTraffic.cars.length).toFixed(2)} units/s per car`);
+
+  // Put the city back. The corridor and the presence live in module state in traffic.js, and the
+  // 240s above ends wherever it ends — if a run happens to still be live, every later block in
+  // this file inherits a permanent green down one line and a permanent red across it. That is a
+  // whole-city gridlock, attributed to whatever block happened to run next: on seed 909 it turned
+  // a healthy 7.17 units/s into 0.55 and stranded a car for the entire 300s of the ring test.
+  // Seed-dependent, latent since the corridor was added, and exposed by any change that shifts
+  // the rng stream.
+  setPriorityCorridor(null);
+  setPolicePresence(null);
 }
 
 // --- The fare's travelling timer -------------------------------------------
@@ -609,8 +645,11 @@ check('no two cars occupy the same space', worst > 1.6,
 
   const ringCorners = [[0, 0], [0, GRID], [GRID, 0], [GRID, GRID]];
   check('ring corners keep their signals', ringCorners.every(([i, j]) => !isUnsignalised(i, j)));
+  // Any interior junction except the roundabout, which is legitimately unsignalised.
+  const rbSeen = getRoundabout();
+  const plain = rbSeen && rbSeen.i === 1 && rbSeen.j === 1 ? [2, 1] : [1, 1];
   check('the rest of the ring has none',
-    isUnsignalised(1, 0) && isUnsignalised(0, 1) && !isUnsignalised(1, 1));
+    isUnsignalised(1, 0) && isUnsignalised(0, 1) && !isUnsignalised(plain[0], plain[1]));
 
   const perCar = rTraffic.stats.distance / rTraffic.stats.time / rTraffic.cars.length;
   check('traffic moves better than the old fixed-phase grid', perCar > 4.14,
@@ -660,8 +699,11 @@ check('no two cars occupy the same space', worst > 1.6,
     // Distance from the lane centre, measured off the rendered position — the offset is applied
     // at render, so reading `car.x/car.z` is reading what the player sees. On the travel axis the
     // coordinate runs along the road and says nothing; only the cross-axis one is the lane.
-    const cross = isXAxis(wTaxi.d) ? wTaxi.z : wTaxi.x;
-    widest = Math.max(widest, Math.abs(distToLine(cross) - LANE));
+    // On the avenue the lane is measured off the diagonal — a grid centreline is 45° away from
+    // it and reports the taxi as 8 units out of a lane it is sitting perfectly in.
+    widest = Math.max(widest, isDiagonal(wTaxi.d)
+      ? Math.abs(avenueOffset(wTaxi) - LANE)
+      : Math.abs(distToLine(isXAxis(wTaxi.d) ? wTaxi.z : wTaxi.x) - LANE));
   }
   // 0.52 is the two waves' peak sum; the margin covers a frame landing mid-corner-exit. The frame
   // floor is the sample size: at boost speed a junction arrives about every 1.1s, so barely half
@@ -694,6 +736,9 @@ check('no two cars occupy the same space', worst > 1.6,
   outer: for (let i = 1; i < GRID && dIn < 0; i++) {
     for (let j = 1; j < GRID && dIn < 0; j++) {
       if (ringAxisAt(i, j)) continue;
+      // The roundabout has no signal and no left-turn yield: both scenarios below are about
+      // signalised-junction behaviour, so it can't host them.
+      if (isRoundabout(i, j)) continue;
       for (const d of [0, 1, 2, 3]) {
         if (!legalExits(d, i, j).includes(leftOf(d))) continue;
         if (!legalExits(opposite(d), i, j).length) continue;
@@ -764,6 +809,206 @@ check('no two cars occupy the same space', worst > 1.6,
     `turned=${turned}, oncoming entered the junction=${oncomingEntered}`);
 
   setPriorityJunction(null);
+}
+
+// --- The roundabout ---------------------------------------------------------
+// One interior junction runs as a yield-controlled circulating island instead of a signal. Its
+// silent failure modes are all invisible in a still image: a car cutting across the island, two
+// cars meeting on the circle because the entry gate leaked, or the junction quietly never being
+// used at all. Watch a long sim frame by frame at the junction itself.
+{
+  const rb = getRoundabout();
+  check('one interior junction is a roundabout',
+    Boolean(rb) && rb.i > 0 && rb.i < GRID && rb.j > 0 && rb.j < GRID,
+    rb ? `(${rb.i},${rb.j})` : 'none');
+  check('the roundabout has no signal', Boolean(rb) && isUnsignalised(rb.i, rb.j));
+  check('the roundabout stays off the arterials',
+    Boolean(rb) && !layout.arterials.x.has(rb.j) && !layout.arterials.z.has(rb.i));
+
+  const raScene = new THREE.Scene();
+  const raTraffic = createTraffic(makeRng(seed + 44), raScene, 24);
+  const cx = lineCoord(rb.i);
+  const cz = lineCoord(rb.j);
+
+  let orbits = 0;          // cars that took the circulating path (straight or left)
+  let rights = 0;          // right turns, which keep the ordinary corner arc
+  let minCentre = Infinity; // closest any orbiting car gets to the junction centre
+  let maxCentre = 0;
+  let closestPair = Infinity;
+  const inTurn = new Set();
+
+  for (let step = 0; step < 60 * 240; step++) {
+    raTraffic.update(1 / 60);
+    const turning = raTraffic.cars.filter((c) => !c.crashed && c.state === 'turn'
+      && c.i === rb.i && c.j === rb.j);
+
+    for (const c of turning) {
+      if (!inTurn.has(c)) {
+        inTurn.add(c);
+        if (c.path) orbits += 1; else rights += 1;
+      }
+      // Only measure past the lead-in — the run-up from the hold line is outside the junction.
+      if (c.path && Math.min(c.turnT, 1) * c.turnLen >= c.leadIn) {
+        const r = Math.hypot(c.x - cx, c.z - cz);
+        minCentre = Math.min(minCentre, r);
+        maxCentre = Math.max(maxCentre, r);
+      }
+    }
+    for (const c of [...inTurn]) {
+      if (c.state !== 'turn' || c.i !== rb.i || c.j !== rb.j) inTurn.delete(c);
+    }
+    for (let a = 0; a < turning.length; a++) {
+      for (let b = a + 1; b < turning.length; b++) {
+        closestPair = Math.min(closestPair,
+          Math.hypot(turning[a].x - turning[b].x, turning[a].z - turning[b].z));
+      }
+    }
+  }
+
+  // A wiring check, not a traffic statistic: how busy the junction is swings hard with where
+  // the layout put it (4 orbits on seed 4, 40+ on the default). Any use at all proves the gate
+  // opens and both path kinds run.
+  check('traffic actually uses the roundabout', orbits >= 3 && rights >= 1,
+    `${orbits} orbits, ${rights} right turns in 240s`);
+  // The island kerb is 1.3 and half a car body 0.85, so a centre distance of 2.15 is paint on the
+  // kerb. The circulating circle holds 2.6; anything under 2.4 means a path cutting the island.
+  check('nothing drives over the island', minCentre >= ROUNDABOUT_ISLAND_R + 1.1,
+    `closest approach ${minCentre.toFixed(2)} vs island ${ROUNDABOUT_ISLAND_R}`);
+  // …and the whole orbit stays inside the junction box (entry/exit points sit at 4.47).
+  check('the orbit stays inside the junction', maxCentre <= 4.6,
+    `widest ${maxCentre.toFixed(2)}`);
+  // The entry gate is the only thing keeping circulating cars apart — mid-turn cars are outside
+  // the lane bookkeeping, so a leak here is two cars merging on the circle.
+  check('the entry gate keeps circulating cars apart', closestPair > 1.7,
+    `closest pair ${closestPair.toFixed(2)}`);
+  check('nobody runs a phantom red at the roundabout', raTraffic.stats.violations === 0,
+    `${raTraffic.stats.violations} violations`);
+}
+
+// --- The diagonal avenue ----------------------------------------------------
+// A 45° street through a city whose entire direction encoding is four right angles. Every failure
+// mode here is silent: cars driving across the flatiron blocks instead of down the road, the
+// avenue never being used because the yield gate never opens, the yield gate opening into cross
+// traffic, or the router refusing to plan a diagonal step. Drive the city and measure all four.
+{
+  const av = getAvenue();
+  check('the city has a diagonal avenue', Boolean(av) && av.junctions.length === 4,
+    av ? `${av.axis}, ${av.junctions.map((p) => `(${p.i},${p.j})`).join('→')}` : 'none');
+
+  // It must stop short of the ring corners. Arriving at a corner on a diagonal, both remaining
+  // exits are 135° hairpins that `legalExits` refuses — the avenue would dead-end there and
+  // strand every car that drove it.
+  const ends = [av.junctions[0], av.junctions[av.junctions.length - 1]];
+  check('the avenue stops clear of the map corners',
+    ends.every((p) => p.i > 0 && p.i < GRID && p.j > 0 && p.j < GRID),
+    ends.map((p) => `(${p.i},${p.j})`).join(' '));
+
+  // Every junction on it, arrived at along it, must still offer somewhere to go.
+  let deadEnds = 0;
+  for (const p of av.junctions) {
+    for (let d = 0; d < 8; d++) {
+      if (!isDiagonal(d)) continue;
+      if (legalExits(d, p.i, p.j).length === 0) deadEnds += 1;
+    }
+  }
+  check('no diagonal approach is a dead end', deadEnds === 0, `${deadEnds} dead ends`);
+
+  const aScene = new THREE.Scene();
+  const aTraffic = createTraffic(makeRng(seed + 44), aScene, 24);
+  const drivers = new Set();
+  let offAvenue = 0;
+  let diagFrames = 0;
+  let outsideBox = 0;
+
+  for (let step = 0; step < 60 * 240; step++) {
+    aTraffic.update(1 / 60);
+    for (const car of aTraffic.cars) {
+      if (car.crashed) continue;
+      if (car.state === 'drive' && isDiagonal(car.d)) {
+        drivers.add(car);
+        diagFrames += 1;
+        // In its lane, on the avenue — not cutting the corner off a flatiron block.
+        if (Math.abs(avenueOffset(car) - LANE) >= 0.05) offAvenue += 1;
+      }
+      // A turn on or off the avenue swings 45°, and its Bézier is built from a control point
+      // where two lane lines cross. A sign error there throws the arc across the block rather
+      // than merely making it ugly, so bound it to the junction it belongs to.
+      if (car.state === 'turn' && (isDiagonal(car.d) || isDiagonal(car.dOut))) {
+        const r = Math.hypot(car.x - lineCoord(car.i), car.z - lineCoord(car.j));
+        if (r > ROAD_W + PITCH / 2) outsideBox += 1;
+      }
+    }
+  }
+
+  check('traffic actually drives the avenue', drivers.size >= 3 && diagFrames > 600,
+    `${drivers.size} cars, ${(diagFrames / 60).toFixed(0)}s of driving in 240s`);
+  check('cars on the avenue stay in its lanes', offAvenue === 0, `${offAvenue} frames off-lane`);
+  check('turns on and off the avenue stay at their junction', outsideBox === 0,
+    `${outsideBox} frames adrift`);
+  check('the avenue never lets anyone out on a red', aTraffic.stats.violations === 0,
+    `${aTraffic.stats.violations} violations`);
+
+  // The router has to see it as road. Priced at √2 per segment it is not a shortcut the planner
+  // is bribed into taking — it wins only where it genuinely is shorter, which is a trip along
+  // its own line, so that is the trip to assert on.
+  const from = av.junctions[0];
+  const to = av.junctions[av.junctions.length - 1];
+  const straightOn = findRoute({ i: from.i, j: from.j, d: 0 }, to);
+  check('the router plans down the avenue when it points the right way',
+    Array.isArray(straightOn) && straightOn.some(isDiagonal),
+    straightOn ? `${straightOn.length} turns, ${straightOn.filter(isDiagonal).length} diagonal` : 'null');
+
+  // ...and it must not become the answer to everything. A discount on top of √2 did exactly that.
+  const ints = allIntersections();
+  let usesAvenue = 0;
+  for (const a of ints) {
+    for (const b of ints) {
+      const r = findRoute({ i: a.i, j: a.j, d: 0 }, b);
+      if (r && r.some(isDiagonal)) usesAvenue += 1;
+    }
+  }
+  const share = usesAvenue / (ints.length * ints.length);
+  check('the avenue is a route option, not a funnel', share > 0.05 && share < 0.45,
+    `${(share * 100).toFixed(0)}% of trips use it`);
+
+  // The blocks it cuts are real geometry, not a rectangle with a road drawn over it.
+  const cut = layout.filter((b) => b.cutByAvenue);
+  check('the avenue cuts the blocks it crosses into slivers',
+    cut.length === 3 && cut.every((b) => b.polys.length === 2 && b.polys.every((p) => p.length >= 3)),
+    `${cut.length} blocks, ${cut.map((b) => b.polys.length).join('/')} pieces`);
+  // Nothing may be left standing in the roadway.
+  const inRoad = cut.flatMap((b) => b.polys.flat()).filter((p) => avenueOffset(p) < ROAD_W / 2 - 0.01);
+  check('no block corner is left inside the avenue', inRoad.length === 0,
+    `${inRoad.length} vertices in the road`);
+  check('the avenue keeps clear of the roundabout',
+    !getRoundabout() || !onAvenue(getRoundabout().i, getRoundabout().j));
+
+  // Loco Mode has to work on it. The avenue is unsignalised, so a boosting taxi's priority hold
+  // names the avenue's own axis — and `canProceed` compares the phase against the direction's
+  // axis for exactly that reason. Written as `isDiagonal(d) → false` instead, the taxi held the
+  // junction and then refused itself entry to it: parked, mid-boost, on an empty road, for as
+  // long as the button was down. Nothing else in this file would have noticed.
+  const bScene = new THREE.Scene();
+  const bTraffic = createTraffic(makeRng(seed + 44), bScene, CARS_DEFAULT);
+  const bTaxi = bTraffic.taxi;
+  bTraffic.warmup(5);
+  bTaxi.route = findRoute(planOrigin(bTaxi), av.junctions[av.junctions.length - 1]) ?? [];
+  bTaxi.routeConsumed = false;
+  let onIt = 0;
+  let stalledOnIt = 0;
+  let peak = 0;
+  for (let f = 0; f < 60 * 60; f++) {
+    bTraffic.update(1 / 60);
+    bTaxi.boost = true;
+    if (!isDiagonal(bTaxi.d)) continue;
+    onIt += 1;
+    peak = Math.max(peak, bTaxi.v);
+    if (bTaxi.v < 0.05) stalledOnIt += 1;
+  }
+  setPriorityJunction(null);
+  check('a boosting taxi flies down the avenue rather than stalling on it',
+    onIt > 120 && stalledOnIt === 0 && peak > 17,
+    `${(onIt / 60).toFixed(1)}s on it, peak ${peak.toFixed(1)} u/s, ${stalledOnIt} stalled frames`);
 }
 
 // --- Routing ---------------------------------------------------------------
@@ -841,7 +1086,10 @@ check('every intersection is routable from every approach', unroutable === 0,
       // centre is LANE (2) off the centreline and the band is 1.7 wide, which leaves 0.3 of
       // asphalt showing at the kerb.
       const inJunction = dx <= HALF_ROAD && dz <= HALF_ROAD;
-      if (!inJunction && Math.min(dx, dz) + BAND_HALF > HALF_ROAD) offRoad += 1;
+      // Mid-block on the avenue a point is far from both grid axes and still perfectly on
+      // tarmac, so the diagonal gets the same half-width test against its own centreline.
+      const onAvenueRoad = avenueOffset(p) + BAND_HALF <= HALF_ROAD;
+      if (!inJunction && !onAvenueRoad && Math.min(dx, dz) + BAND_HALF > HALF_ROAD) offRoad += 1;
       drift = Math.max(drift, distToPath(p, planned));
     }
 
@@ -850,11 +1098,20 @@ check('every intersection is routable from every approach', unroutable === 0,
     for (let k = 0; k < path.length - 1; k++) {
       const a = path[k];
       const b = path[k + 1];
+      if (Math.hypot(b.x - a.x, b.z - a.z) < 1) continue;
+      // A run down the avenue is neither an x-run nor a z-run; it is checked against the
+      // diagonal's own lane offset instead. Skipping it outright would have quietly excused the
+      // band being drawn in the wrong place there, which is exactly what it was doing.
+      const diag = Math.abs(Math.abs(b.x - a.x) - Math.abs(b.z - a.z)) < 0.01;
+      if (diag) {
+        straights += 1;
+        if (Math.abs(avenueOffset(a) - LANE) > 1e-6) wrongLane += 1;
+        continue;
+      }
       const dirX = Math.abs(b.x - a.x) > Math.abs(b.z - a.z);
       const cross = dirX ? a.z : a.x;
       const alongMid = dirX ? (a.x + b.x) / 2 : (a.z + b.z) / 2;
       if (Math.abs(alongMid - lineNear(alongMid)) < HALF_ROAD) continue;   // inside a junction box
-      if (Math.hypot(b.x - a.x, b.z - a.z) < 1) continue;
       const crossLine = lineNear(cross);
       const sign = dirX ? Math.sign(b.x - a.x) : Math.sign(b.z - a.z);
       const want = dirX ? sign * LANE : -sign * LANE;
@@ -1228,10 +1485,28 @@ check('the taxi is an ordinary car in the traffic array',
     // Place the quarry relative to the cruiser's own heading. Sideways steps go toward the middle
     // of the map so the target road exists whichever line the run happened to pick.
     const inward = cPolice.state.line <= GRID / 2 ? 1 : -1;
-    const alongCoord = cPolice.state.s + cPolice.state.dir * kase.along;
     const crossLine = cPolice.state.line + kase.across * inward;
     const crossCoord = lineCoord(crossLine) + LANE;
-    const quarry = cPolice.state.axis === 'x'
+
+    // Put the quarry on a stretch of road that *exists*. A park district builds over whole
+    // segments, and the offsets above are geometry, not a road lookup — on some cities they land
+    // the target in the middle of a park, where the honest outcome is the cruiser giving up on
+    // the timeout and the assertion below failing for the fixture's reason rather than the
+    // code's. Slide along the road to the nearest open segment and aim at the middle of that.
+    const wantAlong = cPolice.state.s + cPolice.state.dir * kase.along;
+    const alongAxisIsX = cPolice.state.axis === 'x';
+    let alongCoord = wantAlong;
+    let bestGap = Infinity;
+    for (let k = 0; k < GRID; k++) {
+      const closed = alongAxisIsX
+        ? isSegmentClosed(k, crossLine, 0)
+        : isSegmentClosed(crossLine, k, 1);
+      if (closed) continue;
+      const mid = (lineCoord(k) + lineCoord(k + 1)) / 2;
+      if (Math.abs(mid - wantAlong) < bestGap) { bestGap = Math.abs(mid - wantAlong); alongCoord = mid; }
+    }
+
+    const quarry = alongAxisIsX
       ? { x: alongCoord, z: crossCoord }
       : { x: crossCoord, z: alongCoord };
 

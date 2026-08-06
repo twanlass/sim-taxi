@@ -4,7 +4,7 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import {
   GRID, PITCH, ROAD_W, HALF_ROAD, SPAN, HALF_SPAN, lineCoord,
-  isUnsignalised, isSegmentClosed,
+  isUnsignalised, isSegmentClosed, ROUNDABOUT_ISLAND_R,
 } from './grid.js';
 
 const KERB_H = 0.35;
@@ -25,6 +25,71 @@ function paint(w, d, x, z, col, y = MARK_Y) {
 }
 
 const SLAB = SPAN + ROAD_W * 3;
+
+/** Shrink a convex polygon by `d` on every edge, by offsetting each edge inward and re-crossing. */
+function insetPolygon(poly, d) {
+  // Winding sign, so "inward" is the same side for a rectangle and for a clipped sliver.
+  let area = 0;
+  for (let k = 0; k < poly.length; k++) {
+    const a = poly[k];
+    const b = poly[(k + 1) % poly.length];
+    area += a.x * b.z - b.x * a.z;
+  }
+  const wind = area >= 0 ? 1 : -1;
+
+  const lines = poly.map((a, k) => {
+    const b = poly[(k + 1) % poly.length];
+    const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+    const nx = (wind * (b.z - a.z)) / len;      // inward normal
+    const nz = (-wind * (b.x - a.x)) / len;
+    return { px: a.x - nx * d, pz: a.z - nz * d, dx: (b.x - a.x) / len, dz: (b.z - a.z) / len };
+  });
+
+  const out = [];
+  for (let k = 0; k < lines.length; k++) {
+    const p = lines[(k - 1 + lines.length) % lines.length];
+    const q = lines[k];
+    const denom = p.dx * q.dz - p.dz * q.dx;
+    if (Math.abs(denom) < 1e-6) return poly;   // degenerate; better un-inset than inside out
+    const t = ((q.px - p.px) * q.dz - (q.pz - p.pz) * q.dx) / denom;
+    out.push({ x: p.px + p.dx * t, z: p.pz + p.dz * t });
+  }
+  return out;
+}
+
+// A Shape lives in XY and is laid flat with rotateX(-90°), which maps shape-Y to world −Z and
+// shape-Z (the extrusion) to world +Y. So the polygon goes in with its z negated — otherwise the
+// block comes out mirrored about the road — and the extrusion then rises out of the ground
+// instead of being buried under it. Getting the sign wrong here costs every kerb and every
+// sidewalk in the city, silently, because the faces end up pointing down and are culled.
+const toShape = (poly) => {
+  const shape = new THREE.Shape();
+  shape.moveTo(poly[0].x, -poly[0].z);
+  for (let k = 1; k < poly.length; k++) shape.lineTo(poly[k].x, -poly[k].z);
+  shape.closePath();
+  return shape;
+};
+
+/**
+ * A block platform of any shape: kerb wall plus the surface laid on top of it.
+ *
+ * Blocks used to be boxes, because every block was a rectangle. The avenue cuts three of them
+ * into flatiron slivers, and a triangle is not a box — so both halves are built from the block's
+ * polygon instead, which leaves the rectangular case pixel-identical (an extruded rectangle is
+ * the box it replaced) while the slivers come out with the same kerb and the same sidewalk.
+ */
+function platform(poly, height, surfaceColor, kerbColor) {
+  const parts = [];
+  const wall = new THREE.ExtrudeGeometry(toShape(poly), { depth: height, bevelEnabled: false });
+  wall.rotateX(-Math.PI / 2);
+  parts.push(bakeColor(wall, kerbColor));
+
+  const top = new THREE.ShapeGeometry(toShape(insetPolygon(poly, 0.15)));
+  top.rotateX(-Math.PI / 2);
+  top.translate(0, height + 0.01, 0);
+  parts.push(bakeColor(top, surfaceColor));
+  return parts;
+}
 
 // Rounded corners, so the city reads as an island rather than a sheet cut out with scissors.
 //
@@ -74,16 +139,17 @@ export function createGround(rng, blocks) {
   }
 
   // --- Block platforms: raised kerb + sidewalk surface, or grass for parks.
+  //
+  // Driven off `block.polys` rather than `block.bounds`, so the three blocks the avenue cuts come
+  // out as the two slivers they actually are. Everywhere else that array holds the one rectangle
+  // the block has always been.
   for (const block of blocks) {
     if (block.districtId !== null && block.districtId !== undefined) continue;
-    const { x0, z0, cx, cz } = block.bounds;
-    const w = block.bounds.x1 - x0;
-    const d = block.bounds.z1 - z0;
-
-    parts.push(box(w, KERB_H, d, cx, 0, cz, jitterColor(PALETTE.kerb, rng, { l: 0.02 })));
-
     const surface = block.type === 'park' ? PALETTE.park : PALETTE.sidewalk;
-    parts.push(paint(w - 0.3, d - 0.3, cx, cz, jitterColor(surface, rng, { l: 0.03 }), KERB_H + 0.01));
+    for (const poly of block.polys) {
+      parts.push(...platform(poly, KERB_H,
+        jitterColor(surface, rng, { l: 0.03 }), jitterColor(PALETTE.kerb, rng, { l: 0.02 })));
+    }
   }
 
   // --- Dashed centre lines, one run per gap between intersections.
@@ -116,6 +182,46 @@ export function createGround(rng, blocks) {
       for (let s = from + GAP; s + DASH < to; s += DASH + GAP) {
         if (!arterialZ.has(i)) parts.push(paint(0.18, DASH, c, s + DASH / 2, markColor));
         if (!arterialX.has(i)) parts.push(paint(DASH, 0.18, s + DASH / 2, c, markColor));
+      }
+    }
+  }
+
+  // --- The avenue's centre line.
+  //
+  // The road surface itself needs nothing built: the slab under the whole city is already asphalt,
+  // so cutting the block platforms out of its path *is* the road. What it does need is paint —
+  // without a centre line the gap between the slivers reads as a plaza rather than a street.
+  //
+  // Drawn as a solid double line, the same mark an arterial wears. That is not decoration: the
+  // avenue is the fastest way across town for any trip running its way, and the double line is the
+  // established "this is a main road" tell the player has already learned from the arterials.
+  if (blocks.avenue) {
+    const av = blocks.avenue;
+    // One run per segment, stopping clear of each junction box — the same way the grid's dashes
+    // run kerb to kerb rather than straight through the intersections they cross. Drawn as one
+    // long stripe end to end it painted a double line over every junction it met, which read as
+    // the avenue having right of way it does not actually have.
+    const HALF_BOX = HALF_ROAD * Math.SQRT2;   // the junction box, measured along the diagonal
+    for (let k = 0; k < av.junctions.length - 1; k++) {
+      const a = av.junctions[k];
+      const b = av.junctions[k + 1];
+      const ax = lineCoord(a.i);
+      const az = lineCoord(a.j);
+      const span = Math.hypot(lineCoord(b.i) - ax, lineCoord(b.j) - az);
+      const ux = (lineCoord(b.i) - ax) / span;
+      const uz = (lineCoord(b.j) - az) / span;
+      const angle = Math.atan2(uz, ux);
+      const len = span - HALF_BOX * 2;
+      const mx = ax + ux * (span / 2);
+      const mz = az + uz * (span / 2);
+
+      for (const off of [-0.45, 0.45]) {
+        const stripe = new THREE.PlaneGeometry(len, 0.16);
+        stripe.rotateX(-Math.PI / 2);
+        stripe.rotateY(-angle);
+        // Offset perpendicular to the run, which is the travel vector turned a quarter turn.
+        stripe.translate(mx - uz * off, MARK_Y, mz + ux * off);
+        parts.push(bakeColor(stripe, markColor));
       }
     }
   }
@@ -160,6 +266,31 @@ export function createGround(rng, blocks) {
         if (north) parts.push(paint(BAR_W, BAR_LEN, cx + t, cz + offset, crossColor));
       }
     }
+  }
+
+  // --- Roundabout island.
+  //
+  // A kerbed grass disc in the middle of the junction, in the same kerb-plus-green construction
+  // as every block platform so it reads as city furniture rather than an effect. The thin painted
+  // ring outside the kerb marks the circulating lane's inner edge — without it the island floats
+  // on blank asphalt and the junction reads as broken rather than as a roundabout.
+  if (blocks.roundabout) {
+    const cx = lineCoord(blocks.roundabout.i);
+    const cz = lineCoord(blocks.roundabout.j);
+
+    const kerb = new THREE.CylinderGeometry(ROUNDABOUT_ISLAND_R, ROUNDABOUT_ISLAND_R, KERB_H, 20);
+    kerb.translate(cx, KERB_H / 2, cz);
+    parts.push(bakeColor(kerb, jitterColor(PALETTE.kerb, rng, { l: 0.02 })));
+
+    const grass = new THREE.CircleGeometry(ROUNDABOUT_ISLAND_R - 0.12, 20);
+    grass.rotateX(-Math.PI / 2);
+    grass.translate(cx, KERB_H + 0.01, cz);
+    parts.push(bakeColor(grass, jitterColor(PALETTE.park, rng, { l: 0.03 })));
+
+    const ring = new THREE.RingGeometry(ROUNDABOUT_ISLAND_R + 0.18, ROUNDABOUT_ISLAND_R + 0.36, 28);
+    ring.rotateX(-Math.PI / 2);
+    ring.translate(cx, MARK_Y, cz);
+    parts.push(bakeColor(ring, color('laneMark')));
   }
 
   const merged = mergeGeometries(parts, false);
