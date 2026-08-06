@@ -131,7 +131,21 @@ One flat deadline covers **spawn to drop-off**. Collecting a rider quickly is wh
 deliver them, and that is the entire tension of the game. Trips average ~17s one-way, so 60s for
 both legs plus reaction time is tight but fair.
 
-`ARRIVE_RADIUS = 7` is how close the taxi must get to count as arrived.
+`ARRIVE_RADIUS = 9` is how close the taxi's centre must get to the target **junction centre** to
+count as arrived — exported from `fares.js`, and the headless tools import it rather than keeping
+their own copy.
+
+It is sized off the one place the taxi can stop and *stay* stopped short of a pin: that junction's
+red light. The hold line sits `HALF_ROAD + STOP_SETBACK = 7.4` back along the lane, and the lane is
+`LANE = 2` off the centreline, so a taxi waiting at the target's line is `hypot(7.4, 2) = 7.67`
+from the centre — measured worst case **7.69** across 548 held-at-the-target samples in the
+headless sim. At 7 it was 0.4 short — the car sat on the corner beside the pin with the drop
+refusing to resolve until the light went green, which reads as the game ignoring an arrival that
+plainly happened. A drive-through was never affected; only a stop was.
+
+Not larger, either. One car back in the queue is another `MIN_GAP = 5.3`, past half the 20-unit
+block pitch, and resolving there would pop the rider out mid-block with the pin still a visible
+distance off.
 
 ### Arrival requires direction
 

@@ -93,7 +93,20 @@ let fareSeconds = FARE_SECONDS;
 export const setFareSeconds = (s) => { fareSeconds = s; };
 export const getFareSeconds = () => fareSeconds;
 
-const ARRIVE_RADIUS = 7;       // how close the taxi must get to count as arrived
+// How close the taxi's centre must get to the target *junction centre* to count as arrived.
+//
+// It has to cover a taxi held at that junction's red light, which is the one place the car can
+// stop and stay stopped short of the pin. The hold line puts the car's centre at
+// HALF_ROAD + STOP_SETBACK = 7.4 back along its lane, and the lane itself is LANE = 2 off the
+// centreline, so a taxi waiting at the target's line sits hypot(7.4, 2) = 7.67 out — measured
+// worst case 7.69 over 548 held-at-the-target samples in the headless sim. At 7 that was
+// 0.4 too far: the car parked on the corner, right beside the pin, with the drop refusing to
+// resolve until the light turned green. 9 clears it with margin.
+//
+// Not larger. Queued a car back from the line is another 5.3 (MIN_GAP), which is past half the
+// 20-unit block pitch — resolving there would pop the rider out mid-block with the pin still a
+// visible distance away, which reads as the drop landing in the wrong place.
+export const ARRIVE_RADIUS = 9;
 
 // How long the rider takes to run from the kerb and hop into the taxi after pickup fires.
 //
