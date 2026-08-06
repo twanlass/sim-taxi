@@ -24,6 +24,11 @@ export const SHOTS = [
   // *before* it was tapped, back when there was such a state; the taxi dispatches itself at pickup
   // now, so what this frames is the one pin the game has.
   { name: 'dropoff', description: 'the drop-off pin the taxi is driving at', target: [0, 0], zoom: 18, warmup: 12, untilPickup: true, atDropoff: true },
+  // Loco Mode at full chat. The only framing where the speed effects exist at all: rubber, dust
+  // and the wingtip vapour all need a taxi that is *moving*, and every other shot is of a car
+  // standing still. Close enough that a stream a few pixels wide can be judged, wide enough that
+  // the whole ribbon is in frame rather than just the bit next to the bumper.
+  { name: 'loco', description: 'Loco Mode at speed: wingtip vapour, dust and rubber', target: [0, 0], zoom: 20, warmup: 12, boosting: true },
 ];
 
 export function getActiveShot() {

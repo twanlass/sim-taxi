@@ -18,9 +18,13 @@ import { createSparks } from './game/sparks.js';
 import { createSmoke } from './game/smoke.js';
 import { createDebris } from './game/debris.js';
 import { createFlames } from './game/flames.js';
+import { createSpeedLines } from './game/speedlines.js';
 import { createVanish } from './game/vanish.js';
 import { showRunEnd } from './game/runend.js';
-import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
+import {
+  TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT,
+  TAXI_WINGTIP_BACK, TAXI_WINGTIP_SIDE, TAXI_WINGTIP_HEIGHT,
+} from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
@@ -132,6 +136,7 @@ const smoke = createSmoke(scene, makeRng(runSeed + 99));
 const debris = createDebris(scene, makeRng(runSeed + 111));
 const victimDebris = createDebris(scene, makeRng(runSeed + 122));
 const flames = createFlames(scene, makeRng(runSeed + 133));
+const speedLines = createSpeedLines(scene);
 const vanish = createVanish();
 
 // Collision detection between the taxi and ambient cars. Only fires while boosting — see
@@ -683,6 +688,43 @@ function kickDust() {
   dust.add(car.x - Math.cos(car.yaw) * 1.9, car.z + Math.sin(car.yaw) * 1.9, car.yaw);
 }
 
+// Wingtip vapour off the taxi's two rear body corners in Loco Mode — see game/speedlines.js.
+//
+// Gated on *speed*, not on the button, and ramped rather than switched. Loco Mode is a hold, and a
+// taxi holding it while queued behind a bus is not going fast however hard the player is pressing;
+// streams at full strength there would be the effect reporting the input instead of the motion.
+// Below SPEEDLINE_MIN_V there is nothing, and the ramp reaches full a little under the mode's
+// 18.7 u/s so the streams are at their loudest for most of a clear straight rather than only at
+// the very top. Unboosted cruise is 8.5, so the floor sits just clear of it.
+const SPEEDLINE_MIN_V = 9.5;
+const SPEEDLINE_FULL_V = 16;
+
+function streamSpeedLines() {
+  const car = traffic.taxi;
+  if (!car.boost || car.crashed || car.v < SPEEDLINE_MIN_V) return;
+
+  const strength = Math.min(1, (car.v - SPEEDLINE_MIN_V) / (SPEEDLINE_FULL_V - SPEEDLINE_MIN_V));
+  const fx = Math.cos(car.yaw);
+  const fz = -Math.sin(car.yaw);
+  const rx = Math.sin(car.yaw);
+  const rz = Math.cos(car.yaw);
+
+  // The anchors ride the car's yaw, so the Loco Mode weave writes itself into the streams: the
+  // pair swings from side to side behind the car rather than trailing it in two straight lines,
+  // which is the tell that the taxi is being driven rather than merely moving fast.
+  [-1, 1].forEach((side, lane) => {
+    speedLines.emit(
+      lane,
+      car.x - fx * TAXI_WINGTIP_BACK + rx * side * TAXI_WINGTIP_SIDE,
+      TAXI_WINGTIP_HEIGHT,
+      car.z - fz * TAXI_WINGTIP_BACK + rz * side * TAXI_WINGTIP_SIDE,
+      rx * side,
+      rz * side,
+      strength,
+    );
+  });
+}
+
 // The cruiser gets the same treatment while it is running the taxi down — rubber when it throws
 // the car sideways, dust off the back the whole way. Driven from here rather than from
 // sim/police.js because the effect pools live on this side; police.js publishes the yaw rate and
@@ -825,6 +867,12 @@ function frame() {
 
   layRubber(dt);
   kickDust();
+  streamSpeedLines();
+  // Rebuilt here rather than up with the other pools, because unlike them this one's head is
+  // *attached* to the car: building it before traffic has moved would leave the ribbon starting a
+  // frame behind the bumper, which at 18.7 u/s is a third of a unit of visible daylight between
+  // the car and its own stream.
+  speedLines.update(dt);
   policeRubber();
   updateHud(dt);
   riderFinder.update(dt, fares.waitingAll());
@@ -875,6 +923,33 @@ if (shot) {
     // Follow the car rather than hoping it drives through the middle of the frame.
     const pos = police.group.position;
     controller.state.target.set(pos.x, 0, pos.z);
+    controller.update(aspect());
+  }
+
+  // Loco Mode, driven far enough to be at speed with a full-length trail behind it. A shot never
+  // runs the frame loop, so the effects have to be stepped by hand here — and they have to be
+  // stepped by the *same* calls the loop makes, or the shot is reviewing a second implementation
+  // of the thing under review. Runs until the taxi has held near-top speed for longer than a
+  // vapour point's life, so the ribbon in frame is a full one rather than one still growing.
+  if (shot.boosting) {
+    // The far corner, for the same reason `routeFar` picks it: anything shorter is over before
+    // the car is up to speed.
+    routeTo({ i: traffic.taxi.i > GRID / 2 ? 0 : GRID, j: traffic.taxi.j > GRID / 2 ? 0 : GRID });
+    boost.press();
+    let atSpeed = 0;
+    for (let guard = 0; guard < 8 * 60 && atSpeed < 45; guard++) {
+      traffic.taxi.boost = true;
+      traffic.update(1 / 60);
+      fares.update(1 / 60, traffic.taxi);
+      layRubber(1 / 60);
+      kickDust();
+      streamSpeedLines();
+      speedLines.update(1 / 60);
+      dust.update(1 / 60);
+      skids.update(1 / 60);
+      atSpeed = traffic.taxi.v > 16 ? atSpeed + 1 : 0;
+    }
+    controller.state.target.set(traffic.taxi.x, 0, traffic.taxi.z);
     controller.update(aspect());
   }
 
@@ -937,6 +1012,7 @@ window.__taxi = {
   daylight,
   boost,
   skids,
+  speedLines,
   police,
   fares,
   routeTo,

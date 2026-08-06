@@ -19,6 +19,20 @@ const TAXI_SCALE = 1.18;
 export const TAXI_TAILPIPE_BACK = (CAR_LEN / 2) * TAXI_SCALE;
 export const TAXI_TAILPIPE_HEIGHT = 0.42 + CHASSIS_LIFT;
 
+// The rear body corners, where Loco Mode sheds its vapour streams (game/speedlines.js). Kept here
+// for the same reason as the tailpipe: the offsets follow the mesh if it is ever resized.
+//
+// Height is the body's shoulder line — the box is 0.8 tall centred at 0.78 + CHASSIS_LIFT, so this
+// sits a touch under its top edge. That is the point of the anchor: the rubber and the dust are
+// both road-level effects, and a stream leaving from up here is visibly a *different* claim about
+// what is happening rather than more of the same smoke.
+// Just outboard of the flank rather than flush with it, the way a wingtip stands clear of the
+// fuselage. Flush, the streams left from *under* the rear arches and the near one spent its first
+// couple of units behind the bodywork, which read as vapour leaking out of the car.
+export const TAXI_WINGTIP_BACK = (CAR_LEN / 2) * TAXI_SCALE;
+export const TAXI_WINGTIP_SIDE = (CAR_W / 2) * TAXI_SCALE + 0.12;
+export const TAXI_WINGTIP_HEIGHT = (0.78 + CHASSIS_LIFT + 0.25) * TAXI_SCALE;
+
 export function createTaxiMesh() {
   const group = new THREE.Group();
   group.name = 'taxi';

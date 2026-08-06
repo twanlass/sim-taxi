@@ -23,7 +23,9 @@ import {
 import { createDestinationPin } from '../src/geometry/marker.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
 import { GHOST_MASK_ORDER, GHOST_RIM_ORDER } from '../src/geometry/ghostoutline.js';
-import { createCityCamera, attachDragPan } from '../src/game/camera.js';
+import { createCityCamera, attachDragPan, VIEW_DIR } from '../src/game/camera.js';
+import { createSpeedLines, SPEEDLINE_LIFE, SPEEDLINE_LANES } from '../src/game/speedlines.js';
+import { TAXI_WINGTIP_BACK, TAXI_WINGTIP_SIDE, TAXI_WINGTIP_HEIGHT } from '../src/geometry/taxi.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { DISTANCE_TIERS, distanceTier } from '../src/game/triptier.js';
 import { planOrigin } from '../src/game/route.js';
@@ -1472,6 +1474,127 @@ check('the taxi is an ordinary car in the traffic array',
   const mainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   check('renderer keeps its stencil buffer', /stencil:\s*true/.test(mainSource),
     'main.js constructs WebGLRenderer with stencil: true');
+}
+
+// --- Loco Mode speed lines --------------------------------------------------
+//
+// The wingtip vapour (game/speedlines.js) is a ribbon rebuilt from scratch every frame, and every
+// way it can break is invisible in a still: a head that lags the bumper, a width axis that turns
+// edge-on to the fixed camera and draws nothing, a ring buffer that keeps points after the tail
+// should have let go. All four are numbers, so none of them needs a screenshot.
+{
+  const lines = createSpeedLines(new THREE.Scene());
+  const V = 18.7;          // Loco Mode cruise
+  const STEP = 1 / 60;
+  const HEIGHT = TAXI_WINGTIP_HEIGHT;
+
+  // Drive +X (yaw 0), so the wingtips sit either side on the z axis and the outward drift is ±z.
+  let x = -60;
+  let headGap = 0;
+  let frames = 0;
+  const tipOf = (side) => ({ x: x - TAXI_WINGTIP_BACK, z: side * TAXI_WINGTIP_SIDE });
+
+  const drive = (seconds) => {
+    for (let t = 0; t < seconds; t += STEP) {
+      x += V * STEP;
+      [-1, 1].forEach((side, lane) => {
+        const tip = tipOf(side);
+        lines.emit(lane, tip.x, HEIGHT, tip.z, 0, side, 1);
+      });
+      lines.update(STEP);
+      frames += 1;
+
+      // How far the built ribbon ends up from the tip it was emitted at. The head vertices are
+      // offset half a head-width across the ribbon, so anything much beyond that is the ribbon
+      // coming unstuck from the car.
+      const pos = lines.mesh.geometry.attributes.position.array;
+      const count = lines.mesh.geometry.drawRange.count;
+      const tip = tipOf(1);
+      let nearest = Infinity;
+      for (let v = 0; v < count; v++) {
+        nearest = Math.min(nearest, Math.hypot(
+          pos[v * 3] - tip.x, pos[v * 3 + 1] - HEIGHT, pos[v * 3 + 2] - tip.z,
+        ));
+      }
+      if (count > 0) headGap = Math.max(headGap, nearest);
+    }
+  };
+
+  drive(1.5);
+
+  check('speed lines stay welded to the wingtip', headGap < 0.2,
+    `head sits ${headGap.toFixed(3)} units off the tip over ${frames} frames`);
+
+  // The ribbon is a flat strip, so the one thing it must never do is turn its width axis along the
+  // view direction — it would be drawn exactly edge-on to a camera that cannot be moved, and a
+  // stream that is invisible from the only angle the game has is no stream at all.
+  {
+    const pos = lines.mesh.geometry.attributes.position.array;
+    const cross = lines.mesh.geometry.attributes.aCross.array;
+    const count = lines.mesh.geometry.drawRange.count;
+    let worstDot = 0;
+    let widths = 0;
+    // Vertices are written (aL, bL, bR) (aL, bR, aR): indices 1 and 2 of each six straddle the
+    // same point, so their difference is that point's width axis.
+    for (let v = 0; v + 5 < count; v += 6) {
+      const l = v + 1;
+      const r = v + 2;
+      if (cross[l] !== -1 || cross[r] !== 1) { worstDot = 1; break; }
+      const dx = pos[l * 3] - pos[r * 3];
+      const dy = pos[l * 3 + 1] - pos[r * 3 + 1];
+      const dz = pos[l * 3 + 2] - pos[r * 3 + 2];
+      const len = Math.hypot(dx, dy, dz);
+      if (len < 1e-6) { worstDot = 1; break; }
+      widths += 1;
+      worstDot = Math.max(worstDot, Math.abs(
+        (dx / len) * VIEW_DIR.x + (dy / len) * VIEW_DIR.y + (dz / len) * VIEW_DIR.z,
+      ));
+    }
+    // 1e-4, not 0: the offsets are computed in doubles and read back out of a Float32Array, which
+    // is worth about 1e-5 here. Edge-on is a dot of 1, so the gap between "perpendicular" and
+    // "broken" is five orders of magnitude wide and the tolerance costs nothing.
+    check('speed lines turn their width to the camera', widths > 0 && worstDot < 1e-4,
+      `${widths} widths, worst |dot(VIEW_DIR)| ${worstDot.toExponential(1)}`);
+  }
+
+  // Ring buffer. A ribbon is capped by age, but a long enough straight has to be held by the
+  // buffer too — and a write past the end of a typed array silently does nothing, so an overrun
+  // would show up as a ribbon that mysteriously stops growing rather than as an error.
+  {
+    const held = lines.counts();
+    const capped = held.every((c) => c > 0 && c <= 32);
+    const inBounds = lines.mesh.geometry.drawRange.count
+      <= lines.mesh.geometry.attributes.position.count;
+    check('speed line buffer holds a full-length ribbon', capped && inBounds,
+      `${held.join('/')} points per ribbon, ${lines.mesh.geometry.drawRange.count} verts`);
+  }
+
+  // Widest and faintest at the tail, narrow and bright at the head — that taper IS the direction
+  // of travel, and inverted it reads as the car being sucked backwards into the streak.
+  {
+    const fade = lines.mesh.geometry.attributes.aFade.array;
+    const pos = lines.mesh.geometry.attributes.position.array;
+    const count = lines.mesh.geometry.drawRange.count;
+    const widthAt = (v) => Math.hypot(
+      pos[(v + 1) * 3] - pos[(v + 2) * 3],
+      pos[(v + 1) * 3 + 1] - pos[(v + 2) * 3 + 1],
+      pos[(v + 1) * 3 + 2] - pos[(v + 2) * 3 + 2],
+    );
+    const tailV = 0;
+    const headV = count - 6;
+    check('speed lines taper from the tip', widthAt(headV) < widthAt(tailV)
+      && fade[headV] > fade[tailV],
+      `${widthAt(headV).toFixed(2)}→${widthAt(tailV).toFixed(2)} wide, `
+      + `${fade[headV].toFixed(2)}→${fade[tailV].toFixed(2)} alpha`);
+  }
+
+  // Letting go of the button stops the emission; nothing else has to be told. The ribbon must
+  // then actually leave — a point that never expires would leave a streak hanging over the city
+  // for the rest of the run.
+  for (let t = 0; t < SPEEDLINE_LIFE + 0.1; t += STEP) lines.update(STEP);
+  check('speed lines dissolve after the boost ends',
+    lines.counts().every((c) => c === 0) && !lines.mesh.visible,
+    `${SPEEDLINE_LANES} ribbons empty, mesh hidden`);
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

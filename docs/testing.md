@@ -69,10 +69,17 @@ is set for the capture to wait on.
 Rendering costs about **2s per shot** against ~1s for the entire assertion suite, so screenshots
 are for *looking at* the game, not for verifying it.
 
-Shot 9 (`route-far`) is the odd one out: instead of routing at whichever fare the seed produced — often
-two blocks away, where the route band's two end fades meet in the middle and show you nothing — it
-sends the taxi to the **opposite corner of the map**, so a full-length band with several turns is
-in frame.
+Two shots do more than point a camera. Shot 9 (`route-far`) routes at the **opposite corner of the
+map** instead of at whichever fare the seed produced — often two blocks away, where the route
+band's two end fades meet in the middle and show you nothing — so a full-length band with several
+turns is in frame.
+
+Shot 11 (`loco`) holds Loco Mode down and drives until the taxi has been at near-top speed for
+longer than a vapour point's life, so the rubber, the dust and the wingtip streams are all at full
+length when the shutter opens. It is the only framing where any of them exist, since a shot never
+runs the frame loop and every other one is of a car standing still. The effects are stepped there
+by the *same* calls the frame loop makes — stepping them by hand would mean the shot was reviewing
+a second implementation of the thing under review.
 
 Both browser tools take the same two env overrides, for boxes that aren't a Mac desktop:
 

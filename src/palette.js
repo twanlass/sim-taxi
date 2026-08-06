@@ -110,6 +110,12 @@ export const PALETTE = {
   // it now. Yellow rather than white because white is the unclaimed-passenger marker.
   routeLine: '#FFE873',
 
+  // Wingtip vapour off the boosting taxi. Cool rather than pure white, and deliberately not the
+  // dust's white: the puffs are lit by the golden-hour sun and come out warm, so a warm stream
+  // would read as more of the same thing at a different height. Added over a dark street this
+  // lands as air being torn apart rather than as more road grit.
+  speedLine: '#E8F4FF',
+
   lightRed: '#E24B3C',
   lightYellow: '#F0B23A',
   lightGreen: '#4FBF63',

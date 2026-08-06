@@ -153,6 +153,63 @@ point is to make speed itself read.
 An earlier version used camera-facing billboards. They sat in the same plane as the road and read
 as flat stickers next to the faceted cars.
 
+### Wingtip vapour — `game/speedlines.js`
+
+Two white streams trailing off the taxi's rear body corners in Loco Mode, the way contrails come
+off the tips of a wing. The rubber and the dust are both road-level effects saying "the wheels are
+tearing at the tarmac"; this sits at the car's shoulder line and says "the air can't get out of the
+way", which is why it is worth having as well as the dust rather than instead of it.
+
+**A ribbon, not a particle pool.** Motes spaced along a path read as a dotted line at any emission
+rate the frame budget can afford, and an unbroken line the eye can track is the whole point. So
+this is a trail of points laid down as the car drives, rebuilt into a triangle strip every frame.
+
+| | |
+|---|---|
+| `LIFE` | 0.68s — about 13 units at Loco Mode's 18.7 u/s, ~100px at play zoom |
+| `SPACING` | 0.55 units of travel between committed points |
+| `HEAD_WIDTH` → `TAIL_WIDTH` | 0.20 → 0.88 |
+| `OPACITY` | 0.78, additive |
+
+Three things make it work:
+
+- **The head is attached to the car; the body is not.** The tip position is written as a live head
+  vertex every frame, while the points behind it were committed at fixed intervals of *travel* and
+  then left in world space to age. The ribbon tracks the bumper exactly and its tail hangs where
+  the car used to be. It is rebuilt after `traffic.update()` rather than up with the other pools
+  for this reason — a frame early and the stream starts a third of a unit behind the car.
+- **Width and alpha run off each point's age**, not its index, so the taper is identical at 30 and
+  60fps and a car that slows leaves a *shorter* streak rather than the same one bunched up.
+- **Strength is sampled at emission time** and stored per point, so a stretch laid at full chat
+  stays bright after the car gets stuck behind a bus, and vice versa.
+
+**Gated on speed, not on the button, and ramped rather than switched** (`SPEEDLINE_MIN_V` = 9.5,
+full by 16, in `main.js`). Loco Mode is a hold, and a taxi holding it while queued behind a bus is
+not going fast however hard the player is pressing — streams at full strength there would be the
+effect reporting the *input* instead of the motion. Unboosted cruise is 8.5, so the floor sits just
+clear of it.
+
+> **The width ramp is front-loaded** (`WIDTH_RAMP` = 0.35 of a life). Ramping it across the whole
+> life put the widest part of the ribbon exactly where the alpha ramp had already taken it to
+> nothing, so every pixel bright enough to see came from the narrow end and the stream read as a
+> wire. Widening it only made the invisible half wider.
+
+> **The pair has to stay a pair.** The wingtips are 2 units apart and the camera looks down a
+> diagonal, so on the heading where that gap projects shortest the two ribbons collapse into one
+> stroke — and a single stroke off the middle of the roof reads as a rope being dragged. They are
+> emitted a little outboard of the flank and drift apart as they age (`SPREAD`) to hold the read.
+
+Offsetting across the ribbon along `cross(alongTheRibbon, VIEW_DIR)` turns its width to face the
+camera, so a stream is never seen edge-on. The camera is fixed, so that is a module constant and
+one cross product per point — no per-frame camera read and no `lookAt`. `tools/probe.mjs` asserts
+it: the width axis is perpendicular to `VIEW_DIR` to within float32 noise, where edge-on is a dot
+of 1. It also asserts the head stays welded to the tip, that the ring buffer holds a full-length
+ribbon without overrunning, that the taper points the right way, and that the whole thing dissolves
+once the button is released.
+
+`?shot=11` is the only framing where any of the speed effects exist, since they all need a taxi
+that is *moving* and every other shot is of a car standing still.
+
 ### Loco Mode kickoff — `game/flames.js`, plus a wheelie in `sim/traffic.js`
 
 Two effects on the press that first engages Loco Mode. Fired from `kickLocoMode()` in `main.js`

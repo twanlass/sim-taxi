@@ -253,6 +253,12 @@ siren's corridor yields it.
 reading green. It is only ever the direction *opposite* the taxi, and only while the taxi's route
 calls for a left turn — see [What was still braking it](#what-was-still-braking-it).
 
+What the mode *looks* like is three effects laid from `main.js`, all in
+[rendering.md](rendering.md#effects): rubber off the line and through corners, dust off the back
+the whole way, and the wingtip vapour streams. The vapour is the one gated on speed rather than on
+the button — the other two follow the press, but a taxi holding Loco Mode in a queue is not going
+fast, and the streams are the part that claims it is.
+
 ### What was still braking it
 
 Loco Mode is meant to be go-go-go, and it wasn't. Attributing every frame the boosting taxi spent
