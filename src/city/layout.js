@@ -1,4 +1,5 @@
 import { GRID, blockBounds, HALF_SPAN, segmentKey, setClosedSegments } from './grid.js';
+import { roadNetFromGrid, setCityNetwork } from './roadnet.js';
 import { configureSignals } from '../sim/traffic.js';
 
 // Decides what each block *is* before anything is built. Ground, buildings and props all read
@@ -106,5 +107,12 @@ export function createLayout(rng) {
   // junction's offset from how far along the wave it sits.
   blocks.arterials = { x: arterialX, z: arterialZ, dirX, dirZ };
   blocks.closedSegments = closed;
+
+  // Bake the road network for the city just decided, and install it as *the* network. Everything
+  // above — the closures, the arterials, their coordinated directions — is exactly the input it
+  // needs, so this is the one place in the codebase that has it all in hand. Callers get the
+  // network by asking `cityNetwork()` rather than by being handed one.
+  setCityNetwork(roadNetFromGrid(blocks));
+
   return blocks;
 }

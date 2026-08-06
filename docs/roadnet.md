@@ -146,12 +146,21 @@ Both are reported by the tool rather than asserted away:
 The tool *proves* each difference is one of these two (a truncated chain, or fewer than two
 streets) rather than trusting the count, so a genuine bake bug still fails.
 
+## Who consumes it
+
+`createLayout` bakes the network for the city it has just decided and installs it as *the*
+network — it is the one place that has the closures, the arterials and their coordinated
+directions all in hand. Everything else asks `cityNetwork()` rather than being handed one.
+
+`src/game/route.js` plans over it: search states are lanes, successors are `lane.onward`, and cost
+reads `lane.klass`/`lane.withWave`. See [gameplay.md](gameplay.md#routing). It still returns grid
+directions, because the sim still stores `car.d`.
+
 ## What isn't done yet
 
-Nothing consumes the network. `traffic.js`, `route.js`, `ground.js` and `police.js` still read
-`grid.js`; porting them is the next step, and the deepest part of it is car-following — `laneKey`
-is one infinite lane spanning the city, so a car sees its leader for free, and per-edge lanes break
-that at every junction.
+`traffic.js`, `ground.js` and `police.js` still read `grid.js`; porting them is the next step, and
+the deepest part of it is car-following — `laneKey` is one infinite lane spanning the city, so a
+car sees its leader for free, and per-edge lanes break that at every junction.
 
 A roundabout is currently expressible — a ring of one-way arcs, asserted to circulate and to let
 cars off at every spur — but as an assembly of ordinary nodes rather than a single primitive, and

@@ -20,11 +20,16 @@ import {
   GRID, PITCH, LANE, HALF_ROAD, lineCoord, legalExits, entryPoint, exitPoint, turnControl,
   laneOffsetCoord, isUnsignalised, ringAxisAt, isXAxis, dirSign, nextIntersection,
 } from '../src/city/grid.js';
-import { lightPhase, SPEED, signalCycle } from '../src/sim/traffic.js';
+import { lightPhase, SPEED, signalCycle, edgeClass } from '../src/sim/traffic.js';
 import { roadNetFromGrid, bakeNetwork, SIGNAL_DEFAULTS, gridNodeId } from '../src/city/roadnet.js';
+import { findRoute } from '../src/game/route.js';
 
 const TOL = 1e-9;
 const SEEDS = Number(process.argv[2] ?? 12);
+// Route equivalence is every (start, heading, target) triple — 5,184 pairs planned twice per seed,
+// which is a second of wall clock. Three seeds is enough to cover the shapes closures produce
+// (a cut arterial, a stub, an interior junction down to three arms) without the suite noticing.
+const ROUTE_SEEDS = Math.min(3, SEEDS);
 
 const results = [];
 const failures = [];
@@ -57,6 +62,68 @@ const laneCoordOf = (lane, d) => {
 
 let offsetDriftNodes = 0;
 let degenerate = 0;
+
+// --- The grid router, as it stood before the port ----------------------------
+//
+// Kept verbatim so the ported router can be differenced against it rather than against a
+// description of it. Deleted once traffic.js drives lanes and there is no `(i, j, d)` left to
+// plan in.
+const REF_COST = { ring: 0.90, arterialWith: 0.95, arterialAgainst: 1.00, side: 1.00 };
+
+function refCost(i, j, d) {
+  const edge = edgeClass(i, j, d);
+  if (edge.kind === 'ring') return REF_COST.ring;
+  if (edge.kind === 'arterial') return edge.withWave ? REF_COST.arterialWith : REF_COST.arterialAgainst;
+  return REF_COST.side;
+}
+
+function refRoute(from, target) {
+  if (from.i === target.i && from.j === target.j) return [];
+
+  const key = (i, j, d) => `${i},${j},${d}`;
+  const start = key(from.i, from.j, from.d);
+  const dist = new Map([[start, 0]]);
+  const prev = new Map([[start, null]]);
+  const open = new Set([start]);
+
+  while (open.size) {
+    let cur = null;
+    let curDist = Infinity;
+    for (const k of open) {
+      const d = dist.get(k);
+      if (d < curDist) { curDist = d; cur = k; }
+    }
+    open.delete(cur);
+
+    const [ci, cj, cd] = cur.split(',').map(Number);
+    if (ci === target.i && cj === target.j) {
+      const out = [];
+      for (let cursor = cur; prev.get(cursor); cursor = prev.get(cursor).from) {
+        out.unshift(prev.get(cursor).dir);
+      }
+      return out;
+    }
+
+    for (const dOut of legalExits(cd, ci, cj)) {
+      const next = nextIntersection(dOut, ci, cj);
+      if (!next) continue;
+      const nk = key(next.i, next.j, dOut);
+      const nd = curDist + refCost(ci, cj, dOut);
+      if (nd < (dist.get(nk) ?? Infinity)) {
+        dist.set(nk, nd);
+        prev.set(nk, { from: cur, dir: dOut });
+        open.add(nk);
+      }
+    }
+  }
+
+  return null;
+}
+
+const everyIntersection = [];
+for (let i = 0; i <= GRID; i++) {
+  for (let j = 0; j <= GRID; j++) everyIntersection.push({ i, j });
+}
 
 for (let s = 0; s < SEEDS; s++) {
   const seed = 71624 + s * 7919;
@@ -321,6 +388,35 @@ for (let s = 0; s < SEEDS; s++) {
         const cm = c.at(c.length / 2);
         return near(Math.hypot(mid.x - cm.x, mid.z - cm.z), LANE) <= TOL;
       }));
+  }
+
+  // --- Routing --------------------------------------------------------------
+  //
+  // `game/route.js` now plans over lanes instead of over `(i, j, d)`. Comparing the *route* and
+  // not merely "a route exists" is the assertion that matters: an equal-cost alternative would
+  // pass a reachability check and still send the taxi down a different street on a large share of
+  // fares, quietly moving every arrival time and fare count downstream of it. So the reference
+  // Dijkstra below is the one route.js used to run, kept here to be differenced against — its
+  // successor order (straight, right, left) is the tie-break the ported router preserves.
+  if (s < ROUTE_SEEDS) {
+    let mismatched = 0;
+    let example = '';
+    let compared = 0;
+    for (const from of everyIntersection) {
+      for (let d = 0; d < 4; d++) {
+        for (const to of everyIntersection) {
+          const mine = findRoute({ i: from.i, j: from.j, d }, to);
+          const reference = refRoute({ i: from.i, j: from.j, d }, to);
+          compared += 1;
+          if (JSON.stringify(mine) === JSON.stringify(reference)) continue;
+          mismatched += 1;
+          if (!example) example = `(${from.i},${from.j},d${d})→(${to.i},${to.j}): `
+            + `${JSON.stringify(mine)} vs ${JSON.stringify(reference)}`;
+        }
+      }
+    }
+    check(`${tag} routes match the grid router`, mismatched === 0,
+      `${mismatched}/${compared} differ, e.g. ${example}`);
   }
 }
 

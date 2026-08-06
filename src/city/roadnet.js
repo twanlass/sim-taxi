@@ -48,6 +48,16 @@ const OPPOSITE_TOLERANCE = Math.PI / 6;
 /** Bearing deltas inside this of 0 are "straight on"; within this of PI, a U-turn. */
 const STRAIGHT_TOLERANCE = Math.PI / 8;
 
+/**
+ * The order a lane's exits are listed in: straight on, then right, then left.
+ *
+ * Not cosmetic. It is the order the grid's `legalExits` returned, and the router breaks ties
+ * between equal-cost routes by taking the first one it reaches — so this ordering is what decides
+ * which of two identical-length routes the taxi actually drives. Fixed here, at bake, rather than
+ * sorted inside anyone's inner loop.
+ */
+const HAND_ORDER = { straight: 0, right: 1, left: 2, uturn: 3 };
+
 const EPS = 1e-9;
 
 // --- Building the network ---------------------------------------------------
@@ -261,6 +271,15 @@ function buildTurns(nodes, lanes) {
         if (turn.legal) inLane.exits.push(turn.id);
       }
     }
+  }
+
+  const byId = new Map(turns.map((t) => [t.id, t]));
+  const byLaneId = new Map(lanes.map((l) => [l.id, l]));
+  for (const lane of lanes) {
+    lane.exits.sort((p, q) => HAND_ORDER[byId.get(p).hand] - HAND_ORDER[byId.get(q).hand]);
+    // Where each exit lands, resolved once. The router walks this every expansion, and rebuilding
+    // it from turn ids inside Dijkstra's inner loop was most of the cost of planning a route.
+    lane.onward = lane.exits.map((id) => byLaneId.get(byId.get(id).outLane));
   }
 
   buildConflicts(nodes, turns);
@@ -652,6 +671,23 @@ function buildBlocks(nodes, edges) {
  * Porting traffic and routing onto the network is only safe because that equivalence is checked
  * first, so a behaviour change afterwards is unambiguously a porting bug rather than a new city.
  */
+/**
+ * The network the running city is built on.
+ *
+ * Held here for the same reason `grid.js` holds the closed segments and `traffic.js` holds the
+ * signal config: there is exactly one city at a time, and every system needs to ask it questions
+ * without threading it through five constructors that have no other use for it. `createLayout`
+ * installs it, which is already where the closures and the arterials are decided.
+ */
+let city = null;
+
+export function setCityNetwork(net) {
+  city = net;
+  return net;
+}
+
+export const cityNetwork = () => city;
+
 export function roadNetFromGrid(layout, config = {}) {
   const arterialX = layout?.arterials?.x ?? new Set();
   const arterialZ = layout?.arterials?.z ?? new Set();
@@ -691,14 +727,22 @@ export function roadNetFromGrid(layout, config = {}) {
   }
 
   const net = bakeNetwork({ nodes, edges }, config);
+  const byEnds = new Map(net.lanes.map((l) => [`${l.from}>${l.to}`, l]));
+  /** Intersection one step from (i, j) along grid direction `d`, sign `way` (+1 on, -1 back). */
+  const step = (d, i, j, way) => (isXAxis(d)
+    ? { i: i + way * dirSign(d), j }
+    : { i, j: j + way * dirSign(d) });
+
   net.nodeByGrid = (i, j) => net.nodeById.get(gridNodeId(i, j));
   /** The lane a car travelling grid direction `d` toward intersection (i, j) is on. */
   net.laneByGrid = (d, i, j) => {
-    const back = isXAxis(d)
-      ? { i: i - dirSign(d), j }
-      : { i, j: j - dirSign(d) };
-    const from = gridNodeId(back.i, back.j);
-    return net.lanes.find((l) => l.from === from && l.to === gridNodeId(i, j)) ?? null;
+    const back = step(d, i, j, -1);
+    return byEnds.get(`${gridNodeId(back.i, back.j)}>${gridNodeId(i, j)}`) ?? null;
+  };
+  /** The lane a car leaves intersection (i, j) on, travelling grid direction `d`. */
+  net.laneOutByGrid = (d, i, j) => {
+    const ahead = step(d, i, j, 1);
+    return byEnds.get(`${gridNodeId(i, j)}>${gridNodeId(ahead.i, ahead.j)}`) ?? null;
   };
   return net;
 }

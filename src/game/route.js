@@ -1,16 +1,20 @@
-import { legalExits, nextIntersection, GRID } from '../city/grid.js';
-import { edgeClass } from '../sim/traffic.js';
+import { GRID, DIR, rightOf, leftOf } from '../city/grid.js';
+import { cityNetwork, gridNodeId } from '../city/roadnet.js';
 
 /**
  * Routing over the road network.
  *
- * The graph node is *directed* — `(i, j, d)` means "approaching intersection (i, j) travelling
- * direction d". It has to be, because the legal moves out of an intersection depend on how you
- * arrived: `legalExits` forbids U-turns. Treating a plain (i, j) as the node would happily plan
- * routes that flip direction on the spot, and the car would never be able to execute them.
+ * The graph node is a **lane** — a directed half of one road — which is the same thing the old
+ * `(i, j, d)` state was: "approaching this junction, travelling this way". It has to carry the
+ * arrival, because the legal moves out of a junction depend on how you got there (no U-turns).
+ * Treating the junction alone as the node would happily plan routes that flip direction on the
+ * spot, and the car would never be able to execute them.
  *
- * At 5x5 that's 6*6*4 = 144 states — small enough that a plain rescan-the-open-set Dijkstra
- * beats any structured heap.
+ * What changes by moving off `(i, j, d)` is that the successors now come from `lane.exits` — the
+ * turns baked into the network — instead of from direction arithmetic. A three-way junction, a
+ * diagonal or a roundabout has legal moves that `(d + 1) % 4` cannot name; a lane's exits are
+ * whatever the geometry says they are. At 5x5 that's 120 lanes against the old 144 states — small
+ * enough that a plain rescan-the-open-set Dijkstra still beats any structured heap.
  *
  * Weights encode the road hierarchy. A fewest-blocks router (unit weights) fights the signal
  * coordination the city was tuned for: arterials run a green wave with a 64% share for their
@@ -32,58 +36,108 @@ const EDGE_COST = {
   side: 1.00,
 };
 
-const key = (i, j, d) => `${i},${j},${d}`;
-
-function edgeCost(i, j, d) {
-  const edge = edgeClass(i, j, d);
-  if (edge.kind === 'ring') return EDGE_COST.ring;
-  if (edge.kind === 'arterial') return edge.withWave ? EDGE_COST.arterialWith : EDGE_COST.arterialAgainst;
+/**
+ * Cost of driving one lane. Reads the class off the lane rather than recomputing it from `(i, j,
+ * d)`: the network already worked out what kind of road this is and which way its green wave
+ * runs, and an editor-drawn arterial has no line index to look either up by.
+ */
+export function laneCost(lane) {
+  if (lane.klass === 'ring') return EDGE_COST.ring;
+  if (lane.klass === 'arterial') {
+    return lane.withWave ? EDGE_COST.arterialWith : EDGE_COST.arterialAgainst;
+  }
   return EDGE_COST.side;
+}
+
+/**
+ * Grid direction a lane travels, for callers that still speak `(i, j, d)`.
+ *
+ * This is the adapter that keeps `traffic.js`, `fares.js` and `main.js` untouched while the router
+ * moves onto the network — the sim still stores `car.d` and consumes a route as a list of
+ * directions. It reads `gi`/`gj`, which only `roadNetFromGrid` sets, so it works precisely as long
+ * as the city *is* a grid. It comes out when traffic.js starts driving lanes directly.
+ */
+/** The search's one non-lane state: "arrived at the origin junction, about to choose". */
+const START = Symbol('start');
+
+function laneDir(net, lane) {
+  const a = net.nodeById.get(lane.from);
+  const b = net.nodeById.get(lane.to);
+  if (b.gi > a.gi) return DIR.PX;
+  if (b.gi < a.gi) return DIR.NX;
+  return b.gj > a.gj ? DIR.PZ : DIR.NZ;
+}
+
+/**
+ * Lanes the car can take out of the junction it is currently heading toward.
+ *
+ * Every later step is just `lane.onward`, which the network baked in straight/right/left order —
+ * see `HAND_ORDER` in roadnet.js for why that order is load-bearing rather than cosmetic. The
+ * first step is the only one that needs help, because the car may not be on a lane at all:
+ * `tools/probe.mjs` asks about every `(i, j, d)`, including arrivals from off the map. There is
+ * nothing to exclude in that case — a U-turn would leave along the very road the car did not come
+ * in on, and that road's absence is what made the arrival virtual in the first place.
+ */
+function startExits(net, origin, inDir) {
+  const inLane = net.laneByGrid(inDir, origin.gi, origin.gj);
+  if (inLane) return inLane.onward;
+
+  const straight = inDir;
+  const right = rightOf(inDir);
+  const left = leftOf(inDir);
+  const rank = (lane) => {
+    const d = laneDir(net, lane);
+    return d === straight ? 0 : d === right ? 1 : d === left ? 2 : 3;
+  };
+  return origin.outbound
+    .filter((lane) => !lane.degenerate && rank(lane) < 3)
+    .sort((p, q) => rank(p) - rank(q));
 }
 
 /**
  * @param from  {{i, j, d}} the intersection the car is heading toward, and its current heading
  * @param target {{i, j}}   intersection to reach
- * @param cost   optional (i, j, d) -> number, overriding the built-in road-hierarchy weights.
+ * @param cost   optional (lane) -> number, overriding the built-in road-hierarchy weights.
  *               Only tools/router-sweep.mjs uses this, to compare tunings.
  * @returns array of directions to take at each successive intersection, or null if unreachable.
  *          An empty array means the car is already heading to the target.
  */
-export function findRoute(from, target, cost = edgeCost) {
+export function findRoute(from, target, cost = laneCost) {
   if (from.i === target.i && from.j === target.j) return [];
 
-  const start = key(from.i, from.j, from.d);
-  const dist = new Map([[start, 0]]);
-  const prev = new Map([[start, null]]);
-  const open = new Set([start]);
+  const net = cityNetwork();
+  const origin = net.nodeByGrid(from.i, from.j);
+  const targetId = gridNodeId(target.i, target.j);
+  if (!origin || !net.nodeById.has(targetId)) return null;
+
+  // The search starts *at* the origin junction rather than on a lane, so a car arriving from
+  // off-map — a state the probe asks about and the game never reaches — still has somewhere to
+  // plan from. START is that arrival; every other state is a lane.
+  const dist = new Map([[START, 0]]);
+  const prev = new Map([[START, null]]);
+  const open = new Set([START]);
 
   while (open.size) {
     let cur = null;
     let curDist = Infinity;
-    for (const k of open) {
-      const d = dist.get(k);
-      if (d < curDist) { curDist = d; cur = k; }
+    for (const state of open) {
+      const d = dist.get(state);
+      if (d < curDist) { curDist = d; cur = state; }
     }
     open.delete(cur);
 
-    const [ci, cj, cd] = cur.split(',').map(Number);
-    if (ci === target.i && cj === target.j) {
+    if (cur !== START && cur.to === targetId) {
       const out = [];
-      for (let cursor = cur; prev.get(cursor); cursor = prev.get(cursor).from) {
-        out.unshift(prev.get(cursor).dir);
-      }
+      for (let lane = cur; lane !== START; lane = prev.get(lane)) out.unshift(laneDir(net, lane));
       return out;
     }
 
-    for (const dOut of legalExits(cd, ci, cj)) {
-      const next = nextIntersection(dOut, ci, cj);
-      if (!next) continue;
-      const nk = key(next.i, next.j, dOut);
-      const nd = curDist + cost(ci, cj, dOut);
-      if (nd < (dist.get(nk) ?? Infinity)) {
-        dist.set(nk, nd);
-        prev.set(nk, { from: cur, dir: dOut });
-        open.add(nk);
+    for (const next of cur === START ? startExits(net, origin, from.d) : cur.onward) {
+      const nd = curDist + cost(next);
+      if (nd < (dist.get(next) ?? Infinity)) {
+        dist.set(next, nd);
+        prev.set(next, cur);
+        open.add(next);
       }
     }
   }
@@ -100,8 +154,14 @@ export function findRoute(from, target, cost = edgeCost) {
  */
 export function planOrigin(car) {
   if (car.state === 'turn') {
-    const next = nextIntersection(car.dOut, car.i, car.j);
-    if (next) return { i: next.i, j: next.j, d: car.dOut };
+    // The lane the turn is landing on runs *out* of (i, j); its far end is the junction the car
+    // will next have a choice at, which is where planning has to resume.
+    const net = cityNetwork();
+    const lane = net.laneOutByGrid(car.dOut, car.i, car.j);
+    if (lane) {
+      const landing = net.nodeById.get(lane.to);
+      return { i: landing.gi, j: landing.gj, d: car.dOut };
+    }
   }
   return { i: car.i, j: car.j, d: car.d };
 }

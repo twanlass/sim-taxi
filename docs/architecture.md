@@ -23,7 +23,7 @@ src/
 
   game/                 the player's layer
     fares.js            fare state machine, spawning, scoring
-    route.js            directed Dijkstra with road-hierarchy weights
+    route.js            Dijkstra over the road network's lanes, road-hierarchy weights
     routeline.js        the route band painted down the taxi's lane
     pick.js             raycast click picking
     timerring.js        the fare clock, as a physical object
