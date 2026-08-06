@@ -13,14 +13,13 @@ import { makeRng } from '../src/util/rng.js';
 import { createTraffic, edgeClass } from '../src/sim/traffic.js';
 import { createLayout } from '../src/city/layout.js';
 import { findRoute, planOrigin, allIntersections } from '../src/game/route.js';
-import { intersectionCentre } from '../src/game/fares.js';
+import { intersectionCentre, ARRIVE_RADIUS } from '../src/game/fares.js';
 
 const CARS = 7;
 const RUNS = Number(process.argv[2] ?? 40);
 const SEEDS = Number(process.argv[3] ?? 8);
 const STEP = 1 / 60;
 const TIMEOUT = 120;
-const ARRIVE_RADIUS = 7;
 const STOPPED_V = 0.4;
 
 function costFor(w) {

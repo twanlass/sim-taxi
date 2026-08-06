@@ -12,12 +12,11 @@ import { createLayout } from '../src/city/layout.js';
 // Matches the game's default so these numbers describe the game as played, not a denser city.
 const CARS = 7;
 import { findRoute, planOrigin, allIntersections } from '../src/game/route.js';
-import { intersectionCentre } from '../src/game/fares.js';
+import { intersectionCentre, ARRIVE_RADIUS } from '../src/game/fares.js';
 
 const RUNS = Number(process.argv[2] ?? 20);
 const STEP = 1 / 60;
 const TIMEOUT = 120;          // seconds of sim time allowed per fare
-const ARRIVE_RADIUS = 7;
 
 const rng = makeRng(9001);
 createLayout(makeRng(71624));   // registers closed road segments before anything spawns
