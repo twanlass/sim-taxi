@@ -27,6 +27,7 @@ can be made and verified in a single step.
 | Step | Tool | Asserts |
 |---|---|---|
 | **modules** | inline in `check.mjs` | Every browser-only module imports *and constructs* in node, and a full simulated day swings the sun from 0.00 to >3 |
+| **roadnet** | `tools/roadnet.mjs` | The road network reproduces the grid at 1e-9 — positions, lanes, turns, legal moves, signal phase across a cycle — plus diagonals, roundabouts and curves the grid can't express. Runs first: it is the control on every step below |
 | **probe** | `tools/probe.mjs` | Traffic invariants: no car in a park, no car off-map, no signal violations, all 5,184 (approach, destination) pairs routable, front wheels locked through corners and straight on the straight |
 | **routing** | `tools/taxi.mjs 30` | Given a target, the routed taxi actually **arrives** — while still stopping at every red |
 | **fares** | `tools/soak.mjs 25 4 9` | Auto-plays the fare loop over **9 run seeds** with a fixed "player reaction" delay, and gates on the median |
@@ -50,6 +51,7 @@ nothing headless imported it. Anything browser-only belongs in that file's `BOOT
 ## Other tools
 
 ```bash
+node tools/roadnet.mjs 40                     # road-network equivalence over 40 city seeds
 node tools/probe.mjs                          # individually, for detail on a failure
 node tools/taxi.mjs 60                        # more trials
 node tools/soak.mjs 40 3 20                   # 40 fares, 3s reaction, 20 run seeds

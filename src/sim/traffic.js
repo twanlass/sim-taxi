@@ -35,7 +35,11 @@ export { WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries };
 // Cycle length stays common across the city on purpose: shared cycle length is the precondition
 // for coordination. Variety comes from splits and offsets instead.
 
-const SPEED = 8.5;
+// Exported because the road network needs it to compute green-wave offsets, and `city/` is not
+// allowed to import from `sim/`. It keeps its own copy as `SIGNAL_DEFAULTS.cruise` in
+// city/roadnet.js and `tools/roadnet.mjs` asserts the two are equal — a silent drift between them
+// would detune every signal offset in the city with nothing to show for it.
+export const SPEED = 8.5;
 
 // World units are metres-ish: CAR_LEN is 3.4 against a real compact at ~4.4m, so one unit is
 // about 1.29m and one u/s about 2.9mph. Nothing in the sim needs this — it exists so the run

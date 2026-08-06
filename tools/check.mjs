@@ -18,6 +18,9 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/dropoffindicator.js', '../src/game/vanish.js', '../src/game/runend.js'];
 
 const TOOLS = [
+  // Runs first: it is the control on every later step. If the road network stops describing the
+  // same city as the grid, the traffic and routing numbers below stop meaning anything.
+  { name: 'roadnet', args: ['tools/roadnet.mjs'],      pick: /(\d+\/\d+) checks passed/ },
   { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },
   { name: 'routing', args: ['tools/taxi.mjs', '30'],   pick: /arrived (\S+)/ },
   // Nine seeds, not one. A single soak run is trip-length luck more than it is difficulty, so a

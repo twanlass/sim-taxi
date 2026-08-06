@@ -9,6 +9,8 @@ src/
 
   city/                 the world, generated once at startup
     grid.js             coordinate system, direction encoding, legal moves
+    curves.js           lines and arcs, arc-length parameterised — offset, trim, sample
+    roadnet.js          the road network: nodes/edges in, lanes/turns/signals/blocks out
     layout.js           decides what each block *is* (density, parks) before anything is built
     ground.js           roads, kerbs, block surfaces, crosswalks
     buildings.js        one merged mesh of blocky towers
