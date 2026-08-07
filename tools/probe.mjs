@@ -443,7 +443,6 @@ check('no two cars occupy the same space', worst > 1.6,
   let pickups = 0;
   let stillMetered = 0;
   let wrongTier = 0;
-  let sharedColour = 0;
   let sharedJunction = 0;
   let elapsed = 0;
 
@@ -489,11 +488,7 @@ check('no two cars occupy the same space', worst > 1.6,
     aim();
     elapsed += 1 / 60;
 
-    // Colour is assigned when the trip is drawn, so no two live fares may wear the same one — a
-    // carried fare must never match the one the board is about to hand over to.
     const live = fares.state.fares;
-    const colours = new Set(live.map((f) => f.color));
-    if (colours.size !== live.length) sharedColour += 1;
     // No two fares may claim the same junction at either end, even while the far ends are hidden:
     // a rider spawning on another fare's drop-off ends up sharing a kerb corner once it appears.
     // A riding fare's `target` *is* its drop-off, so it contributes one junction, not two.
@@ -536,7 +531,6 @@ check('no two cars occupy the same space', worst > 1.6,
       painted === `${hex(PALETTE.destination)} ${hex(PALETTE.destination)} `
         + `${hex(PALETTE.routeLine)}/${hex(PALETTE.routeLine)}`, painted);
   }
-  check('no two live fares share a colour', sharedColour === 0, `${sharedColour} frames`);
   check('no two fares claim the same junction', sharedJunction === 0, `${sharedJunction} frames`);
 
   // --- The urgency bar drains.
@@ -1472,6 +1466,21 @@ check('the taxi is an ordinary car in the traffic array',
   const mainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   check('renderer keeps its stencil buffer', /stencil:\s*true/.test(mainSource),
     'main.js constructs WebGLRenderer with stencil: true');
+}
+
+// --- Taxi roof sign -----------------------------------------------------------
+// The sign no longer carries the fare's own colour — it just says occupied or not. Assert the
+// on/off states directly rather than trusting the toggle by eye.
+{
+  const { sign, setOccupied } = createTaxiMesh();
+  const hex = (c) => new THREE.Color(c).getHexString();
+  check('taxi sign starts dark, empty', sign.material.color.getHexString() === hex(PALETTE.taxiTrim));
+  setOccupied(true);
+  check('taxi sign lights up once a rider boards',
+    sign.material.color.getHexString() === hex(PALETTE.taxiSign));
+  setOccupied(false);
+  check('taxi sign goes dark again once the rider is dropped off',
+    sign.material.color.getHexString() === hex(PALETTE.taxiTrim));
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

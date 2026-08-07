@@ -122,8 +122,8 @@ the ceiling collapses from 25 to 3 — the game stops being winnable indefinitel
 intended shape of a score-attack that ramps.
 
 The rider *figure* is still white whatever else is on the board — see
-[Fare colours](#fare-colours) — so every waiting rider reads the same way, with the urgency bar over
-their head carrying how close each one is to giving up.
+[The taxi's roof sign](#the-taxis-roof-sign) — so every waiting rider reads the same way, with the
+urgency bar over their head carrying how close each one is to giving up.
 
 ### The clock does not reset at pickup
 
@@ -161,36 +161,20 @@ drop-off still only resolves for a taxi that was actually sent at it. Where the 
 teeth is the kerb: `beginRide` clears `directed`, and a rider is only ever collected by a taxi the
 player pointed at them.
 
-### Fare colours
+### The taxi's roof sign
 
 The passenger **figure** is white — deliberately colourless. Before pickup any taxi could take any
 rider, so a colour on the *person* would imply a commitment that doesn't exist.
 
-The fare's colour is assigned when the trip is drawn, at **spawn**, and shows from pickup on the
-taxi's **roof sign**. The sign carries it rather than a ring, because the rings are spoken for —
-the timer ring is colour-coded by time remaining, so fare identity needed somewhere else to live.
-
-**The drop-off pin no longer wears it.** It used to, so that a pin and a taxi could be paired by
-hue; but one rider is aboard at a time and only that rider's pin is on the board, so the pairing
-had nothing to disambiguate and a rotating hue was making the same marker look different run to
-run. The pin, its ring and the off-screen pointer are fixed to **Loco Mode's yellow** — the taxi's
-own — so the route band, the car and the place it is driving to are one colour saying "this is the
-job". They spent a spell carrying the fare's *state* instead, teal until the drop-off was tapped and
-yellow after; [the taxi dispatches itself now](#the-drop-off-dispatches-itself), so there is no
-untapped state left to draw. See
-[rendering.md](rendering.md#pin-outline-and-bounce--geometrymarkerjs).
-
-`nextFareColor()` still refuses any colour a **live** fare is wearing, not just the previous one —
-five colours against `MAX_FARES = 3` means that always resolves, and it still costs exactly one
-draw off the stream. With only the sign wearing it this is belt and braces rather than
-load-bearing; it was load-bearing during the spell when every waiting rider's drop-off was on the
-board too.
-
-Colours avoid every hue already doing a job: signal red/amber/green, the taxi's own yellow, and
-the white of an unclaimed passenger.
-
-The one decision this defers is still deferred: colour says which *trip* a marker belongs to, never
-which taxi is taking it. The day there is more than one taxi, that stays the player's call.
+The **roof sign** lights up while a rider is aboard and goes dark once they're dropped off — a
+plain on/off, not a colour. It used to wear the fare's own colour, drawn at spawn from a five-colour
+palette (`nextFareColor()`), because that colour was what paired a rider with their drop-off pin
+across the map. **The drop-off pin no longer wears a fare colour at all** — it's fixed to **Loco
+Mode's yellow**, the taxi's own, so the route band, the car and the place it is driving to are one
+colour saying "this is the job" (see
+[rendering.md](rendering.md#pin-outline-and-bounce--geometrymarkerjs)). With nothing left for a
+fare colour to pair with, the sign's job shrank to the one thing still worth saying at a glance:
+is the taxi free.
 
 ## Routing
 

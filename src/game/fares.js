@@ -6,7 +6,6 @@ import { createTimerRing } from './timerring.js';
 import { createRiderMeter } from '../geometry/ridermeter.js';
 import { urgencyLevel, URGENCY_SEGMENTS } from './urgency.js';
 import { distanceTier } from './triptier.js';
-import { PALETTE } from '../palette.js';
 
 // The fare loop: a passenger waits at an intersection under a meter saying how long they'll wait
 // and how far they're going, the taxi collects them, a drop-off pin appears, the taxi delivers.
@@ -249,32 +248,6 @@ export function createFareSystem(rng, scene) {
     return { i: 0, j: 0 };
   }
 
-  let lastColorIndex = -1;
-
-  /**
-   * A colour no other live fare is wearing, and not the one the previous fare had either.
-   *
-   * "Different from the last one" was enough while colour was assigned at pickup and only the
-   * carried fare ever had one. Now every fare on the board is coloured from the moment it spawns —
-   * that colour is what pairs a rider with their drop-off pin across the map — so two fares sharing
-   * one would point the player at the wrong junction. Five colours against MAX_FARES = 3 means the
-   * walk below always finds a free one, and it still costs exactly one draw so the stream stays
-   * predictable.
-   */
-  function nextFareColor() {
-    const palette = PALETTE.fareColors;
-    const taken = new Set(state.fares.map((f) => f.color).filter(Boolean));
-    let index = rng.int(0, palette.length - 1);
-    for (let step = 0; step < palette.length; step++) {
-      const candidate = (index + step) % palette.length;
-      if (candidate === lastColorIndex || taken.has(palette[candidate])) continue;
-      index = candidate;
-      break;
-    }
-    lastColorIndex = index;
-    return palette[index];
-  }
-
   const carrying = () => state.fares.find((f) => f.stage === 'riding') ?? null;
   // With more than one rider on the kerb the "waiting fare" the game means is the one about to
   // time out — that is who a perfect player takes next.
@@ -311,23 +284,17 @@ export function createFareSystem(rng, scene) {
       // it, a taxi cruising on random turns wanders into the pin on its own — measured at 11 of
       // 40 seeds — and picks up or delivers a fare the player never directed it to.
       directed: false,
-      color: null,
       ridingFor: 0,
       value: 0,
     };
     state.fares.push(fare);
 
-    // Destination first, colour second — the draw order is load-bearing. Both come off the same
-    // stream, so swapping them reshuffles every intersection a seed produces and the headless
-    // baselines stop describing the same run.
-    //
     // The trip is *decided* here even though its far end stays hidden until pickup: the meter's
     // distance bar needs the length, and the price is fixed from it. What the player gets up front
     // is how far, not where. The unbiased draw is deliberate — the *pickup* is biased toward where
     // the taxi can reach (see spawnBias), but a drop-off next door to every other drop-off would
     // flatten the trip lengths the distance bar exists to tell apart.
     fare.dropoff = pickIntersection(taxiCar);
-    fare.color = nextFareColor();
     fare.blocks = blockDistance(spot, fare.dropoff);
     // Priced by the trip's block distance, fixed here because both endpoints are already known. A
     // hidden meter that ticked while driving would punish traffic and reward Loco Mode for the
