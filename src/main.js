@@ -13,6 +13,7 @@ import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds } from './g
 import { createDebugPanel } from './game/debugpanel.js';
 import { createBoost, BOOST_FARE_REWARD } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
+import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
 import { createSparks } from './game/sparks.js';
@@ -411,6 +412,20 @@ function taxiScreenPos() {
     x: (v.x * 0.5 + 0.5) * window.innerWidth,
     y: (-v.y * 0.5 + 0.5) * window.innerHeight,
   };
+}
+
+/**
+ * Centre of the Punch It pill — where a delivery's boost sparks are pulled to. Read fresh on every
+ * burst rather than cached, because the pill's own fill flutter scales it and a resize moves it.
+ */
+function boostScreenPos() {
+  if (!boostButton) return null;
+  const r = boostButton.getBoundingClientRect();
+  // A hidden pill measures 0×0 — shot mode and the run-end blackout both hide it. Null rather than
+  // a rect at the origin, or a delivery landing next to a crash fires its sparks at the top-left
+  // corner of the screen.
+  if (!r.width) return null;
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }
 
 /** Centre of the money counter in viewport coordinates — the flight's target. */
@@ -847,9 +862,15 @@ function frame() {
       popEarning(fare.value);
       updateStreak(fares.state.delivered);
       // A third of a tank of boost fuel as the delivery reward — the only way any fuel enters the
-      // meter now. Queuing it is the whole call: the pour, the overshoot, the pulsing glow and the
-      // leading edge all key off the pending fuel in updateBoostButton.
-      boost.topUp(BOOST_FARE_REWARD);
+      // meter now. The queue call is deliberately *inside* the sparks' arrival callback rather than
+      // here: the fuel has to land when the energy does, or the meter starts filling a second and a
+      // half before anything visibly reaches it. Queuing it is then the whole call — the pour, the
+      // overshoot, the flutter and the leading edge all key off the pending fuel.
+      flyEnergyToBoost({
+        from: taxiScreenPos,
+        to: boostScreenPos,
+        onArrive: () => boost.topUp(BOOST_FARE_REWARD),
+      });
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       traffic.setTaxiOccupied(false);

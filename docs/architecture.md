@@ -27,6 +27,7 @@ src/
     timerring.js        the fare clock, as a physical object
     boost.js            crazy-taxi duty cycle (a pure clock, no scene knowledge)
     boostmeter.js       how the Punch It pill reads while it refills — overfill, glow, leading edge
+    energybits.js       the sparks a drop-off throws from the taxi into the Punch It pill
     camera.js           fixed 3/4 orthographic camera
     scene.js            scene, sun, hemisphere fill, sky shader
     daylight.js         hour → lighting curve, and the clock that can drive it

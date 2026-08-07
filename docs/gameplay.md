@@ -440,10 +440,29 @@ alt-tabbing or switching apps never leaves the boost stuck on.
 
 ### The refill animation
 
-Every successful drop-off tops the tank up by **a third** — `boost.topUp(BOOST_FARE_REWARD)` queues
-the fuel as *pending* and pours it in at half a tank per second (~0.7s) so the bar visibly fills
-rather than snaps. Since that pour is now the *only* way fuel ever enters the meter, it carries the
-whole reward and gets three layers, all timed by `src/game/boostmeter.js` and shaped in `index.html`:
+A drop-off pays two currencies and for a while it only showed one. The flying `$20` says *money*;
+nothing said *and a third of a tank*, so the meter simply grew on its own in the corner of the
+screen with no visible cause. `src/game/energybits.js` is that cause: **six little yellow sparks
+break off the taxi and get pulled into the Punch It pill**, and the tank is topped up when the first
+one lands, not on the delivery frame. A meter that starts filling a second and a half before
+anything visibly reaches it reads exactly backwards.
+
+They are **sequenced behind the payout, not fired alongside it** — the handoff is 1000ms, set from
+the payout's own flight (620ms rise + 460ms fly), so the coin has landed and gone before the first
+spark appears. Two swarms leaving the same car at the same time for two different corners is noise,
+and the two currencies stop reading as two. The cost is that a delivery's fuel arrives ~1.6s after
+the drop-off rather than immediately; that delay is the effect, and it's short enough to sit inside
+the gap before the next fare is worth chasing.
+
+Both endpoints are resolved as functions at burst time rather than baked in at call time, so a taxi
+that has driven on — and a pill a resize has moved — are still aimed at correctly. If the pill is
+hidden (shot mode, or the run-end blackout) the flight is skipped and the fuel is handed over
+anyway: losing earned boost to a presentation detail would be a real bug wearing a cosmetic one.
+
+Then the pour itself. `boost.topUp(BOOST_FARE_REWARD)` queues the fuel as *pending* and pours it in
+at half a tank per second (~0.7s) so the bar visibly fills rather than snaps. Since that pour is now
+the *only* way fuel ever enters the meter, it carries the rest of the reward and gets three more
+layers, all timed by `src/game/boostmeter.js` and shaped in `index.html`:
 
 | Layer | What it does | Wiring |
 |---|---|---|
