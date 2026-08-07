@@ -20,7 +20,8 @@ ends.
 
 **Loco Mode** (bottom left) is the crazy-taxi button — **hold** for double speed that blows
 through red lights and squeals around corners, release to pause. A full tank is 15 seconds of
-boost; from empty it recharges in 15 seconds.
+boost, and it never refills on its own: you start with a third and every drop-off earns another
+third.
 
 The whole city is always on screen. There is nothing to pan or zoom, so every tap is unambiguous.
 

@@ -172,8 +172,9 @@
         user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
         touch-action: manipulation;
         /* The dial drains left-to-right rather than around a circle, because the button is now a
-           pill. Same reading as the fare ring: filled means time remaining. */
-        background: linear-gradient(90deg, #F5C130 var(--pct, 100%), rgba(255, 255, 255, 0.18) 0);
+           pill. Same reading as the fare ring: filled means time remaining. The fallback matches
+           the starting third, so the frame before the loop first sets --pct doesn't flash full. */
+        background: linear-gradient(90deg, #F5C130 var(--pct, 33.3%), rgba(255, 255, 255, 0.18) 0);
         transition: box-shadow 0.15s ease, transform 0.1s ease;
       }
       #boost:active { transform: scale(0.95); }
@@ -204,12 +205,14 @@
       @media (hover: hover) and (pointer: fine) {
         #boost::before, #boost.is-active::before { display: none; }
       }
-      #boost.is-charging {
+      /* Empty tank. Nothing refills on its own, so this greyed-out state persists until the next
+         drop-off tops it up — it reads as "go earn it", not "wait for it". */
+      #boost.is-empty {
         cursor: default; color: rgba(255, 255, 255, 0.5);
         background: linear-gradient(90deg, #6f8899 var(--pct, 0%), rgba(255, 255, 255, 0.12) 0);
       }
       /* Delivery bonus: a green pulse that matches the flying "$20" so the top-up reads as part
-         of the same payout. The bar itself grows for ~0.3s from the fuel poured in each frame;
+         of the same payout. The bar itself grows for ~0.7s from the fuel poured in each frame;
          this glow is the flash that draws the eye to it. */
       #boost.is-topping-up { animation: boost-topup 0.65s ease-out; }
       @keyframes boost-topup {

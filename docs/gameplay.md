@@ -406,13 +406,22 @@ that decision trivial.
 ## Crazy-taxi mode
 
 The **Loco Mode** button, bottom left. **Hold to enable, release to pause.** A short tap costs a
-short slice, a long hold flows until the tank is empty. Full tank is 15 seconds of boost; from
-empty it recharges in 15 seconds and, if you kept holding through the recharge, engages again the
-moment it's full. Release with fuel still in the tank and it trickles back up at a fifth of the
-empty-recharge rate — enough that a couple of quick taps aren't stranded halfway, slow enough
-that a full drain still calls for the fast recharge. The decision is now *how long* to press as
-well as *when*. The button doubles as the dial: a `--pct` CSS variable tracks the fuel level,
-dropping as you drain and climbing as it recharges.
+short slice, a long hold flows until the tank is empty. Full tank is 15 seconds of boost. The
+decision is now *how long* to press as well as *when*. The button doubles as the dial: a `--pct`
+CSS variable tracks the fuel level, dropping as you drain and climbing as a drop-off pours fuel in.
+
+**The meter never refills on its own.** The run opens with **a third of a tank** and each
+successful drop-off pours in **another third** — that is the only source of fuel. Spend it all and
+the pill goes grey and dead (`.is-empty`, `disabled`) until you deliver someone. A top-up that
+lands while you're still holding the button rolls straight back into boost rather than making you
+press again.
+
+That is a deliberate replacement for the old economy, which handed back 15% per drop-off but also
+fast-recharged from empty in 15s and trickled a partial tank back up at a fifth of that rate. Under
+those rules waiting was a valid way to get boost back, so the meter said nothing about how the run
+was going; now every second of it was earned by a fare, and three deliveries is a full tank.
+Opening with a third rather than empty keeps the toy in reach on the first fare — an empty start
+leaves the button dead in the hand until the first drop-off lands.
 
 **There is no longer a case where holding it does nothing.** A taxi that had just picked someone up
 used to be `parked` — waiting at the kerb for you to tap a destination — and `parked` sets
@@ -426,8 +435,9 @@ Pointer capture on `pointerdown` keeps the boost held even if the finger slides 
 `pointerup`, `pointercancel`, `lostpointercapture` and the window `blur` all release it, so
 alt-tabbing or switching apps never leaves the boost stuck on.
 
-Every successful drop-off tops the tank up by **15%** — `boost.topUp(0.15)` queues the fuel as
-*pending* and pours it in over ~0.3s so the bar visibly fills rather than snaps. A short green
+Every successful drop-off tops the tank up by **a third** — `boost.topUp(BOOST_FARE_REWARD)`
+queues the fuel as *pending* and pours it in at half a tank per second (~0.7s) so the bar visibly
+fills rather than snaps. A short green
 pulse behind the pill (`.is-topping-up`, matching the flying `$20`) is the flash that ties the
 top-up to the same payout the earnings pop is announcing.
 

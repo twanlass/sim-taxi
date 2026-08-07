@@ -32,6 +32,7 @@ import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
+import { createBoost, BOOST_DURATION, BOOST_START_FRACTION, BOOST_FARE_REWARD } from '../src/game/boost.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -1418,6 +1419,53 @@ check('the taxi is an ordinary car in the traffic array',
   // 8.5 of something.
   check('top speed reads as a plausible mph', speedMph(boostTop) >= 45 && speedMph(boostTop) <= 60,
     `${speedMph(boostTop)} mph`);
+}
+
+// --- The Loco Mode meter ----------------------------------------------------
+//
+// The meter is now an earned resource: it opens at a third, drains only while held, and the sole
+// way fuel gets in is a drop-off. A regression here is invisible in a screenshot — a stray refill
+// path just makes the game quietly easier — so assert the whole arc as numbers.
+{
+  const b = createBoost();
+  check('the meter opens at a third of a tank',
+    Math.abs(b.fraction() - BOOST_START_FRACTION) < 1e-9, `${b.fraction().toFixed(3)}`);
+
+  // Idle for a full tank's worth of seconds with the button untouched. Nothing may move.
+  const idleStart = b.fraction();
+  for (let i = 0; i < 60 * BOOST_DURATION; i++) b.update(1 / 60);
+  check('an idle meter does not regenerate', b.fraction() === idleStart,
+    `${idleStart.toFixed(3)} -> ${b.fraction().toFixed(3)}`);
+
+  // Drain it dry: a third of a tank is 5s of boost, so 6s of holding empties it with room to spare.
+  b.press();
+  for (let i = 0; i < 60 * 6; i++) b.update(1 / 60);
+  check('holding drains the tank to empty', b.fraction() === 0 && b.isEmpty(), `mode ${b.state.mode}`);
+
+  // Still held, still empty, and — the point of the change — it stays that way. The old fast
+  // recharge would have refilled it inside 15s and re-engaged under the finger.
+  for (let i = 0; i < 60 * BOOST_DURATION; i++) b.update(1 / 60);
+  check('an empty meter never recharges itself', b.fraction() === 0 && !b.isActive(),
+    `mode ${b.state.mode} after ${BOOST_DURATION}s held on empty`);
+
+  // A drop-off is the only way back. It pours in over ~0.7s, and because the button was never
+  // released the boost re-engages rather than waiting for a fresh press.
+  b.topUp(BOOST_FARE_REWARD);
+  b.update(1 / 60);
+  check('a drop-off revives an empty meter under a held button', b.isActive() && b.fraction() > 0,
+    `mode ${b.state.mode}, ${b.fraction().toFixed(3)}`);
+
+  // Three drop-offs fill it from empty. Release first so the pour isn't racing the drain.
+  const c = createBoost(BOOST_DURATION, 0);
+  check('a meter can start empty', c.fraction() === 0);
+  for (let i = 0; i < 3; i++) c.topUp(BOOST_FARE_REWARD);
+  for (let i = 0; i < 60 * 3; i++) c.update(1 / 60);
+  check('three drop-offs fill the tank', Math.abs(c.fraction() - 1) < 1e-9, `${c.fraction().toFixed(3)}`);
+
+  // And a fourth cannot overflow it.
+  c.topUp(BOOST_FARE_REWARD);
+  for (let i = 0; i < 60; i++) c.update(1 / 60);
+  check('top-ups clamp at a full tank', c.fraction() === 1, `${c.fraction().toFixed(3)}`);
 }
 
 // --- Ghost outline ----------------------------------------------------------

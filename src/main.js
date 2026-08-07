@@ -11,7 +11,7 @@ import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
-import { createBoost } from './game/boost.js';
+import { createBoost, BOOST_FARE_REWARD } from './game/boost.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
 import { createSparks } from './game/sparks.js';
@@ -556,9 +556,11 @@ function updateBoostButton() {
   if (!boostButton) return;
   const mode = boost.state.mode;
   boostButton.classList.toggle('is-active', mode === 'active');
-  boostButton.classList.toggle('is-charging', mode === 'recharging');
+  boostButton.classList.toggle('is-empty', mode === 'empty');
   boostButton.style.setProperty('--pct', `${(boost.fraction() * 100).toFixed(1)}%`);
-  boostButton.disabled = mode === 'recharging';
+  // Dead until a drop-off pours fuel back in — nothing refills on its own, so a pressable-looking
+  // pill on an empty tank would be a lie.
+  boostButton.disabled = mode === 'empty';
 }
 
 // Hold-to-enable, release-to-pause. Pointer events cover both mouse and touch; capturing the
@@ -799,10 +801,10 @@ function frame() {
       dispatchToDropoff(fare);
     } else if (type === 'delivered') {
       popEarning(fare.value);
-      // Small pour of boost fuel as a delivery reward — the meter's frame-by-frame update paints
-      // the bar visibly *filling*, and the green glow ties the top-up to the same payout the
-      // earnings pop is announcing.
-      boost.topUp(0.15);
+      // A third of a tank of boost fuel as the delivery reward — the only way any fuel enters the
+      // meter now. The frame-by-frame update paints the bar visibly *filling*, and the green glow
+      // ties the top-up to the same payout the earnings pop is announcing.
+      boost.topUp(BOOST_FARE_REWARD);
       flashBoostTopUp();
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
