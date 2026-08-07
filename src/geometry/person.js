@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
-import { ABOVE_RING } from '../game/timerring.js';
 
 // A blocky rider hailing a cab, and then running to it.
 //
@@ -40,9 +39,6 @@ export function createPerson() {
   bodyParts.forEach((p) => p.dispose());
   const torso = new THREE.Mesh(merged, propMaterial());
   torso.castShadow = true;
-  // The rider stands in the middle of their own timer ring; see ABOVE_RING for why that needs
-  // saying out loud.
-  torso.renderOrder = ABOVE_RING;
   torso.userData.pickable = 'passenger';
   group.add(torso);
 
@@ -54,7 +50,6 @@ export function createPerson() {
     geo.translate(0, -h / 2, 0);
     const mesh = new THREE.Mesh(bakeColor(geo, new THREE.Color(hexCol)), propMaterial());
     mesh.castShadow = true;
-    mesh.renderOrder = ABOVE_RING;
     mesh.userData.pickable = 'passenger';
     mesh.position.set(x, y, 0);
     group.add(mesh);

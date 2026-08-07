@@ -9,7 +9,7 @@ export const SHOTS = [
   { name: 'routed', description: 'taxi selected with its route drawn', target: [0, 0], zoom: 52, warmup: 12, select: true, route: true },
   { name: 'close', description: 'close on the selected taxi', target: [0, 0], zoom: 26, warmup: 12, select: true, route: true },
   { name: 'pin', description: 'unclaimed passenger — white, not yet aboard', target: [18, 18], zoom: 26, warmup: 12 },
-  { name: 'riding', description: 'taxi carrying a fare: timer ring and the yellow destination pin', target: [0, 0], zoom: 44, warmup: 12, select: true, untilPickup: true },
+  { name: 'riding', description: 'taxi carrying a fare: its clock overhead and the teal drop-off ring', target: [0, 0], zoom: 44, warmup: 12, select: true, untilPickup: true },
   { name: 'riding-close', description: 'close on the taxi with its roof sign lit', target: [0, 0], zoom: 24, warmup: 12, select: true, untilPickup: true },
   // Asset-inspection framing: close enough to judge vehicle detail that is a couple of pixels
   // wide at play zoom. Cheaper than guessing whether a change to the model actually landed.
@@ -20,10 +20,10 @@ export const SHOTS = [
   // blocks away the two end fades meet in the middle. This one sends the taxi to the far corner
   // instead, so a full-length band with several turns is in frame.
   { name: 'route-far', description: 'the route band, taxi to the far corner', target: [0, 0], zoom: 22, warmup: 12, select: true, routeFar: true },
-  // The drop-off pin, framed on the kerb corner it stands on. It used to be the shot for the pin
-  // *before* it was tapped, back when there was such a state; the taxi dispatches itself at pickup
-  // now, so what this frames is the one pin the game has.
-  { name: 'dropoff', description: 'the drop-off pin the taxi is driving at', target: [0, 0], zoom: 18, warmup: 12, untilPickup: true, atDropoff: true },
+  // The drop-off, framed on the kerb corner it sits on. It used to be the shot for the pin *before*
+  // it was tapped, back when there was such a state, and then for the pin's floating head; the
+  // marker is a ring on the road now, and this is the only framing that shows it close up.
+  { name: 'dropoff', description: 'the drop-off ring the taxi is driving at', target: [0, 0], zoom: 18, warmup: 12, untilPickup: true, atDropoff: true },
 ];
 
 export function getActiveShot() {

@@ -65,38 +65,32 @@ export const PALETTE = {
   // so a colour there would imply a commitment that doesn't exist yet.
   passenger: '#FFFFFF',
 
-  // --- The meter over a waiting rider: an urgency bar above a distance bar.
+  // Urgency, indexed by how much of the clock is left, in quarters. Deliberately not a ramp: a
+  // colour that changes imperceptibly tells the player nothing, so it snaps at each quarter lost.
+  // 1 and 0 share red — by then there is nothing redder to go to.
   //
-  // Both bars share one unfilled colour and one dark backing, so the only thing that ever changes
-  // is how many segments are lit and what colour the urgency ones are.
-  meterBack: '#14161A',        // the plate behind both bars, drawn at 0.75 alpha
-  meterEmpty: '#3A3F47',       // an unlit segment on either bar
-  meterDistance: '#8A4FE8',    // a lit distance segment — flat, the same purple at every tier
-  // Ring around the plate once the taxi has been sent at this rider. The Loco Mode pill's yellow,
-  // which is the taxi's own — the two things on screen that mean "you told me to do this".
-  meterSelected: '#F5C130',
-
-  // Urgency, indexed by how many of the four segments are still lit. Deliberately not a ramp: a
-  // colour that changes imperceptibly tells the player nothing, so it snaps at each segment lost.
-  // 1 and 0 share red — by then the number of segments is the news, not the hue.
+  // This is what a fare's diamond and the disc under its rider are painted in, and it is the only
+  // thing those markers say. A four-segment bar used to carry it, where the count of lit blocks was
+  // the level and the colour merely agreed with the count; a hue on a single crystal says it in a
+  // glance rather than in a read.
   urgency: ['#E8433A', '#E8433A', '#E8922E', '#E0D233', '#3ECF5A'],
 
-  // The drop-off marker: the taxi's own yellow, one state, fixed. Only one is ever on the board —
-  // the rider currently aboard — so it has nothing to be told apart from, and a per-fare hue there
-  // was saying something the player could not use.
+  // The drop-off marker: one teal, fixed, worn by the ring on the tarmac and by the off-screen
+  // pointer that stands in for it. Only one drop-off is ever on the board — the rider currently
+  // aboard — so it has nothing to be told apart from, and a per-fare hue there was saying something
+  // the player could not use.
   //
-  // It briefly had two states, teal until the pin was tapped and yellow after, on the grounds that
-  // a pin above a parked taxi was a question rather than an instruction. That window is gone: the
-  // taxi dispatches itself at pickup (see gameplay.md), so a drop-off is never unanswered and the
-  // teal was a state the game could no longer reach. Yellow from the first frame is now the honest
-  // reading — the route band, the car and the place it is driving to are one colour saying "this is
-  // the job".
+  // Teal because the marker has no state to report. Hue on a *fare* marker means urgency now — that
+  // is what the diamond over a waiting rider is saying — and the drop-off has no clock of its own,
+  // so it has to sit outside that scale entirely. It wore the taxi's yellow for a while, on the
+  // grounds that the car, the route band and the place it is driving to were one statement; but
+  // yellow is the taxi's, and borrowing it put a marker that reports nothing inside a vocabulary it
+  // is not part of.
   //
-  // Two weights: the head, and the ring on the tarmac lightened. (There was a third — a post one
-  // shade under the head — until the pin lost its shaft and became a floating head.) The ring is
-  // `routeLine`, the exact paint the band leading into it is drawn in, so the band and the disc it
-  // lands in are one mark rather than two yellows meeting at the kerb.
-  destination: '#F5C130',
+  // One entry rather than two. It used to be a head colour plus the same hue lightened for the disc
+  // beneath it — and before that a third for the post under the head. The head is gone and the disc
+  // is the whole marker, so there is one weight left to name.
+  destination: '#5FE0D9',
   // The taxi's own yellow, lightened. This used to be `select` as well, worn by a pool on the road
   // marking the taxi as selected; that pool is gone and the route band is the only thing wearing
   // it now. Yellow rather than white because white is the unclaimed-passenger marker.

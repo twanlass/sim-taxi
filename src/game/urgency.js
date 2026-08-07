@@ -3,20 +3,29 @@ import { PALETTE } from '../palette.js';
 
 // How close a fare is to giving up, as a small integer.
 //
-// One model, three surfaces: the urgency bar over the waiting rider, the ring that rides with the
-// taxi once they're aboard, and the countdown around each chip in the rider-finder stack. They all
-// have to agree — a rider showing two segments on the map and an orange chip in the corner is two
-// answers to one question — so the levels and their colours live here rather than in any of them.
+// One model, three surfaces: the fare's diamond, the disc under the rider it belongs to, and the
+// countdown around each chip in the rider-finder stack. They all have to agree — a rider showing
+// orange on the map and a yellow chip in the corner is two answers to one question — so the levels
+// and their colours live here rather than in any of them.
+//
+// There were four while a timer ring rode with the taxi. Pulling the scale out of that ring into
+// its own module is what let the ring be deleted without taking the scale with it.
 
-/** Segments on the urgency bar. The level *is* the count of lit ones. */
+/**
+ * Steps on the scale, and so the top level: a fare that has just spawned is at URGENCY_SEGMENTS.
+ *
+ * The name is older than the model. It counted segments on the bar that used to carry urgency over
+ * a waiting rider; the bar became a single diamond painted by level, and the count of steps was the
+ * only part of it that mattered.
+ */
 export const URGENCY_SEGMENTS = 4;
 
 /**
  * Level for a fraction of time remaining: 4 (just spawned) down to 0 (out of time).
  *
- * Even quarters. The old ring banded at 0.60 / 0.35 / 0.15, which was fine for a colour but wrong
- * for a bar — it would hold four segments through the first 40% of the clock and then shed the
- * other three in a rush. A segment per quarter makes each one lost the same amount of news.
+ * Even quarters. The old ring banded at 0.60 / 0.35 / 0.15, which held the top level through the
+ * first 40% of the clock and then ran through the other three in a rush. A step per quarter makes
+ * each one the same amount of news.
  */
 export function urgencyLevel(fraction) {
   if (!(fraction > 0)) return 0;
@@ -25,7 +34,7 @@ export function urgencyLevel(fraction) {
 
 const COLORS = PALETTE.urgency.map((hex) => new THREE.Color(hex));
 
-/** Colour for a level. Tied to how many segments remain, never to which segment. */
+/** Colour for a level. Clamped, so a fare past its deadline stays on the bottom step. */
 export const urgencyColor = (level) => COLORS[THREE.MathUtils.clamp(level, 0, URGENCY_SEGMENTS)];
 
 /** Colour for a fraction — the form the ring and the finder chips want. */

@@ -354,7 +354,7 @@ createPicker(
 
 // Camera shortcut: frame the waiting rider on demand. At play zoom on a phone the rider is a
 // handful of pixels somewhere on a map that no longer fits in one screen, so snapping the camera
-// onto them is faster than hunting for their meter by hand. Narrow viewports only — see
+// onto them is faster than hunting for their diamond by hand. Narrow viewports only — see
 // selectRider.
 function snapToRider(fare) {
   if (!fare) return;
@@ -905,7 +905,7 @@ if (shot) {
         // Shot mode's stand-in for dispatchToDropoff — the interactive pickup path is in the frame
         // loop, which a shot never runs.
         send(fare);
-        // Let the timer finish flying to the taxi, or the shot catches it mid-transfer.
+        // Let the fare's diamond finish flying to the taxi, or the shot catches it mid-flight.
         for (let settle = 0; settle < 90; settle++) {
           traffic.update(1 / 60);
           fares.update(1 / 60, traffic.taxi);

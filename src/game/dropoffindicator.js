@@ -2,16 +2,20 @@ import * as THREE from 'three';
 
 // Off-screen drop-off pointer.
 //
-// When a fare is aboard the destination pin can sit behind the viewport edge — the map is bigger
-// than the frame on portrait and the player has been panning. Losing sight of where to drive at
-// costs a beat. This arrow rides the viewport edge in the drop-off pin's own colour, pointing at
-// the pin the taxi is meant to reach, so the direction is always readable from the HUD.
+// When a fare is aboard the drop-off can sit behind the viewport edge — the map is bigger than the
+// frame on portrait and the player has been panning. Losing sight of where to drive at costs a
+// beat. This arrow rides the viewport edge in the drop-off's own teal, pointing at the ring the
+// taxi is meant to reach, so the direction is always readable from the HUD.
 //
-// It wears the pin's colour, which is the taxi's own yellow and only that: the drop-off is
-// dispatched at pickup, so there is no waiting-to-be-tapped state for the arrow to distinguish. It
-// briefly had two, matching a pin that opened teal until tapped.
+// It carries more than it used to. The drop-off was a crystal floating at rooftop height, which
+// stayed visible over the skyline for a while after the ring itself had gone behind something; now
+// the marker is the ring and nothing else, and this is the only thing that reports it off-frame.
 //
-// The indicator only shows for a *riding* fare, which is also the only fare with a drop-off pin on
+// One colour, because the drop-off has one state: it is dispatched at pickup, so there is no
+// waiting-to-be-tapped state for the arrow to distinguish. It briefly had two, matching a pin that
+// opened teal until tapped.
+//
+// The indicator only shows for a *riding* fare, which is also the only fare with a drop-off ring on
 // the map: a waiting rider's destination stays hidden until they board. One pointer, aimed at the
 // trip actually under way.
 
@@ -33,7 +37,7 @@ export function createDropoffIndicator({ camera, pinLocation }) {
   setVisible(false);
 
   function update(fare) {
-    // No pointer for a waiting rider: their meter and their finder chip already handle that job.
+    // No pointer for a waiting rider: their diamond and their finder chip already handle that job.
     if (!fare || fare.stage !== 'riding') {
       setVisible(false);
       return;
@@ -42,9 +46,9 @@ export function createDropoffIndicator({ camera, pinLocation }) {
     const w = window.innerWidth;
     const h = window.innerHeight;
     const c = pinLocation(fare.target.i, fare.target.j);
-    // Aim at the pin head, not the road, so a pointer clamped to the edge still reads as "the
-    // marker" rather than a spot on the tarmac.
-    projected.set(c.x, 5, c.z).project(camera);
+    // Aimed at the ring on the road, which is the whole marker now. It used to aim halfway up the
+    // pin's post so the arrow pointed at the crystal rather than at the tarmac under it.
+    projected.set(c.x, 0.1, c.z).project(camera);
     const sx = (projected.x * 0.5 + 0.5) * w;
     const sy = (-projected.y * 0.5 + 0.5) * h;
 

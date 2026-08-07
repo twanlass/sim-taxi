@@ -22,11 +22,11 @@ import {
   createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, SECOND_FARE_AFTER,
 } from '../src/game/fares.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
+import { bounceOffset, KICK_SCALE, KICK_HOP } from '../src/geometry/diamond.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
 import { GHOST_MASK_ORDER, GHOST_RIM_ORDER } from '../src/geometry/ghostoutline.js';
 import { createCityCamera, attachDragPan } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
-import { DISTANCE_TIERS, distanceTier } from '../src/game/triptier.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import { routePath } from '../src/game/routeline.js';
@@ -49,12 +49,16 @@ const time = (label, fn) => {
   return out;
 };
 
-// Read a meter's bars back the way a player does — by counting lit segments, not by trusting the
-// argument we passed in. "Lit" is any colour other than the shared unfilled grey.
-const EMPTY_HEX = PALETTE.meterEmpty.replace('#', '').toLowerCase();
-const lit = (bar) => bar.filter((m) => m.material.color.getHexString() !== EMPTY_HEX).length;
-const litUrgency = (meter) => lit(meter.bars.urgency);
-const litDistance = (meter) => lit(meter.bars.distance);
+// Read a rider's diamond back the way a player does — off the material it is painted in, not by
+// trusting the argument we passed in. Its colour is the whole of what that marker says now.
+const diamondHex = (marker) => marker.mesh.material.color.getHexString();
+// The disc under the rider's feet, rim and fill — one mark at two weights, so they must never
+// disagree with each other or with the crystal overhead.
+const ringHexes = (marker) => marker.ring.children.map((m) => m.material.color.getHexString());
+
+// Slot 0's bounce phase offset — fares.js staggers the slots so two riders don't pulse in lockstep,
+// and slot 0 draws the zero offset. Named here so the kick assertions can subtract the bounce out.
+const PHASE_0 = 0;
 
 const scene = new THREE.Scene();
 
@@ -253,26 +257,33 @@ check('no two cars occupy the same space', worst > 1.6,
     `${(pTraffic.stats.distance / pTraffic.stats.time / pTraffic.cars.length).toFixed(2)} units/s per car`);
 }
 
-// --- The fare's travelling timer -------------------------------------------
-// The clock belongs to the fare, not to a marker: it waits with the rider and then flies to the
-// taxi at pickup. None of that is checkable from a still image, and a silent failure would leave
-// the player with a timer stuck at an empty kerb. The kerb half of the clock is the meter's
-// urgency bar now, so the ring must stay *off* the map until the rider is aboard — and then it has
-// to launch from the corner they were standing on, or the hand-off reads as a ring teleporting in.
+// --- The fare's travelling clock --------------------------------------------
+// The clock belongs to the fare, not to a place: one diamond waits over the rider's head and flies
+// to the taxi the moment they get in. None of that is checkable from a still image, and every
+// failure is silent — a marker left standing on an empty kerb, one that teleports to the car
+// instead of travelling, one that stops following once it lands.
 {
   const fScene = new THREE.Scene();
   const fTraffic = createTraffic(makeRng(seed + 44), fScene, 24);
   const fares = createFareSystem(makeRng(seed + 55), fScene);
   fTraffic.warmup(5);
 
-  let ring = null;
-  let ringHiddenWhileWaiting = false;
+  let marker = null;
+  let overTheRider = false;
+  let discUnderRider = false;
+  let discClearedAtPickup = false;
   let launchedFromKerb = false;
   let transferred = false;
-  let followsTaxi = false;
+  let landedOnTaxi = false;
+  let leftTheKerb = false;
   let hiddenAfter = false;
   let kerbAtSpawn = null;
   let elapsed = 0;
+
+  // Where the marker actually is, in the plane — its group carries the world position and the
+  // crystal inside it only bounces.
+  const at = () => marker.group.position;
+  const distanceTo = (p) => Math.hypot(at().x - p.x, at().z - p.z);
 
   while (elapsed < 220 && !fares.state.gameOver) {
     fTraffic.update(1 / 60);
@@ -286,55 +297,100 @@ check('no two cars occupy the same space', worst > 1.6,
 
     let done = false;
     for (const { type, fare } of events) {
-      if (type === 'spawned' && !ring) {
+      if (type === 'spawned' && !marker) {
         // Follow the first fare all the way through; a later one appearing mid-ride is a
         // different assertion, made further down.
-        ring = fare.slot.timer.mesh;
-        // The rider's own clock is the meter over their head; no ring on the kerb.
-        ringHiddenWhileWaiting = !ring.visible;
+        marker = fare.slot.marker;
         kerbAtSpawn = cornerFor(fare.target.i, fare.target.j);
+        // It stands over the rider from the frame they appear — this is the only thing marking
+        // someone on the kerb, so a hidden one is an invisible fare.
+        overTheRider = marker.group.visible && distanceTo(kerbAtSpawn) < 0.01;
+        // The disc lands on the same corner, under their feet — it is the crystal's colour said
+        // again on the ground, where the driving is aimed.
+        discUnderRider = marker.ring.visible
+          && Math.hypot(marker.ring.position.x - kerbAtSpawn.x,
+            marker.ring.position.z - kerbAtSpawn.z) < 0.01
+          && new Set([...ringHexes(marker), diamondHex(marker)]).size === 1;
         route(fare);
       }
-      if (type === 'pickup' && fare.slot.timer.mesh === ring) {
-        transferred = fare.slot.timer.isTransferring();
-        // Launched from the corner the rider was standing on, not from wherever the ring last was.
-        launchedFromKerb = ring.visible
-          && Math.hypot(ring.position.x - kerbAtSpawn.x, ring.position.z - kerbAtSpawn.z) < 0.01;
+      if (type === 'pickup' && fare.slot.marker === marker) {
+        transferred = marker.isTransferring();
+        // Launched from the corner the rider was standing on, not replanted on the car: the
+        // hand-off has to read as the same object moving.
+        launchedFromKerb = marker.group.visible && distanceTo(kerbAtSpawn) < 0.01;
+        // ...and the disc goes out on the same frame: the corner stops meaning anything the moment
+        // the clock leaves it, and one left glowing reads as another fare waiting there.
+        discClearedAtPickup = !marker.ring.visible;
         route(fare);
       }
-      // The run may end on the timer rather than a delivery; the ring must be cleared either way.
-      if ((type === 'delivered' || type === 'failed') && fare.slot.timer.mesh === ring) {
-        hiddenAfter = !ring.visible;
+      // The run may end on the clock rather than a delivery; the marker must clear either way.
+      if ((type === 'delivered' || type === 'failed') && fare.slot.marker === marker) {
+        hiddenAfter = !marker.group.visible;
         done = true;
       }
     }
     if (done) break;
 
     const carried = fares.carrying();
-    if (transferred && carried && !carried.slot.timer.isTransferring() && !followsTaxi) {
-      followsTaxi = Math.hypot(ring.position.x - fTraffic.taxi.x, ring.position.z - fTraffic.taxi.z) < 0.05;
+    if (transferred && carried?.slot.marker === marker) {
+      // Mid-flight it is neither on the kerb nor on the car — that is what makes it a flight.
+      if (marker.isTransferring() && distanceTo(kerbAtSpawn) > 1 && distanceTo(fTraffic.taxi) > 1) {
+        leftTheKerb = true;
+      }
+      if (!marker.isTransferring() && !landedOnTaxi) {
+        landedOnTaxi = distanceTo(fTraffic.taxi) < 0.05;
+      }
     }
   }
 
-  check('no ring stands on the kerb while the rider waits', ringHiddenWhileWaiting);
-  check('the ring takes the clock over from the rider\'s corner', launchedFromKerb);
-  check('the timer flies to the taxi at pickup', transferred);
-  check('the timer then rides with the taxi', followsTaxi);
-  check('the timer clears on delivery', hiddenAfter);
+  check('the clock stands over the rider from the frame they appear', overTheRider);
+  check('and marks the ground under their feet in the same colour', discUnderRider);
+  check('the ground disc clears when they board', discClearedAtPickup);
+  check('it launches from the corner the rider was standing on', launchedFromKerb);
+  check('it flies rather than teleports', transferred && leftTheKerb);
+  check('it then rides with the taxi', landedOnTaxi);
+  check('it clears on delivery', hiddenAfter);
 
-  // Colour has to carry the urgency on its own — drain it and read the hue back.
-  // The ring is hidden after a delivery and update() no-ops while hidden, so show it first.
-  const probeRing = fares.slots[0].timer;
-  probeRing.mesh.visible = true;
-  const hues = [1, 0.75, 0.5, 0.25, 0.05].map((f) => {
-    probeRing.update(0.016, { x: 0, z: 0 }, f);
-    return probeRing.mesh.material.color.getHexString();
-  });
-  const [full, , mid, , low] = hues;
-  const green = (h) => parseInt(h.slice(2, 4), 16) > parseInt(h.slice(0, 2), 16);
-  const red = (h) => parseInt(h.slice(0, 2), 16) > parseInt(h.slice(2, 4), 16) * 1.4;
-  check('the timer ramps green to red as it drains', green(full) && !green(mid) && red(low),
-    hues.join(' -> '));
+  // The clock has to keep draining after the hand-off — the deadline covers spawn to drop-off, so a
+  // marker that froze the moment it landed on the car would be lying for the whole second leg.
+  // Drive it by hand on the taxi and read the crystal back.
+  {
+    const rider = fares.slots[1].marker;
+    rider.showAt(URGENCY_SEGMENTS, 0, 0);
+    rider.beginTransfer();
+    const taxi = { x: 40, z: -20 };
+    const hues = [];
+    let t = 0;
+    for (const fraction of [1, 0.7, 0.45, 0.2, 0.02]) {
+      for (let f = 0; f < 60; f++) {
+        t += 1 / 60;
+        rider.setUrgency(urgencyLevel(fraction));
+        rider.update(t, taxi, fraction * 60);
+      }
+      hues.push(rider.mesh.material.color.getHexString());
+    }
+    check('it keeps draining once it is on the taxi',
+      hues.join(' -> ') === [1, 0.7, 0.45, 0.2, 0.02]
+        .map((f) => urgencyColor(urgencyLevel(f)).getHexString()).join(' -> '),
+      hues.join(' -> '));
+    check('and it is riding the taxi, not the kerb it left',
+      Math.hypot(rider.group.position.x - taxi.x, rider.group.position.z - taxi.z) < 0.05);
+
+    // The panic pulse: below five seconds the marker beats, so the end of a clock is an event and
+    // not just a shade of red. It came across from the ring, which only ever pulsed on the taxi.
+    let beats = 0;
+    let calm = 0;
+    for (let f = 0; f < 120; f++) {
+      t += 1 / 60;
+      rider.update(t, taxi, 3);
+      if (rider.mesh.scale.x > 1.02) beats += 1;
+      rider.update(t, taxi, 30);
+      if (Math.abs(rider.mesh.scale.x - 1) < 1e-6) calm += 1;
+    }
+    check('the last five seconds pulse', beats > 40 && calm === 120,
+      `${beats}/120 frames beating, ${calm}/120 calm above the threshold`);
+    rider.hide();
+  }
 }
 
 // --- Multiple fares, staggered ----------------------------------------------
@@ -382,12 +438,12 @@ check('no two cars occupy the same space', worst > 1.6,
       prevSpawnAt = elapsed;
     }
 
-    // Sampled here, before aim() can direct anything: at this point every waiting fare's meter has
-    // just been ticked against the `directed` it had going into the frame, so the ring and the flag
-    // must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
+    // Sampled here, before aim() can direct anything: at this point every waiting fare's diamond
+    // has just been ticked against the `directed` it had going into the frame, so the rim and the
+    // flag must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
     for (const f of fares.state.fares) {
       if (f.stage !== 'waiting') continue;
-      if (f.slot.meter.isSelected() !== f.directed) selectionOutOfStep += 1;
+      if (f.slot.marker.isSelected() !== f.directed) selectionOutOfStep += 1;
     }
 
     aim();
@@ -423,10 +479,10 @@ check('no two cars occupy the same space', worst > 1.6,
 }
 
 // --- The trip is public from the moment the rider is --------------------------
-// The meter over the rider's head is the whole basis of "is this a short hop or a haul across
-// town?", and the drop-off it describes stays hidden until pickup. Every failure mode is silent: a
-// meter that never appears, a tier that disagrees with the route, a drop-off pin leaking onto the
-// map early, or one that quietly moves between being drawn and being shown.
+// The diamond over the rider's head is the only thing marking someone on the kerb, and the trip it
+// belongs to stays hidden until pickup. Every failure mode is silent: a diamond that never appears,
+// a drop-off leaking onto the map early, or one that quietly moves between being drawn at spawn
+// and being shown at pickup.
 {
   const tScene = new THREE.Scene();
   const tTraffic = createTraffic(makeRng(seed + 44), tScene, CARS_DEFAULT);
@@ -441,9 +497,9 @@ check('no two cars occupy the same space', worst > 1.6,
   let leakedPin = 0;
   let pinHiddenAtPickup = 0;
   let selectionOutOfStep = 0;
+  let wrongOpening = 0;
   let pickups = 0;
-  let stillMetered = 0;
-  let wrongTier = 0;
+  let stillMarked = 0;   // markers that vanished at pickup instead of flying to the taxi
   let sharedJunction = 0;
   let elapsed = 0;
 
@@ -460,11 +516,12 @@ check('no two cars occupy the same space', worst > 1.6,
     for (const { type, fare } of fares.update(1 / 60, tTraffic.taxi)) {
       if (type === 'spawned') {
         shownOnSpawn += 1;
-        if (!fare.slot.meter.group.visible) missingPin += 1;
+        if (!fare.slot.marker.group.visible) missingPin += 1;
         if (fare.slot.destination.group.visible) leakedPin += 1;
-        // The meter is the only thing saying how far this rider is going, so the tier it lights
-        // has to be the tier their actual trip falls in.
-        if (litDistance(fare.slot.meter) !== distanceTier(fare.blocks)) wrongTier += 1;
+        // A rider appears with their whole clock, so their diamond opens on the top urgency level.
+        if (diamondHex(fare.slot.marker) !== urgencyColor(URGENCY_SEGMENTS).getHexString()) {
+          wrongOpening += 1;
+        }
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
         if (fare.value !== priceFor(fare.pickup, fare.dropoff)) wrongPrice += 1;
       }
@@ -473,17 +530,18 @@ check('no two cars occupy the same space', worst > 1.6,
         // The pin is promoted, not replanted — a drop-off that jumped at pickup would make the
         // preview a lie and every judgement made from it worthless.
         if (fare.target.i !== fare.dropoff.i || fare.target.j !== fare.dropoff.j) movedAtPickup += 1;
-        if (fare.slot.meter.group.visible) stillMetered += 1;
+        // It does not clear at pickup any more — it flies to the taxi and keeps draining there.
+        if (!fare.slot.marker.group.visible) stillMarked += 1;
         if (!fare.slot.destination.group.visible) pinHiddenAtPickup += 1;
       }
     }
 
-    // Sampled here, before aim() can direct anything: at this point every waiting fare's meter has
-    // just been ticked against the `directed` it had going into the frame, so the ring and the flag
-    // must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
+    // Sampled here, before aim() can direct anything: at this point every waiting fare's diamond
+    // has just been ticked against the `directed` it had going into the frame, so the rim and the
+    // flag must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
     for (const f of fares.state.fares) {
       if (f.stage !== 'waiting') continue;
-      if (f.slot.meter.isSelected() !== f.directed) selectionOutOfStep += 1;
+      if (f.slot.marker.isSelected() !== f.directed) selectionOutOfStep += 1;
     }
 
     aim();
@@ -499,67 +557,131 @@ check('no two cars occupy the same space', worst > 1.6,
     if (new Set(ends).size !== ends.length) sharedJunction += 1;
   }
 
-  check('a waiting rider shows their meter', shownOnSpawn > 0 && missingPin === 0,
+  check('a waiting rider shows their diamond', shownOnSpawn > 0 && missingPin === 0,
     `${shownOnSpawn} spawns, ${missingPin} missing`);
   check('the block count matches the trip', wrongCount === 0, `${wrongCount} mismatched`);
-  check('the distance bar lights the trip\'s tier', wrongTier === 0, `${wrongTier} mistiered`);
+  check('a fresh rider\'s diamond opens on full urgency', wrongOpening === 0,
+    `${wrongOpening} opened wrong`);
   check('the price agrees with the advertised distance', wrongPrice === 0, `${wrongPrice} mispriced`);
   check('the drop-off stays hidden while the rider waits', leakedPin === 0, `${leakedPin} leaked`);
   check('the drop-off appears at pickup', pickups > 0 && pinHiddenAtPickup === 0,
     `${pickups} pickups, ${pinHiddenAtPickup} still hidden`);
   check('the drop-off lands where it was drawn at spawn', movedAtPickup === 0,
     `${movedAtPickup} moved`);
-  check('the meter clears at pickup', stillMetered === 0, `${stillMetered} left up`);
-  // The yellow ring around the plate is the only thing saying "the taxi is on its way to this
-  // one", which matters most on a board with two riders waiting.
-  check('the selection ring tracks whether the taxi was sent', selectionOutOfStep === 0,
+  check('the diamond stays up through the pickup', stillMarked === 0, `${stillMarked} vanished`);
+  // The heavy rim on the diamond is the only thing saying "the taxi is on its way to this one",
+  // which matters most on a board with two riders waiting.
+  check('the selection rim tracks whether the taxi was sent', selectionOutOfStep === 0,
     `${selectionOutOfStep} frames out of step`);
-  // --- The pin's colour.
+  // --- The drop-off is a ring and nothing else.
   //
-  // One state, read off the materials rather than assumed: the taxi's yellow on the head, and
-  // specifically the route band's own yellow on the tarmac — the band and the disc it ends in are
-  // one mark of paint, not two that happen to be near each other. The emissive has to carry the
-  // same colour or the pin lights in a hue nothing else on screen is wearing.
+  // Read off the built marker rather than assumed. The head that used to float over it is gone, so
+  // the assertion is as much about what is *not* there: anything standing on the corner would be a
+  // second silhouette competing with the rider's diamond, which is the whole reason it went.
   {
     const pin = createDestinationPin();
     const hex = (c) => new THREE.Color(c).getHexString();
-    const painted = [
-      pin.head.material.color.getHexString(),
-      pin.head.material.emissive.getHexString(),
-      pin.ring.group.children.map((m) => m.material.color.getHexString()).join('/'),
-    ].join(' ');
-    check('the drop-off pin is the taxi\'s yellow, and its ring the route band\'s',
-      painted === `${hex(PALETTE.destination)} ${hex(PALETTE.destination)} `
-        + `${hex(PALETTE.routeLine)}/${hex(PALETTE.routeLine)}`, painted);
+    const painted = pin.ring.group.children.map((m) => m.material.color.getHexString()).join('/');
+    check('the drop-off ring is teal, rim and fill',
+      painted === `${hex(PALETTE.destination)}/${hex(PALETTE.destination)}`, painted);
+    check('the drop-off wears no urgency colour',
+      !PALETTE.urgency.map(hex).includes(hex(PALETTE.destination)));
+    // The ring group and nothing else on the corner; the hit box is a child of the root, not of it.
+    check('the drop-off stands nothing on its corner',
+      pin.standing === null && pin.postGroup.children.length === 1
+      && pin.postGroup.children[0] === pin.ring.group,
+      `${pin.postGroup.children.length} on the corner`);
   }
   check('no two fares claim the same junction', sharedJunction === 0, `${sharedJunction} frames`);
 
-  // --- The urgency bar drains.
+  // --- The rider's diamond changes colour as the clock drains.
   //
-  // This is the whole point of the bar and none of it is visible in a still image: the level has to
-  // fall one segment at a time as the clock runs down, never climb, and the colour has to be the
-  // one that level owns. Drive a fare's clock by hand and read the bar back segment by segment.
+  // The colour is the whole of what that marker says and none of it is visible in a still image:
+  // it has to walk green → yellow → orange → red as the clock runs down, one step per quarter, and
+  // never back up the scale. Drive a fare's clock by hand and read the crystal back.
   {
-    const meter = fares.slots[0].meter;
+    const diamond = fares.slots[0].marker;
     const seen = [];
     const wrongColour = [];
     for (let step = 0; step <= 20; step++) {
       const fraction = 1 - step / 20;
       const level = urgencyLevel(fraction);
-      meter.show(level, 1);
-      seen.push(litUrgency(meter));
+      diamond.showAt(level, 0, 0);
       const want = urgencyColor(level).getHexString();
-      const got = meter.bars.urgency[0].material.color.getHexString();
-      // Segment 1 is lit at every level above zero, so its colour is the level's colour.
-      if (level > 0 && got !== want) wrongColour.push(`${level}: ${got} != ${want}`);
+      const got = diamondHex(diamond);
+      if (got !== want) wrongColour.push(`${level}: ${got} != ${want}`);
+      // Crystal and disc are one statement. A disc lagging a level behind would have the board
+      // saying two different things about the same rider.
+      for (const disc of ringHexes(diamond)) {
+        if (disc !== want) wrongColour.push(`${level} disc: ${disc} != ${want}`);
+      }
+      if (got !== seen.at(-1)) seen.push(got);
     }
-    const monotonic = seen.every((v, i) => i === 0 || v <= seen[i - 1]);
-    check('the urgency bar drains from full to empty',
-      seen[0] === URGENCY_SEGMENTS && seen.at(-1) === 0 && monotonic, seen.join(''));
-    check('it sheds one segment at a time',
-      new Set(seen).size === URGENCY_SEGMENTS + 1
-      && seen.every((v, i) => i === 0 || seen[i - 1] - v <= 1), `${new Set(seen).size} distinct`);
-    check('each level wears its own colour', wrongColour.length === 0, wrongColour.join('; '));
+    check('each urgency level paints the diamond its own colour', wrongColour.length === 0,
+      wrongColour.join('; '));
+    // Four levels above zero and one at it, but 1 and 0 share red, so a full drain shows exactly
+    // four distinct colours in scale order and never repeats one it has already left.
+    const scale = [...new Set(PALETTE.urgency.map((h) => new THREE.Color(h).getHexString()))]
+      .reverse();
+    check('the diamond walks the urgency scale from green to red',
+      seen.join(' -> ') === scale.join(' -> '), seen.join(' -> '));
+
+    // The rim is the only mark saying the taxi has been sent at this rider. It reads as *weight*
+    // and must stay black at both weights: it was yellow once, and yellow is a colour this very
+    // crystal wears for a quarter of every clock.
+    const hull = diamond.mesh.children[0];
+    const rim = () => `${hull.material.color.getHexString()}@${hull.scale.x.toFixed(2)}`;
+    diamond.setSelected(false);
+    const idle = rim();
+    diamond.setSelected(true);
+    const sent = rim();
+    diamond.setSelected(false);
+    check('the diamond is inked in heavier black once it is sent, and back again',
+      idle.startsWith('000000') && sent.startsWith('000000')
+      && Number(sent.split('@')[1]) > Number(idle.split('@')[1]) * 1.1
+      && rim() === idle, `${idle} -> ${sent}`);
+
+    // --- The level change kicks.
+    //
+    // A hue that snaps between four steps is easy to miss on a 29px shape at the edge of the eye,
+    // so a change swells and hops the crystal. None of that is visible in a still: drive the clock
+    // by hand and watch the scale over the frames after a step.
+    diamond.showAt(URGENCY_SEGMENTS, 0, 0);
+    let t = 0;
+    diamond.update(t);
+    const restScale = diamond.mesh.scale.x;
+    diamond.setUrgency(URGENCY_SEGMENTS - 1);
+    let peakScale = 0;
+    let peakLift = 0;
+    let framesKicking = 0;
+    for (let f = 0; f < 60; f++) {
+      t += 1 / 60;
+      diamond.update(t);
+      if (diamond.isKicking()) framesKicking += 1;
+      peakScale = Math.max(peakScale, diamond.mesh.scale.x);
+      // Against the bounce this frame would have shown on its own, so the lift is the kick's.
+      peakLift = Math.max(peakLift, diamond.mesh.position.y - bounceOffset(t + PHASE_0));
+    }
+    check('a level change swells the diamond and settles it back',
+      peakScale > restScale * 1.05 && peakScale <= restScale * (1 + KICK_SCALE) + 1e-6
+      && Math.abs(diamond.mesh.scale.x - restScale) < 1e-6,
+      `peak ${peakScale.toFixed(3)}, back to ${diamond.mesh.scale.x.toFixed(3)}`);
+    check('it hops on the same beat', peakLift > 0.2 && peakLift <= KICK_HOP + 1e-6,
+      `${peakLift.toFixed(2)} units`);
+    // Long enough to be seen, short enough that it is over well before the next level lands.
+    check('the kick is a beat, not a state',
+      framesKicking > 10 && framesKicking < 40 && !diamond.isKicking(),
+      `${framesKicking} frames`);
+
+    // A marker that pops the moment it appears is announcing a change that hasn't happened.
+    diamond.showAt(URGENCY_SEGMENTS, 0, 0);
+    diamond.update(t);
+    check('a fresh rider\'s diamond does not kick on spawn',
+      !diamond.isKicking() && Math.abs(diamond.mesh.scale.x - restScale) < 1e-6);
+    // Once the kick is spent the diamond is back on the plain bounce and nothing else.
+    check('the diamond settles back onto its bounce',
+      Math.abs(diamond.mesh.position.y - bounceOffset(t + PHASE_0)) < 1e-6,
+      `${diamond.mesh.position.y.toFixed(3)}`);
   }
 
   // A waiting fare offers exactly one target: its rider. Offering the hidden drop-off too would
@@ -1002,7 +1124,7 @@ check('the taxi is an ordinary car in the traffic array',
 }
 
 // --- The drop-off dispatches itself ----------------------------------------
-// The player taps riders on the kerb and nothing else — no drop-off pin is ever tapped in this
+// The player taps riders on the kerb and nothing else — no drop-off is ever tapped in this
 // run — and a delivery still has to land. Mirrors main.js:dispatchToDropoff, which routes at the
 // drop-off on the pickup frame instead of parking the taxi for a confirming tap.
 //

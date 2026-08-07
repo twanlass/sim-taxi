@@ -8,7 +8,7 @@ behind it that aren't obvious from the code.
 | [architecture.md](architecture.md) | Module map, the frame loop, seeding and determinism, how a change flows through the app | `src/main.js` |
 | [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts, ground/buildings/props | `src/city/` |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
-| [gameplay.md](gameplay.md) | The fare loop, routing, picking, the travelling timer ring, economy, crazy-taxi mode | `src/game/` |
+| [gameplay.md](gameplay.md) | The fare loop, routing, picking, the travelling clock, economy, crazy-taxi mode | `src/game/` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, effects | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 
@@ -19,10 +19,12 @@ model with real signals. **The player's taxi is one of those cars** — the only
 its turn at each junction comes from a planned route rather than a dice roll, so it obeys every
 red light exactly like everyone else and cannot cheat its way to a destination.
 
-A passenger appears at an intersection under a **meter**: an urgency bar counting down their
-60-second patience, and a distance bar saying whether this is a short, medium or long trip. Tap
-them to route the taxi there; once they're aboard their drop-off appears and the taxi drives on to
-it **without being told to** — the only choice on the board is which rider to grab. The clock does
+A passenger appears at an intersection under a floating **diamond**, coloured green through red by
+how much of their 60-second patience is left, swelling each time that colour steps, with a **disc**
+under their feet in the same colour. Tap them to
+route the taxi there — the diamond inks over in heavy black to say the car is on its way — and once
+they're aboard a **teal ring** appears on the road where they're going and the taxi drives on to it
+**without being told to**. The only choice on the board is which rider to grab. The clock does
 **not** reset at pickup — one deadline covers spawn to drop-off, which is
 the whole tension of the game. A delivery pays by distance, $8 for a one-block hop up to $35
 across town. Let a clock expire and the run ends.

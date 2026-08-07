@@ -1,157 +1,75 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
-import { ROUTE_OPACITY } from '../game/routeline.js';
+import { createTargetRing, RING_Y } from './targetring.js';
 
 // Pickup and drop-off markers.
 //
-// A marker is two pieces with different jobs:
-//   - a head floating over the pavement corner, for silhouette.
-//   - a flat ring on the kerb below it, so the head and its "here" ring read as one object rather
-//     than a crystal with a stray circle drawn on the road beneath it.
+// Both are a kerb-corner placement, a tap target, and what stands on it:
+//   - the pickup stands a **figure** there, over a disc in the fare's urgency colour.
+//   - the drop-off lays a **teal disc** on the corner and nothing else.
 //
-// The ring used to sit at the intersection centre — the idea being that a ring on the carriageway
-// would never be occluded — but it left a visible gap between the marker and the ring, and the eye
+// The disc is the same object at both ends (geometry/targetring.js) and the colour is what tells
+// them apart: a clock at one end, a destination at the other. The fare's clock itself — the diamond
+// that floats over the rider and then flies to the taxi — belongs to the fare rather than to either
+// marker, and lives in game/faremarker.js. It has to leave the kerb, so it cannot hang off a marker
+// that stays.
+//
+// The disc used to sit at the intersection centre — the idea being that a disc on the carriageway
+// would never be occluded — but it left a visible gap between the marker and it, and the eye
 // couldn't tell they belonged to each other. Sharing the corner fixes that.
 //
-// The head used to sit on top of a gold post planted on the pavement. The post is gone: the head
-// alone is the cleaner read, and it is what the eye was tracking anyway. Its height is unchanged,
-// so the marker still occupies the same slot in the skyline and nothing about the framing moves.
+// **The drop-off has lost its floating head.** It was a gold post with a crystal on top, then the
+// crystal alone at y = 9.6, then that crystal in teal once the rider's marker became the same
+// model. The last step is what made it redundant: two diamonds on the board, one of them saying
+// nothing but "this is a place", and the disc underneath was already saying that at ground level
+// where the driving happens. The taxi is being driven *to a spot on the road*, and the spot is now
+// the whole marker.
+//
+// The off-screen pointer (game/dropoffindicator.js) covers the one thing the head was still worth:
+// a drop-off that has slipped outside the frame.
 
-const HEAD_Y = 9.6;
-
-// The head hops around its rest height. `Math.abs(sin)` never dips below it, so the marker only
-// ever floats *up* from the height the ring below it implies.
-const BOUNCE_HEIGHT = 0.45;
-const BOUNCE_RATE = 3.4;
-
-/**
- * A black outline, drawn as an inverted hull: the same shape a little larger, with only its back
- * faces rendered. The enlarged back faces sit behind the real surface everywhere except around
- * the silhouette, which is exactly where the rim shows.
- *
- * Cheaper than a post-processing edge pass, and it needs no render targets — this is one small
- * object, not a whole-scene effect.
- */
-function outlineHull(geometry, scale) {
-  const mesh = new THREE.Mesh(
-    geometry,
-    new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide }),
-  );
-  mesh.scale.copy(scale);
-  return mesh;
-}
-
-const RING_R = 3.5;
-const RING_TUBE = 0.16;
-
-/**
- * A static target ring with its circle filled in. The countdown itself lives in game/timerring.js
- * and travels with the fare, so this only has to say "here" — it never drains.
- *
- * The fill is at the route band's own opacity (see game/routeline.js): the band on the road and the
- * disc at the end of it are one statement in two places, and at different weights one of them reads
- * as the louder half of it. Depth-tested like the band for the same reason — a car crossing the
- * junction should drive *over* the disc rather than the disc painting across the car.
- *
- * Being translucent puts the disc in three's transparent queue, which draws after every opaque
- * object regardless of order. That used to wash the far half of it up over the base of the post
- * standing at its centre; with the post gone nothing stands in the disc for it to wash over.
- */
-function targetRing(colorHex) {
-  const group = new THREE.Group();
-  group.position.y = 0.08;
-
-  const rim = new THREE.Mesh(
-    new THREE.TorusGeometry(RING_R, RING_TUBE, 6, 48).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(colorHex), depthWrite: false }),
-  );
-  rim.renderOrder = 4;
-  group.add(rim);
-
-  // Overlaps into the rim's tube rather than stopping at its inner edge, so no hairline of road
-  // shows between the two where the torus tessellates.
-  const fill = new THREE.Mesh(
-    new THREE.CircleGeometry(RING_R - RING_TUBE / 2, 48).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({
-      color: new THREE.Color(colorHex),
-      transparent: true,
-      opacity: ROUTE_OPACITY,
-      depthWrite: false,
-    }),
-  );
-  fill.renderOrder = 3;   // under the rim, so the rim still reads as an edge
-  group.add(fill);
-
-  return { group };
-}
-
-function marker(bodyColor, kind, buildStanding, ringColor = null) {
+function marker(kind, { buildStanding = null, ringColor = null } = {}) {
   const group = new THREE.Group();
   group.name = kind;
 
-  // Everything that stands up lives in here, so the caller can shift it to a pavement corner
-  // as a single unit.
+  // Everything that stands on the corner lives in here, so the caller can shift it to a pavement
+  // corner as a single unit.
   const postGroup = new THREE.Group();
   group.add(postGroup);
 
-  // The waiting rider gets no ring of its own — the fare's travelling timer sits under them.
-  // The destination's ring lives on postGroup so it follows the pole to the kerb corner instead
-  // of being stranded at the junction centre. Its own colour rather than the pin's: the disc is
-  // road paint, a lightened version of whatever the pin above it is wearing — and once the pin is
-  // selected, exactly the paint the route band running into it is drawn in.
-  const ring = ringColor ? targetRing(ringColor) : null;
-  if (ring) postGroup.add(ring.group);
+  // On postGroup, so the disc follows the same kerb corner as whatever stands on it instead of
+  // being stranded at the junction centre.
+  //
+  // The rider's disc is not built here: it is the fare's clock speaking on the ground, it changes
+  // colour every few seconds and it has to go dark the moment they board — all of which belongs to
+  // game/faremarker.js, which owns the clock. This is the drop-off's, which is one colour forever.
+  const ring = ringColor ? createTargetRing(ringColor) : null;
+  // place() already lifts postGroup 0.12 above the kerb, so this lands the disc RING_Y over the
+  // pavement — the same height the rider's own disc floats at.
+  if (ring) {
+    ring.group.position.y = RING_Y - 0.12;
+    postGroup.add(ring.group);
+  }
 
-  // A marker can stand up as a floating head or as a figure; the ring below is identical either way.
   let standing = null;
   if (buildStanding) {
     standing = buildStanding();
     postGroup.add(standing.group);
   }
 
-  // Octahedron: reads clearly from straight above, unlike a sphere, and matches the crystal
-  // vocabulary already used elsewhere in these prototypes.
-  const head = new THREE.Mesh(
-    new THREE.OctahedronGeometry(1.9, 0),
-    new THREE.MeshLambertMaterial({
-      color: new THREE.Color(bodyColor),
-      emissive: new THREE.Color(bodyColor),
-      emissiveIntensity: 0.35,
-      flatShading: true,
-    }),
-  );
-  const headBaseY = HEAD_Y;
-  head.position.y = headBaseY;
-  head.castShadow = true;
-  head.visible = !buildStanding;
-  postGroup.add(head);
-
-  // Child of the head, so it inherits the bounce for free.
-  head.add(outlineHull(head.geometry, new THREE.Vector3(1.12, 1.12, 1.12)));
-
-  head.userData.pickable = kind;
-
-  // `Math.abs(sin)` rather than a plain sine: it never dips below the rest position, and the
-  // sharp cusp at the bottom of each cycle reads as a landing instead of a float.
-  let bounce = 0;
-  function update(dt) {
-    if (!group.visible || !head.visible) return;
-    bounce += dt;
-    head.position.y = headBaseY + Math.abs(Math.sin(bounce * BOUNCE_RATE)) * BOUNCE_HEIGHT;
-  }
-
-  // Oversized invisible hit volume spanning head and ring — at full zoom-out the visible geometry
-  // is only a few pixels across and would be miserable to tap.
+  // Oversized invisible hit volume — at play zoom the visible geometry is a few pixels across and
+  // would be miserable to tap.
   //
   // It has to cover the *junction* and the kerb corner, which are two different places: the box is
-  // centred on the junction, and the standing pin is pushed out to a corner a little over 4 units
+  // centred on the junction, and what stands on it is pushed out to a corner a little over 4 units
   // away. The first version was 9 units square, so the rider stood right on its edge and half of
   // every tap aimed at the figure missed. 20 covers the corner with real margin on every side —
   // about 155px across at play zoom, comfortably past the 44px a fingertip needs — while still
   // being well inside the 20-unit block pitch, so two adjacent junctions can never both be hit.
   const HIT = 20;
-  // Tall enough to clear the head's top (9.6 + 1.9 radius + bounce) with room to spare, and it
-  // starts at the ground so a tap on the ring or on a standing figure lands too.
+  // Tall enough to clear the tallest thing standing over this corner — the fare's diamond, whose
+  // outline tops out a little over 9 — and it starts at the ground so a tap on the disc or on a
+  // standing figure lands too.
   const HIT_H = 14.5;
   const hit = new THREE.Mesh(
     new THREE.BoxGeometry(HIT, HIT_H, HIT),
@@ -161,20 +79,19 @@ function marker(bodyColor, kind, buildStanding, ringColor = null) {
   hit.userData.pickable = kind;
   group.add(hit);
 
-  return { group, ring, postGroup, head, standing, update };
+  return { group, ring, postGroup, standing };
 }
 
 export const createPassengerPin = (buildStanding) =>
-  marker(PALETTE.passenger, 'passenger', buildStanding);
+  marker('passenger', { buildStanding });
 
 /**
- * The drop-off pin: the taxi's yellow, fixed at build time.
+ * The drop-off: a teal disc on the kerb corner, and nothing standing on it.
  *
- * It briefly changed colour when the player tapped it — teal while the taxi was parked at the kerb
- * asking where to go, yellow once told. The taxi dispatches itself at pickup now, so a drop-off is
- * an instruction from the frame it appears and there is no unanswered state left to draw. The ring
- * on the tarmac is `routeLine`, the same paint as the band running into it, so the band and the
- * disc it lands in read as one mark.
+ * One colour, fixed at build time. There is only ever one drop-off on the board — the rider
+ * currently aboard — so there is nothing for a per-fare hue to tell it apart from, and by the time
+ * it is drawn the taxi is already driving at it. Teal rather than the taxi's yellow because hue on
+ * a fare marker means urgency now (see game/faremarker.js), and this one has no clock to report.
  */
 export const createDestinationPin = () =>
-  marker(PALETTE.destination, 'destination', null, PALETTE.routeLine);
+  marker('destination', { ringColor: PALETTE.destination });

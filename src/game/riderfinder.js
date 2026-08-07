@@ -21,8 +21,8 @@ import { urgencyColorFor } from './urgency.js';
 // with the main one keeps this module short.
 //
 // The chip disc is a plain dark bubble the three.js canvas draws the figure onto; the countdown
-// ring around it is a CSS conic-gradient driven from game/urgency.js — the same scale as the bar
-// over the rider on the map and the ring that rides with the taxi, so all three read as one clock.
+// ring around it is a CSS conic-gradient driven from game/urgency.js — the same scale the fare's
+// own diamond is painted from out on the map, so the two read as one clock.
 
 const SIZE = 38;      // matches the visible chip disc inside the button
 
