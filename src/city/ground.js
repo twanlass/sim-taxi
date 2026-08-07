@@ -2,11 +2,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
-import {
-  GRID, PITCH, ROAD_W, HALF_ROAD, SPAN, HALF_SPAN, lineCoord,
-  isUnsignalised, isSegmentClosed,
-} from './grid.js';
-import { insetPolygon, polygonBounds } from './curves.js';
+import { ROAD_W, HALF_ROAD, SPAN } from './grid.js';
+import { insetPolygon, polygonBounds, rightNormal } from './curves.js';
+import { cityNetwork } from './roadnet.js';
 
 const KERB_H = 0.35;
 const MARK_Y = 0.02;
@@ -21,6 +19,19 @@ function box(w, h, d, x, y, z, col) {
 function paint(w, d, x, z, col, y = MARK_Y) {
   const geo = new THREE.PlaneGeometry(w, d);
   geo.rotateX(-Math.PI / 2);
+  geo.translate(x, y, z);
+  return bakeColor(geo, col);
+}
+
+/**
+ * The same quad, laid along a heading rather than along an axis: `len` runs with travel and `wid`
+ * across it. On the four grid headings this is exactly `paint` with its arguments swapped, which is
+ * what the markings below used to do by hand.
+ */
+function paintAlong(len, wid, x, z, u, col, y = MARK_Y) {
+  const geo = new THREE.PlaneGeometry(len, wid);
+  geo.rotateX(-Math.PI / 2);
+  geo.rotateY(Math.atan2(-u.z, u.x));
   geo.translate(x, y, z);
   return bakeColor(geo, col);
 }
@@ -137,37 +148,47 @@ export function createGround(rng, blocks) {
     );
   }
 
-  // --- Dashed centre lines, one run per gap between intersections.
+  // --- Centre lines, one run per road.
+  //
+  // Walked per *edge* rather than per grid line, so a road gets its markings wherever it happens to
+  // run. On the shipped city the two produce the same quads: an edge spans exactly one gap between
+  // intersections, trimmed at each end by the junction it meets.
   const DASH = 1.6;
   const GAP = 1.4;
   const markColor = color('laneMark');
-  const arterialX = blocks.arterials?.x ?? new Set();
-  const arterialZ = blocks.arterials?.z ?? new Set();
+  const net = cityNetwork();
 
-  // A main street reads as one at a glance: solid double centre line rather than dashes.
-  const doubleLine = (axis, c, from, to) => {
-    for (const off of [-0.45, 0.45]) {
-      if (axis === 'x') parts.push(paint(to - from, 0.16, (from + to) / 2, c + off, markColor));
-      else parts.push(paint(0.16, to - from, c + off, (from + to) / 2, markColor));
-    }
-  };
+  for (const edge of net.edges) {
+    const from = net.nodeById.get(edge.a).radius;
+    const to = edge.length - net.nodeById.get(edge.b).radius;
+    if (to <= from) continue;
 
-  for (let i = 0; i <= GRID; i++) {
-    const c = lineCoord(i);
-
-    for (let j = 0; j < GRID; j++) {
-      const from = lineCoord(j) + HALF_ROAD;
-      const to = lineCoord(j + 1) - HALF_ROAD;
-
-      // Index i names two roads: the one running along Z at x = c, and the one running along X
-      // at z = c. Each is independently an arterial or not.
-      if (arterialZ.has(i)) doubleLine('z', c, from, to);
-      if (arterialX.has(i)) doubleLine('x', c, from, to);
-
-      for (let s = from + GAP; s + DASH < to; s += DASH + GAP) {
-        if (!arterialZ.has(i)) parts.push(paint(0.18, DASH, c, s + DASH / 2, markColor));
-        if (!arterialX.has(i)) parts.push(paint(DASH, 0.18, s + DASH / 2, c, markColor));
+    // A main street reads as one at a glance: solid double centre line rather than dashes.
+    if (edge.klass === 'arterial') {
+      const mid = edge.curve.at((from + to) / 2);
+      const u = edge.curve.tangentAt((from + to) / 2);
+      const n = rightNormal(u.x, u.z);
+      for (const off of [-0.45, 0.45]) {
+        // A straight road takes one quad, exactly as it always did. A bend cannot, so it is drawn
+        // as a run of short ones that follow the curve.
+        if (edge.curve.kind === 'line') {
+          parts.push(paintAlong(to - from, 0.16, mid.x + n.x * off, mid.z + n.z * off, u, markColor));
+          continue;
+        }
+        for (let s = from; s < to; s += DASH) {
+          const len = Math.min(DASH, to - s);
+          const p = edge.curve.at(s + len / 2);
+          const t = edge.curve.tangentAt(s + len / 2);
+          const m = rightNormal(t.x, t.z);
+          parts.push(paintAlong(len, 0.16, p.x + m.x * off, p.z + m.z * off, t, markColor));
+        }
       }
+      continue;
+    }
+
+    for (let s = from + GAP; s + DASH < to; s += DASH + GAP) {
+      const p = edge.curve.at(s + DASH / 2);
+      parts.push(paintAlong(DASH, 0.18, p.x, p.z, edge.curve.tangentAt(s + DASH / 2), markColor));
     }
   }
 
@@ -182,33 +203,26 @@ export function createGround(rng, blocks) {
   const BAR_LEN = 1.5;
   const crossColor = color('crosswalk');
 
-  for (let i = 0; i <= GRID; i++) {
-    for (let j = 0; j <= GRID; j++) {
-      if (isUnsignalised(i, j)) continue;
+  // One crossing per arm of a signalised junction. `node.signal` is the same test the stop bars
+  // use, so a junction the network left unsignalised has neither — and an arm only exists where a
+  // road does, which is what the map-edge and closed-segment guards here used to stand in for.
+  for (const node of net.nodes) {
+    if (!node.signal) continue;
+    const offset = node.radius + BAR_LEN / 2 + 0.15;
 
-      const cx = lineCoord(i);
-      const cz = lineCoord(j);
-      const offset = HALF_ROAD + BAR_LEN / 2 + 0.15;
+    for (const arm of node.arms) {
+      // A main road doesn't get halted for a pedestrian, so it carries no crossing.
+      if (arm.edge.klass === 'arterial') continue;
 
-      // A crossing laid west or east of the junction is walked *across* the road running along X;
-      // one laid north or south is walked across the road running along Z.
-      const acrossX = !arterialX.has(j);
-      const acrossZ = !arterialZ.has(i);
-
-      // No crossing onto a road that no longer exists.
-      const west = acrossX && i > 0 && !isSegmentClosed(i, j, 2);
-      const east = acrossX && i < GRID && !isSegmentClosed(i, j, 0);
-      const south = acrossZ && j > 0 && !isSegmentClosed(i, j, 3);
-      const north = acrossZ && j < GRID && !isSegmentClosed(i, j, 1);
+      const u = { x: Math.cos(arm.bearing), z: Math.sin(arm.bearing) };
+      const n = rightNormal(u.x, u.z);
+      const cx = node.x + u.x * offset;
+      const cz = node.z + u.z * offset;
 
       for (let b = 0; b < BARS; b++) {
         // Spread the bars across the road width, centred on the centreline.
         const t = (b - (BARS - 1) / 2) * (ROAD_W / (BARS + 0.6));
-
-        if (west) parts.push(paint(BAR_LEN, BAR_W, cx - offset, cz + t, crossColor));
-        if (east) parts.push(paint(BAR_LEN, BAR_W, cx + offset, cz + t, crossColor));
-        if (south) parts.push(paint(BAR_W, BAR_LEN, cx + t, cz - offset, crossColor));
-        if (north) parts.push(paint(BAR_W, BAR_LEN, cx + t, cz + offset, crossColor));
+        parts.push(paintAlong(BAR_LEN, BAR_W, cx + n.x * t, cz + n.z * t, u, crossColor));
       }
     }
   }
