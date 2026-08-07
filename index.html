@@ -261,10 +261,10 @@
         cursor: pointer; background: transparent; pointer-events: auto;
         display: grid; place-items: center;
         transition: transform 0.1s ease;
-        /* Double-tap on the chip is a routing gesture, not a zoom-in — kill the mobile
-           double-tap-to-zoom (and its 300ms click delay) so the second tap hits the button
-           instead of the viewport. Also suppress the long-press callout and text selection
-           since neither has anything to sell on a bare figure canvas. */
+        /* Kill the mobile double-tap-to-zoom and its 300ms click delay: a tap here dispatches
+           the taxi and wants to land now, not after the browser has waited to see whether a
+           second one is coming. Also suppress the long-press callout and text selection since
+           neither has anything to sell on a bare figure canvas. */
         touch-action: manipulation;
         user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
       }
