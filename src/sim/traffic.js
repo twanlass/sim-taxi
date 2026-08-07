@@ -583,7 +583,7 @@ export function createTraffic(rng, scene, count = 24) {
   const taxi = cars[0];
   taxi.isTaxi = true;
   const {
-    group: taxiGroup, setFareColor: setTaxiFareColor, setSteer: setTaxiSteer,
+    group: taxiGroup, setOccupied: setTaxiOccupied, setSteer: setTaxiSteer,
   } = createTaxiMesh();
   scene.add(taxiGroup);
 
@@ -1447,7 +1447,7 @@ export function createTraffic(rng, scene, count = 24) {
   }
 
   return {
-    cars, taxi, taxiGroup, setTaxiFareColor, mesh, wheelMesh, barMesh, update, warmup,
+    cars, taxi, taxiGroup, setTaxiOccupied, mesh, wheelMesh, barMesh, update, warmup,
     wreckShell, stats,
     lightPhase, displayPhase,
   };

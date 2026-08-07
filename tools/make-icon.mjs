@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 // ----- Design constants (mirrors src/palette.js taxi entries) -----
-const BG        = '#A46BFF';   // fareColors[2] — a purple that is already game canon
+const BG        = '#A46BFF';   // a purple that is already game canon
 const BODY_TOP  = '#FCD658';   // taxiBody lit from above
 const BODY_X    = '#F5C130';   // taxiBody, base tone (front face)
 const BODY_Z    = '#D9A81E';   // taxiBody in shadow (near side)

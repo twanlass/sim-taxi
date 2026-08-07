@@ -792,8 +792,8 @@ function frame() {
     if (type === 'pickup') {
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
-      // The taxi now wears this rider's colour, and so does their destination pin.
-      traffic.setTaxiFareColor(fare.color);
+      // The roof sign lights up while the rider is aboard.
+      traffic.setTaxiOccupied(true);
       // Straight on to where they're going, on the same frame the pin appears — no kerb hold and
       // no confirming tap.
       dispatchToDropoff(fare);
@@ -806,7 +806,7 @@ function frame() {
       flashBoostTopUp();
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
-      traffic.setTaxiFareColor(null);
+      traffic.setTaxiOccupied(false);
     } else if (type === 'spawned') {
       // A fare that appears while you are already carrying one is the interesting case: it says
       // "there is now a clock you cannot start yet", which is a different message from the idle
@@ -851,7 +851,7 @@ if (shot) {
       traffic.update(1 / 60);
       for (const { type, fare } of fares.update(1 / 60, traffic.taxi)) {
         if (type !== 'pickup') continue;
-        traffic.setTaxiFareColor(fare.color);
+        traffic.setTaxiOccupied(true);
         // Shot mode's stand-in for dispatchToDropoff — the interactive pickup path is in the frame
         // loop, which a shot never runs.
         send(fare);
