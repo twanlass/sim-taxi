@@ -20,13 +20,31 @@ export const BOOST_DURATION = 15;
 export const BOOST_START_FRACTION = 1 / 3;
 export const BOOST_FARE_REWARD = 1 / 3;
 
-export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_START_FRACTION) {
+// Releasing used to drop straight back to 'ready' and take every boost-only rule (collision,
+// police bust range, running reds) with it in the same frame — you could floor it at a cop or a
+// bumper and bail out a frame before impact with zero risk. This is the window that closes
+// instead: the taxi keeps behaving like it's boosting for one more second, so letting go mid-risk
+// is a real decision rather than a free undo. See `isEngaged` for what stays active through it,
+// and `isActive` for what doesn't (the taxi's actual speed cap eases back over the same second —
+// see `fullPower` in traffic.js).
+export const BOOST_COOLDOWN = 1;
+
+export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_START_FRACTION,
+  cooldown = BOOST_COOLDOWN) {
   const state = {
-    mode: 'ready',                     // 'ready' | 'active' | 'empty'
+    mode: 'ready',                     // 'ready' | 'active' | 'cooldown' | 'empty'
     fuel: duration * startFraction,    // seconds of boost still in the tank, 0..duration
     held: false,                       // is the button currently pressed?
-    pending: 0,                        // fuel queued by top-ups, poured in over ~0.4s so the bar animates
+    pending: 0,                        // fuel queued by top-ups, poured in over ~0.7s so the bar animates
+    cooldownLeft: 0,                   // seconds still owed on the post-release momentum window
   };
+
+  // Leaving 'active' for any reason — letting go or running the tank dry — passes through here
+  // first instead of landing straight on 'ready'/'empty'.
+  function enterCooldown() {
+    state.mode = 'cooldown';
+    state.cooldownLeft = cooldown;
+  }
 
   // Half a tank per second. A one-third top-up lands in ~0.7s, slow enough to read as *filling*
   // rather than snapping, fast enough that it's obviously connected to the drop-off that
@@ -37,22 +55,31 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
     state,
     isActive: () => state.mode === 'active',
     isReady: () => state.mode === 'ready',
+    isCoolingDown: () => state.mode === 'cooldown',
     isEmpty: () => state.mode === 'empty',
+    // What the taxi's boost-only rules (collision, police bust range, running reds) key off —
+    // true for the hold itself and for the one-second tail after it, false the moment that tail
+    // runs out.
+    isEngaged: () => state.mode === 'active' || state.mode === 'cooldown',
 
     /** Player started holding the button. Idempotent — safe to call every pointerdown. */
     press() {
       state.held = true;
-      if (state.mode === 'ready' && state.fuel > 0) {
+      // A re-press mid-cooldown catches the car before the window closes and snaps it straight
+      // back to full send — same transition-into-boost feel (wheelie, flame, kick) as a fresh
+      // press, just without having let it fully coast back down first.
+      if ((state.mode === 'ready' || state.mode === 'cooldown') && state.fuel > 0) {
         state.mode = 'active';
+        state.cooldownLeft = 0;
         return true;
       }
       return false;
     },
 
-    /** Player let go. Idempotent. Only pauses; the fuel that's left stays in the tank. */
+    /** Player let go. Idempotent. Starts the cooldown; the fuel that's left stays in the tank. */
     release() {
       state.held = false;
-      if (state.mode === 'active') state.mode = 'ready';
+      if (state.mode === 'active') enterCooldown();
     },
 
     /**
@@ -65,7 +92,19 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
     },
 
     update(dt) {
-      if (state.mode === 'active') state.fuel -= dt;
+      if (state.mode === 'active') {
+        state.fuel -= dt;
+      } else if (state.mode === 'cooldown') {
+        // Frozen, same as a plain release used to leave it — the tank doesn't drain until the
+        // momentum window has run out.
+        state.cooldownLeft -= dt;
+        if (state.cooldownLeft <= 0) {
+          state.cooldownLeft = 0;
+          if (state.fuel <= 0) state.mode = 'empty';
+          else if (state.held) state.mode = 'active';   // re-pressed and still owed fuel
+          else state.mode = 'ready';
+        }
+      }
 
       // Bonus fuel pours in on top of whatever the mode is doing, so a top-up mid-drain slows the
       // drain visibly and a top-up on an empty tank refills it in front of the player.
@@ -78,15 +117,18 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
       // One clamp point covers both sources of change (drain, top-up).
       if (state.fuel <= 0) {
         state.fuel = 0;
-        // Dry. 'empty' rather than 'ready' so the button can go dead and grey instead of looking
-        // pressable — nothing but a drop-off gets it back.
-        if (state.mode === 'active') state.mode = 'empty';
-      } else if (state.mode === 'empty') {
+        // Running the tank dry gets the same momentum tail as letting go on purpose — the taxi
+        // was still at full tilt the frame the fuel ran out, so it still deserves the coast-down.
+        // 'empty' comes after that tail, and it's where the button goes dead and grey rather than
+        // looking pressable: nothing but a drop-off gets it back.
+        if (state.mode === 'active') enterCooldown();
+      } else {
+        if (state.fuel > duration) state.fuel = duration;
         // A top-up landed on a dead tank. If the player never let go, roll straight back into
-        // boost — the drop-off just handed them a live one, not a "press again" moment.
-        state.mode = state.held ? 'active' : 'ready';
-      } else if (state.fuel > duration) {
-        state.fuel = duration;
+        // boost — the drop-off just handed them a live one, not a "press again" moment. A tank
+        // refilled mid-cooldown needs nothing here: the window's own expiry already picks the
+        // right mode now that there's fuel again.
+        if (state.mode === 'empty') state.mode = state.held ? 'active' : 'ready';
       }
     },
 

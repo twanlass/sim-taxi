@@ -332,9 +332,10 @@ unanswered stretch and teal was a state the game could not reach. The state-swap
 with it, in the pin, in the `fares.js` reconcile and in the off-screen pointer's CSS — a marker that
 can only ever be one colour should not carry the machinery for two.
 
-The fare's own colour still lives on the taxi's roof sign — see
-[gameplay.md](gameplay.md#fare-colours). `?shot=10` frames the pin on its kerb corner; it was added
-to catch the untapped state and now simply shows the pin close up, which no other shot does.
+The taxi's roof sign no longer wears a fare colour either — it just lights on and off with whether
+someone is aboard — see [gameplay.md](gameplay.md#the-taxis-roof-sign). `?shot=10` frames the pin
+on its kerb corner; it was added to catch the untapped state and now simply shows the pin close up,
+which no other shot does.
 
 The head carries an **emissive** at 0.35 of its colour. The fixed camera sees the face turned *away*
 from the sun, and pure Lambert on its own shades that face a long way down — the lift keeps the
@@ -396,7 +397,9 @@ with the body — it used to be, and tilting it into the road caused z-fighting.
 
 ## Debug panel
 
-`src/game/debugpanel.js`, behind the ⚙️ button top right. Split by cost:
+`src/game/debugpanel.js`, behind the ⚙️ button top right — only built when the URL carries
+`?debug` or `?settings`. It used to be always on, but at small widths the button sat right where
+the streak counter now lives, and it's a tool almost no player needs to see. Split by cost:
 
 - **Live** — day cycle on/off, day length, time of day, sun colour/strength, ambient fill, fare clock
 - **Restart to apply** — car count (writes a URL parameter and reloads)

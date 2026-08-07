@@ -308,8 +308,25 @@ corridor is deliberately not excepted — emergency preemption really does turn 
 watching the green path open ahead of the siren is the whole effect.
 
 The meter itself lives in `game/boost.js` as a pure clock with no knowledge of the taxi or the
-DOM. Hold-to-enable: the tank drains only while the button is held (15s from full), releasing just
-pauses it, and once empty it refills over 15s before it can be held again.
+DOM. Hold-to-enable: the tank drains only while the button is held (15s from full) and releasing
+just pauses it. Nothing refills it but a drop-off — see
+[gameplay.md](gameplay.md#crazy-taxi-mode) for the economy.
+
+**Releasing doesn't switch it off.** It used to — the taxi went from full boost to ordinary traffic
+in the same frame, so tapping off a beat before a crash or a cop was a free escape. `game/boost.js`
+now holds the mode at `'cooldown'` for `BOOST_COOLDOWN` (1s) after release before it lands on
+`'ready'` (or `'empty'`, if the tank ran dry rather than being released on purpose — both exits
+from `'active'` get the same tail). `isEngaged()` covers `'active'` and `'cooldown'` both, and
+is what `taxi.boost` is driven from — collision detection, the police bust range and the priority
+junction that lets Loco Mode run reds all read `taxi.boost`, so all three stay armed through the
+cooldown. What *doesn't* survive it is speed: `taxi.boostEasing` is true only during `'cooldown'`,
+and `fullPower = car.boost && !car.boostEasing` in `traffic.js` is what the topSpeed/accel formulas
+actually key off, so the cap drops back to cruise the instant the hold ends. The car doesn't snap
+to cruise, though — `BRAKE` (11 u/s²) is still the only thing that sheds speed, same as any other
+stop, and from 18.7 down to 8.5 that takes ~0.93s: the coast-down was already sitting there once
+the speed cap and the hazard flag stopped being the same boolean. It's also where the nose-dip
+comes from — the pitch spring downstream reads the deceleration straight off `car.v`, no separate
+animation needed. A re-press mid-cooldown cancels it outright and returns to `'active'`.
 
 ## The wreck
 

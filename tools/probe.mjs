@@ -32,7 +32,9 @@ import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
-import { createBoost, BOOST_DURATION, BOOST_START_FRACTION, BOOST_FARE_REWARD } from '../src/game/boost.js';
+import {
+  createBoost, BOOST_DURATION, BOOST_START_FRACTION, BOOST_FARE_REWARD, BOOST_COOLDOWN,
+} from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 
 const seed = Number(process.argv[2] ?? 71624);
@@ -445,7 +447,6 @@ check('no two cars occupy the same space', worst > 1.6,
   let pickups = 0;
   let stillMetered = 0;
   let wrongTier = 0;
-  let sharedColour = 0;
   let sharedJunction = 0;
   let elapsed = 0;
 
@@ -491,11 +492,7 @@ check('no two cars occupy the same space', worst > 1.6,
     aim();
     elapsed += 1 / 60;
 
-    // Colour is assigned when the trip is drawn, so no two live fares may wear the same one — a
-    // carried fare must never match the one the board is about to hand over to.
     const live = fares.state.fares;
-    const colours = new Set(live.map((f) => f.color));
-    if (colours.size !== live.length) sharedColour += 1;
     // No two fares may claim the same junction at either end, even while the far ends are hidden:
     // a rider spawning on another fare's drop-off ends up sharing a kerb corner once it appears.
     // A riding fare's `target` *is* its drop-off, so it contributes one junction, not two.
@@ -538,7 +535,6 @@ check('no two cars occupy the same space', worst > 1.6,
       painted === `${hex(PALETTE.destination)} ${hex(PALETTE.destination)} `
         + `${hex(PALETTE.routeLine)}/${hex(PALETTE.routeLine)}`, painted);
   }
-  check('no two live fares share a colour', sharedColour === 0, `${sharedColour} frames`);
   check('no two fares claim the same junction', sharedJunction === 0, `${sharedJunction} frames`);
 
   // --- The urgency bar drains.
@@ -765,6 +761,78 @@ check('no two cars occupy the same space', worst > 1.6,
     dIn >= 0 && turned && !oncomingEntered,
     `turned=${turned}, oncoming entered the junction=${oncomingEntered}`);
 
+  setPriorityJunction(null);
+}
+
+// --- Loco Mode momentum cooldown --------------------------------------------
+// Letting go used to drop every boost-only rule in the same frame — collision detection, the
+// police bust range, running reds — so tapping off a beat before impact was a free escape. The
+// cooldown keeps those rules live for BOOST_COOLDOWN seconds after release while the taxi's own
+// speed cap drops immediately, so it's still committed to the risk while visibly coasting down.
+{
+  // Plain release: active -> cooldown (still engaged) -> ready, fuel untouched while it's frozen.
+  // Opened full rather than at the run's starting third so half a second of holding is a rounding
+  // error against the tank, and the cooldown is the only thing under test.
+  const boost = createBoost(15, 1, BOOST_COOLDOWN);
+  boost.press();
+  for (let f = 0; f < 30; f++) boost.update(1 / 60); // hold for half a second
+  boost.release();
+  check('release enters cooldown rather than going straight to ready',
+    boost.isCoolingDown() && !boost.isActive() && !boost.isReady(), `mode=${boost.state.mode}`);
+  check('cooldown still reads as engaged, for the collision/bust/red-light gates',
+    boost.isEngaged());
+
+  const fuelAtRelease = boost.state.fuel;
+  boost.update(BOOST_COOLDOWN * 0.5);
+  check('fuel stays frozen mid-cooldown', boost.state.fuel === fuelAtRelease,
+    `${boost.state.fuel.toFixed(3)} vs ${fuelAtRelease.toFixed(3)} at release`);
+
+  boost.update(BOOST_COOLDOWN * 0.5 + 0.01);
+  check('cooldown hands off to ready once the window closes',
+    boost.isReady() && !boost.isEngaged(), `mode=${boost.state.mode}`);
+}
+{
+  // Re-pressing mid-cooldown catches the car before the window closes: back to active outright,
+  // same as the button reads a fresh Loco Mode press (wheelie/flame/kick in main.js key off this).
+  const boost = createBoost(15, 1, BOOST_COOLDOWN);
+  boost.press();
+  boost.update(1 / 60);
+  boost.release();
+  boost.update(BOOST_COOLDOWN * 0.5);
+  const resumed = boost.press();
+  check('re-press mid-cooldown snaps straight back to active',
+    resumed && boost.isActive(), `resumed=${resumed} mode=${boost.state.mode}`);
+}
+{
+  // Draining the tank to empty while still held gets the same cooldown tail as an on-purpose
+  // release — it doesn't skip straight to the dead-button state just because the player never
+  // let go.
+  const boost = createBoost(0.1, 1, BOOST_COOLDOWN);
+  boost.press();
+  boost.update(0.2); // more than the whole tank in one step
+  check('running dry enters cooldown instead of going dead immediately',
+    boost.isCoolingDown(), `mode=${boost.state.mode}`);
+  boost.update(BOOST_COOLDOWN + 0.01);
+  check('cooldown from a dry tank lands on empty', boost.isEmpty(), `mode=${boost.state.mode}`);
+}
+{
+  // The taxi's own physics: `boost` (the hazard flag) stays true through the cooldown tail, but
+  // `boostEasing` tells traffic.js the hold itself is over, so the speed cap drops at once and the
+  // car coasts down under ordinary braking — same braking constant as any other stop, which is
+  // also what drives the visible nose-dip (the pitch spring reads deceleration off car.v).
+  const eScene = new THREE.Scene();
+  const eTraffic = createTraffic(makeRng(seed + 129), eScene, 1);
+  const eTaxi = eTraffic.taxi;
+  eTaxi.boost = true;
+  for (let f = 0; f < 60; f++) eTraffic.update(1 / 60); // spin up to full boost speed
+  const peakFactor = eTaxi.speedFactor; // v/SPEED — 2.2 is full boost, 1.0 is cruise
+  eTaxi.boostEasing = true; // the button just came up — cooldown starts, hold ends
+  for (let f = 0; f < Math.round(BOOST_COOLDOWN * 60); f++) eTraffic.update(1 / 60);
+  check('boost speed peaks well above cruise before release', peakFactor > 1.8,
+    `peak ${peakFactor.toFixed(2)}x cruise`);
+  check('easing off drops the speed cap and the car actually coasts back toward cruise',
+    eTaxi.speedFactor < peakFactor * 0.7 && eTaxi.speedFactor < 1.3,
+    `${peakFactor.toFixed(2)}x -> ${eTaxi.speedFactor.toFixed(2)}x cruise over ${BOOST_COOLDOWN}s`);
   setPriorityJunction(null);
 }
 
@@ -1438,9 +1506,11 @@ check('the taxi is an ordinary car in the traffic array',
   check('an idle meter does not regenerate', b.fraction() === idleStart,
     `${idleStart.toFixed(3)} -> ${b.fraction().toFixed(3)}`);
 
-  // Drain it dry: a third of a tank is 5s of boost, so 6s of holding empties it with room to spare.
+  // Drain it dry: a third of a tank is 5s of boost, plus the BOOST_COOLDOWN momentum tail that
+  // running dry earns the same as an on-purpose release, so 7s of holding lands on 'empty' with
+  // room to spare.
   b.press();
-  for (let i = 0; i < 60 * 6; i++) b.update(1 / 60);
+  for (let i = 0; i < 60 * 7; i++) b.update(1 / 60);
   check('holding drains the tank to empty', b.fraction() === 0 && b.isEmpty(), `mode ${b.state.mode}`);
 
   // Still held, still empty, and — the point of the change — it stays that way. The old fast
@@ -1589,6 +1659,21 @@ check('the taxi is an ordinary car in the traffic array',
   const mainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   check('renderer keeps its stencil buffer', /stencil:\s*true/.test(mainSource),
     'main.js constructs WebGLRenderer with stencil: true');
+}
+
+// --- Taxi roof sign -----------------------------------------------------------
+// The sign no longer carries the fare's own colour — it just says occupied or not. Assert the
+// on/off states directly rather than trusting the toggle by eye.
+{
+  const { sign, setOccupied } = createTaxiMesh();
+  const hex = (c) => new THREE.Color(c).getHexString();
+  check('taxi sign starts dark, empty', sign.material.color.getHexString() === hex(PALETTE.taxiTrim));
+  setOccupied(true);
+  check('taxi sign lights up once a rider boards',
+    sign.material.color.getHexString() === hex(PALETTE.taxiSign));
+  setOccupied(false);
+  check('taxi sign goes dark again once the rider is dropped off',
+    sign.material.color.getHexString() === hex(PALETTE.taxiTrim));
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

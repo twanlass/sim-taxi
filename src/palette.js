@@ -65,14 +65,6 @@ export const PALETTE = {
   // so a colour there would imply a commitment that doesn't exist yet.
   passenger: '#FFFFFF',
 
-  // The fare colour is assigned at pickup and shared by the taxi and that rider's destination.
-  // With one taxi this is flavour; with several it is the whole read of the board — which car is
-  // carrying which fare, and which pin it is heading for.
-  //
-  // Chosen to avoid every colour already doing a job: traffic signals (red / amber / green), the
-  // taxi's own yellow body, and the white of an unclaimed passenger.
-  fareColors: ['#25D9D2', '#E24BC4', '#A46BFF', '#4D9BFF', '#FF6B9D'],
-
   // --- The meter over a waiting rider: an urgency bar above a distance bar.
   //
   // Both bars share one unfilled colour and one dark backing, so the only thing that ever changes
