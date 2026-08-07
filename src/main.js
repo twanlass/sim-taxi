@@ -389,6 +389,8 @@ const dropoffIndicator = createDropoffIndicator({
 
 const hud = {
   money: document.getElementById('money'),
+  streak: document.getElementById('streak'),
+  streakCount: document.getElementById('streak-count'),
   banner: document.getElementById('run-end'),
   toast: document.getElementById('toast'),
 };
@@ -490,6 +492,30 @@ function popEarning(amount) {
   };
 }
 
+/**
+ * Reveal the streak counter on the first successful drop-off, then bump the number on every one
+ * after — no flight off the taxi like the payout gets, that's a later concern. `count` is
+ * `fares.state.delivered`, so the streak is just "how many this run" until a reset condition
+ * exists.
+ */
+function updateStreak(count) {
+  if (!hud.streak || !hud.streakCount) return;
+  hud.streakCount.textContent = String(count);
+  if (hud.streak.hidden) {
+    hud.streak.hidden = false;
+    hud.streak.animate([
+      { opacity: 0, transform: 'scale(0.4)' },
+      { opacity: 1, transform: 'scale(1.12)', offset: 0.6 },
+      { opacity: 1, transform: 'scale(1)' },
+    ], { duration: 400, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
+    return;
+  }
+  // Toggle off / reflow / on, same as the money bump — a class that stays put doesn't re-fire.
+  hud.streak.classList.remove('streak-bumped');
+  void hud.streak.offsetWidth;
+  hud.streak.classList.add('streak-bumped');
+}
+
 let toastTimer = 0;
 function flash(text) {
   if (!hud.toast) return;
@@ -528,10 +554,13 @@ function updateHud(dt) {
     showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: s.failReason,
-      // Four numbers, in the order the run produced them: what you carried, what it paid, what
-      // the city made you sit through, and how fast you were going when it went wrong.
+      // Five numbers, in the order the run produced them: what you carried, what it paid, what
+      // the city made you sit through, and how fast you were going when it went wrong. Streak
+      // sits right after Fares because right now it's the same count read a second way — see the
+      // HUD streak counter in updateStreak().
       stats: [
         { label: 'Fares', value: s.delivered, format: (n) => `${n}` },
+        { label: 'Streak', value: s.delivered, format: (n) => `${n}x` },
         { label: 'Cash', value: s.money, format: (n) => `$${n}` },
         { label: 'Red Lights', value: traffic.stats.taxiRedLights, format: (n) => `${n}` },
         { label: 'Top Speed', value: speedMph(traffic.stats.taxiTopSpeed),
@@ -799,6 +828,7 @@ function frame() {
       dispatchToDropoff(fare);
     } else if (type === 'delivered') {
       popEarning(fare.value);
+      updateStreak(fares.state.delivered);
       // Small pour of boost fuel as a delivery reward — the meter's frame-by-frame update paints
       // the bar visibly *filling*, and the green glow ties the top-up to the same payout the
       // earnings pop is announcing.
@@ -920,7 +950,11 @@ if (shot) {
   frame();
 }
 
-if (!shot) {
+// The gear button sits top-right at small widths and started overlapping the streak counter
+// there — most players never open it anyway, so it's opt-in now: `?debug` or `?settings` in the
+// URL, either present with no value needed.
+const wantsDebugPanel = new URLSearchParams(window.location.search);
+if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) {
   createDebugPanel({
     sun,
     hemi,
