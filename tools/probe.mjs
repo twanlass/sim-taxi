@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
+import { createBoost, BOOST_COOLDOWN } from '../src/game/boost.js';
 import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
@@ -757,6 +758,76 @@ check('no two cars occupy the same space', worst > 1.6,
     dIn >= 0 && turned && !oncomingEntered,
     `turned=${turned}, oncoming entered the junction=${oncomingEntered}`);
 
+  setPriorityJunction(null);
+}
+
+// --- Loco Mode momentum cooldown --------------------------------------------
+// Letting go used to drop every boost-only rule in the same frame — collision detection, the
+// police bust range, running reds — so tapping off a beat before impact was a free escape. The
+// cooldown keeps those rules live for BOOST_COOLDOWN seconds after release while the taxi's own
+// speed cap drops immediately, so it's still committed to the risk while visibly coasting down.
+{
+  // Plain release: active -> cooldown (still engaged) -> ready, fuel untouched while it's frozen.
+  const boost = createBoost(15, 15, BOOST_COOLDOWN);
+  boost.press();
+  for (let f = 0; f < 30; f++) boost.update(1 / 60); // hold for half a second
+  boost.release();
+  check('release enters cooldown rather than going straight to ready',
+    boost.isCoolingDown() && !boost.isActive() && !boost.isReady(), `mode=${boost.state.mode}`);
+  check('cooldown still reads as engaged, for the collision/bust/red-light gates',
+    boost.isEngaged());
+
+  const fuelAtRelease = boost.state.fuel;
+  boost.update(BOOST_COOLDOWN * 0.5);
+  check('fuel stays frozen mid-cooldown', boost.state.fuel === fuelAtRelease,
+    `${boost.state.fuel.toFixed(3)} vs ${fuelAtRelease.toFixed(3)} at release`);
+
+  boost.update(BOOST_COOLDOWN * 0.5 + 0.01);
+  check('cooldown hands off to ready once the window closes',
+    boost.isReady() && !boost.isEngaged(), `mode=${boost.state.mode}`);
+}
+{
+  // Re-pressing mid-cooldown catches the car before the window closes: back to active outright,
+  // same as the button reads a fresh Loco Mode press (wheelie/flame/kick in main.js key off this).
+  const boost = createBoost(15, 15, BOOST_COOLDOWN);
+  boost.press();
+  boost.update(1 / 60);
+  boost.release();
+  boost.update(BOOST_COOLDOWN * 0.5);
+  const resumed = boost.press();
+  check('re-press mid-cooldown snaps straight back to active',
+    resumed && boost.isActive(), `resumed=${resumed} mode=${boost.state.mode}`);
+}
+{
+  // Draining the tank to empty while still held gets the same cooldown tail as an on-purpose
+  // release — it doesn't skip straight to recharging just because the player never let go.
+  const boost = createBoost(0.1, 15, BOOST_COOLDOWN);
+  boost.press();
+  boost.update(0.2); // more than the whole tank in one step
+  check('running dry enters cooldown instead of recharging immediately',
+    boost.isCoolingDown(), `mode=${boost.state.mode}`);
+  boost.update(BOOST_COOLDOWN + 0.01);
+  check('cooldown from empty lands on recharging',
+    boost.state.mode === 'recharging', `mode=${boost.state.mode}`);
+}
+{
+  // The taxi's own physics: `boost` (the hazard flag) stays true through the cooldown tail, but
+  // `boostEasing` tells traffic.js the hold itself is over, so the speed cap drops at once and the
+  // car coasts down under ordinary braking — same braking constant as any other stop, which is
+  // also what drives the visible nose-dip (the pitch spring reads deceleration off car.v).
+  const eScene = new THREE.Scene();
+  const eTraffic = createTraffic(makeRng(seed + 129), eScene, 1);
+  const eTaxi = eTraffic.taxi;
+  eTaxi.boost = true;
+  for (let f = 0; f < 60; f++) eTraffic.update(1 / 60); // spin up to full boost speed
+  const peakFactor = eTaxi.speedFactor; // v/SPEED — 2.2 is full boost, 1.0 is cruise
+  eTaxi.boostEasing = true; // the button just came up — cooldown starts, hold ends
+  for (let f = 0; f < Math.round(BOOST_COOLDOWN * 60); f++) eTraffic.update(1 / 60);
+  check('boost speed peaks well above cruise before release', peakFactor > 1.8,
+    `peak ${peakFactor.toFixed(2)}x cruise`);
+  check('easing off drops the speed cap and the car actually coasts back toward cruise',
+    eTaxi.speedFactor < peakFactor * 0.7 && eTaxi.speedFactor < 1.3,
+    `${peakFactor.toFixed(2)}x -> ${eTaxi.speedFactor.toFixed(2)}x cruise over ${BOOST_COOLDOWN}s`);
   setPriorityJunction(null);
 }
 

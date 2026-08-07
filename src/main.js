@@ -243,7 +243,9 @@ function bustByPolice() {
 }
 
 function checkPoliceBust() {
-  if (!boost.isActive()) return;
+  // Engaged, not just active — the bust range still catches the taxi through the cooldown tail,
+  // so braking off Loco Mode a beat too close to a cruiser doesn't buy a free pass.
+  if (!boost.isEngaged()) return;
   if (!police.state.active) return;
   if (fares.state.gameOver || traffic.taxi.crashed) return;
   const dx = traffic.taxi.x - police.group.position.x;
@@ -775,8 +777,15 @@ function frame() {
 
   boost.update(dt);
   // Never re-arm boost on a wrecked taxi — the flag would flick on the next frame otherwise and
-  // the collision detector already only checks `if (taxi.boost)`.
-  if (!traffic.taxi.crashed) traffic.taxi.boost = boost.isActive();
+  // the collision detector already only checks `if (taxi.boost)`. `taxi.boost` covers the hold
+  // *and* the one-second cooldown tail after release — collision, police bust range and running
+  // reds all key off it, see BOOST_COOLDOWN in game/boost.js. `boostEasing` is the narrower flag
+  // that's only true during that tail; traffic.js reads it to ease the speed cap back down instead
+  // of holding full boost speed for the whole cooldown window.
+  if (!traffic.taxi.crashed) {
+    traffic.taxi.boost = boost.isEngaged();
+    traffic.taxi.boostEasing = boost.isCoolingDown();
+  }
   updateBoostButton();
   skids.update(dt);
   dust.update(dt);

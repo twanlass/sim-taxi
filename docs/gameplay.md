@@ -433,6 +433,16 @@ While active the taxi runs at 2.2× speed, forces its next junction green, doesn
 corners, lays **skid marks** off the line and through turns, and kicks up **dust**. See
 [rendering.md](rendering.md#effects) for how those two are drawn.
 
+**Releasing isn't an instant off.** For `BOOST_COOLDOWN` (1s) after the button comes up — or the
+tank runs dry — the taxi is still exposed to everything Loco Mode was: it can still crash into
+traffic, still gets caught if a cop is in bust range, still forces the next light. What it loses
+immediately is the speed — the cap drops back to cruise the moment the hold ends, and ordinary
+braking (the same constant every other stop uses) hauls it down from 18.7 to 8.5 in under a
+second, nose dipping hard the whole way. So letting go a beat too late doesn't buy safety; it buys
+a car that's still committed to whatever's in front of it while visibly losing the ability to
+dodge. Re-pressing mid-cooldown cancels it and snaps straight back to full send. See
+[traffic.md](traffic.md#boost-crazy-taxi-mode) for the mechanism.
+
 The press itself also fires a **wheelie**, a tailpipe **flame burst** and a half-second launch
 streak of rubber — all three gated on `boost.press()` returning true, so they fire on the
 transition into Loco Mode and not on a re-press during a boost that's already running.
