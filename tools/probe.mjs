@@ -50,7 +50,10 @@ const time = (label, fn) => {
 
 // Read a rider's diamond back the way a player does — off the material it is painted in, not by
 // trusting the argument we passed in. Its colour is the whole of what that marker says now.
-const diamondHex = (diamond) => diamond.mesh.material.color.getHexString();
+const diamondHex = (marker) => marker.mesh.material.color.getHexString();
+// The disc under the rider's feet, rim and fill — one mark at two weights, so they must never
+// disagree with each other or with the crystal overhead.
+const ringHexes = (marker) => marker.ring.children.map((m) => m.material.color.getHexString());
 
 // Slot 0's bounce phase offset — fares.js staggers the slots so two riders don't pulse in lockstep,
 // and slot 0 draws the zero offset. Named here so the kick assertions can subtract the bounce out.
@@ -266,6 +269,8 @@ check('no two cars occupy the same space', worst > 1.6,
 
   let marker = null;
   let overTheRider = false;
+  let discUnderRider = false;
+  let discClearedAtPickup = false;
   let launchedFromKerb = false;
   let transferred = false;
   let landedOnTaxi = false;
@@ -299,6 +304,12 @@ check('no two cars occupy the same space', worst > 1.6,
         // It stands over the rider from the frame they appear — this is the only thing marking
         // someone on the kerb, so a hidden one is an invisible fare.
         overTheRider = marker.group.visible && distanceTo(kerbAtSpawn) < 0.01;
+        // The disc lands on the same corner, under their feet — it is the crystal's colour said
+        // again on the ground, where the driving is aimed.
+        discUnderRider = marker.ring.visible
+          && Math.hypot(marker.ring.position.x - kerbAtSpawn.x,
+            marker.ring.position.z - kerbAtSpawn.z) < 0.01
+          && new Set([...ringHexes(marker), diamondHex(marker)]).size === 1;
         route(fare);
       }
       if (type === 'pickup' && fare.slot.marker === marker) {
@@ -306,6 +317,9 @@ check('no two cars occupy the same space', worst > 1.6,
         // Launched from the corner the rider was standing on, not replanted on the car: the
         // hand-off has to read as the same object moving.
         launchedFromKerb = marker.group.visible && distanceTo(kerbAtSpawn) < 0.01;
+        // ...and the disc goes out on the same frame: the corner stops meaning anything the moment
+        // the clock leaves it, and one left glowing reads as another fare waiting there.
+        discClearedAtPickup = !marker.ring.visible;
         route(fare);
       }
       // The run may end on the clock rather than a delivery; the marker must clear either way.
@@ -329,6 +343,8 @@ check('no two cars occupy the same space', worst > 1.6,
   }
 
   check('the clock stands over the rider from the frame they appear', overTheRider);
+  check('and marks the ground under their feet in the same colour', discUnderRider);
+  check('the ground disc clears when they board', discClearedAtPickup);
   check('it launches from the corner the rider was standing on', launchedFromKerb);
   check('it flies rather than teleports', transferred && leftTheKerb);
   check('it then rides with the taxi', landedOnTaxi);
@@ -599,6 +615,11 @@ check('no two cars occupy the same space', worst > 1.6,
       const want = urgencyColor(level).getHexString();
       const got = diamondHex(diamond);
       if (got !== want) wrongColour.push(`${level}: ${got} != ${want}`);
+      // Crystal and disc are one statement. A disc lagging a level behind would have the board
+      // saying two different things about the same rider.
+      for (const disc of ringHexes(diamond)) {
+        if (disc !== want) wrongColour.push(`${level} disc: ${disc} != ${want}`);
+      }
       if (got !== seen.at(-1)) seen.push(got);
     }
     check('each urgency level paints the diamond its own colour', wrongColour.length === 0,

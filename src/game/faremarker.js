@@ -1,11 +1,14 @@
 import * as THREE from 'three';
+import { KERB_H } from '../city/ground.js';
 import { URGENCY_SEGMENTS, urgencyColor } from './urgency.js';
 import {
   createDiamond, DIAMOND_R, RIM_SCALE, bounceOffset, kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
 } from '../geometry/diamond.js';
+import { createTargetRing, RING_Y } from '../geometry/targetring.js';
 
 // The fare's clock, as a physical object: one geodesic diamond, coloured by how close this fare is
-// to giving up — green, yellow, orange, red.
+// to giving up — green, yellow, orange, red, with a disc under the rider's feet in the same colour
+// for as long as they are standing on the kerb.
 //
 // **It belongs to the fare, not to a marker.** It waits over the rider's head on the kerb, and the
 // instant they get in it flies to the taxi and rides above the roof. The clock does not restart at
@@ -22,8 +25,18 @@ import {
 // sweep. The panic pulse below five seconds came across with it, so the end of a clock is still an
 // event and not just a shade of red.
 //
+// **The disc is the same colour saying it twice.** The crystal is at eye level where the eye
+// happens to be; the disc is on the ground, which is where the taxi is actually being aimed, and it
+// survives the crystal being lost behind a tower. It is the drop-off's own shape
+// (geometry/targetring.js) in the fare's urgency colour rather than teal, so "a disc is a place the
+// taxi has to reach" holds at both ends of the trip and the hue is the only difference.
+//
+// It goes dark the moment the rider boards. The kerb corner stops meaning anything then — the clock
+// leaves with them, and a disc left glowing on an empty pavement would read as a second fare.
+//
 // Its own module under game/ rather than geometry/ because it owns a lifecycle — kerb, flight,
-// taxi — and not just a mesh. geometry/diamond.js is the model it draws with.
+// taxi — and not just a mesh. geometry/diamond.js and geometry/targetring.js are the models it
+// draws with.
 
 // Height above the ground, on the kerb and over the taxi alike.
 //
@@ -86,6 +99,12 @@ export function createFareMarker(scene, phase = 0) {
   group.add(diamond.mesh);
   scene.add(group);
 
+  // The disc under the rider's feet. Its own scene-level group rather than a child of the one
+  // above: that one flies to the taxi, and this one stays on the pavement until it is switched off.
+  const ring = createTargetRing(urgencyColor(URGENCY_SEGMENTS));
+  ring.group.visible = false;
+  scene.add(ring.group);
+
   const anchor = new THREE.Vector3();
   const from = new THREE.Vector3();
 
@@ -110,7 +129,9 @@ export function createFareMarker(scene, phase = 0) {
   function setUrgency(next) {
     if (next === level) return;
     level = next;
-    diamond.setColor(urgencyColor(next));
+    const colour = urgencyColor(next);
+    diamond.setColor(colour);
+    ring.setColor(colour);
     kickPending = true;
   }
 
@@ -125,6 +146,8 @@ export function createFareMarker(scene, phase = 0) {
     // The crystal itself, so a test can read colour and position back the way a player reads them
     // off the screen rather than trusting the arguments it passed in.
     mesh: diamond.mesh,
+    // Likewise the disc on the ground, which has to agree with the crystal on every frame.
+    ring: ring.group,
     setUrgency,
     /** Mark the rider the taxi has been sent at. Only meaningful while they are still on the kerb. */
     setSelected,
@@ -140,12 +163,16 @@ export function createFareMarker(scene, phase = 0) {
       // announcing a change that hasn't happened.
       level = nextLevel;
       diamond.setColor(urgencyColor(nextLevel));
+      ring.setColor(urgencyColor(nextLevel));
       kickAt = null;
       kickPending = false;
       transferAt = null;
       transferPending = false;
       anchor.set(x, LIFT, z);
       group.position.copy(anchor);
+      // Same corner, on the pavement: the rider stands in the middle of their own disc.
+      ring.group.position.set(x, KERB_H + RING_Y, z);
+      ring.group.visible = true;
       diamond.mesh.scale.setScalar(1);
       setSelected(false);
       group.visible = true;
@@ -160,10 +187,13 @@ export function createFareMarker(scene, phase = 0) {
     beginTransfer() {
       transferPending = true;
       setSelected(false);
+      // The kerb corner is no longer where this fare is.
+      ring.group.visible = false;
     },
 
     hide() {
       group.visible = false;
+      ring.group.visible = false;
       transferAt = null;
       transferPending = false;
     },

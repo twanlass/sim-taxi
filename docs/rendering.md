@@ -349,9 +349,27 @@ the moment the level changes, so the animation doesn't depend on the order `setU
 are called in. Each slot gets a fixed phase offset on the bounce, so two riders don't pulse in
 lockstep.
 
+### The target disc — `geometry/targetring.js`
+
+A filled circle inside a solid rim, lying flat on a kerb corner. **Both ends of a trip wear one**:
+under the waiting rider in the fare's urgency colour, on the drop-off corner in teal. One rim shape
+and one fill shape serve every disc on the board — only the colour differs, and `setColor` moves
+both layers together, since they are one mark at two weights rather than two colours.
+
+`RING_Y = 0.2` above the surface it marks, on both, so they read as the same object. The fill is at
+the route band's own `ROUTE_OPACITY` — a disc and the band running into it are one weight of paint.
+
+Both layers are **depth-tested**, with `depthWrite: false` so they don't fight each other for the
+plane. The depth test is load-bearing under a rider: the far half of a flat circle projects *upward
+on screen* at this camera angle, and without the test it would paint a band across the figure
+standing in the middle of it. That is precisely what the old countdown ring did — it drew with
+`depthTest: false` for legibility through buildings, and needed an `ABOVE_RING` renderOrder worn by
+the rider's meshes and the taxi's whole body to survive it. Keeping the test on costs occlusion by
+towers and buys all of that back.
+
 ### The drop-off ring — `geometry/marker.js`
 
-The drop-off is a **filled ring on the kerb corner and nothing else** — no head, no post. It was a
+The drop-off is a **filled disc on the kerb corner and nothing else** — no head, no post. It was a
 crystal on a gold post, then the crystal alone at y = 9.6, then that crystal in teal; it went when
 the rider's marker became the same model and the board had two identical silhouettes on it, only one
 of which reported anything. See [gameplay.md](gameplay.md#the-drop-off-is-a-teal-ring-and-nothing-else).
@@ -367,12 +385,10 @@ taxi was a question rather than an instruction; then Loco Mode's yellow througho
 unanswered stretch left; now teal again for a different reason than the first time — not "you have
 not answered this yet" but "this one is not on the urgency scale".
 
-The ring is **filled in**, at the route band's own `ROUTE_OPACITY`. Band and disc are no longer the
-same paint — the band is the taxi's yellow — but they still meet on the same tarmac, and a disc
-heavier than the band running into it would read as the louder half of one mark. Depth-tested like
-the band, so a car crossing the junction drives over the disc rather than the disc painting across
-the car. Being translucent puts it in the transparent queue, which used to wash its far half up over
-the base of the post at its centre; nothing stands in the disc any more for it to wash over.
+Band and disc are no longer the same paint — the band is the taxi's yellow — but they still meet on
+the same tarmac at the same opacity, so a disc heavier than the band running into it would read as
+the louder half of one mark. The disc used to wash its far half up over the base of the post at its
+centre, back when it was translucent *and* something stood in it; nothing stands in this one.
 
 The fare's own colour still lives on the taxi's roof sign — see
 [gameplay.md](gameplay.md#fare-colours). `?shot=10` frames the drop-off on its kerb corner; it was
@@ -398,6 +414,12 @@ It is **scene-level**, not parented to the rider's kerb group: it has to leave t
 to a moving car, so it owns its own world position for its whole life. The group carries that
 position; the crystal inside it only ever bounces, kicks and pulses in local space, which keeps the
 two concerns from fighting over one transform.
+
+The **ground disc** ([above](#the-target-disc--geometrytargetringjs)) is a second scene-level group,
+separate for the same reason inverted: the crystal's group flies to the taxi and this one has to
+*stay* on the pavement until it is switched off, which happens on `beginTransfer`. `setUrgency`
+paints both, so the two can never disagree about a level — `tools/probe.mjs` reads the disc's rim
+and fill back alongside the crystal at every step of a drain.
 
 `LIFT` is 6.6 on both ends of the trip. Over a rider (topping out a little over 3.3) that leaves the
 bottom vertex 1.3 units — about 10px at play zoom — of air above their head, which is the gap the

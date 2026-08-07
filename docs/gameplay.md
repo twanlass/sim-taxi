@@ -177,16 +177,16 @@ player pointed at them.
 ### Fare colours
 
 The passenger **figure** is white — deliberately colourless. Before pickup any taxi could take any
-rider, so a colour on the *person* would imply a commitment that doesn't exist.
+rider, so a colour on the *person* would imply a commitment that doesn't exist. The crystal over
+their head and the disc under their feet are both spoken for by the clock, which is why the figure
+between them has to stay out of the way.
 
 The fare's colour is assigned when the trip is drawn, at **spawn**, and shows from pickup on the
-taxi's **roof sign**. The sign carries it rather than the marker overhead, because that one is
-spoken for —
-the fare's own clock rides up there too, colour-coded by time remaining, so fare identity needed
-somewhere else to live.
+taxi's **roof sign**. The sign carries it because every other surface a fare owns is reporting time
+remaining, so identity needed somewhere else to live.
 
-**The drop-off no longer wears it.** It used to, so that a pin and a taxi could be paired by
-hue; but one rider is aboard at a time and only that rider's pin is on the board, so the pairing
+**The drop-off no longer wears it.** It used to, so that a marker and a taxi could be paired by
+hue; but one rider is aboard at a time and only that rider's drop-off is on the board, so the pairing
 had nothing to disambiguate and a rotating hue was making the same marker look different run to
 run. It spent a spell carrying the fare's *state* instead, teal until the drop-off was tapped and
 yellow after; [the taxi dispatches itself now](#the-drop-off-dispatches-itself), so there is no
@@ -303,6 +303,18 @@ floats over the rider's head on the kerb, painted by how much of their clock is 
 (`TRANSFER_TIME = 0.65s`, eased, with a small arc) and keeps draining above the roof, because from
 that moment the deadline is the car's problem.
 
+**A disc under the rider's feet carries the same colour.** One hue, said twice: the crystal at eye
+level where the eye happens to be, and the disc on the ground, which is where the taxi is actually
+being aimed. The disc is the [drop-off's own shape](#the-drop-off-is-a-teal-ring-and-nothing-else)
+in the fare's urgency colour rather than teal, so "a disc is a place the taxi has to reach" holds at
+both ends of a trip and the hue is the only difference between them. It also survives what the
+crystal does not: a rider behind a tower still has a mark on the road, because the disc is on a
+plane the buildings mostly don't cover.
+
+It never drains — time is the colour's job — and it **goes dark the moment they board**. The kerb
+corner stops meaning anything then; the clock leaves with them, and a disc left glowing on an empty
+pavement reads as another fare waiting there.
+
 **The rider getting in and the deadline moving into the car are one gesture.** Nothing is created or
 destroyed at the hand-off — the same object leaves the kerb corner it has been standing on and
 crosses to the roof, which is the whole reason the flight is animated rather than a teleport. It is
@@ -381,7 +393,10 @@ it back, because a second crystal reporting nothing made the shape ambiguous.
 Four things, in this order:
 
 - **A shaft of light** over the rider, which marked them at range and said nothing else.
-- **A ring on the kerb**, which drained the same clock the crystal's colour does now.
+- **A draining ring on the kerb**, an earlier body for the same clock. A disc is back under the
+  rider now and it is worth being clear about what changed: that one *was* the clock, a countdown
+  the player read by how much of it was left, and it was the only thing marking the corner. This one
+  reports nothing on its own — it repeats the crystal's colour, and the crystal is the clock.
 - **A seven-segment block count**, which was more precision than the decision needed and cost a
   read to parse.
 - **A meter**: a dark plate carrying a four-segment urgency bar over a three-segment distance bar.

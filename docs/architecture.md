@@ -37,7 +37,7 @@ src/
     runend.js           the run-end blackout: stats counted out a row at a time
 
   geometry/             one-off models, all procedural
-    taxi.js  wheels.js  diamond.js  marker.js  person.js  riderdiamond.js
+    taxi.js  wheels.js  diamond.js  targetring.js  marker.js  person.js  riderdiamond.js
 
   util/
     rng.js              seeded RNG (mulberry32) + value noise
