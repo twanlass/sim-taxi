@@ -14,7 +14,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, laneKeyFor, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -28,6 +28,7 @@ import { createCityCamera, attachDragPan } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
@@ -727,10 +728,16 @@ check('no two cars occupy the same space', worst > 1.6,
   check('nobody is stranded at an unsignalised junction', longestWait < 45,
     `longest wait ${longestWait.toFixed(1)}s`);
 
+  // Asked of the network, which is what the sim now obeys. `isUnsignalised` in grid.js still
+  // answers the same on this seed, but it answers from `(i, j)` alone — it cannot see that a
+  // closure has left an interior junction with nothing to arbitrate, so asserting against it would
+  // be testing a function no car consults.
+  const net = cityNetwork();
+  const signalled = (i, j) => net.nodeByGrid(i, j).signal !== null;
   const ringCorners = [[0, 0], [0, GRID], [GRID, 0], [GRID, GRID]];
-  check('ring corners keep their signals', ringCorners.every(([i, j]) => !isUnsignalised(i, j)));
+  check('ring corners keep their signals', ringCorners.every(([i, j]) => signalled(i, j)));
   check('the rest of the ring has none',
-    isUnsignalised(1, 0) && isUnsignalised(0, 1) && !isUnsignalised(1, 1));
+    !signalled(1, 0) && !signalled(0, 1) && signalled(1, 1));
 
   const perCar = rTraffic.stats.distance / rTraffic.stats.time / rTraffic.cars.length;
   check('traffic moves better than the old fixed-phase grid', perCar > 4.14,
@@ -817,26 +824,35 @@ check('no two cars occupy the same space', worst > 1.6,
       for (const d of [0, 1, 2, 3]) {
         if (!legalExits(d, i, j).includes(leftOf(d))) continue;
         if (!legalExits(opposite(d), i, j).length) continue;
+        // The scatter scenario below stages a car 30 units back, so the approach has to be that
+        // long. A junction one block in from the edge is not — and the old infinite lane hid it
+        // by letting the car sit off the map and drive in.
+        if (approachRoom(d, i, j) < 30) continue;
         jI = i; jJ = j; dIn = d;
         break;
       }
     }
   }
-  const junctionLine = isXAxis(dIn) ? lineCoord(jI) : lineCoord(jJ);
+  // `back` is measured from the junction boundary, and may be more than one block — placeCar
+  // walks back along the straight-through chain, which is what the old infinite lane allowed.
   const place = (car, d, back) => {
-    car.d = d; car.dOut = d; car.i = jI; car.j = jJ;
-    car.s = junctionLine - dirSign(d) * (ROAD_W / 2 + back);
-    car.laneKey = laneKeyFor(d, jI, jJ);
-    car.state = 'drive'; car.turnT = 0; car.route = []; car.parked = false;
+    placeCar(car, d, jI, jJ, back);
+    car.route = []; car.parked = false;
   };
 
   // 1. A leader with the boosting taxi on its bumper gets going. The taxi starts 30 units out and
-  // the leader 18, well inside SCATTER_RANGE, on an otherwise empty road.
+  // the leader 12, well inside SCATTER_RANGE, on an otherwise empty road.
+  //
+  // The leader used to be staged 18 units out. That is not a place a car can be: a lane is 12 long
+  // and the junction beyond it 8, so 18 is inside the junction box. The old infinite `laneKey` row
+  // had no such notion — it also, on this junction, placed the *taxi* 14 units off the western edge
+  // of the map and let it drive in — so the distance went unquestioned. 12 is the near end of the
+  // lane, which is as much clear road as a car on this city can actually have.
   const sScene = new THREE.Scene();
   const sTraffic = createTraffic(makeRng(seed + 103), sScene, 2);
   const [sTaxi, leader] = sTraffic.cars;
   place(sTaxi, dIn, 30);
-  place(leader, dIn, 18);
+  place(leader, dIn, 12);
   sTaxi.boost = true;
   let fleeSpeed = 0;
   let fleePeak = 0;      // peak of the scatter envelope, not its value at the end — the leader
@@ -851,11 +867,15 @@ check('no two cars occupy the same space', worst > 1.6,
     if (f > 20 && sTaxi.state === 'drive') taxiFloor = Math.min(taxiFloor, sTaxi.speedFactor);
   }
   // speedFactor is v/SPEED, so anything over 1 is a car exceeding the ambient cruise, and 2.2 is
-  // full boost. The numbers are city-independent — the scenario is two cars on an empty road — and
-  // came out identical on every seed tried: 1.00x / 1.09x before scatter against 2.00x / 1.34x
-  // after. The taxi's floor is where it eases up behind the leader as the leader turns off.
+  // full boost. Measured against its own control — the identical scenario with the taxi not
+  // boosting — the leader peaks at exactly 1.00x cruise with a scatter envelope of 0.00, against
+  // 1.43x and a full 1.00 envelope with the taxi on its bumper. So the discrimination is total,
+  // even though the absolute figure is down from the 2.00x the 18-unit staging used to report:
+  // that number needed 18 units of clear road ahead of the leader before it had to brake for its
+  // junction, and no lane in this city is that long. The taxi's floor is where it eases up behind
+  // the leader as the leader turns off.
   check('traffic gets out of the boosting taxi\'s way',
-    dIn >= 0 && fleePeak > 0.9 && fleeSpeed > 1.5 && taxiFloor > 1.25,
+    dIn >= 0 && fleePeak > 0.9 && fleeSpeed > 1.35 && taxiFloor > 1.25,
     `leader peaked at ${fleeSpeed.toFixed(2)}x cruise, taxi never fell below ${taxiFloor.toFixed(2)}x`);
 
   // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its

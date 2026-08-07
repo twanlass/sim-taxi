@@ -22,6 +22,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createPolice } from '../src/sim/police.js';
 import { createFareSystem } from '../src/game/fares.js';
 import { findRoute, planOrigin } from '../src/game/route.js';
+import { isCityConnected } from '../src/city/grid.js';
 
 // Matches the game's default so these numbers describe the game as played, not a denser city.
 const CARS = 7;
@@ -30,16 +31,37 @@ const FARES = Number(process.argv[2] ?? 40);
 const REACTION = Number(process.argv[3] ?? 1.5);   // seconds before the "player" reacts
 const RUNS = Number(process.argv[4] ?? 9);
 const FIRST_SEED = Number(process.argv[5] ?? 71624);
+// The city, separately from the situation. It defaults to the shipped screenshot seed so the
+// suite's number does not move, but it has to be reachable: everything below averages over
+// trip-length luck within ONE city, so a change that shifts that city's signal offsets reads as a
+// difficulty change with no way to tell whether it generalises. It usually doesn't.
+const CITY_SEED = Number(process.argv[6] ?? 71624);
+// Cities are spread the same way situations are, and for the same reason.
+const CITY_STRIDE = 7919;
 const STEP = 1 / 60;
 
 // Spread rather than consecutive: adjacent seeds through this RNG produce visibly similar first
 // fares, and a sweep of near-duplicates measures one situation nine times.
 const SEED_STRIDE = 613;
 
-createLayout(makeRng(71624));   // the city is fixed; only the situation varies per run
+/**
+ * The city a run is played on, rerolled until it is actually drivable.
+ *
+ * `main.js` does this before the meshers ever run, because random park closures can strand part of
+ * the map and the fare loop depends on `findRoute` never returning null. A sweep over cities has to
+ * do it too, or one unlucky seed reports as a broken build.
+ */
+function cityFor(seed) {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    createLayout(makeRng(seed + attempt));
+    if (isCityConnected()) return seed + attempt;
+  }
+  throw new Error(`no drivable city near seed ${seed}`);
+}
 
-/** One full run. Returns what the run is worth measuring by. */
-function play(runSeed) {
+/** One full run: its own city, and its own situation on it. */
+function play(runSeed, citySeed) {
+  cityFor(citySeed);
   const traffic = createTraffic(makeRng(runSeed + 44), new THREE.Scene(), CARS);
   const fares = createFareSystem(makeRng(runSeed + 55), new THREE.Scene());
   const police = createPolice(makeRng(runSeed + 66), new THREE.Scene());
@@ -104,7 +126,9 @@ function play(runSeed) {
   };
 }
 
-const runs = Array.from({ length: RUNS }, (_, k) => play(FIRST_SEED + k * SEED_STRIDE));
+const runs = Array.from({ length: RUNS }, (_, k) => play(
+  FIRST_SEED + k * SEED_STRIDE, CITY_SEED + k * CITY_STRIDE,
+));
 
 const delivered = runs.map((r) => r.delivered).sort((a, b) => a - b);
 const median = delivered[delivered.length >> 1];

@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
-import { createTraffic, edgeClass } from '../src/sim/traffic.js';
+import { createTraffic } from '../src/sim/traffic.js';
 import { createLayout } from '../src/city/layout.js';
 import { findRoute, planOrigin, allIntersections } from '../src/game/route.js';
 import { intersectionCentre, ARRIVE_RADIUS } from '../src/game/fares.js';
@@ -23,10 +23,9 @@ const TIMEOUT = 120;
 const STOPPED_V = 0.4;
 
 function costFor(w) {
-  return (i, j, d) => {
-    const e = edgeClass(i, j, d);
-    if (e.kind === 'ring') return w.ring;
-    if (e.kind === 'arterial') return e.withWave ? w.artWith : w.artAgainst;
+  return (lane) => {
+    if (lane.klass === 'ring') return w.ring;
+    if (lane.klass === 'arterial') return lane.withWave ? w.artWith : w.artAgainst;
     return w.side;
   };
 }

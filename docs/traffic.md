@@ -27,11 +27,45 @@ same half-second, and green-on-arrival at exactly **50%** — pure chance. It wa
 
 Three changes replaced it, each validated by `tools/signals.mjs`:
 
+### Where the plan lives
+
+The phase plan is **baked into the road network**, not computed from `(i, j)`. A phase is a
+*street* — a pair of arms that carry on through the junction — rather than an axis, which is what
+lets a three-way, a five-way or a diagonal junction have one at all. See
+[roadnet.md](roadnet.md#signals-come-out-of-the-geometry).
+
+The sim asks per **approach**, via `net.laneSignal(lane, t)`:
+
+```js
+{ signalised, open, yellow, remaining, street }
+```
+
+`signalised` is deliberately separate from `open`, because a red and no-light-at-all mean different
+things to a driver — wait for green, versus yield on a gap. The old `{ axis, yellow, remaining }`
+could only tell them apart by convention, returning `remaining: Infinity` for both a ring junction
+and a green.
+
+Asking per approach rather than per turn is the whole reason `phaseAt` alone was not enough: a car
+asks "may I enter?" while still approaching, *before* it has chosen a turn. Every movement off one
+approach shares a phase by construction, so the question is exactly as well-posed.
+
+`lightPhase(i, j, t)` survives as a grid-shaped adapter for the probe and the metrics tool.
+`approachSignal(car, t)` is what the sim uses, and it resolves the same layers in the same order:
+boosting-taxi hold, police corridor, then the junction's own plan. The first two are still
+grid-shaped because the things that *set* them are — that goes with `police.js`.
+
 ### Offsets from travel time
 
-Each junction's offset is derived from how long a platoon takes to reach it (`blockTime() =
-PITCH / SPEED`), so consecutive greens open ahead of moving traffic. This also de-synchronises the
-city for free, because offsets now spread continuously instead of into four buckets.
+Each junction's offset is derived from how long a platoon takes to reach it, so consecutive greens
+open ahead of moving traffic. This also de-synchronises the city for free, because offsets now
+spread continuously instead of into four buckets.
+
+The distance is **walked along a chain of edges** rather than read off a grid index. Same number on
+an intact road; a defined one anywhere else. Where a park closure cuts an arterial in half, the
+wave now restarts from the surviving chain's own head instead of being measured from a map edge the
+platoon cannot reach — a wave cannot propagate across a road that isn't there. Measured across 12
+seeds: 33 junctions shift, mean 4.39s of a 16s cycle, every shift a whole multiple of one
+block-time (2.353s).
 
 Cycle length stays common across the city on purpose — a shared cycle is the *precondition* for
 coordination. Variety comes from splits and offsets, not from different cycle lengths.
@@ -39,16 +73,26 @@ coordination. Variety comes from splits and offsets, not from different cycle le
 ### Arterials
 
 Two roads per axis take a **64% green share** where they meet a side street, giving the map a
-fast/slow grain. `layout.js` picks them; `configureSignals()` hands them over.
+fast/slow grain. `layout.js` picks them and hands them to the network's bake.
 
 ### A signal-free ring road
 
 The outermost roads carry no lights except at the four corners. Traffic joining from inside yields
 into a gap (`RING_YIELD = 24` units of clear road).
 
-The ring needs its own gate inside `lightPhase` rather than a permanent green: a permanent green
-for the ring reads as a permanent *red* for everyone else, and inner traffic would queue at the
-perimeter forever.
+"Unsignalised" is now `node.signal === null` rather than `ringAxisAt(i, j)`, and the difference is
+not cosmetic. A junction the ring never touches can still end up with nothing to arbitrate — a
+closure can leave an interior junction with only a straight-through — and the grid, deciding from
+`(i, j)` alone, kept cycling a light there and held cars for a phase nobody could be in. Rare: one
+junction in 40 seeds. It has no stop bars now, because there is nothing to stop for.
+
+> Watch out: `phaseAt` returns **null** for an unsignalised node, where `lightPhase` returned an
+> axis with `remaining: Infinity`. Any port that swaps one for the other while keeping `ringAxisAt`
+> as the unsignalised test dereferences null at exactly those junctions — the grid says signalised,
+> the network says no signal. The two have to move together.
+
+Yielding is asked per **street** (`streetIsClear`) rather than per axis pair. `[0, 2]` / `[1, 3]`
+was the last place the sim assumed a junction is two axes with two approaches each.
 
 ### Results
 
@@ -78,6 +122,53 @@ in the middle of the green path it exists to create.
 
 `displayPhase(i, j, t)` is the same resolution with step 1 dropped — it's what the stop bars are
 drawn from, so the boosting taxi's hold never shows up on a lamp. See [Boost](#boost-crazy-taxi-mode).
+
+## Where a car is
+
+A car drives a **lane** — a directed half of one road, baked by
+[the road network](roadnet.md) — and `car.s` is its **arc length along that lane**, from 0 at the
+lane's start to `lane.length` at the junction boundary. There is no travel-direction sign to carry
+around: `s` counts forward whichever way the lane points, and the position on screen is
+`lane.path.at(s)`.
+
+That replaces `(i, j, d)` plus a world coordinate on the travel axis. `car.i`, `car.j` and `car.d`
+survive as a **view** of the lane, refreshed by `syncGrid` whenever the car changes lane, because
+`game/routeline.js`, `game/fares.js`, `sim/police.js` and the probe still speak grid. They go when
+those do.
+
+The reason for the change is that a world coordinate on an axis is not a thing a curve or a
+diagonal has, so the old representation could only ever describe a grid. Arc length is the property
+that generalises — see the note at the top of `city/curves.js`.
+
+### Car-following across a junction
+
+This is the one thing the old model got for free and the new one has to work for.
+
+`car.laneKey` used to be `"x|d|j"` — one **infinite** lane spanning the whole city — so a car saw
+the queue on the far side of a junction because that queue was in the same list. (It also saw cars
+three blocks away in the same row that it was about to turn away from, and queued behind them.)
+Per-edge lanes end that, so the forward view is walked instead:
+
+```js
+ahead(lane, s, range)   // vehicles ahead, carrying straight on through junctions, nearest first
+```
+
+"Straight on" is the faithful continuation rather than an approximation of one — the old row *was*
+the straight-through chain, and a car that turned off left the row and stopped being seen.
+
+`LOOKAHEAD = 26` is derived, not tuned. A car brakes toward `sqrt(2 · BRAKE · allowed)`, so a
+leader stops mattering once that exceeds the car's top speed: at boost (18.7 u/s) that is 15.9
+units of clear road, plus `BOOST_GAP`, so 20.4. Beyond that the leader cannot affect the physics
+whether or not the bookkeeping can see it. 26 leaves margin and still fits two lanes plus the
+junction between them.
+
+The same walk drives the Loco Mode scatter, which reaches `SCATTER_RANGE = 40` — two blocks.
+
+> Watch out: a distance short of a junction can land *inside a junction box*, which no lane
+> position can express. The infinite row could, and one probe scenario relied on it — staging a car
+> 18 units back on a 12-unit lane, and the boosting taxi 30 units back from a junction one block
+> from the map edge, i.e. 14 units off the western side of the city. `placeCar` and `approachRoom`
+> exist so a test asks for the room rather than assuming it.
 
 ## Car physics
 
@@ -114,8 +205,23 @@ still has to launch from standing when their green begins.
 `lightPhase` returns `remaining` in seconds alongside `axis` / `yellow` so this check can be
 made without recomputing the cycle. Corridor, priority, and ring branches return `Infinity`.
 
-**Turns** follow a quadratic Bézier through `entryPoint → turnControl → exitPoint`, with yaw
-interpolated by `lerpAngle` so a car never spins the long way round.
+**Turns** follow a quadratic Bézier through the inbound lane's end, the turn's control point and
+the outbound lane's start, with yaw interpolated by `lerpAngle` so a car never spins the long way
+round. All three come off `car.turn`, straight from the network: the control point is where the two
+lane tangents cross, which is `turnControl`'s rule with its "same axis falls back to the midpoint"
+special case revealed as just that intersection being parallel. One rule covers a right turn, a
+left, a straight-through and a sweep across a diagonal.
+
+The *traversal* is deliberately unchanged — `turnLen` is still the control-polygon length and the
+curve is still walked by Bézier parameter, not by arc length. Switching to the network's
+arc-length turn path would make cars cross junctions about 20% faster, which is arguably more
+correct but is a change to how the game plays, not to where the geometry comes from. Kept separate
+on purpose.
+
+`car.turn.hand` — `'straight'`, `'right'`, `'left'` — replaces comparing `dOut` against
+`rightOf(d)` / `leftOf(d)`. It is what the corner-speed rule, the body roll and the random turn
+weighting all read, and it is defined by the angle rather than by a lookup table, so a three-way
+junction with two distinct lefts off one approach weights them both.
 
 ### Front wheels
 

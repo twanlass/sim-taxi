@@ -1,5 +1,9 @@
 # The city
 
+> The grid described here is still what the shipped city is built from, but it is no longer the
+> only shape a city can be. `roadnet.js` generalises all of it — see [roadnet.md](roadnet.md) —
+> and reproduces this layout exactly, which is asserted rather than assumed.
+
 Everything geometric derives from `src/city/grid.js`. Nothing else is allowed to invent a road
 width or a lane offset — the layout stays consistent by construction rather than by three files
 happening to agree on the same magic number.

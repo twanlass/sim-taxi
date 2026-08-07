@@ -19,11 +19,17 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/energybits.js'];
 
 const TOOLS = [
+  // Runs first: it is the control on every later step. If the road network stops describing the
+  // same city as the grid, the traffic and routing numbers below stop meaning anything.
+  { name: 'roadnet', args: ['tools/roadnet.mjs'],      pick: /(\d+\/\d+) checks passed/ },
   { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },
   { name: 'routing', args: ['tools/taxi.mjs', '30'],   pick: /arrived (\S+)/ },
   // Nine seeds, not one. A single soak run is trip-length luck more than it is difficulty, so a
   // one-seed gate went red or green on which junction the spawner happened to pick.
   { name: 'fares',   args: ['tools/soak.mjs', '25', '4', '9'], pick: /delivered (\S+ median)/ },
+  // `info` means the number printed is a metric to watch, not a threshold to fail on. The tool
+  // still has to *run*: it used to be excused from its exit status entirely, which meant an import
+  // error printed `ok signals ?` and the suite stayed green with a whole tool dead.
   { name: 'signals', args: ['tools/signals.mjs'],      pick: /throughput\s+: (\S+)/, info: true },
 ];
 
@@ -61,7 +67,7 @@ for (const tool of TOOLS) {
   const run = spawnSync('node', tool.args, { encoding: 'utf8' });
   const out = `${run.stdout}${run.stderr}`;
   const summary = out.match(tool.pick)?.[1] ?? '?';
-  const ok = tool.info || run.status === 0;
+  const ok = run.status === 0;
   if (!ok) failed += 1;
 
   console.log(`${ok ? 'ok  ' : 'FAIL'}  ${tool.name.padEnd(8)} ${summary}`);

@@ -9,6 +9,8 @@ src/
 
   city/                 the world, generated once at startup
     grid.js             coordinate system, direction encoding, legal moves
+    curves.js           lines and arcs, arc-length parameterised — offset, trim, sample
+    roadnet.js          the road network: nodes/edges in, lanes/turns/signals/blocks out
     layout.js           decides what each block *is* (density, parks) before anything is built
     ground.js           roads, kerbs, block surfaces, crosswalks
     buildings.js        one merged mesh of blocky towers
@@ -16,12 +18,13 @@ src/
 
   sim/                  things that move on their own
     traffic.js          signals + car physics + the single routing branch. The largest file.
+                        Cars drive lanes off the road network; `car.s` is arc length along one.
     police.js           the priority-corridor car
     collisions.js       taxi-vs-car impact test, boost only — wrecks both cars
 
   game/                 the player's layer
     fares.js            fare state machine, spawning, scoring
-    route.js            directed Dijkstra with road-hierarchy weights
+    route.js            Dijkstra over the road network's lanes, road-hierarchy weights
     routeline.js        the route band painted down the taxi's lane
     pick.js             raycast click picking
     faremarker.js       the fare clock, as a physical object: kerb, flight, taxi

@@ -222,16 +222,37 @@ taking a trip. The day there is more than one, that stays the player's call.
 
 ## Routing
 
-`src/game/route.js` is Dijkstra over **directed** states `(i, j, d)` — 144 states, instant.
+`src/game/route.js` is Dijkstra over the road network's **lanes** — 120 of them at 5×5, instant.
 
-The node has to carry the approach direction because `legalExits` forbids U-turns. A plain
-`(i, j)` node would plan routes that flip direction on the spot, and the car could never execute
-them.
+A lane is a directed half of one road, so it says both which junction you are heading toward and
+how you got there. It has to say both, because `legalExits` forbids U-turns: a plain junction node
+would plan routes that flip direction on the spot, and the car could never execute them. This is
+the same state the router used to spell `(i, j, d)`; what changes is where the successors come
+from. They are now `lane.onward` — the turns the network baked at that junction — rather than
+`(d + 1) % 4` arithmetic. A three-way, a diagonal or a roundabout has legal moves that direction
+arithmetic cannot name; a lane's exits are whatever the geometry says they are.
+
+Two details are load-bearing and easy to lose:
+
+- **Exit order is straight, then right, then left.** Dijkstra here scans the open set and keeps
+  the first minimum it finds, so successor order decides which of two *equal-cost* routes the taxi
+  drives. The network fixes that order at bake (`HAND_ORDER` in `roadnet.js`) rather than leaving
+  it to the order edges happened to be created in.
+- **Cost is read off the lane** (`lane.klass`, `lane.withWave`), not recomputed from `(i, j, d)`.
+  An editor-drawn arterial has no line index to look either up by.
+
+`tools/roadnet.mjs` asserts the ported router returns the *same route* — not merely a route — as
+the grid router did, over all 5,184 `(start, heading, target)` triples on three seeds.
 
 `planOrigin(car)` handles the subtle case: **a car mid-turn has already committed its choice**, so
 planning from its current intersection produces a route whose first step is silently skipped and
 every later turn lands one intersection early. Planning starts from the intersection the taxi is
 *heading toward*, plus its current heading — the first point at which it can still make a choice.
+It finds that intersection by asking the network where the lane the turn is landing on ends.
+
+The route it hands back is still a list of grid directions, because `traffic.js` still stores
+`car.d` and drives `(i, j)` to `(i, j)`. That conversion (`laneDir`) is the one piece of `route.js`
+that only works while the city is a grid, and it comes out when the sim drives lanes directly.
 
 ### Road-hierarchy weights
 
