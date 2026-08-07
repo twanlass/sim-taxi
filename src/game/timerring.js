@@ -5,7 +5,7 @@ import { urgencyColorFor } from './urgency.js';
 // The fare's clock, as a physical object.
 //
 // It belongs to the *fare*, not to a marker. While the rider is on the kerb their deadline is the
-// urgency bar on the meter over their head; the instant they board, this ring is placed on that
+// colour of the diamond over their head; the instant they board, this ring is placed on that
 // same corner and flies to the taxi, so the hand-off reads as the clock following them into the
 // car. It does not restart at pickup — one deadline covers spawn all the way to drop-off, which is
 // where the difficulty of the game lives.
@@ -58,8 +58,8 @@ const TRACK = new THREE.Color('#404952');
 // Colour comes from the shared urgency model, not from a ramp of this ring's own.
 //
 // It used to keep its own four bands here. That was fine while the ring was the only clock, but the
-// meter over a waiting rider now shows the same deadline as a count of lit segments — a rider on
-// two orange segments whose ring turns yellow the moment they board is two answers to one question.
+// diamond over a waiting rider now shows the same deadline as a colour — a rider glowing orange
+// whose ring turns yellow the moment they board is two answers to one question.
 // One scale, three surfaces: see game/urgency.js.
 export const fareStageColour = urgencyColorFor;
 const colourFor = urgencyColorFor;

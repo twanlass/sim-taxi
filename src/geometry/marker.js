@@ -1,11 +1,14 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import { ROUTE_OPACITY } from '../game/routeline.js';
+import { createDiamond, bounceOffset } from './diamond.js';
 
 // Pickup and drop-off markers.
 //
 // A marker is two pieces with different jobs:
-//   - a head floating over the pavement corner, for silhouette.
+//   - a head floating over the pavement corner, for silhouette. It is the shared geodesic diamond
+//     from geometry/diamond.js — the same model the waiting rider floats one of, in a colour that
+//     says which end of the job this is.
 //   - a flat ring on the kerb below it, so the head and its "here" ring read as one object rather
 //     than a crystal with a stray circle drawn on the road beneath it.
 //
@@ -19,28 +22,6 @@ import { ROUTE_OPACITY } from '../game/routeline.js';
 
 const HEAD_Y = 9.6;
 
-// The head hops around its rest height. `Math.abs(sin)` never dips below it, so the marker only
-// ever floats *up* from the height the ring below it implies.
-const BOUNCE_HEIGHT = 0.45;
-const BOUNCE_RATE = 3.4;
-
-/**
- * A black outline, drawn as an inverted hull: the same shape a little larger, with only its back
- * faces rendered. The enlarged back faces sit behind the real surface everywhere except around
- * the silhouette, which is exactly where the rim shows.
- *
- * Cheaper than a post-processing edge pass, and it needs no render targets — this is one small
- * object, not a whole-scene effect.
- */
-function outlineHull(geometry, scale) {
-  const mesh = new THREE.Mesh(
-    geometry,
-    new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide }),
-  );
-  mesh.scale.copy(scale);
-  return mesh;
-}
-
 const RING_R = 3.5;
 const RING_TUBE = 0.16;
 
@@ -48,9 +29,10 @@ const RING_TUBE = 0.16;
  * A static target ring with its circle filled in. The countdown itself lives in game/timerring.js
  * and travels with the fare, so this only has to say "here" — it never drains.
  *
- * The fill is at the route band's own opacity (see game/routeline.js): the band on the road and the
- * disc at the end of it are one statement in two places, and at different weights one of them reads
- * as the louder half of it. Depth-tested like the band for the same reason — a car crossing the
+ * The fill is at the route band's own opacity (see game/routeline.js). The two are no longer the
+ * same colour — the band is the taxi's yellow and the disc is the pin's teal — but they still meet
+ * on the same tarmac, and a disc at a heavier weight than the band running into it reads as the
+ * louder half of one mark. Depth-tested like the band for the same reason — a car crossing the
  * junction should drive *over* the disc rather than the disc painting across the car.
  *
  * Being translucent puts the disc in three's transparent queue, which draws after every opaque
@@ -97,8 +79,7 @@ function marker(bodyColor, kind, buildStanding, ringColor = null) {
   // The waiting rider gets no ring of its own — the fare's travelling timer sits under them.
   // The destination's ring lives on postGroup so it follows the pole to the kerb corner instead
   // of being stranded at the junction centre. Its own colour rather than the pin's: the disc is
-  // road paint, a lightened version of whatever the pin above it is wearing — and once the pin is
-  // selected, exactly the paint the route band running into it is drawn in.
+  // road paint, a lightened version of whatever the pin above it is wearing.
   const ring = ringColor ? targetRing(ringColor) : null;
   if (ring) postGroup.add(ring.group);
 
@@ -109,35 +90,23 @@ function marker(bodyColor, kind, buildStanding, ringColor = null) {
     postGroup.add(standing.group);
   }
 
-  // Octahedron: reads clearly from straight above, unlike a sphere, and matches the crystal
-  // vocabulary already used elsewhere in these prototypes.
-  const head = new THREE.Mesh(
-    new THREE.OctahedronGeometry(1.9, 0),
-    new THREE.MeshLambertMaterial({
-      color: new THREE.Color(bodyColor),
-      emissive: new THREE.Color(bodyColor),
-      emissiveIntensity: 0.35,
-      flatShading: true,
-    }),
-  );
+  // The shared geodesic diamond — the same model the waiting rider floats one of, in a different
+  // colour. See geometry/diamond.js.
+  const head = createDiamond(bodyColor).mesh;
   const headBaseY = HEAD_Y;
   head.position.y = headBaseY;
-  head.castShadow = true;
   head.visible = !buildStanding;
   postGroup.add(head);
 
-  // Child of the head, so it inherits the bounce for free.
-  head.add(outlineHull(head.geometry, new THREE.Vector3(1.12, 1.12, 1.12)));
-
   head.userData.pickable = kind;
 
-  // `Math.abs(sin)` rather than a plain sine: it never dips below the rest position, and the
-  // sharp cusp at the bottom of each cycle reads as a landing instead of a float.
+  // The head hops around its rest height, never dipping below it, so the marker only ever floats
+  // *up* from the height the ring below it implies.
   let bounce = 0;
   function update(dt) {
     if (!group.visible || !head.visible) return;
     bounce += dt;
-    head.position.y = headBaseY + Math.abs(Math.sin(bounce * BOUNCE_RATE)) * BOUNCE_HEIGHT;
+    head.position.y = headBaseY + bounceOffset(bounce);
   }
 
   // Oversized invisible hit volume spanning head and ring — at full zoom-out the visible geometry
@@ -168,13 +137,18 @@ export const createPassengerPin = (buildStanding) =>
   marker(PALETTE.passenger, 'passenger', buildStanding);
 
 /**
- * The drop-off pin: the taxi's yellow, fixed at build time.
+ * The drop-off pin: one neutral teal, fixed at build time.
  *
- * It briefly changed colour when the player tapped it — teal while the taxi was parked at the kerb
- * asking where to go, yellow once told. The taxi dispatches itself at pickup now, so a drop-off is
- * an instruction from the frame it appears and there is no unanswered state left to draw. The ring
- * on the tarmac is `routeLine`, the same paint as the band running into it, so the band and the
- * disc it lands in read as one mark.
+ * Neutral is the job. The diamond over a waiting rider is urgency-coloured — it has something to
+ * say and says it in green through red — and the drop-off does not: it is simply the place the
+ * taxi is already driving to, with no clock of its own and nothing to be told apart from. A colour
+ * that carries no state should not borrow one that does, which is what the taxi's yellow was
+ * doing here.
+ *
+ * The disc on the tarmac is the same teal lightened, road-paint weight. It used to be `routeLine`,
+ * so the yellow band and the disc it landed in were one mark; the band is still the taxi's yellow
+ * and the pin is not, so the disc now belongs to the pin standing in it rather than to the band
+ * running up to it.
  */
 export const createDestinationPin = () =>
-  marker(PALETTE.destination, 'destination', null, PALETTE.routeLine);
+  marker(PALETTE.destination, 'destination', null, PALETTE.destinationRing);

@@ -3,14 +3,13 @@ import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
 import { createPerson } from '../geometry/person.js';
 import { createTimerRing } from './timerring.js';
-import { createRiderMeter } from '../geometry/ridermeter.js';
+import { createRiderDiamond } from '../geometry/riderdiamond.js';
 import { urgencyLevel, URGENCY_SEGMENTS } from './urgency.js';
-import { distanceTier } from './triptier.js';
 import { PALETTE } from '../palette.js';
 
-// The fare loop: a passenger waits at an intersection under a meter saying how long they'll wait
-// and how far they're going, the taxi collects them, a drop-off pin appears, the taxi delivers.
-// Any fare's timer running out ends the run.
+// The fare loop: a passenger waits at an intersection under a diamond coloured by how long they'll
+// keep waiting, the taxi collects them, a drop-off pin appears, the taxi delivers. Any fare's timer
+// running out ends the run.
 //
 // Each fare is its own little state machine (`waiting → riding → gone`) carrying its own clock,
 // pins and ring, and up to MAX_FARES of them run at once.
@@ -26,8 +25,11 @@ export const FARE_SECONDS = 60;
  * drop-off intersections. Real taxis charge a flag drop plus a per-mile meter, and a flat rate
  * made every rider worth the same regardless of the effort — a corner-to-corner haul paid the same
  * as a one-block hop right next door. The base survives the tiniest trip (a 1-block ride still
- * pays enough to be worth taking), and the per-block slope makes the choice of *which* fare to
- * grab into an economic decision as well as a timing one.
+ * pays enough to be worth taking), and the per-block slope pays a long haul for the clock it eats.
+ *
+ * The player no longer sees the length before choosing: the distance bar that used to advertise it
+ * went with the meter, so the kerb offers a clock and a place, and what the trip turns out to be
+ * worth is settled on delivery.
  *
  * Calibrated so a median-length trip (~5 blocks) pays $20 — the old flat rate — which keeps the
  * soak suite's earnings roughly where they were. Range: $8 (1 block) → $35 (10 blocks, the
@@ -150,20 +152,19 @@ export const intersectionCentre = (i, j) => ({ x: lineCoord(i), z: lineCoord(j) 
 function createSlot(scene, index) {
   const passenger = createPassengerPin(createPerson);
   const destination = createDestinationPin();
-  // One clock for the whole fare, in two bodies: the meter's urgency bar while the rider is on the
-  // kerb, then this ring once they're aboard. It does not restart at the hand-off.
+  // One clock for the whole fare, in two bodies: the colour of the rider's diamond while they are
+  // on the kerb, then this ring once they're aboard. It does not restart at the hand-off.
   const timer = createTimerRing(scene);
 
-  // Urgency and trip distance, floating over the waiting rider. Hangs off the marker's standing group
-  // so it follows the same kerb placement — but it keeps its own `visible` flag, which is what
-  // stops it reappearing over the delivered rider when beginExit un-hides the passenger group at
-  // the far end of the trip.
+  // Urgency, floating over the waiting rider. Hangs off the marker's standing group so it follows
+  // the same kerb placement — but it keeps its own `visible` flag, which is what stops it
+  // reappearing over the delivered rider when beginExit un-hides the passenger group at the far
+  // end of the trip.
   //
-  // This is also what used to be a shaft of light: at play zoom the meter is a bright ~67 x 27px
-  // block over the rider's head, which marks them at range better than the shaft did *and* says
-  // something while doing it.
-  const meter = createRiderMeter();
-  passenger.postGroup.add(meter.group);
+  // The bounce is staggered by slot so two riders on the board don't pulse in lockstep. A fixed
+  // offset rather than a random one, because sim time drives it and shots have to reproduce.
+  const diamond = createRiderDiamond(index * 0.31);
+  passenger.postGroup.add(diamond.group);
 
   // Stamped on the roots so a click can be traced back to the fare that owns what was hit. The
   // picker already walks up parents looking for `pickable`; this rides along the same walk.
@@ -175,7 +176,7 @@ function createSlot(scene, index) {
   scene.add(passenger.group);
   scene.add(destination.group);
 
-  return { index, passenger, destination, timer, meter };
+  return { index, passenger, destination, timer, diamond };
 }
 
 export function createFareSystem(rng, scene) {
@@ -321,11 +322,11 @@ export function createFareSystem(rng, scene) {
     // stream, so swapping them reshuffles every intersection a seed produces and the headless
     // baselines stop describing the same run.
     //
-    // The trip is *decided* here even though its far end stays hidden until pickup: the meter's
-    // distance bar needs the length, and the price is fixed from it. What the player gets up front
-    // is how far, not where. The unbiased draw is deliberate — the *pickup* is biased toward where
-    // the taxi can reach (see spawnBias), but a drop-off next door to every other drop-off would
-    // flatten the trip lengths the distance bar exists to tell apart.
+    // The trip is *decided* here even though its far end stays hidden until pickup: the price is
+    // fixed from its length, so both ends have to be known now. What the player gets up front is
+    // the clock, and nothing about where. The unbiased draw is deliberate — the *pickup* is biased
+    // toward where the taxi can reach (see spawnBias), but a drop-off next door to every other
+    // drop-off would flatten the trip lengths the fares are priced off.
     fare.dropoff = pickIntersection(taxiCar);
     fare.color = nextFareColor();
     fare.blocks = blockDistance(spot, fare.dropoff);
@@ -340,15 +341,14 @@ export function createFareSystem(rng, scene) {
     // would fix it on the next tick, but there is one frame between spawn and first wave.
     slot.passenger.standing?.rest?.();
 
-    // Where they're going stays theirs until they're in the car. The meter says how far, which is
-    // the whole of the "is this worth taking?" decision; a pin on the far kerb as well turned the
-    // board into three riders and three destinations to read at once.
+    // Where they're going stays theirs until they're in the car — a pin on the far kerb as well
+    // turned the board into three riders and three destinations to read at once.
     slot.destination.group.visible = false;
-    // Full urgency and the trip's tier. The clock has not started draining yet this frame, so the
-    // bar opens at 4/4 by construction rather than by rounding.
-    slot.meter.show(URGENCY_SEGMENTS, distanceTier(fare.blocks));
+    // Full urgency: the clock has not started draining yet this frame, so the diamond opens on the
+    // top level by construction rather than by rounding.
+    slot.diamond.show(URGENCY_SEGMENTS);
 
-    // No ring on the kerb: while the rider waits their clock is the meter's urgency bar. The ring
+    // No ring on the kerb: while the rider waits their clock is the diamond's colour. The ring
     // is placed and launched at pickup, from this same corner, so the hand-off still reads as the
     // clock leaving the rider and chasing the taxi.
     return fare;
@@ -360,7 +360,7 @@ export function createFareSystem(rng, scene) {
    * Every rider drains at the same rate today — one flat `fareSeconds` for all of them — so this is
    * just the clock. It exists as its own function because that is the seam: a patience mechanic
    * where some riders are pricklier than others changes what goes in here, and nothing downstream
-   * of it. The meter, the ring and the finder chips already speak in levels, not seconds.
+   * of it. The diamond, the ring and the finder chips already speak in levels, not seconds.
    */
   const urgencyOf = (fare) => Math.max(0, Math.min(1, fare.timeLeft / fare.limit));
 
@@ -391,12 +391,12 @@ export function createFareSystem(rng, scene) {
     // so there is only ever one drop-off on the board and nothing to tell it apart from. The fare's
     // own colour lives on the taxi's roof sign now.
     place(fare.slot.destination, fare.dropoff.i, fare.dropoff.j);
-    // The meter has done its job the moment the choice is made. Both its questions are answered:
-    // this rider is taken, and where they're going is now the pin the taxi is driving at.
-    fare.slot.meter.hide();
+    // The rider's diamond has done its job the moment they are in the car: what it was reporting
+    // — how long this one will keep waiting — has stopped being a question.
+    fare.slot.diamond.hide();
     // The rider is aboard, so the deadline is the car's problem now. The ring picks the clock up
-    // from the kerb the meter was standing over and chases the taxi with it, drawing over the city
-    // so the timer never gets lost behind a building.
+    // from the kerb the diamond was floating over and chases the taxi with it, drawing over the
+    // city so the timer never gets lost behind a building.
     fare.slot.timer.placeAt(fare.boardingFrom.x, fare.boardingFrom.z);
     fare.slot.timer.beginTransfer();
   }
@@ -404,7 +404,7 @@ export function createFareSystem(rng, scene) {
   function clear(fare) {
     fare.slot.passenger.group.visible = false;
     fare.slot.destination.group.visible = false;
-    fare.slot.meter.hide();
+    fare.slot.diamond.hide();
     fare.slot.timer.hide();
     const at = state.fares.indexOf(fare);
     if (at !== -1) state.fares.splice(at, 1);
@@ -424,8 +424,8 @@ export function createFareSystem(rng, scene) {
     slot.passenger.group.visible = true;
     slot.destination.group.visible = false;
     // Already hidden at pickup, but the passenger group it hangs off is being un-hidden right
-    // here — belt and braces so a delivered rider never walks away still wearing a meter.
-    slot.meter.hide();
+    // here — belt and braces so a delivered rider never walks away still wearing a diamond.
+    slot.diamond.hide();
     slot.timer.hide();
     exits.push({
       slot,
@@ -530,7 +530,7 @@ export function createFareSystem(rng, scene) {
     state.elapsed += dt;
 
     for (const fare of live) {
-      const { passenger, destination, timer, meter } = fare.slot;
+      const { passenger, destination, timer, diamond } = fare.slot;
 
       // Wave the waiting rider. Driven off sim time so it stays deterministic for screenshots.
       if (fare.stage === 'waiting' && passenger.standing) passenger.standing.wave(state.elapsed);
@@ -557,15 +557,16 @@ export function createFareSystem(rng, scene) {
 
       fare.timeLeft -= dt;
 
-      // One clock, two bodies. On the kerb it's the meter's urgency bar; once the rider is aboard
+      // One clock, two bodies. On the kerb it's the colour of the rider's diamond; once aboard
       // it's the ring following the taxi. The hand-off happens at pickup and the seconds never
       // reset across it — see beginRide.
       if (fare.stage === 'waiting') {
-        meter.setUrgency(urgencyLevel(urgencyOf(fare)));
+        diamond.setUrgency(urgencyLevel(urgencyOf(fare)));
+        diamond.update(state.elapsed);
         // Reconciled every frame on top of the push in markDirected: `directed` is also *cleared*
         // from elsewhere (the hand-off at pickup, a fare that changes target), and one place that
         // reflects the flag cannot drift from it the way a set of push sites would.
-        meter.setSelected(fare.directed);
+        diamond.setSelected(fare.directed);
       } else {
         // The taxi rides on the road, not the kerb.
         timer.update(dt, { x: taxiCar.x, z: taxiCar.z, y: 0.09 },
@@ -595,10 +596,9 @@ export function createFareSystem(rng, scene) {
         beginRide(fare);
         emit('pickup', fare);
       } else {
-        // Priced at spawn by the trip's block distance, so longer hauls pay more — and the block
-        // count over the rider's head was that same number, so the player already knew what this
-        // was worth when they chose it. The clock still supplies the *time* pressure; the meter is
-        // what makes "which fare should I grab?" an economic decision rather than a coin flip.
+        // Priced at spawn by the trip's block distance, so longer hauls pay more. The player does
+        // not see the length before choosing — what the kerb offers is a clock, and the payout is
+        // the trip's own business — so "which fare should I grab?" is a timing decision.
         state.money += fare.value;
         state.delivered += 1;
         // Pull the fare out of the puzzle immediately — the board is free to refill — while
@@ -627,10 +627,10 @@ export function createFareSystem(rng, scene) {
     // Pushed here as well as reconciled per frame, so the ring lands on the same frame as the route
     // band rather than a tick later. It also means a caller that directs a fare without running the
     // sim afterwards — shot mode does exactly that — still renders the state it just set. Only a
-    // rider on the kerb has a surface for it: the ring around their meter says which of two waiting
-    // riders the taxi is on its way to. A fare aboard needs none — its drop-off is dispatched at
+    // rider on the kerb has a surface for it: the yellow rim on their diamond says which of two
+    // waiting riders the taxi is on its way to. A fare aboard needs none — its drop-off is dispatched at
     // pickup, so there is no undirected state to tell apart.
-    if (fare.stage === 'waiting') fare.slot.meter.setSelected(true);
+    if (fare.stage === 'waiting') fare.slot.diamond.setSelected(true);
     return true;
   }
 

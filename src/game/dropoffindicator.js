@@ -33,7 +33,7 @@ export function createDropoffIndicator({ camera, pinLocation }) {
   setVisible(false);
 
   function update(fare) {
-    // No pointer for a waiting rider: their meter and their finder chip already handle that job.
+    // No pointer for a waiting rider: their diamond and their finder chip already handle that job.
     if (!fare || fare.stage !== 'riding') {
       setVisible(false);
       return;
