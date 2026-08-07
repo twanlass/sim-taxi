@@ -11,21 +11,38 @@
 export const BOOST_DURATION = 15;
 export const BOOST_RECHARGE = 15;
 
+// Releasing used to drop straight back to 'ready' and take every boost-only rule (collision,
+// police bust range, running reds) with it in the same frame — you could floor it at a cop or a
+// bumper and bail out a frame before impact with zero risk. This is the window that closes
+// instead: the taxi keeps behaving like it's boosting for one more second, so letting go mid-risk
+// is a real decision rather than a free undo. See `isEngaged` for what stays active through it,
+// and `isActive` for what doesn't (the taxi's actual speed cap eases back over the same second —
+// see `fullPower` in traffic.js).
+export const BOOST_COOLDOWN = 1;
+
 // Idle trickle when the button isn't held and the tank is partial. 1/5 of the empty-recharge
 // rate — a full tank from idle takes 75s, so the fast recharge (15s from empty) is still the
 // right move if you want to top up quickly; this just keeps a half-spent meter from sitting
 // there forever after a couple of short taps.
 const SLOW_REGEN_FACTOR = 0.2;
 
-export function createBoost(duration = BOOST_DURATION, recharge = BOOST_RECHARGE) {
+export function createBoost(duration = BOOST_DURATION, recharge = BOOST_RECHARGE, cooldown = BOOST_COOLDOWN) {
   // Starts full and ready — the player can hold Loco Mode from the very first frame. Trades the
   // "learn the loop before you get the toy" pacing for immediate access to the crazy-taxi feel.
   const state = {
-    mode: 'ready',        // 'ready' | 'active' | 'recharging'
+    mode: 'ready',        // 'ready' | 'active' | 'cooldown' | 'recharging'
     fuel: duration,       // seconds of boost still in the tank, 0..duration
     held: false,          // is the button currently pressed?
     pending: 0,           // fuel queued by top-ups, poured in over ~0.4s so the bar animates
+    cooldownLeft: 0,      // seconds still owed on the post-release momentum window
   };
+
+  // Leaving 'active' for any reason — letting go or running the tank dry — passes through here
+  // first instead of landing straight on 'ready'/'recharging'.
+  function enterCooldown() {
+    state.mode = 'cooldown';
+    state.cooldownLeft = cooldown;
+  }
 
   // Half a tank per second. A 15% top-up lands in ~0.3s, slow enough to read as *filling* rather
   // than snapping, fast enough that it's obviously connected to the drop-off that triggered it.
@@ -35,21 +52,30 @@ export function createBoost(duration = BOOST_DURATION, recharge = BOOST_RECHARGE
     state,
     isActive: () => state.mode === 'active',
     isReady: () => state.mode === 'ready',
+    isCoolingDown: () => state.mode === 'cooldown',
+    // What the taxi's boost-only rules (collision, police bust range, running reds) key off —
+    // true for the hold itself and for the one-second tail after it, false the moment that tail
+    // runs out.
+    isEngaged: () => state.mode === 'active' || state.mode === 'cooldown',
 
     /** Player started holding the button. Idempotent — safe to call every pointerdown. */
     press() {
       state.held = true;
-      if (state.mode === 'ready' && state.fuel > 0) {
+      // A re-press mid-cooldown catches the car before the window closes and snaps it straight
+      // back to full send — same transition-into-boost feel (wheelie, flame, kick) as a fresh
+      // press, just without having let it fully coast back down first.
+      if ((state.mode === 'ready' || state.mode === 'cooldown') && state.fuel > 0) {
         state.mode = 'active';
+        state.cooldownLeft = 0;
         return true;
       }
       return false;
     },
 
-    /** Player let go. Idempotent. Only pauses; recharge waits until the tank hits empty. */
+    /** Player let go. Idempotent. Starts the cooldown; recharge waits until the tank hits empty. */
     release() {
       state.held = false;
-      if (state.mode === 'active') state.mode = 'ready';
+      if (state.mode === 'active') enterCooldown();
     },
 
     /**
@@ -70,6 +96,16 @@ export function createBoost(duration = BOOST_DURATION, recharge = BOOST_RECHARGE
         state.fuel += dt * (duration / recharge);
       } else if (state.mode === 'ready' && state.fuel < duration) {
         state.fuel += dt * (duration / recharge) * SLOW_REGEN_FACTOR;
+      } else if (state.mode === 'cooldown') {
+        // Frozen, same as a plain release used to leave it — the tank neither drains nor
+        // trickles until the momentum window has run out.
+        state.cooldownLeft -= dt;
+        if (state.cooldownLeft <= 0) {
+          state.cooldownLeft = 0;
+          if (state.fuel <= 0) state.mode = 'recharging';
+          else if (state.held) state.mode = 'active'; // re-pressed and still owed fuel
+          else state.mode = 'ready';
+        }
       }
 
       // Bonus fuel pours in on top of whatever the mode is doing, so a top-up mid-drain slows the
@@ -83,7 +119,9 @@ export function createBoost(duration = BOOST_DURATION, recharge = BOOST_RECHARGE
       // One clamp point covers all three sources of change (drain, refill, top-up).
       if (state.fuel <= 0) {
         state.fuel = 0;
-        if (state.mode === 'active') state.mode = 'recharging';
+        // Running the tank dry gets the same momentum tail as letting go on purpose — the taxi
+        // was still at full tilt the frame the fuel ran out, so it still deserves the coast-down.
+        if (state.mode === 'active') enterCooldown();
       } else if (state.fuel >= duration) {
         state.fuel = duration;
         if (state.mode === 'recharging') {
