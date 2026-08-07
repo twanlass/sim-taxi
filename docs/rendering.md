@@ -69,6 +69,40 @@ and a camera that answers all of it slides the map every time you pick a fare. I
 `didPan()` so the picker can swallow the click that closes out a drag, and it clamps the target to
 `HALF_SPAN`, so the map can never be pushed off screen with nothing left to steer back by.
 
+### The rider pan
+
+A tap on a rider-finder chip takes the camera to that rider — narrow viewports only, same rule as
+everything else here. It **pans rather than cutting**, and it is a different curve from either
+follow above: `controller.glideTo(x, z)` starts a one-shot tween, `updateGlide(dt)` steps it from
+the frame loop, and it retires itself on its own clock.
+
+A cut costs the player the one thing the fixed camera was chosen to give them. With the whole city
+no longer in frame, a teleport leaves them re-reading a screen of near-identical blocks to work out
+which way the map moved and whether the rider now under the chip is the one they tapped. Riding the
+move across keeps the city continuous.
+
+**A tween, not the exponential ease the follows use.** `1 - exp(-dt * rate)` leaves at its highest
+speed on the very first frame — right when you are closing a gap that keeps reopening, and most of
+the way to a snap when you start from a dead stop. The easing is **smootherstep**
+(`k³(6k² − 15k + 10)`), which zeroes acceleration as well as velocity at both ends; plain smoothstep
+still shows its start as a flick over a move this short.
+
+Duration is **distance / `GLIDE_SPEED` = 150 u/s, clamped to 0.32–0.75s** — so a hop to the next
+block and a cross-town pan both travel at a legible speed, without a short pan degenerating back
+into a snap or a long one leaving the player watching the camera with a clock draining. The clamp
+ceiling binds past 112 units; the city's full diagonal is 141.
+
+It sits at the **bottom of the camera priority list** — wreck focus, then the two follows, then this
+— and it is *dropped*, not paused, by anything above it: `followXZ` and `focusOn` both clear it, as
+does `panBy`, so a finger on the map wins on the frame it lands rather than fighting a tween that is
+still writing the target. The tap that starts a pan also takes the camera over, so the opening
+follow is out of the way for the whole flight. The **dispatch doesn't wait for the pan** — the fare's
+clock is draining, so the taxi leaves on the tap.
+
+`tools/probe.mjs` asserts the ease-in (first frame moves far less than a linear step), the exact
+arrival and self-retirement, the distance-scaled duration and both clamps, and that a drag mid-pan
+kills it.
+
 The `VIEW_DIR` diagonal has consequences elsewhere: screen-up is world `(-1, 0, -1)`, which is why
 riders are placed on the `-X-Z` kerb of a junction — the block on the `+X+Z` side sits between the
 camera and anything standing on it. It is also what set the timer ring's sweep start at `-3π/4` for
@@ -508,7 +542,8 @@ drew over everything, and an inverted-hull crystal cannot: with the depth test o
 paints its own back faces over its front ones. So a fare behind a tower is hidden with the tower, on
 the kerb and in the car alike. On the kerb the
 [rider-finder chips](gameplay.md#extra-fares-and-prioritisation) cover it — every waiting rider has
-a chip with their own countdown and a tap that snaps the camera onto them. In the car nothing does;
+a chip with their own countdown and a tap that [pans the camera onto them](#the-rider-pan). In the
+car nothing does;
 the taxi's ghost outline says where the car is, but not how long is left.
 
 The crystal and its hull both have `raycast` stubbed out. The rider's marker and the taxi both carry

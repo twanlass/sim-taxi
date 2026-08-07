@@ -360,17 +360,22 @@ createPicker(
 );
 
 // Camera shortcut: frame the waiting rider on demand. At play zoom on a phone the rider is a
-// handful of pixels somewhere on a map that no longer fits in one screen, so snapping the camera
-// onto them is faster than hunting for their diamond by hand. Narrow viewports only — see
-// selectRider.
-function snapToRider(fare) {
+// handful of pixels somewhere on a map that no longer fits in one screen, so taking the camera to
+// them is faster than hunting for their diamond by hand. Narrow viewports only — see selectRider.
+//
+// It *pans* rather than cutting. A cut costs the player the one thing the fixed camera was chosen
+// to give them: with the whole city no longer in frame, a teleport leaves them re-reading a screen
+// of near-identical blocks to work out which way the map just moved, and whether the rider now
+// under the chip is the one they tapped. Riding the move across keeps the city continuous, so they
+// arrive already knowing where they are and where the taxi was left behind.
+function panToRider(fare) {
   if (!fare) return;
   const c = cornerFor(fare.target.i, fare.target.j);
-  controller.state.target.set(c.x, 0, c.z);
-  controller.update(aspect());
+  controller.glideTo(c.x, c.z);
   // Same as a swipe: the player has aimed the camera somewhere deliberately, so the opening
   // follow-cam stops. Without this the taxi would tow the framing straight back off the rider the
-  // chip was pointing at.
+  // chip was pointing at — and here it would do it *during* the pan, which reads as the camera
+  // losing its nerve halfway.
   releaseCameraToPlayer();
 }
 
@@ -388,11 +393,14 @@ function dispatchToRider(fare) {
 
 // One tap on a chip picks that rider. The camera only follows on a narrow viewport, where the
 // rider may well be off-screen and framing them is the other half of the job; on a desktop the
-// whole city is already in frame, so a snap would shove the map out from under a player who can
+// whole city is already in frame, so a pan would shove the map out from under a player who can
 // see the rider fine — same reason drag-to-pan and the follow-cams are narrow-only.
+//
+// The dispatch does not wait for the pan to land: the fare's clock is draining, and a camera move
+// that delayed the taxi leaving would be charging the player for the convenience.
 function selectRider(fare) {
   if (!fare) return;
-  if (isNarrow()) snapToRider(fare);
+  if (isNarrow()) panToRider(fare);
   dispatchToRider(fare);
 }
 
@@ -866,6 +874,13 @@ function frame() {
   } else if ((boosting || !cameraTakenOver) && !fares.state.gameOver && isNarrow()) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt,
       boosting ? BOOST_FOLLOW_SMOOTHING : START_FOLLOW_SMOOTHING, aspect());
+  } else {
+    // Bottom of the same priority list: a rider-finder chip's pan (see panToRider). It only ever
+    // gets here because the tap that started it also took the camera over, so the opening follow
+    // is already out of the way; a wreck or a boost landing mid-pan drops it — both `focusOn` and
+    // `followXZ` cancel it — rather than resuming a move the player has stopped caring about.
+    // A no-op when nothing is panning, which is every frame on a desktop.
+    controller.updateGlide(dt, aspect());
   }
 
   // More than one thing can land in a frame now — delivering the last fare clears the board and

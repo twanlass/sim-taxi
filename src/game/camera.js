@@ -15,6 +15,25 @@ const DISTANCE = 400;
 const RIGHT = new THREE.Vector3(1, 0, -1).normalize();
 const UP = new THREE.Vector3(-1, 0, -1).normalize();
 
+// A one-shot pan to a point that isn't moving — a tap on a rider-finder chip — as opposed to the
+// two follow-cams, which chase a car. Different problem, different curve. Exponential smoothing has
+// no ease *in*: it leaves at its highest speed on the very first frame, which is right when you are
+// closing a gap that keeps reopening, and reads as most of a snap when you start from a dead stop.
+//
+// Duration is driven by distance so a hop to the next block and a cross-town pan both travel at a
+// legible speed, clamped at both ends: under the floor a short pan is a snap again, and over the
+// ceiling the player is watching the camera travel with a fare's clock draining.
+const GLIDE_SPEED = 150;        // world units per second, averaged over the move
+const GLIDE_MIN_TIME = 0.32;
+const GLIDE_MAX_TIME = 0.75;
+// Below this the camera is already there and a tween would only add a frame of nothing.
+const GLIDE_EPSILON = 0.05;
+
+// Smootherstep. Zero *velocity* and zero *acceleration* at both ends, where plain smoothstep only
+// zeroes velocity — with a move this short the kink at the start of a smoothstep is still visible
+// as a flick, and the whole point of the pan is that the eye can ride it all the way across.
+const smootherstep = (k) => k * k * k * (k * (k * 6 - 15) + 10);
+
 export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 1400);
   const state = {
@@ -24,6 +43,10 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
     // ±this on each axis before lookAt. Decayed each frame from main.js via updateShake().
     shake: 0,
   };
+
+  // In-flight glide, or null when idle. Held here rather than on `state` because nothing outside
+  // reads it — the getters below are the whole interface.
+  let glide = null;
 
   function apply(aspectRatio) {
     const halfH = state.zoom;
@@ -77,6 +100,7 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
      * chase without any rubber-band back.
      */
     followXZ(x, z, dt, smoothing = 3.2, aspectRatio) {
+      glide = null;             // a chase outranks a pan; see cancelGlide
       const t = 1 - Math.exp(-dt * smoothing);
       state.target.x += (x - state.target.x) * t;
       state.target.z += (z - state.target.z) * t;
@@ -90,11 +114,54 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
      * caller can just keep calling it every frame and know they'll converge in step.
      */
     focusOn(x, z, targetZoom, dt, aspectRatio, smoothing = 2.4) {
+      glide = null;             // as followXZ: whoever is easing the camera now owns it
       const t = 1 - Math.exp(-dt * smoothing);
       state.target.x += (x - state.target.x) * t;
       state.target.z += (z - state.target.z) * t;
       state.zoom += (targetZoom - state.zoom) * t;
       apply(aspectRatio);
+    },
+    /**
+     * Start an eased pan to `(x, z)` — see GLIDE_SPEED above for why this is a fixed-duration
+     * tween rather than the exponential ease the follows use. The start point is wherever the
+     * camera is *now*, so a second call mid-flight redirects from there rather than snapping back
+     * to the first call's origin — and its duration comes from that shorter remaining distance.
+     */
+    glideTo(x, z) {
+      const toX = THREE.MathUtils.clamp(x, -HALF_SPAN, HALF_SPAN);
+      const toZ = THREE.MathUtils.clamp(z, -HALF_SPAN, HALF_SPAN);
+      const fromX = state.target.x;
+      const fromZ = state.target.z;
+      const dist = Math.hypot(toX - fromX, toZ - fromZ);
+      if (dist < GLIDE_EPSILON) { glide = null; return; }
+      glide = {
+        fromX, fromZ, toX, toZ, t: 0,
+        dur: THREE.MathUtils.clamp(dist / GLIDE_SPEED, GLIDE_MIN_TIME, GLIDE_MAX_TIME),
+      };
+    },
+    /**
+     * Abandon a glide where it stands. The player grabbing the map mid-pan has to win immediately —
+     * a tween still writing the target every frame would drag the city back out from under their
+     * finger. Deliberately leaves the camera where it got to, like every other handover here.
+     */
+    cancelGlide() { glide = null; },
+    isGliding: () => glide !== null,
+    /**
+     * Step a running glide. Returns true on every frame it moved the camera, including the frame it
+     * lands on, so a caller can tell "the pan owns this frame" from "nothing to do". A no-op when
+     * idle, which is what lets main.js call it unconditionally.
+     */
+    updateGlide(dt, aspectRatio) {
+      if (!glide) return false;
+      glide.t = Math.min(glide.t + dt, glide.dur);
+      const e = smootherstep(glide.t / glide.dur);
+      state.target.x = glide.fromX + (glide.toX - glide.fromX) * e;
+      state.target.z = glide.fromZ + (glide.toZ - glide.fromZ) * e;
+      apply(aspectRatio);
+      // Retired on the clock, not on the distance left: smootherstep's tail is flat, so a
+      // "close enough" test would cut the last few frames — the gentlest part of the whole move.
+      if (glide.t >= glide.dur) glide = null;
+      return true;
     },
   };
 }
@@ -131,6 +198,10 @@ export function attachDragPan(controller, domElement, getAspect, isEnabled = () 
   let panned = false;
 
   function panBy(right, up) {
+    // A finger on the map beats a pan already in flight. Cancelled here rather than from the
+    // `onPan` handover callback so it holds for every caller of panBy, not just the drag that
+    // happens to cross the slop.
+    controller.cancelGlide();
     const target = controller.state.target;
     target.addScaledVector(RIGHT, right).addScaledVector(UP, up);
     target.x = THREE.MathUtils.clamp(target.x, -PAN_LIMIT, PAN_LIMIT);

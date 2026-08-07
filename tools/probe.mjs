@@ -1587,6 +1587,108 @@ check('the taxi is an ordinary car in the traffic array',
   fire('pointermove', 480, 380);
   fire('pointerup', 480, 380);
   check('each swipe reports once', released === 2, `${released} releases over 2 swipes`);
+
+  // --- The rider pan ---------------------------------------------------------
+  // A tap on a rider-finder chip pans the camera to that rider instead of cutting to them. All of
+  // this is invisible in a screenshot — a pan and a snap render identically once they've landed —
+  // and the failure mode is a curve that technically arrives while reading as a teleport, so the
+  // shape of the move is what gets asserted, not just the destination.
+  const STEP = 1 / 60;
+
+  // Eased *in*, which is the whole reason this isn't the follow-cams' exponential smoothing: that
+  // leaves at full speed on frame one. Over a 40-unit pan the first frame must be a small
+  // fraction of the linear step, and the move must still finish on time.
+  cam.cancelGlide();
+  cam.state.target.set(0, 0, 0);
+  cam.glideTo(40, 0);
+  const firstFrame = (cam.updateGlide(STEP, 1.5), cam.state.target.x);
+  const linearStep = 40 * (STEP / 0.32);   // 40 units is under the floor, so it runs at min time
+  check('the rider pan eases in rather than leaving at full speed',
+    firstFrame > 0 && firstFrame < linearStep * 0.1,
+    `${firstFrame.toFixed(4)} units on frame 1 vs ${linearStep.toFixed(3)} linear`);
+
+  // It arrives exactly and retires itself. Retiring on the clock rather than on the distance left
+  // is what keeps the flat tail of the smootherstep — cutting it early throws away the gentlest
+  // part of the move, and "close enough" is invisible in the browser.
+  let frames = 1;
+  while (cam.updateGlide(STEP, 1.5)) frames += 1;
+  check('the rider pan lands on its target and retires itself',
+    !cam.isGliding() && Math.abs(cam.state.target.x - 40) < 1e-9 && Math.abs(cam.state.target.z) < 1e-9,
+    `${frames} frames, landed at x=${cam.state.target.x.toFixed(6)}`);
+  check('a short pan runs at the floor, not shorter', frames >= 19 && frames <= 21,
+    `${frames} frames = ${(frames * STEP).toFixed(3)}s against a 0.32s floor`);
+
+  // Duration scales with distance between the clamps, and stops scaling at the ceiling. Without
+  // the ceiling a cross-town pan is the player watching the camera with a fare's clock draining;
+  // without the floor a hop to the next block is a snap again.
+  const durationOf = (from, to) => {
+    cam.cancelGlide();
+    cam.state.target.set(from[0], 0, from[1]);
+    cam.glideTo(to[0], to[1]);
+    let n = 0;
+    while (cam.updateGlide(STEP, 1.5)) n += 1;
+    return n * STEP;   // over by up to a frame, since the last step is clamped to the duration
+  };
+  // 75 units at 150 u/s = 0.5s, clear of both clamps. Laid out across the middle of the map
+  // rather than out from the origin, since glideTo clamps its destination to HALF_SPAN = 50.
+  const mid = durationOf([-40, 0], [35, 0]);
+  // Corner to corner: 141 units, well past the 112 the 0.75s ceiling buys — and the longest pan
+  // the map can ask for, since glideTo clamps its destination to HALF_SPAN.
+  const far = durationOf([-HALF_SPAN, -HALF_SPAN], [HALF_SPAN, HALF_SPAN]);
+  check('pan duration scales with distance', mid >= 0.5 && mid <= 0.5 + 2 * STEP,
+    `${mid.toFixed(3)}s for 75 units`);
+  check('pan duration is capped', far >= 0.75 && far <= 0.75 + 2 * STEP,
+    `${far.toFixed(3)}s across the city diagonal, against a 0.75s ceiling`);
+
+  // The target is clamped like every other camera move, so a pan can't push the map off screen.
+  cam.cancelGlide();
+  cam.state.target.set(0, 0, 0);
+  cam.glideTo(HALF_SPAN * 3, 0);
+  while (cam.updateGlide(STEP, 1.5)) { /* run it out */ }
+  check('a rider pan clamps to the map like a drag does',
+    Math.abs(cam.state.target.x - HALF_SPAN) < 1e-9, `landed at x=${cam.state.target.x.toFixed(2)}`);
+
+  // A finger on the map wins immediately. A tween still writing the target every frame would drag
+  // the city back out from under the drag that interrupted it.
+  cam.cancelGlide();
+  cam.state.target.set(0, 0, 0);
+  cam.glideTo(40, 0);
+  cam.updateGlide(STEP, 1.5);
+  fire('pointerdown', 400, 300);
+  fire('pointermove', 440, 350);
+  fire('pointerup', 440, 350);
+  const afterDrag = cam.state.target.clone();
+  const stillPanning = cam.updateGlide(STEP, 1.5);
+  check('a drag kills a pan in flight',
+    !stillPanning && !cam.isGliding() && cam.state.target.equals(afterDrag),
+    stillPanning ? 'the pan kept writing the target' : 'ok');
+
+  // Same for the follow-cams: a boost chase or a wreck focus starting mid-pan takes the camera
+  // over, rather than the two easing the target to different places on alternate frames.
+  cam.cancelGlide();
+  cam.glideTo(-40, 40);
+  cam.updateGlide(STEP, 1.5);
+  cam.followXZ(0, 0, STEP, 3.2, 1.5);
+  check('a follow outranks a pan in flight', !cam.isGliding(), 'the pan survived a followXZ');
+  cam.glideTo(-40, 40);
+  cam.updateGlide(STEP, 1.5);
+  cam.focusOn(0, 0, 30, STEP, 1.5);
+  check('a wreck focus outranks a pan in flight', !cam.isGliding(), 'the pan survived a focusOn');
+
+  // Re-basing on a redirect: a second chip tapped mid-flight has to pick up from where the camera
+  // actually is, or the pan jumps back to the first tap's start point before setting off again.
+  cam.cancelGlide();
+  cam.state.target.set(0, 0, 0);
+  cam.glideTo(60, 0);
+  for (let i = 0; i < 10; i++) cam.updateGlide(STEP, 1.5);
+  const midFlight = cam.state.target.x;
+  cam.glideTo(0, 60);
+  const beforeRedirect = cam.state.target.x;
+  cam.updateGlide(STEP, 1.5);
+  check('a redirect mid-pan continues from where the camera is',
+    midFlight > 0.1 && beforeRedirect === midFlight
+    && Math.abs(cam.state.target.x - midFlight) < midFlight * 0.02,
+    `redirected from x=${midFlight.toFixed(3)}`);
 }
 
 // --- The run summary's stats -----------------------------------------------
