@@ -389,6 +389,8 @@ const dropoffIndicator = createDropoffIndicator({
 
 const hud = {
   money: document.getElementById('money'),
+  streak: document.getElementById('streak'),
+  streakCount: document.getElementById('streak-count'),
   banner: document.getElementById('run-end'),
   toast: document.getElementById('toast'),
 };
@@ -488,6 +490,30 @@ function popEarning(amount) {
       rollMoneyTo(fares.state.money);
     };
   };
+}
+
+/**
+ * Reveal the streak counter on the first successful drop-off, then bump the number on every one
+ * after — no flight off the taxi like the payout gets, that's a later concern. `count` is
+ * `fares.state.delivered`, so the streak is just "how many this run" until a reset condition
+ * exists.
+ */
+function updateStreak(count) {
+  if (!hud.streak || !hud.streakCount) return;
+  hud.streakCount.textContent = String(count);
+  if (hud.streak.hidden) {
+    hud.streak.hidden = false;
+    hud.streak.animate([
+      { opacity: 0, transform: 'scale(0.4)' },
+      { opacity: 1, transform: 'scale(1.12)', offset: 0.6 },
+      { opacity: 1, transform: 'scale(1)' },
+    ], { duration: 400, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
+    return;
+  }
+  // Toggle off / reflow / on, same as the money bump — a class that stays put doesn't re-fire.
+  hud.streak.classList.remove('streak-bumped');
+  void hud.streak.offsetWidth;
+  hud.streak.classList.add('streak-bumped');
 }
 
 let toastTimer = 0;
@@ -799,6 +825,7 @@ function frame() {
       dispatchToDropoff(fare);
     } else if (type === 'delivered') {
       popEarning(fare.value);
+      updateStreak(fares.state.delivered);
       // Small pour of boost fuel as a delivery reward — the meter's frame-by-frame update paints
       // the bar visibly *filling*, and the green glow ties the top-up to the same payout the
       // earnings pop is announcing.
