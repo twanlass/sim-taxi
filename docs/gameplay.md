@@ -435,11 +435,36 @@ Pointer capture on `pointerdown` keeps the boost held even if the finger slides 
 `pointerup`, `pointercancel`, `lostpointercapture` and the window `blur` all release it, so
 alt-tabbing or switching apps never leaves the boost stuck on.
 
-Every successful drop-off tops the tank up by **a third** — `boost.topUp(BOOST_FARE_REWARD)`
-queues the fuel as *pending* and pours it in at half a tank per second (~0.7s) so the bar visibly
-fills rather than snaps. A short green
-pulse behind the pill (`.is-topping-up`, matching the flying `$20`) is the flash that ties the
-top-up to the same payout the earnings pop is announcing.
+### The refill animation
+
+Every successful drop-off tops the tank up by **a third** — `boost.topUp(BOOST_FARE_REWARD)` queues
+the fuel as *pending* and pours it in at half a tank per second (~0.7s) so the bar visibly fills
+rather than snaps. Since that pour is now the *only* way fuel ever enters the meter, it carries the
+whole reward and gets three layers, all timed by `src/game/boostmeter.js` and shaped in `index.html`:
+
+| Layer | What it does | Wiring |
+|---|---|---|
+| **Overfill** | The bar runs ~7% of a tank past its new mark, then eases back to it | `--pct` |
+| **Pulsing glow** | The pill throbs yellow at 5Hz for as long as fuel is arriving | `--fill` × `--pulse` → `.is-filling` |
+| **Leading edge** | A blurred near-white line rides the front of the fill, fading in with the pour and out with the bounce | `--fill` → `#boost::after` |
+
+`boostmeter.js` is pure and DOM-free for the same reason `boost.js` is: `main.js` reads three numbers
+off it and writes three CSS variables, and the probe drives it with a real pour and asserts on the
+same numbers. It keys off `boost.state.pending`, so nothing has to remember to fire the animation and
+a second delivery landing mid-pour just extends it.
+
+**The overshoot is authored, not simulated.** The obvious version — draw the bar as a spring chasing
+the real fuel level and let its momentum carry it past the mark — was built and measured first: 3.3%
+of a tank at its best (K=160, C=4), about 4px on the pill, and a 1.4s wobble to settle. A spring
+following a ramp can only overshoot by around v/ω, and a 0.5-tank/s pour against any ω fast enough
+not to look sluggish leaves nothing to work with. The scripted kick starts on the frame the pour
+finishes, so it still doesn't read as a jump — the bar is already travelling at the pour rate and the
+kick just carries it further, 0.1s out and 0.26s back.
+
+The glow used to be a one-shot green flash matching the flying `$20`. Green read as *money*, which
+is what the earnings pop already says; yellow says *this is boost*. Driving its alpha from a variable
+rather than a keyframe is also what lets it fade out cleanly however long the pour ran, instead of
+snapping off when a fixed-length animation ends.
 
 While active the taxi runs at 2.2× speed, forces its next junction green, doesn't slow for
 corners, lays **skid marks** off the line and through turns, and kicks up **dust**. See

@@ -33,6 +33,7 @@ import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
 import { createBoost, BOOST_DURATION, BOOST_START_FRACTION, BOOST_FARE_REWARD } from '../src/game/boost.js';
+import { createBoostMeter } from '../src/game/boostmeter.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -1466,6 +1467,74 @@ check('the taxi is an ordinary car in the traffic array',
   c.topUp(BOOST_FARE_REWARD);
   for (let i = 0; i < 60; i++) c.update(1 / 60);
   check('top-ups clamp at a full tank', c.fraction() === 1, `${c.fraction().toFixed(3)}`);
+}
+
+// --- The Punch It pill's fill animation -------------------------------------
+//
+// The pour is the reward for a drop-off, and all three of its layers are timing — an overshoot
+// that never overshoots, or a glow that latches on and never fades, is exactly the kind of thing a
+// screenshot can't see. boostmeter.js is pure for this reason: drive it with a real pour and read
+// the numbers the CSS variables would have got.
+{
+  const b = createBoost();
+  const m = createBoostMeter();
+  const dt = 1 / 60;
+  const before = b.fraction();
+  b.topUp(BOOST_FARE_REWARD);
+
+  let peak = -1, peakT = 0, t = 0, litFrames = 0, pulseMin = 1, pulseMax = 0;
+  let markT = null;         // when the fuel itself finished arriving
+  const trace = [];
+  for (let i = 0; i < 60 * 3; i++) {
+    b.update(dt);
+    const pouring = b.state.pending > 0;
+    m.update(dt, b.fraction(), pouring);
+    t += dt;
+    if (!pouring && markT === null) markT = t;
+    if (m.state.pct > peak) { peak = m.state.pct; peakT = t; }
+    if (m.state.fill > 0) litFrames++;
+    if (markT === null && t > 0.2) {          // sample the throb mid-pour, past the attack ramp
+      pulseMin = Math.min(pulseMin, m.state.pulse);
+      pulseMax = Math.max(pulseMax, m.state.pulse);
+    }
+    trace.push({ t, pct: m.state.pct, fill: m.state.fill });
+  }
+
+  const mark = before + BOOST_FARE_REWARD;
+  check('the bar overshoots the fuel it was given', peak > mark + 0.04 && peak < mark + 0.1,
+    `${(before * 100).toFixed(0)}% -> ${(mark * 100).toFixed(0)}%, peaked at ${(peak * 100).toFixed(1)}%`);
+  check('the overshoot lands just after the fuel does', peakT > markT && peakT < markT + 0.2,
+    `fuel done ${markT.toFixed(2)}s, peak ${peakT.toFixed(2)}s`);
+
+  // The bar has to come back to the fuel it actually holds — an overshoot that stuck would be the
+  // meter lying about how much boost is in the tank.
+  const settled = trace[trace.length - 1];
+  check('the bar returns to the real level', Math.abs(settled.pct - b.fraction()) < 1e-9,
+    `${(settled.pct * 100).toFixed(1)}% vs ${(b.fraction() * 100).toFixed(1)}% fuel`);
+
+  // The bar climbs the whole way — no stall or step backwards before the peak.
+  const climbs = trace.filter((s) => s.t <= peakT).every((s, i, a) => i === 0 || s.pct >= a[i - 1].pct - 1e-9);
+  check('the fill never steps backwards on the way up', climbs);
+
+  check('the glow pulses while fuel is arriving', pulseMax - pulseMin > 0.5 && pulseMax <= 1,
+    `${pulseMin.toFixed(2)}..${pulseMax.toFixed(2)}`);
+
+  // The glow and the leading edge fade out — and specifically, they outlast the pour (so they're
+  // still up while the bar bounces) but are gone well before the next fare could land.
+  check('the glow fades out after the bounce', settled.fill === 0 && litFrames * dt > markT,
+    `lit for ${(litFrames * dt).toFixed(2)}s, pour took ${markT.toFixed(2)}s`);
+
+  // Nothing may move when no fuel is arriving: a drain has to read 1:1 with the fuel it costs.
+  const d = createBoost();
+  const dm = createBoostMeter();
+  d.press();
+  let drainMismatch = 0;
+  for (let i = 0; i < 60 * 4; i++) {
+    d.update(dt);
+    dm.update(dt, d.fraction(), d.state.pending > 0);
+    if (Math.abs(dm.state.pct - d.fraction()) > 1e-9 || dm.state.fill !== 0) drainMismatch++;
+  }
+  check('a drain draws exactly the fuel it has left', drainMismatch === 0, `${drainMismatch} frames off`);
 }
 
 // --- Ghost outline ----------------------------------------------------------

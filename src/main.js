@@ -12,6 +12,7 @@ import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createBoost, BOOST_FARE_REWARD } from './game/boost.js';
+import { createBoostMeter } from './game/boostmeter.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
 import { createSparks } from './game/sparks.js';
@@ -552,12 +553,24 @@ window.addEventListener('resize', () => {
 
 const boostButton = document.getElementById('boost');
 
-function updateBoostButton() {
+// A drop-off is the only thing that ever puts fuel in the tank (see game/boost.js), so the pour is
+// the reward animation and it gets three layers: the bar overruns its new mark and eases back, the
+// pill pulses yellow the whole time fuel is arriving, and a blurred bright edge rides the front of
+// the fill. game/boostmeter.js owns the timing of all three; this just hands it the clock and the
+// fuel level and paints what comes back onto three CSS variables.
+const boostMeter = createBoostMeter();
+
+function updateBoostButton(dt) {
   if (!boostButton) return;
   const mode = boost.state.mode;
+  boostMeter.update(dt, boost.fraction(), boost.state.pending > 0);
+
   boostButton.classList.toggle('is-active', mode === 'active');
   boostButton.classList.toggle('is-empty', mode === 'empty');
-  boostButton.style.setProperty('--pct', `${(boost.fraction() * 100).toFixed(1)}%`);
+  boostButton.classList.toggle('is-filling', boostMeter.state.fill > 0);
+  boostButton.style.setProperty('--pct', `${(boostMeter.state.pct * 100).toFixed(1)}%`);
+  boostButton.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));
+  boostButton.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
   // Dead until a drop-off pours fuel back in — nothing refills on its own, so a pressable-looking
   // pill on an empty tank would be a lie.
   boostButton.disabled = mode === 'empty';
@@ -602,17 +615,10 @@ function releaseBoost(event) {
   boost.release();
   boostButton.releasePointerCapture?.(event.pointerId);
 }
-// Green glow on top-up. Removing then re-adding the class restarts the CSS animation, so
-// back-to-back deliveries each get their own flash instead of the second one being ignored.
-function flashBoostTopUp() {
-  if (!boostButton) return;
-  boostButton.classList.remove('is-topping-up');
-  void boostButton.offsetWidth;
-  boostButton.classList.add('is-topping-up');
-}
-boostButton?.addEventListener('animationend', (e) => {
-  if (e.animationName === 'boost-topup') boostButton.classList.remove('is-topping-up');
-});
+// (The top-up flash used to live here as a one-shot class the delivery had to remember to fire,
+// which meant back-to-back deliveries needed a reflow to restart the animation. The glow is now
+// driven off `boost.state.pending` in updateBoostButton — it lasts exactly as long as fuel is
+// actually arriving, and a second delivery mid-pour just extends it.)
 
 boostButton?.addEventListener('pointerdown', pressBoost);
 boostButton?.addEventListener('pointerup', releaseBoost);
@@ -750,7 +756,7 @@ function frame() {
   // Never re-arm boost on a wrecked taxi — the flag would flick on the next frame otherwise and
   // the collision detector already only checks `if (taxi.boost)`.
   if (!traffic.taxi.crashed) traffic.taxi.boost = boost.isActive();
-  updateBoostButton();
+  updateBoostButton(dt);
   skids.update(dt);
   dust.update(dt);
   sparks.update(dt);
@@ -802,10 +808,9 @@ function frame() {
     } else if (type === 'delivered') {
       popEarning(fare.value);
       // A third of a tank of boost fuel as the delivery reward — the only way any fuel enters the
-      // meter now. The frame-by-frame update paints the bar visibly *filling*, and the green glow
-      // ties the top-up to the same payout the earnings pop is announcing.
+      // meter now. Queuing it is the whole call: the pour, the overshoot, the pulsing glow and the
+      // leading edge all key off the pending fuel in updateBoostButton.
       boost.topUp(BOOST_FARE_REWARD);
-      flashBoostTopUp();
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       traffic.setTaxiFareColor(null);

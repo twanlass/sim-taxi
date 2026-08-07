@@ -211,14 +211,42 @@
         cursor: default; color: rgba(255, 255, 255, 0.5);
         background: linear-gradient(90deg, #6f8899 var(--pct, 0%), rgba(255, 255, 255, 0.12) 0);
       }
-      /* Delivery bonus: a green pulse that matches the flying "$20" so the top-up reads as part
-         of the same payout. The bar itself grows for ~0.7s from the fuel poured in each frame;
-         this glow is the flash that draws the eye to it. */
-      #boost.is-topping-up { animation: boost-topup 0.65s ease-out; }
-      @keyframes boost-topup {
-        0%   { box-shadow: 0 0 0    rgba(107, 224, 138, 0); }
-        25%  { box-shadow: 0 0 26px rgba(107, 224, 138, 0.95); }
-        100% { box-shadow: 0 0 0    rgba(107, 224, 138, 0); }
+      /* Delivery bonus. Fuel is now *only* ever earned, so the pour is the reward animation and it
+         gets the full treatment: the bar overshoots its new mark and springs back, the pill pulses,
+         and a bright edge rides the front of the fill. The shapes are here, the envelope comes from
+         updateBoostButton in main.js — `--fill` is 0..1 for "fuel is arriving" and `--pulse` is the
+         throb inside it. Driving the alpha from a variable rather than a keyframe is what lets the
+         glow fade out smoothly however long the pour ran, instead of snapping off when a fixed
+         animation ends. Listed after .is-active so a top-up collected mid-boost still shows.
+
+         An earlier version was a one-shot green flash matching the flying "$20". Green read as
+         "money", which is what the earnings pop already says — yellow says *this is boost*, which
+         is the thing the player has to notice, and pulsing for exactly as long as fuel is landing
+         ties it to the bar's movement rather than to a fixed 0.65s. */
+      #boost.is-filling {
+        /* Per-frame updates, so the pill's own 0.15s box-shadow ease would smear the throb flat. */
+        transition: transform 0.1s ease;
+        box-shadow: 0 0 calc(14px + 26px * var(--pulse, 0)) rgba(245, 193, 48, calc(0.95 * var(--fill, 0)));
+      }
+      /* The leading edge of the fill: a soft vertical bar sitting on the fill front, blurred so it
+         reads as light spilling off the advancing fuel rather than as a hairline UI divider. It
+         tracks the same --pct as the gradient — both resolve against the padding box, so they stay
+         locked together — and inherits the fill envelope, fading in as fuel starts arriving and out
+         as the bar springs to rest. Inset a couple of px top and bottom so the blur bleeds to about
+         the pill's edge instead of poking out of the rounded ends. */
+      #boost::after {
+        content: ''; position: absolute; top: 1px; bottom: 1px;
+        left: var(--pct, 33.3%); width: 4px; margin-left: -2px;
+        border-radius: 4px;
+        /* Near-white core with a yellow bloom, not a yellow line: the fill behind it is already
+           #F5C130 and the empty track ahead of it is pale, so a yellow-on-yellow line washed out
+           to nothing at 3px/blur 2.5px. The core carries the position, the bloom carries the
+           colour. Blur stays under half the core width or the line stops reading as an edge. */
+        background: #FFFDF2;
+        box-shadow: 0 0 9px 3px rgba(255, 213, 74, 0.95);
+        filter: blur(1.4px);
+        opacity: var(--fill, 0);
+        pointer-events: none;
       }
       body.shot-mode #boost { display: none; }
 
