@@ -12,8 +12,8 @@ that means up to two riders can be waiting on the kerb at the same time.
    is left. The whole trip is drawn now; none of it is shown until they board — see
    [Neither how far nor where](#neither-how-far-nor-where).
 2. Tap them → the taxi routes there.
-3. On arrival the passenger boards, their drop-off pin appears and the taxi **drives straight on to
-   it** — the pin lands in the taxi's yellow, because the instruction it used to ask for is now
+3. On arrival the passenger boards, a teal ring appears on the road where they're going and the
+   taxi **drives straight on to it** — the pin lands in the taxi's yellow, because the instruction it used to ask for is now
    given for you. See [The drop-off dispatches itself](#the-drop-off-dispatches-itself).
 4. Deliver → the fare pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, see [Economy](#economy)),
    and the board refills.
@@ -181,30 +181,42 @@ The fare's colour is assigned when the trip is drawn, at **spawn**, and shows fr
 taxi's **roof sign**. The sign carries it rather than a ring, because the rings are spoken for —
 the timer ring is colour-coded by time remaining, so fare identity needed somewhere else to live.
 
-**The drop-off pin no longer wears it.** It used to, so that a pin and a taxi could be paired by
+**The drop-off no longer wears it.** It used to, so that a pin and a taxi could be paired by
 hue; but one rider is aboard at a time and only that rider's pin is on the board, so the pairing
 had nothing to disambiguate and a rotating hue was making the same marker look different run to
 run. It spent a spell carrying the fare's *state* instead, teal until the drop-off was tapped and
 yellow after; [the taxi dispatches itself now](#the-drop-off-dispatches-itself), so there is no
 untapped state left to draw.
 
-#### The drop-off is teal
+#### The drop-off is a teal ring, and nothing else
 
-The pin, its disc on the tarmac and the off-screen pointer are one fixed **neutral teal**.
+The disc on the tarmac and the off-screen pointer that stands in for it are one fixed **teal**.
+Nothing floats above it.
 
-Neutral is the point. Hue on a marker now *means* urgency — that is what the
-[diamond over a rider](#the-diamond-over-a-waiting-rider) is saying, and it is the same model — and
-the drop-off has nothing to report: no clock of its own, and by the time it is drawn the taxi is
-already driving at it. A colour outside the green-to-red scale is what says "this one is not on
-it".
+**It lost its head.** The drop-off was a crystal on a gold post, then the crystal alone at rooftop
+height, then that crystal in teal once a waiting rider's marker became the same model. That last
+step is what finished it: two diamonds on the board, and only one of them reporting anything. The
+player had to tell "a clock is running here" from "this is just a place", by hue, on two shapes
+that were otherwise identical — when the ring underneath was already saying "this is just a place",
+at ground level, where the driving happens. So a diamond on the board now means a clock, and a ring
+means a destination.
 
-It wore **Loco Mode's yellow** until the rider's marker became a diamond, on the grounds that the
-route band, the car and the place it is driving to should be one colour saying "this is the job".
-That still reads, but it costs more than it buys now: yellow is the taxi's, and a marker that
-reports nothing was borrowing a hue from a vocabulary it isn't part of. The band running into the
-disc is still yellow, so the two do meet at the kerb in different colours — the band belongs to the
-car, the disc to the pin standing in it. See
-[rendering.md](rendering.md#pin-colour-and-placement--geometrymarkerjs).
+What went with it is the rooftop silhouette: the crystal stayed visible over the skyline for a beat
+after the ring itself had slipped behind a tower. The
+[off-screen pointer](rendering.md#off-screen-drop-off-pointer) covers the far end of that — a
+drop-off outside the frame — and inside the frame the route band runs all the way into the disc, so
+there is a line to follow to it. A drop-off briefly hidden behind a building on a road you are
+already driving down is the case that is genuinely worse, and it is worth what it buys.
+
+Teal is the point of the colour. Hue on a fare marker now *means* urgency — that is what the
+[diamond over a rider](#the-diamond-over-a-waiting-rider) is saying — and the drop-off has nothing
+to report: no clock of its own, and by the time it is drawn the taxi is already driving at it. A
+colour outside the green-to-red scale is what says "this one is not on it". It wore **Loco Mode's
+yellow** before, on the grounds that the route band, the car and the place it is driving to should
+be one colour saying "this is the job"; but yellow is the taxi's, and a marker that reports nothing
+was borrowing from a vocabulary it isn't part of. The band is still yellow, so band and disc meet at
+the kerb in different colours — the band belongs to the car, the disc to the road. See
+[rendering.md](rendering.md#the-drop-off-ring--geometrymarkerjs).
 
 `nextFareColor()` still refuses any colour a **live** fare is wearing, not just the previous one —
 five colours against `MAX_FARES = 3` means that always resolves, and it still costs exactly one
@@ -343,23 +355,31 @@ attempt put the timer at the same radius and it vanished inside the other ring's
 
 ## The diamond over a waiting rider
 
-`src/geometry/riderdiamond.js` — the same geodesic crystal the drop-off pin wears, floating over the
-rider's head and painted by how much of their clock is left: green → yellow → orange → red,
-[by level](#urgency-is-one-scale). That colour is the whole of what the marker says.
+`src/geometry/riderdiamond.js` — a geodesic crystal floating over the rider's head, painted by how
+much of their clock is left: green → yellow → orange → red, [by level](#urgency-is-one-scale). That
+colour is the whole of what the marker says, and a diamond on the board means exactly one thing: a
+clock is running here. The [drop-off](#the-drop-off-is-a-teal-ring-and-nothing-else) wore the same
+model for a spell and gave it back, because a second crystal reporting nothing made the shape
+ambiguous.
 
-**Both ends of a fare are now one model in two colours.** A rider waiting and the place they're
-going are the same kind of thing — a stop on the job — so they are the same silhouette, and hue is
-what tells them apart: urgency-coloured over a kerb, [neutral teal](#the-drop-off-is-teal) over a
-drop-off. One shape to learn rather than a crystal at one end and a slab of bars at the other.
+**A level change kicks it.** The crystal swells to 1.1 and hops about 4px, snapping up and easing
+back over `KICK_TIME = 0.36s`. The colour snaps between four steps and is the news, but a hue change
+on a 29px shape at the edge of the eye is easy to miss outright — and the ones that matter land
+while the player is watching the road, not the kerb. The motion is what buys the glance; the colour
+is what pays it off. It is deliberately a *beat* and not a state: over well before the next level
+lands, so two riders at different levels are told apart by hue and never by whether something is
+moving. A fresh rider does not kick on spawn — a marker that pops the moment it appears is
+announcing a change that hasn't happened.
 
-It takes a **yellow rim** once the taxi has been sent at that rider — the Loco Mode pill's yellow,
-which is the taxi's own — in place of the black outline every diamond otherwise wears. On a board
-with two riders waiting it is the only thing saying which of them the car is already on its way to.
-It thickens as well as changing colour (`1.12 → 1.24`, about 1.7px → 3.5px of rim at play zoom): a
-hue swap on a 1.7px edge reads as a trick of the light rather than as a state. `markDirected` pushes
-it so the rim lands on the same frame as the route band; the per-frame tick reconciles it, because
-`directed` is also *cleared* from elsewhere and one place that reflects the flag cannot drift from
-it.
+**It inks over in heavy black** once the taxi has been sent at that rider: the same outline every
+diamond wears, drawn at `1.34` instead of `1.12` — about 5px of rim against 1.7px at play zoom. On a
+board with two riders waiting it is the only thing saying which of them the car is already on its
+way to. The rim was the taxi's **yellow** first, which is what "you told me to do this" means
+everywhere else in the HUD; but this crystal spends a quarter of every clock *being* yellow, and a
+yellow rim on a yellow diamond is no rim at all. Black is the one value nothing on the urgency scale
+can collide with, so the state reads as weight rather than hue. `markDirected` pushes it so the rim
+lands on the same frame as the route band; the per-frame tick reconciles it, because `directed` is
+also *cleared* from elsewhere and one place that reflects the flag cannot drift from it.
 
 It replaced four things, in this order:
 
@@ -374,8 +394,8 @@ It replaced four things, in this order:
   lit blocks is parsed, and the level was always the news rather than the number.
 
 The meter was a bright ~67 × 27px slab; the diamond is ~29px across. Smaller, but saturated,
-outlined and bouncing, which is what a marker needs to be found at range — and three of them no
-longer crowd a city whose blocks are only ~92px across.
+outlined, bouncing and kicking on every level change, which is what a marker needs to be found at
+range — and three of them no longer crowd a city whose blocks are only ~92px across.
 
 ### Urgency is one scale
 

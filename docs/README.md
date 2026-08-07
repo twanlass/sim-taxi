@@ -20,10 +20,10 @@ its turn at each junction comes from a planned route rather than a dice roll, so
 red light exactly like everyone else and cannot cheat its way to a destination.
 
 A passenger appears at an intersection under a floating **diamond**, coloured green through red by
-how much of their 60-second patience is left. Tap them to route the taxi there; once they're aboard
-their drop-off appears — the same diamond in a neutral teal, over a teal disc on the tarmac — and
-the taxi drives on to it **without being told to**. The only choice on the board is which rider to
-grab. The clock does
+how much of their 60-second patience is left, and swelling each time that colour steps. Tap them to
+route the taxi there — the diamond inks over in heavy black to say the car is on its way — and once
+they're aboard a **teal ring** appears on the road where they're going and the taxi drives on to it
+**without being told to**. The only choice on the board is which rider to grab. The clock does
 **not** reset at pickup — one deadline covers spawn to drop-off, which is
 the whole tension of the game. A delivery pays by distance, $8 for a one-block hop up to $35
 across town. Let a clock expire and the run ends.

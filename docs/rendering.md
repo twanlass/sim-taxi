@@ -113,8 +113,8 @@ throws shadows up through everything.
 
 Night is genuinely dark (sun 0.00, fill 0.34, deep navy) but stays playable because every game
 marker — fare rings, target discs, route band — is unlit (`MeshBasicMaterial`, or in the band's
-case a plain `ShaderMaterial` that never reads a light). The two diamonds are the exception: they
-are Lambert, and carry an emissive at 0.35 of their own colour to hold their hue after dark.
+case a plain `ShaderMaterial` that never reads a light). The rider's diamond is the exception: it is
+Lambert, and carries an emissive at 0.35 of its own colour to hold its hue after dark.
 
 Screenshot mode freezes the cycle: a rendered shot has to be reproducible.
 
@@ -302,55 +302,63 @@ traffic would need an instanced variant sharing the cars' `instanceMatrix`, whic
 
 ### The diamond — `geometry/diamond.js`
 
-**One model, worn by both ends of a fare.** An octahedron of radius 1.9 — about 29px across at play
-zoom — outlined in black, bouncing. The drop-off pin floats one at y = 9.6 over a disc on the kerb;
-a waiting rider floats one at y = 6.6 over their own head. What differs is the colour: teal for a
-drop-off, [urgency](gameplay.md#urgency-is-one-scale) for a rider.
+The crystal a waiting rider floats: an octahedron of radius 1.9 — about 29px across at play zoom —
+outlined in black, bouncing, and painted by [urgency](gameplay.md#urgency-is-one-scale). The drop-off
+wore the same model for a while and gave it back, so this is the rider's shape alone now; it stays
+its own module because the shape, the outline and the bounce are a vocabulary the next marker should
+inherit rather than re-derive.
 
-The geometry is shared by every diamond on the board, and by the outline hulls too — they differ
-from the surface they wrap only by scale. Colour and emissive are per instance, so a repaint is a
-`Color.set` on one material.
+One geometry serves every diamond on the board and every outline hull too — they differ from the
+surface they wrap only by scale. Colour and emissive are per instance, so a repaint is a `Color.set`
+on one material.
 
 The outline is an **inverted hull**: the same geometry drawn a little larger with `side: BackSide`
 and a black basic material, so the enlarged back faces sit behind the real surface everywhere except
 around the silhouette. Cheaper than a post-processing edge pass and it needs no render targets —
 these are small objects, not a whole-scene effect. Each hull is a *child* of the mesh it wraps, so
-it inherits animation for free. That is also what makes the rider's selection state a one-line
-change: repaint the hull yellow and scale it 1.12 → 1.24.
+it inherits animation for free, and the rider's "the taxi is coming" state is one line: scale the
+hull 1.12 → 1.34 and let it stay black.
 
 Each diamond carries an **emissive** at 0.35 of its colour. The fixed camera sees the face turned
 *away* from the sun, and pure Lambert on its own shades that face a long way down — the lift keeps
-the crystal reading as its own hue rather than as a dark facet. It is also what keeps a rider's
-urgency colour legible after dark, since these are the two lit markers in a game whose other markers
-are all unlit.
+the crystal reading as its own hue rather than as a dark facet. It is also what keeps the urgency
+colour legible after dark, this being the one lit marker in a game whose markers are otherwise all
+unlit.
 
 It bounces on `Math.abs(Math.sin(t * 3.4)) * 0.45`: never below the rest position, with a sharp cusp
 at the bottom that reads as a landing rather than a float. The amplitude used to be bounded by the
-0.8 units of overlap between the pin's head and its post top; with the post gone nothing constrains
-it but taste, and 0.45 is what the motion was tuned at. It freezes while hidden, which keeps
-screenshots deterministic. The pin drives it off an accumulated `dt` and the rider's off sim time
-with a per-slot phase offset, so two riders on the board don't pulse in lockstep and a frozen shot
-still renders the same frame every time.
+0.8 units of overlap between the old pin's head and its post top; with the post gone nothing
+constrains it but taste, and 0.45 is what the motion was tuned at. It freezes while hidden, which
+keeps screenshots deterministic.
 
-### Pin colour and placement — `geometry/marker.js`
+**The kick** is the one-shot on top of it, fired when the urgency level steps:
+`kickEnvelope(t) = sin(π · (t / 0.36)^0.65)`, driving scale to `1 + 0.1 · env` and an extra
+`0.55 · env` of lift. The exponent is what makes it a knock rather than a throb — it pushes the peak
+early, so the crystal snaps up and eases down; a plain half-sine swells as slowly as it settles.
+Both channels ride one envelope so the swell and the hop are the same gesture.
 
-The destination pin is a **floating head and nothing else** — the diamond above, over the target
-ring on the kerb. It stood on a gold post until that shaft was cut; the head alone is the cleaner
-read and it is what the eye tracked anyway. The head kept its height, so the marker still occupies
-the same slot in the skyline and no framing moved.
+The kick is **retired on the clock, not on its value**. The envelope reads 0 at both ends, and
+clearing the animation whenever it read 0 killed every kick on its own first frame — the bug was
+invisible in the browser (nothing moved, which is also what "no kick" looks like) and the headless
+assertion is what caught it.
 
-**The pin is one neutral teal, fixed at build time.** There is only ever one drop-off on the board —
-the rider currently aboard — so there is nothing for a per-fare hue to tell it apart from, and by
-the time it is drawn the taxi is already driving at it.
+Both the bounce and the kick are driven off **sim time**, not an accumulated `dt`: a frozen shot has
+to render the same frame every time. The kick's start is stamped inside `update()` rather than at
+the moment the level changes, so the animation doesn't depend on the order `setUrgency` and `update`
+are called in. Each slot gets a fixed phase offset on the bounce, so two riders don't pulse in
+lockstep.
 
-| Head | Ring on the tarmac |
-|---|---|
-| `destination` `#17B8B0` | `destinationRing` `#5FE0D9` |
+### The drop-off ring — `geometry/marker.js`
 
-Teal because the pin has no state to report, and hue on a marker means urgency now that the rider's
-diamond is the same model — see [gameplay.md](gameplay.md#the-drop-off-is-teal). The ring is that
-teal lightened, road-paint weight, and belongs to the pin standing in it rather than to the yellow
-band running up to it.
+The drop-off is a **filled ring on the kerb corner and nothing else** — no head, no post. It was a
+crystal on a gold post, then the crystal alone at y = 9.6, then that crystal in teal; it went when
+the rider's marker became the same model and the board had two identical silhouettes on it, only one
+of which reported anything. See [gameplay.md](gameplay.md#the-drop-off-is-a-teal-ring-and-nothing-else).
+
+**One colour, fixed at build time** — `destination` `#5FE0D9`, rim and fill alike. There is only ever
+one drop-off on the board, so there is nothing for a per-fare hue to tell it apart from, and by the
+time it is drawn the taxi is already driving at it. Teal keeps it clear of the urgency scale, which
+is what hue on a fare marker means now.
 
 **It has worn three colours.** Teal-until-tapped then yellow, back when a drop-off above a `parked`
 taxi was a question rather than an instruction; then Loco Mode's yellow throughout, once the taxi
@@ -358,16 +366,27 @@ taxi was a question rather than an instruction; then Loco Mode's yellow througho
 unanswered stretch left; now teal again for a different reason than the first time — not "you have
 not answered this yet" but "this one is not on the urgency scale".
 
-The fare's own colour still lives on the taxi's roof sign — see
-[gameplay.md](gameplay.md#fare-colours). `?shot=10` frames the pin on its kerb corner; it was added
-to catch the untapped state and now simply shows the pin close up, which no other shot does.
+The ring is **filled in**, at the route band's own `ROUTE_OPACITY`. Band and disc are no longer the
+same paint — the band is the taxi's yellow — but they still meet on the same tarmac, and a disc
+heavier than the band running into it would read as the louder half of one mark. Depth-tested like
+the band, so a car crossing the junction drives over the disc rather than the disc painting across
+the car. Being translucent puts it in the transparent queue, which used to wash its far half up over
+the base of the post at its centre; nothing stands in the disc any more for it to wash over.
 
-The drop-off's target ring is **filled in**, at the route band's own `ROUTE_OPACITY` — the band on
-the road and the disc at the end of it are one statement in two places, and at different weights one
-reads as the louder half. Depth-tested like the band, so a car crossing the junction drives over the
-disc rather than the disc painting across the car. Being translucent puts it in the transparent
-queue, which used to wash its far half up over the base of the post at its centre; with the post
-gone nothing stands in the disc for it to wash over.
+The fare's own colour still lives on the taxi's roof sign — see
+[gameplay.md](gameplay.md#fare-colours). `?shot=10` frames the drop-off on its kerb corner; it was
+added to catch the untapped state, and it is now the only framing that shows the ring close up.
+
+### Off-screen drop-off pointer
+
+`game/dropoffindicator.js`, styled under `#dropoff-indicator` in `index.html`. An arrow that clamps
+to the viewport edge and rotates to point at the drop-off, in the ring's own teal, shown only while
+a fare is aboard.
+
+It carries more weight since the head came off. A crystal at rooftop height stayed visible over the
+skyline for a beat after the ring had gone behind a tower; the arrow only covers the *off-frame*
+case, which is the one the map being bigger than the viewport actually creates. It aims at `y = 0.1`
+now — the ring on the road — where it used to aim halfway up the pin's post.
 
 ### Rider diamond — `geometry/riderdiamond.js`
 
@@ -379,10 +398,9 @@ but keeps its own `visible` flag — that is what stops it reappearing over the 
 `beginExit` un-hides the passenger group at the far end of the trip.
 
 `LIFT` is 6.6, which puts the bottom vertex 1.3 units — about 10px at play zoom — above a figure
-that tops out a little over 3.3. That is the gap the meter's plate was tuned to, so the rider's
-slot in the skyline is unchanged. Lower than the drop-off pin's 9.6 on purpose: that one floats over
-an empty corner and has only itself to belong to, while this one has to look attached to the person
-under it.
+that tops out a little over 3.3. That is the gap the meter's plate was tuned to, so the rider's slot
+in the skyline is unchanged, and it is low enough that the crystal reads as attached to the person
+under it rather than floating free the way the drop-off's head did at 9.6.
 
 **It is depth-tested**, unlike the meter it replaced — that plate drew over everything on the same
 bargain the timer ring makes, and an inverted-hull crystal cannot: with the depth test off an

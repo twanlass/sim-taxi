@@ -73,11 +73,6 @@ export const PALETTE = {
   // taxi's own yellow body, and the white of an unclaimed passenger.
   fareColors: ['#25D9D2', '#E24BC4', '#A46BFF', '#4D9BFF', '#FF6B9D'],
 
-  // The rim around a waiting rider's diamond once the taxi has been sent at them. The Loco Mode
-  // pill's yellow, which is the taxi's own — the two things on screen that mean "you told me to do
-  // this". It was a ring around the meter's plate before the meter became a diamond.
-  riderSelected: '#F5C130',
-
   // Urgency, indexed by how much of the clock is left, in quarters. Deliberately not a ramp: a
   // colour that changes imperceptibly tells the player nothing, so it snaps at each quarter lost.
   // 1 and 0 share red — by then there is nothing redder to go to.
@@ -88,22 +83,22 @@ export const PALETTE = {
   // glance rather than in a read.
   urgency: ['#E8433A', '#E8433A', '#E8922E', '#E0D233', '#3ECF5A'],
 
-  // The drop-off marker: one neutral teal, fixed. Only one is ever on the board — the rider
-  // currently aboard — so it has nothing to be told apart from, and a per-fare hue there was
-  // saying something the player could not use.
+  // The drop-off marker: one teal, fixed, worn by the ring on the tarmac and by the off-screen
+  // pointer that stands in for it. Only one drop-off is ever on the board — the rider currently
+  // aboard — so it has nothing to be told apart from, and a per-fare hue there was saying something
+  // the player could not use.
   //
-  // Teal because the pin has no state to report. The rider's diamond is the same model painted by
-  // urgency, so hue on a marker now *means* urgency; the drop-off has no clock of its own and must
-  // stay out of that scale. It wore the taxi's yellow for a while, on the grounds that the car, the
-  // route band and the place it is driving to were one statement — but yellow is the taxi's, and
-  // borrowing it made a marker that reports nothing look like part of the urgency vocabulary.
+  // Teal because the marker has no state to report. Hue on a *fare* marker means urgency now — that
+  // is what the diamond over a waiting rider is saying — and the drop-off has no clock of its own,
+  // so it has to sit outside that scale entirely. It wore the taxi's yellow for a while, on the
+  // grounds that the car, the route band and the place it is driving to were one statement; but
+  // yellow is the taxi's, and borrowing it put a marker that reports nothing inside a vocabulary it
+  // is not part of.
   //
-  // Two weights: the head, and the ring on the tarmac lightened, road-paint style. (There was a
-  // third — a post one shade under the head — until the pin lost its shaft and became a floating
-  // head.) Kept clear of `fareColors`' teal in value so a teal roof sign and the pin never read as
-  // the same paint.
-  destination: '#17B8B0',
-  destinationRing: '#5FE0D9',
+  // One entry rather than two. It used to be a head colour plus the same hue lightened for the disc
+  // beneath it — and before that a third for the post under the head. The head is gone and the disc
+  // is the whole marker, so there is one weight left to name.
+  destination: '#5FE0D9',
   // The taxi's own yellow, lightened. This used to be `select` as well, worn by a pool on the road
   // marking the taxi as selected; that pool is gone and the route band is the only thing wearing
   // it now. Yellow rather than white because white is the unclaimed-passenger marker.

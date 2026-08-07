@@ -8,7 +8,7 @@ import { urgencyLevel, URGENCY_SEGMENTS } from './urgency.js';
 import { PALETTE } from '../palette.js';
 
 // The fare loop: a passenger waits at an intersection under a diamond coloured by how long they'll
-// keep waiting, the taxi collects them, a drop-off pin appears, the taxi delivers. Any fare's timer
+// keep waiting, the taxi collects them, a drop-off ring appears, the taxi delivers. Any fare's timer
 // running out ends the run.
 //
 // Each fare is its own little state machine (`waiting → riding → gone`) carrying its own clock,
@@ -530,13 +530,14 @@ export function createFareSystem(rng, scene) {
     state.elapsed += dt;
 
     for (const fare of live) {
-      const { passenger, destination, timer, diamond } = fare.slot;
+      const { passenger, timer, diamond } = fare.slot;
 
       // Wave the waiting rider. Driven off sim time so it stays deterministic for screenshots.
       if (fare.stage === 'waiting' && passenger.standing) passenger.standing.wave(state.elapsed);
-      // Bounce the drop-off pin, so the thing you are being asked to drive to is the thing moving.
+      // The drop-off is a ring on the road and holds still — nothing to tick. It used to bounce a
+      // floating head, on the grounds that the thing you are being driven at should be the thing
+      // moving; the head is gone and the ring says it at ground level instead.
       if (fare.stage === 'riding') {
-        destination.update(dt);
         fare.ridingFor += dt;
         // Boarding animation: the marker stays visible for BOARD_SECONDS after pickup while the
         // figure runs across the kerb and hops into the taxi. `boardingFrom` was captured at the
