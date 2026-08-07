@@ -9,9 +9,9 @@ import {
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
   GRID, PITCH, HALF_ROAD, LANE, lineCoord, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
-  laneOffsetCoord, entryPoint, exitPoint, turnControl, nextIntersection, legalExits, isSegmentClosed,
-  ringAxisAt, isUnsignalised,
+  laneOffsetCoord, nextIntersection, isSegmentClosed, ringAxisAt, isUnsignalised,
 } from '../city/grid.js';
+import { cityNetwork } from '../city/roadnet.js';
 
 export { ringAxisAt, isUnsignalised };   // re-exported: callers of the sim ask it about junctions
 // Wheels and ride height live in geometry/wheels.js — see the note there on why they are not in
@@ -261,7 +261,9 @@ function panicTargetFor(car) {
   if (carAxis !== policePresence.axis) return 0;
   const carLine = carAxis === 'x' ? car.j : car.i;
   if (carLine !== policePresence.line) return 0;
-  const dist = Math.abs(car.s - policePresence.s);
+  // `policePresence.s` is a world coordinate on the siren's axis — the cruiser is not on a lane —
+  // so the car's own `s`, now an arc length, has to be put back into those terms to compare.
+  const dist = Math.abs(along(car.d, car.lane.path.at(car.s)) - policePresence.s);
   if (dist >= PANIC_RANGE) return 0;
   return 1 - dist / PANIC_RANGE;
 }
@@ -478,7 +480,61 @@ function carGeometry() {
 /** Coordinate along the travel axis for a point. */
 const along = (d, p) => (isXAxis(d) ? p.x : p.z);
 
+/**
+ * Yaw that points a +X-facing model along a heading, the tangent form of `dirYaw`.
+ *
+ * A lane hands back a tangent rather than one of four directions, which is the whole point — a
+ * diagonal or a curve has a heading and no `d`. On the grid the two agree exactly: heading +Z is
+ * tangent (0, 1), and atan2(-1, 0) is the -PI/2 `dirYaw` hard-codes.
+ */
+const yawOf = (t) => Math.atan2(-t.z, t.x);
+
+/**
+ * The turn out of `lane` that leaves in grid direction `d`, or null if there isn't one.
+ *
+ * The bridge between a route — still a list of grid directions — and the network's turns. It goes
+ * when routes are lists of lanes.
+ */
+function exitToward(net, lane, d) {
+  for (const id of lane.exits) {
+    const turn = net.turnById.get(id);
+    if (net.dirOfLane(net.laneById.get(turn.outLane)) === d) return turn;
+  }
+  return null;
+}
+
+/**
+ * Refresh the grid-shaped fields other modules still read off a car.
+ *
+ * `car.lane` and `car.s` are the truth; `car.i`, `car.j` and `car.d` are a view of it, kept so
+ * `game/routeline.js`, `game/fares.js`, `sim/police.js` and the probe keep working while the
+ * network port moves through the codebase one file at a time. They go when nothing reads them.
+ */
+function syncGrid(car) {
+  const net = cityNetwork();
+  const to = net.nodeById.get(car.lane.to);
+  car.i = to.gi;
+  car.j = to.gj;
+  car.d = net.dirOfLane(car.lane);
+}
+
+/**
+ * How far ahead a car can be constrained by a leader, in world units.
+ *
+ * Not a tuning knob — it is derived. A car brakes toward `sqrt(2 * BRAKE * allowed)`, so a leader
+ * stops mattering once that exceeds the car's top speed: at boost (18.7 u/s) that is 15.9 units of
+ * clear road, plus BOOST_GAP, so 20.4. Beyond it the leader is invisible to the physics whether or
+ * not it is visible to the bookkeeping. 26 leaves margin and still fits in two lanes plus the
+ * junction between them (12 + 8 + 12).
+ *
+ * The old model never needed this: `laneKey` was one *infinite* lane spanning the city, so a car
+ * saw every leader in its row for free — including, as it happens, cars three blocks away it was
+ * about to turn away from. Per-edge lanes end that, so the distance has to be walked.
+ */
+const LOOKAHEAD = 26;
+
 function spawnCars(rng, count) {
+  const net = cityNetwork();
   const cars = [];
   const attempts = count * 12;
 
@@ -487,24 +543,33 @@ function spawnCars(rng, count) {
     const line = rng.int(0, GRID);   // the road the car drives along
     const seg = rng.int(0, GRID - 1); // which gap between intersections
 
-    // That stretch of road may have been built over by a park district.
-    if (isXAxis(d) ? isSegmentClosed(seg, line, 0) : isSegmentClosed(line, seg, 1)) continue;
-
-    const lo = lineCoord(seg) + HALF_ROAD;
-    const hi = lineCoord(seg + 1) - HALF_ROAD;
-    const s = rng.range(lo + 0.5, hi - 0.5);
-
     // Target intersection is whichever end of the segment the car is heading for.
     const targetIndex = dirSign(d) > 0 ? seg + 1 : seg;
     const i = isXAxis(d) ? targetIndex : line;
     const j = isXAxis(d) ? line : targetIndex;
 
-    const laneKey = isXAxis(d) ? `x|${d}|${j}` : `z|${d}|${i}`;
-    const clash = cars.some((c) => c.laneKey === laneKey && Math.abs(c.s - s) < MIN_GAP + 1);
+    // No lane means no road: that stretch was built over by a park district. Checked before any
+    // further draw, exactly where the old `isSegmentClosed` guard sat, so a seed still produces
+    // the same traffic.
+    const lane = net.laneByGrid(d, i, j);
+    if (!lane || lane.degenerate) continue;
+
+    // `s` is now arc length along the lane rather than a world coordinate on an axis. The draw is
+    // kept identical — one `rng.range` over the same span — and mirrored for the two negative
+    // directions, where the old world coordinate ran backwards along the lane. Spawn positions
+    // therefore land exactly where they used to, which is what keeps every seeded measurement in
+    // the suite comparable across this change.
+    const t = rng.range(0.5, lane.length - 0.5);
+    const s = dirSign(d) > 0 ? t : lane.length - t;
+
+    const clash = cars.some((c) => c.lane === lane && Math.abs(c.s - s) < MIN_GAP + 1);
     if (clash) continue;
 
     cars.push({
-      d, i, j, s, laneKey,
+      d, i, j, s, lane,
+      // The turn being executed while `state === 'turn'`, straight off the network. Replaces the
+      // `dIn -> dOut` pair the arc used to be rebuilt from every time.
+      turn: null,
       state: 'drive',
       turnT: 0,
       turnLen: 1,
@@ -561,8 +626,68 @@ function spawnCars(rng, count) {
   return cars;
 }
 
-// Exported so a test can place a car on a lane without hand-rolling the key format.
-export const laneKeyFor = (d, i, j) => (isXAxis(d) ? `x|${d}|${j}` : `z|${d}|${i}`);
+/**
+ * Put a car on the lane approaching (i, j) travelling `d`, `back` units short of the junction.
+ *
+ * Exported for the probe, which stages contrived situations — a leader eighteen units ahead of a
+ * boosting taxi, a car mid-approach to a specific junction. `back` may exceed one lane, in which
+ * case it walks backwards along the straight-through chain; the old `laneKey` allowed that for
+ * free by being one infinite lane per row, and the tests were written against it.
+ */
+export function placeCar(car, d, i, j, back) {
+  const net = cityNetwork();
+  let lane = net.laneByGrid(d, i, j);
+  let remaining = back;
+  while (lane && remaining > lane.length) {
+    const prev = net.laneByGrid(d, ...gridOf(net, lane.from));
+    const turn = prev && net.turnById.get(prev.exits[0]);
+    if (!prev || !turn || turn.hand !== 'straight') break;
+    // One lane back along the chain, plus the junction between the two.
+    const across = lane.length + turn.length;
+    // Between the two is *inside* a junction box, which no lane position can express — the old
+    // infinite row could. Stop at the near end of this lane rather than overshoot.
+    if (remaining < across) break;
+    remaining -= across;
+    lane = prev;
+  }
+  if (!lane) return false;
+  car.lane = lane;
+  car.s = Math.max(0, lane.length - Math.min(remaining, lane.length));
+  car.turn = null;
+  car.state = 'drive';
+  car.turnT = 0;
+  syncGrid(car);
+  car.dOut = car.d;
+  return true;
+}
+
+const gridOf = (net, nodeId) => {
+  const node = net.nodeById.get(nodeId);
+  return [node.gi, node.gj];
+};
+
+/**
+ * How much straight road runs back from junction (i, j) along approach `d`, junctions included.
+ *
+ * The probe stages cars a fixed distance short of a junction, and a junction one block from the
+ * map edge simply does not have thirty units behind it. Under the old infinite `laneKey` row that
+ * went unnoticed — the car was placed off the map and drove in. A lane cannot express that, which
+ * is the model being right, so the room has to be asked for rather than assumed.
+ */
+export function approachRoom(d, i, j) {
+  const net = cityNetwork();
+  let lane = net.laneByGrid(d, i, j);
+  let room = 0;
+  while (lane) {
+    room += lane.length;
+    const prev = net.laneByGrid(d, ...gridOf(net, lane.from));
+    const turn = prev && net.turnById.get(prev.exits[0]);
+    if (!prev || !turn || turn.hand !== 'straight') break;
+    room += turn.length;
+    lane = prev;
+  }
+  return room;
+}
 
 function bezier(p0, p1, p2, t) {
   const mt = 1 - t;
@@ -579,6 +704,7 @@ function lerpAngle(a, b, t) {
 }
 
 export function createTraffic(rng, scene, count = 24) {
+  const net = cityNetwork();
   const cars = spawnCars(rng, count);
 
   // The player's taxi is an ordinary car in this same array — that is what subjects it to
@@ -781,8 +907,8 @@ export function createTraffic(rng, scene, count = 24) {
     const movingDirs = phase.axis === 'x' ? [0, 2] : [1, 3];
     for (const d of movingDirs) {
       for (const other of approaching.get(`${car.i},${car.j},${d}`) ?? []) {
-        const stop = along(other.d, entryPoint(other.d, other.i, other.j));
-        const gap = (stop - other.s) * dirSign(other.d);
+        // How much lane the other car has left before the junction — which is all `s` now means.
+        const gap = other.lane.length - other.s;
         if (gap >= 0 && gap < RIGHT_ON_RED_YIELD) return false;
       }
     }
@@ -793,8 +919,7 @@ export function createTraffic(rng, scene, count = 24) {
     const dirs = ring === 'x' ? [0, 2] : [1, 3];
     for (const d of dirs) {
       for (const other of approaching.get(`${car.i},${car.j},${d}`) ?? []) {
-        const stop = along(other.d, entryPoint(other.d, other.i, other.j));
-        const gap = (stop - other.s) * dirSign(other.d);
+        const gap = other.lane.length - other.s;
         if (gap >= 0 && gap < RING_YIELD) return false;
       }
     }
@@ -864,6 +989,8 @@ export function createTraffic(rng, scene, count = 24) {
     // --- Index cars by lane so each one can see the vehicle immediately ahead.
     // A car mid-turn keeps a presence in its entry lane for the first part of the turn,
     // otherwise following cars pile into the intersection behind it.
+    // Lane id -> members, each at its arc length along that lane. `s` runs the same way on every
+    // lane, so there is no travel-direction sign to carry around any more.
     const lanes = new Map();
     const approaching = new Map(); // for left-turn yielding
     // Intersections with a car stuck mid-turn, waiting for room to land. Cross traffic must not
@@ -875,10 +1002,6 @@ export function createTraffic(rng, scene, count = 24) {
     }
 
     for (const car of cars) {
-      let key = null;
-      let laneS = 0;
-      let laneDir = car.d;
-
       // A crashed car is not in traffic at all. A *boosting* taxi used to be skipped here too, on
       // the grounds that it had left its lane; now that it only weaves within it, it belongs in
       // the bookkeeping like anyone else. That cuts both ways and both matter: it sees the car it
@@ -886,46 +1009,91 @@ export function createTraffic(rng, scene, count = 24) {
       // ambient car rear-ending the taxi ended the run through no fault of the player.
       if (car.crashed) continue;
 
+      let lane = car.lane;
+      let laneS = car.s;
+
       if (car.state === 'drive') {
-        key = car.laneKey;
-        laneS = car.s;
         const arrivalKey = `${car.i},${car.j},${car.d}`;
         if (!approaching.has(arrivalKey)) approaching.set(arrivalKey, []);
         approaching.get(arrivalKey).push(car);
       } else if (car.turnT < 0.6) {
-        // First half of the turn: still queued behind in the lane it came from.
-        key = laneKeyFor(car.d, car.i, car.j);
-        laneS = along(car.d, car.entry) + dirSign(car.d) * car.turnT * 5;
+        // First half of the turn: still queued behind in the lane it came from, nose past the line
+        // and into the junction — hence a position beyond the lane's own end.
+        laneS = car.lane.length + car.turnT * 5;
       } else {
-        // Second half: hand the car over to the lane it is about to land in. Without this it
-        // is invisible to that lane's traffic for the rest of the turn, and then materialises
-        // on top of whatever drove into the gap.
-        laneDir = car.dOut;
-        key = laneKeyFor(car.dOut, car.i, car.j);
-        laneS = along(car.dOut, car.exit) - dirSign(car.dOut) * (1 - car.turnT) * 5;
+        // Second half: hand the car over to the lane it is about to land in, still short of that
+        // lane's start. Without this it is invisible to that lane's traffic for the rest of the
+        // turn, and then materialises on top of whatever drove into the gap.
+        lane = net.laneById.get(car.turn.outLane);
+        laneS = -(1 - car.turnT) * 5;
       }
 
-      if (!lanes.has(key)) lanes.set(key, []);
-      lanes.get(key).push({ car, laneS, laneDir });
+      if (!lanes.has(lane.id)) lanes.set(lane.id, []);
+      lanes.get(lane.id).push({ car, laneS });
     }
 
-    // Nearest car ahead, per lane.
-    const leaderGap = new Map();
+    // Furthest along first, so each lane's list reads front to back.
+    for (const members of lanes.values()) members.sort((a, b) => b.laneS - a.laneS);
+
+    /** The turn that carries straight on out of a lane, if there is one. Exits are sorted. */
+    const straightOn = (lane) => {
+      const first = lane.exits.length ? net.turnById.get(lane.exits[0]) : null;
+      return first && first.hand === 'straight' ? first : null;
+    };
+
+    /**
+     * Every vehicle ahead of `s` on `lane`, out to `range`, carrying straight on through junctions.
+     * Nearest first.
+     *
+     * This is the forward view the old `laneKey` gave for free by being one *infinite* lane per
+     * row: a car saw the queue on the far side of a junction because that queue was in the same
+     * list. Per-edge lanes end that, so the chain has to be walked — and both things that needed
+     * the view need it walked the same way, car-following and the Loco Mode scatter alike.
+     *
+     * "Straight on" is the faithful continuation rather than an approximation of one: the old row
+     * *was* the straight-through chain, and a car that turned off left the row and stopped being
+     * seen by everyone behind it.
+     */
+    const ahead = (lane, s, range) => {
+      const out = [];
+      let base = -s;
+      let cur = lane;
+      // Three lanes and the two junctions between them span 52 units, comfortably past the
+      // longest range asked of it (SCATTER_RANGE, 40).
+      for (let hop = 0; hop <= 2; hop++) {
+        for (const m of lanes.get(cur.id) ?? []) {
+          const gap = base + m.laneS;
+          if (gap > 0 && gap <= range) out.push({ car: m.car, gap });
+        }
+        const turn = straightOn(cur);
+        if (!turn) break;
+        base += cur.length + turn.length;
+        if (base > range) break;
+        cur = net.laneById.get(turn.outLane);
+      }
+      return out.sort((p, q) => p.gap - q.gap);
+    };
+
+    // Distance to the vehicle ahead, per car. A distance rather than the leader's position: with
+    // the leader now possibly on a different lane, its coordinate is not comparable to this car's.
+    const leaderDist = new Map();
     for (const [, members] of lanes) {
-      // Every member of a lane shares its travel direction; use the recorded lane direction
-      // rather than car.d, which still holds the entry direction for a turning car.
-      const sign = dirSign(members[0].laneDir);
-      members.sort((a, b) => (b.laneS - a.laneS) * sign);
       for (let k = 1; k < members.length; k++) {
         const behind = members[k];
         const ahead = members[k - 1];
-        const gap = (ahead.laneS - behind.laneS) * sign;
+        const gap = ahead.laneS - behind.laneS;
         // Only measure real lane geometry. A turning car's lane position is a synthetic stand-in
         // used for queueing, so including it here reports overlaps that don't exist on screen.
         if (behind.car.state === 'drive' && ahead.car.state === 'drive' && gap < stats.minGap) {
           stats.minGap = gap;
         }
-        leaderGap.set(behind.car, ahead.laneS);
+        leaderDist.set(behind.car, gap);
+      }
+      // The car at the front of a lane has to look past the junction for its leader.
+      const front = members[0];
+      if (front.car.state === 'drive') {
+        const next = ahead(front.car.lane, front.laneS, LOOKAHEAD)[0];
+        if (next) leaderDist.set(front.car, next.gap);
       }
     }
 
@@ -936,34 +1104,26 @@ export function createTraffic(rng, scene, count = 24) {
     // line, which is the second-biggest thing that took Loco Mode's speed away.
     const fleeing = new Set();
     if (taxiActive && taxi.boost) {
-      const mark = (key, fromS, d) => {
-        const sign = dirSign(d);
-        for (const { car, laneS } of lanes.get(key) ?? []) {
-          if (car.isTaxi) continue;
-          const ahead = (laneS - fromS) * sign;
-          if (ahead > 0 && ahead <= SCATTER_RANGE) fleeing.add(car);
+      const mark = (lane, fromS) => {
+        for (const { car } of ahead(lane, fromS, SCATTER_RANGE)) {
+          if (!car.isTaxi) fleeing.add(car);
         }
       };
 
-      // The exit lane is measured from behind its exit point by the same clearance the box check
-      // wants, so the cars that would fail that check are exactly the ones told to move.
-      const markExit = (d) => mark(
-        laneKeyFor(d, taxi.i, taxi.j),
-        along(d, exitPoint(d, taxi.i, taxi.j)) - dirSign(d) * MIN_GAP * 1.5,
-        d,
-      );
+      // The exit lane is measured from behind its start by the same clearance the box check wants,
+      // so the cars that would fail that check are exactly the ones told to move.
+      const markExit = (lane) => mark(lane, -MIN_GAP * 1.5);
 
       if (taxi.state === 'drive') {
-        mark(taxi.laneKey, taxi.s, taxi.d);
+        mark(taxi.lane, taxi.s);
         // Only once the junction is close enough to matter — otherwise every car on every road
         // the route touches is fleeing a taxi two blocks away.
-        const toLine = (along(taxi.d, entryPoint(taxi.d, taxi.i, taxi.j)) - taxi.s) * dirSign(taxi.d);
-        if (toLine <= SCATTER_RANGE) {
-          const dOut = taxi.route?.length ? taxi.route[0] : taxi.d;
-          if (legalExits(taxi.d, taxi.i, taxi.j).includes(dOut)) markExit(dOut);
+        if (taxi.lane.length - taxi.s <= SCATTER_RANGE) {
+          const turn = exitToward(net, taxi.lane, taxi.route?.length ? taxi.route[0] : taxi.d);
+          if (turn) markExit(net.laneById.get(turn.outLane));
         }
       } else {
-        markExit(taxi.dOut);
+        markExit(net.laneById.get(taxi.turn.outLane));
       }
     }
 
@@ -986,10 +1146,11 @@ export function createTraffic(rng, scene, count = 24) {
       car.panic += (panicTarget - car.panic) * Math.min(1, dt * 6);
 
       if (car.state === 'drive') {
-        const sign = dirSign(car.d);
-        const stopS = along(car.d, entryPoint(car.d, car.i, car.j));
-        const holdS = stopS - sign * STOP_SETBACK;
-        const distToLine = (holdS - car.s) * sign;
+        // A lane ends exactly at the junction boundary — that is where `buildLanes` trimmed it —
+        // so the stop line is the lane's own length, pulled back by the crosswalk clearance. No
+        // travel-direction sign: `s` counts forward along the lane whichever way it points.
+        const holdS = car.lane.length - STOP_SETBACK;
+        const distToLine = holdS - car.s;
 
         // --- How much road is this car actually allowed to use before it must be stopped?
         let allowed = Infinity;
@@ -1009,10 +1170,10 @@ export function createTraffic(rng, scene, count = 24) {
         // centreline and went round. In its own lane it has to see the leader or it drives into
         // the back of it, so it tailgates at BOOST_GAP instead: still visibly impatient, still
         // clear of the collision envelope, and it takes the gap the instant the leader turns off.
-        const aheadS = leaderGap.get(car);
-        if (aheadS !== undefined) {
+        const ahead = leaderDist.get(car);
+        if (ahead !== undefined) {
           const gap = car.boost ? BOOST_GAP : MIN_GAP;
-          allowed = Math.min(allowed, Math.max(0, (aheadS - car.s) * sign - gap));
+          allowed = Math.min(allowed, Math.max(0, ahead - gap));
         }
 
         if (car.parked) {
@@ -1067,7 +1228,7 @@ export function createTraffic(rng, scene, count = 24) {
             // currently holds the green, and never into a junction an emergency vehicle is
             // clearing or one already blocked by a stranded car.
             if (!green && !held && !corridorCovers(car.i, car.j)
-                && legalExits(car.d, car.i, car.j).includes(rightOf(car.d))
+                && exitToward(net, car.lane, rightOf(car.d))
                 && rightOnRedClear(car, t, approaching)) {
               viaRightOnRed = true;
             }
@@ -1088,26 +1249,31 @@ export function createTraffic(rng, scene, count = 24) {
             }
           }
 
-          let dOut = null;
+          let chosen = null;
 
           if (viaRightOnRed) {
             // The only legal move is the right turn. A routed car takes it if its plan agrees;
             // otherwise it waits for the green like anyone else.
-            const turn = rightOf(car.d);
-            if (!car.route?.length || car.route[0] === turn) {
-              dOut = turn;
+            const turn = exitToward(net, car.lane, rightOf(car.d));
+            if (turn && (!car.route?.length || car.route[0] === rightOf(car.d))) {
+              chosen = turn;
               if (car.route?.length) car.routeConsumed = true;
             }
           } else if (green) {
-            const options = legalExits(car.d, car.i, car.j);
+            // Already in straight/right/left order — the order the weighted roll below walks, and
+            // the one `legalExits` used to return.
+            const options = car.lane.exits.map((id) => net.turnById.get(id));
+            const routed = car.route?.length
+              ? options.find((o) => net.dirOfLane(net.laneById.get(o.outLane)) === car.route[0])
+              : null;
 
             // A routed car (the player's taxi) takes the next turn its route calls for; everyone
             // else rolls the weighted straight/right/left dice. This single branch is the entire
             // difference between ambient traffic and a directed vehicle — everything below it
             // (yielding, don't-block-the-box, signals, following distance) applies identically,
             // so the taxi cannot cheat its way to a destination.
-            if (car.route?.length && options.includes(car.route[0])) {
-              dOut = car.route[0];
+            if (routed) {
+              chosen = routed;
               car.routeConsumed = true;
             } else {
               // A routed car whose next step is not a legal exit has desynced from its plan.
@@ -1117,27 +1283,28 @@ export function createTraffic(rng, scene, count = 24) {
                 stats.routeDesync += 1;
                 car.route.length = 0;
               }
-              // Weight straight/right/left, then fall back to whatever is legal here.
-              const weighted = [];
-              options.forEach((d) => {
-                const kind = d === car.d ? 0 : d === leftOf(car.d) ? 2 : 1;
+              // Weight straight/right/left, then fall back to whatever is legal here. The hand
+              // comes off the turn rather than out of direction arithmetic, which is what lets a
+              // three-way — where one approach can have two distinct lefts — weight them both.
+              const weighted = options.map((turn) => {
+                const kind = turn.hand === 'straight' ? 0 : turn.hand === 'left' ? 2 : 1;
                 // Fleeing the boosting taxi: carrying straight on keeps this car in the taxi's
                 // lane for another whole block, so it barely rolls that option. Still a weight
                 // rather than a filter — at a T-junction straight may be the only legal exit.
                 const w = kind === 0 && car.scatter > 0.5 ? SCATTER_STRAIGHT_W : TURN_WEIGHTS[kind];
-                weighted.push({ d, w });
+                return { turn, w };
               });
               const total = weighted.reduce((sum, o) => sum + o.w, 0);
               let roll = rng.next() * total;
               for (const option of weighted) {
                 roll -= option.w;
-                if (roll <= 0) { dOut = option.d; break; }
+                if (roll <= 0) { chosen = option.turn; break; }
               }
-              dOut ??= options[0];
+              chosen ??= options[0];
             }
 
             // Left turns yield to oncoming traffic close to the same intersection.
-            if (dOut === leftOf(car.d)) {
+            if (chosen?.hand === 'left') {
               let blocked;
               if (car.boost && priorityCovers(car.i, car.j)) {
                 // The oncoming lane is already being held at its own line by the priority hold
@@ -1151,21 +1318,18 @@ export function createTraffic(rng, scene, count = 24) {
               } else {
                 const oncoming = approaching.get(`${car.i},${car.j},${opposite(car.d)}`) ?? [];
                 blocked = oncoming.some((other) => {
-                  const otherStop = along(other.d, entryPoint(other.d, other.i, other.j));
-                  const otherDist = (otherStop - other.s) * dirSign(other.d);
+                  const otherDist = other.lane.length - other.s;
                   return otherDist >= 0 && otherDist < YIELD_RANGE;
                 });
               }
-              if (blocked) dOut = null;
+              if (blocked) chosen = null;
             }
 
             // Don't block the box: refuse to enter unless there's room to land in the exit lane.
             // Without this, a car finishing a turn is teleported to the exit point regardless of
             // what's already sitting there, which is how cars ended up overlapping.
-            if (dOut !== null) {
-              const exitKey = laneKeyFor(dOut, car.i, car.j);
-              const exitS = along(dOut, exitPoint(dOut, car.i, car.j));
-              const exitSign = dirSign(dOut);
+            if (chosen) {
+              const exitLane = net.laneById.get(chosen.outLane);
               // Extra margin on top of the following distance, because the exit lane can back up
               // during the second or so the turn takes and holding mid-intersection is far more
               // disruptive than simply waiting at the line. That margin is priced in time, not
@@ -1174,22 +1338,22 @@ export function createTraffic(rng, scene, count = 24) {
               // Charging it the full 1.5× was the single biggest cause of a dead stop under a
               // green with the button held — 9.7% of boosted frames at ?cars=40.
               const clearance = car.boost ? MIN_GAP : MIN_GAP * 1.5;
-              const occupied = (lanes.get(exitKey) ?? []).some(({ car: other, laneS }) => {
+              const occupied = (lanes.get(exitLane.id) ?? []).some(({ car: other, laneS }) => {
                 if (other === car || other.state !== 'drive') return false;
-                // Clearance is needed on both sides: a car approaching from behind the exit
-                // point gets landed on just as hard as one already sitting in front of it.
-                const ahead = (laneS - exitS) * exitSign;
-                return Math.abs(ahead) < clearance;
+                // The car lands at the exit lane's start, so `laneS` *is* the signed clearance.
+                // It is needed on both sides: a car approaching from behind the landing point gets
+                // landed on just as hard as one already sitting in front of it.
+                return Math.abs(laneS) < clearance;
               });
-              if (occupied) dOut = null;
+              if (occupied) chosen = null;
             }
           }
 
-          if (dOut === null) {
+          if (!chosen) {
             // Held at the line after all — the routed turn was never taken, so the route must not
             // advance. It will be reconsidered next frame.
             car.routeConsumed = false;
-            car.s = holdS - sign * 0.02; // hold at the line, clear of the crosswalk
+            car.s = holdS - 0.02; // hold at the line, clear of the crosswalk
             stats.waiting += 1;
             continue;
           }
@@ -1207,18 +1371,23 @@ export function createTraffic(rng, scene, count = 24) {
           else if (ring === null && !canProceed(car.d, car.i, car.j, t)
               && !taxiClearsYellow(car, distToLine, t)) stats.violations += 1;
 
-          car.entry = entryPoint(car.d, car.i, car.j);
-          car.exit = exitPoint(dOut, car.i, car.j);
-          car.control = turnControl(car.d, dOut, car.i, car.j);
-          car.dOut = dOut;
+          // Straight off the network: the arc's ends are the two lanes' own endpoints and its
+          // control point is where their tangents cross. `turnControl`'s "same axis falls back to
+          // the midpoint" special case is that intersection being parallel, so one rule now covers
+          // a right turn, a left, a straight-through and a sweep across a diagonal.
+          const exitLane = net.laneById.get(chosen.outLane);
+          car.turn = chosen;
+          car.entry = car.lane.path.at(car.lane.length);
+          car.exit = exitLane.path.at(0);
+          car.control = chosen.control;
+          car.dOut = net.dirOfLane(exitLane);
           car.turnT = 0;
 
           // The hold line is now behind the junction boundary, so crossing it is a straight
           // run-up followed by the arc. Keeping the arc itself anchored at the boundary is what
           // preserves crisp corners — starting the curve from the hold line instead would turn
           // every corner into a long lazy sweep.
-          const lane = laneOffsetCoord(car.d, car.i, car.j);
-          car.hold = isXAxis(car.d) ? { x: holdS, z: lane } : { x: lane, z: holdS };
+          car.hold = car.lane.path.at(holdS);
           car.leadIn = STOP_SETBACK;
           car.turnLen = car.leadIn + Math.max(
             0.1,
@@ -1231,7 +1400,7 @@ export function createTraffic(rng, scene, count = 24) {
           continue;
         }
 
-        car.s += sign * step;
+        car.s += step;
         car.travelled += step;
         car.speedFactor = car.v / SPEED;
         stats.distance += step;
@@ -1244,7 +1413,7 @@ export function createTraffic(rng, scene, count = 24) {
         // this state, including going straight on, and clamping all of them to a corner speed made
         // cars sag at every block — the boosting taxi especially, which would hit top speed on the
         // straight and then shed a third of it to cross an empty junction in a straight line.
-        const straightOn = car.dOut === car.d;
+        const straightOn = car.turn.hand === 'straight';
         const cruise = car.boost ? SPEED * BOOST_SPEED : SPEED;
         // Crazy mode doesn't lift for left-turns or straights — it goes round them at full pelt,
         // and the lean plus the rubber on the road sell it instead of a speed drop. Right turns
@@ -1253,7 +1422,7 @@ export function createTraffic(rng, scene, count = 24) {
         // boost the whole arc completes in ~0.35s vs a left's ~0.7s and reads as *sped up*. A
         // softer target on rights (0.75× cruise) keeps the no-brakes feel while giving the tight
         // arc back its visual weight.
-        const isRight = !straightOn && car.dOut === rightOf(car.d);
+        const isRight = car.turn.hand === 'right';
         const boostTurn = car.boost ? (isRight ? cruise * 0.75 : cruise) : CORNER_SPEED;
         const cornerTarget = straightOn ? cruise : boostTurn;
         car.v = car.v > cornerTarget
@@ -1268,13 +1437,10 @@ export function createTraffic(rng, scene, count = 24) {
           // Re-check the landing spot. Clearance was verified on entry, but the arc takes over
           // a second to traverse and the exit lane can back up in that time — completing
           // regardless is a teleport straight into the car in front.
-          const exitS = along(car.dOut, car.exit);
-          const exitSign = dirSign(car.dOut);
-          const exitKey = laneKeyFor(car.dOut, car.i, car.j);
-          const blocked = (lanes.get(exitKey) ?? []).some(({ car: other, laneS }) => {
+          const exitLane = net.laneById.get(car.turn.outLane);
+          const blocked = (lanes.get(exitLane.id) ?? []).some(({ car: other, laneS }) => {
             if (other === car || other.state !== 'drive') return false;
-            const ahead = (laneS - exitS) * exitSign;
-            return ahead > -0.1 && ahead < MIN_GAP;
+            return laneS > -0.1 && laneS < MIN_GAP;
           });
 
           if (blocked) {
@@ -1284,12 +1450,10 @@ export function createTraffic(rng, scene, count = 24) {
             continue;
           }
 
-          const next = nextIntersection(car.dOut, car.i, car.j);
-          car.d = car.dOut;
-          car.i = next.i;
-          car.j = next.j;
-          car.s = along(car.d, car.exit);
-          car.laneKey = laneKeyFor(car.d, car.i, car.j);
+          car.lane = exitLane;
+          car.s = 0;                 // the exit point is where the landing lane begins
+          car.turn = null;
+          syncGrid(car);
           car.state = 'drive';
           car.turnT = 0;
         }
@@ -1307,10 +1471,10 @@ export function createTraffic(rng, scene, count = 24) {
       if (car.crashed) continue;
 
       if (car.state === 'drive') {
-        const lane = laneOffsetCoord(car.d, car.i, car.j);
-        car.x = isXAxis(car.d) ? car.s : lane;
-        car.z = isXAxis(car.d) ? lane : car.s;
-        car.yaw = dirYaw(car.d);
+        const p = car.lane.path.at(car.s);
+        car.x = p.x;
+        car.z = p.z;
+        car.yaw = yawOf(car.lane.path.tangentAt(car.s));
       } else {
         const travelled = Math.min(car.turnT, 1) * car.turnLen;
         if (travelled < car.leadIn) {
@@ -1383,7 +1547,7 @@ export function createTraffic(rng, scene, count = 24) {
         const along01 = (Math.min(car.turnT, 1) * car.turnLen - car.leadIn)
           / Math.max(1e-6, car.turnLen - car.leadIn);
         if (along01 > 0) {
-          const turnDir = car.dOut === rightOf(car.d) ? 1 : car.dOut === leftOf(car.d) ? -1 : 0;
+          const turnDir = car.turn.hand === 'right' ? 1 : car.turn.hand === 'left' ? -1 : 0;
           const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }

@@ -18,6 +18,7 @@ src/
 
   sim/                  things that move on their own
     traffic.js          signals + car physics + the single routing branch. The largest file.
+                        Cars drive lanes off the road network; `car.s` is arc length along one.
     police.js           the priority-corridor car
     collisions.js       taxi-vs-car impact test, boost only — wrecks both cars
 

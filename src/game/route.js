@@ -1,4 +1,4 @@
-import { GRID, DIR, rightOf, leftOf } from '../city/grid.js';
+import { GRID, rightOf, leftOf } from '../city/grid.js';
 import { cityNetwork, gridNodeId } from '../city/roadnet.js';
 
 /**
@@ -49,24 +49,8 @@ export function laneCost(lane) {
   return EDGE_COST.side;
 }
 
-/**
- * Grid direction a lane travels, for callers that still speak `(i, j, d)`.
- *
- * This is the adapter that keeps `traffic.js`, `fares.js` and `main.js` untouched while the router
- * moves onto the network — the sim still stores `car.d` and consumes a route as a list of
- * directions. It reads `gi`/`gj`, which only `roadNetFromGrid` sets, so it works precisely as long
- * as the city *is* a grid. It comes out when traffic.js starts driving lanes directly.
- */
 /** The search's one non-lane state: "arrived at the origin junction, about to choose". */
 const START = Symbol('start');
-
-function laneDir(net, lane) {
-  const a = net.nodeById.get(lane.from);
-  const b = net.nodeById.get(lane.to);
-  if (b.gi > a.gi) return DIR.PX;
-  if (b.gi < a.gi) return DIR.NX;
-  return b.gj > a.gj ? DIR.PZ : DIR.NZ;
-}
 
 /**
  * Lanes the car can take out of the junction it is currently heading toward.
@@ -86,7 +70,7 @@ function startExits(net, origin, inDir) {
   const right = rightOf(inDir);
   const left = leftOf(inDir);
   const rank = (lane) => {
-    const d = laneDir(net, lane);
+    const d = net.dirOfLane(lane);
     return d === straight ? 0 : d === right ? 1 : d === left ? 2 : 3;
   };
   return origin.outbound
@@ -128,7 +112,7 @@ export function findRoute(from, target, cost = laneCost) {
 
     if (cur !== START && cur.to === targetId) {
       const out = [];
-      for (let lane = cur; lane !== START; lane = prev.get(lane)) out.unshift(laneDir(net, lane));
+      for (let lane = cur; lane !== START; lane = prev.get(lane)) out.unshift(net.dirOfLane(lane));
       return out;
     }
 

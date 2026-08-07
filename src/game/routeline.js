@@ -144,7 +144,9 @@ export function routePath(car, route) {
   } else {
     // The lane point, not `car.x/car.z`: the taxi weaves inside its lane in Loco Mode, and the
     // band belongs to the lane rather than to that manoeuvre.
-    push(lanePoint(d, i, j, car.s));
+    // Straight off the lane the car is on. `car.s` is arc length along that lane now, not a
+    // world coordinate, so it can only be resolved by the lane that owns it.
+    push(car.lane.path.at(car.s));
   }
 
   const steps = route ?? [];

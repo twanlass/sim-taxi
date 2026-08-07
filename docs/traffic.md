@@ -79,6 +79,53 @@ in the middle of the green path it exists to create.
 `displayPhase(i, j, t)` is the same resolution with step 1 dropped — it's what the stop bars are
 drawn from, so the boosting taxi's hold never shows up on a lamp. See [Boost](#boost-crazy-taxi-mode).
 
+## Where a car is
+
+A car drives a **lane** — a directed half of one road, baked by
+[the road network](roadnet.md) — and `car.s` is its **arc length along that lane**, from 0 at the
+lane's start to `lane.length` at the junction boundary. There is no travel-direction sign to carry
+around: `s` counts forward whichever way the lane points, and the position on screen is
+`lane.path.at(s)`.
+
+That replaces `(i, j, d)` plus a world coordinate on the travel axis. `car.i`, `car.j` and `car.d`
+survive as a **view** of the lane, refreshed by `syncGrid` whenever the car changes lane, because
+`game/routeline.js`, `game/fares.js`, `sim/police.js` and the probe still speak grid. They go when
+those do.
+
+The reason for the change is that a world coordinate on an axis is not a thing a curve or a
+diagonal has, so the old representation could only ever describe a grid. Arc length is the property
+that generalises — see the note at the top of `city/curves.js`.
+
+### Car-following across a junction
+
+This is the one thing the old model got for free and the new one has to work for.
+
+`car.laneKey` used to be `"x|d|j"` — one **infinite** lane spanning the whole city — so a car saw
+the queue on the far side of a junction because that queue was in the same list. (It also saw cars
+three blocks away in the same row that it was about to turn away from, and queued behind them.)
+Per-edge lanes end that, so the forward view is walked instead:
+
+```js
+ahead(lane, s, range)   // vehicles ahead, carrying straight on through junctions, nearest first
+```
+
+"Straight on" is the faithful continuation rather than an approximation of one — the old row *was*
+the straight-through chain, and a car that turned off left the row and stopped being seen.
+
+`LOOKAHEAD = 26` is derived, not tuned. A car brakes toward `sqrt(2 · BRAKE · allowed)`, so a
+leader stops mattering once that exceeds the car's top speed: at boost (18.7 u/s) that is 15.9
+units of clear road, plus `BOOST_GAP`, so 20.4. Beyond that the leader cannot affect the physics
+whether or not the bookkeeping can see it. 26 leaves margin and still fits two lanes plus the
+junction between them.
+
+The same walk drives the Loco Mode scatter, which reaches `SCATTER_RANGE = 40` — two blocks.
+
+> Watch out: a distance short of a junction can land *inside a junction box*, which no lane
+> position can express. The infinite row could, and one probe scenario relied on it — staging a car
+> 18 units back on a 12-unit lane, and the boosting taxi 30 units back from a junction one block
+> from the map edge, i.e. 14 units off the western side of the city. `placeCar` and `approachRoom`
+> exist so a test asks for the room rather than assuming it.
+
 ## Car physics
 
 Cars accelerate and brake rather than snapping between speeds:
@@ -114,8 +161,23 @@ still has to launch from standing when their green begins.
 `lightPhase` returns `remaining` in seconds alongside `axis` / `yellow` so this check can be
 made without recomputing the cycle. Corridor, priority, and ring branches return `Infinity`.
 
-**Turns** follow a quadratic Bézier through `entryPoint → turnControl → exitPoint`, with yaw
-interpolated by `lerpAngle` so a car never spins the long way round.
+**Turns** follow a quadratic Bézier through the inbound lane's end, the turn's control point and
+the outbound lane's start, with yaw interpolated by `lerpAngle` so a car never spins the long way
+round. All three come off `car.turn`, straight from the network: the control point is where the two
+lane tangents cross, which is `turnControl`'s rule with its "same axis falls back to the midpoint"
+special case revealed as just that intersection being parallel. One rule covers a right turn, a
+left, a straight-through and a sweep across a diagonal.
+
+The *traversal* is deliberately unchanged — `turnLen` is still the control-polygon length and the
+curve is still walked by Bézier parameter, not by arc length. Switching to the network's
+arc-length turn path would make cars cross junctions about 20% faster, which is arguably more
+correct but is a change to how the game plays, not to where the geometry comes from. Kept separate
+on purpose.
+
+`car.turn.hand` — `'straight'`, `'right'`, `'left'` — replaces comparing `dOut` against
+`rightOf(d)` / `leftOf(d)`. It is what the corner-speed rule, the body roll and the random turn
+weighting all read, and it is defined by the angle rather than by a lookup table, so a three-way
+junction with two distinct lefts off one approach weights them both.
 
 ### Front wheels
 

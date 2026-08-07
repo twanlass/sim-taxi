@@ -156,11 +156,26 @@ directions all in hand. Everything else asks `cityNetwork()` rather than being h
 reads `lane.klass`/`lane.withWave`. See [gameplay.md](gameplay.md#routing). It still returns grid
 directions, because the sim still stores `car.d`.
 
+`src/sim/traffic.js` drives it: a car is a lane plus an arc length along it, junction geometry is
+the lanes' own endpoints and the turn's control point, and turn handedness comes off `turn.hand`.
+See [traffic.md](traffic.md#where-a-car-is), especially the note on car-following, which is the one
+thing the old infinite-lane model got for free.
+
 ## What isn't done yet
 
-`traffic.js`, `ground.js` and `police.js` still read `grid.js`; porting them is the next step, and
-the deepest part of it is car-following — `laneKey` is one infinite lane spanning the city, so a
-car sees its leader for free, and per-edge lanes break that at every junction.
+**Signals are still queried through the grid.** `lightPhase(i, j, t)` remains analytic in
+`traffic.js`; `phaseAt`/`canProceed` here are proven equivalent but nothing calls them yet. Two
+*intended* differences are waiting behind that switch — the green wave measured along a chain a
+closure cut, and no signal at a junction left with only a straight-through — so flipping it will
+move gameplay numbers, and it deserves its own change with its own before/after.
+
+**`ground.js` still meshes from `blockBounds`** rather than from the faces this module already
+computes, and **`police.js`** still describes its corridor as an `{axis, line}` pair rather than a
+path through the graph.
+
+The grid-shaped view a car still carries (`car.i`, `car.j`, `car.d`) exists for those three plus
+`fares.js` and the probe. `net.dirOfLane` is the single point where it is derived, so it is also
+the single thing to delete.
 
 A roundabout is currently expressible — a ring of one-way arcs, asserted to circulate and to let
 cars off at every spur — but as an assembly of ordinary nodes rather than a single primitive, and

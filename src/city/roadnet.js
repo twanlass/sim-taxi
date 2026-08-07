@@ -20,7 +20,7 @@
 // that porting traffic, routing and meshing onto this model is a change with a control.
 
 import {
-  GRID, LANE, HALF_ROAD, lineCoord, isSegmentClosed, isXAxis, dirSign,
+  GRID, LANE, HALF_ROAD, DIR, lineCoord, isSegmentClosed, isXAxis, dirSign,
 } from './grid.js';
 import {
   lineCurve, arcFromBulge, bezierCurve, rayIntersect, bearingOf, wrapAngle,
@@ -734,6 +734,20 @@ export function roadNetFromGrid(layout, config = {}) {
     : { i, j: j + way * dirSign(d) });
 
   net.nodeByGrid = (i, j) => net.nodeById.get(gridNodeId(i, j));
+  /**
+   * Grid direction a lane travels.
+   *
+   * The adapter every consumer needs while it still stores `car.d` and plans in `(i, j, d)`.
+   * Defined once, here, rather than re-derived in the router and the sim: it is the single point
+   * where the network is read back as a grid, and it works precisely as long as the city is one.
+   */
+  net.dirOfLane = (lane) => {
+    const a = net.nodeById.get(lane.from);
+    const b = net.nodeById.get(lane.to);
+    if (b.gi > a.gi) return DIR.PX;
+    if (b.gi < a.gi) return DIR.NX;
+    return b.gj > a.gj ? DIR.PZ : DIR.NZ;
+  };
   /** The lane a car travelling grid direction `d` toward intersection (i, j) is on. */
   net.laneByGrid = (d, i, j) => {
     const back = step(d, i, j, -1);
