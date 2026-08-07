@@ -198,7 +198,6 @@
         background: linear-gradient(90deg, #F5C130 var(--pct, 33.3%), rgba(255, 255, 255, 0.18) 0);
         transition: box-shadow 0.15s ease, transform 0.1s ease;
       }
-      #boost:active { transform: scale(0.95); }
       #boost.is-active {
         /* Solid white behind the drained portion, not a translucent wash — over pale asphalt the
            translucent version read as the same tan as the road and the dial lost its edge. */
@@ -245,9 +244,14 @@
          is the thing the player has to notice, and pulsing for exactly as long as fuel is landing
          ties it to the bar's movement rather than to a fixed 0.65s. */
       #boost.is-filling {
-        /* Per-frame updates, so the pill's own 0.15s box-shadow ease would smear the throb flat. */
-        transition: transform 0.1s ease;
+        /* Every property here is rewritten per frame, so any transition at all smears the 8Hz
+           throb flat — 0.1s of ease against a 125ms period leaves almost nothing moving. */
+        transition: none;
         box-shadow: 0 0 calc(14px + 26px * var(--pulse, 0)) rgba(245, 193, 48, calc(0.95 * var(--fill, 0)));
+        /* The pill itself flutters, not just its glow. 3.5% is a couple of pixels either side —
+           enough to catch the eye at the edge of vision, which is where this button is while the
+           player is watching the road. */
+        transform: scale(calc(1 + 0.035 * var(--pulse, 0)));
       }
       /* The leading edge of the fill: a soft vertical bar sitting on the fill front, blurred so it
          reads as light spilling off the advancing fuel rather than as a hairline UI divider. It
@@ -269,6 +273,16 @@
         opacity: var(--fill, 0);
         pointer-events: none;
       }
+      /* A pill fluttering at 8Hz is exactly what someone who asked for less motion doesn't want.
+         The glow and the leading edge still carry the top-up; only the movement goes. */
+      @media (prefers-reduced-motion: reduce) {
+        #boost.is-filling { transform: none; }
+      }
+      /* Last of the #boost rules on purpose: the press dip is the one piece of feedback that has to
+         win over everything else, and both the throb and the reduced-motion override set a
+         transform at equal specificity — a media query adds no weight — so a top-up landing under
+         the player's thumb would otherwise swallow it. */
+      #boost:active { transform: scale(0.95); }
       body.shot-mode #boost { display: none; }
 
       /* Rider finder — one chip per waiting fare, stacked vertically above the Loco Mode pill in

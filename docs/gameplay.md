@@ -447,8 +447,8 @@ whole reward and gets three layers, all timed by `src/game/boostmeter.js` and sh
 
 | Layer | What it does | Wiring |
 |---|---|---|
-| **Overfill** | The bar runs ~7% of a tank past its new mark, then eases back to it | `--pct` |
-| **Pulsing glow** | The pill throbs yellow at 5Hz for as long as fuel is arriving | `--fill` × `--pulse` → `.is-filling` |
+| **Overfill** | The bar runs ~7% of a tank past its new mark, then rings back down onto it | `--pct` |
+| **Flutter** | The whole pill throbs — glow and 3.5% of scale together, 8Hz — for as long as fuel is arriving | `--fill` × `--pulse` → `.is-filling` |
 | **Leading edge** | A blurred near-white line rides the front of the fill, fading in with the pour and out with the bounce | `--fill` → `#boost::after` |
 
 `boostmeter.js` is pure and DOM-free for the same reason `boost.js` is: `main.js` reads three numbers
@@ -462,7 +462,20 @@ of a tank at its best (K=160, C=4), about 4px on the pill, and a 1.4s wobble to 
 following a ramp can only overshoot by around v/ω, and a 0.5-tank/s pour against any ω fast enough
 not to look sluggish leaves nothing to work with. The scripted kick starts on the frame the pour
 finishes, so it still doesn't read as a jump — the bar is already travelling at the pour rate and the
-kick just carries it further, 0.1s out and 0.26s back.
+kick just carries it further, 0.1s out to the peak.
+
+**Coming back is a damped ring, not a curve.** The first version eased from the peak down onto the
+mark and stopped there, which is the exact moment the eye is on it, and it read as linear — the bar
+*arrived* rather than *settled*. The peak now releases into a decaying cosine (4Hz, e-folding at 7/s)
+so it dips under the mark, comes back over it smaller, and converges: off a 7% overshoot the swings
+measure **-2.9%, +1.2%, -0.5%, +0.2%**, then it snaps to the real level once the ring is under a
+fifth of a pixel, about 0.55s in. This is the spring the scripted kick doesn't get for free.
+
+The flutter is deliberately fast. At 5Hz the pill read as *breathing*; the point is a signal that
+something is being poured in right now, so it sits at the top of what still reads as a pulse rather
+than a flicker. It moves the pill itself, not just the glow, which is what makes it visible at the
+edge of vision — where this button is while the player is watching the road. `prefers-reduced-motion`
+drops the scale and keeps the glow and the edge.
 
 The glow used to be a one-shot green flash matching the flying `$20`. Green read as *money*, which
 is what the earnings pop already says; yellow says *this is boost*. Driving its alpha from a variable

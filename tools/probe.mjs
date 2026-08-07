@@ -1582,6 +1582,20 @@ check('the taxi is an ordinary car in the traffic array',
   check('the bar returns to the real level', Math.abs(settled.pct - b.fraction()) < 1e-9,
     `${(settled.pct * 100).toFixed(1)}% vs ${(b.fraction() * 100).toFixed(1)}% fuel`);
 
+  // ...and it *rings* on the way there rather than easing straight down onto it. Every extremum
+  // after the peak, measured against the level the bar ends on: alternating signs, each smaller
+  // than the last. An eased fall — the version this replaced — produces none of them, so the
+  // count alone is the check that the spring is still a spring.
+  const after = trace.filter((s) => s.t > peakT).map((s) => s.pct - settled.pct);
+  const swings = [];
+  for (let i = 1; i < after.length - 1; i++) {
+    if ((after[i] - after[i - 1]) * (after[i + 1] - after[i]) < 0) swings.push(after[i]);
+  }
+  const alternates = swings.every((v, i) => i === 0 || (v * swings[i - 1] < 0 && Math.abs(v) < Math.abs(swings[i - 1])));
+  check('the settle rings instead of easing flat onto the mark',
+    swings.length >= 3 && swings[0] < -0.01 && alternates,
+    swings.map((v) => `${(v * 100).toFixed(1)}%`).join(' '));
+
   // The bar climbs the whole way — no stall or step backwards before the peak.
   const climbs = trace.filter((s) => s.t <= peakT).every((s, i, a) => i === 0 || s.pct >= a[i - 1].pct - 1e-9);
   check('the fill never steps backwards on the way up', climbs);
