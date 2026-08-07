@@ -6,17 +6,21 @@
 npm run check
 ```
 
-Runs the whole headless suite in **~1.8s** and prints one compact summary:
+Runs the whole headless suite in **under 20s** and prints one compact summary:
 
 ```
 ok    modules  all import and construct · sun 0.00→3.84
-ok    probe    28/28
+ok    roadnet  250/250
+ok    probe    111/111
 ok    routing  30/30
-ok    fares    6/25
-ok    signals  7.05
+ok    fares    3/25 median
+ok    signals  7.16
 
-all green · 1.8s
+all green · 18.4s
 ```
+
+(It was ~1.8s when the suite was four tools and 28 probe assertions. Most of the time now is the
+fare soak and the probe, both of which run real sim seconds.)
 
 The point is round trips, not compute. The tools below total well under a second between them, but
 running them separately costs four exchanges — so `tools/check.mjs` runs them together and a change
@@ -30,7 +34,7 @@ can be made and verified in a single step.
 | **roadnet** | `tools/roadnet.mjs` | The road network reproduces the grid at 1e-9 — positions, lanes, turns, legal moves, signal phase across a cycle — plus diagonals, roundabouts and curves the grid can't express. Runs first: it is the control on every step below |
 | **probe** | `tools/probe.mjs` | Traffic invariants: no car in a park, no car off-map, no signal violations, all 5,184 (approach, destination) pairs routable, front wheels locked through corners and straight on the straight |
 | **routing** | `tools/taxi.mjs 30` | Given a target, the routed taxi actually **arrives** — while still stopping at every red |
-| **fares** | `tools/soak.mjs 25 4 9` | Auto-plays the fare loop over **9 run seeds** with a fixed "player reaction" delay, and gates on the median |
+| **fares** | `tools/soak.mjs 25 4 9` | Auto-plays the fare loop over **9 cities × 9 situations** with a fixed "player reaction" delay, and gates on the median |
 | **signals** | `tools/signals.mjs` | Throughput, stationary fraction, green-wave hit rate. Informational — it reports rather than fails |
 
 `taxi.mjs` is the assertion that matters most and the one **no screenshot can make**.
@@ -54,7 +58,8 @@ nothing headless imported it. Anything browser-only belongs in that file's `BOOT
 node tools/roadnet.mjs 40                     # road-network equivalence over 40 city seeds
 node tools/probe.mjs                          # individually, for detail on a failure
 node tools/taxi.mjs 60                        # more trials
-node tools/soak.mjs 40 3 20                   # 40 fares, 3s reaction, 20 run seeds
+node tools/soak.mjs 40 3 20                   # 40 fares, 3s reaction, 20 runs
+node tools/soak.mjs 25 4 15 71624 103300      # ...and pin the city, to compare two builds on one map
 node tools/signals.mjs                        # signal metrics, incl. cycle-length sweeps
 node tools/diag.mjs                           # ad-hoc scratch diagnostics
 node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM
@@ -104,7 +109,17 @@ These are the things that have actually cost time on this project:
   parameter sweep showed it immediately (14s → 3.80, 28s → 2.36 throughput).
 - **Measure the metric itself.** An early green-wave measurement always read exactly 50% because it
   released phantom cars at random phases — a wave only helps a platoon released *by* a green. The
-  metric was broken, not the signals.
+  metric was broken, not the signals. It was broken **twice more** after that, both times reading
+  plausibly the whole while: it walked `i = 0..GRID` along a row whether or not those roads existed,
+  driving a phantom platoon straight through a park district; and it looked for its release green at
+  `(0, j)`, which is on the ring for every interior `j`, so the condition never fired and every
+  platoon in fact departed at `t = 0`. It now walks a *chain* — the network's maximal through-route,
+  which stops where the road does — and releases at the first signalised junction the platoon
+  actually meets. The number it prints is not comparable to the old one.
+- **A sweep has to sweep the thing that varies most.** `soak.mjs` averaged over nine *situations* on
+  one *city*, and the city is the larger source of variance: a change that shifted that one city's
+  signal offsets moved the median a whole fare, while across six cities the same change was
+  invisible. It now rerolls the city per run, the way `main.js` does, connectivity check included.
 
 ## Test hook
 

@@ -8,12 +8,15 @@ import {
 } from '../geometry/wheels.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
-  GRID, PITCH, HALF_ROAD, LANE, lineCoord, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
-  laneOffsetCoord, nextIntersection, isSegmentClosed, ringAxisAt, isUnsignalised,
+  GRID, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
+  ringAxisAt, isUnsignalised,
 } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 
-export { ringAxisAt, isUnsignalised };   // re-exported: callers of the sim ask it about junctions
+// Re-exported for callers that still ask the *grid* about a junction. The sim itself no longer
+// decides anything with either: whether a junction carries a light is `node.signal !== null`, which
+// is the only form that can see a closure leaving nothing to arbitrate.
+export { ringAxisAt, isUnsignalised };
 // Wheels and ride height live in geometry/wheels.js — see the note there on why they are not in
 // this file. Passed straight through so callers have one import for "a vehicle".
 export { WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries };
@@ -157,9 +160,6 @@ export function edgeClass(i, j, d) {
   return { kind: 'side', withWave: false };
 }
 
-/** Seconds a platoon takes to cover one block at cruising speed — the basis of every offset. */
-const blockTime = () => PITCH / SPEED;
-
 /** How much clear road a joining car needs before pulling out in front of ring traffic. */
 const RING_YIELD = 24;
 
@@ -283,6 +283,22 @@ const priorityCovers = (i, j) =>
  * `ignorePriority` skips the boosting taxi's hold — see `displayPhase` for why the lamps want the
  * un-overridden answer.
  */
+/** A street's axis, folded back to the grid's 'x' / 'z'. Only the adapter below needs this. */
+const streetAxis = (node, index) => ((node.streets[index]?.axis ?? 0) < 0.1 ? 'x' : 'z');
+
+/**
+ * Signal state at an intersection, in the grid's shape.
+ *
+ * The phase plan itself now lives in the network — see `bakeSignals` — where a phase is a *street*
+ * rather than an axis, so a three-way or a diagonal junction has one. This wrapper folds that back
+ * to `{ axis, yellow, remaining }` for the callers that still speak grid: the probe, the signal
+ * metrics tool, and `displayPhase`. The sim itself no longer goes through it; see `approachSignal`.
+ *
+ * Two things genuinely change here rather than being re-expressed, both argued in docs/roadnet.md:
+ * a junction whose coordinated street a park closure cut in half now measures its green wave along
+ * the chain that still exists, and a junction left with only a straight-through carries no signal
+ * at all instead of cycling one nobody can use.
+ */
 export function lightPhase(i, j, t, ignorePriority = false) {
   if (!ignorePriority && priorityJunction && priorityJunction.i === i && priorityJunction.j === j) {
     return { axis: priorityJunction.axis, yellow: false, remaining: Infinity };
@@ -292,47 +308,17 @@ export function lightPhase(i, j, t, ignorePriority = false) {
   // would leave a gap in the middle of the green path it is supposed to be clearing.
   if (corridorCovers(i, j)) return { axis: corridor.axis, yellow: false, remaining: Infinity };
 
-  // Otherwise, unsignalised ring junctions have no phase to report: the ring simply has priority.
-  const ring = ringAxisAt(i, j);
-  if (ring) return { axis: ring, yellow: false, remaining: Infinity };
+  const net = cityNetwork();
+  const node = net.nodeByGrid(i, j);
 
-  const { cycle, yellow, arterialShare } = SIGNAL;
-  const xArterial = SIGNAL.arterialX.has(j);
-  const zArterial = SIGNAL.arterialZ.has(i);
-
-  // Split: an arterial crossing a side street takes the larger share. Arterial-meets-arterial and
-  // side-meets-side both fall back to an even split.
-  let xShare = 0.5;
-  if (xArterial && !zArterial) xShare = arterialShare;
-  else if (zArterial && !xArterial) xShare = 1 - arterialShare;
-
-  const totalGreen = cycle - 2 * yellow;
-  const greenX = totalGreen * xShare;
-  const greenZ = totalGreen - greenX;
-
-  // Offset: shift this junction's green earlier by the time a platoon takes to reach it, so the
-  // wave travels with the traffic. Each junction coordinates with whichever road through it
-  // matters more; a junction of two side streets defaults to coordinating along X.
-  const alongX = xArterial || !zArterial;
-  const step = blockTime();
-
-  let offset;
-  if (alongX) {
-    const blocks = (SIGNAL.dirX.get(j) ?? 1) > 0 ? i : GRID - i;
-    offset = -blocks * step;
-  } else {
-    const blocks = (SIGNAL.dirZ.get(i) ?? 1) > 0 ? j : GRID - j;
-    // The Z green starts partway through the cycle, so the wave has to line up with that instead.
-    offset = greenX + yellow - blocks * step;
+  // Unsignalised — the ring, or a junction with nothing to arbitrate. No phase to report: the
+  // priority street simply runs.
+  if (!node.signal) {
+    return { axis: streetAxis(node, node.priorityStreet), yellow: false, remaining: Infinity };
   }
 
-  const local = (((t + offset) % cycle) + cycle) % cycle;
-  if (local < greenX) return { axis: 'x', yellow: false, remaining: greenX - local };
-  if (local < greenX + yellow) return { axis: 'x', yellow: true, remaining: greenX + yellow - local };
-  if (local < greenX + yellow + greenZ) {
-    return { axis: 'z', yellow: false, remaining: greenX + yellow + greenZ - local };
-  }
-  return { axis: 'z', yellow: true, remaining: cycle - local };
+  const phase = net.phaseAt(node, t);
+  return { axis: streetAxis(node, phase.index), yellow: phase.yellow, remaining: phase.remaining };
 }
 
 /**
@@ -351,12 +337,48 @@ export function lightPhase(i, j, t, ignorePriority = false) {
  */
 export const displayPhase = (i, j, t) => lightPhase(i, j, t, true);
 
-const canProceed = (d, i, j, t) => {
-  if (priorityJunction && priorityJunction.block === d
-      && priorityJunction.i === i && priorityJunction.j === j) return false;
-  const phase = lightPhase(i, j, t);
-  return phase.axis === (isXAxis(d) ? 'x' : 'z') && !phase.yellow;
-};
+/**
+ * The same thing for one approach, which is what a stop bar actually shows. Skips the boost hold
+ * and keeps the corridor, exactly as `displayPhase` does and for the reasons above it.
+ */
+function displaySignal(lane, t) {
+  const net = cityNetwork();
+  const node = net.nodeById.get(lane.to);
+  if (corridorCovers(node.gi, node.gj)) {
+    const mine = isXAxis(net.dirOfLane(lane)) ? 'x' : 'z';
+    return { open: corridor.axis === mine, yellow: false };
+  }
+  return net.laneSignal(lane, t);
+}
+
+/**
+ * What the signal is doing for the approach this car is on.
+ *
+ * The same four layers `lightPhase` always resolved, in the same order — boosting-taxi hold, police
+ * corridor, then the junction's own plan — but asked of the car's *lane* rather than of an axis.
+ * That is the change that matters: `phase.axis === (isXAxis(d) ? 'x' : 'z')` is the one comparison
+ * in the sim that cannot survive a road at 45 degrees, and it is gone.
+ *
+ * The two override layers are still grid-shaped because the things that set them are: the corridor
+ * is an `{axis, line}` pair and the priority junction an `(i, j)`. Both become network-shaped when
+ * police.js is ported.
+ *
+ * `signalised` is kept distinct from `open` because a red and no-light-at-all mean different things
+ * to the caller — wait for green, versus yield on a gap.
+ */
+function approachSignal(car, t) {
+  const mine = isXAxis(car.d) ? 'x' : 'z';
+
+  if (priorityJunction && priorityJunction.i === car.i && priorityJunction.j === car.j) {
+    // `block` denies one approach that would otherwise read green — see setPriorityJunction.
+    const open = priorityJunction.block !== car.d && priorityJunction.axis === mine;
+    return { signalised: true, open, yellow: false, remaining: Infinity };
+  }
+  if (corridorCovers(car.i, car.j)) {
+    return { signalised: true, open: corridor.axis === mine, yellow: false, remaining: Infinity };
+  }
+  return cityNetwork().laneSignal(car.lane, t);
+}
 
 /**
  * The taxi runs yellows. A yellow on the taxi's axis stops being a hard "no": it becomes
@@ -370,15 +392,15 @@ const canProceed = (d, i, j, t) => {
  * length of slack on top, because the taxi is aggressive by design and cross cars have to
  * launch from standing anyway.
  */
-function taxiClearsYellow(car, distToLine, t) {
-  if (!car.isTaxi) return false;
-  const phase = lightPhase(car.i, car.j, t);
-  if (!phase.yellow || phase.axis !== (isXAxis(car.d) ? 'x' : 'z')) return false;
+function taxiClearsYellow(car, sig, distToLine) {
+  // `sig.yellow` is already "yellow, and it is my approach's phase" — the axis comparison this
+  // used to make is exactly what the lane-shaped answer removes.
+  if (!car.isTaxi || !sig.yellow) return false;
   const clearDist = Math.max(0, distToLine) + STOP_SETBACK + HALF_ROAD * 2;
   // A near-stopped taxi still commits: without this floor a car that just crept up to the line
   // would refuse to move even with the whole yellow left to use.
   const v = Math.max(car.v, SPEED * 0.7);
-  return clearDist / v <= phase.remaining + SIGNAL.yellow * 0.5;
+  return clearDist / v <= sig.remaining + cityNetwork().signal.yellow * 0.5;
 }
 
 // --- Cars -------------------------------------------------------------------
@@ -763,31 +785,25 @@ export function createTraffic(rng, scene, count = 24) {
   //
   // Placed just outside the crosswalk, so a car holding at the line sits behind the bar rather
   // than on top of it.
-  const BAR_DISTANCE = HALF_ROAD + 2.05;
+  // Measured back from where the lane ends, which is the junction boundary. The old form measured
+  // from the junction *centre* and subtracted HALF_ROAD to get here.
+  const BAR_SETBACK = 2.05;
 
   const barGeo = bakeColor(new THREE.PlaneGeometry(0.7, 3.6), new THREE.Color(1, 1, 1));
   barGeo.rotateX(-Math.PI / 2);
 
+  // One bar per signalised approach. `node.inbound` *is* "traffic can arrive this way" — a lane
+  // exists only where a road does — so the map-edge and closed-segment guards the grid loop needed
+  // are not ported, they are simply gone. A junction the network left unsignalised has no bars,
+  // which is the visible half of that difference.
   const bars = [];
-  for (let i = 0; i <= GRID; i++) {
-    for (let j = 0; j <= GRID; j++) {
-      if (isUnsignalised(i, j)) continue;         // ring junctions are yield-controlled
-      for (let d = 0; d < 4; d++) {
-        // Only worth a bar if traffic can actually arrive on this approach.
-        if (!nextIntersection(opposite(d), i, j)) continue;
-        if (isSegmentClosed(i, j, opposite(d))) continue;
-
-        const lane = laneOffsetCoord(d, i, j);
-        const back = -dirSign(d) * BAR_DISTANCE;
-        bars.push({
-          i,
-          j,
-          d,
-          x: isXAxis(d) ? lineCoord(i) + back : lane,
-          z: isXAxis(d) ? lane : lineCoord(j) + back,
-          turned: !isXAxis(d),
-        });
-      }
+  for (const node of net.nodes) {
+    if (!node.signal) continue;
+    for (const lane of node.inbound) {
+      if (lane.degenerate) continue;
+      const at = Math.max(0, lane.length - BAR_SETBACK);
+      const point = lane.path.at(at);
+      bars.push({ lane, x: point.x, z: point.z, yaw: yawOf(lane.path.tangentAt(at)) });
     }
   }
 
@@ -797,7 +813,7 @@ export function createTraffic(rng, scene, count = 24) {
   const dummy = new THREE.Object3D();
   bars.forEach((bar, index) => {
     dummy.position.set(bar.x, 0.05, bar.z);
-    dummy.rotation.set(0, bar.turned ? Math.PI / 2 : 0, 0);
+    dummy.rotation.set(0, bar.yaw, 0);
     dummy.updateMatrix();
     barMesh.setMatrixAt(index, dummy.matrix);
   });
@@ -901,29 +917,37 @@ export function createTraffic(rng, scene, count = 24) {
    * May a car joining the ring pull out? Only if nothing on the ring is bearing down on the
    * junction — the ring never stops, so the gap has to be a real one.
    */
-  /** Is the cross traffic that currently holds the green far enough away to turn right on red? */
-  function rightOnRedClear(car, t, approaching) {
-    const phase = lightPhase(car.i, car.j, t);
-    const movingDirs = phase.axis === 'x' ? [0, 2] : [1, 3];
-    for (const d of movingDirs) {
-      for (const other of approaching.get(`${car.i},${car.j},${d}`) ?? []) {
+  /**
+   * Is every approach on `street` far enough from the junction to pull out in front of?
+   *
+   * Both yielding rules are this question with a different clearance. Asking it per *street* is
+   * what removes the last place the sim assumed a junction is two axes with two approaches each:
+   * `[0, 2]` / `[1, 3]` becomes "the inbound lanes belonging to that street", which a three-way or
+   * a five-way answers just as readily.
+   */
+  function streetIsClear(car, street, clearance, approaching) {
+    const node = net.nodeById.get(car.lane.to);
+    for (const lane of node.inbound) {
+      if (lane.phase !== street) continue;
+      for (const other of approaching.get(lane.id) ?? []) {
         // How much lane the other car has left before the junction — which is all `s` now means.
         const gap = other.lane.length - other.s;
-        if (gap >= 0 && gap < RIGHT_ON_RED_YIELD) return false;
+        if (gap >= 0 && gap < clearance) return false;
       }
     }
     return true;
   }
 
-  function ringGapClear(car, ring, approaching) {
-    const dirs = ring === 'x' ? [0, 2] : [1, 3];
-    for (const d of dirs) {
-      for (const other of approaching.get(`${car.i},${car.j},${d}`) ?? []) {
-        const gap = other.lane.length - other.s;
-        if (gap >= 0 && gap < RING_YIELD) return false;
-      }
-    }
-    return true;
+  /** Is the cross traffic that currently holds the green far enough away to turn right on red? */
+  function rightOnRedClear(car, t, approaching) {
+    const green = cityNetwork().laneSignal(car.lane, t).street;
+    return streetIsClear(car, green, RIGHT_ON_RED_YIELD, approaching);
+  }
+
+  /** The ring never stops, so a car joining it has to find a real gap. */
+  function ringGapClear(car, approaching) {
+    const node = net.nodeById.get(car.lane.to);
+    return streetIsClear(car, node.priorityStreet, RING_YIELD, approaching);
   }
 
   function update(dt) {
@@ -992,7 +1016,7 @@ export function createTraffic(rng, scene, count = 24) {
     // Lane id -> members, each at its arc length along that lane. `s` runs the same way on every
     // lane, so there is no travel-direction sign to carry around any more.
     const lanes = new Map();
-    const approaching = new Map(); // for left-turn yielding
+    const approaching = new Map(); // inbound lane id -> cars on it, for the yielding rules
     // Intersections with a car stuck mid-turn, waiting for room to land. Cross traffic must not
     // be released into one of these or it drives straight through the stranded car.
     const heldAt = new Set();
@@ -1013,9 +1037,10 @@ export function createTraffic(rng, scene, count = 24) {
       let laneS = car.s;
 
       if (car.state === 'drive') {
-        const arrivalKey = `${car.i},${car.j},${car.d}`;
-        if (!approaching.has(arrivalKey)) approaching.set(arrivalKey, []);
-        approaching.get(arrivalKey).push(car);
+        // Keyed by the lane, which already says both which junction is being approached and from
+        // where — the two halves of the old `${i},${j},${d}` key.
+        if (!approaching.has(car.lane.id)) approaching.set(car.lane.id, []);
+        approaching.get(car.lane.id).push(car);
       } else if (car.turnT < 0.6) {
         // First half of the turn: still queued behind in the lane it came from, nose past the line
         // and into the junction — hence a position beyond the lane's own end.
@@ -1156,15 +1181,13 @@ export function createTraffic(rng, scene, count = 24) {
         let allowed = Infinity;
 
         // The signal ahead, read now rather than on arrival — this is what lets it slow early.
-        // A corridor or a boosting-taxi priority hold both temporarily signalise the ring, so the
-        // taxi's axis reads as green and cross ring traffic yields to it.
-        const ringAxis = corridorCovers(car.i, car.j) || priorityCovers(car.i, car.j)
-          ? null : ringAxisAt(car.i, car.j);
-        const onRingNow = ringAxis !== null && (isXAxis(car.d) ? 'x' : 'z') === ringAxis;
-        const open = ringAxis !== null
-          ? onRingNow
-          : canProceed(car.d, car.i, car.j, t) || taxiClearsYellow(car, distToLine, t);
-        if (!open) allowed = Math.min(allowed, Math.max(0, distToLine));
+        // A corridor or a boosting-taxi priority hold both temporarily signalise the junction, so
+        // the taxi's approach reads green and cross traffic yields to it; `approachSignal` resolves
+        // that before it asks the network.
+        const sig = approachSignal(car, t);
+        if (!sig.open && !taxiClearsYellow(car, sig, distToLine)) {
+          allowed = Math.min(allowed, Math.max(0, distToLine));
+        }
 
         // The car ahead. A boosting taxi used to ignore this entirely — it was out on the
         // centreline and went round. In its own lane it has to see the leader or it drives into
@@ -1210,19 +1233,20 @@ export function createTraffic(rng, scene, count = 24) {
           // About to reach the stop line — decide whether to enter the intersection.
           // A corridor or a boosting-taxi priority hold temporarily signalises the ring, so the
           // siren's or the taxi's green path is unbroken.
-          const ring = corridorCovers(car.i, car.j) || priorityCovers(car.i, car.j)
-            ? null : ringAxisAt(car.i, car.j);
-          const onRing = ring !== null && (isXAxis(car.d) ? 'x' : 'z') === ring;
+          // Re-read on arrival. `signalised` is the branch, not `ringAxisAt`: a junction the
+          // network left without a light — the ring, or one a closure reduced to a straight-through
+          // — is yield-controlled, and asking `ringAxisAt` instead would hold cars at a junction
+          // that has no phase for them to wait for.
+          const arrive = approachSignal(car, t);
 
           let green;
           let viaRightOnRed = false;
-          if (ring !== null) {
-            // No signal here. Ring traffic runs; anyone joining waits for a real gap.
-            green = onRing || ringGapClear(car, ring, approaching);
+          if (!arrive.signalised) {
+            // No signal here. The priority street runs; anyone joining waits for a real gap.
+            green = arrive.open || ringGapClear(car, approaching);
           } else {
             const held = heldAt.has(`${car.i},${car.j}`);
-            green = (canProceed(car.d, car.i, car.j, t) || taxiClearsYellow(car, distToLine, t))
-              && !held;
+            green = (arrive.open || taxiClearsYellow(car, arrive, distToLine)) && !held;
 
             // Right on red. Permitted only as a right turn, only with a gap in the traffic that
             // currently holds the green, and never into a junction an emergency vehicle is
@@ -1240,8 +1264,8 @@ export function createTraffic(rng, scene, count = 24) {
           // a stranded car; that is a jam, not a red. Ring junctions have no phase to be red at.
           // A right-on-red still counts: the light was red when the taxi reached the line.
           if (car.isTaxi) {
-            const atRed = ring === null && !canProceed(car.d, car.i, car.j, t)
-              && !taxiClearsYellow(car, distToLine, t);
+            const atRed = arrive.signalised && !arrive.open
+              && !taxiClearsYellow(car, arrive, distToLine);
             const redKey = `${car.i},${car.j},${car.d}`;
             if (atRed && car.heldKey !== redKey) {
               car.heldKey = redKey;
@@ -1316,7 +1340,8 @@ export function createTraffic(rng, scene, count = 24) {
                   && other.i === car.i && other.j === car.j && !other.crashed
                   && other.d === opposite(car.d));
               } else {
-                const oncoming = approaching.get(`${car.i},${car.j},${opposite(car.d)}`) ?? [];
+                const facing = net.laneByGrid(opposite(car.d), car.i, car.j);
+                const oncoming = (facing && approaching.get(facing.id)) ?? [];
                 blocked = oncoming.some((other) => {
                   const otherDist = other.lane.length - other.s;
                   return otherDist >= 0 && otherDist < YIELD_RANGE;
@@ -1368,8 +1393,8 @@ export function createTraffic(rng, scene, count = 24) {
           // the turn logic can't quietly start running red lights. Ring junctions are exempt —
           // they have no phase to obey.
           if (viaRightOnRed) stats.rightOnRed += 1;
-          else if (ring === null && !canProceed(car.d, car.i, car.j, t)
-              && !taxiClearsYellow(car, distToLine, t)) stats.violations += 1;
+          else if (arrive.signalised && !arrive.open
+              && !taxiClearsYellow(car, arrive, distToLine)) stats.violations += 1;
 
           // Straight off the network: the arc's ends are the two lanes' own endpoints and its
           // control point is where their tangents cross. `turnControl`'s "same axis falls back to
@@ -1599,11 +1624,10 @@ export function createTraffic(rng, scene, count = 24) {
     // --- Stop bar colours, one per approach.
     for (let index = 0; index < bars.length; index++) {
       const bar = bars[index];
-      const phase = displayPhase(bar.i, bar.j, t);
-      const mine = phase.axis === (isXAxis(bar.d) ? 'x' : 'z');
-      headColor.set(mine
-        ? (phase.yellow ? PALETTE.lightYellow : PALETTE.lightGreen)
-        : PALETTE.lightRed);
+      const sig = displaySignal(bar.lane, t);
+      headColor.set(sig.open
+        ? PALETTE.lightGreen
+        : sig.yellow ? PALETTE.lightYellow : PALETTE.lightRed);
       barMesh.setColorAt(index, headColor);
     }
     if (barMesh.instanceColor) barMesh.instanceColor.needsUpdate = true;

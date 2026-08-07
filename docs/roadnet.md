@@ -122,9 +122,16 @@ its own island.
 ## Equivalence with the grid is the safety net
 
 `roadNetFromGrid(layout)` builds the shipped 5×5 city in this model, and `tools/roadnet.mjs`
-asserts it against `grid.js` and `lightPhase` numerically at **1e-9** — node positions, lane
-centres, junction entry and exit points, turn control points, legal moves, which junctions are
-signalised, and the signal state sampled every 0.1s across a full cycle.
+asserts it numerically at **1e-9** — node positions, lane centres, junction entry and exit points,
+turn control points, legal moves, which junctions are signalised, the signal state sampled every
+0.1s across a full cycle, and the routes the router returns for all 5,184 (start, heading, target)
+triples.
+
+It compares against **frozen copies** of the grid router and the analytic signal model, kept in the
+tool, rather than against the live ones. That is not tidiness: `route.js` and `traffic.js` are now
+network-backed, so importing them would have the network agreeing with itself. A `frozen signal
+constants agree` check keeps the copies honest against `SIGNAL_DEFAULTS`, and the copies go when
+there is nothing left to be a control for.
 
 This exists so that porting traffic, routing and meshing onto the network is a change *with a
 control*. Without it, a car behaving differently afterwards could be a porting bug or could be a
@@ -161,13 +168,12 @@ the lanes' own endpoints and the turn's control point, and turn handedness comes
 See [traffic.md](traffic.md#where-a-car-is), especially the note on car-following, which is the one
 thing the old infinite-lane model got for free.
 
-## What isn't done yet
+`src/sim/traffic.js` also takes its **signals** from here, per approach, via `net.laneSignal(lane,
+t)`. Both intended differences are live: see [traffic.md](traffic.md#signals). Validated by a
+frame-for-frame checksum — on a city seed where no phase drifts (103300) the sim is bit-identical
+before and after the switch, so everything that *does* differ differs for the one documented reason.
 
-**Signals are still queried through the grid.** `lightPhase(i, j, t)` remains analytic in
-`traffic.js`; `phaseAt`/`canProceed` here are proven equivalent but nothing calls them yet. Two
-*intended* differences are waiting behind that switch — the green wave measured along a chain a
-closure cut, and no signal at a junction left with only a straight-through — so flipping it will
-move gameplay numbers, and it deserves its own change with its own before/after.
+## What isn't done yet
 
 **`ground.js` still meshes from `blockBounds`** rather than from the faces this module already
 computes, and **`police.js`** still describes its corridor as an `{axis, line}` pair rather than a

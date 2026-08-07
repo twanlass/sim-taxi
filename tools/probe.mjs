@@ -28,6 +28,7 @@ import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgenc
 import { DISTANCE_TIERS, distanceTier } from '../src/game/triptier.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
@@ -607,10 +608,16 @@ check('no two cars occupy the same space', worst > 1.6,
   check('nobody is stranded at an unsignalised junction', longestWait < 45,
     `longest wait ${longestWait.toFixed(1)}s`);
 
+  // Asked of the network, which is what the sim now obeys. `isUnsignalised` in grid.js still
+  // answers the same on this seed, but it answers from `(i, j)` alone — it cannot see that a
+  // closure has left an interior junction with nothing to arbitrate, so asserting against it would
+  // be testing a function no car consults.
+  const net = cityNetwork();
+  const signalled = (i, j) => net.nodeByGrid(i, j).signal !== null;
   const ringCorners = [[0, 0], [0, GRID], [GRID, 0], [GRID, GRID]];
-  check('ring corners keep their signals', ringCorners.every(([i, j]) => !isUnsignalised(i, j)));
+  check('ring corners keep their signals', ringCorners.every(([i, j]) => signalled(i, j)));
   check('the rest of the ring has none',
-    isUnsignalised(1, 0) && isUnsignalised(0, 1) && !isUnsignalised(1, 1));
+    !signalled(1, 0) && !signalled(0, 1) && signalled(1, 1));
 
   const perCar = rTraffic.stats.distance / rTraffic.stats.time / rTraffic.cars.length;
   check('traffic moves better than the old fixed-phase grid', perCar > 4.14,

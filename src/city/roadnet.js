@@ -91,19 +91,21 @@ export function bakeNetwork(spec, config = {}) {
   buildArms(nodes, nodeById, edges);
   const lanes = buildLanes(nodes, nodeById, edges);
   const turns = buildTurns(nodes, lanes);
-  buildStreets(nodes);
-  const chains = buildChains(nodes, nodeById, edges);
-  bakeSignals(nodes, turns, chains, signal);
-  const blocks = buildBlocks(nodes, edges);
-
   const laneById = new Map(lanes.map((l) => [l.id, l]));
   const turnById = new Map(turns.map((t) => [t.id, t]));
+  buildStreets(nodes);
+  const chains = buildChains(nodes, nodeById, edges);
+  bakeSignals(nodes, turns, laneById, chains, signal);
+  const blocks = buildBlocks(nodes, edges);
 
   return {
     nodes, edges, lanes, turns, blocks, chains, signal,
     nodeById, laneById, turnById,
     edgeById: new Map(edges.map((e) => [e.id, e])),
     phaseAt: (node, t) => phaseAt(typeof node === 'string' ? nodeById.get(node) : node, t, signal),
+    laneSignal: (lane, t) => laneSignal(
+      typeof lane === 'string' ? laneById.get(lane) : lane, t, nodeById, signal,
+    ),
     canProceed: (turn, t) => canProceed(
       typeof turn === 'string' ? turnById.get(turn) : turn, t, nodeById, signal,
     ),
@@ -470,7 +472,7 @@ function buildChains(nodes, nodeById, edges) {
  * around — and the offset shifts the whole plan earlier by the platoon's travel time from the top
  * of the coordinated street, which is what makes the wave travel with the traffic.
  */
-function bakeSignals(nodes, turns, chains, signal) {
+function bakeSignals(nodes, turns, laneById, chains, signal) {
   const turnsByNode = new Map();
   for (const turn of turns) {
     if (!turn.legal) continue;
@@ -482,10 +484,17 @@ function bakeSignals(nodes, turns, chains, signal) {
     const streets = node.streets;
     const nodeTurns = turnsByNode.get(node.id) ?? [];
 
-    // Each turn belongs to the phase of the street it *arrives* on.
+    // Each approach belongs to the phase of the street it *arrives* on, and so does every turn
+    // taken off it. Putting it on the lane matters as much as putting it on the turn: a car asks
+    // "may I enter?" while it is still approaching, before it has chosen which way to go, and all
+    // the movements off one approach share a phase by construction — which is exactly why that
+    // question is well-posed.
+    const streetOfEdge = (edge) => streets.find((s) => s.arms.some((a) => a.edge === edge));
+    for (const lane of node.inbound) {
+      lane.phase = streetOfEdge(lane.edge)?.index ?? 0;
+    }
     for (const turn of nodeTurns) {
-      const street = streets.find((s) => s.arms.some((a) => a.edge.lanes.some((l) => l.id === turn.inLane)));
-      turn.phase = street ? street.index : 0;
+      turn.phase = streetOfEdge(laneById.get(turn.inLane)?.edge)?.index ?? 0;
     }
 
     const ringStreets = streets.filter((s) => s.klass === 'ring');
@@ -572,6 +581,47 @@ export function phaseAt(node, t, signal = SIGNAL_DEFAULTS) {
   }
   // Rounding at the very end of the cycle; the last phase's yellow is still the truth.
   return { index: phases.length - 1, yellow: true, remaining: 0 };
+}
+
+/**
+ * What the signal is doing for traffic arriving on one lane.
+ *
+ * This is the query the sim actually makes, and the reason `phaseAt` alone was not enough to port
+ * it: a car asks "may I enter?" while it is still approaching, *before* it has chosen a turn, so a
+ * per-turn answer has the wrong arity and a per-node answer has no opinion about which approach is
+ * asking. Every movement off one approach shares a phase by construction (see `bakeSignals`), so
+ * the per-lane question is exactly as well-posed as the per-turn one.
+ *
+ * `signalised` is reported separately from `open` because they mean different things to a driver:
+ * a red means wait for green, no light at all means yield on a gap. The old model could only tell
+ * them apart by convention — `lightPhase` returned an axis with `remaining: Infinity` for both a
+ * ring junction and a green.
+ */
+export function laneSignal(lane, t, nodeById, signal = SIGNAL_DEFAULTS) {
+  const node = nodeById.get(lane.to);
+
+  if (!node.signal) {
+    // No light here. The priority street runs and everything else yields on a gap — and a junction
+    // the network de-signalised because nothing conflicts has exactly one street, which *is* the
+    // priority street, so its traffic is never held for a phase nobody can be in.
+    return {
+      signalised: false,
+      open: lane.phase === node.priorityStreet,
+      yellow: false,
+      remaining: Infinity,
+      street: node.priorityStreet,
+    };
+  }
+
+  const phase = phaseAt(node, t, signal);
+  const mine = phase.index === lane.phase;
+  return {
+    signalised: true,
+    open: mine && !phase.yellow,
+    yellow: mine && phase.yellow,
+    remaining: phase.remaining,
+    street: phase.index,
+  };
 }
 
 /**

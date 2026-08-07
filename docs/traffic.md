@@ -27,11 +27,45 @@ same half-second, and green-on-arrival at exactly **50%** — pure chance. It wa
 
 Three changes replaced it, each validated by `tools/signals.mjs`:
 
+### Where the plan lives
+
+The phase plan is **baked into the road network**, not computed from `(i, j)`. A phase is a
+*street* — a pair of arms that carry on through the junction — rather than an axis, which is what
+lets a three-way, a five-way or a diagonal junction have one at all. See
+[roadnet.md](roadnet.md#signals-come-out-of-the-geometry).
+
+The sim asks per **approach**, via `net.laneSignal(lane, t)`:
+
+```js
+{ signalised, open, yellow, remaining, street }
+```
+
+`signalised` is deliberately separate from `open`, because a red and no-light-at-all mean different
+things to a driver — wait for green, versus yield on a gap. The old `{ axis, yellow, remaining }`
+could only tell them apart by convention, returning `remaining: Infinity` for both a ring junction
+and a green.
+
+Asking per approach rather than per turn is the whole reason `phaseAt` alone was not enough: a car
+asks "may I enter?" while still approaching, *before* it has chosen a turn. Every movement off one
+approach shares a phase by construction, so the question is exactly as well-posed.
+
+`lightPhase(i, j, t)` survives as a grid-shaped adapter for the probe and the metrics tool.
+`approachSignal(car, t)` is what the sim uses, and it resolves the same layers in the same order:
+boosting-taxi hold, police corridor, then the junction's own plan. The first two are still
+grid-shaped because the things that *set* them are — that goes with `police.js`.
+
 ### Offsets from travel time
 
-Each junction's offset is derived from how long a platoon takes to reach it (`blockTime() =
-PITCH / SPEED`), so consecutive greens open ahead of moving traffic. This also de-synchronises the
-city for free, because offsets now spread continuously instead of into four buckets.
+Each junction's offset is derived from how long a platoon takes to reach it, so consecutive greens
+open ahead of moving traffic. This also de-synchronises the city for free, because offsets now
+spread continuously instead of into four buckets.
+
+The distance is **walked along a chain of edges** rather than read off a grid index. Same number on
+an intact road; a defined one anywhere else. Where a park closure cuts an arterial in half, the
+wave now restarts from the surviving chain's own head instead of being measured from a map edge the
+platoon cannot reach — a wave cannot propagate across a road that isn't there. Measured across 12
+seeds: 33 junctions shift, mean 4.39s of a 16s cycle, every shift a whole multiple of one
+block-time (2.353s).
 
 Cycle length stays common across the city on purpose — a shared cycle is the *precondition* for
 coordination. Variety comes from splits and offsets, not from different cycle lengths.
@@ -39,16 +73,26 @@ coordination. Variety comes from splits and offsets, not from different cycle le
 ### Arterials
 
 Two roads per axis take a **64% green share** where they meet a side street, giving the map a
-fast/slow grain. `layout.js` picks them; `configureSignals()` hands them over.
+fast/slow grain. `layout.js` picks them and hands them to the network's bake.
 
 ### A signal-free ring road
 
 The outermost roads carry no lights except at the four corners. Traffic joining from inside yields
 into a gap (`RING_YIELD = 24` units of clear road).
 
-The ring needs its own gate inside `lightPhase` rather than a permanent green: a permanent green
-for the ring reads as a permanent *red* for everyone else, and inner traffic would queue at the
-perimeter forever.
+"Unsignalised" is now `node.signal === null` rather than `ringAxisAt(i, j)`, and the difference is
+not cosmetic. A junction the ring never touches can still end up with nothing to arbitrate — a
+closure can leave an interior junction with only a straight-through — and the grid, deciding from
+`(i, j)` alone, kept cycling a light there and held cars for a phase nobody could be in. Rare: one
+junction in 40 seeds. It has no stop bars now, because there is nothing to stop for.
+
+> Watch out: `phaseAt` returns **null** for an unsignalised node, where `lightPhase` returned an
+> axis with `remaining: Infinity`. Any port that swaps one for the other while keeping `ringAxisAt`
+> as the unsignalised test dereferences null at exactly those junctions — the grid says signalised,
+> the network says no signal. The two have to move together.
+
+Yielding is asked per **street** (`streetIsClear`) rather than per axis pair. `[0, 2]` / `[1, 3]`
+was the last place the sim assumed a junction is two axes with two approaches each.
 
 ### Results
 
