@@ -365,17 +365,32 @@ function displaySignal(lane, t) {
  *
  * `signalised` is kept distinct from `open` because a red and no-light-at-all mean different things
  * to the caller — wait for green, versus yield on a gap.
+ *
+ * `street` is which street is *currently moving*, and it has to come out of the same resolution as
+ * `open` rather than be looked up separately. While a boost hold or a siren is overriding the
+ * junction, the street that holds the green is the one the override names, not the one the phase
+ * plan would have picked — and a car that asks the plan instead can end up scanning its own street
+ * for a gap, finding itself in it, and never being cleared to move.
  */
 function approachSignal(car, t) {
   const mine = isXAxis(car.d) ? 'x' : 'z';
+  const node = cityNetwork().nodeById.get(car.lane.to);
+  /** The street running along a grid axis at this node, for the two grid-shaped overrides. */
+  const streetOnAxis = (axis) => node.streets.findIndex((st) => (st.axis < 0.1 ? 'x' : 'z') === axis);
 
   if (priorityJunction && priorityJunction.i === car.i && priorityJunction.j === car.j) {
     // `block` denies one approach that would otherwise read green — see setPriorityJunction.
     const open = priorityJunction.block !== car.d && priorityJunction.axis === mine;
-    return { signalised: true, open, yellow: false, remaining: Infinity };
+    return {
+      signalised: true, open, yellow: false, remaining: Infinity,
+      street: streetOnAxis(priorityJunction.axis),
+    };
   }
   if (corridorCovers(car.i, car.j)) {
-    return { signalised: true, open: corridor.axis === mine, yellow: false, remaining: Infinity };
+    return {
+      signalised: true, open: corridor.axis === mine, yellow: false, remaining: Infinity,
+      street: streetOnAxis(corridor.axis),
+    };
   }
   return cityNetwork().laneSignal(car.lane, t);
 }
@@ -929,6 +944,11 @@ export function createTraffic(rng, scene, count = 24) {
    * `[0, 2]` / `[1, 3]` becomes "the inbound lanes belonging to that street", which a three-way or
    * a five-way answers just as readily.
    */
+  // Note: a car can appear in its own scan, and is deliberately left there. During a yellow on its
+  // own approach the moving street *is* this car's, so it finds itself at zero gap and refuses —
+  // which is exactly what the pre-port form did, because `movingDirs` included the car's own
+  // direction too. Skipping self here would grant right-on-red during one's own yellow, which is a
+  // behaviour change and not this port's to make.
   function streetIsClear(car, street, clearance, approaching) {
     const node = net.nodeById.get(car.lane.to);
     for (const lane of node.inbound) {
@@ -942,10 +962,17 @@ export function createTraffic(rng, scene, count = 24) {
     return true;
   }
 
-  /** Is the cross traffic that currently holds the green far enough away to turn right on red? */
-  function rightOnRedClear(car, t, approaching) {
-    const green = cityNetwork().laneSignal(car.lane, t).street;
-    return streetIsClear(car, green, RIGHT_ON_RED_YIELD, approaching);
+  /**
+   * Is the cross traffic that currently holds the green far enough away to turn right on red?
+   *
+   * Takes the resolved signal rather than re-asking the network, so the answer respects the boost
+   * hold and the siren corridor. Asking `laneSignal` directly here meant that while Loco Mode held
+   * a junction, a car denied by that hold scanned the phase plan's green street — which could be
+   * its own — found itself sitting at the line with zero gap, and was never granted a turn it used
+   * to be granted.
+   */
+  function rightOnRedClear(car, sig, approaching) {
+    return streetIsClear(car, sig.street, RIGHT_ON_RED_YIELD, approaching);
   }
 
   /** The ring never stops, so a car joining it has to find a real gap. */
@@ -1265,7 +1292,7 @@ export function createTraffic(rng, scene, count = 24) {
             // clearing or one already blocked by a stranded car.
             if (!green && !held && !corridorCovers(car.i, car.j)
                 && exitToward(net, car.lane, rightOf(car.d))
-                && rightOnRedClear(car, t, approaching)) {
+                && rightOnRedClear(car, arrive, approaching)) {
               viaRightOnRed = true;
             }
           }

@@ -84,7 +84,11 @@ for (const chain of net.chains) {
     }
 
     for (let k = start + 1; k < run.length; k++) {
-      t += run[k - 1].edge.length / SPEED;
+      // The hop that reaches `run[k].to` is `run[k]`'s own edge. `run[k - 1]` is the one the
+      // platoon had already driven when it was released, and charging that instead shifts every
+      // arrival by one edge — invisible on a uniform grid, wrong on exactly the non-uniform
+      // geometry this walk was written to support.
+      t += run[k].edge.length / SPEED;
       const node = net.nodeById.get(run[k].to);
       if (!node.signal) continue;          // nothing to meet: the ring never stops the platoon
       tests += 1;
