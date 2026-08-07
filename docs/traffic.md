@@ -328,6 +328,15 @@ the speed cap and the hazard flag stopped being the same boolean. It's also wher
 comes from — the pitch spring downstream reads the deceleration straight off `car.v`, no separate
 animation needed. A re-press mid-cooldown cancels it outright and returns to `'active'`.
 
+### Seeing what you're about to hit
+
+Because collision detection is armed only while boosting, the one moment a car hidden behind a
+tower is a crash rather than a surprise is the one moment the player can't see it. The nearest
+handful of ambient cars therefore wear the taxi's own occluded-only outline while Loco Mode is up,
+each in its own paint — see [nearby-traffic ghost outlines](rendering.md#nearby-traffic-ghost-outlines--gamecarghostsjs).
+It fades in and out with the boost rather than being always on, and follows `taxi.boost` rather
+than the speed cap, so like every other hazard rule it stays up through the cooldown tail.
+
 ## The wreck
 
 `sim/collisions.js` detects the impact, `main.js` stages it, `game/vanish.js` clears the bodywork

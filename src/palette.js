@@ -45,6 +45,23 @@ export const PALETTE = {
   // Yellow is reserved for the taxi. An amber car used to sit in this list and was genuinely
   // mistakable for the player's vehicle at play zoom, where both are a few pixels of warm colour.
   carBody: ['#C9503F', '#2F8F94', '#4E7FC0', '#E4E1DA', '#3F8A63', '#8A6BB0', '#D9D2C3', '#455160'],
+  // The ghost rim worn by a nearby car while it is hidden behind a building — see
+  // game/carghosts.js. Index-aligned with carBody, so a car's `colorIndex` addresses both and each
+  // ghost is unmistakably *that* car rather than a generic hazard mark.
+  //
+  // Each one is its own paint with the lightness pulled 70% of the way to 0.74 and **hue and
+  // saturation left exactly alone**. Two things that rule is doing:
+  //
+  //   - Pulled *toward* a target, not lifted by a fixed amount. The slate (#455160) sits at L 0.32
+  //     and needs the whole lift to read at all from the shadowed side of a tower; the off-white
+  //     (#E4E1DA) sits at L 0.87 and a fixed lift would take it to pure white, which stops being
+  //     that car's paint and starts being a generic glare. One target normalises both.
+  //   - Saturation must NOT rise, which is the one that bites. #E4E1DA and #D9D2C3 are hue 42° and
+  //     41° — *yellow* — and only read as off-white because their saturation is 0.16 and 0.22.
+  //     Push it up and both become pale gold, sitting in taxiGhost's own hue family (48°) where a
+  //     2px outline is indistinguishable from the player's own car. Yellow is reserved; leaving
+  //     saturation where it is, is what reserves it. tools/probe.mjs asserts the clearance.
+  carBodyGhost: ['#DA887D', '#71CDD2', '#85A7D4', '#D0CABE', '#80C5A1', '#AC96C7', '#D0C7B4', '#8D9BAD'],
   carGlass: '#2E3640',
 
   // --- Game entities. Deliberately higher-chroma than anything in the city so they read

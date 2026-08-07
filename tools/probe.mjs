@@ -23,7 +23,12 @@ import {
 import { createDestinationPin } from '../src/geometry/marker.js';
 import { bounceOffset, KICK_SCALE, KICK_HOP } from '../src/geometry/diamond.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
-import { GHOST_MASK_ORDER, GHOST_RIM_ORDER } from '../src/geometry/ghostoutline.js';
+import {
+  GHOST_MASK_ORDER, GHOST_RIM_ORDER, CAR_GHOST_MASK_ORDER, CAR_GHOST_RIM_ORDER,
+} from '../src/geometry/ghostoutline.js';
+import {
+  createCarGhosts, GHOST_RADIUS, MAX_GHOSTS, GHOST_OPACITY,
+} from '../src/game/carghosts.js';
 import { createCityCamera, attachDragPan } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
@@ -1795,6 +1800,200 @@ check('the taxi is an ordinary car in the traffic array',
   const mainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   check('renderer keeps its stencil buffer', /stencil:\s*true/.test(mainSource),
     'main.js constructs WebGLRenderer with stencil: true');
+}
+
+// --- Nearby-traffic ghost outlines --------------------------------------------
+//
+// The instanced variant (game/carghosts.js). Same reasoning as the block above — the material
+// flags ARE the behaviour and every failure mode is silent — plus two things the taxi's outline
+// never had to worry about: which cars get picked, and whether the pool's matrices agree with the
+// cars they are supposed to be tracing. A one-frame lag or a transposed wheel index looks like a
+// broken outline in a screenshot and like nothing at all anywhere else.
+{
+  const gScene = new THREE.Scene();
+  // Full density, not CARS_DEFAULT's low-density baseline: the whole thing under test is *which*
+  // cars get picked out of a crowd, and at 7 cars on a 100-unit map the radius is usually empty.
+  const gTraffic = createTraffic(makeRng(seed + 44), gScene, 24);
+  const ghosts = createCarGhosts(gScene, gTraffic);
+  gTraffic.warmup(30);
+
+  const { bodyMask, wheelMask, bodyRim } = ghosts;
+  const perCar = gTraffic.wheelsPerCar;
+
+  check('car ghost pool is sized to the cap',
+    bodyMask.instanceMatrix.count === MAX_GHOSTS && bodyRim.instanceMatrix.count === MAX_GHOSTS
+    && wheelMask.instanceMatrix.count === MAX_GHOSTS * perCar,
+    `${MAX_GHOSTS} bodies, ${MAX_GHOSTS * perCar} wheels`);
+
+  // Three computes an InstancedMesh's bounding sphere once and caches it. Every slot starts
+  // collapsed at the origin, so culling against that sphere drops the pool the moment the origin
+  // leaves frame — and mask and rim culling *differently* is a filled ghost, not a missing one.
+  const pool = [bodyMask, wheelMask, bodyRim];
+  check('car ghosts never frustum-cull',
+    pool.every((m) => m.frustumCulled === false && !m.castShadow),
+    'culling off, no shadows borrowed from the traffic meshes');
+
+  // The load-bearing ordering. The taxi's rim has to resolve before a single traffic mask exists in
+  // the stencil buffer, or a car sliding past at a couple of units bites a chunk out of the
+  // player's own outline on exactly the frame they need it.
+  check('taxi ghost resolves before any traffic mask stamps',
+    GHOST_MASK_ORDER < GHOST_RIM_ORDER && GHOST_RIM_ORDER < CAR_GHOST_MASK_ORDER
+    && CAR_GHOST_MASK_ORDER < CAR_GHOST_RIM_ORDER
+    && bodyMask.renderOrder === CAR_GHOST_MASK_ORDER && wheelMask.renderOrder === CAR_GHOST_MASK_ORDER
+    && bodyRim.renderOrder === CAR_GHOST_RIM_ORDER,
+    `${GHOST_MASK_ORDER} < ${GHOST_RIM_ORDER} < ${CAR_GHOST_MASK_ORDER} < ${CAR_GHOST_RIM_ORDER}`);
+
+  // Same stencil pairing as the taxi's, and the SAME ref — one ref across every ghost is what stops
+  // one traced car's rim painting over another's visible bodywork. Assert it rather than leave it
+  // to be "fixed" into per-car refs, which cannot be done without one draw call per ghost.
+  const taxiMask = [];
+  createTaxiMesh().group.traverse((n) => { if (n.name === 'ghostMask') taxiMask.push(n); });
+  const flagsOk = bodyRim.material.depthFunc === THREE.GreaterDepth
+    && bodyRim.material.depthWrite === false && bodyRim.material.side === THREE.BackSide
+    && bodyRim.material.stencilFunc === THREE.NotEqualStencilFunc
+    && [bodyMask, wheelMask].every((m) => m.material.colorWrite === false
+      && m.material.depthTest === false && m.material.stencilZPass === THREE.ReplaceStencilOp)
+    && [bodyMask, wheelMask, bodyRim].every((m) => m.material.stencilWrite
+      && m.material.stencilRef === taxiMask[0].material.stencilRef);
+  check('car ghosts share the taxi ghost stencil recipe', flagsOk,
+    `ref ${bodyRim.material.stencilRef}, mask stamps / rim tests NotEqual`);
+
+  // The masks must trace the exact silhouette, so they share traffic's own geometries — which also
+  // means nothing here may add an attribute to them. Only the rim's private inflated clone carries
+  // the per-instance alpha.
+  check('car ghost masks share the traffic geometry untouched',
+    bodyMask.geometry === gTraffic.mesh.geometry && wheelMask.geometry === gTraffic.wheelMesh.geometry
+    && !bodyMask.geometry.attributes.aAlpha && !wheelMask.geometry.attributes.aAlpha
+    && bodyRim.geometry !== gTraffic.mesh.geometry && Boolean(bodyRim.geometry.attributes.aAlpha),
+    'masks shared, rim cloned and inflated');
+
+  const bodyBox = new THREE.Box3().setFromBufferAttribute(bodyMask.geometry.attributes.position);
+  const ghostBox = new THREE.Box3().setFromBufferAttribute(bodyRim.geometry.attributes.position);
+  const standoff = ghostBox.max.x - bodyBox.max.x;
+  check('car ghost rim stands off the body', standoff > 0.2 && standoff < 0.5,
+    `${standoff.toFixed(2)} units`);
+
+  // --- Drive it. Hold the boost until the envelope is at full strength.
+  const runFrames = (n) => {
+    for (let f = 0; f < n; f++) { gTraffic.update(1 / 60); ghosts.update(1 / 60); }
+  };
+
+  check('car ghosts are gone entirely with the boost off',
+    ghosts.state.strength === 0 && bodyMask.count === 0 && wheelMask.count === 0
+    && bodyRim.count === 0,
+    'counts at zero — a mask writes no colour, so fading it is not the same as retiring it');
+
+  gTraffic.taxi.boost = true;
+  runFrames(40);
+
+  check('car ghosts fade up while boosting', ghosts.state.strength === 1 && ghosts.state.active > 0,
+    `${ghosts.state.active} cars ghosted`);
+
+  // Nearest-first, radius-limited, capped — recomputed by brute force and compared. This is what
+  // catches a selection that quietly degrades into "whichever cars the loop reached first".
+  const nearest = gTraffic.ambient
+    .filter((c) => !c.crashed)
+    .map((car) => ({ car, dist: Math.hypot(car.x - gTraffic.taxi.x, car.z - gTraffic.taxi.z) }))
+    .filter((e) => e.dist <= GHOST_RADIUS)
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, MAX_GHOSTS);
+  check('car ghosts pick the nearest traffic, in range and capped',
+    ghosts.state.active === nearest.length && ghosts.state.active <= MAX_GHOSTS
+    && bodyMask.count === ghosts.state.active && wheelMask.count === ghosts.state.active * perCar,
+    `${ghosts.state.active} of ${gTraffic.ambient.length} within ${GHOST_RADIUS}`);
+
+  // Every slot's transform must be the traced car's own, wheels included. Recomposing instead of
+  // reading back would drift the bob, the lean, the pitch rock and the wheelie apart from the car;
+  // a transposed wheel index (slot*perCar+w against instanceIndex*perCar+w) is invisible until a
+  // wheel outline turns up bolted to the wrong car.
+  const a = new THREE.Matrix4();
+  const b = new THREE.Matrix4();
+  let drift = 0;
+  for (let slot = 0; slot < ghosts.state.active; slot++) {
+    const { car } = nearest[slot];
+    gTraffic.mesh.getMatrixAt(car.instanceIndex, a);
+    bodyMask.getMatrixAt(slot, b);
+    if (!a.equals(b)) drift++;
+    bodyRim.getMatrixAt(slot, b);
+    if (!a.equals(b)) drift++;
+    for (let w = 0; w < perCar; w++) {
+      gTraffic.wheelMesh.getMatrixAt(car.instanceIndex * perCar + w, a);
+      wheelMask.getMatrixAt(slot * perCar + w, b);
+      if (!a.equals(b)) drift++;
+    }
+  }
+  check('every car ghost sits exactly on the car it traces', drift === 0,
+    `${drift} matrices adrift across ${ghosts.state.active} cars`);
+
+  // Alpha: the boost envelope times each car's own distance fade, so the farthest ghost — the one
+  // the cap would evict next — is already the faintest.
+  const live = Array.from(ghosts.alphas.slice(0, ghosts.state.active));
+  check('car ghost alpha falls off with distance',
+    live.every((v, k) => v > 0 && v <= GHOST_OPACITY + 1e-6 && (k === 0 || v <= live[k - 1] + 1e-6))
+    && GHOST_OPACITY < taxiMask[0].parent.children.find((n) => n.name === 'ghostRim').material.opacity,
+    `peak ${Math.max(...live).toFixed(2)} under the taxi's 0.85, monotone outward`);
+
+  // A wrecked car leaves the road for good; its ghost must go with it rather than hang over the
+  // fireball. wreckShell collapses the instance, so a stale slot would trace a zero-scale car.
+  const wrecked = nearest[0]?.car;
+  if (wrecked) {
+    gTraffic.wreckShell(wrecked);
+    runFrames(1);
+    gTraffic.mesh.getMatrixAt(wrecked.instanceIndex, a);
+    let tracesWreck = false;
+    for (let slot = 0; slot < ghosts.state.active; slot++) {
+      bodyRim.getMatrixAt(slot, b);
+      if (a.equals(b)) tracesWreck = true;
+    }
+    check('a wrecked car drops its ghost', !tracesWreck && ghosts.state.active > 0,
+      `${ghosts.state.active} still ghosted, the wreck not among them`);
+  }
+
+  // Release the boost and the whole thing must retire, not merely go transparent.
+  gTraffic.taxi.boost = false;
+  gTraffic.taxi.crashed = false;   // the wreck above was the other car; keep the taxi driving
+  runFrames(40);
+  check('car ghosts retire when the boost ends',
+    ghosts.state.strength === 0 && ghosts.state.active === 0 && bodyMask.count === 0
+    && wheelMask.count === 0 && bodyRim.count === 0,
+    'strength 0, all three counts 0');
+}
+
+// --- Ghost paints -------------------------------------------------------------
+// "Yellow is reserved for the taxi" is a rule palette.js records having already been broken once —
+// an amber ambient car was genuinely mistakable for the player's. The ghost rims are the same trap
+// one level up: two carBody entries are hue ~41° at low saturation, and they only read as off-white
+// because of that saturation. Make the clearance mechanical rather than a comment.
+{
+  // getHSL defaults to the *working* colour space, which is Linear-sRGB — every lightness below is
+  // an sRGB number, and read linearly they all come out far darker than they look. Ask for sRGB
+  // explicitly or this block measures a different colour than the eye sees.
+  const SRGB = THREE.SRGBColorSpace;
+  const ghostHsl = { h: 0, s: 0, l: 0 };
+  const bodyHsl = { h: 0, s: 0, l: 0 };
+  const taxiHsl = new THREE.Color(PALETTE.taxiGhost).getHSL({ h: 0, s: 0, l: 0 }, SRGB);
+
+  let unlit = 0;
+  let clashes = 0;
+  for (let k = 0; k < PALETTE.carBody.length; k++) {
+    new THREE.Color(PALETTE.carBodyGhost[k]).getHSL(ghostHsl, SRGB);
+    new THREE.Color(PALETTE.carBody[k]).getHSL(bodyHsl, SRGB);
+
+    // Every ghost has to read from the shadowed side of a tower, which is the only place it is ever
+    // seen. The dark slate is the one this is really about: L 0.32 raw.
+    if (ghostHsl.l < 0.55) unlit++;
+    // Saturation must not have been pushed up — that is what would drag the two near-neutral creams
+    // into taxiGhost's own hue family, where a 2px outline is indistinguishable from the player's.
+    if (ghostHsl.s > bodyHsl.s + 0.02) clashes++;
+    const dh = Math.abs(ghostHsl.h - taxiHsl.h) * 360;
+    if (Math.min(dh, 360 - dh) < 25 && ghostHsl.s > 0.35) clashes++;
+  }
+
+  check('every car has a ghost paint', PALETTE.carBodyGhost.length === PALETTE.carBody.length,
+    `${PALETTE.carBodyGhost.length} of ${PALETTE.carBody.length}`);
+  check('ghost paints read from under a tower', unlit === 0, `${unlit} too dark`);
+  check('no ghost paint strays into the taxi\'s yellow', clashes === 0,
+    `${clashes} within 25° of taxiGhost, or saturated past its own body colour`);
 }
 
 // --- Taxi roof sign -----------------------------------------------------------

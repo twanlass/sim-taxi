@@ -1462,5 +1462,10 @@ export function createTraffic(rng, scene, count = 24) {
     cars, taxi, taxiGroup, setTaxiOccupied, mesh, wheelMesh, barMesh, update, warmup,
     wreckShell, stats,
     lightPhase, displayPhase,
+    // The instanced cars, index-aligned with `mesh`, and how `wheelMesh` is indexed off them
+    // (`instanceIndex * wheelsPerCar + w`). Anything reading those matrices back needs both —
+    // game/carghosts.js does. Passed out rather than derived, because `wheelMesh.count /
+    // mesh.count` divides by zero under `?cars=1`, where there are no ambient cars at all.
+    ambient, wheelsPerCar: FRONT.length,
   };
 }
