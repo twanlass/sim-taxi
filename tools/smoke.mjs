@@ -185,6 +185,28 @@ try {
   check('a tap does not pan the camera', (await camTarget()) === beforeTap);
 
   check('no uncaught exceptions', client.errors.length === 0, client.errors.join(' | '));
+
+  // --- The editor is a second vite entry point, and nothing else would notice it breaking.
+  //
+  // It cannot go in check.mjs's BOOT list — `editor.js` wires DOM handlers at module scope, so
+  // importing it in node throws on the first `getElementById`. Loading the built page is the only
+  // honest check that `vite.config.js` still emits it and that it still boots.
+  client.errors.length = 0;
+  await client.send('Page.navigate', { url: `${baseUrl}/editor.html` });
+  const editorDeadline = Date.now() + 60000;
+  let editorUp = false;
+  while (Date.now() < editorDeadline) {
+    if (await evaluate('Boolean(window.__editor)')) { editorUp = true; break; }
+    await sleep(300);
+  }
+  check('the editor boots', editorUp);
+  if (editorUp) {
+    check('the editor renders a city',
+      (await evaluate('window.__editor.level.edges.length')) > 0);
+    check('the editor reports the level drivable',
+      (await evaluate("document.getElementById('status').textContent")).includes('drivable'));
+    check('the editor raises no exceptions', client.errors.length === 0, client.errors.join(' | '));
+  }
 } catch (err) {
   check('smoke run completed', false, err.message);
 } finally {

@@ -23,6 +23,9 @@ const TOOLS = [
   // same city as the grid, the traffic and routing numbers below stop meaning anything.
   { name: 'roadnet', args: ['tools/roadnet.mjs'],      pick: /(\d+\/\d+) checks passed/ },
   { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },
+  // The editor's half of the road network: a level round-trips, editing one merges the right
+  // blocks, and a painted block keeps its paint when the graph changes elsewhere.
+  { name: 'level',   args: ['tools/level.mjs'],        pick: /(\d+\/\d+) checks passed/ },
   { name: 'routing', args: ['tools/taxi.mjs', '30'],   pick: /arrived (\S+)/ },
   // Nine seeds, not one. A single soak run is trip-length luck more than it is difficulty, so a
   // one-seed gate went red or green on which junction the spawner happened to pick.

@@ -1,4 +1,4 @@
-import { GRID, rightOf, leftOf } from '../city/grid.js';
+import { rightOf, leftOf } from '../city/grid.js';
 import { cityNetwork, gridNodeId } from '../city/roadnet.js';
 
 /**
@@ -150,11 +150,16 @@ export function planOrigin(car) {
   return { i: car.i, j: car.j, d: car.d };
 }
 
-/** Every intersection on the grid, as {i, j}. */
+/**
+ * Every intersection a car can actually be routed to, as {i, j}.
+ *
+ * Junctions with no roads on them are excluded. The generator never makes one — every lattice
+ * position has at least one road — but an editor-drawn level can leave a corner bare, and a fare
+ * spawned there would sit unreachable until its clock ran out. Order matches the lattice the grid
+ * enumerated, so a generated city produces exactly the list it always did.
+ */
 export function allIntersections() {
-  const out = [];
-  for (let i = 0; i <= GRID; i++) {
-    for (let j = 0; j <= GRID; j++) out.push({ i, j });
-  }
-  return out;
+  return cityNetwork().nodes
+    .filter((n) => n.gi !== undefined && n.arms.length > 0)
+    .map((n) => ({ i: n.gi, j: n.gj }));
 }
