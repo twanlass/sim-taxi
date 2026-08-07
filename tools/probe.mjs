@@ -27,8 +27,9 @@ import { GHOST_MASK_ORDER, GHOST_RIM_ORDER } from '../src/geometry/ghostoutline.
 import { createCityCamera, attachDragPan } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, blockBounds, isXAxis, leftOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
+import { pointInPolygon } from '../src/city/curves.js';
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
@@ -75,7 +76,23 @@ const traffic = time('traffic init', () => createTraffic(makeRng(seed + 44), sce
 const tris = (mesh) => mesh.geometry.attributes.position.count / 3;
 console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mesh)}, props ${tris(props)}`);
 
-check('layout covers every block', layout.length === GRID * GRID, `${layout.length} blocks`);
+// Blocks are faces of the road graph now, so there are fewer of them than grid cells whenever a
+// park closure merged two. The property that has to hold is the one the old count stood in for:
+// every cell of buildable land belongs to exactly one block.
+{
+  let uncovered = 0;
+  let doubled = 0;
+  for (let bi = 0; bi < GRID; bi++) {
+    for (let bj = 0; bj < GRID; bj++) {
+      const { cx, cz } = blockBounds(bi, bj);
+      const hits = layout.filter((b) => pointInPolygon(cx, cz, b.polygon)).length;
+      if (hits === 0) uncovered += 1;
+      if (hits > 1) doubled += 1;
+    }
+  }
+  check('every block of land belongs to exactly one face', uncovered === 0 && doubled === 0,
+    `${layout.length} faces, ${uncovered} cells uncovered, ${doubled} double-covered`);
+}
 check('some blocks are parks', layout.some((b) => b.type === 'park'),
   `${layout.filter((b) => b.type === 'park').length} parks`);
 check('all cars spawned', traffic.cars.length === 24, `${traffic.cars.length}`);
@@ -1088,10 +1105,15 @@ check('every intersection is routable from every approach', unroutable === 0,
 
 // Park districts build over a road. The closure has to be real in the traffic model, not just
 // hidden in the ground mesh, and it must not strand any part of the city.
-check('park districts closed a road each', (layout.districts ?? []).length > 0,
-  `${(layout.districts ?? []).length} districts`);
+check('park districts closed a road each', layout.closedSegments.length > 0,
+  `${layout.closedSegments.length} closures`);
 
-const drivingThroughPark = traffic.cars.filter((car) => (layout.districts ?? []).some((d) =>
+// A merged face *is* the district now — it is the only way a block can span more than one cell.
+const districts = layout.filter((b) => b.cells > 1);
+check('each closure merged two blocks into one face', districts.length === layout.closedSegments.length,
+  `${districts.length} merged faces for ${layout.closedSegments.length} closures`);
+
+const drivingThroughPark = traffic.cars.filter((car) => districts.some((d) =>
   car.x > d.bounds.x0 && car.x < d.bounds.x1 && car.z > d.bounds.z0 && car.z < d.bounds.z1));
 check('no vehicle is driving through a park district', drivingThroughPark.length === 0,
   `${drivingThroughPark.length} inside park bounds`);

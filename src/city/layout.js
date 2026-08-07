@@ -1,5 +1,6 @@
 import { GRID, blockBounds, HALF_SPAN, segmentKey, setClosedSegments } from './grid.js';
 import { roadNetFromGrid, setCityNetwork } from './roadnet.js';
+import { pointInPolygon } from './curves.js';
 import { configureSignals } from '../sim/traffic.js';
 
 // Decides what each block *is* before anything is built. Ground, buildings and props all read
@@ -39,17 +40,7 @@ export function createLayout(rng) {
         ? segmentKey(bi + 1, bj, bi + 1, bj + 1)
         : segmentKey(bi, bj + 1, bi + 1, bj + 1));
 
-      const ba = blockBounds(a[0], a[1]);
-      const bb = blockBounds(b[0], b[1]);
-      districts.push({
-        id,
-        bounds: {
-          x0: Math.min(ba.x0, bb.x0), x1: Math.max(ba.x1, bb.x1),
-          z0: Math.min(ba.z0, bb.z0), z1: Math.max(ba.z1, bb.z1),
-          cx: (Math.min(ba.x0, bb.x0) + Math.max(ba.x1, bb.x1)) / 2,
-          cz: (Math.min(ba.z0, bb.z0) + Math.max(ba.z1, bb.z1)) / 2,
-        },
-      });
+      districts.push({ id });
       break;
     }
   }
@@ -73,7 +64,31 @@ export function createLayout(rng) {
 
   configureSignals({ arterialX, arterialZ, dirX, dirZ });
 
-  const blocks = [];
+  const arterials = { x: arterialX, z: arterialZ, dirX, dirZ };
+
+  // Bake the road network for the city just decided, and install it as *the* network. Everything
+  // above — the closures, the arterials, their coordinated directions — is exactly the input it
+  // needs, so this is the one place in the codebase that has it all in hand. Callers get the
+  // network by asking `cityNetwork()` rather than by being handed one.
+  const net = setCityNetwork(roadNetFromGrid({ arterials }));
+
+  // --- Blocks ----------------------------------------------------------------
+  //
+  // The buildable land is whatever the roads enclose — a face of the road graph — so the network
+  // already produced it, and closing the road between two park cells has *already* merged them
+  // into one block. The hand-computed merged AABB that used to live here is gone with it.
+  //
+  // What the network has no opinion about is what a block *is*: park or built, and how central.
+  // That is still decided per grid cell and projected onto the face containing the cell. Keeping
+  // this loop grid-shaped is deliberate — iterating faces instead would change both the number and
+  // the order of `rng.chance` draws, and re-roll which blocks are parks on every existing seed.
+  for (const block of net.blocks) {
+    block.type = 'built';
+    block.centrality = 0;
+    block.cells = 0;
+  }
+
+  const placed = new Map();   // block -> where it sits in the grid, for ordering below
 
   for (let bi = 0; bi < GRID; bi++) {
     for (let bj = 0; bj < GRID; bj++) {
@@ -85,34 +100,38 @@ export function createLayout(rng) {
 
       // A district claim wins; otherwise the occasional lone pocket park out in the suburbs.
       const districtId = parkCells.get(`${bi},${bj}`);
-      const inDistrict = districtId !== undefined;
-      const isPark = inDistrict || rng.chance(0.02 + (1 - centrality) * 0.03);
+      const isPark = districtId !== undefined || rng.chance(0.02 + (1 - centrality) * 0.03);
 
-      blocks.push({
-        bi,
-        bj,
-        bounds: blockBounds(bi, bj),
-        type: isPark ? 'park' : 'built',
-        districtId: inDistrict ? districtId : null,
-        districtBounds: inDistrict ? districts[districtId].bounds : null,
-        centrality,
-      });
+      const block = net.blocks.find((b) => pointInPolygon(cx, cz, b.polygon));
+      if (!block) continue;
+
+      block.cells += 1;
+      // Both cells of a district land on the same merged face, so park-ness ORs. Centrality only
+      // ever matters for a built block, and a closure can only merge two *park* cells, so a merged
+      // block's value is never read — max keeps it defined rather than arbitrary.
+      if (isPark) block.type = 'park';
+      block.centrality = Math.max(block.centrality, centrality);
+      if (!placed.has(block)) placed.set(block, { district: districtId ?? null, bi, bj });
     }
   }
 
-  blocks.districts = districts;
+  // Ordered so the mesh builders' RNG streams do not move: merged park districts first, in the
+  // order they were created, then the rest in the grid's bi-outer/bj-inner order — which is
+  // exactly the order `ground.js` and `props.js` used to walk when districts were a separate pass.
+  // Face traversal order is arbitrary, and both builders draw per block from their own stream, so
+  // a reshuffle would re-tint every kerb and move every tree in the city.
+  const rank = (block) => placed.get(block) ?? { district: null, bi: GRID, bj: GRID };
+  const blocks = [...net.blocks].sort((p, q) => {
+    const a = rank(p);
+    const b = rank(q);
+    if ((a.district === null) !== (b.district === null)) return a.district === null ? 1 : -1;
+    if (a.district !== null) return a.district - b.district;
+    return a.bi - b.bi || a.bj - b.bj;
+  });
+
   // Handed to the ground mesh so the arterials are actually visible: a main street the player
-  // can't identify is just an invisible timing tweak. The coordinated directions ride along too —
-  // `configureSignals` needs them, and so does the road network's signal bake, which derives each
-  // junction's offset from how far along the wave it sits.
-  blocks.arterials = { x: arterialX, z: arterialZ, dirX, dirZ };
+  // can't identify is just an invisible timing tweak.
+  blocks.arterials = arterials;
   blocks.closedSegments = closed;
-
-  // Bake the road network for the city just decided, and install it as *the* network. Everything
-  // above — the closures, the arterials, their coordinated directions — is exactly the input it
-  // needs, so this is the one place in the codebase that has it all in hand. Callers get the
-  // network by asking `cityNetwork()` rather than by being handed one.
-  setCityNetwork(roadNetFromGrid(blocks));
-
   return blocks;
 }

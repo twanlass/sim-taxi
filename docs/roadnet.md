@@ -175,9 +175,12 @@ before and after the switch, so everything that *does* differ differs for the on
 
 ## What isn't done yet
 
-**`ground.js` still meshes from `blockBounds`** rather than from the faces this module already
-computes, and **`police.js`** still describes its corridor as an `{axis, line}` pair rather than a
-path through the graph.
+**`police.js`** still describes its corridor as an `{axis, line}` pair rather than a path through
+the graph.
+
+`ground.js`, `buildings.js` and `props.js` now mesh from the faces. Their block *platforms* do, at
+least — the centre lines and crosswalks in the back half of `ground.js` are road-shaped rather than
+block-shaped and still walk the grid, so an editor-drawn road carries no markings yet.
 
 The grid-shaped view a car still carries (`car.i`, `car.j`, `car.d`) exists for those three plus
 `fares.js` and the probe. `net.dirOfLane` is the single point where it is derived, so it is also
