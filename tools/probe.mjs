@@ -10,7 +10,6 @@
 import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
-import { createBoost, BOOST_COOLDOWN } from '../src/game/boost.js';
 import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
@@ -33,6 +32,10 @@ import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
+import {
+  createBoost, BOOST_DURATION, BOOST_START_FRACTION, BOOST_FARE_REWARD, BOOST_COOLDOWN,
+} from '../src/game/boost.js';
+import { createBoostMeter } from '../src/game/boostmeter.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -890,7 +893,9 @@ check('no two cars occupy the same space', worst > 1.6,
 // speed cap drops immediately, so it's still committed to the risk while visibly coasting down.
 {
   // Plain release: active -> cooldown (still engaged) -> ready, fuel untouched while it's frozen.
-  const boost = createBoost(15, 15, BOOST_COOLDOWN);
+  // Opened full rather than at the run's starting third so half a second of holding is a rounding
+  // error against the tank, and the cooldown is the only thing under test.
+  const boost = createBoost(15, 1, BOOST_COOLDOWN);
   boost.press();
   for (let f = 0; f < 30; f++) boost.update(1 / 60); // hold for half a second
   boost.release();
@@ -911,7 +916,7 @@ check('no two cars occupy the same space', worst > 1.6,
 {
   // Re-pressing mid-cooldown catches the car before the window closes: back to active outright,
   // same as the button reads a fresh Loco Mode press (wheelie/flame/kick in main.js key off this).
-  const boost = createBoost(15, 15, BOOST_COOLDOWN);
+  const boost = createBoost(15, 1, BOOST_COOLDOWN);
   boost.press();
   boost.update(1 / 60);
   boost.release();
@@ -922,15 +927,15 @@ check('no two cars occupy the same space', worst > 1.6,
 }
 {
   // Draining the tank to empty while still held gets the same cooldown tail as an on-purpose
-  // release — it doesn't skip straight to recharging just because the player never let go.
-  const boost = createBoost(0.1, 15, BOOST_COOLDOWN);
+  // release — it doesn't skip straight to the dead-button state just because the player never
+  // let go.
+  const boost = createBoost(0.1, 1, BOOST_COOLDOWN);
   boost.press();
   boost.update(0.2); // more than the whole tank in one step
-  check('running dry enters cooldown instead of recharging immediately',
+  check('running dry enters cooldown instead of going dead immediately',
     boost.isCoolingDown(), `mode=${boost.state.mode}`);
   boost.update(BOOST_COOLDOWN + 0.01);
-  check('cooldown from empty lands on recharging',
-    boost.state.mode === 'recharging', `mode=${boost.state.mode}`);
+  check('cooldown from a dry tank lands on empty', boost.isEmpty(), `mode=${boost.state.mode}`);
 }
 {
   // The taxi's own physics: `boost` (the hazard flag) stays true through the cooldown tail, but
@@ -1605,6 +1610,137 @@ check('the taxi is an ordinary car in the traffic array',
   // 8.5 of something.
   check('top speed reads as a plausible mph', speedMph(boostTop) >= 45 && speedMph(boostTop) <= 60,
     `${speedMph(boostTop)} mph`);
+}
+
+// --- The Loco Mode meter ----------------------------------------------------
+//
+// The meter is now an earned resource: it opens at a third, drains only while held, and the sole
+// way fuel gets in is a drop-off. A regression here is invisible in a screenshot — a stray refill
+// path just makes the game quietly easier — so assert the whole arc as numbers.
+{
+  const b = createBoost();
+  check('the meter opens at a third of a tank',
+    Math.abs(b.fraction() - BOOST_START_FRACTION) < 1e-9, `${b.fraction().toFixed(3)}`);
+
+  // Idle for a full tank's worth of seconds with the button untouched. Nothing may move.
+  const idleStart = b.fraction();
+  for (let i = 0; i < 60 * BOOST_DURATION; i++) b.update(1 / 60);
+  check('an idle meter does not regenerate', b.fraction() === idleStart,
+    `${idleStart.toFixed(3)} -> ${b.fraction().toFixed(3)}`);
+
+  // Drain it dry: a third of a tank is 5s of boost, plus the BOOST_COOLDOWN momentum tail that
+  // running dry earns the same as an on-purpose release, so 7s of holding lands on 'empty' with
+  // room to spare.
+  b.press();
+  for (let i = 0; i < 60 * 7; i++) b.update(1 / 60);
+  check('holding drains the tank to empty', b.fraction() === 0 && b.isEmpty(), `mode ${b.state.mode}`);
+
+  // Still held, still empty, and — the point of the change — it stays that way. The old fast
+  // recharge would have refilled it inside 15s and re-engaged under the finger.
+  for (let i = 0; i < 60 * BOOST_DURATION; i++) b.update(1 / 60);
+  check('an empty meter never recharges itself', b.fraction() === 0 && !b.isActive(),
+    `mode ${b.state.mode} after ${BOOST_DURATION}s held on empty`);
+
+  // A drop-off is the only way back. It pours in over ~0.7s, and because the button was never
+  // released the boost re-engages rather than waiting for a fresh press.
+  b.topUp(BOOST_FARE_REWARD);
+  b.update(1 / 60);
+  check('a drop-off revives an empty meter under a held button', b.isActive() && b.fraction() > 0,
+    `mode ${b.state.mode}, ${b.fraction().toFixed(3)}`);
+
+  // Three drop-offs fill it from empty. Release first so the pour isn't racing the drain.
+  const c = createBoost(BOOST_DURATION, 0);
+  check('a meter can start empty', c.fraction() === 0);
+  for (let i = 0; i < 3; i++) c.topUp(BOOST_FARE_REWARD);
+  for (let i = 0; i < 60 * 3; i++) c.update(1 / 60);
+  check('three drop-offs fill the tank', Math.abs(c.fraction() - 1) < 1e-9, `${c.fraction().toFixed(3)}`);
+
+  // And a fourth cannot overflow it.
+  c.topUp(BOOST_FARE_REWARD);
+  for (let i = 0; i < 60; i++) c.update(1 / 60);
+  check('top-ups clamp at a full tank', c.fraction() === 1, `${c.fraction().toFixed(3)}`);
+}
+
+// --- The Punch It pill's fill animation -------------------------------------
+//
+// The pour is the reward for a drop-off, and all three of its layers are timing — an overshoot
+// that never overshoots, or a glow that latches on and never fades, is exactly the kind of thing a
+// screenshot can't see. boostmeter.js is pure for this reason: drive it with a real pour and read
+// the numbers the CSS variables would have got.
+{
+  const b = createBoost();
+  const m = createBoostMeter();
+  const dt = 1 / 60;
+  const before = b.fraction();
+  b.topUp(BOOST_FARE_REWARD);
+
+  let peak = -1, peakT = 0, t = 0, litFrames = 0, pulseMin = 1, pulseMax = 0;
+  let markT = null;         // when the fuel itself finished arriving
+  const trace = [];
+  for (let i = 0; i < 60 * 3; i++) {
+    b.update(dt);
+    const pouring = b.state.pending > 0;
+    m.update(dt, b.fraction(), pouring);
+    t += dt;
+    if (!pouring && markT === null) markT = t;
+    if (m.state.pct > peak) { peak = m.state.pct; peakT = t; }
+    if (m.state.fill > 0) litFrames++;
+    if (markT === null && t > 0.2) {          // sample the throb mid-pour, past the attack ramp
+      pulseMin = Math.min(pulseMin, m.state.pulse);
+      pulseMax = Math.max(pulseMax, m.state.pulse);
+    }
+    trace.push({ t, pct: m.state.pct, fill: m.state.fill });
+  }
+
+  const mark = before + BOOST_FARE_REWARD;
+  check('the bar overshoots the fuel it was given', peak > mark + 0.04 && peak < mark + 0.1,
+    `${(before * 100).toFixed(0)}% -> ${(mark * 100).toFixed(0)}%, peaked at ${(peak * 100).toFixed(1)}%`);
+  check('the overshoot lands just after the fuel does', peakT > markT && peakT < markT + 0.2,
+    `fuel done ${markT.toFixed(2)}s, peak ${peakT.toFixed(2)}s`);
+
+  // The bar has to come back to the fuel it actually holds — an overshoot that stuck would be the
+  // meter lying about how much boost is in the tank.
+  const settled = trace[trace.length - 1];
+  check('the bar returns to the real level', Math.abs(settled.pct - b.fraction()) < 1e-9,
+    `${(settled.pct * 100).toFixed(1)}% vs ${(b.fraction() * 100).toFixed(1)}% fuel`);
+
+  // ...and it *rings* on the way there rather than easing straight down onto it. Every extremum
+  // after the peak, measured against the level the bar ends on: alternating signs, each smaller
+  // than the last. An eased fall — the version this replaced — produces none of them, so the
+  // count alone is the check that the spring is still a spring.
+  const after = trace.filter((s) => s.t > peakT).map((s) => s.pct - settled.pct);
+  const swings = [];
+  for (let i = 1; i < after.length - 1; i++) {
+    if ((after[i] - after[i - 1]) * (after[i + 1] - after[i]) < 0) swings.push(after[i]);
+  }
+  const alternates = swings.every((v, i) => i === 0 || (v * swings[i - 1] < 0 && Math.abs(v) < Math.abs(swings[i - 1])));
+  check('the settle rings instead of easing flat onto the mark',
+    swings.length >= 3 && swings[0] < -0.01 && alternates,
+    swings.map((v) => `${(v * 100).toFixed(1)}%`).join(' '));
+
+  // The bar climbs the whole way — no stall or step backwards before the peak.
+  const climbs = trace.filter((s) => s.t <= peakT).every((s, i, a) => i === 0 || s.pct >= a[i - 1].pct - 1e-9);
+  check('the fill never steps backwards on the way up', climbs);
+
+  check('the glow pulses while fuel is arriving', pulseMax - pulseMin > 0.5 && pulseMax <= 1,
+    `${pulseMin.toFixed(2)}..${pulseMax.toFixed(2)}`);
+
+  // The glow and the leading edge fade out — and specifically, they outlast the pour (so they're
+  // still up while the bar bounces) but are gone well before the next fare could land.
+  check('the glow fades out after the bounce', settled.fill === 0 && litFrames * dt > markT,
+    `lit for ${(litFrames * dt).toFixed(2)}s, pour took ${markT.toFixed(2)}s`);
+
+  // Nothing may move when no fuel is arriving: a drain has to read 1:1 with the fuel it costs.
+  const d = createBoost();
+  const dm = createBoostMeter();
+  d.press();
+  let drainMismatch = 0;
+  for (let i = 0; i < 60 * 4; i++) {
+    d.update(dt);
+    dm.update(dt, d.fraction(), d.state.pending > 0);
+    if (Math.abs(dm.state.pct - d.fraction()) > 1e-9 || dm.state.fill !== 0) drainMismatch++;
+  }
+  check('a drain draws exactly the fuel it has left', drainMismatch === 0, `${drainMismatch} frames off`);
 }
 
 // --- Ghost outline ----------------------------------------------------------

@@ -474,13 +474,27 @@ that decision trivial.
 ## Crazy-taxi mode
 
 The **Loco Mode** button, bottom left. **Hold to enable, release to pause.** A short tap costs a
-short slice, a long hold flows until the tank is empty. Full tank is 15 seconds of boost; from
-empty it recharges in 15 seconds and, if you kept holding through the recharge, engages again the
-moment it's full. Release with fuel still in the tank and it trickles back up at a fifth of the
-empty-recharge rate — enough that a couple of quick taps aren't stranded halfway, slow enough
-that a full drain still calls for the fast recharge. The decision is now *how long* to press as
-well as *when*. The button doubles as the dial: a `--pct` CSS variable tracks the fuel level,
-dropping as you drain and climbing as it recharges.
+short slice, a long hold flows until the tank is empty. Full tank is 15 seconds of boost. The
+decision is now *how long* to press as well as *when*. The button doubles as the dial: a `--pct`
+CSS variable tracks the fuel level, dropping as you drain and climbing as a drop-off pours fuel in.
+
+**The meter never refills on its own.** The run opens with **a third of a tank** and each
+successful drop-off pours in **another third** — that is the only source of fuel. Spend it all and
+the pill goes grey and dead (`.is-empty`, `disabled`) until you deliver someone. A top-up that
+lands while you're still holding the button rolls straight back into boost rather than making you
+press again.
+
+Both ways out of a boost — letting go, and running the tank dry — pass through the one-second
+`'cooldown'` momentum window first, so `'empty'` is where a drained tank lands *after* that tail
+rather than the instant the fuel runs out. See
+[traffic.md](traffic.md#boost-crazy-taxi-mode) for what stays armed through it.
+
+That is a deliberate replacement for the old economy, which handed back 15% per drop-off but also
+fast-recharged from empty in 15s and trickled a partial tank back up at a fifth of that rate. Under
+those rules waiting was a valid way to get boost back, so the meter said nothing about how the run
+was going; now every second of it was earned by a fare, and three deliveries is a full tank.
+Opening with a third rather than empty keeps the toy in reach on the first fare — an empty start
+leaves the button dead in the hand until the first drop-off lands.
 
 **There is no longer a case where holding it does nothing.** A taxi that had just picked someone up
 used to be `parked` — waiting at the kerb for you to tap a destination — and `parked` sets
@@ -494,10 +508,68 @@ Pointer capture on `pointerdown` keeps the boost held even if the finger slides 
 `pointerup`, `pointercancel`, `lostpointercapture` and the window `blur` all release it, so
 alt-tabbing or switching apps never leaves the boost stuck on.
 
-Every successful drop-off tops the tank up by **15%** — `boost.topUp(0.15)` queues the fuel as
-*pending* and pours it in over ~0.3s so the bar visibly fills rather than snaps. A short green
-pulse behind the pill (`.is-topping-up`, matching the flying `$20`) is the flash that ties the
-top-up to the same payout the earnings pop is announcing.
+### The refill animation
+
+A drop-off pays two currencies and for a while it only showed one. The flying `$20` says *money*;
+nothing said *and a third of a tank*, so the meter simply grew on its own in the corner of the
+screen with no visible cause. `src/game/energybits.js` is that cause: **six little yellow sparks
+break off the taxi and get pulled into the Punch It pill**, and the tank is topped up when the first
+one lands, not on the delivery frame. A meter that starts filling a second and a half before
+anything visibly reaches it reads exactly backwards.
+
+They are **sequenced behind the payout, not fired alongside it** — the handoff is 1000ms, set from
+the payout's own flight (620ms rise + 460ms fly), so the coin has landed and gone before the first
+spark appears. Two swarms leaving the same car at the same time for two different corners is noise,
+and the two currencies stop reading as two. The cost is that a delivery's fuel arrives ~1.6s after
+the drop-off rather than immediately; that delay is the effect, and it's short enough to sit inside
+the gap before the next fare is worth chasing.
+
+Both endpoints are resolved as functions at burst time rather than baked in at call time, so a taxi
+that has driven on — and a pill a resize has moved — are still aimed at correctly. If the pill is
+hidden (shot mode, or the run-end blackout) the flight is skipped and the fuel is handed over
+anyway: losing earned boost to a presentation detail would be a real bug wearing a cosmetic one.
+
+Then the pour itself. `boost.topUp(BOOST_FARE_REWARD)` queues the fuel as *pending* and pours it in
+at half a tank per second (~0.7s) so the bar visibly fills rather than snaps. Since that pour is now
+the *only* way fuel ever enters the meter, it carries the rest of the reward and gets three more
+layers, all timed by `src/game/boostmeter.js` and shaped in `index.html`:
+
+| Layer | What it does | Wiring |
+|---|---|---|
+| **Overfill** | The bar runs ~7% of a tank past its new mark, then rings back down onto it | `--pct` |
+| **Flutter** | The whole pill throbs — glow and 3.5% of scale together, 8Hz — for as long as fuel is arriving | `--fill` × `--pulse` → `.is-filling` |
+| **Leading edge** | A blurred near-white line rides the front of the fill, fading in with the pour and out with the bounce | `--fill` → `#boost::after` |
+
+`boostmeter.js` is pure and DOM-free for the same reason `boost.js` is: `main.js` reads three numbers
+off it and writes three CSS variables, and the probe drives it with a real pour and asserts on the
+same numbers. It keys off `boost.state.pending`, so nothing has to remember to fire the animation and
+a second delivery landing mid-pour just extends it.
+
+**The overshoot is authored, not simulated.** The obvious version — draw the bar as a spring chasing
+the real fuel level and let its momentum carry it past the mark — was built and measured first: 3.3%
+of a tank at its best (K=160, C=4), about 4px on the pill, and a 1.4s wobble to settle. A spring
+following a ramp can only overshoot by around v/ω, and a 0.5-tank/s pour against any ω fast enough
+not to look sluggish leaves nothing to work with. The scripted kick starts on the frame the pour
+finishes, so it still doesn't read as a jump — the bar is already travelling at the pour rate and the
+kick just carries it further, 0.1s out to the peak.
+
+**Coming back is a damped ring, not a curve.** The first version eased from the peak down onto the
+mark and stopped there, which is the exact moment the eye is on it, and it read as linear — the bar
+*arrived* rather than *settled*. The peak now releases into a decaying cosine (4Hz, e-folding at 7/s)
+so it dips under the mark, comes back over it smaller, and converges: off a 7% overshoot the swings
+measure **-2.9%, +1.2%, -0.5%, +0.2%**, then it snaps to the real level once the ring is under a
+fifth of a pixel, about 0.55s in. This is the spring the scripted kick doesn't get for free.
+
+The flutter is deliberately fast. At 5Hz the pill read as *breathing*; the point is a signal that
+something is being poured in right now, so it sits at the top of what still reads as a pulse rather
+than a flicker. It moves the pill itself, not just the glow, which is what makes it visible at the
+edge of vision — where this button is while the player is watching the road. `prefers-reduced-motion`
+drops the scale and keeps the glow and the edge.
+
+The glow used to be a one-shot green flash matching the flying `$20`. Green read as *money*, which
+is what the earnings pop already says; yellow says *this is boost*. Driving its alpha from a variable
+rather than a keyframe is also what lets it fade out cleanly however long the pour ran, instead of
+snapping off when a fixed-length animation ends.
 
 While active the taxi runs at 2.2× speed, forces its next junction green, doesn't slow for
 corners, lays **skid marks** off the line and through turns, and kicks up **dust**. See

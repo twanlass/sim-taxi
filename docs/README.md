@@ -30,8 +30,8 @@ the whole tension of the game. A delivery pays by distance, $8 for a one-block h
 across town. Let a clock expire and the run ends.
 
 **Loco Mode** (bottom left) is the crazy-taxi button: **hold** for double speed that runs red
-lights, release to pause the meter. A full tank is 15 seconds of boost; from empty it recharges in
-15 seconds.
+lights, release to pause the meter. A full tank is 15 seconds of boost, earned rather than
+regenerated: you start with a third and each drop-off tops it up by another third.
 
 ## Conventions worth knowing before editing
 

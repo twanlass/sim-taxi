@@ -308,14 +308,15 @@ corridor is deliberately not excepted — emergency preemption really does turn 
 watching the green path open ahead of the siren is the whole effect.
 
 The meter itself lives in `game/boost.js` as a pure clock with no knowledge of the taxi or the
-DOM. Hold-to-enable: the tank drains only while the button is held (15s from full), releasing just
-pauses it, and once empty it refills over 15s before it can be held again.
+DOM. Hold-to-enable: the tank drains only while the button is held (15s from full) and releasing
+just pauses it. Nothing refills it but a drop-off — see
+[gameplay.md](gameplay.md#crazy-taxi-mode) for the economy.
 
 **Releasing doesn't switch it off.** It used to — the taxi went from full boost to ordinary traffic
 in the same frame, so tapping off a beat before a crash or a cop was a free escape. `game/boost.js`
 now holds the mode at `'cooldown'` for `BOOST_COOLDOWN` (1s) after release before it lands on
-`'ready'` (or `'recharging'`, if the tank ran dry rather than being released on purpose — both
-exits from `'active'` get the same tail). `isEngaged()` covers `'active'` and `'cooldown'` both, and
+`'ready'` (or `'empty'`, if the tank ran dry rather than being released on purpose — both exits
+from `'active'` get the same tail). `isEngaged()` covers `'active'` and `'cooldown'` both, and
 is what `taxi.boost` is driven from — collision detection, the police bust range and the priority
 junction that lets Loco Mode run reds all read `taxi.boost`, so all three stay armed through the
 cooldown. What *doesn't* survive it is speed: `taxi.boostEasing` is true only during `'cooldown'`,
