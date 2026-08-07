@@ -18,9 +18,12 @@ import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import {
   GRID, PITCH, LANE, HALF_ROAD, lineCoord, legalExits, entryPoint, exitPoint, turnControl,
-  laneOffsetCoord, isUnsignalised, ringAxisAt, isXAxis, dirSign, nextIntersection,
+  laneOffsetCoord, isXAxis, dirSign, nextIntersection,
 } from '../src/city/grid.js';
-import { lightPhase, SPEED, signalCycle, edgeClass } from '../src/sim/traffic.js';
+// Only constants and the pre-port road-class helper. The signal model this tool validates is
+// frozen below rather than imported, so that pointing traffic.js at the network cannot turn the
+// comparison into the network agreeing with itself.
+import { SPEED, signalCycle, edgeClass } from '../src/sim/traffic.js';
 import { roadNetFromGrid, bakeNetwork, SIGNAL_DEFAULTS, gridNodeId } from '../src/city/roadnet.js';
 import { findRoute } from '../src/game/route.js';
 
@@ -120,6 +123,66 @@ function refRoute(from, target) {
   return null;
 }
 
+// --- The analytic signal model, as it stood before the port ------------------
+//
+// Frozen here for the same reason the grid router above is: `traffic.js`'s `lightPhase` is about
+// to become a call *into* the network, and an assertion that compares the network against itself
+// is worth nothing. docs/roadnet.md calls the phase comparison "the assertion that actually
+// matters", so it has to keep comparing two independently-computed answers.
+//
+// The constants are written out rather than imported for the same reason. `signalConstantsAgree`
+// below is what keeps them honest — if the shipped numbers are retuned, this copy fails loudly
+// instead of silently validating the wrong city.
+const REF_SIGNAL = { cycle: 16, yellow: 1.6, arterialShare: 0.64, cruise: 8.5 };
+
+/** `ringAxisAt`, frozen. 'x' or 'z' if the junction sits on the ring, null if interior. */
+function refRingAxisAt(i, j) {
+  const onX = j === 0 || j === GRID;
+  const onZ = i === 0 || i === GRID;
+  if (onX && onZ) return null;
+  if (onX) return 'x';
+  if (onZ) return 'z';
+  return null;
+}
+
+/** `lightPhase(i, j, t, true)`, frozen — no corridor, no boost hold, as the tool always called it. */
+function refLightPhase(layout, i, j, t) {
+  const ring = refRingAxisAt(i, j);
+  if (ring) return { axis: ring, yellow: false, remaining: Infinity };
+
+  const { cycle, yellow, arterialShare, cruise } = REF_SIGNAL;
+  const xArterial = layout.arterials.x.has(j);
+  const zArterial = layout.arterials.z.has(i);
+
+  let xShare = 0.5;
+  if (xArterial && !zArterial) xShare = arterialShare;
+  else if (zArterial && !xArterial) xShare = 1 - arterialShare;
+
+  const totalGreen = cycle - 2 * yellow;
+  const greenX = totalGreen * xShare;
+  const greenZ = totalGreen - greenX;
+
+  const alongX = xArterial || !zArterial;
+  const step = PITCH / cruise;
+
+  let offset;
+  if (alongX) {
+    const blocks = (layout.arterials.dirX.get(j) ?? 1) > 0 ? i : GRID - i;
+    offset = -blocks * step;
+  } else {
+    const blocks = (layout.arterials.dirZ.get(i) ?? 1) > 0 ? j : GRID - j;
+    offset = greenX + yellow - blocks * step;
+  }
+
+  const local = (((t + offset) % cycle) + cycle) % cycle;
+  if (local < greenX) return { axis: 'x', yellow: false, remaining: greenX - local };
+  if (local < greenX + yellow) return { axis: 'x', yellow: true, remaining: greenX + yellow - local };
+  if (local < greenX + yellow + greenZ) {
+    return { axis: 'z', yellow: false, remaining: greenX + yellow + greenZ - local };
+  }
+  return { axis: 'z', yellow: true, remaining: cycle - local };
+}
+
 const everyIntersection = [];
 for (let i = 0; i <= GRID; i++) {
   for (let j = 0; j <= GRID; j++) everyIntersection.push({ i, j });
@@ -136,6 +199,12 @@ for (let s = 0; s < SEEDS; s++) {
     `${SIGNAL_DEFAULTS.cruise} vs ${SPEED}`);
   check(`${tag} cycle matches signalCycle`, SIGNAL_DEFAULTS.cycle === signalCycle(),
     `${SIGNAL_DEFAULTS.cycle} vs ${signalCycle()}`);
+  // The frozen oracle is only an oracle while its constants are the shipped ones.
+  check(`${tag} frozen signal constants agree`,
+    REF_SIGNAL.cycle === SIGNAL_DEFAULTS.cycle && REF_SIGNAL.yellow === SIGNAL_DEFAULTS.yellow
+    && REF_SIGNAL.arterialShare === SIGNAL_DEFAULTS.arterialShare
+    && REF_SIGNAL.cruise === SIGNAL_DEFAULTS.cruise,
+    `${JSON.stringify(REF_SIGNAL)} vs ${JSON.stringify(SIGNAL_DEFAULTS)}`);
 
   // --- Nodes ----------------------------------------------------------------
   {
@@ -250,7 +319,7 @@ for (let s = 0; s < SEEDS; s++) {
     for (let i = 0; i <= GRID; i++) {
       for (let j = 0; j <= GRID; j++) {
         const node = net.nodeByGrid(i, j);
-        const gridSays = isUnsignalised(i, j);
+        const gridSays = refRingAxisAt(i, j) !== null;
         const netSays = node.signal === null;
         if (gridSays !== netSays) {
           // One difference is intended. Park closures can leave an interior junction with nothing
@@ -267,7 +336,7 @@ for (let s = 0; s < SEEDS; s++) {
         } else if (gridSays) {
           // And the priority street must be the ring's axis, not the cross street's.
           const axis = node.streets[node.priorityStreet]?.axis ?? 0;
-          const want = ringAxisAt(i, j);
+          const want = refRingAxisAt(i, j);
           const got = axis < 0.1 ? 'x' : 'z';
           if (want && want !== got) {
             mismatches += 1;
@@ -299,8 +368,8 @@ for (let s = 0; s < SEEDS; s++) {
         let matches = true;
         let nodeWorst = 0;
         let first = '';
-        for (let t = 0; t < signalCycle(); t += 0.1) {
-          const want = lightPhase(i, j, t, true);
+        for (let t = 0; t < REF_SIGNAL.cycle; t += 0.1) {
+          const want = refLightPhase(layout, i, j, t);
           const got = net.phaseAt(node, t);
           const gotAxis = axisOf(node, got.index);
           if (gotAxis !== want.axis || got.yellow !== want.yellow) {
@@ -331,7 +400,7 @@ for (let s = 0; s < SEEDS; s++) {
     }
 
     offsetDriftNodes += drifted;
-    check(`${tag} signal phase matches lightPhase`, unexplained === 0,
+    check(`${tag} signal phase matches the analytic model`, unexplained === 0,
       `${unexplained} junction(s) differ with an intact coordinated street, e.g. ${example}`);
   }
 
