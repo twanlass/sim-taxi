@@ -21,6 +21,7 @@ import { createSmoke } from './game/smoke.js';
 import { createDebris } from './game/debris.js';
 import { createFlames } from './game/flames.js';
 import { createVanish } from './game/vanish.js';
+import { createCarGhosts } from './game/carghosts.js';
 import { showRunEnd } from './game/runend.js';
 import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
@@ -135,6 +136,10 @@ const debris = createDebris(scene, makeRng(runSeed + 111));
 const victimDebris = createDebris(scene, makeRng(runSeed + 122));
 const flames = createFlames(scene, makeRng(runSeed + 133));
 const vanish = createVanish();
+
+// Occluded-only outlines on the traffic nearest the taxi, faded in with Loco Mode — the one mode
+// where a car hidden behind a tower is a crash rather than a surprise. See game/carghosts.js.
+const carGhosts = createCarGhosts(scene, traffic);
 
 // Collision detection between the taxi and ambient cars. Only fires while boosting — see
 // src/sim/collisions.js. On impact *both* cars are wrecked: each detonates where it stands and
@@ -840,6 +845,11 @@ function frame() {
   // plumbing is needed here.
   collisions.update();
   checkPoliceBust();
+  // Last of the three, and both halves of that matter. It copies the matrices traffic composed
+  // *this* frame, so running it any earlier would slide every outline off its own car by a couple
+  // of pixels at boost speed; and it runs after collisions so a car wrecked on this frame is
+  // already flagged, rather than wearing a ghost over its own fireball for one frame.
+  carGhosts.update(dt);
 
   // Two reasons to trail the taxi, both narrow-viewport only (see START_FOLLOW_SMOOTHING): the
   // opening follow, which runs until the player takes the framing over, and Loco Mode, which
@@ -1018,6 +1028,7 @@ window.__taxi = {
   traffic,
   daylight,
   boost,
+  carGhosts,
   skids,
   police,
   fares,
