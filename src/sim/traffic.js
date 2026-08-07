@@ -607,6 +607,10 @@ function spawnCars(rng, count) {
       pitch: 0,
       pitchV: 0,
       boost: false,
+      // True only during the taxi's post-release cooldown tail (see BOOST_COOLDOWN in
+      // game/boost.js) — `boost` stays true through it so collision/police/red-light rules keep
+      // applying, this is what tells the speed math the hold itself has already ended.
+      boostEasing: false,
       wasBoosting: false,
       lateral: 0,      // world-unit offset from the lane centre; + is toward the road centreline
       steer: 0,        // yaw offset while sliding across, so the car points where it is going
@@ -735,7 +739,7 @@ export function createTraffic(rng, scene, count = 24) {
   const taxi = cars[0];
   taxi.isTaxi = true;
   const {
-    group: taxiGroup, setFareColor: setTaxiFareColor, setSteer: setTaxiSteer,
+    group: taxiGroup, setOccupied: setTaxiOccupied, setSteer: setTaxiSteer,
   } = createTaxiMesh();
   scene.add(taxiGroup);
 
@@ -1170,6 +1174,14 @@ export function createTraffic(rng, scene, count = 24) {
       const panicTarget = panicTargetFor(car);
       car.panic += (panicTarget - car.panic) * Math.min(1, dt * 6);
 
+      // `car.boost` alone drives every boost-only *rule* (weave, tailgate gap, priority junction,
+      // red-light running) all the way through the cooldown tail — that's what keeps the risk
+      // alive after the button comes up. Actual boost *speed* is narrower: it drops the instant
+      // the hold ends, so the taxi coasts back down under ordinary braking instead of holding
+      // 18.7 u/s for the whole cooldown window. That coast-down is also where the nose-dip comes
+      // from — the pitch spring downstream reads the resulting deceleration off car.v directly.
+      const fullPower = car.boost && !car.boostEasing;
+
       if (car.state === 'drive') {
         // A lane ends exactly at the junction boundary — that is where `buildLanes` trimmed it —
         // so the stop line is the lane's own length, pulled back by the crosswalk clearance. No
@@ -1213,8 +1225,8 @@ export function createTraffic(rng, scene, count = 24) {
         // so without the extra push the higher cap would never actually be reached.
         const cruiseCap = SPEED * (1 + (SCATTER_SPEED - 1) * car.scatter)
           * (1 - PANIC_BRAKE * car.panic);
-        const topSpeed = car.boost ? SPEED * BOOST_SPEED : cruiseCap;
-        const accel = car.boost
+        const topSpeed = fullPower ? SPEED * BOOST_SPEED : cruiseCap;
+        const accel = fullPower
           ? BOOST_ACCEL
           : ACCEL + (BOOST_ACCEL - ACCEL) * car.scatter;
         const desired = Math.min(topSpeed, Math.sqrt(2 * BRAKE * Math.max(0, allowed)));
@@ -1439,7 +1451,7 @@ export function createTraffic(rng, scene, count = 24) {
         // cars sag at every block — the boosting taxi especially, which would hit top speed on the
         // straight and then shed a third of it to cross an empty junction in a straight line.
         const straightOn = car.turn.hand === 'straight';
-        const cruise = car.boost ? SPEED * BOOST_SPEED : SPEED;
+        const cruise = fullPower ? SPEED * BOOST_SPEED : SPEED;
         // Crazy mode doesn't lift for left-turns or straights — it goes round them at full pelt,
         // and the lean plus the rubber on the road sell it instead of a speed drop. Right turns
         // are the exception: with right-hand traffic they cut across the near corner (chord ≈
@@ -1448,11 +1460,11 @@ export function createTraffic(rng, scene, count = 24) {
         // softer target on rights (0.75× cruise) keeps the no-brakes feel while giving the tight
         // arc back its visual weight.
         const isRight = car.turn.hand === 'right';
-        const boostTurn = car.boost ? (isRight ? cruise * 0.75 : cruise) : CORNER_SPEED;
+        const boostTurn = fullPower ? (isRight ? cruise * 0.75 : cruise) : CORNER_SPEED;
         const cornerTarget = straightOn ? cruise : boostTurn;
         car.v = car.v > cornerTarget
           ? Math.max(cornerTarget, car.v - BRAKE * dt)
-          : Math.min(cornerTarget, car.v + (car.boost ? BOOST_ACCEL : ACCEL) * dt);
+          : Math.min(cornerTarget, car.v + (fullPower ? BOOST_ACCEL : ACCEL) * dt);
         car.turnT += (car.v * dt) / car.turnLen;
         car.travelled += car.v * dt;
         car.speedFactor = car.v / SPEED;
@@ -1639,7 +1651,7 @@ export function createTraffic(rng, scene, count = 24) {
   }
 
   return {
-    cars, taxi, taxiGroup, setTaxiFareColor, mesh, wheelMesh, barMesh, update, warmup,
+    cars, taxi, taxiGroup, setTaxiOccupied, mesh, wheelMesh, barMesh, update, warmup,
     wreckShell, stats,
     lightPhase, displayPhase,
   };

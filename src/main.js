@@ -243,7 +243,9 @@ function bustByPolice() {
 }
 
 function checkPoliceBust() {
-  if (!boost.isActive()) return;
+  // Engaged, not just active — the bust range still catches the taxi through the cooldown tail,
+  // so braking off Loco Mode a beat too close to a cruiser doesn't buy a free pass.
+  if (!boost.isEngaged()) return;
   if (!police.state.active) return;
   if (fares.state.gameOver || traffic.taxi.crashed) return;
   const dx = traffic.taxi.x - police.group.position.x;
@@ -351,8 +353,9 @@ createPicker(
 );
 
 // Camera shortcut: frame the waiting rider on demand. At play zoom on a phone the rider is a
-// handful of pixels somewhere on a map that no longer fits in one screen, so a button that snaps
-// the camera onto them is faster than hunting for their meter by hand.
+// handful of pixels somewhere on a map that no longer fits in one screen, so snapping the camera
+// onto them is faster than hunting for their meter by hand. Narrow viewports only — see
+// selectRider.
 function snapToRider(fare) {
   if (!fare) return;
   const c = cornerFor(fare.target.i, fare.target.j);
@@ -364,9 +367,9 @@ function snapToRider(fare) {
   releaseCameraToPlayer();
 }
 
-// Double-tap the chip to actually dispatch the taxi at that rider — same effect as tapping their
-// pin on the map, without having to find it first. A pickup while already carrying someone would
-// be refused at the picker; keep the rule consistent here by showing the same toast.
+// Dispatch the taxi at that rider — same effect as tapping their pin on the map, without having to
+// find it first. A pickup while already carrying someone would be refused at the picker; keep the
+// rule consistent here by showing the same toast.
 function dispatchToRider(fare) {
   if (!fare || fares.state.gameOver) return;
   if (fares.carrying()) { flash('Drop off your rider first'); return; }
@@ -376,7 +379,17 @@ function dispatchToRider(fare) {
   }
 }
 
-const riderFinder = createRiderFinder({ onTap: snapToRider, onDoubleTap: dispatchToRider });
+// One tap on a chip picks that rider. The camera only follows on a narrow viewport, where the
+// rider may well be off-screen and framing them is the other half of the job; on a desktop the
+// whole city is already in frame, so a snap would shove the map out from under a player who can
+// see the rider fine — same reason drag-to-pan and the follow-cams are narrow-only.
+function selectRider(fare) {
+  if (!fare) return;
+  if (isNarrow()) snapToRider(fare);
+  dispatchToRider(fare);
+}
+
+const riderFinder = createRiderFinder({ onSelect: selectRider });
 const dropoffIndicator = createDropoffIndicator({
   camera,
   // Aim at the kerb corner where the pin actually stands, not the intersection centre — the
@@ -389,6 +402,8 @@ const dropoffIndicator = createDropoffIndicator({
 
 const hud = {
   money: document.getElementById('money'),
+  streak: document.getElementById('streak'),
+  streakCount: document.getElementById('streak-count'),
   banner: document.getElementById('run-end'),
   toast: document.getElementById('toast'),
 };
@@ -490,6 +505,30 @@ function popEarning(amount) {
   };
 }
 
+/**
+ * Reveal the streak counter on the first successful drop-off, then bump the number on every one
+ * after — no flight off the taxi like the payout gets, that's a later concern. `count` is
+ * `fares.state.delivered`, so the streak is just "how many this run" until a reset condition
+ * exists.
+ */
+function updateStreak(count) {
+  if (!hud.streak || !hud.streakCount) return;
+  hud.streakCount.textContent = String(count);
+  if (hud.streak.hidden) {
+    hud.streak.hidden = false;
+    hud.streak.animate([
+      { opacity: 0, transform: 'scale(0.4)' },
+      { opacity: 1, transform: 'scale(1.12)', offset: 0.6 },
+      { opacity: 1, transform: 'scale(1)' },
+    ], { duration: 400, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' });
+    return;
+  }
+  // Toggle off / reflow / on, same as the money bump — a class that stays put doesn't re-fire.
+  hud.streak.classList.remove('streak-bumped');
+  void hud.streak.offsetWidth;
+  hud.streak.classList.add('streak-bumped');
+}
+
 let toastTimer = 0;
 function flash(text) {
   if (!hud.toast) return;
@@ -528,10 +567,13 @@ function updateHud(dt) {
     showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: s.failReason,
-      // Four numbers, in the order the run produced them: what you carried, what it paid, what
-      // the city made you sit through, and how fast you were going when it went wrong.
+      // Five numbers, in the order the run produced them: what you carried, what it paid, what
+      // the city made you sit through, and how fast you were going when it went wrong. Streak
+      // sits right after Fares because right now it's the same count read a second way — see the
+      // HUD streak counter in updateStreak().
       stats: [
         { label: 'Fares', value: s.delivered, format: (n) => `${n}` },
+        { label: 'Streak', value: s.delivered, format: (n) => `${n}x` },
         { label: 'Cash', value: s.money, format: (n) => `$${n}` },
         { label: 'Red Lights', value: traffic.stats.taxiRedLights, format: (n) => `${n}` },
         { label: 'Top Speed', value: speedMph(traffic.stats.taxiTopSpeed),
@@ -746,8 +788,15 @@ function frame() {
 
   boost.update(dt);
   // Never re-arm boost on a wrecked taxi — the flag would flick on the next frame otherwise and
-  // the collision detector already only checks `if (taxi.boost)`.
-  if (!traffic.taxi.crashed) traffic.taxi.boost = boost.isActive();
+  // the collision detector already only checks `if (taxi.boost)`. `taxi.boost` covers the hold
+  // *and* the one-second cooldown tail after release — collision, police bust range and running
+  // reds all key off it, see BOOST_COOLDOWN in game/boost.js. `boostEasing` is the narrower flag
+  // that's only true during that tail; traffic.js reads it to ease the speed cap back down instead
+  // of holding full boost speed for the whole cooldown window.
+  if (!traffic.taxi.crashed) {
+    traffic.taxi.boost = boost.isEngaged();
+    traffic.taxi.boostEasing = boost.isCoolingDown();
+  }
   updateBoostButton();
   skids.update(dt);
   dust.update(dt);
@@ -792,13 +841,14 @@ function frame() {
     if (type === 'pickup') {
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
-      // The taxi now wears this rider's colour, and so does their destination pin.
-      traffic.setTaxiFareColor(fare.color);
+      // The roof sign lights up while the rider is aboard.
+      traffic.setTaxiOccupied(true);
       // Straight on to where they're going, on the same frame the pin appears — no kerb hold and
       // no confirming tap.
       dispatchToDropoff(fare);
     } else if (type === 'delivered') {
       popEarning(fare.value);
+      updateStreak(fares.state.delivered);
       // Small pour of boost fuel as a delivery reward — the meter's frame-by-frame update paints
       // the bar visibly *filling*, and the green glow ties the top-up to the same payout the
       // earnings pop is announcing.
@@ -806,7 +856,7 @@ function frame() {
       flashBoostTopUp();
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
-      traffic.setTaxiFareColor(null);
+      traffic.setTaxiOccupied(false);
     } else if (type === 'spawned') {
       // A fare that appears while you are already carrying one is the interesting case: it says
       // "there is now a clock you cannot start yet", which is a different message from the idle
@@ -851,7 +901,7 @@ if (shot) {
       traffic.update(1 / 60);
       for (const { type, fare } of fares.update(1 / 60, traffic.taxi)) {
         if (type !== 'pickup') continue;
-        traffic.setTaxiFareColor(fare.color);
+        traffic.setTaxiOccupied(true);
         // Shot mode's stand-in for dispatchToDropoff — the interactive pickup path is in the frame
         // loop, which a shot never runs.
         send(fare);
@@ -920,7 +970,11 @@ if (shot) {
   frame();
 }
 
-if (!shot) {
+// The gear button sits top-right at small widths and started overlapping the streak counter
+// there — most players never open it anyway, so it's opt-in now: `?debug` or `?settings` in the
+// URL, either present with no value needed.
+const wantsDebugPanel = new URLSearchParams(window.location.search);
+if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) {
   createDebugPanel({
     sun,
     hemi,
