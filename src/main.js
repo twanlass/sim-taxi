@@ -947,7 +947,11 @@ if (shot) {
   frame();
 }
 
-if (!shot) {
+// The gear button sits top-right at small widths and started overlapping the streak counter
+// there — most players never open it anyway, so it's opt-in now: `?debug` or `?settings` in the
+// URL, either present with no value needed.
+const wantsDebugPanel = new URLSearchParams(window.location.search);
+if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) {
   createDebugPanel({
     sun,
     hemi,

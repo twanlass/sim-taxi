@@ -396,7 +396,9 @@ with the body — it used to be, and tilting it into the road caused z-fighting.
 
 ## Debug panel
 
-`src/game/debugpanel.js`, behind the ⚙️ button top right. Split by cost:
+`src/game/debugpanel.js`, behind the ⚙️ button top right — only built when the URL carries
+`?debug` or `?settings`. It used to be always on, but at small widths the button sat right where
+the streak counter now lives, and it's a tool almost no player needs to see. Split by cost:
 
 - **Live** — day cycle on/off, day length, time of day, sun colour/strength, ambient fill, fare clock
 - **Restart to apply** — car count (writes a URL parameter and reloads)
