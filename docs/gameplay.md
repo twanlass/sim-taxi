@@ -378,6 +378,20 @@ the same animation at the new total instead of two counters racing. Roll length 
 payout (~50ms per dollar, clamped) so a `$8` hop reads as a quick bump and a `$35` haul as a
 longer roll.
 
+### The streak counter
+
+`N×` at top-right, opposite the money counter. Nothing shows there until the first successful
+drop-off — `updateStreak()` in `main.js` un-hides it and plays a scale/fade-in on that first
+delivery, then bumps the number in the taxi's own yellow (not cash green, so it doesn't read as a
+second money event) on every delivery after. No flight off the taxi the way the payout gets one;
+the streak isn't travelling from anywhere.
+
+The count is `fares.state.delivered` — the same number the run-end screen's **Fares** stat reads.
+Any fare's clock expiring ends the run outright (there's no separate life to lose), so today a
+"streak" and a running total of deliveries are the same thing read two ways. The name is chosen
+for where this is going: a patience or combo mechanic that can break a streak without ending the
+run is the natural next step, and `updateStreak()` is the one place that would need to change.
+
 ### The meter
 
 Each fare is priced by **trip distance**, not a flat rate: `FARE_BASE + FARE_PER_BLOCK × blocks`,
@@ -517,6 +531,7 @@ sequence is the entire module, so there is nothing else to keep.
 | Stat | Source | Notes |
 |---|---|---|
 | Fares | `fares.state.delivered` | |
+| Streak | `fares.state.delivered` | same count as Fares — see [the streak counter](#the-streak-counter) |
 | Cash | `fares.state.money` | |
 | Red Lights | `traffic.stats.taxiRedLights` | reds the taxi *met*, one per light |
 | Top Speed | `traffic.stats.taxiTopSpeed` | u/s, shown in mph |

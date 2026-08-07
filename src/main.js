@@ -554,10 +554,13 @@ function updateHud(dt) {
     showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: s.failReason,
-      // Four numbers, in the order the run produced them: what you carried, what it paid, what
-      // the city made you sit through, and how fast you were going when it went wrong.
+      // Five numbers, in the order the run produced them: what you carried, what it paid, what
+      // the city made you sit through, and how fast you were going when it went wrong. Streak
+      // sits right after Fares because right now it's the same count read a second way — see the
+      // HUD streak counter in updateStreak().
       stats: [
         { label: 'Fares', value: s.delivered, format: (n) => `${n}` },
+        { label: 'Streak', value: s.delivered, format: (n) => `${n}x` },
         { label: 'Cash', value: s.money, format: (n) => `$${n}` },
         { label: 'Red Lights', value: traffic.stats.taxiRedLights, format: (n) => `${n}` },
         { label: 'Top Speed', value: speedMph(traffic.stats.taxiTopSpeed),
