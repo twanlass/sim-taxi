@@ -390,9 +390,10 @@ the same tarmac at the same opacity, so a disc heavier than the band running int
 the louder half of one mark. The disc used to wash its far half up over the base of the post at its
 centre, back when it was translucent *and* something stood in it; nothing stands in this one.
 
-The fare's own colour still lives on the taxi's roof sign — see
-[gameplay.md](gameplay.md#fare-colours). `?shot=10` frames the drop-off on its kerb corner; it was
-added to catch the untapped state, and it is now the only framing that shows the ring close up.
+The taxi's roof sign no longer wears a fare colour either — it just lights on and off with whether
+someone is aboard — see [gameplay.md](gameplay.md#the-taxis-roof-sign). `?shot=10` frames the
+drop-off on its kerb corner; it was added to catch the untapped state, and it is now the only
+framing that shows the ring close up.
 
 ### Off-screen drop-off pointer
 
@@ -474,7 +475,9 @@ with the body — it used to be, and tilting it into the road caused z-fighting.
 
 ## Debug panel
 
-`src/game/debugpanel.js`, behind the ⚙️ button top right. Split by cost:
+`src/game/debugpanel.js`, behind the ⚙️ button top right — only built when the URL carries
+`?debug` or `?settings`. It used to be always on, but at small widths the button sat right where
+the streak counter now lives, and it's a tool almost no player needs to see. Split by cost:
 
 - **Live** — day cycle on/off, day length, time of day, sun colour/strength, ambient fill, fare clock
 - **Restart to apply** — car count (writes a URL parameter and reloads)

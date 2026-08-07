@@ -3,10 +3,13 @@ import { PALETTE } from '../palette.js';
 
 // How close a fare is to giving up, as a small integer.
 //
-// One model, three surfaces: the diamond over the waiting rider, the ring that rides with the taxi
-// once they're aboard, and the countdown around each chip in the rider-finder stack. They all have
-// to agree — a rider showing orange on the map and a yellow chip in the corner is two answers to
-// one question — so the levels and their colours live here rather than in any of them.
+// One model, three surfaces: the fare's diamond, the disc under the rider it belongs to, and the
+// countdown around each chip in the rider-finder stack. They all have to agree — a rider showing
+// orange on the map and a yellow chip in the corner is two answers to one question — so the levels
+// and their colours live here rather than in any of them.
+//
+// There were four while a timer ring rode with the taxi. Pulling the scale out of that ring into
+// its own module is what let the ring be deleted without taking the scale with it.
 
 /**
  * Steps on the scale, and so the top level: a fare that has just spawned is at URGENCY_SEGMENTS.

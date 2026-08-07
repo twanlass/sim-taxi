@@ -65,21 +65,13 @@ export const PALETTE = {
   // so a colour there would imply a commitment that doesn't exist yet.
   passenger: '#FFFFFF',
 
-  // The fare colour is assigned at pickup and shared by the taxi and that rider's destination.
-  // With one taxi this is flavour; with several it is the whole read of the board — which car is
-  // carrying which fare, and which pin it is heading for.
-  //
-  // Chosen to avoid every colour already doing a job: traffic signals (red / amber / green), the
-  // taxi's own yellow body, and the white of an unclaimed passenger.
-  fareColors: ['#25D9D2', '#E24BC4', '#A46BFF', '#4D9BFF', '#FF6B9D'],
-
   // Urgency, indexed by how much of the clock is left, in quarters. Deliberately not a ramp: a
   // colour that changes imperceptibly tells the player nothing, so it snaps at each quarter lost.
   // 1 and 0 share red — by then there is nothing redder to go to.
   //
-  // This is what the diamond over a waiting rider is painted in, and it is the only thing that
-  // marker says now. A four-segment bar used to carry it, where the count of lit blocks was the
-  // level and the colour merely agreed with the count; a hue on a single crystal says it in a
+  // This is what a fare's diamond and the disc under its rider are painted in, and it is the only
+  // thing those markers say. A four-segment bar used to carry it, where the count of lit blocks was
+  // the level and the colour merely agreed with the count; a hue on a single crystal says it in a
   // glance rather than in a read.
   urgency: ['#E8433A', '#E8433A', '#E8922E', '#E0D233', '#3ECF5A'],
 

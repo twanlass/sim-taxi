@@ -135,8 +135,8 @@ the ceiling collapses from 25 to 3 — the game stops being winnable indefinitel
 intended shape of a score-attack that ramps.
 
 The rider *figure* is still white whatever else is on the board — see
-[Fare colours](#fare-colours) — so every waiting rider reads the same way, with the diamond over
-their head carrying how close each one is to giving up.
+[The taxi's roof sign](#the-taxis-roof-sign) — so every waiting rider reads the same way, with the
+diamond over their head carrying how close each one is to giving up.
 
 ### The clock does not reset at pickup
 
@@ -174,23 +174,18 @@ drop-off still only resolves for a taxi that was actually sent at it. Where the 
 teeth is the kerb: `beginRide` clears `directed`, and a rider is only ever collected by a taxi the
 player pointed at them.
 
-### Fare colours
+### The taxi's roof sign
 
 The passenger **figure** is white — deliberately colourless. Before pickup any taxi could take any
 rider, so a colour on the *person* would imply a commitment that doesn't exist. The crystal over
 their head and the disc under their feet are both spoken for by the clock, which is why the figure
 between them has to stay out of the way.
 
-The fare's colour is assigned when the trip is drawn, at **spawn**, and shows from pickup on the
-taxi's **roof sign**. The sign carries it because every other surface a fare owns is reporting time
-remaining, so identity needed somewhere else to live.
-
-**The drop-off no longer wears it.** It used to, so that a marker and a taxi could be paired by
-hue; but one rider is aboard at a time and only that rider's drop-off is on the board, so the pairing
-had nothing to disambiguate and a rotating hue was making the same marker look different run to
-run. It spent a spell carrying the fare's *state* instead, teal until the drop-off was tapped and
-yellow after; [the taxi dispatches itself now](#the-drop-off-dispatches-itself), so there is no
-untapped state left to draw.
+The **roof sign** lights up while a rider is aboard and goes dark once they're dropped off — a
+plain on/off, not a colour. It used to wear the fare's own colour, drawn at spawn from a five-colour
+palette (`nextFareColor()`), because that colour was what paired a rider with their drop-off pin
+across the map. The drop-off carries no fare colour any more, so with nothing left to pair with,
+the sign's job shrank to the one thing still worth saying at a glance: is the taxi free.
 
 #### The drop-off is a teal ring, and nothing else
 
@@ -213,26 +208,17 @@ there is a line to follow to it. A drop-off briefly hidden behind a building on 
 already driving down is the case that is genuinely worse, and it is worth what it buys.
 
 Teal is the point of the colour. Hue on a fare marker now *means* urgency — that is what the
-[diamond over a rider](#the-fares-clock-travels) is saying — and the drop-off has nothing
-to report: no clock of its own, and by the time it is drawn the taxi is already driving at it. A
-colour outside the green-to-red scale is what says "this one is not on it". It wore **Loco Mode's
-yellow** before, on the grounds that the route band, the car and the place it is driving to should
-be one colour saying "this is the job"; but yellow is the taxi's, and a marker that reports nothing
-was borrowing from a vocabulary it isn't part of. The band is still yellow, so band and disc meet at
-the kerb in different colours — the band belongs to the car, the disc to the road. See
+[diamond over a rider](#the-fares-clock-travels) is saying — and the drop-off has nothing to report:
+no clock of its own, and by the time it is drawn the taxi is already driving at it. A colour outside
+the green-to-red scale is what says "this one is not on it". It wore **Loco Mode's yellow** before,
+on the grounds that the route band, the car and the place it is driving to should be one colour
+saying "this is the job"; but yellow is the taxi's, and a marker that reports nothing was borrowing
+from a vocabulary it isn't part of. The band is still yellow, so band and disc meet at the kerb in
+different colours — the band belongs to the car, the disc to the road. See
 [rendering.md](rendering.md#the-drop-off-ring--geometrymarkerjs).
 
-`nextFareColor()` still refuses any colour a **live** fare is wearing, not just the previous one —
-five colours against `MAX_FARES = 3` means that always resolves, and it still costs exactly one
-draw off the stream. With only the sign wearing it this is belt and braces rather than
-load-bearing; it was load-bearing during the spell when every waiting rider's drop-off was on the
-board too.
-
-Colours avoid every hue already doing a job: signal red/amber/green, the taxi's own yellow, and
-the white of an unclaimed passenger.
-
-The one decision this defers is still deferred: colour says which *trip* a marker belongs to, never
-which taxi is taking it. The day there is more than one taxi, that stays the player's call.
+The one decision all of this defers is still deferred: nothing on a marker says which *taxi* is
+taking a trip. The day there is more than one, that stays the player's call.
 
 ## Routing
 
@@ -443,6 +429,20 @@ the same animation at the new total instead of two counters racing. Roll length 
 payout (~50ms per dollar, clamped) so a `$8` hop reads as a quick bump and a `$35` haul as a
 longer roll.
 
+### The streak counter
+
+`N×` at top-right, opposite the money counter. Nothing shows there until the first successful
+drop-off — `updateStreak()` in `main.js` un-hides it and plays a scale/fade-in on that first
+delivery, then bumps the number in the taxi's own yellow (not cash green, so it doesn't read as a
+second money event) on every delivery after. No flight off the taxi the way the payout gets one;
+the streak isn't travelling from anywhere.
+
+The count is `fares.state.delivered` — the same number the run-end screen's **Fares** stat reads.
+Any fare's clock expiring ends the run outright (there's no separate life to lose), so today a
+"streak" and a running total of deliveries are the same thing read two ways. The name is chosen
+for where this is going: a patience or combo mechanic that can break a streak without ending the
+run is the natural next step, and `updateStreak()` is the one place that would need to change.
+
 ### Priced by the trip
 
 Each fare is priced by **trip distance**, not a flat rate: `FARE_BASE + FARE_PER_BLOCK × blocks`,
@@ -502,6 +502,16 @@ top-up to the same payout the earnings pop is announcing.
 While active the taxi runs at 2.2× speed, forces its next junction green, doesn't slow for
 corners, lays **skid marks** off the line and through turns, and kicks up **dust**. See
 [rendering.md](rendering.md#effects) for how those two are drawn.
+
+**Releasing isn't an instant off.** For `BOOST_COOLDOWN` (1s) after the button comes up — or the
+tank runs dry — the taxi is still exposed to everything Loco Mode was: it can still crash into
+traffic, still gets caught if a cop is in bust range, still forces the next light. What it loses
+immediately is the speed — the cap drops back to cruise the moment the hold ends, and ordinary
+braking (the same constant every other stop uses) hauls it down from 18.7 to 8.5 in under a
+second, nose dipping hard the whole way. So letting go a beat too late doesn't buy safety; it buys
+a car that's still committed to whatever's in front of it while visibly losing the ability to
+dodge. Re-pressing mid-cooldown cancels it and snaps straight back to full send. See
+[traffic.md](traffic.md#boost-crazy-taxi-mode) for the mechanism.
 
 The press itself also fires a **wheelie**, a tailpipe **flame burst** and a half-second launch
 streak of rubber — all three gated on `boost.press()` returning true, so they fire on the
@@ -585,6 +595,7 @@ sequence is the entire module, so there is nothing else to keep.
 | Stat | Source | Notes |
 |---|---|---|
 | Fares | `fares.state.delivered` | |
+| Streak | `fares.state.delivered` | same count as Fares — see [the streak counter](#the-streak-counter) |
 | Cash | `fares.state.money` | |
 | Red Lights | `traffic.stats.taxiRedLights` | reds the taxi *met*, one per light |
 | Top Speed | `traffic.stats.taxiTopSpeed` | u/s, shown in mph |

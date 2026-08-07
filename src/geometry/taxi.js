@@ -98,14 +98,16 @@ export function createTaxiMesh() {
   hit.userData.pickable = 'taxi';
   group.add(hit);
 
-  // Roof sign — reads as "taxi" at this zoom, and carries the fare colour while someone is
-  // aboard. The countdown ring can't do that job any more: it is colour-coded by time remaining,
-  // so fare identity needs somewhere else to live.
+  // Roof sign — reads as "taxi" at this zoom, and lights up while a rider is aboard. It used to
+  // carry the fare's own colour, back when colour paired a rider with their drop-off pin; now
+  // that pairing is gone (the drop-off pin is fixed to Loco Mode's yellow, see marker.js), so the
+  // sign only has one thing left to say and says it with on/off rather than hue.
   const signGeo = new THREE.BoxGeometry(0.75, 0.34, 0.4);
   signGeo.translate(-0.1, 1.92 + CHASSIS_LIFT, 0);
   const sign = new THREE.Mesh(
     signGeo,
-    new THREE.MeshLambertMaterial({ color: new THREE.Color(PALETTE.taxiSign), flatShading: true }),
+    // Starts dark — the taxi is empty until a fare boards.
+    new THREE.MeshLambertMaterial({ color: new THREE.Color(PALETTE.taxiTrim), flatShading: true }),
   );
   sign.castShadow = true;
   sign.userData.pickable = 'taxi';
@@ -118,9 +120,9 @@ export function createTaxiMesh() {
   group.scale.setScalar(TAXI_SCALE);
   group.rotation.order = 'YXZ';   // so roll applies about the car's own long axis
 
-  /** null clears the highlight; a hex string lights the roof sign in that fare's colour. */
-  const setFareColor = (hex) => {
-    sign.material.color.set(hex ?? PALETTE.taxiSign);
+  /** Lights the roof sign while a rider is aboard; dark (the trim's own colour) while empty. */
+  const setOccupied = (occupied) => {
+    sign.material.color.set(occupied ? PALETTE.taxiSign : PALETTE.taxiTrim);
   };
 
   /** Front-wheel lock, in radians. Both wheels take the same angle — at this zoom the Ackermann
@@ -129,5 +131,5 @@ export function createTaxiMesh() {
     for (const wheel of steered) wheel.rotation.y = angle;
   };
 
-  return { group, sign, setFareColor, setSteer };
+  return { group, sign, setOccupied, setSteer };
 }
