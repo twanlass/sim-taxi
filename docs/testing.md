@@ -131,3 +131,21 @@ the suite fast.
 > `tools/smoke.mjs` clicks with synthetic DOM events. CDP's `Input.dispatchMouseEvent` is accepted
 > in this headless config but never produces a DOM click, so it tests nothing. The picker, raycast
 > and listener are covered; Chrome's OS-level input plumbing is not.
+
+Two things about that tool bit once and are worth keeping in mind when adding to it.
+
+**It targets `body > canvas`, not `canvas`.** Every rider-finder chip carries its own 38px WebGL
+canvas, inside `#rider-finder-stack` — which sits *earlier* in the DOM than the game's canvas. Once
+a rider was waiting, `querySelector('canvas')` handed back a chip, so every gesture went to a
+38-pixel button in the corner. The drag check failed for it; the tap check *passed* for it, because
+a click on a chip's canvas bubbles to the chip's button and dispatches the taxi anyway.
+
+**The camera checks emulate a phone.** Drag-to-pan, both follow-cams and the rider pan are all
+gated under `NARROW_VIEWPORT = 768`, and the tool launches a 900px window — so the drag check was
+asserting a feature that is deliberately switched off there. That half of the run now flips to a
+390×844 viewport with `Emulation.setDeviceMetricsOverride` first.
+
+A third is about reading state back: anything asserted *at the instant of* an input has to be
+gathered inside a single `Runtime.evaluate`, with no `await` in the middle. Split across round
+trips the page renders in between — long enough that a pan reads as having already jumped, which is
+precisely the bug that check exists to catch.

@@ -69,6 +69,40 @@ and a camera that answers all of it slides the map every time you pick a fare. I
 `didPan()` so the picker can swallow the click that closes out a drag, and it clamps the target to
 `HALF_SPAN`, so the map can never be pushed off screen with nothing left to steer back by.
 
+### The rider pan
+
+A tap on a rider-finder chip takes the camera to that rider — narrow viewports only, same rule as
+everything else here. It **pans rather than cutting**, and it is a different curve from either
+follow above: `controller.glideTo(x, z)` starts a one-shot tween, `updateGlide(dt)` steps it from
+the frame loop, and it retires itself on its own clock.
+
+A cut costs the player the one thing the fixed camera was chosen to give them. With the whole city
+no longer in frame, a teleport leaves them re-reading a screen of near-identical blocks to work out
+which way the map moved and whether the rider now under the chip is the one they tapped. Riding the
+move across keeps the city continuous.
+
+**A tween, not the exponential ease the follows use.** `1 - exp(-dt * rate)` leaves at its highest
+speed on the very first frame — right when you are closing a gap that keeps reopening, and most of
+the way to a snap when you start from a dead stop. The easing is **smootherstep**
+(`k³(6k² − 15k + 10)`), which zeroes acceleration as well as velocity at both ends; plain smoothstep
+still shows its start as a flick over a move this short.
+
+Duration is **distance / `GLIDE_SPEED` = 150 u/s, clamped to 0.32–0.75s** — so a hop to the next
+block and a cross-town pan both travel at a legible speed, without a short pan degenerating back
+into a snap or a long one leaving the player watching the camera with a clock draining. The clamp
+ceiling binds past 112 units; the city's full diagonal is 141.
+
+It sits at the **bottom of the camera priority list** — wreck focus, then the two follows, then this
+— and it is *dropped*, not paused, by anything above it: `followXZ` and `focusOn` both clear it, as
+does `panBy`, so a finger on the map wins on the frame it lands rather than fighting a tween that is
+still writing the target. The tap that starts a pan also takes the camera over, so the opening
+follow is out of the way for the whole flight. The **dispatch doesn't wait for the pan** — the fare's
+clock is draining, so the taxi leaves on the tap.
+
+`tools/probe.mjs` asserts the ease-in (first frame moves far less than a linear step), the exact
+arrival and self-retirement, the distance-scaled duration and both clamps, and that a drag mid-pan
+kills it.
+
 The `VIEW_DIR` diagonal has consequences elsewhere: screen-up is world `(-1, 0, -1)`, which is why
 riders are placed on the `-X-Z` kerb of a junction — the block on the `+X+Z` side sits between the
 camera and anything standing on it. It is also what set the timer ring's sweep start at `-3π/4` for
@@ -298,8 +332,62 @@ post pass, but three things it cannot live without, all asserted headlessly in `
 
 Both passes are flagged `transparent` purely to land in the transparent queue, which draws after
 every opaque object — the depth buffer has to be complete before the mask stamps. `addGhostOutline`
-is per-mesh and reusable (the police cruiser could wear one as-is); extending it to the ambient
-traffic would need an instanced variant sharing the cars' `instanceMatrix`, which doesn't exist yet.
+is per-mesh and reusable (the police cruiser could wear one as-is); the ambient traffic is
+instanced and takes the variant below, which shares this file's geometry inflation and both of its
+material recipes so the two paths cannot drift apart.
+
+### Nearby-traffic ghost outlines — `game/carghosts.js`
+
+The same outline, worn by the handful of ambient cars nearest the taxi and faded in with Loco Mode.
+It exists because `sim/collisions.js` is armed *only* while boosting: the one moment a car hidden
+behind a tower is a crash rather than a surprise is the one moment the player cannot see it. The
+taxi's outline says where the player is; this says what they are about to drive into. It lives in
+`game/` rather than `sim/` because it is a readout of a player-layer concept — the boost — and
+because `main.js` is the only place allowed to know about both.
+
+Each ghost wears **its own car's paint** rather than the taxi's yellow (`carBodyGhost`, index-aligned
+with `carBody`). Three instanced meshes, three draw calls, and none while the player isn't boosting.
+
+Four things here that the taxi's own outline never had to answer:
+
+- **Four render-order tiers, not two.** The stencil buffer is never cleared mid-frame, so a mask
+  stamped earlier still hollows a rim resolved later, and the order decides who may take a bite out
+  of whom: taxi masks (9990) → taxi rim (9991) → traffic masks (9992) → traffic rims (9993). A car
+  sliding past the taxi is hollowed by the taxi, because it really is behind it; the player's own
+  outline can never be eaten by traffic. Squeezed into two tiers, a near miss would punch a hole in
+  the player's ghost on exactly the frame they need it — and with a 33° camera, a near miss is the
+  *only* time two cars at road level overlap on screen at all.
+- **One shared stencil ref, deliberately.** Within a tier, one traced car's mask is what stops
+  another's rim painting across its visible bodywork. Per-car refs are only recoverable with
+  per-bit stencil masks, and stencil state is per-material — so that would mean one draw call per
+  ghost, which is the whole thing instancing is here to avoid.
+- **The rim is body-only, the mask is not.** The wheel *masks* are mandatory for the reason above:
+  a part left out of the mask is an occluder of the rim behind it. A wheel *rim* is not — a front
+  wheel reaches x 1.66 against the body hull's 2.0, so it is inside the body's outline everywhere
+  but a ~0.4-unit sliver under the valance, about 3px at play zoom against a rim that is 2.3px wide.
+  The taxi wears wheel rims because its outline is a find-my-car signal that has to be complete;
+  this one is a don't-hit-that signal, and the body box is the whole message.
+- **Off means gone, not transparent.** A mask writes no colour at all, so fading its rim to zero
+  leaves it stamping the stencil every frame regardless. The pool drops its instance counts to zero
+  instead, which is also what makes it free for the majority of a run.
+
+Rim thickness is 0.35, not the taxi's 0.3: that 0.3 is applied *before* `TAXI_SCALE = 1.18` on the
+taxi group, so 0.35 unscaled is what matches the taxi's ≈2.7px trace.
+
+Selection is a plain radius — `GHOST_RADIUS = 30`, i.e. 1.5 × `PITCH`, covering the junction the
+taxi is committed to plus the one behind it. At Loco Mode's 18.7 u/s a car crossing that next
+junction appears about 1.6s out, which is still enough to lift off the button. `MAX_GHOSTS = 8` sits
+deliberately *above* the ~6.5 cars that radius holds on average, so the cap is a rail against a
+queue at a red rather than the real filter — and eviction always drops the farthest car, which the
+distance fade has already made the faintest. Radius is the first number to turn down if it ever
+reads busy.
+
+Nothing in the module recomputes a transform. `traffic.update()` has composed every ambient matrix
+by the time it runs, so it reads those matrices straight back out — the same read-back `wreckShell`
+does — which is what keeps the bob, corner lean, pitch rock, wheelie, Loco weave and panic wobble
+exactly in step with the car being traced. It is called last in the frame, after `collisions.update()`,
+for two reasons: a frame's lag is 0.31 units ≈ 2.4px of rim sliding off its own car at boost speed,
+and a car wrecked on this frame must not wear a ghost over its own fireball.
 
 ### The diamond — `geometry/diamond.js`
 
@@ -454,7 +542,8 @@ drew over everything, and an inverted-hull crystal cannot: with the depth test o
 paints its own back faces over its front ones. So a fare behind a tower is hidden with the tower, on
 the kerb and in the car alike. On the kerb the
 [rider-finder chips](gameplay.md#extra-fares-and-prioritisation) cover it — every waiting rider has
-a chip with their own countdown and a tap that snaps the camera onto them. In the car nothing does;
+a chip with their own countdown and a tap that [pans the camera onto them](#the-rider-pan). In the
+car nothing does;
 the taxi's ghost outline says where the car is, but not how long is left.
 
 The crystal and its hull both have `raycast` stubbed out. The rider's marker and the taxi both carry

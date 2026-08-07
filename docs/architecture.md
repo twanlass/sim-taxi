@@ -41,6 +41,7 @@ src/
     dust.js             instanced dust puffs
     sparks/smoke/debris/flames.js   the crash detonation, one set fired per wrecked car
     vanish.js           shrink-and-fade for wrecked bodywork, so it is consumed not deleted
+    carghosts.js        occluded-only outlines on the traffic nearest the taxi, faded in with boost
     runend.js           the run-end blackout: stats counted out a row at a time
 
   geometry/             one-off models, all procedural

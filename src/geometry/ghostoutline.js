@@ -24,16 +24,52 @@ import { color } from '../palette.js';
 // Both passes are flagged `transparent` purely to land in three's transparent queue, which draws
 // after every opaque object regardless of renderOrder — the depth buffer has to be complete
 // before pass 1 runs. Within that queue renderOrder sorts first, so these two run dead last.
+//
+// FOUR tiers, not two, because the nearby ambient cars wear this outline as well — see
+// game/carghosts.js. The stencil buffer is never cleared mid-frame, so a mask stamped in an
+// earlier tier still hollows a rim resolved in a later one, and the order decides who may take a
+// bite out of whom:
+//
+//   9990  taxi masks stamp
+//   9991  taxi rim resolves    — against the taxi's own mask, and nothing else
+//   9992  traffic masks stamp
+//   9993  traffic rims resolve — against the taxi's mask AND every traffic mask
+//
+// So a car sliding past the taxi is hollowed by the taxi (it really is behind it), while the
+// player's own outline can never be eaten by traffic. Squeezed into two tiers instead, an ambient
+// car passing within a couple of units would bite a chunk out of the player's ghost on exactly the
+// frame the player most needs it — a 33° camera means two cars at road level only overlap on
+// screen during a near miss.
+//
+// One shared stencil ref across all of them (see GHOST_REF) is load-bearing rather than a
+// shortcut: within a tier, one traced car's mask is what stops another's rim painting over its
+// visible bodywork.
+//
+// Trap: three sorts the transparent queue by `groupOrder` *before* `renderOrder`, and groupOrder
+// comes from an ancestor Group's own renderOrder. The taxi's ghosts hang under `taxiGroup`;
+// nothing sets renderOrder on any Group today, so every groupOrder is 0 and these four sort
+// against each other cleanly. Setting `taxiGroup.renderOrder` would silently break that.
 export const GHOST_MASK_ORDER = 9990;
 export const GHOST_RIM_ORDER = 9991;
+export const CAR_GHOST_MASK_ORDER = 9992;
+export const CAR_GHOST_RIM_ORDER = 9993;
 
 // Rim thickness in world units, before the taxi group's 1.18 scale. At play zoom 1 world unit
 // ≈ 7.7px, so 0.3 renders as a ~2.7px trace — bold enough to find at a glance, thin enough to
 // still read as an outline of the car rather than a blob wearing its shape.
 const RIM = 0.3;
 
-// The stencil ref shared by mask and rim. Nothing else in the scene touches the stencil buffer.
-const GHOST_REF = 1;
+// The stencil ref shared by mask and rim — and by every ghost in the scene. Nothing else touches
+// the stencil buffer.
+//
+// One ref across all of them, deliberately. A rim's rule is "draw where something in the depth
+// buffer sits in front of me", so where traced car B stands behind traced car A, B's rim passes
+// that test right across A's visible bodywork — and the only thing suppressing it is A's mask
+// having stamped this ref there. Per-car refs would put a coloured streak across a fully visible
+// car, which is the same failure the taxi's skipped wheels produced. Per-object refs are only
+// recoverable with per-bit stencil masks, and stencil state is per-material, so that would mean
+// one draw call per ghost — which is the whole thing instancing is here to avoid.
+export const GHOST_REF = 1;
 
 /** Ghost meshes are pure paint — the picker must see straight through them. */
 const noRaycast = () => {};
@@ -50,7 +86,7 @@ const FLOOR_MARGIN = 0.15;
  * translated up its own height) and push the hull off the mesh it wraps. The underside is then
  * clamped back up to FLOOR_MARGIN above the part's own base — see above.
  */
-function inflatedGeometry(geometry, rim) {
+export function inflatedGeometry(geometry, rim) {
   const inflated = geometry.clone();
   inflated.computeBoundingBox();
   const centre = inflated.boundingBox.getCenter(new THREE.Vector3());
@@ -80,20 +116,12 @@ function inflatedGeometry(geometry, rim) {
 }
 
 /**
- * Hang a ghost outline off a mesh. The two passes are added as children, so they inherit the
- * mesh's transform — steering, bounce, roll — for free, the same way the pin's hull rides its
- * head. Reusable by design: any per-mesh car (the police cruiser, say) can wear one; the ambient
- * traffic would need an instanced variant sharing the body's instanceMatrix, which doesn't exist
- * yet.
- *
- * @param mesh  the mesh to trace
- * @param rim   outline thickness in the mesh's local units — smaller for small parts like the
- *              roof sign, where the default would double the part's size
+ * Pass 1's material — stamps a screen footprint into the stencil and writes nothing else. Split
+ * out of addGhostOutline so the instanced variant in geometry/carghosts.js runs the *same* effect
+ * rather than a copy of it that can drift out of step.
  */
-export function addGhostOutline(mesh, { rim = RIM } = {}) {
-  // Pass 1 — stamp the mesh's screen footprint into the stencil. Shares the parent's geometry:
-  // the mask must match the silhouette exactly or slivers of rim leak inside it.
-  const mask = new THREE.Mesh(mesh.geometry, new THREE.MeshBasicMaterial({
+export function ghostMaskMaterial() {
+  return new THREE.MeshBasicMaterial({
     colorWrite: false,
     depthWrite: false,
     depthTest: false,          // the footprint is stamped whether the mesh is visible or not
@@ -102,25 +130,55 @@ export function addGhostOutline(mesh, { rim = RIM } = {}) {
     stencilRef: GHOST_REF,
     stencilFunc: THREE.AlwaysStencilFunc,
     stencilZPass: THREE.ReplaceStencilOp,
-  }));
-  mask.name = 'ghostMask';
-  mask.renderOrder = GHOST_MASK_ORDER;
-  mask.raycast = noRaycast;
-  mesh.add(mask);
+  });
+}
 
-  // Pass 2 — the rim. Back faces only: a closed hull's back faces cover the whole silhouette on
-  // their own, where drawing both sides would run the blend twice and double the opacity.
-  const rimMesh = new THREE.Mesh(inflatedGeometry(mesh.geometry, rim), new THREE.MeshBasicMaterial({
-    color: color('taxiGhost'),
+/**
+ * Pass 2's material — the rim itself. Back faces only: a closed hull's back faces cover the whole
+ * silhouette on their own, where drawing both sides would run the blend twice and double the
+ * opacity.
+ *
+ * @param tint      rim colour. The taxi's own yellow by default; the traffic ghosts pass each
+ *                  car's own lightened paint, since yellow is reserved for the player.
+ * @param opacity   base opacity. The instanced variant leaves this at 1 and carries the real
+ *                  alpha per instance instead — see carghosts.js.
+ */
+export function ghostRimMaterial({ tint = color('taxiGhost'), opacity = 0.85 } = {}) {
+  return new THREE.MeshBasicMaterial({
+    color: tint,
     side: THREE.BackSide,
     transparent: true,
-    opacity: 0.85,
+    opacity,
     depthWrite: false,
     depthFunc: THREE.GreaterDepth,          // draw only where something is in front of the car
     stencilWrite: true,                     // enables the test; all ops stay Keep, so no writes
     stencilRef: GHOST_REF,
     stencilFunc: THREE.NotEqualStencilFunc, // ...and never inside the car's own footprint
-  }));
+  });
+}
+
+/**
+ * Hang a ghost outline off a mesh. The two passes are added as children, so they inherit the
+ * mesh's transform — steering, bounce, roll — for free, the same way the pin's hull rides its
+ * head. Reusable by design: any per-mesh car (the police cruiser, say) can wear one. The ambient
+ * traffic is instanced and takes the variant in geometry/carghosts.js, which shares this file's
+ * geometry inflation and both material recipes.
+ *
+ * @param mesh  the mesh to trace
+ * @param rim   outline thickness in the mesh's local units — smaller for small parts like the
+ *              roof sign, where the default would double the part's size
+ */
+export function addGhostOutline(mesh, { rim = RIM } = {}) {
+  // Pass 1 — stamp the mesh's screen footprint into the stencil. Shares the parent's geometry:
+  // the mask must match the silhouette exactly or slivers of rim leak inside it.
+  const mask = new THREE.Mesh(mesh.geometry, ghostMaskMaterial());
+  mask.name = 'ghostMask';
+  mask.renderOrder = GHOST_MASK_ORDER;
+  mask.raycast = noRaycast;
+  mesh.add(mask);
+
+  // Pass 2 — the rim.
+  const rimMesh = new THREE.Mesh(inflatedGeometry(mesh.geometry, rim), ghostRimMaterial());
   rimMesh.name = 'ghostRim';
   rimMesh.renderOrder = GHOST_RIM_ORDER;
   rimMesh.raycast = noRaycast;
