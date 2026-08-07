@@ -70,8 +70,9 @@ and a camera that answers all of it slides the map every time you pick a fare. I
 `HALF_SPAN`, so the map can never be pushed off screen with nothing left to steer back by.
 
 The `VIEW_DIR` diagonal has consequences elsewhere: screen-up is world `(-1, 0, -1)`, which is why
-the timer ring starts its sweep at `-3π/4`, and why riders are placed on the `-X-Z` kerb of a
-junction — the block on the `+X+Z` side sits between the camera and anything standing on it.
+riders are placed on the `-X-Z` kerb of a junction — the block on the `+X+Z` side sits between the
+camera and anything standing on it. It is also what set the timer ring's sweep start at `-3π/4` for
+as long as that ring existed, since a clock has to drain from screen-top.
 
 Because the camera is orthographic, world-units-per-pixel falls straight out of the frustum
 height: `(2 * zoom) / clientHeight`. Drag-panning converts pointer pixels into world units with it
@@ -388,29 +389,54 @@ skyline for a beat after the ring had gone behind a tower; the arrow only covers
 case, which is the one the map being bigger than the viewport actually creates. It aims at `y = 0.1`
 now — the ring on the road — where it used to aim halfway up the pin's post.
 
-### Rider diamond — `geometry/riderdiamond.js`
+### The fare marker — `game/faremarker.js`
 
-The diamond over a waiting rider. What its colour *means* is in
-[gameplay.md](gameplay.md#the-diamond-over-a-waiting-rider); this is how it is placed.
+Where the fare's diamond is, and how it gets there. What its colour *means* is in
+[gameplay.md](gameplay.md#the-fares-clock-travels).
 
-It hangs off the passenger marker's standing group, so it follows the same kerb-corner placement,
-but keeps its own `visible` flag — that is what stops it reappearing over the delivered rider when
-`beginExit` un-hides the passenger group at the far end of the trip.
+It is **scene-level**, not parented to the rider's kerb group: it has to leave that corner and fly
+to a moving car, so it owns its own world position for its whole life. The group carries that
+position; the crystal inside it only ever bounces, kicks and pulses in local space, which keeps the
+two concerns from fighting over one transform.
 
-`LIFT` is 6.6, which puts the bottom vertex 1.3 units — about 10px at play zoom — above a figure
-that tops out a little over 3.3. That is the gap the meter's plate was tuned to, so the rider's slot
-in the skyline is unchanged, and it is low enough that the crystal reads as attached to the person
-under it rather than floating free the way the drop-off's head did at 9.6.
+`LIFT` is 6.6 on both ends of the trip. Over a rider (topping out a little over 3.3) that leaves the
+bottom vertex 1.3 units — about 10px at play zoom — of air above their head, which is the gap the
+meter's plate was tuned to. Over the taxi (which tops out at ~2.85 including its roof sign) it
+leaves ~1.85, and being a little further off is right anyway: the taxi is wide, and a marker tight
+to the roof reads as part of the vehicle. One altitude for both is what makes the transfer read as
+sliding sideways instead of climbing.
 
-**It is depth-tested**, unlike the meter it replaced — that plate drew over everything on the same
-bargain the timer ring makes, and an inverted-hull crystal cannot: with the depth test off an
-octahedron paints its own back faces over its front ones. So a rider behind a tower is now hidden
-with the tower. The [rider-finder chips](gameplay.md#extra-fares-and-prioritisation) are what covers
-that — every waiting rider has a chip in the corner with their own countdown, and a tap snaps the
-camera onto them, which is a better answer to "where is that rider" than an X-ray marker was.
+The **flight** is `TRANSFER_TIME = 0.65s` on a cubic ease-out, lofted by `sin(eased · π) · 1.6` so it
+arcs across rather than sliding along the pavement. Both endpoints are anchors without the bounce
+folded in, so the crystal doesn't jump at either end of the flight.
 
-The crystal and its hull both have `raycast` stubbed out. The marker's oversized invisible hit box
-already covers this airspace, so intersecting them would only cost work on every tap.
+Three animations share the crystal's local transform and simply add:
+
+| Channel | Driven by |
+|---|---|
+| `position.y` | the resting bounce, plus `KICK_HOP` × the kick envelope |
+| `scale` | `KICK_SCALE` × the kick envelope, plus the panic pulse's `0.15 × (0.5 + 0.5 sin)` |
+
+Adding rather than switching is deliberate: a level change landing inside the last five seconds
+should read as a knock on top of a beating marker, not replace it.
+
+**Everything is a function of sim time**, including the flight and the pulse — no accumulated `dt`
+anywhere — because a frozen shot has to render the same frame every time. Both the kick's and the
+flight's start times are stamped inside `update()` rather than at the call site, so neither animation
+depends on the order `setUrgency`, `beginTransfer` and `update` happen to be called in. Each slot
+gets a fixed phase offset on the bounce so two fares don't pulse in lockstep.
+
+**It is depth-tested**, unlike both markers it replaced — the meter's plate and the timer ring both
+drew over everything, and an inverted-hull crystal cannot: with the depth test off an octahedron
+paints its own back faces over its front ones. So a fare behind a tower is hidden with the tower, on
+the kerb and in the car alike. On the kerb the
+[rider-finder chips](gameplay.md#extra-fares-and-prioritisation) cover it — every waiting rider has
+a chip with their own countdown and a tap that snaps the camera onto them. In the car nothing does;
+the taxi's ghost outline says where the car is, but not how long is left.
+
+The crystal and its hull both have `raycast` stubbed out. The rider's marker and the taxi both carry
+an oversized invisible hit box that already covers this airspace, so intersecting the crystal would
+only cost work on every tap.
 
 ### Car motion
 

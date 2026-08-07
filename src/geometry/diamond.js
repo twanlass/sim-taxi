@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
-// The geodesic diamond — the marker floating over a waiting rider.
+// The geodesic diamond — the shape a fare's clock is drawn as, over the rider and then over the
+// taxi that collects them. game/faremarker.js is what gives it a life; this is just the model.
 //
 // It began as the drop-off pin's head, and for a spell both ends of a trip wore one: teal over the
 // junction the taxi was driving to, urgency-coloured over a rider on the kerb. The drop-off has
@@ -8,9 +9,9 @@ import * as THREE from 'three';
 // no state was a silhouette the player had to tell apart from the one that did. So a diamond on the
 // board now means exactly one thing: a clock is running here.
 //
-// It stays its own module rather than folding into riderdiamond.js — the shape, its outline and its
-// bounce are a vocabulary, and the next marker that wants to be one of these should take it from
-// here rather than re-deriving it.
+// It stays its own module rather than folding into game/faremarker.js — the shape, its outline and
+// its bounce are a vocabulary the next marker should take from here rather than re-derive, and this
+// way the model has no idea what a fare is.
 //
 // Octahedron: it reads clearly from straight above, unlike a sphere, and matches the crystal
 // vocabulary used elsewhere in these prototypes.

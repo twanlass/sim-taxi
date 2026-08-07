@@ -2,8 +2,7 @@ import { GRID, HALF_ROAD, lineCoord } from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
 import { createPerson } from '../geometry/person.js';
-import { createTimerRing } from './timerring.js';
-import { createRiderDiamond } from '../geometry/riderdiamond.js';
+import { createFareMarker } from './faremarker.js';
 import { urgencyLevel, URGENCY_SEGMENTS } from './urgency.js';
 import { PALETTE } from '../palette.js';
 
@@ -11,8 +10,8 @@ import { PALETTE } from '../palette.js';
 // keep waiting, the taxi collects them, a drop-off ring appears, the taxi delivers. Any fare's timer
 // running out ends the run.
 //
-// Each fare is its own little state machine (`waiting → riding → gone`) carrying its own clock,
-// pins and ring, and up to MAX_FARES of them run at once.
+// Each fare is its own little state machine (`waiting → riding → gone`) carrying its own clock, its
+// rider, its drop-off and the one marker that travels between them; up to MAX_FARES run at once.
 
 // One flat deadline for the entire fare — spawned to delivered — and it does NOT restart when
 // the rider gets in. Collecting them quickly is what buys the time to deliver them, which is the
@@ -113,9 +112,9 @@ export const ARRIVE_RADIUS = 9;
 // How long the rider takes to run from the kerb and hop into the taxi after pickup fires.
 //
 // The pickup *event* still fires the instant the taxi is inside ARRIVE_RADIUS — game logic, HUD
-// and the timer transfer all start immediately. This only defers the moment the rider marker
-// physically hides, so a run-and-jump animation gets to play across it. Tuned against the timer
-// transfer's 0.65s so the ring lands on the taxi a beat before the rider disappears into it.
+// and the marker's flight to the taxi all start immediately. This only defers the moment the rider
+// figure physically hides, so a run-and-jump animation gets to play across it. Tuned against that
+// flight's 0.65s so the clock lands on the taxi a beat before the rider disappears into it.
 const BOARD_SECONDS = 0.9;
 
 // How long the delivered rider is visible for after they leave the cab. Longer than BOARD_SECONDS
@@ -152,19 +151,16 @@ export const intersectionCentre = (i, j) => ({ x: lineCoord(i), z: lineCoord(j) 
 function createSlot(scene, index) {
   const passenger = createPassengerPin(createPerson);
   const destination = createDestinationPin();
-  // One clock for the whole fare, in two bodies: the colour of the rider's diamond while they are
-  // on the kerb, then this ring once they're aboard. It does not restart at the hand-off.
-  const timer = createTimerRing(scene);
 
-  // Urgency, floating over the waiting rider. Hangs off the marker's standing group so it follows
-  // the same kerb placement — but it keeps its own `visible` flag, which is what stops it
-  // reappearing over the delivered rider when beginExit un-hides the passenger group at the far
-  // end of the trip.
+  // One clock for the whole fare, in one body: the diamond waits over the rider's head and flies to
+  // the taxi when they get in. It does not restart at the hand-off, and neither does the marker.
   //
-  // The bounce is staggered by slot so two riders on the board don't pulse in lockstep. A fixed
+  // Scene-level rather than hung off the rider's kerb group — it has to leave that corner — so
+  // hiding it is its own call rather than something the passenger group's visibility does for it.
+  //
+  // The bounce is staggered by slot so two fares live at once don't pulse in lockstep. A fixed
   // offset rather than a random one, because sim time drives it and shots have to reproduce.
-  const diamond = createRiderDiamond(index * 0.31);
-  passenger.postGroup.add(diamond.group);
+  const marker = createFareMarker(scene, index * 0.31);
 
   // Stamped on the roots so a click can be traced back to the fare that owns what was hit. The
   // picker already walks up parents looking for `pickable`; this rides along the same walk.
@@ -176,7 +172,7 @@ function createSlot(scene, index) {
   scene.add(passenger.group);
   scene.add(destination.group);
 
-  return { index, passenger, destination, timer, diamond };
+  return { index, passenger, destination, marker };
 }
 
 export function createFareSystem(rng, scene) {
@@ -345,12 +341,11 @@ export function createFareSystem(rng, scene) {
     // turned the board into three riders and three destinations to read at once.
     slot.destination.group.visible = false;
     // Full urgency: the clock has not started draining yet this frame, so the diamond opens on the
-    // top level by construction rather than by rounding.
-    slot.diamond.show(URGENCY_SEGMENTS);
+    // top level by construction rather than by rounding. Placed on the same kerb corner the figure
+    // stands on, which is where it will launch from at pickup.
+    const corner = cornerFor(spot.i, spot.j);
+    slot.marker.showAt(URGENCY_SEGMENTS, corner.x, corner.z);
 
-    // No ring on the kerb: while the rider waits their clock is the diamond's colour. The ring
-    // is placed and launched at pickup, from this same corner, so the hand-off still reads as the
-    // clock leaving the rider and chasing the taxi.
     return fare;
   }
 
@@ -391,21 +386,16 @@ export function createFareSystem(rng, scene) {
     // so there is only ever one drop-off on the board and nothing to tell it apart from. The fare's
     // own colour lives on the taxi's roof sign now.
     place(fare.slot.destination, fare.dropoff.i, fare.dropoff.j);
-    // The rider's diamond has done its job the moment they are in the car: what it was reporting
-    // — how long this one will keep waiting — has stopped being a question.
-    fare.slot.diamond.hide();
-    // The rider is aboard, so the deadline is the car's problem now. The ring picks the clock up
-    // from the kerb the diamond was floating over and chases the taxi with it, drawing over the
-    // city so the timer never gets lost behind a building.
-    fare.slot.timer.placeAt(fare.boardingFrom.x, fare.boardingFrom.z);
-    fare.slot.timer.beginTransfer();
+    // The rider is aboard, so the deadline is the car's problem now — and the marker goes with
+    // them, off the kerb corner it has been waiting on and across to the roof. Nothing is created
+    // or destroyed at the hand-off, which is the point: it is the same clock, visibly moving.
+    fare.slot.marker.beginTransfer();
   }
 
   function clear(fare) {
     fare.slot.passenger.group.visible = false;
     fare.slot.destination.group.visible = false;
-    fare.slot.diamond.hide();
-    fare.slot.timer.hide();
+    fare.slot.marker.hide();
     const at = state.fares.indexOf(fare);
     if (at !== -1) state.fares.splice(at, 1);
   }
@@ -423,10 +413,9 @@ export function createFareSystem(rng, scene) {
     slot.passenger.standing?.rest?.();
     slot.passenger.group.visible = true;
     slot.destination.group.visible = false;
-    // Already hidden at pickup, but the passenger group it hangs off is being un-hidden right
-    // here — belt and braces so a delivered rider never walks away still wearing a diamond.
-    slot.diamond.hide();
-    slot.timer.hide();
+    // The clock stops here: the marker has ridden all the way in on the taxi, and the figure it
+    // is about to hand back to the pavement has no deadline left.
+    slot.marker.hide();
     exits.push({
       slot,
       target,
@@ -530,7 +519,7 @@ export function createFareSystem(rng, scene) {
     state.elapsed += dt;
 
     for (const fare of live) {
-      const { passenger, timer, diamond } = fare.slot;
+      const { passenger, marker } = fare.slot;
 
       // Wave the waiting rider. Driven off sim time so it stays deterministic for screenshots.
       if (fare.stage === 'waiting' && passenger.standing) passenger.standing.wave(state.elapsed);
@@ -558,20 +547,18 @@ export function createFareSystem(rng, scene) {
 
       fare.timeLeft -= dt;
 
-      // One clock, two bodies. On the kerb it's the colour of the rider's diamond; once aboard
-      // it's the ring following the taxi. The hand-off happens at pickup and the seconds never
-      // reset across it — see beginRide.
+      // One clock, one body, wherever the fare currently is. The seconds never reset across the
+      // hand-off and neither does the marker — see beginRide.
+      marker.setUrgency(urgencyLevel(urgencyOf(fare)));
       if (fare.stage === 'waiting') {
-        diamond.setUrgency(urgencyLevel(urgencyOf(fare)));
-        diamond.update(state.elapsed);
+        // No target: it holds the kerb corner it was shown on.
+        marker.update(state.elapsed, null, fare.timeLeft);
         // Reconciled every frame on top of the push in markDirected: `directed` is also *cleared*
         // from elsewhere (the hand-off at pickup, a fare that changes target), and one place that
         // reflects the flag cannot drift from it the way a set of push sites would.
-        diamond.setSelected(fare.directed);
+        marker.setSelected(fare.directed);
       } else {
-        // The taxi rides on the road, not the kerb.
-        timer.update(dt, { x: taxiCar.x, z: taxiCar.z, y: 0.09 },
-          urgencyOf(fare), fare.timeLeft);
+        marker.update(state.elapsed, taxiCar, fare.timeLeft);
       }
 
       if (fare.timeLeft <= 0) {
@@ -631,7 +618,7 @@ export function createFareSystem(rng, scene) {
     // rider on the kerb has a surface for it: the yellow rim on their diamond says which of two
     // waiting riders the taxi is on its way to. A fare aboard needs none — its drop-off is dispatched at
     // pickup, so there is no undirected state to tell apart.
-    if (fare.stage === 'waiting') fare.slot.diamond.setSelected(true);
+    if (fare.stage === 'waiting') fare.slot.marker.setSelected(true);
     return true;
   }
 

@@ -2,13 +2,16 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
-import { ABOVE_RING } from '../game/timerring.js';
 import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT } from './wheels.js';
 import { addGhostOutline } from './ghostoutline.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
-// because it needs to be raycast against for picking, and because its shell has to draw over the
-// fare's timer ring once that ring has flown to the car.
+// because it needs to be raycast against for picking, and because it wears things the ambient cars
+// do not: a roof sign in the fare's colour, and a ghost outline for when it ducks behind a tower.
+//
+// Its parts carried an explicit renderOrder for a while, so the car would draw over the fare's timer
+// ring — which lay flat on the road around it and drew with the depth test off. That ring is gone
+// (the fare's clock floats above the roof now), and with it the whole ordering dance.
 
 const CAR_LEN = 3.4;
 const CAR_W = 1.7;
@@ -51,9 +54,6 @@ export function createTaxiMesh() {
 
   const shell = new THREE.Mesh(merged, propMaterial());
   shell.castShadow = true;
-  // Once a fare is aboard, the timer ring flies here and sits on the road around the car — so the
-  // car has to draw over it, for the same reason the rider does. See ABOVE_RING.
-  shell.renderOrder = ABOVE_RING;
   // Marks this subtree as the taxi for the picker, which raycasts recursively.
   shell.userData.pickable = 'taxi';
   group.add(shell);
@@ -74,8 +74,6 @@ export function createTaxiMesh() {
       const wheel = new THREE.Mesh(wheelGeometry(), wheelMaterial);
       wheel.position.set(anchor.x, anchor.y, anchor.z);
       wheel.castShadow = true;
-      // Same reason as the shell: these sit on the road, where the timer ring is drawn.
-      wheel.renderOrder = ABOVE_RING;
       wheel.userData.pickable = 'taxi';
       // Small rim to match the part — and being in the mask is what stops the wheel occluding
       // the shell's rim (see the note above addGhostOutline(shell)). Children of the wheel, so
@@ -110,7 +108,6 @@ export function createTaxiMesh() {
     new THREE.MeshLambertMaterial({ color: new THREE.Color(PALETTE.taxiSign), flatShading: true }),
   );
   sign.castShadow = true;
-  sign.renderOrder = ABOVE_RING;
   sign.userData.pickable = 'taxi';
   group.add(sign);
   // A smaller rim than the shell's: the default 0.3 on a 0.34-unit-tall sign would double it.

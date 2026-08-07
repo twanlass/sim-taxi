@@ -855,7 +855,7 @@ if (shot) {
         // Shot mode's stand-in for dispatchToDropoff — the interactive pickup path is in the frame
         // loop, which a shot never runs.
         send(fare);
-        // Let the timer finish flying to the taxi, or the shot catches it mid-transfer.
+        // Let the fare's diamond finish flying to the taxi, or the shot catches it mid-flight.
         for (let settle = 0; settle < 90; settle++) {
           traffic.update(1 / 60);
           fares.update(1 / 60, traffic.taxi);

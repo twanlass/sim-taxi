@@ -27,8 +27,8 @@ const RING_R = 3.5;
 const RING_TUBE = 0.16;
 
 /**
- * A static target ring with its circle filled in. The countdown itself lives in game/timerring.js
- * and travels with the fare, so this only has to say "here" — it never drains.
+ * A static target ring with its circle filled in. The fare's clock is the diamond in game/
+ * faremarker.js, which travels with the rider, so this only has to say "here" — it never drains.
  *
  * The fill is at the route band's own opacity (see game/routeline.js). The two are no longer the
  * same colour — the band is the taxi's yellow and the disc is the drop-off's teal — but they still

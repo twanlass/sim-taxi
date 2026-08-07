@@ -3,18 +3,20 @@
 ## The fare loop
 
 `src/game/fares.js`. Each fare is its own little machine — `waiting → riding → gone` — carrying its
-own clock, pins and ring. Up to `MAX_FARES = 3` run at once, and because the taxi has one seat,
-that means up to two riders can be waiting on the kerb at the same time.
+own clock, its rider, its drop-off and the one marker that travels between them. Up to
+`MAX_FARES = 3` run at once, and because the taxi has one seat, that means up to two riders can be
+waiting on the kerb at the same time.
 
 1. A passenger spawns at a random intersection (never the one the taxi is already about to reach)
    with a **60-second clock** (`FARE_SECONDS`) and a
-   [diamond](#the-diamond-over-a-waiting-rider) over their head, coloured by how much of that clock
+   [diamond](#the-fares-clock-travels) over their head, coloured by how much of that clock
    is left. The whole trip is drawn now; none of it is shown until they board — see
    [Neither how far nor where](#neither-how-far-nor-where).
 2. Tap them → the taxi routes there.
-3. On arrival the passenger boards, a teal ring appears on the road where they're going and the
-   taxi **drives straight on to it** — the pin lands in the taxi's yellow, because the instruction it used to ask for is now
-   given for you. See [The drop-off dispatches itself](#the-drop-off-dispatches-itself).
+3. On arrival the passenger boards, their diamond flies from the kerb to the roof of the taxi, a
+   teal ring appears on the road where they're going, and the taxi **drives straight on to it** —
+   because the instruction it used to ask for is now given for you. See
+   [The drop-off dispatches itself](#the-drop-off-dispatches-itself).
 4. Deliver → the fare pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, see [Economy](#economy)),
    and the board refills.
 5. **Any** fare's clock expiring ends the run.
@@ -76,7 +78,7 @@ The bar was a second thing to parse in a glance the player only ever spends one 
 read they actually make is the clock: on a board with two waiting riders the wrong pick loses a
 whole fare, and a slightly cheaper fare delivered beats a dearer one that timed out. Once the plate
 was down to one bar it was not a meter any more, and a colour on the rider's
-[diamond](#the-diamond-over-a-waiting-rider) says urgency without any parse at all.
+[diamond](#the-fares-clock-travels) says urgency without any parse at all.
 
 What went with it is real and worth saying plainly: the payout is no longer legible before the
 choice. Fares are still priced by distance, so a long haul still pays more — the player just finds
@@ -178,8 +180,10 @@ The passenger **figure** is white — deliberately colourless. Before pickup any
 rider, so a colour on the *person* would imply a commitment that doesn't exist.
 
 The fare's colour is assigned when the trip is drawn, at **spawn**, and shows from pickup on the
-taxi's **roof sign**. The sign carries it rather than a ring, because the rings are spoken for —
-the timer ring is colour-coded by time remaining, so fare identity needed somewhere else to live.
+taxi's **roof sign**. The sign carries it rather than the marker overhead, because that one is
+spoken for —
+the fare's own clock rides up there too, colour-coded by time remaining, so fare identity needed
+somewhere else to live.
 
 **The drop-off no longer wears it.** It used to, so that a pin and a taxi could be paired by
 hue; but one rider is aboard at a time and only that rider's pin is on the board, so the pairing
@@ -209,7 +213,7 @@ there is a line to follow to it. A drop-off briefly hidden behind a building on 
 already driving down is the case that is genuinely worse, and it is worth what it buys.
 
 Teal is the point of the colour. Hue on a fare marker now *means* urgency — that is what the
-[diamond over a rider](#the-diamond-over-a-waiting-rider) is saying — and the drop-off has nothing
+[diamond over a rider](#the-fares-clock-travels) is saying — and the drop-off has nothing
 to report: no clock of its own, and by the time it is drawn the taxi is already driving at it. A
 colour outside the green-to-red scale is what says "this one is not on it". It wore **Loco Mode's
 yellow** before, on the grounds that the route band, the car and the place it is driving to should
@@ -290,101 +294,94 @@ is refused with a toast rather than routing a taxi that could never collect them
 ceremony: every tap on it was either a no-op or an accidental deselect that made the next tap on a
 fare do nothing.
 
-## The fare's timer travels
+## The fare's clock travels
 
-`src/game/timerring.js`. The countdown is a **physical object that belongs to the fare**, not a HUD
-number and not a property of a marker.
+`src/game/faremarker.js`. The countdown is a **physical object that belongs to the fare** — not a
+HUD number, not a property of a marker, and not something that changes hands. A geodesic crystal
+floats over the rider's head on the kerb, painted by how much of their clock is left: green → yellow
+→ orange → red, [by level](#urgency-is-one-scale). The instant they get in it **flies to the taxi**
+(`TRANSFER_TIME = 0.65s`, eased, with a small arc) and keeps draining above the roof, because from
+that moment the deadline is the car's problem.
 
-It waits as a ring under the rider on the kerb, then **flies to the taxi** when they get in
-(`TRANSFER_TIME = 0.65s`, eased, with a small arc) — because from that moment the deadline is the
-car's problem.
+**The rider getting in and the deadline moving into the car are one gesture.** Nothing is created or
+destroyed at the hand-off — the same object leaves the kerb corner it has been standing on and
+crosses to the roof, which is the whole reason the flight is animated rather than a teleport. It is
+also why the marker holds **one altitude** on both ends: the transfer reads as sliding sideways
+rather than climbing into a different slot.
 
-**The arc sweeps clockwise** from screen-top as time drains. Screen-up is world `(-1, 0, -1)` at
-this camera angle, hence `START_ANGLE = -Math.PI * 0.75`. The annulus is built as an explicit
-triangle list in sweep order rather than using `THREE.RingGeometry`, because `setDrawRange` needs
-draw order and sweep order to be the same thing.
+That flight is tuned against `BOARD_SECONDS = 0.9`, so the clock lands on the car a beat *before*
+the rider figure finishes climbing in. The deadline arrives, then its owner does.
 
-**Colour snaps between four stages** and is never interpolated:
+### It used to be a relay
 
-```
-> 60%  #26E05A  green
-> 35%  #FFE12E  yellow
-> 15%  #FF8C1A  orange
-else   #FF2E2E  red
-```
+Two objects did this job in turn: this diamond over the rider, and a **timer ring** — a swept
+annulus lying on the road around the taxi, which took over at pickup while the diamond vanished.
 
-A continuous ramp spends most of its life in muddy in-between hues — the first version read as
-olive through the whole first half — and a colour that changes imperceptibly tells the player
-nothing. Snapping makes each change an event you notice.
+The ring was the finer instrument, and losing it is a real cost. It drained *continuously*: a
+`setDrawRange` sweep clockwise from screen-top over 96 segments, so the arc's length was the time
+left, and a player could see a clock at 40% rather than at "orange". The diamond has four steps.
+On the riding leg that is strictly less information.
 
-**Below 5 seconds** the whole ring pulses — a ~3.5Hz sine scaling between 1.0 and 1.15. Threshold
-is in seconds, not fraction, so "five left" stays five left when the debug panel has tuned
-`fareSeconds` away from 60. The pulse and the red stage are the same object, so the two urgency
-cues stack rather than compete for the eye.
+What it bought is that there is nothing to learn. Two objects meant two vocabularies for one
+deadline, and the hand-off between them was a moment the player had to be taught — the ring
+appearing on the road at the same instant the diamond disappeared off the kerb reads as *two*
+events, not one thing moving. A marker that simply flies across says it without teaching anything,
+and the fare's clock is now one shape from spawn to drop-off.
 
-A dimmed **track** ring sits beneath the live arc. Without it a half-drained arc looks like a
-crescent floating beside its owner rather than a ring centred on it. It is opaque, with the
-dimming baked into the colour rather than done with alpha — see the render-order note below.
+The **panic pulse came across** with it: below 5 seconds the crystal beats, a ~3.5Hz sine scaling
+between 1.0 and 1.15. Threshold in seconds, not fraction, so "five left" stays five left when the
+debug panel has tuned `fareSeconds` away from 60. The pulse and the red level are the same object,
+so the two urgency cues stack rather than compete for the eye. It now runs on the kerb as well as in
+the car, which the ring never did — a rider about to give up is exactly as urgent as a delivery
+about to fail.
 
-A **black rim** underneath both, the same weight as the outlines on the marker pins. At play zoom
-the ring is ~25px across on road barely darker than its own yellow stage colour, and without the
-rim the arc's edge dissolves into the tarmac.
+What went with the ring, besides the sweep: it drew **on top of everything** (`depthTest: false`),
+so the clock stayed legible through towers. The diamond is an ordinary depth-tested object — an
+inverted-hull crystal cannot skip the depth test without painting its own back faces over its front
+ones — so a taxi behind a building now takes its clock with it. The taxi's own
+[ghost outline](rendering.md#taxi-ghost-outline--geometryghostoutlinejs) still says where the car is; the
+seconds are what you lose sight of.
 
-The ring draws **on top of everything** (`depthTest: false`, `renderOrder 7-9`). The taxi and the
-rider duck behind buildings constantly at this camera angle, and a clock you cannot see is
-worthless — legibility beats depth correctness here.
+A whole apparatus went with the ring too, and its absence is worth recording: the `ABOVE_RING`
+renderOrder that the rider's meshes and the taxi's shell, wheels and sign all wore. A flat circle
+drawn with the depth test off projects its far half *upward on screen* at this camera angle, across
+whatever is standing at its centre — so the ring sliced its own owner in half, and the fix was
+drawing everything that stands inside it afterwards. Nothing lies on the ground any more, so all of
+that is gone.
 
-### …except its own owner
-
-Which creates the one exception. The ring lies flat on the ground, its owner stands in the middle
-of it, and at this camera angle the **far half of a flat circle projects upward on screen** across
-whatever is standing at the centre. Drawn with the depth test off, the ring sliced the rider — and
-later the taxi — in half.
-
-The fix is draw order, not depth: the ring writes no depth, so anything drawn *after* it lands on
-top while still self-occluding normally. `ABOVE_RING` is that renderOrder, worn by the rider's
-meshes and the taxi's shell and sign.
-
-This is why the track had to stop being translucent. A transparent object draws after **every**
-opaque one no matter what its renderOrder says, so as a wash it painted a dark band across the
-figure that no ordering could undo.
-
-The taxi wears nothing else on the ground now, so the timer ring is simply sized to clear the car.
-It used to sit outside a selection pool — and before that outside a selection ring, where the first
-attempt put the timer at the same radius and it vanished inside the other ring's band.
-
-## The diamond over a waiting rider
-
-`src/geometry/riderdiamond.js` — a geodesic crystal floating over the rider's head, painted by how
-much of their clock is left: green → yellow → orange → red, [by level](#urgency-is-one-scale). That
-colour is the whole of what the marker says, and a diamond on the board means exactly one thing: a
-clock is running here. The [drop-off](#the-drop-off-is-a-teal-ring-and-nothing-else) wore the same
-model for a spell and gave it back, because a second crystal reporting nothing made the shape
-ambiguous.
+### What the crystal does
 
 **A level change kicks it.** The crystal swells to 1.1 and hops about 4px, snapping up and easing
 back over `KICK_TIME = 0.36s`. The colour snaps between four steps and is the news, but a hue change
 on a 29px shape at the edge of the eye is easy to miss outright — and the ones that matter land
 while the player is watching the road, not the kerb. The motion is what buys the glance; the colour
 is what pays it off. It is deliberately a *beat* and not a state: over well before the next level
-lands, so two riders at different levels are told apart by hue and never by whether something is
+lands, so two fares at different levels are told apart by hue and never by whether something is
 moving. A fresh rider does not kick on spawn — a marker that pops the moment it appears is
 announcing a change that hasn't happened.
 
-**It inks over in heavy black** once the taxi has been sent at that rider: the same outline every
-diamond wears, drawn at `1.34` instead of `1.12` — about 5px of rim against 1.7px at play zoom. On a
-board with two riders waiting it is the only thing saying which of them the car is already on its
-way to. The rim was the taxi's **yellow** first, which is what "you told me to do this" means
-everywhere else in the HUD; but this crystal spends a quarter of every clock *being* yellow, and a
-yellow rim on a yellow diamond is no rim at all. Black is the one value nothing on the urgency scale
-can collide with, so the state reads as weight rather than hue. `markDirected` pushes it so the rim
-lands on the same frame as the route band; the per-frame tick reconciles it, because `directed` is
-also *cleared* from elsewhere and one place that reflects the flag cannot drift from it.
+**It inks over in heavy black** once the taxi has been sent at that rider: the same outline the
+crystal always wears, drawn at `1.34` instead of `1.12` — about 5px of rim against 1.7px at play
+zoom. On a board with two riders waiting it is the only thing saying which of them the car is
+already on its way to. The rim was the taxi's **yellow** first, which is what "you told me to do
+this" means everywhere else in the HUD; but this crystal spends a quarter of every clock *being*
+yellow, and a yellow rim on a yellow diamond is no rim at all. Black is the one value nothing on the
+urgency scale can collide with, so the state reads as weight rather than hue. `markDirected` pushes
+it so the rim lands on the same frame as the route band; the per-frame tick reconciles it, because
+`directed` is also *cleared* from elsewhere and one place that reflects the flag cannot drift from
+it. It comes off at pickup: it answered "which of the two waiting riders is the car already going
+to?", and a fare in the car is not one of those.
 
-It replaced four things, in this order:
+A **diamond on the board means exactly one thing: a clock is running here.** The
+[drop-off](#the-drop-off-is-a-teal-ring-and-nothing-else) wore the same model for a spell and gave
+it back, because a second crystal reporting nothing made the shape ambiguous.
+
+### What it replaced on the kerb
+
+Four things, in this order:
 
 - **A shaft of light** over the rider, which marked them at range and said nothing else.
-- **A ring on the kerb**, which drained the same clock the diamond's colour does now.
+- **A ring on the kerb**, which drained the same clock the crystal's colour does now.
 - **A seven-segment block count**, which was more precision than the decision needed and cost a
   read to parse.
 - **A meter**: a dark plate carrying a four-segment urgency bar over a three-segment distance bar.
@@ -401,9 +398,11 @@ range — and three of them no longer crowd a city whose blocks are only ~92px a
 
 `src/game/urgency.js`. Four levels, even quarters of the clock, each with its own colour.
 
-Three surfaces show it — the diamond over the rider, the ring that rides with the taxi, and the
-countdown around each rider-finder chip — and they all read from here. A rider showing orange on the
-map whose chip is yellow in the corner is two answers to one question.
+Two surfaces show it — the fare's diamond, wherever it currently is, and the countdown around each
+rider-finder chip — and they both read from here. A rider showing orange on the map whose chip is
+yellow in the corner is two answers to one question. It was three until the
+[timer ring](#it-used-to-be-a-relay) went, which is exactly why the scale was pulled out of the ring
+into its own module in the first place.
 
 Even quarters rather than the ring's old 0.60 / 0.35 / 0.15 bands: those held the top level through
 the first 40% of the clock and then ran through the other three in a rush. The levels outlived the

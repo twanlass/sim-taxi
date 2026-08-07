@@ -24,7 +24,7 @@ src/
     route.js            directed Dijkstra with road-hierarchy weights
     routeline.js        the route band painted down the taxi's lane
     pick.js             raycast click picking
-    timerring.js        the fare clock, as a physical object
+    faremarker.js       the fare clock, as a physical object: kerb, flight, taxi
     boost.js            crazy-taxi duty cycle (a pure clock, no scene knowledge)
     camera.js           fixed 3/4 orthographic camera
     scene.js            scene, sun, hemisphere fill, sky shader
