@@ -353,8 +353,9 @@ createPicker(
 );
 
 // Camera shortcut: frame the waiting rider on demand. At play zoom on a phone the rider is a
-// handful of pixels somewhere on a map that no longer fits in one screen, so a button that snaps
-// the camera onto them is faster than hunting for their meter by hand.
+// handful of pixels somewhere on a map that no longer fits in one screen, so snapping the camera
+// onto them is faster than hunting for their meter by hand. Narrow viewports only — see
+// selectRider.
 function snapToRider(fare) {
   if (!fare) return;
   const c = cornerFor(fare.target.i, fare.target.j);
@@ -366,9 +367,9 @@ function snapToRider(fare) {
   releaseCameraToPlayer();
 }
 
-// Double-tap the chip to actually dispatch the taxi at that rider — same effect as tapping their
-// pin on the map, without having to find it first. A pickup while already carrying someone would
-// be refused at the picker; keep the rule consistent here by showing the same toast.
+// Dispatch the taxi at that rider — same effect as tapping their pin on the map, without having to
+// find it first. A pickup while already carrying someone would be refused at the picker; keep the
+// rule consistent here by showing the same toast.
 function dispatchToRider(fare) {
   if (!fare || fares.state.gameOver) return;
   if (fares.carrying()) { flash('Drop off your rider first'); return; }
@@ -378,7 +379,17 @@ function dispatchToRider(fare) {
   }
 }
 
-const riderFinder = createRiderFinder({ onTap: snapToRider, onDoubleTap: dispatchToRider });
+// One tap on a chip picks that rider. The camera only follows on a narrow viewport, where the
+// rider may well be off-screen and framing them is the other half of the job; on a desktop the
+// whole city is already in frame, so a snap would shove the map out from under a player who can
+// see the rider fine — same reason drag-to-pan and the follow-cams are narrow-only.
+function selectRider(fare) {
+  if (!fare) return;
+  if (isNarrow()) snapToRider(fare);
+  dispatchToRider(fare);
+}
+
+const riderFinder = createRiderFinder({ onSelect: selectRider });
 const dropoffIndicator = createDropoffIndicator({
   camera,
   // Aim at the kerb corner where the pin actually stands, not the intersection centre — the
