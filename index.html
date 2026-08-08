@@ -20,7 +20,26 @@
       * { margin: 0; padding: 0; box-sizing: border-box; }
       /* Matches PALETTE.skyBottom, so the frame before WebGL's first paint is the sky rather
          than a flash of a different colour. */
-      html, body { width: 100%; height: 100%; overflow: hidden; background: #dcedf7; }
+      /* Nothing on this page is prose to be read — it's a surface you tap and drag on. Without
+         these, a long press anywhere on iOS still finds *something* selectable (the callout hunts
+         past the canvas for the nearest text node) and pops the Copy / Look Up / Translate
+         toolbar across the middle of the city, which then swallows the next tap that should have
+         routed the taxi. Both properties inherit, so the root covers every overlay — the
+         `user-select: none` declarations further down are belt and braces on the elements most
+         likely to be pressed. The `-webkit-` prefixes still earn their place: iOS Safari only
+         took unprefixed `user-select` in 17, and `-webkit-touch-callout` has no standard
+         equivalent at all. */
+      html, body {
+        width: 100%; height: 100%; overflow: hidden; background: #dcedf7;
+        user-select: none; -webkit-user-select: none;
+        -webkit-touch-callout: none;
+        /* No grey flash under a tap either — every control here has its own :active state. */
+        -webkit-tap-highlight-color: transparent;
+      }
+      /* The one exception: the debug panel's JSON dump exists to be selected and copied when the
+         clipboard API refuses, and an inherited `user-select: none` would leave nothing to drag
+         over. Sliders and colour wells come along for the ride harmlessly. */
+      input, textarea { user-select: text; -webkit-user-select: text; }
       canvas { display: block; touch-action: none; cursor: pointer; }
 
       #hud {
