@@ -73,6 +73,9 @@ down.
   material's parameters *before* the patch runs, so a patched material collides with every unpatched
   one sharing those parameters and gets handed whichever program compiled first. The diamond's fill
   drew with a building's shader and went missing with nothing logged.
+- **`flatShading` takes its normal from a screen-space derivative,** so on back faces it points into
+  the screen and the surface lights as if the sun were behind it. Three's `FLIP_SIDED` only fixes
+  the interpolated-normal path. Flip it by hand in any back-face pass.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

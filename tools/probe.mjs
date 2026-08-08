@@ -720,7 +720,7 @@ check('no two cars occupy the same space', worst > 1.6,
     // The rim is the only mark saying the taxi has been sent at this rider. It reads as *weight*
     // and must stay black at both weights: it was yellow once, and yellow is a colour this very
     // crystal wears for a quarter of every clock.
-    const hull = diamond.mesh.children[0];
+    const hull = diamond.rim;
     const rim = () => `${hull.material.color.getHexString()}@${hull.scale.x.toFixed(2)}`;
     diamond.setSelected(false);
     const idle = rim();

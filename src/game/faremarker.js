@@ -159,6 +159,10 @@ export function createFareMarker(scene, phase = 0) {
     // The crystal itself, so a test can read colour and position back the way a player reads them
     // off the screen rather than trusting the arguments it passed in.
     mesh: diamond.mesh,
+    // The outline hull, whose *weight* is the "the taxi is on its way to this one" state. Named
+    // rather than reached for by child index — the crystal grew a second wall underneath it and a
+    // test walking `mesh.children[0]` silently started reading the far wall instead.
+    rim: diamond.rim,
     // Likewise the disc on the ground, which has to agree with the crystal on every frame.
     ring: ring.group,
     setUrgency,

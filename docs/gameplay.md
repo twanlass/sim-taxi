@@ -557,10 +557,10 @@ that is gone.
 ### The crystal is a glass of time
 
 `src/geometry/diamond.js`. The diamond is a **vessel**, and the clock is the liquid in it. Below the
-surface the urgency colour is saturated and self-lit — exactly what the whole crystal used to be.
-Above it the same hue is emptied glass: half the lightness, a third of the emissive lift, and a
-sheen on the facets turned edge-on to the camera. A pale band rides the line between them, and that
-band is the part the eye actually reads.
+surface the urgency colour is opaque, saturated and self-lit — exactly what the whole crystal used
+to be. Above it the same hue is emptied glass: the city visible straight through it at just under
+half alpha, most of the emissive lift gone, and a sheen on the facets turned edge-on to the camera.
+A pale band rides the line between them, and that band is the part the eye actually reads.
 
 So the two hands of the clock are on one object. The **colour** steps in quarters and kicks, which
 is the alarm; the **level** moves every frame, which is where inside that quarter the fare actually
@@ -574,25 +574,70 @@ the clock inside the middle 20% of the body. The player reads where the line *is
 to be equal travel. Both ends overshoot the tips slightly, which is what makes a full fare a plain
 solid crystal and a dead one a plain empty vessel, with no highlight stranded on a vertex.
 
-Two things were measured and moved. The empty glass was **desaturated** at first (`s × 0.55`), and
-the empty half of a nearly-dead marker came out a dusty rose — the most urgent state on the scale
-rendering as the least red thing on the board. It keeps 90% of its saturation now and differs from
-the liquid almost entirely in value. And the sheen exponent went from 2.5 to 5: at 2.5 it was not a
-highlight but a wash, because an octahedron at this camera angle shows almost nothing head-on and
-every visible facet picked up most of the lift.
-
-It is **one mesh**, split in the fragment shader, not a transparent shell around an inner solid. A
-glass shell would have to be sorted against the black inverted hull inside it — the hull's far faces
-are what you would see through the glass, so the empty half would read as a black void rather than a
-vessel — and it would double the draw calls for a 29px object. Splitting one opaque surface leaves
-the outline, the shadow, the kick and the pulse working exactly as they did. The cut is in the
+It is **one mesh with a per-fragment alpha**, split in the fragment shader — same silhouette, one
+draw call, and the bounce, the kick and the pulse keep animating a single object. The cut is in the
 geometry's **local Y**, so the liquid rides in the vessel instead of sloshing when the marker hops.
+
+### Getting the empty half to look empty
+
+The first build was opaque: the hue at half lightness above the line. It read as a **dark solid**,
+not as an empty vessel, which is the whole point of the thing.
+
+What stood in the way of real transparency is the **black inverted hull**. It is a larger octahedron
+drawn back-faces-only, so its far faces cover the entire silhouette — glass over it shows a black
+void rather than the city. The fix turned out to be draw order rather than a different outline:
+
+> The crystal draws first (`renderOrder` 8) and **writes depth**, blending over the finished opaque
+> scene. Then the hull draws (9) with the depth test on. Inside the silhouette its back faces are
+> behind the glass and fail the test; the ring between the two silhouettes has nothing in front of
+> it and passes. That ring is exactly the rim. Both are flagged `transparent` only to land in the
+> same queue, which is the one place `renderOrder` decides anything — well clear of the [ghost
+> outlines](rendering.md#taxi-ghost-outline--geometryghostoutlinejs) at 9990+, which already treated
+> this marker as an occluder back when it was opaque.
+
+`depthWrite` staying **on** for a transparent material is the load-bearing part, and it is the
+opposite of the usual habit.
+
+Three numbers were measured and moved:
+
+- The empty glass was **desaturated** at first (`s × 0.55`), and the empty half of a nearly-dead
+  marker came out a dusty rose — the most urgent state on the scale rendering as the least red thing
+  on the board. It keeps 90% of its saturation now, and alpha does the emptying rather than the
+  tint, which is what glass and liquid actually differ by.
+- The **sheen exponent** went from 2.5 to 5. At 2.5 it was not a highlight but a wash: an octahedron
+  at this camera angle shows almost nothing head-on, so every visible facet picked up most of the
+  lift.
+- The **emissive** above the line holds at 0.6 before alpha takes its share, so about 0.2 of the
+  liquid's reaches the frame. At 0.22 opaque the shape survived after dark but a nearly-drained
+  rider was genuinely hard to find on a night board.
+
+### The far wall, and why it isn't there
+
+Only the **near** half of the liquid's surface is drawn, and the near half of a horizontal plane
+projects low — so at half full the level reads closer to a third. Drawing the back faces as a second
+pass closes that chevron into the rhombus a real meniscus makes, centred on the level the clock
+actually says. It was built, and taken out again.
+
+It cost more than it bought. The far wall's liquid is a solid slab filling everything below its own
+(higher) surface line, so the see-through top — the entire point of the vessel — shrank to the
+narrow wedge above it, and the two meniscus bands closed into a hard bright rectangle across the
+middle that read as a label rather than as liquid. More correct, less legible.
+
+What is left is a known bias: the surface reads slightly low, by a chevron about 8px deep at play
+zoom. It is the same shape at every level, so it offsets the reading rather than distorting it, and
+the chevron's outer corners — where it meets the silhouette — sit at the true level anyway.
 
 > **Trap.** A patched material needs `customProgramCacheKey`. Three builds the program cache key
 > from the material's parameters *before* `onBeforeCompile` runs, so a patched Lambert material
 > collides with every unpatched one sharing those parameters and `acquireProgram` hands back
 > whichever compiled first. This city is full of flat-shaded Lambert: the diamond drew with a
 > building's program, and the fill went missing with nothing logged anywhere.
+
+> **Trap.** Under `flatShading` three takes the normal from the screen-space derivative of the view
+> position, which follows the triangle's *rendered* winding — so on back faces it points into the
+> screen and the surface lights as if the sun were behind it. Three's own `FLIP_SIDED` never reaches
+> this path; it only fixes the interpolated-normal one. `patchFill`'s `flipped` argument is what the
+> far-wall experiment left behind, and any back-face pass on this shape will need it.
 
 ### What the crystal does
 
