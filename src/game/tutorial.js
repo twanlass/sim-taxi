@@ -36,6 +36,12 @@ const PAUSE_AFTER = new Set([',', '.', '!', '?']);
 // actually played — hiding it on the same frame would cut the animation the dismissal is for.
 const CLOSE_MS = 220;
 
+// A beat of city before the tutorial says anything. A run that opens mid-sentence gives the player
+// nothing to attach the sentence to; one second of traffic moving is enough to establish that there
+// is a place here, and the lights coming down after it lands as an event rather than as the initial
+// state. The clocks are already held, so it costs nothing.
+const OPENING_HOLD = 1.0;
+
 // A beat between the first bubble leaving and the camera setting off for the rider, so the two
 // moves read as consecutive rather than as one interrupting the other.
 const HANDOFF = 0.35;
@@ -256,12 +262,17 @@ function createBubble(root, { sun, hemi }, onDismiss) {
 // general gloom rather than as a light pointed at one thing.
 const POOL_CLEAR = 6;
 const POOL_EDGE = 17;
+// The pool around the Loco Mode pill runs out to this multiple of its clear radius. Wider in
+// proportion than the world one, because it sits in a screen corner: half the falloff is off the
+// edge of the glass, so a ratio that looks right in the middle of the city reads as a hard-edged
+// disc down there.
+const BUTTON_POOL_FALLOFF = 2.8;
 
 // The steps that own the camera, and the steps that are a bubble waiting to be answered. Everything
 // after the second dismissal is neither: the run is live, the player is driving, and the third beat
 // is a note in the corner rather than something standing in front of the game.
-const CAMERA_STEPS = new Set(['taxi', 'toRider', 'rider', 'restore']);
-const GATED_STEPS = new Set(['taxi', 'toRider', 'rider']);
+const CAMERA_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider', 'restore']);
+const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
 
 /**
  * Road distance between two points, near enough. Manhattan rather than straight-line because the
@@ -287,6 +298,8 @@ const blockDistance = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
  * @param lights        {sun, hemi} — the city's own rig, mirrored into the avatar
  * @param project       (x, y, z) => {x, y} — world to viewport pixels, for aiming the spotlight
  * @param pixelsPerUnit () => number — the camera's current scale, for sizing it
+ * @param boostAnchor   () => {x, y, r} | null — the Loco Mode pill's centre and radius in viewport
+ *                      pixels, for the third beat's spotlight
  * @param waitingFare   () => fare | null — whoever is on the kerb to point at
  * @param fareLocation  (fare) => {x, z} — the kerb corner to centre, not the junction
  * @param isDispatched  () => boolean — has the player sent the taxi at anyone yet
@@ -301,7 +314,7 @@ const blockDistance = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
  *                      third beat is deliberately outside it — the run is live by then.
  */
 export function createTutorial({
-  controller, aspect, isNarrow, taxi, lights, project, pixelsPerUnit,
+  controller, aspect, isNarrow, taxi, lights, project, pixelsPerUnit, boostAnchor = () => null,
   waitingFare, fareLocation, isDispatched, isCarrying = () => false, headingFor = () => null,
   isOver = () => false, shouldIgnoreTap = () => false, onRunning = () => {},
 }) {
@@ -316,13 +329,15 @@ export function createTutorial({
   };
   if (!root) return idle;
 
-  // 'taxi' → 'toRider' → 'rider' → 'restore' → 'toBoost' → 'boost' → 'done'. `restore` only exists
-  // on a wide viewport, where nothing else would ever put the default whole-city framing back;
-  // `toBoost` is the drive to the first pickup, with nothing on screen.
-  const state = { step: 'taxi' };
+  // 'wait' → 'taxi' → 'toRider' → 'rider' → 'restore' → 'toBoost' → 'boost' → 'done'. `wait` is the
+  // beat of city before the first bubble; `restore` only exists on a wide viewport, where nothing
+  // else would ever put the default whole-city framing back; `toBoost` is the drive to the first
+  // pickup, with nothing on screen.
+  const state = { step: 'wait' };
   // The first trip, for the third beat's halfway mark.
   let tripTo = null;
-  let tripStart = 0;
+  let tripHalf = 0;
+  let tripFrom = 0;
   let linger = 0;
   let elapsed = 0;
   let wait = 0;
@@ -338,18 +353,34 @@ export function createTutorial({
 
   const bubble = createBubble(root, lights, () => dismiss());
 
-  /** Aim and size the pool for this frame. Cheap — three custom properties on one div. */
+  /**
+   * Aim and size the pool for this frame. Cheap — four custom properties on one div.
+   *
+   * Two kinds of subject. The first two beats point at something in the city, so the pool is
+   * anchored in world space and sized in world units. The third points at a *control*, which is a
+   * fixed thing on the glass at a size that has nothing to do with the camera — so it is measured
+   * off the pill's own box instead. Sizing that one in world units would grow and shrink the pool
+   * around a button that never moved.
+   */
   function updateSpotlight() {
     if (!spotlight) return;
-    const at = spotAt ?? { x: taxi.x, z: taxi.z };
-    // 1.4 up: the middle of a car's flank and about a rider's chest, so the pool is centred on the
-    // subject rather than on the patch of road it is standing on.
-    const p = project(at.x, 1.4, at.z);
-    const px = pixelsPerUnit();
-    spotlight.style.setProperty('--sx', `${p.x.toFixed(0)}px`);
-    spotlight.style.setProperty('--sy', `${p.y.toFixed(0)}px`);
-    spotlight.style.setProperty('--r0', `${(POOL_CLEAR * px).toFixed(0)}px`);
-    spotlight.style.setProperty('--r1', `${(POOL_EDGE * px).toFixed(0)}px`);
+    let at;
+    if (state.step === 'boost') {
+      const pill = boostAnchor();
+      if (!pill) return;
+      at = { x: pill.x, y: pill.y, r0: pill.r, r1: pill.r * BUTTON_POOL_FALLOFF };
+    } else {
+      const world = spotAt ?? { x: taxi.x, z: taxi.z };
+      // 1.4 up: the middle of a car's flank and about a rider's chest, so the pool is centred on
+      // the subject rather than on the patch of road it is standing on.
+      const p = project(world.x, 1.4, world.z);
+      const px = pixelsPerUnit();
+      at = { x: p.x, y: p.y, r0: POOL_CLEAR * px, r1: POOL_EDGE * px };
+    }
+    spotlight.style.setProperty('--sx', `${at.x.toFixed(0)}px`);
+    spotlight.style.setProperty('--sy', `${at.y.toFixed(0)}px`);
+    spotlight.style.setProperty('--r0', `${at.r0.toFixed(0)}px`);
+    spotlight.style.setProperty('--r1', `${at.r1.toFixed(0)}px`);
   }
 
   function end() {
@@ -408,6 +439,11 @@ export function createTutorial({
     document.body.classList.add('coach-boost');
     // Sits higher than the first two beats — see #coach.at-boost. The rider chips are live now.
     root.classList.add('at-boost');
+    // Same treatment the taxi and the rider got. `state.step` is already 'boost', so this picks up
+    // the pill's box rather than the last world subject — aim before the fade, or it blooms from
+    // wherever the previous beat left it.
+    updateSpotlight();
+    document.body.classList.add('spotlight-on');
     bubble.show(LINES.boost);
   }
 
@@ -419,11 +455,19 @@ export function createTutorial({
   const onTap = () => { if (!shouldIgnoreTap()) bubble.tap(); };
   window.addEventListener('click', onTap);
 
+  /** Lights down, first line up. Held for OPENING_HOLD so the run does not open mid-sentence. */
+  function openOnTaxi() {
+    state.step = 'taxi';
+    updateSpotlight();                    // aim it before it fades up, or it blooms from the centre
+    document.body.classList.add('spotlight-on');
+    bubble.show(LINES.taxi);
+  }
+
+  // The clocks are held and the chips are hidden from frame one, even though nothing is on screen
+  // yet — the opening beat is part of the tutorial, and the player should not be paying for it.
   document.body.classList.add('coach-open');
-  updateSpotlight();                      // aim it before it fades up, or it blooms from the centre
-  document.body.classList.add('spotlight-on');
   onRunning(true);
-  bubble.show(LINES.taxi);
+  wait = OPENING_HOLD;
 
   function update(dt) {
     if (state.step === 'done') return;
@@ -434,12 +478,23 @@ export function createTutorial({
     // would slide it across the city as the camera moves under it.
     updateSpotlight();
 
-    // The player found a rider and tapped them without waiting to be told — nothing stops them, and
-    // they have just done the whole of beat two unprompted. Get out of the way rather than teaching
-    // it back to them. Load-bearing beyond the manners: the fare clocks are held through the gated
-    // beats, so a bubble left up over a taxi that is already driving a fare would freeze that
-    // fare's countdown for the entire delivery.
+    // Ahead of the opening hold as well as the bubbles: a player quick enough to grab a rider
+    // inside the first second should not then be shown a bubble that immediately dismisses itself.
     if (GATED_STEPS.has(state.step) && isDispatched()) { finish(); return; }
+
+    if (state.step === 'wait') {
+      wait -= dt;
+      // The camera is already easing onto the taxi through this — it is the one thing that should
+      // be under way before the bubble speaks, so the car is framed by the time it does.
+      if (wait <= 0) openOnTaxi();
+      return;
+    }
+
+    // (The guard above is also what handles a player who found a rider and tapped them without
+    // waiting to be told — they have just done the whole of beat two unprompted, so the tutorial
+    // gets out of the way rather than teaching it back to them. Load-bearing beyond the manners:
+    // the fare clocks are held through the gated beats, so a bubble left up over a taxi that is
+    // already driving a fare would freeze that fare's countdown for the entire delivery.)
 
     if (state.step === 'toRider') {
       if (wait > 0) { wait -= dt; return; }
@@ -476,11 +531,20 @@ export function createTutorial({
         const at = headingFor();
         if (!at) return;
         tripTo = at;
-        tripStart = blockDistance(taxi, at);
+        tripHalf = blockDistance(taxi, at) * BOOST_HINT_AT;
+        tripFrom = taxi.travelled;
       }
-      // Half way there — or already arrived, which is the same cue a block early when the first
-      // rider happened to be around the corner.
-      if (isCarrying() || blockDistance(taxi, tripTo) <= tripStart * BOOST_HINT_AT) showBoostHint();
+      // Progress is road actually driven, not how much closer the destination has got. Those are
+      // not the same thing on a grid: a route regularly runs a block *away* from its own target
+      // before it turns, and around a park district it can run three sides of a block. Measured by
+      // remaining distance the hint kept missing its window entirely and arriving after the pickup,
+      // which is exactly when it is no longer about the trip the player is watching.
+      //
+      // `travelled` only ever increases, so this cannot be outrun by a detour; and since the road
+      // distance of a grid route is at least its block distance, half the block distance is at or
+      // before the true midpoint. The carrying check is the floor for a rider who was around the
+      // corner — a trip too short to have a halfway worth waiting for.
+      if (isCarrying() || taxi.travelled - tripFrom >= tripHalf) showBoostHint();
       return;
     }
 
@@ -500,7 +564,7 @@ export function createTutorial({
      * wreck or a Loco Mode chase outranks the tutorial's framing instead of fighting it.
      */
     frameCamera(dt) {
-      if (state.step === 'taxi') {
+      if (state.step === 'wait' || state.step === 'taxi') {
         controller.followXZ(taxi.x, taxi.z, dt, COACH_FOLLOW, aspect());
         return true;
       }

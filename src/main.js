@@ -448,6 +448,9 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // world span is exactly 2 * zoom. This is what keeps the spotlight the same size on every
   // viewport, and correct if a wreck ever pulls the zoom in under it.
   pixelsPerUnit: () => window.innerHeight / (2 * controller.state.zoom),
+  // The third beat points at a control rather than at something in the city, so its spotlight is
+  // measured off the pill's own box. Declared after this call; `function` hoisting covers it.
+  boostAnchor: boostScreenPos,
   // The one the game means by "the waiting fare" — the shortest clock on the kerb. At this point in
   // a run there is only ever one, but pointing at the same rider the rest of the HUD would is free.
   waitingFare: () => fares.waiting(),
@@ -515,8 +518,10 @@ function taxiScreenPos() {
 }
 
 /**
- * Centre of the Punch It pill — where a delivery's boost sparks are pulled to. Read fresh on every
- * burst rather than cached, because the pill's own fill flutter scales it and a resize moves it.
+ * Centre of the Punch It pill, and the radius of a circle that clears it. The centre is where a
+ * delivery's boost sparks are pulled to; the radius is what the tutorial's third beat sizes its
+ * spotlight from. Read fresh on every call rather than cached, because the pill's own fill flutter
+ * scales it and a resize moves it.
  */
 function boostScreenPos() {
   if (!boostButton) return null;
@@ -525,7 +530,13 @@ function boostScreenPos() {
   // a rect at the origin, or a delivery landing next to a crash fires its sparks at the top-left
   // corner of the screen.
   if (!r.width) return null;
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  return {
+    x: r.left + r.width / 2,
+    y: r.top + r.height / 2,
+    // Half the pill's diagonal plus a margin, so the clear centre of a pool sitting on it leaves
+    // some air around the outline rather than cropping it at the border.
+    r: Math.hypot(r.width, r.height) / 2 + 20,
+  };
 }
 
 /** Centre of the money counter in viewport coordinates — the flight's target. */

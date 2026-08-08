@@ -15,7 +15,13 @@ of it:**
    them, so the light is already on the rider and the pan carries the player to it; the bubble comes
    back once the camera has arrived. Tapping the rider answers it directly.
 3. **"Hold to floor it"** — the Loco Mode pill, called out at the halfway mark of the first trip,
-   with the pill itself pulsing so the text is not the only thing saying which control it means.
+   with the spotlight on the pill itself and the pill pulsing under it.
+
+A beat of city comes first: `OPENING_HOLD` of traffic moving with nothing on screen, because a run
+that opens mid-sentence gives the player nothing to attach the sentence to, and the lights coming
+down after it lands as an event rather than as the initial state. The clocks are already held
+through it, so it costs nothing. The camera is already easing onto the taxi during it — that is the
+one thing that should be under way before the bubble speaks.
 
 **A tap anywhere advances**, not just a tap on the bubble. The listener is on `window` rather than a
 full-screen catcher, so the tap still reaches the city underneath — on the second beat the whole
@@ -40,6 +46,12 @@ Both radii are sized in **world units** and converted per frame, because 1 world
 wrong the moment anything moves the zoom). The clear centre is 6 units — the subject and the kerb it
 stands on, no more. At half again as wide it lit most of a 5×5 city and read as general gloom rather
 than as a light pointed at one thing.
+
+The third beat is the exception: it points at a **control**, which is a fixed thing on the glass at a
+size that has nothing to do with the camera, so its pool is measured off the Loco Mode pill's own
+box instead. Sizing that one in world units would grow and shrink the pool around a button that
+never moved. Its falloff is proportionally wider than the world one, because a corner control
+spends half its falloff off the edge of the glass.
 
 The warm core matters more than it looks: the darkening alone left the subject merely *not dimmed*,
 which at this contrast is not the same as lit.
@@ -74,11 +86,19 @@ touch would otherwise synthesise, so on a phone the hint would outstay its own l
 Its bubble sits higher than the other two (`#coach.at-boost`) because it cannot hide the rider-finder
 chips to make room the way the gated beats do — those are a control the player is now using.
 
-**Halfway is measured in Manhattan distance, not straight-line.** The taxi drives a grid: on an
-L-shaped trip — forty units east then forty south — the straight-line distance is 56.6 at the start
-and still 40 at the actual halfway corner, which is 71% of it, so a "halfway" measured that way does
-not fire until nearly four fifths of the drive is done. Summing the axes gives 80 and 40, and half
-is half.
+**Halfway is road driven, not distance remaining.** `taxi.travelled` at the trip's start is compared
+against half the trip's *block* distance. Two separate corrections, both of which the first version
+got wrong and both of which pushed the hint past the pickup — which is exactly when it stops being
+about the trip the player is watching:
+
+- **Manhattan, not straight-line.** On an L-shaped trip — forty units east then forty south — the
+  straight-line distance is 56.6 at the start and still 40 at the actual halfway corner, 71% of it.
+  Summing the axes gives 80 and 40, and half is half.
+- **Progress, not remaining.** How much closer the destination has got is not how far the taxi has
+  driven: a grid route regularly runs a block *away* from its own target before it turns, and around
+  a park district it can run three sides of a block. `travelled` only ever increases, so it cannot
+  be outrun by a detour, and since a grid route's road distance is at least its block distance, half
+  the block distance lands at or before the true midpoint.
 
 ### It does not spend the player's clock
 
