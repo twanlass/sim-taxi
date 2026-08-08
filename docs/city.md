@@ -96,7 +96,7 @@ never gets to spend time meshing a broken city.
 
 | File | Produces | Notes |
 |---|---|---|
-| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
+| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | blocky towers | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. |
 | `props.js` | trees, lamps, street furniture | Merged per material via `bakeColor`, so hundreds of props cost one draw call. |
 
@@ -109,6 +109,10 @@ as an island instead of a sheet cut out with scissors.
 the two outermost roads meet, leaving the ring road hanging over nothing. It is set to 22, which
 leaves 2.2 units of clearance at the tightest point — the diagonal through a road corner at
 `(±54, ±54)`. Change it and re-check that clearance.
+
+That outline is also where the asphalt stops being solid: a 16-unit skirt fades outward from it into
+the sky, so the island has no hard edge at all. It is added *outside* the slab precisely because of
+the 2.2 units above — see [rendering.md](rendering.md#the-island-edge--citygroundjs).
 
 All three use the same technique: generate small geometries, bake colour into vertex attributes
 with `bakeColor()` from `util/geo.js`, then merge into a single non-indexed mesh with

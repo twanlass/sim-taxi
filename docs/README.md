@@ -11,7 +11,7 @@ behind it that aren't obvious from the code.
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
 | [gameplay.md](gameplay.md) | The opening tutorial, the fare loop, routing, picking, the travelling clock, economy, crazy-taxi mode | `src/game/` |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
-| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, effects | `src/game/scene.js`, `src/geometry/` |
+| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, effects | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 
 ## The 60-second version
