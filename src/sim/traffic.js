@@ -1250,6 +1250,89 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
       }
     }
 
+    // --- The two entry tests that aren't the signal.
+    //
+    // Both are asked twice: once on approach, to fold into `allowed` so a refusal is *braked
+    // into*, and again at the line, on the turn actually chosen. They live here rather than
+    // inline at the line so the two askings cannot drift apart — an approach that slows for a
+    // reason the arrival doesn't share is a car that stops for nothing.
+
+    /**
+     * Is the lane this car would land in too full to enter? Don't-block-the-box: without it a car
+     * finishing a turn is teleported to the exit point regardless of what is already sitting there.
+     *
+     * Extra margin on top of the following distance, because the exit lane can back up during the
+     * second or so the turn takes and holding mid-intersection is far more disruptive than simply
+     * waiting at the line. That margin is priced in time, not distance: a boosting taxi crosses in
+     * 0.35–0.7s rather than ~1.2s, so it has half as long to be overtaken by events and only needs
+     * the plain following distance. Charging it the full 1.5× was the single biggest cause of a
+     * dead stop under a green with the button held — 9.7% of boosted frames at ?cars=40.
+     */
+    const exitLaneFull = (car, exitLane) => {
+      const clearance = car.boost ? MIN_GAP : MIN_GAP * 1.5;
+      return (lanes.get(exitLane.id) ?? []).some(({ car: other, laneS }) => {
+        if (other === car || other.state !== 'drive') return false;
+        // The car lands at the exit lane's start, so `laneS` *is* the signed clearance. It is
+        // needed on both sides: a car approaching from behind the landing point gets landed on
+        // just as hard as one already sitting in front of it.
+        return Math.abs(laneS) < clearance;
+      });
+    };
+
+    /** Left turns yield to oncoming traffic close to the same intersection. */
+    const leftYieldBlocked = (car) => {
+      if (car.boost && priorityCovers(car.i, car.j)) {
+        // The oncoming lane is already being held at its own line by the priority hold (see
+        // `block` on priorityJunction), so measuring the distance to it would mean waiting for a
+        // car that is waiting for us — a deadlock that read on screen as the brakes coming on
+        // under a green. Only a vehicle already inside the junction can still be turned into.
+        return cars.some((other) => other !== car && other.state === 'turn'
+          && other.i === car.i && other.j === car.j && !other.crashed
+          && other.d === opposite(car.d));
+      }
+      const facing = net.laneByGrid(opposite(car.d), car.i, car.j);
+      const oncoming = (facing && approaching.get(facing.id)) ?? [];
+      return oncoming.some((other) => {
+        const otherDist = other.lane.length - other.s;
+        return otherDist >= 0 && otherDist < YIELD_RANGE;
+      });
+    };
+
+    /**
+     * Everything that can refuse this car at the line *other* than the signal, asked while it is
+     * still far enough out to stop for the answer.
+     *
+     * The signal was always read on approach — that is what lets a car slow for a red rather than
+     * arrive at it. The other three refusals were only ever asked on arrival, and the only way to
+     * obey one there is to stop where you stand: the car is pinned to the hold line with its speed
+     * untouched. Ambient traffic gets away with that because it arrives at cruise and the block
+     * usually clears in a frame or two. A boosting taxi arrives at 18.7 u/s and does not: it froze
+     * on the spot with the engine still at full, no nose dip, the wheels still turning and the Loco
+     * weave still sliding it sideways, then snapped back to top speed the instant the box cleared.
+     * That is the "gas being cut" stutter, and the multi-second version of it is the taxi looking
+     * stuck at an intersection it supposedly owns.
+     *
+     * Asked only about a turn the car is actually committed to. A routed car — the taxi — knows its
+     * next exit, so its answer is exact. An unrouted one has not rolled its dice yet, so it slows
+     * only when *every* exit is blocked and no roll can save it; anything narrower would have cars
+     * braking for a turn they were never going to take.
+     */
+    const entryRefused = (car) => {
+      // A car stranded mid-turn: cross traffic released into the junction drives through it.
+      if (heldAt.has(`${car.i},${car.j}`)) return true;
+
+      const routed = car.route?.length ? exitToward(net, car.lane, car.route[0]) : null;
+      if (routed) {
+        if (routed.hand === 'left' && leftYieldBlocked(car)) return true;
+        return exitLaneFull(car, net.laneById.get(routed.outLane));
+      }
+      // A junction with no legal exit at all holds forever, so `every` over an empty list
+      // answering "refused" is the right answer rather than an edge case to special-case.
+      return car.lane.exits.every((id) => exitLaneFull(
+        car, net.laneById.get(net.turnById.get(id).outLane),
+      ));
+    };
+
     // --- Who is in the boosting taxi's way?
     //
     // Both the lane it is driving and the lane it is about to land in: a queue sitting on the
@@ -1335,6 +1418,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
         if (ahead !== undefined) {
           const gap = car.boost ? BOOST_GAP : MIN_GAP;
           allowed = Math.min(allowed, Math.max(0, ahead - gap));
+        }
+
+        // The rest of the entry test, on the same terms as the signal: read on approach so the
+        // car brakes for it. Only worth asking once the line is inside braking range — outside it
+        // `allowed = distToLine` is a ceiling above the speed the car is already doing, so the
+        // answer cannot change anything and the scan is pure cost.
+        if (distToLine <= (car.v * car.v) / (2 * BRAKE) + 2 && entryRefused(car)) {
+          allowed = Math.min(allowed, Math.max(0, distToLine));
         }
 
         if (car.parked) {
@@ -1468,51 +1559,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
               chosen ??= options[0];
             }
 
-            // Left turns yield to oncoming traffic close to the same intersection.
-            if (chosen?.hand === 'left') {
-              let blocked;
-              if (car.boost && priorityCovers(car.i, car.j)) {
-                // The oncoming lane is already being held at its own line by the priority hold
-                // (see `block` on priorityJunction), so measuring the distance to it would mean
-                // waiting for a car that is waiting for us — a deadlock that read on screen as
-                // the brakes coming on under a green. Only a vehicle already inside the junction
-                // can still be turned into.
-                blocked = cars.some((other) => other !== car && other.state === 'turn'
-                  && other.i === car.i && other.j === car.j && !other.crashed
-                  && other.d === opposite(car.d));
-              } else {
-                const facing = net.laneByGrid(opposite(car.d), car.i, car.j);
-                const oncoming = (facing && approaching.get(facing.id)) ?? [];
-                blocked = oncoming.some((other) => {
-                  const otherDist = other.lane.length - other.s;
-                  return otherDist >= 0 && otherDist < YIELD_RANGE;
-                });
-              }
-              if (blocked) chosen = null;
-            }
-
-            // Don't block the box: refuse to enter unless there's room to land in the exit lane.
-            // Without this, a car finishing a turn is teleported to the exit point regardless of
-            // what's already sitting there, which is how cars ended up overlapping.
-            if (chosen) {
-              const exitLane = net.laneById.get(chosen.outLane);
-              // Extra margin on top of the following distance, because the exit lane can back up
-              // during the second or so the turn takes and holding mid-intersection is far more
-              // disruptive than simply waiting at the line. That margin is priced in time, not
-              // distance: a boosting taxi crosses in 0.35–0.7s rather than ~1.2s, so it has half
-              // as long to be overtaken by events and only needs the plain following distance.
-              // Charging it the full 1.5× was the single biggest cause of a dead stop under a
-              // green with the button held — 9.7% of boosted frames at ?cars=40.
-              const clearance = car.boost ? MIN_GAP : MIN_GAP * 1.5;
-              const occupied = (lanes.get(exitLane.id) ?? []).some(({ car: other, laneS }) => {
-                if (other === car || other.state !== 'drive') return false;
-                // The car lands at the exit lane's start, so `laneS` *is* the signed clearance.
-                // It is needed on both sides: a car approaching from behind the landing point gets
-                // landed on just as hard as one already sitting in front of it.
-                return Math.abs(laneS) < clearance;
-              });
-              if (occupied) chosen = null;
-            }
+            // The same two tests the approach above already asked, now on the turn actually
+            // chosen — a dice roll can land on an exit the "every exit blocked" form let through.
+            if (chosen?.hand === 'left' && leftYieldBlocked(car)) chosen = null;
+            if (chosen && exitLaneFull(car, net.laneById.get(chosen.outLane))) chosen = null;
           }
 
           if (!chosen) {
@@ -1520,6 +1570,20 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
             // advance. It will be reconsidered next frame.
             car.routeConsumed = false;
             car.s = holdS - 0.02; // hold at the line, clear of the crosswalk
+            // Pinning `s` stops the car; it does not stop the *car*. Everything downstream reads
+            // `v` — the wheels, the body bob, the pitch spring's nose dip, the Loco weave, which
+            // paces itself off `v · dt` and would otherwise keep sliding a stationary taxi
+            // sideways. Left untouched, `v` said 18.7 u/s while the car sat still, and the release
+            // then handed that speed straight back with no acceleration in between: the frame-scale
+            // version of that is the stutter, the second-scale version is the taxi looking stuck.
+            //
+            // Bled off at BRAKE rather than zeroed for the same reason the approach test above
+            // exists: a block that appears in the last few frames before the line can still be
+            // arrived at fast, and a one-frame refusal must not cost the whole tank of speed. From
+            // the overdrive top that is ~1.9s to a standstill, and a single refused frame costs
+            // 0.18 u/s.
+            car.v = Math.max(0, car.v - BRAKE * dt);
+            car.speedFactor = car.v / SPEED;
             stats.waiting += 1;
             continue;
           }

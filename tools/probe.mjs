@@ -966,6 +966,65 @@ check('no two cars occupy the same space', worst > 1.6,
     dIn >= 0 && turned && !oncomingEntered,
     `turned=${turned}, oncoming entered the junction=${oncomingEntered}`);
 
+  // 3. A junction the boosting taxi genuinely cannot enter — the lane it would land in is full —
+  // has to be *braked into*, not hit. The exit-lane and left-yield tests used to be asked only on
+  // arrival, and the only way to obey one there is to pin `s` to the hold line: the taxi stopped
+  // dead from 18.7 u/s with `car.v` untouched, so the wheels kept turning, the nose never dipped,
+  // the Loco weave kept sliding it sideways, and the release handed the whole 18.7 straight back.
+  // Short blocks were the "gas being cut" stutter and long ones were the taxi stuck at a junction
+  // it supposedly owned — the worst measured 7.0s frozen at 19.7 u/s.
+  //
+  // Staged rather than measured over a drive on purpose: with two cars and a blocker that cannot
+  // move, nothing else can be the reason the taxi stops.
+  const roads = cityNetwork();
+  const exitDir = legalExits(dIn, jI, jJ).includes(dIn) ? dIn : leftOf(dIn);
+  const inLane = roads.laneByGrid(dIn, jI, jJ);
+  const exitTurn = inLane.exits.map((id) => roads.turnById.get(id))
+    .find((turn) => roads.dirOfLane(roads.laneById.get(turn.outLane)) === exitDir);
+  const exitLane = exitTurn && roads.laneById.get(exitTurn.outLane);
+  const exitNode = exitLane && roads.nodeById.get(exitLane.to);
+
+  const bScene = new THREE.Scene();
+  const bTraffic = createTraffic(makeRng(seed + 131), bScene, 2);
+  const [bTaxi2, blocker] = bTraffic.cars;
+  // 30 units back is one junction further out than (jI, jJ) — `placeCar` walks back along the
+  // straight-through chain — so the route has to carry straight on through that one first.
+  place(bTaxi2, dIn, 30);
+  bTaxi2.route = [dIn, exitDir];
+  bTaxi2.routeConsumed = false;
+  bTaxi2.boost = true;
+  // `back` of the whole lane length puts the blocker at s = 0, which *is* the point the taxi
+  // lands on. Parked with an empty route holds it there — `allowed = 0` in traffic.js.
+  placeCar(blocker, exitDir, exitNode.gi, exitNode.gj, exitLane.length);
+  blocker.route = [];
+  blocker.parked = true;
+
+  let frozenFast = 0;      // fastest the taxi ever claimed to be going while not moving
+  let slidWhileStill = 0;  // how far the weave pushed it sideways on such a frame
+  let rest = Infinity;     // slowest it got — did it actually come to a stop at the line?
+  let prevS = bTaxi2.s;
+  let prevLateral = bTaxi2.lateral;
+  for (let f = 0; f < 60 * 5; f++) {
+    bTraffic.update(1 / 60);
+    bTaxi2.boost = true;
+    if (bTaxi2.state === 'drive') {
+      if (Math.abs(bTaxi2.s - prevS) < 1e-9) {
+        frozenFast = Math.max(frozenFast, bTaxi2.v);
+        slidWhileStill = Math.max(slidWhileStill, Math.abs(bTaxi2.lateral - prevLateral));
+        rest = Math.min(rest, bTaxi2.v);
+      }
+      prevS = bTaxi2.s;
+    }
+    prevLateral = bTaxi2.lateral;
+  }
+  // 0.5 u/s, not 0: the taxi is braked to a standstill on approach, so the first stationary frame
+  // is already down at walking pace rather than at the 18.7 the old hold froze it at. `rest` is
+  // what proves the scenario actually blocked it — without a real hold there are no stationary
+  // frames to measure and both numbers stay at their initial values.
+  check('Loco Mode brakes into a junction it cannot enter rather than freezing at speed',
+    dIn >= 0 && Boolean(exitLane) && rest < 0.01 && frozenFast < 0.5 && slidWhileStill < 0.002,
+    `stationary at up to ${frozenFast.toFixed(2)} u/s, weave slid ${slidWhileStill.toFixed(4)}/frame`);
+
   setPriorityJunction(null);
 }
 

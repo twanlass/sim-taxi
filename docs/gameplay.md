@@ -715,6 +715,16 @@ Pointer capture on `pointerdown` keeps the boost held even if the finger slides 
 `pointerup`, `pointercancel`, `lostpointercapture` and the window `blur` all release it, so
 alt-tabbing or switching apps never leaves the boost stuck on.
 
+That release path cuts both ways, which is why the pill is `touch-action: none` rather than
+`manipulation`. `manipulation` only drops double-tap zoom — pan and pinch stay live, and either
+one starting on the pill lets the browser claim the touch and fire `pointercancel`, releasing a
+boost the player still has their thumb on. Pointer capture then means nothing else arrives until
+they lift and press again, so it reads as the gas cutting out with no way to get it back. The
+case that hits it is exactly how this game is held: a thumb on the pill and a second finger
+tapping a fare is a pinch gesture as far as the browser is concerned. `preventDefault` on
+`pointerdown` is explicitly not a fix for that — `touch-action` is the only thing that suppresses
+it, which is why the canvas has carried `none` all along.
+
 ### The refill animation
 
 A drop-off pays two currencies and for a while it only showed one. The flying `$20` says *money*;
