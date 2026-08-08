@@ -141,9 +141,10 @@ export function createBlast(scene, rng) {
   // express it would spend most of its range somewhere uninteresting.
   const RAMP = [
     { at: 0.00, c: color('blastCore') },
-    { at: 0.14, c: color('blastFlame') },
-    { at: 0.50, c: color('blastFlame') },   // the hold: this is what the blast is *seen* as
-    { at: 0.78, c: color('blastEmber') },
+    { at: 0.12, c: color('blastGold') },
+    { at: 0.42, c: color('blastFlame') },
+    { at: 0.62, c: color('blastFlame') },   // the hold: this is what the blast is *seen* as
+    { at: 0.82, c: color('blastEmber') },
     { at: 1.00, c: color('blastSmoke') },
   ];
 
@@ -169,6 +170,7 @@ export function createBlast(scene, rng) {
     reach: new Float32Array(MAX_PUFFS),
     rise: new Float32Array(MAX_PUFFS),
     size: new Float32Array(MAX_PUFFS),
+    shade: new Float32Array(MAX_PUFFS),
     spin: new Float32Array(MAX_PUFFS),
     tilt: new Float32Array(MAX_PUFFS),
   };
@@ -237,6 +239,14 @@ export function createBlast(scene, rng) {
       puff.reach[slot] = PUFF_REACH * spread;
       puff.rise[slot] = PUFF_RISE * rng.range(0.6, 1.3);
       puff.size[slot] = PUFF_SIZE * (k === 0 ? 1.35 : rng.range(0.7, 1.15));
+      // A fixed bias along the colour ramp, correlated with how far the puff is thrown: the outer
+      // ones run *ahead* of the ramp and the core runs behind it, so the fireball has a pale-gold
+      // heart and deepens towards its edge.
+      //
+      // Life alone could not produce this. The puffs still alive at any instant are the long-lived
+      // ones, and they all sit at the same stop — which is why a ramp keyed on life alone, however
+      // many colours were in it, rendered as one flat orange.
+      puff.shade[slot] = (spread - 0.8) * 0.3 + rng.jitter(0.05);
       puff.spin[slot] = rng.range(0, Math.PI * 2);
       puff.tilt[slot] = rng.range(-1.6, 1.6);
       puffAlpha[slot] = 1;
@@ -294,9 +304,10 @@ export function createBlast(scene, rng) {
       dummy.updateMatrix();
       puffMesh.setMatrixAt(slot, dummy.matrix);
 
-      // Puffs are staggered by their own life, so the cluster shows several stops of the ramp at
-      // once — which is where a flat unlit fill gets its internal structure from.
-      puffMesh.setColorAt(slot, rampColor(scratch, t));
+      // Where on the ramp this puff sits: its own life, offset by its shade bias. The bias is what
+      // spreads the cluster *across* the ramp rather than marching it through in lockstep, and a
+      // flat unlit fill has no other source of internal structure.
+      puffMesh.setColorAt(slot, rampColor(scratch, Math.min(1, Math.max(0, t + puff.shade[slot]))));
 
       // Full opacity almost the whole way, so the tail *darkens* rather than thinning out. Fading
       // a still-orange puff over its last quarter turned the end of the blast into translucent

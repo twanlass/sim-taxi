@@ -123,6 +123,7 @@ export const PALETTE = {
   // in the building list — a fireball dying the colour of the wall behind it. Going through a deep
   // ember first is both how fire actually dies and a colour that cannot be mistaken for masonry.
   blastCore: '#FFF3C4',
+  blastGold: '#FFA828',
   blastFlame: '#FF7A1F',
   blastEmber: '#8C3A12',
   blastSmoke: '#4B4B55',

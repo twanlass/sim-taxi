@@ -226,14 +226,20 @@ rather than physical:
 - **Unlit flat colour, not Lambert.** A faceted sphere needs a light to show its facets and the sun
   is behind the camera, so these carry no shading at all and read as silhouettes. It is also what
   keeps a night-time wreck as bright as a golden-hour one.
-- **Colour is the animation.** Every puff walks one ramp over its own life — core → flame → ember →
-  smoke — and the puffs are staggered, so the cluster holds several stops of it at once. That
-  internal structure is what a flat fill would otherwise cost, and it retires the separate grey
-  smoke plume: the fireball *becomes* the smoke.
+- **Colour is the animation.** Every puff walks one ramp — core → gold → flame → ember → smoke —
+  keyed on its own life *plus a fixed shade bias*, so the cluster is spread across the ramp rather
+  than marching through it together. That internal structure is what a flat fill would otherwise
+  cost, and it retires the separate grey smoke plume: the fireball *becomes* the smoke.
 - **Position is a curve, not an integration.** Puffs and rings are `origin + direction × ease(t)`
   evaluated from scratch each frame; the shards' ballistic arc is closed-form too, floored at the
   tarmac rather than bounced off it. Nothing accumulates, so nothing has a drag constant to tune,
   and a slow-mo frame is the same shape as a full-speed one.
+
+> **The shade bias is what stops it reading mono.** Keyed on life alone the fireball rendered as one
+> flat orange however many colours were in the ramp, because the puffs still alive at any instant
+> are the long-lived ones and they all sit at the same stop. The bias is correlated with how far a
+> puff is thrown — the outer ones run *ahead* of the ramp, the core runs behind it — so the fireball
+> has a pale-gold heart and deepens towards its edge, rather than being noisy.
 
 > The ember stop is load-bearing, not decoration. Lerped straight from flame to smoke a puff spends
 > its whole tail around `#9A603D` — which is `brick` in the building palette, so the fireball died
