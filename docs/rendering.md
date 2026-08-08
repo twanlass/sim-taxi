@@ -448,13 +448,28 @@ and a black basic material, so the enlarged back faces sit behind the real surfa
 around the silhouette. Cheaper than a post-processing edge pass and it needs no render targets —
 these are small objects, not a whole-scene effect. Each hull is a *child* of the mesh it wraps, so
 it inherits animation for free, and the rider's "the taxi is coming" state is one line: scale the
-hull 1.12 → 1.34 and let it stay black.
+hull 1.12 → 1.34 and let it stay black. Crystal and hull sit at `renderOrder` **8** and **9** in the
+transparent queue — after the ground layers (route band 4, target discs 3–4) and well before the
+ghost outlines at 9990+.
 
 Each diamond carries an **emissive** at 0.35 of its colour. The fixed camera sees the face turned
 *away* from the sun, and pure Lambert on its own shades that face a long way down — the lift keeps
 the crystal reading as its own hue rather than as a dark facet. It is also what keeps the urgency
 colour legible after dark, this being the one lit marker in a game whose markers are otherwise all
 unlit.
+
+The surface is **split in the fragment shader** into opaque liquid below the fare's clock and
+see-through glass above it, with a pale band on the line between — one mesh, one draw call, and the
+shadow, the kick and the pulse all untouched by it. The cut is in the geometry's local Y, so the
+liquid rides in the vessel rather than sloshing when the marker hops.
+
+That transparency is what forces the **renderOrder pair** above: the crystal (8) is `transparent`
+but keeps `depthWrite` on, so the hull (9) fails the depth test everywhere inside the silhouette and
+survives only as the ring around it. Drawn the other way round — the usual `depthWrite: false` for a
+transparent material — the hull's far faces are what you see through the empty half, and the marker
+reads as a black void. Why the empty half is see-through rather than merely dark, why the level is
+linear in height, what the far-wall pass cost, and the numbers that had to be measured are all in
+[gameplay.md](gameplay.md#the-crystal-is-a-glass-of-time).
 
 It bounces on `Math.abs(Math.sin(t * 3.4)) * 0.45`: never below the rest position, with a sharp cusp
 at the bottom that reads as a landing rather than a float. The amplitude used to be bounded by the

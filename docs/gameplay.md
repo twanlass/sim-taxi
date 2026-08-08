@@ -496,7 +496,8 @@ fare do nothing.
 `src/game/faremarker.js`. The countdown is a **physical object that belongs to the fare** — not a
 HUD number, not a property of a marker, and not something that changes hands. A geodesic crystal
 floats over the rider's head on the kerb, painted by how much of their clock is left: green → yellow
-→ orange → red, [by level](#urgency-is-one-scale). The instant they get in it **flies to the taxi**
+→ orange → red, [by level](#urgency-is-one-scale) — and [draining like a
+glass](#the-crystal-is-a-glass-of-time) between those steps. The instant they get in it **flies to the taxi**
 (`TRANSFER_TIME = 0.65s`, eased, with a small arc) and keeps draining above the roof, because from
 that moment the deadline is the car's problem.
 
@@ -526,10 +527,11 @@ the rider figure finishes climbing in. The deadline arrives, then its owner does
 Two objects did this job in turn: this diamond over the rider, and a **timer ring** — a swept
 annulus lying on the road around the taxi, which took over at pickup while the diamond vanished.
 
-The ring was the finer instrument, and losing it is a real cost. It drained *continuously*: a
+The ring was the finer instrument, and losing it was a real cost. It drained *continuously*: a
 `setDrawRange` sweep clockwise from screen-top over 96 segments, so the arc's length was the time
-left, and a player could see a clock at 40% rather than at "orange". The diamond has four steps.
-On the riding leg that is strictly less information.
+left, and a player could see a clock at 40% rather than at "orange". The diamond had four steps, and
+on the riding leg that was strictly less information. [The liquid](#the-crystal-is-a-glass-of-time)
+is that reading coming back on the shape that was already carrying the deadline.
 
 What it bought is that there is nothing to learn. Two objects meant two vocabularies for one
 deadline, and the hand-off between them was a moment the player had to be taught — the ring
@@ -557,6 +559,91 @@ drawn with the depth test off projects its far half *upward on screen* at this c
 whatever is standing at its centre — so the ring sliced its own owner in half, and the fix was
 drawing everything that stands inside it afterwards. Nothing lies on the ground any more, so all of
 that is gone.
+
+### The crystal is a glass of time
+
+`src/geometry/diamond.js`. The diamond is a **vessel**, and the clock is the liquid in it. Below the
+surface the urgency colour is opaque, saturated and self-lit — exactly what the whole crystal used
+to be. Above it the same hue is emptied glass: the city visible straight through it at just under
+half alpha, most of the emissive lift gone, and a sheen on the facets turned edge-on to the camera.
+A pale band rides the line between them, and that band is the part the eye actually reads.
+
+So the two hands of the clock are on one object. The **colour** steps in quarters and kicks, which
+is the alarm; the **level** moves every frame, which is where inside that quarter the fare actually
+is. Green isn't one state any more — a fresh rider is a solid crystal and a rider a breath away
+from yellow is a crystal two thirds full. It is the [ring's continuous
+sweep](#it-used-to-be-a-relay) recovered without a second object to learn.
+
+The level is **linear in height**, not in volume. Volume would be the physical answer and it reads
+much worse: an octahedron is widest at its equator, so a volume-true drain spends the middle half of
+the clock inside the middle 20% of the body. The player reads where the line *is*, so equal time has
+to be equal travel. Both ends overshoot the tips slightly, which is what makes a full fare a plain
+solid crystal and a dead one a plain empty vessel, with no highlight stranded on a vertex.
+
+It is **one mesh with a per-fragment alpha**, split in the fragment shader — same silhouette, one
+draw call, and the bounce, the kick and the pulse keep animating a single object. The cut is in the
+geometry's **local Y**, so the liquid rides in the vessel instead of sloshing when the marker hops.
+
+### Getting the empty half to look empty
+
+The first build was opaque: the hue at half lightness above the line. It read as a **dark solid**,
+not as an empty vessel, which is the whole point of the thing.
+
+What stood in the way of real transparency is the **black inverted hull**. It is a larger octahedron
+drawn back-faces-only, so its far faces cover the entire silhouette — glass over it shows a black
+void rather than the city. The fix turned out to be draw order rather than a different outline:
+
+> The crystal draws first (`renderOrder` 8) and **writes depth**, blending over the finished opaque
+> scene. Then the hull draws (9) with the depth test on. Inside the silhouette its back faces are
+> behind the glass and fail the test; the ring between the two silhouettes has nothing in front of
+> it and passes. That ring is exactly the rim. Both are flagged `transparent` only to land in the
+> same queue, which is the one place `renderOrder` decides anything — well clear of the [ghost
+> outlines](rendering.md#taxi-ghost-outline--geometryghostoutlinejs) at 9990+, which already treated
+> this marker as an occluder back when it was opaque.
+
+`depthWrite` staying **on** for a transparent material is the load-bearing part, and it is the
+opposite of the usual habit.
+
+Three numbers were measured and moved:
+
+- The empty glass was **desaturated** at first (`s × 0.55`), and the empty half of a nearly-dead
+  marker came out a dusty rose — the most urgent state on the scale rendering as the least red thing
+  on the board. It keeps 90% of its saturation now, and alpha does the emptying rather than the
+  tint, which is what glass and liquid actually differ by.
+- The **sheen exponent** went from 2.5 to 5. At 2.5 it was not a highlight but a wash: an octahedron
+  at this camera angle shows almost nothing head-on, so every visible facet picked up most of the
+  lift.
+- The **emissive** above the line holds at 0.6 before alpha takes its share, so about 0.2 of the
+  liquid's reaches the frame. At 0.22 opaque the shape survived after dark but a nearly-drained
+  rider was genuinely hard to find on a night board.
+
+### The far wall, and why it isn't there
+
+Only the **near** half of the liquid's surface is drawn, and the near half of a horizontal plane
+projects low — so at half full the level reads closer to a third. Drawing the back faces as a second
+pass closes that chevron into the rhombus a real meniscus makes, centred on the level the clock
+actually says. It was built, and taken out again.
+
+It cost more than it bought. The far wall's liquid is a solid slab filling everything below its own
+(higher) surface line, so the see-through top — the entire point of the vessel — shrank to the
+narrow wedge above it, and the two meniscus bands closed into a hard bright rectangle across the
+middle that read as a label rather than as liquid. More correct, less legible.
+
+What is left is a known bias: the surface reads slightly low, by a chevron about 8px deep at play
+zoom. It is the same shape at every level, so it offsets the reading rather than distorting it, and
+the chevron's outer corners — where it meets the silhouette — sit at the true level anyway.
+
+> **Trap.** A patched material needs `customProgramCacheKey`. Three builds the program cache key
+> from the material's parameters *before* `onBeforeCompile` runs, so a patched Lambert material
+> collides with every unpatched one sharing those parameters and `acquireProgram` hands back
+> whichever compiled first. This city is full of flat-shaded Lambert: the diamond drew with a
+> building's program, and the fill went missing with nothing logged anywhere.
+
+> **Trap.** Under `flatShading` three takes the normal from the screen-space derivative of the view
+> position, which follows the triangle's *rendered* winding — so on back faces it points into the
+> screen and the surface lights as if the sun were behind it. Three's own `FLIP_SIDED` never reaches
+> this path; it only fixes the interpolated-normal one. `patchFill`'s `flipped` argument is what the
+> far-wall experiment left behind, and any back-face pass on this shape will need it.
 
 ### What the crystal does
 

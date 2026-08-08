@@ -371,19 +371,30 @@ check('no two cars occupy the same space', worst > 1.6,
     rider.beginTransfer();
     const taxi = { x: 40, z: -20 };
     const hues = [];
+    const fills = [];
     let t = 0;
     for (const fraction of [1, 0.7, 0.45, 0.2, 0.02]) {
       for (let f = 0; f < 60; f++) {
         t += 1 / 60;
         rider.setUrgency(urgencyLevel(fraction));
+        rider.setFill(fraction);
         rider.update(t, taxi, fraction * 60);
       }
       hues.push(rider.mesh.material.color.getHexString());
+      fills.push(rider.getFill());
     }
     check('it keeps draining once it is on the taxi',
       hues.join(' -> ') === [1, 0.7, 0.45, 0.2, 0.02]
         .map((f) => urgencyColor(urgencyLevel(f)).getHexString()).join(' -> '),
       hues.join(' -> '));
+
+    // The liquid in the vessel is the fine hand: it has to keep moving *between* two colour steps,
+    // which is the whole point of it. 0.7 and 0.45 are both level 2 — a fill that only followed the
+    // colour would report the same crystal for both.
+    check('the crystal drains continuously between colour steps',
+      fills.every((f, i) => i === 0 || f < fills[i - 1])
+        && urgencyLevel(0.2) === urgencyLevel(0.02) && fills[3] > fills[4],
+      fills.map((f) => f.toFixed(2)).join(' -> '));
     check('and it is riding the taxi, not the kerb it left',
       Math.hypot(rider.group.position.x - taxi.x, rider.group.position.z - taxi.z) < 0.05);
 
@@ -600,6 +611,8 @@ check('no two cars occupy the same space', worst > 1.6,
   let pinHiddenAtPickup = 0;
   let selectionOutOfStep = 0;
   let wrongOpening = 0;
+  let drainedOpening = 0;
+  let fillOutOfStep = 0;
   let pickups = 0;
   let stillMarked = 0;   // markers that vanished at pickup instead of flying to the taxi
   let sharedJunction = 0;
@@ -624,6 +637,8 @@ check('no two cars occupy the same space', worst > 1.6,
         if (diamondHex(fare.slot.marker) !== urgencyColor(URGENCY_SEGMENTS).getHexString()) {
           wrongOpening += 1;
         }
+        // And with a full vessel: the crystal is a glass of time, and it is poured at spawn.
+        if (fare.slot.marker.getFill() < 0.99) drainedOpening += 1;
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
         // Distance price times the shift's multiplier, both settled at spawn — so this reads the
         // multiplier as of *this* frame, which is the one the fare was stamped with.
@@ -650,6 +665,10 @@ check('no two cars occupy the same space', worst > 1.6,
     // has just been ticked against the `directed` it had going into the frame, so the rim and the
     // flag must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
     for (const f of fares.state.fares) {
+      // The liquid level *is* the seconds, on both legs — a crystal that drifts from the clock it
+      // draws is worse than one that never drained, because it reads as precision and isn't.
+      const want = Math.max(0, Math.min(1, f.timeLeft / f.limit));
+      if (Math.abs(f.slot.marker.getFill() - want) > 1e-6) fillOutOfStep += 1;
       if (f.stage !== 'waiting') continue;
       if (f.slot.marker.isSelected() !== f.directed) selectionOutOfStep += 1;
     }
@@ -672,6 +691,11 @@ check('no two cars occupy the same space', worst > 1.6,
   check('the block count matches the trip', wrongCount === 0, `${wrongCount} mismatched`);
   check('a fresh rider\'s diamond opens on full urgency', wrongOpening === 0,
     `${wrongOpening} opened wrong`);
+  check('and opens with a full vessel', drainedOpening === 0, `${drainedOpening} opened drained`);
+  // Catches the wiring, not the model: `setUrgency` alone leaves a crystal that steps in quarters
+  // and never moves between them, which is exactly the marker this replaced.
+  check('the fill tracks the seconds on every live fare', fillOutOfStep === 0,
+    `${fillOutOfStep} frames out of step`);
   check('the price agrees with the advertised distance', wrongPrice === 0, `${wrongPrice} mispriced`);
   // The clock now comes from the trip rather than a constant, so "is it enough?" is a live
   // question every spawn rather than something settled once in a comment.
@@ -744,7 +768,7 @@ check('no two cars occupy the same space', worst > 1.6,
     // The rim is the only mark saying the taxi has been sent at this rider. It reads as *weight*
     // and must stay black at both weights: it was yellow once, and yellow is a colour this very
     // crystal wears for a quarter of every clock.
-    const hull = diamond.mesh.children[0];
+    const hull = diamond.rim;
     const rim = () => `${hull.material.color.getHexString()}@${hull.scale.x.toFixed(2)}`;
     diamond.setSelected(false);
     const idle = rim();

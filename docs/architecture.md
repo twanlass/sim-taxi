@@ -126,8 +126,13 @@ so you can't tell what your edit actually did.
 ## Testing hooks
 
 `main.js` exposes `window.__taxi` with `traffic`, `boost`, `skids`, `police`, `fares`, `daylight`,
-`routeTo`, `findRoute` and `isSelected`. The headless tools in `tools/` drive the game through
-this instead of through the DOM, which is what makes the whole suite run in about a second.
+`routeTo`, `findRoute`, `isSelected` and `redraw`. The headless tools in `tools/` drive the game
+through this instead of through the DOM, which is what makes the whole suite run in about a second.
+
+`redraw()` draws one frame on demand. Shot mode never starts the render loop — it warms the sim,
+renders once and stops — so a shot poked from the console or over CDP keeps showing the frame it
+froze on. That is what makes a frozen framing reviewable at states the shot list doesn't cover: set
+a fare's clock, `redraw()`, capture.
 
 `?shot=` puts the app in screenshot mode: it freezes the day/night cycle, hides the HUD, warms the
 sim forward to a specific moment (mid-pickup, mid-corridor), then sets `document.body.dataset.shotReady`

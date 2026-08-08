@@ -1283,6 +1283,15 @@ window.__taxi = {
   findRoute,
   camera: controller,
   isSelected: () => selected,
+  /**
+   * Draw one frame on demand.
+   *
+   * Shot mode never starts the render loop — it warms the sim, renders once and stops — so a shot
+   * poked from the console or over CDP keeps showing the frame it froze on. This is what makes a
+   * frozen framing reviewable at states the shot list doesn't cover: set a fare's clock, redraw,
+   * capture. Harmless while the loop is running, since the next frame overwrites it anyway.
+   */
+  redraw: () => renderer.render(scene, camera),
   /** Screen-space helpers so the browser smoke test can click real pixels. */
   taxiScreenPosition: taxiScreenPos,
   /** The pin the player is meant to be driving at — the newest one if two are on the board. */
