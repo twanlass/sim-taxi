@@ -115,3 +115,19 @@ export function getSeed({ deterministic = false } = {}) {
   if (deterministic) return 71624;
   return (Math.random() * 0xffffffff) >>> 0;
 }
+
+/**
+ * Screen-space ambient occlusion, via `?ao=off` / `?ao=0` to switch it off (and `?ao=on` to be
+ * explicit about the default).
+ *
+ * A flag rather than a setting because it is decided before anything is meshed: with AO off the
+ * shader patch is never installed on a single material, so switching it at runtime would mean
+ * recompiling every program in the city. It is here so the cost can be measured on a real phone
+ * by loading the same URL twice.
+ */
+export function getAmbientOcclusion(fallback = true) {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('ao');
+  if (raw === null) return fallback;
+  return raw !== 'off' && raw !== '0' && raw !== 'false';
+}

@@ -62,7 +62,69 @@ export function jitterVertices(geometry, rng, amount) {
   return geometry;
 }
 
+/**
+ * The one shared uniform bag every AO-lit material reads.
+ *
+ * `game/ssao.js` writes the texture and the texel size into it once, and every patched material
+ * is handed these *same uniform objects* rather than copies — so one write reaches all of them.
+ * Three reads `.value` at draw time, which is what makes that work.
+ */
+export const AO_UNIFORMS = {
+  tAmbientOcclusion: { value: null },
+  uAOTexel: { value: new THREE.Vector2(1, 1) },
+};
+
+let aoEnabled = false;
+
+/**
+ * Switch screen-space ambient occlusion on for every `propMaterial()` built after this call.
+ * `main.js` calls it before any geometry is meshed.
+ *
+ * A build-time switch rather than a uniform on purpose: with AO off the patch is never installed,
+ * so the extra texture fetch is *absent* rather than multiplied by one. Live tuning is the
+ * strength uniform in `ssao.js`, which is a debug-panel concern and only exists when AO is on.
+ */
+export function setAmbientOcclusion(enabled) {
+  aoEnabled = enabled;
+}
+
+export function ambientOcclusionEnabled() {
+  return aoEnabled;
+}
+
+/**
+ * Multiply the screen-space AO texture into a Lambert material's indirect term.
+ *
+ * **Indirect only.** Occlusion is a statement about how much of the sky reaches a crease, not
+ * about whether the sun does — and this game's whole look is one lit face per building at golden
+ * hour. Folding AO into the direct term as well greys those faces off and buys nothing the sun's
+ * own shadow map isn't already saying.
+ */
+function patchAmbientOcclusion(material) {
+  // Without this the patch silently does nothing. Three builds the program cache key from the
+  // material's *parameters*, before `onBeforeCompile` has touched the source, so a patched
+  // flat-shaded Lambert collides with every unpatched one sharing those parameters and
+  // `acquireProgram` hands back whichever compiled first. This city is nothing but flat-shaded
+  // Lambert — it is the same trap that once drew the diamond's fill with a building's shader.
+  material.customProgramCacheKey = () => 'prop-ssao';
+
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, AO_UNIFORMS);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+uniform sampler2D tAmbientOcclusion;
+uniform vec2 uAOTexel;`)
+      // Three's own AO hook is the right seam: `reflectedLight` is complete by then and
+      // `outgoingLight` has not been summed yet. Screen space, so the lookup is the fragment's
+      // own position on screen — no uv, no second set of attributes.
+      .replace('#include <aomap_fragment>', `#include <aomap_fragment>
+	reflectedLight.indirectDiffuse *= texture2D(tAmbientOcclusion, gl_FragCoord.xy * uAOTexel).r;`);
+  };
+}
+
 /** The shared material for every merged prop mesh. */
 export function propMaterial() {
-  return new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const material = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  if (aoEnabled) patchAmbientOcclusion(material);
+  return material;
 }

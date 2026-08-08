@@ -123,7 +123,12 @@ CHROME=/opt/pw-browsers/chromium CHROME_FLAGS=--no-sandbox node tools/shoot.mjs 
 `--url` may carry query params of its own — `--url 'http://localhost:4173/?run=7'` picks which
 situation gets shot, since `?shot=` is merged in rather than concatenated. `?blend=<name>` pins the
 route band's blend mode the same way, which is the only way to shoot it: the ⚙️ panel that switches
-it live doesn't exist in shot mode.
+it live doesn't exist in shot mode. `?ao=off` does the same for
+[ambient occlusion](rendering.md#ambient-occlusion--gamessaojs), which is what makes an A/B pair
+out of one URL — it is a build-time switch, so it cannot be toggled after load either.
+
+The AO pass is safe to shoot through: its taps are fixed rather than jittered, so it adds nothing
+non-deterministic to a frozen frame. It does change every reference shot once, being new.
 
 ## Working notes
 

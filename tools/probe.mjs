@@ -24,13 +24,17 @@ import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
 import { bounceOffset, KICK_SCALE, KICK_HOP } from '../src/geometry/diamond.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
+import { propMaterial, setAmbientOcclusion, AO_UNIFORMS } from '../src/util/geo.js';
+import {
+  AO_LAYER, markOccluder, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
+} from '../src/game/ssao.js';
 import {
   GHOST_MASK_ORDER, GHOST_RIM_ORDER, CAR_GHOST_MASK_ORDER, CAR_GHOST_RIM_ORDER,
 } from '../src/geometry/ghostoutline.js';
 import {
   createCarGhosts, GHOST_RADIUS, MAX_GHOSTS, GHOST_OPACITY,
 } from '../src/game/carghosts.js';
-import { createCityCamera, attachDragPan } from '../src/game/camera.js';
+import { createCityCamera, attachDragPan, VIEW_DIR } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
@@ -2233,6 +2237,108 @@ check('the taxi is an ordinary car in the traffic array',
   const mainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   check('renderer keeps its stencil buffer', /stencil:\s*true/.test(mainSource),
     'main.js constructs WebGLRenderer with stencil: true');
+}
+
+// --- Screen-space ambient occlusion -------------------------------------------
+//
+// game/ssao.js plus the patch it hangs on propMaterial(). Every failure mode here is silent: a
+// no-op replace leaves the shader unpatched, a missing cache key hands the patched material
+// somebody else's compiled program, and a mesh left out of the depth prepass wears the occlusion
+// of whatever is standing behind it. None of that logs anything and none of it is obvious in a
+// screenshot — it just looks like AO that "isn't doing much".
+{
+  setAmbientOcclusion(true);
+  const aoMaterial = propMaterial();
+
+  // Run the patch against a stub carrying the two chunk names three's Lambert shader actually
+  // has. A `.replace()` on a chunk that moved would silently do nothing — the trap CLAUDE.md
+  // names outright — and the result is AO that compiles fine and darkens nothing.
+  const shader = {
+    uniforms: {},
+    vertexShader: '#include <common>\nvoid main() {}',
+    fragmentShader: '#include <common>\nvoid main() {\n\t#include <aomap_fragment>\n}',
+  };
+  aoMaterial.onBeforeCompile(shader, null);
+
+  check('the AO patch reaches the Lambert fragment shader',
+    shader.fragmentShader.includes('uniform sampler2D tAmbientOcclusion')
+    && shader.fragmentShader.includes('uniform vec2 uAOTexel')
+    && /aomap_fragment>[\s\S]*indirectDiffuse \*=/.test(shader.fragmentShader),
+    'sampler declared and multiplied in after <aomap_fragment>');
+
+  // Indirect only. Folding AO into the direct term greys off the one lit face per building that
+  // golden hour is built around, and the sun's own shadow map already says that part.
+  check('AO darkens the indirect term and leaves the sun alone',
+    !shader.fragmentShader.includes('reflectedLight.directDiffuse *=')
+    && shader.fragmentShader.includes('reflectedLight.indirectDiffuse *='),
+    'reflectedLight.directDiffuse untouched');
+
+  // One shared uniform bag, not per-material copies: ssao.js writes the texture once a frame, and
+  // if Object.assign handed each shader its own object that write would reach nothing.
+  check('every AO material reads the one shared uniform bag',
+    shader.uniforms.tAmbientOcclusion === AO_UNIFORMS.tAmbientOcclusion
+    && shader.uniforms.uAOTexel === AO_UNIFORMS.uAOTexel,
+    'same uniform objects, not clones');
+
+  // The cache key. Without it three keys the program off the material's *parameters*, computed
+  // before onBeforeCompile runs, so this patched flat-shaded Lambert collides with every
+  // unpatched one in the city and gets handed whichever compiled first.
+  const aoKey = typeof aoMaterial.customProgramCacheKey === 'function'
+    ? aoMaterial.customProgramCacheKey() : null;
+  setAmbientOcclusion(false);
+  const plainMaterial = propMaterial();
+  const plainKey = typeof plainMaterial.customProgramCacheKey === 'function'
+    ? plainMaterial.customProgramCacheKey() : null;
+  check('the AO-patched material cannot collide with an unpatched one',
+    Boolean(aoKey) && aoKey !== plainKey && plainMaterial.onBeforeCompile !== aoMaterial.onBeforeCompile,
+    `patched key "${aoKey}", unpatched "${plainKey}"`);
+
+  // The occluder filter, which is the failure that would actually be visible: the ghost outline's
+  // inflated rim hull stamped into the depth prepass draws AO around a silhouette 0.3 units bigger
+  // than the car, and `overrideMaterial` strips exactly the flags that would otherwise keep it
+  // out. The taxi carries masks, rims and an invisible hit box, so it exercises the whole rule.
+  const aoTaxi = createTaxiMesh();
+  markOccluder(aoTaxi.group);
+  const casting = [];
+  const excluded = [];
+  aoTaxi.group.traverse((o) => {
+    if (o.isMesh) (o.layers.isEnabled(AO_LAYER) ? casting : excluded).push(o);
+  });
+  const solid = (m) => m.transparent !== true && m.visible !== false && m.colorWrite !== false;
+  check('only solid, colour-writing meshes cast AO',
+    casting.length > 0 && excluded.length > 0
+    && casting.every((o) => solid(o.material)) && excluded.every((o) => !solid(o.material)),
+    `${casting.length} casting, ${excluded.length} excluded (rims, masks, hit box)`);
+
+  // The other half of the same rule: anything lit by propMaterial() has to cast as well as
+  // receive, or it samples the occlusion of whatever is standing behind it.
+  const receivingOnly = excluded.filter((o) => o.material.vertexColors && solid(o.material));
+  check('no propMaterial mesh receives AO without casting it', receivingOnly.length === 0,
+    'every lit prop mesh on the taxi is in the prepass');
+
+  // The rejection window, recomputed from the camera and the car rather than trusted. Both bounds
+  // fall out of VIEW_DIR's elevation, so re-angling the camera fails here rather than in a
+  // screenshot nobody takes.
+  const elevation = Math.asin(VIEW_DIR.y);
+  const groundSwing = 1 / Math.tan(elevation);         // depth a tap crosses on flat road, per unit of radius
+  const aoTraffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), 8);
+  const carBox = new THREE.Box3().setFromBufferAttribute(aoTraffic.mesh.geometry.attributes.position);
+  const roofJump = (carBox.max.y - carBox.min.y) / Math.sin(elevation);
+  check('the AO rejection window clears flat road and still rejects a car roofline',
+    MAX_DEPTH_DIFF > groundSwing && RING_BROAD * MAX_DEPTH_DIFF < roofJump,
+    `${groundSwing.toFixed(2)} < ${(RING_BROAD * MAX_DEPTH_DIFF).toFixed(2)} < ${roofJump.toFixed(2)}`);
+
+  check('the tight ring sits inside the broad one',
+    RING_TIGHT > 0 && RING_TIGHT < RING_BROAD && RING_TIGHT * MAX_DEPTH_DIFF < roofJump,
+    `${RING_TIGHT} inside ${RING_BROAD}`);
+
+  // Every render path has to run the pass. A frozen shot that skipped it would composite against
+  // whatever the previous frame happened to leave in the AO texture.
+  const aoMainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const outsideRenderFrame = aoMainSource.replace(/function renderFrame\(\)[\s\S]*?\n}/, '');
+  check('every render goes through the AO pass',
+    !/renderer\.render\(scene, camera\)/.test(outsideRenderFrame),
+    'main.js renders only via renderFrame()');
 }
 
 // --- Nearby-traffic ghost outlines --------------------------------------------

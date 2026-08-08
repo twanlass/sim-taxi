@@ -28,10 +28,12 @@ import { createRiderFinder } from './game/riderfinder.js';
 import { createTutorial } from './game/tutorial.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
+import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
+import { setAmbientOcclusion } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { findRoute, planOrigin } from './game/route.js';
-import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin } from './util/shot.js';
+import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion } from './util/shot.js';
 import { isCityConnected, GRID } from './city/grid.js';
 import { PALETTE } from './palette.js';
 
@@ -74,7 +76,27 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
+// Ambient occlusion is decided here, before a single mesh exists, because `propMaterial()` bakes
+// the decision into the shader it builds — see `util/geo.js`. `?ao=off` turns it off for a
+// like-for-like cost comparison on a real device.
+const aoEnabled = getAmbientOcclusion();
+setAmbientOcclusion(aoEnabled);
+const ao = createAmbientOcclusion(renderer, { enabled: aoEnabled });
+
 const { scene, sun, hemi, sky } = createScene();
+
+/**
+ * The one place the frame is drawn. Three callers reach it — the live loop, shot mode's single
+ * render, and `__taxi.redraw()` — and the AO prepass has to run before every one of them or a
+ * frozen shot renders against whatever the previous frame left in the texture.
+ *
+ * The main render is untouched by the pass in front of it: still the default framebuffer, still
+ * its own MSAA, still its own stencil buffer for the ghost outlines.
+ */
+function renderFrame() {
+  ao.render(scene, camera);
+  renderer.render(scene, camera);
+}
 
 // The clock that drives the sky. Parked at golden hour for now — the cycle works, but the night
 // end of it needs more tuning before it earns its place, so it's off until the ⚙️ panel turns it
@@ -86,9 +108,12 @@ daylight.setCycling(false);
 // Every generator draws from its own stream so that changing one system doesn't reshuffle the
 // others — editing building code shouldn't move the parks. `layout` was already produced above
 // so the connectivity guard could reroll before we spent time meshing.
-scene.add(createGround(makeRng(seed + 11), layout));
-scene.add(createBuildings(makeRng(seed + 22), layout).mesh);
-scene.add(createProps(makeRng(seed + 33), layout));
+// `markOccluder` is what puts a mesh into the AO depth prepass. The rule it enforces is that
+// anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
+// samples the occlusion of whatever stands behind it. See `game/ssao.js`.
+scene.add(markOccluder(createGround(makeRng(seed + 11), layout)));
+scene.add(markOccluder(createBuildings(makeRng(seed + 22), layout).mesh));
+scene.add(markOccluder(createProps(makeRng(seed + 33), layout)));
 
 // Density is on the difficulty curve, so the run opens at its bottom and the instanced meshes are
 // sized for its top — an InstancedMesh cannot be resized once built. An explicit `?cars=N` beats
@@ -102,6 +127,17 @@ const traffic = createTraffic(
 );
 const fares = createFareSystem(makeRng(runSeed + 55), scene);
 const police = createPolice(makeRng(runSeed + 66), scene);
+// The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
+// are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
+// contact. The ghost outlines hung off the taxi are filtered out inside `markOccluder`.
+markOccluder(traffic.mesh);
+markOccluder(traffic.wheelMesh);
+markOccluder(traffic.taxiGroup);
+markOccluder(police.group);
+// The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
+// prepass would paint the kerb's own contact line across whoever is standing in front of it.
+// Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
+for (const slot of fares.slots) markOccluder(slot.passenger.group);
 // One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and
 // the game is playable without ever touching it on a desktop — but in portrait the frustum is
 // sized by height, so a phone cuts off both sides of the map and panning stops being optional.
@@ -1117,7 +1153,7 @@ function frame() {
   updateHud(dt);
   riderFinder.update(dt, fares.waitingAll());
   dropoffIndicator.update(fares.carrying());
-  renderer.render(scene, camera);
+  renderFrame();
 }
 
 if (shot) {
@@ -1247,7 +1283,7 @@ if (shot) {
   if (selected && traffic.taxi.pendingTarget) {
     routeLine.update(traffic.taxi, traffic.taxi.route);
   }
-  renderer.render(scene, camera);
+  renderFrame();
   document.body.dataset.shotReady = 'true';
 } else {
   traffic.warmup(10);
@@ -1267,6 +1303,7 @@ if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) 
     carCount: getCarCount(),
     fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds, isPinned: isFareClockPinned },
     routeLine,
+    ao,
   });
 }
 
@@ -1291,7 +1328,7 @@ window.__taxi = {
    * frozen framing reviewable at states the shot list doesn't cover: set a fare's clock, redraw,
    * capture. Harmless while the loop is running, since the next frame overwrites it anyway.
    */
-  redraw: () => renderer.render(scene, camera),
+  redraw: () => renderFrame(),
   /** Screen-space helpers so the browser smoke test can click real pixels. */
   taxiScreenPosition: taxiScreenPos,
   /** The pin the player is meant to be driving at — the newest one if two are on the board. */
