@@ -29,6 +29,7 @@ import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
+import { createHomeScreenTip } from './game/homescreen.js';
 import { findRoute, planOrigin } from './game/route.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount } from './util/shot.js';
 import { GRID } from './city/grid.js';
@@ -818,6 +819,26 @@ function policeRubber() {
   dust.add(police.group.position.x - fx * 1.9, police.group.position.z - fz * 1.9, yaw);
 }
 
+// The "add it to your Home Screen" screen, on iOS in a browser tab — the one platform with no
+// install affordance of its own. See game/homescreen.js for the detection and for why it is worth
+// showing. It bows out on every other platform and on a device that already launched from the Home
+// Screen icon, so there is nothing to gate here beyond shot mode: a screenshot is not a place to
+// advertise anything. `?hometip` forces it up anywhere, since this path is otherwise invisible on
+// the machine the layout is being written on.
+//
+// Built here rather than after the boot below because the frame loop reads its `holding` flag from
+// the very first frame.
+const homeTip = shot ? null : createHomeScreenTip(document.getElementById('home-tip'), {
+  force: new URLSearchParams(window.location.search).has('hometip'),
+});
+
+// While that screen is up the run is parked: no fare spawns, and no clock drains. The traffic keeps
+// driving behind the black — the screen sinks the city rather than replacing it, so a frozen one
+// would be visible through the gradient — but the *fare loop* has to wait, or a rider appears
+// behind the overlay with a 60-second deadline already running and a player who reads the screen
+// slowly loses a run they never started. One shared empty list rather than a fresh one per frame.
+const NO_FARE_EVENTS = [];
+
 const clock = new THREE.Clock();
 
 function frame() {
@@ -899,7 +920,8 @@ function frame() {
 
   // More than one thing can land in a frame now — delivering the last fare clears the board and
   // spawns the next one in the same tick — so this is a list rather than a single event.
-  for (const { type, fare } of fares.update(dt, traffic.taxi)) {
+  for (const { type, fare } of
+    (homeTip?.state.holding ? NO_FARE_EVENTS : fares.update(dt, traffic.taxi))) {
     if (type === 'pickup') {
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;

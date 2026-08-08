@@ -562,6 +562,68 @@ lift = Math.abs(Math.sin(roll)) * (CAR_W / 2)
 Without it, leaning pushes the outer wheels underground. The taxi's ground disc is *not* rolled
 with the body — it used to be, and tilting it into the road caused z-fighting.
 
+## The "Add to Home Screen" screen
+
+`src/game/homescreen.js`, styled under `#home-tip` in `index.html`. A numbered list of the taps that
+install the game, over a city sunk into black, waiting for one tap to start the run. **iOS only, and
+only in a browser tab.**
+
+It exists because the icons and the web-app meta tags in `index.html` are already there — launching
+from the Home Screen drops the browser's chrome and hands the fixed 3/4 camera the whole screen. In
+a tab the bottom toolbar slides in and out as the page is touched, which resizes the viewport
+*mid-run* and moves the framing under the player. Every other platform's browser offers installation
+itself (Chrome and Edge fire `beforeinstallprompt` and put an affordance in the address bar), so a
+screen drawn by the page would be a worse second copy of it; iOS fires nothing and buries the action
+in the share sheet, which is why it has to be described in words.
+
+**Detecting it is two questions, each with a trap.** *Is this iOS* — iPadOS 13+ sends a desktop
+user-agent, so the UA test has to fall through to `MacIntel` + a touch screen (a real Mac reports
+`maxTouchPoints === 0`, since a trackpad is a pointer and not a digitiser). *Is it already
+installed* — `navigator.standalone` is the iOS-only flag and the only one older Safari sets;
+`display-mode: standalone` is the standard query and covers Safari 16.4+. Either being true means
+there is nothing to suggest.
+
+**One list, for every iOS browser.** It used to branch on the user-agent, because Safari's Share
+sits in the toolbar and Chrome's is behind ⋯ — but that stopped being true: current Safari collapses
+the toolbar behind its own ⋯, so Share is a menu item there exactly as it is in Chrome and Edge.
+Verified on a device. A second, UA-sniffed list would now be a guess about someone else's iOS
+version, and the failure it was guarding against — naming a first tap that isn't on screen — is the
+one it would cause. Only the **first** step carries a glyph, because only the first step is a hunt;
+everything after it is a labelled row in a sheet the player is already looking at.
+
+**It does not hide the city, it sinks it.** The backdrop is a gradient, transparent at the top so
+the skyline and the two HUD counters stay readable, solid black by the time the text starts. Reading
+the game through it is what makes the screen a step on the way in rather than a different place —
+and it means the black behind the list is genuinely black, with no skyline competing with the one
+thing that has to be read.
+
+**It holds the run.** `state.holding` is true from the moment the module decides to show — before
+the screen is visible, because it appears a beat after load and a fare spawned inside that beat is
+exactly the bug. `main.js` skips `fares.update` while it is set, so nothing spawns and no clock
+drains; the traffic keeps driving, which is the point of sinking the city rather than freezing it.
+Without the hold a rider would appear behind the black with a 60-second deadline already running,
+and a player who read the screen slowly would lose a run they had not started.
+
+**One size drives the block, and it is measured rather than guessed.** The steps are `1em` and every
+other size and gap is a ratio of them. `"3. Add to Home Screen"` is eighteen characters of heavy
+type that has to hold one line — wrapping it under its own number breaks the second straight edge
+the grid exists for — on a 320px phone as well as a 430px one, in a font we do not control
+(`ui-rounded` is SF Pro Rounded on iOS and something else wherever this is being developed, and
+rounded faces run wide). So the CSS clamp is the *ideal* and `fitToWidth` only ever scales down from
+it, against the widest line actually rendered. Measured: on a 390px viewport it leaves the ideal
+28px alone under a narrow face and pulls it to 25.5px under a wide one.
+
+**It shows on every load until the game is installed.** Nothing is remembered between loads and
+there is no dismissal to persist — the thing it asks for *is* the thing that switches it off,
+because installing the game is exactly what makes `isInstalled()` true. A player who taps past it
+ten times and then adds it to their Home Screen never sees it again; one who never installs is being
+told something that is still true. (An earlier version counted showings in `localStorage` and gave
+up after three, which meant the advice expired while the reason for it did not.)
+
+`?hometip` forces it up on any platform, which is the only way to lay it out without a phone in
+hand; `tools/smoke.mjs` checks both directions of the detection, the step list, the run hold, and
+that it returns after a reload, under an emulated iPhone.
+
 ## Debug panel
 
 `src/game/debugpanel.js`, behind the ⚙️ button top right — only built when the URL carries
