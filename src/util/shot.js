@@ -37,6 +37,11 @@ export const SHOTS = [
   // shockwave still crossing the road under it. Zoom matches WRECK_ZOOM, since that is what the
   // camera actually pulls into.
   { name: 'wreck', description: 'the crash blast, frozen at its peak', target: [0, 0], zoom: 26, warmup: 12, wreckAt: 0.22 },
+  // The rock the city floats on. Framed on the near corner, which is the only part of the cliff
+  // the play camera ever shows at any size — the far two sides are a few pixels of edge. Its beds
+  // are the one thing here with no assertion behind them: `probe` can check the rim is flush and
+  // the depth is right, but whether you can *count the layers* is a question for the eye.
+  { name: 'island', description: 'the rim: strata under the tarmac', target: [42, 42], zoom: 26, warmup: 12 },
 ];
 
 export function getActiveShot() {

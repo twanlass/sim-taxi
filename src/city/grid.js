@@ -23,6 +23,47 @@ export function blockBounds(bi, bj) {
   return { x0, z0, x1: x0 + BLOCK, z1: z0 + BLOCK, cx: x0 + BLOCK / 2, cz: z0 + BLOCK / 2 };
 }
 
+// --- The slab ---------------------------------------------------------------
+//
+// The footprint the whole city stands on. Kept tight to the outer roads — a wide apron reads as
+// a grey void around the city once there's no fog to hide where it ends.
+export const SLAB = SPAN + ROAD_W * 3;
+
+// Rounded corners, so the city reads as an island rather than a sheet cut out with scissors.
+//
+// The ceiling is ~27: any larger and the arc eats into the corner where the two outermost roads
+// meet, leaving the ring road hanging over nothing. 22 is clearly round with room to spare.
+export const SLAB_RADIUS = 22;
+
+/**
+ * The slab footprint as a closed polygon in world XZ — a rounded square, `arcSegments` per corner.
+ *
+ * One outline, two consumers: the asphalt cap in `city/ground.js` and every stratum ring of the
+ * floating rock in `city/island.js`. They have to agree exactly along the top edge or the rock
+ * shows daylight under the tarmac, so the polygon lives here rather than being described twice.
+ *
+ * Wound counter-clockwise in (x, z), which is *clockwise* seen from the camera looking down: a
+ * triangle fan built in this order faces down, so the up-facing cap emits (centre, p[i+1], p[i]).
+ */
+export function slabOutline(arcSegments = 14) {
+  const h = SLAB / 2;
+  const c = h - SLAB_RADIUS;
+  const corners = [[c, c], [-c, c], [-c, -c], [c, -c]];
+  const points = [];
+
+  for (let k = 0; k < 4; k++) {
+    const [cx, cz] = corners[k];
+    const start = (k * Math.PI) / 2;
+    // Inclusive of both arc ends: the gap between one corner's last point and the next corner's
+    // first is the straight run of kerb between them, drawn by the polygon closing over it.
+    for (let s = 0; s <= arcSegments; s++) {
+      const a = start + (s / arcSegments) * (Math.PI / 2);
+      points.push({ x: cx + Math.cos(a) * SLAB_RADIUS, z: cz + Math.sin(a) * SLAB_RADIUS });
+    }
+  }
+  return points;
+}
+
 // --- Directions -------------------------------------------------------------
 // Encoded 0..3 as +X, +Z, -X, -Z. The ordering is deliberate: turning right is (d + 1) % 4 and
 // turning left is (d + 3) % 4, which removes every lookup table this would otherwise need.

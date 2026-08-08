@@ -114,13 +114,19 @@ frozen wreck is a different picture. Driving the real path rather than firing th
 what stops the framing drifting away from the thing it exists to review; move `wreckAt` to look at a
 different beat of the explosion (0.08 is the flash, 0.22 the peak, 0.9 the embers).
 
+Shot 13 (`island`) frames the near corner of the slab, which is the only part of the rock under
+the city that the play camera ever shows at any size. Whether its beds are legible is a question
+for the eye — `probe.mjs` can check the rim is welded and the depth is right, and neither of those
+is the thing that goes wrong. Pair it with `--width 430 --height 932`, which is a phone: portrait
+sizes the frustum by height, so it is a different picture, and the one most players see.
+
 Both browser tools take the same two env overrides, for boxes that aren't a Mac desktop:
 
 ```bash
 CHROME=/opt/pw-browsers/chromium CHROME_FLAGS=--no-sandbox node tools/shoot.mjs --url http://localhost:4173
 ```
 
-`--url` may carry query params of its own — `--url 'http://localhost:4173/?run=7'` picks which
+`--width` / `--height` set the viewport, default 1280×800. `--url` may carry query params of its own — `--url 'http://localhost:4173/?run=7'` picks which
 situation gets shot, since `?shot=` is merged in rather than concatenated. `?blend=<name>` pins the
 route band's blend mode the same way, which is the only way to shoot it: the ⚙️ panel that switches
 it live doesn't exist in shot mode.

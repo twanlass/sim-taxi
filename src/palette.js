@@ -139,6 +139,36 @@ export const PALETTE = {
 
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
+
+  // The floating rock the city sits on — see city/island.js. Read top to bottom: dark soil packed
+  // under the tarmac, earth, a clay band, weathered stone, then cold bedrock at the root.
+  //
+  // The ramp is deliberately not monotonic in lightness. Straight dark-to-darker reads as one
+  // surface in shadow rather than as separate beds; the clay band being *lighter and warmer* than
+  // the earth above it is what makes the eye count layers at all. Chroma drains going down instead
+  // — warm brown at the top, near-neutral slate at the keel — which is what puts the bottom of the
+  // rock behind the top of it at this camera angle.
+  //
+  // The steps between them are wide on purpose. The first pass used ~0.05 of lightness between
+  // beds, which is plenty on a swatch and nothing at all on the shaded side of the rock: two thirds
+  // of the cliff faces away from a 28° sun, and the hemisphere fill there flattens anything
+  // subtler than about 0.12 into one brown mass.
+  //
+  // They alternate dark → light → dark → light going down, and that is not a stylistic preference,
+  // it is the only thing that survives the lighting. The sun sits behind the city at this fixed
+  // camera, so every cliff face you can actually see is a face turned away from it: the rock is lit
+  // almost entirely by the hemisphere fill, which on a down-tilted normal is `hemiGround` — one
+  // warm brown over everything. Hue differences vanish under a flat warm wash. Lightness
+  // differences don't, so the beds are separated by value first and colour second.
+  //
+  // The two stone beds are also much lighter than a stone swatch wants to be, for the same reason:
+  // whatever albedo goes down there gets multiplied by a weak fill, and anything genuinely dark
+  // comes back as mud rather than as rock.
+  crustSoil: '#46372A',
+  crustEarth: '#8E7150',
+  crustClay: '#C69463',
+  crustRock: '#6E655B',
+  crustDeep: '#8A8492',
 };
 
 export function color(value) {
