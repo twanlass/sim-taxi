@@ -291,6 +291,11 @@ const PASS_FADE = 7;             // units of road for the full lane change — a
 // that actually fits the city.
 const PASS_TRIGGER = 10;
 const PASS_SUSTAIN = 32;         // keeps it committed once out; matches LOOKAHEAD, declared later
+// Clear oncoming road the taxi wants before it will borrow the other lane. Exposure is the
+// manoeuvre plus the tuck-in, about 1.2s, and a car coming the other way closes at 18.7 + 8.5 =
+// 27.2 u/s — so 33 units, rounded. Sweeping it is flat from 25 up (23% of passes wrecked at 25,
+// 22% at 35, 21% at 45) and each extra unit costs frequency, so this sits at the knee.
+const PASS_SIGHT = 35;
 //
 // Scatter was expected to need tuning for any of this to work — a car fleeing at SCATTER_SPEED
 // (2.0x cruise, 17 u/s) against the taxi's 18.7 closes at 1.7 u/s, which is no pass at all. It
@@ -739,6 +744,7 @@ function spawnCars(rng, count, into = [], accept = null) {
       // the leader brake and the scatter that would otherwise outrun it. Ambient cars never pass.
       pass: 0,
       passing: false,
+      passTarget: null,   // the car currently being overtaken, latched for the whole manoeuvre
       passSlope: 0,    // d(offset)/d(road) while changing lane — the tangent of the steering angle
       // Ambient cars leave `route` empty and fall through to random turns. The taxi's route is
       // filled in by the game layer; see the turn decision below.
@@ -1292,6 +1298,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
     // Distance to the vehicle ahead, per car. A distance rather than the leader's position: with
     // the leader now possibly on a different lane, its coordinate is not comparable to this car's.
     const leaderDist = new Map();
+    // And who it actually is, which the overtake needs: a car being passed must not turn across
+    // the taxi while it is alongside — see `passTarget` below.
+    const leaderOf = new Map();
     for (const [, members] of lanes) {
       for (let k = 1; k < members.length; k++) {
         const behind = members[k];
@@ -1303,12 +1312,13 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
           stats.minGap = gap;
         }
         leaderDist.set(behind.car, gap);
+        leaderOf.set(behind.car, ahead.car);
       }
       // The car at the front of a lane has to look past the junction for its leader.
       const front = members[0];
       if (front.car.state === 'drive') {
         const next = ahead(front.car.lane, front.laneS, LOOKAHEAD)[0];
-        if (next) leaderDist.set(front.car, next.gap);
+        if (next) { leaderDist.set(front.car, next.gap); leaderOf.set(front.car, next.car); }
       }
     }
 
@@ -1456,7 +1466,53 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
       // the offset is frozen through a junction, so the taxi comes out the far side on the side
       // of the road it went in on, and the next lane re-asks the question with `route[0]` already
       // advanced to the step beyond.
-      if (taxi.state === 'drive') taxi.passing = locoHeld && room && near;
+      // Never pull out around a car that is already crossing a junction. Its arc sweeps the
+      // oncoming lane the taxi is about to borrow, and by then the guard below cannot help — a
+      // car in `turn` has already chosen, and the turn decision does not run again. This is the
+      // half of the problem the guard could not reach, and the larger half: latching the target
+      // and refusing its left turn on its own fixed 1 wreck in 10, because the leader had
+      // committed before the taxi did.
+      const leader = leaderOf.get(taxi);
+      const passable = leader !== undefined && leader.state === 'drive';
+
+      // Is the borrowed lane actually empty? World space rather than the lane graph, because a
+      // pass always spans a junction — "the oncoming lane" is two lanes and which one matters
+      // changes half way through, so a heading test and a side test are less machinery than the
+      // chain walk that would find them.
+      //
+      // Asked only at the moment of pulling out. Once committed the taxi is committed, so a car
+      // that emerges into the oncoming lane mid-pass still costs the run — that is the risk worth
+      // keeping, because it is the one the player could not have read. Being thrown into a car
+      // that was in plain sight is not: without this the taxi pulled out with oncoming traffic as
+      // little as 3 units away, already inside the collision envelope.
+      const oncomingClear = () => {
+        const sign = dirSign(taxi.d);
+        const facing = opposite(taxi.d);
+        for (const other of cars) {
+          if (other === taxi || other.crashed || other.d !== facing) continue;
+          const along = isXAxis(taxi.d) ? (other.x - taxi.x) * sign : (other.z - taxi.z) * sign;
+          if (along < 0 || along > PASS_SIGHT) continue;
+          // On this road rather than a parallel one. Measured against the far lane's centre plus
+          // a body, *not* HALF_ROAD: opposing lane centres are exactly 2·LANE apart, which is
+          // exactly HALF_ROAD, so a bound of HALF_ROAD sits precisely on the car being looked
+          // for and the weave alone was enough to push it out of sight. The next road over is
+          // PITCH (20) away, so there is a lot of daylight before this catches the wrong car.
+          const side = Math.abs(isXAxis(taxi.d) ? other.z - taxi.z : other.x - taxi.x);
+          if (side <= PASS_LATERAL + CAR_W) return false;
+        }
+        return true;
+      };
+
+      if (taxi.state === 'drive') {
+        const was = taxi.passing;
+        taxi.passing = locoHeld && room && near
+          && (taxi.passing || (passable && oncomingClear()));
+        // Latched on the frame the taxi pulls out and held for the whole manoeuvre, rather than
+        // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
+        // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
+        if (taxi.passing && !was) taxi.passTarget = leader ?? null;
+        if (!taxi.passing) taxi.passTarget = null;
+      }
 
       // Paced by distance and frozen mid-junction, both for the same reasons the weave is: a
       // time-paced offset slides a stopped car sideways, and a lane change that ran through a
@@ -1717,6 +1773,22 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
               }
               chosen ??= options[0];
             }
+
+            // A car being overtaken does not turn left across the car overtaking it. Same
+            // courtesy `priorityJunction.block` already extends to oncoming traffic while the
+            // taxi turns left, extended for the same reason: the sim has no way to resolve two
+            // cars that occupy the same square metre, so the one manoeuvre neither of them can
+            // avoid is the one that has to not happen.
+            //
+            // This is not softening the mode. A pass wants ~27 units of road and a lane is 12, so
+            // the taxi is *always* still alongside when the leader reaches its junction — which
+            // is exactly when the left-turn dice are rolled. That made a left across the taxi the
+            // single most common way a pass ended: 6 of the 10 mid-pass wrecks measured over 28
+            // overtakes, with every one of the other 4 also a car in the middle of a turn. It was
+            // not a risk the player could read and dodge, it was the default outcome. What is
+            // left is: oncoming traffic, cross traffic at a junction being run, and a car turning
+            // out of the oncoming lane — all of which are in front of the player and avoidable.
+            if (car === taxi.passTarget && chosen?.hand === 'left') chosen = null;
 
             // The same two tests the approach above already asked, now on the turn actually
             // chosen — a dice roll can land on an exit the "every exit blocked" form let through.

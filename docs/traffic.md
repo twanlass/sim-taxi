@@ -618,14 +618,66 @@ Asking for *two* straight junctions instead was tried and is worse than either �
 consumed crossing the first, so a taxi with exactly two fails the test on the far side of it and
 abandons the pass mid-manoeuvre. Measured: 3 of every 4.
 
+#### When it is allowed
+
+Two gates decide *when*, and both were added after watching it wreck rather than pass. Neither was
+in the first version, and without them a third of all overtakes ended in a collision — which is not
+a risk, it is a coin flip the player never chose to toss, because holding the button is something
+you want to do continuously and the pass fires off it automatically.
+
+**Not around a car that is already turning.** A pass wants ~27 units of road against a 12-unit
+lane, so the taxi is *always* still alongside when the leader reaches its junction — which is
+exactly when the left-turn dice are rolled. Measured over 28 overtakes at `?cars=22`, 10 ended in a
+wreck and **every one of them was against a car in the `turn` state**, 6 of those the car being
+passed turning left across the taxi. It was the default outcome, not an edge case.
+
+Refusing that car's left turn while it is being passed — the same courtesy `priorityJunction.block`
+already extends to oncoming traffic — fixes only 1 in 10 of them, because by the time the taxi
+pulls out the car has usually *already* chosen: a car in `turn` has committed, and the turn
+decision does not run again. The gate that works is refusing to pull out around a car that is
+mid-junction at all. Both are in, since the second one covers a leader that reaches its line later
+in the manoeuvre. Together: 32% → 19% of passes wrecked, and **no same-way collisions at all**.
+
+**Not into oncoming traffic already in sight.** `PASS_SIGHT` (35 units) is the exposure — the
+manoeuvre plus the tuck-in, ~1.2s, against a closing speed of 18.7 + 8.5 = 27.2 u/s. Asked only at
+the moment of pulling out: a car that emerges into the oncoming lane *during* the pass still costs
+the run, and that is the risk worth keeping, because it is the one the player could not have read.
+Being thrown into a car that was in plain sight the whole time is not — without this the taxi
+pulled out with oncoming traffic **3 units** away, already inside the collision envelope.
+
+> The side test measures against `PASS_LATERAL + CAR_W`, not `HALF_ROAD`. Opposing lane centres are
+> exactly 2·LANE apart, which is exactly HALF_ROAD, so a bound of HALF_ROAD sits precisely on the
+> car being looked for and the weave alone was enough to push it out of sight. That bug made the
+> check look nearly useless (29% → 22%); fixing it took the same check to 17%.
+
+What the two gates cost is frequency: 2.7 → 1.8 overtakes a minute, and 19.19 → 18.98 u/s of ground
+covered. What they buy is that the manoeuvre mostly works.
+
+#### How dangerous it should be
+
+The honest way to read the risk is per second of exposure, not per pass — a pass lasts about a
+second, and Loco Mode is lethal anyway:
+
+| | wreck every | |
+|---|---|---|
+| in lane, boosting | 8.7s | |
+| out in the oncoming lane, no gates | 3.3s | **2.7× as dangerous** |
+| out in the oncoming lane, both gates | 7.8s | **1.1×** |
+
+1.1× is arguably now *too* safe, and `PASS_SIGHT` is the dial: lowering it puts more oncoming
+traffic in play. It is a feel judgement rather than a correctness one, so it is left at the value
+that makes the manoeuvre reliable and the remaining deaths readable — oncoming traffic that
+arrives during the pass, cross traffic at a junction being run, and a car turning out of the
+oncoming lane.
+
 #### It pays, and scatter never needed tuning
 
 At `?cars=22`, boost held continuously:
 
 | | without passing | with |
 |---|---|---|
-| ground covered | 18.18 u/s | **19.19** |
-| held up behind a leader | 10.39% of frames | **3.26%** |
+| ground covered | 18.18 u/s | **18.98** |
+| held up behind a leader | 10.39% of frames | **4.50%** |
 | median time to wreck | 5.1s | 7.3s |
 
 Surviving *longer* is not a mistake. Tailgating at `BOOST_GAP` is where rear-endings and

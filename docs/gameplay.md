@@ -800,9 +800,15 @@ past, and comes back.** Letting go is the abort — it tucks in behind instead. 
 being a throttle at exactly the moment it gets interesting and becomes a question: is that lane
 clear enough, and is that car about to turn across you? Nothing protects you either way. Collision
 detection is armed for the whole of Loco Mode, so an oncoming car is the run. It buys real speed —
-time stuck behind traffic drops from 10.4% of boosting to 3.3% — and the numbers, the geometry and
+time stuck behind traffic drops from 10.4% of boosting to 4.5% — and the numbers, the geometry and
 the reason an earlier version of this was abandoned are all in
 [traffic.md](traffic.md#overtaking).
+
+It will not pull out around a car that is already turning across the lane it wants, or into
+oncoming traffic that is already in sight. Both of those are collisions the player could not have
+seen coming, and without those two gates a third of all overtakes ended in one. What is left is
+what you *can* read: a car arriving in the oncoming lane while you are out there, cross traffic at
+a junction you are running, and a car turning out of the far lane.
 
 **And it does not stop.** Not for a full exit lane, not for a car stranded in the box, not to
 yield on a left — the three ambient courtesies that could still bring it to a halt at a junction

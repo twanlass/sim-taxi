@@ -1124,22 +1124,41 @@ check('no two cars occupy the same space', worst > 1.6,
   }
 
   /** Drive a two-car overtake and report what the taxi managed. `held` is the button. */
-  const runOvertake = (held, route) => {
+  const runOvertake = (held, route, opts = {}) => {
     const scene = new THREE.Scene();
-    const traffic = createTraffic(makeRng(seed + 167), scene, 2);
-    const [car, lead] = traffic.cars;
+    const traffic = createTraffic(makeRng(seed + 167), scene, opts.oncoming ? 3 : 2);
+    const [car, lead, onc] = traffic.cars;
     placeCar(car, pD, pI, pJ, 26); car.parked = false;
     placeCar(lead, pD, pI, pJ, 14); lead.parked = false;
     car.route = route; car.routeConsumed = false;
-    lead.route = [pD, pD, pD]; lead.routeConsumed = false;   // stays in front, no random turn-off
+    // Straight by default so it stays in front rather than rolling a random turn-off.
+    lead.route = opts.leadRoute ?? [pD, pD, pD]; lead.routeConsumed = false;
+    if (opts.oncoming) {
+      // The other half of this road, coming the other way, and *far enough up it to still be
+      // there*. The two close on each other at 18.7 + 8.5 = 27 u/s, so a car staged level with
+      // the junction ahead has gone by before the taxi has even closed on its leader — the first
+      // attempt at this staged one 5.7 units ahead, watched it pass, and then reported a clear
+      // road, correctly. A lane further back along its own chain leaves it in sight at the moment
+      // the decision is actually taken.
+      const back = roads.nodeById.get(car.lane.from);
+      const facing = roads.laneByGrid(opposite(pD), back.gi, back.gj);
+      placeCar(onc, opposite(pD), back.gi, back.gj, facing.length + PITCH);
+      onc.route = []; onc.parked = false;
+    }
     let peak = 0;
     let closest = Infinity;
     let got = false;
+    let leadTurned = false;
+    let outWhileLeadTurning = 0;   // how far out the taxi got while the lead was mid-junction
     for (let f = 0; f < 60 * 6; f++) {
       car.boost = held;
       car.boostEasing = false;
       traffic.update(1 / 60);
       peak = Math.max(peak, car.pass);
+      if (lead.state === 'turn' && !lead.crashed) {
+        leadTurned = true;
+        outWhileLeadTurning = Math.max(outWhileLeadTurning, car.pass);
+      }
       if (!lead.crashed) {
         closest = Math.min(closest, Math.hypot(car.x - lead.x, car.z - lead.z));
         const sgn = dirSign(car.d);
@@ -1147,7 +1166,7 @@ check('no two cars occupy the same space', worst > 1.6,
         if (rel < -CAR_LEN) got = true;
       }
     }
-    return { peak, closest, got };
+    return { peak, closest, got, leadTurned, outWhileLeadTurning };
   };
 
   const over = runOvertake(true, [pD, pD, pD]);
@@ -1172,6 +1191,29 @@ check('no two cars occupy the same space', worst > 1.6,
   const coasting = runOvertake(false, [pD, pD, pD]);
   check('an overtake needs the button held',
     pD >= 0 && coasting.peak < 0.02, `reached ${(coasting.peak * 2 * LANE).toFixed(2)} units across`);
+
+  // The two gates that decide *when* it is allowed, both added after watching it wreck rather
+  // than pass. A pass wants ~27 units of road against a 12-unit lane, so the taxi is always still
+  // alongside when the leader reaches its junction — which is exactly when the left-turn dice are
+  // rolled. Passing a car that is already crossing one means driving into its arc.
+  //
+  // Asserted as "the taxi never got out of its lane while that car was in the junction" rather
+  // than as an absence of contact: a no-contact check passes whether the rule works or the
+  // scenario simply never set it up, and this one has to prove the trap was laid. `leadTurned` is
+  // that proof.
+  const turningLead = runOvertake(true, [pD, pD, pD], { leadRoute: [leftOf(pD), pD, pD] });
+  check('no overtake of a car that is already turning across the lane being borrowed',
+    pD >= 0 && turningLead.leadTurned && turningLead.outWhileLeadTurning < 0.02,
+    `lead turned=${turningLead.leadTurned}, taxi got `
+    + `${(turningLead.outWhileLeadTurning * 2 * LANE).toFixed(2)} units across while it did`);
+
+  // And the borrowed lane has to be empty to start with. Without this the taxi pulled out with
+  // oncoming traffic 3 units away — inside the envelope, and nothing the player could have read.
+  // A car that arrives *during* the pass still costs the run; that one is visible and is the risk.
+  const intoTraffic = runOvertake(true, [pD, pD, pD], { oncoming: true });
+  check('no overtake into oncoming traffic that is already in sight',
+    pD >= 0 && intoTraffic.peak < 0.02,
+    `reached ${(intoTraffic.peak * 2 * LANE).toFixed(2)} units across`);
 
   setPriorityJunction(null);
 }
