@@ -69,6 +69,15 @@ export const PALETTE = {
   policeBody: '#2E5FA8',
   policeRoof: '#F2F4F7',
 
+  // The ambient flyover — see geometry/plane.js. A white aeroplane against a pale sky is a blank
+  // shape, so it carries a cheatline; red because it is the one hue in the game with nothing else
+  // to say (yellow is the taxi's, teal is the drop-off's, and the urgency scale owns the rest of
+  // the warm end). Deliberately a shade off `carBody[0]`, which is a red car: at play zoom the two
+  // never share a frame region, but nothing is gained by making them the same paint.
+  planeBody: '#EDEEF0',
+  planeStripe: '#C0524A',
+  planeProp: '#33383F',
+
   taxiBody: '#F5C130',
   taxiTrim: '#2B2B30',
   taxiSign: '#F2F0E8',

@@ -418,6 +418,58 @@ runs at the same rate as the blast through the crash slow-mo. See
 [traffic.md](traffic.md#the-wreck) for the rest of the staging, and
 [testing.md](testing.md#screenshots) for `?shot=12`, which stages a real crash and freezes it.
 
+### The flyover — `game/flyover.js`, `geometry/plane.js`
+
+A light aircraft crossing the city every 45–90 seconds, at 30 units of altitude. Pure scenery:
+nothing routes it, nothing can hit it, nothing can tap it, and neither the fare loop nor the
+difficulty curve knows it exists. `geometry/plane.js` is the model; `game/flyover.js` is the flight.
+
+It lives in `game/` beside the dust, the flames and the blast rather than in `sim/` beside the
+traffic, because that is the line those two directories actually draw — `sim/` is the cars, the
+signals and the things the player can hit, and this is an effect. It is also what lets it read
+`VIEW_DIR` out of the camera, which the streamers need.
+
+**The heading is skewed off the grid on purpose.** Screen right is world `(1, 0, -1)` here, so a
+plane flying down a world axis already crosses the screen on a 45° diagonal — *the same diagonal
+every street and every car is on*. Each flight takes an axis and turns it 15–35°, which puts the
+path at a slant that matches nothing on the ground, and the flight line is pushed up to 30 units
+sideways off the middle of the map so consecutive flights don't all bisect it.
+
+**Both ends of the run are off the edge of every framing**, `RUN_MARGIN = 190` units either side of
+the middle, so the aeroplane is always seen arriving rather than appearing. `tools/probe.mjs`
+projects both ends through real cameras — portrait phone to ultrawide desktop, panned into each
+corner — rather than trusting a hand-derived reach. The fade over the last 45 units is then belt and
+braces, for a viewport shape nobody anticipated.
+
+**It is not `propMaterial()`.** That recipe carries the screen-space AO lookup, and a mesh that
+receives occlusion without being in the depth prepass wears the occlusion of whatever stands behind
+it — [the occluder rule](#the-occluder-rule). Behind this one is the entire skyline. It cannot go
+into the prepass either, being translucent. It casts no shadow for a separate reason: the sun is
+28.5° up, so a shadow thrown from 30 units of altitude lands 55 units from the aeroplane that threw
+it, which reads as a dark blob crossing a street with nothing above it.
+
+**The wingtip streamers are ribbons rolled to face the camera.** Two tapered quads trailing 6.5
+units off each tip, alpha in a four-component vertex colour, the same recipe the skid marks and the
+fade skirt use. A ribbon is invisible edge-on and a streamer lying in the wing plane is very nearly
+edge-on to a camera 33° above the horizon — so each is rolled about its own long axis until its
+*normal* points as close to `VIEW_DIR` as a ribbon fixed to that axis can. The camera never rotates,
+so that angle is a constant per heading resolved once at launch, not a per-frame billboard.
+
+> Rolling it to point the ribbon's **width** at the camera instead — the same expression with two
+> terms swapped — leaves every formula self-consistent and the streamers edge-on, which renders as a
+> faint dotted line and nothing else. The probe now reads the normal back off the built quads rather
+> than recomputing it, because a check written from the same formula agrees with the bug.
+
+The bob, the bank and the pitch are three channels off two sine waves at different rates: pitch is
+not its own wave but the *climb rate*, so the nose comes up as the aeroplane rises. The propeller is
+one bar rather than a cross — a Cessna has two blades, and two blades is 180° of symmetry, so at
+13 rad/s it turns 12.4° a frame at 60fps and reads as rotation rather than strobing backwards. The
+faint disc behind it is what makes it read as a propeller at all; a spinning bar on its own reads as
+a bar being rotated.
+
+Four draw calls while one is up — airframe, blade, prop disc, streamers — and none at all the rest
+of the time. `?shot=13` stages one; see [testing.md](testing.md#screenshots).
+
 ### Route band — `game/routeline.js`
 
 A band of paint down the **lane the taxi will drive**, from just ahead of the car to its

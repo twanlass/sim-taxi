@@ -114,6 +114,21 @@ frozen wreck is a different picture. Driving the real path rather than firing th
 what stops the framing drifting away from the thing it exists to review; move `wreckAt` to look at a
 different beat of the explosion (0.08 is the flash, 0.22 the peak, 0.9 the embers).
 
+Shot 13 (`flyover`) has the wreck's problem without the wreck's drama: the
+[ambient plane](rendering.md#the-flyover--gameflyoverjs) is up for six seconds every minute or so,
+so there is nothing to point a camera at unless one is staged. It launches a flight, steps it
+`flyoverAt` seconds forward, and then **aims at the aeroplane** rather than at the middle of the
+map — the heading and the sideways offset of the flight line both come off the run seed, so a
+fixed target frames it by luck or not at all. The aim is taken along `VIEW_DIR` rather than
+straight down: the camera targets a point on the *ground*, and an orthographic camera projects
+everything along the view axis to the same place, so the ground point that shares the aeroplane's
+screen position is its own position slid back down that axis to y = 0. Aiming at the point
+underneath it instead puts it 33 units off the top of a close framing, which is exactly what the
+first attempt did.
+
+A flyover never appears in any *other* shot, and that is structural rather than lucky: shot mode
+never starts the frame loop, so nothing ever calls `flyover.update()` outside this one preset.
+
 Both browser tools take the same two env overrides, for boxes that aren't a Mac desktop:
 
 ```bash
