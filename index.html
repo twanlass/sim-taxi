@@ -396,11 +396,30 @@
         pointer-events: none; user-select: none; -webkit-user-select: none;
       }
       #coach[hidden] { display: none; }
-      /* The third beat runs alongside a live game, so unlike the first two it cannot hide the rider
-         chips to make room — they are a control the player is now using. It sits above the stack
-         instead: one chip tops out at 155 + 49 = 204, and there is only ever one fare on the board
-         during the drive to the first pickup. */
-      #coach.at-boost { bottom: 210px; }
+      /* The third beat is about a control rather than about something in the city, so it sits
+         directly over that control with its tail pointing down at it — left-aligned to the Loco
+         Mode pill's own 26px gutter, just clear of the pill's top edge (26 + 49 = 75). The other
+         two hang centred with the tail up, because what they are talking about is up there. */
+      #coach.at-boost { bottom: 94px; justify-content: flex-start; padding-left: 26px; }
+      /* Grows up out of the tail, which is now underneath it. */
+      #coach.at-boost .coach-bubble {
+        transform-origin: 45px 100%;
+        transform: scale(0.8) translateY(10px);
+      }
+      #coach.at-boost .coach-bubble::after {
+        top: 100%; bottom: auto;
+        /* Aimed at the pill's left third rather than its centre: the pill's width follows its
+           label, and the left edge is the one thing both boxes share. */
+        left: 36px;
+        border-bottom: 0; border-top: 12px solid #FFFDF7;
+      }
+      #coach.at-boost.is-open .coach-bubble { transform: scale(1) translateY(0); }
+      #coach.at-boost.is-closing .coach-bubble { transform: scale(0.9) translateY(4px); }
+      @media (prefers-reduced-motion: reduce) {
+        #coach.at-boost .coach-bubble,
+        #coach.at-boost.is-open .coach-bubble,
+        #coach.at-boost.is-closing .coach-bubble { transform: none; }
+      }
       /* Never over a screenshot, and never over the retry screen: the run is the thing then. */
       body.shot-mode #coach, body.game-over #coach { display: none; }
       /* One tap target at a time. The chips are a second way to pick the rider the bubble is

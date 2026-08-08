@@ -14,8 +14,9 @@ of it:**
 2. **"Tap this rider to start."** The spotlight moves to the waiting fare as the camera sets off for
    them, so the light is already on the rider and the pan carries the player to it; the bubble comes
    back once the camera has arrived. Tapping the rider answers it directly.
-3. **"Hold to floor it"** — the Loco Mode pill, called out at the halfway mark of the first trip,
-   with the spotlight on the pill itself and the pill pulsing under it.
+3. **"Hold to floor it"** — the Loco Mode pill, three seconds after the rider is tapped, with the
+   bubble sitting directly over the pill and its tail pointing down at it, the spotlight on the pill
+   and the pill pulsing under it. Skipped entirely if the player has already fired Loco Mode.
 
 A beat of city comes first: `OPENING_HOLD` of traffic moving with nothing on screen, because a run
 that opens mid-sentence gives the player nothing to attach the sentence to, and the lights coming
@@ -83,22 +84,28 @@ dismisses it too, since doing the thing it asks for answers it. (That call is ex
 left to the window tap handler: `pressBoost` calls `preventDefault`, which can suppress the click a
 touch would otherwise synthesise, so on a phone the hint would outstay its own lesson.)
 
-Its bubble sits higher than the other two (`#coach.at-boost`) because it cannot hide the rider-finder
-chips to make room the way the gated beats do — those are a control the player is now using.
+It is also the only one that points at a **control** rather than at the city, so it is placed
+differently: `#coach.at-boost` drops it onto the Loco Mode pill's own 26px gutter just above the
+pill, flips the tail to the bottom, and grows the entrance upward out of it. The other two hang
+centred with the tail up, because what they are talking about is up there.
 
-**Halfway is road driven, not distance remaining.** `taxi.travelled` at the trip's start is compared
-against half the trip's *block* distance. Two separate corrections, both of which the first version
-got wrong and both of which pushed the hint past the pickup — which is exactly when it stops being
-about the trip the player is watching:
+**It fires on a fixed delay off the rider tap, not on trip progress.** The first version was a
+fraction of the trip — half way to the pickup, measured as road actually driven against the trip's
+block distance, both of which were corrections for the *straight-line distance remaining* that
+came before them. All of that was a better description of the moment and unpredictable in practice:
+trip lengths vary by a factor of five, so the hint landed anywhere between three seconds and half a
+minute in, and on the long ones the player had stopped wondering about the pill long before it
+arrived. `BOOST_HINT_DELAY` off the one action every run shares is the thing that can be tuned.
 
-- **Manhattan, not straight-line.** On an L-shaped trip — forty units east then forty south — the
-  straight-line distance is 56.6 at the start and still 40 at the actual halfway corner, 71% of it.
-  Summing the axes gives 80 and 40, and half is half.
-- **Progress, not remaining.** How much closer the destination has got is not how far the taxi has
-  driven: a grid route regularly runs a block *away* from its own target before it turns, and around
-  a park district it can run three sides of a block. `travelled` only ever increases, so it cannot
-  be outrun by a detour, and since a grid route's road distance is at least its block distance, half
-  the block distance lands at or before the true midpoint.
+The countdown runs from the tap, not from the tutorial finishing getting out of the way — on a
+desktop those differ by the restore glide, which is the tutorial's own business and should not be
+charged to the delay. And it only runs once a ride is actually under way, so a player who dismissed
+the second bubble without picking anyone gets the hint on whichever drive they do start.
+
+**And it never appears if Loco Mode has already been fired.** `main.js` sets `locoUsed` on the
+transition into boost — `kickLocoMode`, which by construction runs exactly once per press-from-rest
+— and the tutorial reads it at the moment the delay elapses. Explaining a control the player is
+mid-way through using is worse than saying nothing.
 
 ### It does not spend the player's clock
 

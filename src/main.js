@@ -436,6 +436,10 @@ const wantsTutorial = new URLSearchParams(window.location.search).get('tutorial'
 // saying is the only thing the player should be reading or paying for.
 let tutorialTalking = false;
 const revealHud = () => document.body.classList.add('hud-ready');
+
+// Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
+// reads it: a player who has already fired it does not need a bubble pointing at the pill.
+let locoUsed = false;
 tutorial = shot || !wantsTutorial ? null : createTutorial({
   controller,
   aspect,
@@ -461,13 +465,8 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // Any fare the player has actually sent the taxi at — including one they found and tapped on the
   // map while the first bubble was still up.
   isDispatched: () => Boolean(fares.carrying() || fares.state.fares.some((f) => f.directed)),
-  isCarrying: () => Boolean(fares.carrying()),
-  // Where the taxi is routed right now, for measuring how far through its first trip it is. The
-  // kerb corner again, since that is what the arrival radius is measured against.
-  headingFor: () => {
-    const to = traffic.taxi.pendingTarget;
-    return to ? cornerFor(to.i, to.j) : null;
-  },
+  // A player who has already found Loco Mode does not need the third beat pointing at it.
+  boostUsed: () => locoUsed,
   isOver: () => fares.state.gameOver,
   // The "Add to Home Screen" screen gets there first on iOS in a tab, and holds the run until it is
   // tapped. `homeTip` is declared further down and only ever read from the frame loop, which is
@@ -752,6 +751,9 @@ function pressBoost(event) {
 // doesn't double-fire the flame). `boost.press()` returns true only on that transition, which is
 // why the whole kick is gated on it above.
 function kickLocoMode() {
+  // Fires only on the transition into Loco Mode, which makes it exactly the right place to record
+  // that the player has now used it.
+  locoUsed = true;
   const car = traffic.taxi;
   if (car.crashed) return;
   car.wheelieT = 0;

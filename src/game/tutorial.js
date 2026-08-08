@@ -46,12 +46,16 @@ const OPENING_HOLD = 1.0;
 // moves read as consecutive rather than as one interrupting the other.
 const HANDOFF = 0.35;
 
-// The third beat fires when the taxi is half way to its first pickup — far enough in that the
-// player has watched the car drive itself for a few seconds and is ready to hear it could be doing
-// that faster, and still with half the trip left to try it on. The floor stops it landing on top of
-// the second bubble's dismissal when the rider happens to be a block away.
-const BOOST_HINT_AT = 0.5;
-const BOOST_HINT_DELAY = 1.5;
+// The third beat lands a beat after the player sends the taxi at their first rider: long enough
+// that they have watched the car drive itself and the HUD has finished sliding in, short enough
+// that they are still watching that drive rather than mid-decision about the next one.
+//
+// It was a fraction of the trip at first — half way to the pickup, measured along the road driven.
+// That is a better *description* of the moment, and it was unpredictable in practice: trip lengths
+// vary by a factor of five, so the hint arrived anywhere between three seconds and half a minute in,
+// and on the long ones the player had already stopped wondering about the pill. A fixed delay off
+// the one action every run shares is the thing that can actually be tuned.
+const BOOST_HINT_DELAY = 3;
 // Unlike the first two, this beat gates nothing — the run is live and the clocks are running, so it
 // cannot sit there until it is tapped. Long enough to read twice after the line lands.
 const BOOST_HINT_LINGER = 6;
@@ -275,15 +279,6 @@ const CAMERA_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider', 'restore']);
 const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
 
 /**
- * Road distance between two points, near enough. Manhattan rather than straight-line because the
- * taxi drives a grid: on an L-shaped trip — forty units east then forty south — the straight-line
- * distance is 56.6 at the start and still 40 at the actual halfway corner, which is 71% of it, so
- * a "halfway" measured that way does not fire until nearly four fifths of the drive is done.
- * Summing the axes gives 80 and 40, and half is half.
- */
-const blockDistance = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
-
-/**
  * Wire the tutorial up.
  *
  * Every dependency is a callback rather than a module import, because this thing reaches across
@@ -303,9 +298,8 @@ const blockDistance = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
  * @param waitingFare   () => fare | null — whoever is on the kerb to point at
  * @param fareLocation  (fare) => {x, z} — the kerb corner to centre, not the junction
  * @param isDispatched  () => boolean — has the player sent the taxi at anyone yet
- * @param isCarrying    () => boolean — a rider is aboard, so the first pickup has happened
- * @param headingFor    () => {x, z} | null — where the taxi is currently routed, for measuring how
- *                      far through its first trip it is
+ * @param boostUsed     () => boolean — has Loco Mode been fired at least once; if so the third beat
+ *                      never appears, because it would be explaining something already discovered
  * @param isOver        () => boolean — run ended under the tutorial (a wreck, say); drop everything
  * @param isBlocked     () => boolean — something else is holding the run in front of this, so say
  *                      nothing and take no taps until it lets go
@@ -317,7 +311,7 @@ const blockDistance = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
  */
 export function createTutorial({
   controller, aspect, isNarrow, taxi, lights, project, pixelsPerUnit, boostAnchor = () => null,
-  waitingFare, fareLocation, isDispatched, isCarrying = () => false, headingFor = () => null,
+  waitingFare, fareLocation, isDispatched, boostUsed = () => false,
   isOver = () => false, isBlocked = () => false, shouldIgnoreTap = () => false,
   onRunning = () => {},
 }) {
@@ -337,10 +331,8 @@ export function createTutorial({
   // else would ever put the default whole-city framing back; `toBoost` is the drive to the first
   // pickup, with nothing on screen.
   const state = { step: 'wait' };
-  // The first trip, for the third beat's halfway mark.
-  let tripTo = null;
-  let tripHalf = 0;
-  let tripFrom = 0;
+  // The third beat's countdown, and how long it stays once it lands.
+  let boostWait = 0;
   let linger = 0;
   let elapsed = 0;
   let wait = 0;
@@ -425,7 +417,7 @@ export function createTutorial({
     // still having something to say.
     document.body.classList.remove('coach-open', 'spotlight-on');
     onRunning(false);
-    wait = BOOST_HINT_DELAY;
+    boostWait = BOOST_HINT_DELAY;
     if (!isNarrow() && !cameraReleased) {
       state.step = 'restore';
       controller.glideTo(home.x, home.z);
@@ -534,29 +526,20 @@ export function createTutorial({
     // second tap on the bubble itself — that is the `isDispatched` check at the top.)
     if (state.step === 'restore' && !controller.isGliding()) state.step = 'toBoost';
 
+    // The countdown is off the player's tap on the rider, not off the tutorial finishing getting
+    // out of the way — on a desktop those differ by the restore glide, which is the tutorial's own
+    // business and should not be charged to the delay. It only runs once a ride is actually under
+    // way: a player who dismissed the second bubble without picking anyone has no drive to be told
+    // about yet, so the hint waits for whichever one they do start.
+    if (boostWait > 0 && isDispatched()
+      && (state.step === 'restore' || state.step === 'toBoost')) boostWait -= dt;
+
     if (state.step === 'toBoost') {
-      if (wait > 0) { wait -= dt; return; }
-      if (!tripTo) {
-        // Measured off wherever the taxi is actually routed rather than off the fare, so a player
-        // who dismissed the second bubble without picking anyone gets the hint on whatever trip
-        // they do start — and gets nothing at all until they start one.
-        const at = headingFor();
-        if (!at) return;
-        tripTo = at;
-        tripHalf = blockDistance(taxi, at) * BOOST_HINT_AT;
-        tripFrom = taxi.travelled;
-      }
-      // Progress is road actually driven, not how much closer the destination has got. Those are
-      // not the same thing on a grid: a route regularly runs a block *away* from its own target
-      // before it turns, and around a park district it can run three sides of a block. Measured by
-      // remaining distance the hint kept missing its window entirely and arriving after the pickup,
-      // which is exactly when it is no longer about the trip the player is watching.
-      //
-      // `travelled` only ever increases, so this cannot be outrun by a detour; and since the road
-      // distance of a grid route is at least its block distance, half the block distance is at or
-      // before the true midpoint. The carrying check is the floor for a rider who was around the
-      // corner — a trip too short to have a halfway worth waiting for.
-      if (isCarrying() || taxi.travelled - tripFrom >= tripHalf) showBoostHint();
+      if (boostWait > 0 || !isDispatched()) return;
+      // Already discovered it. Nothing to say, so the tutorial simply stops rather than explaining
+      // a control the player is mid-way through using.
+      if (boostUsed()) { end(); return; }
+      showBoostHint();
       return;
     }
 
