@@ -82,6 +82,30 @@ export const priceFor = (pickup, dropoff) =>
  */
 export const MAX_FARES = 4;
 
+// --- VIP pickups ---------------------------------------------------------------
+//
+// A rare, cash-rich rider layered on top of the ordinary board: a purple beacon over their head
+// (see faremarker.js) instead of just the usual diamond, a clock cut down from the ordinary
+// budget, and — the one rule that makes it pure upside — missing one never ends the run. It only
+// costs the bonus.
+//
+// The payout is the ordinary distance price times the player's current *VIP streak*: how many
+// VIPs have been delivered back to back. Stamped at spawn like every other price on the board
+// (see spawnFare) — the beacon should say what this one is worth the moment it appears, not leave
+// it to be found out on delivery. The streak is what makes stacking VIPs worth the risk, and
+// missing one resets it to zero: the whole tension is that one late drop-off gives it all back.
+const VIP_MIN_DELIVERED = 1;      // never on the tutorial fare — nothing to distinguish it against yet
+const VIP_COOLDOWN = 35;          // seconds between opportunities, so a VIP stays a rare event
+const VIP_CHANCE = 0.22;          // chance a qualifying spawn actually becomes one
+
+// The clock is a fraction of the run's own slack rather than a flat number, so a VIP tightens
+// along the same ramp as everything else — just harder. Never below VIP_MIN_SLACK: `tools/
+// probe.mjs` asserts every fare's clock covers its own work, and a VIP is meant to be urgent, not
+// unwinnable.
+const VIP_SLACK_FACTOR = 0.7;
+const VIP_MIN_SLACK = 1.05;
+const VIP_CLOCK_FLOOR = 10;
+
 // Cadence and placement of every fare beyond the first.
 //
 // The spawn gap is what turns the game into a prioritisation puzzle rather than a burst event:
@@ -212,6 +236,9 @@ export function createFareSystem(rng, scene) {
     elapsed: 0,
     money: 0,
     delivered: 0,
+    // Consecutive VIPs delivered without missing one. Stamped into a VIP's own price at spawn
+    // (see spawnFare) and reset to 0 the instant one is missed.
+    vipStreak: 0,
     // Time of the most recent spawn, so refills stagger by difficulty.spawnGap() rather than
     // bursting.
     // -Infinity so the very first spawn is unrestricted.
@@ -350,7 +377,23 @@ export function createFareSystem(rng, scene) {
    * means the newest rider always holds the longest clock, so the board reads oldest-first, which
    * is the order it wants to be served in.
    */
-  function budgetFor(taxiCar, pickup, dropoff) {
+  // Never while one is already live on the board, and gated by its own cooldown/chance on top of
+  // that — a VIP has to stay a rare thing to be a special one.
+  let lastVipAt = -Infinity;
+  function wantsVip() {
+    if (state.delivered < VIP_MIN_DELIVERED) return false;
+    if (state.fares.some((f) => f.vip)) return false;
+    if (state.elapsed - lastVipAt < VIP_COOLDOWN) return false;
+    return rng.chance(VIP_CHANCE);
+  }
+
+  /** A VIP's clock: tight, but still guaranteed to cover the driving it pays for. */
+  function vipLimitFor(work) {
+    const slackMul = Math.max(VIP_MIN_SLACK, difficulty.slack(state.delivered) * VIP_SLACK_FACTOR);
+    return Math.max(VIP_CLOCK_FLOOR, Math.round(work * slackMul));
+  }
+
+  function budgetFor(taxiCar, pickup, dropoff, vip = false) {
     const stops = [];
     // The rider aboard is a commitment: you cannot take a kerbside fare while carrying one
     // (`markDirected` refuses) and the drop-off dispatches itself.
@@ -374,11 +417,11 @@ export function createFareSystem(rng, scene) {
     // is still measured, so the tools can report the slack a pinned run happens to be playing at.
     const limit = isFareClockPinned()
       ? getFareSeconds()
-      : difficulty.fareLimit(work, state.delivered);
+      : vip ? vipLimitFor(work) : difficulty.fareLimit(work, state.delivered);
     return { work, limit };
   }
 
-  function spawnFare(taxiCar, near = null) {
+  function spawnFare(taxiCar, near = null, vip = false) {
     const slot = slots.find((s) => !state.fares.some((f) => f.slot === s)
       && !exits.some((e) => e.slot === s));
     if (!slot) return null;
@@ -391,6 +434,7 @@ export function createFareSystem(rng, scene) {
     const fare = {
       slot,
       stage: 'waiting',
+      vip,
       target: spot,
       // Where they were picked up. `target` moves to the drop-off at `beginRide`, so without a
       // separate copy the trip distance (and its fare) can't be measured later.
@@ -431,13 +475,19 @@ export function createFareSystem(rng, scene) {
     // The shift multiplier is stamped in at the same moment and for the same reason: the price is
     // a fact about the trip settled when the trip is, so a rider who appeared during Rush Hour is
     // worth Rush Hour money whenever they happen to get delivered.
+    //
+    // A VIP's own multiplier stacks on top: the current streak plus one, for the delivery that
+    // would extend it. Stamped now rather than read at delivery, same as everything else priced
+    // here — the beacon has to say what this trip is worth the moment it appears.
+    fare.vipMultiplier = vip ? state.vipStreak + 1 : 1;
     fare.value = Math.round(priceFor(spot, fare.dropoff)
-      * difficulty.payoutMultiplier(state.delivered));
+      * difficulty.payoutMultiplier(state.delivered)
+      * fare.vipMultiplier);
 
     // The clock, last: it is budgeted from the trip that was just decided, plus whatever the taxi
     // is already committed to finishing. Both ends of the trip are now known, which is the
     // earliest this number can exist.
-    const budget = budgetFor(taxiCar, spot, fare.dropoff);
+    const budget = budgetFor(taxiCar, spot, fare.dropoff, vip);
     fare.work = budget.work;
     fare.limit = budget.limit;
     fare.timeLeft = budget.limit;
@@ -455,7 +505,7 @@ export function createFareSystem(rng, scene) {
     // top level by construction rather than by rounding. Placed on the same kerb corner the figure
     // stands on, which is where it will launch from at pickup.
     const corner = cornerFor(spot.i, spot.j);
-    slot.marker.showAt(URGENCY_SEGMENTS, corner.x, corner.z);
+    slot.marker.showAt(URGENCY_SEGMENTS, corner.x, corner.z, vip);
 
     return fare;
   }
@@ -623,9 +673,11 @@ export function createFareSystem(rng, scene) {
     // extra clocks arrive out of phase and the board turns into a prioritisation puzzle instead
     // of a single hard moment followed by a lull.
     if (shouldRefill()) {
-      const spawned = spawnFare(taxiCar, spawnBias(taxiCar));
+      const vip = wantsVip();
+      const spawned = spawnFare(taxiCar, spawnBias(taxiCar), vip);
       if (spawned) {
         state.lastSpawnAt = state.elapsed;
+        if (spawned.vip) lastVipAt = state.elapsed;
         emit('spawned', spawned);
       }
     }
@@ -681,6 +733,15 @@ export function createFareSystem(rng, scene) {
       }
 
       if (fare.timeLeft <= 0) {
+        // The one place a fare's clock running out does not end the run. A VIP is pure upside —
+        // missing one costs the bonus and the streak, never the game — so it just clears off the
+        // board like a delivery would, and the rest of the frame carries on.
+        if (fare.vip) {
+          state.vipStreak = 0;
+          clear(fare);
+          emit('vip-missed', fare);
+          continue;
+        }
         state.gameOver = true;
         state.failReason = fare.stage === 'waiting'
           ? 'A passenger gave up waiting.'
@@ -708,6 +769,9 @@ export function createFareSystem(rng, scene) {
         // the trip's own business — so "which fare should I grab?" is a timing decision.
         state.money += fare.value;
         state.delivered += 1;
+        // Extends the streak the next VIP's price is stamped with — see spawnFare. A miss resets
+        // it; a delivery is the only way it grows.
+        if (fare.vip) state.vipStreak += 1;
         // Pull the fare out of the puzzle immediately — the board is free to refill — while
         // handing the slot's passenger figure over to the exit animation. The next spawner
         // will skip this slot until the animation is done, so nothing lands on top of it.

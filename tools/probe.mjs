@@ -678,17 +678,23 @@ check('no two cars occupy the same space', worst > 1.6,
         shownOnSpawn += 1;
         if (!fare.slot.marker.group.visible) missingPin += 1;
         if (fare.slot.destination.group.visible) leakedPin += 1;
-        // A rider appears with their whole clock, so their diamond opens on the top urgency level.
-        if (diamondHex(fare.slot.marker) !== urgencyColor(URGENCY_SEGMENTS).getHexString()) {
-          wrongOpening += 1;
-        }
-        // And with a full vessel: the crystal is a glass of time, and it is poured at spawn.
+        // A rider appears with their whole clock, so their diamond opens on the top urgency level
+        // — except a VIP, whose diamond opens (and stays) on the beacon's fixed purple instead.
+        const wantOpening = fare.vip
+          ? new THREE.Color(PALETTE.vip).getHexString()
+          : urgencyColor(URGENCY_SEGMENTS).getHexString();
+        if (diamondHex(fare.slot.marker) !== wantOpening) wrongOpening += 1;
+        // And with a full vessel: the crystal is a glass of time, and it is poured at spawn. A
+        // VIP's stays full forever rather than draining — see the fillOutOfStep loop below.
         if (fare.slot.marker.getFill() < 0.99) drainedOpening += 1;
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
         // Distance price times the shift's multiplier, both settled at spawn — so this reads the
-        // multiplier as of *this* frame, which is the one the fare was stamped with.
+        // multiplier as of *this* frame, which is the one the fare was stamped with. A VIP stacks
+        // its own streak multiplier on top (see fares.js); `fare.vipMultiplier` is 1 for everyone
+        // else, so the formula is unchanged for an ordinary fare.
         const due = Math.round(priceFor(fare.pickup, fare.dropoff)
-          * difficulty.payoutMultiplier(fares.state.delivered));
+          * difficulty.payoutMultiplier(fares.state.delivered)
+          * fare.vipMultiplier);
         if (fare.value !== due) wrongPrice += 1;
         // The clock is budgeted from the driving, so it has to cover it with the run's slack in
         // hand. Below 1.0 the rider cannot be delivered even by a perfect drive.
@@ -711,8 +717,9 @@ check('no two cars occupy the same space', worst > 1.6,
     // flag must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
     for (const f of fares.state.fares) {
       // The liquid level *is* the seconds, on both legs — a crystal that drifts from the clock it
-      // draws is worse than one that never drained, because it reads as precision and isn't.
-      const want = Math.max(0, Math.min(1, f.timeLeft / f.limit));
+      // draws is worse than one that never drained, because it reads as precision and isn't. A
+      // VIP's crystal is the one exception: it never drains at all, by design (faremarker.js).
+      const want = f.vip ? 1 : Math.max(0, Math.min(1, f.timeLeft / f.limit));
       if (Math.abs(f.slot.marker.getFill() - want) > 1e-6) fillOutOfStep += 1;
       if (f.stage !== 'waiting') continue;
       if (f.slot.marker.isSelected() !== f.directed) selectionOutOfStep += 1;

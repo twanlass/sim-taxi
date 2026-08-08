@@ -1114,19 +1114,30 @@ function frame() {
       popEarning(fare.value);
       updateStreak(difficulty.payoutMultiplier(fares.state.delivered));
       announceShift(fares.state.delivered);
-      // A third of a tank of boost fuel as the delivery reward — the only way any fuel enters the
-      // meter now. The queue call is deliberately *inside* the sparks' arrival callback rather than
-      // here: the fuel has to land when the energy does, or the meter starts filling a second and a
-      // half before anything visibly reaches it. Queuing it is then the whole call — the pour, the
-      // overshoot, the flutter and the leading edge all key off the pending fuel.
+      // A third of a tank of boost fuel as the ordinary delivery reward — the only way any fuel
+      // enters the meter otherwise. A VIP pays out bigger here too: the tank tops all the way to
+      // full rather than by a third, on the same delayed pour as everything else so it reads as
+      // the same reward, just a bigger one. Read at arrival time rather than baked in now, so a
+      // tank that drained (or filled) during the flight still tops out exactly full.
       flyEnergyToBoost({
         from: taxiScreenPos,
         to: boostScreenPos,
-        onArrive: () => boost.topUp(BOOST_FARE_REWARD),
+        onArrive: () => boost.topUp(fare.vip ? 1 - boost.fraction() : BOOST_FARE_REWARD),
       });
+      if (fare.vip) flash(`VIP delivered — streak ${fares.state.vipStreak}x, tank topped off`);
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       traffic.setTaxiOccupied(false);
+    } else if (type === 'vip-missed') {
+      // The one fare whose clock running out isn't a run-ending event — see fares.js. If it was
+      // riding, the taxi is holding an empty seat with nowhere left to drive; free it up exactly
+      // as a delivery would, minus the payout.
+      if (fare.stage === 'riding') {
+        traffic.taxi.route = [];
+        traffic.taxi.pendingTarget = null;
+        traffic.setTaxiOccupied(false);
+      }
+      flash('VIP lost — streak reset');
     } else if (type === 'spawned') {
       // A fare that appears while you are already carrying one is the interesting case: it says
       // "there is now a clock you cannot start yet", which is a different message from the idle
@@ -1135,7 +1146,11 @@ function frame() {
       // Silent under the tutorial: the very first fare spawns on frame one, and a toast reading
       // "New fare waiting" across the top of the screen while the bubble is explaining which car
       // is yours is a second message competing with the one the player is being given.
-      if (!tutorialTalking) flash(fares.carrying() ? 'Another fare waiting' : 'New fare waiting');
+      if (!tutorialTalking) {
+        flash(fare.vip
+          ? 'VIP fare! Short clock, big payout'
+          : (fares.carrying() ? 'Another fare waiting' : 'New fare waiting'));
+      }
     }
   }
 
