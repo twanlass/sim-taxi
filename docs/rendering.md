@@ -456,6 +456,15 @@ the crystal reading as its own hue rather than as a dark facet. It is also what 
 colour legible after dark, this being the one lit marker in a game whose markers are otherwise all
 unlit.
 
+The surface is **split in the fragment shader** into liquid below the fare's clock and emptied glass
+above it, with a pale band on the line between — one mesh, one draw call, and the outline, the
+shadow, the kick and the pulse all untouched by it. The cut is in the geometry's local Y, so the
+liquid rides in the vessel rather than sloshing when the marker hops, and the emissive lift drops to
+0.35 of itself above the line, which is what makes a drained crystal read as *dimmer* after dark and
+not only as darker. Why it is a shader split and not a glass shell around an inner solid, why the
+level is linear in height, and the two numbers that had to be measured are all in
+[gameplay.md](gameplay.md#the-crystal-is-a-glass-of-time).
+
 It bounces on `Math.abs(Math.sin(t * 3.4)) * 0.45`: never below the rest position, with a sharp cusp
 at the bottom that reads as a landing rather than a float. The amplitude used to be bounded by the
 0.8 units of overlap between the old pin's head and its post top; with the post gone nothing

@@ -663,7 +663,12 @@ export function createFareSystem(rng, scene) {
 
       // One clock, one body, wherever the fare currently is. The seconds never reset across the
       // hand-off and neither does the marker — see beginRide.
-      marker.setUrgency(urgencyLevel(urgencyOf(fare)));
+      //
+      // The same fraction read twice: as a level, which is the colour and steps in quarters, and
+      // as a fill, which is the liquid in the crystal and moves every frame.
+      const left = urgencyOf(fare);
+      marker.setUrgency(urgencyLevel(left));
+      marker.setFill(left);
       if (fare.stage === 'waiting') {
         // No target: it holds the kerb corner it was shown on.
         marker.update(state.elapsed, null, fare.timeLeft);

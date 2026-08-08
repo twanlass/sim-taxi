@@ -157,8 +157,13 @@ These are the things that have actually cost time on this project:
 ## Test hook
 
 The tools drive the game through `window.__taxi` (`traffic`, `boost`, `skids`, `police`, `fares`,
-`daylight`, `routeTo`, `findRoute`, `isSelected`) rather than through the DOM. That's what makes
-the suite fast.
+`daylight`, `routeTo`, `findRoute`, `isSelected`, `redraw`) rather than through the DOM. That's what
+makes the suite fast.
+
+> Shot mode renders **once** and stops — there is no loop behind a frozen shot. Poking the world
+> over CDP therefore changes nothing on screen until `__taxi.redraw()` is called, and
+> `Page.captureScreenshot` will happily hand back the stale frame with no sign anything is wrong.
+> That is how a shader patch that was genuinely broken looked identical to one that worked.
 
 > `tools/smoke.mjs` clicks with synthetic DOM events. CDP's `Input.dispatchMouseEvent` is accepted
 > in this headless config but never produces a DOM click, so it tests nothing. The picker, raycast

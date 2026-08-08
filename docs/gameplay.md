@@ -490,7 +490,8 @@ fare do nothing.
 `src/game/faremarker.js`. The countdown is a **physical object that belongs to the fare** — not a
 HUD number, not a property of a marker, and not something that changes hands. A geodesic crystal
 floats over the rider's head on the kerb, painted by how much of their clock is left: green → yellow
-→ orange → red, [by level](#urgency-is-one-scale). The instant they get in it **flies to the taxi**
+→ orange → red, [by level](#urgency-is-one-scale) — and [draining like a
+glass](#the-crystal-is-a-glass-of-time) between those steps. The instant they get in it **flies to the taxi**
 (`TRANSFER_TIME = 0.65s`, eased, with a small arc) and keeps draining above the roof, because from
 that moment the deadline is the car's problem.
 
@@ -520,10 +521,11 @@ the rider figure finishes climbing in. The deadline arrives, then its owner does
 Two objects did this job in turn: this diamond over the rider, and a **timer ring** — a swept
 annulus lying on the road around the taxi, which took over at pickup while the diamond vanished.
 
-The ring was the finer instrument, and losing it is a real cost. It drained *continuously*: a
+The ring was the finer instrument, and losing it was a real cost. It drained *continuously*: a
 `setDrawRange` sweep clockwise from screen-top over 96 segments, so the arc's length was the time
-left, and a player could see a clock at 40% rather than at "orange". The diamond has four steps.
-On the riding leg that is strictly less information.
+left, and a player could see a clock at 40% rather than at "orange". The diamond had four steps, and
+on the riding leg that was strictly less information. [The liquid](#the-crystal-is-a-glass-of-time)
+is that reading coming back on the shape that was already carrying the deadline.
 
 What it bought is that there is nothing to learn. Two objects meant two vocabularies for one
 deadline, and the hand-off between them was a moment the player had to be taught — the ring
@@ -551,6 +553,46 @@ drawn with the depth test off projects its far half *upward on screen* at this c
 whatever is standing at its centre — so the ring sliced its own owner in half, and the fix was
 drawing everything that stands inside it afterwards. Nothing lies on the ground any more, so all of
 that is gone.
+
+### The crystal is a glass of time
+
+`src/geometry/diamond.js`. The diamond is a **vessel**, and the clock is the liquid in it. Below the
+surface the urgency colour is saturated and self-lit — exactly what the whole crystal used to be.
+Above it the same hue is emptied glass: half the lightness, a third of the emissive lift, and a
+sheen on the facets turned edge-on to the camera. A pale band rides the line between them, and that
+band is the part the eye actually reads.
+
+So the two hands of the clock are on one object. The **colour** steps in quarters and kicks, which
+is the alarm; the **level** moves every frame, which is where inside that quarter the fare actually
+is. Green isn't one state any more — a fresh rider is a solid crystal and a rider a breath away
+from yellow is a crystal two thirds full. It is the [ring's continuous
+sweep](#it-used-to-be-a-relay) recovered without a second object to learn.
+
+The level is **linear in height**, not in volume. Volume would be the physical answer and it reads
+much worse: an octahedron is widest at its equator, so a volume-true drain spends the middle half of
+the clock inside the middle 20% of the body. The player reads where the line *is*, so equal time has
+to be equal travel. Both ends overshoot the tips slightly, which is what makes a full fare a plain
+solid crystal and a dead one a plain empty vessel, with no highlight stranded on a vertex.
+
+Two things were measured and moved. The empty glass was **desaturated** at first (`s × 0.55`), and
+the empty half of a nearly-dead marker came out a dusty rose — the most urgent state on the scale
+rendering as the least red thing on the board. It keeps 90% of its saturation now and differs from
+the liquid almost entirely in value. And the sheen exponent went from 2.5 to 5: at 2.5 it was not a
+highlight but a wash, because an octahedron at this camera angle shows almost nothing head-on and
+every visible facet picked up most of the lift.
+
+It is **one mesh**, split in the fragment shader, not a transparent shell around an inner solid. A
+glass shell would have to be sorted against the black inverted hull inside it — the hull's far faces
+are what you would see through the glass, so the empty half would read as a black void rather than a
+vessel — and it would double the draw calls for a 29px object. Splitting one opaque surface leaves
+the outline, the shadow, the kick and the pulse working exactly as they did. The cut is in the
+geometry's **local Y**, so the liquid rides in the vessel instead of sloshing when the marker hops.
+
+> **Trap.** A patched material needs `customProgramCacheKey`. Three builds the program cache key
+> from the material's parameters *before* `onBeforeCompile` runs, so a patched Lambert material
+> collides with every unpatched one sharing those parameters and `acquireProgram` hands back
+> whichever compiled first. This city is full of flat-shaded Lambert: the diamond drew with a
+> building's program, and the fill went missing with nothing logged anywhere.
 
 ### What the crystal does
 

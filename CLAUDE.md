@@ -69,6 +69,10 @@ down.
   `car.dOut !== car.d`.
 - **No `distToLine > 0` guard on the stop decision.** A car spawning within `STOP_SETBACK` of its
   target starts past the hold line; that guard once sent cars off the map to x = −1064.
+- **An `onBeforeCompile` patch needs `customProgramCacheKey`.** Three builds the cache key from the
+  material's parameters *before* the patch runs, so a patched material collides with every unpatched
+  one sharing those parameters and gets handed whichever program compiled first. The diamond's fill
+  drew with a building's shader and went missing with nothing logged.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

@@ -21,9 +21,11 @@ import { createTargetRing, RING_Y } from '../geometry/targetring.js';
 // were the same deadline in two vocabularies, and the hand-off between them was the moment a player
 // had to learn that. One object that simply travels says it without teaching anything.
 //
-// What that costs is precision on the riding leg: four levels where there used to be a continuous
-// sweep. The panic pulse below five seconds came across with it, so the end of a clock is still an
-// event and not just a shade of red.
+// That cost precision for a while: four levels where the ring had a continuous sweep. It is back —
+// the crystal is a glass vessel and the colour is the liquid in it, draining every frame (see
+// geometry/diamond.js). The four steps are still the alarm, and they still kick; the level is the
+// fine hand between them. The panic pulse below five seconds came across from the ring too, so the
+// end of a clock is an event and not just a shade of red.
 //
 // **The disc is the same colour saying it twice.** The crystal is at eye level where the eye
 // happens to be; the disc is on the ground, which is where the taxi is actually being aimed, and it
@@ -135,6 +137,17 @@ export function createFareMarker(scene, phase = 0) {
     kickPending = true;
   }
 
+  /**
+   * How much of the clock is left, 0..1 — the level the liquid in the crystal stands at.
+   *
+   * Every frame, and continuous, where `setUrgency` is four steps. Straight through to the model
+   * with no easing: this *is* the clock, and a lag between the seconds and the level is the one
+   * thing a countdown may not have.
+   */
+  function setFill(fraction) {
+    diamond.setFill(fraction);
+  }
+
   function setSelected(on) {
     if (on === selected) return;
     selected = on;
@@ -149,6 +162,9 @@ export function createFareMarker(scene, phase = 0) {
     // Likewise the disc on the ground, which has to agree with the crystal on every frame.
     ring: ring.group,
     setUrgency,
+    setFill,
+    /** What the crystal is showing, for tools with no GL context to read it back from. */
+    getFill: () => diamond.getFill(),
     /** Mark the rider the taxi has been sent at. Only meaningful while they are still on the kerb. */
     setSelected,
     isSelected: () => selected,
@@ -164,6 +180,9 @@ export function createFareMarker(scene, phase = 0) {
       level = nextLevel;
       diamond.setColor(urgencyColor(nextLevel));
       ring.setColor(urgencyColor(nextLevel));
+      // Full, whatever the level says. A rider appears with their whole clock, and the first tick
+      // is a frame away — a crystal that drew empty for that frame would flash the wrong news.
+      diamond.setFill(1);
       kickAt = null;
       kickPending = false;
       transferAt = null;
