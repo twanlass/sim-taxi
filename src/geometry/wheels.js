@@ -37,8 +37,10 @@ const WHEEL_SEGMENTS = 16;         // doubled from 8 — at WHEEL_R's size the 8
 export const CHASSIS_LIFT = WHEEL_R - 0.32;
 
 // Baked dark rather than white: the shared material reads vertex colours and instanceColor
-// multiplies on top, so a dark base stays dark whatever colour the car is tinted.
-const TYRE = new THREE.Color(0.16, 0.16, 0.18);
+// multiplies on top, so a dark base stays dark whatever colour the car is tinted. Darker than the
+// 0.16/0.16/0.18 it shipped at — against the '#636972' asphalt (src/palette.js) that read as
+// barely darker than the road under the tread's own shadow.
+const TYRE = new THREE.Color(0.08, 0.08, 0.09);
 
 /**
  * Where each wheel's hub sits in car-local space. +x is the nose — main.js puts the tailpipe at
