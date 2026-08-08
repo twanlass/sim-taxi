@@ -207,6 +207,14 @@ gathered inside a single `Runtime.evaluate`, with no `await` in the middle. Spli
 trips the page renders in between — long enough that a pan reads as having already jumped, which is
 precisely the bug that check exists to catch.
 
+**The offline check only means anything against a built preview.** The service worker registration
+in `main.js` is skipped under `npm run dev` on purpose — see
+[architecture.md](architecture.md#installability-and-offline-support) — so run this tool with
+`--url http://localhost:4173` (or the deployed site), not against the dev server. The check disables
+Chrome's own HTTP cache before going offline, which is what makes a pass mean the worker's Cache
+Storage actually served the reload rather than the browser's ordinary disk cache quietly covering
+for a worker that isn't caching anything.
+
 **The Home Screen screen is checked here for want of anywhere better.** It is a user-agent test
 ([rendering.md](rendering.md#the-add-to-home-screen-screen)), so nothing in the node suite can see
 it — and it is invisible on every machine the game is developed on, which is exactly how a broken
