@@ -32,7 +32,15 @@ import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { findRoute, planOrigin } from './game/route.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin } from './util/shot.js';
-import { isCityConnected, GRID } from './city/grid.js';
+import { GRID } from './city/grid.js';
+import { cityNetwork, isNetworkConnected } from './city/roadnet.js';
+import { cityFromLevel, loadLevel } from './city/level.js';
+
+// Asked of the road network rather than of the lattice. The two agree on every generated city
+// (verified over 300 seeds), but only this one can answer for a level somebody drew: `grid.js`
+// checks all 36 lattice junctions whether or not a road reaches them, so it calls any level with a
+// bare corner undrivable when the roads that exist are perfectly well connected.
+const drivable = () => isNetworkConnected(cityNetwork());
 import { PALETTE } from './palette.js';
 
 const shot = getActiveShot();
@@ -42,13 +50,27 @@ const shot = getActiveShot();
 // (from, to) — the fare loop depends on that never being false.
 let seed = getSeed({ deterministic: Boolean(shot) });
 let layout;
-let attempts = 0;
-while (true) {
-  attempts += 1;
-  layout = createLayout(makeRng(seed));
-  if (isCityConnected()) break;
-  if (attempts > 32) throw new Error('city seed generator kept producing disconnected layouts');
-  seed = (Math.random() * 0xffffffff) >>> 0;
+
+// `?level=` plays a city somebody drew in the editor instead of one the generator rolled. The seed
+// still decides the buildings and the trees — a level authors the *plan*, not the skyline — so
+// everything below this point is unchanged either way.
+const levelName = new URLSearchParams(window.location.search).get('level');
+let attempts = 0;              // how many seeds the connectivity guard had to reject
+if (levelName) {
+  const level = loadLevel();
+  if (!level) throw new Error('no saved level to play — draw one in /editor.html first');
+  layout = cityFromLevel(level);
+  if (!drivable()) {
+    throw new Error('this level has junctions the taxi cannot reach — open /editor.html and join them up');
+  }
+} else {
+  while (true) {
+    attempts += 1;
+    layout = createLayout(makeRng(seed));
+    if (drivable()) break;
+    if (attempts > 32) throw new Error('city seed generator kept producing disconnected layouts');
+    seed = (Math.random() * 0xffffffff) >>> 0;
+  }
 }
 const runSeed = getRunSeed(seed, Boolean(shot));    // this run's situation — random unless pinned
 
@@ -1298,6 +1320,7 @@ window.__taxi = {
 console.log('[taxi] ready', {
   seed, runSeed, shot: shot?.name ?? 'interactive',
   cars: traffic.cars.length,
+  ...(levelName ? { level: levelName } : {}),
   ...(attempts > 1 ? { seedAttempts: attempts } : {}),
 });
 window.__taxi.seed = seed;         // pin this city with ?seed=<this>

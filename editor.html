@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Sim Taxi — level editor</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #b9dcf0; }
+      body { font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+      canvas { display: block; }
+
+      #bar {
+        position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+        display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+        padding: 8px 10px;
+        background: rgba(18, 20, 24, 0.82);
+        backdrop-filter: blur(6px);
+        color: #e8eaed;
+      }
+      #bar .sep { width: 1px; height: 22px; background: #ffffff22; margin: 0 4px; }
+      #bar .title { font-weight: 600; letter-spacing: 0.02em; margin-right: 6px; opacity: 0.9; }
+      button {
+        font: inherit; color: #e8eaed; background: #ffffff14;
+        border: 1px solid #ffffff22; border-radius: 6px;
+        padding: 5px 10px; cursor: pointer;
+      }
+      button:hover { background: #ffffff22; }
+      button[aria-pressed="true"] { background: #ffd23f; border-color: #ffd23f; color: #1a1a1a; font-weight: 600; }
+      button.play { background: #3ddc84; border-color: #3ddc84; color: #10241a; font-weight: 600; }
+      button.play:hover { background: #58e89a; }
+
+      #hint {
+        position: fixed; left: 10px; bottom: 10px; z-index: 10;
+        padding: 7px 10px; border-radius: 6px;
+        background: rgba(18, 20, 24, 0.8); color: #cfd3d8; max-width: 46ch;
+      }
+      #status {
+        position: fixed; right: 10px; bottom: 10px; z-index: 10;
+        padding: 7px 10px; border-radius: 6px;
+        background: rgba(18, 20, 24, 0.8); color: #cfd3d8;
+      }
+      #status.bad { background: rgba(120, 26, 26, 0.9); color: #ffd7d7; }
+
+      #error {
+        position: fixed; inset: 0; z-index: 100; display: none;
+        padding: 24px; overflow: auto; white-space: pre-wrap;
+        background: #1a1114; color: #ffb4b4; font-family: ui-monospace, monospace;
+      }
+    </style>
+    <script>
+      // Same overlay as the game: an uncaught module error otherwise shows as a blank blue page.
+      window.addEventListener('error', (e) => {
+        const el = document.getElementById('error');
+        if (!el) return;
+        el.style.display = 'block';
+        el.textContent += `${e.message}\n${e.error?.stack ?? ''}\n\n`;
+      });
+    </script>
+  </head>
+  <body>
+    <div id="bar">
+      <span class="title">Level editor</span>
+      <button id="tool-road" aria-pressed="true">Road</button>
+      <button id="tool-erase" aria-pressed="false">Erase</button>
+      <button id="tool-park" aria-pressed="false">Park</button>
+      <button id="tool-arterial" aria-pressed="false">Main street</button>
+      <span class="sep"></span>
+      <button id="reset">Reset to generated</button>
+      <button id="clear">Clear roads</button>
+      <span class="sep"></span>
+      <button id="export">Export</button>
+      <button id="import">Import</button>
+      <span class="sep"></span>
+      <button id="play" class="play">▶ Play this level</button>
+    </div>
+    <div id="hint">Drag between two junctions to lay a road.</div>
+    <div id="status">—</div>
+    <div id="error"></div>
+    <script type="module" src="/src/editor.js"></script>
+  </body>
+</html>

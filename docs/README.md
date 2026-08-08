@@ -8,6 +8,7 @@ behind it that aren't obvious from the code.
 | [architecture.md](architecture.md) | Module map, the frame loop, seeding and determinism, how a change flows through the app | `src/main.js` |
 | [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts, ground/buildings/props | `src/city/` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
+| [editor.md](editor.md) | The level editor: what you author, the level format, playing one |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
 | [gameplay.md](gameplay.md) | The opening tutorial, the fare loop, routing, picking, the travelling clock, economy, crazy-taxi mode | `src/game/` |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |

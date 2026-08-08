@@ -5,12 +5,14 @@
 ```
 src/
   main.js               wiring + the frame loop + HUD. The only file that knows about all systems.
+  editor.js             the level editor — a second entry point, see docs/editor.md
   palette.js            every colour in the game, named
 
   city/                 the world, generated once at startup
     grid.js             coordinate system, direction encoding, legal moves
     curves.js           lines and arcs, arc-length parameterised — offset, trim, sample
     roadnet.js          the road network: nodes/edges in, lanes/turns/signals/blocks out
+    level.js            a level: the authored half of a city, saved and loaded
     layout.js           decides what each block *is* (density, parks) before anything is built
     ground.js           roads, kerbs, block surfaces, crosswalks
     buildings.js        one merged mesh of blocky towers
@@ -56,6 +58,9 @@ src/
 tools/                  headless test + screenshot harness — see docs/testing.md
 ```
 
+There are two entry points — `index.html` → `main.js` and `editor.html` → `editor.js` — named in
+`vite.config.js`. Both build a city and mesh it; only the game starts traffic, fares and police.
+
 The dependency direction is one-way: `city/` knows nothing about `sim/`, `sim/` knows nothing
 about `game/`, and only `main.js` knows about everything. The one deliberate exception is
 `city/layout.js` calling `configureSignals()` in `sim/traffic.js` — the layout decides which roads
@@ -98,6 +103,7 @@ Two independent seeds, and keeping them separate matters:
 | Seed | Controls | URL | Default |
 |---|---|---|---|
 | **city seed** | layout, buildings, props, parks, arterials | `?seed=` | random each load (shot mode pins `71624`) |
+| **level** | the road plan and each block's type, when one is authored | `?level=` | none — the generator decides |
 | **run seed** | car spawns, fare spawns, police timing | `?run=` | random each load |
 
 Both are random by default: every load is a fresh city with a fresh situation on it. `?seed=N`

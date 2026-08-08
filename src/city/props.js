@@ -3,6 +3,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, jitterVertices, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import { KERB_H } from './ground.js';
+import { insetPolygon, pointInPolygon } from './curves.js';
+import { BLOCK } from './grid.js';
 
 /** Park tree — same construction as the terrain prototype's broadleaf, scaled for a city block. */
 function tree(x, z, rng) {
@@ -55,46 +57,45 @@ function lamp(x, z, rng) {
   return parts;
 }
 
+/**
+ * How many trees a park gets, and how far in from the kerb they are planted.
+ *
+ * A merged district was planted as one area with 11-16 trees against a single cell's 5-9 — nothing
+ * gives away a merged park faster than a treeless stripe down the middle of it. Those two numbers
+ * are hand-tuned rather than area-proportional (a district is 2.67x the area but only ~2x the
+ * trees), so they are kept literally for the shapes the generator makes, and a block of any other
+ * size — which only an editor can draw — scales the single-cell density by area instead.
+ */
+function planting(block, rng) {
+  if (block.cells > 1) return { count: rng.int(11, 16), inset: 1.8 };
+  if (block.cells === 1) return { count: rng.int(5, 9), inset: 1.6 };
+  const scale = block.area / (BLOCK * BLOCK);
+  return { count: rng.int(Math.round(5 * scale), Math.round(9 * scale)), inset: 1.6 };
+}
+
 export function createProps(rng, blocks) {
   const parts = [];
 
-  // Districts are planted as one area so trees fall across the old road line too — nothing
-  // gives away a merged park faster than a treeless stripe down the middle of it.
-  for (const district of blocks.districts ?? []) {
-    const { x0, z0, x1, z1 } = district.bounds;
-    const count = rng.int(11, 16);
-    for (let i = 0; i < count; i++) {
-      parts.push(...tree(rng.range(x0 + 1.8, x1 - 1.8), rng.range(z0 + 1.8, z1 - 1.8), rng));
-    }
-    const inset = 0.75;
-    for (const [lx, lz] of [
-      [x0 + inset, z0 + inset], [x1 - inset, z0 + inset],
-      [x0 + inset, z1 - inset], [x1 - inset, z1 - inset],
-    ]) parts.push(...lamp(lx, lz, rng));
-  }
-
   for (const block of blocks) {
-    if (block.districtId !== null && block.districtId !== undefined) continue;
-    const { x0, z0, x1, z1, cx, cz } = block.bounds;
+    const { x0, z0, x1, z1 } = block.bounds;
 
     if (block.type === 'park') {
-      const count = rng.int(5, 9);
+      const { count, inset } = planting(block, rng);
       for (let i = 0; i < count; i++) {
-        parts.push(...tree(
-          rng.range(x0 + 1.6, x1 - 1.6),
-          rng.range(z0 + 1.6, z1 - 1.6),
-          rng,
-        ));
+        // Drawn from the bounding box and then rejected, rather than fitted to the polygon: the
+        // draw has to happen either way or the rng stream moves, and on a rectangle — every block
+        // the generator makes — nothing is ever rejected.
+        const x = rng.range(x0 + inset, x1 - inset);
+        const z = rng.range(z0 + inset, z1 - inset);
+        if (pointInPolygon(x, z, block.polygon)) parts.push(...tree(x, z, rng));
       }
     }
 
-    // A lamp at each block corner, set in from the kerb.
-    const inset = 0.75;
-    for (const [lx, lz] of [
-      [x0 + inset, z0 + inset], [x1 - inset, z0 + inset],
-      [x0 + inset, z1 - inset], [x1 - inset, z1 - inset],
-    ]) {
-      parts.push(...lamp(lx, lz, rng));
+    // A lamp on each corner, set in from the kerb. Sorted so the order is stable whatever the
+    // shape — on a rectangle that reproduces the hand-written corner list exactly.
+    const corners = insetPolygon(block.polygon, 0.75) ?? [];
+    for (const c of [...corners].sort((a, b) => a.z - b.z || a.x - b.x)) {
+      parts.push(...lamp(c.x, c.z, rng));
     }
   }
 

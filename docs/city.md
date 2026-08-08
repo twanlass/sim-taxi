@@ -80,6 +80,14 @@ the same repeating grid, just greener. Closing the segment is what actually brea
 The closure is real, not cosmetic. `setClosedSegments()` removes the segment from `legalExits`, so
 traffic routes around it and the router plans around it for free.
 
+**The merge is no longer written down anywhere.** A block is a face of the road graph
+([roadnet.md](roadnet.md#blocks-are-faces-not-cells)), so removing the road between two cells
+merges the face that encloses them — the hand-computed merged rectangle, the `districtId` marker on
+each cell and the separate district pass in `ground.js` and `props.js` are all gone. What is left in
+`layout.js` is only what the graph has no opinion about: which cells are parks, and how central they
+are. Those are still decided per cell and projected onto the face that contains the cell, which is
+also what keeps the `rng.chance` draws in their original order.
+
 This is the one generation step that can silently break the game, so the probe asserts two things:
 no vehicle is ever inside a park's bounds, **and** all 5,184 `(approach, destination)` pairs remain
 routable. Closing the wrong pair of roads could strand a corner of the city with no error at all.
@@ -90,7 +98,9 @@ the directed state graph isn't strongly connected. Two BFS passes on 144 nodes �
 never gets to spend time meshing a broken city.
 
 > A known limitation: districts are pairs of blocks only. Larger ones would close more roads and
-> need a connectivity guarantee stronger than the current all-pairs check.
+> need a connectivity guarantee stronger than the current all-pairs check. Nothing downstream cares
+> any more — a district of four cells is just a face with four cells in it — so the limit is now
+> the connectivity check rather than the block model.
 
 ## Ground, buildings, props
 

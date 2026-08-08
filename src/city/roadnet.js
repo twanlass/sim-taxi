@@ -100,6 +100,9 @@ export function bakeNetwork(spec, config = {}) {
 
   return {
     nodes, edges, lanes, turns, blocks, chains, signal,
+    // Whether every junction sits on the generator's lattice. The grid can still answer questions
+    // about such a city — connectivity, legal moves — and cannot about any other.
+    onLattice: nodes.every((n) => n.gi !== undefined),
     nodeById, laneById, turnById,
     edgeById: new Map(edges.map((e) => [e.id, e])),
     phaseAt: (node, t) => phaseAt(typeof node === 'string' ? nodeById.get(node) : node, t, signal),
@@ -662,6 +665,7 @@ function buildBlocks(nodes, edges) {
       if (visited.has(key(edge.id, forward))) continue;
 
       const poly = [];
+      const ring = [];
       let e = edge;
       let f = forward;
       for (let guard = 0; guard <= edges.length * 2 + 2; guard++) {
@@ -669,6 +673,7 @@ function buildBlocks(nodes, edges) {
         const arrive = f ? e.b : e.a;
         const node = nodes.find((n) => n.id === arrive);
         poly.push({ x: node.x, z: node.z });
+        ring.push(node.id);
 
         const arm = armOf(node, e);
         const prev = node.arms[(arm.index + node.arms.length - 1) % node.arms.length];
@@ -678,7 +683,7 @@ function buildBlocks(nodes, edges) {
         e = nextEdge;
         f = nextForward;
       }
-      if (poly.length >= 3) faces.push(poly);
+      if (poly.length >= 3) { poly.nodes = ring; faces.push(poly); }
     }
   }
 
@@ -700,6 +705,9 @@ function buildBlocks(nodes, edges) {
       id: `block:${blocks.length}`,
       polygon: inset,
       face: poly,
+      // The junctions around this face, so a level can name it without depending on an index that
+      // renumbers the moment an edge is added anywhere in the city. See `faceKey` in level.js.
+      nodes: poly.nodes,
       // Kept alongside the polygon because buildings.js and props.js scatter within an AABB and
       // reject what falls outside; they never needed more than this.
       bounds: polygonBounds(inset),
@@ -729,6 +737,41 @@ function buildBlocks(nodes, edges) {
  * without threading it through five constructors that have no other use for it. `createLayout`
  * installs it, which is already where the closures and the arterials are decided.
  */
+/**
+ * Can every lane reach every junction traffic can arrive at?
+ *
+ * The property the fare loop depends on: `findRoute` must never return null, or the player is
+ * handed a destination the taxi cannot drive to. `isCityConnected` in grid.js asks the same
+ * question of the *lattice*, and so answers "no" for any level that simply has no road at some
+ * corner — a junction nothing connects to is not unreachable, it is not there.
+ *
+ * Strong connectivity of the lane graph would be too strict, for the same reason it was on the
+ * grid: what matters is *forward* reachability from every lane to every junction, which is one
+ * reverse walk per target.
+ */
+export function isNetworkConnected(net) {
+  const lanes = net.lanes.filter((l) => !l.degenerate);
+  if (!lanes.length) return false;
+
+  // Reverse adjacency: which lanes can turn *into* this one.
+  const preds = new Map(lanes.map((l) => [l, []]));
+  for (const lane of lanes) {
+    for (const next of lane.onward) preds.get(next)?.push(lane);
+  }
+
+  for (const target of new Set(lanes.map((l) => l.to))) {
+    const queue = lanes.filter((l) => l.to === target);
+    const seen = new Set(queue);
+    for (let head = 0; head < queue.length; head++) {
+      for (const p of preds.get(queue[head]) ?? []) {
+        if (!seen.has(p)) { seen.add(p); queue.push(p); }
+      }
+    }
+    if (seen.size !== lanes.length) return false;
+  }
+  return true;
+}
+
 let city = null;
 
 export function setCityNetwork(net) {
@@ -776,7 +819,23 @@ export function roadNetFromGrid(layout, config = {}) {
     }
   }
 
-  const net = bakeNetwork({ nodes, edges }, config);
+  return attachGridView(bakeNetwork({ nodes, edges }, config));
+}
+
+/**
+ * Bolt the `(i, j)` view onto a network whose junctions sit on the lattice.
+ *
+ * The adapter every consumer still needs while it stores `car.d` and plans in `(i, j, d)`. It lives
+ * here, separately from `roadNetFromGrid`, because a city loaded from a level file is baked
+ * directly from nodes and edges and needs the same view — and because being one function is what
+ * makes it one thing to delete when nothing speaks grid any more.
+ *
+ * A network with a junction off the lattice gets nothing: there is no honest answer, and a wrong
+ * one would be a silently mis-routed taxi rather than an error.
+ */
+export function attachGridView(net) {
+  if (!net.onLattice) return net;
+
   const byEnds = new Map(net.lanes.map((l) => [`${l.from}>${l.to}`, l]));
   /** Intersection one step from (i, j) along grid direction `d`, sign `way` (+1 on, -1 back). */
   const step = (d, i, j, way) => (isXAxis(d)

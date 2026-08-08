@@ -18,7 +18,7 @@ import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import {
   GRID, PITCH, LANE, HALF_ROAD, lineCoord, legalExits, entryPoint, exitPoint, turnControl,
-  laneOffsetCoord, isXAxis, dirSign, nextIntersection,
+  laneOffsetCoord, blockBounds, isXAxis, dirSign, nextIntersection,
 } from '../src/city/grid.js';
 // Only constants and the pre-port road-class helper. The signal model this tool validates is
 // frozen below rather than imported, so that pointing traffic.js at the network cannot turn the
@@ -181,6 +181,56 @@ function refLightPhase(layout, i, j, t) {
     return { axis: 'z', yellow: false, remaining: greenX + yellow + greenZ - local };
   }
   return { axis: 'z', yellow: true, remaining: cycle - local };
+}
+
+/**
+ * The block rectangles the grid implies, derived from the grid alone: one per cell, with the two
+ * cells either side of a closed road merged into one.
+ *
+ * Built here rather than read off `layout`, because `layout` *is* `net.blocks` now — comparing the
+ * network against itself would assert nothing. Same reason the router and the signal model are
+ * frozen above.
+ */
+function expectedBlocks(closedSegments) {
+  const cell = (bi, bj) => `${bi},${bj}`;
+  const group = new Map();
+  for (let bi = 0; bi < GRID; bi++) {
+    for (let bj = 0; bj < GRID; bj++) group.set(cell(bi, bj), cell(bi, bj));
+  }
+
+  const merge = (a, b) => {
+    const keep = group.get(a);
+    const drop = group.get(b);
+    if (keep === drop) return;
+    for (const [k, v] of group) if (v === drop) group.set(k, keep);
+  };
+
+  for (const key of closedSegments) {
+    const [p, q] = key.split('|').map((part) => part.split(',').map(Number));
+    if (p[0] === q[0]) {
+      // A road running along Z at line i: the cells either side are (i-1, j) and (i, j).
+      const j = Math.min(p[1], q[1]);
+      merge(cell(p[0] - 1, j), cell(p[0], j));
+    } else {
+      // A road running along X at line j: the cells either side are (i, j-1) and (i, j).
+      const i = Math.min(p[0], q[0]);
+      merge(cell(i, p[1] - 1), cell(i, p[1]));
+    }
+  }
+
+  const byGroup = new Map();
+  for (let bi = 0; bi < GRID; bi++) {
+    for (let bj = 0; bj < GRID; bj++) {
+      const g = group.get(cell(bi, bj));
+      const b = blockBounds(bi, bj);
+      const cur = byGroup.get(g);
+      byGroup.set(g, cur ? {
+        x0: Math.min(cur.x0, b.x0), x1: Math.max(cur.x1, b.x1),
+        z0: Math.min(cur.z0, b.z0), z1: Math.max(cur.z1, b.z1),
+      } : { x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1 });
+    }
+  }
+  return [...byGroup.values()];
 }
 
 const everyIntersection = [];
@@ -407,14 +457,9 @@ for (let s = 0; s < SEEDS; s++) {
   // --- Blocks ---------------------------------------------------------------
   //
   // Faces of the road graph, inset by half a road, must land exactly on `blockBounds` — and where
-  // a park district closed a road, on the merged bounds `layout.js` computed for it.
+  // a park district closed a road, on the union of the two cells it merged.
   {
-    const wanted = [];
-    for (const block of layout) {
-      if (block.districtId !== null && block.districtId !== undefined) continue;
-      wanted.push(block.bounds);
-    }
-    for (const district of layout.districts) wanted.push(district.bounds);
+    const wanted = expectedBlocks(layout.closedSegments);
 
     check(`${tag} block count`, net.blocks.length === wanted.length,
       `net ${net.blocks.length} vs layout ${wanted.length}`);
