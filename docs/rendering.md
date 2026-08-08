@@ -153,6 +153,47 @@ Lambert, and carries an emissive at 0.35 of its own colour to hold its hue after
 
 Screenshot mode freezes the cycle: a rendered shot has to be reproducible.
 
+## The island edge — `city/ground.js`
+
+The asphalt doesn't end on a line. A **fade skirt** hangs off the slab — `EDGE_FADE = 16` units of
+asphalt stepping outward from the slab's own outline, alpha 1 → 0 — so the city feathers into the
+sky rather than being cut out of it. At play zoom that is about 22% of the frame height, which is
+what makes it read as a gradient instead of as a slightly blurry edge.
+
+It is the depth cue this projection can't get from fog. Three's fog is a function of view-space
+depth and the camera is orthographic, a fixed 400 units back from the whole scene, so distance fog
+whitens the entire city uniformly rather than fading its far edge — the reason `scene.js` has none.
+Keyed on distance from the *middle of the map* instead of from the camera, the same idea works.
+
+**The skirt is added outside the slab, never eaten out of it.** Fading inward would mean shrinking
+the solid part, and there is only 2.2 units of clearance at the corners before the arc bites into the
+ring road junction at `(±54, ±54)` — the same ceiling that caps
+[`SLAB_RADIUS`](city.md#the-slab-has-rounded-corners). So the silhouette that was there before is
+still fully opaque; the fade is all new ground beyond it.
+
+**Alpha rides in a 4-component vertex colour**, as it does on the skid marks, so the skirt needs no
+shader of its own — and it wears `propMaterial()`'s recipe unchanged. A flat plane at the same
+height, with the same normal and the same `asphalt` colour, is lit *identically* to the slab it
+continues, and stays that way across the whole day cycle. A baked sky-coloured gradient would match
+at golden hour and part company with the asphalt by dusk.
+
+**The inner ring is the slab's outline rather than a copy of it.** Both come from `extractPoints` on
+the same `Shape`, so there is no seam for the sky to leak through at the corner arcs — which is
+exactly where a hand-sampled ring would drift from Three's own tessellation. Two flags on the
+material: `renderOrder = -1` puts the skirt first in the transparent queue, because everything else
+translucent in this game is paint *on* the road and centroid sorting would otherwise let a skid mark
+at the far corner of the city draw before the plane it is stamped on; `depthWrite: false` for the
+usual reason translucent paint doesn't write depth.
+
+The falloff is a **smoothstep**, sampled over `FADE_RINGS = 4` rings. A linear ramp has a kink where
+it meets the solid slab, and against a flat sky that kink is visible as the very edge the fade
+exists to remove.
+
+`tools/probe.mjs` asserts all of it: the alpha-1 ring lands on the slab boundary to **2.3e-6 units**
+(float32 attribute storage, not slop in the construction), the ramp reaches alpha 0 exactly
+`EDGE_FADE` out, and no part of the skirt reaches back over the road — translucent asphalt over the
+ring road would show sky through the tarmac.
+
 ## Effects
 
 ### Skid marks — `game/skidmarks.js`

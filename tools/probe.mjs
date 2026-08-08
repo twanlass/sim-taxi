@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
-import { createGround } from '../src/city/ground.js';
+import { createGround, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph, SPEED } from '../src/sim/traffic.js';
@@ -81,6 +81,47 @@ const traffic = time('traffic init', () => createTraffic(makeRng(seed + 44), sce
 
 const tris = (mesh) => mesh.geometry.attributes.position.count / 3;
 console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mesh)}, props ${tris(props)}`);
+
+// --- The asphalt's feathered edge -----------------------------------------
+// The fade skirt is a second mesh because alpha cannot ride in the merged ground's 3-component
+// colour attribute, and being a second mesh is exactly what makes it worth asserting: its inner
+// ring has to land on the slab's own outline to the last bit, or a ring of sky leaks between the
+// two meshes at the corner arcs, where Three's tessellation is the only thing that decides where
+// the boundary actually is.
+{
+  const fade = ground.children.find((c) => c.name === 'asphalt-fade');
+  // Signed distance to the rounded-square outline: 0 on the edge, positive outside.
+  const inset = SLAB / 2 - SLAB_RADIUS;
+  const edgeDist = (x, z) => Math.hypot(
+    Math.max(Math.abs(x) - inset, 0), Math.max(Math.abs(z) - inset, 0),
+  ) - SLAB_RADIUS;
+
+  const pos = fade?.geometry.attributes.position;
+  const col = fade?.geometry.attributes.color;
+  let seam = 0;      // how far the alpha-1 ring strays from the slab boundary
+  let inside = 0;    // any part of the skirt reaching back over the road
+  let reach = 0;     // how far the alpha-0 ring gets out
+  for (let i = 0; pos && i < pos.count; i++) {
+    const d = edgeDist(pos.getX(i), pos.getZ(i));
+    inside = Math.min(inside, d);
+    if (col.getW(i) === 1) seam = Math.max(seam, Math.abs(d));
+    if (col.getW(i) === 0) reach = Math.max(reach, d);
+  }
+
+  check('the asphalt edge carries a fade skirt', !!fade && col?.itemSize === 4,
+    fade ? `${pos.count / 3} triangles, alpha in the colour attribute` : 'missing');
+  // Tolerance is float32 storage, not slop in the construction: both meshes keep their positions
+  // in a Float32Array, and 62 units quantises to about 4e-6 there. Anything the geometry itself
+  // got wrong lands orders of magnitude above this — and 1e-4 units is 1/1000th of a pixel.
+  const FLOAT32 = 1e-4;
+  check('the fade starts exactly on the slab edge', seam < FLOAT32,
+    `max seam ${seam.toExponential(1)} units`);
+  check('the fade reaches full transparency', Math.abs(reach - EDGE_FADE) < FLOAT32,
+    `${reach.toFixed(1)} units out`);
+  // Translucent asphalt over a road would show sky through the tarmac the ring road drives on.
+  check('the fade never reaches back over the city', inside > -FLOAT32,
+    `${inside.toExponential(1)} units inside`);
+}
 
 check('layout covers every block', layout.length === GRID * GRID, `${layout.length} blocks`);
 check('some blocks are parks', layout.some((b) => b.type === 'park'),
