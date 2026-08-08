@@ -743,8 +743,8 @@ layers, all timed by `src/game/boostmeter.js` and shaped in `index.html`:
 
 | Layer | What it does | Wiring |
 |---|---|---|
-| **Overfill** | The bar runs ~7% of a tank past its new mark, then rings back down onto it | `--pct` |
-| **Flutter** | The whole pill throbs — glow and 3.5% of scale together, 8Hz — for as long as fuel is arriving | `--fill` × `--pulse` → `.is-filling` |
+| **Overfill** | The bar runs ~4.5% of a tank past its new mark, then rings back down onto it | `--pct` |
+| **Flutter** | The whole pill throbs — glow and 3.5% of scale together, 4Hz — for as long as fuel is arriving | `--fill` × `--pulse` → `.is-filling` |
 | **Leading edge** | A blurred near-white line rides the front of the fill, fading in with the pour and out with the bounce | `--fill` → `#boost::after` |
 
 `boostmeter.js` is pure and DOM-free for the same reason `boost.js` is: `main.js` reads three numbers
@@ -762,16 +762,18 @@ kick just carries it further, 0.1s out to the peak.
 
 **Coming back is a damped ring, not a curve.** The first version eased from the peak down onto the
 mark and stopped there, which is the exact moment the eye is on it, and it read as linear — the bar
-*arrived* rather than *settled*. The peak now releases into a decaying cosine (4Hz, e-folding at 7/s)
-so it dips under the mark, comes back over it smaller, and converges: off a 7% overshoot the swings
-measure **-2.9%, +1.2%, -0.5%, +0.2%**, then it snaps to the real level once the ring is under a
-fifth of a pixel, about 0.55s in. This is the spring the scripted kick doesn't get for free.
+*arrived* rather than *settled*. The peak now releases into a decaying cosine (4Hz, e-folding at 8/s)
+so it dips under the mark, comes back over it smaller, and converges: off a 4.5% overshoot the swings
+measure **-1.7%, +0.6%, -0.2%**, then it snaps to the real level once the ring is under a fifth of a
+pixel, about 0.43s in. This is the spring the scripted kick doesn't get for free. Both the overshoot
+and the decay were pulled back from an original 7%/7-per-second pass that read as too bouncy.
 
-The flutter is deliberately fast. At 5Hz the pill read as *breathing*; the point is a signal that
-something is being poured in right now, so it sits at the top of what still reads as a pulse rather
-than a flicker. It moves the pill itself, not just the glow, which is what makes it visible at the
-edge of vision — where this button is while the player is watching the road. `prefers-reduced-motion`
-drops the scale and keeps the glow and the edge.
+The flutter runs at 4Hz, halved from an original 8Hz. At 8Hz a pour that landed several energy
+circles at once stacked up enough pulses to read as chaotic rather than lively; one clear pulse
+where there used to be two reads calmer without dropping all the way to the 5Hz "breathing" rate
+that was tried and rejected earlier. It moves the pill itself, not just the glow, which is what
+makes it visible at the edge of vision — where this button is while the player is watching the
+road. `prefers-reduced-motion` drops the scale and keeps the glow and the edge.
 
 The glow used to be a one-shot green flash matching the flying `$20`. Green read as *money*, which
 is what the earnings pop already says; yellow says *this is boost*. Driving its alpha from a variable
