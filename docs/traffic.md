@@ -156,11 +156,17 @@ ahead(lane, s, range)   // vehicles ahead, carrying straight on through junction
 "Straight on" is the faithful continuation rather than an approximation of one — the old row *was*
 the straight-through chain, and a car that turned off left the row and stopped being seen.
 
-`LOOKAHEAD = 26` is derived, not tuned. A car brakes toward `sqrt(2 · BRAKE · allowed)`, so a
-leader stops mattering once that exceeds the car's top speed: at boost (18.7 u/s) that is 15.9
-units of clear road, plus `BOOST_GAP`, so 20.4. Beyond that the leader cannot affect the physics
-whether or not the bookkeeping can see it. 26 leaves margin and still fits two lanes plus the
-junction between them.
+`LOOKAHEAD = 32` is derived, not tuned. A car brakes toward `sqrt(2 · BRAKE · allowed)`, so a
+leader stops mattering once that exceeds the car's top speed: at the overdrive top (22.95 u/s) that
+is 23.9 units of clear road, plus `BOOST_GAP`, so 28.4. Beyond that the leader cannot affect the
+physics whether or not the bookkeeping can see it. 32 leaves margin and is exactly two lanes plus
+the junction between them (12 + 8 + 12).
+
+It was 26, derived the same way against the 18.7 that used to be the top speed. The
+[overdrive band](#overdrive-only-on-a-straightaway) moved the ceiling and the horizon had to move
+with it — 26 is 2.4 units short of a taxi in overdrive's own stopping distance, and a leader that
+appears inside that is a rear-end rather than a lift. Ambient traffic never noticed either number:
+at cruise a leader stops constraining beyond 3.3 units of clear road.
 
 The same walk drives the Loco Mode scatter, which reaches `SCATTER_RANGE = 40` — two blocks.
 
@@ -306,8 +312,9 @@ The other half is the corner rule:
 ```js
 const straightOn = car.dOut === car.d;
 const cruise = car.boost ? SPEED * BOOST_SPEED : SPEED;
+const straightTop = car.boost ? SPEED * OVERDRIVE_SPEED : cruise;
 const boostTurn = car.boost ? (isRight ? cruise * 0.75 : cruise) : CORNER_SPEED;
-const cornerTarget = straightOn ? cruise : boostTurn;
+const cornerTarget = straightOn ? straightTop : boostTurn;
 ```
 
 A boosting taxi doesn't lift for straights or left turns — without that it braked at every junction
@@ -316,6 +323,40 @@ right-hand traffic they cut the near corner instead of sweeping the far diagonal
 the arc is over in ~0.35s against a left's ~0.7s and reads as *sped up*. 0.75× cruise gives the
 tight arc its weight back. It is the only deliberate speed drop left in the mode, and it accounts
 for ~9% of boosted frames.
+
+### Overdrive: only on a straightaway
+
+```js
+OVERDRIVE_SPEED = 2.7   // multiplier on top speed — 22.95 u/s, 67mph
+OVERDRIVE_ACCEL = 2.2   // units/s² through the band — 40 units of straight to use it all
+```
+
+The mode's ceiling is 22.95 u/s, but holding the button is not what buys it. `BOOST_ACCEL` runs out
+at `SPEED · BOOST_SPEED` = 18.7, and the last 4.25 u/s arrive at `OVERDRIVE_ACCEL` instead:
+
+```js
+const boostAccel = (v) => (v < SPEED * BOOST_SPEED ? BOOST_ACCEL : OVERDRIVE_ACCEL);
+```
+
+`(22.95² − 18.7²) / (2 · 2.2)` is **40 units of unbroken straight road** — two blocks on the nose,
+`PITCH` being 20. So the top end sits at the far end of a straightaway and nothing else reaches it:
+a leader inside `LOOKAHEAD`, a red the mode isn't holding, or a corner all cost it, and a corner
+costs it outright — the turn branch clamps a real turn to `cruise` and `BRAKE` is 11, so a left
+sheds the whole band in 0.4s.
+
+Going straight on through a junction *keeps* it, and has to. 40 units of run-up crosses one
+junction and starts on a second, so capping the straight-through at `BOOST_SPEED` — which is what
+the corner rule did before `straightTop` — would have made the band unreachable rather than merely
+hard to reach.
+
+This is the deliberate inverse of the note above about `BOOST_ACCEL`: punch comes from the
+acceleration, so a band that is supposed to be earned gets its acceleration taken away rather than
+its ceiling capped. The two halves are measured separately in `tools/probe.mjs` — the mode's own
+18.7 is back within 0.3 units of a corner exit, and the top end has never been seen inside 28 units
+of straight road.
+
+2.7 rather than something rounder because [the bust chase](#the-bust-chase) runs at 26 and has to
+stay faster than the quarry on its best day; 22.95 leaves the cruiser 3 u/s to close with.
 
 **It stays in its lane and weaves inside it.** The first version slid a full `LANE` out onto the
 road centreline to overtake, and that is what made the mode a lottery: on the centreline the taxi
@@ -362,7 +403,9 @@ calls for a left turn — see [What was still braking it](#what-was-still-brakin
 ### What was still braking it
 
 Loco Mode is meant to be go-go-go, and it wasn't. Attributing every frame the boosting taxi spent
-below its 18.7 u/s cap, over 12 minutes per density:
+below its 18.7 u/s cap, over 12 minutes per density (measured before the overdrive band existed, so
+18.7 is the cap in question here — the limiters are the same either way, they just now also cost
+the band on top):
 
 | what was limiting it | ?cars=12 | 24 | 40 |
 |---|---|---|---|

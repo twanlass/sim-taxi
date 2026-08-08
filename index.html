@@ -43,9 +43,10 @@
         100% { transform: scale(1);    color: #fff;    }
       }
 
-      /* Streak counter — mirrors the money counter at the opposite corner, but starts `hidden`:
-         there's nothing to show until the first successful drop-off. JS un-hides it and animates
-         it in on that first delivery, then bumps the number on every one after. */
+      /* Streak counter — mirrors the money counter at the opposite corner, and like the money
+         counter it's on screen from the first frame reading `0x`. It used to stay hidden until
+         the first drop-off, but an empty corner gives the player nothing to aim at; showing the
+         zero states the goal. JS bumps the number on every delivery. */
       #streak {
         position: fixed; top: 18px; right: 18px;
         font: 600 14px/1.5 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
@@ -54,7 +55,9 @@
         pointer-events: none; user-select: none;
         transform-origin: right center;
       }
-      #streak[hidden] { display: none; }
+      /* Sits outside #hud, so it needs its own shot-mode rule — otherwise every screenshot
+         carries a `0x` in the top-right corner that isn't what the shot is about. */
+      body.shot-mode #streak { display: none; }
       /* Same shape as .money-bumped, but in the taxi's own yellow rather than cash green — the
          streak isn't a payout, and reusing green would read as a second money event. */
       #streak.streak-bumped { animation: streak-bump 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
@@ -428,7 +431,7 @@
     <div id="hud">
       <div class="money">$<span id="money">0</span></div>
     </div>
-    <div id="streak" hidden><span id="streak-count">0</span>x</div>
+    <div id="streak"><span id="streak-count">0</span>x</div>
 
     <button id="boost" type="button" aria-label="Punch It">Punch It</button>
     <div id="rider-finder-stack" role="group" aria-label="Waiting riders"></div>

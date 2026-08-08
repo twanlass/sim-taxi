@@ -33,7 +33,8 @@ const RUN_MARGIN = 26;          // how far off-map it starts and ends
 // hunts the taxi down a junction at a time — see the routing notes on turnAt() below.
 //
 // It drives the *taxi's* Loco Mode: the same weave (locoWeave, shared out of traffic.js), a top
-// speed above the boosting taxi's 18.7 so the gap actually closes, and a hard U-turn when the
+// speed above the boosting taxi's best day — 22.95 at the top of its overdrive band, and that only
+// on a straightaway — so the gap actually closes, and a hard U-turn when the
 // quarry is behind it. The priority corridor follows each leg, which is not a courtesy — the
 // cruiser has no collision or queueing coupling at all, so an un-yielded cross car is a car it
 // drives straight through at 26 units/s.

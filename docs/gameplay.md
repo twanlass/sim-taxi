@@ -452,11 +452,13 @@ longer roll.
 
 ### The streak counter
 
-`N×` at top-right, opposite the money counter. Nothing shows there until the first successful
-drop-off — `updateStreak()` in `main.js` un-hides it and plays a scale/fade-in on that first
-delivery, then bumps the number in the taxi's own yellow (not cash green, so it doesn't read as a
-second money event) on every delivery after. No flight off the taxi the way the payout gets one;
-the streak isn't travelling from anywhere.
+`N×` at top-right, opposite the money counter, and on screen from the first frame reading `0×` —
+same as the money counter starting at `$0`. It used to stay hidden until the first drop-off, but
+an empty corner gives the player nothing to aim at; the visible zero states the goal.
+`updateStreak()` in `main.js` bumps the number in the taxi's own yellow (not cash green, so it
+doesn't read as a second money event) on every delivery, the first one included. No flight off the
+taxi the way the payout gets one; the streak isn't travelling from anywhere. It lives outside
+`#hud`, so shot mode hides it with its own rule rather than inheriting `#hud`'s.
 
 The count is `fares.state.delivered` — the same number the run-end screen's **Fares** stat reads.
 Any fare's clock expiring ends the run outright (there's no separate life to lose), so today a
@@ -707,6 +709,9 @@ A right-on-red still counts; the light was red when the taxi reached the line.
 
 **Top speed is shown in mph** via `speedMph()` in `sim/traffic.js`. World units are metres-ish —
 `CAR_LEN` is 3.4 against a real compact at ~4.4m — which puts one u/s at about 2.9mph and lands
-the numbers where you'd want them anyway: cruise 8.5 → **25mph**, Loco Mode 18.7 → **54mph**.
+the numbers where you'd want them anyway: cruise 8.5 → **25mph**, Loco Mode 18.7 → **54mph**, and
+the top of its [overdrive band](traffic.md#overdrive-only-on-a-straightaway) 22.95 → **67mph**. The
+stat is worth reading now that the top end has to be driven for: 54 says you used the mode, 67 says
+you found two clear blocks in a row to spend it on.
 Nothing in the simulation uses the conversion; it exists so the stat is in a unit a player has a
 feel for.
