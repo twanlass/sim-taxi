@@ -562,18 +562,18 @@ lift = Math.abs(Math.sin(roll)) * (CAR_W / 2)
 Without it, leaning pushes the outer wheels underground. The taxi's ground disc is *not* rolled
 with the body — it used to be, and tilting it into the road caused z-fighting.
 
-## The "Add to Home Screen" nudge
+## The "Add to Home Screen" screen
 
-`src/game/homescreen.js`, styled under `#home-tip` in `index.html`. A small card that says the game
-is best added to the Home Screen, and names the two taps that do it. **iOS only, and only in a
-browser tab.**
+`src/game/homescreen.js`, styled under `#home-tip` in `index.html`. A numbered list of the taps that
+install the game, over a city sunk into black, waiting for one tap to start the run. **iOS only, and
+only in a browser tab.**
 
 It exists because the icons and the web-app meta tags in `index.html` are already there — launching
-from the Home Screen drops Safari's chrome and hands the fixed 3/4 camera the whole screen. In a tab
-the bottom toolbar slides in and out as the page is touched, which resizes the viewport *mid-run*
-and moves the framing under the player. Every other platform's browser offers installation itself
-(Chrome and Edge fire `beforeinstallprompt` and put an affordance in the address bar), so a card
-drawn by the page would be a worse second copy of it; iOS Safari fires nothing and buries the action
+from the Home Screen drops the browser's chrome and hands the fixed 3/4 camera the whole screen. In
+a tab the bottom toolbar slides in and out as the page is touched, which resizes the viewport
+*mid-run* and moves the framing under the player. Every other platform's browser offers installation
+itself (Chrome and Edge fire `beforeinstallprompt` and put an affordance in the address bar), so a
+screen drawn by the page would be a worse second copy of it; iOS fires nothing and buries the action
 in the share sheet, which is why it has to be described in words.
 
 **Detecting it is two questions, each with a trap.** *Is this iOS* — iPadOS 13+ sends a desktop
@@ -583,17 +583,38 @@ installed* — `navigator.standalone` is the iOS-only flag and the only one olde
 `display-mode: standalone` is the standard query and covers Safari 16.4+. Either being true means
 there is nothing to suggest.
 
-It is parked below the money counter rather than at the bottom of the screen, where the Loco Mode
-pill and the rider chips already own the left column from y=26 up to ~300px — a card down there
-would either cover them or be squeezed into the ~270px left over on a phone. Both its lines are too
-long for a phone's width whatever the padding is, so they are `text-wrap: balance`d; left greedy
-each stranded a single word on a second line.
+**The steps are the browser's, not iOS's.** Every iOS browser is WebKit underneath, but they do not
+share a route to the share sheet: Safari puts Share in the toolbar, Chrome and Edge bury it behind
+their own ⋯ and Firefox behind ≡. So Safari's list is two steps and the others' are three, with the
+extra one naming their button. Only the **first** step carries a glyph, because only the first step
+is a hunt — everything after it is a labelled row in a sheet the player is already looking at.
 
-**It is a suggestion, so it stops asking.** Three loads, counted in `localStorage`, and an explicit
-tap ends it immediately — the auto-hide at 11s does not, because a player who never looked at it
-hasn't declined it. `?hometip` forces the card up on any platform, which is the only way to lay it
-out without a phone in hand; `tools/smoke.mjs` checks both directions of the detection under an
-emulated iPhone.
+**It does not hide the city, it sinks it.** The backdrop is a gradient, transparent at the top so
+the skyline and the two HUD counters stay readable, solid black by the time the text starts. Reading
+the game through it is what makes the screen a step on the way in rather than a different place —
+and it means the black behind the list is genuinely black, with no skyline competing with the one
+thing that has to be read.
+
+**It holds the run.** `state.holding` is true from the moment the module decides to show — before
+the screen is visible, because it appears a beat after load and a fare spawned inside that beat is
+exactly the bug. `main.js` skips `fares.update` while it is set, so nothing spawns and no clock
+drains; the traffic keeps driving, which is the point of sinking the city rather than freezing it.
+Without the hold a rider would appear behind the black with a 60-second deadline already running,
+and a player who read the screen slowly would lose a run they had not started.
+
+**One size drives the block, and it is measured rather than guessed.** The steps are `1em` and every
+other size and gap is a ratio of them. `"3. Add to Home Screen"` is eighteen characters of heavy
+type that has to hold one line — wrapping it under its own number breaks the second straight edge
+the grid exists for — on a 320px phone as well as a 430px one, in a font we do not control
+(`ui-rounded` is SF Pro Rounded on iOS and something else wherever this is being developed, and
+rounded faces run wide). So the CSS clamp is the *ideal* and `fitToWidth` only ever scales down from
+it, against the widest line actually rendered. Measured: on a 390px viewport it leaves the ideal
+28px alone under a narrow face and pulls it to 25.5px under a wide one.
+
+**Being shown is being acknowledged**, since the screen has to be dismissed by hand — so it is shown
+once, counted in `localStorage`, and never again. `?hometip` forces it up on any platform, which is
+the only way to lay it out without a phone in hand; `tools/smoke.mjs` checks both directions of the
+detection, the step list, and the run hold under an emulated iPhone.
 
 ## Debug panel
 

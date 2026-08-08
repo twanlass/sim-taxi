@@ -149,10 +149,20 @@ gathered inside a single `Runtime.evaluate`, with no `await` in the middle. Spli
 trips the page renders in between — long enough that a pan reads as having already jumped, which is
 precisely the bug that check exists to catch.
 
-**The Home Screen nudge is checked here for want of anywhere better.** It is a user-agent test
-([rendering.md](rendering.md#the-add-to-home-screen-nudge)), so nothing in the node suite can see
+**The Home Screen screen is checked here for want of anywhere better.** It is a user-agent test
+([rendering.md](rendering.md#the-add-to-home-screen-screen)), so nothing in the node suite can see
 it — and it is invisible on every machine the game is developed on, which is exactly how a broken
 condition ships. The run opens a *second* page under an emulated iPhone, because the emulation has
-to be in place before the navigation. What it asserts on the ordinary page is the **absence of the
-`localStorage` counter**, not the absence of the card: the module writes that key only on a load it
-has decided to show on, whereas a missing card is equally a card that has already timed out.
+to be in place before the navigation. Four things are asserted there, and the two that are easy to
+get subtly wrong are worth naming:
+
+- On the ordinary page, the **absence of the `localStorage` counter** rather than the absence of the
+  screen — the module writes that key only on a load it has decided to show on, whereas a missing
+  overlay is equally one that has already been dismissed.
+- Under the iPhone user-agent, that the steps are **Safari's two**, not Chrome's three. Naming the
+  wrong first tap sends a player after a button that isn't on their screen, and both lists render
+  perfectly well, so only a check that reads the labels catches it.
+
+The other two are the run hold: no fare may exist while the screen is up, and one must appear once
+it is dismissed. The second half matters as much as the first — a hold that is never released is a
+game that never starts.

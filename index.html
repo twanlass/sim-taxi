@@ -374,66 +374,102 @@
       }
       body.shot-mode #dropoff-indicator { display: none; }
 
-      /* --- "Add to Home Screen" nudge — see src/game/homescreen.js -------------
-         iOS in a browser tab only, where there is no install affordance to point at and Safari's
-         disappearing bottom toolbar resizes the viewport mid-run. Parked below the money counter
-         rather than at the bottom of the screen: the bottom-left corner from y=26 up to ~300px is
-         already the Loco Mode pill and the rider chips, and a card down there would either cover
-         them or be squeezed into the ~270px left over on a phone. Up here it collides with nothing
-         — the toast above it clears at ~54px, the counters either side of it end at ~69px. */
+      /* --- "Add to Home Screen" screen — see src/game/homescreen.js -------------
+         iOS in a browser tab only, where there is no install affordance to point at and the
+         disappearing bottom toolbar resizes the viewport mid-run.
+
+         It does not hide the city, it *sinks* it: the gradient is fully transparent at the top, so
+         the skyline and the two HUD counters stay readable, and reaches solid black by the time the
+         text starts. Reading the game through it is what says the screen is a step on the way in
+         rather than a different place — and it means the black behind the list is genuinely black,
+         with no skyline competing with the one thing the player has to read. */
       #home-tip {
-        position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
-        /* Above the flying earnings (25), below the run-end blackout (30). */
+        position: fixed; inset: 0;
+        /* Above the flying earnings (25), below the run-end blackout (30) — a run that somehow
+           ended behind this should still show its own screen on top. */
         z-index: 26;
-        width: max-content; max-width: min(330px, calc(100vw - 32px));
-        /* Only the card itself takes taps. A tap that misses it is a tap on the city, which is
-           what keeps a suggestion from stealing a dispatch. */
-        pointer-events: none; user-select: none;
+        display: flex; flex-direction: column; justify-content: flex-end;
+        background: linear-gradient(to bottom,
+          rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.1) 20%, rgba(0, 0, 0, 0.45) 42%,
+          rgba(0, 0, 0, 0.88) 55%, #000 63%);
+        color: #fff;
+        font-family: ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        /* The whole thing is the dismiss target, as the hint says. No long-press callout, no
+           double-tap zoom pause between the press and the game starting. */
+        cursor: pointer; touch-action: manipulation;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
       }
       #home-tip[hidden] { display: none; }
       body.shot-mode #home-tip, body.game-over #home-tip { display: none; }
 
-      #home-tip .home-tip-card {
-        position: relative; pointer-events: auto; cursor: pointer;
-        padding: 12px 40px 13px 16px; border-radius: 16px;
-        /* The toast's tint, a shade heavier — this one has two lines to hold legible over a bright
-           sky, where the toast has three words. */
-        background: rgba(24, 44, 58, 0.88);
-        box-shadow: 0 6px 22px rgba(10, 25, 35, 0.35);
-        color: #fff; text-align: left;
-        font: 600 13px/1.4 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        /* Tap-to-dismiss: no long-press callout, no double-tap zoom pause before it goes. */
-        -webkit-touch-callout: none; touch-action: manipulation;
+      /* Bottom-anchored, and the bottom inset clears the home indicator on a notched phone. The
+         gutter is a share of the width rather than a fixed pixel count so the block sits the same
+         distance in on a 320px phone as on a 430px one.
+
+         **One size drives the whole block.** The steps are 1em and every other size and gap is a
+         ratio of them, so the block scales as a unit — and so the fit-to-width pass in
+         homescreen.js has exactly one knob to turn. It is clamped against *both* axes: width is
+         what the long third step has to fit across, height is what the whole block has to fit down
+         (a landscape phone is 390px tall, and 7.2vw of an 844px-wide viewport would be 60px type on
+         a screen with no room for it). Same technique as the run-end stats, for the same reason. */
+      #home-tip .home-tip-sheet {
+        font-size: clamp(18px, min(7.2vw, 5vh), 30px);
+        padding-left: clamp(20px, 7.5vw, 46px);
+        padding-right: clamp(20px, 7.5vw, 46px);
+        padding-bottom: calc(1em + env(safe-area-inset-bottom, 0px));
       }
-      /* Both lines are too long for a phone's width and wrap whatever the padding is, so the only
-         question is *where*. Left alone the greedy fill strands a single word on the second line of
-         each ("...adding to / Home", "...Add to Home / Screen"); balancing splits them near the
-         middle instead, which is what stops a two-line card reading as an overflowing one. Ignored
-         by browsers that don't have it, and both wraps are legible either way. */
-      #home-tip .home-tip-title {
-        display: block; font-size: 14px; font-weight: 800; text-wrap: balance;
+
+      #home-tip .home-tip-lead {
+        font-size: 0.87em; font-weight: 600; line-height: 1.25;
+        /* Never wraps: it is one phrase, and a two-line lead pushes the list down the screen and
+           stops the block reading as a heading over a list. The fit pass keeps it honest. */
+        white-space: nowrap;
+        /* A shade under the steps' white: it is the sentence *introducing* the list, and setting
+           both at full strength made the colon read as another step. */
+        color: rgba(255, 255, 255, 0.92);
       }
+
+      /* Two columns — the numbers on one straight edge, the labels on another. `display: contents`
+         on the items drops them out of the layout so each `li`'s two spans become grid items of the
+         same row, which is what holds both edges straight however wide the labels get. (The run-end
+         stats use the same trick for the same reason.)
+
+         Margins in `em` of the steps rather than of the neighbours, so the vertical rhythm is a
+         property of the one size above: both gaps sit on this element, because an `em` margin on
+         the hint would resolve against the hint's own smaller size and quietly halve itself. */
       #home-tip .home-tip-steps {
-        display: block; margin-top: 3px; opacity: 0.86; text-wrap: balance;
+        list-style: none; display: grid; grid-template-columns: auto 1fr;
+        column-gap: 0.4em; row-gap: 0.85em; margin: 0.95em 0 0.9em;
+        font-weight: 800; line-height: 1.15;
       }
-      /* Inline, not flex: the line is text with a glyph in it, and flex would make each run of
-         words its own item and wrap them in the wrong places. Sized in `em` so the icon tracks
-         whatever the line is set at. */
+      #home-tip .home-tip-steps li { display: contents; }
+      /* Tabular figures so 1./2./3. are all the same width and the labels start on one edge even
+           though the numbers are set in the same heavy weight as the words. */
+      #home-tip .home-tip-steps .step-index { font-variant-numeric: tabular-nums; }
+      /* The longest label — "Add to Home Screen" — is what sets the type size on a narrow phone;
+         letting it wrap under its own number instead would break the second edge the grid exists
+         to hold. */
+      #home-tip .home-tip-steps .step-name { white-space: nowrap; }
+
+      /* Sized and positioned in `em` so each glyph tracks the line it sits on. Drawn as strokes,
+         a step down from the label's white — it stands for a control on the browser's chrome, not
+         for another word in the sentence. */
       #home-tip .home-tip-steps svg {
-        width: 1.05em; height: 1.05em; vertical-align: -0.2em; margin: 0 0.08em;
-        fill: none; stroke: #F5C130; stroke-width: 1.9;
+        width: 1.05em; height: 1.05em; vertical-align: -0.19em; margin-left: 0.24em;
+        fill: none; stroke: currentColor; stroke-width: 1.7;
         stroke-linecap: round; stroke-linejoin: round;
+        color: rgba(255, 255, 255, 0.62);
       }
-      /* The share sheet's own wording, in the taxi's yellow — it is the row the player has to find
-         in a long list, so it gets to be the one coloured thing in the sentence. */
-      #home-tip .home-tip-steps b { font-weight: 800; color: #F5C130; }
-      #home-tip .home-tip-close {
-        position: absolute; top: 5px; right: 5px;
-        width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%;
-        background: transparent; color: #fff; opacity: 0.5; cursor: pointer;
-        font-family: inherit; font-size: 13px; font-weight: 700; line-height: 1;
+      /* The dots inside Chrome's ⋯ ring are solid and brighter than the ring itself — that is how
+         the button actually reads at a glance. */
+      #home-tip .home-tip-steps svg .dot { fill: rgba(255, 255, 255, 0.95); stroke: none; }
+
+      #home-tip .home-tip-hint {
+        font-size: 0.52em; font-weight: 600;
+        /* Quiet on purpose. It is an instruction about the screen rather than part of the list, and
+           at full strength it competed with the step it sits under. */
+        color: rgba(255, 255, 255, 0.45);
       }
-      #home-tip .home-tip-close:active { opacity: 0.9; }
 
       /* --- tweak panel --- */
       #dbg-toggle {

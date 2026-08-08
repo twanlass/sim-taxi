@@ -252,8 +252,8 @@ try {
   // only on a load it has decided to show on, so an absent key means the module bowed out — where
   // an absent card could equally be one that has already timed out.
   const SEEN_KEY = 'simtaxi.homescreen.seen';
-  const tipCard = "Boolean(document.querySelector('#home-tip .home-tip-card'))";
-  check('no Home Screen nudge off iOS',
+  const tipSheet = "Boolean(document.querySelector('#home-tip .home-tip-sheet'))";
+  check('no Home Screen screen off iOS',
     (await evaluate(`localStorage.getItem(${JSON.stringify(SEEN_KEY)})`)) === null);
 
   // A second page, this one pretending to be an iPhone. Emulation has to be in place before the
@@ -282,23 +282,49 @@ try {
       return result.value;
     };
 
-    // The card is on a 1.4s timer from load, and this page renders in software — poll rather than
+    // The screen is on a timer from load, and this page renders in software — poll rather than
     // sleeping a guessed amount.
     let shown = false;
     const tipDeadline = Date.now() + 20000;
     while (Date.now() < tipDeadline) {
-      if (await iosEval(tipCard)) { shown = true; break; }
+      if (await iosEval(tipSheet)) { shown = true; break; }
       await sleep(300);
     }
-    check('Home Screen nudge shows on iOS', shown);
+    check('Home Screen screen shows on iOS', shown);
 
     if (shown) {
-      // Tapping it puts it away and keeps it away — the counter goes straight to its cap.
-      await iosEval("document.querySelector('#home-tip .home-tip-card').click()");
+      // The steps have to name *this* browser's route to the share sheet. Under an iPhone Safari
+      // user-agent that is two steps, straight to Share — the three-step "More ⋯" list is Chrome's,
+      // and showing it here would send a Safari player after a button that isn't on their screen.
+      const steps = JSON.parse(await iosEval(
+        "JSON.stringify([...document.querySelectorAll('#home-tip .step-name')].map(s => s.textContent.trim()))",
+      ));
+      check('the steps are the browser\'s own route',
+        JSON.stringify(steps) === JSON.stringify(['Share', 'Add to Home Screen']),
+        steps.join(' → '));
+
+      // The run is parked behind it: no fare may spawn while the screen is waiting to be tapped,
+      // or its 60-second clock is draining under the black.
+      check('the run is held while it is up',
+        (await iosEval('window.__taxi.fares.waitingAll().length')) === 0
+        && (await iosEval('window.__taxi.fares.carrying() === null')));
+
+      // Tapping anywhere puts it away and keeps it away — being shown is being acknowledged.
+      await iosEval("document.getElementById('home-tip')"
+        + ".dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))");
       await sleep(600);
-      check('tapping the nudge dismisses it for good',
+      check('tapping dismisses it for good',
         (await iosEval("document.getElementById('home-tip').hidden"))
-        && (await iosEval(`localStorage.getItem(${JSON.stringify(SEEN_KEY)})`)) === '3');
+        && (await iosEval(`localStorage.getItem(${JSON.stringify(SEEN_KEY)})`)) === '1');
+
+      // And the fare loop starts once it is gone — the hold has to be released, not just hidden.
+      let spawned = false;
+      const spawnDeadline = Date.now() + 20000;
+      while (Date.now() < spawnDeadline) {
+        if (await iosEval('window.__taxi.fares.waitingAll().length > 0')) { spawned = true; break; }
+        await sleep(400);
+      }
+      check('the run starts once it is dismissed', spawned);
     }
 
     iosClient.close();
