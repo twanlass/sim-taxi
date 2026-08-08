@@ -14,7 +14,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph, SPEED } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph, SPEED, CAR_LEN } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -1099,6 +1099,79 @@ check('no two cars occupy the same space', worst > 1.6,
       && fleeSlid < 0.002,
     `peaked at ${fleeTop.toFixed(1)} u/s, stationary at up to ${fleeFrozen.toFixed(2)} u/s, `
     + `weave slid ${fleeSlid.toFixed(4)}/frame`);
+
+  // 4. Overtaking. A boosting taxi with a slower car in front, on a route that carries straight
+  // on, pulls a full lane into the *oncoming* side, goes past, and comes back.
+  //
+  // The invariant that matters most is the one the abandoned version of this failed: the taxi must
+  // never sit on the road centreline. At LANE (2) off its own lane it is 2 from the car it is
+  // passing and 2 from anything coming the other way, both inside collisions.js's 2.31-unit
+  // envelope — which is what made the old overtake "a lottery over which car you died on". The
+  // whole lane is the safe place to be; the centreline is somewhere to pass *through*. Asserted
+  // here as clearance from the car being overtaken, which is the direct form of it.
+  let pI = -1; let pJ = -1; let pD = -1;
+  outerPass: for (let i = 1; i < GRID; i++) {
+    for (let j = 1; j < GRID; j++) {
+      if (ringAxisAt(i, j)) continue;
+      for (const d of [0, 1, 2, 3]) {
+        // Straight on out of this junction, and straight on out of the next, so the pass has road.
+        if (!legalExits(d, i, j).includes(d)) continue;
+        if (approachRoom(d, i, j) < 30) continue;
+        pI = i; pJ = j; pD = d;
+        break outerPass;
+      }
+    }
+  }
+
+  /** Drive a two-car overtake and report what the taxi managed. `held` is the button. */
+  const runOvertake = (held, route) => {
+    const scene = new THREE.Scene();
+    const traffic = createTraffic(makeRng(seed + 167), scene, 2);
+    const [car, lead] = traffic.cars;
+    placeCar(car, pD, pI, pJ, 26); car.parked = false;
+    placeCar(lead, pD, pI, pJ, 14); lead.parked = false;
+    car.route = route; car.routeConsumed = false;
+    lead.route = [pD, pD, pD]; lead.routeConsumed = false;   // stays in front, no random turn-off
+    let peak = 0;
+    let closest = Infinity;
+    let got = false;
+    for (let f = 0; f < 60 * 6; f++) {
+      car.boost = held;
+      car.boostEasing = false;
+      traffic.update(1 / 60);
+      peak = Math.max(peak, car.pass);
+      if (!lead.crashed) {
+        closest = Math.min(closest, Math.hypot(car.x - lead.x, car.z - lead.z));
+        const sgn = dirSign(car.d);
+        const rel = isXAxis(car.d) ? (lead.x - car.x) * sgn : (lead.z - car.z) * sgn;
+        if (rel < -CAR_LEN) got = true;
+      }
+    }
+    return { peak, closest, got };
+  };
+
+  const over = runOvertake(true, [pD, pD, pD]);
+  check('Loco Mode overtakes a slower car by taking the oncoming lane',
+    pD >= 0 && over.peak > 0.95 && over.got,
+    `reached ${(over.peak * 2 * LANE).toFixed(2)} of ${2 * LANE} units across, got by=${over.got}`);
+
+  // 2.31 is the collision envelope in sim/collisions.js — CAR_W * 0.68, doubled. Clearing it by a
+  // margin is the difference between a manoeuvre and a coin flip.
+  check('an overtaking taxi never comes within the collision envelope of the car it passes',
+    pD >= 0 && over.closest > 2.31,
+    `closest approach ${over.closest.toFixed(2)} units, envelope 2.31`);
+
+  // The route gate. A pass always spans a junction — 30-odd units of manoeuvre against a 12-unit
+  // lane — so one that starts before a turn strands the taxi on the wrong side of the road going
+  // into a corner. Turning at the very next junction must not offer one at all.
+  const turnOff = runOvertake(true, [leftOf(pD), pD, pD]);
+  check('no overtake is offered when the route turns at the next junction',
+    pD >= 0 && turnOff.peak < 0.02, `reached ${(turnOff.peak * 2 * LANE).toFixed(2)} units across`);
+
+  // And the control: the pass is the button. Not holding it is not a pass.
+  const coasting = runOvertake(false, [pD, pD, pD]);
+  check('an overtake needs the button held',
+    pD >= 0 && coasting.peak < 0.02, `reached ${(coasting.peak * 2 * LANE).toFixed(2)} units across`);
 
   setPriorityJunction(null);
 }

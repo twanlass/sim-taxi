@@ -558,6 +558,97 @@ the speed cap and the hazard flag stopped being the same boolean. It's also wher
 comes from — the pitch spring downstream reads the deceleration straight off `car.v`, no separate
 animation needed. A re-press mid-cooldown cancels it outright and returns to `'active'`.
 
+### Overtaking
+
+Once nothing else stops the taxi, the car directly in front is the only thing left that does. It
+cannot be gone round *inside* the lane — 4 units wide against a 2.31-unit collision envelope — so
+the taxi goes round outside it: a full lane change into the **oncoming** lane, past, and back.
+
+**The player takes it by keeping the button down.** Holding through a car in front means "go around
+it"; letting go means "tuck in behind". No new control on a HUD that has deliberately few, and the
+button becomes a decision at the one moment it previously made none. It is the one place in
+`traffic.js` that reads the narrower `boost && !boostEasing` rather than `car.boost`: every other
+boost-only rule stays armed through the cooldown tail because those are *hazards* and hazards
+should outlive the release, but this is an input, and letting go has to steer the car back.
+
+**This was built once before and abandoned, and why matters.** The old overtake pulled out to the
+road *centreline*, which is the single worst place on the road:
+
+| | gap to the leader | gap to oncoming |
+|---|---|---|
+| own lane centre | 0 — blocked | 4.0 |
+| **centreline — the old design** | **2.0** | **2.0** |
+| oncoming lane centre | 4.0 | 0 |
+
+Against a 2.31-unit envelope the centreline overlaps *both* lanes at once, so every car it drew
+level with was a crash whichever way that car was pointing — "less a skill than a lottery over
+which car you died on". Committing the *whole* lane is what fixes it: 2·LANE of clearance from the
+car being passed, and zero from anything coming the other way, which is the entire point. The
+centreline is now somewhere the taxi passes *through* in `PASS_FADE` units of road, never somewhere
+it settles. `tools/probe.mjs` asserts the direct form of that — closest approach to the car being
+overtaken, measured at **3.70 units** against the 2.31 envelope.
+
+**Nothing new was needed to make it dangerous.** `sim/collisions.js` tests the taxi against every
+car in world space and is armed for exactly as long as `car.boost` is true, and `car.x/z` already
+carry the lateral offset — so oncoming traffic, and a leader that turns across the taxi mid-pass,
+became live hazards the moment the taxi could be out there. Zero lines of collision code.
+
+#### Sizing it to the city
+
+This is the part that took the measuring. A pass is two lane changes plus the time alongside, and
+the road it needs scales with how far back it starts: closing to a body length past the leader is
+`PASS_TRIGGER + 5` units of relative displacement, and at the ~10 u/s a boosting taxi gains on
+cruising traffic that is **1.83 units of road for every unit of it**. A block is 20 — a 12-unit
+lane and an 8-unit junction — so every pass spans a junction, and the offer only stands where the
+route carries straight on. Across 30 runs at `?cars=22`:
+
+| pull out at | passes/min | got by the car | still behind it when tucking in |
+|---|---|---|---|
+| 20 units (where a leader first costs speed) | 4.6 | 6 | 6 |
+| 14 | 3.4 | 6 | 2 |
+| **10** | **2.6** | **8** | **1** |
+| 8 | 2.5 | 6 | 1 |
+
+Pulling out *later* completes more passes, because at 20 the manoeuvre wants 46 units of road
+against the 32 one straight junction buys and simply runs out of straightaway. Frequency is the
+thing traded away, and it is the right trade: a pass that ends with the taxi tucking back in behind
+the very car it pulled out for is all of the risk and none of the reward.
+
+Asking for *two* straight junctions instead was tried and is worse than either — `route[0]` is
+consumed crossing the first, so a taxi with exactly two fails the test on the far side of it and
+abandons the pass mid-manoeuvre. Measured: 3 of every 4.
+
+#### It pays, and scatter never needed tuning
+
+At `?cars=22`, boost held continuously:
+
+| | without passing | with |
+|---|---|---|
+| ground covered | 18.18 u/s | **19.19** |
+| held up behind a leader | 10.39% of frames | **3.26%** |
+| median time to wreck | 5.1s | 7.3s |
+
+Surviving *longer* is not a mistake. Tailgating at `BOOST_GAP` is where rear-endings and
+turning-car collisions happen, and passing is how the taxi stops doing it — the oncoming lane costs
+3 runs in 30, which is less than the queue it replaces. What passing buys is speed; what it costs
+is a new way to die that you can see coming.
+
+The one coupling that is load-bearing is **suppressing the leader brake while committed**: the taxi
+is going round that car, so measuring its bumper is measuring the wrong lane. Without it the taxi
+sits alongside matching speed — ground 18.18 rather than 19.19, mean pass 1.48s rather than 0.89s,
+and 5 completions instead of 8. It also makes releasing the button a real abort, since the brake
+comes straight back and drops the taxi in behind.
+
+**Scatter, which was expected to be the blocker, turned out not to be.** A car fleeing at
+`SCATTER_SPEED` (2.0× cruise, 17 u/s) against the taxi's 18.7 closes at 1.7 u/s, which is no pass
+at all — so suppressing the flee while passing looked obviously necessary. It measures as an exact
+no-op at both ends of the density ramp: same passes, same completions, ground speed 19.14 *with* it
+against 19.19 without. `PASS_TRIGGER` is why. A car still only 10 units ahead is by construction one
+scatter has already failed to move, because one it moved would have opened the gap past the trigger
+and never been passed at all. The cars the taxi goes round are the ones stuck behind something, and
+telling them to floor it does nothing. Sizing the manoeuvre to the road is what made passing
+possible; the flee was never in the way.
+
 ### Seeing what you're about to hit
 
 Because collision detection is armed only while boosting, the one moment a car hidden behind a

@@ -251,6 +251,62 @@ const SCATTER_SPEED = 2.0;     // multiplier on cruise while fleeing. Just under
                                // it still closes and the flee reads as *not quite enough*.
 const SCATTER_STRAIGHT_W = 0.04;  // what the "carry straight on" turn weight collapses to
 
+// --- Passing ------------------------------------------------------------------
+//
+// Loco Mode's one remaining brake is the car directly in front. Scatter moves it, but a lane is
+// 4 wide against a 2.31-unit collision envelope, so the taxi cannot go round *inside* the lane.
+// It goes round outside it: a full lane change into the **oncoming** lane, past, and back.
+//
+// This was tried once and abandoned, and the reason is worth being precise about, because it is
+// the thing that makes this version work. The old overtake pulled out to the road *centreline*,
+// which is the single worst place on the road — LANE (2) from a same-direction leader and 2 from
+// oncoming, both inside the 2.31 envelope, so every car it drew level with was a crash whichever
+// way that car was pointing. Committing the *whole* lane instead puts 2·LANE (4) between the taxi
+// and the car it is passing, which is clear, and 0 between it and anything coming the other way,
+// which is the entire point. The centreline is now somewhere the taxi passes *through* rather
+// than sits: the change takes PASS_FADE units of road and never settles part-way.
+//
+// Nothing new is needed to make it dangerous. `sim/collisions.js` tests the taxi against every
+// car in world space and is armed for exactly as long as `car.boost` is true, and `car.x/z`
+// already carry the lateral offset — so oncoming traffic, and a leader that turns across the
+// taxi mid-pass, are both live hazards the moment the taxi is out there.
+//
+// Sizing: from the lane centre to the oncoming lane centre is 2·LANE. The manoeuvre is the two
+// lane changes plus the time alongside — from BOOST_GAP behind to MIN_GAP ahead is 9.8 units of
+// relative displacement, about a second at the 10.2 u/s a boosting taxi closes on cruising
+// traffic — so roughly 2 · PASS_FADE + 18 ≈ 32 units of road. A block is 20 (a 12-unit lane and
+// an 8-unit junction), so a pass **cannot** finish inside one lane: it always spans a junction.
+// That is why it is offered only where the route carries straight on, and why the offer
+// disappears — and the taxi tucks back in — the moment the next junction is a turn.
+const PASS_LATERAL = 2 * LANE;   // 4 units: our lane centre to the oncoming lane centre
+const PASS_FADE = 7;             // units of road for the full lane change — atan(4/7) ≈ 30° of yaw
+// Where the taxi pulls out, and the number the whole manoeuvre is sized by. Closing to a body
+// length past the leader is (PASS_TRIGGER + 5) units of relative displacement, and at the ~10 u/s
+// a boosting taxi gains on cruising traffic that is 1.83 units of road for every unit of it. At
+// 20 — the gap where a leader first starts costing the taxi speed, and the obvious place to go —
+// the pass wants 46 units of road against the 32 one straight junction buys, so it ran out of
+// straightaway and tucked back in behind the very car it pulled out for half the time. Measured
+// across 30 runs at ?cars=22: 20 units completed 6 passes of 12, 14 completed 6 of 8, and 10
+// completes 8 of 9. Pulling out later costs some frequency (4.6/min -> 2.6) and buys a manoeuvre
+// that actually fits the city.
+const PASS_TRIGGER = 10;
+const PASS_SUSTAIN = 32;         // keeps it committed once out; matches LOOKAHEAD, declared later
+//
+// Scatter was expected to need tuning for any of this to work — a car fleeing at SCATTER_SPEED
+// (2.0x cruise, 17 u/s) against the taxi's 18.7 closes at 1.7 u/s, which is no pass at all. It
+// does not, and the reason is worth writing down so nobody spends the afternoon again. Suppressing
+// the flee while the taxi is committed measures as an exact no-op at both ends of the density ramp
+// — same passes, same completions, ground speed 19.14 against 19.19 u/s *without* it. PASS_TRIGGER
+// is why: a car still only 10 units ahead is by construction a car scatter has already failed to
+// move, because one it moved would have opened the gap past the trigger and never been passed at
+// all. The cars the taxi goes round are the ones stuck behind something, and telling them to floor
+// it does nothing. Sizing the manoeuvre to the road is what made passing possible; the flee was
+// never the obstacle.
+//
+// (Worth knowing if that is ever revisited: suppressing only the same-lane `mark` is *always* a
+// no-op, whatever else is true, because on a straight route the "exit lane" is the taxi's own lane
+// past the junction and `markExit` re-marks every car the first call skipped.)
+
 /**
  * How rattled a car should be right now: 1 next to the siren, 0 outside PANIC_RANGE, and only
  * ever non-zero for cars on the very road the police is running down. A junction is on two roads,
@@ -678,6 +734,12 @@ function spawnCars(rng, count, into = [], accept = null) {
       prevTravelled: 0,
       swerve: 0,       // 0..1 envelope on the Loco Mode weave, faded in and out with the boost
       swervePhase: 0,  // distance driven straight, the weave's argument — see SWERVE_* above
+      // Overtaking. `pass` is 0 in lane and 1 out in the oncoming lane, paced by distance like
+      // the weave; `passing` is whether the taxi is currently committed, which is what suppresses
+      // the leader brake and the scatter that would otherwise outrun it. Ambient cars never pass.
+      pass: 0,
+      passing: false,
+      passSlope: 0,    // d(offset)/d(road) while changing lane — the tangent of the steering angle
       // Ambient cars leave `route` empty and fall through to random turns. The taxi's route is
       // filled in by the game layer; see the turn decision below.
       route: [],
@@ -1353,6 +1415,63 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
       ));
     };
 
+    // --- Passing: the boosting taxi goes round, on the wrong side of the road.
+    //
+    // The offer stands only where a pass can physically finish — see PASS_* above. The player
+    // takes it by *keeping the button down*, which is the whole control: holding through a car in
+    // front means "go around it", and letting go means "tuck in behind". No new control on a HUD
+    // that has deliberately few, and the button becomes a decision at the one moment it currently
+    // makes none.
+    //
+    // Keyed on the button actually being held rather than on `car.boost`, which is the one place
+    // in the file that wants the narrower flag: every other boost-only rule stays armed through
+    // the cooldown tail because those are *hazards*, and hazards should outlive the release. This
+    // is an input. Letting go has to steer the car back.
+    if (taxiActive) {
+      const gap = leaderDist.get(taxi);
+      const locoHeld = taxi.boost && !taxi.boostEasing;
+      // A pass needs somewhere to go and somewhere to finish: an oncoming lane to borrow, and a
+      // route that carries straight on rather than turning out of the manoeuvre half way through.
+      // `route[0]` advances as each junction is consumed, so this goes false by itself on the far
+      // side of the junction the pass crossed, and the tuck-in starts with a lane still to do it.
+      // Somewhere to go and somewhere to finish: an oncoming lane to borrow, and a route that
+      // carries straight on through the junction ahead rather than turning out of the manoeuvre
+      // half way through. `route[0]` is consumed as each junction is crossed, so this goes false
+      // by itself on the far side of the one the pass spanned — and the tuck-in gets a whole
+      // lane to happen in, against the PASS_FADE it needs.
+      //
+      // One junction, not two. Two was tried, on the grounds that a pass wants more road than one
+      // buys, and it is worse than either: a taxi with exactly two fails the test after crossing
+      // the first and abandons the pass mid-manoeuvre — 3 of every 4, measured. Sizing the
+      // manoeuvre to the road with PASS_TRIGGER is what fixed it instead.
+      const room = taxi.route?.[0] === taxi.d
+        && Boolean(net.laneByGrid(opposite(taxi.d), taxi.i, taxi.j));
+      // Hysteresis: pull out when the leader starts costing speed, stay out until it is properly
+      // behind. Without the second number the taxi flutters in and out around the trigger.
+      const near = gap !== undefined && gap < (taxi.passing ? PASS_SUSTAIN : PASS_TRIGGER);
+      // Only re-decided on a lane. Every pass spans a junction by construction — 32 units of
+      // manoeuvre against a 12-unit lane — so re-deciding mid-crossing would drop the commitment
+      // in the middle of exactly the manoeuvre it exists to hold, and hand the leader brake and
+      // the scatter back at the worst possible moment. There is nothing to decide there anyway:
+      // the offset is frozen through a junction, so the taxi comes out the far side on the side
+      // of the road it went in on, and the next lane re-asks the question with `route[0]` already
+      // advanced to the step beyond.
+      if (taxi.state === 'drive') taxi.passing = locoHeld && room && near;
+
+      // Paced by distance and frozen mid-junction, both for the same reasons the weave is: a
+      // time-paced offset slides a stopped car sideways, and a lane change that ran through a
+      // corner would peel the car off its own arc. Freezing also means a pass that crosses a
+      // junction — which every pass does — comes out the far side at the offset it went in on.
+      const ds = taxi.state === 'drive' ? taxi.v * dt : 0;
+      const delta = (taxi.passing ? 1 : 0) - taxi.pass;
+      const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / PASS_FADE);
+      taxi.pass += step;
+      // The offset is a function of distance, so its slope *is* the tangent of the steering angle
+      // — same trick as the weave, and it needs no easing because the ramp is already smooth. It
+      // falls to zero of its own accord once the car is settled in either lane.
+      taxi.passSlope = ds > 0.0001 ? (step * PASS_LATERAL) / ds : 0;
+    }
+
     // --- Who is in the boosting taxi's way?
     //
     // Both the lane it is driving and the lane it is about to land in: a queue sitting on the
@@ -1370,6 +1489,21 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
       // so the cars that would fail that check are exactly the ones told to move.
       const markExit = (lane) => mark(lane, -MIN_GAP * 1.5);
 
+      // Nothing scatters while the taxi is passing. Scatter's premise is "the car in front is in
+      // my way", and a taxi that has committed to going round it has answered that a different
+      // way. Left on it defeats the pass outright: a fleeing car runs at SCATTER_SPEED (2.0x
+      // cruise, 17 u/s) against the taxi's 18.7, so the ~15 units of relative displacement a pass
+      // needs would take nine seconds, against the one a straightaway is worth.
+      //
+      // *Both* marks, which is not obvious and was got wrong first. Suppressing only the
+      // same-lane one measured as an exact no-op — same passes, same completions, to the frame —
+      // because on a straight route the "exit lane" *is* the taxi's own lane past the junction,
+      // so `markExit` re-marked every car the first call had just been stopped from marking.
+      // Skipping both is worth 2.6 -> 3.4 passes/min at ?cars=22.
+      //
+      // Suppressing here rather than lowering SCATTER_SPEED is what keeps the flee at full
+      // strength everywhere it is still the right answer: every car the taxi is *not* going
+      // round, which is nearly all of them.
       if (taxi.state === 'drive') {
         mark(taxi.lane, taxi.s);
         // Only once the junction is close enough to matter — otherwise every car on every road
@@ -1378,7 +1512,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
           const turn = exitToward(net, taxi.lane, taxi.route?.length ? taxi.route[0] : taxi.d);
           if (turn) markExit(net.laneById.get(turn.outLane));
         }
-      } else {
+      } else if (taxi.state !== 'drive') {
         markExit(net.laneById.get(taxi.turn.outLane));
       }
     }
@@ -1434,7 +1568,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
         // centreline and went round. In its own lane it has to see the leader or it drives into
         // the back of it, so it tailgates at BOOST_GAP instead: still visibly impatient, still
         // clear of the collision envelope, and it takes the gap the instant the leader turns off.
-        const ahead = leaderDist.get(car);
+        // Not while committed to a pass: the taxi is going *round* this car, so measuring its
+        // bumper is measuring the wrong lane. It comes straight back the moment the commitment
+        // lapses, which is what makes letting go of the button a real abort — the taxi drops back
+        // behind the car it was passing under ordinary braking instead of sitting alongside it
+        // matching speed forever.
+        const ahead = car.passing ? undefined : leaderDist.get(car);
         if (ahead !== undefined) {
           const gap = car.boost ? BOOST_GAP : MIN_GAP;
           allowed = Math.min(allowed, Math.max(0, ahead - gap));
@@ -1759,11 +1898,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
       //
       // Order matters — the offset is perpendicular to the *lane*, so it has to be taken off the
       // unsteered heading before the steering angle is added on top.
-      if (Math.abs(car.lateral) > 0.001) {
-        car.x -= Math.sin(car.yaw) * car.lateral;
-        car.z -= Math.cos(car.yaw) * car.lateral;
+      // The weave and the overtake are the same kind of thing — a lane-relative offset the
+      // simulation does not know about — so they compose here rather than fighting over one
+      // field. Keeping them apart matters: the weave's yaw is eased toward its target every
+      // frame, and folding a 4-unit lane change into that eased value would have the ease drag
+      // the car back out of the pass.
+      const lateral = car.lateral + car.pass * PASS_LATERAL;
+      if (Math.abs(lateral) > 0.001) {
+        car.x -= Math.sin(car.yaw) * lateral;
+        car.z -= Math.cos(car.yaw) * lateral;
       }
-      if (car.steer) car.yaw += car.steer;
+      const steer = car.steer + (car.passSlope ? Math.atan(car.passSlope) : 0);
+      if (steer) car.yaw += steer;
 
       // --- Front wheels point where the car is going.
       //

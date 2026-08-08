@@ -794,6 +794,16 @@ While active the taxi runs at 2.2× speed, forces its next junction green, doesn
 corners, lays **skid marks** off the line and through turns, and kicks up **dust**. See
 [rendering.md](rendering.md#effects) for how those two are drawn.
 
+**And it overtakes.** A slower car in front on a straight road is no longer something to sit
+behind: **keep holding the button and the taxi pulls a full lane into the oncoming side, goes
+past, and comes back.** Letting go is the abort — it tucks in behind instead. So the button stops
+being a throttle at exactly the moment it gets interesting and becomes a question: is that lane
+clear enough, and is that car about to turn across you? Nothing protects you either way. Collision
+detection is armed for the whole of Loco Mode, so an oncoming car is the run. It buys real speed —
+time stuck behind traffic drops from 10.4% of boosting to 3.3% — and the numbers, the geometry and
+the reason an earlier version of this was abandoned are all in
+[traffic.md](traffic.md#overtaking).
+
 **And it does not stop.** Not for a full exit lane, not for a car stranded in the box, not to
 yield on a left — the three ambient courtesies that could still bring it to a halt at a junction
 its priority hold had already turned green. Driving into a junction with something in it ends the
