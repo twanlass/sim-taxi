@@ -18,10 +18,11 @@ import { VIEW_DIR } from './camera.js';
 // spends the 60 seconds the player is about to need. Nothing auto-advances: both beats wait for a
 // tap, because a tutorial on a timer is one the slower reader loses.
 
-// Both lines, in the order they are spoken. Kept together so the whole script is one thing to read.
+// Every line, in the order it is spoken. Kept together so the whole script is one thing to read.
 const LINES = {
   taxi: "Let's pick up some rides and earn some cash.",
-  rider: 'Tap this rider to start',
+  rider: 'Tap this rider to start.',
+  boost: 'Hold to floor it',
 };
 
 // Typing speed. ~38 chars/sec — fast enough that a reader is never waiting on the machine, slow
@@ -38,6 +39,16 @@ const CLOSE_MS = 220;
 // A beat between the first bubble leaving and the camera setting off for the rider, so the two
 // moves read as consecutive rather than as one interrupting the other.
 const HANDOFF = 0.35;
+
+// The third beat fires when the taxi is half way to its first pickup — far enough in that the
+// player has watched the car drive itself for a few seconds and is ready to hear it could be doing
+// that faster, and still with half the trip left to try it on. The floor stops it landing on top of
+// the second bubble's dismissal when the rider happens to be a block away.
+const BOOST_HINT_AT = 0.5;
+const BOOST_HINT_DELAY = 1.5;
+// Unlike the first two, this beat gates nothing — the run is live and the clocks are running, so it
+// cannot sit there until it is tapped. Long enough to read twice after the line lands.
+const BOOST_HINT_LINGER = 6;
 
 // Gentler than the boost chase (3.2) and a touch firmer than the ambient opening follow (1.5): the
 // bubble is talking about this car *now*, so it wants to be centred while the line is still typing,
@@ -158,9 +169,11 @@ function createAvatar(sun, hemi) {
  *
  * A tap mid-type finishes the line rather than dismissing it — the standard convention, and the one
  * that stops an eager first tap throwing away a sentence nobody has read yet.
+ *
+ * The tap does not have to land on the bubble; see the window listener in createTutorial. Which is
+ * why `tap()` is a method rather than a click handler bound in here.
  */
 function createBubble(root, { sun, hemi }, onDismiss) {
-  const button = root.querySelector('.coach-bubble');
   const ghost = root.querySelector('.coach-ghost');
   const typed = root.querySelector('.coach-typed');
   const avatarSlot = root.querySelector('.coach-avatar');
@@ -180,14 +193,19 @@ function createBubble(root, { sun, hemi }, onDismiss) {
     typed.textContent = text;
   };
 
-  button.addEventListener('click', () => {
-    if (!root.classList.contains('is-open')) return;
-    if (isTyping()) { finishTyping(); return; }
-    onDismiss();
-  });
-
   return {
     avatar,
+    isTyping,
+    /**
+     * Advance. Returns false if there was nothing up to advance, so the caller can tell a tap that
+     * did something from one that fell through to the game underneath.
+     */
+    tap() {
+      if (root.hidden || !root.classList.contains('is-open')) return false;
+      if (isTyping()) { finishTyping(); return true; }
+      onDismiss();
+      return true;
+    },
     show(line) {
       if (closing) { clearTimeout(closing); closing = null; }
       text = line;
@@ -239,6 +257,21 @@ function createBubble(root, { sun, hemi }, onDismiss) {
 const POOL_CLEAR = 6;
 const POOL_EDGE = 17;
 
+// The steps that own the camera, and the steps that are a bubble waiting to be answered. Everything
+// after the second dismissal is neither: the run is live, the player is driving, and the third beat
+// is a note in the corner rather than something standing in front of the game.
+const CAMERA_STEPS = new Set(['taxi', 'toRider', 'rider', 'restore']);
+const GATED_STEPS = new Set(['taxi', 'toRider', 'rider']);
+
+/**
+ * Road distance between two points, near enough. Manhattan rather than straight-line because the
+ * taxi drives a grid: on an L-shaped trip — forty units east then forty south — the straight-line
+ * distance is 56.6 at the start and still 40 at the actual halfway corner, which is 71% of it, so
+ * a "halfway" measured that way does not fire until nearly four fifths of the drive is done.
+ * Summing the axes gives 80 and 40, and half is half.
+ */
+const blockDistance = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
+
 /**
  * Wire the tutorial up.
  *
@@ -257,13 +290,20 @@ const POOL_EDGE = 17;
  * @param waitingFare   () => fare | null — whoever is on the kerb to point at
  * @param fareLocation  (fare) => {x, z} — the kerb corner to centre, not the junction
  * @param isDispatched  () => boolean — has the player sent the taxi at anyone yet
+ * @param isCarrying    () => boolean — a rider is aboard, so the first pickup has happened
+ * @param headingFor    () => {x, z} | null — where the taxi is currently routed, for measuring how
+ *                      far through its first trip it is
  * @param isOver        () => boolean — run ended under the tutorial (a wreck, say); drop everything
- * @param onRunning     (running: boolean) => void — fires on start and on dismissal; main.js holds
- *                      the fare clocks and the HUD's entrance between the two
+ * @param shouldIgnoreTap () => boolean — true for the click that closes out a camera drag, so a
+ *                      swipe does not also dismiss the bubble it dragged past
+ * @param onRunning     (running: boolean) => void — fires on start and on the *second* dismissal;
+ *                      main.js holds the fare clocks and the HUD's entrance between the two. The
+ *                      third beat is deliberately outside it — the run is live by then.
  */
 export function createTutorial({
   controller, aspect, isNarrow, taxi, lights, project, pixelsPerUnit,
-  waitingFare, fareLocation, isDispatched, isOver = () => false, onRunning = () => {},
+  waitingFare, fareLocation, isDispatched, isCarrying = () => false, headingFor = () => null,
+  isOver = () => false, shouldIgnoreTap = () => false, onRunning = () => {},
 }) {
   const root = document.getElementById('coach');
   const idle = {
@@ -276,9 +316,14 @@ export function createTutorial({
   };
   if (!root) return idle;
 
-  // 'taxi' → 'toRider' → 'rider' → 'restore' → 'done'. `restore` only exists on a wide viewport,
-  // where nothing else would ever put the default whole-city framing back.
+  // 'taxi' → 'toRider' → 'rider' → 'restore' → 'toBoost' → 'boost' → 'done'. `restore` only exists
+  // on a wide viewport, where nothing else would ever put the default whole-city framing back;
+  // `toBoost` is the drive to the first pickup, with nothing on screen.
   const state = { step: 'taxi' };
+  // The first trip, for the third beat's halfway mark.
+  let tripTo = null;
+  let tripStart = 0;
+  let linger = 0;
   let elapsed = 0;
   let wait = 0;
   let panned = false;
@@ -311,7 +356,9 @@ export function createTutorial({
     if (state.step === 'done') return;
     state.step = 'done';
     bubble.hide();
-    document.body.classList.remove('coach-open', 'spotlight-on');
+    document.body.classList.remove('coach-open', 'spotlight-on', 'coach-boost');
+    root.classList.remove('at-boost');
+    window.removeEventListener('click', onTap);
     onRunning(false);
     // The context is no use to anyone once the bubble is gone for good. Held until the exit
     // animation has played — the avatar is still spinning through it.
@@ -326,25 +373,51 @@ export function createTutorial({
       wait = HANDOFF;
       return;
     }
-    if (state.step === 'rider') finish();
+    if (state.step === 'rider') { finish(); return; }
+    if (state.step === 'boost') end();
   }
 
-  /** Last beat answered (or skipped). Put the framing back on a desktop, then stop. */
+  /**
+   * Second beat answered (or skipped). This is where the tutorial stops standing in front of the
+   * game: the clocks start, the HUD slides in, and the framing goes back where it was on a desktop.
+   * What is left after it — the drive to the first pickup and the boost hint at the halfway mark —
+   * happens alongside a live run rather than instead of one.
+   */
   function finish() {
-    if (state.step === 'restore' || state.step === 'done') return;
+    if (!GATED_STEPS.has(state.step)) return;
     bubble.hide();
     // The lights come up with the bubble's dismissal, not with the end of the restore glide —
     // holding the city dark through a camera move the player did not ask for reads as the tutorial
     // still having something to say.
     document.body.classList.remove('coach-open', 'spotlight-on');
     onRunning(false);
+    wait = BOOST_HINT_DELAY;
     if (!isNarrow() && !cameraReleased) {
       state.step = 'restore';
       controller.glideTo(home.x, home.z);
       return;
     }
-    end();
+    state.step = 'toBoost';
   }
+
+  /** Third beat: the Loco Mode pill, called out while the player watches the taxi drive itself. */
+  function showBoostHint() {
+    state.step = 'boost';
+    linger = BOOST_HINT_LINGER;
+    // Pulses the pill itself, so the bubble is not the only thing saying which control it means.
+    document.body.classList.add('coach-boost');
+    // Sits higher than the first two beats — see #coach.at-boost. The rider chips are live now.
+    root.classList.add('at-boost');
+    bubble.show(LINES.boost);
+  }
+
+  // One handler for the whole screen, not a click on the bubble: a tap anywhere advances. It stays
+  // on `window` rather than an overlay so the tap still reaches the city underneath — on the second
+  // beat the whole lesson is the tap landing on the rider, and a full-screen catcher would eat the
+  // one gesture being taught. `shouldIgnoreTap` is the same guard the picker uses, so a swipe that
+  // dragged the map does not also count as an answer.
+  const onTap = () => { if (!shouldIgnoreTap()) bubble.tap(); };
+  window.addEventListener('click', onTap);
 
   document.body.classList.add('coach-open');
   updateSpotlight();                      // aim it before it fades up, or it blooms from the centre
@@ -363,10 +436,10 @@ export function createTutorial({
 
     // The player found a rider and tapped them without waiting to be told — nothing stops them, and
     // they have just done the whole of beat two unprompted. Get out of the way rather than teaching
-    // it back to them. Load-bearing beyond the manners: the fare clocks are held while this is
-    // running, so a bubble left up over a taxi that is already driving a fare would freeze that
+    // it back to them. Load-bearing beyond the manners: the fare clocks are held through the gated
+    // beats, so a bubble left up over a taxi that is already driving a fare would freeze that
     // fare's countdown for the entire delivery.
-    if (state.step !== 'restore' && isDispatched()) { finish(); return; }
+    if (GATED_STEPS.has(state.step) && isDispatched()) { finish(); return; }
 
     if (state.step === 'toRider') {
       if (wait > 0) { wait -= dt; return; }
@@ -392,7 +465,31 @@ export function createTutorial({
 
     // (Tapping the rider is the lesson, and landing it dismisses the bubble without needing a
     // second tap on the bubble itself — that is the `isDispatched` check at the top.)
-    if (state.step === 'restore' && !controller.isGliding()) end();
+    if (state.step === 'restore' && !controller.isGliding()) state.step = 'toBoost';
+
+    if (state.step === 'toBoost') {
+      if (wait > 0) { wait -= dt; return; }
+      if (!tripTo) {
+        // Measured off wherever the taxi is actually routed rather than off the fare, so a player
+        // who dismissed the second bubble without picking anyone gets the hint on whatever trip
+        // they do start — and gets nothing at all until they start one.
+        const at = headingFor();
+        if (!at) return;
+        tripTo = at;
+        tripStart = blockDistance(taxi, at);
+      }
+      // Half way there — or already arrived, which is the same cue a block early when the first
+      // rider happened to be around the corner.
+      if (isCarrying() || blockDistance(taxi, tripTo) <= tripStart * BOOST_HINT_AT) showBoostHint();
+      return;
+    }
+
+    // Nothing is waiting on this one — the run is live and the clocks are running — so it times
+    // itself out rather than sitting over the road until someone taps it.
+    if (state.step === 'boost' && !bubble.isTyping()) {
+      linger -= dt;
+      if (linger <= 0) end();
+    }
   }
 
   return {
@@ -409,7 +506,7 @@ export function createTutorial({
       }
       return controller.updateGlide(dt, aspect());
     },
-    holdsCamera: () => state.step !== 'done' && !cameraReleased,
+    holdsCamera: () => CAMERA_STEPS.has(state.step) && !cameraReleased,
     /**
      * The player has taken the framing over — a swipe. Give up the camera but keep talking: the
      * lesson is still worth reading, it just stops dragging the map around while they read it.

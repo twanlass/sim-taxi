@@ -15,8 +15,9 @@ behind it that aren't obvious from the code.
 
 ## The 60-second version
 
-A run opens with two speech bubbles from the taxi — "this car is you", then "tap that rider" — and
-that is the whole tutorial; see [the opening tutorial](gameplay.md#the-opening-tutorial).
+A run opens with three speech bubbles from the taxi — "this car is you", "tap that rider", and a nod
+at the boost pill halfway to the first pickup — and that is the whole tutorial; see
+[the opening tutorial](gameplay.md#the-opening-tutorial).
 
 A 5×5 block city on a fixed 3/4 orthographic camera. Ambient cars drive a lane-following traffic
 model with real signals. **The player's taxi is one of those cars** — the only difference is that

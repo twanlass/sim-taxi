@@ -457,7 +457,17 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // Any fare the player has actually sent the taxi at — including one they found and tapped on the
   // map while the first bubble was still up.
   isDispatched: () => Boolean(fares.carrying() || fares.state.fares.some((f) => f.directed)),
+  isCarrying: () => Boolean(fares.carrying()),
+  // Where the taxi is routed right now, for measuring how far through its first trip it is. The
+  // kerb corner again, since that is what the arrival radius is measured against.
+  headingFor: () => {
+    const to = traffic.taxi.pendingTarget;
+    return to ? cornerFor(to.i, to.j) : null;
+  },
   isOver: () => fares.state.gameOver,
+  // The same guard the picker uses: the click a mouse synthesises at the end of a drag must not
+  // count as an answer to the bubble the player was dragging past.
+  shouldIgnoreTap: () => Boolean(pan?.didPan()),
   // Hold every fare's countdown for as long as the tutorial is talking. It ends on the player's
   // tap, so the clock they are taught with is the full sixty seconds.
   onRunning: (running) => {
@@ -710,6 +720,10 @@ function updateBoostButton(dt) {
 function pressBoost(event) {
   if (fares.state.gameOver) return;
   event.preventDefault();
+  // Doing the thing the third bubble is asking for answers it. Called explicitly rather than left
+  // to the tutorial's window-level tap handler, because the preventDefault above can suppress the
+  // click a touch would otherwise synthesise — so on a phone the hint would outstay its own lesson.
+  tutorial?.dismiss();
   boostButton.setPointerCapture?.(event.pointerId);
   if (boost.press()) {
     flash('Loco Mode!');

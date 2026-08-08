@@ -4,17 +4,23 @@
 
 `src/game/tutorial.js`, with its markup and styling in `index.html` under `#coach`. A white speech
 bubble in the bottom centre with the player's own taxi turning beside the text, tail on top pointing
-up at whatever it is talking about, and the line typing itself out. **Two beats, and that is all of
-it:**
+up at whatever it is talking about, and the line typing itself out. **Three beats, and that is all
+of it:**
 
 1. **"Let's pick up some rides and earn some cash."** The camera follows the taxi while it types and
    a spotlight picks it out of a darkened city. The one thing a new player cannot work out by
    looking is which of the hundred cars down there is theirs — so the car itself says it, and both
-   the camera and the light land on it. Tap to dismiss.
-2. **"Tap this rider to start"** The spotlight moves to the waiting fare as the camera sets
-   off for them, so the light is already on the rider and the pan carries the player to it; the
-   bubble comes back once the camera has arrived. Tapping the rider ends the tutorial; so does
-   tapping the bubble.
+   the camera and the light land on it.
+2. **"Tap this rider to start."** The spotlight moves to the waiting fare as the camera sets off for
+   them, so the light is already on the rider and the pan carries the player to it; the bubble comes
+   back once the camera has arrived. Tapping the rider answers it directly.
+3. **"Hold to floor it"** — the Loco Mode pill, called out at the halfway mark of the first trip,
+   with the pill itself pulsing so the text is not the only thing saying which control it means.
+
+**A tap anywhere advances**, not just a tap on the bubble. The listener is on `window` rather than a
+full-screen catcher, so the tap still reaches the city underneath — on the second beat the whole
+lesson is the tap landing on the rider, and an overlay would eat the one gesture being taught. It
+shares the picker's `didPan()` guard, so a swipe that dragged the map is not also an answer.
 
 The avatar is the real `createTaxiMesh()` in its own small WebGL context, the way each rider-finder
 chip owns one — so the car in the bubble is the car on the road and cannot drift out of step when
@@ -51,14 +57,32 @@ animate their own transform — the money bump, the streak bump, the Loco Mode p
 top-up flutter — and a `body.hud-ready #boost { transform: none }` outranks `#boost:active` on
 specificity, which would quietly kill the press feedback for the rest of the run.
 
-Nothing else is taught. The drop-off [dispatches itself](#the-drop-off-dispatches-itself), the
-clock is [a coloured crystal over a head](#the-fares-clock-travels), and Loco Mode is a pill with a
-label on it — none of those need a sentence, and every extra beat is one more thing between the
-player and the game.
+Nothing else is taught. The drop-off [dispatches itself](#the-drop-off-dispatches-itself) and the
+clock is [a coloured crystal over a head](#the-fares-clock-travels) — neither needs a sentence, and
+every extra beat is one more thing between the player and the game.
+
+### The third beat is not like the other two
+
+The first two stand in front of the game: the clocks are held, the camera is theirs, and each waits
+to be answered. The third runs *alongside* a live run — the player is driving, the clocks are
+counting — so it gates nothing, holds nothing, and times itself out after
+`BOOST_HINT_LINGER` rather than sitting over the road until someone taps it. Pressing Punch It
+dismisses it too, since doing the thing it asks for answers it. (That call is explicit rather than
+left to the window tap handler: `pressBoost` calls `preventDefault`, which can suppress the click a
+touch would otherwise synthesise, so on a phone the hint would outstay its own lesson.)
+
+Its bubble sits higher than the other two (`#coach.at-boost`) because it cannot hide the rider-finder
+chips to make room the way the gated beats do — those are a control the player is now using.
+
+**Halfway is measured in Manhattan distance, not straight-line.** The taxi drives a grid: on an
+L-shaped trip — forty units east then forty south — the straight-line distance is 56.6 at the start
+and still 40 at the actual halfway corner, which is 71% of it, so a "halfway" measured that way does
+not fire until nearly four fifths of the drive is done. Summing the axes gives 80 and 40, and half
+is half.
 
 ### It does not spend the player's clock
 
-`fares.setPaused` holds every fare's countdown while the bubble is up. Only the countdown: fares
+`fares.setPaused` holds every fare's countdown through the two gated beats. Only the countdown: fares
 still spawn, riders still wave, diamonds still bob, and the city carries on behind the bubble. A
 tutorial that taught you how to pick someone up out of the sixty seconds you need to *deliver* them
 would be charging for its own lesson. The spawn toast is suppressed for the same reason — the first

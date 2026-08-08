@@ -396,6 +396,11 @@
         pointer-events: none; user-select: none; -webkit-user-select: none;
       }
       #coach[hidden] { display: none; }
+      /* The third beat runs alongside a live game, so unlike the first two it cannot hide the rider
+         chips to make room — they are a control the player is now using. It sits above the stack
+         instead: one chip tops out at 155 + 49 = 204, and there is only ever one fare on the board
+         during the drive to the first pickup. */
+      #coach.at-boost { bottom: 210px; }
       /* Never over a screenshot, and never over the retry screen: the run is the thing then. */
       body.shot-mode #coach, body.game-over #coach { display: none; }
       /* One tap target at a time. The chips are a second way to pick the rider the bubble is
@@ -523,6 +528,23 @@
       body.hud-ready #boost, body.hud-ready #rider-finder-stack { opacity: 1; translate: 0 0; }
       /* Staggered, top corners first then the bottom ones, so four elements arriving at once read
          as a HUD assembling rather than as a single fade. */
+      /* The third beat's other half: the pill pulses while the bubble talks about it, so the text
+         is not the only thing saying which control it means.
+
+         Box-shadow and nothing else. Every other state this pill can be in animates its `transform`
+         — the press dip, the top-up flutter — and a keyframe animation outranks all of them, so a
+         pulse that scaled would silently kill the press feedback for as long as it ran. */
+      @keyframes coach-boost-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(245, 193, 48, 0.5); }
+        50%      { box-shadow: 0 0 26px 7px rgba(245, 193, 48, 0.95); }
+      }
+      body.coach-boost #boost { animation: coach-boost-pulse 1.3s ease-in-out infinite; }
+      @media (prefers-reduced-motion: reduce) {
+        body.coach-boost #boost {
+          animation: none; box-shadow: 0 0 22px 5px rgba(245, 193, 48, 0.85);
+        }
+      }
+
       body.hud-ready #streak { transition-delay: 0.07s; }
       body.hud-ready #boost { transition-delay: 0.14s; }
       body.hud-ready #rider-finder-stack { transition-delay: 0.21s; }
