@@ -271,6 +271,16 @@ closing on their drop-off, the new rider appears near that drop-off — the clas
 while carrying" hand-off. When nobody is aboard, the extra lands near the taxi's current
 intersection instead. Either way the radius is the same, so the two paths read alike.
 
+**`spawnRadius` builds a box, not a true block-distance circle** — it walks `±radius` on each axis
+independently, so a corner of that box can sit up to `2 × radius` blocks out on the diagonal. Fine
+for an ordinary extra, where the point is "reachable", not "exactly this close". The very first
+fare of the run wants a real promise, though — especially now that the taxi itself
+[opens downtown](traffic.md#the-one-routing-branch) rather than at a random corner, where the box
+can span the whole map even at `radius = 3`. `FIRST_FARE_MAX_BLOCKS` in `fares.js` filters that
+one draw by actual Manhattan distance, capped at 3, independent of the difficulty curve — so the
+rider taught in the tutorial is never more than a short drive from where the taxi started, whatever
+`spawnRadiusStart` happens to be tuned to.
+
 **The radius used to be load-bearing and is now a difficulty knob.** Under the old flat clock an
 extra rider *had* to land near the current drop-off: their 60 seconds had to cover the tail of that
 delivery plus a fresh pickup drive, and charging them for a whole drop-off leg was ruinous —

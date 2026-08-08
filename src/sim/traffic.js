@@ -802,8 +802,32 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
   // The player's taxi is an ordinary car in this same array — that is what subjects it to
   // following distance, signals and intersection reservations exactly like everyone else. It is
   // simply drawn as its own mesh instead of an instance, so it can be raycast and highlighted.
+  //
+  // Which one is the taxi is now a pick, not always index 0: whichever of this draw's cars is
+  // heading for an intersection closest to the middle of the grid (GRID=5 has no single centre, so
+  // "closest" naturally lands in the 2×2 block at (2,2)-(3,3) — downtown, per layout.js's own
+  // density falloff). A run used to open with the taxi anywhere on the map, including a corner,
+  // which put the tutorial's first fare (biased to spawn near the taxi — see fares.js
+  // `spawnBias`) anywhere too.
+  //
+  // Picked from the cars this draw already produced rather than drawn fresh with a centring
+  // filter, so this closure's `rng` stays byte-for-byte what it was: nothing that reads from it
+  // afterwards — the mid-run growth in `setCarCount`, any car's own turn choices during `update` —
+  // consumes a different number of random values than it used to. `tools/probe.mjs`'s staged
+  // two-car boost scenarios lean on that: they destructure `[taxi, other] = traffic.cars` and
+  // reposition both by hand, so a shifted stream changed which random draw the *other* car got —
+  // and with it, the scripted scenario's outcome — even though neither car's final position came
+  // from the draw at all.
+  let taxiIndex = 0;
+  let centreDist = Infinity;
+  for (let k = 0; k < cars.length; k++) {
+    const dist = Math.abs(cars[k].i - GRID / 2) + Math.abs(cars[k].j - GRID / 2);
+    if (dist < centreDist) { centreDist = dist; taxiIndex = k; }
+  }
+  if (taxiIndex !== 0) [cars[0], cars[taxiIndex]] = [cars[taxiIndex], cars[0]];
   const taxi = cars[0];
   taxi.isTaxi = true;
+
   const {
     group: taxiGroup, setOccupied: setTaxiOccupied, setSteer: setTaxiSteer,
   } = createTaxiMesh();
