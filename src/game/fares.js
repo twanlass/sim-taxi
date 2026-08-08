@@ -699,10 +699,24 @@ export function createFareSystem(rng, scene) {
    * Called when the player has routed the taxi at a fare. Refused for a rider on the kerb while
    * someone is already aboard: there is one seat, and a route that could never resolve into a
    * pickup is worse than no route at all.
+   *
+   * There is one taxi, so at most one fare can be `directed` at a time. Tapping a second waiting
+   * rider before the taxi reaches the first re-routes the car — `routeTo` already overwrites
+   * `car.route` — but without this, the first rider's `directed` flag survived the switch, and
+   * `update()`'s arrival check only reads `directed` and proximity. If the new route happened to
+   * pass within `ARRIVE_RADIUS` of the abandoned rider's corner, that fare resolved a pickup too:
+   * two riders aboard at once, sharing the taxi's one seat. Clearing every other fare's flag here
+   * is what keeps "whichever one the taxi was last sent at" (see `focus`) true of `directed` as
+   * well as of the route.
    */
   function markDirected(fare = focus()) {
     if (!fare || !state.fares.includes(fare)) return false;
     if (fare.stage === 'waiting' && carrying()) return false;
+    for (const other of state.fares) {
+      if (other === fare || !other.directed) continue;
+      other.directed = false;
+      if (other.stage === 'waiting') other.slot.marker.setSelected(false);
+    }
     fare.directed = true;
     // Pushed here as well as reconciled per frame, so the ring lands on the same frame as the route
     // band rather than a tick later. It also means a caller that directs a fare without running the
