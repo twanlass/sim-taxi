@@ -27,9 +27,11 @@ import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
+import { createTutorial } from './game/tutorial.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
 import * as difficulty from './game/difficulty.js';
+import { createHomeScreenTip } from './game/homescreen.js';
 import { findRoute, planOrigin } from './game/route.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin } from './util/shot.js';
 import { isCityConnected, GRID } from './city/grid.js';
@@ -55,6 +57,7 @@ const runSeed = getRunSeed(seed, Boolean(shot));    // this run's situation — 
 // `?d=0..1` freezes the difficulty curve, so the late game can be looked at without playing ten
 // fares to reach it. Applied before anything constructs, because the car count is read off the
 // curve and the fare system budgets its first clock from it.
+//
 // A shot that is *about* a point on the curve carries its own pin, so `./shots.sh` reproduces it
 // without every caller having to remember the query parameter. An explicit `?d=` still wins.
 difficulty.pinDifficulty(getDifficultyPin() ?? shot?.difficulty ?? null);
@@ -137,7 +140,16 @@ const isNarrow = () => window.innerWidth < NARROW_VIEWPORT;
 const START_FOLLOW_SMOOTHING = 1.5;
 const BOOST_FOLLOW_SMOOTHING = 3.2;
 let cameraTakenOver = false;
-const releaseCameraToPlayer = () => { cameraTakenOver = true; };
+// Assigned further down, once the fare board and the picker it reads exist. Declared here because
+// the handover below is the one thing that has to reach it, and a swipe cannot arrive before the
+// module has finished evaluating.
+let tutorial = null;
+const releaseCameraToPlayer = () => {
+  cameraTakenOver = true;
+  // A swipe during the tutorial takes the framing off it too. It keeps talking — the lesson is
+  // still worth reading — it just stops moving the map while the player reads it.
+  tutorial?.releaseCamera();
+};
 
 // Screenshots frame themselves, and a shot run has no user to drag anything.
 const pan = shot
@@ -430,6 +442,73 @@ const dropoffIndicator = createDropoffIndicator({
   pinLocation: cornerFor,
 });
 
+// --- Opening tutorial -------------------------------------------------------
+
+// Two bubbles and nothing else: "this car is you", then "tap that rider". See game/tutorial.js for
+// why those two and no more. Off in shot mode — a screenshot has nobody to teach, and the bubble
+// would be the loudest thing in every frame — and `?tutorial=off` skips it while iterating on the
+// rest of the game.
+const wantsTutorial = new URLSearchParams(window.location.search).get('tutorial') !== 'off';
+// True from the first bubble to the player's last dismissal. Two things key off it: the fare clocks
+// hold, and the spawn toast stays quiet — both for the same reason, that whatever the bubble is
+// saying is the only thing the player should be reading or paying for.
+let tutorialTalking = false;
+const revealHud = () => document.body.classList.add('hud-ready');
+
+// Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
+// reads it: a player who has already fired it does not need a bubble pointing at the pill.
+let locoUsed = false;
+tutorial = shot || !wantsTutorial ? null : createTutorial({
+  controller,
+  aspect,
+  isNarrow,
+  taxi: traffic.taxi,
+  // The city's own rig, so the car in the bubble is lit by the same golden hour as the car on the
+  // road. Read, not re-parented — an Object3D belongs to one scene.
+  lights: { sun, hemi },
+  project: projectToScreen,
+  // Orthographic, so world-units-per-pixel falls straight out of the frustum height: the vertical
+  // world span is exactly 2 * zoom. This is what keeps the spotlight the same size on every
+  // viewport, and correct if a wreck ever pulls the zoom in under it.
+  pixelsPerUnit: () => window.innerHeight / (2 * controller.state.zoom),
+  // The third beat points at a control rather than at something in the city, so its spotlight is
+  // measured off the pill's own box. Declared after this call; `function` hoisting covers it.
+  boostAnchor: boostScreenPos,
+  // The one the game means by "the waiting fare" — the shortest clock on the kerb. At this point in
+  // a run there is only ever one, but pointing at the same rider the rest of the HUD would is free.
+  waitingFare: () => fares.waiting(),
+  // The kerb corner, not the junction centre: at this zoom the corner building sits squarely
+  // between the camera and the figure otherwise. Same aim as panToRider and the drop-off pointer.
+  fareLocation: (fare) => cornerFor(fare.target.i, fare.target.j),
+  // Any fare the player has actually sent the taxi at — including one they found and tapped on the
+  // map while the first bubble was still up.
+  isDispatched: () => Boolean(fares.carrying() || fares.state.fares.some((f) => f.directed)),
+  // A player who has already found Loco Mode does not need the third beat pointing at it.
+  boostUsed: () => locoUsed,
+  isOver: () => fares.state.gameOver,
+  // The "Add to Home Screen" screen gets there first on iOS in a tab, and holds the run until it is
+  // tapped. `homeTip` is declared further down and only ever read from the frame loop, which is
+  // long after this module has finished evaluating.
+  isBlocked: () => Boolean(homeTip?.state.holding),
+  // The same guard the picker uses: the click a mouse synthesises at the end of a drag must not
+  // count as an answer to the bubble the player was dragging past.
+  shouldIgnoreTap: () => Boolean(pan?.didPan()),
+  // Hold every fare's countdown for as long as the tutorial is talking. It ends on the player's
+  // tap, so the clock they are taught with is the full sixty seconds.
+  onRunning: (running) => {
+    tutorialTalking = running;
+    fares.setPaused(running);
+    if (!running) revealHud();
+  },
+});
+
+// The money counter, the streak counter, the Loco Mode pill and the rider chips all start off
+// their own screen edge and slide in together — see the HUD entrance block in index.html. A run
+// used to open with all four already lit, every one of them reading zero and answering a question
+// nobody had asked yet. They arrive when the tutorial stops talking; with no tutorial to wait for
+// (`?tutorial=off`, shot mode) they are simply there from the first frame.
+if (!tutorial) revealHud();
+
 // --- HUD --------------------------------------------------------------------
 
 const hud = {
@@ -446,18 +525,25 @@ const hud = {
 let shownMoney = 0;
 let moneyRoll = null;
 
-/** Screen position of the taxi, for anchoring the earnings pop. */
-function taxiScreenPos() {
-  const v = new THREE.Vector3(traffic.taxi.x, 1.4, traffic.taxi.z).project(camera);
+/** A world point in viewport pixels. The one place the NDC-to-pixels arithmetic lives. */
+function projectToScreen(x, y, z) {
+  const v = new THREE.Vector3(x, y, z).project(camera);
   return {
     x: (v.x * 0.5 + 0.5) * window.innerWidth,
     y: (-v.y * 0.5 + 0.5) * window.innerHeight,
   };
 }
 
+/** Screen position of the taxi, for anchoring the earnings pop. */
+function taxiScreenPos() {
+  return projectToScreen(traffic.taxi.x, 1.4, traffic.taxi.z);
+}
+
 /**
- * Centre of the Punch It pill — where a delivery's boost sparks are pulled to. Read fresh on every
- * burst rather than cached, because the pill's own fill flutter scales it and a resize moves it.
+ * Centre of the Punch It pill, and the radius of a circle that clears it. The centre is where a
+ * delivery's boost sparks are pulled to; the radius is what the tutorial's third beat sizes its
+ * spotlight from. Read fresh on every call rather than cached, because the pill's own fill flutter
+ * scales it and a resize moves it.
  */
 function boostScreenPos() {
   if (!boostButton) return null;
@@ -466,7 +552,13 @@ function boostScreenPos() {
   // a rect at the origin, or a delivery landing next to a crash fires its sparks at the top-left
   // corner of the screen.
   if (!r.width) return null;
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  return {
+    x: r.left + r.width / 2,
+    y: r.top + r.height / 2,
+    // Half the pill's diagonal plus a margin, so the clear centre of a pool sitting on it leaves
+    // some air around the outline rather than cropping it at the border.
+    r: Math.hypot(r.width, r.height) / 2 + 20,
+  };
 }
 
 /** Centre of the money counter in viewport coordinates — the flight's target. */
@@ -717,6 +809,10 @@ function updateBoostButton(dt) {
 function pressBoost(event) {
   if (fares.state.gameOver) return;
   event.preventDefault();
+  // Doing the thing the third bubble is asking for answers it. Called explicitly rather than left
+  // to the tutorial's window-level tap handler, because the preventDefault above can suppress the
+  // click a touch would otherwise synthesise — so on a phone the hint would outstay its own lesson.
+  tutorial?.dismiss();
   boostButton.setPointerCapture?.(event.pointerId);
   if (boost.press()) {
     flash('Loco Mode!');
@@ -729,6 +825,9 @@ function pressBoost(event) {
 // doesn't double-fire the flame). `boost.press()` returns true only on that transition, which is
 // why the whole kick is gated on it above.
 function kickLocoMode() {
+  // Fires only on the transition into Loco Mode, which makes it exactly the right place to record
+  // that the player has now used it.
+  locoUsed = true;
   const car = traffic.taxi;
   if (car.crashed) return;
   car.wheelieT = 0;
@@ -869,6 +968,26 @@ function policeRubber() {
   dust.add(police.group.position.x - fx * 1.9, police.group.position.z - fz * 1.9, yaw);
 }
 
+// The "add it to your Home Screen" screen, on iOS in a browser tab — the one platform with no
+// install affordance of its own. See game/homescreen.js for the detection and for why it is worth
+// showing. It bows out on every other platform and on a device that already launched from the Home
+// Screen icon, so there is nothing to gate here beyond shot mode: a screenshot is not a place to
+// advertise anything. `?hometip` forces it up anywhere, since this path is otherwise invisible on
+// the machine the layout is being written on.
+//
+// Built here rather than after the boot below because the frame loop reads its `holding` flag from
+// the very first frame.
+const homeTip = shot ? null : createHomeScreenTip(document.getElementById('home-tip'), {
+  force: new URLSearchParams(window.location.search).has('hometip'),
+});
+
+// While that screen is up the run is parked: no fare spawns, and no clock drains. The traffic keeps
+// driving behind the black — the screen sinks the city rather than replacing it, so a frozen one
+// would be visible through the gradient — but the *fare loop* has to wait, or a rider appears
+// behind the overlay with a 60-second deadline already running and a player who reads the screen
+// slowly loses a run they never started. One shared empty list rather than a fresh one per frame.
+const NO_FARE_EVENTS = [];
+
 const clock = new THREE.Clock();
 
 function frame() {
@@ -930,21 +1049,32 @@ function frame() {
   // already flagged, rather than wearing a ghost over its own fireball for one frame.
   carGhosts.update(dt);
 
-  // Two reasons to trail the taxi, both narrow-viewport only (see START_FOLLOW_SMOOTHING): the
-  // opening follow, which runs until the player takes the framing over, and Loco Mode, which
-  // chases harder and overrides them both. Boost ignores `cameraTakenOver` on purpose — a drag
-  // during a boost is quietly overridden on the next frame, because panning is a planning gesture
-  // and boost is the opposite of planning. Neither has a gate on the way *out*: the camera is left
-  // wherever it landed rather than snapping back.
+  tutorial?.update(dt);
+
+  // The camera's priority list, highest first. Two of the claims trail the taxi and are
+  // narrow-viewport only (see START_FOLLOW_SMOOTHING): the opening follow, which runs until the
+  // player takes the framing over, and Loco Mode, which chases harder and outranks it. Boost
+  // ignores `cameraTakenOver` on purpose — a drag during a boost is quietly overridden on the next
+  // frame, because panning is a planning gesture and boost is the opposite of planning. None of
+  // them has a gate on the way *out*: the camera is left wherever it landed rather than snapping
+  // back.
   //
-  // Wreck focus outranks both (and runs on every viewport, not only narrow ones): the camera eases
-  // into the crash site so the smoke and sparks fill the frame before the retry screen shows.
+  // Wreck focus outranks everything (and runs on every viewport, not only narrow ones): the camera
+  // eases into the crash site so the smoke and sparks fill the frame before the retry screen shows.
+  //
+  // The tutorial sits below Loco Mode and above the opening follow, and unlike the follows it runs
+  // on every viewport — a desktop player has the whole city in frame and still cannot tell which
+  // car is theirs, which is the entire reason the first bubble exists. It frames from here rather
+  // than from its own update() so this list stays the one place the camera is decided.
   const boosting = boost.isActive();
   if (wreckSpot) {
     controller.focusOn(wreckSpot.x, wreckSpot.z, WRECK_ZOOM, dt, aspect());
-  } else if ((boosting || !cameraTakenOver) && !fares.state.gameOver && isNarrow()) {
-    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt,
-      boosting ? BOOST_FOLLOW_SMOOTHING : START_FOLLOW_SMOOTHING, aspect());
+  } else if (boosting && !fares.state.gameOver && isNarrow()) {
+    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect());
+  } else if (tutorial?.holdsCamera()) {
+    tutorial.frameCamera(dt);
+  } else if (!cameraTakenOver && !fares.state.gameOver && isNarrow()) {
+    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, START_FOLLOW_SMOOTHING, aspect());
   } else {
     // Bottom of the same priority list: a rider-finder chip's pan (see panToRider). It only ever
     // gets here because the tap that started it also took the camera over, so the opening follow
@@ -956,7 +1086,8 @@ function frame() {
 
   // More than one thing can land in a frame now — delivering the last fare clears the board and
   // spawns the next one in the same tick — so this is a list rather than a single event.
-  for (const { type, fare } of fares.update(dt, traffic.taxi)) {
+  for (const { type, fare } of
+    (homeTip?.state.holding ? NO_FARE_EVENTS : fares.update(dt, traffic.taxi))) {
     if (type === 'pickup') {
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
@@ -986,7 +1117,11 @@ function frame() {
       // A fare that appears while you are already carrying one is the interesting case: it says
       // "there is now a clock you cannot start yet", which is a different message from the idle
       // board filling back up.
-      flash(fares.carrying() ? 'Another fare waiting' : 'New fare waiting');
+      //
+      // Silent under the tutorial: the very first fare spawns on frame one, and a toast reading
+      // "New fare waiting" across the top of the screen while the bubble is explaining which car
+      // is yours is a second message competing with the one the player is being given.
+      if (!tutorialTalking) flash(fares.carrying() ? 'Another fare waiting' : 'New fare waiting');
     }
   }
 
@@ -1135,6 +1270,7 @@ window.__taxi = {
   traffic,
   daylight,
   boost,
+  tutorial,
   carGhosts,
   skids,
   police,
@@ -1149,8 +1285,7 @@ window.__taxi = {
   targetScreenPosition: (fare = fares.focus()) => {
     if (!fare) return null;
     const c = fares.intersectionCentre(fare.target.i, fare.target.j);
-    const v = new THREE.Vector3(c.x, 5, c.z).project(camera);
-    return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight };
+    return projectToScreen(c.x, 5, c.z);
   },
 };
 

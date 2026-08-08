@@ -1,5 +1,147 @@
 # Gameplay
 
+## The opening tutorial
+
+`src/game/tutorial.js`, with its markup and styling in `index.html` under `#coach`. A white speech
+bubble in the bottom centre with the player's own taxi turning beside the text, tail on top pointing
+up at whatever it is talking about, and the line typing itself out. **Three beats, and that is all
+of it:**
+
+1. **"Let's pick up some rides and earn some cash."** The camera follows the taxi while it types and
+   a spotlight picks it out of a darkened city. The one thing a new player cannot work out by
+   looking is which of the hundred cars down there is theirs — so the car itself says it, and both
+   the camera and the light land on it.
+2. **"Tap this rider to start."** The spotlight moves to the waiting fare as the camera sets off for
+   them, so the light is already on the rider and the pan carries the player to it; the bubble comes
+   back once the camera has arrived. Tapping the rider answers it directly.
+3. **"Hold to floor it"** — the Loco Mode pill, three seconds after the rider is tapped, with the
+   bubble sitting directly over the pill and its tail pointing down at it, the spotlight on the pill
+   and the pill pulsing under it. Skipped entirely if the player has already fired Loco Mode.
+
+A beat of city comes first: `OPENING_HOLD` of traffic moving with nothing on screen, because a run
+that opens mid-sentence gives the player nothing to attach the sentence to, and the lights coming
+down after it lands as an event rather than as the initial state. The clocks are already held
+through it, so it costs nothing. The camera is already easing onto the taxi during it — that is the
+one thing that should be under way before the bubble speaks.
+
+**A tap anywhere advances**, not just a tap on the bubble. The listener is on `window` rather than a
+full-screen catcher, so the tap still reaches the city underneath — on the second beat the whole
+lesson is the tap landing on the rider, and an overlay would eat the one gesture being taught. It
+shares the picker's `didPan()` guard, so a swipe that dragged the map is not also an answer.
+
+The avatar is the real `createTaxiMesh()` in its own small WebGL context, the way each rider-finder
+chip owns one — so the car in the bubble is the car on the road and cannot drift out of step when
+the taxi is restyled. It is viewed down the game's own `VIEW_DIR`, lit by the city's own sun and
+hemisphere fill (mirrored per frame, so turning the day/night cycle on carries into the bubble), and
+framed on the cylinder the car sweeps as it turns so nothing clips at any angle of the spin.
+
+### The spotlight
+
+A single `#spotlight` div: two radial gradients centred on the subject, a warm core over a darkening
+wash. Not a three.js `SpotLight` — that would mean turning down the scene's own sun and re-lighting
+one patch of a city built around a single global key, which is a rendering change to carry a
+two-sentence lesson. This costs one composited element.
+
+Both radii are sized in **world units** and converted per frame, because 1 world unit is only
+~7.7px at play zoom and a pool measured in pixels would be a different size on every viewport (and
+wrong the moment anything moves the zoom). The clear centre is 6 units — the subject and the kerb it
+stands on, no more. At half again as wide it lit most of a 5×5 city and read as general gloom rather
+than as a light pointed at one thing.
+
+The third beat is the exception: it points at a **control**, which is a fixed thing on the glass at a
+size that has nothing to do with the camera, so its pool is measured off the Loco Mode pill's own
+box instead. Sizing that one in world units would grow and shrink the pool around a button that
+never moved. Its falloff is proportionally wider than the world one, because a corner control
+spends half its falloff off the edge of the glass.
+
+The warm core matters more than it looks: the darkening alone left the subject merely *not dimmed*,
+which at this contrast is not the same as lit.
+
+### The HUD arrives afterwards
+
+The money counter, the [multiplier counter](#the-multiplier-counter), the Loco Mode pill and the
+rider chips all start off their own screen edge and slide in together the moment the last bubble is
+dismissed. A run used to open
+with all four already lit, every one of them reading zero and answering a question nobody had asked
+yet. `main.js` adds `body.hud-ready`; with no tutorial to wait for (`?tutorial=off`, shot mode) they
+are simply there from the first frame.
+
+The offset is the standalone `translate` property, **not** a transform. Three of those four already
+animate their own transform — the money bump, the streak bump, the Loco Mode press dip and its
+top-up flutter — and a `body.hud-ready #boost { transform: none }` outranks `#boost:active` on
+specificity, which would quietly kill the press feedback for the rest of the run.
+
+Nothing else is taught. The drop-off [dispatches itself](#the-drop-off-dispatches-itself) and the
+clock is [a coloured crystal over a head](#the-fares-clock-travels) — neither needs a sentence, and
+every extra beat is one more thing between the player and the game.
+
+### The third beat is not like the other two
+
+The first two stand in front of the game: the clocks are held, the camera is theirs, and each waits
+to be answered. The third runs *alongside* a live run — the player is driving, the clocks are
+counting — so it gates nothing, holds nothing, and times itself out after
+`BOOST_HINT_LINGER` rather than sitting over the road until someone taps it. Pressing Punch It
+dismisses it too, since doing the thing it asks for answers it. (That call is explicit rather than
+left to the window tap handler: `pressBoost` calls `preventDefault`, which can suppress the click a
+touch would otherwise synthesise, so on a phone the hint would outstay its own lesson.)
+
+It is also the only one that points at a **control** rather than at the city, so it is placed
+differently: `#coach.at-boost` drops it onto the Loco Mode pill's own 26px gutter just above the
+pill, flips the tail to the bottom, and grows the entrance upward out of it. The other two hang
+centred with the tail up, because what they are talking about is up there.
+
+**It fires on a fixed delay off the rider tap, not on trip progress.** The first version was a
+fraction of the trip — half way to the pickup, measured as road actually driven against the trip's
+block distance, both of which were corrections for the *straight-line distance remaining* that
+came before them. All of that was a better description of the moment and unpredictable in practice:
+trip lengths vary by a factor of five, so the hint landed anywhere between three seconds and half a
+minute in, and on the long ones the player had stopped wondering about the pill long before it
+arrived. `BOOST_HINT_DELAY` off the one action every run shares is the thing that can be tuned.
+
+The countdown runs from the tap, not from the tutorial finishing getting out of the way — on a
+desktop those differ by the restore glide, which is the tutorial's own business and should not be
+charged to the delay. And it only runs once a ride is actually under way, so a player who dismissed
+the second bubble without picking anyone gets the hint on whichever drive they do start.
+
+**And it never appears if Loco Mode has already been fired.** `main.js` sets `locoUsed` on the
+transition into boost — `kickLocoMode`, which by construction runs exactly once per press-from-rest
+— and the tutorial reads it at the moment the delay elapses. Explaining a control the player is
+mid-way through using is worse than saying nothing.
+
+### It does not spend the player's clock
+
+`fares.setPaused` holds every fare's countdown through the two gated beats. Only the countdown: fares
+still spawn, riders still wave, diamonds still bob, and the city carries on behind the bubble. A
+tutorial that taught you how to pick someone up out of the clock you need to *deliver* them would be
+charging for its own lesson.
+
+That got sharper when the clock stopped being flat. A rider's deadline is now
+[budgeted from the driving their trip costs](#the-clock-is-budgeted) — it is margin sized for the
+road rather than a round sixty seconds with slack to spare, so a lesson spent out of it comes
+straight off the part the player needs. `state.elapsed` is deliberately *not* paused: it drives the
+spawn stagger and the marker animations, neither of which is the player's to pay for. The spawn toast is suppressed for the same reason — the first
+fare lands on frame one, and "New fare waiting" across the top of the screen is a second message
+competing with the one being given.
+
+Nothing auto-advances. Both beats wait for a tap, because a tutorial on a timer is one the slower
+reader loses. A tap mid-type finishes the line instead of dismissing it, so an eager first tap
+cannot throw away a sentence nobody has read.
+
+### Where it sits in the camera's priority list
+
+Below Loco Mode, above the [opening follow](architecture.md), and — unlike either of those — it
+runs on **every** viewport, not just narrow ones. A desktop player has the whole city in frame and
+still cannot tell which car is theirs, which is the entire reason the first beat exists. Because
+moving the framing on a wide viewport takes away the default whole-city shot and nothing there
+would ever put it back (drag-to-pan is narrow-only), the tutorial glides the camera home when it
+finishes. On a phone it doesn't need to: the opening follow-cam picks the taxi back up.
+
+A swipe hands the camera over mid-tutorial, the same as anywhere else — the bubble keeps talking,
+it just stops moving the map while the player reads it.
+
+`?tutorial=off` skips the whole thing, and shot mode never runs it: a screenshot has nobody to
+teach, and the bubble would be the loudest thing in every frame.
+
 ## The fare loop
 
 `src/game/fares.js`. Each fare is its own little machine — `waiting → riding → gone` — carrying its

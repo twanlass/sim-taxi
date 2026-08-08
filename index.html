@@ -374,6 +374,300 @@
       }
       body.shot-mode #dropoff-indicator { display: none; }
 
+      /* --- coach bubble ---------------------------------------------------
+         The opening tutorial: a speech bubble from the taxi itself, bottom centre, with the car
+         turning slowly in a round avatar and the line typing itself out. Two beats, and that is
+         the whole tutorial — "this car is you", then "tap that rider". See src/game/tutorial.js.
+
+         Not `#tip`/`#intro`/`#banner`: those all sit on ad-blocker filter lists, and one match
+         takes the module graph down with ERR_BLOCKED_BY_CLIENT. Same reason #run-end isn't
+         #banner. */
+      /* Stretched edge to edge and centred with flex, NOT `left: 50%` + a translate. A fixed
+         element is shrink-to-fit, and `left: 50%` leaves it a containing block only half the
+         viewport wide — so on a 390px phone the bubble was capped at 195px and the line wrapped
+         into four, while the same markup looked right on a desktop. The max-width below is the
+         only thing that should be setting this bubble's width. */
+      #coach {
+        position: fixed; left: 0; right: 0; bottom: 104px; z-index: 22;
+        display: flex; justify-content: center;
+        /* Clear of the Loco Mode pill (26px up, 49px tall) with room for the bubble's tail, so the
+           only control on screen while this is up isn't underneath it. The rider-finder chips
+           would still collide, so they are hidden outright — see body.coach-open below. */
+        pointer-events: none; user-select: none; -webkit-user-select: none;
+      }
+      #coach[hidden] { display: none; }
+      /* The third beat is about a control rather than about something in the city, so it sits
+         directly over that control with its tail pointing down at it — left-aligned to the Loco
+         Mode pill's own 26px gutter, just clear of the pill's top edge (26 + 49 = 75). The other
+         two hang centred with the tail up, because what they are talking about is up there. */
+      #coach.at-boost { bottom: 94px; justify-content: flex-start; padding-left: 26px; }
+      /* Grows up out of the tail, which is now underneath it. */
+      #coach.at-boost .coach-bubble {
+        transform-origin: 45px 100%;
+        transform: scale(0.8) translateY(10px);
+      }
+      #coach.at-boost .coach-bubble::after {
+        top: 100%; bottom: auto;
+        /* Aimed at the pill's left third rather than its centre: the pill's width follows its
+           label, and the left edge is the one thing both boxes share. */
+        left: 36px;
+        border-bottom: 0; border-top: 12px solid #FFFDF7;
+      }
+      #coach.at-boost.is-open .coach-bubble { transform: scale(1) translateY(0); }
+      #coach.at-boost.is-closing .coach-bubble { transform: scale(0.9) translateY(4px); }
+      @media (prefers-reduced-motion: reduce) {
+        #coach.at-boost .coach-bubble,
+        #coach.at-boost.is-open .coach-bubble,
+        #coach.at-boost.is-closing .coach-bubble { transform: none; }
+      }
+      /* Never over a screenshot, and never over the retry screen: the run is the thing then. */
+      body.shot-mode #coach, body.game-over #coach { display: none; }
+      /* One tap target at a time. The chips are a second way to pick the rider the bubble is
+         pointing at, and in step two the whole lesson is the tap landing on the figure in the
+         city — plus a centred bubble and a bottom-left chip column overlap on a phone. */
+      body.coach-open #rider-finder-stack { display: none; }
+
+      .coach-bubble {
+        position: relative; display: flex; align-items: center; gap: 10px;
+        max-width: min(300px, calc(100vw - 32px));
+        padding: 11px 20px 11px 11px; border-radius: 22px;
+        /* No outline. The rest of the game's UI is black-lined because it sits over the city and
+           has to hold its shape against pale asphalt; this sits over a spotlight that has already
+           darkened everything behind it, so the line only made it heavier. The shadow carries the
+           edge instead. */
+        border: 0; background: #FFFDF7; color: #16120a;
+        font: 700 15px/1.35 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        text-align: left; box-shadow: 0 10px 28px rgba(8, 20, 30, 0.4);
+        cursor: pointer; pointer-events: auto;
+        /* Tap-to-advance wants to land now, not after the browser has waited out a double-tap. */
+        touch-action: manipulation; -webkit-touch-callout: none;
+        /* Grows out of its own tail rather than its middle, so the pop reads as the taxi speaking
+           rather than as a panel expanding. The tail is on top — it points up at the taxi (or the
+           rider) the bubble is talking about, which is always above it on screen. */
+        transform-origin: 38px 0;
+        opacity: 0; transform: scale(0.8) translateY(-10px);
+        transition: opacity 0.18s ease, transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      #coach.is-open .coach-bubble { opacity: 1; transform: scale(1) translateY(0); }
+      /* Scale down and fade out, per the dismissal. Faster than the entrance and without the
+         overshoot — a bounce on the way out reads as the bubble refusing to leave. */
+      #coach.is-closing .coach-bubble {
+        opacity: 0; transform: scale(0.9) translateY(-4px);
+        transition: opacity 0.2s ease, transform 0.2s ease;
+      }
+
+      /* The tail, on top and centred over the avatar. One triangle now that the outline is gone. */
+      .coach-bubble::after {
+        content: ''; position: absolute; left: 29px; bottom: 100%; width: 0; height: 0;
+        border-left: 9px solid transparent; border-right: 9px solid transparent;
+        border-bottom: 12px solid #FFFDF7;
+      }
+
+      /* The avatar: the player's own taxi, turning. It is the whole of lesson one — a picture of
+         the car doing the talking says "that yellow thing down there is you" faster than any
+         sentence about it. No disc and no ring behind it: the car is lit by the game's own sun
+         (see tutorial.js) and sits straight on the bubble, so it reads as the actual vehicle
+         rather than as an icon of one. */
+      .coach-avatar { flex: none; width: 54px; height: 54px; }
+      .coach-avatar canvas { display: block; width: 100%; height: 100%; }
+
+      /* The line types itself out. Both spans stack: the ghost holds the *finished* text at zero
+         visibility purely to reserve the bubble's size, and the typed copy is painted over it —
+         otherwise every character that wraps a line resizes a bottom-anchored, centre-aligned
+         bubble, and the thing you are trying to read wobbles under the words. */
+      .coach-text { position: relative; display: block; }
+      .coach-ghost { visibility: hidden; }
+      .coach-typed { position: absolute; inset: 0; }
+
+      /* A bubble that springs and a line that types are both motion for its own sake. Under
+         reduced motion the bubble fades in place and tutorial.js prints the line whole. */
+      @media (prefers-reduced-motion: reduce) {
+        .coach-bubble,
+        #coach.is-open .coach-bubble,
+        #coach.is-closing .coach-bubble { transform: none; transition: opacity 0.2s ease; }
+      }
+
+      /* The spotlight. Darkens the whole city except a soft pool around whatever the bubble is
+         talking about — the taxi on the first beat, the rider on the second. It is what actually
+         answers "which one is mine": the bubble can say it, but only this points at it.
+
+         A radial gradient rather than a real light. A three.js SpotLight would mean darkening the
+         scene's own sun and re-lighting one patch of a city built for a single global key, which
+         is a rendering change to teach a two-sentence lesson. This costs one composited div.
+
+         Position and both radii are written per frame from tutorial.js: --sx/--sy are the subject's
+         projected screen position and --r0/--r1 are sized against the camera, since 1 world unit is
+         only ~7.7px at play zoom and a pool measured in pixels would be a different size on every
+         viewport. Under #coach (22) so the bubble stays lit, over everything else. */
+      /* Two layers, both centred on the same point. The warm core is what makes it read as a beam
+         rather than as a hole cut in a dark sheet — the darkening alone left the subject merely
+         *not dimmed*, which at this contrast is not the same as lit. It dies by --r0 so it only
+         ever touches the clear centre and never washes out the falloff. */
+      #spotlight {
+        position: fixed; inset: 0; z-index: 21; pointer-events: none;
+        opacity: 0; transition: opacity 0.45s ease;
+        background:
+          radial-gradient(circle at var(--sx, 50%) var(--sy, 50%),
+            rgba(255, 238, 198, 0.15) 0,
+            rgba(255, 238, 198, 0) var(--r0, 60px)),
+          radial-gradient(circle at var(--sx, 50%) var(--sy, 50%),
+            rgba(6, 14, 22, 0) 0,
+            rgba(6, 14, 22, 0) var(--r0, 60px),
+            rgba(6, 14, 22, 0.78) var(--r1, 150px),
+            rgba(6, 14, 22, 0.78) 100%);
+      }
+      body.spotlight-on #spotlight { opacity: 1; }
+      body.shot-mode #spotlight, body.game-over #spotlight { display: none; }
+
+      /* --- the HUD's entrance ------------------------------------------------
+         Everything the player will need but cannot use yet starts off its own screen edge, and
+         slides in once the tutorial has had its say. A run used to open with the full HUD already
+         lit — a money counter, a streak counter and a Loco Mode dial, all reading zero, all of them
+         answering questions nobody has asked yet. The tutorial is two sentences long; the
+         instruments can wait for it.
+
+         The offset is the standalone `translate` property, NOT a transform. Three of these four
+         elements already animate their own transform — the money bump, the streak bump, the Loco
+         Mode press dip and its top-up flutter — and a `body.hud-ready #boost { transform: none }`
+         would outrank `#boost:active` on specificity and quietly kill the press feedback for the
+         rest of the run. `translate` composes with `transform` instead of competing with it.
+
+         main.js adds `hud-ready`: the moment the last bubble is dismissed, or immediately when
+         there is no tutorial (`?tutorial=off`, shot mode). */
+      #hud, #streak, #boost, #rider-finder-stack {
+        opacity: 0;
+        transition: opacity 0.45s ease, translate 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      #hud, #streak { translate: 0 -160%; }
+      #boost, #rider-finder-stack { translate: 0 200%; }
+      /* Invisible is not un-tappable: a 0-opacity pill still takes the tap that was aimed at the
+         rider behind it. (#hud and #streak are already pointer-events: none.) */
+      body:not(.hud-ready) #boost, body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
+      body.hud-ready #hud, body.hud-ready #streak,
+      body.hud-ready #boost, body.hud-ready #rider-finder-stack { opacity: 1; translate: 0 0; }
+      /* Staggered, top corners first then the bottom ones, so four elements arriving at once read
+         as a HUD assembling rather than as a single fade. */
+      /* The third beat's other half: the pill pulses while the bubble talks about it, so the text
+         is not the only thing saying which control it means.
+
+         Box-shadow and nothing else. Every other state this pill can be in animates its `transform`
+         — the press dip, the top-up flutter — and a keyframe animation outranks all of them, so a
+         pulse that scaled would silently kill the press feedback for as long as it ran. */
+      @keyframes coach-boost-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(245, 193, 48, 0.5); }
+        50%      { box-shadow: 0 0 26px 7px rgba(245, 193, 48, 0.95); }
+      }
+      body.coach-boost #boost { animation: coach-boost-pulse 1.3s ease-in-out infinite; }
+      @media (prefers-reduced-motion: reduce) {
+        body.coach-boost #boost {
+          animation: none; box-shadow: 0 0 22px 5px rgba(245, 193, 48, 0.85);
+        }
+      }
+
+      body.hud-ready #streak { transition-delay: 0.07s; }
+      body.hud-ready #boost { transition-delay: 0.14s; }
+      body.hud-ready #rider-finder-stack { transition-delay: 0.21s; }
+      @media (prefers-reduced-motion: reduce) {
+        #hud, #streak, #boost, #rider-finder-stack { translate: none; }
+      }
+
+      /* --- "Add to Home Screen" screen — see src/game/homescreen.js -------------
+         iOS in a browser tab only, where there is no install affordance to point at and the
+         disappearing bottom toolbar resizes the viewport mid-run.
+
+         It does not hide the city, it *sinks* it: the gradient is fully transparent at the top, so
+         the skyline and the two HUD counters stay readable, and reaches solid black by the time the
+         text starts. Reading the game through it is what says the screen is a step on the way in
+         rather than a different place — and it means the black behind the list is genuinely black,
+         with no skyline competing with the one thing the player has to read. */
+      #home-tip {
+        position: fixed; inset: 0;
+        /* Above the flying earnings (25), below the run-end blackout (30) — a run that somehow
+           ended behind this should still show its own screen on top. */
+        z-index: 26;
+        display: flex; flex-direction: column; justify-content: flex-end;
+        background: linear-gradient(to bottom,
+          rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.1) 20%, rgba(0, 0, 0, 0.45) 42%,
+          rgba(0, 0, 0, 0.88) 55%, #000 63%);
+        color: #fff;
+        font-family: ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        /* The whole thing is the dismiss target, as the hint says. No long-press callout, no
+           double-tap zoom pause between the press and the game starting. */
+        cursor: pointer; touch-action: manipulation;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+      }
+      #home-tip[hidden] { display: none; }
+      body.shot-mode #home-tip, body.game-over #home-tip { display: none; }
+
+      /* Bottom-anchored, and the bottom inset clears the home indicator on a notched phone. The
+         gutter is a share of the width rather than a fixed pixel count so the block sits the same
+         distance in on a 320px phone as on a 430px one.
+
+         **One size drives the whole block.** The steps are 1em and every other size and gap is a
+         ratio of them, so the block scales as a unit — and so the fit-to-width pass in
+         homescreen.js has exactly one knob to turn. It is clamped against *both* axes: width is
+         what the long third step has to fit across, height is what the whole block has to fit down
+         (a landscape phone is 390px tall, and 7.2vw of an 844px-wide viewport would be 60px type on
+         a screen with no room for it). Same technique as the run-end stats, for the same reason. */
+      #home-tip .home-tip-sheet {
+        font-size: clamp(18px, min(7.2vw, 5vh), 30px);
+        padding-left: clamp(20px, 7.5vw, 46px);
+        padding-right: clamp(20px, 7.5vw, 46px);
+        padding-bottom: calc(1em + env(safe-area-inset-bottom, 0px));
+      }
+
+      #home-tip .home-tip-lead {
+        font-size: 0.87em; font-weight: 600; line-height: 1.25;
+        /* Never wraps: it is one phrase, and a two-line lead pushes the list down the screen and
+           stops the block reading as a heading over a list. The fit pass keeps it honest. */
+        white-space: nowrap;
+        /* A shade under the steps' white: it is the sentence *introducing* the list, and setting
+           both at full strength made the colon read as another step. */
+        color: rgba(255, 255, 255, 0.92);
+      }
+
+      /* Two columns — the numbers on one straight edge, the labels on another. `display: contents`
+         on the items drops them out of the layout so each `li`'s two spans become grid items of the
+         same row, which is what holds both edges straight however wide the labels get. (The run-end
+         stats use the same trick for the same reason.)
+
+         Margins in `em` of the steps rather than of the neighbours, so the vertical rhythm is a
+         property of the one size above: both gaps sit on this element, because an `em` margin on
+         the hint would resolve against the hint's own smaller size and quietly halve itself. */
+      #home-tip .home-tip-steps {
+        list-style: none; display: grid; grid-template-columns: auto 1fr;
+        column-gap: 0.4em; row-gap: 0.85em; margin: 0.95em 0 0.9em;
+        font-weight: 800; line-height: 1.15;
+      }
+      #home-tip .home-tip-steps li { display: contents; }
+      /* Tabular figures so 1./2./3. are all the same width and the labels start on one edge even
+           though the numbers are set in the same heavy weight as the words. */
+      #home-tip .home-tip-steps .step-index { font-variant-numeric: tabular-nums; }
+      /* The longest label — "Add to Home Screen" — is what sets the type size on a narrow phone;
+         letting it wrap under its own number instead would break the second edge the grid exists
+         to hold. */
+      #home-tip .home-tip-steps .step-name { white-space: nowrap; }
+
+      /* Sized and positioned in `em` so each glyph tracks the line it sits on. Drawn as strokes,
+         a step down from the label's white — it stands for a control on the browser's chrome, not
+         for another word in the sentence. */
+      #home-tip .home-tip-steps svg {
+        width: 1.05em; height: 1.05em; vertical-align: -0.19em; margin-left: 0.24em;
+        fill: none; stroke: currentColor; stroke-width: 1.7;
+        stroke-linecap: round; stroke-linejoin: round;
+        color: rgba(255, 255, 255, 0.62);
+      }
+      /* The dots inside Chrome's ⋯ ring are solid and brighter than the ring itself — that is how
+         the button actually reads at a glance. */
+      #home-tip .home-tip-steps svg .dot { fill: rgba(255, 255, 255, 0.95); stroke: none; }
+
+      #home-tip .home-tip-hint {
+        font-size: 0.52em; font-weight: 600;
+        /* Quiet on purpose. It is an instruction about the screen rather than part of the list, and
+           at full strength it competed with the step it sits under. */
+        color: rgba(255, 255, 255, 0.45);
+      }
+
       /* --- tweak panel --- */
       #dbg-toggle {
         position: fixed; top: 16px; right: 16px; z-index: 20;
@@ -441,6 +735,16 @@
       </svg>
     </div>
     <div id="toast"></div>
+    <div id="spotlight" aria-hidden="true"></div>
+    <div id="coach" hidden>
+      <button class="coach-bubble" type="button">
+        <span class="coach-avatar"></span>
+        <span class="coach-text">
+          <span class="coach-ghost"></span><span class="coach-typed"></span>
+        </span>
+      </button>
+    </div>
+    <div id="home-tip" hidden></div>
     <div id="run-end" hidden></div>
 
     <div id="error" hidden></div>

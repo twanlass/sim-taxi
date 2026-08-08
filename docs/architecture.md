@@ -42,6 +42,7 @@ src/
     vanish.js           shrink-and-fade for wrecked bodywork, so it is consumed not deleted
     carghosts.js        occluded-only outlines on the traffic nearest the taxi, faded in with boost
     runend.js           the run-end blackout: stats counted out a row at a time
+    homescreen.js       the iOS-only "add it to your Home Screen" screen; parks the run while up
 
   geometry/             one-off models, all procedural
     taxi.js  wheels.js  diamond.js  targetring.js  marker.js  person.js  riderdiamond.js
