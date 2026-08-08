@@ -26,6 +26,7 @@ src/
 
   game/                 the player's layer
     fares.js            fare state machine, spawning, scoring
+    difficulty.js       the ramp: one scalar, and every knob hung off it
     route.js            Dijkstra over the road network's lanes, road-hierarchy weights
     routeline.js        the route band painted down the taxi's lane
     pick.js             raycast click picking
@@ -39,7 +40,8 @@ src/
     debugpanel.js       the ⚙️ tweak panel
     skidmarks.js        rubber ring buffer
     dust.js             instanced dust puffs
-    sparks/smoke/debris/flames.js   the crash detonation, one set fired per wrecked car
+    blast.js            the crash detonation whole — shockwave, fireball, shards; one per wrecked car
+    flames.js           the tailpipe bark on the press that engages Loco Mode
     vanish.js           shrink-and-fade for wrecked bodywork, so it is consumed not deleted
     carghosts.js        occluded-only outlines on the traffic nearest the taxi, faded in with boost
     runend.js           the run-end blackout: stats counted out a row at a time

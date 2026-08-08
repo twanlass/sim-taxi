@@ -212,6 +212,13 @@ export function createPolice(rng, scene) {
     dir: 1,
     s: 0,
     cooldown: rng.range(5, 12),
+    // Seconds between corridor runs, as a range to draw from. Pushed in by main.js off the
+    // difficulty curve — `sim/` must not import from `game/`, so the pressure arrives here the
+    // same way `traffic.taxi.boost` does, rather than being read.
+    //
+    // The *opening* cooldown above is deliberately not on the curve: it is the beat before the
+    // first siren of a run, and a run starts at the bottom of the ramp by definition.
+    cooldownRange: [16, 30],
     runs: 0,
     flash: 0,
     // --- chase
@@ -319,7 +326,7 @@ export function createPolice(rng, scene) {
     group.visible = false;
     setPriorityCorridor(null);
     setPolicePresence(null);
-    state.cooldown = rng.range(16, 30);
+    state.cooldown = rng.range(state.cooldownRange[0], state.cooldownRange[1]);
   }
 
   // --- Chase ----------------------------------------------------------------
@@ -426,6 +433,12 @@ export function createPolice(rng, scene) {
     state.elapsed += dt;
     const { along, across } = quarryOnRail();
     const dist = Math.hypot(drawn.x - state.quarry.x, drawn.z - state.quarry.z);
+    // Signed distance still to cover along the rail to reach the quarry, negative once passed.
+    // `state.s` is what actually advances by v*dt below — braking on the Euclidean `dist` above
+    // (measured off the eased/lagged drawn position, and inflated by any lateral `across` offset)
+    // fires later than the rail's true position warrants, so the cruiser can already be on top of
+    // the taxi, or driven straight through it, before the brake check trips.
+    const remaining = state.dir * (along - state.s);
 
     if (state.uturn !== null) {
       state.uturn = Math.min(1, state.uturn + dt / UTURN_DUR);
@@ -443,8 +456,8 @@ export function createPolice(rng, scene) {
       // genuinely alongside: turning onto the quarry's road pointing away from it is a legal move
       // when a park closes the near end, and treating that as an overshoot parks the car a block
       // short with the chase apparently abandoned.
-      const passed = state.dir * (along - state.s) < 0 && dist < PITCH;
-      const braking = onRoad && (passed || dist - CHASE_ARRIVE <= (state.v * state.v) / (2 * CHASE_BRAKE));
+      const passed = remaining < 0 && dist < PITCH;
+      const braking = onRoad && (passed || remaining - CHASE_ARRIVE <= (state.v * state.v) / (2 * CHASE_BRAKE));
       state.v = braking
         ? Math.max(0, state.v - CHASE_BRAKE * dt)
         : Math.min(CHASE_SPEED, state.v + CHASE_ACCEL * dt);
@@ -622,5 +635,14 @@ export function createPolice(rng, scene) {
     siren(fade);
   }
 
-  return { state, update, chase, group };
+  /**
+   * How often the corridor runs, as `[min, max]` seconds between them.
+   *
+   * Takes effect from the *next* draw rather than cutting the current wait short: shortening a
+   * cooldown that is already counting down would fire a siren the moment a delivery lands, which
+   * reads as the game punishing the drop-off.
+   */
+  const setCooldownRange = ([min, max]) => { state.cooldownRange = [min, max]; };
+
+  return { state, update, chase, group, setCooldownRange };
 }

@@ -1,22 +1,20 @@
 import * as THREE from 'three';
 
 // One-shot flame burst out the tailpipe when Loco Mode fires up. Same instanced-plus-alpha-
-// attribute recipe as sparks.js and dust.js — different tuning so the burst reads as *hot*: hot
-// orange, additive blending so it brightens whatever's behind it, no gravity (flame doesn't fall),
-// a short life so it's a bark rather than a plume, and a fast size ramp so each mote grows a
-// touch and then snuffs out instead of drifting.
+// attribute recipe as dust.js — different tuning so the burst reads as *hot*: hot orange, additive
+// blending so it brightens whatever's behind it, no gravity (flame doesn't fall), a short life so
+// it's a bark rather than a plume, and a fast size ramp so each mote grows a touch and then snuffs
+// out instead of drifting.
+//
+// This pool used to double as the crash fireball, which is what the per-slot life and size arrays
+// below were for — one burst couldn't divide by another's LIFE. The crash owns its own module now
+// (game/blast.js), so this is a tailpipe again and nothing else.
 
-const MAX_FLAMES = 128;
+const MAX_FLAMES = 64;
 const LIFE = 0.76;
 const START_SIZE = 0.36;
 const END_SIZE = 1.10;
-
-// Crash fireball tuning — bigger, longer, and thrown outward from the wreck rather than back
-// along a heading. Additive orange over the smoke plume reads as a real detonation instead of
-// exhaust.
-const BLAST_LIFE = 1.15;
-const BLAST_START_SIZE = 0.7;
-const BLAST_END_SIZE = 2.4;
+const DRAG = 4.2;         // air braking, per second — the jet slows into a puff behind the bumper
 
 export function createFlames(scene, rng) {
   const geometry = new THREE.IcosahedronGeometry(0.5, 0);
@@ -44,18 +42,14 @@ export function createFlames(scene, rng) {
 
   const mesh = new THREE.InstancedMesh(geometry, material, MAX_FLAMES);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  mesh.renderOrder = 6;     // above sparks and smoke — the flame is the brightest thing on screen
+  mesh.renderOrder = 6;     // above the road decals — the flame is the brightest thing on screen
   mesh.frustumCulled = false;
   scene.add(mesh);
 
   const life = new Float32Array(MAX_FLAMES);
-  // Per-slot initial life and size range so tailpipe puffs and crash fireballs can share the same
-  // pool with different tunings — otherwise a longer-lived blast would divide by the wrong LIFE
-  // and start life with a negative t.
+  // Still per-slot: a mote's own life is jittered at spawn, so t has to be measured against the
+  // life *this* mote started with rather than against LIFE.
   const life0 = new Float32Array(MAX_FLAMES);
-  const size0 = new Float32Array(MAX_FLAMES);
-  const size1 = new Float32Array(MAX_FLAMES);
-  const dragK = new Float32Array(MAX_FLAMES);
   const px = new Float32Array(MAX_FLAMES);
   const py = new Float32Array(MAX_FLAMES);
   const pz = new Float32Array(MAX_FLAMES);
@@ -102,9 +96,6 @@ export function createFlames(scene, rng) {
 
       life[slot] = LIFE * rng.range(0.7, 1.1);
       life0[slot] = life[slot];
-      size0[slot] = START_SIZE;
-      size1[slot] = END_SIZE;
-      dragK[slot] = 4.2;
       px[slot] = x + rng.jitter(0.12);
       py[slot] = y + rng.jitter(0.08);
       pz[slot] = z + rng.jitter(0.12);
@@ -114,38 +105,6 @@ export function createFlames(scene, rng) {
       spin[slot] = rng.range(0, Math.PI * 2);
       tilt[slot] = rng.range(-2.5, 2.5);
       wide[slot] = rng.range(0.75, 1.25);
-      alphas[slot] = 1;
-    }
-  }
-
-  /**
-   * Crash fireball: an omnidirectional puff of fire from (x, z), lofting up rather than firing
-   * along a heading. Bigger and slower than the tailpipe burst, coloured by the same additive
-   * material so it brightens the smoke plume from the inside.
-   */
-  function blast(x, z, count = 36) {
-    for (let k = 0; k < count; k++) {
-      const slot = next;
-      next = (next + 1) % MAX_FLAMES;
-
-      const angle = rng.range(0, Math.PI * 2);
-      const out = rng.range(2.0, 6.5);
-      const up = rng.range(1.5, 5.0);
-
-      life[slot] = BLAST_LIFE * rng.range(0.7, 1.15);
-      life0[slot] = life[slot];
-      size0[slot] = BLAST_START_SIZE;
-      size1[slot] = BLAST_END_SIZE;
-      dragK[slot] = 2.6;
-      px[slot] = x + rng.jitter(0.5);
-      py[slot] = 0.6 + rng.range(0, 1.0);
-      pz[slot] = z + rng.jitter(0.5);
-      vx[slot] = Math.cos(angle) * out;
-      vy[slot] = up;
-      vz[slot] = Math.sin(angle) * out;
-      spin[slot] = rng.range(0, Math.PI * 2);
-      tilt[slot] = rng.range(-2.0, 2.0);
-      wide[slot] = rng.range(0.9, 1.5);
       alphas[slot] = 1;
     }
   }
@@ -164,14 +123,14 @@ export function createFlames(scene, rng) {
       pz[slot] += vz[slot] * dt;
       // Air braking — the jet slows quickly so each mote decelerates into a puff rather than
       // continuing off at launch speed. Frame-rate independent decay.
-      const drag = Math.exp(-dragK[slot] * dt);
+      const drag = Math.exp(-DRAG * dt);
       vx[slot] *= drag;
       vz[slot] *= drag;
       spin[slot] += tilt[slot] * dt;
 
       // Grows fast at spawn, then holds — a shrinking flame reads as *dying* which is fine at
       // the tail of the life, and the alpha ramp already fades it out.
-      const size = size0[slot] + (size1[slot] - size0[slot]) * Math.min(1, t * 2.2);
+      const size = START_SIZE + (END_SIZE - START_SIZE) * Math.min(1, t * 2.2);
       dummy.position.set(px[slot], py[slot], pz[slot]);
       dummy.rotation.set(tilt[slot] * 0.3, spin[slot], 0);
       dummy.scale.set(size * wide[slot], size, size);
@@ -194,5 +153,5 @@ export function createFlames(scene, rng) {
     }
   }
 
-  return { mesh, burst, blast, update };
+  return { mesh, burst, update };
 }

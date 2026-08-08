@@ -9,16 +9,14 @@ import { createProps } from './city/props.js';
 import { createTraffic, speedMph } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
-import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds } from './game/fares.js';
+import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createBoost, BOOST_FARE_REWARD } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
-import { createSparks } from './game/sparks.js';
-import { createSmoke } from './game/smoke.js';
-import { createDebris } from './game/debris.js';
+import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createVanish } from './game/vanish.js';
 import { createCarGhosts } from './game/carghosts.js';
@@ -30,9 +28,10 @@ import { createRiderFinder } from './game/riderfinder.js';
 import { createTutorial } from './game/tutorial.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
+import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { findRoute, planOrigin } from './game/route.js';
-import { getActiveShot, getSeed, getRunSeed, getCarCount } from './util/shot.js';
+import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin } from './util/shot.js';
 import { GRID } from './city/grid.js';
 import { cityNetwork, isNetworkConnected } from './city/roadnet.js';
 import { cityFromLevel, loadLevel } from './city/level.js';
@@ -75,6 +74,14 @@ if (levelName) {
 }
 const runSeed = getRunSeed(seed, Boolean(shot));    // this run's situation — random unless pinned
 
+// `?d=0..1` freezes the difficulty curve, so the late game can be looked at without playing ten
+// fares to reach it. Applied before anything constructs, because the car count is read off the
+// curve and the fare system budgets its first clock from it.
+//
+// A shot that is *about* a point on the curve carries its own pin, so `./shots.sh` reproduces it
+// without every caller having to remember the query parameter. An explicit `?d=` still wins.
+difficulty.pinDifficulty(getDifficultyPin() ?? shot?.difficulty ?? null);
+
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
   // Three defaults the stencil buffer OFF since r163. The taxi's ghost outline stamps its mask
@@ -105,7 +112,16 @@ scene.add(createGround(makeRng(seed + 11), layout));
 scene.add(createBuildings(makeRng(seed + 22), layout).mesh);
 scene.add(createProps(makeRng(seed + 33), layout));
 
-const traffic = createTraffic(makeRng(runSeed + 44), scene, getCarCount());
+// Density is on the difficulty curve, so the run opens at its bottom and the instanced meshes are
+// sized for its top — an InstancedMesh cannot be resized once built. An explicit `?cars=N` beats
+// the curve at both ends, the way `?seed=` beats a random city: a pinned density is a pinned
+// density, and a tool that asked for one car should get one car for the whole run.
+const pinnedCars = getCarCount(null);
+const traffic = createTraffic(
+  makeRng(runSeed + 44), scene,
+  pinnedCars ?? difficulty.carCount(0),
+  pinnedCars ?? difficulty.carCount(Infinity),
+);
 const fares = createFareSystem(makeRng(runSeed + 55), scene);
 const police = createPolice(makeRng(runSeed + 66), scene);
 // One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and
@@ -161,12 +177,10 @@ const pan = shot
   : attachDragPan(controller, renderer.domElement, aspect, isNarrow, releaseCameraToPlayer);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
-const sparks = createSparks(scene, makeRng(runSeed + 88));
-const smoke = createSmoke(scene, makeRng(runSeed + 99));
-// One debris pool per car in a crash — a pool re-shoots its own pieces, so a shared one would
-// snap the taxi's wreckage across to the other car's the instant the second burst fired.
-const debris = createDebris(scene, makeRng(runSeed + 111));
-const victimDebris = createDebris(scene, makeRng(runSeed + 122));
+// The whole crash detonation — shockwave, fireball and shards — behind one `fire()` per car. One
+// pool serves both cars: nothing here is re-shot from a stored position, so a second call cannot
+// drag the first car's wreckage across to the second the way the old debris pools could.
+const blast = createBlast(scene, makeRng(runSeed + 88));
 const flames = createFlames(scene, makeRng(runSeed + 133));
 const vanish = createVanish();
 
@@ -176,10 +190,10 @@ const carGhosts = createCarGhosts(scene, traffic);
 
 // Collision detection between the taxi and ambient cars. Only fires while boosting — see
 // src/sim/collisions.js. On impact *both* cars are wrecked: each detonates where it stands and
-// each shell shrinks and fades into its own fireball, debris fires outward in their place, sparks
-// burst, a smoke plume rises, the camera shakes and pulls into a close-up, the sim drops into
-// slow-mo, boost is released, and the fare system flips into game-over — but the Game Over banner
-// is held for CRASH_BANNER_DELAY (wallclock, so the delay is unaffected by the slow-mo).
+// each shell shrinks and fades into its own fireball, the camera shakes and pulls into a close-up,
+// the sim drops into slow-mo, boost is released, and the fare system flips into game-over — but
+// the Game Over banner is held for CRASH_BANNER_DELAY (wallclock, so the delay is unaffected by
+// the slow-mo).
 const CRASH_BANNER_DELAY = 2600;
 const WRECK_ZOOM = 26;
 const SLOW_MO_MIN = 0.18;                // sim runs at this fraction of real time at impact
@@ -209,31 +223,23 @@ let bustAt = 0;              // wallclock ms of the bust, while the banner is st
 
 const collisions = createCollisions(traffic.cars, traffic.taxi);
 collisions.onImpact(({ x, z, other }) => {
-  // Layered detonation: sparks and a first fireball at the point of impact, a big shower of
-  // debris in place of the merged taxi shell, and a fat smoke plume climbing out of it. A second
-  // fireball fires a beat later so the crash reads as an explosion with a follow-up flare rather
-  // than a single one-frame pop — the setTimeout is wallclock so the follow-up lands during the
-  // slow-mo ramp and stretches out cinematically.
-  sparks.burst(x, z, 96);
-  smoke.burst(x, z);
-  flames.blast(x, z, 48);
-  debris.burst(x, z);
+  // One detonation per car — a shockwave ring on the tarmac, a fireball and a scatter of shards,
+  // all of it inside game/blast.js. It used to be four effects stacked at each point plus a third
+  // wave on a setTimeout, tuned as a simulation; the beat reads better as one graphic bang per
+  // car, and the two of them a couple of units apart already give it the spread the follow-up
+  // flare was there to fake.
+  blast.fire(x, z, PALETTE.taxiBody);
   controller.kickShake(2.4);
 
-  // The car that was hit gets the whole treatment too, fired at its own centre rather than at the
-  // shared impact point. The two are only a couple of units apart, but that is enough to spread
-  // the blast across both bodies instead of stacking it on the seam between them — and its
-  // wreckage comes apart in its own paint, so what lands on the road is visibly two cars.
+  // The car that was hit detonates at its own centre rather than at the shared impact point. The
+  // two are only a couple of units apart, but that is enough to spread the blast across both
+  // bodies instead of stacking it on the seam between them — and its shards fly in its own paint,
+  // so what comes apart is visibly two cars.
   //
   // It used to spin out, snap back onto a lane and drive away. A boosting taxi arrives at ~19 u/s
   // and the survivor shrugging that off made the player's own wreck look like a rule rather than
   // a crash.
-  const ox = other.x;
-  const oz = other.z;
-  sparks.burst(ox, oz, 64);
-  smoke.burst(ox, oz, 40);
-  flames.blast(ox, oz, 40);
-  victimDebris.burst(ox, oz, PALETTE.carBody[other.colorIndex]);
+  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex]);
 
   // Both shells collapse into their own fireballs — see game/vanish.js for why they are faded out
   // rather than simply hidden. `wreckShell` also takes each car off the road for good.
@@ -246,19 +252,12 @@ collisions.onImpact(({ x, z, other }) => {
   slowMoMin = SLOW_MO_MIN;
   boost.release();
   fares.crash();
-  setTimeout(() => {
-    flames.blast(x, z, 32);
-    flames.blast(ox, oz, 24);
-    smoke.burst(x, z, 28);
-    sparks.burst(x, z, 32);
-    controller.kickShake(1.1);
-  }, 260);
 });
 
 /**
  * Boost past a cop and you're done — reuses the wreck cinematic (zoom, slow-mo, delayed banner)
- * so the beat is the same as a collision, but the taxi stays visible (no debris, no smoke) since
- * nothing hit it. The taxi is flagged crashed so it freezes on the spot for the pull-in, and the
+ * so the beat is the same as a collision, but the taxi stays visible (no blast) since nothing hit
+ * it. The taxi is flagged crashed so it freezes on the spot for the pull-in, and the
  * fare system's title/reason drive the "Busted" banner.
  *
  * The cruiser abandons its corridor run here and comes for the taxi — see `chase()` in
@@ -648,19 +647,67 @@ function popEarning(amount) {
 }
 
 /**
- * Bump the streak counter on a successful drop-off — no flight off the taxi like the payout gets,
- * that's a later concern. The counter itself is in the markup from the first frame reading `0x`
- * (see index.html), so there's nothing to reveal here; the first delivery bumps 0 → 1 exactly
- * like every one after it. `count` is `fares.state.delivered`, so the streak is just "how many
- * this run" until a reset condition exists.
+ * The multiplier counter, top right — no flight off the taxi like the payout gets, that's a later
+ * concern. It is in the markup from the first frame (see index.html), so there is nothing to
+ * reveal here; it bumps on every delivery whether or not the number changed, because the bump is
+ * "that one counted" and the number is "and this is what they are worth now".
+ *
+ * It used to show `fares.state.delivered` and call that a streak, which meant the `×` was
+ * decoration — the same number the run-end screen printed as "Fares", wearing a symbol that
+ * implied an economy it did not have. It now shows `difficulty.payoutMultiplier`, which is the
+ * real multiple every fare's price is stamped with at spawn, and it steps on the same beat as the
+ * shift toast that explains why.
  */
-function updateStreak(count) {
+function updateStreak(multiplier, bump = true) {
   if (!hud.streak || !hud.streakCount) return;
-  hud.streakCount.textContent = String(count);
+  // A whole number prints as "2", a step prints as "1.5" — trailing zeros on a HUD number read as
+  // precision that isn't there.
+  hud.streakCount.textContent = String(Math.round(multiplier * 100) / 100);
+  if (!bump) return;
   // Toggle off / reflow / on, same as the money bump — a class that stays put doesn't re-fire.
   hud.streak.classList.remove('streak-bumped');
   void hud.streak.offsetWidth;
   hud.streak.classList.add('streak-bumped');
+}
+
+// Paint the opening multiplier, without the bump — a counter that pops on load is announcing a
+// change that hasn't happened. Read off the curve rather than left in the markup so the two cannot
+// drift: `index.html` ships a placeholder, and the first shift's payout is what it should say.
+updateStreak(difficulty.payoutMultiplier(0), false);
+
+/**
+ * Announce a step up the difficulty curve, once, on the delivery that crosses into it.
+ *
+ * The ramp is otherwise invisible: clocks tighten, riders arrive closer together and the board
+ * grows, and a player experiencing all three at once has no way to tell "the game got harder"
+ * from "I got worse". Naming the step is what makes the difference legible — and it lets the
+ * multiplier arriving on the same frame read as the reward for reaching it rather than a number
+ * that wandered.
+ *
+ * Deliberately not announced at delivery zero: the opening shift is the state the run starts in,
+ * and a banner for it would be announcing a change that hasn't happened — the same reason a fresh
+ * rider's diamond doesn't kick on spawn.
+ */
+/**
+ * Push the world half of the difficulty curve into the sim: more traffic, and a police corridor
+ * that comes round more often.
+ *
+ * A pinned `?cars=N` opts out of the density ramp entirely — the pool was sized to that number, so
+ * `setCarCount` has nowhere to grow into anyway, but saying so here is what makes it a decision
+ * rather than an accident.
+ */
+function applyWorldPressure() {
+  const delivered = fares.state.delivered;
+  if (pinnedCars === null) traffic.setCarCount(difficulty.carCount(delivered));
+  police.setCooldownRange(difficulty.policeCooldown(delivered));
+}
+
+let lastShift = 0;
+function announceShift(delivered) {
+  const shift = difficulty.shiftFor(delivered);
+  if (shift.index <= lastShift) return;
+  lastShift = shift.index;
+  flash(`${shift.name} — fares pay ${shift.payout}x`);
 }
 
 let toastTimer = 0;
@@ -695,19 +742,27 @@ function updateHud(dt) {
   }
 
   if (s.gameOver && hud.banner && hud.banner.hidden) {
-    // A crash holds the banner for CRASH_BANNER_DELAY so the smoke, sparks and camera pull-in
+    // A crash holds the banner for CRASH_BANNER_DELAY so the blast and the camera pull-in
     // land before the retry screen appears. Timeouts have no such beat — reveal immediately.
     if (crashBannerAt !== null && performance.now() < crashBannerAt) return;
     showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: s.failReason,
-      // Five numbers, in the order the run produced them: what you carried, what it paid, what
-      // the city made you sit through, and how fast you were going when it went wrong. Streak
-      // sits right after Fares because right now it's the same count read a second way — see the
-      // HUD streak counter in updateStreak().
+      // Five numbers, in the order the run produced them: what you carried, how deep into the
+      // ramp that took you, what it paid, what the city made you sit through, and how fast you
+      // were going when it went wrong.
+      //
+      // "Shift" replaces what used to be "Streak", which printed `s.delivered` — the same number
+      // as Fares directly above it, formatted with an `x`. Two rows counting out one number is a
+      // stat sheet padding itself. How far up the difficulty curve the run got is a genuinely
+      // different fact about it, and it is the one the multiplier was earned by.
       stats: [
         { label: 'Fares', value: s.delivered, format: (n) => `${n}` },
-        { label: 'Streak', value: s.delivered, format: (n) => `${n}x` },
+        // Rolls up through the shift names the run actually passed through, which is what the
+        // counter does with every other stat. Clamped at the bottom because `countUp` paints
+        // `format(0)` as the row's opening frame before it starts counting.
+        { label: 'Shift', value: difficulty.shiftFor(s.delivered).index + 1,
+          format: (n) => difficulty.SHIFTS[Math.max(0, n - 1)].name },
         { label: 'Cash', value: s.money, format: (n) => `$${n}` },
         { label: 'Red Lights', value: traffic.stats.taxiRedLights, format: (n) => `${n}` },
         { label: 'Top Speed', value: speedMph(traffic.stats.taxiTopSpeed),
@@ -942,8 +997,8 @@ function frame() {
   requestAnimationFrame(frame);
   let dt = Math.min(clock.getDelta(), 0.05);
 
-  // Time dilation for the crash. Scale the whole frame's dt so debris, smoke, camera pull-in and
-  // shake decay all slow together — that's what sells it as a single cinematic beat rather than
+  // Time dilation for the crash. Scale the whole frame's dt so the blast, the camera pull-in and
+  // the shake decay all slow together — that's what sells it as a single cinematic beat rather than
   // one element being pushed around while everything else runs normally. Ramps linearly from
   // `slowMoMin` back to 1.0 across SLOW_MO_DURATION ms wallclock; the banner delay is separately
   // wallclock-anchored so this doesn't change when the retry screen appears. The depth is per
@@ -968,14 +1023,17 @@ function frame() {
   updateBoostButton(dt);
   skids.update(dt);
   dust.update(dt);
-  sparks.update(dt);
-  smoke.update(dt);
-  debris.update(dt);
-  victimDebris.update(dt);
+  blast.update(dt);
   flames.update(dt);
   vanish.update(dt);
   controller.updateShake(dt, aspect());
   daylight.update(dt);
+
+  // The two halves of the ramp that live in `sim/`. They are pushed rather than pulled because
+  // `sim/` must not import from `game/` — the same reason `traffic.taxi.boost` is written here
+  // rather than read there. Both are idempotent and cheap: the density call adds at most one car
+  // and returns immediately once it is at the mark, and the cooldown range is two numbers.
+  applyWorldPressure();
 
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
@@ -1002,7 +1060,7 @@ function frame() {
   // back.
   //
   // Wreck focus outranks everything (and runs on every viewport, not only narrow ones): the camera
-  // eases into the crash site so the smoke and sparks fill the frame before the retry screen shows.
+  // eases into the crash site so the fireball fills the frame before the retry screen shows.
   //
   // The tutorial sits below Loco Mode and above the opening follow, and unlike the follows it runs
   // on every viewport — a desktop player has the whole city in frame and still cannot tell which
@@ -1040,7 +1098,8 @@ function frame() {
       dispatchToDropoff(fare);
     } else if (type === 'delivered') {
       popEarning(fare.value);
-      updateStreak(fares.state.delivered);
+      updateStreak(difficulty.payoutMultiplier(fares.state.delivered));
+      announceShift(fares.state.delivered);
       // A third of a tank of boost fuel as the delivery reward — the only way any fuel enters the
       // meter now. The queue call is deliberately *inside* the sparks' arrival callback rather than
       // here: the fuel has to land when the energy does, or the meter starts filling a second and a
@@ -1115,6 +1174,26 @@ if (shot) {
     }
   }
 
+  // Fill the board to the cap. Spawns are staggered by `difficulty.spawnGap`, so this is a matter
+  // of running the clock — but the clock cannot simply be run, because a taxi that serves nobody
+  // loses the first rider to their own deadline and the run is over before the second arrives
+  // (the first attempt at this shot rendered the game-over screen). So it auto-plays the loop the
+  // way `tools/soak.mjs` does: carry whoever is aboard, then the most urgent waiter.
+  if (shot.untilBoardFull) {
+    const want = difficulty.maxFares(0);
+    let aim = null;
+    for (let guard = 0; guard < 180 * 60; guard++) {
+      if (fares.state.gameOver || fares.state.fares.length >= want) break;
+      traffic.update(1 / 60);
+      for (const { type, fare } of fares.update(1 / 60, traffic.taxi)) {
+        if (type === 'pickup') { traffic.setTaxiOccupied(true); send(fare); }
+        if (type === 'delivered') traffic.setTaxiOccupied(false);
+      }
+      const job = fares.carrying() ?? fares.waiting();
+      if (job && job !== aim && !job.directed) { aim = send(job); }
+    }
+  }
+
   // Run forward until the police car is mid-city, so the shot shows a live corridor.
   if (shot.untilPolice) {
     for (let guard = 0; guard < 90 * 60; guard++) {
@@ -1127,6 +1206,32 @@ if (shot) {
     const pos = police.group.position;
     controller.state.target.set(pos.x, 0, pos.z);
     controller.update(aspect());
+  }
+
+  // Stage an actual crash and freeze it `wreckAt` seconds in. The real path is driven rather than
+  // mocked — the taxi is parked on top of an ambient car with boost on, and `collisions.update()`
+  // detonates it through the same handler a live run uses — so this framing cannot drift out of
+  // step with the crash it exists to review. Only the blast and the shrinking shells are stepped
+  // afterwards: traffic must stay still, or the rest of the city drives on under a frozen wreck.
+  if (shot.wreckAt) {
+    // Offset by a couple of units along the victim's heading rather than parked exactly on it: a
+    // real impact leaves the two centres about that far apart, and the pair of detonations spread
+    // across both bodies is half of what the crash looks like.
+    const victim = traffic.cars.find((c) => !c.isTaxi && c.state === 'drive');
+    traffic.taxi.x = victim.x - Math.cos(victim.yaw) * 2;
+    traffic.taxi.z = victim.z + Math.sin(victim.yaw) * 2;
+    traffic.taxi.yaw = victim.yaw;
+    traffic.taxi.boost = true;
+    for (let guard = 0; guard < 90 && !traffic.taxi.crashed; guard++) {
+      collisions.update();
+      traffic.update(1 / 60);
+    }
+    controller.state.target.set(wreckSpot?.x ?? victim.x, 0, wreckSpot?.z ?? victim.z);
+    controller.update(aspect());
+    for (let step = 0; step < Math.round(shot.wreckAt * 60); step++) {
+      blast.update(1 / 60);
+      vanish.update(1 / 60);
+    }
   }
 
   // Frame the drop-off of the fare aboard, on the kerb corner the pin actually stands on rather
@@ -1182,7 +1287,7 @@ if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) 
     sky,
     daylight,
     carCount: getCarCount(),
-    fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds },
+    fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds, isPinned: isFareClockPinned },
     routeLine,
   });
 }

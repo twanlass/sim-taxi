@@ -18,6 +18,18 @@ destination, and why gameplay changes rarely need to touch traffic code. The tax
 same `cars` array as ambient traffic and is drawn as its own mesh only so it can be raycast and
 highlighted.
 
+**Which car becomes the taxi is a pick, not always the first draw.** `createTraffic` draws the
+whole `count` uniformly, same as ever, then flags whichever car is heading for the intersection
+closest to the middle of the grid as the taxi — downtown, per `layout.js`'s own density falloff —
+rather than always `cars[0]`. A run used to open with the taxi anywhere on the map, including a
+corner, and the first fare (biased to spawn near the taxi — see
+[gameplay.md](gameplay.md#extra-fares-and-prioritisation)) followed it there.
+
+Picking from the draw rather than drawing the taxi's spot separately with its own filter is
+deliberate: it keeps this file's rng stream exactly what it was, so nothing downstream — the rest
+of this same draw, `tools/probe.mjs`'s staged two-car boost scenarios, anything else reading from
+this `rng` — consumes a different number of random values than before.
+
 ## Signals
 
 The scheme that shipped first was `phaseOffset = ((i + j) % 4) * (CYCLE / 4)` on a 16.2s cycle.
@@ -499,13 +511,17 @@ which is the flag every loop in `traffic.js` already skipped for the taxi: out o
 bookkeeping, out of the physics, out of the render pass, permanently. The stun path is gone with
 it, and so is `recoverFromStun`.
 
-**Each car detonates where it stands.** Sparks, a fireball, a smoke plume and a shower of debris at
-the impact point, and the same set again at the other car's centre. The two are only a couple of
-units apart, but that is enough to spread the blast across both bodies instead of stacking it on
-the seam between them. A debris pool re-shoots its own pieces on every call, so the two cars get
-**a pool each** — one shared pool would snap the taxi's wreckage across to the other car's the
-instant the second burst fired. The victim's pool is repainted at burst time in that car's colour
-(glass, rubber and the cabin lid keep theirs), so what lands on the road is visibly two cars.
+**Each car detonates where it stands.** One `blast.fire()` at the impact point and another at the
+other car's centre. The two are only a couple of units apart, but that is enough to spread the
+blast across both bodies instead of stacking it on the seam between them, and each call carries
+that car's paint, so the shards come apart in two colours and what flies is visibly two cars.
+
+It was four effects fired twice each plus a third wave on a `setTimeout`, and a **debris pool per
+car** on top — a pool re-shot its own pieces on every call, so one shared pool would have snapped
+the taxi's wreckage across to the other car's the instant the second burst fired. All of that is
+one module now, and the pool-per-car problem is gone with it: nothing in `blast.js` is re-shot from
+a stored position, so a second call cannot drag the first one's wreckage anywhere. See
+[rendering.md](rendering.md#wreck--gameblastjs-gamevanishjs).
 
 **The shells shrink and fade into the fireballs** rather than being hidden. The old version cut:
 `taxiGroup.visible = false` fired on the impact frame, one frame before the fireball had grown
@@ -538,8 +554,13 @@ queues behind anyone; the priority corridor holds every downstream light green, 
 cars in the lane are already launching or moving by the time the cruiser arrives behind them.
 A red/blue point light rides with it.
 
-The soak test caught the cost of this immediately — a taxi held at a corridor loses time through
-no fault of the player — so the fare deadline carries a `DISRUPTION_ALLOWANCE` to cover it.
+The soak test caught the cost of this immediately: a taxi held at a corridor loses time through no
+fault of the player. This doc claimed for a long while that the fare deadline carried a
+`DISRUPTION_ALLOWANCE` to cover it — **it never did**, and no such constant has ever existed in the
+source. What covers it now is the slack multiplier on every budgeted clock
+([difficulty.md](difficulty.md#the-clock-is-budgeted)), which pays for whatever the drive actually
+runs into, corridors included. That matters more than it used to: the corridor comes round about
+twice as often at the top of the ramp as at the bottom.
 
 This is also why the player can **tailgate**: following the police car through town is a legitimate
 way to cross the map quickly.

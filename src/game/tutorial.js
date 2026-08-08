@@ -15,8 +15,11 @@ import { VIEW_DIR } from './camera.js';
 // happens without being asked for or is a pill with a label on it. None of it is taught here.
 //
 // The fare clocks are held while this runs (main.js calls `fares.setPaused`), so the tutorial never
-// spends the 60 seconds the player is about to need. Nothing auto-advances: both beats wait for a
-// tap, because a tutorial on a timer is one the slower reader loses.
+// spends the clock the player is about to need. That matters more than it did when every rider got
+// a flat sixty seconds: a clock is budgeted from the driving its own trip costs now
+// (see difficulty.md), so what a lesson would eat is margin that was calculated for driving.
+// Nothing auto-advances: both beats wait for a tap, because a tutorial on a timer is one the slower
+// reader loses.
 
 // Every line, in the order it is spoken. Kept together so the whole script is one thing to read.
 const LINES = {

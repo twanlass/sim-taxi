@@ -16,18 +16,19 @@
 // 0.5-tank/s pour against any ω fast enough to not look sluggish leaves nothing to work with. So
 // the bounce is authored. It starts on the frame the pour finishes, which is why it doesn't read as
 // a jump: the bar is already travelling at the pour rate and the kick just carries it further.
-export const OVERSHOOT = 0.07;        // 7% of a tank past the mark ≈ 9px on the pill — small, but it reads
+export const OVERSHOOT = 0.045;       // 4.5% of a tank past the mark ≈ 6px on the pill — small, but it reads
 export const OVERSHOOT_RISE = 0.1;    // seconds out to the peak: faster than the pour, so it snaps
 
 // Coming back is a damped ring, not a curve back to the mark. An eased fall reached the mark and
 // simply stopped, which is the one moment the eye is watching and it read as linear — the bar
 // *arrived* rather than *settled*. This is the spring the scripted kick doesn't get for free:
 // the peak releases into a decaying cosine, so the bar dips a little under the mark, comes back
-// over it smaller, and converges. Amplitudes off 7%: -2.9%, +1.2%, -0.5%, done.
+// over it smaller, and converges. Amplitudes off 4.5%: -1.7%, +0.6%, -0.2%, done. Tuned down from
+// a 7%/7-decay original that read as too bouncy — smaller kick, faster decay, quicker to rest.
 const SETTLE_HZ = 4;                  // ring frequency — one full wobble every 250ms
-const SETTLE_DECAY = 7;               // e-folding rate: each wobble is ~40% of the one before
+const SETTLE_DECAY = 8;               // e-folding rate: each wobble is ~33% of the one before
 // Below this the ring is under a fifth of a pixel, so cut it and snap to the real level rather
-// than trailing a tail nobody can see. Works out at ~0.55s of settle.
+// than trailing a tail nobody can see. Works out at ~0.43s of settle.
 const SETTLE_FLOOR = 0.0015;
 const SETTLE_TIME = Math.log(OVERSHOOT / SETTLE_FLOOR) / SETTLE_DECAY;
 
@@ -35,10 +36,12 @@ const SETTLE_TIME = Math.log(OVERSHOOT / SETTLE_FLOOR) / SETTLE_DECAY;
 // length of the bounce, so the glow and the leading edge finish fading exactly as the bar stops.
 const FILL_ATTACK = 0.09;
 const FILL_RELEASE = OVERSHOOT_RISE + SETTLE_TIME;
-// Fast. The glow and the pill's scale both ride this, and at 5Hz the pill read as *breathing* —
-// the point is a flutter that says something is being poured in right now, so it wants to be at
-// the top of what still reads as a pulse rather than a flicker.
-const PULSE_HZ = 8;
+// The glow and the pill's scale both ride this. It ran at 8Hz originally so it would read as a
+// flutter rather than the 5Hz "breathing" that was tried and rejected — but against a burst of
+// several energy circles landing in the same pour, that many pulses stacked up read as chaotic
+// rather than lively. Halved to land one clear pulse where there used to be two; slower than the
+// old breathing threshold, but the pour is short enough that it still reads as urgency, not calm.
+const PULSE_HZ = 4;
 
 export function createBoostMeter() {
   const state = { pct: 0, fill: 0, pulse: 0 };

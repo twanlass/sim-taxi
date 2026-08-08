@@ -18,8 +18,9 @@ import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriori
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
-  createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, SECOND_FARE_AFTER,
+  createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES,
 } from '../src/game/fares.js';
+import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
 import { bounceOffset, KICK_SCALE, KICK_HOP } from '../src/geometry/diamond.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
@@ -39,6 +40,7 @@ import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
+import { createBlast } from '../src/game/blast.js';
 import {
   createBoost, BOOST_DURATION, BOOST_START_FRACTION, BOOST_FARE_REWARD, BOOST_COOLDOWN,
 } from '../src/game/boost.js';
@@ -419,6 +421,35 @@ check('no two cars occupy the same space', worst > 1.6,
   }
 }
 
+// --- The difficulty curve is winnable everywhere on it ------------------------
+// A deadline shorter than the driving it pays for is unwinnable by construction, and it would look
+// exactly like the game being hard. Slack below 1.0 is therefore not a tuning choice, it is a bug,
+// and it is the kind that only shows up several fares into a run on someone else's machine.
+{
+  let minSlack = Infinity;
+  let capJumps = 0;
+  let prevCap = difficulty.maxFares(0);
+  for (let delivered = 0; delivered <= 40; delivered++) {
+    minSlack = Math.min(minSlack, difficulty.slack(delivered));
+    const cap = difficulty.maxFares(delivered);
+    // The board grows one rider at a time. Two arriving on the same delivery is a burst the
+    // spawn stagger cannot smooth out, because the cap is what gates it in the first place.
+    if (cap - prevCap > 1) capJumps += 1;
+    prevCap = cap;
+  }
+  check('slack never drops below 1.0 anywhere on the curve', minSlack >= 1,
+    `min slack ${minSlack.toFixed(2)}`);
+  check('the board cap grows one rider at a time', capJumps === 0);
+  check('the curve reaches its ceiling', difficulty.maxFares(40) === MAX_FARES
+    && difficulty.difficulty(40) === 1);
+  // A fare that spawns already past its floor is one the clamp is doing all the work for. The
+  // floor exists for the next-door hop; if it is catching a median trip, the budget is broken.
+  const medianWork = 16.4;   // measured mean trip, tools/eta.mjs
+  check('the clock floor does not swallow a median trip',
+    difficulty.fareLimit(medianWork, 40) > difficulty.getTuning().clockFloor,
+    `${difficulty.fareLimit(medianWork, 40).toFixed(1)}s at full difficulty`);
+}
+
 // --- Multiple fares, staggered ----------------------------------------------
 // The board fills to MAX_FARES with extras arriving one at a time, so more than one clock can
 // drain on the kerb and the player has to pick which to grab first. Every rule about when they
@@ -433,6 +464,7 @@ check('no two cars occupy the same space', worst > 1.6,
   let mostAtOnce = 0;
   let mostWaiting = 0;
   let extrasBeforeDelivery = false;
+  let overCurveCap = 0;
   let spawnedWhileBusy = 0;
   let spawnedIdle = 0;
   let elapsed = 0;
@@ -453,10 +485,17 @@ check('no two cars occupy the same space', worst > 1.6,
     for (const { type } of fares.update(1 / 60, mTraffic.taxi)) {
       if (type !== 'spawned') continue;
       if (fares.state.fares.length > 1) {
-        if (fares.state.delivered < SECOND_FARE_AFTER) extrasBeforeDelivery = true;
+        // The board is only allowed to be this big at this point in the run. Asserted against the
+        // curve rather than a constant, because the cap is now a function of deliveries — a ramp
+        // that quietly handed out the fourth rider on delivery one would still satisfy any fixed
+        // ceiling.
+        if (fares.state.fares.length > difficulty.maxFares(fares.state.delivered)) {
+          overCurveCap += 1;
+        }
+        if (fares.state.delivered < 1) extrasBeforeDelivery = true;
         spawnedWhileBusy += 1;
         // The stagger is what turns this into a prioritisation puzzle — every extra rider must
-        // arrive at least SPAWN_MIN_GAP after the previous one, not in the same burst.
+        // arrive at least difficulty.spawnGap() after the previous one, not in the same burst.
         minSpawnGap = Math.min(minSpawnGap, elapsed - prevSpawnAt);
       } else {
         spawnedIdle += 1;
@@ -482,6 +521,8 @@ check('no two cars occupy the same space', worst > 1.6,
   check('the board can fill past two fares', mostAtOnce >= 2,
     `peak ${mostAtOnce}, ${fares.state.delivered} delivered`);
   check('never more than MAX_FARES', mostAtOnce <= MAX_FARES);
+  check('the board never runs ahead of the difficulty curve', overCurveCap === 0,
+    `${overCurveCap} frames over the cap`);
   check('the extra fares only arrive after the tutorial delivery',
     !extrasBeforeDelivery && spawnedWhileBusy > 0,
     `${spawnedWhileBusy} extras, ${spawnedIdle} on an empty board`);
@@ -489,8 +530,10 @@ check('no two cars occupy the same space', worst > 1.6,
   // "prioritise which one to grab" as words in the docs and nothing in the game.
   check('more than one rider can wait on the kerb at once', mostWaiting >= 2,
     `peak ${mostWaiting}`);
-  // The stagger is the fairness guarantee: extras land at least SPAWN_MIN_GAP apart, so their
-  // clocks drain out of phase instead of ending on the same tick.
+  // The stagger is the fairness guarantee: extras land at least difficulty.spawnGap() apart, so
+  // their clocks drain out of phase instead of ending on the same tick. 6.5 is the floor of that
+  // curve (7s at full difficulty) with a frame's grace — tightening spawnGapEnd below it is a
+  // deliberate act that has to come here and say so.
   check('extra fares arrive staggered', minSpawnGap >= 6.5,
     `min gap ${Number.isFinite(minSpawnGap) ? minSpawnGap.toFixed(2) : '-'}s`);
 
@@ -519,6 +562,8 @@ check('no two cars occupy the same space', worst > 1.6,
   let missingPin = 0;
   let wrongCount = 0;
   let wrongPrice = 0;
+  let unwinnableClock = 0;
+  const budgetSlack = [];
   let movedAtPickup = 0;
   let leakedPin = 0;
   let pinHiddenAtPickup = 0;
@@ -549,7 +594,15 @@ check('no two cars occupy the same space', worst > 1.6,
           wrongOpening += 1;
         }
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
-        if (fare.value !== priceFor(fare.pickup, fare.dropoff)) wrongPrice += 1;
+        // Distance price times the shift's multiplier, both settled at spawn — so this reads the
+        // multiplier as of *this* frame, which is the one the fare was stamped with.
+        const due = Math.round(priceFor(fare.pickup, fare.dropoff)
+          * difficulty.payoutMultiplier(fares.state.delivered));
+        if (fare.value !== due) wrongPrice += 1;
+        // The clock is budgeted from the driving, so it has to cover it with the run's slack in
+        // hand. Below 1.0 the rider cannot be delivered even by a perfect drive.
+        if (fare.limit < fare.work) unwinnableClock += 1;
+        budgetSlack.push(fare.limit / Math.max(1e-6, fare.work));
       }
       if (type === 'pickup') {
         pickups += 1;
@@ -589,6 +642,11 @@ check('no two cars occupy the same space', worst > 1.6,
   check('a fresh rider\'s diamond opens on full urgency', wrongOpening === 0,
     `${wrongOpening} opened wrong`);
   check('the price agrees with the advertised distance', wrongPrice === 0, `${wrongPrice} mispriced`);
+  // The clock now comes from the trip rather than a constant, so "is it enough?" is a live
+  // question every spawn rather than something settled once in a comment.
+  check('every fare spawns with a clock that covers its own driving',
+    unwinnableClock === 0 && budgetSlack.length > 0,
+    `${budgetSlack.length} fares, tightest ${Math.min(...budgetSlack).toFixed(2)}x work`);
   check('the drop-off stays hidden while the rider waits', leakedPin === 0, `${leakedPin} leaked`);
   check('the drop-off appears at pickup', pickups > 0 && pinHiddenAtPickup === 0,
     `${pickups} pickups, ${pinHiddenAtPickup} still hidden`);
@@ -1341,6 +1399,99 @@ check('the taxi is an ordinary car in the traffic array',
   }
   check('no collisions fire while the taxi is not boosting', quietHits === 0,
     `${quietHits} impacts over 30s`);
+}
+
+// --- The crash blast -------------------------------------------------------
+// game/blast.js is what a wreck detonates. Its silent failure modes are all "it looked fine on the
+// impact frame": a pool that wraps and truncates the second car's burst, a slot left drawing after
+// its life ran out, or both cars' shards coming out the same colour — which is the one thing the
+// two separate debris pools it replaced were carrying.
+{
+  const eScene = new THREE.Scene();
+  const blast = createBlast(eScene, makeRng(seed + 88));
+
+  const liveScales = (mesh) => {
+    const matrix = new THREE.Matrix4();
+    const scale = new THREE.Vector3();
+    const out = [];
+    for (let i = 0; i < mesh.count; i++) {
+      mesh.getMatrixAt(i, matrix);
+      matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale);
+      if (scale.x > 0) out.push(scale.x);
+    }
+    return out;
+  };
+
+  check('a blast starts with nothing drawn', blast.active() === 0);
+
+  // Both cars of a wreck, a couple of units apart and in their own paint.
+  blast.fire(0, 0, PALETTE.taxiBody);
+  blast.fire(3, 1.5, PALETTE.carBody[1]);
+  const fired = blast.active();
+  blast.update(1 / 60);
+
+  check('both cars fit the pools without wrapping', fired === 2 * (12 + 7 + 1), `${fired} instances`);
+  check('a blast puts a ring, a fireball and shards on the road',
+    liveScales(blast.ringMesh).length === 2
+    && liveScales(blast.puffMesh).length === 24
+    && liveScales(blast.shardMesh).length === 14,
+    `${liveScales(blast.ringMesh).length} rings, ${liveScales(blast.puffMesh).length} puffs, `
+    + `${liveScales(blast.shardMesh).length} shards`);
+
+  // Each car's shards wear that car's paint — a shared pool would have repainted the first car's
+  // wreckage when the second one detonated.
+  const shardColors = new Set();
+  const instanceColor = new THREE.Color();
+  for (let i = 0; i < blast.shardMesh.count; i++) {
+    blast.shardMesh.getColorAt(i, instanceColor);
+    shardColors.add(instanceColor.getHexString());
+  }
+  const taxiHex = new THREE.Color(PALETTE.taxiBody).getHexString();
+  const otherHex = new THREE.Color(PALETTE.carBody[1]).getHexString();
+  check('each car\'s shards keep their own paint',
+    shardColors.has(taxiHex) && shardColors.has(otherHex),
+    [...shardColors].join(' '));
+
+  // The fireball peaks and then collapses — a blast that only faded left a full-size ghost of
+  // itself hanging over the road for the whole retry screen.
+  let peak = 0;
+  for (let step = 0; step < 40; step++) {
+    blast.update(1 / 60);
+    peak = Math.max(peak, Math.max(0, ...liveScales(blast.puffMesh)));
+  }
+  const later = Math.max(0, ...liveScales(blast.puffMesh));
+  check('the fireball blooms and then collapses', peak > 1 && later < peak,
+    `peak ${peak.toFixed(2)}, ${later.toFixed(2)} at 0.67s`);
+
+  // And it ends. Every slot back to zero scale, not merely faded — an instance left at size is
+  // still a draw, and this pool is never cleared by anything else.
+  for (let step = 0; step < 60 * 3; step++) blast.update(1 / 60);
+  check('a blast retires completely',
+    blast.active() === 0
+    && liveScales(blast.ringMesh).length === 0
+    && liveScales(blast.puffMesh).length === 0
+    && liveScales(blast.shardMesh).length === 0,
+    `${blast.active()} still alive`);
+
+  // Shards arc, but nothing may end up under the road: there is no bounce to catch them any more,
+  // only a floor.
+  const bScene = new THREE.Scene();
+  const floorBlast = createBlast(bScene, makeRng(seed + 89));
+  floorBlast.fire(0, 0, PALETTE.taxiBody);
+  let lowest = Infinity;
+  const matrix = new THREE.Matrix4();
+  const position = new THREE.Vector3();
+  for (let step = 0; step < 90; step++) {
+    floorBlast.update(1 / 60);
+    for (let i = 0; i < floorBlast.shardMesh.count; i++) {
+      floorBlast.shardMesh.getMatrixAt(i, matrix);
+      position.setFromMatrixPosition(matrix);
+      const scale = new THREE.Vector3();
+      matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale);
+      if (scale.x > 0) lowest = Math.min(lowest, position.y);
+    }
+  }
+  check('no shard falls through the road', lowest >= 0.2 - 1e-6, `lowest y ${lowest.toFixed(3)}`);
 }
 
 // --- Busted by the police --------------------------------------------------

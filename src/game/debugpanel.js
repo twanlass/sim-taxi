@@ -1,4 +1,5 @@
 import { ROUTE_BLENDS } from './routeline.js';
+import * as difficulty from './difficulty.js';
 
 // A small tweak panel behind a gear button.
 //
@@ -149,11 +150,36 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, ro
   // --- Game -----------------------------------------------------------------
   heading('Game');
 
+  // Scrubs the whole ramp. Every knob in difficulty.js is a function of this one number, so the
+  // late game — four riders on the board, tight clocks, heavy traffic — is reachable without
+  // playing ten fares to get there, and a tweak to it can be looked at immediately.
+  //
+  // Only what is *derived* live actually moves: clocks are budgeted once at spawn, so the next
+  // rider to appear is the first one on the new slack, and the density ramp only ever grows. That
+  // is the same asymmetry the panel is already split by — this one sits under Game rather than
+  // "Restart to apply" because most of it does take effect, just not retroactively.
+  const diff = slider(0, 1, 0.05, difficulty.difficulty(0));
+  const diffValue = row(panel, 'Difficulty', diff);
+  const showDifficulty = (d) => {
+    diffValue.textContent = `${d.toFixed(2)} · ${difficulty.shiftFor(0).name} `
+      + `· ${difficulty.maxFares(0)} fares · ${difficulty.slack(0).toFixed(2)}x slack`;
+  };
+  diff.addEventListener('input', () => {
+    const d = Number(diff.value);
+    difficulty.pinDifficulty(d);
+    showDifficulty(d);
+  });
+  showDifficulty(difficulty.difficulty(0));
+
   const fareTime = slider(15, 120, 1, fares.getSeconds());
   const fareValue = row(panel, 'Fare clock', fareTime);
+  fareValue.textContent = fares.isPinned() ? `${fareTime.value}s · next fare` : 'budgeted';
   fareTime.addEventListener('input', () => {
+    // Touching this pins every clock flat, which takes the budget — and so the difficulty curve's
+    // main lever — out of the loop. That is the point of it: it is how you hold the clock still
+    // while tuning something the budget would otherwise move under you.
     fares.setSeconds(Number(fareTime.value));
-    fareValue.textContent = `${fareTime.value}s · next fare`;
+    fareValue.textContent = `${fareTime.value}s · next fare · budget off`;
   });
 
   // Live because it is the whole point: the four modes differ by how much of the road, markings

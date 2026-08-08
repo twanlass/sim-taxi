@@ -13,8 +13,8 @@ import { spawnSync } from 'node:child_process';
 // browser, and a scope slip in scene.js shipped undetected because nothing headless imported it.
 const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geometry/taxi.js',
   '../src/game/faremarker.js', '../src/geometry/person.js', '../src/game/routeline.js',
-  '../src/game/dust.js', '../src/game/sparks.js', '../src/game/smoke.js',
-  '../src/game/debris.js', '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
+  '../src/game/dust.js', '../src/game/blast.js',
+  '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
   '../src/game/dropoffindicator.js', '../src/game/vanish.js', '../src/game/runend.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
   '../src/game/tutorial.js'];
@@ -28,9 +28,15 @@ const TOOLS = [
   // blocks, and a painted block keeps its paint when the graph changes elsewhere.
   { name: 'level',   args: ['tools/level.mjs'],        pick: /(\d+\/\d+) checks passed/ },
   { name: 'routing', args: ['tools/taxi.mjs', '30'],   pick: /arrived (\S+)/ },
+  // Every fare's deadline is budgeted from `estimateSeconds`, so its error is a difficulty knob
+  // whether or not anyone tuned it. Runs before the soak: if the estimator has drifted, the soak's
+  // numbers are measuring the drift.
+  { name: 'eta',     args: ['tools/eta.mjs', '40', '3'],
+    pick: /shipped.*->\s+(MAE \S+\s+bias \S+)/ },
   // Nine seeds, not one. A single soak run is trip-length luck more than it is difficulty, so a
   // one-seed gate went red or green on which junction the spawner happened to pick.
-  { name: 'fares',   args: ['tools/soak.mjs', '25', '4', '9'], pick: /delivered (\S+ median)/ },
+  { name: 'fares',   args: ['tools/soak.mjs', '25', '4', '9'],
+    pick: /delivered over \d+ runs: (p10 \d+ · median \d+ · p90 \d+)/ },
   // `info` means the number printed is a metric to watch, not a threshold to fail on. The tool
   // still has to *run*: it used to be excused from its exit status entirely, which meant an import
   // error printed `ok signals ?` and the suite stayed green with a whole tool dead.

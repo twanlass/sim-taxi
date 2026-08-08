@@ -600,12 +600,23 @@ function syncGrid(car) {
  */
 const LOOKAHEAD = 32;
 
-function spawnCars(rng, count) {
+/**
+ * Draw `count` more cars onto the network, appending to `into`.
+ *
+ * `into` and `accept` exist so the same draw can mint a car mid-run as well as fill an empty city
+ * at startup: the clash check already tests against whatever is in the array, so passing the live
+ * one is all "don't spawn on top of existing traffic" needs. With the defaults the loop is
+ * bit-for-bit the original, which is what keeps every seeded measurement in the suite comparable.
+ *
+ * @param accept optional (spot) -> boolean, a further filter on where a car may appear.
+ */
+function spawnCars(rng, count, into = [], accept = null) {
   const net = cityNetwork();
-  const cars = [];
+  const cars = into;
+  const want = cars.length + count;
   const attempts = count * 12;
 
-  for (let n = 0; n < attempts && cars.length < count; n++) {
+  for (let n = 0; n < attempts && cars.length < want; n++) {
     const d = rng.int(0, 3);
     const line = rng.int(0, GRID);   // the road the car drives along
     const seg = rng.int(0, GRID - 1); // which gap between intersections
@@ -631,6 +642,7 @@ function spawnCars(rng, count) {
 
     const clash = cars.some((c) => c.lane === lane && Math.abs(c.s - s) < MIN_GAP + 1);
     if (clash) continue;
+    if (accept && !accept({ d, i, j, s, lane })) continue;
 
     cars.push({
       d, i, j, s, lane,
@@ -774,15 +786,48 @@ function lerpAngle(a, b, t) {
   return a + delta * t;
 }
 
-export function createTraffic(rng, scene, count = 24) {
+/**
+ * @param count     vehicles to open with, taxi included
+ * @param maxCars   vehicles the instanced meshes are sized for, taxi included. Density ramps over
+ *                  a run (`difficulty.carCount`), and an InstancedMesh cannot be resized after
+ *                  construction — so the pool is allocated for the ceiling up front and `count`
+ *                  only decides how much of it is drawn. Costs one matrix and one colour per
+ *                  unused slot, which is nothing next to rebuilding the mesh mid-run.
+ */
+export function createTraffic(rng, scene, count = 24, maxCars = count) {
   const net = cityNetwork();
   const cars = spawnCars(rng, count);
+  const MAX_CARS = Math.max(count, maxCars);
 
   // The player's taxi is an ordinary car in this same array — that is what subjects it to
   // following distance, signals and intersection reservations exactly like everyone else. It is
   // simply drawn as its own mesh instead of an instance, so it can be raycast and highlighted.
+  //
+  // Which one is the taxi is now a pick, not always index 0: whichever of this draw's cars is
+  // heading for an intersection closest to the middle of the grid (GRID=5 has no single centre, so
+  // "closest" naturally lands in the 2×2 block at (2,2)-(3,3) — downtown, per layout.js's own
+  // density falloff). A run used to open with the taxi anywhere on the map, including a corner,
+  // which put the tutorial's first fare (biased to spawn near the taxi — see fares.js
+  // `spawnBias`) anywhere too.
+  //
+  // Picked from the cars this draw already produced rather than drawn fresh with a centring
+  // filter, so this closure's `rng` stays byte-for-byte what it was: nothing that reads from it
+  // afterwards — the mid-run growth in `setCarCount`, any car's own turn choices during `update` —
+  // consumes a different number of random values than it used to. `tools/probe.mjs`'s staged
+  // two-car boost scenarios lean on that: they destructure `[taxi, other] = traffic.cars` and
+  // reposition both by hand, so a shifted stream changed which random draw the *other* car got —
+  // and with it, the scripted scenario's outcome — even though neither car's final position came
+  // from the draw at all.
+  let taxiIndex = 0;
+  let centreDist = Infinity;
+  for (let k = 0; k < cars.length; k++) {
+    const dist = Math.abs(cars[k].i - GRID / 2) + Math.abs(cars[k].j - GRID / 2);
+    if (dist < centreDist) { centreDist = dist; taxiIndex = k; }
+  }
+  if (taxiIndex !== 0) [cars[0], cars[taxiIndex]] = [cars[taxiIndex], cars[0]];
   const taxi = cars[0];
   taxi.isTaxi = true;
+
   const {
     group: taxiGroup, setOccupied: setTaxiOccupied, setSteer: setTaxiSteer,
   } = createTaxiMesh();
@@ -791,10 +836,14 @@ export function createTraffic(rng, scene, count = 24) {
   const ambient = cars.filter((c) => !c.isTaxi);
   ambient.forEach((car, index) => { car.instanceIndex = index; });
 
-  const mesh = new THREE.InstancedMesh(carGeometry(), propMaterial(), ambient.length);
+  // Sized for the ceiling, drawn to the current count. `mesh.count` is what three renders, so an
+  // unfilled slot costs a matrix in the buffer and nothing on screen.
+  const MAX_AMBIENT = Math.max(0, MAX_CARS - 1);
+  const mesh = new THREE.InstancedMesh(carGeometry(), propMaterial(), MAX_AMBIENT);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.castShadow = true;
   mesh.name = 'cars';
+  mesh.count = ambient.length;
 
   // The steered front wheels, as their own instanced mesh: two per ambient car, each carrying the
   // car's transform with a yaw of its own applied on top. They can't ride in the body geometry
@@ -802,21 +851,63 @@ export function createTraffic(rng, scene, count = 24) {
   // of it.
   const FRONT = wheelAnchors(CAR_LEN, CAR_W).filter((a) => a.front);
   const wheelMesh = new THREE.InstancedMesh(
-    wheelGeometry(), propMaterial(), ambient.length * FRONT.length,
+    wheelGeometry(), propMaterial(), MAX_AMBIENT * FRONT.length,
   );
   wheelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   wheelMesh.castShadow = true;
   wheelMesh.name = 'carWheels';
+  wheelMesh.count = ambient.length * FRONT.length;
 
   const tint = new THREE.Color();
-  ambient.forEach((car, index) => {
+  const paint = (car, index) => {
     tint.set(PALETTE.carBody[car.colorIndex]);
     mesh.setColorAt(index, tint);
     // Tinted with the body it belongs to, not left neutral. The tyre is baked dark and the
     // instance colour multiplies on top, so a front wheel that skipped this would sit a shade
     // off its own rear wheel on every car in the city.
     for (let w = 0; w < FRONT.length; w++) wheelMesh.setColorAt(index * FRONT.length + w, tint);
-  });
+  };
+  ambient.forEach(paint);
+
+  // How far from the taxi a mid-run arrival has to appear.
+  //
+  // Half the map's 100-unit span. The honest position: on a desktop the whole city is in frame at
+  // once, so there is no such thing as spawning off-camera and this cannot pretend otherwise —
+  // what it can do is put the new car where the player is not looking, which is anywhere but the
+  // junction they are driving through. On a narrow viewport, where the camera actually follows the
+  // taxi, the same distance does keep it out of shot.
+  const SPAWN_CLEARANCE = 50;
+
+  /**
+   * Grow the ambient traffic toward `n` total vehicles, taxi included.
+   *
+   * **It only ever grows.** Difficulty ramps one way, and removing a car would mean deleting one
+   * out of the middle of the instance buffer while the player watches — every index after it
+   * shifts, and the car itself vanishes from a road it was visibly driving down.
+   *
+   * Adds at most one car per call and gives up quietly when the draw can't find a legal spot, so
+   * a saturated network just tries again on the next frame rather than looping.
+   */
+  function setCarCount(n) {
+    const want = Math.max(cars.length, Math.min(MAX_CARS, Math.round(n)));
+    if (cars.length >= want) return;
+
+    const before = cars.length;
+    spawnCars(rng, 1, cars, ({ lane, s }) => {
+      const at = lane.path.at(s);
+      return Math.hypot(at.x - taxi.x, at.z - taxi.z) >= SPAWN_CLEARANCE;
+    });
+    if (cars.length === before) return;
+
+    const car = cars[cars.length - 1];
+    car.instanceIndex = ambient.length;
+    ambient.push(car);
+    paint(car, car.instanceIndex);
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
+    mesh.count = ambient.length;
+    wheelMesh.count = ambient.length * FRONT.length;
+  }
   // With ?cars=1 there are no ambient vehicles at all, so setColorAt is never called and
   // instanceColor is still null.
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -1718,7 +1809,7 @@ export function createTraffic(rng, scene, count = 24) {
   }
 
   return {
-    cars, taxi, taxiGroup, setTaxiOccupied, mesh, wheelMesh, barMesh, update, warmup,
+    cars, taxi, taxiGroup, setTaxiOccupied, setCarCount, mesh, wheelMesh, barMesh, update, warmup,
     wreckShell, stats,
     lightPhase, displayPhase,
     // The instanced cars, index-aligned with `mesh`, and how `wheelMesh` is indexed off them
