@@ -25,7 +25,7 @@ import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
-import { createTutorial } from './game/tutorial.js';
+import { createTutorial, hasSeenTutorial } from './game/tutorial.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
 import * as difficulty from './game/difficulty.js';
@@ -427,9 +427,17 @@ const dropoffIndicator = createDropoffIndicator({
 
 // Two bubbles and nothing else: "this car is you", then "tap that rider". See game/tutorial.js for
 // why those two and no more. Off in shot mode — a screenshot has nobody to teach, and the bubble
-// would be the loudest thing in every frame — and `?tutorial=off` skips it while iterating on the
-// rest of the game.
-const wantsTutorial = new URLSearchParams(window.location.search).get('tutorial') !== 'off';
+// would be the loudest thing in every frame.
+//
+// First run only, remembered across loads. Play-again is a `location.reload()`, and a run ends in a
+// wreck or a bust often enough that the reload is the usual way back in — so without this the
+// tutorial would be a toll charged on every retry for a lesson learned once.
+//
+// `?tutorial=off` skips it while iterating on the rest of the game; `?tutorial=on` forces it back
+// after it has been seen, which is otherwise only reachable by clearing site data.
+const tutorialParam = new URLSearchParams(window.location.search).get('tutorial');
+const wantsTutorial = tutorialParam === 'on'
+  || (tutorialParam !== 'off' && !hasSeenTutorial());
 // True from the first bubble to the player's last dismissal. Two things key off it: the fare clocks
 // hold, and the spawn toast stays quiet — both for the same reason, that whatever the bubble is
 // saying is the only thing the player should be reading or paying for.

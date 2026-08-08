@@ -14,6 +14,10 @@ import { VIEW_DIR } from './camera.js';
 // Everything else in the game — the drop-off dispatching itself, the timer ring, Loco Mode — either
 // happens without being asked for or is a pill with a label on it. None of it is taught here.
 //
+// It runs on a player's **first run only**, and is remembered across loads — see `hasSeenTutorial`.
+// A run ends in a wreck or a bust often enough that play-again is the common path into the game, and
+// re-teaching "this car is yours" every time turns two beats of welcome into a toll on the retry.
+//
 // The fare clocks are held while this runs (main.js calls `fares.setPaused`), so the tutorial never
 // spends the clock the player is about to need. That matters more than it did when every rider got
 // a flat sixty seconds: a clock is budgeted from the driving its own trip costs now
@@ -76,6 +80,37 @@ const AVATAR_SPIN = (Math.PI * 2) / 5.5;
 
 const prefersReducedMotion = () =>
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+
+// Where "this player has already been through the opening" is kept. It has to survive a reload:
+// play-again is `location.reload()` (see the run-end overlay), so a flag held in memory would be
+// wiped by the very thing it exists to see through. Once learned, which car is yours and that a
+// rider is a thing you tap do not need teaching again on the fifth wreck of the evening.
+const SEEN_KEY = 'simtaxi.tutorialSeen';
+
+// `globalThis` rather than `window` so both halves of this are reachable from node — `npm run check`
+// stubs a storage in and drives them, which is the only way to test a branch whose entire job is to
+// survive a browser that has no storage to give.
+//
+// Both are wrapped because `localStorage` *throws* rather than no-ops when it is unavailable —
+// Safari with cookies blocked, an iframe with third-party storage partitioned off — and the property
+// access itself is what throws, not just the call. A player whose storage is broken gets the
+// tutorial every run, which is exactly what everyone got before it was remembered at all.
+
+/** Has this player already completed the opening? False whenever we cannot tell. */
+export function hasSeenTutorial() {
+  try {
+    return globalThis.localStorage?.getItem(SEEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Remember that they have. Failing to write is not worth a word to the player. */
+export function markTutorialSeen() {
+  try {
+    globalThis.localStorage?.setItem(SEEN_KEY, '1');
+  } catch { /* storage unavailable — the tutorial simply runs again next load */ }
+}
 
 /**
  * The rotating taxi in the bubble's avatar. Its own tiny WebGL context, the same way each
@@ -414,6 +449,11 @@ export function createTutorial({
    */
   function finish() {
     if (!GATED_STEPS.has(state.step)) return;
+    // Here and nowhere else: the player has answered both beats (or done beat two unprompted by
+    // dispatching the taxi themselves), so the lesson has actually landed. Marking it at the *start*
+    // would spend the one showing on a run nobody watched, and marking it in `end()` would spend it
+    // on a run that ended mid-sentence. Reaching this line is the whole tutorial working.
+    markTutorialSeen();
     bubble.hide();
     // The lights come up with the bubble's dismissal, not with the end of the restore glide —
     // holding the city dark through a camera move the player did not ask for reads as the tutorial

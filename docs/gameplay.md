@@ -139,8 +139,30 @@ finishes. On a phone it doesn't need to: the opening follow-cam picks the taxi b
 A swipe hands the camera over mid-tutorial, the same as anywhere else — the bubble keeps talking,
 it just stops moving the map while the player reads it.
 
-`?tutorial=off` skips the whole thing, and shot mode never runs it: a screenshot has nobody to
-teach, and the bubble would be the loudest thing in every frame.
+### It only runs once
+
+**A player sees it on their first run and never again.** Play again on the run-end screen is a
+`location.reload()`, and a run ends in a wreck or a bust often enough that the reload is the usual
+way back into the game — so an opening that replayed every time would be a toll charged on each
+retry for a lesson learned once. Which car is yours and that a rider is a thing you tap are two
+facts; they do not need re-teaching on the fifth wreck of the evening.
+
+Because the retry is a page load, the flag has to outlive one: `hasSeenTutorial()` /
+`markTutorialSeen()` in `tutorial.js` keep it in `localStorage` under `simtaxi.tutorialSeen`. Both
+are wrapped in a `try`, because `localStorage` **throws** rather than no-ops where it is unavailable
+— Safari with cookies blocked, an iframe with third-party storage partitioned off — and it is the
+property access itself that throws, not just the call. A player whose storage is broken gets the
+tutorial every run, which is what everyone got before it was remembered at all. `npm run check`
+drives all three states (no storage, a throwing one, a working one) against the real module.
+
+It is marked seen in `finish()` — the moment both gated beats are answered, or the player dispatches
+the taxi themselves and does beat two unprompted. Not at the start, which would spend the one
+showing on a run nobody watched, and not in `end()`, which would spend it on a run that ended
+mid-sentence.
+
+`?tutorial=off` skips the whole thing and `?tutorial=on` forces it back after it has been seen —
+otherwise iterating on it means clearing site data between runs. Shot mode never runs it: a
+screenshot has nobody to teach, and the bubble would be the loudest thing in every frame.
 
 ## The fare loop
 
