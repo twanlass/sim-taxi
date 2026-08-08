@@ -21,7 +21,7 @@ import { VIEW_DIR } from './camera.js';
 // Both lines, in the order they are spoken. Kept together so the whole script is one thing to read.
 const LINES = {
   taxi: "Let's pick up some rides and earn some cash.",
-  rider: 'Tap this rider to pick them up.',
+  rider: 'Tap this rider to start',
 };
 
 // Typing speed. ~38 chars/sec — fast enough that a reader is never waiting on the machine, slow
