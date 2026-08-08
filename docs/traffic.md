@@ -18,6 +18,18 @@ destination, and why gameplay changes rarely need to touch traffic code. The tax
 same `cars` array as ambient traffic and is drawn as its own mesh only so it can be raycast and
 highlighted.
 
+**Which car becomes the taxi is a pick, not always the first draw.** `createTraffic` draws the
+whole `count` uniformly, same as ever, then flags whichever car is heading for the intersection
+closest to the middle of the grid as the taxi — downtown, per `layout.js`'s own density falloff —
+rather than always `cars[0]`. A run used to open with the taxi anywhere on the map, including a
+corner, and the first fare (biased to spawn near the taxi — see
+[gameplay.md](gameplay.md#extra-fares-and-prioritisation)) followed it there.
+
+Picking from the draw rather than drawing the taxi's spot separately with its own filter is
+deliberate: it keeps this file's rng stream exactly what it was, so nothing downstream — the rest
+of this same draw, `tools/probe.mjs`'s staged two-car boost scenarios, anything else reading from
+this `rng` — consumes a different number of random values than before.
+
 ## Signals
 
 The scheme that shipped first was `phaseOffset = ((i + j) % 4) * (CYCLE / 4)` on a 16.2s cycle.
