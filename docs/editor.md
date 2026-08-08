@@ -52,7 +52,9 @@ Two things are deliberately *not* in the file:
 
 ## Playing one
 
-**▶ Play** saves to localStorage and opens `/?level=local`. The seed still decides the buildings and
+**▶ Play** saves to localStorage and opens `/?level=local&tutorial=off`. The intro is off because the
+editor's loop is draw, play, tweak, play, and the opening bubbles replay on every load — somebody
+testing their own city already knows which car is theirs. The seed still decides the buildings and
 the trees — a level authors the *plan*, not the skyline — so the same level looks different under a
 different `?seed=`.
 

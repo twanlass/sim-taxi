@@ -370,9 +370,12 @@ document.getElementById('import').addEventListener('click', () => {
   input.click();
 });
 
+// `tutorial=off` because the editor's loop is draw, play, tweak, play — and the opening bubbles
+// replay on every load, there being no seen-flag. Somebody testing their own city is the one player
+// who already knows which car is theirs, so the intro would be pure toll on each press of Play.
 document.getElementById('play').addEventListener('click', () => {
   saveLevel(level);
-  window.location.href = '/?level=local';
+  window.location.href = '/?level=local&tutorial=off';
 });
 
 // --- Go ---------------------------------------------------------------------
