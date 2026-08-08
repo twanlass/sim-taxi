@@ -42,11 +42,13 @@ src/
     flames.js           the tailpipe bark on the press that engages Loco Mode
     vanish.js           shrink-and-fade for wrecked bodywork, so it is consumed not deleted
     carghosts.js        occluded-only outlines on the traffic nearest the taxi, faded in with boost
+    flyover.js          the ambient plane that crosses the city every so often — scenery, nothing more
     runend.js           the run-end blackout: stats counted out a row at a time
     homescreen.js       the iOS-only "add it to your Home Screen" screen; parks the run while up
 
   geometry/             one-off models, all procedural
     taxi.js  wheels.js  diamond.js  targetring.js  marker.js  person.js  riderdiamond.js
+    plane.js
 
   util/
     rng.js              seeded RNG (mulberry32) + value noise
@@ -126,7 +128,7 @@ so you can't tell what your edit actually did.
 ## Testing hooks
 
 `main.js` exposes `window.__taxi` with `traffic`, `boost`, `skids`, `police`, `fares`, `daylight`,
-`routeTo`, `findRoute`, `isSelected` and `redraw`. The headless tools in `tools/` drive the game
+`routeTo`, `findRoute`, `isSelected`, `flyover` and `redraw`. The headless tools in `tools/` drive the game
 through this instead of through the DOM, which is what makes the whole suite run in about a second.
 
 `redraw()` draws one frame on demand. Shot mode never starts the render loop — it warms the sim,

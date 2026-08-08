@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
 import { createScene } from './game/scene.js';
-import { createCityCamera, attachDragPan } from './game/camera.js';
+import { createCityCamera, attachDragPan, VIEW_DIR } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
@@ -19,6 +19,7 @@ import { createDust } from './game/dust.js';
 import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createVanish } from './game/vanish.js';
+import { createFlyover } from './game/flyover.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { showRunEnd } from './game/runend.js';
 import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
@@ -197,6 +198,11 @@ const dust = createDust(scene, camera, makeRng(seed + 77));
 const blast = createBlast(scene, makeRng(runSeed + 88));
 const flames = createFlames(scene, makeRng(runSeed + 133));
 const vanish = createVanish();
+
+// A light aircraft crossing the city every minute or so. Scenery and nothing else — see
+// game/flyover.js. On the run seed rather than the city seed: which way it crosses and when is
+// part of the situation, not part of the map.
+const flyover = createFlyover(scene, makeRng(runSeed + 155));
 
 // Occluded-only outlines on the traffic nearest the taxi, faded in with Loco Mode — the one mode
 // where a car hidden behind a tower is a crash rather than a surprise. See game/carghosts.js.
@@ -1048,6 +1054,7 @@ function frame() {
   blast.update(dt);
   flames.update(dt);
   vanish.update(dt);
+  flyover.update(dt);
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 
@@ -1271,6 +1278,26 @@ if (shot) {
     }
   }
 
+  // Stage a flight and freeze it partway across. The plane is up for about six seconds every
+  // minute or so, so without this the only way to look at one is to load the game and wait —
+  // the same reason the wreck has a shot. `flyoverAt` is seconds into the flight; the run seed
+  // fixes the heading, so the framing is reproducible.
+  if (shot.flyoverAt) {
+    flyover.launch();
+    for (let step = 0; step < Math.round(shot.flyoverAt * 60); step++) flyover.update(1 / 60);
+    // Follow the aeroplane rather than hoping it crosses the middle of the frame — the heading and
+    // the sideways offset of the flight line are both drawn from the run seed. Same reason the
+    // police shot chases its cruiser, with one extra step: the camera aims at a point on the
+    // *ground*, and an orthographic camera projects everything along VIEW_DIR to the same place, so
+    // the ground point that shares the aeroplane's screen position is its own position slid back
+    // down the view axis to y = 0. Aiming at the point under it puts it 33 units off the top of a
+    // close framing.
+    const p = flyover.group.position;
+    const drop = p.y / VIEW_DIR.y;
+    controller.state.target.set(p.x - drop * VIEW_DIR.x, 0, p.z - drop * VIEW_DIR.z);
+    controller.update(aspect());
+  }
+
   // Frame the drop-off of the fare aboard, on the kerb corner the pin actually stands on rather
   // than the junction centre — same reason as the rider below, the corner building is in the way.
   const aboard = fares.carrying();
@@ -1339,6 +1366,7 @@ window.__taxi = {
   skids,
   police,
   fares,
+  flyover,
   routeTo,
   findRoute,
   camera: controller,

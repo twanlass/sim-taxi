@@ -24,6 +24,8 @@ import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
 import { bounceOffset, KICK_SCALE, KICK_HOP } from '../src/geometry/diamond.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
+import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
+import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
 import { propMaterial, setAmbientOcclusion, AO_UNIFORMS } from '../src/util/geo.js';
 import {
   AO_LAYER, markOccluder, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
@@ -2540,6 +2542,121 @@ check('the taxi is an ordinary car in the traffic array',
   check('ghost paints read from under a tower', unlit === 0, `${unlit} too dark`);
   check('no ghost paint strays into the taxi\'s yellow', clashes === 0,
     `${clashes} within 25° of taxiGhost, or saturated past its own body colour`);
+}
+
+// --- The ambient flyover --------------------------------------------------------
+// A plane crossing the sky is the one thing in the game with no failure state to notice: if it
+// clips a tower, pops into frame at the edge of a wide monitor, or flies parallel to the streets,
+// nothing breaks and nobody is told. All three are numbers, so they belong here.
+{
+  const model = createPlaneMesh();
+  const box = new THREE.Box3().setFromObject(model.group);
+  check('the plane model measures what geometry/plane.js says it does',
+    Math.abs(-box.min.y - PLANE_UNDERSIDE) < 1e-6
+    && Math.abs((box.max.z - box.min.z) - PLANE_SPAN) < 1e-6,
+    `underside ${(-box.min.y).toFixed(2)}, span ${(box.max.z - box.min.z).toFixed(2)}`);
+
+  // Both streamers face the camera as squarely as a ribbon fixed to the fuselage axis can. The
+  // ceiling is the length of VIEW_DIR with its component along that axis removed — hit it exactly
+  // and the roll is right; a sign error lands on its negative and the ribbons turn edge-on.
+  // Read the normal off the built quads rather than recomputing it from the roll angle: rolling
+  // the ribbon to point its *width* at the camera instead of its face is a one-character
+  // difference that leaves every formula self-consistent and the streamers invisible.
+  const triangleNormal = (array, yaw) => {
+    const v = (i) => new THREE.Vector3(array[i * 3], array[i * 3 + 1], array[i * 3 + 2]);
+    const a = v(0);
+    return new THREE.Vector3().crossVectors(v(1).sub(a), v(2).sub(a)).normalize()
+      .applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+  };
+  let facingError = 0;
+  for (let k = 0; k < 32; k++) {
+    const yaw = (k / 32) * Math.PI * 2;
+    model.setTrailRoll(trailRoll(yaw));
+    const normal = triangleNormal(model.trails.geometry.attributes.position.array, yaw);
+    // The ceiling: VIEW_DIR with its component along the fuselage axis taken out, which is all a
+    // ribbon fixed to that axis can ever turn to face.
+    const f = heading(yaw);
+    const along = VIEW_DIR.x * f.x + VIEW_DIR.z * f.z;
+    const best = Math.hypot(VIEW_DIR.x - along * f.x, VIEW_DIR.y, VIEW_DIR.z - along * f.z);
+    facingError = Math.max(facingError, Math.abs(best - Math.abs(normal.dot(VIEW_DIR))));
+  }
+  model.setTrailRoll(0);
+  check('wingtip streamers turn to face the camera', facingError < 1e-6,
+    `off the best a ribbon on the fuselage axis can do by ${facingError.toExponential(1)}`);
+
+  const planeScene = new THREE.Scene();
+  const flyover = createFlyover(planeScene, makeRng(seed + 155));
+
+  // Ten minutes of sim, which is several flights and a lot more waiting.
+  let minY = Infinity;
+  let hiddenOverCity = 0;        // frames faded down while over the map, where it has to be solid
+  let airborne = 0;
+  let frames = 0;
+  let straight = 0;              // launches within 12° of a street
+  let lastFlight = 0;
+  let wasActive = false;
+  const ends = [];               // where each run starts and where it stops being drawn
+  for (let step = 0; step < 600 * 60; step++) {
+    flyover.update(1 / 60);
+    frames++;
+    if (flyover.state.flights !== lastFlight) {
+      lastFlight = flyover.state.flights;
+      // Distance from the nearest world axis, i.e. from the nearest street direction.
+      const off = Math.abs(((flyover.state.yaw % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2));
+      if (Math.min(off, Math.PI / 2 - off) < THREE.MathUtils.degToRad(12)) straight++;
+      ends.push(flyover.group.position.clone());
+    }
+    if (wasActive && !flyover.state.active) ends.push(flyover.group.position.clone());
+    wasActive = flyover.state.active;
+    if (!flyover.state.active) continue;
+    airborne++;
+    minY = Math.min(minY, flyover.group.position.y);
+    const p = flyover.group.position;
+    if (Math.max(Math.abs(p.x), Math.abs(p.z)) < HALF_SPAN && flyover.state.fade < 1) hiddenOverCity++;
+  }
+
+  check('the flyover comes round every so often, not constantly',
+    flyover.state.flights >= 4 && airborne / frames < 0.2,
+    `${flyover.state.flights} flights in 10 min, airborne ${(100 * airborne / frames).toFixed(0)}% of it`);
+
+  // The tallest thing it has to miss, measured off the city that was actually built rather than
+  // off the constant the generator caps at.
+  buildings.mesh.geometry.computeBoundingBox();
+  const skyline = buildings.mesh.geometry.boundingBox.max.y;
+  check('the plane clears the skyline',
+    minY - PLANE_UNDERSIDE > skyline + 4,
+    `underside ${(minY - PLANE_UNDERSIDE).toFixed(1)} vs tallest tower ${skyline.toFixed(1)}`);
+
+  // Both ends of a run have to be off the edge of the frame, so the aeroplane is only ever seen
+  // arriving rather than appearing. Projected through real cameras at the extremes the game
+  // allows — portrait phone to ultrawide desktop, panned into each corner of the map — rather
+  // than compared against a hand-derived reach.
+  const framings = [];
+  for (const aspect of [0.46, 1, 1.78, 2.4]) {
+    for (const target of [[0, 0], [HALF_SPAN, HALF_SPAN], [-HALF_SPAN, HALF_SPAN],
+      [HALF_SPAN, -HALF_SPAN], [-HALF_SPAN, -HALF_SPAN]]) {
+      framings.push(createCityCamera(aspect, { zoom: 52, target }).camera);
+    }
+  }
+  let onScreenEnds = 0;
+  for (const p of ends) {
+    for (const cam of framings) {
+      const ndc = p.clone().project(cam);
+      if (Math.abs(ndc.x) < 1 && Math.abs(ndc.y) < 1) onScreenEnds++;
+    }
+  }
+  check('the plane flies in from off-frame and out the other side', onScreenEnds === 0,
+    `${ends.length} run ends against ${framings.length} framings, ${onScreenEnds} of them in shot`);
+
+  check('it is fully painted while over the city', hiddenOverCity === 0,
+    `${hiddenOverCity} frames faded while inside the map`);
+  check('it never flies parallel to the streets', straight === 0,
+    `${straight} of ${flyover.state.flights} headings within 12° of an axis`);
+
+  // Two blades, so the prop repeats every half turn: past 90° a frame it reads as running
+  // backwards, and at exactly 180° it stands still.
+  check('the propeller does not strobe', PROP_SPIN / 60 < Math.PI / 2,
+    `${THREE.MathUtils.radToDeg(PROP_SPIN / 60).toFixed(1)}° per frame at 60fps`);
 }
 
 // --- Taxi roof sign -----------------------------------------------------------
