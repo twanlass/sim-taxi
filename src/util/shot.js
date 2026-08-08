@@ -24,6 +24,13 @@ export const SHOTS = [
   // it was tapped, back when there was such a state, and then for the pin's floating head; the
   // marker is a ring on the road now, and this is the only framing that shows it close up.
   { name: 'dropoff', description: 'the drop-off ring the taxi is driving at', target: [0, 0], zoom: 18, warmup: 12, untilPickup: true, atDropoff: true },
+  // The wreck is the only thing in the game with no steady state: it fires once, ends the run, and
+  // is over in a second and a half. Without a staged framing the only way to look at the explosion
+  // was to crash in a live run and hope to catch the right frame. `wreckAt` is where in the blast's
+  // own life the shot freezes — 0.22s of sim time, which is the fireball at full size with the
+  // shockwave still crossing the road under it. Zoom matches WRECK_ZOOM, since that is what the
+  // camera actually pulls into.
+  { name: 'wreck', description: 'the crash blast, frozen at its peak', target: [0, 0], zoom: 26, warmup: 12, wreckAt: 0.22 },
 ];
 
 export function getActiveShot() {

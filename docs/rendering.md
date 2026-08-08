@@ -199,7 +199,9 @@ running boost doesn't re-fire either.
   from the taxi's rear bumper (`TAXI_TAILPIPE_BACK` / `TAXI_TAILPIPE_HEIGHT` exported from
   `geometry/taxi.js`) shooting backwards along `-yaw`. Short-lived (~0.38s), grows fast, air-brakes
   quickly; alpha snaps to 1 then eases out. Additive blend so it *brightens* the road behind it
-  rather than reading as an opaque decal.
+  rather than reading as an opaque decal. This pool used to double as the crash fireball, which is
+  what its per-slot life and size arrays were for — one burst can't divide by another's `LIFE`. The
+  crash owns its own module now, so this is a tailpipe and nothing else.
 
 - **Wheelie pop.** A hand-shaped bump on `car.pitch` — sine ease-out to peak by t=0.28,
   smoothstep back to zero — layered on top of the pitch spring. Handled outside the spring
@@ -208,17 +210,51 @@ running boost doesn't re-fire either.
   same `Math.abs(Math.sin(pitch)) * (CAR_LEN / 2)` so the rear stays on the road as the nose
   comes up.
 
-### Wreck — `game/debris.js`, `game/vanish.js`, plus flames/smoke/sparks
+### Wreck — `game/blast.js`, `game/vanish.js`
 
-The crash is a stack of the effects above fired at two points at once — one per car, since a crash
-now destroys both. Debris runs a **pool per car** (a pool re-shoots its own pieces, so sharing one
-would yank the taxi's wreckage across to the other car's), and the victim's pool is repainted at
-burst time in that car's colour.
+The crash is **one call per car** — `blast.fire(x, z, tint)` — and everything it puts on the road
+lives in one module: a shockwave ring on the tarmac, a fireball, and a scatter of shards in that
+car's paint. Three `InstancedMesh`es, about forty live instances at the peak of a two-car wreck.
+
+It replaced a stack of four effects (`sparks.js`, `smoke.js`, `debris.js` and a `blast()` half of
+`flames.js`) fired twice each at two points, plus a third wave on a `setTimeout` — roughly sixty
+draw calls, and four separate physics packets with gravity, drag, restitution, friction and angular
+damping between them. None of that is what makes a crash read at a fixed 3/4 camera; **shape and
+timing** are, and both were buried under the sum of four tunings. The vocabulary here is graphic
+rather than physical:
+
+- **Unlit flat colour, not Lambert.** A faceted sphere needs a light to show its facets and the sun
+  is behind the camera, so these carry no shading at all and read as silhouettes. It is also what
+  keeps a night-time wreck as bright as a golden-hour one.
+- **Colour is the animation.** Every puff walks one ramp over its own life — core → flame → ember →
+  smoke — and the puffs are staggered, so the cluster holds several stops of it at once. That
+  internal structure is what a flat fill would otherwise cost, and it retires the separate grey
+  smoke plume: the fireball *becomes* the smoke.
+- **Position is a curve, not an integration.** Puffs and rings are `origin + direction × ease(t)`
+  evaluated from scratch each frame; the shards' ballistic arc is closed-form too, floored at the
+  tarmac rather than bounced off it. Nothing accumulates, so nothing has a drag constant to tune,
+  and a slow-mo frame is the same shape as a full-speed one.
+
+> The ember stop is load-bearing, not decoration. Lerped straight from flame to smoke a puff spends
+> its whole tail around `#9A603D` — which is `brick` in the building palette, so the fireball died
+> the colour of the wall behind it. The first version also faded a still-orange puff out over its
+> last quarter, which left translucent pink hexagons hanging over the road; the ramp has to be
+> allowed to *reach* smoke before any alpha comes off.
+
+The shockwave is the mark that reads first, because a flat ring at this camera projects as an
+ellipse spreading out from under the wreck — the blast has a size before the fireball has grown into
+one. Fourteen segments, so the flat sides show at the wreck zoom.
+
+Shards are the whole of what is left of the old debris: seven per car, one tetrahedron squashed
+per instance into plates and chunks, tinted with that car's paint so a two-car wreck comes apart in
+two colours. They no longer bounce, settle or come to rest — wreckage on the tarmac is a detail for
+a camera that stays, and this one pulls into a close-up and then cuts to the retry screen.
 
 `vanish.js` owns the disappearance: each shell shrinks and fades into its own fireball over 0.34s
 of sim time rather than being switched off. It steps on the frame's already-slowed `dt`, so it
-runs at the same rate as the debris and smoke through the crash slow-mo. See
-[traffic.md](traffic.md#the-wreck) for the rest of the staging.
+runs at the same rate as the blast through the crash slow-mo. See
+[traffic.md](traffic.md#the-wreck) for the rest of the staging, and
+[testing.md](testing.md#screenshots) for `?shot=11`, which stages a real crash and freezes it.
 
 ### Route band — `game/routeline.js`
 

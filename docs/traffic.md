@@ -499,13 +499,17 @@ which is the flag every loop in `traffic.js` already skipped for the taxi: out o
 bookkeeping, out of the physics, out of the render pass, permanently. The stun path is gone with
 it, and so is `recoverFromStun`.
 
-**Each car detonates where it stands.** Sparks, a fireball, a smoke plume and a shower of debris at
-the impact point, and the same set again at the other car's centre. The two are only a couple of
-units apart, but that is enough to spread the blast across both bodies instead of stacking it on
-the seam between them. A debris pool re-shoots its own pieces on every call, so the two cars get
-**a pool each** — one shared pool would snap the taxi's wreckage across to the other car's the
-instant the second burst fired. The victim's pool is repainted at burst time in that car's colour
-(glass, rubber and the cabin lid keep theirs), so what lands on the road is visibly two cars.
+**Each car detonates where it stands.** One `blast.fire()` at the impact point and another at the
+other car's centre. The two are only a couple of units apart, but that is enough to spread the
+blast across both bodies instead of stacking it on the seam between them, and each call carries
+that car's paint, so the shards come apart in two colours and what flies is visibly two cars.
+
+It was four effects fired twice each plus a third wave on a `setTimeout`, and a **debris pool per
+car** on top — a pool re-shot its own pieces on every call, so one shared pool would have snapped
+the taxi's wreckage across to the other car's the instant the second burst fired. All of that is
+one module now, and the pool-per-car problem is gone with it: nothing in `blast.js` is re-shot from
+a stored position, so a second call cannot drag the first one's wreckage anywhere. See
+[rendering.md](rendering.md#wreck--gameblastjs-gamevanishjs).
 
 **The shells shrink and fade into the fireballs** rather than being hidden. The old version cut:
 `taxiGroup.visible = false` fired on the impact frame, one frame before the fireball had grown

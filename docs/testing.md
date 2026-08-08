@@ -81,6 +81,16 @@ two blocks away, where the route band's two end fades meet in the middle and sho
 sends the taxi to the **opposite corner of the map**, so a full-length band with several turns is
 in frame.
 
+Shot 11 (`wreck`) is the other exception, and for the opposite reason: everything else in the game
+has a steady state to point a camera at, and the crash does not — it fires once, ends the run and is
+over in about a second and a half. So the shot **stages a real one**: the taxi is parked on an
+ambient car with boost on, `collisions.update()` detonates it through the same handler a live run
+uses, and then only the blast and the two shrinking shells are stepped forward, to `wreckAt`
+seconds. Traffic is deliberately *not* stepped with them — the rest of the city driving on under a
+frozen wreck is a different picture. Driving the real path rather than firing the effects by hand is
+what stops the framing drifting away from the thing it exists to review; move `wreckAt` to look at a
+different beat of the explosion (0.08 is the flash, 0.22 the peak, 0.9 the embers).
+
 Both browser tools take the same two env overrides, for boxes that aren't a Mac desktop:
 
 ```bash
