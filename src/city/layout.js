@@ -100,6 +100,38 @@ export function createLayout(rng) {
     }
   }
 
+  // --- Landmarks -------------------------------------------------------------
+  // A handful of built blocks are promoted to landmark plots, each with a distinct silhouette
+  // (see buildings.js). This is deliberately part of the *city* seed rather than the run seed:
+  // the whole point of a landmark is to be a stable reference point players can navigate by
+  // — "turn left at the dome" only works if the dome is always in the same place for that map.
+  const LANDMARK_KINDS = ['clocktower', 'dome', 'cathedral', 'radio', 'roundtower'];
+  const chosen = [];
+  const candidates = blocks.filter((b) => b.type === 'built');
+  // Fisher-Yates over the candidates so landmark placement doesn't privilege low-index blocks.
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = rng.int(0, i);
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+  // Manhattan spacing of ≥2 blocks: no two landmarks in neighbouring plots, so they stand out
+  // against ordinary buildings rather than piling up in one corner.
+  for (const candidate of candidates) {
+    if (chosen.length >= LANDMARK_KINDS.length) break;
+    const tooClose = chosen.some((other) =>
+      Math.abs(other.bi - candidate.bi) + Math.abs(other.bj - candidate.bj) < 2,
+    );
+    if (!tooClose) chosen.push(candidate);
+  }
+  const kinds = [...LANDMARK_KINDS];
+  for (let i = kinds.length - 1; i > 0; i--) {
+    const j = rng.int(0, i);
+    [kinds[i], kinds[j]] = [kinds[j], kinds[i]];
+  }
+  chosen.forEach((block, idx) => {
+    block.type = 'landmark';
+    block.landmarkKind = kinds[idx];
+  });
+
   blocks.districts = districts;
   // Handed to the ground mesh so the arterials are actually visible: a main street the player
   // can't identify is just an invisible timing tweak. The coordinated directions ride along too —
