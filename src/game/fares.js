@@ -72,6 +72,13 @@ export const priceFor = (pickup, dropoff) =>
  * The taxi has one seat, so every fare beyond the first is someone *waiting* — a clock draining on
  * the kerb while you decide who to grab. Two waiting riders is where the game turns into a
  * prioritisation puzzle: you can't take both, and the wrong pick loses one of the two clocks.
+ *
+ * **Three waiting is readable, which it once was not.** This constant was 3 with a comment saying
+ * three waiting riders "stops being readable at play zoom before it stops being solvable". That
+ * judgement was made against the old meter — a bright ~67 × 27px slab over each rider's head — and
+ * it did not survive the diamond that replaced it at ~29px: `?shot=11` renders a full four-fare
+ * board and the four markers sit well apart, each a distinct hue with a matching disc on the road.
+ * The finding is worth more than the inheritance, so the board goes to four.
  */
 export const MAX_FARES = 4;
 

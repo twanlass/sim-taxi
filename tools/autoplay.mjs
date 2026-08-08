@@ -19,11 +19,14 @@ import { createFareSystem } from '../src/game/fares.js';
 import { findRoute, planOrigin } from '../src/game/route.js';
 import { isCityConnected } from '../src/city/grid.js';
 
-// Matches the game's default so these numbers describe the game as played, not a denser city.
+// Pinned, and deliberately *not* `difficulty.carCount()`: the density ramp is pushed into the sim
+// by main.js, and letting it move here would mean every fare number below was also measuring a
+// traffic change. Density gets measured on its own, against `tools/signals.mjs`.
 //
-// It is deliberately *not* `difficulty.carCount()`: the density ramp is pushed into the sim by
-// main.js, and letting it move here would mean every fare measurement below was also measuring a
-// traffic change. The density ramp gets its own sweep.
+// 7 rather than the game's opening 12 is inherited from the tools this harness was factored out
+// of, and every baseline in the suite is quoted against it — the fare numbers are comparable to
+// each other and to the build before this one, which is what they are for. They are a slightly
+// emptier city than the one that ships.
 export const CARS = 7;
 
 const STEP = 1 / 60;

@@ -103,12 +103,21 @@ const TUNING = {
   spawnRadiusStart: 3,
   spawnRadiusEnd: 5,
 
-  // Ambient cars. Pushed into the sim by main.js; the headless tools pin it so their baselines
-  // stay comparable across builds.
-  carsStart: 7,
-  carsEnd: 14,
+  // Total vehicles, taxi included. Pushed into the sim by main.js; `?cars=N` overrides it outright
+  // and the headless tools pin their own so their baselines stay comparable across builds.
+  //
+  // The opening value is the number the game already shipped with (`getCarCount`'s fallback), so
+  // the ramp adds traffic rather than starting by removing some. The measured cost of density is
+  // in docs/traffic.md: at 12 cars a boosting taxi holds 95% of its cap and loses 9.2% of its
+  // frames to the car in front, at 24 it is 92% and 15.0%. Ending at 22 lands just under that
+  // second column — busy enough to be felt in every corner, short of the point where the boost
+  // stops being usable at all.
+  carsStart: 12,
+  carsEnd: 22,
 
-  // Seconds between police corridor runs, as a range the sim draws from.
+  // Seconds between police corridor runs, as a range the sim draws from. Roughly halved across the
+  // ramp, so the corridor goes from an occasional interruption to something that has to be planned
+  // around — and it is a *delay*, not a death, unless the player is boosting through it.
   policeCooldownStart: [16, 30],
   policeCooldownEnd: [8, 14],
 };
