@@ -806,10 +806,10 @@ that decision trivial.
 ## VIP pickups
 
 `src/game/fares.js` and `src/game/faremarker.js`. A rare rider layered on top of the ordinary
-board — a purple geodesic sphere floats above their diamond (`geometry/vipbeacon.js`), fixed hue,
-never drawn from the urgency scale, so "this one is a VIP" is never confused with how much time
-they have left. The rider-finder chip agrees: a VIP's countdown ring wears the same purple instead
-of the ordinary green-to-red scale.
+board — their diamond and its ground disc open on a fixed purple, never drawn from the urgency
+scale, so "this one is a VIP" is never confused with how much time they have left. The
+rider-finder chip agrees: a VIP's countdown ring wears the same purple instead of the ordinary
+green-to-red scale.
 
 Everything about a VIP is the ordinary fare loop with three numbers turned:
 
@@ -820,9 +820,9 @@ Everything about a VIP is the ordinary fare loop with three numbers turned:
 - **A streak multiplier on the payout.** A VIP pays the ordinary distance price times the current
   shift multiplier, same as anyone — and then again by the player's *VIP streak*: how many VIPs
   have been delivered back to back, plus one for the delivery in progress. Stamped at spawn like
-  every other price on the board, so the beacon says what this one is worth the moment it appears
-  rather than leaving it to be found out on delivery. A miss resets the streak to zero — the whole
-  tension of stacking VIPs is that one late drop-off gives it all back.
+  every other price on the board, so the marker's fixed purple says what this one is worth the
+  moment it appears rather than leaving it to be found out on delivery. A miss resets the streak to
+  zero — the whole tension of stacking VIPs is that one late drop-off gives it all back.
 - **A full tank on delivery**, rather than the ordinary third. `main.js` reads the boost meter's
   current fraction at the moment the delivery's energy bits land and tops up exactly what's missing,
   so a VIP always leaves Loco Mode topped off regardless of what was left in the tank going in.
@@ -834,10 +834,10 @@ pure upside by construction: taking one on can only make a run better, never wor
 lets it stay optional without ever being a trap.
 
 Rare on purpose — a cooldown (`VIP_COOLDOWN`) plus a per-opportunity chance (`VIP_CHANCE`), checked
-only when the board is about to refill and nothing else is already flying the beacon. Both are tuned
-against the fare soak (`tools/soak.mjs`): frequent enough to be a real event, not so frequent that
+only when the board is about to refill and no other VIP is already on it. Both are tuned against
+the fare soak (`tools/soak.mjs`): frequent enough to be a real event, not so frequent that
 forgiving misses meaningfully padded the survival curve. Never on the tutorial fare
-(`VIP_MIN_DELIVERED`) — nothing on the board yet for a purple sphere to be distinguished *from*.
+(`VIP_MIN_DELIVERED`) — nothing on the board yet for a purple diamond to be distinguished *from*.
 
 ## Crazy-taxi mode
 

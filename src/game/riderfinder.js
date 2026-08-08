@@ -110,8 +110,8 @@ export function createRiderFinder({ onSelect }) {
 
       const fraction = Math.max(0, Math.min(1, fare.timeLeft / fare.limit));
       chip.button.style.setProperty('--pct', `${(fraction * 100).toFixed(1)}%`);
-      // A VIP's ring stays the beacon's own purple rather than the ordinary urgency scale — the
-      // chip has to agree with the marker out on the map about which rider this is.
+      // A VIP's ring stays that fixed purple rather than the ordinary urgency scale — the chip has
+      // to agree with the marker out on the map about which rider this is.
       chip.button.style.setProperty('--ring-color',
         fare.vip ? PALETTE.vip : urgencyColorFor(fraction).getStyle());
 
