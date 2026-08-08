@@ -28,7 +28,9 @@ import {
  * How near a car has to be to earn a ghost, in world units — 1.5 × PITCH, so it covers the
  * junction the taxi is committed to plus the one behind it, and stops short of the junction after
  * next. At Loco Mode's 18.7 u/s a car crossing that next junction appears about 1.6s before the
- * taxi reaches it, which is still enough time to lift off the button.
+ * taxi reaches it, which is still enough time to lift off the button — 1.3s at the top of the
+ * overdrive band, which is the price of the band and not a reason to widen the radius: a straight
+ * run of two blocks is also the case where the warning has least to say.
  *
  * Not SCATTER_RANGE's 40, tempting as reuse is: at 40 about half a dozen more cars fall in range
  * and MAX_GHOSTS would be doing all the filtering, which would make the radius a fiction. This is
@@ -182,8 +184,8 @@ export function createCarGhosts(scene, traffic) {
 
   /**
    * Must run AFTER traffic.update() — it reads the matrices that composed this frame. A frame
-   * behind, at 18.7 u/s, is 0.31 units ≈ 2.4px of rim sliding off its own car, which reads as the
-   * outline being broken rather than as lag.
+   * behind, at 18.7 u/s, is 0.31 units ≈ 2.4px of rim sliding off its own car (0.38 units ≈ 2.9px
+   * at the top of overdrive), which reads as the outline being broken rather than as lag.
    */
   function update(dt) {
     // `taxi.boost` stays true through BOOST_COOLDOWN, which is right: the collision test is armed

@@ -47,7 +47,8 @@ export const SPEED = 8.5;
 // World units are metres-ish: CAR_LEN is 3.4 against a real compact at ~4.4m, so one unit is
 // about 1.29m and one u/s about 2.9mph. Nothing in the sim needs this — it exists so the run
 // summary can report a top speed in a unit a player has a feel for. It lands the numbers where
-// you'd want them anyway: cruise 8.5 → 25mph, Loco Mode 18.7 → 54mph.
+// you'd want them anyway: cruise 8.5 → 25mph, Loco Mode 18.7 → 54mph, and the overdrive band on
+// top of it 22.95 → 67mph.
 export const MPH_PER_UNIT = 2.9;
 export const speedMph = (v) => Math.round(v * MPH_PER_UNIT);
 
@@ -446,6 +447,31 @@ const BOOST_KICK = 1.25;      // instant surge on activation, so the press has a
 const BRAKE = 11;             // units/s^2 shedding speed; ~3.3 units to stop from cruise
 const CORNER_SPEED = SPEED * 0.7;
 
+// Overdrive — the band above BOOST_SPEED, and the one part of the mode that has to be *driven*
+// for rather than pressed for. Holding the button still buys 18.7 u/s in 7.3 units, well under a
+// block; that is BOOST_ACCEL doing exactly what the note above says it should. Past that the taxi
+// runs out of puff and the last 4.25 u/s arrive at OVERDRIVE_ACCEL instead:
+// (22.95² − 18.7²) / (2 · 2.2) = 40 units of unbroken straight road, which is two blocks on the
+// nose. So the top end exists only at the far end of a full straightaway with nothing in the way —
+// a leader inside LOOKAHEAD, a red the mode isn't holding, or a corner all cost it.
+//
+// A corner takes it back: the turn branch clamps to BOOST_SPEED and BRAKE is 11, so a left sheds
+// the whole band in 0.4s. Going straight on through a junction keeps it, and has to — 40 units of
+// run-up crosses one junction and starts on a second, so capping the straight-through at
+// BOOST_SPEED would make the band unreachable rather than merely hard to reach.
+//
+// 2.7 rather than something rounder because sim/police.js chases at 26 and has to stay faster than
+// the quarry on its best day; 22.95 leaves the cruiser 3 u/s to close with.
+const OVERDRIVE_SPEED = 2.7;  // multiplier on top speed — 22.95 u/s, 67mph
+const OVERDRIVE_ACCEL = 2.2;  // units/s^2 through the band — 40 units of straight to use it all
+
+/**
+ * Acceleration available to a car at full boost, which is not one number: full punch up to the
+ * BOOST_SPEED ceiling, then the overdrive taper. See the tuning block above for where 2.2 and the
+ * 40 units of run-up it implies come from.
+ */
+const boostAccel = (v) => (v < SPEED * BOOST_SPEED ? BOOST_ACCEL : OVERDRIVE_ACCEL);
+
 // Vehicles previously rode at KERB_H + 0.05, floating 0.4 above the tarmac — invisible without
 // wheels, glaring with them. They now sit just clear of the road markings.
 export const ROAD_Y = 0.04;
@@ -559,16 +585,20 @@ function syncGrid(car) {
  * How far ahead a car can be constrained by a leader, in world units.
  *
  * Not a tuning knob — it is derived. A car brakes toward `sqrt(2 * BRAKE * allowed)`, so a leader
- * stops mattering once that exceeds the car's top speed: at boost (18.7 u/s) that is 15.9 units of
- * clear road, plus BOOST_GAP, so 20.4. Beyond it the leader is invisible to the physics whether or
- * not it is visible to the bookkeeping. 26 leaves margin and still fits in two lanes plus the
- * junction between them (12 + 8 + 12).
+ * stops mattering once that exceeds the car's top speed: at the overdrive top (22.95 u/s) that is
+ * 23.9 units of clear road, plus BOOST_GAP, so 28.4. Beyond it the leader is invisible to the
+ * physics whether or not it is visible to the bookkeeping. It was 26, derived the same way against
+ * the 18.7 ceiling that used to be the top — that horizon is 2.4 units short of what a taxi in
+ * overdrive needs, and a leader appearing inside its own stopping distance is a rear-end rather
+ * than a lift. 32 leaves margin and is exactly two lanes plus the junction between them
+ * (12 + 8 + 12). Ambient traffic is unaffected: at cruise a leader stops constraining beyond 3.3
+ * units of clear road, so the extra reach only ever finds cars that were already invisible to it.
  *
  * The old model never needed this: `laneKey` was one *infinite* lane spanning the city, so a car
  * saw every leader in its row for free — including, as it happens, cars three blocks away it was
  * about to turn away from. Per-edge lanes end that, so the distance has to be walked.
  */
-const LOOKAHEAD = 26;
+const LOOKAHEAD = 32;
 
 function spawnCars(rng, count) {
   const net = cityNetwork();
@@ -1205,8 +1235,10 @@ export function createTraffic(rng, scene, count = 24) {
       // red-light running) all the way through the cooldown tail — that's what keeps the risk
       // alive after the button comes up. Actual boost *speed* is narrower: it drops the instant
       // the hold ends, so the taxi coasts back down under ordinary braking instead of holding
-      // 18.7 u/s for the whole cooldown window. That coast-down is also where the nose-dip comes
-      // from — the pitch spring downstream reads the resulting deceleration off car.v directly.
+      // boost speed for the whole cooldown window — and the overdrive band goes with it, so the
+      // top end is only ever held while the button is. That coast-down is also where the nose-dip
+      // comes from — the pitch spring downstream reads the resulting deceleration off car.v
+      // directly, and from the overdrive top it is a longer, deeper one.
       const fullPower = car.boost && !car.boostEasing;
 
       if (car.state === 'drive') {
@@ -1252,9 +1284,12 @@ export function createTraffic(rng, scene, count = 24) {
         // so without the extra push the higher cap would never actually be reached.
         const cruiseCap = SPEED * (1 + (SCATTER_SPEED - 1) * car.scatter)
           * (1 - PANIC_BRAKE * car.panic);
-        const topSpeed = fullPower ? SPEED * BOOST_SPEED : cruiseCap;
+        // The ceiling at full boost is the *overdrive* top, not the BOOST_SPEED one — but the
+        // acceleration tapers above BOOST_SPEED, so the band past 18.7 is only ever reached by a
+        // car that has had 40 units of straight road and a clear `allowed` to spend it on.
+        const topSpeed = fullPower ? SPEED * OVERDRIVE_SPEED : cruiseCap;
         const accel = fullPower
-          ? BOOST_ACCEL
+          ? boostAccel(car.v)
           : ACCEL + (BOOST_ACCEL - ACCEL) * car.scatter;
         const desired = Math.min(topSpeed, Math.sqrt(2 * BRAKE * Math.max(0, allowed)));
         car.v = desired > car.v
@@ -1479,6 +1514,11 @@ export function createTraffic(rng, scene, count = 24) {
         // straight and then shed a third of it to cross an empty junction in a straight line.
         const straightOn = car.turn.hand === 'straight';
         const cruise = fullPower ? SPEED * BOOST_SPEED : SPEED;
+        // Going straight on is part of the straightaway, so it keeps the overdrive band and keeps
+        // building through it; a junction crossed in a straight line is 8 units of the 40 the band
+        // needs. Only a real turn is capped at `cruise`, which is what makes a corner cost the top
+        // end rather than merely interrupt it.
+        const straightTop = fullPower ? SPEED * OVERDRIVE_SPEED : cruise;
         // Crazy mode doesn't lift for left-turns or straights — it goes round them at full pelt,
         // and the lean plus the rubber on the road sell it instead of a speed drop. Right turns
         // are the exception: with right-hand traffic they cut across the near corner (chord ≈
@@ -1488,10 +1528,10 @@ export function createTraffic(rng, scene, count = 24) {
         // arc back its visual weight.
         const isRight = car.turn.hand === 'right';
         const boostTurn = fullPower ? (isRight ? cruise * 0.75 : cruise) : CORNER_SPEED;
-        const cornerTarget = straightOn ? cruise : boostTurn;
+        const cornerTarget = straightOn ? straightTop : boostTurn;
         car.v = car.v > cornerTarget
           ? Math.max(cornerTarget, car.v - BRAKE * dt)
-          : Math.min(cornerTarget, car.v + (fullPower ? BOOST_ACCEL : ACCEL) * dt);
+          : Math.min(cornerTarget, car.v + (fullPower ? boostAccel(car.v) : ACCEL) * dt);
         car.turnT += (car.v * dt) / car.turnLen;
         car.travelled += car.v * dt;
         car.speedFactor = car.v / SPEED;
