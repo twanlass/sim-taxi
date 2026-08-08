@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { KERB_H } from '../city/ground.js';
+import { PALETTE } from '../palette.js';
 import { URGENCY_SEGMENTS, urgencyColor } from './urgency.js';
 import {
   createDiamond, DIAMOND_R, RIM_SCALE, bounceOffset, kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
@@ -126,6 +127,8 @@ export function createFareMarker(scene, phase = 0) {
 
   let selected = false;
   let level = URGENCY_SEGMENTS;
+  // A VIP marker never speaks the urgency scale — see setUrgency and showAt below.
+  let vipMarked = false;
   // Sim times, or null when nothing is running. Both are stamped inside update() off the same clock
   // the bounce reads: a frozen shot has to render the same frame every time, and stamping them at
   // the call site would tie the animation to the order the calls happen in.
@@ -145,6 +148,10 @@ export function createFareMarker(scene, phase = 0) {
   function setUrgency(next) {
     if (next === level) return;
     level = next;
+    // A VIP's diamond and disc stay the beacon's fixed purple rather than cycling the ordinary
+    // green-to-red scale — one colour language per marker, not two fighting for the same rider.
+    // The panic pulse (a shared scale cue, not a colour) still carries urgency for it.
+    if (vipMarked) return;
     const colour = urgencyColor(next);
     diamond.setColor(colour);
     ring.setColor(colour);
@@ -179,10 +186,13 @@ export function createFareMarker(scene, phase = 0) {
     /** Show the marker over a rider who has just appeared, at their kerb corner. */
     showAt(nextLevel, x, z, vip = false) {
       // Straight to the opening colour with no kick: a marker that pops the moment it appears is
-      // announcing a change that hasn't happened.
+      // announcing a change that hasn't happened. A VIP opens straight into its fixed purple
+      // instead of the urgency scale's top level — see setUrgency.
       level = nextLevel;
-      diamond.setColor(urgencyColor(nextLevel));
-      ring.setColor(urgencyColor(nextLevel));
+      vipMarked = vip;
+      const openColour = vip ? PALETTE.vip : urgencyColor(nextLevel);
+      diamond.setColor(openColour);
+      ring.setColor(openColour);
       kickAt = null;
       kickPending = false;
       transferAt = null;

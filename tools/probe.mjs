@@ -571,10 +571,12 @@ check('no two cars occupy the same space', worst > 1.6,
         shownOnSpawn += 1;
         if (!fare.slot.marker.group.visible) missingPin += 1;
         if (fare.slot.destination.group.visible) leakedPin += 1;
-        // A rider appears with their whole clock, so their diamond opens on the top urgency level.
-        if (diamondHex(fare.slot.marker) !== urgencyColor(URGENCY_SEGMENTS).getHexString()) {
-          wrongOpening += 1;
-        }
+        // A rider appears with their whole clock, so their diamond opens on the top urgency level
+        // — except a VIP, whose diamond opens (and stays) on the beacon's fixed purple instead.
+        const wantOpening = fare.vip
+          ? new THREE.Color(PALETTE.vip).getHexString()
+          : urgencyColor(URGENCY_SEGMENTS).getHexString();
+        if (diamondHex(fare.slot.marker) !== wantOpening) wrongOpening += 1;
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
         // Distance price times the shift's multiplier, both settled at spawn — so this reads the
         // multiplier as of *this* frame, which is the one the fare was stamped with. A VIP stacks
