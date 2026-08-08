@@ -128,6 +128,121 @@ because it is now paint on a lane and has to shrink with the road when you zoom 
 
 The default is golden hour: 16:24, sun 28.5° up, `#FFDEBB` at 3.55 intensity.
 
+## Ambient occlusion — `game/ssao.js`
+
+A soft darkening where geometry meets geometry: building bases on the pavement, kerbs against the
+road, the crease under a tower's setback, tyres on the tarmac. On by default; `?ao=off` turns it
+off, and the ⚙️ panel has the strength live.
+
+**It is not a sampled hemisphere and not a port of three's `SSAOPass`.** Two properties of this
+project make a much cheaper estimator the right one:
+
+1. **The camera is orthographic.** Depth is linear in view space, so a packed depth value times
+   `far - near` *is* a distance in world units — no `linearizeDepth`, no perspective divide. And a
+   screen offset is a constant world distance wherever it lands, so the sample radius is stated in
+   world units and converted by dividing by the frustum width. That is the whole of the
+   [size-against-the-camera rule](#camera) here, and it falls out for free.
+2. **The scene is nine draw calls and 12,625 triangles.** The expensive half of a normal SSAO
+   prepass is re-submitting the scene; there is barely a scene to re-submit.
+
+### The estimator is a depth Laplacian
+
+Opposed pairs of taps, and the signal is `centre - (near + far) / 2`. **On any plane, however
+steeply it recedes from this camera, the two taps of a pair sit an equal distance either side of
+the centre and cancel exactly** — which is what lets this run with no normal buffer at all. Only a
+concave crease leaves the centre farther from the camera than the average of its neighbours.
+Convex edges go negative and clamp to zero, so it only ever darkens.
+
+That is the whole reason there is no G-buffer here. The usual no-normals SSAO shades every sloped
+surface, because a receding plane has a depth gradient and a one-sided test reads it as occlusion;
+at this camera the ground itself is a receding plane and would have gone uniformly grey.
+
+Eight taps: two rings of two pairs. The broad ring at **1.0 world units** is what reads as
+occlusion, the tight one at **0.4** puts a darker core in the crease so the contact survives the
+upsample. The broad ring is turned 45° against the tight one — two orthogonal pairs are a
+five-point Laplacian, and a crease running along one of their axes is caught by the other pair
+alone, so between the rings all four screen orientations are covered.
+
+**The taps are fixed, not jittered.** There is no noise, so there is no bilateral blur pass, and a
+frozen shot renders the same frame every time. Upsampling from half resolution is the hardware's
+bilinear filter, which is the only softening the signal needs.
+
+### `MAX_DEPTH_DIFF` is bounded on both sides, and that is what fixes the radius
+
+Past some distance a tap is on the far side of a silhouette rather than across a crease, and the
+pair says nothing about the surface under the centre pixel. Both bounds fall out of `VIEW_DIR`'s
+33° elevation:
+
+- it has to clear `cot(elevation)` = **1.54**, the depth a tap moves through on flat road, or open
+  tarmac would reject itself and there would be no AO anywhere;
+- times the broad radius it has to stay under `carHeight / sin(elevation)` = **2.93**, the depth
+  jump across an ambient car's roofline, or every car would trail a second shadow up-screen that
+  the sun never cast.
+
+At radius 1.0 the window is 1.54 → 2.93 and `MAX_DEPTH_DIFF = 2.0` sits in the middle of it. A
+bigger radius closes the window from the top, which is why 1.0 is not a free choice.
+`tools/probe.mjs` recomputes both bounds from `VIEW_DIR` and the car's own bounding box rather than
+trusting the numbers — re-angle the camera and it fails there rather than in a screenshot nobody
+took.
+
+### What it costs, and what it deliberately does not
+
+The main render is **untouched**: still the default framebuffer, so MSAA survives, and still its own
+stencil buffer, so the [ghost outlines](#taxi-ghost-outline--geometryghostoutlinejs) never see a
+render target. Routing the frame through an `EffectComposer` would have cost both, and its
+noise-then-blur output fights hard-edged flat shading anyway.
+
+Per frame: a half-res depth prepass (9 draw calls, no colour), one half-res fullscreen pass of 8
+taps — about 2.7M texture fetches at an iPhone 15's DPR-2 buffer — and one texture fetch per lit
+fragment in the main render.
+
+- **Depth is packed into RGBA8**, not kept as a half float: 24 bits over the 1399-unit frustum is
+  sub-millimetre, where a half float's ten-bit mantissa quantises to 0.4 units — coarser than the
+  creases this is looking for. The depth target is `NearestFilter` and must stay that way, because
+  a bilinear blend of two packed depths unpacks to nothing meaningful.
+- **The shadow map is switched off for the prepass.** Left on, three rebuilds all 2048×2048 of it a
+  second time per frame for a render that never reads it.
+- **Radius is clamped to 1–12 texels.** Below one texel both taps of a pair land on the same sample
+  and the Laplacian is identically zero; above the ceiling the eight taps spread into a smudge.
+  Both bind only at the ends of the zoom range — the ceiling at `?shot=6`'s zoom 9, the floor past
+  about zoom 100 — never at play zoom.
+- **AO multiplies the indirect term only.** Occlusion is a statement about how much sky reaches a
+  crease, not about whether the sun does, and this game's look is one lit face per building at
+  golden hour. Folding it into the direct term greys those faces off and buys nothing the shadow
+  map isn't already saying.
+
+**A thin vertical post leaves a faint band beside it** at close zoom, strongest near its base where
+the post-to-ground depth gap is still inside the rejection window. It is correct at the base and
+overstays going up; at play zoom a lamp post is two pixels wide and it does not read. Rejecting it
+properly would cost taps, which is the one thing this is built not to spend.
+
+### The occluder rule
+
+`markOccluder()` is what puts a mesh in the depth prepass, and it is **opt-in**: the prepass has to
+contain the solid world and nothing else. Two halves to the rule, and both are asserted in
+`tools/probe.mjs`:
+
+- **An occluder is an opaque, colour-writing mesh.** Everything that fails that would corrupt the
+  prepass rather than contribute to it. `scene.overrideMaterial` strips exactly the flags that keep
+  the ghost outline out of a normal pass — its mask writes no colour and its rim is a hull inflated
+  0.3 units past the car — so an unfiltered traversal draws AO around a silhouette bigger than the
+  taxi. The invisible raycast boxes are the same story.
+- **Anything lit by `propMaterial()` has to be in there.** A mesh that *receives* AO without
+  *casting* it samples the occlusion of whatever stands behind it: a rider in front of a building
+  would wear that building's contact line across their chest. This is why the riders are marked
+  even though a figure is 23px tall.
+
+The stop bars are the one deliberate omission — 0.05-unit road paint, whose own outline is not a
+contact.
+
+The lookup itself rides in `propMaterial()` (`util/geo.js`) as an `onBeforeCompile` patch on
+three's `<aomap_fragment>` hook, keyed in screen space off `gl_FragCoord`. It carries a
+`customProgramCacheKey`, for [the reason the diamond's fill does](#the-diamond--geometrydiamondjs)
+— this city is nothing but flat-shaded Lambert, and a patched material with no key gets handed
+whichever program compiled first. Whether the patch is installed at all is decided by
+`setAmbientOcclusion()` *before any geometry is meshed*, which is why `?ao=` is a URL flag and not a
+panel toggle: switching it live would mean recompiling every program in the city.
+
 ## Day/night cycle
 
 `src/game/daylight.js` owns the hour → lighting curve. **Currently switched off by default** —
@@ -728,7 +843,8 @@ that it returns after a reload, under an emulated iPhone.
 `?debug` or `?settings`. It used to be always on, but at small widths the button sat right where
 the streak counter now lives, and it's a tool almost no player needs to see. Split by cost:
 
-- **Live** — day cycle on/off, day length, time of day, sun colour/strength, ambient fill, fare clock
+- **Live** — day cycle on/off, day length, time of day, sun colour/strength, ambient fill, fare
+  clock, route blend, occlusion strength
 - **Restart to apply** — car count (writes a URL parameter and reloads)
 
 Pretending a rebuild-only value is live would just show a slider that silently does nothing.

@@ -47,7 +47,7 @@ const clockLabel = (hour) => {
   return `${String(h).padStart(2, '0')}:${m}`;
 };
 
-export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, routeLine }) {
+export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, routeLine, ao }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
   toggle.type = 'button';
@@ -188,6 +188,25 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, ro
   row(panel, 'Route blend', blend);
   blend.addEventListener('change', () => routeLine.setBlend(blend.value));
 
+  // Strength only. Whether the pass runs at all is `?ao=off`, and it has to be a URL flag rather
+  // than a control here: the AO lookup is compiled into every prop material at build time, so
+  // switching it live would mean recompiling every program in the city (see util/geo.js).
+  // Live because the right amount is a judgement about the whole frame — too much and the
+  // low-poly facets stop reading as facets, too little and nothing has changed.
+  const occlusion = slider(0, 1, 0.05, ao.state.strength);
+  occlusion.disabled = !ao.state.enabled;
+  const occlusionValue = row(panel, 'Occlusion', occlusion);
+  const showOcclusion = () => {
+    occlusionValue.textContent = ao.state.enabled
+      ? Number(occlusion.value).toFixed(2)
+      : 'off · ?ao=on';
+  };
+  showOcclusion();
+  occlusion.addEventListener('input', () => {
+    ao.setStrength(Number(occlusion.value));
+    showOcclusion();
+  });
+
   // --- Needs a rebuild ------------------------------------------------------
   heading('Restart to apply');
 
@@ -242,6 +261,7 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, ro
       fareSeconds: fares.getSeconds(),
       cars: Number(cars.value),
       routeBlend: routeLine.blend(),
+      ambientOcclusion: ao.state.enabled ? Number(ao.state.strength.toFixed(2)) : false,
     },
   });
 
