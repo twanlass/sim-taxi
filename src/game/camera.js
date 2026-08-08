@@ -196,6 +196,7 @@ export function attachDragPan(controller, domElement, getAspect, isEnabled = () 
   onPan = () => {}) {
   let drag = null;
   let panned = false;
+  let clearPanned = null;
 
   function panBy(right, up) {
     // A finger on the map beats a pan already in flight. Cancelled here rather than from the
@@ -214,12 +215,25 @@ export function attachDragPan(controller, domElement, getAspect, isEnabled = () 
     // drag makes the map jump to wherever that finger landed.
     if (!event.isPrimary) return;
     if (!isEnabled()) return;
+    clearTimeout(clearPanned);
     drag = { x: event.clientX, y: event.clientY, moved: 0 };
     panned = false;
     domElement.setPointerCapture(event.pointerId);
   });
 
-  const release = () => { drag = null; };
+  const release = () => {
+    drag = null;
+    // `panned` has to survive the click the browser synthesises right after this release — that's
+    // the whole point, so a drag ending over a fare doesn't also route the taxi at it. But past that
+    // one click it was only ever cleared by the *next* pointerdown on this element, and a tap that
+    // lands somewhere else fixed on top of the canvas (the tutorial bubble, a rider-finder chip)
+    // never sends this element one. That left `didPan()` reporting a swipe from minutes ago as
+    // still in progress, and every later tap on those elements got silently read as the tail of a
+    // drag and ignored — including the tap meant to dismiss the tutorial. Queued as a fresh task
+    // rather than cleared here: pointerup -> click dispatch synchronously in the same task, so the
+    // one click this is protecting still sees `panned` true; anything after that is a new tap.
+    if (panned) clearPanned = setTimeout(() => { panned = false; }, 0);
+  };
   domElement.addEventListener('pointerup', release);
   domElement.addEventListener('pointercancel', release);
 
