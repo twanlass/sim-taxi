@@ -562,6 +562,39 @@ lift = Math.abs(Math.sin(roll)) * (CAR_W / 2)
 Without it, leaning pushes the outer wheels underground. The taxi's ground disc is *not* rolled
 with the body — it used to be, and tilting it into the road caused z-fighting.
 
+## The "Add to Home Screen" nudge
+
+`src/game/homescreen.js`, styled under `#home-tip` in `index.html`. A small card that says the game
+is best added to the Home Screen, and names the two taps that do it. **iOS only, and only in a
+browser tab.**
+
+It exists because the icons and the web-app meta tags in `index.html` are already there — launching
+from the Home Screen drops Safari's chrome and hands the fixed 3/4 camera the whole screen. In a tab
+the bottom toolbar slides in and out as the page is touched, which resizes the viewport *mid-run*
+and moves the framing under the player. Every other platform's browser offers installation itself
+(Chrome and Edge fire `beforeinstallprompt` and put an affordance in the address bar), so a card
+drawn by the page would be a worse second copy of it; iOS Safari fires nothing and buries the action
+in the share sheet, which is why it has to be described in words.
+
+**Detecting it is two questions, each with a trap.** *Is this iOS* — iPadOS 13+ sends a desktop
+user-agent, so the UA test has to fall through to `MacIntel` + a touch screen (a real Mac reports
+`maxTouchPoints === 0`, since a trackpad is a pointer and not a digitiser). *Is it already
+installed* — `navigator.standalone` is the iOS-only flag and the only one older Safari sets;
+`display-mode: standalone` is the standard query and covers Safari 16.4+. Either being true means
+there is nothing to suggest.
+
+It is parked below the money counter rather than at the bottom of the screen, where the Loco Mode
+pill and the rider chips already own the left column from y=26 up to ~300px — a card down there
+would either cover them or be squeezed into the ~270px left over on a phone. Both its lines are too
+long for a phone's width whatever the padding is, so they are `text-wrap: balance`d; left greedy
+each stranded a single word on a second line.
+
+**It is a suggestion, so it stops asking.** Three loads, counted in `localStorage`, and an explicit
+tap ends it immediately — the auto-hide at 11s does not, because a player who never looked at it
+hasn't declined it. `?hometip` forces the card up on any platform, which is the only way to lay it
+out without a phone in hand; `tools/smoke.mjs` checks both directions of the detection under an
+emulated iPhone.
+
 ## Debug panel
 
 `src/game/debugpanel.js`, behind the ⚙️ button top right — only built when the URL carries

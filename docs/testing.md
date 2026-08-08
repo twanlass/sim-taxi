@@ -148,3 +148,11 @@ A third is about reading state back: anything asserted *at the instant of* an in
 gathered inside a single `Runtime.evaluate`, with no `await` in the middle. Split across round
 trips the page renders in between — long enough that a pan reads as having already jumped, which is
 precisely the bug that check exists to catch.
+
+**The Home Screen nudge is checked here for want of anywhere better.** It is a user-agent test
+([rendering.md](rendering.md#the-add-to-home-screen-nudge)), so nothing in the node suite can see
+it — and it is invisible on every machine the game is developed on, which is exactly how a broken
+condition ships. The run opens a *second* page under an emulated iPhone, because the emulation has
+to be in place before the navigation. What it asserts on the ordinary page is the **absence of the
+`localStorage` counter**, not the absence of the card: the module writes that key only on a load it
+has decided to show on, whereas a missing card is equally a card that has already timed out.

@@ -29,6 +29,7 @@ import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
+import { createHomeScreenTip } from './game/homescreen.js';
 import { findRoute, planOrigin } from './game/route.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount } from './util/shot.js';
 import { isCityConnected, GRID } from './city/grid.js';
@@ -1013,6 +1014,18 @@ if (shot) {
 } else {
   traffic.warmup(10);
   frame();
+}
+
+// A one-off nudge on iOS, which is the only platform with no install affordance of its own — see
+// game/homescreen.js for the detection and for why it is worth showing at all. It bows out on
+// every other platform, and on an iOS device that already launched from the Home Screen icon, so
+// there is nothing to gate here beyond shot mode: a screenshot is not a place to advertise
+// anything. `?hometip` forces the card up anywhere, since this path is otherwise invisible on the
+// machine the layout is being written on.
+if (!shot) {
+  createHomeScreenTip(document.getElementById('home-tip'), {
+    force: new URLSearchParams(window.location.search).has('hometip'),
+  });
 }
 
 // The gear button sits top-right at small widths and started overlapping the streak counter

@@ -240,6 +240,71 @@ try {
       narrow ? 'no waiting rider on screen to tap' : 'viewport is not narrow');
   }
 
+  // --- The "Add to Home Screen" nudge shows on iOS and nowhere else.
+  //
+  // This is here rather than in the node suite because the whole feature is a user-agent test, and
+  // it is here rather than left to a phone because it is the kind of check that rots silently: the
+  // card is invisible on every machine the game is developed on, so a broken condition would ship
+  // and only ever be noticed as "it never prompts" (or, worse, as a desktop player being told to
+  // tap a share sheet that isn't there).
+  //
+  // The counter in localStorage is the signal, not just the card: `createHomeScreenTip` writes it
+  // only on a load it has decided to show on, so an absent key means the module bowed out — where
+  // an absent card could equally be one that has already timed out.
+  const SEEN_KEY = 'simtaxi.homescreen.seen';
+  const tipCard = "Boolean(document.querySelector('#home-tip .home-tip-card'))";
+  check('no Home Screen nudge off iOS',
+    (await evaluate(`localStorage.getItem(${JSON.stringify(SEEN_KEY)})`)) === null);
+
+  // A second page, this one pretending to be an iPhone. Emulation has to be in place before the
+  // navigation, so it can't be done to the page above.
+  {
+    const ios = await fetchJson(`/json/new?${encodeURIComponent('about:blank')}`, 'PUT');
+    const iosClient = connect(ios.webSocketDebuggerUrl);
+    await iosClient.ready;
+    await iosClient.send('Runtime.enable');
+    await iosClient.send('Page.enable');
+    await iosClient.send('Emulation.setDeviceMetricsOverride', {
+      width: 390, height: 844, deviceScaleFactor: 1, mobile: true,
+    });
+    await iosClient.send('Emulation.setUserAgentOverride', {
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 '
+        + '(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+      platform: 'iPhone',
+    });
+    await iosClient.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+    await iosClient.send('Page.navigate', { url: baseUrl });
+
+    const iosEval = async (expression) => {
+      const { result } = await iosClient.send('Runtime.evaluate', {
+        expression, returnByValue: true,
+      });
+      return result.value;
+    };
+
+    // The card is on a 1.4s timer from load, and this page renders in software — poll rather than
+    // sleeping a guessed amount.
+    let shown = false;
+    const tipDeadline = Date.now() + 20000;
+    while (Date.now() < tipDeadline) {
+      if (await iosEval(tipCard)) { shown = true; break; }
+      await sleep(300);
+    }
+    check('Home Screen nudge shows on iOS', shown);
+
+    if (shown) {
+      // Tapping it puts it away and keeps it away — the counter goes straight to its cap.
+      await iosEval("document.querySelector('#home-tip .home-tip-card').click()");
+      await sleep(600);
+      check('tapping the nudge dismisses it for good',
+        (await iosEval("document.getElementById('home-tip').hidden"))
+        && (await iosEval(`localStorage.getItem(${JSON.stringify(SEEN_KEY)})`)) === '3');
+    }
+
+    iosClient.close();
+    await fetch(`http://127.0.0.1:${PORT}/json/close/${ios.id}`).catch(() => {});
+  }
+
   check('no uncaught exceptions', client.errors.length === 0, client.errors.join(' | '));
 } catch (err) {
   check('smoke run completed', false, err.message);

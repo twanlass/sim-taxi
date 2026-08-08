@@ -374,6 +374,67 @@
       }
       body.shot-mode #dropoff-indicator { display: none; }
 
+      /* --- "Add to Home Screen" nudge — see src/game/homescreen.js -------------
+         iOS in a browser tab only, where there is no install affordance to point at and Safari's
+         disappearing bottom toolbar resizes the viewport mid-run. Parked below the money counter
+         rather than at the bottom of the screen: the bottom-left corner from y=26 up to ~300px is
+         already the Loco Mode pill and the rider chips, and a card down there would either cover
+         them or be squeezed into the ~270px left over on a phone. Up here it collides with nothing
+         — the toast above it clears at ~54px, the counters either side of it end at ~69px. */
+      #home-tip {
+        position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+        /* Above the flying earnings (25), below the run-end blackout (30). */
+        z-index: 26;
+        width: max-content; max-width: min(330px, calc(100vw - 32px));
+        /* Only the card itself takes taps. A tap that misses it is a tap on the city, which is
+           what keeps a suggestion from stealing a dispatch. */
+        pointer-events: none; user-select: none;
+      }
+      #home-tip[hidden] { display: none; }
+      body.shot-mode #home-tip, body.game-over #home-tip { display: none; }
+
+      #home-tip .home-tip-card {
+        position: relative; pointer-events: auto; cursor: pointer;
+        padding: 12px 40px 13px 16px; border-radius: 16px;
+        /* The toast's tint, a shade heavier — this one has two lines to hold legible over a bright
+           sky, where the toast has three words. */
+        background: rgba(24, 44, 58, 0.88);
+        box-shadow: 0 6px 22px rgba(10, 25, 35, 0.35);
+        color: #fff; text-align: left;
+        font: 600 13px/1.4 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        /* Tap-to-dismiss: no long-press callout, no double-tap zoom pause before it goes. */
+        -webkit-touch-callout: none; touch-action: manipulation;
+      }
+      /* Both lines are too long for a phone's width and wrap whatever the padding is, so the only
+         question is *where*. Left alone the greedy fill strands a single word on the second line of
+         each ("...adding to / Home", "...Add to Home / Screen"); balancing splits them near the
+         middle instead, which is what stops a two-line card reading as an overflowing one. Ignored
+         by browsers that don't have it, and both wraps are legible either way. */
+      #home-tip .home-tip-title {
+        display: block; font-size: 14px; font-weight: 800; text-wrap: balance;
+      }
+      #home-tip .home-tip-steps {
+        display: block; margin-top: 3px; opacity: 0.86; text-wrap: balance;
+      }
+      /* Inline, not flex: the line is text with a glyph in it, and flex would make each run of
+         words its own item and wrap them in the wrong places. Sized in `em` so the icon tracks
+         whatever the line is set at. */
+      #home-tip .home-tip-steps svg {
+        width: 1.05em; height: 1.05em; vertical-align: -0.2em; margin: 0 0.08em;
+        fill: none; stroke: #F5C130; stroke-width: 1.9;
+        stroke-linecap: round; stroke-linejoin: round;
+      }
+      /* The share sheet's own wording, in the taxi's yellow — it is the row the player has to find
+         in a long list, so it gets to be the one coloured thing in the sentence. */
+      #home-tip .home-tip-steps b { font-weight: 800; color: #F5C130; }
+      #home-tip .home-tip-close {
+        position: absolute; top: 5px; right: 5px;
+        width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%;
+        background: transparent; color: #fff; opacity: 0.5; cursor: pointer;
+        font-family: inherit; font-size: 13px; font-weight: 700; line-height: 1;
+      }
+      #home-tip .home-tip-close:active { opacity: 0.9; }
+
       /* --- tweak panel --- */
       #dbg-toggle {
         position: fixed; top: 16px; right: 16px; z-index: 20;
@@ -441,6 +502,7 @@
       </svg>
     </div>
     <div id="toast"></div>
+    <div id="home-tip" hidden></div>
     <div id="run-end" hidden></div>
 
     <div id="error" hidden></div>
