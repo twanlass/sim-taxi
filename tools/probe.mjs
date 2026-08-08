@@ -679,7 +679,7 @@ check('no two cars occupy the same space', worst > 1.6,
         if (!fare.slot.marker.group.visible) missingPin += 1;
         if (fare.slot.destination.group.visible) leakedPin += 1;
         // A rider appears with their whole clock, so their diamond opens on the top urgency level
-        // — except a VIP, whose diamond opens (and stays) on the beacon's fixed purple instead.
+        // — except a VIP, whose diamond opens (and stays) on its own fixed purple instead.
         const wantOpening = fare.vip
           ? new THREE.Color(PALETTE.vip).getHexString()
           : urgencyColor(URGENCY_SEGMENTS).getHexString();

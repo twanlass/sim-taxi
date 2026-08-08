@@ -84,16 +84,17 @@ export const MAX_FARES = 4;
 
 // --- VIP pickups ---------------------------------------------------------------
 //
-// A rare, cash-rich rider layered on top of the ordinary board: a purple beacon over their head
-// (see faremarker.js) instead of just the usual diamond, a clock cut down from the ordinary
-// budget, and — the one rule that makes it pure upside — missing one never ends the run. It only
-// costs the bonus.
+// A rare, cash-rich rider layered on top of the ordinary board: a fixed-purple diamond (see
+// faremarker.js) instead of the usual urgency scale, a clock cut down from the ordinary budget,
+// and — the one rule that makes it pure upside — missing one never ends the run. It only costs
+// the bonus.
 //
 // The payout is the ordinary distance price times the player's current *VIP streak*: how many
 // VIPs have been delivered back to back. Stamped at spawn like every other price on the board
-// (see spawnFare) — the beacon should say what this one is worth the moment it appears, not leave
-// it to be found out on delivery. The streak is what makes stacking VIPs worth the risk, and
-// missing one resets it to zero: the whole tension is that one late drop-off gives it all back.
+// (see spawnFare) — the diamond's fixed purple should say what this one is worth the moment it
+// appears, not leave it to be found out on delivery. The streak is what makes stacking VIPs worth
+// the risk, and missing one resets it to zero: the whole tension is that one late drop-off gives
+// it all back.
 const VIP_MIN_DELIVERED = 1;      // never on the tutorial fare — nothing to distinguish it against yet
 const VIP_COOLDOWN = 35;          // seconds between opportunities, so a VIP stays a rare event
 const VIP_CHANCE = 0.22;          // chance a qualifying spawn actually becomes one
@@ -478,7 +479,7 @@ export function createFareSystem(rng, scene) {
     //
     // A VIP's own multiplier stacks on top: the current streak plus one, for the delivery that
     // would extend it. Stamped now rather than read at delivery, same as everything else priced
-    // here — the beacon has to say what this trip is worth the moment it appears.
+    // here — the marker's fixed purple has to say what this trip is worth the moment it appears.
     fare.vipMultiplier = vip ? state.vipStreak + 1 : 1;
     fare.value = Math.round(priceFor(spot, fare.dropoff)
       * difficulty.payoutMultiplier(state.delivered)
