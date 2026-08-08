@@ -447,56 +447,86 @@ and the seed-to-seed spread (73%–96% across eight cities) swamps a two-point e
 checks instead is the mechanism — that traffic in front of a boosting taxi exceeds ambient cruise,
 and that a boosting taxi takes its left turn while the oncoming car holds.
 
-### What was still *freezing* it
+### Nothing stops the taxi
 
-The work above made the taxi stop at the line less often. What none of it touched is what happens
-when it still does, and that turned out to be the thing players actually reported — "it gets stuck
-at intersections", "the gas cuts out while I'm holding the button".
+The work above made the taxi stop at the line *less often*. It took a player report — "it gets
+stuck at intersections", "the gas cuts out while I'm holding the button" — to notice that the
+premise was wrong: in Loco Mode it should not stop at all.
 
-The stop line has four ways to refuse a car: the signal, a car stranded mid-turn in the box, a full
-exit lane, and an oncoming car on a left. **Only the signal was read on approach.** The other three
-were asked on arrival, and the only way to obey a refusal there is to pin `s` to the hold line —
-which stops the car without touching `car.v`. So the taxi sat at the line reading 18.7 u/s (23.0 out
-of the overdrive band) with the wheels turning, no nose dip, and the Loco weave — paced by `v · dt`
-— still sliding it sideways in its lane. When the box cleared it resumed at that speed with no
-acceleration in between.
+The stop line has four ways to refuse a car. The signal already yielded, via the priority hold.
+The other three did not: a car stranded mid-turn in the box, a full exit lane, and an oncoming car
+on a left. Those are the rules for sharing a junction politely, and a car being driven like this
+is not sharing it. `bargesThrough()` in `traffic.js` drops all three for a boosting taxi, and
+`sim/collisions.js` is armed for exactly as long as that is true — so a junction with something in
+it costs the **run**, not a wait. That is what makes the mode risky rather than merely fast: the
+reason to lift off the button is that you can see what you are about to hit, not that the sim will
+quietly stop you for you.
+
+`car.boost` rather than `fullPower`, so it holds through the cooldown tail alongside every other
+boost-only hazard rule — letting go doesn't buy a car that starts yielding again any more than it
+buys one that stops being crashable. The mid-turn landing re-check goes with it: stopping *inside*
+a junction is the one hold that would strand the taxi across live traffic, and it is landing on
+that car either way.
 
 Measured over six cities, 30 routed fares each at `?cars=24`, boost held down the whole way:
 
-| | before | after |
+| | before | brake into the hold | **nothing stops it** |
+|---|---|---|---|
+| ground covered | 18.49 u/s | 17.92 | **18.71** |
+| frames stationary | 3.39% | 2.42% | **0.76%** |
+| ...of those, frozen while `v` claimed > 1 u/s | 3.36% | 0.00% | **0.00%** |
+
+The middle column is the fix that was tried first — brake into the hold rather than hit it — and
+it is why the approach test below exists. It is the right answer for *ambient* traffic and the
+wrong one for the taxi: it removed the freeze but cost 0.6 u/s buying a politeness the mode should
+never have had. Dropping the hold outright is faster than the code ever was and stationary a
+quarter as often.
+
+And it does not turn the mode into a lottery. A fresh city per run, taxi routed fare to fare with
+boost held until the collision detector fires:
+
+| | before | nothing stops it |
 |---|---|---|
-| frames stationary while `v` claimed > 1 u/s | 0.15%–7.07% | **0.00%** |
-| longest single freeze | 7.0s at 19.7 u/s | none |
-| weave slide while stationary | up to 0.084 u/frame (≈5 u/s sideways) | none |
-| abrupt stops per 140s of boosting | ~14 | ~11 |
-| ground covered | 18.5 u/s | 17.9 u/s |
+| median time to wreck, `?cars=7` | 22.8s | 22.2s |
+| median time to wreck, `?cars=24` | 5.8s | 5.8s |
+| taxi pinned at a hold line | 0.43% / 1.99% of frames | **0.00%** |
 
-Attributing the refusals: **exit lane full 590/230/162** per city against **stranded 8/17/11** and
-**left-yield 0/67/0**. Don't-block-the-box is essentially the whole of it, which is why cutting its
-clearance for a boosting taxi mattered so much and why it still isn't enough on its own.
+The holds were rare enough that removing them barely moves the crash rate — they were costing the
+mode its feel, not protecting it. Closest undetected approach stays at 3.0–3.2 units against the
+2.31-unit envelope, so nothing drives through anything: every contact is a detected wreck.
 
-The fix is to ask all four on approach, so a refusal is *braked into* like a red. The two
-non-signal tests that need a chosen exit — `exitLaneFull` and `leftYieldBlocked` in `traffic.js` —
-are now single helpers called from both the approach and the arrival, so the two askings cannot
-drift apart. A routed car asks about the exit its route names, which is exact; an unrouted one has
-not rolled its dice yet, so it only slows when *every* exit is blocked and no roll can save it.
-Ambient traffic is barely affected either way. The hold itself also bleeds `v` off at `BRAKE`
-instead of leaving it alone, so a block that appears too late to brake for still lands on a
-stationary car with stationary wheels.
+**What still slows it** is the car directly in front in its own lane, at `BOOST_GAP`. That one is
+deliberate and predates this — see the scatter work above and the envelope tuning in
+`sim/collisions.js`, which exists precisely so Loco Mode isn't a lottery over which same-road car
+you died on. It costs 0.76% of frames stationary, almost all of it behind a leader scatter hasn't
+cleared yet.
 
-**The 0.6 u/s of ground speed is the price and it is the right one.** It buys back nothing that
-was ever real: the frames it removes are frames the taxi spent claiming 18.7 while covering no
-ground at all. Both figures sit inside the 73%–96% seed spread above.
+### The freeze underneath it
 
-**What is left is a hard limit of the block size.** A lane is 12 units and the hold line sits 3.4
-back from its end, so a taxi landing out of one junction has **8.6 units** before the next one.
-Stopping from 18.7 u/s takes **15.9**. A block that only becomes true after the taxi has cleared
-the previous junction therefore cannot be braked for, and the `allowed < 0.05` snap zeroes it on
-the line instead — about once per 13s of continuous boosting. That is an honest stop now (nose
-dive, wheels stopped, real acceleration back out) rather than a freeze, but it is still abrupt.
-Fixing it properly means either braking during the turn — the one state that has no `allowed` — or
-capping Loco Mode below `sqrt(2 · BRAKE · 8.6)` = 13.7 u/s, which is most of the mode. Neither is
-worth it for the residual.
+Being refused at the line is *pinning `s`*, which stops the car without touching `car.v`. Nothing
+downstream is told: the wheels keep turning, the nose never dips, and the weave — paced off
+`v · dt` — keeps sliding a stationary car sideways in its lane, up to 0.084 units a frame. On
+release the whole speed comes straight back with no acceleration in between. At 18.7 u/s that read
+as the gas cutting out; the worst single case measured **7.0s frozen at 19.7 u/s**.
+
+The taxi no longer reaches that path while boosting, but ambient traffic still does, so it is
+fixed rather than bypassed, in two parts:
+
+- **The other three refusals are read on approach**, exactly as the signal always was, and folded
+  into `allowed` so the car brakes for them. `exitLaneFull` and `leftYieldBlocked` came out of the
+  arrival path into shared helpers called from both places, so the two askings cannot drift apart.
+  A routed car asks about the exit its route names, which is exact; an unrouted one hasn't rolled
+  its dice yet, so it only slows when *every* exit is blocked and no roll can save it. This cuts
+  freeze frames across the ambient population by about **65%** (0.37% → 0.13% of car-frames).
+- **The hold bleeds `v` off at `BRAKE`** instead of leaving it alone, so whatever does still get
+  refused at speed lands on a stationary car with stationary wheels and a nose that dips.
+
+The car this matters most for is one **fleeing the boosting taxi**: scatter lifts its ceiling to
+2.0× cruise and the taxi's priority hold hands it the green, so it arrives fast with nothing else
+slowing it. A lane is 12 units with the hold line 3.4 back, so it has **8.6 units** of warning
+against the **13.1** it needs to stop from 17 u/s — which is the residual. `tools/probe.mjs` stages
+exactly that car and asserts it brakes rather than freezes; it fails at 8.68 u/s stationary on the
+code before this.
 
 **The lamps don't show the hold.** Stop bars are coloured from `displayPhase`, which is
 `lightPhase` with the priority branch skipped, so the heads keep running their real cycle while the

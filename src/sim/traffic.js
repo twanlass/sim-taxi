@@ -1299,6 +1299,25 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
     };
 
     /**
+     * Loco Mode's premise is that **nothing stops the taxi**. The signal already yields to it —
+     * that is the priority hold — but three things could still bring it to a dead halt at a line
+     * it supposedly owned: a car stranded mid-turn in the box, a full exit lane, and an oncoming
+     * car on a left. Those are the ambient rules for sharing a junction politely, and a car being
+     * driven like this is not sharing it.
+     *
+     * So it barges through, and the consequence is the point: `sim/collisions.js` is armed for
+     * exactly as long as this is true, so entering a junction that has something in it is a
+     * *wreck*, not a wait. That is what makes the mode risky rather than merely fast — the reason
+     * to lift off the button is that you can see what you are about to hit, not that the sim will
+     * quietly stop you.
+     *
+     * `car.boost` rather than `fullPower`, so it stays true through the cooldown tail alongside
+     * every other boost-only hazard rule. Letting go does not buy a car that starts yielding
+     * again any more than it buys one that stops being crashable.
+     */
+    const bargesThrough = (car) => car.boost;
+
+    /**
      * Everything that can refuse this car at the line *other* than the signal, asked while it is
      * still far enough out to stop for the answer.
      *
@@ -1318,6 +1337,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
      * braking for a turn they were never going to take.
      */
     const entryRefused = (car) => {
+      if (bargesThrough(car)) return false;
       // A car stranded mid-turn: cross traffic released into the junction drives through it.
       if (heldAt.has(`${car.i},${car.j}`)) return true;
 
@@ -1477,7 +1497,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
             // No signal here. The priority street runs; anyone joining waits for a real gap.
             green = arrive.open || ringGapClear(car, approaching);
           } else {
-            const held = heldAt.has(`${car.i},${car.j}`);
+            const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car);
             green = (arrive.open || taxiClearsYellow(car, arrive, distToLine)) && !held;
 
             // Right on red. Permitted only as a right turn, only with a gap in the traffic that
@@ -1561,8 +1581,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
 
             // The same two tests the approach above already asked, now on the turn actually
             // chosen — a dice roll can land on an exit the "every exit blocked" form let through.
-            if (chosen?.hand === 'left' && leftYieldBlocked(car)) chosen = null;
-            if (chosen && exitLaneFull(car, net.laneById.get(chosen.outLane))) chosen = null;
+            if (!bargesThrough(car)) {
+              if (chosen?.hand === 'left' && leftYieldBlocked(car)) chosen = null;
+              if (chosen && exitLaneFull(car, net.laneById.get(chosen.outLane))) chosen = null;
+            }
           }
 
           if (!chosen) {
@@ -1678,8 +1700,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
             return laneS > -0.1 && laneS < MIN_GAP;
           });
 
-          if (blocked) {
+          if (blocked && !bargesThrough(car)) {
             // Hold just short of completion; the phantom lane entry keeps followers queued.
+            // Not for a boosting taxi: stopping *inside* a junction is the one hold that would
+            // strand it across live traffic, and it is landing on the car either way — better
+            // that it lands on it at speed and the collision detector calls it.
             car.turnT = 0.999;
             stats.waiting += 1;
             continue;

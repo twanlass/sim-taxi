@@ -794,6 +794,15 @@ While active the taxi runs at 2.2× speed, forces its next junction green, doesn
 corners, lays **skid marks** off the line and through turns, and kicks up **dust**. See
 [rendering.md](rendering.md#effects) for how those two are drawn.
 
+**And it does not stop.** Not for a full exit lane, not for a car stranded in the box, not to
+yield on a left — the three ambient courtesies that could still bring it to a halt at a junction
+its priority hold had already turned green. Driving into a junction with something in it ends the
+run instead, because collision detection is armed for exactly as long as the mode is. That is the
+bargain: the only thing between you and a wreck is what you can see coming, and the button is the
+only brake. See [traffic.md](traffic.md#nothing-stops-the-taxi) for the mechanism and the numbers
+— it turns out to be *faster* than letting it yield, and it barely moves the crash rate, because
+the holds were rare enough to cost the mode its feel without protecting it.
+
 **Releasing isn't an instant off.** For `BOOST_COOLDOWN` (1s) after the button comes up — or the
 tank runs dry — the taxi is still exposed to everything Loco Mode was: it can still crash into
 traffic, still gets caught if a cop is in bust range, still forces the next light. What it loses
