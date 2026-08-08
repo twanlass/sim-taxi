@@ -307,6 +307,8 @@ const blockDistance = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
  * @param headingFor    () => {x, z} | null — where the taxi is currently routed, for measuring how
  *                      far through its first trip it is
  * @param isOver        () => boolean — run ended under the tutorial (a wreck, say); drop everything
+ * @param isBlocked     () => boolean — something else is holding the run in front of this, so say
+ *                      nothing and take no taps until it lets go
  * @param shouldIgnoreTap () => boolean — true for the click that closes out a camera drag, so a
  *                      swipe does not also dismiss the bubble it dragged past
  * @param onRunning     (running: boolean) => void — fires on start and on the *second* dismissal;
@@ -316,7 +318,8 @@ const blockDistance = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
 export function createTutorial({
   controller, aspect, isNarrow, taxi, lights, project, pixelsPerUnit, boostAnchor = () => null,
   waitingFare, fareLocation, isDispatched, isCarrying = () => false, headingFor = () => null,
-  isOver = () => false, shouldIgnoreTap = () => false, onRunning = () => {},
+  isOver = () => false, isBlocked = () => false, shouldIgnoreTap = () => false,
+  onRunning = () => {},
 }) {
   const root = document.getElementById('coach');
   const idle = {
@@ -452,7 +455,10 @@ export function createTutorial({
   // beat the whole lesson is the tap landing on the rider, and a full-screen catcher would eat the
   // one gesture being taught. `shouldIgnoreTap` is the same guard the picker uses, so a swipe that
   // dragged the map does not also count as an answer.
-  const onTap = () => { if (!shouldIgnoreTap()) bubble.tap(); };
+  // `isBlocked` matters as much as the pan guard here: the Home Screen screen is a full-bleed
+  // overlay above this one that waits to be tapped, and the tap that dismisses *it* would otherwise
+  // bubble straight through and burn a beat the player never saw.
+  const onTap = () => { if (!shouldIgnoreTap() && !isBlocked()) bubble.tap(); };
   window.addEventListener('click', onTap);
 
   /** Lights down, first line up. Held for OPENING_HOLD so the run does not open mid-sentence. */
@@ -472,6 +478,12 @@ export function createTutorial({
   function update(dt) {
     if (state.step === 'done') return;
     if (isOver()) { end(); return; }
+    // Something else is holding the run in front of this — on iOS in a tab, the "Add to Home
+    // Screen" screen (game/homescreen.js), which sits above this one and parks the fare loop until
+    // it is tapped. Freeze rather than run behind it: the opening hold would tick away unseen, the
+    // spotlight would darken a city nobody is looking at, and the first line would type itself out
+    // underneath an overlay. The clocks are already held from both sides, so nothing is lost.
+    if (isBlocked()) return;
     elapsed += dt;
     bubble.update(dt, elapsed);
     // Tracked through the restore glide too: the pool is fading out over ~0.45s and a stale centre

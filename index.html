@@ -552,6 +552,103 @@
         #hud, #streak, #boost, #rider-finder-stack { translate: none; }
       }
 
+      /* --- "Add to Home Screen" screen — see src/game/homescreen.js -------------
+         iOS in a browser tab only, where there is no install affordance to point at and the
+         disappearing bottom toolbar resizes the viewport mid-run.
+
+         It does not hide the city, it *sinks* it: the gradient is fully transparent at the top, so
+         the skyline and the two HUD counters stay readable, and reaches solid black by the time the
+         text starts. Reading the game through it is what says the screen is a step on the way in
+         rather than a different place — and it means the black behind the list is genuinely black,
+         with no skyline competing with the one thing the player has to read. */
+      #home-tip {
+        position: fixed; inset: 0;
+        /* Above the flying earnings (25), below the run-end blackout (30) — a run that somehow
+           ended behind this should still show its own screen on top. */
+        z-index: 26;
+        display: flex; flex-direction: column; justify-content: flex-end;
+        background: linear-gradient(to bottom,
+          rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.1) 20%, rgba(0, 0, 0, 0.45) 42%,
+          rgba(0, 0, 0, 0.88) 55%, #000 63%);
+        color: #fff;
+        font-family: ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        /* The whole thing is the dismiss target, as the hint says. No long-press callout, no
+           double-tap zoom pause between the press and the game starting. */
+        cursor: pointer; touch-action: manipulation;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+      }
+      #home-tip[hidden] { display: none; }
+      body.shot-mode #home-tip, body.game-over #home-tip { display: none; }
+
+      /* Bottom-anchored, and the bottom inset clears the home indicator on a notched phone. The
+         gutter is a share of the width rather than a fixed pixel count so the block sits the same
+         distance in on a 320px phone as on a 430px one.
+
+         **One size drives the whole block.** The steps are 1em and every other size and gap is a
+         ratio of them, so the block scales as a unit — and so the fit-to-width pass in
+         homescreen.js has exactly one knob to turn. It is clamped against *both* axes: width is
+         what the long third step has to fit across, height is what the whole block has to fit down
+         (a landscape phone is 390px tall, and 7.2vw of an 844px-wide viewport would be 60px type on
+         a screen with no room for it). Same technique as the run-end stats, for the same reason. */
+      #home-tip .home-tip-sheet {
+        font-size: clamp(18px, min(7.2vw, 5vh), 30px);
+        padding-left: clamp(20px, 7.5vw, 46px);
+        padding-right: clamp(20px, 7.5vw, 46px);
+        padding-bottom: calc(1em + env(safe-area-inset-bottom, 0px));
+      }
+
+      #home-tip .home-tip-lead {
+        font-size: 0.87em; font-weight: 600; line-height: 1.25;
+        /* Never wraps: it is one phrase, and a two-line lead pushes the list down the screen and
+           stops the block reading as a heading over a list. The fit pass keeps it honest. */
+        white-space: nowrap;
+        /* A shade under the steps' white: it is the sentence *introducing* the list, and setting
+           both at full strength made the colon read as another step. */
+        color: rgba(255, 255, 255, 0.92);
+      }
+
+      /* Two columns — the numbers on one straight edge, the labels on another. `display: contents`
+         on the items drops them out of the layout so each `li`'s two spans become grid items of the
+         same row, which is what holds both edges straight however wide the labels get. (The run-end
+         stats use the same trick for the same reason.)
+
+         Margins in `em` of the steps rather than of the neighbours, so the vertical rhythm is a
+         property of the one size above: both gaps sit on this element, because an `em` margin on
+         the hint would resolve against the hint's own smaller size and quietly halve itself. */
+      #home-tip .home-tip-steps {
+        list-style: none; display: grid; grid-template-columns: auto 1fr;
+        column-gap: 0.4em; row-gap: 0.85em; margin: 0.95em 0 0.9em;
+        font-weight: 800; line-height: 1.15;
+      }
+      #home-tip .home-tip-steps li { display: contents; }
+      /* Tabular figures so 1./2./3. are all the same width and the labels start on one edge even
+           though the numbers are set in the same heavy weight as the words. */
+      #home-tip .home-tip-steps .step-index { font-variant-numeric: tabular-nums; }
+      /* The longest label — "Add to Home Screen" — is what sets the type size on a narrow phone;
+         letting it wrap under its own number instead would break the second edge the grid exists
+         to hold. */
+      #home-tip .home-tip-steps .step-name { white-space: nowrap; }
+
+      /* Sized and positioned in `em` so each glyph tracks the line it sits on. Drawn as strokes,
+         a step down from the label's white — it stands for a control on the browser's chrome, not
+         for another word in the sentence. */
+      #home-tip .home-tip-steps svg {
+        width: 1.05em; height: 1.05em; vertical-align: -0.19em; margin-left: 0.24em;
+        fill: none; stroke: currentColor; stroke-width: 1.7;
+        stroke-linecap: round; stroke-linejoin: round;
+        color: rgba(255, 255, 255, 0.62);
+      }
+      /* The dots inside Chrome's ⋯ ring are solid and brighter than the ring itself — that is how
+         the button actually reads at a glance. */
+      #home-tip .home-tip-steps svg .dot { fill: rgba(255, 255, 255, 0.95); stroke: none; }
+
+      #home-tip .home-tip-hint {
+        font-size: 0.52em; font-weight: 600;
+        /* Quiet on purpose. It is an instruction about the screen rather than part of the list, and
+           at full strength it competed with the step it sits under. */
+        color: rgba(255, 255, 255, 0.45);
+      }
+
       /* --- tweak panel --- */
       #dbg-toggle {
         position: fixed; top: 16px; right: 16px; z-index: 20;
@@ -628,6 +725,7 @@
         </span>
       </button>
     </div>
+    <div id="home-tip" hidden></div>
     <div id="run-end" hidden></div>
 
     <div id="error" hidden></div>
