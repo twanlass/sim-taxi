@@ -51,6 +51,32 @@ try {
   const world = createScene();
   for (const mod of BOOT) await import(mod);
 
+  // The tutorial shows on a player's first run only, which means it has to remember across a
+  // reload — and the remembering has to fail soft, because `localStorage` throws rather than
+  // no-ops when a browser has storage switched off (cookies blocked, third-party partitioning).
+  // An unguarded read there takes the whole boot down on a machine nobody testing this owns, so all
+  // three states are driven here: no storage, a hostile one, and a working one.
+  const { hasSeenTutorial, markTutorialSeen } = await import('../src/game/tutorial.js');
+  const withStorage = (storage, body) => {
+    Object.defineProperty(globalThis, 'localStorage', { ...storage, configurable: true });
+    try { body(); } finally { delete globalThis.localStorage; }
+  };
+  if (hasSeenTutorial()) throw new Error('tutorial: seen with no storage at all');
+  markTutorialSeen();                        // and writing to a storage that isn't there is a no-op
+  withStorage({ get() { throw new Error('storage blocked'); } }, () => {
+    if (hasSeenTutorial()) throw new Error('tutorial: seen when storage throws');
+    markTutorialSeen();                      // must not escape: a blocked write is not a crash
+  });
+  const cell = new Map();
+  withStorage({ value: {
+    getItem: (k) => cell.get(k) ?? null,
+    setItem: (k, v) => cell.set(k, String(v)),
+  } }, () => {
+    if (hasSeenTutorial()) throw new Error('tutorial: seen before the first run');
+    markTutorialSeen();
+    if (!hasSeenTutorial()) throw new Error('tutorial: not remembered across a reload');
+  });
+
   // Drive a whole day past the lights. Every keyframe gets applied, so a bad colour or a uniform
   // that moved out from under the daylight module surfaces here rather than at dusk in the browser.
   const daylight = createDaylight(world);
