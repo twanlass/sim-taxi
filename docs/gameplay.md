@@ -1,5 +1,52 @@
 # Gameplay
 
+## The opening tutorial
+
+`src/game/tutorial.js`, with its markup and styling in `index.html` under `#coach`. A white speech
+bubble in the bottom centre with the player's own taxi turning in a round avatar, and the line
+typing itself out. **Two beats, and that is all of it:**
+
+1. **"Let's pick up some rides and earn some cash."** The camera follows the taxi while it types.
+   The one thing a new player cannot work out by looking is which of the hundred cars down there is
+   theirs — so the car itself says it, and the camera puts it in the middle of the screen. Tap to
+   dismiss.
+2. **"Tap this rider to pick them up."** The camera pans to the waiting fare and the bubble comes
+   back once it has arrived, so the figure it is talking about is on screen before it starts
+   talking. Tapping the rider ends the tutorial; so does tapping the bubble.
+
+Nothing else is taught. The drop-off [dispatches itself](#the-drop-off-dispatches-itself), the
+clock is [a coloured crystal over a head](#the-fares-clock-travels), and Loco Mode is a pill with a
+label on it — none of those need a sentence, and every extra beat is one more thing between the
+player and the game.
+
+### It does not spend the player's clock
+
+`fares.setPaused` holds every fare's countdown while the bubble is up. Only the countdown: fares
+still spawn, riders still wave, diamonds still bob, and the city carries on behind the bubble. A
+tutorial that taught you how to pick someone up out of the sixty seconds you need to *deliver* them
+would be charging for its own lesson. The spawn toast is suppressed for the same reason — the first
+fare lands on frame one, and "New fare waiting" across the top of the screen is a second message
+competing with the one being given.
+
+Nothing auto-advances. Both beats wait for a tap, because a tutorial on a timer is one the slower
+reader loses. A tap mid-type finishes the line instead of dismissing it, so an eager first tap
+cannot throw away a sentence nobody has read.
+
+### Where it sits in the camera's priority list
+
+Below Loco Mode, above the [opening follow](architecture.md), and — unlike either of those — it
+runs on **every** viewport, not just narrow ones. A desktop player has the whole city in frame and
+still cannot tell which car is theirs, which is the entire reason the first beat exists. Because
+moving the framing on a wide viewport takes away the default whole-city shot and nothing there
+would ever put it back (drag-to-pan is narrow-only), the tutorial glides the camera home when it
+finishes. On a phone it doesn't need to: the opening follow-cam picks the taxi back up.
+
+A swipe hands the camera over mid-tutorial, the same as anywhere else — the bubble keeps talking,
+it just stops moving the map while the player reads it.
+
+`?tutorial=off` skips the whole thing, and shot mode never runs it: a screenshot has nobody to
+teach, and the bubble would be the loudest thing in every frame.
+
 ## The fare loop
 
 `src/game/fares.js`. Each fare is its own little machine — `waiting → riding → gone` — carrying its

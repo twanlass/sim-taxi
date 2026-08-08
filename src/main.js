@@ -27,6 +27,7 @@ import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
+import { createTutorial } from './game/tutorial.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
 import { findRoute, planOrigin } from './game/route.js';
@@ -120,7 +121,16 @@ const isNarrow = () => window.innerWidth < NARROW_VIEWPORT;
 const START_FOLLOW_SMOOTHING = 1.5;
 const BOOST_FOLLOW_SMOOTHING = 3.2;
 let cameraTakenOver = false;
-const releaseCameraToPlayer = () => { cameraTakenOver = true; };
+// Assigned further down, once the fare board and the picker it reads exist. Declared here because
+// the handover below is the one thing that has to reach it, and a swipe cannot arrive before the
+// module has finished evaluating.
+let tutorial = null;
+const releaseCameraToPlayer = () => {
+  cameraTakenOver = true;
+  // A swipe during the tutorial takes the framing off it too. It keeps talking — the lesson is
+  // still worth reading — it just stops moving the map while the player reads it.
+  tutorial?.releaseCamera();
+};
 
 // Screenshots frame themselves, and a shot run has no user to drag anything.
 const pan = shot
@@ -411,6 +421,40 @@ const dropoffIndicator = createDropoffIndicator({
   // pointer's job is to show where the marker went off-screen, and the marker isn't at the
   // junction.
   pinLocation: cornerFor,
+});
+
+// --- Opening tutorial -------------------------------------------------------
+
+// Two bubbles and nothing else: "this car is you", then "tap that rider". See game/tutorial.js for
+// why those two and no more. Off in shot mode — a screenshot has nobody to teach, and the bubble
+// would be the loudest thing in every frame — and `?tutorial=off` skips it while iterating on the
+// rest of the game.
+const wantsTutorial = new URLSearchParams(window.location.search).get('tutorial') !== 'off';
+// True from the first bubble to the player's last dismissal. Two things key off it: the fare clocks
+// hold, and the spawn toast stays quiet — both for the same reason, that whatever the bubble is
+// saying is the only thing the player should be reading or paying for.
+let tutorialTalking = false;
+tutorial = shot || !wantsTutorial ? null : createTutorial({
+  controller,
+  aspect,
+  isNarrow,
+  taxi: traffic.taxi,
+  // The one the game means by "the waiting fare" — the shortest clock on the kerb. At this point in
+  // a run there is only ever one, but pointing at the same rider the rest of the HUD would is free.
+  waitingFare: () => fares.waiting(),
+  // The kerb corner, not the junction centre: at this zoom the corner building sits squarely
+  // between the camera and the figure otherwise. Same aim as panToRider and the drop-off pointer.
+  fareLocation: (fare) => cornerFor(fare.target.i, fare.target.j),
+  // Any fare the player has actually sent the taxi at — including one they found and tapped on the
+  // map while the first bubble was still up.
+  isDispatched: () => Boolean(fares.carrying() || fares.state.fares.some((f) => f.directed)),
+  isOver: () => fares.state.gameOver,
+  // Hold every fare's countdown for as long as the tutorial is talking. It ends on the player's
+  // tap, so the clock they are taught with is the full sixty seconds.
+  onRunning: (running) => {
+    tutorialTalking = running;
+    fares.setPaused(running);
+  },
 });
 
 // --- HUD --------------------------------------------------------------------
@@ -851,21 +895,32 @@ function frame() {
   // already flagged, rather than wearing a ghost over its own fireball for one frame.
   carGhosts.update(dt);
 
-  // Two reasons to trail the taxi, both narrow-viewport only (see START_FOLLOW_SMOOTHING): the
-  // opening follow, which runs until the player takes the framing over, and Loco Mode, which
-  // chases harder and overrides them both. Boost ignores `cameraTakenOver` on purpose — a drag
-  // during a boost is quietly overridden on the next frame, because panning is a planning gesture
-  // and boost is the opposite of planning. Neither has a gate on the way *out*: the camera is left
-  // wherever it landed rather than snapping back.
+  tutorial?.update(dt);
+
+  // The camera's priority list, highest first. Two of the claims trail the taxi and are
+  // narrow-viewport only (see START_FOLLOW_SMOOTHING): the opening follow, which runs until the
+  // player takes the framing over, and Loco Mode, which chases harder and outranks it. Boost
+  // ignores `cameraTakenOver` on purpose — a drag during a boost is quietly overridden on the next
+  // frame, because panning is a planning gesture and boost is the opposite of planning. None of
+  // them has a gate on the way *out*: the camera is left wherever it landed rather than snapping
+  // back.
   //
-  // Wreck focus outranks both (and runs on every viewport, not only narrow ones): the camera eases
-  // into the crash site so the smoke and sparks fill the frame before the retry screen shows.
+  // Wreck focus outranks everything (and runs on every viewport, not only narrow ones): the camera
+  // eases into the crash site so the smoke and sparks fill the frame before the retry screen shows.
+  //
+  // The tutorial sits below Loco Mode and above the opening follow, and unlike the follows it runs
+  // on every viewport — a desktop player has the whole city in frame and still cannot tell which
+  // car is theirs, which is the entire reason the first bubble exists. It frames from here rather
+  // than from its own update() so this list stays the one place the camera is decided.
   const boosting = boost.isActive();
   if (wreckSpot) {
     controller.focusOn(wreckSpot.x, wreckSpot.z, WRECK_ZOOM, dt, aspect());
-  } else if ((boosting || !cameraTakenOver) && !fares.state.gameOver && isNarrow()) {
-    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt,
-      boosting ? BOOST_FOLLOW_SMOOTHING : START_FOLLOW_SMOOTHING, aspect());
+  } else if (boosting && !fares.state.gameOver && isNarrow()) {
+    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect());
+  } else if (tutorial?.holdsCamera()) {
+    tutorial.frameCamera(dt);
+  } else if (!cameraTakenOver && !fares.state.gameOver && isNarrow()) {
+    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, START_FOLLOW_SMOOTHING, aspect());
   } else {
     // Bottom of the same priority list: a rider-finder chip's pan (see panToRider). It only ever
     // gets here because the tap that started it also took the camera over, so the opening follow
@@ -906,7 +961,11 @@ function frame() {
       // A fare that appears while you are already carrying one is the interesting case: it says
       // "there is now a clock you cannot start yet", which is a different message from the idle
       // board filling back up.
-      flash(fares.carrying() ? 'Another fare waiting' : 'New fare waiting');
+      //
+      // Silent under the tutorial: the very first fare spawns on frame one, and a toast reading
+      // "New fare waiting" across the top of the screen while the bubble is explaining which car
+      // is yours is a second message competing with the one the player is being given.
+      if (!tutorialTalking) flash(fares.carrying() ? 'Another fare waiting' : 'New fare waiting');
     }
   }
 
@@ -1035,6 +1094,7 @@ window.__taxi = {
   traffic,
   daylight,
   boost,
+  tutorial,
   carGhosts,
   skids,
   police,

@@ -374,6 +374,97 @@
       }
       body.shot-mode #dropoff-indicator { display: none; }
 
+      /* --- coach bubble ---------------------------------------------------
+         The opening tutorial: a speech bubble from the taxi itself, bottom centre, with the car
+         turning slowly in a round avatar and the line typing itself out. Two beats, and that is
+         the whole tutorial — "this car is you", then "tap that rider". See src/game/tutorial.js.
+
+         Not `#tip`/`#intro`/`#banner`: those all sit on ad-blocker filter lists, and one match
+         takes the module graph down with ERR_BLOCKED_BY_CLIENT. Same reason #run-end isn't
+         #banner. */
+      /* Stretched edge to edge and centred with flex, NOT `left: 50%` + a translate. A fixed
+         element is shrink-to-fit, and `left: 50%` leaves it a containing block only half the
+         viewport wide — so on a 390px phone the bubble was capped at 195px and the line wrapped
+         into four, while the same markup looked right on a desktop. The max-width below is the
+         only thing that should be setting this bubble's width. */
+      #coach {
+        position: fixed; left: 0; right: 0; bottom: 104px; z-index: 22;
+        display: flex; justify-content: center;
+        /* Clear of the Loco Mode pill (26px up, 49px tall) with room for the bubble's tail, so the
+           only control on screen while this is up isn't underneath it. The rider-finder chips
+           would still collide, so they are hidden outright — see body.coach-open below. */
+        pointer-events: none; user-select: none; -webkit-user-select: none;
+      }
+      #coach[hidden] { display: none; }
+      /* Never over a screenshot, and never over the retry screen: the run is the thing then. */
+      body.shot-mode #coach, body.game-over #coach { display: none; }
+      /* One tap target at a time. The chips are a second way to pick the rider the bubble is
+         pointing at, and in step two the whole lesson is the tap landing on the figure in the
+         city — plus a centred bubble and a bottom-left chip column overlap on a phone. */
+      body.coach-open #rider-finder-stack { display: none; }
+
+      .coach-bubble {
+        position: relative; display: flex; align-items: center; gap: 12px;
+        max-width: min(300px, calc(100vw - 32px));
+        padding: 12px 20px 12px 12px; border-radius: 22px;
+        /* Same black outline as the Loco Mode pill and the world's markers, so the bubble reads as
+           part of the same drawing rather than as browser chrome floating over it. */
+        border: 2px solid #16120a; background: #FFFDF7; color: #16120a;
+        font: 700 15px/1.35 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        text-align: left; box-shadow: 0 10px 30px rgba(10, 25, 35, 0.28);
+        cursor: pointer; pointer-events: auto;
+        /* Tap-to-advance wants to land now, not after the browser has waited out a double-tap. */
+        touch-action: manipulation; -webkit-touch-callout: none;
+        /* Grows out of its own tail rather than its middle, so the pop reads as the taxi speaking
+           rather than as a panel expanding. */
+        transform-origin: 35px 100%;
+        opacity: 0; transform: scale(0.8) translateY(10px);
+        transition: opacity 0.18s ease, transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      #coach.is-open .coach-bubble { opacity: 1; transform: scale(1) translateY(0); }
+      /* Scale down and fade out, per the dismissal. Faster than the entrance and without the
+         overshoot — a bounce on the way out reads as the bubble refusing to leave. */
+      #coach.is-closing .coach-bubble {
+        opacity: 0; transform: scale(0.9) translateY(4px);
+        transition: opacity 0.2s ease, transform 0.2s ease;
+      }
+
+      /* The tail, under the avatar. Two stacked triangles: the outer one is the 2px black border,
+         the inner one the fill, pulled up over it and a pixel narrower each side. */
+      .coach-bubble::before, .coach-bubble::after {
+        content: ''; position: absolute; width: 0; height: 0;
+        border-left: 9px solid transparent; border-right: 9px solid transparent;
+      }
+      .coach-bubble::before { left: 26px; top: 100%; border-top: 13px solid #16120a; }
+      .coach-bubble::after  { left: 27px; top: calc(100% - 3px); border-top: 11px solid #FFFDF7;
+                              border-left-width: 8px; border-right-width: 8px; }
+
+      /* The avatar: the player's own taxi, turning. It is the whole of lesson one — a picture of
+         the car doing the talking says "that yellow thing down there is you" faster than any
+         sentence about it. Sky-tinted disc behind it so the yellow reads against something. */
+      .coach-avatar {
+        position: relative; flex: none; width: 46px; height: 46px; border-radius: 50%;
+        border: 2px solid #16120a; overflow: hidden; display: grid; place-items: center;
+        background: radial-gradient(circle at 50% 32%, #EAF4FB 0%, #C3DBEC 100%);
+      }
+      .coach-avatar canvas { display: block; width: 100%; height: 100%; }
+
+      /* The line types itself out. Both spans stack: the ghost holds the *finished* text at zero
+         visibility purely to reserve the bubble's size, and the typed copy is painted over it —
+         otherwise every character that wraps a line resizes a bottom-anchored, centre-aligned
+         bubble, and the thing you are trying to read wobbles under the words. */
+      .coach-text { position: relative; display: block; }
+      .coach-ghost { visibility: hidden; }
+      .coach-typed { position: absolute; inset: 0; }
+
+      /* A bubble that springs and a line that types are both motion for its own sake. Under
+         reduced motion the bubble fades in place and tutorial.js prints the line whole. */
+      @media (prefers-reduced-motion: reduce) {
+        .coach-bubble,
+        #coach.is-open .coach-bubble,
+        #coach.is-closing .coach-bubble { transform: none; transition: opacity 0.2s ease; }
+      }
+
       /* --- tweak panel --- */
       #dbg-toggle {
         position: fixed; top: 16px; right: 16px; z-index: 20;
@@ -441,6 +532,14 @@
       </svg>
     </div>
     <div id="toast"></div>
+    <div id="coach" hidden>
+      <button class="coach-bubble" type="button">
+        <span class="coach-avatar"></span>
+        <span class="coach-text">
+          <span class="coach-ghost"></span><span class="coach-typed"></span>
+        </span>
+      </button>
+    </div>
     <div id="run-end" hidden></div>
 
     <div id="error" hidden></div>
