@@ -11,7 +11,7 @@ of it:**
    a spotlight picks it out of a darkened city. The one thing a new player cannot work out by
    looking is which of the hundred cars down there is theirs — so the car itself says it, and both
    the camera and the light land on it.
-2. **"Tap this rider to start."** The spotlight moves to the waiting fare as the camera sets off for
+2. **"Tap rider to start."** The spotlight moves to the waiting fare as the camera sets off for
    them, so the light is already on the rider and the pan carries the player to it; the bubble comes
    back once the camera has arrived. Tapping the rider answers it directly.
 3. **"Hold to floor it"** — the Loco Mode pill, three seconds after the rider is tapped, with the

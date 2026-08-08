@@ -28,7 +28,7 @@ import { VIEW_DIR } from './camera.js';
 // Every line, in the order it is spoken. Kept together so the whole script is one thing to read.
 const LINES = {
   taxi: "Let's pick up some rides and earn some cash.",
-  rider: 'Tap this rider to start.',
+  rider: 'Tap rider to start.',
   boost: 'Hold to floor it',
 };
 
