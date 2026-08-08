@@ -240,6 +240,109 @@ try {
       narrow ? 'no waiting rider on screen to tap' : 'viewport is not narrow');
   }
 
+  // --- The "Add to Home Screen" nudge shows on iOS and nowhere else.
+  //
+  // This is here rather than in the node suite because the whole feature is a user-agent test, and
+  // it is here rather than left to a phone because it is the kind of check that rots silently: the
+  // card is invisible on every machine the game is developed on, so a broken condition would ship
+  // and only ever be noticed as "it never prompts" (or, worse, as a desktop player being told to
+  // tap a share sheet that isn't there).
+  //
+  // The counter in localStorage is the signal, not just the card: `createHomeScreenTip` writes it
+  // only on a load it has decided to show on, so an absent key means the module bowed out — where
+  // an absent card could equally be one that has already timed out.
+  // Nothing is remembered between loads any more — the screen shows until the game is *installed* —
+  // so the absence of the overlay is the whole signal, and it is a sound one here: this page was
+  // never tapped on `#home-tip`, and the screen has no timeout of its own, so one that had appeared
+  // would still be up.
+  const tipSheet = "Boolean(document.querySelector('#home-tip .home-tip-sheet'))";
+  check('no Home Screen screen off iOS', (await evaluate(tipSheet)) === false);
+
+  // A second page, this one pretending to be an iPhone. Emulation has to be in place before the
+  // navigation, so it can't be done to the page above.
+  {
+    const ios = await fetchJson(`/json/new?${encodeURIComponent('about:blank')}`, 'PUT');
+    const iosClient = connect(ios.webSocketDebuggerUrl);
+    await iosClient.ready;
+    await iosClient.send('Runtime.enable');
+    await iosClient.send('Page.enable');
+    await iosClient.send('Emulation.setDeviceMetricsOverride', {
+      width: 390, height: 844, deviceScaleFactor: 1, mobile: true,
+    });
+    await iosClient.send('Emulation.setUserAgentOverride', {
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 '
+        + '(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+      platform: 'iPhone',
+    });
+    await iosClient.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+    await iosClient.send('Page.navigate', { url: baseUrl });
+
+    const iosEval = async (expression) => {
+      const { result } = await iosClient.send('Runtime.evaluate', {
+        expression, returnByValue: true,
+      });
+      return result.value;
+    };
+
+    // The screen is on a timer from load, and this page renders in software — poll rather than
+    // sleeping a guessed amount.
+    let shown = false;
+    const tipDeadline = Date.now() + 20000;
+    while (Date.now() < tipDeadline) {
+      if (await iosEval(tipSheet)) { shown = true; break; }
+      await sleep(300);
+    }
+    check('Home Screen screen shows on iOS', shown);
+
+    if (shown) {
+      // The route to the share sheet, in order. Current iOS collapses Share behind the ⋯ menu, so
+      // the list opens there — a two-step list starting at Share would name a first tap that is not
+      // on the player's screen, and it would render perfectly while doing it, so only reading the
+      // labels back catches it.
+      const steps = JSON.parse(await iosEval(
+        "JSON.stringify([...document.querySelectorAll('#home-tip .step-name')].map(s => s.textContent.trim()))",
+      ));
+      check('the steps name the route in order',
+        JSON.stringify(steps) === JSON.stringify(['More', 'Share', 'Add to Home Screen']),
+        steps.join(' → '));
+
+      // The run is parked behind it: no fare may spawn while the screen is waiting to be tapped,
+      // or its 60-second clock is draining under the black.
+      check('the run is held while it is up',
+        (await iosEval('window.__taxi.fares.waitingAll().length')) === 0
+        && (await iosEval('window.__taxi.fares.carrying() === null')));
+
+      // Tapping anywhere puts it away...
+      await iosEval("document.getElementById('home-tip')"
+        + ".dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))");
+      await sleep(600);
+      check('tapping dismisses it', await iosEval("document.getElementById('home-tip').hidden"));
+
+      // ...and the fare loop starts, which means the hold was released rather than just hidden.
+      let spawned = false;
+      const spawnDeadline = Date.now() + 20000;
+      while (Date.now() < spawnDeadline) {
+        if (await iosEval('window.__taxi.fares.waitingAll().length > 0')) { spawned = true; break; }
+        await sleep(400);
+      }
+      check('the run starts once it is dismissed', spawned);
+
+      // It comes back on the next load: nothing is remembered, because the thing it asks for is the
+      // thing that switches it off. Dismissing it must not have persisted anything.
+      await iosClient.send('Page.reload');
+      let returned = false;
+      const againDeadline = Date.now() + 20000;
+      while (Date.now() < againDeadline) {
+        if (await iosEval(tipSheet)) { returned = true; break; }
+        await sleep(300);
+      }
+      check('it returns on the next load', returned);
+    }
+
+    iosClient.close();
+    await fetch(`http://127.0.0.1:${PORT}/json/close/${ios.id}`).catch(() => {});
+  }
+
   check('no uncaught exceptions', client.errors.length === 0, client.errors.join(' | '));
 } catch (err) {
   check('smoke run completed', false, err.message);
