@@ -22,6 +22,13 @@ Three things produce it:
 `palette.js` holds every colour in the game by name, plus `jitterColor()` for per-instance
 variation. New colours belong there, not inline.
 
+One deliberate exception to the flat fills: the strata of the floating rock
+([city.md](city.md#the-city-floats-on-a-rock)) fade light-to-dark down each bed, so every bed
+boundary lands as a hard value step. `flatShading` only fixes the *normal* across a facet — vertex
+colours still interpolate — so a gradient costs nothing but the two extra colours per quad. It is
+there because the visible cliff faces away from the sun, where a boundary marked only by a colour
+change disappears.
+
 ## Camera
 
 `src/game/camera.js`. A fixed 3/4 orthographic camera:

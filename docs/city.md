@@ -97,18 +97,60 @@ never gets to spend time meshing a broken city.
 | File | Produces | Notes |
 |---|---|---|
 | `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
+| `island.js` | the floating rock under the slab: earth lip, layered beds, keel | One mesh, ~2200 triangles, built from the same outline the slab is. |
 | `buildings.js` | blocky towers | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. |
 | `props.js` | trees, lamps, street furniture | Merged per material via `bakeColor`, so hundreds of props cost one draw call. |
 
 ### The slab has rounded corners
 
-The asphalt base is a `Shape` with true circular corner arcs rather than a plane, so the city reads
-as an island instead of a sheet cut out with scissors.
+The asphalt base is a rounded square — true circular corner arcs rather than a plane — so the city
+reads as an island instead of a sheet cut out with scissors.
+
+`SLAB`, `SLAB_RADIUS` and `slabOutline()` live in `grid.js` with the rest of the geometry
+constants. The outline is a **single polygon serving two meshes**: `ground.js` fans it into the
+asphalt cap, `island.js` hangs every stratum ring off it. They have to agree along the top edge
+exactly or a hairline of sky opens between the road and the ground under it, so `probe.mjs` checks
+that all 60 boundary vertices are shared rather than merely close.
 
 `SLAB_RADIUS` has a hard ceiling around **27**: any larger and the arc bites into the corner where
 the two outermost roads meet, leaving the ring road hanging over nothing. It is set to 22, which
 leaves 2.2 units of clearance at the tightest point — the diagonal through a road corner at
 `(±54, ±54)`. Change it and re-check that clearance.
+
+### The city floats on a rock
+
+`island.js` extrudes that outline downwards into about 33 units of banded earth: topsoil, earth,
+clay, then alternating stone, closed off by a keel. Every band is a ring of points around the
+outline, roughened with smoothed radial and vertical noise, and the wall between two rings is one
+bed — so neighbouring beds share a boundary ring by construction and can't crack apart.
+
+Three decisions carry the look, and all three are about **the lighting, not the geology**. At the
+fixed 3/4 camera the sun sits behind the city, so every cliff face you can see is turned away from
+it and is lit by the hemisphere fill alone — one flat warm brown:
+
+- **Beds step in, they don't slope in.** A bed that tapers over its full depth ends up tilted past
+  45°, where the fill is all it gets: measured off a render, the lower beds came back at about a
+  fifth of their own albedo with every colour difference between them gone. Each bed instead hangs
+  near-vertical and spends its taper on a short shelf at its foot, which also terraces the
+  silhouette.
+- **Beds are separated by value, not by hue.** Hue differences disappear under a flat warm wash;
+  lightness differences survive. Hence a palette that alternates dark → light going down, and
+  stone that is much lighter than a stone swatch wants to be.
+- **A pale seam opens every bed**, and each bed fades light-to-dark down its own face. The seam is
+  a *line* rather than a shading change, so it reads in shadow and at any time of day. The fade is
+  the one place in the project where colour is interpolated across a face instead of flat-filled:
+  it puts a hard light-meets-dark step at every boundary.
+
+Two invariants keep it from tearing. `tuck()` clamps every ring inside the one above it — rings
+carry up to 2 units of noise while the shallow beds step in by barely more, and a lump reaching
+past its neighbour turns that bed's shelf inside out (bright shards on the corners). And the top
+ring is the slab outline *exactly*: no scale, no noise.
+
+The **lip** is the one ring allowed to grow instead of narrow: a strip of bare earth ringing the
+tarmac at road level, 1.8 units wide. It exists for the phone. Portrait sizes the frustum by
+height, so the city fills the frame and the only slab edge on screen is the far one — and a rock
+hanging *under* the far edge is hidden behind the slab from this camera. The lip is the only thing
+that says "ground" on the edge where thickness can't show.
 
 All three use the same technique: generate small geometries, bake colour into vertex attributes
 with `bakeColor()` from `util/geo.js`, then merge into a single non-indexed mesh with

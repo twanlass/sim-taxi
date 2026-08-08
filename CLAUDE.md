@@ -19,7 +19,7 @@ about to change.
 |---|---|
 | [docs/README.md](docs/README.md) | **Index — start here** |
 | [docs/architecture.md](docs/architecture.md) | Module map, frame loop, seeding, `window.__taxi` test hook |
-| [docs/city.md](docs/city.md) | Coordinates, direction encoding, layout, park districts |
+| [docs/city.md](docs/city.md) | Coordinates, direction encoding, layout, park districts, the floating rock |
 | [docs/traffic.md](docs/traffic.md) | Signals, arterials, ring road, car physics, boost, police corridor, the bust chase |
 | [docs/gameplay.md](docs/gameplay.md) | Fare loop, routing, picking, timer ring, economy |
 | [docs/difficulty.md](docs/difficulty.md) | The ramp: budgeted clocks, board size, shifts, the sweeps behind the numbers |

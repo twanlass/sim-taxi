@@ -26,13 +26,17 @@ import { join } from 'node:path';
 // somewhere else entirely (e.g. CHROME=/opt/pw-browsers/chromium).
 const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9333;
-const WIDTH = 1280;
-const HEIGHT = 800;
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
+
+// Landscape by default, since that is the framing the shots were composed in. Overridable because
+// the game is played on a phone: in portrait the frustum is sized by height and the framing is a
+// different picture entirely — `--width 430 --height 932` is an iPhone.
+const WIDTH = Number(arg('width', '1280'));
+const HEIGHT = Number(arg('height', '800'));
 
 const baseUrl = arg('url', 'http://localhost:4173');
 const outDir = arg('out', './shots');

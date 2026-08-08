@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
+import { createIsland, ISLAND_DEPTH, LIP } from '../src/city/island.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph, SPEED } from '../src/sim/traffic.js';
@@ -33,7 +34,7 @@ import {
 import { createCityCamera, attachDragPan } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits, slabOutline } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
@@ -75,12 +76,51 @@ const scene = new THREE.Scene();
 
 const layout = time('layout', () => createLayout(makeRng(seed)));
 const ground = time('ground', () => createGround(makeRng(seed + 11), layout));
+const island = time('island', () => createIsland(makeRng(seed + 77)));
 const buildings = time('buildings', () => createBuildings(makeRng(seed + 22), layout));
 const props = time('props', () => createProps(makeRng(seed + 33), layout));
 const traffic = time('traffic init', () => createTraffic(makeRng(seed + 44), scene, 24));
 
 const tris = (mesh) => mesh.geometry.attributes.position.count / 3;
-console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mesh)}, props ${tris(props)}`);
+console.log(`  triangles: ground ${tris(ground)}, island ${tris(island)}, `
+  + `buildings ${tris(buildings.mesh)}, props ${tris(props)}`);
+
+// --- The floating rock. The thing that can go visibly wrong here is a seam: the island's top ring
+// is the asphalt cap's own outline, so if the two ever stop agreeing you get a hairline of sky
+// between the road and the ground under it — invisible in a still, obvious in motion. Checked by
+// looking for each boundary vertex itself rather than by comparing bounding boxes, which the lip
+// around the tarmac would hide.
+const islandPos = island.geometry.attributes.position;
+// Rounded: the outline is computed in doubles and stored in a Float32Array, so the two copies of
+// the same corner differ in the eighth decimal. Float32 resolves ~4e-6 out at x = 62, so three
+// decimals is far inside the rounding and far outside anything that would count as a gap.
+const key = (x, z) => `${x.toFixed(3)},${z.toFixed(3)}`;
+const welded = new Set();
+for (let i = 0; i < islandPos.count; i++) {
+  if (islandPos.getY(i) === 0) welded.add(key(islandPos.getX(i), islandPos.getZ(i)));
+}
+const boundary = slabOutline();
+const missing = boundary.filter((p) => !welded.has(key(p.x, p.z))).length;
+
+const islandBox = new THREE.Box3().setFromBufferAttribute(islandPos);
+const groundBox = new THREE.Box3().setFromBufferAttribute(ground.geometry.attributes.position);
+// The lip has its own wobble, so it clears the tarmac by less than LIP in places — but it has to
+// clear it on all four sides, or the far edge (the only one a portrait viewport shows) is bare.
+const lip = ['x', 'z'].flatMap((axis) => [islandBox.max[axis] - groundBox.max[axis],
+  groundBox.min[axis] - islandBox.min[axis]]);
+
+check('the island is welded to the slab edge', missing === 0,
+  `${boundary.length - missing}/${boundary.length} boundary vertices shared`);
+check('and rings it with earth on every side',
+  lip.every((v) => v > LIP * 0.4 && v < LIP * 1.6),
+  `lip ${lip.map((v) => v.toFixed(1)).join('/')} vs ${LIP} nominal`);
+check('nothing pokes up through the tarmac', islandBox.max.y <= 1e-6,
+  `top at y=${islandBox.max.y.toFixed(3)}`);
+// Within one band's worth of jag: the keel hangs off the *lowest* point of a roughed-up ring, so
+// the true depth runs a unit or so past what the strata add up to.
+check('and it reaches about the depth its strata add up to',
+  Math.abs(-islandBox.min.y - ISLAND_DEPTH) < 2,
+  `${(-islandBox.min.y).toFixed(1)} deep vs ${ISLAND_DEPTH.toFixed(1)} nominal`);
 
 check('layout covers every block', layout.length === GRID * GRID, `${layout.length} blocks`);
 check('some blocks are parks', layout.some((b) => b.type === 'park'),

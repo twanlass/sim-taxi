@@ -4,6 +4,7 @@ import { createScene } from './game/scene.js';
 import { createCityCamera, attachDragPan } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
+import { createIsland } from './city/island.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
 import { createTraffic, speedMph } from './sim/traffic.js';
@@ -87,6 +88,7 @@ daylight.setCycling(false);
 // others — editing building code shouldn't move the parks. `layout` was already produced above
 // so the connectivity guard could reroll before we spent time meshing.
 scene.add(createGround(makeRng(seed + 11), layout));
+scene.add(createIsland(makeRng(seed + 77)));
 scene.add(createBuildings(makeRng(seed + 22), layout).mesh);
 scene.add(createProps(makeRng(seed + 33), layout));
 
