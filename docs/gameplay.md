@@ -59,8 +59,9 @@ which at this contrast is not the same as lit.
 
 ### The HUD arrives afterwards
 
-The money counter, the streak counter, the Loco Mode pill and the rider chips all start off their
-own screen edge and slide in together the moment the last bubble is dismissed. A run used to open
+The money counter, the [multiplier counter](#the-multiplier-counter), the Loco Mode pill and the
+rider chips all start off their own screen edge and slide in together the moment the last bubble is
+dismissed. A run used to open
 with all four already lit, every one of them reading zero and answering a question nobody had asked
 yet. `main.js` adds `body.hud-ready`; with no tutorial to wait for (`?tutorial=off`, shot mode) they
 are simply there from the first frame.
@@ -111,8 +112,14 @@ mid-way through using is worse than saying nothing.
 
 `fares.setPaused` holds every fare's countdown through the two gated beats. Only the countdown: fares
 still spawn, riders still wave, diamonds still bob, and the city carries on behind the bubble. A
-tutorial that taught you how to pick someone up out of the sixty seconds you need to *deliver* them
-would be charging for its own lesson. The spawn toast is suppressed for the same reason — the first
+tutorial that taught you how to pick someone up out of the clock you need to *deliver* them would be
+charging for its own lesson.
+
+That got sharper when the clock stopped being flat. A rider's deadline is now
+[budgeted from the driving their trip costs](#the-clock-is-budgeted) — it is margin sized for the
+road rather than a round sixty seconds with slack to spare, so a lesson spent out of it comes
+straight off the part the player needs. `state.elapsed` is deliberately *not* paused: it drives the
+spawn stagger and the marker animations, neither of which is the player's to pay for. The spawn toast is suppressed for the same reason — the first
 fare lands on frame one, and "New fare waiting" across the top of the screen is a second message
 competing with the one being given.
 
@@ -138,12 +145,13 @@ teach, and the bubble would be the loudest thing in every frame.
 ## The fare loop
 
 `src/game/fares.js`. Each fare is its own little machine — `waiting → riding → gone` — carrying its
-own clock, its rider, its drop-off and the one marker that travels between them. Up to
-`MAX_FARES = 3` run at once, and because the taxi has one seat, that means up to two riders can be
-waiting on the kerb at the same time.
+own clock, its rider, its drop-off and the one marker that travels between them. The board holds
+between one and four at once depending on how far into the run you are ([Difficulty](difficulty.md)),
+and because the taxi has one seat, all but one of those are riders waiting on the kerb.
 
 1. A passenger spawns at a random intersection (never the one the taxi is already about to reach)
-   with a **60-second clock** (`FARE_SECONDS`) and a
+   with a **clock budgeted from the driving their trip costs** — see
+   [The clock is budgeted](#the-clock-is-budgeted) — and a
    [diamond](#the-fares-clock-travels) over their head, coloured by how much of that clock
    is left. The whole trip is drawn now; none of it is shown until they board — see
    [Neither how far nor where](#neither-how-far-nor-where).
@@ -152,8 +160,8 @@ waiting on the kerb at the same time.
    teal ring appears on the road where they're going, and the taxi **drives straight on to it** —
    because the instruction it used to ask for is now given for you. See
    [The drop-off dispatches itself](#the-drop-off-dispatches-itself).
-4. Deliver → the fare pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, see [Economy](#economy)),
-   and the board refills.
+4. Deliver → the fare pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, times the shift's
+   multiplier, see [Economy](#economy)), and the board refills.
 5. **Any** fare's clock expiring ends the run.
 
 ## The drop-off dispatches itself
@@ -240,44 +248,75 @@ take both, and the wrong pick loses one of the two clocks. `fares.waiting()` ret
 urgent* waiter (lowest `timeLeft`) so the finder button and the "perfect player" in the soak both
 default to serving that one first.
 
-Rules for when the extras appear:
+Rules for when the extras appear. Everything in the first group is a point on the
+[difficulty curve](difficulty.md) rather than a constant:
+
+| Rule | Early | Late | Why |
+|---|---|---|---|
+| `maxFares` | 1 fare | 4 fares | Second at 1 delivery, third at 2, fourth at 10. The first fare teaches the loop with nothing else on screen; the fourth is an endgame beat, well past where two clocks stopped being novel. |
+| `spawnGap` | 15s | 7s | Extras arrive one at a time. Spawning them together gives one hard moment then a lull; staggering makes each clock a decision. Tightening it is pressure with no extra clutter. |
+| `spawnRadius` | 3 blocks | whole map | How far from the bias point an extra may land. Used to be a fairness patch — see below. |
+| `slack` | 2.0× | 1.15× | The margin on top of the driving each fare costs. The main lever. |
+
+And the ones that are still fixed, shaping the "second fare while carrying" hand-off:
 
 | Rule | Value | Why |
 |---|---|---|
-| `SECOND_FARE_AFTER` | 1 delivery | The first fare teaches the loop with nothing else on screen. |
-| `THIRD_FARE_AFTER`  | 3 deliveries | Two clocks is where the game turns into a prioritisation puzzle. Piling a third on top before the player has settled into that shape collapsed the survival curve — measured 2-fare median at 1.5s reaction against 3 with the ramp. |
-| `SPAWN_MIN_GAP` | 15s | Extras arrive one at a time. Spawning them in the same frame gives one hard moment then a lull; staggering makes each clock a decision. |
 | `SECOND_FARE_DELAY` | 5s aboard | A pickup and a spawn are never the same event. |
 | `SECOND_FARE_RANGE` | 45 units | When someone is aboard and closing on their drop-off, the new rider appears near it. |
-| `SECOND_FARE_RADIUS` | 3 blocks | And within a short hop of it, so the hand-off is fair. Also the fallback radius around the taxi when no drop-off is active. |
 | `SECOND_FARE_MIN_CLOCK` | 18s | No rider flashes into existence a few seconds before an unrelated timer ends the run. |
 
 The bias rules shape where an extra rider lands relative to the taxi. When someone is aboard and
 closing on their drop-off, the new rider appears near that drop-off — the classic "second fare
 while carrying" hand-off. When nobody is aboard, the extra lands near the taxi's current
-intersection instead; a rider dropped in the far corner of the map has a 60-second clock the taxi
-cannot possibly reach in time, which turns "prioritise" into "roll the dice". Either way the
-radius is the same, so the two paths read alike.
+intersection instead. Either way the radius is the same, so the two paths read alike.
 
-`SPAWN_MIN_GAP` is what turns the board into a prioritisation puzzle rather than a burst: extras
-land staggered by several seconds, so their kerbside clocks drain out of phase and the player has
-to keep picking which to serve. `tools/probe.mjs` asserts both the peak (>= 2 waiting) and the
-minimum spacing between spawns.
+**The radius used to be load-bearing and is now a difficulty knob.** Under the old flat clock an
+extra rider *had* to land near the current drop-off: their 60 seconds had to cover the tail of that
+delivery plus a fresh pickup drive, and charging them for a whole drop-off leg was ruinous —
+measured 7-fare median → 3 at 1.5s reaction. A rider dropped in the far corner had a clock the taxi
+could not possibly reach in time, which turned "prioritise" into "roll the dice". Budgeted clocks
+pay for the distance explicitly, so the radius is free to open all the way up as the run goes on.
 
-The measured tax at 1.5s reaction across nine seeds: a perfect player survives a median of
-**3 fares** against the **4-fare** two-fare baseline. The mean drops much harder (6.6 → 2.3) and
-the ceiling collapses from 25 to 3 — the game stops being winnable indefinitely, which is the
-intended shape of a score-attack that ramps.
+`spawnGap` is what turns the board into a prioritisation puzzle rather than a burst: extras land
+staggered, so their kerbside clocks drain out of phase and the player has to keep picking which to
+serve. `tools/probe.mjs` asserts both the peak (>= 2 waiting), the minimum spacing between spawns,
+and that the board never runs ahead of the curve.
+
+Widening the stagger, incidentally, does not make the game easier — it makes the *opening* more
+fragile. See [difficulty.md](difficulty.md#what-the-sweep-found).
 
 The rider *figure* is still white whatever else is on the board — see
 [The taxi's roof sign](#the-taxis-roof-sign) — so every waiting rider reads the same way, with the
 diamond over their head carrying how close each one is to giving up.
 
-### The clock does not reset at pickup
+### The clock is budgeted
 
-One flat deadline covers **spawn to drop-off**. Collecting a rider quickly is what buys the time to
-deliver them, and that is the entire tension of the game. Trips average ~17s one-way, so 60s for
-both legs plus reaction time is tight but fair.
+One deadline covers **spawn to drop-off**, and it does not reset at pickup. Collecting a rider
+quickly is what buys the time to deliver them, and that is the entire tension of the game.
+
+It is not a flat number. A rider's clock is the *estimated driving their trip costs*, plus whatever
+the taxi is already committed to, times the run's current slack:
+
+```
+budget = queue ahead + drive to the pickup + drive to the drop-off + reaction allowance
+limit  = clamp(budget × slack(deliveries), 20s, 240s)
+```
+
+`estimateSeconds` in `route.js` does the conversion at 3.28 s/block and 1.30 s/turn, fitted against
+581 real trips. The whole design, what it replaced and how the numbers were chosen is in
+[difficulty.md](difficulty.md).
+
+Two consequences worth knowing here:
+
+- **Urgency is proportional, not absolute.** A green diamond no longer means "lots of seconds", it
+  means "you are on schedule for this rider" — which is the decision. `fares.waiting()` ranks by
+  the same fraction, so the finder chip and the rider's own diamond never disagree about who is
+  next. The panic pulse below 5s stays absolute, because "about to lose this" is true regardless of
+  budget.
+- **A long haul no longer punishes itself.** It gets proportionally more time. The cost of driving
+  one is that *everyone else's clock keeps draining while you do* — opportunity cost against the
+  queue rather than self-harm.
 
 `ARRIVE_RADIUS = 9` is how close the taxi's centre must get to the target **junction centre** to
 count as arrived — exported from `fares.js`, and the headless tools import it rather than keeping
@@ -585,21 +624,22 @@ the same animation at the new total instead of two counters racing. Roll length 
 payout (~50ms per dollar, clamped) so a `$8` hop reads as a quick bump and a `$35` haul as a
 longer roll.
 
-### The streak counter
+### The multiplier counter
 
-`N×` at top-right, opposite the money counter, and on screen from the first frame reading `0×` —
-same as the money counter starting at `$0`. It used to stay hidden until the first drop-off, but
-an empty corner gives the player nothing to aim at; the visible zero states the goal.
-`updateStreak()` in `main.js` bumps the number in the taxi's own yellow (not cash green, so it
-doesn't read as a second money event) on every delivery, the first one included. No flight off the
-taxi the way the payout gets one; the streak isn't travelling from anywhere. It lives outside
-`#hud`, so shot mode hides it with its own rule rather than inheriting `#hud`'s.
+`N×` at top-right, opposite the money counter, and on screen from the first frame reading `1×` —
+same as the money counter starting at `$0`. An empty corner gives the player nothing to aim at; the
+visible number states the goal. `updateStreak()` in `main.js` bumps it in the taxi's own yellow (not
+cash green, so it doesn't read as a second money event) on every delivery, the first one included.
+No flight off the taxi the way the payout gets one; the multiplier isn't travelling from anywhere.
+It lives outside `#hud`, so shot mode hides it with its own rule rather than inheriting `#hud`'s.
 
-The count is `fares.state.delivered` — the same number the run-end screen's **Fares** stat reads.
-Any fare's clock expiring ends the run outright (there's no separate life to lose), so today a
-"streak" and a running total of deliveries are the same thing read two ways. The name is chosen
-for where this is going: a patience or combo mechanic that can break a streak without ending the
-run is the natural next step, and `updateStreak()` is the one place that would need to change.
+**It is a real multiplier now.** It used to show `fares.state.delivered` and call itself a streak,
+which made the `×` decoration: the same number the run-end screen printed as "Fares", wearing a
+symbol for an economy that did not exist. It now shows `difficulty.payoutMultiplier`, the multiple
+every fare's price is actually stamped with at spawn, and it steps on the same beat as the
+[shift toast](difficulty.md#shifts) that explains why. The bump still fires on every delivery even
+when the number holds — the bump means "that one counted", the number means "and this is what they
+are worth now".
 
 ### Priced by the trip
 
@@ -612,8 +652,17 @@ during the trip would double-count the clock and reward Loco Mode for the wrong 
 The player does not see that distance before choosing — a bar over the rider's head used to
 advertise a tier of it, and went with the meter (see
 [Neither how far nor where](#neither-how-far-nor-where)). So the price is a fact about the trip
-rather than a term in the decision: what a long haul costs the player is the clock it eats, and
-paying more for it is the game being fair about that afterwards.
+rather than a term in the decision.
+
+What a long haul costs the player is no longer the clock it eats — the clock is
+[budgeted from the trip](#the-clock-is-budgeted), so a long one gets proportionally more time. It
+costs the *queue*: every other rider's clock drains while you drive it. Paying more for it is the
+game being fair about that afterwards, exactly as before; only the mechanism it is fair about has
+changed.
+
+**The shift multiplier is stamped in at the same moment**, for the same reason — the price is
+settled when the trip is. A rider who appeared during Rush Hour is worth Rush Hour money whenever
+they happen to get delivered, and the table above is the 1× column.
 
 | Blocks | Price |
 |---:|---:|
@@ -759,6 +808,12 @@ floated a blurred card on top of it, and the card's edges turned out to be the l
 screen. Blacking the whole viewport out puts the run's numbers on nothing at all, which is what
 makes them the ending rather than an overlay on one.
 
+"Shift" replaced a row called "Streak" that printed `s.delivered` — the same number as "Fares"
+directly above it, formatted with an `x`. Two rows counting out one number is a stat sheet padding
+itself; how deep into the ramp a run got is a genuinely different fact about it, and it is the one
+the multiplier was earned by. It rolls up through the shift names the run passed through, which is
+what the counter does with every other stat.
+
 The stats are **one row each, label and value side by side**, and both are set in the *same* size,
 weight and colour. A small grey caption over a big yellow number made the label read as chrome and
 the number as the content, when the pairing is the content; matched type makes each row one phrase
@@ -825,7 +880,7 @@ sequence is the entire module, so there is nothing else to keep.
 | Stat | Source | Notes |
 |---|---|---|
 | Fares | `fares.state.delivered` | |
-| Streak | `fares.state.delivered` | same count as Fares — see [the streak counter](#the-streak-counter) |
+| Shift | `difficulty.shiftFor(delivered)` | how far up the ramp the run got, counted out by name |
 | Cash | `fares.state.money` | |
 | Red Lights | `traffic.stats.taxiRedLights` | reds the taxi *met*, one per light |
 | Top Speed | `traffic.stats.taxiTopSpeed` | u/s, shown in mph |

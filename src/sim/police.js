@@ -212,6 +212,13 @@ export function createPolice(rng, scene) {
     dir: 1,
     s: 0,
     cooldown: rng.range(5, 12),
+    // Seconds between corridor runs, as a range to draw from. Pushed in by main.js off the
+    // difficulty curve — `sim/` must not import from `game/`, so the pressure arrives here the
+    // same way `traffic.taxi.boost` does, rather than being read.
+    //
+    // The *opening* cooldown above is deliberately not on the curve: it is the beat before the
+    // first siren of a run, and a run starts at the bottom of the ramp by definition.
+    cooldownRange: [16, 30],
     runs: 0,
     flash: 0,
     // --- chase
@@ -319,7 +326,7 @@ export function createPolice(rng, scene) {
     group.visible = false;
     setPriorityCorridor(null);
     setPolicePresence(null);
-    state.cooldown = rng.range(16, 30);
+    state.cooldown = rng.range(state.cooldownRange[0], state.cooldownRange[1]);
   }
 
   // --- Chase ----------------------------------------------------------------
@@ -622,5 +629,14 @@ export function createPolice(rng, scene) {
     siren(fade);
   }
 
-  return { state, update, chase, group };
+  /**
+   * How often the corridor runs, as `[min, max]` seconds between them.
+   *
+   * Takes effect from the *next* draw rather than cutting the current wait short: shortening a
+   * cooldown that is already counting down would fire a siren the moment a delivery lands, which
+   * reads as the game punishing the drop-off.
+   */
+  const setCooldownRange = ([min, max]) => { state.cooldownRange = [min, max]; };
+
+  return { state, update, chase, group, setCooldownRange };
 }

@@ -9,7 +9,7 @@ import { createProps } from './city/props.js';
 import { createTraffic, speedMph } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
-import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds } from './game/fares.js';
+import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createBoost, BOOST_FARE_REWARD } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
@@ -30,9 +30,10 @@ import { createRiderFinder } from './game/riderfinder.js';
 import { createTutorial } from './game/tutorial.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
+import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { findRoute, planOrigin } from './game/route.js';
-import { getActiveShot, getSeed, getRunSeed, getCarCount } from './util/shot.js';
+import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin } from './util/shot.js';
 import { isCityConnected, GRID } from './city/grid.js';
 import { PALETTE } from './palette.js';
 
@@ -52,6 +53,14 @@ while (true) {
   seed = (Math.random() * 0xffffffff) >>> 0;
 }
 const runSeed = getRunSeed(seed, Boolean(shot));    // this run's situation — random unless pinned
+
+// `?d=0..1` freezes the difficulty curve, so the late game can be looked at without playing ten
+// fares to reach it. Applied before anything constructs, because the car count is read off the
+// curve and the fare system budgets its first clock from it.
+//
+// A shot that is *about* a point on the curve carries its own pin, so `./shots.sh` reproduces it
+// without every caller having to remember the query parameter. An explicit `?d=` still wins.
+difficulty.pinDifficulty(getDifficultyPin() ?? shot?.difficulty ?? null);
 
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
@@ -83,7 +92,16 @@ scene.add(createGround(makeRng(seed + 11), layout));
 scene.add(createBuildings(makeRng(seed + 22), layout).mesh);
 scene.add(createProps(makeRng(seed + 33), layout));
 
-const traffic = createTraffic(makeRng(runSeed + 44), scene, getCarCount());
+// Density is on the difficulty curve, so the run opens at its bottom and the instanced meshes are
+// sized for its top — an InstancedMesh cannot be resized once built. An explicit `?cars=N` beats
+// the curve at both ends, the way `?seed=` beats a random city: a pinned density is a pinned
+// density, and a tool that asked for one car should get one car for the whole run.
+const pinnedCars = getCarCount(null);
+const traffic = createTraffic(
+  makeRng(runSeed + 44), scene,
+  pinnedCars ?? difficulty.carCount(0),
+  pinnedCars ?? difficulty.carCount(Infinity),
+);
 const fares = createFareSystem(makeRng(runSeed + 55), scene);
 const police = createPolice(makeRng(runSeed + 66), scene);
 // One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and
@@ -626,19 +644,67 @@ function popEarning(amount) {
 }
 
 /**
- * Bump the streak counter on a successful drop-off — no flight off the taxi like the payout gets,
- * that's a later concern. The counter itself is in the markup from the first frame reading `0x`
- * (see index.html), so there's nothing to reveal here; the first delivery bumps 0 → 1 exactly
- * like every one after it. `count` is `fares.state.delivered`, so the streak is just "how many
- * this run" until a reset condition exists.
+ * The multiplier counter, top right — no flight off the taxi like the payout gets, that's a later
+ * concern. It is in the markup from the first frame (see index.html), so there is nothing to
+ * reveal here; it bumps on every delivery whether or not the number changed, because the bump is
+ * "that one counted" and the number is "and this is what they are worth now".
+ *
+ * It used to show `fares.state.delivered` and call that a streak, which meant the `×` was
+ * decoration — the same number the run-end screen printed as "Fares", wearing a symbol that
+ * implied an economy it did not have. It now shows `difficulty.payoutMultiplier`, which is the
+ * real multiple every fare's price is stamped with at spawn, and it steps on the same beat as the
+ * shift toast that explains why.
  */
-function updateStreak(count) {
+function updateStreak(multiplier, bump = true) {
   if (!hud.streak || !hud.streakCount) return;
-  hud.streakCount.textContent = String(count);
+  // A whole number prints as "2", a step prints as "1.5" — trailing zeros on a HUD number read as
+  // precision that isn't there.
+  hud.streakCount.textContent = String(Math.round(multiplier * 100) / 100);
+  if (!bump) return;
   // Toggle off / reflow / on, same as the money bump — a class that stays put doesn't re-fire.
   hud.streak.classList.remove('streak-bumped');
   void hud.streak.offsetWidth;
   hud.streak.classList.add('streak-bumped');
+}
+
+// Paint the opening multiplier, without the bump — a counter that pops on load is announcing a
+// change that hasn't happened. Read off the curve rather than left in the markup so the two cannot
+// drift: `index.html` ships a placeholder, and the first shift's payout is what it should say.
+updateStreak(difficulty.payoutMultiplier(0), false);
+
+/**
+ * Announce a step up the difficulty curve, once, on the delivery that crosses into it.
+ *
+ * The ramp is otherwise invisible: clocks tighten, riders arrive closer together and the board
+ * grows, and a player experiencing all three at once has no way to tell "the game got harder"
+ * from "I got worse". Naming the step is what makes the difference legible — and it lets the
+ * multiplier arriving on the same frame read as the reward for reaching it rather than a number
+ * that wandered.
+ *
+ * Deliberately not announced at delivery zero: the opening shift is the state the run starts in,
+ * and a banner for it would be announcing a change that hasn't happened — the same reason a fresh
+ * rider's diamond doesn't kick on spawn.
+ */
+/**
+ * Push the world half of the difficulty curve into the sim: more traffic, and a police corridor
+ * that comes round more often.
+ *
+ * A pinned `?cars=N` opts out of the density ramp entirely — the pool was sized to that number, so
+ * `setCarCount` has nowhere to grow into anyway, but saying so here is what makes it a decision
+ * rather than an accident.
+ */
+function applyWorldPressure() {
+  const delivered = fares.state.delivered;
+  if (pinnedCars === null) traffic.setCarCount(difficulty.carCount(delivered));
+  police.setCooldownRange(difficulty.policeCooldown(delivered));
+}
+
+let lastShift = 0;
+function announceShift(delivered) {
+  const shift = difficulty.shiftFor(delivered);
+  if (shift.index <= lastShift) return;
+  lastShift = shift.index;
+  flash(`${shift.name} — fares pay ${shift.payout}x`);
 }
 
 let toastTimer = 0;
@@ -679,13 +745,21 @@ function updateHud(dt) {
     showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: s.failReason,
-      // Five numbers, in the order the run produced them: what you carried, what it paid, what
-      // the city made you sit through, and how fast you were going when it went wrong. Streak
-      // sits right after Fares because right now it's the same count read a second way — see the
-      // HUD streak counter in updateStreak().
+      // Five numbers, in the order the run produced them: what you carried, how deep into the
+      // ramp that took you, what it paid, what the city made you sit through, and how fast you
+      // were going when it went wrong.
+      //
+      // "Shift" replaces what used to be "Streak", which printed `s.delivered` — the same number
+      // as Fares directly above it, formatted with an `x`. Two rows counting out one number is a
+      // stat sheet padding itself. How far up the difficulty curve the run got is a genuinely
+      // different fact about it, and it is the one the multiplier was earned by.
       stats: [
         { label: 'Fares', value: s.delivered, format: (n) => `${n}` },
-        { label: 'Streak', value: s.delivered, format: (n) => `${n}x` },
+        // Rolls up through the shift names the run actually passed through, which is what the
+        // counter does with every other stat. Clamped at the bottom because `countUp` paints
+        // `format(0)` as the row's opening frame before it starts counting.
+        { label: 'Shift', value: difficulty.shiftFor(s.delivered).index + 1,
+          format: (n) => difficulty.SHIFTS[Math.max(0, n - 1)].name },
         { label: 'Cash', value: s.money, format: (n) => `$${n}` },
         { label: 'Red Lights', value: traffic.stats.taxiRedLights, format: (n) => `${n}` },
         { label: 'Top Speed', value: speedMph(traffic.stats.taxiTopSpeed),
@@ -955,6 +1029,12 @@ function frame() {
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 
+  // The two halves of the ramp that live in `sim/`. They are pushed rather than pulled because
+  // `sim/` must not import from `game/` — the same reason `traffic.taxi.boost` is written here
+  // rather than read there. Both are idempotent and cheap: the density call adds at most one car
+  // and returns immediately once it is at the mark, and the cooldown range is two numbers.
+  applyWorldPressure();
+
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
   // After traffic has settled positions for the frame — that's what the overlap check reads, and
@@ -1018,7 +1098,8 @@ function frame() {
       dispatchToDropoff(fare);
     } else if (type === 'delivered') {
       popEarning(fare.value);
-      updateStreak(fares.state.delivered);
+      updateStreak(difficulty.payoutMultiplier(fares.state.delivered));
+      announceShift(fares.state.delivered);
       // A third of a tank of boost fuel as the delivery reward — the only way any fuel enters the
       // meter now. The queue call is deliberately *inside* the sparks' arrival callback rather than
       // here: the fuel has to land when the energy does, or the meter starts filling a second and a
@@ -1093,6 +1174,26 @@ if (shot) {
     }
   }
 
+  // Fill the board to the cap. Spawns are staggered by `difficulty.spawnGap`, so this is a matter
+  // of running the clock — but the clock cannot simply be run, because a taxi that serves nobody
+  // loses the first rider to their own deadline and the run is over before the second arrives
+  // (the first attempt at this shot rendered the game-over screen). So it auto-plays the loop the
+  // way `tools/soak.mjs` does: carry whoever is aboard, then the most urgent waiter.
+  if (shot.untilBoardFull) {
+    const want = difficulty.maxFares(0);
+    let aim = null;
+    for (let guard = 0; guard < 180 * 60; guard++) {
+      if (fares.state.gameOver || fares.state.fares.length >= want) break;
+      traffic.update(1 / 60);
+      for (const { type, fare } of fares.update(1 / 60, traffic.taxi)) {
+        if (type === 'pickup') { traffic.setTaxiOccupied(true); send(fare); }
+        if (type === 'delivered') traffic.setTaxiOccupied(false);
+      }
+      const job = fares.carrying() ?? fares.waiting();
+      if (job && job !== aim && !job.directed) { aim = send(job); }
+    }
+  }
+
   // Run forward until the police car is mid-city, so the shot shows a live corridor.
   if (shot.untilPolice) {
     for (let guard = 0; guard < 90 * 60; guard++) {
@@ -1160,7 +1261,7 @@ if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) 
     sky,
     daylight,
     carCount: getCarCount(),
-    fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds },
+    fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds, isPinned: isFareClockPinned },
     routeLine,
   });
 }

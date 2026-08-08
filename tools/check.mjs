@@ -25,9 +25,15 @@ const TOOLS = [
   { name: 'roadnet', args: ['tools/roadnet.mjs'],      pick: /(\d+\/\d+) checks passed/ },
   { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },
   { name: 'routing', args: ['tools/taxi.mjs', '30'],   pick: /arrived (\S+)/ },
+  // Every fare's deadline is budgeted from `estimateSeconds`, so its error is a difficulty knob
+  // whether or not anyone tuned it. Runs before the soak: if the estimator has drifted, the soak's
+  // numbers are measuring the drift.
+  { name: 'eta',     args: ['tools/eta.mjs', '40', '3'],
+    pick: /shipped.*->\s+(MAE \S+\s+bias \S+)/ },
   // Nine seeds, not one. A single soak run is trip-length luck more than it is difficulty, so a
   // one-seed gate went red or green on which junction the spawner happened to pick.
-  { name: 'fares',   args: ['tools/soak.mjs', '25', '4', '9'], pick: /delivered (\S+ median)/ },
+  { name: 'fares',   args: ['tools/soak.mjs', '25', '4', '9'],
+    pick: /delivered over \d+ runs: (p10 \d+ · median \d+ · p90 \d+)/ },
   // `info` means the number printed is a metric to watch, not a threshold to fail on. The tool
   // still has to *run*: it used to be excused from its exit status entirely, which meant an import
   // error printed `ok signals ?` and the suite stayed green with a whole tool dead.
