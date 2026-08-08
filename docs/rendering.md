@@ -153,6 +153,47 @@ Lambert, and carries an emissive at 0.35 of its own colour to hold its hue after
 
 Screenshot mode freezes the cycle: a rendered shot has to be reproducible.
 
+## The island edge — `city/ground.js`
+
+The asphalt doesn't end on a line. A **fade skirt** hangs off the slab — `EDGE_FADE = 16` units of
+asphalt stepping outward from the slab's own outline, alpha 1 → 0 — so the city feathers into the
+sky rather than being cut out of it. At play zoom that is about 22% of the frame height, which is
+what makes it read as a gradient instead of as a slightly blurry edge.
+
+It is the depth cue this projection can't get from fog. Three's fog is a function of view-space
+depth and the camera is orthographic, a fixed 400 units back from the whole scene, so distance fog
+whitens the entire city uniformly rather than fading its far edge — the reason `scene.js` has none.
+Keyed on distance from the *middle of the map* instead of from the camera, the same idea works.
+
+**The skirt is added outside the slab, never eaten out of it.** Fading inward would mean shrinking
+the solid part, and there is only 2.2 units of clearance at the corners before the arc bites into the
+ring road junction at `(±54, ±54)` — the same ceiling that caps
+[`SLAB_RADIUS`](city.md#the-slab-has-rounded-corners). So the silhouette that was there before is
+still fully opaque; the fade is all new ground beyond it.
+
+**Alpha rides in a 4-component vertex colour**, as it does on the skid marks, so the skirt needs no
+shader of its own — and it wears `propMaterial()`'s recipe unchanged. A flat plane at the same
+height, with the same normal and the same `asphalt` colour, is lit *identically* to the slab it
+continues, and stays that way across the whole day cycle. A baked sky-coloured gradient would match
+at golden hour and part company with the asphalt by dusk.
+
+**The inner ring is the slab's outline rather than a copy of it.** Both come from `extractPoints` on
+the same `Shape`, so there is no seam for the sky to leak through at the corner arcs — which is
+exactly where a hand-sampled ring would drift from Three's own tessellation. Two flags on the
+material: `renderOrder = -1` puts the skirt first in the transparent queue, because everything else
+translucent in this game is paint *on* the road and centroid sorting would otherwise let a skid mark
+at the far corner of the city draw before the plane it is stamped on; `depthWrite: false` for the
+usual reason translucent paint doesn't write depth.
+
+The falloff is a **smoothstep**, sampled over `FADE_RINGS = 4` rings. A linear ramp has a kink where
+it meets the solid slab, and against a flat sky that kink is visible as the very edge the fade
+exists to remove.
+
+`tools/probe.mjs` asserts all of it: the alpha-1 ring lands on the slab boundary to **2.3e-6 units**
+(float32 attribute storage, not slop in the construction), the ramp reaches alpha 0 exactly
+`EDGE_FADE` out, and no part of the skirt reaches back over the road — translucent asphalt over the
+ring road would show sky through the tarmac.
+
 ## Effects
 
 ### Skid marks — `game/skidmarks.js`
@@ -199,7 +240,9 @@ running boost doesn't re-fire either.
   from the taxi's rear bumper (`TAXI_TAILPIPE_BACK` / `TAXI_TAILPIPE_HEIGHT` exported from
   `geometry/taxi.js`) shooting backwards along `-yaw`. Short-lived (~0.38s), grows fast, air-brakes
   quickly; alpha snaps to 1 then eases out. Additive blend so it *brightens* the road behind it
-  rather than reading as an opaque decal.
+  rather than reading as an opaque decal. This pool used to double as the crash fireball, which is
+  what its per-slot life and size arrays were for — one burst can't divide by another's `LIFE`. The
+  crash owns its own module now, so this is a tailpipe and nothing else.
 
 - **Wheelie pop.** A hand-shaped bump on `car.pitch` — sine ease-out to peak by t=0.28,
   smoothstep back to zero — layered on top of the pitch spring. Handled outside the spring
@@ -208,17 +251,57 @@ running boost doesn't re-fire either.
   same `Math.abs(Math.sin(pitch)) * (CAR_LEN / 2)` so the rear stays on the road as the nose
   comes up.
 
-### Wreck — `game/debris.js`, `game/vanish.js`, plus flames/smoke/sparks
+### Wreck — `game/blast.js`, `game/vanish.js`
 
-The crash is a stack of the effects above fired at two points at once — one per car, since a crash
-now destroys both. Debris runs a **pool per car** (a pool re-shoots its own pieces, so sharing one
-would yank the taxi's wreckage across to the other car's), and the victim's pool is repainted at
-burst time in that car's colour.
+The crash is **one call per car** — `blast.fire(x, z, tint)` — and everything it puts on the road
+lives in one module: a shockwave ring on the tarmac, a fireball, and a scatter of shards in that
+car's paint. Three `InstancedMesh`es, about forty live instances at the peak of a two-car wreck.
+
+It replaced a stack of four effects (`sparks.js`, `smoke.js`, `debris.js` and a `blast()` half of
+`flames.js`) fired twice each at two points, plus a third wave on a `setTimeout` — roughly sixty
+draw calls, and four separate physics packets with gravity, drag, restitution, friction and angular
+damping between them. None of that is what makes a crash read at a fixed 3/4 camera; **shape and
+timing** are, and both were buried under the sum of four tunings. The vocabulary here is graphic
+rather than physical:
+
+- **Unlit flat colour, not Lambert.** A faceted sphere needs a light to show its facets and the sun
+  is behind the camera, so these carry no shading at all and read as silhouettes. It is also what
+  keeps a night-time wreck as bright as a golden-hour one.
+- **Colour is the animation.** Every puff walks one ramp — core → gold → flame → ember → smoke —
+  keyed on its own life *plus a fixed shade bias*, so the cluster is spread across the ramp rather
+  than marching through it together. That internal structure is what a flat fill would otherwise
+  cost, and it retires the separate grey smoke plume: the fireball *becomes* the smoke.
+- **Position is a curve, not an integration.** Puffs and rings are `origin + direction × ease(t)`
+  evaluated from scratch each frame; the shards' ballistic arc is closed-form too, floored at the
+  tarmac rather than bounced off it. Nothing accumulates, so nothing has a drag constant to tune,
+  and a slow-mo frame is the same shape as a full-speed one.
+
+> **The shade bias is what stops it reading mono.** Keyed on life alone the fireball rendered as one
+> flat orange however many colours were in the ramp, because the puffs still alive at any instant
+> are the long-lived ones and they all sit at the same stop. The bias is correlated with how far a
+> puff is thrown — the outer ones run *ahead* of the ramp, the core runs behind it — so the fireball
+> has a pale-gold heart and deepens towards its edge, rather than being noisy.
+
+> The ember stop is load-bearing, not decoration. Lerped straight from flame to smoke a puff spends
+> its whole tail around `#9A603D` — which is `brick` in the building palette, so the fireball died
+> the colour of the wall behind it. The first version also faded a still-orange puff out over its
+> last quarter, which left translucent pink hexagons hanging over the road; the ramp has to be
+> allowed to *reach* smoke before any alpha comes off.
+
+The shockwave is the mark that reads first, because a flat ring at this camera projects as an
+ellipse spreading out from under the wreck — the blast has a size before the fireball has grown into
+one. Fourteen segments, so the flat sides show at the wreck zoom.
+
+Shards are the whole of what is left of the old debris: seven per car, one tetrahedron squashed
+per instance into plates and chunks, tinted with that car's paint so a two-car wreck comes apart in
+two colours. They no longer bounce, settle or come to rest — wreckage on the tarmac is a detail for
+a camera that stays, and this one pulls into a close-up and then cuts to the retry screen.
 
 `vanish.js` owns the disappearance: each shell shrinks and fades into its own fireball over 0.34s
 of sim time rather than being switched off. It steps on the frame's already-slowed `dt`, so it
-runs at the same rate as the debris and smoke through the crash slow-mo. See
-[traffic.md](traffic.md#the-wreck) for the rest of the staging.
+runs at the same rate as the blast through the crash slow-mo. See
+[traffic.md](traffic.md#the-wreck) for the rest of the staging, and
+[testing.md](testing.md#screenshots) for `?shot=12`, which stages a real crash and freezes it.
 
 ### Route band — `game/routeline.js`
 
@@ -406,13 +489,28 @@ and a black basic material, so the enlarged back faces sit behind the real surfa
 around the silhouette. Cheaper than a post-processing edge pass and it needs no render targets —
 these are small objects, not a whole-scene effect. Each hull is a *child* of the mesh it wraps, so
 it inherits animation for free, and the rider's "the taxi is coming" state is one line: scale the
-hull 1.12 → 1.34 and let it stay black.
+hull 1.12 → 1.34 and let it stay black. Crystal and hull sit at `renderOrder` **8** and **9** in the
+transparent queue — after the ground layers (route band 4, target discs 3–4) and well before the
+ghost outlines at 9990+.
 
 Each diamond carries an **emissive** at 0.35 of its colour. The fixed camera sees the face turned
 *away* from the sun, and pure Lambert on its own shades that face a long way down — the lift keeps
 the crystal reading as its own hue rather than as a dark facet. It is also what keeps the urgency
 colour legible after dark, this being the one lit marker in a game whose markers are otherwise all
 unlit.
+
+The surface is **split in the fragment shader** into opaque liquid below the fare's clock and
+see-through glass above it, with a pale band on the line between — one mesh, one draw call, and the
+shadow, the kick and the pulse all untouched by it. The cut is in the geometry's local Y, so the
+liquid rides in the vessel rather than sloshing when the marker hops.
+
+That transparency is what forces the **renderOrder pair** above: the crystal (8) is `transparent`
+but keeps `depthWrite` on, so the hull (9) fails the depth test everywhere inside the silhouette and
+survives only as the ring around it. Drawn the other way round — the usual `depthWrite: false` for a
+transparent material — the hull's far faces are what you see through the empty half, and the marker
+reads as a black void. Why the empty half is see-through rather than merely dark, why the level is
+linear in height, what the far-wall pass cost, and the numbers that had to be measured are all in
+[gameplay.md](gameplay.md#the-crystal-is-a-glass-of-time).
 
 It bounces on `Math.abs(Math.sin(t * 3.4)) * 0.45`: never below the rest position, with a sharp cusp
 at the bottom that reads as a landing rather than a float. The amplitude used to be bounded by the

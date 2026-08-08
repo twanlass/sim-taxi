@@ -271,6 +271,16 @@ closing on their drop-off, the new rider appears near that drop-off — the clas
 while carrying" hand-off. When nobody is aboard, the extra lands near the taxi's current
 intersection instead. Either way the radius is the same, so the two paths read alike.
 
+**`spawnRadius` builds a box, not a true block-distance circle** — it walks `±radius` on each axis
+independently, so a corner of that box can sit up to `2 × radius` blocks out on the diagonal. Fine
+for an ordinary extra, where the point is "reachable", not "exactly this close". The very first
+fare of the run wants a real promise, though — especially now that the taxi itself
+[opens downtown](traffic.md#the-one-routing-branch) rather than at a random corner, where the box
+can span the whole map even at `radius = 3`. `FIRST_FARE_MAX_BLOCKS` in `fares.js` filters that
+one draw by actual Manhattan distance, capped at 3, independent of the difficulty curve — so the
+rider taught in the tutorial is never more than a short drive from where the taxi started, whatever
+`spawnRadiusStart` happens to be tuned to.
+
 **The radius used to be load-bearing and is now a difficulty knob.** Under the old flat clock an
 extra rider *had* to land near the current drop-off: their 60 seconds had to cover the tail of that
 delivery plus a fresh pickup drive, and charging them for a whole drop-off leg was ruinous —
@@ -347,6 +357,12 @@ set there rather than by a tap — but it is set by the same call that plans the
 drop-off still only resolves for a taxi that was actually sent at it. Where the rule keeps its
 teeth is the kerb: `beginRide` clears `directed`, and a rider is only ever collected by a taxi the
 player pointed at them.
+
+There is one taxi, so `markDirected` also clears the flag on whatever fare held it before: tapping
+a second waiting rider re-routes the car and moves `directed` to that rider, rather than leaving
+the abandoned one still marked. Without that, the abandoned rider stayed armed — if the new route
+happened to pass within `ARRIVE_RADIUS` of its corner, it resolved a pickup too, and the taxi ended
+up "carrying" two riders off a single seat.
 
 ### The taxi's roof sign
 
@@ -480,7 +496,8 @@ fare do nothing.
 `src/game/faremarker.js`. The countdown is a **physical object that belongs to the fare** — not a
 HUD number, not a property of a marker, and not something that changes hands. A geodesic crystal
 floats over the rider's head on the kerb, painted by how much of their clock is left: green → yellow
-→ orange → red, [by level](#urgency-is-one-scale). The instant they get in it **flies to the taxi**
+→ orange → red, [by level](#urgency-is-one-scale) — and [draining like a
+glass](#the-crystal-is-a-glass-of-time) between those steps. The instant they get in it **flies to the taxi**
 (`TRANSFER_TIME = 0.65s`, eased, with a small arc) and keeps draining above the roof, because from
 that moment the deadline is the car's problem.
 
@@ -510,10 +527,11 @@ the rider figure finishes climbing in. The deadline arrives, then its owner does
 Two objects did this job in turn: this diamond over the rider, and a **timer ring** — a swept
 annulus lying on the road around the taxi, which took over at pickup while the diamond vanished.
 
-The ring was the finer instrument, and losing it is a real cost. It drained *continuously*: a
+The ring was the finer instrument, and losing it was a real cost. It drained *continuously*: a
 `setDrawRange` sweep clockwise from screen-top over 96 segments, so the arc's length was the time
-left, and a player could see a clock at 40% rather than at "orange". The diamond has four steps.
-On the riding leg that is strictly less information.
+left, and a player could see a clock at 40% rather than at "orange". The diamond had four steps, and
+on the riding leg that was strictly less information. [The liquid](#the-crystal-is-a-glass-of-time)
+is that reading coming back on the shape that was already carrying the deadline.
 
 What it bought is that there is nothing to learn. Two objects meant two vocabularies for one
 deadline, and the hand-off between them was a moment the player had to be taught — the ring
@@ -541,6 +559,91 @@ drawn with the depth test off projects its far half *upward on screen* at this c
 whatever is standing at its centre — so the ring sliced its own owner in half, and the fix was
 drawing everything that stands inside it afterwards. Nothing lies on the ground any more, so all of
 that is gone.
+
+### The crystal is a glass of time
+
+`src/geometry/diamond.js`. The diamond is a **vessel**, and the clock is the liquid in it. Below the
+surface the urgency colour is opaque, saturated and self-lit — exactly what the whole crystal used
+to be. Above it the same hue is emptied glass: the city visible straight through it at just under
+half alpha, most of the emissive lift gone, and a sheen on the facets turned edge-on to the camera.
+A pale band rides the line between them, and that band is the part the eye actually reads.
+
+So the two hands of the clock are on one object. The **colour** steps in quarters and kicks, which
+is the alarm; the **level** moves every frame, which is where inside that quarter the fare actually
+is. Green isn't one state any more — a fresh rider is a solid crystal and a rider a breath away
+from yellow is a crystal two thirds full. It is the [ring's continuous
+sweep](#it-used-to-be-a-relay) recovered without a second object to learn.
+
+The level is **linear in height**, not in volume. Volume would be the physical answer and it reads
+much worse: an octahedron is widest at its equator, so a volume-true drain spends the middle half of
+the clock inside the middle 20% of the body. The player reads where the line *is*, so equal time has
+to be equal travel. Both ends overshoot the tips slightly, which is what makes a full fare a plain
+solid crystal and a dead one a plain empty vessel, with no highlight stranded on a vertex.
+
+It is **one mesh with a per-fragment alpha**, split in the fragment shader — same silhouette, one
+draw call, and the bounce, the kick and the pulse keep animating a single object. The cut is in the
+geometry's **local Y**, so the liquid rides in the vessel instead of sloshing when the marker hops.
+
+### Getting the empty half to look empty
+
+The first build was opaque: the hue at half lightness above the line. It read as a **dark solid**,
+not as an empty vessel, which is the whole point of the thing.
+
+What stood in the way of real transparency is the **black inverted hull**. It is a larger octahedron
+drawn back-faces-only, so its far faces cover the entire silhouette — glass over it shows a black
+void rather than the city. The fix turned out to be draw order rather than a different outline:
+
+> The crystal draws first (`renderOrder` 8) and **writes depth**, blending over the finished opaque
+> scene. Then the hull draws (9) with the depth test on. Inside the silhouette its back faces are
+> behind the glass and fail the test; the ring between the two silhouettes has nothing in front of
+> it and passes. That ring is exactly the rim. Both are flagged `transparent` only to land in the
+> same queue, which is the one place `renderOrder` decides anything — well clear of the [ghost
+> outlines](rendering.md#taxi-ghost-outline--geometryghostoutlinejs) at 9990+, which already treated
+> this marker as an occluder back when it was opaque.
+
+`depthWrite` staying **on** for a transparent material is the load-bearing part, and it is the
+opposite of the usual habit.
+
+Three numbers were measured and moved:
+
+- The empty glass was **desaturated** at first (`s × 0.55`), and the empty half of a nearly-dead
+  marker came out a dusty rose — the most urgent state on the scale rendering as the least red thing
+  on the board. It keeps 90% of its saturation now, and alpha does the emptying rather than the
+  tint, which is what glass and liquid actually differ by.
+- The **sheen exponent** went from 2.5 to 5. At 2.5 it was not a highlight but a wash: an octahedron
+  at this camera angle shows almost nothing head-on, so every visible facet picked up most of the
+  lift.
+- The **emissive** above the line holds at 0.6 before alpha takes its share, so about 0.2 of the
+  liquid's reaches the frame. At 0.22 opaque the shape survived after dark but a nearly-drained
+  rider was genuinely hard to find on a night board.
+
+### The far wall, and why it isn't there
+
+Only the **near** half of the liquid's surface is drawn, and the near half of a horizontal plane
+projects low — so at half full the level reads closer to a third. Drawing the back faces as a second
+pass closes that chevron into the rhombus a real meniscus makes, centred on the level the clock
+actually says. It was built, and taken out again.
+
+It cost more than it bought. The far wall's liquid is a solid slab filling everything below its own
+(higher) surface line, so the see-through top — the entire point of the vessel — shrank to the
+narrow wedge above it, and the two meniscus bands closed into a hard bright rectangle across the
+middle that read as a label rather than as liquid. More correct, less legible.
+
+What is left is a known bias: the surface reads slightly low, by a chevron about 8px deep at play
+zoom. It is the same shape at every level, so it offsets the reading rather than distorting it, and
+the chevron's outer corners — where it meets the silhouette — sit at the true level anyway.
+
+> **Trap.** A patched material needs `customProgramCacheKey`. Three builds the program cache key
+> from the material's parameters *before* `onBeforeCompile` runs, so a patched Lambert material
+> collides with every unpatched one sharing those parameters and `acquireProgram` hands back
+> whichever compiled first. This city is full of flat-shaded Lambert: the diamond drew with a
+> building's program, and the fill went missing with nothing logged anywhere.
+
+> **Trap.** Under `flatShading` three takes the normal from the screen-space derivative of the view
+> position, which follows the triangle's *rendered* winding — so on back faces it points into the
+> screen and the surface lights as if the sun were behind it. Three's own `FLIP_SIDED` never reaches
+> this path; it only fixes the interpolated-normal one. `patchFill`'s `flipped` argument is what the
+> far-wall experiment left behind, and any back-face pass on this shape will need it.
 
 ### What the crystal does
 
@@ -779,8 +882,8 @@ layers, all timed by `src/game/boostmeter.js` and shaped in `index.html`:
 
 | Layer | What it does | Wiring |
 |---|---|---|
-| **Overfill** | The bar runs ~7% of a tank past its new mark, then rings back down onto it | `--pct` |
-| **Flutter** | The whole pill throbs — glow and 3.5% of scale together, 8Hz — for as long as fuel is arriving | `--fill` × `--pulse` → `.is-filling` |
+| **Overfill** | The bar runs ~4.5% of a tank past its new mark, then rings back down onto it | `--pct` |
+| **Flutter** | The whole pill throbs — glow and 3.5% of scale together, 4Hz — for as long as fuel is arriving | `--fill` × `--pulse` → `.is-filling` |
 | **Leading edge** | A blurred near-white line rides the front of the fill, fading in with the pour and out with the bounce | `--fill` → `#boost::after` |
 
 `boostmeter.js` is pure and DOM-free for the same reason `boost.js` is: `main.js` reads three numbers
@@ -798,16 +901,18 @@ kick just carries it further, 0.1s out to the peak.
 
 **Coming back is a damped ring, not a curve.** The first version eased from the peak down onto the
 mark and stopped there, which is the exact moment the eye is on it, and it read as linear — the bar
-*arrived* rather than *settled*. The peak now releases into a decaying cosine (4Hz, e-folding at 7/s)
-so it dips under the mark, comes back over it smaller, and converges: off a 7% overshoot the swings
-measure **-2.9%, +1.2%, -0.5%, +0.2%**, then it snaps to the real level once the ring is under a
-fifth of a pixel, about 0.55s in. This is the spring the scripted kick doesn't get for free.
+*arrived* rather than *settled*. The peak now releases into a decaying cosine (4Hz, e-folding at 8/s)
+so it dips under the mark, comes back over it smaller, and converges: off a 4.5% overshoot the swings
+measure **-1.7%, +0.6%, -0.2%**, then it snaps to the real level once the ring is under a fifth of a
+pixel, about 0.43s in. This is the spring the scripted kick doesn't get for free. Both the overshoot
+and the decay were pulled back from an original 7%/7-per-second pass that read as too bouncy.
 
-The flutter is deliberately fast. At 5Hz the pill read as *breathing*; the point is a signal that
-something is being poured in right now, so it sits at the top of what still reads as a pulse rather
-than a flicker. It moves the pill itself, not just the glow, which is what makes it visible at the
-edge of vision — where this button is while the player is watching the road. `prefers-reduced-motion`
-drops the scale and keeps the glow and the edge.
+The flutter runs at 4Hz, halved from an original 8Hz. At 8Hz a pour that landed several energy
+circles at once stacked up enough pulses to read as chaotic rather than lively; one clear pulse
+where there used to be two reads calmer without dropping all the way to the 5Hz "breathing" rate
+that was tried and rejected earlier. It moves the pill itself, not just the glow, which is what
+makes it visible at the edge of vision — where this button is while the player is watching the
+road. `prefers-reduced-motion` drops the scale and keeps the glow and the edge.
 
 The glow used to be a one-shot green flash matching the flying `$20`. Green read as *money*, which
 is what the earnings pop already says; yellow says *this is boost*. Driving its alpha from a variable

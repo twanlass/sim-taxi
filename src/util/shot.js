@@ -30,6 +30,13 @@ export const SHOTS = [
   // question a screenshot answers better than an assertion, and the only way to reach it otherwise
   // is to play ten fares, so this shot pins the curve at its top and fills the board.
   { name: 'busy', description: 'a full late-game board at play zoom', target: [0, 0], zoom: 52, warmup: 12, difficulty: 1, untilBoardFull: true },
+  // The wreck is the only thing in the game with no steady state: it fires once, ends the run, and
+  // is over in a second and a half. Without a staged framing the only way to look at the explosion
+  // was to crash in a live run and hope to catch the right frame. `wreckAt` is where in the blast's
+  // own life the shot freezes — 0.22s of sim time, which is the fireball at full size with the
+  // shockwave still crossing the road under it. Zoom matches WRECK_ZOOM, since that is what the
+  // camera actually pulls into.
+  { name: 'wreck', description: 'the crash blast, frozen at its peak', target: [0, 0], zoom: 26, warmup: 12, wreckAt: 0.22 },
 ];
 
 export function getActiveShot() {

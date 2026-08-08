@@ -433,6 +433,12 @@ export function createPolice(rng, scene) {
     state.elapsed += dt;
     const { along, across } = quarryOnRail();
     const dist = Math.hypot(drawn.x - state.quarry.x, drawn.z - state.quarry.z);
+    // Signed distance still to cover along the rail to reach the quarry, negative once passed.
+    // `state.s` is what actually advances by v*dt below — braking on the Euclidean `dist` above
+    // (measured off the eased/lagged drawn position, and inflated by any lateral `across` offset)
+    // fires later than the rail's true position warrants, so the cruiser can already be on top of
+    // the taxi, or driven straight through it, before the brake check trips.
+    const remaining = state.dir * (along - state.s);
 
     if (state.uturn !== null) {
       state.uturn = Math.min(1, state.uturn + dt / UTURN_DUR);
@@ -450,8 +456,8 @@ export function createPolice(rng, scene) {
       // genuinely alongside: turning onto the quarry's road pointing away from it is a legal move
       // when a park closes the near end, and treating that as an overshoot parks the car a block
       // short with the chase apparently abandoned.
-      const passed = state.dir * (along - state.s) < 0 && dist < PITCH;
-      const braking = onRoad && (passed || dist - CHASE_ARRIVE <= (state.v * state.v) / (2 * CHASE_BRAKE));
+      const passed = remaining < 0 && dist < PITCH;
+      const braking = onRoad && (passed || remaining - CHASE_ARRIVE <= (state.v * state.v) / (2 * CHASE_BRAKE));
       state.v = braking
         ? Math.max(0, state.v - CHASE_BRAKE * dt)
         : Math.min(CHASE_SPEED, state.v + CHASE_ACCEL * dt);

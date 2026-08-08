@@ -129,6 +129,14 @@ const SECOND_FARE_DELAY = 5;         // seconds aboard before the near-the-drop-
 const SECOND_FARE_RANGE = 45;        // world units from the taxi to its drop-off
 const SECOND_FARE_MIN_CLOCK = 18;    // seconds the current fare must still have
 
+// The very first fare of the run gets a hard cap, independent of difficulty.spawnRadius: a
+// tutorial-only guarantee that the rider a brand-new player is asked to find is never more than a
+// short walk from where their taxi opened. Left as its own constant rather than folded into the
+// ramp because it isn't a difficulty knob — it exists once, before the ramp has moved at all, and
+// tightening or loosening the ramp's own start (`spawnRadiusStart`) must not change what the very
+// first rider promises.
+const FIRST_FARE_MAX_BLOCKS = 3;
+
 // A manual override on the budgeted clock, for the ⚙️ panel and the tools.
 //
 // Null means "budget it" — the shipped behaviour. A number pins every rider to that many seconds
@@ -275,8 +283,14 @@ export function createFareSystem(rng, scene) {
    * `near` biases the draw to within difficulty.spawnRadius() blocks of another junction — either the
    * current drop-off or the taxi's own intersection, see `spawnBias`. Drop-offs are always drawn
    * unbiased: the whole point of showing a trip's length up front is that they differ.
+   *
+   * `maxBlocks`, when given, additionally caps the draw to real Manhattan block distance from
+   * `near` — the box `radius` builds is per-axis, so its corners sit up to `2 × radius` blocks out
+   * on the diagonal. That slack is fine for an ordinary extra, but the very first fare (see
+   * `spawnFare`) wants a hard cap the box alone can't promise, especially now that the taxi itself
+   * starts downtown, where `radius` can span the whole map.
    */
-  function pickIntersection(taxiCar, near = null) {
+  function pickIntersection(taxiCar, near = null, maxBlocks = null) {
     // Every junction already spoken for, which is now both ends of every live fare: a waiting
     // rider's drop-off pin is on the map from the moment they appear, so dropping a second rider
     // (or a second drop-off) on top of it would put two markers on one kerb corner.
@@ -293,7 +307,11 @@ export function createFareSystem(rng, scene) {
       const lo = (v) => Math.max(0, v - radius);
       const hi = (v) => Math.min(GRID, v + radius);
       for (let i = lo(near.i); i <= hi(near.i); i++) {
-        for (let j = lo(near.j); j <= hi(near.j); j++) if (free(i, j)) options.push({ i, j });
+        for (let j = lo(near.j); j <= hi(near.j); j++) {
+          if (!free(i, j)) continue;
+          if (maxBlocks !== null && blockDistance({ i, j }, near) > maxBlocks) continue;
+          options.push({ i, j });
+        }
       }
       if (options.length) return options[rng.int(0, options.length - 1)];
     }
@@ -408,7 +426,11 @@ export function createFareSystem(rng, scene) {
       && !exits.some((e) => e.slot === s));
     if (!slot) return null;
 
-    const spot = pickIntersection(taxiCar, near);
+    // `lastSpawnAt` only holds -Infinity before the run's very first spawn — see its init above.
+    // That is the one spawn this cap applies to; every later empty-board refill is an ordinary one
+    // and gets the ramp's own radius.
+    const isFirstEver = state.lastSpawnAt === -Infinity;
+    const spot = pickIntersection(taxiCar, near, isFirstEver ? FIRST_FARE_MAX_BLOCKS : null);
     const fare = {
       slot,
       stage: 'waiting',
@@ -693,7 +715,12 @@ export function createFareSystem(rng, scene) {
 
       // One clock, one body, wherever the fare currently is. The seconds never reset across the
       // hand-off and neither does the marker — see beginRide.
-      marker.setUrgency(urgencyLevel(urgencyOf(fare)));
+      //
+      // The same fraction read twice: as a level, which is the colour and steps in quarters, and
+      // as a fill, which is the liquid in the crystal and moves every frame.
+      const left = urgencyOf(fare);
+      marker.setUrgency(urgencyLevel(left));
+      marker.setFill(left);
       if (fare.stage === 'waiting') {
         // No target: it holds the kerb corner it was shown on.
         marker.update(state.elapsed, null, fare.timeLeft);
@@ -763,10 +790,24 @@ export function createFareSystem(rng, scene) {
    * Called when the player has routed the taxi at a fare. Refused for a rider on the kerb while
    * someone is already aboard: there is one seat, and a route that could never resolve into a
    * pickup is worse than no route at all.
+   *
+   * There is one taxi, so at most one fare can be `directed` at a time. Tapping a second waiting
+   * rider before the taxi reaches the first re-routes the car — `routeTo` already overwrites
+   * `car.route` — but without this, the first rider's `directed` flag survived the switch, and
+   * `update()`'s arrival check only reads `directed` and proximity. If the new route happened to
+   * pass within `ARRIVE_RADIUS` of the abandoned rider's corner, that fare resolved a pickup too:
+   * two riders aboard at once, sharing the taxi's one seat. Clearing every other fare's flag here
+   * is what keeps "whichever one the taxi was last sent at" (see `focus`) true of `directed` as
+   * well as of the route.
    */
   function markDirected(fare = focus()) {
     if (!fare || !state.fares.includes(fare)) return false;
     if (fare.stage === 'waiting' && carrying()) return false;
+    for (const other of state.fares) {
+      if (other === fare || !other.directed) continue;
+      other.directed = false;
+      if (other.stage === 'waiting') other.slot.marker.setSelected(false);
+    }
     fare.directed = true;
     // Pushed here as well as reconciled per frame, so the ring lands on the same frame as the route
     // band rather than a tick later. It also means a caller that directs a fare without running the

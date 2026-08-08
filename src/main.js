@@ -16,9 +16,7 @@ import { createBoostMeter } from './game/boostmeter.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
-import { createSparks } from './game/sparks.js';
-import { createSmoke } from './game/smoke.js';
-import { createDebris } from './game/debris.js';
+import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createVanish } from './game/vanish.js';
 import { createCarGhosts } from './game/carghosts.js';
@@ -157,12 +155,10 @@ const pan = shot
   : attachDragPan(controller, renderer.domElement, aspect, isNarrow, releaseCameraToPlayer);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
-const sparks = createSparks(scene, makeRng(runSeed + 88));
-const smoke = createSmoke(scene, makeRng(runSeed + 99));
-// One debris pool per car in a crash — a pool re-shoots its own pieces, so a shared one would
-// snap the taxi's wreckage across to the other car's the instant the second burst fired.
-const debris = createDebris(scene, makeRng(runSeed + 111));
-const victimDebris = createDebris(scene, makeRng(runSeed + 122));
+// The whole crash detonation — shockwave, fireball and shards — behind one `fire()` per car. One
+// pool serves both cars: nothing here is re-shot from a stored position, so a second call cannot
+// drag the first car's wreckage across to the second the way the old debris pools could.
+const blast = createBlast(scene, makeRng(runSeed + 88));
 const flames = createFlames(scene, makeRng(runSeed + 133));
 const vanish = createVanish();
 
@@ -172,10 +168,10 @@ const carGhosts = createCarGhosts(scene, traffic);
 
 // Collision detection between the taxi and ambient cars. Only fires while boosting — see
 // src/sim/collisions.js. On impact *both* cars are wrecked: each detonates where it stands and
-// each shell shrinks and fades into its own fireball, debris fires outward in their place, sparks
-// burst, a smoke plume rises, the camera shakes and pulls into a close-up, the sim drops into
-// slow-mo, boost is released, and the fare system flips into game-over — but the Game Over banner
-// is held for CRASH_BANNER_DELAY (wallclock, so the delay is unaffected by the slow-mo).
+// each shell shrinks and fades into its own fireball, the camera shakes and pulls into a close-up,
+// the sim drops into slow-mo, boost is released, and the fare system flips into game-over — but
+// the Game Over banner is held for CRASH_BANNER_DELAY (wallclock, so the delay is unaffected by
+// the slow-mo).
 const CRASH_BANNER_DELAY = 2600;
 const WRECK_ZOOM = 26;
 const SLOW_MO_MIN = 0.18;                // sim runs at this fraction of real time at impact
@@ -205,31 +201,23 @@ let bustAt = 0;              // wallclock ms of the bust, while the banner is st
 
 const collisions = createCollisions(traffic.cars, traffic.taxi);
 collisions.onImpact(({ x, z, other }) => {
-  // Layered detonation: sparks and a first fireball at the point of impact, a big shower of
-  // debris in place of the merged taxi shell, and a fat smoke plume climbing out of it. A second
-  // fireball fires a beat later so the crash reads as an explosion with a follow-up flare rather
-  // than a single one-frame pop — the setTimeout is wallclock so the follow-up lands during the
-  // slow-mo ramp and stretches out cinematically.
-  sparks.burst(x, z, 96);
-  smoke.burst(x, z);
-  flames.blast(x, z, 48);
-  debris.burst(x, z);
+  // One detonation per car — a shockwave ring on the tarmac, a fireball and a scatter of shards,
+  // all of it inside game/blast.js. It used to be four effects stacked at each point plus a third
+  // wave on a setTimeout, tuned as a simulation; the beat reads better as one graphic bang per
+  // car, and the two of them a couple of units apart already give it the spread the follow-up
+  // flare was there to fake.
+  blast.fire(x, z, PALETTE.taxiBody);
   controller.kickShake(2.4);
 
-  // The car that was hit gets the whole treatment too, fired at its own centre rather than at the
-  // shared impact point. The two are only a couple of units apart, but that is enough to spread
-  // the blast across both bodies instead of stacking it on the seam between them — and its
-  // wreckage comes apart in its own paint, so what lands on the road is visibly two cars.
+  // The car that was hit detonates at its own centre rather than at the shared impact point. The
+  // two are only a couple of units apart, but that is enough to spread the blast across both
+  // bodies instead of stacking it on the seam between them — and its shards fly in its own paint,
+  // so what comes apart is visibly two cars.
   //
   // It used to spin out, snap back onto a lane and drive away. A boosting taxi arrives at ~19 u/s
   // and the survivor shrugging that off made the player's own wreck look like a rule rather than
   // a crash.
-  const ox = other.x;
-  const oz = other.z;
-  sparks.burst(ox, oz, 64);
-  smoke.burst(ox, oz, 40);
-  flames.blast(ox, oz, 40);
-  victimDebris.burst(ox, oz, PALETTE.carBody[other.colorIndex]);
+  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex]);
 
   // Both shells collapse into their own fireballs — see game/vanish.js for why they are faded out
   // rather than simply hidden. `wreckShell` also takes each car off the road for good.
@@ -242,19 +230,12 @@ collisions.onImpact(({ x, z, other }) => {
   slowMoMin = SLOW_MO_MIN;
   boost.release();
   fares.crash();
-  setTimeout(() => {
-    flames.blast(x, z, 32);
-    flames.blast(ox, oz, 24);
-    smoke.burst(x, z, 28);
-    sparks.burst(x, z, 32);
-    controller.kickShake(1.1);
-  }, 260);
 });
 
 /**
  * Boost past a cop and you're done — reuses the wreck cinematic (zoom, slow-mo, delayed banner)
- * so the beat is the same as a collision, but the taxi stays visible (no debris, no smoke) since
- * nothing hit it. The taxi is flagged crashed so it freezes on the spot for the pull-in, and the
+ * so the beat is the same as a collision, but the taxi stays visible (no blast) since nothing hit
+ * it. The taxi is flagged crashed so it freezes on the spot for the pull-in, and the
  * fare system's title/reason drive the "Busted" banner.
  *
  * The cruiser abandons its corridor run here and comes for the taxi — see `chase()` in
@@ -739,7 +720,7 @@ function updateHud(dt) {
   }
 
   if (s.gameOver && hud.banner && hud.banner.hidden) {
-    // A crash holds the banner for CRASH_BANNER_DELAY so the smoke, sparks and camera pull-in
+    // A crash holds the banner for CRASH_BANNER_DELAY so the blast and the camera pull-in
     // land before the retry screen appears. Timeouts have no such beat — reveal immediately.
     if (crashBannerAt !== null && performance.now() < crashBannerAt) return;
     showRunEnd(hud.banner, {
@@ -994,8 +975,8 @@ function frame() {
   requestAnimationFrame(frame);
   let dt = Math.min(clock.getDelta(), 0.05);
 
-  // Time dilation for the crash. Scale the whole frame's dt so debris, smoke, camera pull-in and
-  // shake decay all slow together — that's what sells it as a single cinematic beat rather than
+  // Time dilation for the crash. Scale the whole frame's dt so the blast, the camera pull-in and
+  // the shake decay all slow together — that's what sells it as a single cinematic beat rather than
   // one element being pushed around while everything else runs normally. Ramps linearly from
   // `slowMoMin` back to 1.0 across SLOW_MO_DURATION ms wallclock; the banner delay is separately
   // wallclock-anchored so this doesn't change when the retry screen appears. The depth is per
@@ -1020,10 +1001,7 @@ function frame() {
   updateBoostButton(dt);
   skids.update(dt);
   dust.update(dt);
-  sparks.update(dt);
-  smoke.update(dt);
-  debris.update(dt);
-  victimDebris.update(dt);
+  blast.update(dt);
   flames.update(dt);
   vanish.update(dt);
   controller.updateShake(dt, aspect());
@@ -1060,7 +1038,7 @@ function frame() {
   // back.
   //
   // Wreck focus outranks everything (and runs on every viewport, not only narrow ones): the camera
-  // eases into the crash site so the smoke and sparks fill the frame before the retry screen shows.
+  // eases into the crash site so the fireball fills the frame before the retry screen shows.
   //
   // The tutorial sits below Loco Mode and above the opening follow, and unlike the follows it runs
   // on every viewport — a desktop player has the whole city in frame and still cannot tell which
@@ -1223,6 +1201,32 @@ if (shot) {
     controller.update(aspect());
   }
 
+  // Stage an actual crash and freeze it `wreckAt` seconds in. The real path is driven rather than
+  // mocked — the taxi is parked on top of an ambient car with boost on, and `collisions.update()`
+  // detonates it through the same handler a live run uses — so this framing cannot drift out of
+  // step with the crash it exists to review. Only the blast and the shrinking shells are stepped
+  // afterwards: traffic must stay still, or the rest of the city drives on under a frozen wreck.
+  if (shot.wreckAt) {
+    // Offset by a couple of units along the victim's heading rather than parked exactly on it: a
+    // real impact leaves the two centres about that far apart, and the pair of detonations spread
+    // across both bodies is half of what the crash looks like.
+    const victim = traffic.cars.find((c) => !c.isTaxi && c.state === 'drive');
+    traffic.taxi.x = victim.x - Math.cos(victim.yaw) * 2;
+    traffic.taxi.z = victim.z + Math.sin(victim.yaw) * 2;
+    traffic.taxi.yaw = victim.yaw;
+    traffic.taxi.boost = true;
+    for (let guard = 0; guard < 90 && !traffic.taxi.crashed; guard++) {
+      collisions.update();
+      traffic.update(1 / 60);
+    }
+    controller.state.target.set(wreckSpot?.x ?? victim.x, 0, wreckSpot?.z ?? victim.z);
+    controller.update(aspect());
+    for (let step = 0; step < Math.round(shot.wreckAt * 60); step++) {
+      blast.update(1 / 60);
+      vanish.update(1 / 60);
+    }
+  }
+
   // Frame the drop-off of the fare aboard, on the kerb corner the pin actually stands on rather
   // than the junction centre — same reason as the rider below, the corner building is in the way.
   const aboard = fares.carrying();
@@ -1294,6 +1298,15 @@ window.__taxi = {
   findRoute,
   camera: controller,
   isSelected: () => selected,
+  /**
+   * Draw one frame on demand.
+   *
+   * Shot mode never starts the render loop — it warms the sim, renders once and stops — so a shot
+   * poked from the console or over CDP keeps showing the frame it froze on. This is what makes a
+   * frozen framing reviewable at states the shot list doesn't cover: set a fare's clock, redraw,
+   * capture. Harmless while the loop is running, since the next frame overwrites it anyway.
+   */
+  redraw: () => renderer.render(scene, camera),
   /** Screen-space helpers so the browser smoke test can click real pixels. */
   taxiScreenPosition: taxiScreenPos,
   /** The pin the player is meant to be driving at — the newest one if two are on the board. */

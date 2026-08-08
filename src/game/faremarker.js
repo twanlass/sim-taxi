@@ -23,9 +23,15 @@ import { createVipBeacon, VIP_BEACON_R, VIP_SPIN_RATE } from '../geometry/vipbea
 // were the same deadline in two vocabularies, and the hand-off between them was the moment a player
 // had to learn that. One object that simply travels says it without teaching anything.
 //
-// What that costs is precision on the riding leg: four levels where there used to be a continuous
-// sweep. The panic pulse below five seconds came across with it, so the end of a clock is still an
-// event and not just a shade of red.
+// That cost precision for a while: four levels where the ring had a continuous sweep. It is back —
+// the crystal is a glass vessel and the colour is the liquid in it, draining every frame (see
+// geometry/diamond.js). The four steps are still the alarm, and they still kick; the level is the
+// fine hand between them. The panic pulse below five seconds came across from the ring too, so the
+// end of a clock is an event and not just a shade of red.
+//
+// **A VIP's crystal opts out of all of it.** Fixed purple, always full — see setUrgency and
+// setFill. The beacon above it is already the one thing it needs to say ("this is a VIP"), and a
+// second colour language draining underneath read as two markers disagreeing about the same rider.
 //
 // **The disc is the same colour saying it twice.** The crystal is at eye level where the eye
 // happens to be; the disc is on the ground, which is where the taxi is actually being aimed, and it
@@ -158,6 +164,21 @@ export function createFareMarker(scene, phase = 0) {
     kickPending = true;
   }
 
+  /**
+   * How much of the clock is left, 0..1 — the level the liquid in the crystal stands at.
+   *
+   * Every frame, and continuous, where `setUrgency` is four steps. Straight through to the model
+   * with no easing: this *is* the clock, and a lag between the seconds and the level is the one
+   * thing a countdown may not have.
+   */
+  function setFill(fraction) {
+    // A VIP's crystal doesn't drain either — see setUrgency. It stays the solid, full purple gem
+    // it opened as for its whole life on the board; the beacon and the panic pulse carry urgency
+    // for it instead.
+    if (vipMarked) return;
+    diamond.setFill(fraction);
+  }
+
   function setSelected(on) {
     if (on === selected) return;
     selected = on;
@@ -169,12 +190,19 @@ export function createFareMarker(scene, phase = 0) {
     // The crystal itself, so a test can read colour and position back the way a player reads them
     // off the screen rather than trusting the arguments it passed in.
     mesh: diamond.mesh,
+    // The outline hull, whose *weight* is the "the taxi is on its way to this one" state. Named
+    // rather than reached for by child index — the crystal grew a second wall underneath it and a
+    // test walking `mesh.children[0]` silently started reading the far wall instead.
+    rim: diamond.rim,
     // Likewise the disc on the ground, which has to agree with the crystal on every frame.
     ring: ring.group,
     // The VIP badge, likewise — visible only for a VIP fare's marker.
     beacon,
     isVip: () => beacon.visible,
     setUrgency,
+    setFill,
+    /** What the crystal is showing, for tools with no GL context to read it back from. */
+    getFill: () => diamond.getFill(),
     /** Mark the rider the taxi has been sent at. Only meaningful while they are still on the kerb. */
     setSelected,
     isSelected: () => selected,
@@ -193,6 +221,10 @@ export function createFareMarker(scene, phase = 0) {
       const openColour = vip ? PALETTE.vip : urgencyColor(nextLevel);
       diamond.setColor(openColour);
       ring.setColor(openColour);
+      // Full, whatever the level says. A rider appears with their whole clock, and the first tick
+      // is a frame away — a crystal that drew empty for that frame would flash the wrong news. A
+      // VIP's crystal stays at this fill forever — see setFill — so this is also where it settles.
+      diamond.setFill(1);
       kickAt = null;
       kickPending = false;
       transferAt = null;

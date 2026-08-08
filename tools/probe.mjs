@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
-import { createGround } from '../src/city/ground.js';
+import { createGround, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph, SPEED } from '../src/sim/traffic.js';
@@ -39,6 +39,7 @@ import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
+import { createBlast } from '../src/game/blast.js';
 import {
   createBoost, BOOST_DURATION, BOOST_START_FRACTION, BOOST_FARE_REWARD, BOOST_COOLDOWN,
 } from '../src/game/boost.js';
@@ -80,6 +81,47 @@ const traffic = time('traffic init', () => createTraffic(makeRng(seed + 44), sce
 
 const tris = (mesh) => mesh.geometry.attributes.position.count / 3;
 console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mesh)}, props ${tris(props)}`);
+
+// --- The asphalt's feathered edge -----------------------------------------
+// The fade skirt is a second mesh because alpha cannot ride in the merged ground's 3-component
+// colour attribute, and being a second mesh is exactly what makes it worth asserting: its inner
+// ring has to land on the slab's own outline to the last bit, or a ring of sky leaks between the
+// two meshes at the corner arcs, where Three's tessellation is the only thing that decides where
+// the boundary actually is.
+{
+  const fade = ground.children.find((c) => c.name === 'asphalt-fade');
+  // Signed distance to the rounded-square outline: 0 on the edge, positive outside.
+  const inset = SLAB / 2 - SLAB_RADIUS;
+  const edgeDist = (x, z) => Math.hypot(
+    Math.max(Math.abs(x) - inset, 0), Math.max(Math.abs(z) - inset, 0),
+  ) - SLAB_RADIUS;
+
+  const pos = fade?.geometry.attributes.position;
+  const col = fade?.geometry.attributes.color;
+  let seam = 0;      // how far the alpha-1 ring strays from the slab boundary
+  let inside = 0;    // any part of the skirt reaching back over the road
+  let reach = 0;     // how far the alpha-0 ring gets out
+  for (let i = 0; pos && i < pos.count; i++) {
+    const d = edgeDist(pos.getX(i), pos.getZ(i));
+    inside = Math.min(inside, d);
+    if (col.getW(i) === 1) seam = Math.max(seam, Math.abs(d));
+    if (col.getW(i) === 0) reach = Math.max(reach, d);
+  }
+
+  check('the asphalt edge carries a fade skirt', !!fade && col?.itemSize === 4,
+    fade ? `${pos.count / 3} triangles, alpha in the colour attribute` : 'missing');
+  // Tolerance is float32 storage, not slop in the construction: both meshes keep their positions
+  // in a Float32Array, and 62 units quantises to about 4e-6 there. Anything the geometry itself
+  // got wrong lands orders of magnitude above this — and 1e-4 units is 1/1000th of a pixel.
+  const FLOAT32 = 1e-4;
+  check('the fade starts exactly on the slab edge', seam < FLOAT32,
+    `max seam ${seam.toExponential(1)} units`);
+  check('the fade reaches full transparency', Math.abs(reach - EDGE_FADE) < FLOAT32,
+    `${reach.toFixed(1)} units out`);
+  // Translucent asphalt over a road would show sky through the tarmac the ring road drives on.
+  check('the fade never reaches back over the city', inside > -FLOAT32,
+    `${inside.toExponential(1)} units inside`);
+}
 
 check('layout covers every block', layout.length === GRID * GRID, `${layout.length} blocks`);
 check('some blocks are parks', layout.some((b) => b.type === 'park'),
@@ -370,19 +412,30 @@ check('no two cars occupy the same space', worst > 1.6,
     rider.beginTransfer();
     const taxi = { x: 40, z: -20 };
     const hues = [];
+    const fills = [];
     let t = 0;
     for (const fraction of [1, 0.7, 0.45, 0.2, 0.02]) {
       for (let f = 0; f < 60; f++) {
         t += 1 / 60;
         rider.setUrgency(urgencyLevel(fraction));
+        rider.setFill(fraction);
         rider.update(t, taxi, fraction * 60);
       }
       hues.push(rider.mesh.material.color.getHexString());
+      fills.push(rider.getFill());
     }
     check('it keeps draining once it is on the taxi',
       hues.join(' -> ') === [1, 0.7, 0.45, 0.2, 0.02]
         .map((f) => urgencyColor(urgencyLevel(f)).getHexString()).join(' -> '),
       hues.join(' -> '));
+
+    // The liquid in the vessel is the fine hand: it has to keep moving *between* two colour steps,
+    // which is the whole point of it. 0.7 and 0.45 are both level 2 — a fill that only followed the
+    // colour would report the same crystal for both.
+    check('the crystal drains continuously between colour steps',
+      fills.every((f, i) => i === 0 || f < fills[i - 1])
+        && urgencyLevel(0.2) === urgencyLevel(0.02) && fills[3] > fills[4],
+      fills.map((f) => f.toFixed(2)).join(' -> '));
     check('and it is riding the taxi, not the kerb it left',
       Math.hypot(rider.group.position.x - taxi.x, rider.group.position.z - taxi.z) < 0.05);
 
@@ -529,6 +582,54 @@ check('no two cars occupy the same space', worst > 1.6,
   }
 }
 
+// --- Tapping a second waiting rider before the first is picked up -----------------------------
+// Regression for a real bug: with two riders on the kerb, tapping one then the other before either
+// is collected left both `directed` — the first tap's flag never cleared when the second re-routed
+// the taxi. If the new route happened to pass within ARRIVE_RADIUS of the abandoned rider's corner
+// too, `update()` resolved a pickup for it as well: two riders "riding" off one seat. An erratic
+// player here is whoever taps every un-directed waiter, every frame, the instant carrying() is
+// false — the worst case for exactly this.
+{
+  const xScene = new THREE.Scene();
+  const xTraffic = createTraffic(makeRng(seed + 44), xScene, CARS_DEFAULT);
+  const fares = createFareSystem(makeRng(seed + 55), xScene);
+  xTraffic.warmup(5);
+
+  let elapsed = 0;
+  let maxRiding = 0;
+  let maxDirected = 0;
+  let sawTwoWaiting = false;
+
+  while (elapsed < 400 && !fares.state.gameOver && fares.state.delivered < 6) {
+    xTraffic.update(1 / 60);
+    for (const { type, fare } of fares.update(1 / 60, xTraffic.taxi)) {
+      if (type !== 'pickup') continue;
+      // The drop-off dispatches itself, same as dispatchToDropoff in main.js.
+      const r = findRoute(planOrigin(xTraffic.taxi), fare.target);
+      if (r) { xTraffic.taxi.route = r; xTraffic.taxi.routeConsumed = false; fares.markDirected(fare); }
+    }
+
+    maxRiding = Math.max(maxRiding, fares.state.fares.filter((f) => f.stage === 'riding').length);
+    maxDirected = Math.max(maxDirected, fares.state.fares.filter((f) => f.directed).length);
+
+    if (!fares.carrying()) {
+      const waiters = fares.state.fares.filter((f) => f.stage === 'waiting');
+      if (waiters.length >= 2) sawTwoWaiting = true;
+      const target = waiters.find((f) => !f.directed);
+      if (target) {
+        const r = findRoute(planOrigin(xTraffic.taxi), target.target);
+        if (r) { xTraffic.taxi.route = r; xTraffic.taxi.routeConsumed = false; fares.markDirected(target); }
+      }
+    }
+
+    elapsed += 1 / 60;
+  }
+
+  check('the board doubles up enough to exercise the switch', sawTwoWaiting);
+  check('at most one fare is ever directed at once', maxDirected <= 1, `peak ${maxDirected}`);
+  check('switching targets before pickup never seats two riders', maxRiding <= 1, `peak ${maxRiding}`);
+}
+
 // --- The trip is public from the moment the rider is --------------------------
 // The diamond over the rider's head is the only thing marking someone on the kerb, and the trip it
 // belongs to stays hidden until pickup. Every failure mode is silent: a diamond that never appears,
@@ -551,6 +652,8 @@ check('no two cars occupy the same space', worst > 1.6,
   let pinHiddenAtPickup = 0;
   let selectionOutOfStep = 0;
   let wrongOpening = 0;
+  let drainedOpening = 0;
+  let fillOutOfStep = 0;
   let pickups = 0;
   let stillMarked = 0;   // markers that vanished at pickup instead of flying to the taxi
   let sharedJunction = 0;
@@ -577,6 +680,9 @@ check('no two cars occupy the same space', worst > 1.6,
           ? new THREE.Color(PALETTE.vip).getHexString()
           : urgencyColor(URGENCY_SEGMENTS).getHexString();
         if (diamondHex(fare.slot.marker) !== wantOpening) wrongOpening += 1;
+        // And with a full vessel: the crystal is a glass of time, and it is poured at spawn. A
+        // VIP's stays full forever rather than draining — see the fillOutOfStep loop below.
+        if (fare.slot.marker.getFill() < 0.99) drainedOpening += 1;
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
         // Distance price times the shift's multiplier, both settled at spawn — so this reads the
         // multiplier as of *this* frame, which is the one the fare was stamped with. A VIP stacks
@@ -606,6 +712,11 @@ check('no two cars occupy the same space', worst > 1.6,
     // has just been ticked against the `directed` it had going into the frame, so the rim and the
     // flag must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
     for (const f of fares.state.fares) {
+      // The liquid level *is* the seconds, on both legs — a crystal that drifts from the clock it
+      // draws is worse than one that never drained, because it reads as precision and isn't. A
+      // VIP's crystal is the one exception: it never drains at all, by design (faremarker.js).
+      const want = f.vip ? 1 : Math.max(0, Math.min(1, f.timeLeft / f.limit));
+      if (Math.abs(f.slot.marker.getFill() - want) > 1e-6) fillOutOfStep += 1;
       if (f.stage !== 'waiting') continue;
       if (f.slot.marker.isSelected() !== f.directed) selectionOutOfStep += 1;
     }
@@ -628,6 +739,11 @@ check('no two cars occupy the same space', worst > 1.6,
   check('the block count matches the trip', wrongCount === 0, `${wrongCount} mismatched`);
   check('a fresh rider\'s diamond opens on full urgency', wrongOpening === 0,
     `${wrongOpening} opened wrong`);
+  check('and opens with a full vessel', drainedOpening === 0, `${drainedOpening} opened drained`);
+  // Catches the wiring, not the model: `setUrgency` alone leaves a crystal that steps in quarters
+  // and never moves between them, which is exactly the marker this replaced.
+  check('the fill tracks the seconds on every live fare', fillOutOfStep === 0,
+    `${fillOutOfStep} frames out of step`);
   check('the price agrees with the advertised distance', wrongPrice === 0, `${wrongPrice} mispriced`);
   // The clock now comes from the trip rather than a constant, so "is it enough?" is a live
   // question every spawn rather than something settled once in a comment.
@@ -700,7 +816,7 @@ check('no two cars occupy the same space', worst > 1.6,
     // The rim is the only mark saying the taxi has been sent at this rider. It reads as *weight*
     // and must stay black at both weights: it was yellow once, and yellow is a colour this very
     // crystal wears for a quarter of every clock.
-    const hull = diamond.mesh.children[0];
+    const hull = diamond.rim;
     const rim = () => `${hull.material.color.getHexString()}@${hull.scale.x.toFixed(2)}`;
     diamond.setSelected(false);
     const idle = rim();
@@ -1381,6 +1497,99 @@ check('the taxi is an ordinary car in the traffic array',
   }
   check('no collisions fire while the taxi is not boosting', quietHits === 0,
     `${quietHits} impacts over 30s`);
+}
+
+// --- The crash blast -------------------------------------------------------
+// game/blast.js is what a wreck detonates. Its silent failure modes are all "it looked fine on the
+// impact frame": a pool that wraps and truncates the second car's burst, a slot left drawing after
+// its life ran out, or both cars' shards coming out the same colour — which is the one thing the
+// two separate debris pools it replaced were carrying.
+{
+  const eScene = new THREE.Scene();
+  const blast = createBlast(eScene, makeRng(seed + 88));
+
+  const liveScales = (mesh) => {
+    const matrix = new THREE.Matrix4();
+    const scale = new THREE.Vector3();
+    const out = [];
+    for (let i = 0; i < mesh.count; i++) {
+      mesh.getMatrixAt(i, matrix);
+      matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale);
+      if (scale.x > 0) out.push(scale.x);
+    }
+    return out;
+  };
+
+  check('a blast starts with nothing drawn', blast.active() === 0);
+
+  // Both cars of a wreck, a couple of units apart and in their own paint.
+  blast.fire(0, 0, PALETTE.taxiBody);
+  blast.fire(3, 1.5, PALETTE.carBody[1]);
+  const fired = blast.active();
+  blast.update(1 / 60);
+
+  check('both cars fit the pools without wrapping', fired === 2 * (12 + 7 + 1), `${fired} instances`);
+  check('a blast puts a ring, a fireball and shards on the road',
+    liveScales(blast.ringMesh).length === 2
+    && liveScales(blast.puffMesh).length === 24
+    && liveScales(blast.shardMesh).length === 14,
+    `${liveScales(blast.ringMesh).length} rings, ${liveScales(blast.puffMesh).length} puffs, `
+    + `${liveScales(blast.shardMesh).length} shards`);
+
+  // Each car's shards wear that car's paint — a shared pool would have repainted the first car's
+  // wreckage when the second one detonated.
+  const shardColors = new Set();
+  const instanceColor = new THREE.Color();
+  for (let i = 0; i < blast.shardMesh.count; i++) {
+    blast.shardMesh.getColorAt(i, instanceColor);
+    shardColors.add(instanceColor.getHexString());
+  }
+  const taxiHex = new THREE.Color(PALETTE.taxiBody).getHexString();
+  const otherHex = new THREE.Color(PALETTE.carBody[1]).getHexString();
+  check('each car\'s shards keep their own paint',
+    shardColors.has(taxiHex) && shardColors.has(otherHex),
+    [...shardColors].join(' '));
+
+  // The fireball peaks and then collapses — a blast that only faded left a full-size ghost of
+  // itself hanging over the road for the whole retry screen.
+  let peak = 0;
+  for (let step = 0; step < 40; step++) {
+    blast.update(1 / 60);
+    peak = Math.max(peak, Math.max(0, ...liveScales(blast.puffMesh)));
+  }
+  const later = Math.max(0, ...liveScales(blast.puffMesh));
+  check('the fireball blooms and then collapses', peak > 1 && later < peak,
+    `peak ${peak.toFixed(2)}, ${later.toFixed(2)} at 0.67s`);
+
+  // And it ends. Every slot back to zero scale, not merely faded — an instance left at size is
+  // still a draw, and this pool is never cleared by anything else.
+  for (let step = 0; step < 60 * 3; step++) blast.update(1 / 60);
+  check('a blast retires completely',
+    blast.active() === 0
+    && liveScales(blast.ringMesh).length === 0
+    && liveScales(blast.puffMesh).length === 0
+    && liveScales(blast.shardMesh).length === 0,
+    `${blast.active()} still alive`);
+
+  // Shards arc, but nothing may end up under the road: there is no bounce to catch them any more,
+  // only a floor.
+  const bScene = new THREE.Scene();
+  const floorBlast = createBlast(bScene, makeRng(seed + 89));
+  floorBlast.fire(0, 0, PALETTE.taxiBody);
+  let lowest = Infinity;
+  const matrix = new THREE.Matrix4();
+  const position = new THREE.Vector3();
+  for (let step = 0; step < 90; step++) {
+    floorBlast.update(1 / 60);
+    for (let i = 0; i < floorBlast.shardMesh.count; i++) {
+      floorBlast.shardMesh.getMatrixAt(i, matrix);
+      position.setFromMatrixPosition(matrix);
+      const scale = new THREE.Vector3();
+      matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale);
+      if (scale.x > 0) lowest = Math.min(lowest, position.y);
+    }
+  }
+  check('no shard falls through the road', lowest >= 0.2 - 1e-6, `lowest y ${lowest.toFixed(3)}`);
 }
 
 // --- Busted by the police --------------------------------------------------

@@ -118,6 +118,24 @@ export const PALETTE = {
   // it now. Yellow rather than white because white is the unclaimed-passenger marker.
   routeLine: '#FFE873',
 
+  // The crash — see game/blast.js. Three stops of one ramp rather than three separate effects:
+  // every fireball puff walks core → flame → smoke over its own life, so the cluster carries the
+  // hot centre, the flame front and the smoke tail at the same time. It is drawn unlit, which is
+  // why the smoke stop is a lit-looking grey rather than a true black: nothing here picks up the
+  // sun, so the colour has to arrive already looking like it did.
+  // The ember stop is not decoration, it is what keeps the ramp out of the mud: lerped straight
+  // from flame to smoke a puff spends its whole tail somewhere around #9A603D, which is the brick
+  // in the building list — a fireball dying the colour of the wall behind it. Going through a deep
+  // ember first is both how fire actually dies and a colour that cannot be mistaken for masonry.
+  blastCore: '#FFF3C4',
+  blastGold: '#FFA828',
+  blastFlame: '#FF7A1F',
+  blastEmber: '#8C3A12',
+  blastSmoke: '#4B4B55',
+  // The shockwave on the tarmac. A pale warm yellow rather than white — white on this asphalt
+  // reads as a lighting artefact, and the ring belongs to the fireball above it.
+  blastRing: '#FFE9A8',
+
   lightRed: '#E24B3C',
   lightYellow: '#F0B23A',
   lightGreen: '#4FBF63',
