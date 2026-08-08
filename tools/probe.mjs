@@ -39,6 +39,7 @@ import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
+import { createBlast } from '../src/game/blast.js';
 import {
   createBoost, BOOST_DURATION, BOOST_START_FRACTION, BOOST_FARE_REWARD, BOOST_COOLDOWN,
 } from '../src/game/boost.js';
@@ -1376,6 +1377,99 @@ check('the taxi is an ordinary car in the traffic array',
   }
   check('no collisions fire while the taxi is not boosting', quietHits === 0,
     `${quietHits} impacts over 30s`);
+}
+
+// --- The crash blast -------------------------------------------------------
+// game/blast.js is what a wreck detonates. Its silent failure modes are all "it looked fine on the
+// impact frame": a pool that wraps and truncates the second car's burst, a slot left drawing after
+// its life ran out, or both cars' shards coming out the same colour — which is the one thing the
+// two separate debris pools it replaced were carrying.
+{
+  const eScene = new THREE.Scene();
+  const blast = createBlast(eScene, makeRng(seed + 88));
+
+  const liveScales = (mesh) => {
+    const matrix = new THREE.Matrix4();
+    const scale = new THREE.Vector3();
+    const out = [];
+    for (let i = 0; i < mesh.count; i++) {
+      mesh.getMatrixAt(i, matrix);
+      matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale);
+      if (scale.x > 0) out.push(scale.x);
+    }
+    return out;
+  };
+
+  check('a blast starts with nothing drawn', blast.active() === 0);
+
+  // Both cars of a wreck, a couple of units apart and in their own paint.
+  blast.fire(0, 0, PALETTE.taxiBody);
+  blast.fire(3, 1.5, PALETTE.carBody[1]);
+  const fired = blast.active();
+  blast.update(1 / 60);
+
+  check('both cars fit the pools without wrapping', fired === 2 * (12 + 7 + 1), `${fired} instances`);
+  check('a blast puts a ring, a fireball and shards on the road',
+    liveScales(blast.ringMesh).length === 2
+    && liveScales(blast.puffMesh).length === 24
+    && liveScales(blast.shardMesh).length === 14,
+    `${liveScales(blast.ringMesh).length} rings, ${liveScales(blast.puffMesh).length} puffs, `
+    + `${liveScales(blast.shardMesh).length} shards`);
+
+  // Each car's shards wear that car's paint — a shared pool would have repainted the first car's
+  // wreckage when the second one detonated.
+  const shardColors = new Set();
+  const instanceColor = new THREE.Color();
+  for (let i = 0; i < blast.shardMesh.count; i++) {
+    blast.shardMesh.getColorAt(i, instanceColor);
+    shardColors.add(instanceColor.getHexString());
+  }
+  const taxiHex = new THREE.Color(PALETTE.taxiBody).getHexString();
+  const otherHex = new THREE.Color(PALETTE.carBody[1]).getHexString();
+  check('each car\'s shards keep their own paint',
+    shardColors.has(taxiHex) && shardColors.has(otherHex),
+    [...shardColors].join(' '));
+
+  // The fireball peaks and then collapses — a blast that only faded left a full-size ghost of
+  // itself hanging over the road for the whole retry screen.
+  let peak = 0;
+  for (let step = 0; step < 40; step++) {
+    blast.update(1 / 60);
+    peak = Math.max(peak, Math.max(0, ...liveScales(blast.puffMesh)));
+  }
+  const later = Math.max(0, ...liveScales(blast.puffMesh));
+  check('the fireball blooms and then collapses', peak > 1 && later < peak,
+    `peak ${peak.toFixed(2)}, ${later.toFixed(2)} at 0.67s`);
+
+  // And it ends. Every slot back to zero scale, not merely faded — an instance left at size is
+  // still a draw, and this pool is never cleared by anything else.
+  for (let step = 0; step < 60 * 3; step++) blast.update(1 / 60);
+  check('a blast retires completely',
+    blast.active() === 0
+    && liveScales(blast.ringMesh).length === 0
+    && liveScales(blast.puffMesh).length === 0
+    && liveScales(blast.shardMesh).length === 0,
+    `${blast.active()} still alive`);
+
+  // Shards arc, but nothing may end up under the road: there is no bounce to catch them any more,
+  // only a floor.
+  const bScene = new THREE.Scene();
+  const floorBlast = createBlast(bScene, makeRng(seed + 89));
+  floorBlast.fire(0, 0, PALETTE.taxiBody);
+  let lowest = Infinity;
+  const matrix = new THREE.Matrix4();
+  const position = new THREE.Vector3();
+  for (let step = 0; step < 90; step++) {
+    floorBlast.update(1 / 60);
+    for (let i = 0; i < floorBlast.shardMesh.count; i++) {
+      floorBlast.shardMesh.getMatrixAt(i, matrix);
+      position.setFromMatrixPosition(matrix);
+      const scale = new THREE.Vector3();
+      matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale);
+      if (scale.x > 0) lowest = Math.min(lowest, position.y);
+    }
+  }
+  check('no shard falls through the road', lowest >= 0.2 - 1e-6, `lowest y ${lowest.toFixed(3)}`);
 }
 
 // --- Busted by the police --------------------------------------------------
