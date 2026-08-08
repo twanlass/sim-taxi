@@ -583,11 +583,13 @@ installed* — `navigator.standalone` is the iOS-only flag and the only one olde
 `display-mode: standalone` is the standard query and covers Safari 16.4+. Either being true means
 there is nothing to suggest.
 
-**The steps are the browser's, not iOS's.** Every iOS browser is WebKit underneath, but they do not
-share a route to the share sheet: Safari puts Share in the toolbar, Chrome and Edge bury it behind
-their own ⋯ and Firefox behind ≡. So Safari's list is two steps and the others' are three, with the
-extra one naming their button. Only the **first** step carries a glyph, because only the first step
-is a hunt — everything after it is a labelled row in a sheet the player is already looking at.
+**One list, for every iOS browser.** It used to branch on the user-agent, because Safari's Share
+sits in the toolbar and Chrome's is behind ⋯ — but that stopped being true: current Safari collapses
+the toolbar behind its own ⋯, so Share is a menu item there exactly as it is in Chrome and Edge.
+Verified on a device. A second, UA-sniffed list would now be a guess about someone else's iOS
+version, and the failure it was guarding against — naming a first tap that isn't on screen — is the
+one it would cause. Only the **first** step carries a glyph, because only the first step is a hunt;
+everything after it is a labelled row in a sheet the player is already looking at.
 
 **It does not hide the city, it sinks it.** The backdrop is a gradient, transparent at the top so
 the skyline and the two HUD counters stay readable, solid black by the time the text starts. Reading
@@ -611,10 +613,16 @@ rounded faces run wide). So the CSS clamp is the *ideal* and `fitToWidth` only e
 it, against the widest line actually rendered. Measured: on a 390px viewport it leaves the ideal
 28px alone under a narrow face and pulls it to 25.5px under a wide one.
 
-**Being shown is being acknowledged**, since the screen has to be dismissed by hand — so it is shown
-once, counted in `localStorage`, and never again. `?hometip` forces it up on any platform, which is
-the only way to lay it out without a phone in hand; `tools/smoke.mjs` checks both directions of the
-detection, the step list, and the run hold under an emulated iPhone.
+**It shows on every load until the game is installed.** Nothing is remembered between loads and
+there is no dismissal to persist — the thing it asks for *is* the thing that switches it off,
+because installing the game is exactly what makes `isInstalled()` true. A player who taps past it
+ten times and then adds it to their Home Screen never sees it again; one who never installs is being
+told something that is still true. (An earlier version counted showings in `localStorage` and gave
+up after three, which meant the advice expired while the reason for it did not.)
+
+`?hometip` forces it up on any platform, which is the only way to lay it out without a phone in
+hand; `tools/smoke.mjs` checks both directions of the detection, the step list, the run hold, and
+that it returns after a reload, under an emulated iPhone.
 
 ## Debug panel
 

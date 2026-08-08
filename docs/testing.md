@@ -153,16 +153,13 @@ precisely the bug that check exists to catch.
 ([rendering.md](rendering.md#the-add-to-home-screen-screen)), so nothing in the node suite can see
 it — and it is invisible on every machine the game is developed on, which is exactly how a broken
 condition ships. The run opens a *second* page under an emulated iPhone, because the emulation has
-to be in place before the navigation. Four things are asserted there, and the two that are easy to
-get subtly wrong are worth naming:
+to be in place before the navigation. Five things are asserted there, and the one that is easy to
+get subtly wrong is worth naming: that the steps read back **More → Share → Add to Home Screen, in
+that order**. Naming a first tap that isn't on the player's screen sends them hunting for a button
+that doesn't exist, and a wrong list renders perfectly well, so only a check that reads the labels
+catches it.
 
-- On the ordinary page, the **absence of the `localStorage` counter** rather than the absence of the
-  screen — the module writes that key only on a load it has decided to show on, whereas a missing
-  overlay is equally one that has already been dismissed.
-- Under the iPhone user-agent, that the steps are **Safari's two**, not Chrome's three. Naming the
-  wrong first tap sends a player after a button that isn't on their screen, and both lists render
-  perfectly well, so only a check that reads the labels catches it.
-
-The other two are the run hold: no fare may exist while the screen is up, and one must appear once
-it is dismissed. The second half matters as much as the first — a hold that is never released is a
-game that never starts.
+The rest: it shows under an iPhone user-agent and not otherwise, it returns after a reload (nothing
+is remembered, so a dismissal that persisted would be the bug), and the run hold — no fare may exist
+while the screen is up, and one must appear once it is dismissed. That second half matters as much
+as the first: a hold that is never released is a game that never starts.

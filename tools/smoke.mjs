@@ -251,10 +251,12 @@ try {
   // The counter in localStorage is the signal, not just the card: `createHomeScreenTip` writes it
   // only on a load it has decided to show on, so an absent key means the module bowed out — where
   // an absent card could equally be one that has already timed out.
-  const SEEN_KEY = 'simtaxi.homescreen.seen';
+  // Nothing is remembered between loads any more — the screen shows until the game is *installed* —
+  // so the absence of the overlay is the whole signal, and it is a sound one here: this page was
+  // never tapped on `#home-tip`, and the screen has no timeout of its own, so one that had appeared
+  // would still be up.
   const tipSheet = "Boolean(document.querySelector('#home-tip .home-tip-sheet'))";
-  check('no Home Screen screen off iOS',
-    (await evaluate(`localStorage.getItem(${JSON.stringify(SEEN_KEY)})`)) === null);
+  check('no Home Screen screen off iOS', (await evaluate(tipSheet)) === false);
 
   // A second page, this one pretending to be an iPhone. Emulation has to be in place before the
   // navigation, so it can't be done to the page above.
@@ -293,14 +295,15 @@ try {
     check('Home Screen screen shows on iOS', shown);
 
     if (shown) {
-      // The steps have to name *this* browser's route to the share sheet. Under an iPhone Safari
-      // user-agent that is two steps, straight to Share — the three-step "More ⋯" list is Chrome's,
-      // and showing it here would send a Safari player after a button that isn't on their screen.
+      // The route to the share sheet, in order. Current iOS collapses Share behind the ⋯ menu, so
+      // the list opens there — a two-step list starting at Share would name a first tap that is not
+      // on the player's screen, and it would render perfectly while doing it, so only reading the
+      // labels back catches it.
       const steps = JSON.parse(await iosEval(
         "JSON.stringify([...document.querySelectorAll('#home-tip .step-name')].map(s => s.textContent.trim()))",
       ));
-      check('the steps are the browser\'s own route',
-        JSON.stringify(steps) === JSON.stringify(['Share', 'Add to Home Screen']),
+      check('the steps name the route in order',
+        JSON.stringify(steps) === JSON.stringify(['More', 'Share', 'Add to Home Screen']),
         steps.join(' → '));
 
       // The run is parked behind it: no fare may spawn while the screen is waiting to be tapped,
@@ -309,15 +312,13 @@ try {
         (await iosEval('window.__taxi.fares.waitingAll().length')) === 0
         && (await iosEval('window.__taxi.fares.carrying() === null')));
 
-      // Tapping anywhere puts it away and keeps it away — being shown is being acknowledged.
+      // Tapping anywhere puts it away...
       await iosEval("document.getElementById('home-tip')"
         + ".dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))");
       await sleep(600);
-      check('tapping dismisses it for good',
-        (await iosEval("document.getElementById('home-tip').hidden"))
-        && (await iosEval(`localStorage.getItem(${JSON.stringify(SEEN_KEY)})`)) === '1');
+      check('tapping dismisses it', await iosEval("document.getElementById('home-tip').hidden"));
 
-      // And the fare loop starts once it is gone — the hold has to be released, not just hidden.
+      // ...and the fare loop starts, which means the hold was released rather than just hidden.
       let spawned = false;
       const spawnDeadline = Date.now() + 20000;
       while (Date.now() < spawnDeadline) {
@@ -325,6 +326,17 @@ try {
         await sleep(400);
       }
       check('the run starts once it is dismissed', spawned);
+
+      // It comes back on the next load: nothing is remembered, because the thing it asks for is the
+      // thing that switches it off. Dismissing it must not have persisted anything.
+      await iosClient.send('Page.reload');
+      let returned = false;
+      const againDeadline = Date.now() + 20000;
+      while (Date.now() < againDeadline) {
+        if (await iosEval(tipSheet)) { returned = true; break; }
+        await sleep(300);
+      }
+      check('it returns on the next load', returned);
     }
 
     iosClient.close();

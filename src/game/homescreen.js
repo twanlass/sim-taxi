@@ -26,11 +26,11 @@
  *
  * Both are read at call time rather than at import, so the module boots in node for `npm run check`.
  *
- * **The steps are the browser's, not iOS's.** Every iOS browser is WebKit underneath, but they do
- * not share a route to the share sheet: Safari puts Share in the toolbar, Chrome and Edge bury it
- * behind their own ⋯ button, Firefox behind ≡. A list that named the wrong first tap would send the
- * player hunting for a control that isn't on their screen, which is worse than not asking at all —
- * so the list is built per browser and Safari's is one step shorter.
+ * **It shows on every load until the game is installed**, rather than asking once and giving up.
+ * Nothing is remembered between loads and there is no dismissal to persist: the thing it is asking
+ * for *is* the thing that switches it off, because installing the game is exactly what makes
+ * `isInstalled()` true. A player who taps past it ten times and then adds it to their Home Screen
+ * never sees it again, and one who never installs is being told something that is still true.
  *
  * **It holds the run.** Unlike the toast it replaced, this covers the screen and waits to be
  * tapped, so `state.holding` is true from the moment the module decides to show — main.js keeps the
@@ -47,12 +47,6 @@
 // Shorter than the toast's delay was, because this one is a gate and the run is waiting on it.
 const SHOW_AT = 800;
 
-// It covers the screen and has to be dismissed by hand, so being shown *is* being acknowledged —
-// there is no version of this where asking a second time is a service. (The counter rather than a
-// boolean so the number is the only thing to change if that turns out to be wrong.)
-const MAX_SHOWINGS = 1;
-const STORE_KEY = 'simtaxi.homescreen.seen';
-
 const RISE = 'cubic-bezier(0.22, 1, 0.36, 1)';   // the entrance every other overlay in the game uses
 
 /** True on iPhone, iPod, and iPad including the desktop-UA ones. See the header for the trap. */
@@ -68,73 +62,47 @@ function isInstalled() {
   return window.matchMedia?.('(display-mode: standalone)').matches ?? false;
 }
 
-// Safari in private browsing used to throw from `setItem` rather than no-op, and a storage
-// exception here would take the whole boot down over a nudge. Failing to read means "never seen",
-// failing to write means it shows again next load — both are the harmless direction.
-function readShowings() {
-  try {
-    return Number.parseInt(window.localStorage.getItem(STORE_KEY) ?? '0', 10) || 0;
-  } catch {
-    return 0;
-  }
-}
-function writeShowings(count) {
-  try {
-    window.localStorage.setItem(STORE_KEY, String(count));
-  } catch { /* storage unavailable — the count just doesn't persist */ }
-}
-
 const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
-// --- The glyphs -------------------------------------------------------------
-// Drawn rather than typed. None of these are characters in a font we can rely on, and the emoji
-// nearest each is a different shape — a wrong-looking icon next to the word is exactly what sends
-// someone hunting for a control that isn't there. Each is drawn as the button actually looks: the
-// browsers' menu buttons wear a circle, Safari's toolbar Share does not.
-
-const svgEl = (viewBox, markup) => {
+/**
+ * The ⋯ button, drawn rather than typed: three dots inside a ring.
+ *
+ * It is not a character in any font we can rely on, and the nearest emoji is a different shape — a
+ * wrong-looking icon beside the word is exactly what sends someone hunting for a control that isn't
+ * there. Drawn as the button actually looks, ring and all.
+ */
+function ellipsisGlyph() {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', viewBox);
+  svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');
-  svg.innerHTML = markup;
+  svg.innerHTML = '<circle cx="12" cy="12" r="10" />'
+    + '<circle class="dot" cx="7.1" cy="12" r="1.7" /><circle class="dot" cx="12" cy="12" r="1.7" />'
+    + '<circle class="dot" cx="16.9" cy="12" r="1.7" />';
   return svg;
-};
-
-/** iOS's share glyph: a box with an arrow leaving the top of it. */
-const shareGlyph = () => svgEl('0 0 24 24',
-  '<path d="M12 2.6 8.4 6.2M12 2.6l3.6 3.6M12 2.6v11.2" />'
-  + '<path d="M7.4 9.6H5.4v11.8h13.2V9.6h-2" />');
-
-/** Chrome's and Edge's ⋯ button — three dots inside a ring. */
-const ellipsisGlyph = () => svgEl('0 0 24 24',
-  '<circle cx="12" cy="12" r="10" />'
-  + '<circle class="dot" cx="7.1" cy="12" r="1.7" /><circle class="dot" cx="12" cy="12" r="1.7" />'
-  + '<circle class="dot" cx="16.9" cy="12" r="1.7" />');
-
-/** Firefox's ≡ button. */
-const menuGlyph = () => svgEl('0 0 24 24',
-  '<path d="M4 7.5h16M4 12h16M4 16.5h16" />');
+}
 
 /**
- * The taps that actually reach "Add to Home Screen" in the browser we are in.
+ * The taps that reach "Add to Home Screen".
  *
- * Safari's Share is in the toolbar, so its list is two steps. Chrome and Edge hide it behind ⋯ and
- * Firefox behind ≡, so those get a third step in front naming their own button. The final step is
- * the share sheet's own wording in every case — that is the row the player has to find in a list of
- * twenty, so it is quoted exactly rather than paraphrased.
+ * One list for every iOS browser. It used to branch — Safari's Share sits in the toolbar, so its
+ * list was a step shorter — but that stopped being true: current Safari collapses the toolbar
+ * behind its own ⋯, so Share is a menu item there exactly as it is in Chrome and Edge. Verified on
+ * a device; a UA-sniffed second list would now be a guess about someone else's iOS version, and the
+ * failure it guards against (naming a first tap that isn't on screen) is the one it would cause.
+ *
+ * The last step is the share sheet's own wording, quoted rather than paraphrased — it is the row
+ * the player has to find in a list of twenty.
  *
  * **Only the first step carries a glyph**, because only the first step is a hunt: it names a
- * control somewhere in the browser's chrome that the player has to spot. Everything after it is a
- * row in a sheet they are already looking at, labelled in words, and drawing an icon beside those
- * would be decorating rather than pointing.
+ * control somewhere in the browser's chrome that has to be spotted. Everything after it is a row in
+ * a sheet they are already looking at, labelled in words, and an icon beside those would be
+ * decorating rather than pointing.
  */
-function stepsFor(ua = navigator.userAgent ?? '') {
-  const share = { label: 'Share' };
-  const install = { label: 'Add to Home Screen' };
-  if (/CriOS|EdgiOS/.test(ua)) return [{ label: 'More', glyph: ellipsisGlyph }, share, install];
-  if (/FxiOS/.test(ua)) return [{ label: 'Menu', glyph: menuGlyph }, share, install];
-  return [{ ...share, glyph: shareGlyph }, install];
-}
+const STEPS = [
+  { label: 'More', glyph: ellipsisGlyph },
+  { label: 'Share' },
+  { label: 'Add to Home Screen' },
+];
 
 /**
  * Build and show the screen. Returns `null` when it doesn't apply — not iOS, already installed, or
@@ -146,12 +114,7 @@ function stepsFor(ua = navigator.userAgent ?? '') {
  */
 export function showHomeScreenTip(root, { force = false, onHide } = {}) {
   if (!root) return null;
-  if (!force) {
-    if (!isIOS() || isInstalled()) return null;
-    const seen = readShowings();
-    if (seen >= MAX_SHOWINGS) return null;
-  }
-  writeShowings(MAX_SHOWINGS);
+  if (!force && (!isIOS() || isInstalled())) return null;
 
   const sheet = document.createElement('div');
   sheet.className = 'home-tip-sheet';
@@ -165,7 +128,7 @@ export function showHomeScreenTip(root, { force = false, onHide } = {}) {
   // that is what puts every number and every label on one straight edge apiece.
   const list = document.createElement('ol');
   list.className = 'home-tip-steps';
-  stepsFor().forEach((step, index) => {
+  STEPS.forEach((step, index) => {
     const row = document.createElement('li');
     const n = document.createElement('span');
     n.className = 'step-index';
@@ -280,7 +243,7 @@ export function showHomeScreenTip(root, { force = false, onHide } = {}) {
  */
 export function createHomeScreenTip(root, { force = false, delay = SHOW_AT } = {}) {
   if (!root) return null;
-  if (!force && (!isIOS() || isInstalled() || readShowings() >= MAX_SHOWINGS)) return null;
+  if (!force && (!isIOS() || isInstalled())) return null;
 
   const state = { holding: true };
   let tip = null;
