@@ -563,16 +563,22 @@ function popEarning(amount) {
  * real multiple every fare's price is stamped with at spawn, and it steps on the same beat as the
  * shift toast that explains why.
  */
-function updateStreak(multiplier) {
+function updateStreak(multiplier, bump = true) {
   if (!hud.streak || !hud.streakCount) return;
   // A whole number prints as "2", a step prints as "1.5" — trailing zeros on a HUD number read as
   // precision that isn't there.
   hud.streakCount.textContent = String(Math.round(multiplier * 100) / 100);
+  if (!bump) return;
   // Toggle off / reflow / on, same as the money bump — a class that stays put doesn't re-fire.
   hud.streak.classList.remove('streak-bumped');
   void hud.streak.offsetWidth;
   hud.streak.classList.add('streak-bumped');
 }
+
+// Paint the opening multiplier, without the bump — a counter that pops on load is announcing a
+// change that hasn't happened. Read off the curve rather than left in the markup so the two cannot
+// drift: `index.html` ships a placeholder, and the first shift's payout is what it should say.
+updateStreak(difficulty.payoutMultiplier(0), false);
 
 /**
  * Announce a step up the difficulty curve, once, on the delivery that crosses into it.

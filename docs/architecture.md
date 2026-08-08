@@ -24,6 +24,7 @@ src/
 
   game/                 the player's layer
     fares.js            fare state machine, spawning, scoring
+    difficulty.js       the ramp: one scalar, and every knob hung off it
     route.js            Dijkstra over the road network's lanes, road-hierarchy weights
     routeline.js        the route band painted down the taxi's lane
     pick.js             raycast click picking

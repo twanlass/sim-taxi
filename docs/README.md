@@ -10,6 +10,7 @@ behind it that aren't obvious from the code.
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
 | [gameplay.md](gameplay.md) | The fare loop, routing, picking, the travelling clock, economy, crazy-taxi mode | `src/game/` |
+| [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, effects | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 
@@ -21,14 +22,19 @@ its turn at each junction comes from a planned route rather than a dice roll, so
 red light exactly like everyone else and cannot cheat its way to a destination.
 
 A passenger appears at an intersection under a floating **diamond**, coloured green through red by
-how much of their 60-second patience is left, swelling each time that colour steps, with a **disc**
+how much of their patience is left, swelling each time that colour steps, with a **disc**
 under their feet in the same colour. Tap them to
 route the taxi there — the diamond inks over in heavy black to say the car is on its way — and once
 they're aboard a **teal ring** appears on the road where they're going and the taxi drives on to it
 **without being told to**. The only choice on the board is which rider to grab. The clock does
 **not** reset at pickup — one deadline covers spawn to drop-off, which is
-the whole tension of the game. A delivery pays by distance, $8 for a one-block hop up to $35
-across town. Let a clock expire and the run ends.
+the whole tension of the game, and it is **budgeted from the driving that trip actually costs**
+rather than being the same number for everyone. A delivery pays by distance, $8 for a one-block hop
+up to $35 across town, times the shift multiplier. Let a clock expire and the run ends.
+
+Everything **ramps with the deliveries you land**: the board grows from one rider to four, clocks
+tighten from twice the driving they cost down to 1.15×, traffic thickens, the police come round more
+often, and fares pay up to double. A perfect player survives a median of 15.
 
 **Loco Mode** (bottom left) is the crazy-taxi button: **hold** for double speed that runs red
 lights, release to pause the meter. Two clear blocks in a row take it past double into the
