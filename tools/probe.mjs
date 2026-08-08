@@ -547,6 +547,54 @@ check('no two cars occupy the same space', worst > 1.6,
   }
 }
 
+// --- Tapping a second waiting rider before the first is picked up -----------------------------
+// Regression for a real bug: with two riders on the kerb, tapping one then the other before either
+// is collected left both `directed` — the first tap's flag never cleared when the second re-routed
+// the taxi. If the new route happened to pass within ARRIVE_RADIUS of the abandoned rider's corner
+// too, `update()` resolved a pickup for it as well: two riders "riding" off one seat. An erratic
+// player here is whoever taps every un-directed waiter, every frame, the instant carrying() is
+// false — the worst case for exactly this.
+{
+  const xScene = new THREE.Scene();
+  const xTraffic = createTraffic(makeRng(seed + 44), xScene, CARS_DEFAULT);
+  const fares = createFareSystem(makeRng(seed + 55), xScene);
+  xTraffic.warmup(5);
+
+  let elapsed = 0;
+  let maxRiding = 0;
+  let maxDirected = 0;
+  let sawTwoWaiting = false;
+
+  while (elapsed < 400 && !fares.state.gameOver && fares.state.delivered < 6) {
+    xTraffic.update(1 / 60);
+    for (const { type, fare } of fares.update(1 / 60, xTraffic.taxi)) {
+      if (type !== 'pickup') continue;
+      // The drop-off dispatches itself, same as dispatchToDropoff in main.js.
+      const r = findRoute(planOrigin(xTraffic.taxi), fare.target);
+      if (r) { xTraffic.taxi.route = r; xTraffic.taxi.routeConsumed = false; fares.markDirected(fare); }
+    }
+
+    maxRiding = Math.max(maxRiding, fares.state.fares.filter((f) => f.stage === 'riding').length);
+    maxDirected = Math.max(maxDirected, fares.state.fares.filter((f) => f.directed).length);
+
+    if (!fares.carrying()) {
+      const waiters = fares.state.fares.filter((f) => f.stage === 'waiting');
+      if (waiters.length >= 2) sawTwoWaiting = true;
+      const target = waiters.find((f) => !f.directed);
+      if (target) {
+        const r = findRoute(planOrigin(xTraffic.taxi), target.target);
+        if (r) { xTraffic.taxi.route = r; xTraffic.taxi.routeConsumed = false; fares.markDirected(target); }
+      }
+    }
+
+    elapsed += 1 / 60;
+  }
+
+  check('the board doubles up enough to exercise the switch', sawTwoWaiting);
+  check('at most one fare is ever directed at once', maxDirected <= 1, `peak ${maxDirected}`);
+  check('switching targets before pickup never seats two riders', maxRiding <= 1, `peak ${maxRiding}`);
+}
+
 // --- The trip is public from the moment the rider is --------------------------
 // The diamond over the rider's head is the only thing marking someone on the kerb, and the trip it
 // belongs to stays hidden until pickup. Every failure mode is silent: a diamond that never appears,

@@ -358,6 +358,12 @@ drop-off still only resolves for a taxi that was actually sent at it. Where the 
 teeth is the kerb: `beginRide` clears `directed`, and a rider is only ever collected by a taxi the
 player pointed at them.
 
+There is one taxi, so `markDirected` also clears the flag on whatever fare held it before: tapping
+a second waiting rider re-routes the car and moves `directed` to that rider, rather than leaving
+the abandoned one still marked. Without that, the abandoned rider stayed armed — if the new route
+happened to pass within `ARRIVE_RADIUS` of its corner, it resolved a pickup too, and the taxi ended
+up "carrying" two riders off a single seat.
+
 ### The taxi's roof sign
 
 The passenger **figure** is white — deliberately colourless. Before pickup any taxi could take any
