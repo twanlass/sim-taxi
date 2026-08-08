@@ -16,7 +16,8 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/dust.js', '../src/game/sparks.js', '../src/game/smoke.js',
   '../src/game/debris.js', '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
   '../src/game/dropoffindicator.js', '../src/game/vanish.js', '../src/game/runend.js',
-  '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js'];
+  '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
+  '../src/game/tutorial.js'];
 
 const TOOLS = [
   // Runs first: it is the control on every later step. If the road network stops describing the
