@@ -19,7 +19,8 @@ collecting a rider quickly is what buys the time to deliver them. Let a clock ex
 ends.
 
 **Loco Mode** (bottom left) is the crazy-taxi button — **hold** for double speed that blows
-through red lights and squeals around corners, release to pause. A full tank is 15 seconds of
+through red lights and squeals around corners, release to pause. Find two clear blocks in a row and
+it keeps climbing past double, to 67mph; every corner hands that back. A full tank is 15 seconds of
 boost, and it never refills on its own: you start with a third and every drop-off earns another
 third.
 

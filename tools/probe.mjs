@@ -14,7 +14,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph, SPEED } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -1734,9 +1734,56 @@ check('the taxi is an ordinary car in the traffic array',
   check('top speed follows Loco Mode up', boostTop > cruiseTop + 6,
     `${cruiseTop.toFixed(1)} -> ${boostTop.toFixed(1)} units/s`);
   // The whole point of the unit is that a player recognises it: city cruise and a fast run, not
-  // 8.5 of something.
-  check('top speed reads as a plausible mph', speedMph(boostTop) >= 45 && speedMph(boostTop) <= 60,
+  // 8.5 of something. The window covers the mode's own 54mph through the 67mph at the top of the
+  // overdrive band, since which of the two a 40s run lands on depends on the straights it found.
+  check('top speed reads as a plausible mph', speedMph(boostTop) >= 50 && speedMph(boostTop) <= 75,
     `${speedMph(boostTop)} mph`);
+}
+
+// --- Loco Mode's overdrive band ---------------------------------------------
+// The mode's ceiling is 22.95 u/s, but holding the button does not buy it: BOOST_ACCEL runs out at
+// 18.7 and the last 4.25 u/s arrive at 2.2 u/s², which is 40 units of unbroken straight road. The
+// top end is a straightaway you drove rather than a button you held, and both halves of that are
+// asserted here — that the band is reachable at all, and that there is no shortcut into it.
+// Neither failure has a tell on screen: a taper that got lost, or a straightaway that stopped
+// ending at corners, still looks exactly like an ordinary boost.
+{
+  const oScene = new THREE.Scene();
+  const oTraffic = createTraffic(makeRng(seed + 44), oScene, CARS_DEFAULT);
+  const oTaxi = oTraffic.taxi;
+  oTraffic.warmup(5);
+  oTaxi.boost = true;
+
+  const BOOST_TOP = SPEED * 2.2;       // what holding the button is worth on its own
+  const OVERDRIVE_TOP = SPEED * 2.7;   // the ceiling, at the far end of a straightaway
+
+  let top = 0;
+  let straight = 0;               // distance driven since the last real turn
+  let runToNearTop = Infinity;    // shortest straightaway that ever got within 1 u/s of the top
+  let runToBoostTop = Infinity;   // ...and the shortest that reached the button's own ceiling
+
+  for (let step = 0; step < 60 * 300; step++) {
+    oTraffic.update(1 / 60);
+    // Going straight on through a junction runs through the turn state as well, and is still part
+    // of the straightaway — only a real turn ends one. See the `car.state === 'turn'` trap.
+    if (oTaxi.state === 'turn' && oTaxi.turn?.hand !== 'straight') { straight = 0; continue; }
+    straight += oTaxi.v * (1 / 60);
+    top = Math.max(top, oTaxi.v);
+    if (oTaxi.v > OVERDRIVE_TOP - 1) runToNearTop = Math.min(runToNearTop, straight);
+    if (oTaxi.v > BOOST_TOP) runToBoostTop = Math.min(runToBoostTop, straight);
+  }
+
+  check('Loco Mode reaches its overdrive ceiling', top > OVERDRIVE_TOP - 0.01,
+    `${top.toFixed(2)} of ${OVERDRIVE_TOP.toFixed(2)} units/s`);
+  check('and never goes past it', top <= OVERDRIVE_TOP + 1e-6, `${top.toFixed(3)} units/s`);
+  // 28.7 units is what the physics says, starting from the 18.9 a corner exit leaves behind.
+  // Anything much under that means the taper is gone and the top end has become free.
+  check('the top end takes a straightaway to reach', runToNearTop > 25,
+    `${runToNearTop.toFixed(1)} units of straight road`);
+  // The other half of the deal: the mode itself still lands instantly. Its own ceiling is back
+  // within a couple of units of a corner exit, which is where the go-go-go feel lives.
+  check('boost speed itself is still instant', runToBoostTop < 5,
+    `${runToBoostTop.toFixed(1)} units of straight road`);
 }
 
 // --- The Loco Mode meter ----------------------------------------------------

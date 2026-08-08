@@ -709,6 +709,9 @@ A right-on-red still counts; the light was red when the taxi reached the line.
 
 **Top speed is shown in mph** via `speedMph()` in `sim/traffic.js`. World units are metres-ish —
 `CAR_LEN` is 3.4 against a real compact at ~4.4m — which puts one u/s at about 2.9mph and lands
-the numbers where you'd want them anyway: cruise 8.5 → **25mph**, Loco Mode 18.7 → **54mph**.
+the numbers where you'd want them anyway: cruise 8.5 → **25mph**, Loco Mode 18.7 → **54mph**, and
+the top of its [overdrive band](traffic.md#overdrive-only-on-a-straightaway) 22.95 → **67mph**. The
+stat is worth reading now that the top end has to be driven for: 54 says you used the mode, 67 says
+you found two clear blocks in a row to spend it on.
 Nothing in the simulation uses the conversion; it exists so the stat is in a unit a player has a
 feel for.
