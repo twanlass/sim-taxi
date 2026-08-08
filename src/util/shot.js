@@ -37,6 +37,11 @@ export const SHOTS = [
   // shockwave still crossing the road under it. Zoom matches WRECK_ZOOM, since that is what the
   // camera actually pulls into.
   { name: 'wreck', description: 'the crash blast, frozen at its peak', target: [0, 0], zoom: 26, warmup: 12, wreckAt: 0.22 },
+  // The ambient flyover, at play zoom — which is the question it has to answer, since the whole
+  // brief is "noticeable without being a distraction". It has the same problem the wreck does:
+  // it is up for a few seconds every minute or so, so there is no steady state to point a camera
+  // at. 5.3s in is the middle of the run, with the plane over the city.
+  { name: 'flyover', description: 'the ambient plane crossing the city', target: [0, 0], zoom: 52, warmup: 12, flyoverAt: 5.3 },
 ];
 
 export function getActiveShot() {
