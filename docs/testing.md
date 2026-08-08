@@ -11,12 +11,13 @@ Runs the whole headless suite in **under 20s** and prints one compact summary:
 ```
 ok    modules  all import and construct · sun 0.00→3.84
 ok    roadnet  250/250
-ok    probe    111/111
+ok    probe    185/185
 ok    routing  30/30
-ok    fares    3/25 median
+ok    eta      MAE 3.99s  bias -0.14s
+ok    fares    p10 7 · median 13 · p90 20
 ok    signals  7.16
 
-all green · 18.4s
+all green · 26.4s
 ```
 
 (It was ~1.8s when the suite was four tools and 28 probe assertions. Most of the time now is the
@@ -34,14 +35,28 @@ can be made and verified in a single step.
 | **roadnet** | `tools/roadnet.mjs` | The road network reproduces the grid at 1e-9 — positions, lanes, turns, legal moves, signal phase across a cycle — plus diagonals, roundabouts and curves the grid can't express. Runs first: it is the control on every step below |
 | **probe** | `tools/probe.mjs` | Traffic invariants: no car in a park, no car off-map, no signal violations, all 5,184 (approach, destination) pairs routable, front wheels locked through corners and straight on the straight |
 | **routing** | `tools/taxi.mjs 30` | Given a target, the routed taxi actually **arrives** — while still stopping at every red |
-| **fares** | `tools/soak.mjs 25 4 9` | Auto-plays the fare loop over **9 cities × 9 situations** with a fixed "player reaction" delay, and gates on the median |
+| **eta** | `tools/eta.mjs 40 3` | Fits and grades the trip-time estimator every fare deadline is budgeted from. Runs before the soak: a drifted estimator makes the soak's numbers a measurement of the drift |
+| **fares** | `tools/soak.mjs 25 4 9` | Auto-plays the fare loop over **9 cities × 9 situations** with a fixed "player reaction" delay, and gates on a **band** around the median |
 | **signals** | `tools/signals.mjs` | Throughput, stationary fraction, green-wave hit rate. Informational — it reports rather than fails |
 
 `taxi.mjs` is the assertion that matters most and the one **no screenshot can make**.
 
-`soak.mjs` is the difficulty gauge. One flat clock covering both legs means a perfect player is
-*meant* to lose eventually, so it does not gate on "never fails" — it gates on the median run being
-long enough that the loop got going at all.
+`soak.mjs` is the difficulty gauge. A perfect player is *meant* to lose eventually, so it does not
+gate on "never fails" — it gates on the median run landing inside a **band**. The lower bound is the
+old one, a run so short the loop never got going. The upper bound is newer and catches the failure
+nothing used to: a difficulty system is broken by being too easy exactly as readily as by being too
+hard, and a median that climbs out of the top means the ramp has stopped biting.
+
+It reports a distribution rather than a single number, because what is being tuned is the *shape* of
+the survival curve — p10 is the "did anyone die during the tutorial" number and a median hides it.
+It also reports how much of its budget the average fare ate, bucketed along the ramp, which is the
+direct read on whether the ramp is ramping: 50% → 56% → 73% → 87% is what the shipped curve does.
+
+`difficulty-sweep.mjs` is what the numbers in [difficulty.md](difficulty.md#what-the-sweep-found)
+came from. It plays the same cities and situations through several tunings at three reaction times,
+so the comparison is paired. Both drive `tools/autoplay.mjs`, which holds the perfect-player harness
+— a copied harness is one that drifts, and the sweep only means anything if it is playing the same
+game the soak gates on.
 
 **It sweeps seeds, and that is the point.** A single run is trip-length luck more than it is
 difficulty: one corner-to-corner fare eats 40s against a 17s average, and on some seeds even a
@@ -60,6 +75,8 @@ node tools/probe.mjs                          # individually, for detail on a fa
 node tools/taxi.mjs 60                        # more trials
 node tools/soak.mjs 40 3 20                   # 40 fares, 3s reaction, 20 runs
 node tools/soak.mjs 25 4 15 71624 103300      # ...and pin the city, to compare two builds on one map
+node tools/eta.mjs 100 6                      # refit the trip-time estimator over 6 cities
+node tools/difficulty-sweep.mjs 9 slack       # sweep a difficulty preset: slack, board, gap, shape
 node tools/signals.mjs                        # signal metrics, incl. cycle-length sweeps
 node tools/diag.mjs                           # ad-hoc scratch diagnostics
 node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM
@@ -76,12 +93,18 @@ is set for the capture to wait on.
 Rendering costs about **2s per shot** against ~1s for the entire assertion suite, so screenshots
 are for *looking at* the game, not for verifying it.
 
+Shot 11 (`busy`) pins the difficulty curve at its top (`difficulty: 1` on the preset) and auto-plays
+the fare loop until the board is full, so a four-fare late-game board can be looked at without
+playing ten fares to reach it. It exists because "can you read this board" is the one question a
+screenshot answers better than an assertion — and because the board was capped at three for years
+on a readability judgement made against a marker that no longer exists.
+
 Shot 9 (`route-far`) is the odd one out: instead of routing at whichever fare the seed produced — often
 two blocks away, where the route band's two end fades meet in the middle and show you nothing — it
 sends the taxi to the **opposite corner of the map**, so a full-length band with several turns is
 in frame.
 
-Shot 11 (`wreck`) is the other exception, and for the opposite reason: everything else in the game
+Shot 12 (`wreck`) is the other exception, and for the opposite reason: everything else in the game
 has a steady state to point a camera at, and the crash does not — it fires once, ends the run and is
 over in about a second and a half. So the shot **stages a real one**: the taxi is parked on an
 ambient car with boost on, `collisions.update()` detonates it through the same handler a live run

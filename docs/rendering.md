@@ -260,7 +260,7 @@ a camera that stays, and this one pulls into a close-up and then cuts to the ret
 of sim time rather than being switched off. It steps on the frame's already-slowed `dt`, so it
 runs at the same rate as the blast through the crash slow-mo. See
 [traffic.md](traffic.md#the-wreck) for the rest of the staging, and
-[testing.md](testing.md#screenshots) for `?shot=11`, which stages a real crash and freezes it.
+[testing.md](testing.md#screenshots) for `?shot=12`, which stages a real crash and freezes it.
 
 ### Route band — `game/routeline.js`
 

@@ -542,8 +542,13 @@ queues behind anyone; the priority corridor holds every downstream light green, 
 cars in the lane are already launching or moving by the time the cruiser arrives behind them.
 A red/blue point light rides with it.
 
-The soak test caught the cost of this immediately — a taxi held at a corridor loses time through
-no fault of the player — so the fare deadline carries a `DISRUPTION_ALLOWANCE` to cover it.
+The soak test caught the cost of this immediately: a taxi held at a corridor loses time through no
+fault of the player. This doc claimed for a long while that the fare deadline carried a
+`DISRUPTION_ALLOWANCE` to cover it — **it never did**, and no such constant has ever existed in the
+source. What covers it now is the slack multiplier on every budgeted clock
+([difficulty.md](difficulty.md#the-clock-is-budgeted)), which pays for whatever the drive actually
+runs into, corridors included. That matters more than it used to: the corridor comes round about
+twice as often at the top of the ramp as at the bottom.
 
 This is also why the player can **tailgate**: following the police car through town is a legitimate
 way to cross the map quickly.

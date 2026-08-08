@@ -24,6 +24,12 @@ export const SHOTS = [
   // it was tapped, back when there was such a state, and then for the pin's floating head; the
   // marker is a ring on the road now, and this is the only framing that shows it close up.
   { name: 'dropoff', description: 'the drop-off ring the taxi is driving at', target: [0, 0], zoom: 18, warmup: 12, untilPickup: true, atDropoff: true },
+  // The endgame board, at play zoom. `fares.js` records that three *waiting* riders was tried once
+  // and "the board stops being readable at play zoom before it stops being solvable" — the ramp
+  // now goes to four, so that judgement has to be re-made rather than inherited. It is the one
+  // question a screenshot answers better than an assertion, and the only way to reach it otherwise
+  // is to play ten fares, so this shot pins the curve at its top and fills the board.
+  { name: 'busy', description: 'a full late-game board at play zoom', target: [0, 0], zoom: 52, warmup: 12, difficulty: 1, untilBoardFull: true },
   // The wreck is the only thing in the game with no steady state: it fires once, ends the run, and
   // is over in a second and a half. Without a staged framing the only way to look at the explosion
   // was to crash in a live run and hope to catch the right frame. `wreckAt` is where in the blast's
@@ -53,6 +59,23 @@ export function getCarCount(fallback = 12) {
   if (raw === null) return fallback;
   const parsed = Number.parseInt(raw, 10);
   return Number.isNaN(parsed) ? fallback : Math.max(1, parsed);
+}
+
+/**
+ * Pins the difficulty curve via `?d=0..1`, overriding the delivery count that normally drives it.
+ *
+ * The ramp is worth several minutes of play to reach the far end of, which makes the hard part of
+ * the game the awkward part to look at: a screenshot of a four-fare board would otherwise mean
+ * playing ten fares first, and a tweak to the late game would mean playing there again to see it.
+ *
+ * Returns null when unpinned, which is what `difficulty.pinDifficulty` wants.
+ */
+export function getDifficultyPin() {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('d');
+  if (raw === null) return null;
+  const parsed = Number.parseFloat(raw);
+  return Number.isNaN(parsed) ? null : Math.max(0, Math.min(1, parsed));
 }
 
 /**
