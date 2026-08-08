@@ -93,6 +93,7 @@ try {
   await client.ready;
   await client.send('Runtime.enable');
   await client.send('Page.enable');
+  await client.send('Network.enable');
   await client.send('Page.navigate', { url: baseUrl });
 
   const evaluate = async (expression) => {
@@ -341,6 +342,42 @@ try {
 
     iosClient.close();
     await fetch(`http://127.0.0.1:${PORT}/json/close/${ios.id}`).catch(() => {});
+  }
+
+  // --- Offline: a Home Screen launch has to work with no connection at all. This only proves
+  // anything run against a built preview (`--url http://localhost:4173`) — the worker registration
+  // in main.js is skipped under `import.meta.env.DEV` on purpose, since the dev server rewrites
+  // module URLs on every change and a worker caching those responses would serve stale code back
+  // mid-session. See public/sw.js.
+  //
+  // The HTTP cache is disabled before going offline so a pass can only mean the reload was served
+  // from the worker's Cache Storage — Chrome's ordinary disk cache would otherwise paper over a
+  // worker that isn't actually caching anything, since both are populated by the same first visit.
+  const swControlled = await evaluate('Boolean(navigator.serviceWorker.controller)');
+  check('page is controlled by the service worker', swControlled);
+
+  if (swControlled) {
+    await client.send('Network.setCacheDisabled', { cacheDisabled: true });
+    await client.send('Network.emulateNetworkConditions',
+      { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
+    await client.send('Page.reload');
+
+    let bootedOffline = false;
+    const offlineDeadline = Date.now() + 15000;
+    while (Date.now() < offlineDeadline) {
+      if (await evaluate('Boolean(window.__taxi?.traffic?.taxi)').catch(() => false)) {
+        bootedOffline = true;
+        break;
+      }
+      await sleep(300);
+    }
+    check('the game boots with no connection', bootedOffline);
+
+    await client.send('Network.emulateNetworkConditions',
+      { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    await client.send('Network.setCacheDisabled', { cacheDisabled: false });
+  } else {
+    check('the game boots with no connection', false, 'no service worker controlling the page');
   }
 
   check('no uncaught exceptions', client.errors.length === 0, client.errors.join(' | '));

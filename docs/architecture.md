@@ -125,6 +125,47 @@ This is deliberate. A single shared stream means adding one `rng.range()` call i
 generator reshuffles every park and every car — you change one thing and the whole city moves,
 so you can't tell what your edit actually did.
 
+## Installability and offline support
+
+`public/sw.js`, registered from the top of `main.js`, guarded by `!import.meta.env.DEV` — skipped
+under `npm run dev`, where Vite rewrites module URLs on every change and a worker caching those
+responses would serve stale code back mid-session. It only runs against a real build (`npm run
+build` + `preview`, or the deployed site).
+
+The worker's job is one thing: a Home Screen launch has to work with no connection, which nothing
+gave it for free. The city has zero external assets already (see the docs index), but the *shell*
+— `index.html` and the Vite-built JS bundle — still has to be fetched over the network on first
+paint like any other page, and a browser that fails that fetch offline just fails to load.
+
+**Two cache strategies, split by request.** Navigations (`index.html`) go network-first, so a tab
+open online always sees the latest deploy, falling back to the cached shell only once there is no
+connection. Everything else — the hashed `/assets/*` bundle Vite fingerprints per build, the icons
+— goes cache-first: those filenames are content-hashed and therefore immutable, so a cache hit is
+always correct.
+
+**The hashed bundle is precached at install, not left to the fetch handler.** The shell's own
+`<script>`/`<link>` requests, on the load that registers the worker, race the worker's own install
+and are not guaranteed to be intercepted — a device that was only ever online for one visit could
+still come up empty offline otherwise. Since the bundle's filename isn't known ahead of time, the
+install step fetches `/index.html` fresh, regexes the real `/assets/...` paths back out of it, and
+caches those alongside the static shell files (icons, `manifest.webmanifest`). That is what makes
+a single online visit enough.
+
+`public/manifest.webmanifest` names the app and its icons for platforms that read one (Android /
+desktop Chrome and Edge use it for their own install prompts); iOS ignores it and relies on the
+`apple-mobile-web-app-*` meta tags in `index.html` instead — see
+[the "Add to Home Screen" screen](rendering.md#the-add-to-home-screen-screen) for how installing on
+iOS actually gets suggested. `netlify.toml` sets `Cache-Control: no-cache`-equivalent headers on
+both `/sw.js` and the manifest, the same as `index.html` — they're the other unhashed files a new
+deploy can change, and a long-lived CDN or browser cache on the worker script itself would hide
+every future update behind it.
+
+Checked in `tools/smoke.mjs` against a built preview: the page has to end up controlled by the
+worker, and a reload with the browser's own HTTP cache disabled and the network taken offline still
+has to boot the game — disabling the HTTP cache is what makes a pass mean the worker's Cache
+Storage actually served it, rather than Chrome's ordinary disk cache papering over a worker that
+isn't caching anything.
+
 ## Testing hooks
 
 `main.js` exposes `window.__taxi` with `traffic`, `boost`, `skids`, `police`, `fares`, `daylight`,

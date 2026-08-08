@@ -38,6 +38,15 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getA
 import { isCityConnected, GRID } from './city/grid.js';
 import { PALETTE } from './palette.js';
 
+// Caches the app shell so a Home Screen launch still opens with no connection — see public/sw.js.
+// Skipped under `npm run dev`: Vite's dev server rewrites module URLs on every change, and a
+// worker caching those responses would serve stale code back at the page mid-session. Production
+// (`npm run build` + `preview`, or the real deploy) is a static bundle, which is what the worker
+// is for.
+if (!import.meta.env.DEV && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
+}
+
 const shot = getActiveShot();
 // A fresh city every load. `?seed=N` still pins one you want to replay, and shot mode always
 // pins to a known layout so screenshots stay comparable. On the ~1-in-a-lot chance a random

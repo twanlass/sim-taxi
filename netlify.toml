@@ -24,5 +24,18 @@
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
+# The service worker script itself has to be re-fetched on every registration check, or a stale
+# HTTP cache entry would hide a new one behind the same max-age this whole table gives static
+# files. Same reasoning for the manifest — it's the other unhashed file a new deploy can change.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
 # Deliberately no SPA catch-all redirect: the game is a single page with no client-side routes, so
 # rewriting every unmatched path to index.html would only hide genuine 404s.
