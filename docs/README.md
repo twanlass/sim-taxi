@@ -9,11 +9,15 @@ behind it that aren't obvious from the code.
 | [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts, ground/buildings/props | `src/city/` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
-| [gameplay.md](gameplay.md) | The fare loop, routing, picking, the travelling clock, economy, crazy-taxi mode | `src/game/` |
+| [gameplay.md](gameplay.md) | The opening tutorial, the fare loop, routing, picking, the travelling clock, economy, crazy-taxi mode | `src/game/` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, effects | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 
 ## The 60-second version
+
+A run opens with three speech bubbles from the taxi — "this car is you", "tap that rider", and a nod
+at the boost pill halfway to the first pickup — and that is the whole tutorial; see
+[the opening tutorial](gameplay.md#the-opening-tutorial).
 
 A 5×5 block city on a fixed 3/4 orthographic camera. Ambient cars drive a lane-following traffic
 model with real signals. **The player's taxi is one of those cars** — the only difference is that

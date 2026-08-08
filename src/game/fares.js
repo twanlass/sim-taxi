@@ -188,6 +188,11 @@ export function createFareSystem(rng, scene) {
     gameOver: false,
     failTitle: 'Game Over',
     failReason: null,
+    // Holds every fare's countdown where it stands — the opening tutorial sets it while it is
+    // talking (see game/tutorial.js). Only the *clock* stops: fares still spawn, riders still
+    // wave, diamonds still bob, and the city behind the bubble carries on. A player being told how
+    // to pick someone up must not be spending the sixty seconds they are about to need on it.
+    paused: false,
   };
 
   const slots = Array.from({ length: MAX_FARES }, (_, index) => createSlot(scene, index));
@@ -512,7 +517,7 @@ export function createFareSystem(rng, scene) {
         }
       }
 
-      fare.timeLeft -= dt;
+      if (!state.paused) fare.timeLeft -= dt;
 
       // One clock, one body, wherever the fare currently is. The seconds never reset across the
       // hand-off and neither does the marker — see beginRide.
@@ -627,6 +632,8 @@ export function createFareSystem(rng, scene) {
   return {
     state,
     update,
+    /** Freeze/unfreeze every fare's countdown. See `paused` on the state above. */
+    setPaused: (paused) => { state.paused = paused; },
     crash,
     pickables,
     fareFor,
