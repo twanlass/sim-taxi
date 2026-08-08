@@ -44,8 +44,8 @@ const HANDOFF = 0.35;
 // without the framing whipping across the city to get there.
 const COACH_FOLLOW = 2.0;
 
-// The avatar disc, in CSS pixels — matches .coach-avatar in index.html.
-const AVATAR_SIZE = 46;
+// The avatar box, in CSS pixels — matches .coach-avatar in index.html.
+const AVATAR_SIZE = 54;
 // One turn every 5.5s. Quick enough to read as alive in the corner of a bubble you are reading,
 // slow enough that the car is legible as a car at every angle.
 const AVATAR_SPIN = (Math.PI * 2) / 5.5;
@@ -54,12 +54,16 @@ const prefersReducedMotion = () =>
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 /**
- * The rotating taxi in the bubble's avatar disc. Its own tiny WebGL context, the same way each
+ * The rotating taxi in the bubble's avatar. Its own tiny WebGL context, the same way each
  * rider-finder chip owns one (see game/riderfinder.js) — the mesh is the real `createTaxiMesh`, so
  * the car in the bubble is the car on the road rather than a drawing of it, and it cannot drift out
  * of step when the taxi is restyled.
+ *
+ * @param sun   the city's own key light, read (not re-parented — an Object3D has one parent) so the
+ *              avatar is lit by the same sun as the car it is a picture of
+ * @param hemi  the city's hemisphere fill, same deal
  */
-function createAvatar() {
+function createAvatar(sun, hemi) {
   const canvas = document.createElement('canvas');
   canvas.width = AVATAR_SIZE;
   canvas.height = AVATAR_SIZE;
@@ -70,12 +74,28 @@ function createAvatar() {
   renderer.setClearColor(0x000000, 0);
 
   const scene = new THREE.Scene();
-  // Front-lit, like the rider chips. The city's sun rakes across the car from one side, which is
-  // right for a car on a street and wrong for a portrait.
-  scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-  const key = new THREE.DirectionalLight(0xffffff, 0.6);
-  key.position.set(3, 5, 2);
-  scene.add(key);
+
+  // The city's own lighting rig, mirrored. Two lights with the same colours, intensities and — for
+  // the sun — the same world position, which is all a directional light's direction depends on:
+  // both scenes aim their sun at the origin, so copying the position copies the angle exactly. The
+  // car in the bubble is then lit by golden hour like everything outside it, rather than by the
+  // flat front-lit rig the rider chips use (right for a figure looking at you, wrong for the same
+  // vehicle the player is looking down at).
+  //
+  // Mirrored per frame rather than cloned once, so a day/night cycle turned on from the ⚙️ panel
+  // carries into the bubble instead of leaving it stranded at whatever hour it was built.
+  const avatarSun = new THREE.DirectionalLight(sun.color.getHex(), sun.intensity);
+  const avatarHemi = new THREE.HemisphereLight(hemi.color.getHex(), hemi.groundColor.getHex(),
+    hemi.intensity);
+  scene.add(avatarSun, avatarSun.target, avatarHemi);
+  const syncLights = () => {
+    avatarSun.position.copy(sun.position);
+    avatarSun.color.copy(sun.color);
+    avatarSun.intensity = sun.intensity;
+    avatarHemi.color.copy(hemi.color);
+    avatarHemi.groundColor.copy(hemi.groundColor);
+    avatarHemi.intensity = hemi.intensity;
+  };
 
   const taxi = createTaxiMesh();
   // The ghost outline needs `stencil: true`, which this renderer does not ask for — without the
@@ -84,11 +104,10 @@ function createAvatar() {
   taxi.group.traverse((node) => {
     if (node.name === 'ghostMask' || node.name === 'ghostRim') node.visible = false;
   });
-  // Roof sign lit. On the road that means a rider is aboard; here it is the one light-coloured
-  // panel on the car's dark upper half, and at 46px across it is what stops the cabin and the sign
-  // merging into a single dark block sitting on a yellow one. It also happens to be the part that
-  // says "taxi".
-  taxi.setOccupied(true);
+  // Sign dark — the taxi is empty at the start of a run, and the avatar is a picture of the actual
+  // car, not a logo. (It was lit for a while, back when this had a flat front-lit rig and the
+  // cabin and sign merged into one dark block; the city's own raking sun separates them.)
+  taxi.setOccupied(false);
 
   // Spun about a parent rather than about the mesh itself, so the taxi keeps whatever local
   // transform createTaxiMesh gave it (the 1.18 scale, the YXZ rotation order for roll).
@@ -111,7 +130,7 @@ function createAvatar() {
   // and only a broadside bumper reaches the sides, so the honest visual centre sits lower than the
   // geometric one.
   const CENTRE_Y = 1.0;
-  const FIT = 3.0;               // 2.79 plus ~8% air
+  const FIT = 2.9;               // 2.79 plus 4% air
   const camera = new THREE.OrthographicCamera(-FIT, FIT, FIT, -FIT, 0.1, 60);
   camera.position.set(0, CENTRE_Y, 0).addScaledVector(VIEW_DIR, 20);
   camera.lookAt(0, CENTRE_Y, 0);
@@ -123,6 +142,7 @@ function createAvatar() {
     canvas,
     render(elapsed) {
       pivot.rotation.y = prefersReducedMotion() ? stillAngle : elapsed * AVATAR_SPIN;
+      syncLights();
       renderer.render(scene, camera);
     },
     /** Hand the WebGL context back once the tutorial is over — it is never shown again. */
@@ -139,13 +159,13 @@ function createAvatar() {
  * A tap mid-type finishes the line rather than dismissing it — the standard convention, and the one
  * that stops an eager first tap throwing away a sentence nobody has read yet.
  */
-function createBubble(root, onDismiss) {
+function createBubble(root, { sun, hemi }, onDismiss) {
   const button = root.querySelector('.coach-bubble');
   const ghost = root.querySelector('.coach-ghost');
   const typed = root.querySelector('.coach-typed');
   const avatarSlot = root.querySelector('.coach-avatar');
 
-  const avatar = createAvatar();
+  const avatar = createAvatar(sun, hemi);
   avatarSlot.appendChild(avatar.canvas);
 
   let text = '';
@@ -210,27 +230,39 @@ function createBubble(root, onDismiss) {
   };
 }
 
+// The lit pool, in world units — sized here rather than in pixels because 1 world unit is only
+// ~7.7px at play zoom, so a pool measured in pixels would be a different size on every viewport.
+// The taxi is ~4 units long and a rider stands about 3 tall, so 6 units of clean centre is "the
+// subject and the kerb it stands on" and no more; the fade runs out over about half a block.
+// Both were half again as wide at first, which lit most of a 5x5 city and made the pool read as
+// general gloom rather than as a light pointed at one thing.
+const POOL_CLEAR = 6;
+const POOL_EDGE = 17;
+
 /**
  * Wire the tutorial up.
  *
  * Every dependency is a callback rather than a module import, because this thing reaches across
- * three systems that have no business knowing about each other — the camera controller, the fare
- * board and the taxi — and the wiring is main.js's job.
+ * four systems that have no business knowing about each other — the camera controller, the fare
+ * board, the taxi and the scene's lighting — and the wiring is main.js's job.
  *
  * @param controller    the city camera (glideTo / followXZ / updateGlide)
  * @param aspect        () => number, the live viewport aspect
  * @param isNarrow      () => boolean; on a wide viewport the whole city is framed by default, so
  *                      the tutorial puts that framing back when it is done
  * @param taxi          the live taxi car object, read for its position each frame
+ * @param lights        {sun, hemi} — the city's own rig, mirrored into the avatar
+ * @param project       (x, y, z) => {x, y} — world to viewport pixels, for aiming the spotlight
+ * @param pixelsPerUnit () => number — the camera's current scale, for sizing it
  * @param waitingFare   () => fare | null — whoever is on the kerb to point at
  * @param fareLocation  (fare) => {x, z} — the kerb corner to centre, not the junction
  * @param isDispatched  () => boolean — has the player sent the taxi at anyone yet
  * @param isOver        () => boolean — run ended under the tutorial (a wreck, say); drop everything
  * @param onRunning     (running: boolean) => void — fires on start and on dismissal; main.js holds
- *                      the fare clocks between the two
+ *                      the fare clocks and the HUD's entrance between the two
  */
 export function createTutorial({
-  controller, aspect, isNarrow, taxi,
+  controller, aspect, isNarrow, taxi, lights, project, pixelsPerUnit,
   waitingFare, fareLocation, isDispatched, isOver = () => false, onRunning = () => {},
 }) {
   const root = document.getElementById('coach');
@@ -253,13 +285,33 @@ export function createTutorial({
   let cameraReleased = false;
   const home = { x: controller.state.target.x, z: controller.state.target.z };
 
-  const bubble = createBubble(root, () => dismiss());
+  // Where the spotlight is pointed. The taxi while the first bubble is up, then the rider from the
+  // moment the camera sets off for them — so the pool is already on the rider and the pan brings
+  // the player to it, rather than the light snapping on after they arrive.
+  const spotlight = document.getElementById('spotlight');
+  let spotAt = null;              // {x, z} in world space, or null for "aim at the taxi"
+
+  const bubble = createBubble(root, lights, () => dismiss());
+
+  /** Aim and size the pool for this frame. Cheap — three custom properties on one div. */
+  function updateSpotlight() {
+    if (!spotlight) return;
+    const at = spotAt ?? { x: taxi.x, z: taxi.z };
+    // 1.4 up: the middle of a car's flank and about a rider's chest, so the pool is centred on the
+    // subject rather than on the patch of road it is standing on.
+    const p = project(at.x, 1.4, at.z);
+    const px = pixelsPerUnit();
+    spotlight.style.setProperty('--sx', `${p.x.toFixed(0)}px`);
+    spotlight.style.setProperty('--sy', `${p.y.toFixed(0)}px`);
+    spotlight.style.setProperty('--r0', `${(POOL_CLEAR * px).toFixed(0)}px`);
+    spotlight.style.setProperty('--r1', `${(POOL_EDGE * px).toFixed(0)}px`);
+  }
 
   function end() {
     if (state.step === 'done') return;
     state.step = 'done';
     bubble.hide();
-    document.body.classList.remove('coach-open');
+    document.body.classList.remove('coach-open', 'spotlight-on');
     onRunning(false);
     // The context is no use to anyone once the bubble is gone for good. Held until the exit
     // animation has played — the avatar is still spinning through it.
@@ -281,7 +333,10 @@ export function createTutorial({
   function finish() {
     if (state.step === 'restore' || state.step === 'done') return;
     bubble.hide();
-    document.body.classList.remove('coach-open');
+    // The lights come up with the bubble's dismissal, not with the end of the restore glide —
+    // holding the city dark through a camera move the player did not ask for reads as the tutorial
+    // still having something to say.
+    document.body.classList.remove('coach-open', 'spotlight-on');
     onRunning(false);
     if (!isNarrow() && !cameraReleased) {
       state.step = 'restore';
@@ -292,6 +347,8 @@ export function createTutorial({
   }
 
   document.body.classList.add('coach-open');
+  updateSpotlight();                      // aim it before it fades up, or it blooms from the centre
+  document.body.classList.add('spotlight-on');
   onRunning(true);
   bubble.show(LINES.taxi);
 
@@ -300,6 +357,9 @@ export function createTutorial({
     if (isOver()) { end(); return; }
     elapsed += dt;
     bubble.update(dt, elapsed);
+    // Tracked through the restore glide too: the pool is fading out over ~0.45s and a stale centre
+    // would slide it across the city as the camera moves under it.
+    updateSpotlight();
 
     // The player found a rider and tapped them without waiting to be told — nothing stops them, and
     // they have just done the whole of beat two unprompted. Get out of the way rather than teaching
@@ -315,6 +375,9 @@ export function createTutorial({
         if (!fare) return;              // board momentarily empty; wait for the next spawn
         const at = fareLocation(fare);
         controller.glideTo(at.x, at.z);
+        // The pool moves to the rider now, with the camera, rather than when the bubble reappears
+        // — so the light is already on them and the pan carries the player to it.
+        spotAt = at;
         panned = true;
         return;
       }

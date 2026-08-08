@@ -3,16 +3,53 @@
 ## The opening tutorial
 
 `src/game/tutorial.js`, with its markup and styling in `index.html` under `#coach`. A white speech
-bubble in the bottom centre with the player's own taxi turning in a round avatar, and the line
-typing itself out. **Two beats, and that is all of it:**
+bubble in the bottom centre with the player's own taxi turning beside the text, tail on top pointing
+up at whatever it is talking about, and the line typing itself out. **Two beats, and that is all of
+it:**
 
-1. **"Let's pick up some rides and earn some cash."** The camera follows the taxi while it types.
-   The one thing a new player cannot work out by looking is which of the hundred cars down there is
-   theirs — so the car itself says it, and the camera puts it in the middle of the screen. Tap to
-   dismiss.
-2. **"Tap this rider to pick them up."** The camera pans to the waiting fare and the bubble comes
-   back once it has arrived, so the figure it is talking about is on screen before it starts
-   talking. Tapping the rider ends the tutorial; so does tapping the bubble.
+1. **"Let's pick up some rides and earn some cash."** The camera follows the taxi while it types and
+   a spotlight picks it out of a darkened city. The one thing a new player cannot work out by
+   looking is which of the hundred cars down there is theirs — so the car itself says it, and both
+   the camera and the light land on it. Tap to dismiss.
+2. **"Tap this rider to pick them up."** The spotlight moves to the waiting fare as the camera sets
+   off for them, so the light is already on the rider and the pan carries the player to it; the
+   bubble comes back once the camera has arrived. Tapping the rider ends the tutorial; so does
+   tapping the bubble.
+
+The avatar is the real `createTaxiMesh()` in its own small WebGL context, the way each rider-finder
+chip owns one — so the car in the bubble is the car on the road and cannot drift out of step when
+the taxi is restyled. It is viewed down the game's own `VIEW_DIR`, lit by the city's own sun and
+hemisphere fill (mirrored per frame, so turning the day/night cycle on carries into the bubble), and
+framed on the cylinder the car sweeps as it turns so nothing clips at any angle of the spin.
+
+### The spotlight
+
+A single `#spotlight` div: two radial gradients centred on the subject, a warm core over a darkening
+wash. Not a three.js `SpotLight` — that would mean turning down the scene's own sun and re-lighting
+one patch of a city built around a single global key, which is a rendering change to carry a
+two-sentence lesson. This costs one composited element.
+
+Both radii are sized in **world units** and converted per frame, because 1 world unit is only
+~7.7px at play zoom and a pool measured in pixels would be a different size on every viewport (and
+wrong the moment anything moves the zoom). The clear centre is 6 units — the subject and the kerb it
+stands on, no more. At half again as wide it lit most of a 5×5 city and read as general gloom rather
+than as a light pointed at one thing.
+
+The warm core matters more than it looks: the darkening alone left the subject merely *not dimmed*,
+which at this contrast is not the same as lit.
+
+### The HUD arrives afterwards
+
+The money counter, the streak counter, the Loco Mode pill and the rider chips all start off their
+own screen edge and slide in together the moment the last bubble is dismissed. A run used to open
+with all four already lit, every one of them reading zero and answering a question nobody had asked
+yet. `main.js` adds `body.hud-ready`; with no tutorial to wait for (`?tutorial=off`, shot mode) they
+are simply there from the first frame.
+
+The offset is the standalone `translate` property, **not** a transform. Three of those four already
+animate their own transform — the money bump, the streak bump, the Loco Mode press dip and its
+top-up flutter — and a `body.hud-ready #boost { transform: none }` outranks `#boost:active` on
+specificity, which would quietly kill the press feedback for the rest of the run.
 
 Nothing else is taught. The drop-off [dispatches itself](#the-drop-off-dispatches-itself), the
 clock is [a coloured crystal over a head](#the-fares-clock-travels), and Loco Mode is a pill with a

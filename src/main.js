@@ -434,11 +434,20 @@ const wantsTutorial = new URLSearchParams(window.location.search).get('tutorial'
 // hold, and the spawn toast stays quiet — both for the same reason, that whatever the bubble is
 // saying is the only thing the player should be reading or paying for.
 let tutorialTalking = false;
+const revealHud = () => document.body.classList.add('hud-ready');
 tutorial = shot || !wantsTutorial ? null : createTutorial({
   controller,
   aspect,
   isNarrow,
   taxi: traffic.taxi,
+  // The city's own rig, so the car in the bubble is lit by the same golden hour as the car on the
+  // road. Read, not re-parented — an Object3D belongs to one scene.
+  lights: { sun, hemi },
+  project: projectToScreen,
+  // Orthographic, so world-units-per-pixel falls straight out of the frustum height: the vertical
+  // world span is exactly 2 * zoom. This is what keeps the spotlight the same size on every
+  // viewport, and correct if a wreck ever pulls the zoom in under it.
+  pixelsPerUnit: () => window.innerHeight / (2 * controller.state.zoom),
   // The one the game means by "the waiting fare" — the shortest clock on the kerb. At this point in
   // a run there is only ever one, but pointing at the same rider the rest of the HUD would is free.
   waitingFare: () => fares.waiting(),
@@ -454,8 +463,16 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   onRunning: (running) => {
     tutorialTalking = running;
     fares.setPaused(running);
+    if (!running) revealHud();
   },
 });
+
+// The money counter, the streak counter, the Loco Mode pill and the rider chips all start off
+// their own screen edge and slide in together — see the HUD entrance block in index.html. A run
+// used to open with all four already lit, every one of them reading zero and answering a question
+// nobody had asked yet. They arrive when the tutorial stops talking; with no tutorial to wait for
+// (`?tutorial=off`, shot mode) they are simply there from the first frame.
+if (!tutorial) revealHud();
 
 // --- HUD --------------------------------------------------------------------
 
@@ -473,13 +490,18 @@ const hud = {
 let shownMoney = 0;
 let moneyRoll = null;
 
-/** Screen position of the taxi, for anchoring the earnings pop. */
-function taxiScreenPos() {
-  const v = new THREE.Vector3(traffic.taxi.x, 1.4, traffic.taxi.z).project(camera);
+/** A world point in viewport pixels. The one place the NDC-to-pixels arithmetic lives. */
+function projectToScreen(x, y, z) {
+  const v = new THREE.Vector3(x, y, z).project(camera);
   return {
     x: (v.x * 0.5 + 0.5) * window.innerWidth,
     y: (-v.y * 0.5 + 0.5) * window.innerHeight,
   };
+}
+
+/** Screen position of the taxi, for anchoring the earnings pop. */
+function taxiScreenPos() {
+  return projectToScreen(traffic.taxi.x, 1.4, traffic.taxi.z);
 }
 
 /**
@@ -1109,8 +1131,7 @@ window.__taxi = {
   targetScreenPosition: (fare = fares.focus()) => {
     if (!fare) return null;
     const c = fares.intersectionCentre(fare.target.i, fare.target.j);
-    const v = new THREE.Vector3(c.x, 5, c.z).project(camera);
-    return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight };
+    return projectToScreen(c.x, 5, c.z);
   },
 };
 
