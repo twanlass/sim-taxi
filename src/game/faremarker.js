@@ -5,6 +5,7 @@ import {
   createDiamond, DIAMOND_R, RIM_SCALE, bounceOffset, kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
 } from '../geometry/diamond.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
+import { createVipBeacon, VIP_BEACON_R, VIP_SPIN_RATE } from '../geometry/vipbeacon.js';
 
 // The fare's clock, as a physical object: one geodesic diamond, coloured by how close this fare is
 // to giving up — green, yellow, orange, red, with a disc under the rider's feet in the same colour
@@ -75,6 +76,11 @@ const PULSE_BELOW_S = 5;
 const PULSE_HZ = 3.5;
 const PULSE_AMPLITUDE = 0.15;
 
+// The VIP beacon's local height above the diamond, in the group's own space — clear of the
+// diamond's own bounce (BOUNCE_HEIGHT on top of DIAMOND_R) so the two never touch, with a little
+// more air on top of that so they read as two separate objects rather than one tall one.
+const VIP_LOCAL_Y = DIAMOND_R + VIP_BEACON_R + 1.3;
+
 /**
  * One fare's marker. Built once per fare slot and re-set on every spawn, the same way the rest of
  * the slot's meshes are reused.
@@ -97,6 +103,16 @@ export function createFareMarker(scene, phase = 0) {
   const group = new THREE.Group();
   group.visible = false;
   group.add(diamond.mesh);
+
+  // The VIP badge. A child of the same group as the diamond, so it rides every animation the
+  // diamond's group already gets — the kerb-to-taxi flight included — for free, and never has to
+  // be told to follow along.
+  const beacon = createVipBeacon();
+  beacon.raycast = () => {};
+  beacon.visible = false;
+  beacon.position.y = VIP_LOCAL_Y;
+  group.add(beacon);
+
   scene.add(group);
 
   // The disc under the rider's feet. Its own scene-level group rather than a child of the one
@@ -148,6 +164,9 @@ export function createFareMarker(scene, phase = 0) {
     mesh: diamond.mesh,
     // Likewise the disc on the ground, which has to agree with the crystal on every frame.
     ring: ring.group,
+    // The VIP badge, likewise — visible only for a VIP fare's marker.
+    beacon,
+    isVip: () => beacon.visible,
     setUrgency,
     /** Mark the rider the taxi has been sent at. Only meaningful while they are still on the kerb. */
     setSelected,
@@ -158,7 +177,7 @@ export function createFareMarker(scene, phase = 0) {
     isTransferring: () => transferPending || transferAt !== null,
 
     /** Show the marker over a rider who has just appeared, at their kerb corner. */
-    showAt(nextLevel, x, z) {
+    showAt(nextLevel, x, z, vip = false) {
       // Straight to the opening colour with no kick: a marker that pops the moment it appears is
       // announcing a change that hasn't happened.
       level = nextLevel;
@@ -175,6 +194,7 @@ export function createFareMarker(scene, phase = 0) {
       ring.group.visible = true;
       diamond.mesh.scale.setScalar(1);
       setSelected(false);
+      beacon.visible = vip;
       group.visible = true;
     },
 
@@ -248,6 +268,12 @@ export function createFareMarker(scene, phase = 0) {
       // The kick and the pulse share the scale channel and simply add: a level change landing inside
       // the last five seconds should read as a knock on top of a beating marker, not replace it.
       diamond.mesh.scale.setScalar(1 + kick * KICK_SCALE + pulse);
+
+      // The beacon shares the diamond's panic pulse — a VIP running out of time is exactly as
+      // urgent as an ordinary one — but owns no kick of its own; it never changes colour or level,
+      // so there is no "change" for a kick to announce.
+      beacon.rotation.y = elapsed * VIP_SPIN_RATE;
+      beacon.scale.setScalar(1 + pulse);
     },
   };
 }

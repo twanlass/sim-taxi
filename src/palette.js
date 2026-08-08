@@ -82,6 +82,11 @@ export const PALETTE = {
   // so a colour there would imply a commitment that doesn't exist yet.
   passenger: '#FFFFFF',
 
+  // The VIP beacon — a fixed purple, never drawn from the urgency scale, so "this one is a VIP" is
+  // never confusable with how much time it has left. High-chroma like every other game-entity
+  // colour here: it has to read against muted buildings from across the board.
+  vip: '#A64DFF',
+
   // Urgency, indexed by how much of the clock is left, in quarters. Deliberately not a ramp: a
   // colour that changes imperceptibly tells the player nothing, so it snaps at each quarter lost.
   // 1 and 0 share red — by then there is nothing redder to go to.

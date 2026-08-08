@@ -577,9 +577,12 @@ check('no two cars occupy the same space', worst > 1.6,
         }
         if (fare.blocks !== blockDistance(fare.pickup, fare.dropoff)) wrongCount += 1;
         // Distance price times the shift's multiplier, both settled at spawn — so this reads the
-        // multiplier as of *this* frame, which is the one the fare was stamped with.
+        // multiplier as of *this* frame, which is the one the fare was stamped with. A VIP stacks
+        // its own streak multiplier on top (see fares.js); `fare.vipMultiplier` is 1 for everyone
+        // else, so the formula is unchanged for an ordinary fare.
         const due = Math.round(priceFor(fare.pickup, fare.dropoff)
-          * difficulty.payoutMultiplier(fares.state.delivered));
+          * difficulty.payoutMultiplier(fares.state.delivered)
+          * fare.vipMultiplier);
         if (fare.value !== due) wrongPrice += 1;
         // The clock is budgeted from the driving, so it has to cover it with the run's slack in
         // hand. Below 1.0 the rider cannot be delivered even by a perfect drive.
