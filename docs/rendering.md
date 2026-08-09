@@ -202,10 +202,17 @@ fragment in the main render.
   a bilinear blend of two packed depths unpacks to nothing meaningful.
 - **The shadow map is switched off for the prepass.** Left on, three rebuilds all 2048×2048 of it a
   second time per frame for a render that never reads it.
-- **Radius is clamped to 1–12 texels.** Below one texel both taps of a pair land on the same sample
-  and the Laplacian is identically zero; above the ceiling the eight taps spread into a smudge.
-  Both bind only at the ends of the zoom range — the ceiling at `?shot=6`'s zoom 9, the floor past
-  about zoom 100 — never at play zoom.
+- **Radius is clamped to 1–6 texels.** Below one texel both taps of a pair land on the same sample
+  and the Laplacian is identically zero; above the ceiling the eight taps spread into a smudge. The
+  floor binds only at the far end of the zoom range, past about zoom 100. The ceiling is a *texel*
+  budget, though, not a world-unit one — held fixed while world-units-per-texel keeps growing as the
+  player zooms in, so the world-space radius it clamps to grows right along with it. A wall standing
+  behind a car cancels its own depth Laplacian far more weakly than flat ground does (see
+  `MAX_DEPTH_DIFF` below), so once that clamped radius reached far enough up the wall, the broad
+  ring's tap kept spilling from the car's roofline onto the wall behind it and painted a false crease
+  climbing it — a shadow the sun never cast, worst right at `camera.js`'s `MIN_ZOOM` (14), the
+  closest the player can actually scroll in. 6 keeps that climb to a couple of pixels there; 12 let
+  it read as a shadow.
 - **AO multiplies the indirect term only.** Occlusion is a statement about how much sky reaches a
   crease, not about whether the sun does, and this game's look is one lit face per building at
   golden hour. Folding it into the direct term greys those faces off and buys nothing the shadow
