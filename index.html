@@ -226,7 +226,11 @@
       body.shot-mode #hud, body.shot-mode #toast, body.shot-mode #run-end { display: none; }
 
       #boost {
-        position: fixed; bottom: 26px; left: 26px; z-index: 20;
+        /* 3/4 width, centred on the bottom edge — wide enough that a thumb pressing it no longer
+           covers the whole pill, which is what let the mirror bar above it (see the removed
+           #boost::before) retire; the fill is visible past the thumb on either side now. */
+        position: fixed; bottom: 26px; left: 12.5%; right: 12.5%; z-index: 20;
+        text-align: center;
         padding: 14px 26px; border-radius: 999px; cursor: pointer;
         /* Black outline so the pill holds its shape against pale asphalt and the yellow taxi. */
         border: 2px solid #16120a;
@@ -255,27 +259,6 @@
            translucent version read as the same tan as the road and the dial lost its edge. */
         background: linear-gradient(90deg, #FFE873 var(--pct, 100%), #fff 0);
         box-shadow: 0 0 30px rgba(255, 232, 115, 0.85);
-      }
-      /* A mirror of the dial floated above the pill, only shown while the button is active. The
-         finger holding the button covers the fill on mobile; this thin bar reads the same `--pct`
-         and stays visible above the touch. Width tracks the pill (left/right pinned to 0), so it
-         resizes with the button and stays perfectly aligned. Offset is generous — a thumb pressing
-         the pill can easily cover ~40px above it, and an earlier 8px gap still landed under the
-         knuckle on phones. */
-      #boost::before {
-        content: ''; position: absolute; left: 0; right: 0; bottom: calc(100% + 56px);
-        height: 12px; border-radius: 100px; border: 2px solid #16120a;
-        background: linear-gradient(90deg, #FFE873 var(--pct, 100%), #fff 0);
-        opacity: 0; transform: translateY(4px);
-        transition: opacity 0.12s ease, transform 0.12s ease;
-        pointer-events: none;
-      }
-      #boost.is-active::before { opacity: 1; transform: translateY(0); }
-      /* Desktop has a cursor, not a thumb — nothing covers the pill, so the mirror bar is
-         just visual noise. Gate on a fine pointer with hover so hybrid touchscreens (Surface,
-         iPad with trackpad) that also expose touch still keep it. */
-      @media (hover: hover) and (pointer: fine) {
-        #boost::before, #boost.is-active::before { display: none; }
       }
       /* Empty tank. Nothing refills on its own, so this greyed-out state persists until the next
          drop-off tops it up — it reads as "go earn it", not "wait for it". */
@@ -337,17 +320,16 @@
       #boost:active { transform: scale(0.95); }
       body.shot-mode #boost { display: none; }
 
-      /* Rider finder — one chip per waiting fare, stacked vertically above the Loco Mode pill in
-         the bottom-left corner so both live in the same reach zone for a right-thumb hold. Sized
-         to the same 49px height as Loco Mode so the two controls read as a matched pair; the
-         column grows upward as extra riders spawn, keeping the bottom-most chip anchored just
-         above the Loco Mode dial. Offset from the button leaves clearance for the mirror bar that
-         floats above the pill while boost is active (see #boost::before). Each chip is a circular
-         disc with a conic-gradient ring for the fare's clock — same four-stage colour as the
-         in-world timer — and a mini three.js canvas drawing the figure. */
+      /* Rider finder — one chip per waiting fare, in a row above the Loco Mode pill, left-aligned
+         to the pill's own left edge so both controls share one visual column in the bottom-centre
+         reach zone. Sized to the same 49px height as Loco Mode so the two read as a matched pair;
+         the row grows rightward as extra riders spawn, keeping the first chip anchored above the
+         pill's left edge. Each chip is a circular disc with a conic-gradient ring for the fare's
+         clock — same four-stage colour as the in-world timer — and a mini three.js canvas drawing
+         the figure. */
       #rider-finder-stack {
-        position: fixed; left: 26px; bottom: 155px; z-index: 20;
-        display: flex; flex-direction: column-reverse; align-items: center; gap: 8px;
+        position: fixed; left: 12.5%; bottom: 95px; z-index: 20;
+        display: flex; flex-direction: row; align-items: center; gap: 8px;
         pointer-events: none;
       }
       body.shot-mode #rider-finder-stack { display: none; }
@@ -435,9 +417,9 @@
       #coach[hidden] { display: none; }
       /* The third beat is about a control rather than about something in the city, so it sits
          directly over that control with its tail pointing down at it — left-aligned to the Loco
-         Mode pill's own 26px gutter, just clear of the pill's top edge (26 + 49 = 75). The other
+         Mode pill's own left edge, just clear of the pill's top edge (26 + 49 = 75). The other
          two hang centred with the tail up, because what they are talking about is up there. */
-      #coach.at-boost { bottom: 94px; justify-content: flex-start; padding-left: 26px; }
+      #coach.at-boost { bottom: 94px; justify-content: flex-start; padding-left: 12.5%; }
       /* Grows up out of the tail, which is now underneath it. */
       #coach.at-boost .coach-bubble {
         transform-origin: 45px 100%;
