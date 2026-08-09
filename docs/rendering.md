@@ -232,9 +232,6 @@ contain the solid world and nothing else. Two halves to the rule, and both are a
   would wear that building's contact line across their chest. This is why the riders are marked
   even though a figure is 23px tall.
 
-The stop bars are the one deliberate omission — 0.05-unit road paint, whose own outline is not a
-contact.
-
 The lookup itself rides in `propMaterial()` (`util/geo.js`) as an `onBeforeCompile` patch on
 three's `<aomap_fragment>` hook, keyed in screen space off `gl_FragCoord`. It carries a
 `customProgramCacheKey`, for [the reason the diamond's fill does](#the-diamond--geometrydiamondjs)

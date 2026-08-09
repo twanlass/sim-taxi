@@ -392,20 +392,6 @@ export function lightPhase(i, j, t, ignorePriority = false) {
 export const displayPhase = (i, j, t) => lightPhase(i, j, t, true);
 
 /**
- * The same thing for one approach, which is what a stop bar actually shows. Skips the boost hold
- * and keeps the corridor, exactly as `displayPhase` does and for the reasons above it.
- */
-function displaySignal(lane, t) {
-  const net = cityNetwork();
-  const node = net.nodeById.get(lane.to);
-  if (corridorCovers(node.gi, node.gj)) {
-    const mine = isXAxis(net.dirOfLane(lane)) ? 'x' : 'z';
-    return { open: corridor.axis === mine, yellow: false };
-  }
-  return net.laneSignal(lane, t);
-}
-
-/**
  * What the signal is doing for the approach this car is on.
  *
  * The same four layers `lightPhase` always resolved, in the same order — boosting-taxi hold, police
@@ -971,51 +957,6 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
   scene.add(mesh);
   scene.add(wheelMesh);
 
-  // --- Stop bars ------------------------------------------------------------
-  //
-  // The signal lives on the road, not on a pole. Corner-mounted heads were unreadable from this
-  // camera: one head served two opposing approaches, it sat nearer the block corner than the road
-  // it governed, and nothing about it said which direction it applied to. A bar painted across
-  // the lane you are driving, at the point you would stop, removes both ambiguities — there is
-  // exactly one bar for your approach and it is directly in front of you.
-  //
-  // Placed just outside the crosswalk, so a car holding at the line sits behind the bar rather
-  // than on top of it.
-  // Measured back from where the lane ends, which is the junction boundary. The old form measured
-  // from the junction *centre* and subtracted HALF_ROAD to get here.
-  const BAR_SETBACK = 2.05;
-
-  const barGeo = bakeColor(new THREE.PlaneGeometry(0.7, 3.6), new THREE.Color(1, 1, 1));
-  barGeo.rotateX(-Math.PI / 2);
-
-  // One bar per signalised approach. `node.inbound` *is* "traffic can arrive this way" — a lane
-  // exists only where a road does — so the map-edge and closed-segment guards the grid loop needed
-  // are not ported, they are simply gone. A junction the network left unsignalised has no bars,
-  // which is the visible half of that difference.
-  const bars = [];
-  for (const node of net.nodes) {
-    if (!node.signal) continue;
-    for (const lane of node.inbound) {
-      if (lane.degenerate) continue;
-      const at = Math.max(0, lane.length - BAR_SETBACK);
-      const point = lane.path.at(at);
-      bars.push({ lane, x: point.x, z: point.z, yaw: yawOf(lane.path.tangentAt(at)) });
-    }
-  }
-
-  const barMesh = new THREE.InstancedMesh(barGeo, propMaterial(), bars.length);
-  barMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-  barMesh.name = 'stopBars';
-  const dummy = new THREE.Object3D();
-  bars.forEach((bar, index) => {
-    dummy.position.set(bar.x, 0.05, bar.z);
-    dummy.rotation.set(0, bar.yaw, 0);
-    dummy.updateMatrix();
-    barMesh.setMatrixAt(index, dummy.matrix);
-  });
-  barMesh.instanceMatrix.needsUpdate = true;
-  scene.add(barMesh);
-
   // `distance` is the honest throughput measure. Counting how many cars are moving at one
   // instant is far too noisy to tune signal timing against — it swings with whatever the
   // phase happens to be at the moment you sample it.
@@ -1029,7 +970,6 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3(1, 1, 1);
   const euler = new THREE.Euler();
-  const headColor = new THREE.Color();
   const ZERO_SCALE = new THREE.Vector3(0, 0, 0);
 
   /**
@@ -2061,17 +2001,6 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
     }
     mesh.instanceMatrix.needsUpdate = true;
     wheelMesh.instanceMatrix.needsUpdate = true;
-
-    // --- Stop bar colours, one per approach.
-    for (let index = 0; index < bars.length; index++) {
-      const bar = bars[index];
-      const sig = displaySignal(bar.lane, t);
-      headColor.set(sig.open
-        ? PALETTE.lightGreen
-        : sig.yellow ? PALETTE.lightYellow : PALETTE.lightRed);
-      barMesh.setColorAt(index, headColor);
-    }
-    if (barMesh.instanceColor) barMesh.instanceColor.needsUpdate = true;
   }
 
   /** Fixed-step warm-up so screenshots show settled traffic, deterministically. */
@@ -2080,7 +2009,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
   }
 
   return {
-    cars, taxi, taxiGroup, setTaxiOccupied, setCarCount, mesh, wheelMesh, barMesh, update, warmup,
+    cars, taxi, taxiGroup, setTaxiOccupied, setCarCount, mesh, wheelMesh, update, warmup,
     wreckShell, stats,
     lightPhase, displayPhase,
     // The instanced cars, index-aligned with `mesh`, and how `wheelMesh` is indexed off them
