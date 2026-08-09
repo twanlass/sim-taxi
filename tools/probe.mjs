@@ -39,7 +39,7 @@ import {
 import { createCityCamera, attachDragPan, VIEW_DIR } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
@@ -1903,6 +1903,42 @@ check('the taxi is an ordinary car in the traffic array',
   const uShell = uShells[1];
   check('a wrecked truck hands over both a cab and a box mesh',
     uShell.children.length === 2 + truckWheelScales.length);
+
+  // Right turns: a truck should visibly take longer than a car on the identical turn — see
+  // TRUCK_RIGHT_TURN_SPEED in traffic.js. Staged with a forced route, the same "one routing
+  // branch" any car can use and not just the taxi (docs/traffic.md), so the turn direction isn't
+  // left to the weighted dice.
+  let rI = -1; let rJ = -1; let rD = -1;
+  outerRight: for (let i = 1; i < GRID; i++) {
+    for (let j = 1; j < GRID; j++) {
+      for (const d of [0, 1, 2, 3]) {
+        if (!legalExits(d, i, j).includes(rightOf(d))) continue;
+        const lane = gNet.laneByGrid(d, i, j);
+        if (!lane || lane.degenerate || lane.length < 8) continue;
+        rI = i; rJ = j; rD = d;
+        break outerRight;
+      }
+    }
+  }
+  const rightTurnSeconds = (isTruck) => {
+    const rTraffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), 2);
+    const [, car] = rTraffic.cars;
+    car.isTruck = isTruck;
+    placeCar(car, rD, rI, rJ, 7);
+    car.route = [rightOf(rD)];
+    let seconds = 0;
+    let seenTurn = false;
+    for (let step = 0; step < 60 * 30; step++) {
+      rTraffic.update(1 / 60);
+      if (car.state === 'turn') { seconds += 1 / 60; seenTurn = true; } else if (seenTurn) break;
+    }
+    return seconds;
+  };
+  const carRightSeconds = rightTurnSeconds(false);
+  const truckRightSeconds = rightTurnSeconds(true);
+  check('a truck takes measurably longer than a car on the same right turn',
+    truckRightSeconds > carRightSeconds * 1.3,
+    `car ${carRightSeconds.toFixed(2)}s, truck ${truckRightSeconds.toFixed(2)}s`);
 }
 
 // --- The crash blast -------------------------------------------------------

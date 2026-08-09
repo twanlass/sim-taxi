@@ -372,12 +372,21 @@ like one. The taxi has to run at car physics whatever colour its unused roll cam
 
 #### Driving feel
 
-A truck cruises a little slower than a car — `TRUCK_SPEED` is `SPEED * 0.85`, and
-`TRUCK_CORNER_SPEED` is cut from it by the same 0.7 ratio `CORNER_SPEED` already is from `SPEED`,
-so a truck doesn't suddenly out-corner a car the way a flat speed cap alone would let it. Both
-feed the same cruise-cap and turn-target formulas every car already runs (`car.isTruck` just picks
-which `SPEED` they're computed from), so a truck queues, brakes and takes signals exactly like a
-car — only slower.
+A truck cruises noticeably slower than a car — `TRUCK_SPEED` is `SPEED * 0.65`. (It was `* 0.85`
+at first; playtesting that build read as still too close to car speed to register as a different
+kind of vehicle, so the second pass cut a real gap instead of a nudge.) `TRUCK_CORNER_SPEED` is cut
+from it by the same 0.7 ratio `CORNER_SPEED` already is from `SPEED`, so a truck doesn't suddenly
+out-corner a car the way a flat speed cap alone would let it. Both feed the same cruise-cap and
+turn-target formulas every car already runs (`car.isTruck` just picks which `SPEED` they're
+computed from), so a truck queues, brakes and takes signals exactly like a car — only slower.
+
+**Right turns get a further cut of their own, `TRUCK_RIGHT_TURN_SPEED` (`TRUCK_CORNER_SPEED * 0.6`),
+on top of the general cornering one.** Swinging a long box round a tight corner is the one turn
+shape that visibly wants a beat longer than a car takes — real trucks take them wide and
+cautious — where a left sweeps the far diagonal and doesn't read as hesitant at the plain corner
+speed. `car.turn.hand` is what already tells every corner-lean and steering calculation left from
+right (see "Turns" above), so the branch is the same test, once more. Staged in `tools/probe.mjs`
+with a forced route on the identical turn: a car clears it in ~1.7s, a truck in ~3.4s.
 
 It also rocks less on every start and stop. The pitch spring (search "Rocking" in
 `traffic.js`) turns longitudinal acceleration into a nose dip/lift, underdamped so both events end

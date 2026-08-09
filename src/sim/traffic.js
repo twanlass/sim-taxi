@@ -493,10 +493,19 @@ export const TRUCK_W = 2.0;
 // truck for every dozen cars, enough to notice, rare enough that it never reads as "the traffic got
 // trucks", which is the brief.
 export const TRUCK_CHANCE = 1 / 12;
-// A little slower than a car's cruise, same ratio a corner already gets cut to (CORNER_SPEED below
-// is SPEED * 0.7) — a heavier vehicle doesn't hurry in a straight line any more than round a bend.
-const TRUCK_SPEED = SPEED * 0.85;           // ~7.2 u/s
+// Noticeably slower than a car's cruise — first cut was 0.85 and still read as too close to car
+// speed, so this one is a real gap rather than a nudge. Corners are cut back by the same 0.7 ratio
+// CORNER_SPEED already is from SPEED: a heavier vehicle doesn't hurry in a straight line any more
+// than round a bend.
+const TRUCK_SPEED = SPEED * 0.65;           // ~5.5 u/s
 const TRUCK_CORNER_SPEED = TRUCK_SPEED * 0.7;
+// Right turns get their own, slower target on top of that. Swinging a long box round a tight
+// corner is the one shape that visibly wants a beat longer than a car takes — real trucks take
+// them wide and cautious — where a left sweeps the far diagonal and doesn't read as hesitant at
+// TRUCK_CORNER_SPEED. Not applied to boost's own right-turn discount (`cruise * 0.75` below):
+// nothing here is ever a boosting car, since only the taxi boosts and the taxi's own isTruck is
+// always forced false.
+const TRUCK_RIGHT_TURN_SPEED = TRUCK_CORNER_SPEED * 0.6;
 // The pitch spring below (search "Rocking") drives the nose-dip/lift on every accel and brake
 // event. A truck gets half the excursion for the same Δv — the weight is on the box, not the cab,
 // so the driver's-eye view pitches less — and damps harder, so what dip there is settles rather
@@ -2107,7 +2116,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const isRight = car.turn.hand === 'right';
         const boostTurn = fullPower
           ? (isRight ? cruise * 0.75 : cruise)
-          : (car.isTruck ? TRUCK_CORNER_SPEED : CORNER_SPEED);
+          : car.isTruck
+            ? (isRight ? TRUCK_RIGHT_TURN_SPEED : TRUCK_CORNER_SPEED)
+            : CORNER_SPEED;
         const cornerTarget = straightOn ? straightTop : boostTurn;
         car.v = car.v > cornerTarget
           ? Math.max(cornerTarget, car.v - BRAKE * dt)
