@@ -96,7 +96,7 @@ into a gap (`RING_YIELD = 24` units of clear road).
 not cosmetic. A junction the ring never touches can still end up with nothing to arbitrate — a
 closure can leave an interior junction with only a straight-through — and the grid, deciding from
 `(i, j)` alone, kept cycling a light there and held cars for a phase nobody could be in. Rare: one
-junction in 40 seeds. It has no stop bars now, because there is nothing to stop for.
+junction in 40 seeds. It gets no signal now, because there is nothing to stop for.
 
 > Watch out: `phaseAt` returns **null** for an unsignalised node, where `lightPhase` returned an
 > axis with `remaining: Infinity`. Any port that swaps one for the other while keeping `ringAxisAt`
@@ -132,8 +132,10 @@ Checked in this order, first match wins:
 A siren outranks the ring deliberately: otherwise a corridor crossing the ring would have a hole
 in the middle of the green path it exists to create.
 
-`displayPhase(i, j, t)` is the same resolution with step 1 dropped — it's what the stop bars are
-drawn from, so the boosting taxi's hold never shows up on a lamp. See [Boost](#boost-crazy-taxi-mode).
+`displayPhase(i, j, t)` is the same resolution with step 1 dropped, so the boosting taxi's hold
+never shows up as a phase change. There is no on-screen signal to drive with it right now — the
+stop bar meshes that used to be coloured from it were pulled — but `tools/probe.mjs` still checks
+the taxi's hold doesn't leak into it. See [Boost](#boost-crazy-taxi-mode).
 
 ## Where a car is
 
@@ -629,14 +631,15 @@ against the **13.1** it needs to stop from 17 u/s — which is the residual. `to
 exactly that car and asserts it brakes rather than freezes; it fails at 8.68 u/s stationary on the
 code before this.
 
-**The lamps don't show the hold.** Stop bars are coloured from `displayPhase`, which is
-`lightPhase` with the priority branch skipped, so the heads keep running their real cycle while the
-taxi barges through. Wired to `lightPhase` they flipped green a beat before the taxi arrived, and
-Loco Mode read as the city politely opening up rather than as running every red in the grid — the
-opposite of the point. The yielding still happens, it just happens *underneath*: cross traffic
-balking under a green of its own reads as drivers getting out of a maniac's way. The police
-corridor is deliberately not excepted — emergency preemption really does turn the lights, and
-watching the green path open ahead of the siren is the whole effect.
+**The hold stays invisible even without a rendered signal.** `displayPhase` is `lightPhase` with
+the priority branch skipped, so anything built against it — the removed stop bar meshes, or
+`tools/probe.mjs`'s check today — keeps running the real cycle while the taxi barges through.
+Wired to `lightPhase` it would flip green a beat before the taxi arrived, and Loco Mode would read
+as the city politely opening up rather than as running every red in the grid — the opposite of the
+point. The yielding still happens, it just happens *underneath*: cross traffic balking under a
+green of its own reads as drivers getting out of a maniac's way. The police corridor is
+deliberately not excepted — emergency preemption really does turn the lights, and watching the
+green path open ahead of the siren is the whole effect.
 
 The meter itself lives in `game/boost.js` as a pure clock with no knowledge of the taxi or the
 DOM. Hold-to-enable: the tank drains only while the button is held (15s from full) and releasing

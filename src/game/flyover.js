@@ -53,9 +53,10 @@ const ROLL_RATE = 0.62;
 const PITCH_GAIN = 0.22;         // radians per unit/s of climb
 
 // Two blades is 180° of symmetry, so anything under 90° of travel per frame reads as forward
-// rotation. At 60fps this is 12.4°, which is fast enough to look like a running engine and a long
-// way clear of the rate where a prop strobes backwards or stands still.
-export const PROP_SPIN = 13;
+// rotation. At 60fps this is 28.6°, which reads as a running engine with a healthy margin clear of
+// the rate where a prop strobes backwards or stands still. (13 rad/s — 12.4°/frame — read as
+// barely turning over.)
+export const PROP_SPIN = 30;
 
 /** World forward for a heading — the same convention `dirYaw` uses: yaw 0 points down +X. */
 export const heading = (yaw) => ({ x: Math.cos(yaw), z: -Math.sin(yaw) });

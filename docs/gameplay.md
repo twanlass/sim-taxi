@@ -14,9 +14,10 @@ of it:**
 2. **"Tap rider to start."** The spotlight moves to the waiting fare as the camera sets off for
    them, so the light is already on the rider and the pan carries the player to it; the bubble comes
    back once the camera has arrived. Tapping the rider answers it directly.
-3. **"Hold to floor it"** — the Loco Mode pill, three seconds after the rider is tapped, with the
-   bubble sitting directly over the pill and its tail pointing down at it, the spotlight on the pill
-   and the pill pulsing under it. Skipped entirely if the player has already fired Loco Mode.
+3. **"Hold to floor it"** — the Loco Mode pill, two seconds after the first rider is *dropped off*,
+   with the bubble sitting directly over the pill and its tail pointing down at it, the spotlight on
+   the pill and the pill pulsing under it. Skipped entirely if the player has already fired Loco
+   Mode.
 
 A beat of city comes first: `OPENING_HOLD` of traffic moving with nothing on screen, because a run
 that opens mid-sentence gives the player nothing to attach the sentence to, and the lights coming
@@ -90,18 +91,26 @@ differently: `#coach.at-boost` drops it onto the Loco Mode pill's own 26px gutte
 pill, flips the tail to the bottom, and grows the entrance upward out of it. The other two hang
 centred with the tail up, because what they are talking about is up there.
 
-**It fires on a fixed delay off the rider tap, not on trip progress.** The first version was a
-fraction of the trip — half way to the pickup, measured as road actually driven against the trip's
-block distance, both of which were corrections for the *straight-line distance remaining* that
-came before them. All of that was a better description of the moment and unpredictable in practice:
-trip lengths vary by a factor of five, so the hint landed anywhere between three seconds and half a
-minute in, and on the long ones the player had stopped wondering about the pill long before it
-arrived. `BOOST_HINT_DELAY` off the one action every run shares is the thing that can be tuned.
+**It fires on a fixed delay off the first drop-off, not on trip progress and not off the rider
+tap.** The first version was a fraction of the trip — half way to the pickup, measured as road
+actually driven against the trip's block distance, both of which were corrections for the
+*straight-line distance remaining* that came before them. All of that was a better description of a
+moment and unpredictable in practice: trip lengths vary by a factor of five, so the hint landed
+anywhere between three seconds and half a minute in, and on the long ones the player had stopped
+wondering about the pill long before it arrived.
 
-The countdown runs from the tap, not from the tutorial finishing getting out of the way — on a
-desktop those differ by the restore glide, which is the tutorial's own business and should not be
-charged to the delay. And it only runs once a ride is actually under way, so a player who dismissed
-the second bubble without picking anyone gets the hint on whichever drive they do start.
+A fixed `BOOST_HINT_DELAY` off the tap that dispatched the taxi fixed the unpredictability but
+landed in the wrong place: three seconds in, the player is watching their first pickup with a clock
+draining, and Loco Mode is a fourth new thing arriving while they are still working out the first
+three. Hanging the delay on the first **delivery** instead — `hasDelivered()`, which `main.js`
+answers from `fares.state.delivered` — puts it in the one gap in a run where nothing is being asked
+of the player, and it answers a question they have just earned: that took a while, can I go faster?
+Two seconds, because the payout has finished flying into the counter by then.
+
+It follows that a player who never completes a fare is never told about Loco Mode, which is the
+right way round — there is no point selling a way to drive faster to someone who has not yet done
+the driving. The countdown is ticked through the `restore` glide as well as `toBoost`, since on a
+desktop that glide can still be running when the delivery lands.
 
 **And it never appears if Loco Mode has already been fired.** `main.js` sets `locoUsed` on the
 transition into boost — `kickLocoMode`, which by construction runs exactly once per press-from-rest
@@ -119,9 +128,7 @@ That got sharper when the clock stopped being flat. A rider's deadline is now
 [budgeted from the driving their trip costs](#the-clock-is-budgeted) — it is margin sized for the
 road rather than a round sixty seconds with slack to spare, so a lesson spent out of it comes
 straight off the part the player needs. `state.elapsed` is deliberately *not* paused: it drives the
-spawn stagger and the marker animations, neither of which is the player's to pay for. The spawn toast is suppressed for the same reason — the first
-fare lands on frame one, and "New fare waiting" across the top of the screen is a second message
-competing with the one being given.
+spawn stagger and the marker animations, neither of which is the player's to pay for.
 
 Nothing auto-advances. Both beats wait for a tap, because a tutorial on a timer is one the slower
 reader loses. A tap mid-type finishes the line instead of dismissing it, so an eager first tap
@@ -139,30 +146,17 @@ finishes. On a phone it doesn't need to: the opening follow-cam picks the taxi b
 A swipe hands the camera over mid-tutorial, the same as anywhere else — the bubble keeps talking,
 it just stops moving the map while the player reads it.
 
-### It only runs once
+### It runs on every new game
 
-**A player sees it on their first run and never again.** Play again on the run-end screen is a
-`location.reload()`, and a run ends in a wreck or a bust often enough that the reload is the usual
-way back into the game — so an opening that replayed every time would be a toll charged on each
-retry for a lesson learned once. Which car is yours and that a rider is a thing you tap are two
-facts; they do not need re-teaching on the fifth wreck of the evening.
+Not just the first. Remembering it across loads was tried — a `localStorage` flag under
+`simtaxi.tutorialSeen`, on the grounds that play-again is a `location.reload()` and a lesson learned
+once should not be charged for on every retry — and taken back out. The opening is two taps long, it
+[does not spend the player's clock](#it-does-not-spend-the-players-clock), and it is the only thing
+in the game that frames the taxi and says which car is yours; a player back after a week gets that
+for free rather than hunting the board for their car.
 
-Because the retry is a page load, the flag has to outlive one: `hasSeenTutorial()` /
-`markTutorialSeen()` in `tutorial.js` keep it in `localStorage` under `simtaxi.tutorialSeen`. Both
-are wrapped in a `try`, because `localStorage` **throws** rather than no-ops where it is unavailable
-— Safari with cookies blocked, an iframe with third-party storage partitioned off — and it is the
-property access itself that throws, not just the call. A player whose storage is broken gets the
-tutorial every run, which is what everyone got before it was remembered at all. `npm run check`
-drives all three states (no storage, a throwing one, a working one) against the real module.
-
-It is marked seen in `finish()` — the moment both gated beats are answered, or the player dispatches
-the taxi themselves and does beat two unprompted. Not at the start, which would spend the one
-showing on a run nobody watched, and not in `end()`, which would spend it on a run that ended
-mid-sentence.
-
-`?tutorial=off` skips the whole thing and `?tutorial=on` forces it back after it has been seen —
-otherwise iterating on it means clearing site data between runs. Shot mode never runs it: a
-screenshot has nobody to teach, and the bubble would be the loudest thing in every frame.
+`?tutorial=off` skips the whole thing, and shot mode never runs it: a screenshot has nobody to
+teach, and the bubble would be the loudest thing in every frame.
 
 ## The fare loop
 
@@ -255,7 +249,7 @@ junction the frame it appears.
 
 `fares.update()` returns the events that happened this frame — `{type, fare}`, with type one of
 `'spawned' | 'pickup' | 'delivered' | 'failed'` — rather than firing callbacks, so the fare system
-holds no reference to the taxi mesh, the HUD or the toast. `main.js` translates events into all of
+holds no reference to the taxi mesh or the HUD. `main.js` translates events into all of
 that. It is a list because more than one can land together: delivering the last fare clears the
 board, and the refill follows on the next frame.
 
@@ -263,7 +257,7 @@ board, and the refill follows on the next frame.
 
 The taxi has **one seat**, so any extra fare beyond the one aboard is someone *waiting* — a clock
 draining on the kerb while you decide who to grab. Tapping a waiting rider while already carrying
-one is refused outright with a toast, rather than driving there and quietly not picking anyone up.
+one is refused outright, rather than driving there and quietly not picking anyone up.
 
 Two waiting riders on the board at the same time is the whole difficulty of the game: you can't
 take both, and the wrong pick loses one of the two clocks. `fares.waiting()` returns the *most
@@ -507,7 +501,7 @@ the taps aimed at it.
 
 **Which** pin was tapped is the instruction, not just that one was: `fares.fareFor(hit.object)`
 walks up from the hit to the fare that owns it. Tapping a kerbside rider while already carrying one
-is refused with a toast rather than routing a taxi that could never collect them.
+is refused rather than routing a taxi that could never collect them.
 
 **The taxi is permanently selected.** There is only ever one, so a selection step was pure
 ceremony: every tap on it was either a no-op or an accidental deselect that made the next tap on a
@@ -761,8 +755,8 @@ It lives outside `#hud`, so shot mode hides it with its own rule rather than inh
 **It is a real multiplier now.** It used to show `fares.state.delivered` and call itself a streak,
 which made the `×` decoration: the same number the run-end screen printed as "Fares", wearing a
 symbol for an economy that did not exist. It now shows `difficulty.payoutMultiplier`, the multiple
-every fare's price is actually stamped with at spawn, and it steps on the same beat as the
-[shift toast](difficulty.md#shifts) that explains why. The bump still fires on every delivery even
+every fare's price is actually stamped with at spawn, and it steps on the beat it crosses into a
+new [shift](difficulty.md#shifts). The bump still fires on every delivery even
 when the number holds — the bump means "that one counted", the number means "and this is what they
 are worth now".
 
@@ -1076,9 +1070,9 @@ time. A WAAPI animation starts on the frame after `animate()`, and the game-over
 where the page hitches — on a stalled boot the numbers ran ~500ms ahead of their own labels, which
 for a list played one row at a time meant a row counting before it had appeared.
 
-The overlay sits at **`z-index: 30`**, above the toast (25) and the tweak toggle and rider-finder
-chips (20). Without one the blackout painted *under* them and a waiting-rider chip stayed lit in
-the corner of the game-over screen — and a chip still on top also swallows the tap that skips.
+The overlay sits at **`z-index: 30`**, above the tweak toggle and rider-finder chips (20). Without
+one the blackout painted *under* them and a waiting-rider chip stayed lit in the corner of the
+game-over screen — and a chip still on top also swallows the tap that skips.
 
 Under `prefers-reduced-motion` the card prints its final values with no entrance and no roll — the
 sequence is the entire module, so there is nothing else to keep.

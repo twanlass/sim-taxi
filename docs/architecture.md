@@ -89,7 +89,7 @@ const event = fares.update(dt, traffic.taxi);   // 4. arrival is judged against 
 
 `fares.update` returns the frame's events as `{type, fare}` objects (`'spawned'`, `'pickup'`,
 `'delivered'`, `'failed'`) rather than firing callbacks. The fare system therefore has no reference
-to the taxi mesh, the HUD, or the toast — `main.js` translates the events into all of those. It is
+to the taxi mesh or the HUD — `main.js` translates the events into all of those. It is
 a list rather than one value because two fares run at once and more than one thing can resolve in
 the same frame.
 

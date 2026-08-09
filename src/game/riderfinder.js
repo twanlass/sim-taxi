@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { createPerson } from '../geometry/person.js';
+import { mirrorSceneLights } from './avatarlights.js';
 import { urgencyColorFor } from './urgency.js';
 import { PALETTE } from '../palette.js';
 
-// A HUD stack in the bottom-left, above the Loco Mode pill, so both controls sit under the same
+// A HUD row above the Loco Mode pill, left-aligned to it, so both controls sit under the same
 // thumb.
 //
 // A waiting rider is a handful of pixels among a hundred buildings, and on a phone the whole city
@@ -12,9 +13,9 @@ import { PALETTE } from '../palette.js';
 // rider, dispatching the taxi at them, so the whole loop works without ever having to find the pin
 // on the map. It was a double-tap once, with the first tap only moving the camera; picking a rider
 // is the one thing the chip is for, and making it cost two taps on a clock that is draining was
-// worse than the camera move was worth. Two clocks on the kerb means two chips on screen; the
-// column grows upward so the bottom slot stays put next to the Loco Mode pill and extra riders
-// pile above it.
+// worse than the camera move was worth. Two clocks on the kerb means two chips on screen; the row
+// grows rightward so the first slot stays put next to the Loco Mode pill and extra riders pile
+// on beside it.
 //
 // One WebGL renderer per chip. MAX_FARES caps the pool at three, so the extra contexts are well
 // under any browser limit. Cheaper alternatives (one renderer, blit to N canvases) exist but the
@@ -27,7 +28,7 @@ import { PALETTE } from '../palette.js';
 
 const SIZE = 38;      // matches the visible chip disc inside the button
 
-function createChip(onSelect) {
+function createChip(onSelect, sun, hemi) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'rider-finder-chip';
@@ -48,21 +49,20 @@ function createChip(onSelect) {
 
   const scene = new THREE.Scene();
 
-  // Neutral lighting. The main scene's sun rakes across the city; here the figure is looking
-  // straight at the camera and needs its front lit, not its side.
-  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
-  const key = new THREE.DirectionalLight(0xffffff, 0.55);
-  key.position.set(2, 4, 3);
-  scene.add(key);
+  // The city's own sun and hemisphere fill, mirrored in (see game/avatarlights.js — shared with
+  // the tutorial bubble's avatar) rather than a flat studio rig: the figure standing in this chip
+  // is the same one waiting on the kerb outside it, so it should be lit by the same afternoon.
+  const syncLights = mirrorSceneLights(scene, sun, hemi);
 
   const person = createPerson();
   scene.add(person.group);
 
-  // Ortho frustum sized to fit the ~3.2-unit-tall figure with a little air. Looking slightly
-  // down and from the front so the wave arm is clearly visible; the character faces +X, so the
-  // camera sits on +X and looks back at the origin.
+  // Ortho frustum sized to fit the ~3.2-unit-tall figure with a little air. Looking slightly down
+  // and from the front so the wave arm is clearly visible. `createPerson`'s torso is thin on Z and
+  // wide on X (shoulders either side, chest facing along Z — see `board()`'s "local +Z is treated
+  // as forward"), so the camera sits on +Z, not +X, to look at the figure head-on.
   const camera = new THREE.OrthographicCamera(-2.2, 2.2, 2.7, -1.5, 0.1, 40);
-  camera.position.set(4.6, 3.2, 1.8);
+  camera.position.set(0, 3.2, 4.9);
   camera.lookAt(0, 1.55, 0);
 
   let currentFare = null;
@@ -72,13 +72,13 @@ function createChip(onSelect) {
 
   return {
     button,
-    render: () => renderer.render(scene, camera),
+    render: () => { syncLights(); renderer.render(scene, camera); },
     wave: (t) => person.wave(t),
     setFare(fare) { currentFare = fare; },
   };
 }
 
-export function createRiderFinder({ onSelect }) {
+export function createRiderFinder({ onSelect, sun, hemi }) {
   const stack = document.getElementById('rider-finder-stack');
   if (!stack) return { update: () => {} };
 
@@ -87,7 +87,7 @@ export function createRiderFinder({ onSelect }) {
 
   function chipAt(i) {
     if (chips[i]) return chips[i];
-    const chip = createChip(onSelect);
+    const chip = createChip(onSelect, sun, hemi);
     stack.appendChild(chip.button);
     chips[i] = chip;
     return chip;

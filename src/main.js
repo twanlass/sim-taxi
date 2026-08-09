@@ -26,7 +26,7 @@ import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
-import { createTutorial, hasSeenTutorial } from './game/tutorial.js';
+import { createTutorial } from './game/tutorial.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
@@ -386,11 +386,9 @@ function routeTo(target) {
 function dispatchToDropoff(fare) {
   if (routeTo(fare.target)) {
     fares.markDirected(fare);
-    flash('Passenger aboard — off to the drop-off');
     return;
   }
   traffic.taxi.parked = true;
-  flash('Passenger aboard — tap the destination');
 }
 
 createPicker(
@@ -412,13 +410,11 @@ createPicker(
     // Gated on the fare's stage rather than on `kind`: the two agree today, since a waiting fare's
     // only visible marker is its rider, but the rule is about the fare, not about which mesh was hit.
     if (fare.stage === 'waiting' && fares.carrying()) {
-      flash('Drop off your rider first');
       return;
     }
 
     if (routeTo(fare.target)) {
       fares.markDirected(fare);
-      flash('On the way');
     }
   },
   () => Boolean(pan?.didPan()),
@@ -446,13 +442,12 @@ function panToRider(fare) {
 
 // Dispatch the taxi at that rider — same effect as tapping their pin on the map, without having to
 // find it first. A pickup while already carrying someone would be refused at the picker; keep the
-// rule consistent here by showing the same toast.
+// rule consistent here.
 function dispatchToRider(fare) {
   if (!fare || fares.state.gameOver) return;
-  if (fares.carrying()) { flash('Drop off your rider first'); return; }
+  if (fares.carrying()) return;
   if (routeTo(fare.target)) {
     fares.markDirected(fare);
-    flash('On the way');
   }
 }
 
@@ -469,7 +464,7 @@ function selectRider(fare) {
   dispatchToRider(fare);
 }
 
-const riderFinder = createRiderFinder({ onSelect: selectRider });
+const riderFinder = createRiderFinder({ onSelect: selectRider, sun, hemi });
 const dropoffIndicator = createDropoffIndicator({
   camera,
   // Aim at the kerb corner where the pin actually stands, not the intersection centre — the
@@ -482,21 +477,13 @@ const dropoffIndicator = createDropoffIndicator({
 
 // Two bubbles and nothing else: "this car is you", then "tap that rider". See game/tutorial.js for
 // why those two and no more. Off in shot mode — a screenshot has nobody to teach, and the bubble
-// would be the loudest thing in every frame.
+// would be the loudest thing in every frame — and `?tutorial=off` skips it while iterating on the
+// rest of the game.
 //
-// First run only, remembered across loads. Play-again is a `location.reload()`, and a run ends in a
-// wreck or a bust often enough that the reload is the usual way back in — so without this the
-// tutorial would be a toll charged on every retry for a lesson learned once.
-//
-// `?tutorial=off` skips it while iterating on the rest of the game; `?tutorial=on` forces it back
-// after it has been seen, which is otherwise only reachable by clearing site data.
-const tutorialParam = new URLSearchParams(window.location.search).get('tutorial');
-const wantsTutorial = tutorialParam === 'on'
-  || (tutorialParam !== 'off' && !hasSeenTutorial());
-// True from the first bubble to the player's last dismissal. Two things key off it: the fare clocks
-// hold, and the spawn toast stays quiet — both for the same reason, that whatever the bubble is
-// saying is the only thing the player should be reading or paying for.
-let tutorialTalking = false;
+// It runs on every new game, not just the first: the opening is short, it holds the clocks while it
+// talks, and it costs nothing to sit through. Remembering it across loads was tried (a
+// `localStorage` flag) and taken back out — see docs/gameplay.md.
+const wantsTutorial = new URLSearchParams(window.location.search).get('tutorial') !== 'off';
 const revealHud = () => document.body.classList.add('hud-ready');
 
 // Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
@@ -527,6 +514,9 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // Any fare the player has actually sent the taxi at — including one they found and tapped on the
   // map while the first bubble was still up.
   isDispatched: () => Boolean(fares.carrying() || fares.state.fares.some((f) => f.directed)),
+  // The third beat waits on this rather than on the dispatch: the Loco Mode hint lands a couple of
+  // seconds after the first rider is actually dropped off, once the loop has closed one full turn.
+  hasDelivered: () => fares.state.delivered > 0,
   // A player who has already found Loco Mode does not need the third beat pointing at it.
   boostUsed: () => locoUsed,
   isOver: () => fares.state.gameOver,
@@ -540,7 +530,6 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // Hold every fare's countdown for as long as the tutorial is talking. It ends on the player's
   // tap, so the clock they are taught with is the full sixty seconds.
   onRunning: (running) => {
-    tutorialTalking = running;
     fares.setPaused(running);
     if (!running) revealHud();
   },
@@ -560,7 +549,6 @@ const hud = {
   streak: document.getElementById('streak'),
   streakCount: document.getElementById('streak-count'),
   banner: document.getElementById('run-end'),
-  toast: document.getElementById('toast'),
 };
 
 // The counter lags the payout on purpose: the flying "$X" rises off the taxi, travels to the HUD,
@@ -696,8 +684,7 @@ function popEarning(amount) {
  * It used to show `fares.state.delivered` and call that a streak, which meant the `×` was
  * decoration — the same number the run-end screen printed as "Fares", wearing a symbol that
  * implied an economy it did not have. It now shows `difficulty.payoutMultiplier`, which is the
- * real multiple every fare's price is stamped with at spawn, and it steps on the same beat as the
- * shift toast that explains why.
+ * real multiple every fare's price is stamped with at spawn.
  */
 function updateStreak(multiplier, bump = true) {
   if (!hud.streak || !hud.streakCount) return;
@@ -717,19 +704,6 @@ function updateStreak(multiplier, bump = true) {
 updateStreak(difficulty.payoutMultiplier(0), false);
 
 /**
- * Announce a step up the difficulty curve, once, on the delivery that crosses into it.
- *
- * The ramp is otherwise invisible: clocks tighten, riders arrive closer together and the board
- * grows, and a player experiencing all three at once has no way to tell "the game got harder"
- * from "I got worse". Naming the step is what makes the difference legible — and it lets the
- * multiplier arriving on the same frame read as the reward for reaching it rather than a number
- * that wandered.
- *
- * Deliberately not announced at delivery zero: the opening shift is the state the run starts in,
- * and a banner for it would be announcing a change that hasn't happened — the same reason a fresh
- * rider's diamond doesn't kick on spawn.
- */
-/**
  * Push the world half of the difficulty curve into the sim: more traffic, and a police corridor
  * that comes round more often.
  *
@@ -743,14 +717,6 @@ function applyWorldPressure() {
   police.setCooldownRange(difficulty.policeCooldown(delivered));
 }
 
-let lastShift = 0;
-function announceShift(delivered) {
-  const shift = difficulty.shiftFor(delivered);
-  if (shift.index <= lastShift) return;
-  lastShift = shift.index;
-  flash(`${shift.name} — fares pay ${shift.payout}x`);
-}
-
 /** Total seconds as `m:ss` + a trailing `s`, e.g. `1:03s` — the run-end screen's Time stat. */
 function formatRunTime(seconds) {
   const total = Math.max(0, Math.round(seconds));
@@ -758,22 +724,8 @@ function formatRunTime(seconds) {
   return `${Math.floor(total / 60)}:${String(secs).padStart(2, '0')}s`;
 }
 
-let toastTimer = 0;
-function flash(text) {
-  if (!hud.toast) return;
-  hud.toast.textContent = text;
-  hud.toast.style.opacity = '1';
-  toastTimer = 1.6;
-}
-
-
 function updateHud(dt) {
   const s = fares.state;
-
-  if (toastTimer > 0) {
-    toastTimer -= dt;
-    if (toastTimer <= 0 && hud.toast) hud.toast.style.opacity = '0';
-  }
 
   // A bust holds the banner until the cruiser is alongside — see the BUST_BANNER_* block. The
   // floor keeps a chase that ends in half a block from cutting to the retry screen while the
@@ -855,7 +807,7 @@ function updateBoostButton(dt) {
 // pointer on press means dragging off the pill still counts as held, and the matching pointerup
 // fires reliably wherever the finger lifts.
 function pressBoost(event) {
-  if (fares.state.gameOver) return;
+  if (fares.state.gameOver || boostButton.disabled) return;
   event.preventDefault();
   // Doing the thing the third bubble is asking for answers it. Called explicitly rather than left
   // to the tutorial's window-level tap handler, because the preventDefault above can suppress the
@@ -863,7 +815,6 @@ function pressBoost(event) {
   tutorial?.dismiss();
   boostButton.setPointerCapture?.(event.pointerId);
   if (boost.press()) {
-    flash('Loco Mode!');
     kickLocoMode();
   }
 }
@@ -1145,7 +1096,6 @@ function frame() {
     } else if (type === 'delivered') {
       popEarning(fare.value);
       updateStreak(difficulty.payoutMultiplier(fares.state.delivered));
-      announceShift(fares.state.delivered);
       // A third of a tank of boost fuel as the ordinary delivery reward — the only way any fuel
       // enters the meter otherwise. A VIP pays out bigger here too: the tank tops all the way to
       // full rather than by a third, on the same delayed pour as everything else so it reads as
@@ -1156,7 +1106,6 @@ function frame() {
         to: boostScreenPos,
         onArrive: () => boost.topUp(fare.vip ? 1 - boost.fraction() : BOOST_FARE_REWARD),
       });
-      if (fare.vip) flash(`VIP delivered — streak ${fares.state.vipStreak}x, tank topped off`);
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       traffic.setTaxiOccupied(false);
@@ -1168,20 +1117,6 @@ function frame() {
         traffic.taxi.route = [];
         traffic.taxi.pendingTarget = null;
         traffic.setTaxiOccupied(false);
-      }
-      flash('VIP lost — streak reset');
-    } else if (type === 'spawned') {
-      // A fare that appears while you are already carrying one is the interesting case: it says
-      // "there is now a clock you cannot start yet", which is a different message from the idle
-      // board filling back up.
-      //
-      // Silent under the tutorial: the very first fare spawns on frame one, and a toast reading
-      // "New fare waiting" across the top of the screen while the bubble is explaining which car
-      // is yours is a second message competing with the one the player is being given.
-      if (!tutorialTalking) {
-        flash(fare.vip
-          ? 'VIP fare! Short clock, big payout'
-          : (fares.carrying() ? 'Another fare waiting' : 'New fare waiting'));
       }
     }
   }
