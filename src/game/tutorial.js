@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { createTaxiMesh } from '../geometry/taxi.js';
+import { createPerson } from '../geometry/person.js';
+import { mirrorSceneLights } from './avatarlights.js';
 import { VIEW_DIR } from './camera.js';
 
 // The opening tutorial. Two beats, because there are only two things a new player cannot work out
@@ -113,10 +115,16 @@ export function markTutorialSeen() {
 }
 
 /**
- * The rotating taxi in the bubble's avatar. Its own tiny WebGL context, the same way each
- * rider-finder chip owns one (see game/riderfinder.js) — the mesh is the real `createTaxiMesh`, so
- * the car in the bubble is the car on the road rather than a drawing of it, and it cannot drift out
- * of step when the taxi is restyled.
+ * The rotating taxi (and, for the second beat, the waving rider) in the bubble's avatar. Its own
+ * tiny WebGL context, the same way each rider-finder chip owns one (see game/riderfinder.js) — the
+ * meshes are the real `createTaxiMesh` / `createPerson`, so the figure in the bubble is the one on
+ * the road rather than a drawing of it, and it cannot drift out of step when either is restyled.
+ *
+ * Two subjects share the one canvas — a taxi scene/camera and a rider scene/camera — and `render`
+ * picks one by name each frame rather than keeping two contexts alive. Both get the game's own sun
+ * and hemisphere fill, mirrored in (see `mirrorSceneLights`, shared with the rider-finder chips):
+ * the bubble is a window onto this city, not a studio shot, so whichever figure is standing in it
+ * should be lit by the same afternoon.
  *
  * @param sun   the city's own key light, read (not re-parented — an Object3D has one parent) so the
  *              avatar is lit by the same sun as the car it is a picture of
@@ -134,27 +142,10 @@ function createAvatar(sun, hemi) {
 
   const scene = new THREE.Scene();
 
-  // The city's own lighting rig, mirrored. Two lights with the same colours, intensities and — for
-  // the sun — the same world position, which is all a directional light's direction depends on:
-  // both scenes aim their sun at the origin, so copying the position copies the angle exactly. The
-  // car in the bubble is then lit by golden hour like everything outside it, rather than by the
-  // flat front-lit rig the rider chips use (right for a figure looking at you, wrong for the same
-  // vehicle the player is looking down at).
-  //
-  // Mirrored per frame rather than cloned once, so a day/night cycle turned on from the ⚙️ panel
-  // carries into the bubble instead of leaving it stranded at whatever hour it was built.
-  const avatarSun = new THREE.DirectionalLight(sun.color.getHex(), sun.intensity);
-  const avatarHemi = new THREE.HemisphereLight(hemi.color.getHex(), hemi.groundColor.getHex(),
-    hemi.intensity);
-  scene.add(avatarSun, avatarSun.target, avatarHemi);
-  const syncLights = () => {
-    avatarSun.position.copy(sun.position);
-    avatarSun.color.copy(sun.color);
-    avatarSun.intensity = sun.intensity;
-    avatarHemi.color.copy(hemi.color);
-    avatarHemi.groundColor.copy(hemi.groundColor);
-    avatarHemi.intensity = hemi.intensity;
-  };
+  // The city's own lighting rig, mirrored into both scenes below (taxi and rider alike) via
+  // `mirrorSceneLights` — shared with the rider-finder chips, so nothing pictured out of this city
+  // is ever lit by a different afternoon than the one on screen.
+  const syncLights = mirrorSceneLights(scene, sun, hemi);
 
   const taxi = createTaxiMesh();
   // The ghost outline needs `stencil: true`, which this renderer does not ask for — without the
@@ -197,9 +188,36 @@ function createAvatar(sun, hemi) {
   // A parked angle for reduced motion: three-quarters on, which is the most car-shaped view of it.
   const stillAngle = Math.PI * 0.18;
 
+  // The rider: same city sun/hemi as the taxi above, its own synced copy (an Object3D has one
+  // parent, so the taxi's lights can't simply be re-added here) — a figure in a tutorial bubble is
+  // being introduced as *part of this city*, so it should be lit by the same afternoon rather than
+  // by a studio light of its own.
+  const riderScene = new THREE.Scene();
+  const syncRiderLights = mirrorSceneLights(riderScene, sun, hemi);
+  const person = createPerson();
+  riderScene.add(person.group);
+  // `createPerson`'s torso is thin on Z and wide on X (shoulders either side, chest facing along
+  // Z — see `board()`'s "local +Z is treated as forward"), so the camera sits on +Z to look at the
+  // figure head-on. Same ortho frustum, distance and elevation as the rider-finder chip's camera
+  // (game/riderfinder.js) — just turned from +X to face front.
+  const riderCamera = new THREE.OrthographicCamera(-2.2, 2.2, 2.7, -1.5, 0.1, 40);
+  riderCamera.position.set(0, 3.2, 4.9);
+  riderCamera.lookAt(0, 1.55, 0);
+
+  // Reduced motion freezes the wave mid-raise (t=0 in `wave`) rather than at rest — a still figure
+  // with its arm down would no longer read as "hailing" at all.
+  const stillWaveT = 0;
+
   return {
     canvas,
-    render(elapsed) {
+    /** `subject` is 'taxi' (default) or 'rider' — which scene this frame renders. */
+    render(elapsed, subject) {
+      if (subject === 'rider') {
+        person.wave(prefersReducedMotion() ? stillWaveT : elapsed);
+        syncRiderLights();
+        renderer.render(riderScene, riderCamera);
+        return;
+      }
       pivot.rotation.y = prefersReducedMotion() ? stillAngle : elapsed * AVATAR_SPIN;
       syncLights();
       renderer.render(scene, camera);
@@ -234,6 +252,7 @@ function createBubble(root, { sun, hemi }, onDismiss) {
   let charT = 0;
   let hold = 0;
   let closing = null;
+  let subject = 'taxi';
 
   const isTyping = () => shown < text.length;
   const finishTyping = () => {
@@ -254,8 +273,10 @@ function createBubble(root, { sun, hemi }, onDismiss) {
       onDismiss();
       return true;
     },
-    show(line) {
+    /** `who` is 'taxi' (default) or 'rider' — which avatar the bubble shows while this line is up. */
+    show(line, who = 'taxi') {
       if (closing) { clearTimeout(closing); closing = null; }
+      subject = who;
       text = line;
       shown = 0;
       charT = 0;
@@ -280,9 +301,9 @@ function createBubble(root, { sun, hemi }, onDismiss) {
         closing = null;
       }, CLOSE_MS);
     },
-    /** Advance the typewriter and spin the avatar. `elapsed` is tutorial time, for the spin. */
+    /** Advance the typewriter and animate the avatar. `elapsed` is tutorial time, for the spin/wave. */
     update(dt, elapsed) {
-      if (!root.hidden) avatar.render(elapsed);
+      if (!root.hidden) avatar.render(elapsed, subject);
       if (root.hidden || !isTyping()) return;
       if (hold > 0) { hold -= dt; return; }
       charT += dt;
@@ -560,7 +581,7 @@ export function createTutorial({
       // screen when it starts talking about them.
       if (!controller.isGliding()) {
         state.step = 'rider';
-        bubble.show(LINES.rider);
+        bubble.show(LINES.rider, 'rider');
       }
       return;
     }
