@@ -348,6 +348,54 @@ export function createFareSystem(rng, scene) {
     return { i: 0, j: 0 };
   }
 
+  /**
+   * Junctions the *next* drop-off should prefer, if either is still free. Set once per run by
+   * main.js when a construction zone goes up (see `roadwork.onPlaced`), and consumed by the very
+   * next fare drawn — hence one-shot.
+   *
+   * The taxi cannot be steered, so meeting the zone has to be arranged rather than hoped for. The
+   * router discount in route.js does most of it; this closes the gap by giving the player one trip
+   * whose far end is a junction the closed street runs into, so the cheap lane is on the way rather
+   * than merely nearby.
+   *
+   * Exactly one fare is nudged and only its *destination* moves — the pickup, the clock and the
+   * price are all drawn as usual — so the economy is untouched. It cannot cascade either: a hint
+   * that finds nothing free is dropped rather than retried.
+   */
+  let dropoffHint = null;
+
+  /**
+   * Take the hint if one of its junctions is a legal drop-off for a fare picked up at `spot`, and
+   * clear it either way. Returns null when there is nothing usable, which puts the caller back on
+   * the ordinary unbiased draw.
+   *
+   * "Legal" is the same pair of rules `pickIntersection` applies: not already spoken for by another
+   * fare or by the taxi's own next junction, and not on the same physical block as the pickup.
+   */
+  function takeDropoffHint(taxiCar, spot) {
+    const hint = dropoffHint;
+    dropoffHint = null;
+    if (!hint) return null;
+
+    const avoid = [{ i: taxiCar.i, j: taxiCar.j }];
+    for (const f of state.fares) {
+      avoid.push(f.target);
+      if (f.dropoff) avoid.push(f.dropoff);
+    }
+    // On the map first. `pickIntersection` draws its own candidates from `rng.int(0, GRID)` and so
+    // can never produce an off-grid one; a hint arrives from outside and can. Without this a bad
+    // hint is honoured rather than declined, and the rider's pin is staked off the edge of the
+    // city — tools/probe.mjs caught exactly that.
+    const onMap = (at) => at.i >= 0 && at.i <= GRID && at.j >= 0 && at.j <= GRID;
+    const usable = hint.filter((at) => onMap(at)
+      && !avoid.some((a) => a.i === at.i && a.j === at.j)
+      && !onSameBlock(at, spot));
+    if (!usable.length) return null;
+    // Whichever end is further from the pickup, so the trip runs the length of the closed street
+    // rather than clipping its nearer corner.
+    return usable.reduce((best, at) => (blockDistance(at, spot) > blockDistance(best, spot) ? at : best));
+  }
+
   const carrying = () => state.fares.find((f) => f.stage === 'riding') ?? null;
   // With more than one rider on the kerb the "waiting fare" the game means is the one about to
   // time out — that is who a perfect player takes next.
@@ -362,6 +410,18 @@ export function createFareSystem(rng, scene) {
     .reduce((best, f) => (best === null || urgencyOf(f) < urgencyOf(best) ? f : best), null);
   // Every waiting fare, for the HUD stack that surfaces one chip per rider on the kerb.
   const waitingAll = () => state.fares.filter((f) => f.stage === 'waiting');
+
+  /**
+   * Every intersection the fare loop currently has a claim on: each rider's kerb corner and, for
+   * the one aboard, where they are going.
+   *
+   * game/roadwork.js asks so it never closes a street a rider is standing in — the taxi can drive
+   * through a closure, but a pickup happening inside a construction site reads as a bug even
+   * though nothing about it actually breaks.
+   */
+  const occupiedSpots = () => state.fares.flatMap(
+    (f) => (f.dropoff ? [f.target, f.dropoff] : [f.target]),
+  );
 
   /** The fare the player is currently working: whichever one the taxi was last sent at. */
   const focus = () => state.fares.find((f) => f.directed) ?? carrying() ?? waiting() ?? null;
@@ -492,7 +552,11 @@ export function createFareSystem(rng, scene) {
     // drop-off would flatten the trip lengths the fares are priced off. `spot` is also passed as
     // the block-avoid point, so the drop-off can't land on the same physical block as the pickup
     // even when the two intersections aren't identical — see `blockFor`.
-    fare.dropoff = pickIntersection(taxiCar, null, null, spot);
+    //
+    // `takeDropoffHint` is the one exception, and it is deliberately narrow: at most one fare per
+    // run has its far end aimed at a construction zone, and it falls straight back to the draw
+    // below when neither end qualifies.
+    fare.dropoff = takeDropoffHint(taxiCar, spot) ?? pickIntersection(taxiCar, null, null, spot);
     fare.blocks = blockDistance(spot, fare.dropoff);
     // Priced by the trip's block distance, fixed here because both endpoints are already known. A
     // hidden meter that ticked while driving would punish traffic and reward Loco Mode for the
@@ -892,8 +956,11 @@ export function createFareSystem(rng, scene) {
     carrying,
     waiting,
     waitingAll,
+    occupiedSpots,
     focus,
     slots,
     intersectionCentre,
+    /** Aim the next drop-off at one of `spots`, if either is free. See `dropoffHint`. */
+    aimNextDropoff: (spots) => { dropoffHint = spots?.length ? spots : null; },
   };
 }

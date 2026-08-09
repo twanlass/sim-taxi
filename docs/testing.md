@@ -78,10 +78,20 @@ node tools/soak.mjs 25 4 15 71624 103300      # ...and pin the city, to compare 
 node tools/eta.mjs 100 6                      # refit the trip-time estimator over 6 cities
 node tools/difficulty-sweep.mjs 9 slack       # sweep a difficulty preset: slack, board, gap, shape
 node tools/signals.mjs                        # signal metrics, incl. cycle-length sweeps
+node tools/roadwork-pull.mjs                  # how often a run actually meets the construction zone
 node tools/diag.mjs                           # ad-hoc scratch diagnostics
 node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM
 ./shots.sh                                    # render the screenshot set
 ```
+
+`roadwork-pull.mjs` is deliberately **not** in `npm run check`. What it measures is a distribution —
+the share of runs in which the taxi is routed through the closed street — and the honest assertion
+("most players meet it") is a percentage with real variance across seeds. A suite that gates on one
+goes red for reasons nobody can act on. What it produced instead are the invariants that *are*
+crisp, and those are in `probe.mjs`: that the discount reaches the router at all, that it never
+lengthens a route by more than a leg, and that an aimed drop-off lands on the zone or falls back
+cleanly. The percentages live in the comments they justify — `EDGE_COST.roadwork` in `route.js` and
+the table in [traffic.md](traffic.md#getting-the-player-there).
 
 ## Screenshots
 

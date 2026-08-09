@@ -42,6 +42,22 @@ export const SHOTS = [
   // it is up for a few seconds every minute or so, so there is no steady state to point a camera
   // at. 5.3s in is the middle of the run, with the plane over the city.
   { name: 'flyover', description: 'the ambient plane crossing the city', target: [0, 0], zoom: 52, warmup: 12, flyoverAt: 5.3 },
+  // The construction zone, close enough to read the cones. It is forty seconds into a run before
+  // one appears and it only ever appears once, so like the wreck and the flyover there is no way
+  // to look at it without staging it. `roadworkAt` is seconds after it is placed: 1.4 is past the
+  // 1.1s rise, so the props are opaque and standing rather than halfway out of the road.
+  { name: 'roadwork', description: 'a street closed for roadworks', target: [0, 0], zoom: 22, warmup: 12, roadworkAt: 1.4 },
+  // And the taxi going through it. Same argument as the wreck: the smash has no steady state —
+  // it is over in three quarters of a second and it needs the player to have driven at it — so
+  // without a staged framing the only way to look at it is to play until a zone appears and then
+  // find it. `smashAt` is seconds after the barricade goes: 0.34 is the taxi near the top of its
+  // arc with the trestle still cartwheeling and the cones in the air.
+  { name: 'roadwork-smash', description: 'the taxi launching off a barricade', target: [0, 0], zoom: 15, warmup: 12, roadworkAt: 0, smashAt: 0.34 },
+  // The zone close enough to judge it by. `roadwork` above is at play zoom, which is the right
+  // framing for "does this read in a game" and useless for the three decisions that actually needed
+  // looking at: the ramp's pitch, the two rows of cones, and whether anything is fighting the road
+  // at the barricade line. At 22 the whole zone is about ninety pixels wide.
+  { name: 'roadwork-close', description: 'the closed street, close enough to inspect', target: [0, 0], zoom: 11, warmup: 12, roadworkAt: 1.4 },
 ];
 
 export function getActiveShot() {

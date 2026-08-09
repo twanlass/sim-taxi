@@ -422,6 +422,95 @@ runs at the same rate as the blast through the crash slow-mo. See
 [traffic.md](traffic.md#the-wreck) for the rest of the staging, and
 [testing.md](testing.md#screenshots) for `?shot=12`, which stages a real crash and freezes it.
 
+### Roadworks — `game/roadwork.js`, `geometry/roadworks.js`
+
+A closed street: two striped trestles, a plywood ramp propped against each, a dozen cones, a spoil
+heap and its hole, and two hi-viz workers. Four draw calls — one merged static mesh for the ramps
+and the spoil, one trestle mesh per barricade so it can be thrown, one `InstancedMesh` for the
+cones, plus the two figures. The sim side is in [traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends).
+
+**Orange had to be found rather than picked.** The warm end of the wheel is spoken for twice over:
+the taxi owns yellow outright and the urgency scale owns the ambers below it. Measured in the
+working colour space `getHSL` reports in — linear-sRGB, so these are not the numbers a colour
+picker shows for the same hex — `taxiBody` sits at 34° and `urgency[2]` at 20°. The cone is at
+**6°**, 28° clear of the taxi and 14° clear of "this fare is half out of time". That gap is what
+stops a prop on the road reading as the player's car at play zoom, and `tools/probe.mjs` asserts
+it the same way it asserts the ghost paints'.
+
+The ramp gets its own `plywood` rather than borrowing the spoil's brown, which is the one colour
+change a screenshot forced: at the spoil colour it read as a mud patch on the tarmac instead of a
+board propped against something, and the taxi launching off it made no sense.
+
+**The ramp shipped wound inside out, and nothing caught it.** `rampWedge` writes its triangles by
+hand, and every one of them was in clockwise order: measured off the built geometry, the slope's
+normals were `y = -0.98` and the underside's `y = +1.00`. The face aimed at the camera was the
+ramp's *bottom* — a flat plywood-coloured quad lying exactly on the road slab — and the slope
+itself, being a back face under `FrontSide`, was culled. What players saw was an orange patch
+flickering against the tarmac near the junction, reported as "z-fighting, maybe metal covers?", and
+they were right about the symptom and necessarily wrong about the cause. The ramp had never once
+been drawn as a ramp.
+
+Two things made it survive review. `flatShading` takes its normal from a screen-space derivative,
+so the wrong-facing quad still *lit* like a surface instead of going black — the usual loud symptom
+of a reversed face was absent. And the bug looks exactly like a depth-precision problem, which is a
+thing you tune rather than a thing you fix. This is the class of defect a screenshot cannot
+adjudicate, so `probe.mjs` now asserts the sign of `normal.y` on both faces, computed from the
+winding rather than from `computeVertexNormals` — which would happily launder a reversed triangle
+into whatever its neighbours claimed.
+
+**Heights on the carriageway are a stack, and it is written down** because "a hair above the road"
+was how the trench ended up sitting at exactly `MARK_Y`, coplanar with every lane dash it crossed:
+
+```
+road slab 0  ·  lane paint MARK_Y 0.02  ·  TRENCH_Y 0.024  ·  route band 0.03  ·  WORKS_Y 0.035  ·  cars ROAD_Y 0.04
+```
+
+A solid prop therefore draws over the route band and under a car; the painted hole draws over the
+lane dashes but still lets the band run across it. Props with a flat *downward* face — a cone's
+base slab, a trestle's foot — are deliberately left sitting on y = 0 rather than lifted: with
+correct winding those faces are culled and cannot fight anything, and lifting them would buy a
+visible gap under the prop for nothing. Winding is the fix; clearance is the belt.
+
+**The cones stand in two rows** at ±2.6 from the road centreline, six a side, with ±0.12 of jitter.
+They were a sine zigzag with 0.9 of jitter, meant to read as hand-placed; it read as neither. A wave
+that wanders across the centreline has no rule an eye can pick up, so it looked like cones dropped
+at random rather than like a lane coned off — the order has to be legible before the imperfection
+on top of it means anything. The offset is set against the car rather than by eye: the taxi tracks
+a lane centre at `LANE` = 2.0 and is `CAR_W` = 1.7 wide, so its flank sweeps to 2.85. At 2.6 the
+near row is squarely in the way and goes flying while the far row survives, which is what makes
+driving through read as damage instead of as a clean corridor.
+
+**Going through throws a burst of dust, not a puff.** The smash used to emit two ordinary trail
+puffs — which is precisely what a boosting taxi lays down in two frames, so the one impact in the
+run rendered as exhaust. `dust.burst` fires thirteen at once, each thrown 1.7–2.6× as hard and
+wide, scattered around the point rather than trailing from it: the barricade is something the taxi
+hit, not a surface it is spinning its wheels on. The pool is 90 slots, so a burst costs about a
+seventh of it and leaves the boost trail intact.
+
+That change surfaced a latent bug in `dust.js`. Giving a burst puff a longer life is not enough on
+its own, because `t` was normalised against the `LIFE` **constant** rather than the puff's own
+span — so a longer-lived puff started at a *negative* age: a sixteenth of its size and above full
+opacity, growing rather than dispersing. Each puff now carries its own `span`. The probe compares a
+burst against a single trail puff rather than against a magic number, which is what caught it.
+
+**Knocked cones come to rest, and they are the first effect here that does.** Position is closed
+form, like the blast's shards — a curve of `age` rather than an integrated velocity, so nothing
+accumulates and a slow-motion frame is the same shape as a full-speed one — and the flight's
+*duration* is derived from its own launch velocity (`2·vy / g`) rather than picked, so the settle
+lands exactly when the cone does. The lying-down pose is reached by **slerp**, not by blending
+Eulers: Euler blending gimbals through the flat pose and snaps the cone ninety degrees in the last
+frame. The wreck's shards get away with never settling because the camera cuts to the retry screen;
+this one stays.
+
+The trestle cartwheels rather than shattering — it flies 4.6 units downfield on a 1.25-unit arc and
+lands past flat, which reads as slammed rather than laid down. It is animated inside the group that
+carries its placement, so the flight is written in *across / up / downfield* rather than in world
+axes, and works unchanged on a diagonal street.
+
+`?shot=14` frames a zone and `?shot=15` drives the taxi into one and freezes it mid-arc — the same
+argument as the wreck's shot, since the smash is over in three quarters of a second and needs the
+player to have driven at it.
+
 ### The flyover — `game/flyover.js`, `geometry/plane.js`
 
 A light aircraft crossing the city every 45–90 seconds, at 30 units of altitude. Pure scenery:

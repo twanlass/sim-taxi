@@ -857,6 +857,166 @@ only the body would leave two wheels parked on the road; `tools/probe.mjs` asser
 is cheaper than the alternative — a custom alpha attribute plus an `onBeforeCompile` patch on the
 traffic material — for something that happens once per run.
 
+## Roadworks: a street closed at both ends
+
+`src/game/roadwork.js` and `src/geometry/roadworks.js`. Once per run, about a minute in, a side
+street is closed off: a striped trestle across each end, two rows of cones, a heap of spoil beside
+the hole it came out of, and two workers standing over it. Ambient traffic routes around it. **The
+player's taxi is sent through it**, so the closed street is the emptiest road in the city — and
+each barricade is a ramp.
+
+### The closure is soft, and that is not a shortcut
+
+There was already a way to close a road: `grid.js`'s `setClosedSegments`, which a park district
+uses. It is read **once, at bake time**, by `roadNetFromGrid` — it deletes the edge, merges the two
+blocks it separated into one face, and re-derives every signal phase around the junctions at either
+end. Re-baking mid-run would leave every `car.lane` and `car.turn` in the `cars` array pointing
+into a graph that no longer exists, and `ground.js` is one merged mesh built at startup with no
+road in it to remove.
+
+So the network is untouched and two **lane ids** are handed to `setClosedLanes`. They are read in
+exactly one place — the weighted dice at the single turn-decision site — where they zero a turn's
+weight:
+
+```js
+return { turn, w: closedLanes.has(turn.outLane) ? 0 : w };
+```
+
+**A weight rather than a filter, and the zero is load-bearing in both directions.** With any open
+exit present `total` is positive, `roll` is strictly greater than zero, and a zero-weight option
+can never win the walk — it reads as a hard ban. With *every* exit closed `total` is zero, `roll`
+is zero, and the first iteration's `roll -= 0` satisfies `roll <= 0`: the car takes `options[0]`
+and drives on. A filter would empty the list instead, and a car with no legal exit holds at the
+line **forever**, with its whole lane queued behind it. Placement already refuses any segment that
+would strand an approach — see below — so the degenerate branch should never run; it exists so that
+a bug in the placement rules is a car driving through a barricade rather than a wedged city.
+
+Two smaller consequences in the same file: right-on-red is refused into a closed lane, and
+`setCarCount`'s spawn filter will not mint a car inside one.
+
+### Getting the player there
+
+The same two lane ids go to `route.js` as well, via `setRoadworkLanes`, and say the opposite thing:
+to ambient traffic these turns are **forbidden**, to the taxi's router they are **cheap**. That
+asymmetry is the whole vignette — the city empties the street and the fare sends the player down it.
+
+This was not the first build. Originally the taxi genuinely had never heard of the closure, on the
+theory that stumbling into it was the discovery. Measured, that theory was wrong: **the player
+cannot steer.** They tap a rider and the taxi routes itself, so "go and look at the roadworks" is
+not a thing they are able to choose, and the zone was found in 33% of runs — mostly scenery, built
+in full and rarely seen.
+
+Two mechanisms fix it, and `tools/roadwork-pull.mjs` shows that neither is enough alone:
+
+| | no drop-off aim | drop-off aimed |
+|---|---|---|
+| **no discount** | 33% | 50% |
+| **`roadwork` 0.45** | 67% | 96% |
+
+- **`EDGE_COST.roadwork = 0.45`** prices a closed lane well under an ordinary side street. Scale
+  matters and is easy to get wrong: costs are ~1.0 per block, so a weight of `w` only wins a detour
+  worth less than `1 - w` blocks. Anything near the ring's 0.90 is a pure tie-break, which is why
+  the first attempt at this changed almost nothing. 0.45 buys about half a block. Below it nothing
+  improves — 0.20 measures identically — so 0.45 is the knee.
+- **`fares.aimNextDropoff`** gives exactly one fare a destination at a junction the closed street
+  runs into, so there is a trip heading that way for the discount to pull. Only the *destination*
+  moves; the pickup, the clock and the price are drawn as always, so the economy is untouched.
+
+The player is still not being steered. What moved is where a rider wants to go and what the roads
+cost — the same two things that decide every other route in the game.
+
+**What this does to fare clocks is smaller than it looks.** A fare's budget comes from
+`chainSeconds`, which does now plan over the discounted weights — but `estimateSeconds` prices a
+route by `route.length * SEC_PER_BLOCK + turns * SEC_PER_TURN`, in blocks and turns, never in lane
+cost. So the discount cannot make a given route cheaper to the clock; it can only change *which*
+route is picked, and only by the length difference between the two. `probe.mjs` bounds that at one
+leg either way, and across a sweep the mean planned route moves 4.23 → 4.17 legs — slightly
+shorter, because a cheap lane straightens as many trips as it bends.
+
+The player is left with a little more slack than the clock knows about, which is the right
+direction to be wrong in: the closed street really is quicker to drive than the estimate assumes,
+since there is nothing on it to queue behind.
+
+### Which street
+
+Placement (`roadwork.js`) refuses a segment unless all of:
+
+- it is a **side** street — closing an arterial fights the 64% green share and the platoon offsets
+  the city is timed around, and the ring is the road everything else escapes onto;
+- every approach at both end junctions keeps at least one open onward lane. This is asked exactly,
+  by walking `lane.onward`, rather than by a corner heuristic: what strands a car is not the shape
+  of the junction but a single inbound lane whose every exit is closed, and U-turns are illegal;
+- both lanes are empty of ambient traffic right now, so nothing appears on top of a car;
+- no rider is waiting at either end — a pickup inside a construction site reads as a bug even
+  though nothing about it breaks;
+- it is at least 45 units from the taxi, the same number and the same honest caveat as
+  `SPAWN_CLEARANCE`: on a desktop the whole city is in frame at once, so this cannot pretend to be
+  off-camera. A segment currently outside the frustum is *preferred* where one exists.
+
+The zone then **rises out of the road** over 1.1s rather than appearing on it. The slab is opaque
+and drawn first, so the part still below y = 0 fails the depth test — which is what makes the rise
+free, and what covers the desktop case where nothing can be set up off-screen.
+
+### The ramp
+
+`HOP_LEN`, `launchHop` and the arc live in `traffic.js`, next to `locoWheelie` and for the same
+reason. The hop is **rendered only**: `car.s`, `car.lane`, the turn decision, following distance
+and the collision test all carry on as if the car were on the tarmac, which is what stops a stunt
+being able to break the sim.
+
+**Paced by `car.travelled`, not by a clock** — the same lesson the Loco weave and the front-wheel
+ease both record. A half-second hop covers 4.25 units at cruise and 11.5 in overdrive, and 11.5 is
+nearly a whole 12-unit lane: the taxi would still be in the air at `holdS`, where it picks its next
+turn. A fixed **5.5 units** of road lands in the same place at any speed, and freezes if the car
+stops. `tools/probe.mjs` drives the same barricade at cruise and at 22 u/s and asserts both arcs
+measure `HOP_LEN` and both peak at the same height.
+
+Three constants have to keep closing here, and they are easy to move one at a time:
+
+```
+launch at BARRIER_S 2.1  →  land at 2.1 + HOP_LEN 5.5 = 7.6  →  holdS at 12 - STOP_SETBACK = 8.6
+```
+
+`HOP_LEN` came down from 6.0 when `BARRIER_S` went out from 1.7 to get the ramp's toe clear of the
+junction box: 2.1 + 6.0 = 8.1 left half a unit before the line where the taxi picks its next turn.
+The probe asserts the **margin**, not just that the taxi landed in time, so moving any one of the
+three fails loudly rather than on whichever run happens to be fastest.
+
+The barricade test is a **crossing** — `lastS < barrier.s <= s` on the same lane — not
+`s >= barrier.s`, which is true for the whole rest of the lane and would launch a taxi that was
+already past the line when the zone finished rising.
+
+> **Known, and not yet fixed:** each barricade is bound to *its own* lane id, but both trestles
+> span the full road. A taxi entering at one end smashes the barricade on the lane it is driving
+> and then passes straight through the one at the far end, which belongs to the opposite lane —
+> `1 of 2` on a full pass. Binding a barricade to a position along the *segment* rather than along
+> one lane would fix it, at the cost of two launches per pass, which is a feel change rather than a
+> bug fix and has not been made.
+
+### Packing up
+
+Once the taxi is **through** — off the closed lanes and back on the ground, not merely having
+smashed something — the zone waits `LEAVE_DWELL` for the trestle to finish cartwheeling and the
+cones to settle, then fades out and sinks back under the road over `FADE_OUT`. The sink is the
+mirror of the arrival and works for the same reason: the slab is opaque and drawn first, so
+whatever has gone below y = 0 fails the depth test for free.
+
+The trigger is deliberately "off the closed lanes", not "has smashed": the taxi hits the barricade
+at the *mouth* of the street and still has the whole block to drive, so fading from the smash would
+dissolve the site around a car that is still inside it.
+
+**The half of the teardown that is not cosmetic is giving the street back.** Both lane sets are
+cleared — `setClosedLanes` and `setRoadworkLanes` — because a closure left behind after the
+barricades have gone is invisible from every other angle: ambient traffic would avoid a road with
+nothing on it for the rest of the run, and the router would keep taking a shortcut down it. There
+is an assertion for exactly this, since nothing on screen would ever show it.
+
+Workers all run the moment a barricade goes, rather than only those within `FLEE_R`. The proximity
+rule is right for a taxi merely driving down the street and wrong once something is in the air — a
+worker calmly holding a shovel eight units from a cartwheeling trestle reads as a figure that has
+not been told what scene it is in. They fade out individually once they reach the kerb and turn to
+look back; their alpha multiplies into the zone's rather than being overwritten by it.
+
 ## Police priority corridor
 
 `src/sim/police.js`. A police car crosses the city on a cycle, holding every signal on its road

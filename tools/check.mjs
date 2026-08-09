@@ -18,6 +18,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/dropoffindicator.js', '../src/game/vanish.js', '../src/game/runend.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
   '../src/game/ssao.js',
+  '../src/geometry/roadworks.js', '../src/game/roadwork.js',
   '../src/game/tutorial.js'];
 
 const TOOLS = [

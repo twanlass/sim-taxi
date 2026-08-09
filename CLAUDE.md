@@ -73,6 +73,12 @@ down.
   material's parameters *before* the patch runs, so a patched material collides with every unpatched
   one sharing those parameters and gets handed whichever program compiled first. The diamond's fill
   drew with a building's shader and went missing with nothing logged.
+- **Hand-written triangles need their winding asserted, not eyeballed.** The roadworks ramp shipped
+  wound clockwise throughout: its slope normals came out at `y = −0.98` and its underside's at
+  `+1.00`, so the only face the camera saw was the bottom — a flat quad lying on the road, which
+  reads exactly like z-fighting and got reported as such. `flatShading` (below) is why it lit like a
+  surface instead of going black. Check the sign of a face normal computed *from the winding*;
+  `computeVertexNormals` launders a reversed triangle into whatever its neighbours say.
 - **`flatShading` takes its normal from a screen-space derivative,** so on back faces it points into
   the screen and the surface lights as if the sun were behind it. Three's `FLIP_SIDED` only fixes
   the interpolated-normal path. Flip it by hand in any back-face pass.
