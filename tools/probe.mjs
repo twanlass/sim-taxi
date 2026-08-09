@@ -1769,16 +1769,44 @@ check('the taxi is an ordinary car in the traffic array',
     && uTraffic.truckBoxMesh.count === CARS_DEFAULT - 1,
     `car mesh ${uTraffic.mesh.count}, truck mesh ${uTraffic.truckMesh.count}, box mesh ${uTraffic.truckBoxMesh.count}`);
 
-  // A truck's cab is painted from PALETTE.carBody, same as an ordinary car — only the cargo box
-  // breaks from that, and it does so by never getting an instance colour at all, not by reading a
-  // different palette.
-  const uCabColor = new THREE.Color();
-  uTraffic.truckMesh.getColorAt(0, uCabColor);
+  // truckMesh's instance colour — which tints its chassis (the cab itself is baked dark
+  // regardless, see truckCabGeometry) — is painted from PALETTE.carBody, same as an ordinary car.
+  // Only the cargo box breaks from that, and it does so by never getting an instance colour at
+  // all, not by reading a different palette.
+  const uChassisColor = new THREE.Color();
+  uTraffic.truckMesh.getColorAt(0, uChassisColor);
   const uCab = uTraffic.trucks[0];
-  check("a truck's cab is painted from the car palette",
-    uCabColor.getHexString() === new THREE.Color(PALETTE.carBody[uCab.colorIndex]).getHexString(),
-    `#${uCabColor.getHexString()} vs carBody[${uCab.colorIndex}] #${new THREE.Color(PALETTE.carBody[uCab.colorIndex]).getHexString()}`);
+  check("a truck's chassis is painted from the car palette",
+    uChassisColor.getHexString()
+    === new THREE.Color(PALETTE.carBody[uCab.colorIndex]).getHexString(),
+    `#${uChassisColor.getHexString()} vs carBody[${uCab.colorIndex}] #${new THREE.Color(PALETTE.carBody[uCab.colorIndex]).getHexString()}`);
   check("a truck's cargo box is never instance-tinted", uTraffic.truckBoxMesh.instanceColor === null);
+
+  // Driving feel: a truck cruises a little slower than a car (TRUCK_SPEED) and rocks less on every
+  // start and stop (TRUCK_PITCH_SCALE / TRUCK_PITCH_DAMPING_MULT). Measured over a stretch of
+  // ordinary driving against a same-seed, same-count control scene of ordinary cars, so the
+  // comparison isn't luck of which junction either population happened to be at.
+  const vTraffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), CARS_DEFAULT);
+  const sampleDriving = (traf, seconds) => {
+    let vSum = 0; let vN = 0;
+    let pitchSum = 0; let pitchN = 0;
+    for (let step = 0; step < seconds * 60; step++) {
+      traf.update(1 / 60);
+      for (const car of traf.cars) {
+        if (car.isTaxi || car.crashed) continue;
+        if (car.state === 'drive') { vSum += car.v; vN += 1; }
+        pitchSum += Math.abs(car.pitch); pitchN += 1;
+      }
+    }
+    return { avgV: vN ? vSum / vN : 0, avgPitch: pitchN ? pitchSum / pitchN : 0 };
+  };
+  const truckSample = sampleDriving(uTraffic, 12);
+  const carSample = sampleDriving(vTraffic, 12);
+  check('trucks cruise slower than cars', truckSample.avgV < carSample.avgV * 0.95,
+    `truck avg v ${truckSample.avgV.toFixed(2)} vs car avg v ${carSample.avgV.toFixed(2)}`);
+  check('trucks rock less than cars on every start and stop',
+    truckSample.avgPitch < carSample.avgPitch * 0.85,
+    `truck avg |pitch| ${truckSample.avgPitch.toFixed(4)} vs car avg |pitch| ${carSample.avgPitch.toFixed(4)}`);
 
   const uCollisions = createCollisions(uTraffic.cars, uTraffic.taxi);
   const uVanish = createVanish();

@@ -310,26 +310,30 @@ The rule itself is `steerToward()`, exported because the police cruiser runs it 
 ### Box trucks
 
 A rare ambient variant — `TRUCK_CHANCE` (1/12) of a spawned car, rolled once per car in
-`spawnCars`. It is a **purely visual** variant: a truck drives the same lane, the same speed, the
-same following distance (`MIN_GAP`, keyed off `CAR_LEN`) and the same collision envelope
-(`sim/collisions.js`, also keyed off `CAR_LEN`/`CAR_W`) as an ordinary car. Sharing that footprint
-is what lets one join the same queues and junctions without retuning anything tuned for a car —
-the price is a tighter bumper gap than the box actually needs (0.8 units behind a queued truck
-against 1.9 behind a car), which reads as ordinary tight traffic rather than as a bug.
+`spawnCars`. It shares an ordinary car's lane, following distance (`MIN_GAP`, keyed off
+`CAR_LEN`) and collision envelope (`sim/collisions.js`, also keyed off `CAR_LEN`/`CAR_W`) — sharing
+that footprint is what lets one join the same queues and junctions without retuning anything tuned
+for a car, and the price is a tighter bumper gap than the box actually needs (0.8 units behind a
+queued truck against 1.9 behind a car), which reads as ordinary tight traffic rather than as a bug.
+What it does *not* share is how it drives or moves: see "Driving feel", below.
 
 The body is three InstancedMeshes rather than the car pair's two: `truckMesh` (chassis, cab and
 windshield, from `truckCabGeometry()`) and `truckWheelMesh` alongside a third, `truckBoxMesh`
 (the cargo box, from `truckBoxGeometry()`), all built at `TRUCK_LEN`/`TRUCK_W`. They have to be
 separate meshes rather than one taller instance of the car body: an InstancedMesh draws one
 geometry for every instance, so a visibly bigger vehicle can't share the car body's buffer no
-matter how rare it is. The cab needs its own mesh apart from the box specifically because the two
-are painted differently — the cab reads `PALETTE.carBody` at the car's own `colorIndex`, same as
-an ordinary car, so a truck's livery varies exactly the way a car's does; the box is baked at the
-one fixed `PALETTE.truckBox` (a plain tan/white) and never gets an instance colour at all, since a
-real box truck's box is bare aluminium or cardboard regardless of the cab pulling it. One
-InstancedMesh only ever carries one tint per instance, so a part that varies and a part that never
-does are two meshes by construction. `car.isTruck` is what routes a car to the right meshes
-everywhere that matters — `writeAmbient`, `wreckShell`, the paint step.
+matter how rare it is. Only the chassis is painted per-instance — it reads `PALETTE.carBody` at
+the car's own `colorIndex`, exactly like an ordinary car's body, so a truck's livery varies the
+way a car's does. The cab and windshield are baked at the fixed dark `carGlass` colour instead,
+same as a car's own cabin glass: "make the cab black, so it looks like the cars in that sense" was
+the brief, and a car's greenhouse is always dark regardless of its body colour, so the truck's cab
+now reads as the same *kind* of part rather than as more chassis livery. The cargo box goes a step
+further and is never instance-tinted at all — it's baked at the one fixed `PALETTE.truckBox` (a
+plain tan/white) because a real box truck's box is bare aluminium or cardboard regardless of the
+cab pulling it. One InstancedMesh only ever carries one tint per instance, so a part that varies,
+a part that's fixed-dark and a part that's fixed-tan are three meshes by construction, not by
+choice. `car.isTruck` is what routes a car to the right meshes everywhere that matters —
+`writeAmbient`, `wreckShell`, the paint step.
 
 `TRUCK_CHANCE` defaults to 0 on `spawnCars`/`createTraffic` — every scripted scenario in `tools/`
 calls `createTraffic` without passing it, so none of them draw a truck and none of their staged
@@ -340,6 +344,29 @@ Trucks are left out of `ambient`, the array `game/carghosts.js` iterates for boo
 that code reads `car.instanceIndex` straight into `mesh`/`wheelMesh` with no type check, and a
 truck's index addresses a slot in the truck meshes instead. So a truck simply doesn't get a ghost
 outline yet — an accepted gap given how rare they are, not an oversight.
+
+**Whichever car this draw happens to pick as the taxi has its `isTruck` forced back to `false`.**
+The taxi always renders through `createTaxiMesh()` regardless of the flag, so this was harmless
+while `isTruck` only steered which mesh a car drew into — but once it started steering the physics
+below too, a taxi that happened to win its own truck roll would have quietly cruised and rocked
+like one. The taxi has to run at car physics whatever colour its unused roll came up.
+
+#### Driving feel
+
+A truck cruises a little slower than a car — `TRUCK_SPEED` is `SPEED * 0.85`, and
+`TRUCK_CORNER_SPEED` is cut from it by the same 0.7 ratio `CORNER_SPEED` already is from `SPEED`,
+so a truck doesn't suddenly out-corner a car the way a flat speed cap alone would let it. Both
+feed the same cruise-cap and turn-target formulas every car already runs (`car.isTruck` just picks
+which `SPEED` they're computed from), so a truck queues, brakes and takes signals exactly like a
+car — only slower.
+
+It also rocks less on every start and stop. The pitch spring (search "Rocking" in
+`traffic.js`) turns longitudinal acceleration into a nose dip/lift, underdamped so both events end
+on a small bounce; for a truck, `TRUCK_PITCH_SCALE` (0.5) halves the impulse for the same Δv and
+`TRUCK_PITCH_DAMPING_MULT` (1.8) damps the spring harder, so what dip there is settles instead of
+rocking back through another cycle. "Feels heavier" is exactly those two numbers and nothing
+else — measured over 12s of ordinary driving against a same-seed, same-count control scene of
+ordinary cars, a truck's mean `|pitch|` comes out well under half a car's.
 
 ## Boost (crazy-taxi mode)
 

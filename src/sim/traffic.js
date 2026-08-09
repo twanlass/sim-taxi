@@ -478,12 +478,13 @@ export const CAR_LEN = 3.4;
 export const CAR_W = 1.7;
 const MIN_GAP = CAR_LEN + 1.9;   // centre-to-centre
 
-// Box trucks are a purely visual ambient variant — same lane, speed, following distance and
-// collision envelope as an ordinary car (CAR_LEN/CAR_W above drive every physics constant in this
-// file and sim/collisions.js). Sharing that footprint is what lets one join the same queues and
-// junctions without retuning MIN_GAP or the collision circles for a second vehicle size; the price
-// is a tighter bumper gap than the box actually needs — MIN_GAP puts 0.8 units of clear road behind
-// a queued truck against 1.9 behind a car — which reads as ordinary tight traffic, not a bug.
+// Box trucks share an ordinary car's lane, following distance and collision envelope (CAR_LEN/
+// CAR_W above drive every one of those in this file and sim/collisions.js) — sharing that
+// footprint is what lets one join the same queues and junctions without retuning MIN_GAP or the
+// collision circles for a second vehicle size; the price is a tighter bumper gap than the box
+// actually needs — MIN_GAP puts 0.8 units of clear road behind a queued truck against 1.9 behind a
+// car — which reads as ordinary tight traffic, not a bug. What a truck does NOT share is how it
+// drives: it cruises a little slower and rocks less on every start and stop, below.
 export const TRUCK_LEN = 5.6;
 export const TRUCK_W = 2.0;
 // How often a spawned ambient car is a truck instead. Zero by default — see the `truckChance`
@@ -492,6 +493,16 @@ export const TRUCK_W = 2.0;
 // truck for every dozen cars, enough to notice, rare enough that it never reads as "the traffic got
 // trucks", which is the brief.
 export const TRUCK_CHANCE = 1 / 12;
+// A little slower than a car's cruise, same ratio a corner already gets cut to (CORNER_SPEED below
+// is SPEED * 0.7) — a heavier vehicle doesn't hurry in a straight line any more than round a bend.
+const TRUCK_SPEED = SPEED * 0.85;           // ~7.2 u/s
+const TRUCK_CORNER_SPEED = TRUCK_SPEED * 0.7;
+// The pitch spring below (search "Rocking") drives the nose-dip/lift on every accel and brake
+// event. A truck gets half the excursion for the same Δv — the weight is on the box, not the cab,
+// so the driver's-eye view pitches less — and damps harder, so what dip there is settles rather
+// than keeps bouncing. "Feels heavier" is these two numbers, nothing else.
+const TRUCK_PITCH_SCALE = 0.5;
+const TRUCK_PITCH_DAMPING_MULT = 1.8;
 // What a boosting taxi keeps instead. It stays in its lane now, so a leader it doesn't see is a
 // leader it rear-ends — but queueing at the ambient distance would read as the maniac politely
 // joining the back. 4.5 centre-to-centre puts the near collision circles (offset ±0.95 along the
@@ -619,18 +630,21 @@ const TRUCK_BOX_LEN = TRUCK_LEN * 0.58;
 const TRUCK_BOX_X = -(TRUCK_LEN / 2) + TRUCK_BOX_LEN / 2 + 0.15; // 0.15 tail gap
 
 /**
- * A box truck's chassis and cab — the part that carries the same instance tint an ordinary car's
- * body does, painted from the same PALETTE.carBody. Built at TRUCK_LEN/TRUCK_W rather than
- * CAR_LEN/CAR_W — see the note by those constants for why that is allowed to be a different number
- * from every vehicle's shared physics footprint.
+ * A box truck's chassis and cab. Built at TRUCK_LEN/TRUCK_W rather than CAR_LEN/CAR_W — see the
+ * note by those constants for why that is allowed to be a different number from every vehicle's
+ * shared physics footprint.
  *
- * Every solid part is left white, same as carGeometry's body, so the one instance colour tints the
- * whole cab — one fleet livery per vehicle, which is what a real cab wears. The cargo box is a
- * separate mesh, deliberately: see truckBoxGeometry().
+ * Only the chassis is left white for the instance tint, painted from PALETTE.carBody exactly like
+ * an ordinary car's body — one fleet livery per vehicle. The cab sits on top of it baked dark,
+ * same colour as the windshield glass, which is the other half of "looks like the cars in that
+ * sense": a car's greenhouse is always dark regardless of its body colour, and a truck's cab reads
+ * as the same kind of part rather than as more of the chassis livery. The cargo box is a further,
+ * separate mesh: see truckBoxGeometry().
  */
 function truckCabGeometry() {
   const parts = [];
   const white = new THREE.Color(1, 1, 1);
+  const cabDark = color('carGlass');
 
   const chassis = new THREE.BoxGeometry(TRUCK_LEN, 0.8, TRUCK_W);
   chassis.translate(0, TRUCK_BASE_Y, 0);
@@ -638,11 +652,11 @@ function truckCabGeometry() {
 
   const cab = new THREE.BoxGeometry(TRUCK_CAB_LEN, 1.1, TRUCK_W * 0.84);
   cab.translate(TRUCK_CAB_X, TRUCK_CAB_Y, 0);
-  parts.push(bakeColor(cab, white));
+  parts.push(bakeColor(cab, cabDark));
 
   const windshield = new THREE.BoxGeometry(0.12, 0.7, TRUCK_W * 0.7);
   windshield.translate(TRUCK_CAB_X + TRUCK_CAB_LEN / 2 - 0.05, TRUCK_CAB_Y, 0);
-  parts.push(bakeColor(windshield, color('carGlass')));
+  parts.push(bakeColor(windshield, cabDark));
 
   parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
 
@@ -972,6 +986,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   if (taxiIndex !== 0) [cars[0], cars[taxiIndex]] = [cars[taxiIndex], cars[0]];
   const taxi = cars[0];
   taxi.isTaxi = true;
+  // Whichever car this draw happened to be, it is never a truck once it's the taxi — the taxi
+  // always renders through createTaxiMesh() regardless, but isTruck now also steers cruise speed
+  // and pitch damping below, and the player's own car has to run at car physics whatever colour
+  // its unused truck roll came up.
+  taxi.isTruck = false;
 
   const {
     group: taxiGroup, setOccupied: setTaxiOccupied, setSteer: setTaxiSteer,
@@ -1843,8 +1862,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // A car fleeing the boosting taxi lifts its ceiling and finds some urgency to go with it:
         // at ACCEL it would need 24 units to reach the scatter speed and the junction is 20 away,
         // so without the extra push the higher cap would never actually be reached.
-        const cruiseCap = SPEED * (1 + (SCATTER_SPEED - 1) * car.scatter)
-          * (1 - PANIC_BRAKE * car.panic);
+        const cruiseCap = (car.isTruck ? TRUCK_SPEED : SPEED)
+          * (1 + (SCATTER_SPEED - 1) * car.scatter) * (1 - PANIC_BRAKE * car.panic);
         // The ceiling at full boost is the *overdrive* top, not the BOOST_SPEED one — but the
         // acceleration tapers above BOOST_SPEED, so the band past 18.7 is only ever reached by a
         // car that has had 40 units of straight road and a clear `allowed` to spend it on.
@@ -2049,7 +2068,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // cars sag at every block — the boosting taxi especially, which would hit top speed on the
         // straight and then shed a third of it to cross an empty junction in a straight line.
         const straightOn = car.turn.hand === 'straight';
-        const cruise = fullPower ? SPEED * BOOST_SPEED : SPEED;
+        const cruise = fullPower ? SPEED * BOOST_SPEED : (car.isTruck ? TRUCK_SPEED : SPEED);
         // Going straight on is part of the straightaway, so it keeps the overdrive band and keeps
         // building through it; a junction crossed in a straight line is 8 units of the 40 the band
         // needs. Only a real turn is capped at `cruise`, which is what makes a corner cost the top
@@ -2063,7 +2082,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // softer target on rights (0.75× cruise) keeps the no-brakes feel while giving the tight
         // arc back its visual weight.
         const isRight = car.turn.hand === 'right';
-        const boostTurn = fullPower ? (isRight ? cruise * 0.75 : cruise) : CORNER_SPEED;
+        const boostTurn = fullPower
+          ? (isRight ? cruise * 0.75 : cruise)
+          : (car.isTruck ? TRUCK_CORNER_SPEED : CORNER_SPEED);
         const cornerTarget = straightOn ? straightTop : boostTurn;
         car.v = car.v > cornerTarget
           ? Math.max(cornerTarget, car.v - BRAKE * dt)
@@ -2208,10 +2229,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // events end on a small bounce so it reads as suspension travel. Impulse to pitchV works
       // out as K·SCALE·Δv, independent of dt — a one-frame velocity jump (boost kick, stop-line
       // snap) delivers the same rock at any frame rate.
+      //
+      // A truck gets a smaller impulse (TRUCK_PITCH_SCALE) and more damping — heavier, so the same
+      // Δv moves the nose less, and what motion there is dies out instead of rocking back through
+      // another cycle. See the note by TRUCK_SPEED for where the two constants are defined.
       const accel = dt > 1e-6 ? (car.v - car.prevV) / dt : 0;
       car.prevV = car.v;
-      const targetPitch = Math.max(-0.13, Math.min(0.13, accel * 0.014));
-      car.pitchV += ((targetPitch - car.pitch) * 60 - car.pitchV * 6) * dt;
+      const pitchScale = car.isTruck ? TRUCK_PITCH_SCALE : 1;
+      const targetPitch = Math.max(-0.13, Math.min(0.13, accel * 0.014 * pitchScale));
+      const pitchDamping = car.isTruck ? 6 * TRUCK_PITCH_DAMPING_MULT : 6;
+      car.pitchV += ((targetPitch - car.pitch) * 60 - car.pitchV * pitchDamping) * dt;
       car.pitch += car.pitchV * dt;
 
       // Loco Mode kickoff: a short, one-shot wheelie added on top of the pitch spring — see
