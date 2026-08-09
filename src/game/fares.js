@@ -262,7 +262,7 @@ export function createFareSystem(rng, scene) {
     // -Infinity so the very first spawn is unrestricted.
     lastSpawnAt: -Infinity,
     gameOver: false,
-    failTitle: 'Game Over',
+    failTitle: 'Too Slow!',
     failReason: null,
     // Holds every fare's countdown where it stands — the opening tutorial sets it while it is
     // talking (see game/tutorial.js). Only the *clock* stops: fares still spawn, riders still
@@ -854,10 +854,10 @@ export function createFareSystem(rng, scene) {
    * End the run outside the ordinary fare loop — the collision and police-bust paths both use
    * this. Clears every live fare so the pins/rings vanish under the run-end banner rather than
    * being frozen on-screen next to the frozen taxi. `title` overrides the banner heading (defaults
-   * to "Game Over") so a bust can read "Busted" while a wreck reads plainly. Idempotent: a second
-   * call after game-over is already set is a no-op.
+   * to "Wrecked!") so a bust can read "Busted!" while a collision reads plainly. Idempotent: a
+   * second call after game-over is already set is a no-op.
    */
-  function crash(reason = 'Wrecked in a collision.', title = 'Game Over') {
+  function crash(reason = 'Wrecked in a collision.', title = 'Wrecked!') {
     if (state.gameOver) return;
     state.gameOver = true;
     state.failTitle = title;

@@ -1848,9 +1848,9 @@ check('the taxi is an ordinary car in the traffic array',
 }
 
 // --- Busted by the police --------------------------------------------------
-// Boosting near an active police car ends the run with a distinct "Busted" title. Mirrors the
+// Boosting near an active police car ends the run with a distinct "Busted!" title. Mirrors the
 // wiring in src/main.js: proximity < POLICE_BUST_RANGE while boosting → fares.crash('...',
-// 'Busted'). No wreck plume, so the check is about the state transition, not particle effects.
+// 'Busted!'). No wreck plume, so the check is about the state transition, not particle effects.
 {
   const bScene = new THREE.Scene();
   const bTraffic = createTraffic(makeRng(seed + 44), bScene, CARS_DEFAULT);
@@ -1876,11 +1876,11 @@ check('the taxi is an ordinary car in the traffic array',
   const near = dx * dx + dz * dz < POLICE_BUST_RANGE * POLICE_BUST_RANGE;
   if (near && bTaxi.boost && bPolice.state.active && !bFares.state.gameOver && !bTaxi.crashed) {
     bTaxi.crashed = true;
-    bFares.crash('You were caught by the police for reckless driving.', 'Busted');
+    bFares.crash('You were caught by the police for reckless driving.', 'Busted!');
   }
 
   check('boosting near the police ends the run', bFares.state.gameOver);
-  check('bust banner title is "Busted"', bFares.state.failTitle === 'Busted',
+  check('bust banner title is "Busted!"', bFares.state.failTitle === 'Busted!',
     bFares.state.failTitle);
   check('bust reason mentions the police', /police/i.test(bFares.state.failReason ?? ''),
     bFares.state.failReason);

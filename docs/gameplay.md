@@ -998,8 +998,8 @@ transition into Loco Mode and not on a re-press during a boost that's already ru
 
 `src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
 clock hitting zero, a collision, a police bust — and all three land on the same screen: a title, the
-reason, four stats, and **Play again**. The title is set by the caller, so a bust reads **Busted**
-while a timeout and a wreck read **Game Over**.
+reason, six stats, and **Play again**. The title is set by the caller, so a timeout reads
+**Too Slow!**, a collision reads **Wrecked!**, and a police bust reads **Busted!**.
 
 It is a **full-screen blackout**, not a modal over the city. An earlier pass dimmed the world and
 floated a blurred card on top of it, and the card's edges turned out to be the loudest thing on the
@@ -1015,13 +1015,13 @@ what the counter does with every other stat.
 The stats are **one row each, label and value side by side**, and both are set in the *same* size,
 weight and colour. A small grey caption over a big yellow number made the label read as chrome and
 the number as the content, when the pairing is the content; matched type makes each row one phrase
-— "Fares  9" — and the four rows read as a list being counted out, which is what the stagger is
+— "Fares  9" — and the rows read as a list being counted out, which is what the stagger is
 doing.
 
 It reads as a **ledger**: label pinned to the left edge, value to the right, on a `1fr auto` grid
 so the label column takes the slack and the values stay flush right however long the names get.
-Both edges are then straight lines down the block, which is what lets four rows of identically
-styled text read as four separate stats — centring each row on its own left the list ragged.
+Both edges are then straight lines down the block, which is what lets rows of identically
+styled text read as separate stats — centring each row on its own left the list ragged.
 `.stat` is `display: contents` so its label and value become grid items of the row above; the
 wrapper only exists for the reveal to animate a stat as a unit. Each entrance is anchored to the
 edge its text is aligned to (`transform-origin: left`/`right`), so the label's oversized first
@@ -1050,9 +1050,9 @@ counting, so the player isn't invited to leave mid-tally.
 
 **The stats are counted out one row at a time**, not staggered. A row's label arrives, its number
 rolls, the number lands and pops, and only after a held beat does the next label appear. An earlier
-pass overlapped the rows on a 165ms stride, and with four of them counting simultaneously the block
-read as one animation with numbers moving inside it — you watched the screen rather than any single
-figure. `STAT_STRIDE` is now *derived*: `ROW_MS + ROW_GAP`, where `ROW_MS` is a row's own beat
+pass overlapped the rows on a 165ms stride, and with several of them counting simultaneously the
+block read as one animation with numbers moving inside it — you watched the screen rather than any
+single figure. `STAT_STRIDE` is now *derived*: `ROW_MS + ROW_GAP`, where `ROW_MS` is a row's own beat
 (`COUNT_LEAD + COUNT_MS + LAND_MS`). "Finished before the next one starts" is therefore a property
 of the constants rather than something to keep re-checking by eye.
 
@@ -1077,6 +1077,7 @@ sequence is the entire module, so there is nothing else to keep.
 
 | Stat | Source | Notes |
 |---|---|---|
+| Time | `fares.state.elapsed` | seconds, shown as `m:ss` + trailing `s` (e.g. `1:03s`) |
 | Fares | `fares.state.delivered` | |
 | Shift | `difficulty.shiftFor(delivered)` | how far up the ramp the run got, counted out by name |
 | Cash | `fares.state.money` | |
