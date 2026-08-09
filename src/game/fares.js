@@ -198,6 +198,23 @@ export function cornerFor(i, j) {
 export const intersectionCentre = (i, j) => ({ x: lineCoord(i), z: lineCoord(j) });
 
 /**
+ * Which block a corner pin at intersection (i, j) actually stands on, mirroring the sx/sz flip in
+ * `cornerFor`. Only i (or j) === 0 flips its corner inward, onto the same block that i (or j) === 1
+ * already claims — every other line maps to a block of its own. That aliasing is invisible in
+ * `pickIntersection`'s plain (i, j) equality check: two intersections a block apart by
+ * `blockDistance` can still park their pins on the same physical block near the map's origin edge.
+ */
+function blockFor(i, j) {
+  return { bi: i === 0 ? 0 : i - 1, bj: j === 0 ? 0 : j - 1 };
+}
+
+const onSameBlock = (a, b) => {
+  const ba = blockFor(a.i, a.j);
+  const bb = blockFor(b.i, b.j);
+  return ba.bi === bb.bi && ba.bj === bb.bj;
+};
+
+/**
  * The meshes one fare needs. Built once per slot and reused for every fare that occupies it —
  * a fare is cheap bookkeeping, but a person, two pins, a shaft and a ring are not something to
  * rebuild every twenty seconds.
@@ -290,8 +307,13 @@ export function createFareSystem(rng, scene) {
    * on the diagonal. That slack is fine for an ordinary extra, but the very first fare (see
    * `spawnFare`) wants a hard cap the box alone can't promise, especially now that the taxi itself
    * starts downtown, where `radius` can span the whole map.
+   *
+   * `avoidBlockOf`, when given, additionally rules out any candidate whose corner pin would land
+   * on the same physical block as that intersection's own corner pin (see `blockFor`) — used to
+   * keep a fare's drop-off off the same block as its own pickup, which plain (i, j) inequality
+   * doesn't catch near the map's origin edge.
    */
-  function pickIntersection(taxiCar, near = null, maxBlocks = null) {
+  function pickIntersection(taxiCar, near = null, maxBlocks = null, avoidBlockOf = null) {
     // Every junction already spoken for, which is now both ends of every live fare: a waiting
     // rider's drop-off pin is on the map from the moment they appear, so dropping a second rider
     // (or a second drop-off) on top of it would put two markers on one kerb corner.
@@ -300,7 +322,8 @@ export function createFareSystem(rng, scene) {
       avoid.push(f.target);
       if (f.dropoff) avoid.push(f.dropoff);
     }
-    const free = (i, j) => !avoid.some((a) => a.i === i && a.j === j);
+    const free = (i, j) => !avoid.some((a) => a.i === i && a.j === j)
+      && (!avoidBlockOf || !onSameBlock({ i, j }, avoidBlockOf));
 
     if (near) {
       const options = [];
@@ -466,8 +489,10 @@ export function createFareSystem(rng, scene) {
     // fixed from its length, so both ends have to be known now. What the player gets up front is
     // the clock, and nothing about where. The unbiased draw is deliberate — the *pickup* is biased
     // toward where the taxi can reach (see spawnBias), but a drop-off next door to every other
-    // drop-off would flatten the trip lengths the fares are priced off.
-    fare.dropoff = pickIntersection(taxiCar);
+    // drop-off would flatten the trip lengths the fares are priced off. `spot` is also passed as
+    // the block-avoid point, so the drop-off can't land on the same physical block as the pickup
+    // even when the two intersections aren't identical — see `blockFor`.
+    fare.dropoff = pickIntersection(taxiCar, null, null, spot);
     fare.blocks = blockDistance(spot, fare.dropoff);
     // Priced by the trip's block distance, fixed here because both endpoints are already known. A
     // hidden meter that ticked while driving would punish traffic and reward Loco Mode for the
