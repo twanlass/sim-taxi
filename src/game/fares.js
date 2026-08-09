@@ -96,8 +96,8 @@ export const MAX_FARES = 4;
 // the risk, and missing one resets it to zero: the whole tension is that one late drop-off gives
 // it all back.
 const VIP_MIN_DELIVERED = 1;      // never on the tutorial fare — nothing to distinguish it against yet
-const VIP_COOLDOWN = 35;          // seconds between opportunities, so a VIP stays a rare event
-const VIP_CHANCE = 0.22;          // chance a qualifying spawn actually becomes one
+const VIP_COOLDOWN = 55;          // seconds between opportunities, so a VIP stays a rare event
+const VIP_CHANCE = 0.16;          // chance a qualifying spawn actually becomes one
 
 // The clock is a fraction of the run's own slack rather than a flat number, so a VIP tightens
 // along the same ramp as everything else — just harder. Never below VIP_MIN_SLACK: `tools/
