@@ -26,7 +26,7 @@ import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
-import { createTutorial, hasSeenTutorial } from './game/tutorial.js';
+import { createTutorial } from './game/tutorial.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createRouteLine } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
@@ -473,17 +473,13 @@ const dropoffIndicator = createDropoffIndicator({
 
 // Two bubbles and nothing else: "this car is you", then "tap that rider". See game/tutorial.js for
 // why those two and no more. Off in shot mode — a screenshot has nobody to teach, and the bubble
-// would be the loudest thing in every frame.
+// would be the loudest thing in every frame — and `?tutorial=off` skips it while iterating on the
+// rest of the game.
 //
-// First run only, remembered across loads. Play-again is a `location.reload()`, and a run ends in a
-// wreck or a bust often enough that the reload is the usual way back in — so without this the
-// tutorial would be a toll charged on every retry for a lesson learned once.
-//
-// `?tutorial=off` skips it while iterating on the rest of the game; `?tutorial=on` forces it back
-// after it has been seen, which is otherwise only reachable by clearing site data.
-const tutorialParam = new URLSearchParams(window.location.search).get('tutorial');
-const wantsTutorial = tutorialParam === 'on'
-  || (tutorialParam !== 'off' && !hasSeenTutorial());
+// It runs on every new game, not just the first: the opening is short, it holds the clocks while it
+// talks, and it costs nothing to sit through. Remembering it across loads was tried (a
+// `localStorage` flag) and taken back out — see docs/gameplay.md.
+const wantsTutorial = new URLSearchParams(window.location.search).get('tutorial') !== 'off';
 const revealHud = () => document.body.classList.add('hud-ready');
 
 // Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
@@ -514,6 +510,9 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // Any fare the player has actually sent the taxi at — including one they found and tapped on the
   // map while the first bubble was still up.
   isDispatched: () => Boolean(fares.carrying() || fares.state.fares.some((f) => f.directed)),
+  // The third beat waits on this rather than on the dispatch: the Loco Mode hint lands a couple of
+  // seconds after the first rider is actually dropped off, once the loop has closed one full turn.
+  hasDelivered: () => fares.state.delivered > 0,
   // A player who has already found Loco Mode does not need the third beat pointing at it.
   boostUsed: () => locoUsed,
   isOver: () => fares.state.gameOver,
