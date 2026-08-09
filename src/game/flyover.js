@@ -48,7 +48,7 @@ const OFFSET_SPREAD = 30;
 // comes up as the aeroplane rises, which is the half of the motion that sells it as flying.
 const BOB_AMP = 0.34;
 const BOB_RATE = 1.15;
-const ROLL_AMP = 0.085;
+const ROLL_AMP = 0.16;
 const ROLL_RATE = 0.62;
 const PITCH_GAIN = 0.22;         // radians per unit/s of climb
 
@@ -73,8 +73,8 @@ export const heading = (yaw) => ({ x: Math.cos(yaw), z: -Math.sin(yaw) });
  * up with the part of `VIEW_DIR` perpendicular to that axis. It widens along local (0, cos, sin),
  * which puts its normal at (0, −sin, cos) — so the angle wanted is that of the view's YZ component
  * turned a quarter turn, and pointing the *width* at the camera instead is exactly the way to get
- * a ribbon you cannot see. The body's own bank and pitch are ignored: at ±0.085 rad they move the
- * ribbon by under half a degree.
+ * a ribbon you cannot see. The body's own bank and pitch are ignored: at ±0.16 rad they move the
+ * ribbon by about a degree.
  */
 export function trailRoll(yaw) {
   const y = VIEW_DIR.y;
