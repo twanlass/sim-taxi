@@ -43,7 +43,7 @@ import {
 import { createCityCamera, attachDragPan, VIEW_DIR } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
@@ -73,8 +73,8 @@ const time = (label, fn) => {
 // Read a rider's diamond back the way a player does — off the material it is painted in, not by
 // trusting the argument we passed in. Its colour is the whole of what that marker says now.
 const diamondHex = (marker) => marker.mesh.material.color.getHexString();
-// The disc under the rider's feet, rim and fill — one mark at two weights, so they must never
-// disagree with each other or with the crystal overhead.
+// The disc under the rider's feet, rim and fill and sweep — one mark at three weights, so they
+// must never disagree with each other or with the crystal overhead.
 const ringHexes = (marker) => marker.ring.children.map((m) => m.material.color.getHexString());
 
 // Slot 0's bounce phase offset — fares.js staggers the slots so two riders don't pulse in lockstep,
@@ -779,8 +779,9 @@ check('no two cars occupy the same space', worst > 1.6,
     const pin = createDestinationPin();
     const hex = (c) => new THREE.Color(c).getHexString();
     const painted = pin.ring.group.children.map((m) => m.material.color.getHexString()).join('/');
-    check('the drop-off ring is teal, rim and fill',
-      painted === `${hex(PALETTE.destination)}/${hex(PALETTE.destination)}`, painted);
+    check('the drop-off ring is teal, rim and fill and sweep',
+      painted === `${hex(PALETTE.destination)}/${hex(PALETTE.destination)}/${hex(PALETTE.destination)}`,
+      painted);
     check('the drop-off wears no urgency colour',
       !PALETTE.urgency.map(hex).includes(hex(PALETTE.destination)));
     // The ring group and nothing else on the corner; the hit box is a child of the root, not of it.
@@ -1756,6 +1757,193 @@ check('the taxi is an ordinary car in the traffic array',
   }
   check('no collisions fire while the taxi is not boosting', quietHits === 0,
     `${quietHits} impacts over 30s`);
+}
+
+// --- Box trucks --------------------------------------------------------------
+// A purely opt-in ambient variant — every scenario in this file runs with truckChance at its
+// default of 0, so nothing above ever draws one. This is the one place it gets turned on, forcing
+// every ambient car to be a truck and driving the same crash path as the block above, aimed at the
+// truck meshes instead of the car ones — the failure mode worth catching is a wrecked truck
+// collapsing the wrong InstancedMesh slot (its own car-mesh index, which happens to belong to some
+// other truck) instead of its own.
+{
+  const uScene = new THREE.Scene();
+  const uTraffic = createTraffic(makeRng(seed + 44), uScene, CARS_DEFAULT, CARS_DEFAULT, 1);
+  check('truckChance=1 puts every ambient car in the truck meshes',
+    uTraffic.mesh.count === 0 && uTraffic.truckMesh.count === CARS_DEFAULT - 1
+    && uTraffic.truckBoxMesh.count === CARS_DEFAULT - 1,
+    `car mesh ${uTraffic.mesh.count}, truck mesh ${uTraffic.truckMesh.count}, box mesh ${uTraffic.truckBoxMesh.count}`);
+
+  // truckMesh's instance colour — which tints its chassis (the cab itself is baked dark
+  // regardless, see truckCabGeometry) — is painted from PALETTE.carBody, same as an ordinary car.
+  // Only the cargo box breaks from that, and it does so by never getting an instance colour at
+  // all, not by reading a different palette.
+  const uChassisColor = new THREE.Color();
+  uTraffic.truckMesh.getColorAt(0, uChassisColor);
+  const uCab = uTraffic.trucks[0];
+  check("a truck's chassis is painted from the car palette",
+    uChassisColor.getHexString()
+    === new THREE.Color(PALETTE.carBody[uCab.colorIndex]).getHexString(),
+    `#${uChassisColor.getHexString()} vs carBody[${uCab.colorIndex}] #${new THREE.Color(PALETTE.carBody[uCab.colorIndex]).getHexString()}`);
+  check("a truck's cargo box is never instance-tinted", uTraffic.truckBoxMesh.instanceColor === null);
+
+  // Driving feel: a truck cruises a little slower than a car (TRUCK_SPEED) and rocks less on every
+  // start and stop (TRUCK_PITCH_SCALE / TRUCK_PITCH_DAMPING_MULT). Measured over a stretch of
+  // ordinary driving against a same-seed, same-count control scene of ordinary cars, so the
+  // comparison isn't luck of which junction either population happened to be at.
+  const vTraffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), CARS_DEFAULT);
+  const sampleDriving = (traf, seconds) => {
+    let vSum = 0; let vN = 0;
+    let pitchSum = 0; let pitchN = 0;
+    for (let step = 0; step < seconds * 60; step++) {
+      traf.update(1 / 60);
+      for (const car of traf.cars) {
+        if (car.isTaxi || car.crashed) continue;
+        if (car.state === 'drive') { vSum += car.v; vN += 1; }
+        pitchSum += Math.abs(car.pitch); pitchN += 1;
+      }
+    }
+    return { avgV: vN ? vSum / vN : 0, avgPitch: pitchN ? pitchSum / pitchN : 0 };
+  };
+  const truckSample = sampleDriving(uTraffic, 12);
+  const carSample = sampleDriving(vTraffic, 12);
+  check('trucks cruise slower than cars', truckSample.avgV < carSample.avgV * 0.95,
+    `truck avg v ${truckSample.avgV.toFixed(2)} vs car avg v ${carSample.avgV.toFixed(2)}`);
+  check('trucks rock less than cars on every start and stop',
+    truckSample.avgPitch < carSample.avgPitch * 0.85,
+    `truck avg |pitch| ${truckSample.avgPitch.toFixed(4)} vs car avg |pitch| ${carSample.avgPitch.toFixed(4)}`);
+
+  // Following distance: a car has to leave more clear road behind a truck than behind another
+  // car, since a leader's actual length has to be part of the gap — see followGap in traffic.js.
+  // Staged directly on a straight, roomy lane: a parked leader (parked + no route holds any
+  // ambient car forever, same trick the taxi's own kerb wait uses) and a follower that closes in
+  // behind it and brakes to a stop, read once both have settled.
+  // The lane itself — not just the chained approach room — has to be long enough for both `back`
+  // values below to land inside it: placeCar walks back across a junction into the previous lane
+  // in the chain once `back` exceeds this one's own length, which would leave leader and follower
+  // on two unrelated lanes instead of nose-to-tail on one.
+  let gI = -1; let gJ = -1; let gD = -1;
+  const gNet = cityNetwork();
+  outerGap: for (let i = 1; i < GRID; i++) {
+    for (let j = 1; j < GRID; j++) {
+      for (const d of [0, 1, 2, 3]) {
+        const lane = gNet.laneByGrid(d, i, j);
+        if (!lane || lane.degenerate || lane.length < 11.5) continue;
+        gI = i; gJ = j; gD = d;
+        break outerGap;
+      }
+    }
+  }
+  const settledGap = (leaderIsTruck) => {
+    const gTraffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), 3);
+    const [, leader, follower] = gTraffic.cars;
+    leader.isTruck = leaderIsTruck;
+    placeCar(leader, gD, gI, gJ, 4);
+    leader.parked = true;
+    placeCar(follower, gD, gI, gJ, 11);
+    for (let step = 0; step < 300; step++) gTraffic.update(1 / 60);
+    return Math.hypot(leader.x - follower.x, leader.z - follower.z);
+  };
+  // CAR_LEN/2 + CAR_LEN/2 + BUMPER_GAP (1.9) = MIN_GAP = 5.3; with a truck leader,
+  // CAR_LEN/2 + TRUCK_LEN/2 + BUMPER_GAP = 1.7 + 2.8 + 1.9 = 6.4.
+  const carGap = settledGap(false);
+  const truckGap = settledGap(true);
+  check('a car settles further back behind a truck than behind a car',
+    truckGap > carGap + 0.9, `behind a car ${carGap.toFixed(2)}, behind a truck ${truckGap.toFixed(2)}`);
+  check('the settled gaps match followGap exactly, not the old flat MIN_GAP for both',
+    Math.abs(carGap - 5.3) < 0.1 && Math.abs(truckGap - 6.4) < 0.1,
+    `behind a car ${carGap.toFixed(2)} (want ~5.3), behind a truck ${truckGap.toFixed(2)} (want ~6.4)`);
+
+  const uCollisions = createCollisions(uTraffic.cars, uTraffic.taxi);
+  const uVanish = createVanish();
+  let uHits = 0;
+  let uImpact = null;
+  const uShells = [];
+  uCollisions.onImpact((event) => {
+    uHits += 1;
+    uImpact = event;
+    for (const car of [event.taxi, event.other]) {
+      const shell = uTraffic.wreckShell(car);
+      uShells.push(shell);
+      uVanish.take(shell);
+    }
+  });
+
+  uTraffic.warmup(3);
+  const uTarget = uTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive');
+  uTraffic.taxi.x = uTarget.x;
+  uTraffic.taxi.z = uTarget.z;
+  uTraffic.taxi.boost = true;
+  for (let step = 0; step < 90; step++) {
+    uCollisions.update();
+    uTraffic.update(1 / 60);
+    if (uHits > 0) break;
+  }
+
+  check('boosting into a truck fires an impact', uHits >= 1, `${uHits} impacts`);
+  const uVictim = uImpact?.other;
+  check('the truck it hit is wrecked', Boolean(uVictim?.crashed) && uVictim.isTruck === true);
+
+  const uScale = new THREE.Vector3();
+  const uMatrix = new THREE.Matrix4();
+  const scaleOfTruck = (instMesh, index) => {
+    instMesh.getMatrixAt(index, uMatrix);
+    uMatrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), uScale);
+    return uScale.x;
+  };
+  const truckWheelScales = [];
+  for (let w = 0; w < uTraffic.truckWheelsPerCar; w++) {
+    truckWheelScales.push(scaleOfTruck(
+      uTraffic.truckWheelMesh, uVictim.instanceIndex * uTraffic.truckWheelsPerCar + w,
+    ));
+  }
+  check('a wrecked truck collapses out of the truck meshes, not the car ones',
+    scaleOfTruck(uTraffic.truckMesh, uVictim.instanceIndex) === 0
+    && scaleOfTruck(uTraffic.truckBoxMesh, uVictim.instanceIndex) === 0
+    && truckWheelScales.every((s) => s === 0),
+    `cab + box + ${truckWheelScales.length} wheels`);
+
+  // The shell itself carries two materials for a truck — cab+wheels in its car-palette colour, the
+  // box in the fixed PALETTE.truckBox — and game/vanish.js has to find and fade both.
+  const uShell = uShells[1];
+  check('a wrecked truck hands over both a cab and a box mesh',
+    uShell.children.length === 2 + truckWheelScales.length);
+
+  // Right turns: a truck should visibly take longer than a car on the identical turn — see
+  // TRUCK_RIGHT_TURN_SPEED in traffic.js. Staged with a forced route, the same "one routing
+  // branch" any car can use and not just the taxi (docs/traffic.md), so the turn direction isn't
+  // left to the weighted dice.
+  let rI = -1; let rJ = -1; let rD = -1;
+  outerRight: for (let i = 1; i < GRID; i++) {
+    for (let j = 1; j < GRID; j++) {
+      for (const d of [0, 1, 2, 3]) {
+        if (!legalExits(d, i, j).includes(rightOf(d))) continue;
+        const lane = gNet.laneByGrid(d, i, j);
+        if (!lane || lane.degenerate || lane.length < 8) continue;
+        rI = i; rJ = j; rD = d;
+        break outerRight;
+      }
+    }
+  }
+  const rightTurnSeconds = (isTruck) => {
+    const rTraffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), 2);
+    const [, car] = rTraffic.cars;
+    car.isTruck = isTruck;
+    placeCar(car, rD, rI, rJ, 7);
+    car.route = [rightOf(rD)];
+    let seconds = 0;
+    let seenTurn = false;
+    for (let step = 0; step < 60 * 30; step++) {
+      rTraffic.update(1 / 60);
+      if (car.state === 'turn') { seconds += 1 / 60; seenTurn = true; } else if (seenTurn) break;
+    }
+    return seconds;
+  };
+  const carRightSeconds = rightTurnSeconds(false);
+  const truckRightSeconds = rightTurnSeconds(true);
+  check('a truck takes measurably longer than a car on the same right turn',
+    truckRightSeconds > carRightSeconds * 1.3,
+    `car ${carRightSeconds.toFixed(2)}s, truck ${truckRightSeconds.toFixed(2)}s`);
 }
 
 // --- The crash blast -------------------------------------------------------

@@ -63,6 +63,14 @@ export const PALETTE = {
   //     saturation where it is, is what reserves it. tools/probe.mjs asserts the clearance.
   carBodyGhost: ['#DA887D', '#71CDD2', '#85A7D4', '#D0CABE', '#80C5A1', '#AC96C7', '#D0C7B4', '#8D9BAD'],
   carGlass: '#2E3640',
+  // A box truck's cab is painted from carBody, same colorIndex and everything — one taxi-company
+  // fleet's palette covers both, and it is what makes a truck read as "one more vehicle in this
+  // traffic" rather than a prop dropped in from elsewhere. Only the cargo box breaks from that: it
+  // is baked at this one fixed tan/white rather than tinted per instance, because a real box
+  // truck's box is bare aluminium or cardboard-coloured regardless of the cab up front. No ghost
+  // variant: sim/traffic.js keeps trucks out of the ambient pool game/carghosts.js draws outlines
+  // from, so there is nothing to index either colour against yet.
+  truckBox: '#DDD4BE',
 
   // --- Game entities. Deliberately higher-chroma than anything in the city so they read
   // instantly against the muted buildings and grey roads.

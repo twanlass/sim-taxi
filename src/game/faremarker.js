@@ -250,6 +250,10 @@ export function createFareMarker(scene, phase = 0) {
     update(elapsed, target = null, secondsLeft = Infinity) {
       if (!group.visible) return;
 
+      // The beam circling the disc, while there is a disc to circle — it goes dark with the ring
+      // itself at the hand-off (see beginTransfer), so there is nothing left to spin in the car.
+      if (ring.group.visible) ring.update(elapsed);
+
       if (target) anchor.set(target.x, LIFT, target.z);
 
       if (transferPending) {

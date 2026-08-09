@@ -16,9 +16,11 @@ import { VIEW_DIR } from './camera.js';
 // Everything else in the game — the drop-off dispatching itself, the timer ring, Loco Mode — either
 // happens without being asked for or is a pill with a label on it. None of it is taught here.
 //
-// It runs on a player's **first run only**, and is remembered across loads — see `hasSeenTutorial`.
-// A run ends in a wreck or a bust often enough that play-again is the common path into the game, and
-// re-teaching "this car is yours" every time turns two beats of welcome into a toll on the retry.
+// It runs at the top of **every** run. Remembering it across loads was tried — a `localStorage`
+// flag, on the grounds that play-again is a `location.reload()` and a lesson learned once should
+// not be charged for on every retry — and taken back out: the opening is two taps long, the clocks
+// are held through it, and it is the only thing in the game that frames the taxi and says which car
+// is yours. A player back after a week gets that for free rather than hunting for their car.
 //
 // The fare clocks are held while this runs (main.js calls `fares.setPaused`), so the tutorial never
 // spends the clock the player is about to need. That matters more than it did when every rider got
@@ -55,16 +57,19 @@ const OPENING_HOLD = 1.0;
 // moves read as consecutive rather than as one interrupting the other.
 const HANDOFF = 0.35;
 
-// The third beat lands a beat after the player sends the taxi at their first rider: long enough
-// that they have watched the car drive itself and the HUD has finished sliding in, short enough
-// that they are still watching that drive rather than mid-decision about the next one.
+// The third beat lands a beat after the player's **first drop-off** — the moment the loop has
+// closed once and they know what the job is. Told any earlier and Loco Mode is a fourth new thing
+// arriving while they are still working out the first three; told here it answers a question they
+// have just earned ("that took a while — can I go faster?").
 //
 // It was a fraction of the trip at first — half way to the pickup, measured along the road driven.
-// That is a better *description* of the moment, and it was unpredictable in practice: trip lengths
-// vary by a factor of five, so the hint arrived anywhere between three seconds and half a minute in,
-// and on the long ones the player had already stopped wondering about the pill. A fixed delay off
-// the one action every run shares is the thing that can actually be tuned.
-const BOOST_HINT_DELAY = 3;
+// That is a better *description* of a moment, and it was unpredictable in practice: trip lengths
+// vary by a factor of five, so the hint arrived anywhere between three seconds and half a minute in.
+// Then it was a fixed three seconds off the tap that sent the taxi at the first rider, which is
+// predictable but lands mid-pickup, with the player watching the car and the fare's clock draining.
+// Two seconds off the drop-off is both: a fixed delay, hung on the one beat in a run where nothing
+// else is being asked of the player.
+const BOOST_HINT_DELAY = 2;
 // Unlike the first two, this beat gates nothing — the run is live and the clocks are running, so it
 // cannot sit there until it is tapped. Long enough to read twice after the line lands.
 const BOOST_HINT_LINGER = 6;
@@ -82,37 +87,6 @@ const AVATAR_SPIN = (Math.PI * 2) / 5.5;
 
 const prefersReducedMotion = () =>
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-
-// Where "this player has already been through the opening" is kept. It has to survive a reload:
-// play-again is `location.reload()` (see the run-end overlay), so a flag held in memory would be
-// wiped by the very thing it exists to see through. Once learned, which car is yours and that a
-// rider is a thing you tap do not need teaching again on the fifth wreck of the evening.
-const SEEN_KEY = 'simtaxi.tutorialSeen';
-
-// `globalThis` rather than `window` so both halves of this are reachable from node — `npm run check`
-// stubs a storage in and drives them, which is the only way to test a branch whose entire job is to
-// survive a browser that has no storage to give.
-//
-// Both are wrapped because `localStorage` *throws* rather than no-ops when it is unavailable —
-// Safari with cookies blocked, an iframe with third-party storage partitioned off — and the property
-// access itself is what throws, not just the call. A player whose storage is broken gets the
-// tutorial every run, which is exactly what everyone got before it was remembered at all.
-
-/** Has this player already completed the opening? False whenever we cannot tell. */
-export function hasSeenTutorial() {
-  try {
-    return globalThis.localStorage?.getItem(SEEN_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-/** Remember that they have. Failing to write is not worth a word to the player. */
-export function markTutorialSeen() {
-  try {
-    globalThis.localStorage?.setItem(SEEN_KEY, '1');
-  } catch { /* storage unavailable — the tutorial simply runs again next load */ }
-}
 
 /**
  * The rotating taxi (and, for the second beat, the waving rider) in the bubble's avatar. Its own
@@ -357,6 +331,8 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  * @param waitingFare   () => fare | null — whoever is on the kerb to point at
  * @param fareLocation  (fare) => {x, z} — the kerb corner to centre, not the junction
  * @param isDispatched  () => boolean — has the player sent the taxi at anyone yet
+ * @param hasDelivered  () => boolean — has a rider been dropped off yet; the third beat's countdown
+ *                      runs off this, so the Loco Mode hint lands once the loop has closed one turn
  * @param boostUsed     () => boolean — has Loco Mode been fired at least once; if so the third beat
  *                      never appears, because it would be explaining something already discovered
  * @param isOver        () => boolean — run ended under the tutorial (a wreck, say); drop everything
@@ -370,7 +346,7 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  */
 export function createTutorial({
   controller, aspect, isNarrow, taxi, lights, project, pixelsPerUnit, boostAnchor = () => null,
-  waitingFare, fareLocation, isDispatched, boostUsed = () => false,
+  waitingFare, fareLocation, isDispatched, hasDelivered = () => false, boostUsed = () => false,
   isOver = () => false, isBlocked = () => false, shouldIgnoreTap = () => false,
   onRunning = () => {},
 }) {
@@ -387,8 +363,8 @@ export function createTutorial({
 
   // 'wait' → 'taxi' → 'toRider' → 'rider' → 'restore' → 'toBoost' → 'boost' → 'done'. `wait` is the
   // beat of city before the first bubble; `restore` only exists on a wide viewport, where nothing
-  // else would ever put the default whole-city framing back; `toBoost` is the drive to the first
-  // pickup, with nothing on screen.
+  // else would ever put the default whole-city framing back; `toBoost` is the whole first fare —
+  // pickup, drive and drop-off — with nothing on screen.
   const state = { step: 'wait' };
   // The third beat's countdown, and how long it stays once it lands.
   let boostWait = 0;
@@ -465,16 +441,11 @@ export function createTutorial({
   /**
    * Second beat answered (or skipped). This is where the tutorial stops standing in front of the
    * game: the clocks start, the HUD slides in, and the framing goes back where it was on a desktop.
-   * What is left after it — the drive to the first pickup and the boost hint at the halfway mark —
+   * What is left after it — the whole first fare, and the boost hint a beat after it is delivered —
    * happens alongside a live run rather than instead of one.
    */
   function finish() {
     if (!GATED_STEPS.has(state.step)) return;
-    // Here and nowhere else: the player has answered both beats (or done beat two unprompted by
-    // dispatching the taxi themselves), so the lesson has actually landed. Marking it at the *start*
-    // would spend the one showing on a run nobody watched, and marking it in `end()` would spend it
-    // on a run that ended mid-sentence. Reaching this line is the whole tutorial working.
-    markTutorialSeen();
     bubble.hide();
     // The lights come up with the bubble's dismissal, not with the end of the restore glide —
     // holding the city dark through a camera move the player did not ask for reads as the tutorial
@@ -590,16 +561,15 @@ export function createTutorial({
     // second tap on the bubble itself — that is the `isDispatched` check at the top.)
     if (state.step === 'restore' && !controller.isGliding()) state.step = 'toBoost';
 
-    // The countdown is off the player's tap on the rider, not off the tutorial finishing getting
-    // out of the way — on a desktop those differ by the restore glide, which is the tutorial's own
-    // business and should not be charged to the delay. It only runs once a ride is actually under
-    // way: a player who dismissed the second bubble without picking anyone has no drive to be told
-    // about yet, so the hint waits for whichever one they do start.
-    if (boostWait > 0 && isDispatched()
+    // The countdown starts at the first drop-off and nowhere earlier, so a player who never
+    // completes one is never told about Loco Mode — there is no point selling a way to drive faster
+    // to someone who has not yet done the driving. Ticked through `restore` as well as `toBoost`
+    // because on a desktop the restore glide can still be running when the delivery lands.
+    if (boostWait > 0 && hasDelivered()
       && (state.step === 'restore' || state.step === 'toBoost')) boostWait -= dt;
 
     if (state.step === 'toBoost') {
-      if (boostWait > 0 || !isDispatched()) return;
+      if (boostWait > 0 || !hasDelivered()) return;
       // Already discovered it. Nothing to say, so the tutorial simply stops rather than explaining
       // a control the player is mid-way through using.
       if (boostUsed()) { end(); return; }
