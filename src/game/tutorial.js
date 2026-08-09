@@ -120,10 +120,9 @@ export function markTutorialSeen() {
  * the road rather than a drawing of it, and it cannot drift out of step when either is restyled.
  *
  * Two subjects share the one canvas — a taxi scene/camera and a rider scene/camera — and `render`
- * picks one by name each frame rather than keeping two contexts alive. The taxi is speaking in beat
- * one, so it gets the game's own raking sun; the rider is a figure being pointed at, not lit
- * ambient scenery, so it gets the same flat front rig the rider-finder chips use — right for a
- * figure looking back at the camera, wrong for the car (see that module's comment).
+ * picks one by name each frame rather than keeping two contexts alive. Both get the game's own sun
+ * and hemisphere fill, mirrored in (see `makeLightRig`): the bubble is a window onto this city, not
+ * a studio shot, so whichever figure is standing in it should be lit by the same afternoon.
  *
  * @param sun   the city's own key light, read (not re-parented — an Object3D has one parent) so the
  *              avatar is lit by the same sun as the car it is a picture of
@@ -141,27 +140,29 @@ function createAvatar(sun, hemi) {
 
   const scene = new THREE.Scene();
 
-  // The city's own lighting rig, mirrored. Two lights with the same colours, intensities and — for
-  // the sun — the same world position, which is all a directional light's direction depends on:
-  // both scenes aim their sun at the origin, so copying the position copies the angle exactly. The
-  // car in the bubble is then lit by golden hour like everything outside it, rather than by the
-  // flat front-lit rig the rider chips use (right for a figure looking at you, wrong for the same
-  // vehicle the player is looking down at).
+  // The city's own lighting rig, mirrored — into both scenes below, taxi and rider alike, so
+  // neither avatar looks lit by a different afternoon than the one on screen. Two lights with the
+  // same colours, intensities and — for the sun — the same world position, which is all a
+  // directional light's direction depends on: every scene aims its sun at its own origin, so
+  // copying the position copies the angle exactly.
   //
   // Mirrored per frame rather than cloned once, so a day/night cycle turned on from the ⚙️ panel
   // carries into the bubble instead of leaving it stranded at whatever hour it was built.
-  const avatarSun = new THREE.DirectionalLight(sun.color.getHex(), sun.intensity);
-  const avatarHemi = new THREE.HemisphereLight(hemi.color.getHex(), hemi.groundColor.getHex(),
-    hemi.intensity);
-  scene.add(avatarSun, avatarSun.target, avatarHemi);
-  const syncLights = () => {
-    avatarSun.position.copy(sun.position);
-    avatarSun.color.copy(sun.color);
-    avatarSun.intensity = sun.intensity;
-    avatarHemi.color.copy(hemi.color);
-    avatarHemi.groundColor.copy(hemi.groundColor);
-    avatarHemi.intensity = hemi.intensity;
+  const makeLightRig = (target) => {
+    const avatarSun = new THREE.DirectionalLight(sun.color.getHex(), sun.intensity);
+    const avatarHemi = new THREE.HemisphereLight(hemi.color.getHex(), hemi.groundColor.getHex(),
+      hemi.intensity);
+    target.add(avatarSun, avatarSun.target, avatarHemi);
+    return () => {
+      avatarSun.position.copy(sun.position);
+      avatarSun.color.copy(sun.color);
+      avatarSun.intensity = sun.intensity;
+      avatarHemi.color.copy(hemi.color);
+      avatarHemi.groundColor.copy(hemi.groundColor);
+      avatarHemi.intensity = hemi.intensity;
+    };
   };
+  const syncLights = makeLightRig(scene);
 
   const taxi = createTaxiMesh();
   // The ghost outline needs `stencil: true`, which this renderer does not ask for — without the
@@ -204,19 +205,21 @@ function createAvatar(sun, hemi) {
   // A parked angle for reduced motion: three-quarters on, which is the most car-shaped view of it.
   const stillAngle = Math.PI * 0.18;
 
-  // The rider: same rig as a rider-finder chip (game/riderfinder.js) — flat ambient + a single
-  // front key light, and the same ortho frustum/angle, so the figure that waves in the bubble is a
-  // recognisable match for the ones waiting down in the chip stack once the player starts seeing
-  // them for real.
+  // The rider. Same city sun/hemi as the taxi above (via its own rig — an Object3D has one
+  // parent, so the taxi's lights can't simply be re-added here), not the rider-finder chip's flat
+  // front rig: a figure in a tutorial bubble is being introduced as *part of this city*, so it
+  // should be lit by the same afternoon rather than by its own studio light.
   const riderScene = new THREE.Scene();
-  riderScene.add(new THREE.AmbientLight(0xffffff, 0.85));
-  const riderKey = new THREE.DirectionalLight(0xffffff, 0.55);
-  riderKey.position.set(2, 4, 3);
-  riderScene.add(riderKey);
+  const syncRiderLights = makeLightRig(riderScene);
   const person = createPerson();
   riderScene.add(person.group);
+  // `createPerson`'s torso is thin on Z and wide on X (shoulders either side, chest facing along
+  // Z — see `board()`'s "local +Z is treated as forward"), so a camera parked mostly on +X, as
+  // the rider-finder chip's is, is looking at the figure's shoulder rather than its front. Facing
+  // the bubble camera head-on means sitting the camera on +Z instead; same horizontal distance and
+  // elevation as that chip camera (hypot(4.6, 1.8) ≈ 4.9 out, 3.2 up), just turned to face front.
   const riderCamera = new THREE.OrthographicCamera(-2.2, 2.2, 2.7, -1.5, 0.1, 40);
-  riderCamera.position.set(4.6, 3.2, 1.8);
+  riderCamera.position.set(0, 3.2, 4.9);
   riderCamera.lookAt(0, 1.55, 0);
 
   // Reduced motion freezes the wave mid-raise (t=0 in `wave`) rather than at rest — a still figure
@@ -229,6 +232,7 @@ function createAvatar(sun, hemi) {
     render(elapsed, subject) {
       if (subject === 'rider') {
         person.wave(prefersReducedMotion() ? stillWaveT : elapsed);
+        syncRiderLights();
         renderer.render(riderScene, riderCamera);
         return;
       }
