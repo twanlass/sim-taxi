@@ -43,9 +43,9 @@ tighten from twice the driving they cost down to 1.15×, traffic thickens, the p
 often, and fares pay up to double. A perfect player survives a median of 15.
 
 Once a run, a side street closes for **roadworks** — barricades at both ends, cones, a hole in the
-road and two workers standing over it. Ambient traffic routes around it and the taxi has never heard
-of it, so it is the emptiest road in the city with a ramp at each end. See
-[traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends).
+road and two workers standing over it. Ambient traffic routes around it while the taxi's own router
+is told the street is cheap, so it is the emptiest road in the city with a ramp at each end — and a
+fare that leads you down it. See [traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends).
 
 **Loco Mode** (bottom left) is the crazy-taxi button: **hold** for double speed that runs red
 lights, release to pause the meter. Two clear blocks in a row take it past double into the

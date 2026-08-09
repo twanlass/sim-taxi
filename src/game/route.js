@@ -34,7 +34,22 @@ const EDGE_COST = {
   arterialWith: 0.95,
   arterialAgainst: 1.00,      // 64% green helps, but reversed offsets cancel most of the wave
   side: 1.00,
+  roadwork: 0.45,             // see below — measured, and not purely a claim about driving time
 };
+
+/**
+ * Lanes closed for roadworks, published by game/roadwork.js when it stands a zone up.
+ *
+ * The taxi's router is the *only* thing here that wants them cheap. Ambient traffic gets the same
+ * ids through `setClosedLanes` in sim/traffic.js, which zeroes the weight of any turn that would
+ * enter them — cars route around, the taxi routes through, and the asymmetry is the vignette.
+ *
+ * Pushed rather than imported so route.js keeps knowing nothing about sim/ or game/.
+ */
+let roadworkLanes = new Set();
+export function setRoadworkLanes(ids) {
+  roadworkLanes = new Set(ids);
+}
 
 /**
  * Cost of driving one lane. Reads the class off the lane rather than recomputing it from `(i, j,
@@ -42,6 +57,28 @@ const EDGE_COST = {
  * runs, and an editor-drawn arterial has no line index to look either up by.
  */
 export function laneCost(lane) {
+  // Checked before the class, because a closed street is a side street and would otherwise take the
+  // 1.00 below.
+  //
+  // Unlike every other weight here this one is not purely a claim about trip time. An emptied road
+  // genuinely is quicker — no queue, nothing to follow — so *a* discount is honest, but 0.45 is
+  // larger than the time saved and is chosen to make the taxi actually meet the thing the vignette
+  // built. The scale is what the rest of this comment block warns about: at ~1.0 a block, a weight
+  // of `w` only wins a detour worth less than `1 - w` blocks, so anything near 0.9 is a pure
+  // tie-break and the player would meet a zone by luck. 0.45 buys roughly half a block of detour.
+  //
+  // Fitted, not picked. Over 24 runs of 240s with the zone on its own schedule and one drop-off
+  // aimed at it (tools/roadwork-pull.mjs), the share of runs where the taxi drove a closed lane:
+  //
+  //     weight    1.00   0.62   0.45   0.20
+  //     entered    50%    88%    96%    96%
+  //
+  // 0.45 is the knee — 0.20 buys nothing more and only risks dragging unrelated trips. The detour it
+  // costs is nil: mean planned route goes 4.23 → 4.17 legs, i.e. slightly *down*, because a cheap
+  // lane shortens as many routes as it bends. Without the aimed drop-off the same weights give
+  // 33% / 67% / 67% / 67%, which is the measurement that says the two mechanisms are both needed:
+  // this discount cannot pull a route that was never heading that way.
+  if (roadworkLanes.has(lane.id)) return EDGE_COST.roadwork;
   if (lane.klass === 'ring') return EDGE_COST.ring;
   if (lane.klass === 'arterial') {
     return lane.withWave ? EDGE_COST.arterialWith : EDGE_COST.arterialAgainst;

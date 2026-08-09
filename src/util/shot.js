@@ -53,6 +53,11 @@ export const SHOTS = [
   // find it. `smashAt` is seconds after the barricade goes: 0.34 is the taxi near the top of its
   // arc with the trestle still cartwheeling and the cones in the air.
   { name: 'roadwork-smash', description: 'the taxi launching off a barricade', target: [0, 0], zoom: 15, warmup: 12, roadworkAt: 0, smashAt: 0.34 },
+  // The zone close enough to judge it by. `roadwork` above is at play zoom, which is the right
+  // framing for "does this read in a game" and useless for the three decisions that actually needed
+  // looking at: the ramp's pitch, the two rows of cones, and whether anything is fighting the road
+  // at the barricade line. At 22 the whole zone is about ninety pixels wide.
+  { name: 'roadwork-close', description: 'the closed street, close enough to inspect', target: [0, 0], zoom: 11, warmup: 12, roadworkAt: 1.4 },
 ];
 
 export function getActiveShot() {

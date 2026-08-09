@@ -219,9 +219,17 @@ export function setPriorityJunction(next) {
 // was and two lane ids are simply unpopular.
 //
 // **The player's taxi never consults this.** A routed car takes its turn from its route, which is
-// planned by game/route.js over the untouched network — so the taxi drives through a closure
-// without knowing there is one, which is the whole point of the feature. It also means
-// `chainSeconds` still costs a trip the same way it always did, so no fare's clock moves.
+// planned by game/route.js over the untouched network — so the taxi drives through a closure while
+// every ambient car goes round, which is the whole point of the feature.
+//
+// The taxi's router is told about the same lanes separately, and told the opposite thing: see
+// `setRoadworkLanes` in game/route.js, which prices them *below* an ordinary street so a fare
+// actually leads the player through. This set forbids, that one tempts.
+//
+// This used to add "so no fare's clock moves", which is no longer quite true and was never true
+// for the reason given. `chainSeconds` does plan over the discounted weights — but
+// `estimateSeconds` bills a route in blocks and turns, never in lane cost, so the discount can only
+// move a clock by changing which route is picked, bounded at one leg either way.
 let closedLanes = new Set();
 
 export function setClosedLanes(ids) {
@@ -239,7 +247,12 @@ export function setClosedLanes(ids) {
 // nearly a whole 12-unit lane: the taxi would still be in the air at `holdS`, where it decides
 // its next turn. A fixed 6-unit arc lands in the same place at any speed, and freezes if the car
 // stops.
-export const HOP_LEN = 6.0;
+// 5.5 rather than the original 6.0 because the barricade moved: pushing BARRIER_S out to 2.1 to
+// get the ramp's toe out of the junction box lands the taxi at 2.1 + 6.0 = 8.1 on a 12-unit lane
+// whose hold line is at 8.6, and half a unit is not enough slack to be sure of. At 5.5 it touches
+// down at 7.6 with a clear unit in hand. The two numbers are a chain — probe.mjs asserts the margin
+// rather than just the outcome, so moving either one alone fails loudly.
+export const HOP_LEN = 5.5;
 const HOP_HEIGHT = 1.55;    // a bit under half a car length — about 12px of air at play zoom
 const HOP_PITCH = 0.26;     // nose up off the ramp, level at the apex, nose down into the landing
 

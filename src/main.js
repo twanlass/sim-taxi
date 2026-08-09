@@ -232,6 +232,15 @@ roadwork.onLand(({ x, z }) => {
   controller.kickShake(0.35);
   dust.add(x, z, traffic.taxi.yaw);
 });
+// Aim the next fare's drop-off at one end of the closed street. The router already prices those
+// lanes low (see EDGE_COST.roadwork), which wins the zone any trip that passes nearby; this is what
+// gets a trip to pass nearby in the first place. Neither alone is enough — measured over 24 runs,
+// the discount by itself finds the zone in 67% of them and the aimed drop-off by itself in 50%,
+// against 33% for neither and 96% for both (tools/roadwork-pull.mjs).
+//
+// The player is still not being steered: what moved is where the rider wants to go, not how the
+// taxi chooses to get there, and they can take any route to it they like.
+roadwork.onPlaced(({ ends }) => { fares.aimNextDropoff(ends); });
 
 // Occluded-only outlines on the traffic nearest the taxi, faded in with Loco Mode — the one mode
 // where a car hidden behind a tower is a crash rather than a surprise. See game/carghosts.js.

@@ -14,8 +14,10 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN } from '../src/sim/traffic.js';
-import { createRoadwork } from '../src/game/roadwork.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W } from '../src/sim/traffic.js';
+import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
+import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y } from '../src/geometry/roadworks.js';
+import { findRoute as planRoute, setRoadworkLanes } from '../src/game/route.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -2860,6 +2862,61 @@ check('the taxi is an ordinary car in the traffic array',
     `${THREE.MathUtils.radToDeg(PROP_SPIN / 60).toFixed(1)}° per frame at 60fps`);
 }
 
+// --- The barricade's geometry, before any of it is placed ----------------------
+// The ramp shipped wound inside out: its slope normals came out at y = -0.98 and its underside's
+// at +1.00, so the only face the camera ever saw was the bottom — a flat quad lying exactly on the
+// road, which read as a patch of z-fighting near the junction. `flatShading` takes its normal from
+// a screen-space derivative, so the wrong-facing quad still lit like a surface rather than going
+// black, and it survived a screenshot review. Hence a test on the numbers.
+{
+  const { ramp } = barricadeParts({ width: ROAD_W - 0.4, centreX: -LANE });
+  const pos = ramp[0].getAttribute('position');
+  // Face normals straight off the winding, which is the thing under test — `computeVertexNormals`
+  // would launder a reversed triangle into whatever its neighbours said.
+  const faces = [];
+  for (let f = 0; f < pos.count / 3; f++) {
+    const p = [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(pos, f * 3 + k));
+    faces.push(new THREE.Vector3()
+      .subVectors(p[1], p[0]).cross(new THREE.Vector3().subVectors(p[2], p[0])).normalize());
+  }
+  // Written in this order by `rampWedge`: slope, vertical back, underside, the two sides.
+  const slope = faces.slice(0, 2);
+  const underside = faces.slice(4, 6);
+
+  check('the ramp\'s slope faces the sky and its underside faces the road',
+    slope.every((n) => n.y > 0.9) && underside.every((n) => n.y < -0.99),
+    `slope y ${slope.map((n) => n.y.toFixed(2)).join('/')}, `
+    + `underside y ${underside.map((n) => n.y.toFixed(2)).join('/')}`);
+
+  // The slope's pitch, from the same normals. Shallow enough and it is a plate, not a ramp — the
+  // first pair was 0.66 over 3.2, which is 12°.
+  const pitch = Math.acos(slope[0].y) * 180 / Math.PI;
+  check('and it is pitched steeply enough to read as a ramp',
+    pitch > 15 && pitch < 25, `${pitch.toFixed(1)}° from ${RAMP_H} over ${RAMP_RUN}`);
+
+  // Nothing coplanar with the road slab (0), the lane paint (0.02) or the route band (0.03). A
+  // flat face at any of those three z-fights whatever is already drawn there.
+  let lowest = Infinity;
+  for (let v = 0; v < pos.count; v++) lowest = Math.min(lowest, pos.getY(v));
+  check('the ramp sits clear of the road paint and the route band',
+    Math.abs(lowest - WORKS_Y) < 1e-6 && WORKS_Y > 0.03,
+    `lowest vertex ${lowest.toFixed(3)} against band 0.03`);
+
+  const hole = spoilParts(0, 0, makeRng(seed + 909))[1].getAttribute('position');
+  let holeY = -Infinity;
+  for (let v = 0; v < hole.count; v++) holeY = Math.max(holeY, hole.getY(v));
+  check('and the trench is above the lane paint but under the route band',
+    Math.abs(holeY - TRENCH_Y) < 1e-6 && holeY > 0.02 && holeY < 0.03,
+    `${holeY.toFixed(3)} in (0.02, 0.03)`);
+
+  // The chain the landing depends on: the ramp runs RAMP_RUN back from BARRIER_S, so its toe is at
+  // the difference and that has to stay on the tarmac. At 1.7 against a 3.2 ramp it was -1.5,
+  // which put the toe in the middle of a live intersection.
+  check('the ramp\'s toe is inside the lane, not in the junction behind it',
+    BARRIER_S - RAMP_RUN > 0,
+    `toe at ${(BARRIER_S - RAMP_RUN).toFixed(2)} (barrier ${BARRIER_S} - run ${RAMP_RUN})`);
+}
+
 // --- A street closed for roadworks ---------------------------------------------
 // The vignette has two halves that can fail silently. The closure is a *soft* one — two lane ids
 // that zero a turn's weight rather than a road removed from the graph — so a mistake there does
@@ -2907,16 +2964,33 @@ check('the taxi is an ordinary car in the traffic array',
   const uz = (b.z - a.z) / lane.length;
   let worstLateral = 0;
   let outsideSpan = 0;
+  const laterals = [];
   for (const cone of roadwork.cones) {
     const along = (cone.x - a.x) * ux + (cone.z - a.z) * uz;
     // Lateral offset from the road centreline, which sits LANE to the left of this lane.
     const lateral = (cone.x - a.x) * uz - (cone.z - a.z) * ux + LANE;
     worstLateral = Math.max(worstLateral, Math.abs(lateral));
+    laterals.push(lateral);
     if (along < 0 || along > lane.length) outsideSpan += 1;
   }
   check('every cone is on the tarmac, clear of both junction boxes',
     outsideSpan === 0 && worstLateral < ROAD_W / 2,
     `${outsideSpan} past an end, worst offset ${worstLateral.toFixed(2)} of ${ROAD_W / 2}`);
+
+  // Two rows rather than a scatter. This was a sine zigzag that wandered across the centreline,
+  // which read as cones dropped at random — the order has to be legible before the jitter on top of
+  // it reads as a crew having placed them rather than as noise.
+  const rowError = Math.max(...laterals.map((v) => Math.abs(Math.abs(v) - CONE_ROW)));
+  const perSide = laterals.filter((v) => v > 0).length;
+  check('the cones stand in two rows, one either side of the works',
+    rowError < 0.2 && perSide === roadwork.cones.length / 2,
+    `${perSide}/${roadwork.cones.length - perSide} split, worst row error ${rowError.toFixed(3)}`);
+
+  // The near row has to be in the taxi's way and the far row out of it, or driving through is
+  // either a clean corridor or a wall. The taxi tracks a lane centre at LANE and is CAR_W wide.
+  check('one row is in the taxi\'s path and the other survives it',
+    CONE_ROW < LANE + CAR_W / 2 && CONE_ROW > LANE - 1,
+    `row at ${CONE_ROW}, taxi flank reaches ${(LANE + CAR_W / 2).toFixed(2)}`);
 
   // Ambient traffic routes around it. Sampled every frame rather than at the end, because a car
   // that turns in and out again between two samples is exactly the bug this is looking for.
@@ -3016,10 +3090,85 @@ check('the taxi is an ordinary car in the traffic array',
   check('and it is back on the tarmac before the line where it picks its next turn',
     flights.every((f) => !f.airborneAtLine));
 
+  // The same fact as a number rather than an outcome, because it is a chain of three constants that
+  // have to keep closing: the taxi launches at BARRIER_S and lands HOP_LEN later, against a hold
+  // line STOP_SETBACK back from the end of a lane. Moving BARRIER_S out to clear the junction ate
+  // most of the old slack (2.1 + 6.0 = 8.1 against 8.6), which is why HOP_LEN came down to 5.5.
+  // Asserting only the outcome lets any one of the three drift until a fast run happens to fail.
+  const holdS = closed[0].length - STOP_SETBACK;
+  const margin = holdS - (BARRIER_S + HOP_LEN);
+  check('the launch-to-landing chain leaves real slack before the hold line',
+    margin > 0.75,
+    `lands at ${(BARRIER_S + HOP_LEN).toFixed(2)}, line at ${holdS.toFixed(2)}, `
+    + `margin ${margin.toFixed(2)}`);
+
   check('going through knocks the cones over, and they come to rest',
     flights.every((f) => f.runwork.cones.filter((c) => c.knocked).length >= 4
       && f.runwork.active() === 0),
     flights.map((f) => `${f.runwork.cones.filter((c) => c.knocked).length} knocked`).join(', '));
+
+  // --- Steering the player into it ------------------------------------------
+  // The player cannot drive. They tap a rider and the taxi routes itself, so unless the router is
+  // told to like the closed street the whole vignette is scenery the game never visits — measured
+  // at 33% of runs before this, 96% after (tools/roadwork-pull.mjs). Two mechanisms do it, and both
+  // fail silently: a discount that never reaches `laneCost` changes nothing, and a drop-off hint
+  // that is quietly dropped changes nothing either.
+  {
+    const ends = [closed[0].edge.a, closed[0].edge.b].map((id) => net.nodeById.get(id));
+    const junctions = [...net.nodeById.values()].map((n) => ({ i: n.gi, j: n.gj }));
+    const origin = { i: ends[0].gi, j: ends[0].gj, d: net.dirOfLane(closed[0]) };
+
+    setRoadworkLanes([]);
+    const plain = junctions.map((t) => planRoute(origin, t));
+    setRoadworkLanes(roadwork.closedLaneIds);
+    const cheap = junctions.map((t) => planRoute(origin, t));
+
+    const same = (p, q) => (p === null || q === null
+      ? p === q : p.length === q.length && p.every((d, k) => d === q[k]));
+    const changed = plain.filter((p, k) => !same(p, cheap[k])).length;
+    check('pricing the closed street low actually reaches the router',
+      changed > 0, `${changed} of ${junctions.length} routes rerouted`);
+
+    // ...and does not turn into a detour finder. The weights in route.js are tie-breakers by
+    // design — 0.45 is worth about half a block, so nothing should gain more than one leg.
+    const worst = Math.max(...plain.map((p, k) => (p && cheap[k] ? cheap[k].length - p.length : 0)));
+    check('and does not drag routes across town to use it',
+      worst <= 1, `worst route grew by ${worst} legs`);
+
+    // A fare's drop-off can be aimed at the zone. The hint is one-shot and silently declined when
+    // neither end is free, so the failure mode is "nothing happened" — worth pinning both ways.
+    const aimScene = new THREE.Scene();
+    const aimFares = createFareSystem(makeRng(seed + 313), aimScene);
+    const aimTaxi = { i: 0, j: 0, x: 0, z: 0, lane: null, s: 0, v: 0 };
+    aimFares.aimNextDropoff(ends.map((n) => ({ i: n.gi, j: n.gj })));
+    let aimed = null;
+    for (let step = 0; step < 120 && !aimed; step++) {
+      for (const { type, fare } of aimFares.update(1 / 60, aimTaxi)) {
+        if (type === 'spawned') aimed = fare;
+      }
+    }
+    check('a fare can have its drop-off aimed at the closed street',
+      aimed !== null && ends.some((n) => n.gi === aimed.dropoff.i && n.gj === aimed.dropoff.j),
+      aimed ? `dropoff ${aimed.dropoff.i},${aimed.dropoff.j} of `
+        + `${ends.map((n) => `${n.gi},${n.gj}`).join(' / ')}` : 'no fare spawned');
+
+    // Aimed at junctions that do not exist: the hint has to be declined rather than honoured or
+    // thrown, and the ordinary unbiased draw has to still produce a legal drop-off.
+    const badFares = createFareSystem(makeRng(seed + 314), new THREE.Scene());
+    badFares.aimNextDropoff([{ i: -5, j: -5 }]);
+    let fallback = null;
+    for (let step = 0; step < 120 && !fallback; step++) {
+      for (const { type, fare } of badFares.update(1 / 60, aimTaxi)) {
+        if (type === 'spawned') fallback = fare;
+      }
+    }
+    check('and an unusable hint falls back to an ordinary drop-off',
+      fallback !== null && fallback.dropoff.i >= 0 && fallback.dropoff.j >= 0
+      && blockDistance(fallback.pickup, fallback.dropoff) > 0,
+      fallback ? `dropoff ${fallback.dropoff.i},${fallback.dropoff.j}` : 'no fare spawned');
+
+    setRoadworkLanes([]);
+  }
 
   // --- Placement rules ------------------------------------------------------
   // A rider standing on a kerb corner inside a construction site is not broken — the taxi drives

@@ -771,9 +771,9 @@ traffic material — for something that happens once per run.
 ## Roadworks: a street closed at both ends
 
 `src/game/roadwork.js` and `src/geometry/roadworks.js`. Once per run, about a minute in, a side
-street is closed off: a striped trestle across each end, a scatter of cones, a heap of spoil beside
+street is closed off: a striped trestle across each end, two rows of cones, a heap of spoil beside
 the hole it came out of, and two workers standing over it. Ambient traffic routes around it. **The
-player's taxi has never heard of it**, so the closed street is the emptiest road in the city — and
+player's taxi is sent through it**, so the closed street is the emptiest road in the city — and
 each barricade is a ramp.
 
 ### The closure is soft, and that is not a shortcut
@@ -805,9 +805,48 @@ a bug in the placement rules is a car driving through a barricade rather than a 
 Two smaller consequences in the same file: right-on-red is refused into a closed lane, and
 `setCarCount`'s spawn filter will not mint a car inside one.
 
-Because `route.js` never sees any of this, `chainSeconds` costs a trip exactly as it did before,
-so **no fare's clock moves**. That consistency is a *consequence* of the taxi ignoring the closure,
-not a separate decision.
+### Getting the player there
+
+The same two lane ids go to `route.js` as well, via `setRoadworkLanes`, and say the opposite thing:
+to ambient traffic these turns are **forbidden**, to the taxi's router they are **cheap**. That
+asymmetry is the whole vignette — the city empties the street and the fare sends the player down it.
+
+This was not the first build. Originally the taxi genuinely had never heard of the closure, on the
+theory that stumbling into it was the discovery. Measured, that theory was wrong: **the player
+cannot steer.** They tap a rider and the taxi routes itself, so "go and look at the roadworks" is
+not a thing they are able to choose, and the zone was found in 33% of runs — mostly scenery, built
+in full and rarely seen.
+
+Two mechanisms fix it, and `tools/roadwork-pull.mjs` shows that neither is enough alone:
+
+| | no drop-off aim | drop-off aimed |
+|---|---|---|
+| **no discount** | 33% | 50% |
+| **`roadwork` 0.45** | 67% | 96% |
+
+- **`EDGE_COST.roadwork = 0.45`** prices a closed lane well under an ordinary side street. Scale
+  matters and is easy to get wrong: costs are ~1.0 per block, so a weight of `w` only wins a detour
+  worth less than `1 - w` blocks. Anything near the ring's 0.90 is a pure tie-break, which is why
+  the first attempt at this changed almost nothing. 0.45 buys about half a block. Below it nothing
+  improves — 0.20 measures identically — so 0.45 is the knee.
+- **`fares.aimNextDropoff`** gives exactly one fare a destination at a junction the closed street
+  runs into, so there is a trip heading that way for the discount to pull. Only the *destination*
+  moves; the pickup, the clock and the price are drawn as always, so the economy is untouched.
+
+The player is still not being steered. What moved is where a rider wants to go and what the roads
+cost — the same two things that decide every other route in the game.
+
+**What this does to fare clocks is smaller than it looks.** A fare's budget comes from
+`chainSeconds`, which does now plan over the discounted weights — but `estimateSeconds` prices a
+route by `route.length * SEC_PER_BLOCK + turns * SEC_PER_TURN`, in blocks and turns, never in lane
+cost. So the discount cannot make a given route cheaper to the clock; it can only change *which*
+route is picked, and only by the length difference between the two. `probe.mjs` bounds that at one
+leg either way, and across a sweep the mean planned route moves 4.23 → 4.17 legs — slightly
+shorter, because a cheap lane straightens as many trips as it bends.
+
+The player is left with a little more slack than the clock knows about, which is the right
+direction to be wrong in: the closed street really is quicker to drive than the estimate assumes,
+since there is nothing on it to queue behind.
 
 ### Which street
 
@@ -839,9 +878,20 @@ being able to break the sim.
 **Paced by `car.travelled`, not by a clock** — the same lesson the Loco weave and the front-wheel
 ease both record. A half-second hop covers 4.25 units at cruise and 11.5 in overdrive, and 11.5 is
 nearly a whole 12-unit lane: the taxi would still be in the air at `holdS`, where it picks its next
-turn. A fixed **6 units** of road lands in the same place at any speed, and freezes if the car
+turn. A fixed **5.5 units** of road lands in the same place at any speed, and freezes if the car
 stops. `tools/probe.mjs` drives the same barricade at cruise and at 22 u/s and asserts both arcs
 measure `HOP_LEN` and both peak at the same height.
+
+Three constants have to keep closing here, and they are easy to move one at a time:
+
+```
+launch at BARRIER_S 2.1  →  land at 2.1 + HOP_LEN 5.5 = 7.6  →  holdS at 12 - STOP_SETBACK = 8.6
+```
+
+`HOP_LEN` came down from 6.0 when `BARRIER_S` went out from 1.7 to get the ramp's toe clear of the
+junction box: 2.1 + 6.0 = 8.1 left half a unit before the line where the taxi picks its next turn.
+The probe asserts the **margin**, not just that the taxi landed in time, so moving any one of the
+three fails loudly rather than on whichever run happens to be fastest.
 
 The barricade test is a **crossing** — `lastS < barrier.s <= s` on the same lane — not
 `s >= barrier.s`, which is true for the whole rest of the lane and would launch a taxi that was

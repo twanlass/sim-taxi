@@ -13,6 +13,18 @@ import { PALETTE, color, jitterColor } from '../palette.js';
 //
 // Everything here sits on the carriageway, so y = 0 is the road surface — not KERB_H, which is
 // where `props.js` puts its trees and lamps.
+//
+// The heights things sit at are a stack, and the two constants below are the roadworks' slots in
+// it: road slab 0 · lane paint MARK_Y 0.02 · **TRENCH_Y** · route band 0.03 · **WORKS_Y** · cars
+// ROAD_Y 0.04. A solid prop therefore draws over the route band and under a car, and the painted
+// hole draws over the lane dashes it overlaps but still lets the band run across it.
+//
+// Anything with a flat *downward* face — a cone's base slab, a trestle's feet — is left sitting on
+// y = 0 rather than lifted. `propMaterial()` is FrontSide, so a correctly wound bottom face is
+// culled and cannot fight the road; lifting those would be a gap under the prop bought for
+// nothing. Which makes winding the thing that matters, not clearance — see `rampWedge`.
+export const WORKS_Y = 0.035;
+export const TRENCH_Y = 0.024;
 
 const CONE_H = 0.95;          // ~7px at play zoom. A real cone would be a third of this and invisible.
 export const CONE_BASE_R = 0.31;
@@ -57,8 +69,11 @@ const PLANK_LOW = 0.46;
 const PLANK_HIGH = 0.92;
 const BARRIER_TOP = PLANK_HIGH + PLANK_H / 2;
 const STRIPES = 9;            // odd, so both ends of a plank are the same colour
-export const RAMP_RUN = 3.2;
-export const RAMP_H = 0.66;
+// 0.62 over 1.9 is 18° of slope. The first pair was 0.66 over 3.2 — 12°, which at this camera is
+// not a ramp but a plywood plate, and long enough that its toe landed 1.5 units *inside* the
+// junction box behind the barricade (see BARRIER_S in game/roadwork.js, which the run has to clear).
+export const RAMP_RUN = 1.9;
+export const RAMP_H = 0.62;
 
 /**
  * A trestle barricade and the ramp leaning on it, in local space:
@@ -66,8 +81,9 @@ export const RAMP_H = 0.66;
  * barricade stands on. The caller rotates it onto a lane.
  *
  * `centreX` is where the trestle's midpoint sits relative to that origin, because the origin is a
- * lane centre and the barricade spans the whole road — the two are `LANE` apart. The ramp stays at
- * x = 0, over the lane a car actually arrives in.
+ * lane centre and the barricade spans the whole road — the two are `LANE` apart. The ramp spans and
+ * is centred on the same span: a barricade that blocks the street across but is only rampable in
+ * one lane reads as half-closed, and the ramp was the half that looked wrong.
  *
  * The two come back **separately** because they meet different ends: the trestle is knocked flying
  * when the taxi arrives and needs a mesh of its own to be thrown, while the ramp is bolted to the
@@ -77,7 +93,7 @@ export const RAMP_H = 0.66;
  * parallel to the road, and pulling two of its vertices down leaves the side faces as
  * non-planar quads that flat-shade into a crease down the middle of the slope.
  */
-export function barricadeParts({ width, centreX = 0, rampWidth = 3.4 } = {}) {
+export function barricadeParts({ width, centreX = 0 } = {}) {
   const parts = [];
   const half = width / 2;
 
@@ -106,30 +122,48 @@ export function barricadeParts({ width, centreX = 0, rampWidth = 3.4 } = {}) {
     }
   }
 
-  return { trestle: parts, ramp: [bakeColor(rampWedge(rampWidth), color('plywood'))] };
+  return { trestle: parts, ramp: [bakeColor(rampWedge(width, centreX), color('plywood'))] };
 }
 
-/** The plywood sheet: a right-triangle prism climbing from `-RAMP_RUN` to the barricade line. */
-function rampWedge(width) {
+/**
+ * The plywood sheet: a right-triangle prism climbing from `-RAMP_RUN` to the barricade line,
+ * spanning `width` about `centreX`.
+ *
+ * **Wind every triangle counter-clockwise seen from outside.** This was written inside out and
+ * shipped that way: the slope's normals came out at y = −0.98 and the underside's at +1.00, so the
+ * face aimed at the camera was the ramp's *bottom* — a flat plywood-coloured quad lying exactly on
+ * the road slab. It read as an orange patch of z-fighting near the junction, and the slope, being a
+ * back face, was culled outright. The ramp had never once been drawn as a ramp.
+ *
+ * `flatShading` is what made it convincing rather than obviously broken: it takes the normal from a
+ * screen-space derivative, so the wrong-facing quad still lit like a surface instead of going black.
+ * tools/probe.mjs asserts the sign of `normal.y` on both faces, because this is precisely the class
+ * of bug a screenshot looks at and accepts.
+ */
+function rampWedge(width, centreX) {
   const w = width / 2;
-  const a = [-w, 0, -RAMP_RUN];   // toe, left
-  const b = [w, 0, -RAMP_RUN];    // toe, right
-  const c = [-w, 0, 0];
-  const d = [w, 0, 0];
-  const e = [-w, RAMP_H, 0];
-  const f = [w, RAMP_H, 0];
+  const a = [centreX - w, 0, -RAMP_RUN];   // toe, left
+  const b = [centreX + w, 0, -RAMP_RUN];   // toe, right
+  const c = [centreX - w, 0, 0];
+  const d = [centreX + w, 0, 0];
+  const e = [centreX - w, RAMP_H, 0];
+  const f = [centreX + w, RAMP_H, 0];
 
   const tri = (...pts) => pts.flat();
   const positions = new Float32Array([
-    ...tri(a, b, f), ...tri(a, f, e),     // the slope
-    ...tri(c, e, f), ...tri(c, f, d),     // the vertical back, against the trestle
-    ...tri(a, c, d), ...tri(a, d, b),     // underside
-    ...tri(a, e, c), ...tri(b, d, f),     // the two triangular sides
+    ...tri(a, f, b), ...tri(a, e, f),     // the slope
+    ...tri(c, f, e), ...tri(c, d, f),     // the vertical back, against the trestle
+    ...tri(a, d, c), ...tri(a, b, d),     // underside
+    ...tri(a, c, e), ...tri(b, f, d),     // the two triangular sides
   ]);
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.computeVertexNormals();
+  // Lifted clear of the route band, which is the one thing that would otherwise slice through the
+  // shallow end of the slope: the band is drawn flat at 0.03 and the ramp starts at zero, so its
+  // first 0.03 of climb shared a depth range with it.
+  geo.translate(0, WORKS_Y, 0);
   return geo;
 }
 
@@ -147,9 +181,12 @@ export function spoilParts(x, z, rng) {
   // The hole, painted on rather than dug: the ground is one merged mesh built once at startup and
   // there is nothing to cut into. A dark quad a hair above the asphalt reads the same at this
   // camera, which never gets low enough to see that it has no depth.
+  //
+  // At TRENCH_Y rather than the MARK_Y it used to sit on: exactly MARK_Y is coplanar with every
+  // lane dash it overlaps, and this quad is deliberately laid across the middle of a road.
   const hole = new THREE.PlaneGeometry(rng.range(2.4, 3.2), rng.range(1.8, 2.4));
   hole.rotateX(-Math.PI / 2);
-  hole.translate(x + rng.jitter(0.6), 0.02, z + rng.jitter(0.6));
+  hole.translate(x + rng.jitter(0.6), TRENCH_Y, z + rng.jitter(0.6));
   parts.push(bakeColor(hole, color('trench')));
 
   return parts;

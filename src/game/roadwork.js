@@ -9,6 +9,7 @@ import {
   coneGeometry, barricadeParts, spoilParts, mergeAll, CONE_REST_Y,
 } from '../geometry/roadworks.js';
 import { launchHop, setClosedLanes } from '../sim/traffic.js';
+import { setRoadworkLanes } from './route.js';
 
 // A street closed for roadworks: a striped trestle across each end, a scatter of cones, a heap of
 // spoil beside the hole it came out of, and two workers standing over it.
@@ -36,9 +37,23 @@ const RISE = 1.1;              // how far under the road the zone starts, so it 
 // watching. The rise-and-fade is what covers the desktop case.
 const PLACE_CLEARANCE = 45;
 
-const BARRIER_S = 1.7;         // how far along a closed lane its trestle stands
+// How far along a closed lane its trestle stands. Far enough that the ramp leaning against it
+// clears the junction box behind: the ramp runs RAMP_RUN back from this line, so the toe lands at
+// BARRIER_S - RAMP_RUN and that has to stay positive. At 1.7 against the old 3.2-unit ramp it was
+// -1.5 — the toe sat in the middle of a live intersection, which is the other half of why the thing
+// read as a plate lying near the corner rather than as a ramp up to a barricade.
+export const BARRIER_S = 2.1;
 const CONES = 12;
 const WORKERS = 2;
+
+// Two rows, one either side, this far off the road centreline. Set against the car rather than by
+// eye: the taxi drives a lane centre at LANE (2.0) and is CAR_W/2 = 0.85 wide, so its flank sweeps
+// to 2.85. At 2.6 the near row is squarely in the way and goes flying, and the far row survives to
+// be seen — which is what makes the drive through read as damage rather than as a clean corridor.
+export const CONE_ROW = 2.6;
+const CONE_SPAN = [0.22, 0.78];   // along the segment, kept between the two barricades
+const CONE_JITTER_SIDE = 0.12;    // placed by a crew, not stamped by a machine
+const CONE_JITTER_ALONG = 0.15;
 
 const SMASH_SCATTER = 5.5;     // cones this close to a smashed trestle go with it
 const KNOCK_R = 1.7;           // and any cone the taxi drives over, anywhere in the zone
@@ -83,7 +98,17 @@ export function createRoadwork(rng, scene, camera = null) {
 
   const smashListeners = [];
   const landListeners = [];
+  const placeListeners = [];
   const emit = (list, event) => { for (const cb of list) cb(event); };
+
+  /** The two junctions a closed segment runs between, in grid coordinates. */
+  function endJunctions(edge) {
+    const net = cityNetwork();
+    return [edge.a, edge.b]
+      .map((id) => net.nodeById.get(id))
+      .filter(Boolean)
+      .map((node) => ({ i: node.gi, j: node.gj }));
+  }
 
   const state = {
     phase: 'waiting',                                   // waiting | fading | live
@@ -256,11 +281,24 @@ export function createRoadwork(rng, scene, camera = null) {
     group.add(coneMesh);
     materials.push(coneMesh.material);
 
-    // Strung along the segment in a lazy zigzag rather than a straight line: a row of cones at a
-    // constant offset reads as a fence, and this is meant to read as a crew that put them down.
+    // Two rows down the sides of the works, six a side, evenly spaced between the barricades.
+    //
+    // This was a sine zigzag with 0.9 of jitter on top, meant to read as a crew that put them down
+    // by hand. It read as neither: a wave that wanders across the centreline has no rule you can
+    // see, so it looked like cones dropped at random rather than like a coned-off lane. Real
+    // roadworks are laid out in lines, and a line with a hand's worth of slop on it is the thing
+    // that reads as placed — the order has to be legible before the imperfection means anything.
+    const perRow = CONES / 2;
+    const [u0, u1] = CONE_SPAN;
     for (let n = 0; n < CONES; n++) {
-      const u = (n + 0.5) / CONES;
-      const at = roadPoint(edge, 0.06 + u * 0.88, Math.sin(u * Math.PI * 2.6) * 2.4 + rng.jitter(0.9));
+      const row = n % 2 === 0 ? 1 : -1;
+      const step = Math.floor(n / 2);
+      const u = u0 + (u1 - u0) * (perRow === 1 ? 0.5 : step / (perRow - 1));
+      const at = roadPoint(
+        edge,
+        u + rng.jitter(CONE_JITTER_ALONG) / edge.lanes[0].length,
+        row * CONE_ROW + rng.jitter(CONE_JITTER_SIDE),
+      );
       cones.push({
         x: at.x,
         z: at.z,
@@ -319,7 +357,15 @@ export function createRoadwork(rng, scene, camera = null) {
     // Published from here rather than polled by main.js: it changes exactly once in a run, and
     // anything that stages a zone directly — shot mode, tools/probe.mjs — gets the closure with it
     // instead of having to remember a second call.
+    //
+    // The same ids go two ways, and the two say opposite things. `setClosedLanes` tells ambient
+    // traffic these turns are forbidden; `setRoadworkLanes` tells the taxi's router they are cheap.
+    // That is the whole vignette in two lines: the city empties the street and the fare sends the
+    // player down it.
     setClosedLanes(state.closedLaneIds);
+    setRoadworkLanes(state.closedLaneIds);
+
+    emit(placeListeners, { edge, ends: endJunctions(edge) });
 
     state.phase = 'fading';
     state.fade = 0;
@@ -590,5 +636,8 @@ export function createRoadwork(rng, scene, camera = null) {
     get closedLaneIds() { return state.closedLaneIds; },
     onSmash: (cb) => { smashListeners.push(cb); },
     onLand: (cb) => { landListeners.push(cb); },
+    // Fires once, when a zone is stood up, with the two junctions it runs between. main.js uses it
+    // to aim one fare's drop-off at the far end of the closed street.
+    onPlaced: (cb) => { placeListeners.push(cb); },
   };
 }

@@ -434,6 +434,45 @@ The ramp gets its own `plywood` rather than borrowing the spoil's brown, which i
 change a screenshot forced: at the spoil colour it read as a mud patch on the tarmac instead of a
 board propped against something, and the taxi launching off it made no sense.
 
+**The ramp shipped wound inside out, and nothing caught it.** `rampWedge` writes its triangles by
+hand, and every one of them was in clockwise order: measured off the built geometry, the slope's
+normals were `y = -0.98` and the underside's `y = +1.00`. The face aimed at the camera was the
+ramp's *bottom* — a flat plywood-coloured quad lying exactly on the road slab — and the slope
+itself, being a back face under `FrontSide`, was culled. What players saw was an orange patch
+flickering against the tarmac near the junction, reported as "z-fighting, maybe metal covers?", and
+they were right about the symptom and necessarily wrong about the cause. The ramp had never once
+been drawn as a ramp.
+
+Two things made it survive review. `flatShading` takes its normal from a screen-space derivative,
+so the wrong-facing quad still *lit* like a surface instead of going black — the usual loud symptom
+of a reversed face was absent. And the bug looks exactly like a depth-precision problem, which is a
+thing you tune rather than a thing you fix. This is the class of defect a screenshot cannot
+adjudicate, so `probe.mjs` now asserts the sign of `normal.y` on both faces, computed from the
+winding rather than from `computeVertexNormals` — which would happily launder a reversed triangle
+into whatever its neighbours claimed.
+
+**Heights on the carriageway are a stack, and it is written down** because "a hair above the road"
+was how the trench ended up sitting at exactly `MARK_Y`, coplanar with every lane dash it crossed:
+
+```
+road slab 0  ·  lane paint MARK_Y 0.02  ·  TRENCH_Y 0.024  ·  route band 0.03  ·  WORKS_Y 0.035  ·  cars ROAD_Y 0.04
+```
+
+A solid prop therefore draws over the route band and under a car; the painted hole draws over the
+lane dashes but still lets the band run across it. Props with a flat *downward* face — a cone's
+base slab, a trestle's foot — are deliberately left sitting on y = 0 rather than lifted: with
+correct winding those faces are culled and cannot fight anything, and lifting them would buy a
+visible gap under the prop for nothing. Winding is the fix; clearance is the belt.
+
+**The cones stand in two rows** at ±2.6 from the road centreline, six a side, with ±0.12 of jitter.
+They were a sine zigzag with 0.9 of jitter, meant to read as hand-placed; it read as neither. A wave
+that wanders across the centreline has no rule an eye can pick up, so it looked like cones dropped
+at random rather than like a lane coned off — the order has to be legible before the imperfection
+on top of it means anything. The offset is set against the car rather than by eye: the taxi tracks
+a lane centre at `LANE` = 2.0 and is `CAR_W` = 1.7 wide, so its flank sweeps to 2.85. At 2.6 the
+near row is squarely in the way and goes flying while the far row survives, which is what makes
+driving through read as damage instead of as a clean corridor.
+
 **Knocked cones come to rest, and they are the first effect here that does.** Position is closed
 form, like the blast's shards — a curve of `age` rather than an integrated velocity, so nothing
 accumulates and a slow-motion frame is the same shape as a full-speed one — and the flight's
