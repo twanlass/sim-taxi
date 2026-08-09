@@ -476,15 +476,15 @@ function taxiClearsYellow(car, sig, distToLine) {
 
 export const CAR_LEN = 3.4;
 export const CAR_W = 1.7;
-const MIN_GAP = CAR_LEN + 1.9;   // centre-to-centre
+const MIN_GAP = CAR_LEN + 1.9;   // centre-to-centre, car following car
 
-// Box trucks share an ordinary car's lane, following distance and collision envelope (CAR_LEN/
-// CAR_W above drive every one of those in this file and sim/collisions.js) — sharing that
-// footprint is what lets one join the same queues and junctions without retuning MIN_GAP or the
-// collision circles for a second vehicle size; the price is a tighter bumper gap than the box
-// actually needs — MIN_GAP puts 0.8 units of clear road behind a queued truck against 1.9 behind a
-// car — which reads as ordinary tight traffic, not a bug. What a truck does NOT share is how it
-// drives: it cruises a little slower and rocks less on every start and stop, below.
+// Box trucks share an ordinary car's collision envelope on purpose — sim/collisions.js is keyed
+// off CAR_LEN/CAR_W regardless of which vehicle it's testing, and that stays a simplification: it
+// only matters while the taxi is boosting, and Loco Mode's own tuned numbers (BOOST_GAP below)
+// already assume a CAR_LEN leader. Ordinary following distance can't get away with the same
+// shortcut — MIN_GAP alone queued a car 0.8 units behind a truck's rear bumper instead of the
+// intended 1.9, close enough to read as clipped into the box rather than merely tight. `followGap`
+// below is what every non-boost following and landing check now goes through instead.
 export const TRUCK_LEN = 5.6;
 export const TRUCK_W = 2.0;
 // How often a spawned ambient car is a truck instead. Zero by default — see the `truckChance`
@@ -503,11 +503,29 @@ const TRUCK_CORNER_SPEED = TRUCK_SPEED * 0.7;
 // than keeps bouncing. "Feels heavier" is these two numbers, nothing else.
 const TRUCK_PITCH_SCALE = 0.5;
 const TRUCK_PITCH_DAMPING_MULT = 1.8;
+
+// Clear road kept between bumpers, independent of either vehicle's length. MIN_GAP is this same
+// number with two car half-lengths already folded in, for the plain car-following-car case every
+// following/landing check used to assume unconditionally.
+const BUMPER_GAP = MIN_GAP - CAR_LEN;
+const vehicleHalfLen = (car) => (car?.isTruck ? TRUCK_LEN : CAR_LEN) / 2;
+/**
+ * Centre-to-centre gap `follower` must keep behind `leader` — the pairwise version of MIN_GAP,
+ * correct whichever of the two (or both, or neither) is a truck. `leader` may be undefined (no one
+ * ahead), in which case it falls back to a car-sized assumption same as MIN_GAP always did.
+ */
+const followGap = (follower, leader) => vehicleHalfLen(follower) + vehicleHalfLen(leader) + BUMPER_GAP;
+
 // What a boosting taxi keeps instead. It stays in its lane now, so a leader it doesn't see is a
 // leader it rear-ends — but queueing at the ambient distance would read as the maniac politely
 // joining the back. 4.5 centre-to-centre puts the near collision circles (offset ±0.95 along the
 // body) 2.6 apart against an envelope of 2.31: close enough to look like tailgating, still 0.29
 // clear of a crash, and `step` is clamped to `allowed` so it cannot overshoot into that margin.
+//
+// Not run through followGap: it's tuned against the taxi's own collision envelope in
+// collisions.js, which stays CAR_LEN-sized for every target on purpose (see the note above
+// TRUCK_LEN) — widening the tailgate for a truck while the hitbox that matters stayed car-sized
+// would just be a taxi that hangs back further from a target it can still clip at the old range.
 const BOOST_GAP = MIN_GAP * 0.85;
 const YIELD_RANGE = 15;          // how far ahead oncoming traffic blocks a left turn
 const TURN_WEIGHTS = [0.62, 0.24, 0.14]; // straight, right, left
@@ -786,7 +804,12 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
     const t = rng.range(0.5, lane.length - 0.5);
     const s = dirSign(d) > 0 ? t : lane.length - t;
 
-    const clash = cars.some((c) => c.lane === lane && Math.abs(c.s - s) < MIN_GAP + 1);
+    // This car's own isTruck isn't rolled until after the clash/accept checks below, so a possible
+    // truck is assumed on this side of the pairing — conservative, but only when truckChance > 0:
+    // at 0 (every scripted scenario in tools/) `followGap({isTruck: false}, c)` collapses back to
+    // exactly MIN_GAP, so nothing there draws a different spawn position than it always has.
+    const clash = cars.some((c) => c.lane === lane
+      && Math.abs(c.s - s) < followGap({ isTruck: truckChance > 0 }, c) + 1);
     if (clash) continue;
     if (accept && !accept({ d, i, j, s, lane })) continue;
 
@@ -1548,9 +1571,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
      * dead stop under a green with the button held — 9.7% of boosted frames at ?cars=40.
      */
     const exitLaneFull = (car, exitLane) => {
-      const clearance = car.boost ? MIN_GAP : MIN_GAP * 1.5;
       return (lanes.get(exitLane.id) ?? []).some(({ car: other, laneS }) => {
         if (other === car || other.state !== 'drive') return false;
+        const clearance = followGap(car, other) * (car.boost ? 1 : 1.5);
         // The car lands at the exit lane's start, so `laneS` *is* the signed clearance. It is
         // needed on both sides: a car approaching from behind the landing point gets landed on
         // just as hard as one already sitting in front of it.
@@ -1838,7 +1861,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // matching speed forever.
         const ahead = car.passing ? undefined : leaderDist.get(car);
         if (ahead !== undefined) {
-          const gap = car.boost ? BOOST_GAP : MIN_GAP;
+          const gap = car.boost ? BOOST_GAP : followGap(car, leaderOf.get(car));
           allowed = Math.min(allowed, Math.max(0, ahead - gap));
         }
 
@@ -2101,7 +2124,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           const exitLane = net.laneById.get(car.turn.outLane);
           const blocked = (lanes.get(exitLane.id) ?? []).some(({ car: other, laneS }) => {
             if (other === car || other.state !== 'drive') return false;
-            return laneS > -0.1 && laneS < MIN_GAP;
+            return laneS > -0.1 && laneS < followGap(car, other);
           });
 
           if (blocked && !bargesThrough(car)) {

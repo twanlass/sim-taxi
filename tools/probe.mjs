@@ -1808,6 +1808,47 @@ check('the taxi is an ordinary car in the traffic array',
     truckSample.avgPitch < carSample.avgPitch * 0.85,
     `truck avg |pitch| ${truckSample.avgPitch.toFixed(4)} vs car avg |pitch| ${carSample.avgPitch.toFixed(4)}`);
 
+  // Following distance: a car has to leave more clear road behind a truck than behind another
+  // car, since a leader's actual length has to be part of the gap — see followGap in traffic.js.
+  // Staged directly on a straight, roomy lane: a parked leader (parked + no route holds any
+  // ambient car forever, same trick the taxi's own kerb wait uses) and a follower that closes in
+  // behind it and brakes to a stop, read once both have settled.
+  // The lane itself — not just the chained approach room — has to be long enough for both `back`
+  // values below to land inside it: placeCar walks back across a junction into the previous lane
+  // in the chain once `back` exceeds this one's own length, which would leave leader and follower
+  // on two unrelated lanes instead of nose-to-tail on one.
+  let gI = -1; let gJ = -1; let gD = -1;
+  const gNet = cityNetwork();
+  outerGap: for (let i = 1; i < GRID; i++) {
+    for (let j = 1; j < GRID; j++) {
+      for (const d of [0, 1, 2, 3]) {
+        const lane = gNet.laneByGrid(d, i, j);
+        if (!lane || lane.degenerate || lane.length < 11.5) continue;
+        gI = i; gJ = j; gD = d;
+        break outerGap;
+      }
+    }
+  }
+  const settledGap = (leaderIsTruck) => {
+    const gTraffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), 3);
+    const [, leader, follower] = gTraffic.cars;
+    leader.isTruck = leaderIsTruck;
+    placeCar(leader, gD, gI, gJ, 4);
+    leader.parked = true;
+    placeCar(follower, gD, gI, gJ, 11);
+    for (let step = 0; step < 300; step++) gTraffic.update(1 / 60);
+    return Math.hypot(leader.x - follower.x, leader.z - follower.z);
+  };
+  // CAR_LEN/2 + CAR_LEN/2 + BUMPER_GAP (1.9) = MIN_GAP = 5.3; with a truck leader,
+  // CAR_LEN/2 + TRUCK_LEN/2 + BUMPER_GAP = 1.7 + 2.8 + 1.9 = 6.4.
+  const carGap = settledGap(false);
+  const truckGap = settledGap(true);
+  check('a car settles further back behind a truck than behind a car',
+    truckGap > carGap + 0.9, `behind a car ${carGap.toFixed(2)}, behind a truck ${truckGap.toFixed(2)}`);
+  check('the settled gaps match followGap exactly, not the old flat MIN_GAP for both',
+    Math.abs(carGap - 5.3) < 0.1 && Math.abs(truckGap - 6.4) < 0.1,
+    `behind a car ${carGap.toFixed(2)} (want ~5.3), behind a truck ${truckGap.toFixed(2)} (want ~6.4)`);
+
   const uCollisions = createCollisions(uTraffic.cars, uTraffic.taxi);
   const uVanish = createVanish();
   let uHits = 0;

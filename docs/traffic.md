@@ -310,12 +310,31 @@ The rule itself is `steerToward()`, exported because the police cruiser runs it 
 ### Box trucks
 
 A rare ambient variant — `TRUCK_CHANCE` (1/12) of a spawned car, rolled once per car in
-`spawnCars`. It shares an ordinary car's lane, following distance (`MIN_GAP`, keyed off
-`CAR_LEN`) and collision envelope (`sim/collisions.js`, also keyed off `CAR_LEN`/`CAR_W`) — sharing
-that footprint is what lets one join the same queues and junctions without retuning anything tuned
-for a car, and the price is a tighter bumper gap than the box actually needs (0.8 units behind a
-queued truck against 1.9 behind a car), which reads as ordinary tight traffic rather than as a bug.
-What it does *not* share is how it drives or moves: see "Driving feel", below.
+`spawnCars`. It shares an ordinary car's lane and collision envelope (`sim/collisions.js` is keyed
+off `CAR_LEN`/`CAR_W` for every vehicle it tests, truck included — see "Driving feel" below for why
+that stays a deliberate simplification). What it does *not* share is following distance, how it
+drives, or how it moves: three separate departures, covered in the next three sections.
+
+#### Following distance
+
+`MIN_GAP` is car-length only, so using it unconditionally for a truck queued a follower 0.8 units
+behind a truck's rear bumper instead of the 1.9 every other pairing gets — close enough to read as
+clipped into the box rather than merely tight, which is what a player testing the feature actually
+saw. `followGap(follower, leader)` is the pairwise fix: half of each vehicle's own length
+(`CAR_LEN`/`TRUCK_LEN`, whichever `car.isTruck` says) plus the same fixed `BUMPER_GAP` (1.9) `MIN_GAP`
+always implied. Every non-boost following and landing check goes through it now — the leader gap in
+the main drive branch, `exitLaneFull`'s don't-block-the-box clearance, and the turn-completion
+re-check — so a car settles at exactly 5.3 behind another car and 6.4 behind a truck, staged and
+asserted directly in `tools/probe.mjs`.
+
+`BOOST_GAP` (the boosting taxi's own tailgate distance in Loco Mode) is deliberately *not* run
+through `followGap`. It's tuned against the taxi's own collision envelope in `sim/collisions.js`,
+which stays `CAR_LEN`-sized for every target including a truck — widening the tailgate for a truck
+while the hitbox that actually matters stayed car-sized would just be a taxi hanging back further
+from a target it can still clip at the old range. The spawn-time clash check in `spawnCars` is
+conservative instead of exact: a car's own `isTruck` isn't rolled until after it, so the check
+assumes a possible truck on that side of the pairing — a no-op when `truckChance` is 0, which is
+every scripted scenario in `tools/` but the one that exercises trucks on purpose.
 
 The body is three InstancedMeshes rather than the car pair's two: `truckMesh` (chassis, cab and
 windshield, from `truckCabGeometry()`) and `truckWheelMesh` alongside a third, `truckBoxMesh`
