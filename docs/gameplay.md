@@ -876,6 +876,16 @@ Pointer capture on `pointerdown` keeps the boost held even if the finger slides 
 `pointerup`, `pointercancel`, `lostpointercapture` and the window `blur` all release it, so
 alt-tabbing or switching apps never leaves the boost stuck on.
 
+That release path cuts both ways, which is why the pill is `touch-action: none` rather than
+`manipulation`. `manipulation` only drops double-tap zoom — pan and pinch stay live, and either
+one starting on the pill lets the browser claim the touch and fire `pointercancel`, releasing a
+boost the player still has their thumb on. Pointer capture then means nothing else arrives until
+they lift and press again, so it reads as the gas cutting out with no way to get it back. The
+case that hits it is exactly how this game is held: a thumb on the pill and a second finger
+tapping a fare is a pinch gesture as far as the browser is concerned. `preventDefault` on
+`pointerdown` is explicitly not a fix for that — `touch-action` is the only thing that suppresses
+it, which is why the canvas has carried `none` all along.
+
 ### The refill animation
 
 A drop-off pays two currencies and for a while it only showed one. The flying `$20` says *money*;
@@ -944,6 +954,31 @@ snapping off when a fixed-length animation ends.
 While active the taxi runs at 2.2× speed, forces its next junction green, doesn't slow for
 corners, lays **skid marks** off the line and through turns, and kicks up **dust**. See
 [rendering.md](rendering.md#effects) for how those two are drawn.
+
+**And it overtakes.** A slower car in front on a straight road is no longer something to sit
+behind: **keep holding the button and the taxi pulls a full lane into the oncoming side, goes
+past, and comes back.** Letting go is the abort — it tucks in behind instead. So the button stops
+being a throttle at exactly the moment it gets interesting and becomes a question: is that lane
+clear enough, and is that car about to turn across you? Nothing protects you either way. Collision
+detection is armed for the whole of Loco Mode, so an oncoming car is the run. It buys real speed —
+time stuck behind traffic drops from 10.4% of boosting to 4.5% — and the numbers, the geometry and
+the reason an earlier version of this was abandoned are all in
+[traffic.md](traffic.md#overtaking).
+
+It will not pull out around a car that is already turning across the lane it wants, or into
+oncoming traffic that is already in sight. Both of those are collisions the player could not have
+seen coming, and without those two gates a third of all overtakes ended in one. What is left is
+what you *can* read: a car arriving in the oncoming lane while you are out there, cross traffic at
+a junction you are running, and a car turning out of the far lane.
+
+**And it does not stop.** Not for a full exit lane, not for a car stranded in the box, not to
+yield on a left — the three ambient courtesies that could still bring it to a halt at a junction
+its priority hold had already turned green. Driving into a junction with something in it ends the
+run instead, because collision detection is armed for exactly as long as the mode is. That is the
+bargain: the only thing between you and a wreck is what you can see coming, and the button is the
+only brake. See [traffic.md](traffic.md#nothing-stops-the-taxi) for the mechanism and the numbers
+— it turns out to be *faster* than letting it yield, and it barely moves the crash rate, because
+the holds were rare enough to cost the mode its feel without protecting it.
 
 **Releasing isn't an instant off.** For `BOOST_COOLDOWN` (1s) after the button comes up — or the
 tank runs dry — the taxi is still exposed to everything Loco Mode was: it can still crash into

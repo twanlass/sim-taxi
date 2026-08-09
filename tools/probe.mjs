@@ -14,7 +14,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph, SPEED } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph, SPEED, CAR_LEN } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -1091,6 +1091,255 @@ check('no two cars occupy the same space', worst > 1.6,
   check('Loco Mode takes its left turn instead of yielding',
     dIn >= 0 && turned && !oncomingEntered,
     `turned=${turned}, oncoming entered the junction=${oncomingEntered}`);
+
+  // 3. A junction the taxi genuinely cannot enter — the lane it would land in is full.
+  //
+  // Two cars and an immovable blocker parked on the landing point, so nothing else can be the
+  // reason the taxi does or doesn't stop. The same scenario is run twice, because boosting and not
+  // boosting are supposed to give opposite answers.
+  //
+  // **Boosting: it does not stop.** Loco Mode's premise is that nothing halts the taxi, and the
+  // consequence is the wreck — collisions.js is armed for exactly as long as `taxi.boost` is true,
+  // so a junction with something in it costs the run rather than costing a wait. The taxi used to
+  // be held at the line by the ambient don't-block-the-box rule instead, which is a politeness a
+  // car being driven like this has no business observing.
+  //
+  // **Not boosting: it brakes into the hold.** The exit-lane and left-yield tests used to be asked
+  // only on arrival, and the only way to obey one there is to pin `s` to the hold line — which
+  // stops the car without touching `car.v`. That left a car sat at the line with its wheels
+  // turning, no nose dip, and the weave (paced off `v · dt`) still sliding it sideways.
+  // A *left* rather than a straight-through, which the junction search above already guarantees is
+  // legal here. It has to be a turn: on a straight-through the blocker sits in the approach lane's
+  // own straight-on chain, so `ahead()` hands it over as an ordinary leader and the car brakes for
+  // it whatever the entry tests do. Round a corner nothing sees it until the exit test, which is
+  // exactly the case that used to freeze.
+  const roads = cityNetwork();
+  const exitDir = leftOf(dIn);
+  const inLane = roads.laneByGrid(dIn, jI, jJ);
+  const exitTurn = inLane.exits.map((id) => roads.turnById.get(id))
+    .find((turn) => roads.dirOfLane(roads.laneById.get(turn.outLane)) === exitDir);
+  const exitLane = exitTurn && roads.laneById.get(exitTurn.outLane);
+  const exitNode = exitLane && roads.nodeById.get(exitLane.to);
+
+  /**
+   * Drive the staged approach into the full exit lane and report what the taxi did.
+   * `frozenFast` is the fastest it ever claimed to be going on a frame it did not actually move.
+   */
+  const runBlockedJunction = (boosting) => {
+    const scene = new THREE.Scene();
+    const traffic = createTraffic(makeRng(seed + 131), scene, 2);
+    const [car, blocker] = traffic.cars;
+    // 30 units back is one junction further out than (jI, jJ) — `placeCar` walks back along the
+    // straight-through chain — so the route has to carry straight on through that one first.
+    place(car, dIn, 30);
+    car.route = [dIn, exitDir];
+    car.routeConsumed = false;
+    car.boost = boosting;
+    // `back` of the whole lane length puts the blocker at s = 0, which *is* the point the taxi
+    // lands on. Parked with an empty route holds it there — `allowed = 0` in traffic.js.
+    placeCar(blocker, exitDir, exitNode.gi, exitNode.gj, exitLane.length);
+    blocker.route = [];
+    blocker.parked = true;
+
+    const collisions = createCollisions(traffic.cars, car);
+    let wrecked = false;
+    collisions.onImpact(() => { wrecked = true; });
+
+    let frozenFast = 0;
+    let slid = 0;
+    let rest = Infinity;
+    let entered = false;
+    let prevS = car.s;
+    let prevLateral = car.lateral;
+    for (let f = 0; f < 60 * 5 && !wrecked; f++) {
+      traffic.update(1 / 60);
+      car.boost = boosting;
+      collisions.update();
+      if (car.state === 'turn' && car.i === jI && car.j === jJ) entered = true;
+      if (car.state === 'drive') {
+        if (Math.abs(car.s - prevS) < 1e-9) {
+          frozenFast = Math.max(frozenFast, car.v);
+          slid = Math.max(slid, Math.abs(car.lateral - prevLateral));
+          rest = Math.min(rest, car.v);
+        }
+        prevS = car.s;
+      }
+      prevLateral = car.lateral;
+    }
+    return { frozenFast, slid, rest, entered, wrecked };
+  };
+
+  const loco = runBlockedJunction(true);
+  check('Loco Mode drives into a junction it cannot enter and wrecks, rather than waiting',
+    dIn >= 0 && Boolean(exitLane) && loco.entered && loco.wrecked && loco.rest === Infinity,
+    `entered=${loco.entered} wrecked=${loco.wrecked}, `
+    + `${loco.rest === Infinity ? 'never stopped' : 'held at the line'}`);
+
+  // Ambient traffic still yields — and still has to *brake* for it rather than arrive and freeze.
+  //
+  // The car that shows this is one **fleeing the boosting taxi**. Scatter lifts a car's ceiling to
+  // 2.0x cruise (17 u/s) and the taxi's priority hold hands it the green, so it reaches the line
+  // fast and with nothing else slowing it — and a lane is 12 units with the hold line 3.4 back, so
+  // it has 8.6 units of warning against the 13.1 it needs to stop from there. Before the exit-lane
+  // test was asked on approach that was a car pinned to the line still reading 17 u/s.
+  //
+  // Routed rather than rolled, so the exit it takes is the blocked one every time.
+  const fScene = new THREE.Scene();
+  const fTraffic = createTraffic(makeRng(seed + 149), fScene, 3);
+  const [fTaxi, flee, fBlocker] = fTraffic.cars;
+  place(fTaxi, dIn, 30);
+  fTaxi.boost = true;
+  place(flee, dIn, 12);
+  flee.route = [exitDir];
+  flee.routeConsumed = false;
+  placeCar(fBlocker, exitDir, exitNode.gi, exitNode.gj, exitLane.length);
+  fBlocker.route = [];
+  fBlocker.parked = true;
+
+  let fleeFrozen = 0;
+  let fleeSlid = 0;
+  let fleeRest = Infinity;
+  let fleeTop = 0;
+  let fPrevS = flee.s;
+  let fPrevLateral = flee.lateral;
+  for (let f = 0; f < 60 * 4; f++) {
+    fTraffic.update(1 / 60);
+    fTaxi.boost = true;
+    if (flee.state === 'drive') {
+      fleeTop = Math.max(fleeTop, flee.v);
+      if (Math.abs(flee.s - fPrevS) < 1e-9) {
+        fleeFrozen = Math.max(fleeFrozen, flee.v);
+        fleeSlid = Math.max(fleeSlid, Math.abs(flee.lateral - fPrevLateral));
+        fleeRest = Math.min(fleeRest, flee.v);
+      }
+      fPrevS = flee.s;
+    }
+    fPrevLateral = flee.lateral;
+  }
+  // `fleeRest` reaching 0 is what proves the hold actually happened — without one there are no
+  // stationary frames and the other two numbers keep their initial values. `fleeTop` proves the
+  // car was genuinely travelling before it got there, so a pass can't come from a car that
+  // crawled up to the line.
+  check('a car held at the line brakes into it rather than freezing at speed',
+    dIn >= 0 && Boolean(exitLane) && fleeTop > 10 && fleeRest < 0.01 && fleeFrozen < 0.5
+      && fleeSlid < 0.002,
+    `peaked at ${fleeTop.toFixed(1)} u/s, stationary at up to ${fleeFrozen.toFixed(2)} u/s, `
+    + `weave slid ${fleeSlid.toFixed(4)}/frame`);
+
+  // 4. Overtaking. A boosting taxi with a slower car in front, on a route that carries straight
+  // on, pulls a full lane into the *oncoming* side, goes past, and comes back.
+  //
+  // The invariant that matters most is the one the abandoned version of this failed: the taxi must
+  // never sit on the road centreline. At LANE (2) off its own lane it is 2 from the car it is
+  // passing and 2 from anything coming the other way, both inside collisions.js's 2.31-unit
+  // envelope — which is what made the old overtake "a lottery over which car you died on". The
+  // whole lane is the safe place to be; the centreline is somewhere to pass *through*. Asserted
+  // here as clearance from the car being overtaken, which is the direct form of it.
+  let pI = -1; let pJ = -1; let pD = -1;
+  outerPass: for (let i = 1; i < GRID; i++) {
+    for (let j = 1; j < GRID; j++) {
+      if (ringAxisAt(i, j)) continue;
+      for (const d of [0, 1, 2, 3]) {
+        // Straight on out of this junction, and straight on out of the next, so the pass has road.
+        if (!legalExits(d, i, j).includes(d)) continue;
+        if (approachRoom(d, i, j) < 30) continue;
+        pI = i; pJ = j; pD = d;
+        break outerPass;
+      }
+    }
+  }
+
+  /** Drive a two-car overtake and report what the taxi managed. `held` is the button. */
+  const runOvertake = (held, route, opts = {}) => {
+    const scene = new THREE.Scene();
+    const traffic = createTraffic(makeRng(seed + 167), scene, opts.oncoming ? 3 : 2);
+    const [car, lead, onc] = traffic.cars;
+    placeCar(car, pD, pI, pJ, 26); car.parked = false;
+    placeCar(lead, pD, pI, pJ, 14); lead.parked = false;
+    car.route = route; car.routeConsumed = false;
+    // Straight by default so it stays in front rather than rolling a random turn-off.
+    lead.route = opts.leadRoute ?? [pD, pD, pD]; lead.routeConsumed = false;
+    if (opts.oncoming) {
+      // The other half of this road, coming the other way, and *far enough up it to still be
+      // there*. The two close on each other at 18.7 + 8.5 = 27 u/s, so a car staged level with
+      // the junction ahead has gone by before the taxi has even closed on its leader — the first
+      // attempt at this staged one 5.7 units ahead, watched it pass, and then reported a clear
+      // road, correctly. A lane further back along its own chain leaves it in sight at the moment
+      // the decision is actually taken.
+      const back = roads.nodeById.get(car.lane.from);
+      const facing = roads.laneByGrid(opposite(pD), back.gi, back.gj);
+      placeCar(onc, opposite(pD), back.gi, back.gj, facing.length + PITCH);
+      onc.route = []; onc.parked = false;
+    }
+    let peak = 0;
+    let closest = Infinity;
+    let got = false;
+    let leadTurned = false;
+    let outWhileLeadTurning = 0;   // how far out the taxi got while the lead was mid-junction
+    for (let f = 0; f < 60 * 6; f++) {
+      car.boost = held;
+      car.boostEasing = false;
+      traffic.update(1 / 60);
+      peak = Math.max(peak, car.pass);
+      if (lead.state === 'turn' && !lead.crashed) {
+        leadTurned = true;
+        outWhileLeadTurning = Math.max(outWhileLeadTurning, car.pass);
+      }
+      if (!lead.crashed) {
+        closest = Math.min(closest, Math.hypot(car.x - lead.x, car.z - lead.z));
+        const sgn = dirSign(car.d);
+        const rel = isXAxis(car.d) ? (lead.x - car.x) * sgn : (lead.z - car.z) * sgn;
+        if (rel < -CAR_LEN) got = true;
+      }
+    }
+    return { peak, closest, got, leadTurned, outWhileLeadTurning };
+  };
+
+  const over = runOvertake(true, [pD, pD, pD]);
+  check('Loco Mode overtakes a slower car by taking the oncoming lane',
+    pD >= 0 && over.peak > 0.95 && over.got,
+    `reached ${(over.peak * 2 * LANE).toFixed(2)} of ${2 * LANE} units across, got by=${over.got}`);
+
+  // 2.31 is the collision envelope in sim/collisions.js — CAR_W * 0.68, doubled. Clearing it by a
+  // margin is the difference between a manoeuvre and a coin flip.
+  check('an overtaking taxi never comes within the collision envelope of the car it passes',
+    pD >= 0 && over.closest > 2.31,
+    `closest approach ${over.closest.toFixed(2)} units, envelope 2.31`);
+
+  // The route gate. A pass always spans a junction — 30-odd units of manoeuvre against a 12-unit
+  // lane — so one that starts before a turn strands the taxi on the wrong side of the road going
+  // into a corner. Turning at the very next junction must not offer one at all.
+  const turnOff = runOvertake(true, [leftOf(pD), pD, pD]);
+  check('no overtake is offered when the route turns at the next junction',
+    pD >= 0 && turnOff.peak < 0.02, `reached ${(turnOff.peak * 2 * LANE).toFixed(2)} units across`);
+
+  // And the control: the pass is the button. Not holding it is not a pass.
+  const coasting = runOvertake(false, [pD, pD, pD]);
+  check('an overtake needs the button held',
+    pD >= 0 && coasting.peak < 0.02, `reached ${(coasting.peak * 2 * LANE).toFixed(2)} units across`);
+
+  // The two gates that decide *when* it is allowed, both added after watching it wreck rather
+  // than pass. A pass wants ~27 units of road against a 12-unit lane, so the taxi is always still
+  // alongside when the leader reaches its junction — which is exactly when the left-turn dice are
+  // rolled. Passing a car that is already crossing one means driving into its arc.
+  //
+  // Asserted as "the taxi never got out of its lane while that car was in the junction" rather
+  // than as an absence of contact: a no-contact check passes whether the rule works or the
+  // scenario simply never set it up, and this one has to prove the trap was laid. `leadTurned` is
+  // that proof.
+  const turningLead = runOvertake(true, [pD, pD, pD], { leadRoute: [leftOf(pD), pD, pD] });
+  check('no overtake of a car that is already turning across the lane being borrowed',
+    pD >= 0 && turningLead.leadTurned && turningLead.outWhileLeadTurning < 0.02,
+    `lead turned=${turningLead.leadTurned}, taxi got `
+    + `${(turningLead.outWhileLeadTurning * 2 * LANE).toFixed(2)} units across while it did`);
+
+  // And the borrowed lane has to be empty to start with. Without this the taxi pulled out with
+  // oncoming traffic 3 units away — inside the envelope, and nothing the player could have read.
+  // A car that arrives *during* the pass still costs the run; that one is visible and is the risk.
+  const intoTraffic = runOvertake(true, [pD, pD, pD], { oncoming: true });
+  check('no overtake into oncoming traffic that is already in sight',
+    pD >= 0 && intoTraffic.peak < 0.02,
+    `reached ${(intoTraffic.peak * 2 * LANE).toFixed(2)} units across`);
 
   setPriorityJunction(null);
 }
