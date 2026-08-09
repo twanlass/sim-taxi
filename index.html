@@ -145,8 +145,8 @@
            measured against. Capped at a phone's content width (390px screen less the 16px gutters
            either side) so the desktop layout *is* the mobile layout: the stats rows push label and
            value to opposite edges, and on a 1280px screen that would otherwise strand a number
-           three feet away from its own name. The fail reason wraps here exactly as it does on a
-           phone, which is the point. */
+           three feet away from its own name. The reason line is deliberately the exception — see
+           `.run-end-reason` — and is left to overflow this box, centred on the same axis. */
         width: 100%; max-width: min(358px, 100%);
       }
       /* Type and rhythm scale with the viewport. Height drives most of it — it is a short viewport
@@ -157,7 +157,14 @@
         font-size: clamp(26px, 5.4vh, 40px); font-weight: 800; line-height: 1.1;
         letter-spacing: -0.01em;
       }
-      #run-end .run-end-reason { margin-top: 6px; font-size: 15px; opacity: 0.72; }
+      /* 15px is only the baseline `fitReasonWidth` (runend.js) measures against before scaling the
+         line up to 80% of the viewport width — see that function for why. `nowrap` is what makes it
+         a fit rather than a wrap: the card above caps at 358px, but this is sized against the
+         screen, so it is left free to run past that box's edges rather than break onto a second
+         line. It stays centred because the box it is overflowing is itself centred on screen. */
+      #run-end .run-end-reason {
+        margin-top: 6px; font-size: 15px; opacity: 0.72; white-space: nowrap;
+      }
 
       /* One stat per row, label pinned to the left edge and value to the right — a ledger, not a
          centred pair. Both edges are then straight lines down the block, which is what lets four

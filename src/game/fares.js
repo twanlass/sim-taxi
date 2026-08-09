@@ -769,9 +769,7 @@ export function createFareSystem(rng, scene) {
           continue;
         }
         state.gameOver = true;
-        state.failReason = fare.stage === 'waiting'
-          ? 'A passenger gave up waiting.'
-          : 'A fare was not delivered in time.';
+        state.failReason = "Patience wasn't your fare's strong suit.";
         for (const other of [...state.fares]) clear(other);
         for (const e of exits) {
           e.slot.passenger.group.visible = false;
@@ -857,7 +855,7 @@ export function createFareSystem(rng, scene) {
    * to "Wrecked!") so a bust can read "Busted!" while a collision reads plainly. Idempotent: a
    * second call after game-over is already set is a no-op.
    */
-  function crash(reason = 'Wrecked in a collision.', title = 'Wrecked!') {
+  function crash(reason = "That's coming out of your paycheck.", title = 'Wrecked!') {
     if (state.gameOver) return;
     state.gameOver = true;
     state.failTitle = title;

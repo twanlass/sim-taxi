@@ -307,7 +307,7 @@ function bustByPolice() {
   traffic.taxi.v = 0;
   boost.release();
   police.chase(traffic.taxi);
-  fares.crash('You were caught by the police for reckless driving.', 'Busted!');
+  fares.crash("The fuzz caught you slippin'.", 'Busted!');
 }
 
 function checkPoliceBust() {

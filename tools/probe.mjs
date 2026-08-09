@@ -1691,8 +1691,8 @@ check('the taxi is an ordinary car in the traffic array',
 
   check('boosting into another car fires an impact', hits >= 1, `${hits} impacts`);
   check('the taxi is wrecked by the impact', cTaxi.crashed);
-  check('game over fires with a collision reason', cFares.state.gameOver
-    && /collision/i.test(cFares.state.failReason ?? ''), cFares.state.failReason);
+  check('game over fires with the wreck reason', cFares.state.gameOver
+    && /paycheck/i.test(cFares.state.failReason ?? ''), cFares.state.failReason);
 
   const victim = impact?.other;
   check('the car it hit is wrecked too', Boolean(victim?.crashed));
@@ -1876,13 +1876,13 @@ check('the taxi is an ordinary car in the traffic array',
   const near = dx * dx + dz * dz < POLICE_BUST_RANGE * POLICE_BUST_RANGE;
   if (near && bTaxi.boost && bPolice.state.active && !bFares.state.gameOver && !bTaxi.crashed) {
     bTaxi.crashed = true;
-    bFares.crash('You were caught by the police for reckless driving.', 'Busted!');
+    bFares.crash("The fuzz caught you slippin'.", 'Busted!');
   }
 
   check('boosting near the police ends the run', bFares.state.gameOver);
   check('bust banner title is "Busted!"', bFares.state.failTitle === 'Busted!',
     bFares.state.failTitle);
-  check('bust reason mentions the police', /police/i.test(bFares.state.failReason ?? ''),
+  check('bust reason mentions the fuzz', /fuzz/i.test(bFares.state.failReason ?? ''),
     bFares.state.failReason);
 
   // Well outside bust range: same setup, no trigger.
