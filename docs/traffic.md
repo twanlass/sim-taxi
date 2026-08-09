@@ -317,13 +317,19 @@ is what lets one join the same queues and junctions without retuning anything tu
 the price is a tighter bumper gap than the box actually needs (0.8 units behind a queued truck
 against 1.9 behind a car), which reads as ordinary tight traffic rather than as a bug.
 
-The body is a second pair of InstancedMeshes (`truckMesh`, `truckWheelMesh`), built at
-`TRUCK_LEN`/`TRUCK_W` from `truckGeometry()` — a chassis, a cab with a windshield, and a taller
-cargo box set back from it. It has to be a separate mesh pair rather than a taller instance of the
-car body: an InstancedMesh draws one geometry for every instance, so a visibly bigger vehicle can't
-share the car body's buffer no matter how rare it is. `car.isTruck` is what routes a car to the
-right pair everywhere that matters — `writeAmbient`, `wreckShell`, the paint step — and trucks wear
-their own muted `PALETTE.truckBody` livery rather than `carBody`'s brighter hatchback colours.
+The body is three InstancedMeshes rather than the car pair's two: `truckMesh` (chassis, cab and
+windshield, from `truckCabGeometry()`) and `truckWheelMesh` alongside a third, `truckBoxMesh`
+(the cargo box, from `truckBoxGeometry()`), all built at `TRUCK_LEN`/`TRUCK_W`. They have to be
+separate meshes rather than one taller instance of the car body: an InstancedMesh draws one
+geometry for every instance, so a visibly bigger vehicle can't share the car body's buffer no
+matter how rare it is. The cab needs its own mesh apart from the box specifically because the two
+are painted differently — the cab reads `PALETTE.carBody` at the car's own `colorIndex`, same as
+an ordinary car, so a truck's livery varies exactly the way a car's does; the box is baked at the
+one fixed `PALETTE.truckBox` (a plain tan/white) and never gets an instance colour at all, since a
+real box truck's box is bare aluminium or cardboard regardless of the cab pulling it. One
+InstancedMesh only ever carries one tint per instance, so a part that varies and a part that never
+does are two meshes by construction. `car.isTruck` is what routes a car to the right meshes
+everywhere that matters — `writeAmbient`, `wreckShell`, the paint step.
 
 `TRUCK_CHANCE` defaults to 0 on `spawnCars`/`createTraffic` — every scripted scenario in `tools/`
 calls `createTraffic` without passing it, so none of them draw a truck and none of their staged

@@ -145,6 +145,7 @@ markOccluder(traffic.mesh);
 markOccluder(traffic.wheelMesh);
 markOccluder(traffic.truckMesh);
 markOccluder(traffic.truckWheelMesh);
+markOccluder(traffic.truckBoxMesh);
 markOccluder(traffic.taxiGroup);
 markOccluder(police.group);
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
@@ -271,7 +272,7 @@ collisions.onImpact(({ x, z, other }) => {
   // It used to spin out, snap back onto a lane and drive away. A boosting taxi arrives at ~19 u/s
   // and the survivor shrugging that off made the player's own wreck look like a rule rather than
   // a crash.
-  blast.fire(other.x, other.z, PALETTE[other.isTruck ? 'truckBody' : 'carBody'][other.colorIndex]);
+  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex]);
 
   // Both shells collapse into their own fireballs — see game/vanish.js for why they are faded out
   // rather than simply hidden. `wreckShell` also takes each car off the road for good.

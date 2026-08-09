@@ -608,49 +608,63 @@ function carGeometry() {
   return merged;
 }
 
+// Shared by truckCabGeometry() and truckBoxGeometry() so the two pieces — drawn from separate
+// InstancedMeshes, see the note by TRUCK_LEN/TRUCK_W and createTraffic below — line up on one
+// chassis line without either function guessing the other's numbers.
+const TRUCK_BASE_Y = 0.78 + CHASSIS_LIFT;     // top of the chassis a car's body would ride at
+const TRUCK_CAB_LEN = TRUCK_LEN * 0.3;
+const TRUCK_CAB_X = TRUCK_LEN / 2 - TRUCK_CAB_LEN / 2 - 0.1; // 0.1 nose gap
+const TRUCK_CAB_Y = TRUCK_BASE_Y + 0.4 + 0.55;
+const TRUCK_BOX_LEN = TRUCK_LEN * 0.58;
+const TRUCK_BOX_X = -(TRUCK_LEN / 2) + TRUCK_BOX_LEN / 2 + 0.15; // 0.15 tail gap
+
 /**
- * A box truck: a full-length chassis carrying a short cab up front and a tall cargo box behind it,
- * with a gap between the two standing in for the frame a real one runs between cab and box. Built
- * at TRUCK_LEN/TRUCK_W rather than CAR_LEN/CAR_W — see the note by those constants for why that is
- * allowed to be a different number from every vehicle's shared physics footprint.
+ * A box truck's chassis and cab — the part that carries the same instance tint an ordinary car's
+ * body does, painted from the same PALETTE.carBody. Built at TRUCK_LEN/TRUCK_W rather than
+ * CAR_LEN/CAR_W — see the note by those constants for why that is allowed to be a different number
+ * from every vehicle's shared physics footprint.
  *
  * Every solid part is left white, same as carGeometry's body, so the one instance colour tints the
- * whole truck — one fleet livery per vehicle, which is what a real box truck wears.
+ * whole cab — one fleet livery per vehicle, which is what a real cab wears. The cargo box is a
+ * separate mesh, deliberately: see truckBoxGeometry().
  */
-function truckGeometry() {
+function truckCabGeometry() {
   const parts = [];
   const white = new THREE.Color(1, 1, 1);
-  const baseY = 0.78 + CHASSIS_LIFT;      // top of the chassis a car's body would ride at
 
   const chassis = new THREE.BoxGeometry(TRUCK_LEN, 0.8, TRUCK_W);
-  chassis.translate(0, baseY, 0);
+  chassis.translate(0, TRUCK_BASE_Y, 0);
   parts.push(bakeColor(chassis, white));
 
-  // Cab, set back 0.1 from the nose so the front bumper reads as its own panel.
-  const cabLen = TRUCK_LEN * 0.3;
-  const cabX = TRUCK_LEN / 2 - cabLen / 2 - 0.1;
-  const cabY = baseY + 0.4 + 0.55;
-  const cab = new THREE.BoxGeometry(cabLen, 1.1, TRUCK_W * 0.84);
-  cab.translate(cabX, cabY, 0);
+  const cab = new THREE.BoxGeometry(TRUCK_CAB_LEN, 1.1, TRUCK_W * 0.84);
+  cab.translate(TRUCK_CAB_X, TRUCK_CAB_Y, 0);
   parts.push(bakeColor(cab, white));
 
   const windshield = new THREE.BoxGeometry(0.12, 0.7, TRUCK_W * 0.7);
-  windshield.translate(cabX + cabLen / 2 - 0.05, cabY, 0);
+  windshield.translate(TRUCK_CAB_X + TRUCK_CAB_LEN / 2 - 0.05, TRUCK_CAB_Y, 0);
   parts.push(bakeColor(windshield, color('carGlass')));
-
-  // Cargo box, set back from the cab and taller than it — a real box truck's roofline sits above
-  // the cab's for exactly this reason.
-  const boxLen = TRUCK_LEN * 0.58;
-  const boxX = -(TRUCK_LEN / 2) + boxLen / 2 + 0.15;
-  const box = new THREE.BoxGeometry(boxLen, 2.0, TRUCK_W);
-  box.translate(boxX, baseY + 0.4 + 1.0, 0);
-  parts.push(bakeColor(box, white));
 
   parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
   return merged;
+}
+
+/**
+ * A box truck's cargo box — set back from the cab and taller than it, a real box truck's roofline
+ * sitting above the cab's for exactly this reason.
+ *
+ * Its own InstancedMesh rather than a part of truckCabGeometry(), and the only vehicle part in the
+ * game baked at an absolute colour instead of white: PALETTE.truckBox goes straight onto the mesh
+ * and nothing ever calls setColorAt on it, so there is no instance colour to multiply it against.
+ * One InstancedMesh only ever draws one tint per instance, so a cab that varies with PALETTE.carBody
+ * and a box that never does are two meshes by construction, not by choice.
+ */
+function truckBoxGeometry() {
+  const box = new THREE.BoxGeometry(TRUCK_BOX_LEN, 2.0, TRUCK_W);
+  box.translate(TRUCK_BOX_X, TRUCK_BASE_Y + 0.4 + 1.0, 0);
+  return bakeColor(box, color('truckBox'));
 }
 
 /** Coordinate along the travel axis for a point. */
@@ -777,7 +791,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       turnLen: 1,
       entry: null, control: null, exit: null, hold: null, leadIn: 0, dOut: d,
       isTruck,
-      colorIndex: rng.int(0, (isTruck ? PALETTE.truckBody : PALETTE.carBody).length - 1),
+      // Same index, same array, whether this is a car or a truck's cab — see PALETTE.truckBox for
+      // the one part of a truck that doesn't read this.
+      colorIndex: rng.int(0, PALETTE.carBody.length - 1),
       // Drives the idle bob. Per-car phase so a queue doesn't bounce in lockstep.
       travelled: 0,
       phase: rng.range(0, Math.PI * 2),
@@ -998,9 +1014,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   wheelMesh.name = 'carWheels';
   wheelMesh.count = ambient.length * FRONT.length;
 
-  // The truck body and its front wheels, as their own pair of instanced meshes — same shape as the
-  // car pair above, just built from truckGeometry() at TRUCK_LEN/TRUCK_W.
-  const truckMesh = new THREE.InstancedMesh(truckGeometry(), propMaterial(), MAX_AMBIENT);
+  // The truck cab and its front wheels, as their own pair of instanced meshes — same shape as the
+  // car pair above, just built from truckCabGeometry() at TRUCK_LEN/TRUCK_W and painted from the
+  // same PALETTE.carBody a car is (see paintTruck below).
+  const truckMesh = new THREE.InstancedMesh(truckCabGeometry(), propMaterial(), MAX_AMBIENT);
   truckMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   truckMesh.castShadow = true;
   truckMesh.name = 'trucks';
@@ -1015,6 +1032,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   truckWheelMesh.name = 'truckWheels';
   truckWheelMesh.count = trucks.length * TRUCK_FRONT.length;
 
+  // The cargo box, a third instanced mesh sharing every truck's index space and transform but
+  // never painted — see truckBoxGeometry() for why one InstancedMesh cannot hold both a tinted
+  // cab and a fixed-colour box. `setColorAt` is never called on it, so `instanceColor` stays null
+  // and the material draws the geometry's own baked PALETTE.truckBox untouched.
+  const truckBoxMesh = new THREE.InstancedMesh(truckBoxGeometry(), propMaterial(), MAX_AMBIENT);
+  truckBoxMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  truckBoxMesh.castShadow = true;
+  truckBoxMesh.name = 'truckBoxes';
+  truckBoxMesh.count = trucks.length;
+
   const tint = new THREE.Color();
   const paint = (car, index) => {
     tint.set(PALETTE.carBody[car.colorIndex]);
@@ -1024,8 +1051,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // off its own rear wheel on every car in the city.
     for (let w = 0; w < FRONT.length; w++) wheelMesh.setColorAt(index * FRONT.length + w, tint);
   };
+  // Same PALETTE.carBody as an ordinary car, and the same index — a truck's cab wears whatever
+  // livery its colorIndex would have painted a car in. Only the cab and its wheels: the cargo box
+  // (truckBoxMesh) is never touched here, see the note where that mesh is constructed above.
   const paintTruck = (car, index) => {
-    tint.set(PALETTE.truckBody[car.colorIndex]);
+    tint.set(PALETTE.carBody[car.colorIndex]);
     truckMesh.setColorAt(index, tint);
     for (let w = 0; w < TRUCK_FRONT.length; w++) {
       truckWheelMesh.setColorAt(index * TRUCK_FRONT.length + w, tint);
@@ -1073,6 +1103,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       if (truckWheelMesh.instanceColor) truckWheelMesh.instanceColor.needsUpdate = true;
       truckMesh.count = trucks.length;
       truckWheelMesh.count = trucks.length * TRUCK_FRONT.length;
+      truckBoxMesh.count = trucks.length;
     } else {
       car.instanceIndex = ambient.length;
       ambient.push(car);
@@ -1093,6 +1124,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   scene.add(wheelMesh);
   scene.add(truckMesh);
   scene.add(truckWheelMesh);
+  scene.add(truckBoxMesh);
 
   // --- Stop bars ------------------------------------------------------------
   //
@@ -1170,19 +1202,19 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     car.crashed = true;
     if (car.isTaxi) return taxiGroup;
 
-    // A truck reads its body, wheels and paint from its own mesh pair and palette — everything
-    // else below is identical to an ordinary car's wreck, just aimed at whichever pair this car
-    // actually lives in.
+    // A truck reads its body and wheels from its own mesh pair — everything below is identical to
+    // an ordinary car's wreck, just aimed at whichever pair this car actually lives in. Both wear
+    // PALETTE.carBody at this car's own colorIndex; a truck's cargo box is a second, separately
+    // coloured mesh added below only for a truck.
     const bodyInst = car.isTruck ? truckMesh : mesh;
     const wheelInst = car.isTruck ? truckWheelMesh : wheelMesh;
     const front = car.isTruck ? TRUCK_FRONT : FRONT;
-    const palette = car.isTruck ? PALETTE.truckBody : PALETTE.carBody;
 
     // One material across body and wheels, so the fade takes the whole copy down together.
     // Baked vertex colours multiply by material.color exactly as they did by instanceColor, so
     // the copy comes out the same car in the same paint.
     const material = propMaterial();
-    material.color.set(palette[car.colorIndex]);
+    material.color.set(PALETTE.carBody[car.colorIndex]);
 
     const shell = new THREE.Group();
     bodyInst.getMatrixAt(car.instanceIndex, matrix);
@@ -1201,6 +1233,17 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       wheel.castShadow = true;
       shell.add(wheel);
     }
+
+    // The cargo box: its own mesh, its own fixed-colour material — never tinted by colorIndex, on
+    // the road or in the wreck. game/vanish.js collects every distinct material under the shell
+    // into a Set, so a second material here fades in step with the cab's without extra wiring.
+    if (car.isTruck) {
+      const boxMaterial = propMaterial();
+      boxMaterial.color.set(PALETTE.truckBox);
+      const box = new THREE.Mesh(truckBoxMesh.geometry, boxMaterial);
+      box.castShadow = true;
+      shell.add(box);
+    }
     scene.add(shell);
 
     // Collapse everything the copy replaces — body instance and both wheel instances.
@@ -1211,6 +1254,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     }
     bodyInst.instanceMatrix.needsUpdate = true;
     wheelInst.instanceMatrix.needsUpdate = true;
+    if (car.isTruck) {
+      truckBoxMesh.setMatrixAt(car.instanceIndex, matrix);
+      truckBoxMesh.instanceMatrix.needsUpdate = true;
+    }
     return shell;
   }
 
@@ -1230,6 +1277,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const wheelInst = car.isTruck ? truckWheelMesh : wheelMesh;
     const front = car.isTruck ? TRUCK_FRONT : FRONT;
     bodyInst.setMatrixAt(car.instanceIndex, matrix);
+    // The cargo box rides the identical transform — its offset from the cab is baked into its own
+    // geometry (see truckBoxGeometry()), not carried as a separate local matrix.
+    if (car.isTruck) truckBoxMesh.setMatrixAt(car.instanceIndex, matrix);
     wheelQuat.setFromAxisAngle(UP, car.wheelAngle);
     for (let w = 0; w < front.length; w++) {
       const anchor = front[w];
@@ -2197,6 +2247,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     wheelMesh.instanceMatrix.needsUpdate = true;
     truckMesh.instanceMatrix.needsUpdate = true;
     truckWheelMesh.instanceMatrix.needsUpdate = true;
+    truckBoxMesh.instanceMatrix.needsUpdate = true;
 
     // --- Stop bar colours, one per approach.
     for (let index = 0; index < bars.length; index++) {
@@ -2227,6 +2278,6 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // Trucks, passed out the same shape so main.js can occlude them and wire up their AO
     // prepass — but not folded into `ambient`/`wheelsPerCar` above, since those are index-aligned
     // with the *car* meshes and game/carghosts.js reads them as such.
-    truckMesh, truckWheelMesh, trucks, truckWheelsPerCar: TRUCK_FRONT.length,
+    truckMesh, truckWheelMesh, truckBoxMesh, trucks, truckWheelsPerCar: TRUCK_FRONT.length,
   };
 }

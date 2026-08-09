@@ -1764,18 +1764,35 @@ check('the taxi is an ordinary car in the traffic array',
 {
   const uScene = new THREE.Scene();
   const uTraffic = createTraffic(makeRng(seed + 44), uScene, CARS_DEFAULT, CARS_DEFAULT, 1);
-  check('truckChance=1 puts every ambient car in the truck mesh',
-    uTraffic.mesh.count === 0 && uTraffic.truckMesh.count === CARS_DEFAULT - 1,
-    `car mesh ${uTraffic.mesh.count}, truck mesh ${uTraffic.truckMesh.count}`);
+  check('truckChance=1 puts every ambient car in the truck meshes',
+    uTraffic.mesh.count === 0 && uTraffic.truckMesh.count === CARS_DEFAULT - 1
+    && uTraffic.truckBoxMesh.count === CARS_DEFAULT - 1,
+    `car mesh ${uTraffic.mesh.count}, truck mesh ${uTraffic.truckMesh.count}, box mesh ${uTraffic.truckBoxMesh.count}`);
+
+  // A truck's cab is painted from PALETTE.carBody, same as an ordinary car — only the cargo box
+  // breaks from that, and it does so by never getting an instance colour at all, not by reading a
+  // different palette.
+  const uCabColor = new THREE.Color();
+  uTraffic.truckMesh.getColorAt(0, uCabColor);
+  const uCab = uTraffic.trucks[0];
+  check("a truck's cab is painted from the car palette",
+    uCabColor.getHexString() === new THREE.Color(PALETTE.carBody[uCab.colorIndex]).getHexString(),
+    `#${uCabColor.getHexString()} vs carBody[${uCab.colorIndex}] #${new THREE.Color(PALETTE.carBody[uCab.colorIndex]).getHexString()}`);
+  check("a truck's cargo box is never instance-tinted", uTraffic.truckBoxMesh.instanceColor === null);
 
   const uCollisions = createCollisions(uTraffic.cars, uTraffic.taxi);
   const uVanish = createVanish();
   let uHits = 0;
   let uImpact = null;
+  const uShells = [];
   uCollisions.onImpact((event) => {
     uHits += 1;
     uImpact = event;
-    for (const car of [event.taxi, event.other]) uVanish.take(uTraffic.wreckShell(car));
+    for (const car of [event.taxi, event.other]) {
+      const shell = uTraffic.wreckShell(car);
+      uShells.push(shell);
+      uVanish.take(shell);
+    }
   });
 
   uTraffic.warmup(3);
@@ -1808,8 +1825,15 @@ check('the taxi is an ordinary car in the traffic array',
   }
   check('a wrecked truck collapses out of the truck meshes, not the car ones',
     scaleOfTruck(uTraffic.truckMesh, uVictim.instanceIndex) === 0
+    && scaleOfTruck(uTraffic.truckBoxMesh, uVictim.instanceIndex) === 0
     && truckWheelScales.every((s) => s === 0),
-    `body + ${truckWheelScales.length} wheels`);
+    `cab + box + ${truckWheelScales.length} wheels`);
+
+  // The shell itself carries two materials for a truck — cab+wheels in its car-palette colour, the
+  // box in the fixed PALETTE.truckBox — and game/vanish.js has to find and fade both.
+  const uShell = uShells[1];
+  check('a wrecked truck hands over both a cab and a box mesh',
+    uShell.children.length === 2 + truckWheelScales.length);
 }
 
 // --- The crash blast -------------------------------------------------------
