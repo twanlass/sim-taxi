@@ -704,18 +704,35 @@ lockstep.
 A filled circle inside a solid rim, lying flat on a kerb corner. **Both ends of a trip wear one**:
 under the waiting rider in the fare's urgency colour, on the drop-off corner in teal. One rim shape
 and one fill shape serve every disc on the board — only the colour differs, and `setColor` moves
-both layers together, since they are one mark at two weights rather than two colours.
+all three layers together, since they are one mark at three weights rather than different colours.
 
-`RING_Y = 0.2` above the surface it marks, on both, so they read as the same object. The fill is at
-the route band's own `ROUTE_OPACITY` — a disc and the band running into it are one weight of paint.
+`RING_Y = 0.2` above the surface it marks, on all three, so they read as the same object. The fill
+is at the route band's own `ROUTE_OPACITY` — a disc and the band running into it are one weight of
+paint.
 
-Both layers are **depth-tested**, with `depthWrite: false` so they don't fight each other for the
-plane. The depth test is load-bearing under a rider: the far half of a flat circle projects *upward
-on screen* at this camera angle, and without the test it would paint a band across the figure
-standing in the middle of it. That is precisely what the old countdown ring did — it drew with
-`depthTest: false` for legibility through buildings, and needed an `ABOVE_RING` renderOrder worn by
-the rider's meshes and the taxi's whole body to survive it. Keeping the test on costs occlusion by
-towers and buys all of that back.
+All three layers are **depth-tested**, with `depthWrite: false` so they don't fight each other for
+the plane. The depth test is load-bearing under a rider: the far half of a flat circle projects
+*upward on screen* at this camera angle, and without the test it would paint a band across the
+figure standing in the middle of it. That is precisely what the old countdown ring did — it drew
+with `depthTest: false` for legibility through buildings, and needed an `ABOVE_RING` renderOrder
+worn by the rider's meshes and the taxi's whole body to survive it. Keeping the test on costs
+occlusion by towers and buys all of that back.
+
+**The sweep** is the third layer: a bright head with a fading tail, circling the outer edge of the
+rim once every 3.2s. It is a `MeshBasicMaterial` on the same torus radius as the rim (a little
+fatter), patched with `onBeforeCompile` to read a per-vertex angle attribute and fade each fragment
+by how far behind a moving `uHead` uniform it sits — `ring.update(elapsed)` only ever touches that
+one uniform, so nothing re-tessellates or re-uploads per frame. Additive blending is what makes a
+beam of the same hue as the rim beneath it read as brighter rather than merely thicker.
+
+Because the patch changes what the material draws without changing its constructor parameters, it
+carries its own `customProgramCacheKey` — see the trap in [CLAUDE.md](../CLAUDE.md) about
+`onBeforeCompile` and three's program cache. `setColor` paints it the same colour as the rim and
+fill; `tools/probe.mjs` reads all three back together and expects one hex, repeated three times.
+
+The beam has to be told to spin: `ring.update(elapsed)` is called from `game/faremarker.js`'s own
+per-frame `update` while the rider's disc is visible, and from `game/fares.js`'s fare loop while a
+fare is `riding`, for the drop-off's. Neither ring ticks while hidden.
 
 ### The drop-off ring — `geometry/marker.js`
 
@@ -769,8 +786,8 @@ two concerns from fighting over one transform.
 The **ground disc** ([above](#the-target-disc--geometrytargetringjs)) is a second scene-level group,
 separate for the same reason inverted: the crystal's group flies to the taxi and this one has to
 *stay* on the pavement until it is switched off, which happens on `beginTransfer`. `setUrgency`
-paints both, so the two can never disagree about a level — `tools/probe.mjs` reads the disc's rim
-and fill back alongside the crystal at every step of a drain.
+paints both, so the two can never disagree about a level — `tools/probe.mjs` reads the disc's rim,
+fill and sweep back alongside the crystal at every step of a drain.
 
 `LIFT` is 6.6 on both ends of the trip. Over a rider (topping out a little over 3.3) that leaves the
 bottom vertex 1.3 units — about 10px at play zoom — of air above their head, which is the gap the

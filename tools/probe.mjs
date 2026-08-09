@@ -69,8 +69,8 @@ const time = (label, fn) => {
 // Read a rider's diamond back the way a player does — off the material it is painted in, not by
 // trusting the argument we passed in. Its colour is the whole of what that marker says now.
 const diamondHex = (marker) => marker.mesh.material.color.getHexString();
-// The disc under the rider's feet, rim and fill — one mark at two weights, so they must never
-// disagree with each other or with the crystal overhead.
+// The disc under the rider's feet, rim and fill and sweep — one mark at three weights, so they
+// must never disagree with each other or with the crystal overhead.
 const ringHexes = (marker) => marker.ring.children.map((m) => m.material.color.getHexString());
 
 // Slot 0's bounce phase offset — fares.js staggers the slots so two riders don't pulse in lockstep,
@@ -775,8 +775,9 @@ check('no two cars occupy the same space', worst > 1.6,
     const pin = createDestinationPin();
     const hex = (c) => new THREE.Color(c).getHexString();
     const painted = pin.ring.group.children.map((m) => m.material.color.getHexString()).join('/');
-    check('the drop-off ring is teal, rim and fill',
-      painted === `${hex(PALETTE.destination)}/${hex(PALETTE.destination)}`, painted);
+    check('the drop-off ring is teal, rim and fill and sweep',
+      painted === `${hex(PALETTE.destination)}/${hex(PALETTE.destination)}/${hex(PALETTE.destination)}`,
+      painted);
     check('the drop-off wears no urgency colour',
       !PALETTE.urgency.map(hex).includes(hex(PALETTE.destination)));
     // The ring group and nothing else on the corner; the hit box is a child of the root, not of it.

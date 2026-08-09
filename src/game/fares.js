@@ -715,10 +715,12 @@ export function createFareSystem(rng, scene) {
 
       // Wave the waiting rider. Driven off sim time so it stays deterministic for screenshots.
       if (fare.stage === 'waiting' && passenger.standing) passenger.standing.wave(state.elapsed);
-      // The drop-off is a ring on the road and holds still — nothing to tick. It used to bounce a
-      // floating head, on the grounds that the thing you are being driven at should be the thing
-      // moving; the head is gone and the ring says it at ground level instead.
+      // The drop-off is a ring on the road and holds still — nothing to tick but the beam circling
+      // its rim. It used to bounce a floating head, on the grounds that the thing you are being
+      // driven at should be the thing moving; the head is gone and the ring's own motion carries
+      // that now, at ground level.
       if (fare.stage === 'riding') {
+        fare.slot.destination.ring.update(state.elapsed);
         fare.ridingFor += dt;
         // Boarding animation: the marker stays visible for BOARD_SECONDS after pickup while the
         // figure runs across the kerb and hops into the taxi. `boardingFrom` was captured at the
