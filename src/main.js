@@ -6,7 +6,7 @@ import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
-import { createTraffic, speedMph } from './sim/traffic.js';
+import { createTraffic } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
@@ -792,9 +792,8 @@ function updateHud(dt) {
     showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: s.failReason,
-      // Six numbers, in the order the run produced them: how long it lasted, what you carried,
-      // how deep into the ramp that took you, what it paid, what the city made you sit through,
-      // and how fast you were going when it went wrong.
+      // Four numbers, in the order the run produced them: how long it lasted, what you carried,
+      // how deep into the ramp that took you, and what it paid.
       //
       // "Shift" replaces what used to be "Streak", which printed `s.delivered` — the same number
       // as Fares directly above it, formatted with an `x`. Two rows counting out one number is a
@@ -809,9 +808,6 @@ function updateHud(dt) {
         { label: 'Shift', value: difficulty.shiftFor(s.delivered).index + 1,
           format: (n) => difficulty.SHIFTS[Math.max(0, n - 1)].name },
         { label: 'Cash', value: s.money, format: (n) => `$${n}` },
-        { label: 'Red Lights', value: traffic.stats.taxiRedLights, format: (n) => `${n}` },
-        { label: 'Top Speed', value: speedMph(traffic.stats.taxiTopSpeed),
-          format: (n) => `${n} mph` },
       ],
       onRetry: () => location.reload(),
     });

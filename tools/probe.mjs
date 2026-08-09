@@ -14,7 +14,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, speedMph, SPEED, CAR_LEN } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -2215,55 +2215,6 @@ check('the taxi is an ordinary car in the traffic array',
     midFlight > 0.1 && beforeRedirect === midFlight
     && Math.abs(cam.state.target.x - midFlight) < midFlight * 0.02,
     `redirected from x=${midFlight.toFixed(3)}`);
-}
-
-// --- The run summary's stats -----------------------------------------------
-// Both numbers are for the retry screen and nothing else, which is exactly why they are checked
-// here: nothing in the sim reads them, so a counter that silently stopped incrementing (or one
-// that ticked every frame instead of every light) would never show up anywhere but on the card at
-// the end of somebody's run.
-{
-  const rScene = new THREE.Scene();
-  const rTraffic = createTraffic(makeRng(seed + 44), rScene, CARS_DEFAULT);
-  const rTaxi = rTraffic.taxi;
-  rTraffic.warmup(5);
-
-  // Junction crossings, counted independently of the stat: a red is only ever met on the approach
-  // to one, so reds can never legitimately outnumber them.
-  let crossings = 0;
-  let wasTurning = rTaxi.state === 'turn';
-  // Frames the taxi spent held at a line — the count a per-frame bug would produce instead.
-  let heldFrames = 0;
-
-  for (let step = 0; step < 60 * 150; step++) {
-    rTraffic.update(1 / 60);
-    const turning = rTaxi.state === 'turn';
-    if (turning && !wasTurning) crossings += 1;
-    wasTurning = turning;
-    if (!turning && rTaxi.v < 0.05) heldFrames += 1;
-  }
-
-  const reds = rTraffic.stats.taxiRedLights;
-  check('the run counts red lights', reds > 0, `${reds} reds over ${crossings} junctions`);
-  check('a red counts once, not once per frame', reds <= crossings && reds < heldFrames,
-    `${reds} reds vs ${crossings} junctions and ${heldFrames} held frames`);
-
-  // Cruise is 8.5 and the taxi is not boosting here, so the top speed has to sit at cruise: high
-  // enough that it is being sampled at all, and no higher.
-  const cruiseTop = rTraffic.stats.taxiTopSpeed;
-  check('top speed tracks the taxi at cruise', cruiseTop > 8 && cruiseTop < 9,
-    `${cruiseTop.toFixed(2)} units/s = ${speedMph(cruiseTop)} mph`);
-
-  rTaxi.boost = true;
-  for (let step = 0; step < 60 * 40; step++) rTraffic.update(1 / 60);
-  const boostTop = rTraffic.stats.taxiTopSpeed;
-  check('top speed follows Loco Mode up', boostTop > cruiseTop + 6,
-    `${cruiseTop.toFixed(1)} -> ${boostTop.toFixed(1)} units/s`);
-  // The whole point of the unit is that a player recognises it: city cruise and a fast run, not
-  // 8.5 of something. The window covers the mode's own 54mph through the 67mph at the top of the
-  // overdrive band, since which of the two a 40s run lands on depends on the straights it found.
-  check('top speed reads as a plausible mph', speedMph(boostTop) >= 50 && speedMph(boostTop) <= 75,
-    `${speedMph(boostTop)} mph`);
 }
 
 // --- Loco Mode's overdrive band ---------------------------------------------

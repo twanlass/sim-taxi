@@ -998,7 +998,7 @@ transition into Loco Mode and not on a re-press during a boost that's already ru
 
 `src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
 clock hitting zero, a collision, a police bust — and all three land on the same screen: a title, the
-reason, six stats, and **Play again**. The title is set by the caller, so a timeout reads
+reason, four stats, and **Play again**. The title is set by the caller, so a timeout reads
 **Too Slow!**, a collision reads **Wrecked!**, and a police bust reads **Busted!**.
 
 It is a **full-screen blackout**, not a modal over the city. An earlier pass dimmed the world and
@@ -1035,9 +1035,9 @@ phone. On a phone the rows run right out to the screen edges, which is the layou
 borrowing.
 
 Type and rhythm scale with the viewport, off whichever axis is tighter: height for the list as a
-whole (a landscape phone runs it past the fold) and width for the rows (`"Top Speed  54 mph"` at
-30px is ~260px wide, and `nowrap` would push it off a 320px screen rather than wrap it). If it
-still doesn't fit, the overlay scrolls — centred by `margin: auto` on the content rather than
+whole (a landscape phone runs it past the fold) and width for the rows (the longest, `"Shift  Early
+Shift"`, is the one `nowrap` risks pushing off a 320px screen rather than wrapping it). If it still
+doesn't fit, the overlay scrolls — centred by `margin: auto` on the content rather than
 `justify-content`, which clips its own overflow at the top, where the title is.
 
 **Nothing appears at once.** The card is revealed as a sequence, because the version before this
@@ -1081,26 +1081,10 @@ sequence is the entire module, so there is nothing else to keep.
 | Fares | `fares.state.delivered` | |
 | Shift | `difficulty.shiftFor(delivered)` | how far up the ramp the run got, counted out by name |
 | Cash | `fares.state.money` | |
-| Red Lights | `traffic.stats.taxiRedLights` | reds the taxi *met*, one per light |
-| Top Speed | `traffic.stats.taxiTopSpeed` | u/s, shown in mph |
 
-Both traffic stats are taxi-only, accumulate over the whole run, and are never reset — a run ends
-by reloading the page. They exist for this card and nothing in the sim reads them, which is exactly
-why `tools/probe.mjs` asserts them: a counter that quietly stopped incrementing would otherwise
-only show up on the run-end screen at the end of somebody's run.
-
-**Red lights are counted per light, not per frame.** The junction is stamped on the taxi the first
-time a red holds it and cleared when the turn commits, so sitting at one light for four seconds is
-one red and coming back to the same junction later counts again. It reads the signal phase
-directly rather than the `green` flag, because `green` also goes false for a junction blocked by a
-stranded car — that is a jam, not a red. Ring junctions are exempt: they have no phase to be red.
-A right-on-red still counts; the light was red when the taxi reached the line.
-
-**Top speed is shown in mph** via `speedMph()` in `sim/traffic.js`. World units are metres-ish —
-`CAR_LEN` is 3.4 against a real compact at ~4.4m — which puts one u/s at about 2.9mph and lands
-the numbers where you'd want them anyway: cruise 8.5 → **25mph**, Loco Mode 18.7 → **54mph**, and
-the top of its [overdrive band](traffic.md#overdrive-only-on-a-straightaway) 22.95 → **67mph**. The
-stat is worth reading now that the top end has to be driven for: 54 says you used the mode, 67 says
-you found two clear blocks in a row to spend it on.
+Red Lights and Top Speed used to round out the list, tracked in `traffic.stats` purely so the card
+had something to show — nothing in the sim itself read either counter. Both the tracking (including
+the per-car `heldKey` dedup that kept a held red from counting once per frame) and the `speedMph()`
+conversion were removed along with the rows.
 Nothing in the simulation uses the conversion; it exists so the stat is in a unit a player has a
 feel for.

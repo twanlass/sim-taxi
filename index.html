@@ -177,9 +177,9 @@
          when the pairing *is* the content. Same type for both makes each row one phrase:
          "Fares  9". */
       /* Sized against whichever axis is tighter. Height is the usual constraint for the list as a
-         whole, but a side-by-side row has a width to fit too: "Top Speed  54 mph" set at 30px is
-         ~290px wide and would run past the gutters of a 320px phone, where `nowrap` pushes it off
-         the screen rather than wrapping it. */
+         whole, but a side-by-side row has a width to fit too: the longest, "Shift  Early Shift",
+         is the one that would run past the gutters of a 320px phone at 30px, where `nowrap` pushes
+         it off the screen rather than wrapping it. */
       #run-end .stat-label,
       #run-end .stat-value {
         font-size: clamp(19px, min(3.9vh, 7.2vw), 30px); font-weight: 800; line-height: 1.15;
