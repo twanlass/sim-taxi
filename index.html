@@ -278,10 +278,13 @@
         #boost::before, #boost.is-active::before { display: none; }
       }
       /* Empty tank. Nothing refills on its own, so this greyed-out state persists until the next
-         drop-off tops it up — it reads as "go earn it", not "wait for it". */
+         drop-off tops it up — it reads as "go earn it", not "wait for it". Flat grey rather than the
+         usual dial gradient, and the black outline drops out too: every other state of this pill
+         reads as "press me", so disabled has to read unambiguously as the opposite rather than as a
+         drained version of the same button. */
       #boost.is-empty {
-        cursor: default; color: rgba(255, 255, 255, 0.5);
-        background: linear-gradient(90deg, #6f8899 var(--pct, 0%), rgba(255, 255, 255, 0.12) 0);
+        cursor: default; color: #6b6f73; border-color: transparent;
+        background: #b9c0c4;
       }
       /* Delivery bonus. Fuel is now *only* ever earned, so the pour is the reward animation and it
          gets the full treatment: the bar overshoots its new mark and springs back, the pill pulses,
