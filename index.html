@@ -109,23 +109,16 @@
         transform: translate(-50%, -50%);
       }
 
-      #toast {
-        position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-        font: 600 15px/1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
-        color: #fff; background: rgba(24, 44, 58, 0.72); padding: 10px 18px; border-radius: 999px;
-        opacity: 0; transition: opacity 0.25s ease; pointer-events: none; user-select: none;
-      }
-
       /* A full-screen black mask, not a modal over the city. The dim-and-card version kept the
          frozen city legible behind a panel, and the panel's edges were the loudest thing on the
          screen — a hard blackout puts the run's numbers on nothing at all, which is what makes
          them the ending rather than an overlay on top of one. */
       #run-end {
         position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
-        /* Above every other overlay (the toast sits at 25, the tweak toggle and the rider chips at
-           20). Without a z-index of its own the blackout paints *under* them, so the waiting-rider
-           chips stayed lit in the bottom-left corner of the game-over screen — and a chip that is
-           still on top also swallows the tap that skips the tally. */
+        /* Above every other overlay (the tweak toggle and the rider chips at 20). Without a
+           z-index of its own the blackout paints *under* them, so the waiting-rider chips stayed
+           lit in the bottom-left corner of the game-over screen — and a chip that is still on top
+           also swallows the tap that skips the tally. */
         z-index: 30;
         background: rgba(0, 0, 0, 0.95); color: #fff; text-align: center;
         /* Centred by `margin: auto` on the card rather than by `justify-content`: if the content
@@ -223,7 +216,7 @@
          they are noise behind the retry pill. */
       body.game-over #boost, body.game-over #dbg-toggle, body.game-over #dbg-panel { display: none; }
 
-      body.shot-mode #hud, body.shot-mode #toast, body.shot-mode #run-end { display: none; }
+      body.shot-mode #hud, body.shot-mode #run-end { display: none; }
 
       #boost {
         /* 3/4 width, centred on the bottom edge — wide enough that a thumb pressing it no longer
@@ -369,7 +362,7 @@
         -webkit-mask: radial-gradient(circle, transparent 55%, #000 56%);
                 mask: radial-gradient(circle, transparent 55%, #000 56%);
       }
-      /* The dark chip the figure stands in front of. Same tint as the toast pill. */
+      /* The dark chip the figure stands in front of. */
       .rider-finder-chip .chip {
         position: relative; width: 38px; height: 38px; border-radius: 50%;
         background: rgba(24, 44, 58, 0.72);
@@ -764,7 +757,6 @@
         <polygon points="13,0 -9,-10 -4,0 -9,10" />
       </svg>
     </div>
-    <div id="toast"></div>
     <div id="spotlight" aria-hidden="true"></div>
     <div id="coach" hidden>
       <button class="coach-bubble" type="button">

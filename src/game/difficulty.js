@@ -197,7 +197,7 @@ export function policeCooldown(delivered) {
  * over a midday sky is two systems contradicting each other.
  *
  * The payout steps with the band rather than creeping continuously, so the number on the counter
- * changes on the same beat as the toast that explains it.
+ * changes on the beat it crosses into a new one.
  */
 export const SHIFTS = [
   { at: 0, name: 'Early Shift', payout: 1 },
