@@ -462,12 +462,65 @@ function taxiClearsYellow(car, sig, distToLine) {
 
 export const CAR_LEN = 3.4;
 export const CAR_W = 1.7;
-const MIN_GAP = CAR_LEN + 1.9;   // centre-to-centre
+const MIN_GAP = CAR_LEN + 1.9;   // centre-to-centre, car following car
+
+// Box trucks share an ordinary car's collision envelope on purpose — sim/collisions.js is keyed
+// off CAR_LEN/CAR_W regardless of which vehicle it's testing, and that stays a simplification: it
+// only matters while the taxi is boosting, and Loco Mode's own tuned numbers (BOOST_GAP below)
+// already assume a CAR_LEN leader. Ordinary following distance can't get away with the same
+// shortcut — MIN_GAP alone queued a car 0.8 units behind a truck's rear bumper instead of the
+// intended 1.9, close enough to read as clipped into the box rather than merely tight. `followGap`
+// below is what every non-boost following and landing check now goes through instead.
+export const TRUCK_LEN = 5.6;
+export const TRUCK_W = 2.0;
+// How often a spawned ambient car is a truck instead. Zero by default — see the `truckChance`
+// parameter on spawnCars/createTraffic below — so every existing scripted scenario in tools/ stays
+// exactly as deterministic as it was. main.js opts the real game in with this value: about one
+// truck for every dozen cars, enough to notice, rare enough that it never reads as "the traffic got
+// trucks", which is the brief.
+export const TRUCK_CHANCE = 1 / 12;
+// Noticeably slower than a car's cruise — first cut was 0.85 and still read as too close to car
+// speed, so this one is a real gap rather than a nudge. Corners are cut back by the same 0.7 ratio
+// CORNER_SPEED already is from SPEED: a heavier vehicle doesn't hurry in a straight line any more
+// than round a bend.
+const TRUCK_SPEED = SPEED * 0.65;           // ~5.5 u/s
+const TRUCK_CORNER_SPEED = TRUCK_SPEED * 0.7;
+// Right turns get their own, slower target on top of that. Swinging a long box round a tight
+// corner is the one shape that visibly wants a beat longer than a car takes — real trucks take
+// them wide and cautious — where a left sweeps the far diagonal and doesn't read as hesitant at
+// TRUCK_CORNER_SPEED. Not applied to boost's own right-turn discount (`cruise * 0.75` below):
+// nothing here is ever a boosting car, since only the taxi boosts and the taxi's own isTruck is
+// always forced false.
+const TRUCK_RIGHT_TURN_SPEED = TRUCK_CORNER_SPEED * 0.6;
+// The pitch spring below (search "Rocking") drives the nose-dip/lift on every accel and brake
+// event. A truck gets half the excursion for the same Δv — the weight is on the box, not the cab,
+// so the driver's-eye view pitches less — and damps harder, so what dip there is settles rather
+// than keeps bouncing. "Feels heavier" is these two numbers, nothing else.
+const TRUCK_PITCH_SCALE = 0.5;
+const TRUCK_PITCH_DAMPING_MULT = 1.8;
+
+// Clear road kept between bumpers, independent of either vehicle's length. MIN_GAP is this same
+// number with two car half-lengths already folded in, for the plain car-following-car case every
+// following/landing check used to assume unconditionally.
+const BUMPER_GAP = MIN_GAP - CAR_LEN;
+const vehicleHalfLen = (car) => (car?.isTruck ? TRUCK_LEN : CAR_LEN) / 2;
+/**
+ * Centre-to-centre gap `follower` must keep behind `leader` — the pairwise version of MIN_GAP,
+ * correct whichever of the two (or both, or neither) is a truck. `leader` may be undefined (no one
+ * ahead), in which case it falls back to a car-sized assumption same as MIN_GAP always did.
+ */
+const followGap = (follower, leader) => vehicleHalfLen(follower) + vehicleHalfLen(leader) + BUMPER_GAP;
+
 // What a boosting taxi keeps instead. It stays in its lane now, so a leader it doesn't see is a
 // leader it rear-ends — but queueing at the ambient distance would read as the maniac politely
 // joining the back. 4.5 centre-to-centre puts the near collision circles (offset ±0.95 along the
 // body) 2.6 apart against an envelope of 2.31: close enough to look like tailgating, still 0.29
 // clear of a crash, and `step` is clamped to `allowed` so it cannot overshoot into that margin.
+//
+// Not run through followGap: it's tuned against the taxi's own collision envelope in
+// collisions.js, which stays CAR_LEN-sized for every target on purpose (see the note above
+// TRUCK_LEN) — widening the tailgate for a truck while the hitbox that matters stayed car-sized
+// would just be a taxi that hangs back further from a target it can still clip at the old range.
 const BOOST_GAP = MIN_GAP * 0.85;
 const YIELD_RANGE = 15;          // how far ahead oncoming traffic blocks a left turn
 const TURN_WEIGHTS = [0.62, 0.24, 0.14]; // straight, right, left
@@ -579,6 +632,68 @@ function carGeometry() {
   return merged;
 }
 
+// Shared by truckCabGeometry() and truckBoxGeometry() so the two pieces — drawn from separate
+// InstancedMeshes, see the note by TRUCK_LEN/TRUCK_W and createTraffic below — line up on one
+// chassis line without either function guessing the other's numbers.
+const TRUCK_BASE_Y = 0.78 + CHASSIS_LIFT;     // top of the chassis a car's body would ride at
+const TRUCK_CAB_LEN = TRUCK_LEN * 0.3;
+const TRUCK_CAB_X = TRUCK_LEN / 2 - TRUCK_CAB_LEN / 2 - 0.1; // 0.1 nose gap
+const TRUCK_CAB_Y = TRUCK_BASE_Y + 0.4 + 0.55;
+const TRUCK_BOX_LEN = TRUCK_LEN * 0.58;
+const TRUCK_BOX_X = -(TRUCK_LEN / 2) + TRUCK_BOX_LEN / 2 + 0.15; // 0.15 tail gap
+
+/**
+ * A box truck's chassis and cab. Built at TRUCK_LEN/TRUCK_W rather than CAR_LEN/CAR_W — see the
+ * note by those constants for why that is allowed to be a different number from every vehicle's
+ * shared physics footprint.
+ *
+ * Only the chassis is left white for the instance tint, painted from PALETTE.carBody exactly like
+ * an ordinary car's body — one fleet livery per vehicle. The cab sits on top of it baked dark,
+ * same colour as the windshield glass, which is the other half of "looks like the cars in that
+ * sense": a car's greenhouse is always dark regardless of its body colour, and a truck's cab reads
+ * as the same kind of part rather than as more of the chassis livery. The cargo box is a further,
+ * separate mesh: see truckBoxGeometry().
+ */
+function truckCabGeometry() {
+  const parts = [];
+  const white = new THREE.Color(1, 1, 1);
+  const cabDark = color('carGlass');
+
+  const chassis = new THREE.BoxGeometry(TRUCK_LEN, 0.8, TRUCK_W);
+  chassis.translate(0, TRUCK_BASE_Y, 0);
+  parts.push(bakeColor(chassis, white));
+
+  const cab = new THREE.BoxGeometry(TRUCK_CAB_LEN, 1.1, TRUCK_W * 0.84);
+  cab.translate(TRUCK_CAB_X, TRUCK_CAB_Y, 0);
+  parts.push(bakeColor(cab, cabDark));
+
+  const windshield = new THREE.BoxGeometry(0.12, 0.7, TRUCK_W * 0.7);
+  windshield.translate(TRUCK_CAB_X + TRUCK_CAB_LEN / 2 - 0.05, TRUCK_CAB_Y, 0);
+  parts.push(bakeColor(windshield, cabDark));
+
+  parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
+
+  const merged = mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
+  return merged;
+}
+
+/**
+ * A box truck's cargo box — set back from the cab and taller than it, a real box truck's roofline
+ * sitting above the cab's for exactly this reason.
+ *
+ * Its own InstancedMesh rather than a part of truckCabGeometry(), and the only vehicle part in the
+ * game baked at an absolute colour instead of white: PALETTE.truckBox goes straight onto the mesh
+ * and nothing ever calls setColorAt on it, so there is no instance colour to multiply it against.
+ * One InstancedMesh only ever draws one tint per instance, so a cab that varies with PALETTE.carBody
+ * and a box that never does are two meshes by construction, not by choice.
+ */
+function truckBoxGeometry() {
+  const box = new THREE.BoxGeometry(TRUCK_BOX_LEN, 2.0, TRUCK_W);
+  box.translate(TRUCK_BOX_X, TRUCK_BASE_Y + 0.4 + 1.0, 0);
+  return bakeColor(box, color('truckBox'));
+}
+
 /** Coordinate along the travel axis for a point. */
 const along = (d, p) => (isXAxis(d) ? p.x : p.z);
 
@@ -648,8 +763,13 @@ const LOOKAHEAD = 32;
  * bit-for-bit the original, which is what keeps every seeded measurement in the suite comparable.
  *
  * @param accept optional (spot) -> boolean, a further filter on where a car may appear.
+ * @param truckChance probability a spawned car is a box truck rather than an ordinary car.
+ *                     Defaults to 0 — every scripted scenario in tools/ calls this (via
+ *                     createTraffic) without passing it, and that has to keep drawing exactly the
+ *                     stream it always has. main.js is the one caller that opts in, with
+ *                     TRUCK_CHANCE.
  */
-function spawnCars(rng, count, into = [], accept = null) {
+function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
   const net = cityNetwork();
   const cars = into;
   const want = cars.length + count;
@@ -679,9 +799,19 @@ function spawnCars(rng, count, into = [], accept = null) {
     const t = rng.range(0.5, lane.length - 0.5);
     const s = dirSign(d) > 0 ? t : lane.length - t;
 
-    const clash = cars.some((c) => c.lane === lane && Math.abs(c.s - s) < MIN_GAP + 1);
+    // This car's own isTruck isn't rolled until after the clash/accept checks below, so a possible
+    // truck is assumed on this side of the pairing — conservative, but only when truckChance > 0:
+    // at 0 (every scripted scenario in tools/) `followGap({isTruck: false}, c)` collapses back to
+    // exactly MIN_GAP, so nothing there draws a different spawn position than it always has.
+    const clash = cars.some((c) => c.lane === lane
+      && Math.abs(c.s - s) < followGap({ isTruck: truckChance > 0 }, c) + 1);
     if (clash) continue;
     if (accept && !accept({ d, i, j, s, lane })) continue;
+
+    // Rolled once per car, after everything that decides *whether* it spawns here — so a car that
+    // fails the clash or accept check and retries elsewhere doesn't burn a truck roll on a spot it
+    // never actually took.
+    const isTruck = rng.range(0, 1) < truckChance;
 
     cars.push({
       d, i, j, s, lane,
@@ -692,6 +822,9 @@ function spawnCars(rng, count, into = [], accept = null) {
       turnT: 0,
       turnLen: 1,
       entry: null, control: null, exit: null, hold: null, leadIn: 0, dOut: d,
+      isTruck,
+      // Same index, same array, whether this is a car or a truck's cab — see PALETTE.truckBox for
+      // the one part of a truck that doesn't read this.
       colorIndex: rng.int(0, PALETTE.carBody.length - 1),
       // Drives the idle bob. Per-car phase so a queue doesn't bounce in lockstep.
       travelled: 0,
@@ -835,10 +968,12 @@ function lerpAngle(a, b, t) {
  *                  construction — so the pool is allocated for the ceiling up front and `count`
  *                  only decides how much of it is drawn. Costs one matrix and one colour per
  *                  unused slot, which is nothing next to rebuilding the mesh mid-run.
+ * @param truckChance  see spawnCars — defaults to 0 so every existing caller is unaffected; main.js
+ *                     passes TRUCK_CHANCE for the real game.
  */
-export function createTraffic(rng, scene, count = 24, maxCars = count) {
+export function createTraffic(rng, scene, count = 24, maxCars = count, truckChance = 0) {
   const net = cityNetwork();
-  const cars = spawnCars(rng, count);
+  const cars = spawnCars(rng, count, [], null, truckChance);
   const MAX_CARS = Math.max(count, maxCars);
 
   // The player's taxi is an ordinary car in this same array — that is what subjects it to
@@ -869,17 +1004,33 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
   if (taxiIndex !== 0) [cars[0], cars[taxiIndex]] = [cars[taxiIndex], cars[0]];
   const taxi = cars[0];
   taxi.isTaxi = true;
+  // Whichever car this draw happened to be, it is never a truck once it's the taxi — the taxi
+  // always renders through createTaxiMesh() regardless, but isTruck now also steers cruise speed
+  // and pitch damping below, and the player's own car has to run at car physics whatever colour
+  // its unused truck roll came up.
+  taxi.isTruck = false;
 
   const {
     group: taxiGroup, setOccupied: setTaxiOccupied, setSteer: setTaxiSteer,
   } = createTaxiMesh();
   scene.add(taxiGroup);
 
-  const ambient = cars.filter((c) => !c.isTaxi);
+  // Trucks get their own index space, into their own pair of instanced meshes below — an
+  // InstancedMesh draws one geometry for every instance, so a visibly bigger vehicle can't share
+  // the car body's buffer no matter how rare it is. `ambient` therefore stays car-only: it is also
+  // what game/carghosts.js iterates for boost-mode outlines, and that reads `car.instanceIndex`
+  // straight into `mesh`/`wheelMesh` with no type check, so a truck sharing this array would have
+  // its outline traced from the wrong car entirely. Trucks simply don't get ghost outlines yet.
+  const ambient = cars.filter((c) => !c.isTaxi && !c.isTruck);
+  const trucks = cars.filter((c) => !c.isTaxi && c.isTruck);
   ambient.forEach((car, index) => { car.instanceIndex = index; });
+  trucks.forEach((car, index) => { car.instanceIndex = index; });
 
   // Sized for the ceiling, drawn to the current count. `mesh.count` is what three renders, so an
-  // unfilled slot costs a matrix in the buffer and nothing on screen.
+  // unfilled slot costs a matrix in the buffer and nothing on screen. Both the car and the truck
+  // meshes are sized for every ambient slot even though only a fraction of them will ever be
+  // trucks — cheap insurance against the buffer running out mid-run, for the same "nothing next to
+  // rebuilding the mesh" reason MAX_CARS itself is sized for the ceiling rather than the opener.
   const MAX_AMBIENT = Math.max(0, MAX_CARS - 1);
   const mesh = new THREE.InstancedMesh(carGeometry(), propMaterial(), MAX_AMBIENT);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -900,6 +1051,34 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
   wheelMesh.name = 'carWheels';
   wheelMesh.count = ambient.length * FRONT.length;
 
+  // The truck cab and its front wheels, as their own pair of instanced meshes — same shape as the
+  // car pair above, just built from truckCabGeometry() at TRUCK_LEN/TRUCK_W and painted from the
+  // same PALETTE.carBody a car is (see paintTruck below).
+  const truckMesh = new THREE.InstancedMesh(truckCabGeometry(), propMaterial(), MAX_AMBIENT);
+  truckMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  truckMesh.castShadow = true;
+  truckMesh.name = 'trucks';
+  truckMesh.count = trucks.length;
+
+  const TRUCK_FRONT = wheelAnchors(TRUCK_LEN, TRUCK_W).filter((a) => a.front);
+  const truckWheelMesh = new THREE.InstancedMesh(
+    wheelGeometry(), propMaterial(), MAX_AMBIENT * TRUCK_FRONT.length,
+  );
+  truckWheelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  truckWheelMesh.castShadow = true;
+  truckWheelMesh.name = 'truckWheels';
+  truckWheelMesh.count = trucks.length * TRUCK_FRONT.length;
+
+  // The cargo box, a third instanced mesh sharing every truck's index space and transform but
+  // never painted — see truckBoxGeometry() for why one InstancedMesh cannot hold both a tinted
+  // cab and a fixed-colour box. `setColorAt` is never called on it, so `instanceColor` stays null
+  // and the material draws the geometry's own baked PALETTE.truckBox untouched.
+  const truckBoxMesh = new THREE.InstancedMesh(truckBoxGeometry(), propMaterial(), MAX_AMBIENT);
+  truckBoxMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  truckBoxMesh.castShadow = true;
+  truckBoxMesh.name = 'truckBoxes';
+  truckBoxMesh.count = trucks.length;
+
   const tint = new THREE.Color();
   const paint = (car, index) => {
     tint.set(PALETTE.carBody[car.colorIndex]);
@@ -909,7 +1088,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
     // off its own rear wheel on every car in the city.
     for (let w = 0; w < FRONT.length; w++) wheelMesh.setColorAt(index * FRONT.length + w, tint);
   };
+  // Same PALETTE.carBody as an ordinary car, and the same index — a truck's cab wears whatever
+  // livery its colorIndex would have painted a car in. Only the cab and its wheels: the cargo box
+  // (truckBoxMesh) is never touched here, see the note where that mesh is constructed above.
+  const paintTruck = (car, index) => {
+    tint.set(PALETTE.carBody[car.colorIndex]);
+    truckMesh.setColorAt(index, tint);
+    for (let w = 0; w < TRUCK_FRONT.length; w++) {
+      truckWheelMesh.setColorAt(index * TRUCK_FRONT.length + w, tint);
+    }
+  };
   ambient.forEach(paint);
+  trucks.forEach(paintTruck);
 
   // How far from the taxi a mid-run arrival has to appear.
   //
@@ -942,20 +1132,36 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
     if (cars.length === before) return;
 
     const car = cars[cars.length - 1];
-    car.instanceIndex = ambient.length;
-    ambient.push(car);
-    paint(car, car.instanceIndex);
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
-    mesh.count = ambient.length;
-    wheelMesh.count = ambient.length * FRONT.length;
+    if (car.isTruck) {
+      car.instanceIndex = trucks.length;
+      trucks.push(car);
+      paintTruck(car, car.instanceIndex);
+      if (truckMesh.instanceColor) truckMesh.instanceColor.needsUpdate = true;
+      if (truckWheelMesh.instanceColor) truckWheelMesh.instanceColor.needsUpdate = true;
+      truckMesh.count = trucks.length;
+      truckWheelMesh.count = trucks.length * TRUCK_FRONT.length;
+      truckBoxMesh.count = trucks.length;
+    } else {
+      car.instanceIndex = ambient.length;
+      ambient.push(car);
+      paint(car, car.instanceIndex);
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
+      mesh.count = ambient.length;
+      wheelMesh.count = ambient.length * FRONT.length;
+    }
   }
   // With ?cars=1 there are no ambient vehicles at all, so setColorAt is never called and
   // instanceColor is still null.
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
+  if (truckMesh.instanceColor) truckMesh.instanceColor.needsUpdate = true;
+  if (truckWheelMesh.instanceColor) truckWheelMesh.instanceColor.needsUpdate = true;
   scene.add(mesh);
   scene.add(wheelMesh);
+  scene.add(truckMesh);
+  scene.add(truckWheelMesh);
+  scene.add(truckBoxMesh);
 
   // `distance` is the honest throughput measure. Counting how many cars are moving at one
   // instant is far too noisy to tune signal timing against — it swings with whatever the
@@ -987,6 +1193,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
     car.crashed = true;
     if (car.isTaxi) return taxiGroup;
 
+    // A truck reads its body and wheels from its own mesh pair — everything below is identical to
+    // an ordinary car's wreck, just aimed at whichever pair this car actually lives in. Both wear
+    // PALETTE.carBody at this car's own colorIndex; a truck's cargo box is a second, separately
+    // coloured mesh added below only for a truck.
+    const bodyInst = car.isTruck ? truckMesh : mesh;
+    const wheelInst = car.isTruck ? truckWheelMesh : wheelMesh;
+    const front = car.isTruck ? TRUCK_FRONT : FRONT;
+
     // One material across body and wheels, so the fade takes the whole copy down together.
     // Baked vertex colours multiply by material.color exactly as they did by instanceColor, so
     // the copy comes out the same car in the same paint.
@@ -994,32 +1208,47 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
     material.color.set(PALETTE.carBody[car.colorIndex]);
 
     const shell = new THREE.Group();
-    mesh.getMatrixAt(car.instanceIndex, matrix);
+    bodyInst.getMatrixAt(car.instanceIndex, matrix);
     matrix.decompose(shell.position, shell.quaternion, shell.scale);
 
-    const body = new THREE.Mesh(mesh.geometry, material);
+    const body = new THREE.Mesh(bodyInst.geometry, material);
     body.castShadow = true;
     shell.add(body);
 
     // The front wheels hang off the body matrix as separate instances — see writeAmbient. Copied
     // here at the lock the impact caught them at, since a wreck isn't steering any more.
-    for (const anchor of FRONT) {
-      const wheel = new THREE.Mesh(wheelMesh.geometry, material);
+    for (const anchor of front) {
+      const wheel = new THREE.Mesh(wheelInst.geometry, material);
       wheel.position.set(anchor.x, anchor.y, anchor.z);
       wheel.rotation.y = car.wheelAngle;
       wheel.castShadow = true;
       shell.add(wheel);
     }
+
+    // The cargo box: its own mesh, its own fixed-colour material — never tinted by colorIndex, on
+    // the road or in the wreck. game/vanish.js collects every distinct material under the shell
+    // into a Set, so a second material here fades in step with the cab's without extra wiring.
+    if (car.isTruck) {
+      const boxMaterial = propMaterial();
+      boxMaterial.color.set(PALETTE.truckBox);
+      const box = new THREE.Mesh(truckBoxMesh.geometry, boxMaterial);
+      box.castShadow = true;
+      shell.add(box);
+    }
     scene.add(shell);
 
     // Collapse everything the copy replaces — body instance and both wheel instances.
     matrix.compose(pos.set(car.x, ROAD_Y, car.z), quat.identity(), ZERO_SCALE);
-    mesh.setMatrixAt(car.instanceIndex, matrix);
-    for (let w = 0; w < FRONT.length; w++) {
-      wheelMesh.setMatrixAt(car.instanceIndex * FRONT.length + w, matrix);
+    bodyInst.setMatrixAt(car.instanceIndex, matrix);
+    for (let w = 0; w < front.length; w++) {
+      wheelInst.setMatrixAt(car.instanceIndex * front.length + w, matrix);
     }
-    mesh.instanceMatrix.needsUpdate = true;
-    wheelMesh.instanceMatrix.needsUpdate = true;
+    bodyInst.instanceMatrix.needsUpdate = true;
+    wheelInst.instanceMatrix.needsUpdate = true;
+    if (car.isTruck) {
+      truckBoxMesh.setMatrixAt(car.instanceIndex, matrix);
+      truckBoxMesh.instanceMatrix.needsUpdate = true;
+    }
     return shell;
   }
 
@@ -1035,14 +1264,20 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
    * corner lean and the pitch rock for free and stay bolted to the arches through all three.
    */
   function writeAmbient(car) {
-    mesh.setMatrixAt(car.instanceIndex, matrix);
+    const bodyInst = car.isTruck ? truckMesh : mesh;
+    const wheelInst = car.isTruck ? truckWheelMesh : wheelMesh;
+    const front = car.isTruck ? TRUCK_FRONT : FRONT;
+    bodyInst.setMatrixAt(car.instanceIndex, matrix);
+    // The cargo box rides the identical transform — its offset from the cab is baked into its own
+    // geometry (see truckBoxGeometry()), not carried as a separate local matrix.
+    if (car.isTruck) truckBoxMesh.setMatrixAt(car.instanceIndex, matrix);
     wheelQuat.setFromAxisAngle(UP, car.wheelAngle);
-    for (let w = 0; w < FRONT.length; w++) {
-      const anchor = FRONT[w];
+    for (let w = 0; w < front.length; w++) {
+      const anchor = front[w];
       wheelPos.set(anchor.x, anchor.y, anchor.z);
       wheelLocal.compose(wheelPos, wheelQuat, scl);
       wheelMatrix.multiplyMatrices(matrix, wheelLocal);
-      wheelMesh.setMatrixAt(car.instanceIndex * FRONT.length + w, wheelMatrix);
+      wheelInst.setMatrixAt(car.instanceIndex * front.length + w, wheelMatrix);
     }
   }
 
@@ -1285,9 +1520,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
      * dead stop under a green with the button held — 9.7% of boosted frames at ?cars=40.
      */
     const exitLaneFull = (car, exitLane) => {
-      const clearance = car.boost ? MIN_GAP : MIN_GAP * 1.5;
       return (lanes.get(exitLane.id) ?? []).some(({ car: other, laneS }) => {
         if (other === car || other.state !== 'drive') return false;
+        const clearance = followGap(car, other) * (car.boost ? 1 : 1.5);
         // The car lands at the exit lane's start, so `laneS` *is* the signed clearance. It is
         // needed on both sides: a car approaching from behind the landing point gets landed on
         // just as hard as one already sitting in front of it.
@@ -1575,7 +1810,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
         // matching speed forever.
         const ahead = car.passing ? undefined : leaderDist.get(car);
         if (ahead !== undefined) {
-          const gap = car.boost ? BOOST_GAP : MIN_GAP;
+          const gap = car.boost ? BOOST_GAP : followGap(car, leaderOf.get(car));
           allowed = Math.min(allowed, Math.max(0, ahead - gap));
         }
 
@@ -1599,8 +1834,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
         // A car fleeing the boosting taxi lifts its ceiling and finds some urgency to go with it:
         // at ACCEL it would need 24 units to reach the scatter speed and the junction is 20 away,
         // so without the extra push the higher cap would never actually be reached.
-        const cruiseCap = SPEED * (1 + (SCATTER_SPEED - 1) * car.scatter)
-          * (1 - PANIC_BRAKE * car.panic);
+        const cruiseCap = (car.isTruck ? TRUCK_SPEED : SPEED)
+          * (1 + (SCATTER_SPEED - 1) * car.scatter) * (1 - PANIC_BRAKE * car.panic);
         // The ceiling at full boost is the *overdrive* top, not the BOOST_SPEED one — but the
         // acceleration tapers above BOOST_SPEED, so the band past 18.7 is only ever reached by a
         // car that has had 40 units of straight road and a clear `allowed` to spend it on.
@@ -1805,7 +2040,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
         // cars sag at every block — the boosting taxi especially, which would hit top speed on the
         // straight and then shed a third of it to cross an empty junction in a straight line.
         const straightOn = car.turn.hand === 'straight';
-        const cruise = fullPower ? SPEED * BOOST_SPEED : SPEED;
+        const cruise = fullPower ? SPEED * BOOST_SPEED : (car.isTruck ? TRUCK_SPEED : SPEED);
         // Going straight on is part of the straightaway, so it keeps the overdrive band and keeps
         // building through it; a junction crossed in a straight line is 8 units of the 40 the band
         // needs. Only a real turn is capped at `cruise`, which is what makes a corner cost the top
@@ -1819,7 +2054,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
         // softer target on rights (0.75× cruise) keeps the no-brakes feel while giving the tight
         // arc back its visual weight.
         const isRight = car.turn.hand === 'right';
-        const boostTurn = fullPower ? (isRight ? cruise * 0.75 : cruise) : CORNER_SPEED;
+        const boostTurn = fullPower
+          ? (isRight ? cruise * 0.75 : cruise)
+          : car.isTruck
+            ? (isRight ? TRUCK_RIGHT_TURN_SPEED : TRUCK_CORNER_SPEED)
+            : CORNER_SPEED;
         const cornerTarget = straightOn ? straightTop : boostTurn;
         car.v = car.v > cornerTarget
           ? Math.max(cornerTarget, car.v - BRAKE * dt)
@@ -1836,7 +2075,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
           const exitLane = net.laneById.get(car.turn.outLane);
           const blocked = (lanes.get(exitLane.id) ?? []).some(({ car: other, laneS }) => {
             if (other === car || other.state !== 'drive') return false;
-            return laneS > -0.1 && laneS < MIN_GAP;
+            return laneS > -0.1 && laneS < followGap(car, other);
           });
 
           if (blocked && !bargesThrough(car)) {
@@ -1964,10 +2203,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
       // events end on a small bounce so it reads as suspension travel. Impulse to pitchV works
       // out as K·SCALE·Δv, independent of dt — a one-frame velocity jump (boost kick, stop-line
       // snap) delivers the same rock at any frame rate.
+      //
+      // A truck gets a smaller impulse (TRUCK_PITCH_SCALE) and more damping — heavier, so the same
+      // Δv moves the nose less, and what motion there is dies out instead of rocking back through
+      // another cycle. See the note by TRUCK_SPEED for where the two constants are defined.
       const accel = dt > 1e-6 ? (car.v - car.prevV) / dt : 0;
       car.prevV = car.v;
-      const targetPitch = Math.max(-0.13, Math.min(0.13, accel * 0.014));
-      car.pitchV += ((targetPitch - car.pitch) * 60 - car.pitchV * 6) * dt;
+      const pitchScale = car.isTruck ? TRUCK_PITCH_SCALE : 1;
+      const targetPitch = Math.max(-0.13, Math.min(0.13, accel * 0.014 * pitchScale));
+      const pitchDamping = car.isTruck ? 6 * TRUCK_PITCH_DAMPING_MULT : 6;
+      car.pitchV += ((targetPitch - car.pitch) * 60 - car.pitchV * pitchDamping) * dt;
       car.pitch += car.pitchV * dt;
 
       // Loco Mode kickoff: a short, one-shot wheelie added on top of the pitch spring — see
@@ -2001,6 +2246,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
     }
     mesh.instanceMatrix.needsUpdate = true;
     wheelMesh.instanceMatrix.needsUpdate = true;
+    truckMesh.instanceMatrix.needsUpdate = true;
+    truckWheelMesh.instanceMatrix.needsUpdate = true;
+    truckBoxMesh.instanceMatrix.needsUpdate = true;
   }
 
   /** Fixed-step warm-up so screenshots show settled traffic, deterministically. */
@@ -2017,5 +2265,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
     // game/carghosts.js does. Passed out rather than derived, because `wheelMesh.count /
     // mesh.count` divides by zero under `?cars=1`, where there are no ambient cars at all.
     ambient, wheelsPerCar: FRONT.length,
+    // Trucks, passed out the same shape so main.js can occlude them and wire up their AO
+    // prepass — but not folded into `ambient`/`wheelsPerCar` above, since those are index-aligned
+    // with the *car* meshes and game/carghosts.js reads them as such.
+    truckMesh, truckWheelMesh, truckBoxMesh, trucks, truckWheelsPerCar: TRUCK_FRONT.length,
   };
 }

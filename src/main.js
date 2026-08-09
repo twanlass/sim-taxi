@@ -6,7 +6,7 @@ import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
-import { createTraffic } from './sim/traffic.js';
+import { createTraffic, TRUCK_CHANCE } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
@@ -134,6 +134,7 @@ const traffic = createTraffic(
   makeRng(runSeed + 44), scene,
   pinnedCars ?? difficulty.carCount(0),
   pinnedCars ?? difficulty.carCount(Infinity),
+  TRUCK_CHANCE,
 );
 const fares = createFareSystem(makeRng(runSeed + 55), scene);
 const police = createPolice(makeRng(runSeed + 66), scene);
@@ -142,6 +143,9 @@ const police = createPolice(makeRng(runSeed + 66), scene);
 // contact. The ghost outlines hung off the taxi are filtered out inside `markOccluder`.
 markOccluder(traffic.mesh);
 markOccluder(traffic.wheelMesh);
+markOccluder(traffic.truckMesh);
+markOccluder(traffic.truckWheelMesh);
+markOccluder(traffic.truckBoxMesh);
 markOccluder(traffic.taxiGroup);
 markOccluder(police.group);
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the

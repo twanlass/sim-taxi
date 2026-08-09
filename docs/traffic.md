@@ -309,6 +309,95 @@ meshes on its group, since it is drawn as a group anyway.
 The rule itself is `steerToward()`, exported because the police cruiser runs it too — see
 [The bust chase](#the-bust-chase).
 
+### Box trucks
+
+A rare ambient variant — `TRUCK_CHANCE` (1/12) of a spawned car, rolled once per car in
+`spawnCars`. It shares an ordinary car's lane and collision envelope (`sim/collisions.js` is keyed
+off `CAR_LEN`/`CAR_W` for every vehicle it tests, truck included — see "Driving feel" below for why
+that stays a deliberate simplification). What it does *not* share is following distance, how it
+drives, or how it moves: three separate departures, covered in the next three sections.
+
+#### Following distance
+
+`MIN_GAP` is car-length only, so using it unconditionally for a truck queued a follower 0.8 units
+behind a truck's rear bumper instead of the 1.9 every other pairing gets — close enough to read as
+clipped into the box rather than merely tight, which is what a player testing the feature actually
+saw. `followGap(follower, leader)` is the pairwise fix: half of each vehicle's own length
+(`CAR_LEN`/`TRUCK_LEN`, whichever `car.isTruck` says) plus the same fixed `BUMPER_GAP` (1.9) `MIN_GAP`
+always implied. Every non-boost following and landing check goes through it now — the leader gap in
+the main drive branch, `exitLaneFull`'s don't-block-the-box clearance, and the turn-completion
+re-check — so a car settles at exactly 5.3 behind another car and 6.4 behind a truck, staged and
+asserted directly in `tools/probe.mjs`.
+
+`BOOST_GAP` (the boosting taxi's own tailgate distance in Loco Mode) is deliberately *not* run
+through `followGap`. It's tuned against the taxi's own collision envelope in `sim/collisions.js`,
+which stays `CAR_LEN`-sized for every target including a truck — widening the tailgate for a truck
+while the hitbox that actually matters stayed car-sized would just be a taxi hanging back further
+from a target it can still clip at the old range. The spawn-time clash check in `spawnCars` is
+conservative instead of exact: a car's own `isTruck` isn't rolled until after it, so the check
+assumes a possible truck on that side of the pairing — a no-op when `truckChance` is 0, which is
+every scripted scenario in `tools/` but the one that exercises trucks on purpose.
+
+The body is three InstancedMeshes rather than the car pair's two: `truckMesh` (chassis, cab and
+windshield, from `truckCabGeometry()`) and `truckWheelMesh` alongside a third, `truckBoxMesh`
+(the cargo box, from `truckBoxGeometry()`), all built at `TRUCK_LEN`/`TRUCK_W`. They have to be
+separate meshes rather than one taller instance of the car body: an InstancedMesh draws one
+geometry for every instance, so a visibly bigger vehicle can't share the car body's buffer no
+matter how rare it is. Only the chassis is painted per-instance — it reads `PALETTE.carBody` at
+the car's own `colorIndex`, exactly like an ordinary car's body, so a truck's livery varies the
+way a car's does. The cab and windshield are baked at the fixed dark `carGlass` colour instead,
+same as a car's own cabin glass: "make the cab black, so it looks like the cars in that sense" was
+the brief, and a car's greenhouse is always dark regardless of its body colour, so the truck's cab
+now reads as the same *kind* of part rather than as more chassis livery. The cargo box goes a step
+further and is never instance-tinted at all — it's baked at the one fixed `PALETTE.truckBox` (a
+plain tan/white) because a real box truck's box is bare aluminium or cardboard regardless of the
+cab pulling it. One InstancedMesh only ever carries one tint per instance, so a part that varies,
+a part that's fixed-dark and a part that's fixed-tan are three meshes by construction, not by
+choice. `car.isTruck` is what routes a car to the right meshes everywhere that matters —
+`writeAmbient`, `wreckShell`, the paint step.
+
+`TRUCK_CHANCE` defaults to 0 on `spawnCars`/`createTraffic` — every scripted scenario in `tools/`
+calls `createTraffic` without passing it, so none of them draw a truck and none of their staged
+physics assertions have to know trucks exist. `main.js` is the one caller that opts the real game
+in, passing `TRUCK_CHANCE` explicitly.
+
+Trucks are left out of `ambient`, the array `game/carghosts.js` iterates for boost-mode outlines:
+that code reads `car.instanceIndex` straight into `mesh`/`wheelMesh` with no type check, and a
+truck's index addresses a slot in the truck meshes instead. So a truck simply doesn't get a ghost
+outline yet — an accepted gap given how rare they are, not an oversight.
+
+**Whichever car this draw happens to pick as the taxi has its `isTruck` forced back to `false`.**
+The taxi always renders through `createTaxiMesh()` regardless of the flag, so this was harmless
+while `isTruck` only steered which mesh a car drew into — but once it started steering the physics
+below too, a taxi that happened to win its own truck roll would have quietly cruised and rocked
+like one. The taxi has to run at car physics whatever colour its unused roll came up.
+
+#### Driving feel
+
+A truck cruises noticeably slower than a car — `TRUCK_SPEED` is `SPEED * 0.65`. (It was `* 0.85`
+at first; playtesting that build read as still too close to car speed to register as a different
+kind of vehicle, so the second pass cut a real gap instead of a nudge.) `TRUCK_CORNER_SPEED` is cut
+from it by the same 0.7 ratio `CORNER_SPEED` already is from `SPEED`, so a truck doesn't suddenly
+out-corner a car the way a flat speed cap alone would let it. Both feed the same cruise-cap and
+turn-target formulas every car already runs (`car.isTruck` just picks which `SPEED` they're
+computed from), so a truck queues, brakes and takes signals exactly like a car — only slower.
+
+**Right turns get a further cut of their own, `TRUCK_RIGHT_TURN_SPEED` (`TRUCK_CORNER_SPEED * 0.6`),
+on top of the general cornering one.** Swinging a long box round a tight corner is the one turn
+shape that visibly wants a beat longer than a car takes — real trucks take them wide and
+cautious — where a left sweeps the far diagonal and doesn't read as hesitant at the plain corner
+speed. `car.turn.hand` is what already tells every corner-lean and steering calculation left from
+right (see "Turns" above), so the branch is the same test, once more. Staged in `tools/probe.mjs`
+with a forced route on the identical turn: a car clears it in ~1.7s, a truck in ~3.4s.
+
+It also rocks less on every start and stop. The pitch spring (search "Rocking" in
+`traffic.js`) turns longitudinal acceleration into a nose dip/lift, underdamped so both events end
+on a small bounce; for a truck, `TRUCK_PITCH_SCALE` (0.5) halves the impulse for the same Δv and
+`TRUCK_PITCH_DAMPING_MULT` (1.8) damps the spring harder, so what dip there is settles instead of
+rocking back through another cycle. "Feels heavier" is exactly those two numbers and nothing
+else — measured over 12s of ordinary driving against a same-seed, same-count control scene of
+ordinary cars, a truck's mean `|pitch|` comes out well under half a car's.
+
 ## Boost (crazy-taxi mode)
 
 ```js
