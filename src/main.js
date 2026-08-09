@@ -6,7 +6,7 @@ import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
-import { createTraffic } from './sim/traffic.js';
+import { createTraffic, TRUCK_CHANCE } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
@@ -134,6 +134,7 @@ const traffic = createTraffic(
   makeRng(runSeed + 44), scene,
   pinnedCars ?? difficulty.carCount(0),
   pinnedCars ?? difficulty.carCount(Infinity),
+  TRUCK_CHANCE,
 );
 const fares = createFareSystem(makeRng(runSeed + 55), scene);
 const police = createPolice(makeRng(runSeed + 66), scene);
@@ -142,6 +143,8 @@ const police = createPolice(makeRng(runSeed + 66), scene);
 // contact. The ghost outlines hung off the taxi are filtered out inside `markOccluder`.
 markOccluder(traffic.mesh);
 markOccluder(traffic.wheelMesh);
+markOccluder(traffic.truckMesh);
+markOccluder(traffic.truckWheelMesh);
 markOccluder(traffic.taxiGroup);
 markOccluder(police.group);
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
@@ -268,7 +271,7 @@ collisions.onImpact(({ x, z, other }) => {
   // It used to spin out, snap back onto a lane and drive away. A boosting taxi arrives at ~19 u/s
   // and the survivor shrugging that off made the player's own wreck look like a rule rather than
   // a crash.
-  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex]);
+  blast.fire(other.x, other.z, PALETTE[other.isTruck ? 'truckBody' : 'carBody'][other.colorIndex]);
 
   // Both shells collapse into their own fireballs — see game/vanish.js for why they are faded out
   // rather than simply hidden. `wreckShell` also takes each car off the road for good.

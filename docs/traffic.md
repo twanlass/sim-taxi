@@ -307,6 +307,34 @@ meshes on its group, since it is drawn as a group anyway.
 The rule itself is `steerToward()`, exported because the police cruiser runs it too — see
 [The bust chase](#the-bust-chase).
 
+### Box trucks
+
+A rare ambient variant — `TRUCK_CHANCE` (1/12) of a spawned car, rolled once per car in
+`spawnCars`. It is a **purely visual** variant: a truck drives the same lane, the same speed, the
+same following distance (`MIN_GAP`, keyed off `CAR_LEN`) and the same collision envelope
+(`sim/collisions.js`, also keyed off `CAR_LEN`/`CAR_W`) as an ordinary car. Sharing that footprint
+is what lets one join the same queues and junctions without retuning anything tuned for a car —
+the price is a tighter bumper gap than the box actually needs (0.8 units behind a queued truck
+against 1.9 behind a car), which reads as ordinary tight traffic rather than as a bug.
+
+The body is a second pair of InstancedMeshes (`truckMesh`, `truckWheelMesh`), built at
+`TRUCK_LEN`/`TRUCK_W` from `truckGeometry()` — a chassis, a cab with a windshield, and a taller
+cargo box set back from it. It has to be a separate mesh pair rather than a taller instance of the
+car body: an InstancedMesh draws one geometry for every instance, so a visibly bigger vehicle can't
+share the car body's buffer no matter how rare it is. `car.isTruck` is what routes a car to the
+right pair everywhere that matters — `writeAmbient`, `wreckShell`, the paint step — and trucks wear
+their own muted `PALETTE.truckBody` livery rather than `carBody`'s brighter hatchback colours.
+
+`TRUCK_CHANCE` defaults to 0 on `spawnCars`/`createTraffic` — every scripted scenario in `tools/`
+calls `createTraffic` without passing it, so none of them draw a truck and none of their staged
+physics assertions have to know trucks exist. `main.js` is the one caller that opts the real game
+in, passing `TRUCK_CHANCE` explicitly.
+
+Trucks are left out of `ambient`, the array `game/carghosts.js` iterates for boost-mode outlines:
+that code reads `car.instanceIndex` straight into `mesh`/`wheelMesh` with no type check, and a
+truck's index addresses a slot in the truck meshes instead. So a truck simply doesn't get a ghost
+outline yet — an accepted gap given how rare they are, not an oversight.
+
 ## Boost (crazy-taxi mode)
 
 ```js

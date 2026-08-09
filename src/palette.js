@@ -63,6 +63,11 @@ export const PALETTE = {
   //     saturation where it is, is what reserves it. tools/probe.mjs asserts the clearance.
   carBodyGhost: ['#DA887D', '#71CDD2', '#85A7D4', '#D0CABE', '#80C5A1', '#AC96C7', '#D0C7B4', '#8D9BAD'],
   carGlass: '#2E3640',
+  // Box trucks skip carBody on purpose. A truck in a bright hatchback colour reads as a car that
+  // got big rather than as a different kind of vehicle — real box trucks are almost always a plain
+  // fleet colour. No ghost variant: sim/traffic.js keeps trucks out of the ambient pool
+  // game/carghosts.js draws outlines from, so there is nothing to index it against yet.
+  truckBody: ['#E4E1DA', '#C7C3B8', '#8B93A3', '#BFAE8E'],
 
   // --- Game entities. Deliberately higher-chroma than anything in the city so they read
   // instantly against the muted buildings and grey roads.

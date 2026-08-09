@@ -1754,6 +1754,64 @@ check('the taxi is an ordinary car in the traffic array',
     `${quietHits} impacts over 30s`);
 }
 
+// --- Box trucks --------------------------------------------------------------
+// A purely opt-in ambient variant — every scenario in this file runs with truckChance at its
+// default of 0, so nothing above ever draws one. This is the one place it gets turned on, forcing
+// every ambient car to be a truck and driving the same crash path as the block above, aimed at the
+// truck meshes instead of the car ones — the failure mode worth catching is a wrecked truck
+// collapsing the wrong InstancedMesh slot (its own car-mesh index, which happens to belong to some
+// other truck) instead of its own.
+{
+  const uScene = new THREE.Scene();
+  const uTraffic = createTraffic(makeRng(seed + 44), uScene, CARS_DEFAULT, CARS_DEFAULT, 1);
+  check('truckChance=1 puts every ambient car in the truck mesh',
+    uTraffic.mesh.count === 0 && uTraffic.truckMesh.count === CARS_DEFAULT - 1,
+    `car mesh ${uTraffic.mesh.count}, truck mesh ${uTraffic.truckMesh.count}`);
+
+  const uCollisions = createCollisions(uTraffic.cars, uTraffic.taxi);
+  const uVanish = createVanish();
+  let uHits = 0;
+  let uImpact = null;
+  uCollisions.onImpact((event) => {
+    uHits += 1;
+    uImpact = event;
+    for (const car of [event.taxi, event.other]) uVanish.take(uTraffic.wreckShell(car));
+  });
+
+  uTraffic.warmup(3);
+  const uTarget = uTraffic.cars.find((c) => !c.isTaxi && c.state === 'drive');
+  uTraffic.taxi.x = uTarget.x;
+  uTraffic.taxi.z = uTarget.z;
+  uTraffic.taxi.boost = true;
+  for (let step = 0; step < 90; step++) {
+    uCollisions.update();
+    uTraffic.update(1 / 60);
+    if (uHits > 0) break;
+  }
+
+  check('boosting into a truck fires an impact', uHits >= 1, `${uHits} impacts`);
+  const uVictim = uImpact?.other;
+  check('the truck it hit is wrecked', Boolean(uVictim?.crashed) && uVictim.isTruck === true);
+
+  const uScale = new THREE.Vector3();
+  const uMatrix = new THREE.Matrix4();
+  const scaleOfTruck = (instMesh, index) => {
+    instMesh.getMatrixAt(index, uMatrix);
+    uMatrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), uScale);
+    return uScale.x;
+  };
+  const truckWheelScales = [];
+  for (let w = 0; w < uTraffic.truckWheelsPerCar; w++) {
+    truckWheelScales.push(scaleOfTruck(
+      uTraffic.truckWheelMesh, uVictim.instanceIndex * uTraffic.truckWheelsPerCar + w,
+    ));
+  }
+  check('a wrecked truck collapses out of the truck meshes, not the car ones',
+    scaleOfTruck(uTraffic.truckMesh, uVictim.instanceIndex) === 0
+    && truckWheelScales.every((s) => s === 0),
+    `body + ${truckWheelScales.length} wheels`);
+}
+
 // --- The crash blast -------------------------------------------------------
 // game/blast.js is what a wreck detonates. Its silent failure modes are all "it looked fine on the
 // impact frame": a pool that wraps and truncates the second car's burst, a slot left drawing after
