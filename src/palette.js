@@ -153,6 +153,35 @@ export const PALETTE = {
 
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
+
+  // Roadworks. The warm end of the wheel is already spoken for twice over — the taxi owns yellow
+  // outright and the urgency scale owns the ambers below it. Measured where `getHSL` measures,
+  // which is the working colour space (linear-sRGB) rather than the one a colour picker shows for
+  // the same hex: taxiBody lands at 34° and urgency[2] at 20°. A construction orange has to sit
+  // clearly *redder* than both or it reads as "that fare is running out of time" at play zoom,
+  // where a cone is about eight pixels tall. 6° is the answer — 28° clear of the taxi and 14°
+  // clear of the urgency ramp. tools/probe.mjs asserts that clearance the same way it asserts the
+  // ghost car's.
+  cone: '#EE5B24',
+  // Bands and stripes are an off-white rather than pure white, which on this asphalt under a
+  // golden-hour sun blows out into the same flat sheet the lane markings already are.
+  coneBand: '#EDE9DF',
+  barrier: '#E5551D',
+  barrierBand: '#EDE9DF',
+  // The vest is *more* saturated than the cones and lighter, so a worker still reads as a figure
+  // against the props standing around them rather than as one more cone.
+  hiVis: '#FF7A33',
+  hardHat: '#F0ECE0',
+  // Dug-up spoil: the road base under the asphalt, not garden soil. Browner than the kerb and
+  // darker than the sidewalk, so the heap has an edge against both.
+  spoil: '#7C6A52',
+  // The hole the spoil came out of, painted flat on the road.
+  trench: '#3E3B37',
+  // The ramp leaning on the barricade. It borrowed the spoil's brown at first and read as a mud
+  // patch on the tarmac rather than as a board propped against something — the eye needs it to be
+  // *timber* for the taxi launching off it to make sense. Warm and light enough to separate from
+  // both the asphalt and the heap standing next to it.
+  plywood: '#B98A54',
 };
 
 export function color(value) {

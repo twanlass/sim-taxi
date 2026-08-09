@@ -415,6 +415,43 @@ runs at the same rate as the blast through the crash slow-mo. See
 [traffic.md](traffic.md#the-wreck) for the rest of the staging, and
 [testing.md](testing.md#screenshots) for `?shot=12`, which stages a real crash and freezes it.
 
+### Roadworks — `game/roadwork.js`, `geometry/roadworks.js`
+
+A closed street: two striped trestles, a plywood ramp propped against each, a dozen cones, a spoil
+heap and its hole, and two hi-viz workers. Four draw calls — one merged static mesh for the ramps
+and the spoil, one trestle mesh per barricade so it can be thrown, one `InstancedMesh` for the
+cones, plus the two figures. The sim side is in [traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends).
+
+**Orange had to be found rather than picked.** The warm end of the wheel is spoken for twice over:
+the taxi owns yellow outright and the urgency scale owns the ambers below it. Measured in the
+working colour space `getHSL` reports in — linear-sRGB, so these are not the numbers a colour
+picker shows for the same hex — `taxiBody` sits at 34° and `urgency[2]` at 20°. The cone is at
+**6°**, 28° clear of the taxi and 14° clear of "this fare is half out of time". That gap is what
+stops a prop on the road reading as the player's car at play zoom, and `tools/probe.mjs` asserts
+it the same way it asserts the ghost paints'.
+
+The ramp gets its own `plywood` rather than borrowing the spoil's brown, which is the one colour
+change a screenshot forced: at the spoil colour it read as a mud patch on the tarmac instead of a
+board propped against something, and the taxi launching off it made no sense.
+
+**Knocked cones come to rest, and they are the first effect here that does.** Position is closed
+form, like the blast's shards — a curve of `age` rather than an integrated velocity, so nothing
+accumulates and a slow-motion frame is the same shape as a full-speed one — and the flight's
+*duration* is derived from its own launch velocity (`2·vy / g`) rather than picked, so the settle
+lands exactly when the cone does. The lying-down pose is reached by **slerp**, not by blending
+Eulers: Euler blending gimbals through the flat pose and snaps the cone ninety degrees in the last
+frame. The wreck's shards get away with never settling because the camera cuts to the retry screen;
+this one stays.
+
+The trestle cartwheels rather than shattering — it flies 4.6 units downfield on a 1.25-unit arc and
+lands past flat, which reads as slammed rather than laid down. It is animated inside the group that
+carries its placement, so the flight is written in *across / up / downfield* rather than in world
+axes, and works unchanged on a diagonal street.
+
+`?shot=14` frames a zone and `?shot=15` drives the taxi into one and freezes it mid-arc — the same
+argument as the wreck's shot, since the smash is over in three quarters of a second and needs the
+player to have driven at it.
+
 ### The flyover — `game/flyover.js`, `geometry/plane.js`
 
 A light aircraft crossing the city every 45–90 seconds, at 30 units of altitude. Pure scenery:

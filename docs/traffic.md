@@ -768,6 +768,85 @@ only the body would leave two wheels parked on the road; `tools/probe.mjs` asser
 is cheaper than the alternative — a custom alpha attribute plus an `onBeforeCompile` patch on the
 traffic material — for something that happens once per run.
 
+## Roadworks: a street closed at both ends
+
+`src/game/roadwork.js` and `src/geometry/roadworks.js`. Once per run, about a minute in, a side
+street is closed off: a striped trestle across each end, a scatter of cones, a heap of spoil beside
+the hole it came out of, and two workers standing over it. Ambient traffic routes around it. **The
+player's taxi has never heard of it**, so the closed street is the emptiest road in the city — and
+each barricade is a ramp.
+
+### The closure is soft, and that is not a shortcut
+
+There was already a way to close a road: `grid.js`'s `setClosedSegments`, which a park district
+uses. It is read **once, at bake time**, by `roadNetFromGrid` — it deletes the edge, merges the two
+blocks it separated into one face, and re-derives every signal phase around the junctions at either
+end. Re-baking mid-run would leave every `car.lane` and `car.turn` in the `cars` array pointing
+into a graph that no longer exists, and `ground.js` is one merged mesh built at startup with no
+road in it to remove.
+
+So the network is untouched and two **lane ids** are handed to `setClosedLanes`. They are read in
+exactly one place — the weighted dice at the single turn-decision site — where they zero a turn's
+weight:
+
+```js
+return { turn, w: closedLanes.has(turn.outLane) ? 0 : w };
+```
+
+**A weight rather than a filter, and the zero is load-bearing in both directions.** With any open
+exit present `total` is positive, `roll` is strictly greater than zero, and a zero-weight option
+can never win the walk — it reads as a hard ban. With *every* exit closed `total` is zero, `roll`
+is zero, and the first iteration's `roll -= 0` satisfies `roll <= 0`: the car takes `options[0]`
+and drives on. A filter would empty the list instead, and a car with no legal exit holds at the
+line **forever**, with its whole lane queued behind it. Placement already refuses any segment that
+would strand an approach — see below — so the degenerate branch should never run; it exists so that
+a bug in the placement rules is a car driving through a barricade rather than a wedged city.
+
+Two smaller consequences in the same file: right-on-red is refused into a closed lane, and
+`setCarCount`'s spawn filter will not mint a car inside one.
+
+Because `route.js` never sees any of this, `chainSeconds` costs a trip exactly as it did before,
+so **no fare's clock moves**. That consistency is a *consequence* of the taxi ignoring the closure,
+not a separate decision.
+
+### Which street
+
+Placement (`roadwork.js`) refuses a segment unless all of:
+
+- it is a **side** street — closing an arterial fights the 64% green share and the platoon offsets
+  the city is timed around, and the ring is the road everything else escapes onto;
+- every approach at both end junctions keeps at least one open onward lane. This is asked exactly,
+  by walking `lane.onward`, rather than by a corner heuristic: what strands a car is not the shape
+  of the junction but a single inbound lane whose every exit is closed, and U-turns are illegal;
+- both lanes are empty of ambient traffic right now, so nothing appears on top of a car;
+- no rider is waiting at either end — a pickup inside a construction site reads as a bug even
+  though nothing about it breaks;
+- it is at least 45 units from the taxi, the same number and the same honest caveat as
+  `SPAWN_CLEARANCE`: on a desktop the whole city is in frame at once, so this cannot pretend to be
+  off-camera. A segment currently outside the frustum is *preferred* where one exists.
+
+The zone then **rises out of the road** over 1.1s rather than appearing on it. The slab is opaque
+and drawn first, so the part still below y = 0 fails the depth test — which is what makes the rise
+free, and what covers the desktop case where nothing can be set up off-screen.
+
+### The ramp
+
+`HOP_LEN`, `launchHop` and the arc live in `traffic.js`, next to `locoWheelie` and for the same
+reason. The hop is **rendered only**: `car.s`, `car.lane`, the turn decision, following distance
+and the collision test all carry on as if the car were on the tarmac, which is what stops a stunt
+being able to break the sim.
+
+**Paced by `car.travelled`, not by a clock** — the same lesson the Loco weave and the front-wheel
+ease both record. A half-second hop covers 4.25 units at cruise and 11.5 in overdrive, and 11.5 is
+nearly a whole 12-unit lane: the taxi would still be in the air at `holdS`, where it picks its next
+turn. A fixed **6 units** of road lands in the same place at any speed, and freezes if the car
+stops. `tools/probe.mjs` drives the same barricade at cruise and at 22 u/s and asserts both arcs
+measure `HOP_LEN` and both peak at the same height.
+
+The barricade test is a **crossing** — `lastS < barrier.s <= s` on the same lane — not
+`s >= barrier.s`, which is true for the whole rest of the lane and would launch a taxi that was
+already past the line when the zone finished rising.
+
 ## Police priority corridor
 
 `src/sim/police.js`. A police car crosses the city on a cycle, holding every signal on its road

@@ -6,7 +6,7 @@ import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
-import { createTraffic } from './sim/traffic.js';
+import { createTraffic, setClosedLanes, placeCar } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
@@ -21,6 +21,7 @@ import { createFlames } from './game/flames.js';
 import { createVanish } from './game/vanish.js';
 import { createFlyover } from './game/flyover.js';
 import { createCarGhosts } from './game/carghosts.js';
+import { createRoadwork } from './game/roadwork.js';
 import { showRunEnd } from './game/runend.js';
 import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
@@ -36,6 +37,7 @@ import { createHomeScreenTip } from './game/homescreen.js';
 import { findRoute, planOrigin } from './game/route.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion } from './util/shot.js';
 import { isCityConnected, GRID } from './city/grid.js';
+import { cityNetwork } from './city/roadnet.js';
 import { PALETTE } from './palette.js';
 
 // Caches the app shell so a Home Screen launch still opens with no connection — see public/sw.js.
@@ -212,6 +214,24 @@ const vanish = createVanish();
 // game/flyover.js. On the run seed rather than the city seed: which way it crosses and when is
 // part of the situation, not part of the map.
 const flyover = createFlyover(scene, makeRng(runSeed + 155));
+
+// A street closed for roadworks, once per run, forty seconds or so in — see game/roadwork.js.
+// Ambient traffic routes around it and the taxi has never heard of it, so the closed street is the
+// emptiest road in the city with a ramp at each end. Run seed, like the flyover: which street and
+// when is part of the situation rather than part of the map.
+const roadwork = createRoadwork(makeRng(runSeed + 177), scene, camera);
+roadwork.onSmash(({ x, z }) => {
+  // A quarter of the wreck's 2.4 — this is a barricade going over, not the run ending.
+  controller.kickShake(0.55);
+  // Two puffs rather than one: `dust.add` scatters each by 0.35, so a pair reads as a burst where
+  // a single puff reads as the ordinary boost trail the same pool draws.
+  dust.add(x, z, traffic.taxi.yaw);
+  dust.add(x, z, traffic.taxi.yaw);
+});
+roadwork.onLand(({ x, z }) => {
+  controller.kickShake(0.35);
+  dust.add(x, z, traffic.taxi.yaw);
+});
 
 // Occluded-only outlines on the traffic nearest the taxi, faded in with Loco Mode — the one mode
 // where a car hidden behind a tower is a crash rather than a surprise. See game/carghosts.js.
@@ -1043,6 +1063,12 @@ function frame() {
   // already flagged, rather than wearing a ghost over its own fireball for one frame.
   carGhosts.update(dt);
 
+  // After collisions, for the same reason collisions runs after traffic: the barricade test is a
+  // position test, and a taxi wrecked on this frame must not also be launched off a ramp. The
+  // kerb corners it is handed are the ones riders are standing on — a zone must not close the
+  // street a fare is waiting in.
+  roadwork.update(dt, traffic.taxi, traffic.cars, fares.occupiedSpots());
+
   tutorial?.update(dt);
 
   // The camera's priority list, highest first. Two of the claims trail the taxi and are
@@ -1247,6 +1273,51 @@ if (shot) {
     controller.update(aspect());
   }
 
+  // Stage a construction zone and let it finish rising out of the road. Placed through the same
+  // `place()` a live run calls, so the framing cannot drift out of step with what the player gets
+  // — and the camera is aimed at whichever street it picked, since that is drawn from the run seed
+  // and moves between shots.
+  if (shot.roadworkAt !== undefined) {
+    roadwork.place(traffic.taxi, traffic.cars, fares.occupiedSpots());
+    for (let step = 0; step < Math.round(shot.roadworkAt * 60); step++) {
+      roadwork.update(1 / 60, traffic.taxi, traffic.cars, []);
+    }
+    const cones = roadwork.cones;
+    if (cones.length) {
+      const mid = cones[Math.floor(cones.length / 2)];
+      controller.state.target.set(mid.x, 0, mid.z);
+      controller.update(aspect());
+    }
+  }
+
+  // Drive the taxi into a barricade and freeze it mid-arc. The real path is driven rather than
+  // mocked — the car is put on the closed lane a unit short of the trestle and the sim is stepped
+  // — so this framing cannot drift out of step with what the player gets. The zone is let finish
+  // rising first: a barricade half out of the road is a different picture.
+  if (shot.smashAt) {
+    const net = cityNetwork();
+    while (roadwork.state.phase !== 'live') {
+      roadwork.update(1 / 60, traffic.taxi, traffic.cars, []);
+    }
+    const lane = net.laneById.get(roadwork.closedLaneIds[0]);
+    const landing = net.nodeById.get(lane.to);
+    // placeCar takes the junction the car is *heading for*, so this lands it on the closed lane.
+    placeCar(traffic.taxi, net.dirOfLane(lane), landing.gi, landing.gj, lane.length - 1);
+    traffic.taxi.boost = true;
+    traffic.taxi.v = 18;
+    for (let guard = 0; guard < 240 && !roadwork.barriers.some((b) => b.hit); guard++) {
+      traffic.update(1 / 60);
+      roadwork.update(1 / 60, traffic.taxi, traffic.cars, []);
+    }
+    for (let step = 0; step < Math.round(shot.smashAt * 60); step++) {
+      traffic.update(1 / 60);
+      roadwork.update(1 / 60, traffic.taxi, traffic.cars, []);
+      dust.update(1 / 60);
+    }
+    controller.state.target.set(traffic.taxi.x, 0, traffic.taxi.z);
+    controller.update(aspect());
+  }
+
   // Frame the drop-off of the fare aboard, on the kerb corner the pin actually stands on rather
   // than the junction centre — same reason as the rider below, the corner building is in the way.
   const aboard = fares.carrying();
@@ -1316,6 +1387,7 @@ window.__taxi = {
   police,
   fares,
   flyover,
+  roadwork,
   routeTo,
   findRoute,
   camera: controller,

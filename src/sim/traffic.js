@@ -172,7 +172,7 @@ const RIGHT_ON_RED_YIELD = 15;
  * junction and squarely across the crosswalk. The outer crosswalk bar sits 5.65 from the junction
  * centre, so the centre has to hold at ~7.35 for the nose to clear it.
  */
-const STOP_SETBACK = 3.4;
+export const STOP_SETBACK = 3.4;
 
 // --- Priority corridor ------------------------------------------------------
 //
@@ -202,6 +202,51 @@ let priorityJunction = null;   // { i, j, axis, block }
 
 export function setPriorityJunction(next) {
   priorityJunction = next;
+}
+
+// --- Roadworks ----------------------------------------------------------------
+//
+// Lanes ambient traffic declines to turn into, published by src/game/roadwork.js when it closes a
+// street off. Pushed in from game/ the same way the corridor is, because sim/ must not import from
+// game/.
+//
+// **This is a soft closure and it has to be.** The hard one already exists — grid.js's
+// `setClosedSegments`, which a park district uses — but that is read *once*, at bake time, by
+// `roadNetFromGrid`: it deletes the edge, merges the two blocks it separated into one face and
+// re-derives every signal phase around it. Re-baking mid-run would leave every `car.lane` and
+// `car.turn` in the cars array pointing into a graph that no longer exists, and the ground is one
+// merged mesh built at startup with no road in it to remove. So the network stays exactly as it
+// was and two lane ids are simply unpopular.
+//
+// **The player's taxi never consults this.** A routed car takes its turn from its route, which is
+// planned by game/route.js over the untouched network — so the taxi drives through a closure
+// without knowing there is one, which is the whole point of the feature. It also means
+// `chainSeconds` still costs a trip the same way it always did, so no fare's clock moves.
+let closedLanes = new Set();
+
+export function setClosedLanes(ids) {
+  closedLanes = new Set(ids);
+}
+
+// --- The ramp -----------------------------------------------------------------
+//
+// A barricade is a ramp, and hitting one launches the taxi. The arc is *rendered only*: car.s,
+// car.lane, the turn decision, following distance and the collision test all carry on exactly as
+// if the car were on the tarmac, which is what stops a stunt being able to break the sim.
+//
+// **Paced by distance, not by time** — the same lesson the Loco weave and the front-wheel ease
+// both record. A half-second hop covers 4.25 units at cruise and 11.5 in overdrive, and 11.5 is
+// nearly a whole 12-unit lane: the taxi would still be in the air at `holdS`, where it decides
+// its next turn. A fixed 6-unit arc lands in the same place at any speed, and freezes if the car
+// stops.
+export const HOP_LEN = 6.0;
+const HOP_HEIGHT = 1.55;    // a bit under half a car length — about 12px of air at play zoom
+const HOP_PITCH = 0.26;     // nose up off the ramp, level at the apex, nose down into the landing
+
+/** Launch `car` off a ramp. Idempotent while already airborne — a second barricade doesn't stack. */
+export function launchHop(car) {
+  if (car.hopFrom != null) return;
+  car.hopFrom = car.travelled;
 }
 
 // --- Panic --------------------------------------------------------------------
@@ -936,6 +981,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
 
     const before = cars.length;
     spawnCars(rng, 1, cars, ({ lane, s }) => {
+      // A closed lane has no traffic *because* nothing turns into it, and a car materialising
+      // inside one would be the one vehicle in the city that had to drive out through a barricade.
+      if (closedLanes.has(lane.id)) return false;
       const at = lane.path.at(s);
       return Math.hypot(at.x - taxi.x, at.z - taxi.z) >= SPAWN_CLEARANCE;
     });
@@ -1642,8 +1690,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
             // Right on red. Permitted only as a right turn, only with a gap in the traffic that
             // currently holds the green, and never into a junction an emergency vehicle is
             // clearing or one already blocked by a stranded car.
+            const rightTurn = exitToward(net, car.lane, rightOf(car.d));
             if (!green && !held && !corridorCovers(car.i, car.j)
-                && exitToward(net, car.lane, rightOf(car.d))
+                && rightTurn && !closedLanes.has(rightTurn.outLane)
                 && rightOnRedClear(car, arrive, approaching)) {
               viaRightOnRed = true;
             }
@@ -1692,7 +1741,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
                 // lane for another whole block, so it barely rolls that option. Still a weight
                 // rather than a filter — at a T-junction straight may be the only legal exit.
                 const w = kind === 0 && car.scatter > 0.5 ? SCATTER_STRAIGHT_W : TURN_WEIGHTS[kind];
-                return { turn, w };
+                // A road closed for roadworks, for the same reason and with a stronger version of
+                // the same guarantee. With any open exit present `total` is positive, `roll` is
+                // strictly greater than zero, and a zero-weight option can never win the walk
+                // below — so this reads as a hard ban. With *every* exit closed `total` is zero,
+                // `roll` is zero, and the first iteration's `roll -= 0` satisfies `roll <= 0`:
+                // the car takes `options[0]` and drives on. That degenerate case is what makes a
+                // weight the right shape here. A filter would empty the list, and a car with no
+                // exit holds at the line forever with the whole lane queued behind it.
+                return { turn, w: closedLanes.has(turn.outLane) ? 0 : w };
               });
               const total = weighted.reduce((sum, o) => sum + o.w, 0);
               let roll = rng.next() * total;
@@ -1979,7 +2036,23 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
         if (car.wheelieT >= WHEELIE_DUR) car.wheelieT = null;
         else wheelieBoost = locoWheelie(car.wheelieT);
       }
-      const shownPitch = car.pitch + wheelieBoost;
+      // Off a roadworks ramp. Read off distance travelled rather than a clock — see HOP_LEN —
+      // so the arc is the same shape at cruise and in overdrive, and a taxi that stops halfway up
+      // a barricade hangs there instead of continuing its arc on the spot.
+      let airY = 0;
+      let airPitch = 0;
+      if (car.hopFrom != null) {
+        const u = (car.travelled - car.hopFrom) / HOP_LEN;
+        if (u >= 1) car.hopFrom = null;
+        else {
+          airY = HOP_HEIGHT * Math.sin(Math.PI * u);
+          // Nose up as it leaves the ramp, level at the apex, nose down into the landing. Positive
+          // is nose-up here, the same sense as locoWheelie.
+          airPitch = HOP_PITCH * Math.cos(Math.PI * u);
+        }
+      }
+
+      const shownPitch = car.pitch + wheelieBoost + airPitch;
 
       // Roll and pitch both pivot on the car's origin at road level, so tilting drives one edge
       // underground. Lifting by the sagitta of each keeps the low edge on the tarmac and reads as
@@ -1988,7 +2061,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count) {
         + Math.abs(Math.sin(shownPitch)) * (CAR_LEN / 2);
 
       if (car.isTaxi) {
-        taxiGroup.position.set(car.x, ROAD_Y + bob + lift, car.z);
+        taxiGroup.position.set(car.x, ROAD_Y + bob + lift + airY, car.z);
         taxiGroup.rotation.set(roll, car.yaw, shownPitch);
         setTaxiSteer(car.wheelAngle);
         continue;

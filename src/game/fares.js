@@ -363,6 +363,18 @@ export function createFareSystem(rng, scene) {
   // Every waiting fare, for the HUD stack that surfaces one chip per rider on the kerb.
   const waitingAll = () => state.fares.filter((f) => f.stage === 'waiting');
 
+  /**
+   * Every intersection the fare loop currently has a claim on: each rider's kerb corner and, for
+   * the one aboard, where they are going.
+   *
+   * game/roadwork.js asks so it never closes a street a rider is standing in — the taxi can drive
+   * through a closure, but a pickup happening inside a construction site reads as a bug even
+   * though nothing about it actually breaks.
+   */
+  const occupiedSpots = () => state.fares.flatMap(
+    (f) => (f.dropoff ? [f.target, f.dropoff] : [f.target]),
+  );
+
   /** The fare the player is currently working: whichever one the taxi was last sent at. */
   const focus = () => state.fares.find((f) => f.directed) ?? carrying() ?? waiting() ?? null;
 
@@ -890,6 +902,7 @@ export function createFareSystem(rng, scene) {
     carrying,
     waiting,
     waitingAll,
+    occupiedSpots,
     focus,
     slots,
     intersectionCentre,

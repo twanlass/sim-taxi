@@ -14,7 +14,8 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, ROAD_Y, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN } from '../src/sim/traffic.js';
+import { createRoadwork } from '../src/game/roadwork.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -2857,6 +2858,232 @@ check('the taxi is an ordinary car in the traffic array',
   // backwards, and at exactly 180° it stands still.
   check('the propeller does not strobe', PROP_SPIN / 60 < Math.PI / 2,
     `${THREE.MathUtils.radToDeg(PROP_SPIN / 60).toFixed(1)}° per frame at 60fps`);
+}
+
+// --- A street closed for roadworks ---------------------------------------------
+// The vignette has two halves that can fail silently. The closure is a *soft* one — two lane ids
+// that zero a turn's weight rather than a road removed from the graph — so a mistake there does
+// not throw, it just puts ambient cars back inside the barricades or, worse, strands one at a
+// hold line it can never leave. And the taxi's ramp is drawn from `car.travelled`, so a mistake
+// there is a stunt that gets longer the faster you are going and lands inside a junction.
+{
+  setClosedLanes([]);
+  const rwScene = new THREE.Scene();
+  const rwTraffic = createTraffic(makeRng(seed + 210), rwScene, 24);
+  const rwCars = rwTraffic.cars;
+  const rwTaxi = rwTraffic.taxi;
+  for (let step = 0; step < 300; step++) rwTraffic.update(1 / 60);
+
+  const roadwork = createRoadwork(makeRng(seed + 211), rwScene, null);
+  const placed = roadwork.place(rwTaxi, rwCars, []);
+  const net = cityNetwork();
+  const closedIds = new Set(roadwork.closedLaneIds);
+  const closed = roadwork.closedLaneIds.map((id) => net.laneById.get(id));
+
+  check('a construction zone finds a street to close', placed && closed.length === 2,
+    placed ? closed.map((l) => l.id).join(' + ') : 'no candidate');
+
+  check('it closes a side street, never an arterial or the ring',
+    closed.every((l) => l.edge.klass === 'side'), closed[0]?.edge.klass);
+
+  // The invariant that actually matters. A car whose every onward lane is closed can never leave
+  // the junction — U-turns are illegal — so it holds at the line with its whole lane behind it.
+  let stranded = 0;
+  for (const end of [closed[0].edge.a, closed[0].edge.b]) {
+    for (const lane of net.nodeById.get(end).inbound) {
+      if (lane.degenerate) continue;
+      if (!lane.onward.some((out) => !closedIds.has(out.id))) stranded += 1;
+    }
+  }
+  check('no approach to either end is left with nowhere to go', stranded === 0,
+    `${stranded} stranded approaches`);
+
+  // Cones and the hole go on the *tarmac between* the junctions. An edge runs node centre to node
+  // centre, so laying them out along it puts the first and last few across two live intersections.
+  const lane = closed[0];
+  const a = lane.path.at(0);
+  const b = lane.path.at(lane.length);
+  const ux = (b.x - a.x) / lane.length;
+  const uz = (b.z - a.z) / lane.length;
+  let worstLateral = 0;
+  let outsideSpan = 0;
+  for (const cone of roadwork.cones) {
+    const along = (cone.x - a.x) * ux + (cone.z - a.z) * uz;
+    // Lateral offset from the road centreline, which sits LANE to the left of this lane.
+    const lateral = (cone.x - a.x) * uz - (cone.z - a.z) * ux + LANE;
+    worstLateral = Math.max(worstLateral, Math.abs(lateral));
+    if (along < 0 || along > lane.length) outsideSpan += 1;
+  }
+  check('every cone is on the tarmac, clear of both junction boxes',
+    outsideSpan === 0 && worstLateral < ROAD_W / 2,
+    `${outsideSpan} past an end, worst offset ${worstLateral.toFixed(2)} of ${ROAD_W / 2}`);
+
+  // Ambient traffic routes around it. Sampled every frame rather than at the end, because a car
+  // that turns in and out again between two samples is exactly the bug this is looking for.
+  let intrusions = 0;
+  let held = 0;
+  for (let step = 0; step < 150 * 60; step++) {
+    rwTraffic.update(1 / 60);
+    roadwork.update(1 / 60, rwTaxi, rwCars, []);
+    for (const car of rwCars) {
+      if (car === rwTaxi) continue;
+      if (closedIds.has(car.lane?.id)) intrusions += 1;
+      if (car.v < 0.01) held += 1;
+    }
+  }
+  check('no ambient car enters the closure over 150s', intrusions === 0,
+    `${intrusions} car-frames inside the barricades`);
+  check('closing a street does not wedge the traffic model',
+    rwTraffic.stats.routeDesync === 0 && rwTraffic.stats.violations === 0,
+    `desync ${rwTraffic.stats.routeDesync}, red-light violations ${rwTraffic.stats.violations}, `
+    + `${(held / (150 * 60 * rwCars.length) * 100).toFixed(0)}% of car-frames stationary`);
+
+  check('the zone finishes rising out of the road and everything is at rest',
+    roadwork.state.phase === 'live' && roadwork.active() === 0);
+
+  // --- The ramp -------------------------------------------------------------
+  // Driven at two very different speeds, because the arc is paced by distance and the whole point
+  // of that is that the two agree. A time-paced hop covers 4.25 units at cruise and 11.5 in
+  // overdrive, which is most of a 12-unit lane — the taxi would still be in the air at the line
+  // where it picks its next turn.
+  const flights = [];
+  for (const boosting of [false, true]) {
+    setClosedLanes([]);
+    const runScene = new THREE.Scene();
+    const runTraffic = createTraffic(makeRng(seed + 212), runScene, 6);
+    const runwork = createRoadwork(makeRng(seed + 211), runScene, null);
+    for (let step = 0; step < 300; step++) runTraffic.update(1 / 60);
+    if (!runwork.place(runTraffic.taxi, runTraffic.cars, [])) continue;
+    // Let the zone finish rising before staging the run at it. A player reaches one long after it
+    // has settled, and a barricade half out of the road is a different test.
+    while (runwork.state.phase !== 'live') runwork.update(1 / 60, runTraffic.taxi, runTraffic.cars, []);
+
+    const taxi = runTraffic.taxi;
+    const target = net.laneById.get(runwork.closedLaneIds[0]);
+    const [ti, tj] = target.to.split(',').map(Number);
+    // placeCar takes the junction the car is *heading for*, so this lands the taxi on the closed
+    // lane itself, a unit short of the barricade at its mouth.
+    placeCar(taxi, cityNetwork().dirOfLane(target), ti, tj, target.length - 1);
+    taxi.boost = boosting;
+    taxi.v = boosting ? 22 : SPEED;
+
+    let smashes = 0;
+    let lands = 0;
+    let peakY = 0;
+    let launchAt = null;
+    let air = null;
+    let airborneAtLine = false;
+    runwork.onSmash(() => { smashes += 1; });
+    runwork.onLand(() => { lands += 1; });
+
+    for (let step = 0; step < 60 * 6; step++) {
+      const before = taxi.hopFrom;
+      runTraffic.update(1 / 60);
+      runwork.update(1 / 60, taxi, runTraffic.cars, []);
+      if (before == null && taxi.hopFrom != null) launchAt = taxi.hopFrom;
+      if (taxi.hopFrom != null) {
+        peakY = Math.max(peakY, runTraffic.taxiGroup.position.y - ROAD_Y);
+        // The line where the next turn is chosen. Still airborne there and the stunt has outrun
+        // its own street.
+        if (taxi.lane && taxi.s >= taxi.lane.length - STOP_SETBACK) airborneAtLine = true;
+      }
+      if (before != null && taxi.hopFrom == null && air === null) {
+        air = taxi.travelled - launchAt;
+      }
+    }
+    flights.push({ boosting, smashes, lands, peakY, air, airborneAtLine, taxi, runwork });
+  }
+
+  const cruise = flights.find((f) => !f.boosting);
+  const fast = flights.find((f) => f.boosting);
+
+  check('the taxi rams the barricade and is launched off it',
+    flights.length === 2 && flights.every((f) => f.smashes >= 1 && f.lands === 1),
+    flights.map((f) => `${f.boosting ? 'boost' : 'cruise'} ${f.smashes} smash / ${f.lands} land`).join(', '));
+
+  check('it actually leaves the road and comes back down',
+    flights.every((f) => f.peakY > 1.2 && Math.abs(f.taxi.hopFrom ?? 0) === 0),
+    flights.map((f) => `peak ${f.peakY.toFixed(2)}`).join(', '));
+
+  // One frame of slack: the flag clears on the first frame past the arc's end, so the measured
+  // distance overshoots by whatever that frame covered.
+  check('the hop is the same length at cruise and in overdrive',
+    cruise && fast
+    && cruise.air >= HOP_LEN && cruise.air < HOP_LEN + SPEED / 60 + 1e-6
+    && fast.air >= HOP_LEN && fast.air < HOP_LEN + 23 / 60 + 1e-6,
+    `${cruise?.air?.toFixed(3)} vs ${fast?.air?.toFixed(3)} against HOP_LEN ${HOP_LEN}`);
+
+  check('and it is back on the tarmac before the line where it picks its next turn',
+    flights.every((f) => !f.airborneAtLine));
+
+  check('going through knocks the cones over, and they come to rest',
+    flights.every((f) => f.runwork.cones.filter((c) => c.knocked).length >= 4
+      && f.runwork.active() === 0),
+    flights.map((f) => `${f.runwork.cones.filter((c) => c.knocked).length} knocked`).join(', '));
+
+  // --- Placement rules ------------------------------------------------------
+  // A rider standing on a kerb corner inside a construction site is not broken — the taxi drives
+  // through a closure — but it reads as one, so the spawner is told to keep clear.
+  {
+    // A band of junctions rather than a parity set: every edge joins an even corner to an odd
+    // one, so `(i + j) % 2` excludes the whole city and the check passes by placing nothing.
+    const busy = [];
+    for (let i = 0; i <= GRID; i++) busy.push({ i, j: 2 }, { i, j: 3 });
+    let touched = 0;
+    let tries = 0;
+    for (let n = 0; n < 8; n++) {
+      setClosedLanes([]);
+      const s = new THREE.Scene();
+      const t = createTraffic(makeRng(seed + 300 + n), s, 12);
+      for (let step = 0; step < 200; step++) t.update(1 / 60);
+      const rw = createRoadwork(makeRng(seed + 400 + n), s, null);
+      if (!rw.place(t.taxi, t.cars, busy)) continue;
+      tries += 1;
+      const e = cityNetwork().laneById.get(rw.closedLaneIds[0]).edge;
+      for (const end of [e.a, e.b]) {
+        const node = cityNetwork().nodeById.get(end);
+        if (busy.some((b) => b.i === node.gi && b.j === node.gj)) touched += 1;
+      }
+    }
+    check('a zone never closes a street a rider is waiting in', tries > 0 && touched === 0,
+      `${tries} placements, ${touched} on an occupied corner`);
+  }
+
+  // Same seed, same street. The zone is part of the *situation*, so `?run=` has to reproduce it.
+  {
+    const build = () => {
+      setClosedLanes([]);
+      const s = new THREE.Scene();
+      const t = createTraffic(makeRng(seed + 210), s, 24);
+      for (let step = 0; step < 300; step++) t.update(1 / 60);
+      const rw = createRoadwork(makeRng(seed + 211), s, null);
+      rw.place(t.taxi, t.cars, []);
+      return rw.closedLaneIds.join('+');
+    };
+    const first = build();
+    check('the same run seed closes the same street', first === build(), first);
+  }
+
+  // Orange is the whole read, and the warm end of the wheel is spoken for twice: the taxi owns
+  // yellow, and the urgency scale owns the ambers under it. Same clearance argument the ghost
+  // paints get, for the same reason — at play zoom hue is most of what a small shape is.
+  {
+    const hueOf = (hex) => {
+      const hsl = { h: 0, s: 0, l: 0 };
+      new THREE.Color(hex).getHSL(hsl);
+      return hsl.h * 360;
+    };
+    const taxiHue = hueOf(PALETTE.taxiBody);
+    const gap = (hex) => Math.abs(hueOf(hex) - taxiHue);
+    check('roadworks orange is clearly not the taxi',
+      gap(PALETTE.cone) > 20 && gap(PALETTE.barrier) > 20 && gap(PALETTE.hiVis) > 20,
+      `cone ${gap(PALETTE.cone).toFixed(0)}°, barrier ${gap(PALETTE.barrier).toFixed(0)}°, `
+      + `vest ${gap(PALETTE.hiVis).toFixed(0)}° from the taxi's ${taxiHue.toFixed(0)}°`);
+  }
+
+  // Leave the sim as it was found: `closedLanes` is module state in traffic.js, and anything below
+  // this point would inherit a city with a street shut in it.
+  setClosedLanes([]);
 }
 
 // --- Taxi roof sign -----------------------------------------------------------

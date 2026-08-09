@@ -3,7 +3,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 
-// A blocky rider hailing a cab, and then running to it.
+// A blocky figure: a rider hailing a cab and running to it, and — same rig, different colours —
+// a road worker standing in a closed street until the taxi comes at them.
 //
 // Scale is a deliberate lie: a person next to a 3.4-unit car should be about 1.3 units tall,
 // which is two pixels at play zoom. This is a bit over 3, so the figure reads as a person.
@@ -15,14 +16,26 @@ import { PALETTE } from '../palette.js';
 
 const SKIN = '#E8B78C';
 const HAIR = '#4A3A2E';
+const LEGS = '#3C3A45';
 const SHOULDER_Y = 2.25;
 const HIP_Y = 1.15;
 const LEG_LEN = 1.15;
 const ARM_LEN = 1.0;
 
-export function createPerson() {
+/**
+ * @param body  torso and arm colour
+ * @param legs  trouser colour
+ * @param hair  the slab on top of the head
+ * @param hat   if given, a hard hat in this colour on top of the hair — brim and crown
+ * @param pickable  the `userData.pickable` kind, or null for a figure that is scenery. The picker
+ *                  works off an explicit target list (`fares.pickables()`), so a road worker is
+ *                  unreachable either way — but a figure tagged as a passenger it can never be is
+ *                  a trap laid for whoever next raycasts the scene rather than a list.
+ */
+export function createPerson({
+  body = PALETTE.passenger, legs = LEGS, hair = HAIR, hat = null, pickable = 'passenger',
+} = {}) {
   const group = new THREE.Group();
-  const body = PALETTE.passenger;
 
   // Torso + head + hair: merged, since none of them articulate.
   const bodyParts = [];
@@ -33,13 +46,19 @@ export function createPerson() {
   };
   box(1.0, 1.3, 0.6, 0, 1.8, 0, body);          // torso
   box(0.62, 0.62, 0.62, 0, 2.75, 0, SKIN);      // head
-  box(0.68, 0.2, 0.68, 0, 3.14, 0, HAIR);       // hair
+  box(0.68, 0.2, 0.68, 0, 3.14, 0, hair);       // hair
+  if (hat) {
+    // Brim first, then crown. Both wider than the head so the hat reads as *worn* rather than as
+    // a second head — at play zoom the silhouette is the only thing carrying it.
+    box(0.86, 0.09, 0.86, 0, 3.29, 0, hat);
+    box(0.56, 0.3, 0.56, 0, 3.48, 0, hat);
+  }
 
   const merged = mergeGeometries(bodyParts, false);
   bodyParts.forEach((p) => p.dispose());
   const torso = new THREE.Mesh(merged, propMaterial());
   torso.castShadow = true;
-  torso.userData.pickable = 'passenger';
+  if (pickable) torso.userData.pickable = pickable;
   group.add(torso);
 
   // Each limb hangs *below* its own origin, so the mesh pivots at the top (hip or shoulder) when
@@ -50,16 +69,38 @@ export function createPerson() {
     geo.translate(0, -h / 2, 0);
     const mesh = new THREE.Mesh(bakeColor(geo, new THREE.Color(hexCol)), propMaterial());
     mesh.castShadow = true;
-    mesh.userData.pickable = 'passenger';
+    if (pickable) mesh.userData.pickable = pickable;
     mesh.position.set(x, y, 0);
     group.add(mesh);
     return mesh;
   };
 
-  const legL = limb(0.34, LEG_LEN, 0.34, '#3C3A45', -0.26, HIP_Y);
-  const legR = limb(0.34, LEG_LEN, 0.34, '#3C3A45', 0.26, HIP_Y);
+  const legL = limb(0.34, LEG_LEN, 0.34, legs, -0.26, HIP_Y);
+  const legR = limb(0.34, LEG_LEN, 0.34, legs, 0.26, HIP_Y);
   const armL = limb(0.26, ARM_LEN, 0.26, body, -0.72, SHOULDER_Y);
   const armR = limb(0.26, ARM_LEN, 0.26, body, 0.72, SHOULDER_Y);
+
+  /**
+   * One frame of the run cycle, returning the body bob that goes with it.
+   *
+   * The three animations that run — boarding, exiting, and a worker getting out of the taxi's way
+   * — differ only in where they run *to*, so the cadence itself lives here. It was copied
+   * verbatim between board() and exit() before there was a third caller to keep in step.
+   */
+  function runCycle(cadence) {
+    const legSwing = Math.sin(cadence) * 0.95;
+    const armSwing = Math.sin(cadence) * 0.7;
+
+    // Legs and arms cycle in opposition; opposite arm to opposite leg.
+    legL.rotation.set(legSwing, 0, 0);
+    legR.rotation.set(-legSwing, 0, 0);
+    armL.rotation.set(-armSwing, 0, 0);
+    armR.rotation.set(armSwing, 0, 0);
+
+    // Slight forward lean, so the run has weight.
+    group.rotation.x = -0.22;
+    return Math.abs(Math.sin(cadence)) * 0.18;
+  }
 
   // Every mesh on the figure carries its own material (torso + four limbs), so the exit fade can
   // dim all of them together. Collected up front rather than walked from `group.children` on every
@@ -139,19 +180,7 @@ export function createPerson() {
     if (running) {
       const stride = t / RUN_END;
       // Fast cadence — this is a sprint from a standing wave, not a stroll.
-      const cadence = t * 22;
-      const legSwing = Math.sin(cadence) * 0.95;
-      const armSwing = Math.sin(cadence) * 0.7;
-
-      // Legs and arms cycle in opposition; opposite arm to opposite leg.
-      legL.rotation.set(legSwing, 0, 0);
-      legR.rotation.set(-legSwing, 0, 0);
-      armL.rotation.set(-armSwing, 0, 0);
-      armR.rotation.set(armSwing, 0, 0);
-
-      // Slight forward lean and a body bob keyed to the leg cadence, so the run has weight.
-      group.rotation.x = -0.22;
-      const bob = Math.abs(Math.sin(cadence)) * 0.18;
+      const bob = runCycle(t * 22);
       group.position.set(dx * stride, bob, dz * stride);
     } else {
       const jump = (t - RUN_END) / (1 - RUN_END);
@@ -207,15 +236,7 @@ export function createPerson() {
       // Straight sprint from the car back to the kerb, cycling arms and legs in opposition — same
       // shape as board(), just running the position from (dx, dz) → (0, 0) instead of the reverse.
       const stride = 1 - (t - HOP_END) / (RUN_END - HOP_END);
-      const cadence = t * 22;
-      const legSwing = Math.sin(cadence) * 0.95;
-      const armSwing = Math.sin(cadence) * 0.7;
-      legL.rotation.set(legSwing, 0, 0);
-      legR.rotation.set(-legSwing, 0, 0);
-      armL.rotation.set(-armSwing, 0, 0);
-      armR.rotation.set(armSwing, 0, 0);
-      group.rotation.x = -0.22;
-      const bob = Math.abs(Math.sin(cadence)) * 0.18;
+      const bob = runCycle(t * 22);
       group.position.set(dx * stride, bob, dz * stride);
       group.scale.setScalar(1);
       setOpacity(1);
@@ -234,7 +255,59 @@ export function createPerson() {
     }
   }
 
+  /**
+   * Standing about on a job: a slow weight shift and one arm working.
+   *
+   * Deliberately low-frequency. A crew that read as *busy* would compete with the traffic for the
+   * player's attention, and this is scenery — the thing that has to carry is the orange, not the
+   * animation. `phase` offsets one worker from the next so a pair doesn't sway in lockstep, the
+   * same reason every ambient car carries its own bob phase.
+   */
+  function idle(t, phase = 0) {
+    const s = t * 0.8 + phase;
+    legL.rotation.set(0, 0, 0);
+    legR.rotation.set(0, 0, 0);
+    // The working arm swings around a raised rest position rather than through vertical, so it
+    // reads as holding something. Straight through vertical is the hail wave, which means
+    // "I want that taxi" — the one thing a worker must not be saying.
+    armR.rotation.set(-0.5 + Math.sin(s * 2.1) * 0.3, 0, 0.22);
+    armL.rotation.set(0, 0, -0.1);
+    group.rotation.x = 0;
+    group.rotation.y = Math.sin(s * 0.55) * 0.35;
+    group.position.set(0, Math.sin(s * 1.3) * 0.03, 0);
+    group.scale.setScalar(1);
+  }
+
+  /**
+   * Getting out of the way: sprint from where they were standing to (dx, dz), then stand there
+   * looking back at the road they just left.
+   *
+   * `t` runs 0..1 and does not loop — a worker who has moved has moved. The turn to look back is
+   * why the standing pose is here rather than being `rest()`: `rest()` puts the figure back at
+   * its origin, which is the spot they just ran off.
+   */
+  function flee(t, dx, dz) {
+    const RUN_END = 0.8;
+    if (t < RUN_END) {
+      group.rotation.y = Math.atan2(dx, dz);
+      const stride = t / RUN_END;
+      // A shade faster than a rider's cadence. They are not catching a cab, they are being missed.
+      const bob = runCycle(t * 25);
+      group.position.set(dx * stride, bob, dz * stride);
+    } else {
+      const settle = Math.min(1, (t - RUN_END) / (1 - RUN_END));
+      legL.rotation.set(0, 0, 0);
+      legR.rotation.set(0, 0, 0);
+      armL.rotation.set(0, 0, -0.35);
+      armR.rotation.set(0, 0, 0.35);   // hands out, the universal "what was that"
+      group.rotation.x = -0.22 * (1 - settle);
+      group.rotation.y = Math.atan2(dx, dz) + Math.PI * settle;
+      group.position.set(dx, 0, dz);
+    }
+    group.scale.setScalar(1);
+  }
+
   rest();
   wave(0);
-  return { group, wave, board, exit, rest };
+  return { group, wave, board, exit, rest, idle, flee };
 }
