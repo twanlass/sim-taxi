@@ -851,7 +851,7 @@ function updateBoostButton(dt) {
 // pointer on press means dragging off the pill still counts as held, and the matching pointerup
 // fires reliably wherever the finger lifts.
 function pressBoost(event) {
-  if (fares.state.gameOver) return;
+  if (fares.state.gameOver || boostButton.disabled) return;
   event.preventDefault();
   // Doing the thing the third bubble is asking for answers it. Called explicitly rather than left
   // to the tutorial's window-level tap handler, because the preventDefault above can suppress the

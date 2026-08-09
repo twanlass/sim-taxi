@@ -338,6 +338,10 @@
          transform at equal specificity — a media query adds no weight — so a top-up landing under
          the player's thumb would otherwise swallow it. */
       #boost:active { transform: scale(0.95); }
+      /* The one exception: an empty tank doesn't press. The extra class already outranks the rule
+         above on specificity, but a disabled `<button>` still needs this — some mobile browsers
+         synthesise `:active` off the touch even though the click and pointerdown are suppressed. */
+      #boost.is-empty:active { transform: none; }
       body.shot-mode #boost { display: none; }
 
       /* Rider finder — one chip per waiting fare, stacked vertically above the Loco Mode pill in
