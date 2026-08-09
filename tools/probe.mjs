@@ -14,10 +14,11 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W } from '../src/sim/traffic.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
+import { createDust } from '../src/game/dust.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y } from '../src/geometry/roadworks.js';
-import { findRoute as planRoute, setRoadworkLanes } from '../src/game/route.js';
+import { findRoute as planRoute, setRoadworkLanes, laneCost } from '../src/game/route.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
 import {
@@ -3106,6 +3107,98 @@ check('the taxi is an ordinary car in the traffic array',
     flights.every((f) => f.runwork.cones.filter((c) => c.knocked).length >= 4
       && f.runwork.active() === 0),
     flights.map((f) => `${f.runwork.cones.filter((c) => c.knocked).length} knocked`).join(', '));
+
+  // --- The dust off a barricade ---------------------------------------------
+  // The smash used to emit two ordinary trail puffs, which is exactly what a boosting taxi lays
+  // down in two frames — the one impact in the run looked like exhaust. Measured against a single
+  // trail puff so the assertion is "bigger than the thing it was confused with", not a magic
+  // number: pull the per-instance scale straight off the InstancedMesh.
+  {
+    const puffScene = new THREE.Scene();
+    const trail = createDust(puffScene, null, makeRng(seed + 501));
+    const boom = createDust(puffScene, null, makeRng(seed + 501));
+
+    const scales = (d) => {
+      const m = new THREE.Matrix4();
+      const v = new THREE.Vector3();
+      const out = [];
+      for (let n = 0; n < d.mesh.count; n++) {
+        d.mesh.getMatrixAt(n, m);
+        m.decompose(new THREE.Vector3(), new THREE.Quaternion(), v);
+        if (v.x > 0) out.push(v.x);
+      }
+      return out;
+    };
+
+    trail.add(0, 0, 0);
+    trail.update(1 / 60);
+    boom.burst(0, 0, 0);
+    boom.update(1 / 60);
+
+    const one = scales(trail);
+    const many = scales(boom);
+    check('a barricade throws a burst of dust, not a boost puff',
+      many.length >= 10 && many.length > one.length * 5
+      && Math.max(...many) > Math.max(...one) * 1.5,
+      `${many.length} puffs at up to ${Math.max(...many).toFixed(2)} `
+      + `against ${one.length} at ${Math.max(...one).toFixed(2)}`);
+  }
+
+  // --- Packing up once the taxi has been through ----------------------------
+  // The zone clears itself away afterwards, and the half of that which is not cosmetic is giving
+  // the street *back*. Two lane sets were pushed out when it was built — one that keeps ambient
+  // traffic out, one that tempts the taxi in — and a teardown that forgets either leaves the city
+  // with an invisible closure it drives around for the rest of the run.
+  {
+    setClosedLanes([]);
+    setRoadworkLanes([]);
+    const outScene = new THREE.Scene();
+    const outTraffic = createTraffic(makeRng(seed + 212), outScene, 6);
+    const outWork = createRoadwork(makeRng(seed + 211), outScene, null);
+    for (let step = 0; step < 300; step++) outTraffic.update(1 / 60);
+
+    let cleared = 0;
+    outWork.onCleared(() => { cleared += 1; });
+
+    if (outWork.place(outTraffic.taxi, outTraffic.cars, [])) {
+      while (outWork.state.phase !== 'live') {
+        outWork.update(1 / 60, outTraffic.taxi, outTraffic.cars, []);
+      }
+
+      const taxi = outTraffic.taxi;
+      const target = net.laneById.get(outWork.closedLaneIds[0]);
+      const [ti, tj] = target.to.split(',').map(Number);
+      placeCar(taxi, cityNetwork().dirOfLane(target), ti, tj, target.length - 1);
+      taxi.v = SPEED;
+
+      // Long enough to drive the block, get clear, dwell and fade — but the assertions are on what
+      // happened, not on the clock, so a slower teardown fails rather than passing by luck.
+      let allFleeingAt = null;
+      for (let step = 0; step < 60 * 25 && outWork.state.phase !== 'gone'; step++) {
+        outTraffic.update(1 / 60);
+        outWork.update(1 / 60, taxi, outTraffic.cars, []);
+        if (allFleeingAt === null && outWork.state.smashed) allFleeingAt = outWork.workersFleeing();
+      }
+
+      check('every worker runs when a barricade goes, not just the nearest',
+        allFleeingAt === 2, `${allFleeingAt} of 2 fleeing on the frame of the smash`);
+
+      check('the zone clears itself away once the taxi is through',
+        outWork.state.phase === 'gone' && cleared === 1 && outWork.group.parent === null,
+        `phase ${outWork.state.phase}, ${cleared} cleared, `
+        + `${outWork.group.parent === null ? 'detached' : 'still in the scene'}`);
+
+      // The one that would otherwise be invisible.
+      const stillClosed = outWork.closedLaneIds.filter((id) => isLaneClosed(id));
+      const stillCheap = outWork.closedLaneIds
+        .filter((id) => laneCost(net.laneById.get(id)) < 1);
+      check('and gives the street back to both the traffic and the router',
+        stillClosed.length === 0 && stillCheap.length === 0,
+        `${stillClosed.length} still closed, ${stillCheap.length} still discounted`);
+    }
+    setClosedLanes([]);
+    setRoadworkLanes([]);
+  }
 
   // --- Steering the player into it ------------------------------------------
   // The player cannot drive. They tap a rider and the taxi routes itself, so unless the router is

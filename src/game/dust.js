@@ -48,6 +48,10 @@ export function createDust(scene, camera, rng) {
   scene.add(mesh);
 
   const life = new Float32Array(MAX_PUFFS);
+  // How long this puff was *given*, so `t` can be normalised against its own span. A burst lives
+  // longer than a trail puff, and normalising both against the LIFE constant put the long ones at a
+  // negative age: they started at a sixteenth of their size and above full opacity, then grew.
+  const span = new Float32Array(MAX_PUFFS);
   const px = new Float32Array(MAX_PUFFS);
   const py = new Float32Array(MAX_PUFFS);
   const pz = new Float32Array(MAX_PUFFS);
@@ -70,25 +74,48 @@ export function createDust(scene, camera, rng) {
 
   let next = 0;
 
-  /** Puff up from a point, with a bit of scatter so the trail isn't a straight line of clones. */
-  function add(x, z, yaw) {
+  /**
+   * Puff up from a point, with a bit of scatter so the trail isn't a straight line of clones.
+   *
+   * `scale` multiplies the puff's size and how hard it is thrown, and `spread` how far from the
+   * point it starts. Both default to the boost trail's own values, which is what every caller
+   * outside the barricade wants.
+   */
+  function add(x, z, yaw, scale = 1, spread = 0.35) {
     const slot = next;
     next = (next + 1) % MAX_PUFFS;
 
-    life[slot] = LIFE;
-    px[slot] = x + rng.jitter(0.35);
+    span[slot] = LIFE * (scale > 1 ? 1.3 : 1);
+    life[slot] = span[slot];
+    px[slot] = x + rng.jitter(spread);
     py[slot] = 0.3;
-    pz[slot] = z + rng.jitter(0.35);
+    pz[slot] = z + rng.jitter(spread);
 
     // Drifts backwards from the car and rises.
-    vx[slot] = -Math.cos(yaw) * rng.range(0.6, 1.6) + rng.jitter(0.7);
-    vy[slot] = rng.range(0.7, 1.5);
-    vz[slot] = Math.sin(yaw) * rng.range(0.6, 1.6) + rng.jitter(0.7);
+    vx[slot] = (-Math.cos(yaw) * rng.range(0.6, 1.6) + rng.jitter(0.7)) * scale;
+    vy[slot] = rng.range(0.7, 1.5) * scale;
+    vz[slot] = (Math.sin(yaw) * rng.range(0.6, 1.6) + rng.jitter(0.7)) * scale;
 
     spin[slot] = rng.range(0, Math.PI * 2);
     tilt[slot] = rng.range(-1, 1);
-    wide[slot] = rng.range(0.85, 1.3);
+    wide[slot] = rng.range(0.85, 1.3) * scale;
     alphas[slot] = START_ALPHA;
+  }
+
+  /**
+   * A wall of it, for going through a barricade.
+   *
+   * The smash used to be two ordinary trail puffs, which is what the taxi lays down every frame of
+   * a boost — so the one moment in the run that is meant to read as an impact produced two frames'
+   * worth of ordinary exhaust. This is the same dust, thrown wider and harder and thirteen puffs at
+   * once: the pool is 90 slots, so a burst costs about a seventh of it and still leaves the boost
+   * trail behind the taxi intact.
+   *
+   * Scattered around the point rather than trailing from it, because the barricade is a thing the
+   * taxi hit rather than a surface it is spinning its wheels on.
+   */
+  function burst(x, z, yaw, count = 13) {
+    for (let n = 0; n < count; n++) add(x, z, yaw + rng.jitter(1.4), rng.range(1.7, 2.6), 1.15);
   }
 
   function update(dt) {
@@ -96,7 +123,7 @@ export function createDust(scene, camera, rng) {
       if (life[slot] <= 0) continue;
 
       life[slot] -= dt;
-      const t = 1 - Math.max(0, life[slot]) / LIFE;   // 0 fresh, 1 spent
+      const t = 1 - Math.max(0, life[slot]) / span[slot];   // 0 fresh, 1 spent
 
       px[slot] += vx[slot] * dt;
       py[slot] += vy[slot] * dt;
@@ -126,5 +153,5 @@ export function createDust(scene, camera, rng) {
     geometry.attributes.aAlpha.needsUpdate = true;
   }
 
-  return { mesh, add, update };
+  return { mesh, add, burst, update };
 }

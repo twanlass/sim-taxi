@@ -473,6 +473,19 @@ a lane centre at `LANE` = 2.0 and is `CAR_W` = 1.7 wide, so its flank sweeps to 
 near row is squarely in the way and goes flying while the far row survives, which is what makes
 driving through read as damage instead of as a clean corridor.
 
+**Going through throws a burst of dust, not a puff.** The smash used to emit two ordinary trail
+puffs — which is precisely what a boosting taxi lays down in two frames, so the one impact in the
+run rendered as exhaust. `dust.burst` fires thirteen at once, each thrown 1.7–2.6× as hard and
+wide, scattered around the point rather than trailing from it: the barricade is something the taxi
+hit, not a surface it is spinning its wheels on. The pool is 90 slots, so a burst costs about a
+seventh of it and leaves the boost trail intact.
+
+That change surfaced a latent bug in `dust.js`. Giving a burst puff a longer life is not enough on
+its own, because `t` was normalised against the `LIFE` **constant** rather than the puff's own
+span — so a longer-lived puff started at a *negative* age: a sixteenth of its size and above full
+opacity, growing rather than dispersing. Each puff now carries its own `span`. The probe compares a
+burst against a single trail puff rather than against a magic number, which is what caught it.
+
 **Knocked cones come to rest, and they are the first effect here that does.** Position is closed
 form, like the blast's shards — a curve of `age` rather than an integrated velocity, so nothing
 accumulates and a slow-motion frame is the same shape as a full-speed one — and the flight's

@@ -31,6 +31,18 @@ const RETRY_WAIT = 5;          // nothing qualified right now — the city moves
 const FADE_IN = 1.1;
 const RISE = 1.1;              // how far under the road the zone starts, so it grows out of it
 
+// Packing up. Once the taxi has been through, the zone sinks back the way it came and the street
+// reopens — a wrecked site sitting there for the rest of the run is a stale prop, and the second
+// drive through an already-smashed barricade is a no-op that reads as broken.
+//
+// `LEAVE_DWELL` is measured from the taxi being *clear*, not from the smash: the trestle takes
+// TRESTLE_FLIGHT to finish cartwheeling and the cones a little longer to settle, and fading during
+// that swallows the payoff.
+const LEAVE_DWELL = 0.8;
+const FADE_OUT = 1.4;
+const SINK = 1.1;              // matches RISE, so it leaves the way it arrived
+const WORKER_FADE = 0.5;       // a worker vanishes once they have reached the kerb and looked back
+
 // How far the taxi has to be for a zone to appear. Same number and same honest caveat as
 // traffic.js's SPAWN_CLEARANCE: on a desktop the whole city is in frame at once, so this cannot
 // pretend to be off-camera — what it buys is that the zone is never *near* the car the player is
@@ -99,6 +111,7 @@ export function createRoadwork(rng, scene, camera = null) {
   const smashListeners = [];
   const landListeners = [];
   const placeListeners = [];
+  const clearListeners = [];
   const emit = (list, event) => { for (const cb of list) cb(event); };
 
   /** The two junctions a closed segment runs between, in grid coordinates. */
@@ -111,9 +124,12 @@ export function createRoadwork(rng, scene, camera = null) {
   }
 
   const state = {
-    phase: 'waiting',                                   // waiting | fading | live
+    phase: 'waiting',                                   // waiting | fading | live | leaving | gone
     cooldown: rng.range(FIRST_WAIT[0], FIRST_WAIT[1]),
     fade: 0,
+    alpha: 0,                                           // what the zone's materials are actually on
+    smashed: false,                                     // the taxi has been through at least one
+    leaveAt: null,                                      // when to start packing up, once it is clear
     t: 0,                                               // seconds since the zone was placed
     airborne: false,
     lastLaneId: null,                                   // where the taxi was last frame, so a
@@ -328,18 +344,20 @@ export function createRoadwork(rng, scene, camera = null) {
       holder.position.set(spot.x, 0, spot.z);
       holder.add(person.group);
       group.add(holder);
-      for (const mesh of person.group.children) materials.push(mesh.material);
+      const mats = person.group.children.map((mesh) => mesh.material);
+      materials.push(...mats);
 
       // Straight out to the kerb on whichever side they are already nearest. Expressed as a delta
       // along the lateral axis, so a diagonal street works with no extra case.
       const outward = Math.sign(side) || 1;
       const travel = KERB_OUT * outward - side;
       workers.push({
-        person, holder,
+        person, holder, mats,
         dx: spot.rx * travel,
         dz: spot.rz * travel,
         phase: rng.range(0, Math.PI * 2),
         fleeing: 0,
+        fade: 1,      // their own, multiplied into the zone's — see setAlpha
       });
     }
   }
@@ -394,7 +412,11 @@ export function createRoadwork(rng, scene, camera = null) {
    * transitions, the same guard geometry/person.js and game/vanish.js both carry.
    */
   function setAlpha(a) {
-    const opaque = a >= 1;
+    state.alpha = a;
+    // A fading worker forces the whole zone onto the transparent path even at full zone alpha —
+    // otherwise `depthWrite` stays on and the worker's own opacity is simply ignored. It costs a
+    // recompile at the start and end of the flee, which is two frames in a run.
+    const opaque = a >= 1 && workers.every((w) => w.fade >= 1);
     for (const material of materials) {
       if (opaque === material.transparent) {
         material.transparent = !opaque;
@@ -402,6 +424,11 @@ export function createRoadwork(rng, scene, camera = null) {
         material.needsUpdate = true;
       }
       material.opacity = a;
+    }
+    // Workers second, so their own fade multiplies the zone's rather than being overwritten by it.
+    for (const worker of workers) {
+      if (worker.fade >= 1) continue;
+      for (const material of worker.mats) material.opacity = a * worker.fade;
     }
   }
 
@@ -439,12 +466,18 @@ export function createRoadwork(rng, scene, camera = null) {
   function smash(barrier, taxi) {
     barrier.hit = true;
     barrier.hitAt = state.t;
+    state.smashed = true;
     launchHop(taxi);
     for (const cone of cones) {
       if (Math.hypot(cone.x - barrier.x, cone.z - barrier.z) <= SMASH_SCATTER) {
         knock(cone, barrier.x, barrier.z, taxi.v);
       }
     }
+    // **Everyone** goes, not just whoever the taxi got close to. The proximity test below is the
+    // right rule for a taxi merely driving down the street; once a barricade is in the air it is
+    // the wrong one — a worker calmly holding a shovel eight units from a trestle cartwheeling past
+    // reads as a figure that has not been told what scene it is in.
+    for (const worker of workers) if (worker.fleeing === 0) worker.fleeing = 1e-6;
     emit(smashListeners, { x: barrier.x, z: barrier.z, v: taxi.v });
   }
 
@@ -546,9 +579,19 @@ export function createRoadwork(rng, scene, camera = null) {
 
   function updateWorkers(dt, taxi) {
     const near = state.closedLaneIds.includes(taxi.lane?.id);
+    let faded = false;
 
     for (const worker of workers) {
-      if (worker.fleeing >= FLEE_DUR) continue;
+      // Run finished: they are at the kerb, turned round, looking back at the road. Hold that for
+      // the length of the run itself and then fade them out — a figure standing at a kerb forever
+      // beside a wrecked site is the tell that nothing here is going to be cleared up.
+      if (worker.fleeing >= FLEE_DUR) {
+        if (worker.fade > 0) {
+          worker.fade = Math.max(0, worker.fade - dt / WORKER_FADE);
+          faded = true;
+        }
+        continue;
+      }
 
       if (worker.fleeing > 0) {
         worker.fleeing = Math.min(FLEE_DUR, worker.fleeing + dt);
@@ -563,9 +606,38 @@ export function createRoadwork(rng, scene, camera = null) {
       if (spooked) worker.fleeing = 1e-6;
       else worker.person.idle(state.t, worker.phase);
     }
+
+    if (faded) setAlpha(state.alpha);
+  }
+
+  /**
+   * Take the zone down and **give the street back**.
+   *
+   * Reopening is the part that is not cosmetic. `setClosedLanes` is what keeps ambient traffic out
+   * and `setRoadworkLanes` is what tempts the taxi in; leaving either set behind would give the
+   * city an invisible closure it drives around for the rest of the run, and the router a shortcut
+   * down a street with nothing on it — the exact failure the placement rules exist to avoid, only
+   * with no barricade to explain it.
+   */
+  function teardown() {
+    state.phase = 'gone';
+    setClosedLanes([]);
+    setRoadworkLanes([]);
+
+    group.visible = false;
+    scene.remove(group);
+    group.traverse((object) => {
+      if (!object.isMesh) return;
+      object.geometry.dispose();
+      object.material.dispose();
+    });
+    materials.length = 0;
+    emit(clearListeners, { edge: state.edge });
   }
 
   function update(dt, taxi, cars = [], busy = []) {
+    if (state.phase === 'gone') return;
+
     if (state.phase === 'waiting') {
       state.cooldown -= dt;
       if (state.cooldown <= 0) {
@@ -587,6 +659,23 @@ export function createRoadwork(rng, scene, camera = null) {
         state.phase = 'live';
         group.position.y = 0;
       }
+      return;
+    }
+
+    // Packing up, once the taxi has been through and got clear. Opacity plus a sink back under the
+    // road — the mirror of the arrival, and for the same reason it works: the slab is opaque and
+    // drawn first, so whatever has gone below y = 0 fails the depth test for free.
+    if (state.phase === 'leaving') {
+      state.fade = Math.max(0, state.fade - dt / FADE_OUT);
+      const ease = smoothstep(state.fade);
+      setAlpha(ease);
+      group.position.y = -SINK * (1 - ease);
+      // Cones and trestles are still finishing their flights underneath this, deliberately: the
+      // last thing that happens is not everything stopping, it is everything going.
+      updateCones(dt, taxi);
+      updateBarriers(taxi);
+      updateWorkers(dt, taxi);
+      if (state.fade <= 0) teardown();
       return;
     }
 
@@ -613,6 +702,17 @@ export function createRoadwork(rng, scene, camera = null) {
     state.airborne = airborne;
     state.lastLaneId = taxi.lane?.id ?? null;
     state.lastS = taxi.s;
+
+    // "Through" is *off the closed lanes and back on the ground*, not "has smashed something". The
+    // taxi smashes the barricade at the mouth of the street and then has the whole block still to
+    // drive; starting the fade at the smash would dissolve the site around it while it is still
+    // inside, which is both the wrong beat and the wrong reading — it did not clear the works, it
+    // is in them.
+    if (state.smashed && state.leaveAt === null
+      && !state.closedLaneIds.includes(taxi.lane?.id) && !airborne) {
+      state.leaveAt = state.t + LEAVE_DWELL;
+    }
+    if (state.leaveAt !== null && state.t >= state.leaveAt) state.phase = 'leaving';
   }
 
   /** How many pieces are still in the air. Zero once everything has come to rest. */
@@ -633,11 +733,15 @@ export function createRoadwork(rng, scene, camera = null) {
     active,
     cones,
     barriers,
+    /** How many workers are running or have run. For tools/probe.mjs. */
+    workersFleeing: () => workers.filter((w) => w.fleeing > 0).length,
     get closedLaneIds() { return state.closedLaneIds; },
     onSmash: (cb) => { smashListeners.push(cb); },
     onLand: (cb) => { landListeners.push(cb); },
     // Fires once, when a zone is stood up, with the two junctions it runs between. main.js uses it
     // to aim one fare's drop-off at the far end of the closed street.
     onPlaced: (cb) => { placeListeners.push(cb); },
+    // ...and once when it has been cleared away and the street is open again.
+    onCleared: (cb) => { clearListeners.push(cb); },
   };
 }

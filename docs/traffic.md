@@ -897,6 +897,37 @@ The barricade test is a **crossing** — `lastS < barrier.s <= s` on the same la
 `s >= barrier.s`, which is true for the whole rest of the lane and would launch a taxi that was
 already past the line when the zone finished rising.
 
+> **Known, and not yet fixed:** each barricade is bound to *its own* lane id, but both trestles
+> span the full road. A taxi entering at one end smashes the barricade on the lane it is driving
+> and then passes straight through the one at the far end, which belongs to the opposite lane —
+> `1 of 2` on a full pass. Binding a barricade to a position along the *segment* rather than along
+> one lane would fix it, at the cost of two launches per pass, which is a feel change rather than a
+> bug fix and has not been made.
+
+### Packing up
+
+Once the taxi is **through** — off the closed lanes and back on the ground, not merely having
+smashed something — the zone waits `LEAVE_DWELL` for the trestle to finish cartwheeling and the
+cones to settle, then fades out and sinks back under the road over `FADE_OUT`. The sink is the
+mirror of the arrival and works for the same reason: the slab is opaque and drawn first, so
+whatever has gone below y = 0 fails the depth test for free.
+
+The trigger is deliberately "off the closed lanes", not "has smashed": the taxi hits the barricade
+at the *mouth* of the street and still has the whole block to drive, so fading from the smash would
+dissolve the site around a car that is still inside it.
+
+**The half of the teardown that is not cosmetic is giving the street back.** Both lane sets are
+cleared — `setClosedLanes` and `setRoadworkLanes` — because a closure left behind after the
+barricades have gone is invisible from every other angle: ambient traffic would avoid a road with
+nothing on it for the rest of the run, and the router would keep taking a shortcut down it. There
+is an assertion for exactly this, since nothing on screen would ever show it.
+
+Workers all run the moment a barricade goes, rather than only those within `FLEE_R`. The proximity
+rule is right for a taxi merely driving down the street and wrong once something is in the air — a
+worker calmly holding a shovel eight units from a cartwheeling trestle reads as a figure that has
+not been told what scene it is in. They fade out individually once they reach the kerb and turn to
+look back; their alpha multiplies into the zone's rather than being overwritten by it.
+
 ## Police priority corridor
 
 `src/sim/police.js`. A police car crosses the city on a cycle, holding every signal on its road

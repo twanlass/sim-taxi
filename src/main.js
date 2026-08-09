@@ -223,14 +223,14 @@ const roadwork = createRoadwork(makeRng(runSeed + 177), scene, camera);
 roadwork.onSmash(({ x, z }) => {
   // A quarter of the wreck's 2.4 — this is a barricade going over, not the run ending.
   controller.kickShake(0.55);
-  // Two puffs rather than one: `dust.add` scatters each by 0.35, so a pair reads as a burst where
-  // a single puff reads as the ordinary boost trail the same pool draws.
-  dust.add(x, z, traffic.taxi.yaw);
-  dust.add(x, z, traffic.taxi.yaw);
+  // A proper burst. Two ordinary puffs was what a boosting taxi lays down in two frames, so the
+  // impact read as exhaust rather than as hitting something. See `dust.burst`.
+  dust.burst(x, z, traffic.taxi.yaw);
 });
 roadwork.onLand(({ x, z }) => {
   controller.kickShake(0.35);
-  dust.add(x, z, traffic.taxi.yaw);
+  // Smaller than the smash — this is the landing, and it should not upstage the thing it followed.
+  dust.burst(x, z, traffic.taxi.yaw, 7);
 });
 // Aim the next fare's drop-off at one end of the closed street. The router already prices those
 // lanes low (see EDGE_COST.roadwork), which wins the zone any trip that passes nearby; this is what

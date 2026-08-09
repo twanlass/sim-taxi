@@ -236,6 +236,13 @@ export function setClosedLanes(ids) {
   closedLanes = new Set(ids);
 }
 
+/**
+ * Is this lane currently closed? Exported for tools/probe.mjs, which has to be able to see that a
+ * zone *reopened* its street on the way out — a closure left behind after the barricades have gone
+ * is invisible from every other angle and would just look like traffic avoiding a road forever.
+ */
+export const isLaneClosed = (id) => closedLanes.has(id);
+
 // --- The ramp -----------------------------------------------------------------
 //
 // A barricade is a ramp, and hitting one launches the taxi. The arc is *rendered only*: car.s,
