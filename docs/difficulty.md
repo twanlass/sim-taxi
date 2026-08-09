@@ -120,10 +120,10 @@ it.
 
 ## Shifts
 
-Four bands over the delivery count — 0, 3, 7, 12 — each with a payout multiplier, announced by toast
-on the delivery that crosses into it. The ramp is otherwise invisible: clocks tighten, riders arrive
-closer together and the board grows, and a player experiencing all three at once has no way to tell
-"the game got harder" from "I got worse".
+Four bands over the delivery count — 0, 3, 7, 12 — each with a payout multiplier, reflected in the
+[multiplier counter](gameplay.md#the-multiplier-counter) on the delivery that crosses into it. The
+ramp is otherwise invisible: clocks tighten, riders arrive closer together and the board grows, and
+a player experiencing all three at once has no way to tell "the game got harder" from "I got worse".
 
 | Shift | From | Pays |
 |---|---|---|

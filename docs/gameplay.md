@@ -119,9 +119,7 @@ That got sharper when the clock stopped being flat. A rider's deadline is now
 [budgeted from the driving their trip costs](#the-clock-is-budgeted) — it is margin sized for the
 road rather than a round sixty seconds with slack to spare, so a lesson spent out of it comes
 straight off the part the player needs. `state.elapsed` is deliberately *not* paused: it drives the
-spawn stagger and the marker animations, neither of which is the player's to pay for. The spawn toast is suppressed for the same reason — the first
-fare lands on frame one, and "New fare waiting" across the top of the screen is a second message
-competing with the one being given.
+spawn stagger and the marker animations, neither of which is the player's to pay for.
 
 Nothing auto-advances. Both beats wait for a tap, because a tutorial on a timer is one the slower
 reader loses. A tap mid-type finishes the line instead of dismissing it, so an eager first tap
@@ -255,7 +253,7 @@ junction the frame it appears.
 
 `fares.update()` returns the events that happened this frame — `{type, fare}`, with type one of
 `'spawned' | 'pickup' | 'delivered' | 'failed'` — rather than firing callbacks, so the fare system
-holds no reference to the taxi mesh, the HUD or the toast. `main.js` translates events into all of
+holds no reference to the taxi mesh or the HUD. `main.js` translates events into all of
 that. It is a list because more than one can land together: delivering the last fare clears the
 board, and the refill follows on the next frame.
 
@@ -263,7 +261,7 @@ board, and the refill follows on the next frame.
 
 The taxi has **one seat**, so any extra fare beyond the one aboard is someone *waiting* — a clock
 draining on the kerb while you decide who to grab. Tapping a waiting rider while already carrying
-one is refused outright with a toast, rather than driving there and quietly not picking anyone up.
+one is refused outright, rather than driving there and quietly not picking anyone up.
 
 Two waiting riders on the board at the same time is the whole difficulty of the game: you can't
 take both, and the wrong pick loses one of the two clocks. `fares.waiting()` returns the *most
@@ -507,7 +505,7 @@ the taps aimed at it.
 
 **Which** pin was tapped is the instruction, not just that one was: `fares.fareFor(hit.object)`
 walks up from the hit to the fare that owns it. Tapping a kerbside rider while already carrying one
-is refused with a toast rather than routing a taxi that could never collect them.
+is refused rather than routing a taxi that could never collect them.
 
 **The taxi is permanently selected.** There is only ever one, so a selection step was pure
 ceremony: every tap on it was either a no-op or an accidental deselect that made the next tap on a
@@ -761,8 +759,8 @@ It lives outside `#hud`, so shot mode hides it with its own rule rather than inh
 **It is a real multiplier now.** It used to show `fares.state.delivered` and call itself a streak,
 which made the `×` decoration: the same number the run-end screen printed as "Fares", wearing a
 symbol for an economy that did not exist. It now shows `difficulty.payoutMultiplier`, the multiple
-every fare's price is actually stamped with at spawn, and it steps on the same beat as the
-[shift toast](difficulty.md#shifts) that explains why. The bump still fires on every delivery even
+every fare's price is actually stamped with at spawn, and it steps on the beat it crosses into a
+new [shift](difficulty.md#shifts). The bump still fires on every delivery even
 when the number holds — the bump means "that one counted", the number means "and this is what they
 are worth now".
 
@@ -1076,9 +1074,9 @@ time. A WAAPI animation starts on the frame after `animate()`, and the game-over
 where the page hitches — on a stalled boot the numbers ran ~500ms ahead of their own labels, which
 for a list played one row at a time meant a row counting before it had appeared.
 
-The overlay sits at **`z-index: 30`**, above the toast (25) and the tweak toggle and rider-finder
-chips (20). Without one the blackout painted *under* them and a waiting-rider chip stayed lit in
-the corner of the game-over screen — and a chip still on top also swallows the tap that skips.
+The overlay sits at **`z-index: 30`**, above the tweak toggle and rider-finder chips (20). Without
+one the blackout painted *under* them and a waiting-rider chip stayed lit in the corner of the
+game-over screen — and a chip still on top also swallows the tap that skips.
 
 Under `prefers-reduced-motion` the card prints its final values with no entrance and no roll — the
 sequence is the entire module, so there is nothing else to keep.
