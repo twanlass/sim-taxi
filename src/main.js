@@ -465,7 +465,7 @@ function selectRider(fare) {
   dispatchToRider(fare);
 }
 
-const riderFinder = createRiderFinder({ onSelect: selectRider });
+const riderFinder = createRiderFinder({ onSelect: selectRider, sun, hemi });
 const dropoffIndicator = createDropoffIndicator({
   camera,
   // Aim at the kerb corner where the pin actually stands, not the intersection centre — the
