@@ -145,19 +145,28 @@
            measured against. Capped at a phone's content width (390px screen less the 16px gutters
            either side) so the desktop layout *is* the mobile layout: the stats rows push label and
            value to opposite edges, and on a 1280px screen that would otherwise strand a number
-           three feet away from its own name. The fail reason wraps here exactly as it does on a
-           phone, which is the point. */
+           three feet away from its own name. The title and reason are the exception — on a wide
+           enough title neither is shy about overflowing this box, centred on the same axis; see
+           `.run-end-reason`. */
         width: 100%; max-width: min(358px, 100%);
       }
       /* Type and rhythm scale with the viewport. Height drives most of it — it is a short viewport
          (a landscape phone) that runs the list past the fold — and the clamps hold the full-size
          layout down to ~560px tall, shrinking it below that so "Play again" stays above the fold
-         on a 390px-high phone in landscape. */
+         on a 390px-high phone in landscape. The title is the loudest thing on the card on purpose —
+         "Wrecked!" is the headline, and the reason underneath it is a caption, not a co-headline. */
       #run-end .run-end-title {
-        font-size: clamp(26px, 5.4vh, 40px); font-weight: 800; line-height: 1.1;
+        font-size: clamp(32px, 7.4vh, 56px); font-weight: 800; line-height: 1.1;
         letter-spacing: -0.01em;
       }
-      #run-end .run-end-reason { margin-top: 6px; font-size: 15px; opacity: 0.72; }
+      /* Deliberately smaller than the title and left free to wrap — `matchReasonWidth` (runend.js)
+         caps its width at the title's own rendered width, and `text-wrap: balance` then picks the
+         break point that leaves two even lines rather than a short orphan word. Capping at the
+         title's width rather than the card's 358px is what keeps a two-line reason reading as a
+         caption sitting under the headline instead of a block wider than it. */
+      #run-end .run-end-reason {
+        margin-top: 8px; font-size: clamp(17px, 3.6vh, 24px); opacity: 0.72; text-wrap: balance;
+      }
 
       /* One stat per row, label pinned to the left edge and value to the right — a ledger, not a
          centred pair. Both edges are then straight lines down the block, which is what lets four
@@ -177,9 +186,9 @@
          when the pairing *is* the content. Same type for both makes each row one phrase:
          "Fares  9". */
       /* Sized against whichever axis is tighter. Height is the usual constraint for the list as a
-         whole, but a side-by-side row has a width to fit too: "Top Speed  54 mph" set at 30px is
-         ~290px wide and would run past the gutters of a 320px phone, where `nowrap` pushes it off
-         the screen rather than wrapping it. */
+         whole, but a side-by-side row has a width to fit too: the longest, "Shift  Early Shift",
+         is the one that would run past the gutters of a 320px phone at 30px, where `nowrap` pushes
+         it off the screen rather than wrapping it. */
       #run-end .stat-label,
       #run-end .stat-value {
         font-size: clamp(19px, min(3.9vh, 7.2vw), 30px); font-weight: 800; line-height: 1.15;

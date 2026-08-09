@@ -998,8 +998,8 @@ transition into Loco Mode and not on a re-press during a boost that's already ru
 
 `src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
 clock hitting zero, a collision, a police bust — and all three land on the same screen: a title, the
-reason, four stats, and **Play again**. The title is set by the caller, so a bust reads **Busted**
-while a timeout and a wreck read **Game Over**.
+reason, four stats, and **Play again**. The title is set by the caller, so a timeout reads
+**Too Slow!**, a collision reads **Wrecked!**, and a police bust reads **Busted!**.
 
 It is a **full-screen blackout**, not a modal over the city. An earlier pass dimmed the world and
 floated a blurred card on top of it, and the card's edges turned out to be the loudest thing on the
@@ -1015,13 +1015,13 @@ what the counter does with every other stat.
 The stats are **one row each, label and value side by side**, and both are set in the *same* size,
 weight and colour. A small grey caption over a big yellow number made the label read as chrome and
 the number as the content, when the pairing is the content; matched type makes each row one phrase
-— "Fares  9" — and the four rows read as a list being counted out, which is what the stagger is
+— "Fares  9" — and the rows read as a list being counted out, which is what the stagger is
 doing.
 
 It reads as a **ledger**: label pinned to the left edge, value to the right, on a `1fr auto` grid
 so the label column takes the slack and the values stay flush right however long the names get.
-Both edges are then straight lines down the block, which is what lets four rows of identically
-styled text read as four separate stats — centring each row on its own left the list ragged.
+Both edges are then straight lines down the block, which is what lets rows of identically
+styled text read as separate stats — centring each row on its own left the list ragged.
 `.stat` is `display: contents` so its label and value become grid items of the row above; the
 wrapper only exists for the reveal to animate a stat as a unit. Each entrance is anchored to the
 edge its text is aligned to (`transform-origin: left`/`right`), so the label's oversized first
@@ -1030,14 +1030,22 @@ frame and the value's landing bump both grow *inward* rather than out past the c
 **The content container is capped at a phone's content width** — 358px, a 390px screen less its
 16px gutters — so the desktop layout *is* the mobile layout. Pushing label and value to opposite
 edges of a 1280px screen would strand each number three feet from its own name; at phone width the
-gap is a gutter rather than a void, and the fail reason wraps on desktop exactly as it does on a
-phone. On a phone the rows run right out to the screen edges, which is the layout the cap is
-borrowing.
+gap is a gutter rather than a void. On a phone the rows run right out to the screen edges, which is
+the layout the cap is borrowing. The title and reason are the one exception — see below — and are
+free to run past this box on a wide enough title, still centred on the same axis.
+
+**The title is the headline; the reason is a caption under it, not a second headline.** The title's
+clamp was raised so "Wrecked!" reads as the loudest thing on the card, and the reason sits at a
+noticeably smaller size beneath it. `matchReasonWidth` in `runend.js` caps the reason's width at the
+title's own rendered width — measured, not assumed, since "Busted!" and "Patience wasn't your fare's
+strong suit." are nowhere near the same length — and CSS `text-wrap: balance` picks the break point
+inside that cap, so a two-line reason comes out as two even lines rather than a long first line and
+a short orphan word on the second.
 
 Type and rhythm scale with the viewport, off whichever axis is tighter: height for the list as a
-whole (a landscape phone runs it past the fold) and width for the rows (`"Top Speed  54 mph"` at
-30px is ~260px wide, and `nowrap` would push it off a 320px screen rather than wrap it). If it
-still doesn't fit, the overlay scrolls — centred by `margin: auto` on the content rather than
+whole (a landscape phone runs it past the fold) and width for the rows (the longest, `"Shift  Early
+Shift"`, is the one `nowrap` risks pushing off a 320px screen rather than wrapping it). If it still
+doesn't fit, the overlay scrolls — centred by `margin: auto` on the content rather than
 `justify-content`, which clips its own overflow at the top, where the title is.
 
 **Nothing appears at once.** The card is revealed as a sequence, because the version before this
@@ -1050,9 +1058,9 @@ counting, so the player isn't invited to leave mid-tally.
 
 **The stats are counted out one row at a time**, not staggered. A row's label arrives, its number
 rolls, the number lands and pops, and only after a held beat does the next label appear. An earlier
-pass overlapped the rows on a 165ms stride, and with four of them counting simultaneously the block
-read as one animation with numbers moving inside it — you watched the screen rather than any single
-figure. `STAT_STRIDE` is now *derived*: `ROW_MS + ROW_GAP`, where `ROW_MS` is a row's own beat
+pass overlapped the rows on a 165ms stride, and with several of them counting simultaneously the
+block read as one animation with numbers moving inside it — you watched the screen rather than any
+single figure. `STAT_STRIDE` is now *derived*: `ROW_MS + ROW_GAP`, where `ROW_MS` is a row's own beat
 (`COUNT_LEAD + COUNT_MS + LAND_MS`). "Finished before the next one starts" is therefore a property
 of the constants rather than something to keep re-checking by eye.
 
@@ -1077,29 +1085,14 @@ sequence is the entire module, so there is nothing else to keep.
 
 | Stat | Source | Notes |
 |---|---|---|
+| Time | `fares.state.elapsed` | seconds, shown as `m:ss` + trailing `s` (e.g. `1:03s`) |
 | Fares | `fares.state.delivered` | |
 | Shift | `difficulty.shiftFor(delivered)` | how far up the ramp the run got, counted out by name |
 | Cash | `fares.state.money` | |
-| Red Lights | `traffic.stats.taxiRedLights` | reds the taxi *met*, one per light |
-| Top Speed | `traffic.stats.taxiTopSpeed` | u/s, shown in mph |
 
-Both traffic stats are taxi-only, accumulate over the whole run, and are never reset — a run ends
-by reloading the page. They exist for this card and nothing in the sim reads them, which is exactly
-why `tools/probe.mjs` asserts them: a counter that quietly stopped incrementing would otherwise
-only show up on the run-end screen at the end of somebody's run.
-
-**Red lights are counted per light, not per frame.** The junction is stamped on the taxi the first
-time a red holds it and cleared when the turn commits, so sitting at one light for four seconds is
-one red and coming back to the same junction later counts again. It reads the signal phase
-directly rather than the `green` flag, because `green` also goes false for a junction blocked by a
-stranded car — that is a jam, not a red. Ring junctions are exempt: they have no phase to be red.
-A right-on-red still counts; the light was red when the taxi reached the line.
-
-**Top speed is shown in mph** via `speedMph()` in `sim/traffic.js`. World units are metres-ish —
-`CAR_LEN` is 3.4 against a real compact at ~4.4m — which puts one u/s at about 2.9mph and lands
-the numbers where you'd want them anyway: cruise 8.5 → **25mph**, Loco Mode 18.7 → **54mph**, and
-the top of its [overdrive band](traffic.md#overdrive-only-on-a-straightaway) 22.95 → **67mph**. The
-stat is worth reading now that the top end has to be driven for: 54 says you used the mode, 67 says
-you found two clear blocks in a row to spend it on.
+Red Lights and Top Speed used to round out the list, tracked in `traffic.stats` purely so the card
+had something to show — nothing in the sim itself read either counter. Both the tracking (including
+the per-car `heldKey` dedup that kept a held red from counting once per frame) and the `speedMph()`
+conversion were removed along with the rows.
 Nothing in the simulation uses the conversion; it exists so the stat is in a unit a player has a
 feel for.

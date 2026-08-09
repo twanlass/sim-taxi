@@ -51,6 +51,18 @@ const RISE = 'cubic-bezier(0.22, 1, 0.36, 1)';   // the same ease the earnings p
 const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 /**
+ * Cap the reason's width at the title's own rendered width, so a two-line reason reads as sitting
+ * *under* the title rather than spilling past it. `text-wrap: balance` (see the CSS) does the rest:
+ * given that cap, it picks a break point that leaves both lines close to the same length instead of
+ * a short orphan hanging off a nearly-full first line.
+ */
+function matchReasonWidth(heading, sub) {
+  if (!sub.textContent) return;
+  const width = heading.getBoundingClientRect().width;
+  if (width > 0) sub.style.maxWidth = `${width}px`;
+}
+
+/**
  * Rise-and-settle: up from below, slightly small, into place. The shared entrance for the title,
  * the reason and the play-again button, so the three read as one family of moves.
  */
@@ -117,8 +129,8 @@ function countUp(el, value, format, delay) {
  * Build and reveal the overlay.
  *
  * `stats` is a list of `{ label, value, format }` — `format` turns the counter's integer into what
- * the player sees (the `$` prefix, the `mph` suffix), so the count-up itself never has to know
- * which stat it is rolling.
+ * the player sees (the `$` prefix on Cash, the shift name on Shift), so the count-up itself never
+ * has to know which stat it is rolling.
  */
 export function showRunEnd(root, { title, reason, stats, onRetry }) {
   root.innerHTML = '';
@@ -163,6 +175,7 @@ export function showRunEnd(root, { title, reason, stats, onRetry }) {
 
   card.append(heading, sub, column, retry);
   root.append(card);
+  matchReasonWidth(heading, sub);
 
   const lastStatAt = STATS_AT + Math.max(0, cells.length - 1) * STAT_STRIDE;
   const retryAt = lastStatAt + ROW_MS + RETRY_GAP;

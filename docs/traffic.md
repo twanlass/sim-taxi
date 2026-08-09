@@ -803,7 +803,7 @@ transparency here affects the police car alone and not the merged prop meshes.
 ## The bust chase
 
 Boost within `POLICE_BUST_RANGE` (20 — one block) of a live corridor run and the run is over:
-`bustByPolice()` in `main.js` freezes the taxi, drops into slow-mo and holds the Game Over banner,
+`bustByPolice()` in `main.js` freezes the taxi, drops into slow-mo and holds the run-end banner,
 same beat as a wreck. What it adds is `police.chase(taxi)`.
 
 **Why it exists.** The corridor run is scenery — it drives its line and never acknowledges the

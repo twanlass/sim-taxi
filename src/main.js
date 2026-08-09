@@ -6,7 +6,7 @@ import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
-import { createTraffic, speedMph } from './sim/traffic.js';
+import { createTraffic } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
@@ -221,7 +221,7 @@ const carGhosts = createCarGhosts(scene, traffic);
 // src/sim/collisions.js. On impact *both* cars are wrecked: each detonates where it stands and
 // each shell shrinks and fades into its own fireball, the camera shakes and pulls into a close-up,
 // the sim drops into slow-mo, boost is released, and the fare system flips into game-over — but
-// the Game Over banner is held for CRASH_BANNER_DELAY (wallclock, so the delay is unaffected by
+// the run-end banner is held for CRASH_BANNER_DELAY (wallclock, so the delay is unaffected by
 // the slow-mo).
 const CRASH_BANNER_DELAY = 2600;
 const WRECK_ZOOM = 26;
@@ -287,7 +287,7 @@ collisions.onImpact(({ x, z, other }) => {
  * Boost past a cop and you're done — reuses the wreck cinematic (zoom, slow-mo, delayed banner)
  * so the beat is the same as a collision, but the taxi stays visible (no blast) since nothing hit
  * it. The taxi is flagged crashed so it freezes on the spot for the pull-in, and the
- * fare system's title/reason drive the "Busted" banner.
+ * fare system's title/reason drive the "Busted!" banner.
  *
  * The cruiser abandons its corridor run here and comes for the taxi — see `chase()` in
  * sim/police.js. That is the whole point of the delay before the banner: without it the cop sailed
@@ -307,7 +307,7 @@ function bustByPolice() {
   traffic.taxi.v = 0;
   boost.release();
   police.chase(traffic.taxi);
-  fares.crash('You were caught by the police for reckless driving.', 'Busted');
+  fares.crash("The fuzz caught you slippin'.", 'Busted!');
 }
 
 function checkPoliceBust() {
@@ -747,6 +747,13 @@ function announceShift(delivered) {
   flash(`${shift.name} — fares pay ${shift.payout}x`);
 }
 
+/** Total seconds as `m:ss` + a trailing `s`, e.g. `1:03s` — the run-end screen's Time stat. */
+function formatRunTime(seconds) {
+  const total = Math.max(0, Math.round(seconds));
+  const secs = total % 60;
+  return `${Math.floor(total / 60)}:${String(secs).padStart(2, '0')}s`;
+}
+
 let toastTimer = 0;
 function flash(text) {
   if (!hud.toast) return;
@@ -785,15 +792,15 @@ function updateHud(dt) {
     showRunEnd(hud.banner, {
       title: s.failTitle,
       reason: s.failReason,
-      // Five numbers, in the order the run produced them: what you carried, how deep into the
-      // ramp that took you, what it paid, what the city made you sit through, and how fast you
-      // were going when it went wrong.
+      // Four numbers, in the order the run produced them: how long it lasted, what you carried,
+      // how deep into the ramp that took you, and what it paid.
       //
       // "Shift" replaces what used to be "Streak", which printed `s.delivered` — the same number
       // as Fares directly above it, formatted with an `x`. Two rows counting out one number is a
       // stat sheet padding itself. How far up the difficulty curve the run got is a genuinely
       // different fact about it, and it is the one the multiplier was earned by.
       stats: [
+        { label: 'Time', value: s.elapsed, format: formatRunTime },
         { label: 'Fares', value: s.delivered, format: (n) => `${n}` },
         // Rolls up through the shift names the run actually passed through, which is what the
         // counter does with every other stat. Clamped at the bottom because `countUp` paints
@@ -801,9 +808,6 @@ function updateHud(dt) {
         { label: 'Shift', value: difficulty.shiftFor(s.delivered).index + 1,
           format: (n) => difficulty.SHIFTS[Math.max(0, n - 1)].name },
         { label: 'Cash', value: s.money, format: (n) => `$${n}` },
-        { label: 'Red Lights', value: traffic.stats.taxiRedLights, format: (n) => `${n}` },
-        { label: 'Top Speed', value: speedMph(traffic.stats.taxiTopSpeed),
-          format: (n) => `${n} mph` },
       ],
       onRetry: () => location.reload(),
     });
