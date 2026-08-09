@@ -75,10 +75,19 @@ export const MAX_DEPTH_DIFF = 2.0;
 
 // Below one texel the two taps of a pair land on the same sample and the Laplacian is identically
 // zero; above the ceiling the eight taps spread into a smudge and stop reading as a contact.
-// Both bind only at the far ends of the zoom range — the ceiling at the `vehicles` shot's zoom 9,
-// the floor past about zoom 100, neither of which is play zoom.
+//
+// The ceiling is a texel budget, not a world-unit one — held fixed while world-units-per-texel
+// keeps growing as the player zooms in, so the *world-space* radius it clamps to grows right along
+// with it. A wall standing behind a car cancels its own depth Laplacian far more weakly than flat
+// ground does (its depth barely changes per screen unit, where ground's changes at `cot(elevation)`
+// — see `MAX_DEPTH_DIFF` below), so once the clamped radius reached far enough up that wall, the
+// broad ring's down-tap kept dipping onto the car's roof pixels above where the two should have
+// cancelled, and painted a false crease climbing the wall — a shadow the sun never cast, worst at
+// `camera.js`'s own `MIN_ZOOM` (14, the closest a player can actually scroll in) on an ordinary,
+// non-Retina display. Halving the ceiling keeps that climb inside a couple of pixels rather than a
+// car's height.
 const MIN_RADIUS_TEXELS = 1.0;
-const MAX_RADIUS_TEXELS = 12.0;
+const MAX_RADIUS_TEXELS = 6.0;
 
 /**
  * Put `root` and everything under it into the depth prepass.
