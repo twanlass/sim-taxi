@@ -1030,9 +1030,17 @@ frame and the value's landing bump both grow *inward* rather than out past the c
 **The content container is capped at a phone's content width** — 358px, a 390px screen less its
 16px gutters — so the desktop layout *is* the mobile layout. Pushing label and value to opposite
 edges of a 1280px screen would strand each number three feet from its own name; at phone width the
-gap is a gutter rather than a void, and the fail reason wraps on desktop exactly as it does on a
-phone. On a phone the rows run right out to the screen edges, which is the layout the cap is
-borrowing.
+gap is a gutter rather than a void. On a phone the rows run right out to the screen edges, which is
+the layout the cap is borrowing. The title and reason are the one exception — see below — and are
+free to run past this box on a wide enough title, still centred on the same axis.
+
+**The title is the headline; the reason is a caption under it, not a second headline.** The title's
+clamp was raised so "Wrecked!" reads as the loudest thing on the card, and the reason sits at a
+noticeably smaller size beneath it. `matchReasonWidth` in `runend.js` caps the reason's width at the
+title's own rendered width — measured, not assumed, since "Busted!" and "Patience wasn't your fare's
+strong suit." are nowhere near the same length — and CSS `text-wrap: balance` picks the break point
+inside that cap, so a two-line reason comes out as two even lines rather than a long first line and
+a short orphan word on the second.
 
 Type and rhythm scale with the viewport, off whichever axis is tighter: height for the list as a
 whole (a landscape phone runs it past the fold) and width for the rows (the longest, `"Shift  Early

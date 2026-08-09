@@ -47,38 +47,19 @@ const STAT_STRIDE = ROW_MS + ROW_GAP;   // start-to-start, so rows never overlap
 
 const RISE = 'cubic-bezier(0.22, 1, 0.36, 1)';   // the same ease the earnings pop and money bump use
 
-// The reason line — "The fuzz caught you slippin'.", "That's coming out of your paycheck." — is
-// sized to this fraction of the viewport, not the card. The three lines run from 30 to 41
-// characters, and a fixed font-size either wasted the width on the short one or wrapped the long
-// one; scaling each to the same on-screen width instead makes every ending read with the same
-// weight regardless of which copy it landed on.
-const REASON_WIDTH_RATIO = 0.8;
-// A safety valve on the maths, not a design target: keeps a future one-word reason legible and an
-// unexpectedly long one off the edge of the screen, without capping the sizes the three shipped
-// lines actually land on.
-const REASON_MIN_PX = 10;
-const REASON_MAX_PX = 72;
-
 /** Everything at rest, no motion. Used under `prefers-reduced-motion`. */
 const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 /**
- * Scale the reason line's font-size so its one line spans `REASON_WIDTH_RATIO` of the viewport
- * width, whatever the copy. Measured against the CSS base size rather than a hardcoded one, so a
- * future tweak to that base doesn't need a matching change here — reset to it first so a second
- * call (there isn't one today, but nothing here assumes there won't be) can't compound a previous
- * scale onto itself. `white-space: nowrap` is what keeps this a fit rather than a wrap: without it
- * a long reason would break the line before it ever reached the target width.
+ * Cap the reason's width at the title's own rendered width, so a two-line reason reads as sitting
+ * *under* the title rather than spilling past it. `text-wrap: balance` (see the CSS) does the rest:
+ * given that cap, it picks a break point that leaves both lines close to the same length instead of
+ * a short orphan hanging off a nearly-full first line.
  */
-function fitReasonWidth(el) {
-  if (!el.textContent) return;
-  el.style.fontSize = '';
-  const natural = el.getBoundingClientRect().width;
-  if (natural <= 0) return;
-  const basePx = Number.parseFloat(getComputedStyle(el).fontSize);
-  const target = window.innerWidth * REASON_WIDTH_RATIO;
-  const size = Math.min(REASON_MAX_PX, Math.max(REASON_MIN_PX, basePx * (target / natural)));
-  el.style.fontSize = `${size}px`;
+function matchReasonWidth(heading, sub) {
+  if (!sub.textContent) return;
+  const width = heading.getBoundingClientRect().width;
+  if (width > 0) sub.style.maxWidth = `${width}px`;
 }
 
 /**
@@ -194,7 +175,7 @@ export function showRunEnd(root, { title, reason, stats, onRetry }) {
 
   card.append(heading, sub, column, retry);
   root.append(card);
-  fitReasonWidth(sub);
+  matchReasonWidth(heading, sub);
 
   const lastStatAt = STATS_AT + Math.max(0, cells.length - 1) * STAT_STRIDE;
   const retryAt = lastStatAt + ROW_MS + RETRY_GAP;

@@ -145,25 +145,27 @@
            measured against. Capped at a phone's content width (390px screen less the 16px gutters
            either side) so the desktop layout *is* the mobile layout: the stats rows push label and
            value to opposite edges, and on a 1280px screen that would otherwise strand a number
-           three feet away from its own name. The reason line is deliberately the exception — see
-           `.run-end-reason` — and is left to overflow this box, centred on the same axis. */
+           three feet away from its own name. The title and reason are the exception — on a wide
+           enough title neither is shy about overflowing this box, centred on the same axis; see
+           `.run-end-reason`. */
         width: 100%; max-width: min(358px, 100%);
       }
       /* Type and rhythm scale with the viewport. Height drives most of it — it is a short viewport
          (a landscape phone) that runs the list past the fold — and the clamps hold the full-size
          layout down to ~560px tall, shrinking it below that so "Play again" stays above the fold
-         on a 390px-high phone in landscape. */
+         on a 390px-high phone in landscape. The title is the loudest thing on the card on purpose —
+         "Wrecked!" is the headline, and the reason underneath it is a caption, not a co-headline. */
       #run-end .run-end-title {
-        font-size: clamp(26px, 5.4vh, 40px); font-weight: 800; line-height: 1.1;
+        font-size: clamp(32px, 7.4vh, 56px); font-weight: 800; line-height: 1.1;
         letter-spacing: -0.01em;
       }
-      /* 15px is only the baseline `fitReasonWidth` (runend.js) measures against before scaling the
-         line up to 80% of the viewport width — see that function for why. `nowrap` is what makes it
-         a fit rather than a wrap: the card above caps at 358px, but this is sized against the
-         screen, so it is left free to run past that box's edges rather than break onto a second
-         line. It stays centred because the box it is overflowing is itself centred on screen. */
+      /* Deliberately smaller than the title and left free to wrap — `matchReasonWidth` (runend.js)
+         caps its width at the title's own rendered width, and `text-wrap: balance` then picks the
+         break point that leaves two even lines rather than a short orphan word. Capping at the
+         title's width rather than the card's 358px is what keeps a two-line reason reading as a
+         caption sitting under the headline instead of a block wider than it. */
       #run-end .run-end-reason {
-        margin-top: 6px; font-size: 15px; opacity: 0.72; white-space: nowrap;
+        margin-top: 8px; font-size: clamp(17px, 3.6vh, 24px); opacity: 0.72; text-wrap: balance;
       }
 
       /* One stat per row, label pinned to the left edge and value to the right — a ledger, not a
