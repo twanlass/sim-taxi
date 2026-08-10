@@ -309,6 +309,38 @@ meshes on its group, since it is drawn as a group anyway.
 The rule itself is `steerToward()`, exported because the police cruiser runs it too — see
 [The bust chase](#the-bust-chase).
 
+### None of the vehicle meshes frustum-cull
+
+All five — `mesh`, `wheelMesh`, `truckMesh`, `truckWheelMesh`, `truckBoxMesh` — set
+`frustumCulled = false`, through `neverCull()` in `createTraffic`. Three computes an
+`InstancedMesh`'s bounding sphere **once**, lazily, on the first frame the renderer culls it, from
+whatever the instance matrices held at that moment, and never refreshes it. These meshes then drive
+off across the city underneath it, and get culled against where they *were*.
+
+The cars got away with it — 11 of them spread over the map on frame one give a sphere the size of
+the city, which every frustum intersects. **The trucks are where it showed**, and it shipped:
+
+- 27% of runs open with no truck at all (11 ambient vehicles at `TRUCK_CHANCE`), so the sphere is
+  computed off `count = 0` and comes back **empty** — radius −1, pinned to the world origin. Every
+  truck for the rest of that run draws only while the middle of the map is in frame.
+- A run that opens with one truck latches a 3.1-unit bubble around wherever it stood at warmup and
+  loses it as soon as it drives out. Measured on a portrait phone, where the camera follows the taxi
+  rather than framing the whole city: a truck plainly on screen went undrawn in **27%** of sampled
+  frames.
+- The cab and the box are separate meshes with separate spheres — the box's is smaller and set back
+  — so the box can fail the test on a frame the cab passes. That is what got reported: a cab and its
+  wheels driving down the street with no cargo box on the back.
+- The shadow pass culls against the *sun's* frustum, which covers the whole city, so a stale sphere
+  still inside the city keeps the shadow drawing at the instances' real positions — an invisible
+  truck towing a truck-shaped shadow. The AO prepass uses the play camera, so the occlusion
+  disappears with the truck.
+
+Turning culling off costs nothing here: the scene is about ten draw calls, and a mesh holding every
+vehicle in the city is one the frustum test would pass anyway. `game/carghosts.js` already did this,
+for the same reason; the traffic meshes were the ones that never got it.
+`tools/probe.mjs` asserts both the flag and the symptom — one truck, warmed up, driven for a minute
+under a phone-shaped follow camera, checked against `WebGLRenderer.projectObject`'s own rule.
+
 ### Box trucks
 
 A rare ambient variant — `TRUCK_CHANCE` (1/12) of a spawned car, rolled once per car in

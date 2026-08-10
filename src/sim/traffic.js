@@ -1097,7 +1097,38 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // trucks — cheap insurance against the buffer running out mid-run, for the same "nothing next to
   // rebuilding the mesh" reason MAX_CARS itself is sized for the ceiling rather than the opener.
   const MAX_AMBIENT = Math.max(0, MAX_CARS - 1);
-  const mesh = new THREE.InstancedMesh(carGeometry(), propMaterial(), MAX_AMBIENT);
+
+  /**
+   * Take a vehicle mesh out of frustum culling, and say why.
+   *
+   * Three computes an InstancedMesh's bounding sphere **once**, lazily, on the first frame the
+   * renderer culls it, from whatever the instance matrices held at that moment — and never again.
+   * These meshes then drive off across the city under it. `game/carghosts.js` already turns culling
+   * off for exactly this reason; the traffic meshes never did, and the trucks are where it showed:
+   *
+   *   - A run that opens with no trucks (27% of them: 11 ambient vehicles at TRUCK_CHANCE) latches
+   *     an *empty* sphere off `count = 0`, radius −1, pinned to the world origin. Every truck for
+   *     the rest of that run is drawn only while the middle of the map is in shot.
+   *   - A run that opens with one truck latches a 3.1-unit bubble around wherever that truck stood
+   *     at warmup, and loses it as soon as it drives out of it. Measured on a phone-shaped
+   *     viewport: a truck visibly on screen was culled away in 27% of sampled frames.
+   *   - The cab and the box are separate meshes with separate spheres — the box's is smaller and
+   *     set back — so the box can fail the test on a frame the cab passes. That is the reported
+   *     bug: a cab and two wheels driving down the street with no cargo box on the back.
+   *
+   * The shadow pass culls against the *sun's* frustum, which covers the whole city (game/scene.js),
+   * so a stale sphere still inside the city keeps the shadow drawing at the instances' real
+   * positions — an invisible truck towing a truck-shaped shadow.
+   *
+   * Culling these off is free: the scene is about ten draw calls, and every one of these meshes
+   * spans the whole city once its instances spread out, so the test it skips is one it would pass.
+   */
+  const neverCull = (instanced) => {
+    instanced.frustumCulled = false;
+    return instanced;
+  };
+
+  const mesh = neverCull(new THREE.InstancedMesh(carGeometry(), propMaterial(), MAX_AMBIENT));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.castShadow = true;
   mesh.name = 'cars';
@@ -1108,9 +1139,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // because every instance of that shares one matrix, and these two have to turn independently
   // of it.
   const FRONT = wheelAnchors(CAR_LEN, CAR_W).filter((a) => a.front);
-  const wheelMesh = new THREE.InstancedMesh(
+  const wheelMesh = neverCull(new THREE.InstancedMesh(
     wheelGeometry(), propMaterial(), MAX_AMBIENT * FRONT.length,
-  );
+  ));
   wheelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   wheelMesh.castShadow = true;
   wheelMesh.name = 'carWheels';
@@ -1119,16 +1150,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // The truck cab and its front wheels, as their own pair of instanced meshes — same shape as the
   // car pair above, just built from truckCabGeometry() at TRUCK_LEN/TRUCK_W and painted from the
   // same PALETTE.carBody a car is (see paintTruck below).
-  const truckMesh = new THREE.InstancedMesh(truckCabGeometry(), propMaterial(), MAX_AMBIENT);
+  const truckMesh = neverCull(
+    new THREE.InstancedMesh(truckCabGeometry(), propMaterial(), MAX_AMBIENT),
+  );
   truckMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   truckMesh.castShadow = true;
   truckMesh.name = 'trucks';
   truckMesh.count = trucks.length;
 
   const TRUCK_FRONT = wheelAnchors(TRUCK_LEN, TRUCK_W).filter((a) => a.front);
-  const truckWheelMesh = new THREE.InstancedMesh(
+  const truckWheelMesh = neverCull(new THREE.InstancedMesh(
     wheelGeometry(), propMaterial(), MAX_AMBIENT * TRUCK_FRONT.length,
-  );
+  ));
   truckWheelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   truckWheelMesh.castShadow = true;
   truckWheelMesh.name = 'truckWheels';
@@ -1138,7 +1171,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // never painted — see truckBoxGeometry() for why one InstancedMesh cannot hold both a tinted
   // cab and a fixed-colour box. `setColorAt` is never called on it, so `instanceColor` stays null
   // and the material draws the geometry's own baked PALETTE.truckBox untouched.
-  const truckBoxMesh = new THREE.InstancedMesh(truckBoxGeometry(), propMaterial(), MAX_AMBIENT);
+  const truckBoxMesh = neverCull(
+    new THREE.InstancedMesh(truckBoxGeometry(), propMaterial(), MAX_AMBIENT),
+  );
   truckBoxMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   truckBoxMesh.castShadow = true;
   truckBoxMesh.name = 'truckBoxes';
