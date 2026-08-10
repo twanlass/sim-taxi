@@ -266,6 +266,33 @@ The flags exist because of a failure a desktop cannot see and a phone cannot rep
 deliberately *not* among them: MSAA and the stencil buffer ride in the same back buffer but they
 are separate requests, and a run with multisampling off should still get its ghost outlines.
 
+### Losing the context — `game/recovery.js`
+
+A GPU can take the context away, and one did: a PowerVR D-Series (Tensor G5) rendered the city
+correctly for about a second, reset, restored, and did it again. Draw calls and triangle counts
+were normal right up to each loss, so the scene was never the problem — the device would not keep
+giving us a context on the budget being asked for.
+
+Three handles the mechanics already: it calls `preventDefault()` on the loss, which is what lets
+the browser restore at all, no-ops every `render()` in between, and re-initialises on restore.
+What it cannot do is conclude that **the budget was the problem**, so left alone that loop is a
+black screen for as long as the player will look at one.
+
+Two steps, split by what a live renderer can change:
+
+1. **First loss — in place.** Pixel ratio to 1 and the shadow map to 1024. Both are plain
+   properties, so no material is touched and **the run survives** — which matters, because the
+   player is mid-fare with a clock draining and a reload is a lost run. It is a visibly softer
+   picture and is not pretended otherwise; a context loss is not a routine event on a healthy
+   page, and the cheapest thing that might stop a second one is worth more than the sharpness.
+2. **Second loss — reload into `?safe`.** MSAA is a context attribute and AO is baked into every
+   shader before any geometry is meshed, so neither can be given up without starting over. By then
+   the run is going either way, and a playable game is worth more than the fare in progress.
+
+Already in safe mode and still losing it? It stops, and leaves the mirrored `Context Lost.` on
+screen saying so. A reload loop is worse than a black screen, because it also takes away the panel
+that would have explained it.
+
 ### The renderer readout — `game/diag.js`
 
 `?diag` puts a six-line panel in the bottom-left corner. It is `pointer-events: none`, so the Loco

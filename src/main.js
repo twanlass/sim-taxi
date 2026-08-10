@@ -38,6 +38,7 @@ import { findRoute, planOrigin } from './game/route.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, getMsaa, getShadowMapSize, getPixelRatioCap, getDiagnostics } from './util/shot.js';
 import { createDiagnostics } from './game/diag.js';
+import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE } from './palette.js';
@@ -116,6 +117,12 @@ const ao = createAmbientOcclusion(renderer, { enabled: aoEnabled });
 const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: budget });
 
 const { scene, sun, hemi, sky } = createScene({ shadowMapSize: budget.shadowMapSize });
+
+// A GPU that takes the context away gets the budget turned down rather than the player getting a
+// black screen for the rest of the run — see `game/recovery.js` for the two steps and why the
+// split between them is where it is. Attached after the sun exists, since step one shrinks its
+// shadow map.
+attachContextRecovery({ renderer, sun, budget, onNotice: (text) => diag.note(text) });
 
 /**
  * The one place the frame is drawn. Three callers reach it — the live loop, shot mode's single

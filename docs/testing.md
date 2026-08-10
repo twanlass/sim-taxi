@@ -210,6 +210,34 @@ kind* of failure this is before anything is changed, and `ctx LOST`, `calls 0`, 
 black `mid`, and `calls 40` with a *sky-blue* `mid` are four different investigations. Then
 `?safe`, which is the one load that says whether the device will render this scene at all.
 
+### What the first one turned out to be
+
+`?diag` on the reporting device, in one screenshot:
+
+```
+ANGLE (Imagination Technologies, PowerVR D-Series DXT-48-1536, OpenGL ES 3.2)
+webgl2 · aa yes (4x) · stencil yes (8b)
+depth 24b · maxtex 8192 · vary 15 · funif 1024 · tex 24
+flags msaa=on shadows=2048 dpr=2 ao=on
+ctx LOST · calls 37 (stale) · tris 22969 · progs 27
+822x1520 @2.625 · 60fps · mid --
+```
+
+`THREE.WebGLRenderer: Context Lost.` three times over, and the city visibly rendering for about a
+second between each. **A context-loss loop**, not a rendering bug: 37 draw calls and 23k triangles
+say the scene was fine right up to the moment the driver reset. The GPU is a PowerVR D-Series —
+the Tensor G5 — which is a different vendor from every previous Pixel and a very new driver.
+
+`game/recovery.js` is the answer to the loop itself: turn the budget down rather than leave the
+player looking at a black screen. It de-escalates in two steps, split by what a live renderer can
+change (pixel ratio, shadow map size) versus what needs a new context and new programs (MSAA, AO).
+
+Note `vary 15` — `MAX_VARYING_VECTORS` at the ES spec minimum, against 31 on a desktop. It is not
+what caused this (a program over the limit fails to link, and 27 linked), but it is the sort of
+headroom this panel exists to show, and it is worth remembering before adding a varying.
+
+### Reading the pair
+
 The first report of this was **Android Chrome, with iOS Chrome on the same build working fine**.
 That pair is worth reading carefully rather than as "mobile is broken": iOS Chrome is WebKit, so
 it shares nothing below the JavaScript with Android Chrome's Blink and ANGLE-over-GLES. It says

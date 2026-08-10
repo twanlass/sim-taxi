@@ -138,6 +138,9 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
   let sinceFlush = 0;
   let frames = 0;
   const drawingBuffer = new THREE.Vector2();
+  // Sticky, because the events worth noting here are the ones that have already happened by the
+  // time anyone reads the panel — a context loss and what was given up to survive it.
+  let notice = '';
 
   element.hidden = false;
 
@@ -210,8 +213,17 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
       // Last, because it is the line you only need once the two above have failed to explain
       // anything. `mid` is the centre pixel of the frame on screen: black here and black on the
       // screen agree, and anything else means the frame was drawn and never presented.
-      + ` · mid ${readCentrePixel() ?? '--'}`;
+      + ` · mid ${readCentrePixel() ?? '--'}`
+      + notice;
   }
 
-  return { update };
+  return {
+    update,
+    /**
+     * Record something that happened to the renderer since it was built — a context loss, a
+     * budget the recovery gave up. The header is written once from the *initial* configuration,
+     * so without this the panel would keep reporting a `dpr=2` that is no longer true.
+     */
+    note(text) { notice = `\n${text}`; },
+  };
 }
