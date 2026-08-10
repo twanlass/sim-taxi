@@ -1200,7 +1200,7 @@ function frame() {
   // The route is a property of the selection, not of the world — deselecting clears it from view
   // even though the taxi keeps driving it.
   if (selected && traffic.taxi.pendingTarget && !fares.state.gameOver) {
-    routeLine.update(traffic.taxi, traffic.taxi.route);
+    routeLine.update(traffic.taxi, traffic.taxi.route, dt);
   } else {
     routeLine.hide();
   }

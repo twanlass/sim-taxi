@@ -20,6 +20,11 @@ import {
  * Now it follows the same lane centreline and the same junction arcs the car itself drives, at
  * lane width. Nothing ahead of the car depends on where the car is, so the band only ever gets
  * *shorter* from behind — it never re-shapes.
+ *
+ * Chevrons scroll along the band toward the destination, so a glance tells you which way the taxi
+ * is about to go without reading the road layout — a stationary wash of colour reads as "a route
+ * exists", not "this is the direction of it". They ride the same `vDist`/`uLength` fade already
+ * computed for the head and tail, so they never draw past either end of the band.
  */
 
 // The taxi drives one lane, so the band covers one lane: ROAD_W is both lanes.
@@ -223,13 +228,20 @@ function mitreOffsets(path, halfWidth) {
   return offsets;
 }
 
+// Chevrons march from the car toward the destination — the direction of travel — one period every
+// CHEVRON_PERIOD units, at CHEVRON_SPEED units per second of scroll.
+const CHEVRON_PERIOD = 3;
+const CHEVRON_SPEED = 4;
+
 export function createRouteLine(scene) {
   // Two triangles per segment of the path.
   const positions = new Float32Array(MAX_POINTS * 6 * 3);
   const dists = new Float32Array(MAX_POINTS * 6);
+  const acrosses = new Float32Array(MAX_POINTS * 6);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('aDist', new THREE.BufferAttribute(dists, 1));
+  geometry.setAttribute('aAcross', new THREE.BufferAttribute(acrosses, 1));
 
   // The fade is per-fragment off a distance-along-the-path varying rather than per-vertex alpha:
   // vertex alpha would need the path re-tessellated at both fade boundaries every frame (and
@@ -244,12 +256,16 @@ export function createRouteLine(scene) {
       uFadeHead: { value: FADE_HEAD },
       uFadeTail: { value: FADE_TAIL },
       uMultiply: { value: 0 },
+      uTime: { value: 0 },
     },
     vertexShader: /* glsl */`
       attribute float aDist;
+      attribute float aAcross;
       varying float vDist;
+      varying float vAcross;
       void main() {
         vDist = aDist;
+        vAcross = aAcross;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
@@ -265,12 +281,31 @@ export function createRouteLine(scene) {
       uniform float uFadeHead;
       uniform float uFadeTail;
       uniform float uMultiply;
+      uniform float uTime;
       varying float vDist;
+      varying float vAcross;
+      const float CHEVRON_PERIOD = ${CHEVRON_PERIOD.toFixed(4)};
+      const float CHEVRON_SPEED = ${CHEVRON_SPEED.toFixed(4)};
       void main() {
         float head = smoothstep(uHeadGap, uHeadGap + uFadeHead, vDist);
         float tail = smoothstep(0.0, uFadeTail, uLength - vDist);
-        float a = uOpacity * head * tail;
-        gl_FragColor = vec4(uColor, a);
+        float envelope = uOpacity * head * tail;
+
+        // A ">" bent around the centreline, scrolling toward the destination (+vDist) over time so
+        // it reads as motion in the direction the taxi is about to drive, not a static barber pole.
+        // vAcross runs -1..1 across the lane; skewing the phase by how far off-centre a fragment
+        // sits pulls the two edges of the stripe back into arms, leaving the point on the
+        // centreline leading — the same shape an arrow makes.
+        float phase = fract((vDist - abs(vAcross) * (CHEVRON_PERIOD * 0.5) - uTime * CHEVRON_SPEED) / CHEVRON_PERIOD);
+        float lineDist = abs(phase - 0.5);
+        float chevron = 1.0 - smoothstep(0.07, 0.12, lineDist);
+        // Chevrons only brighten the band, never darken it or exceed full alpha, and fade out with
+        // the same head/tail envelope as the band itself so none draw past its ends.
+        float boost = chevron * envelope * 0.9;
+
+        float a = envelope + boost;
+        vec3 rgb = mix(uColor, vec3(1.0), boost * 0.85);
+        gl_FragColor = vec4(rgb, a);
         #include <colorspace_fragment>
         gl_FragColor = uMultiply > 0.5
           ? vec4(mix(vec3(1.0), gl_FragColor.rgb, a), 1.0)
@@ -305,7 +340,9 @@ export function createRouteLine(scene) {
   mesh.visible = false;
   scene.add(mesh);
 
-  function update(car, route) {
+  function update(car, route, dt = 0) {
+    material.uniforms.uTime.value += dt;
+
     const path = routePath(car, route);
     if (path.length < 2) { mesh.visible = false; return; }
 
@@ -334,11 +371,16 @@ export function createRouteLine(scene) {
 
     let v = 0;
     let n = 0;
-    const push = (p, o, dist) => {
+    // across is the side flag (+1/-1), not the mitre magnitude — the chevron shape only needs to
+    // know which edge of the lane a vertex sits on, so a sharp mitre stretching past HALF_WIDTH
+    // doesn't distort it.
+    const push = (p, o, dist, across) => {
       positions[v++] = p.x + o.x;
       positions[v++] = Y;
       positions[v++] = p.z + o.z;
-      dists[n++] = dist;
+      dists[n] = dist;
+      acrosses[n] = across;
+      n++;
     };
 
     for (let k = 0; k < path.length - 1; k++) {
@@ -348,13 +390,14 @@ export function createRouteLine(scene) {
       const ob = offsets[k + 1];
       const neg = (o) => ({ x: -o.x, z: -o.z });
 
-      push(a, oa, s[k]);      push(b, ob, s[k + 1]);      push(b, neg(ob), s[k + 1]);
-      push(a, oa, s[k]);      push(b, neg(ob), s[k + 1]); push(a, neg(oa), s[k]);
+      push(a, oa, s[k], 1);      push(b, ob, s[k + 1], 1);      push(b, neg(ob), s[k + 1], -1);
+      push(a, oa, s[k], 1);      push(b, neg(ob), s[k + 1], -1); push(a, neg(oa), s[k], -1);
     }
 
     geometry.setDrawRange(0, n);
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.aDist.needsUpdate = true;
+    geometry.attributes.aAcross.needsUpdate = true;
     geometry.computeBoundingSphere();
     mesh.visible = n > 0;
   }
