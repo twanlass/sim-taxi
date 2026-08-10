@@ -971,6 +971,33 @@ turn. A fixed **5.5 units** of road lands in the same place at any speed, and fr
 stops. `tools/probe.mjs` drives the same barricade at cruise and at 22 u/s and asserts both arcs
 measure `HOP_LEN` and both peak at the same height.
 
+**Height is not part of that chain.** What has to land before the hold line is the *span*; the apex
+costs nothing. `HOP_HEIGHT` is 2.75 — most of a car length, about 21px at play zoom — against the
+1.55 it started at, which at a 3/4 camera was a lift rather than a jump: the taxi's shadow never
+separated from it far enough to say the wheels had left the road, and the shadow gap is what sells
+it. `HOP_PITCH` went 0.26 → 0.34 with it.
+
+**Touchdown hands off to a bounce**, and that one is paced by a **clock**, which is not an
+inconsistency with the paragraph above. The arc is distance-paced because *where it ends* is the
+whole constraint. A bounce ends wherever it likes — nothing downstream reads it, it moves the
+rendered group and nothing else — and what it models is a spring settling, which happens in
+seconds. Paced over 3.4 units instead it ran 0.4s at cruise and 0.15s in overdrive: nine frames for
+two rebounds, somewhere between a flicker and nothing.
+
+It is two parts. `landingBounce(t)` is `|sin|` over two periods under a linear decay, so the second
+rebound comes back at a third of the first; and a one-frame **nose-down impulse into the pitch
+spring** (`pitchV -= 1.25`), which is underdamped at ζ ≈ 0.4 and rocks itself back out — the reason
+the suspension hit is an impulse rather than a second hand-animated curve. The decay was squared to
+begin with, which sounds like the same shape and is not: the first hump peaks a quarter of the way
+in, where a squared decay has already taken 44% off it, so the visible rebound was 0.22 units
+against the 0.4 the constant claimed.
+
+`car.bounceT` is a **separate field from `car.hopFrom`** on purpose. Everything that asks "is the
+taxi airborne" — the barricade's landing event, the roadworks pack-up, the probe's arc assertions —
+is asking about the *arc*, and a bounce that answered yes would move all of them. `landingBounce`
+is exported so the probe can assert the curve directly: measured off the rendered taxi it would be
+measuring the speed bob and the pitch lift too, and in overdrive those are three times its size.
+
 Three constants have to keep closing here, and they are easy to move one at a time:
 
 ```
@@ -996,14 +1023,23 @@ already past the line when the zone finished rising.
 ### Packing up
 
 Once the taxi is **through** — off the closed lanes and back on the ground, not merely having
-smashed something — the zone waits `LEAVE_DWELL` for the trestle to finish cartwheeling and the
-cones to settle, then fades out and sinks back under the road over `FADE_OUT`. The sink is the
-mirror of the arrival and works for the same reason: the slab is opaque and drawn first, so
-whatever has gone below y = 0 fails the depth test for free.
+smashed something — **and the crew has gone**, the zone waits `LEAVE_DWELL` for the trestle to
+finish cartwheeling and the cones and splinters to settle, then fades out and sinks back under the
+road over `FADE_OUT`. The sink is the mirror of the arrival and works for the same reason: the slab
+is opaque and drawn first, so whatever has gone below y = 0 fails the depth test for free.
 
 The trigger is deliberately "off the closed lanes", not "has smashed": the taxi hits the barricade
 at the *mouth* of the street and still has the whole block to drive, so fading from the smash would
 dissolve the site around a car that is still inside it.
+
+The **crew clause is the other half of the same lesson, and it only ever failed at speed.** The
+zone's fade starts when the taxi is clear of the street, and in overdrive that is half a second
+after the smash — while the two workers are still mid-sprint. The old rule started the site fading
+at about t = 1.35s against a run that ends at 1.15s and a worker fade that ends at 1.65s, so they
+spent the back half of the sprint dissolving: they read as *vanishing instead of escaping*. The
+zone now waits for `workersGone()`, which sequences the beats rather than fixing the durations —
+run, hold, fade, and only then the site. `probe.mjs` asserts the ordering, not the numbers, so the
+constants stay free to move.
 
 **The half of the teardown that is not cosmetic is giving the street back.** Both lane sets are
 cleared — `setClosedLanes` and `setRoadworkLanes` — because a closure left behind after the
@@ -1014,8 +1050,10 @@ is an assertion for exactly this, since nothing on screen would ever show it.
 Workers all run the moment a barricade goes, rather than only those within `FLEE_R`. The proximity
 rule is right for a taxi merely driving down the street and wrong once something is in the air — a
 worker calmly holding a shovel eight units from a cartwheeling trestle reads as a figure that has
-not been told what scene it is in. They fade out individually once they reach the kerb and turn to
-look back; their alpha multiplies into the zone's rather than being overwritten by it.
+not been told what scene it is in. They reach the kerb, turn to look back, hold that pose for
+`WORKER_HOLD` and only then fade — a figure that starts dissolving the instant they stop never
+reads as having got there. Their alpha multiplies into the zone's rather than being overwritten
+by it.
 
 ## Police priority corridor
 

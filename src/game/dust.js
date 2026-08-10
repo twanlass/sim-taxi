@@ -9,7 +9,10 @@ import * as THREE from 'three';
 // One InstancedMesh, one draw call, a ring buffer of slots. Per-puff alpha needs a custom
 // attribute — `instanceColor` is RGB only — so a small shader patch multiplies it in at the end.
 
-const MAX_PUFFS = 90;
+// 140 rather than the original 90 because a smash now costs 26 slots and its landing another 14.
+// At 90 a burst plus its landing took nearly half the pool, and the boost trail — which spends a
+// slot every frame — recycled the burst's own puffs out from under it before they had faded.
+const MAX_PUFFS = 140;
 const LIFE = 1.05;
 const START_ALPHA = 0.62;
 const START_SIZE = 0.5;
@@ -61,6 +64,17 @@ export function createDust(scene, camera, rng) {
   const spin = new Float32Array(MAX_PUFFS);
   const tilt = new Float32Array(MAX_PUFFS);
   const wide = new Float32Array(MAX_PUFFS);   // per-puff aspect, so they aren't obvious clones
+  // Per-puff multiplier on the whole size curve. `scale` used to be folded into `wide`, which is
+  // the *x* aspect alone — so a puff asked to be two and a half times the size came out two and a
+  // half times as wide and exactly as tall and deep as a boost puff. Seen from this camera, which
+  // looks down at 3/4, that reads as a smear on the road rather than as a cloud coming off an
+  // impact. It is why the burst kept being described as too small while its numbers said otherwise.
+  const grow = new Float32Array(MAX_PUFFS);
+  // Air resistance, per puff, 1/s. Zero for the boost trail — those puffs are laid down and left,
+  // and giving them drag shortens a trail that is already tuned. A burst wants it: dust thrown out
+  // of an impact punches away from the point and then stops, and the stop is the half that reads
+  // as an impact rather than as a plume.
+  const drag = new Float32Array(MAX_PUFFS);
 
   const dummy = new THREE.Object3D();
 
@@ -80,12 +94,15 @@ export function createDust(scene, camera, rng) {
    * `scale` multiplies the puff's size and how hard it is thrown, and `spread` how far from the
    * point it starts. Both default to the boost trail's own values, which is what every caller
    * outside the barricade wants.
+   *
+   * Returns the slot, so a caller that wants a different *shape* of throw — the burst below — can
+   * overwrite the velocity it was given rather than needing a second spawn path.
    */
   function add(x, z, yaw, scale = 1, spread = 0.35) {
     const slot = next;
     next = (next + 1) % MAX_PUFFS;
 
-    span[slot] = LIFE * (scale > 1 ? 1.3 : 1);
+    span[slot] = LIFE * (scale > 1 ? 1.5 : 1);
     life[slot] = span[slot];
     px[slot] = x + rng.jitter(spread);
     py[slot] = 0.3;
@@ -98,8 +115,11 @@ export function createDust(scene, camera, rng) {
 
     spin[slot] = rng.range(0, Math.PI * 2);
     tilt[slot] = rng.range(-1, 1);
-    wide[slot] = rng.range(0.85, 1.3) * scale;
+    wide[slot] = rng.range(0.85, 1.3);
+    grow[slot] = scale;
+    drag[slot] = 0;
     alphas[slot] = START_ALPHA;
+    return slot;
   }
 
   /**
@@ -107,15 +127,35 @@ export function createDust(scene, camera, rng) {
    *
    * The smash used to be two ordinary trail puffs, which is what the taxi lays down every frame of
    * a boost — so the one moment in the run that is meant to read as an impact produced two frames'
-   * worth of ordinary exhaust. This is the same dust, thrown wider and harder and thirteen puffs at
-   * once: the pool is 90 slots, so a burst costs about a seventh of it and still leaves the boost
-   * trail behind the taxi intact.
+   * worth of ordinary exhaust. It then became thirteen of them thrown wider, which was better and
+   * still wrong for a reason the numbers hid: `scale` only ever reached the x aspect (see `grow`),
+   * so the burst was thirteen *smears*, not thirteen bigger clouds.
    *
-   * Scattered around the point rather than trailing from it, because the barricade is a thing the
-   * taxi hit rather than a surface it is spinning its wheels on.
+   * What it is now: twenty-six puffs, genuinely bigger in all three axes, thrown **radially out of
+   * the impact point** rather than trailing off the back of the car — a ring that punches outward
+   * and then stops against its own drag, which is the shape dust makes when something hits
+   * something. The pool is 140 slots, so this costs under a fifth of it and the trail behind the
+   * taxi survives intact.
+   *
+   * `power` scales the whole thing at once, so the landing can be the same event turned down
+   * rather than a second set of hand-picked numbers that drift away from these.
    */
-  function burst(x, z, yaw, count = 13) {
-    for (let n = 0; n < count; n++) add(x, z, yaw + rng.jitter(1.4), rng.range(1.7, 2.6), 1.15);
+  function burst(x, z, yaw, count = 26, power = 1) {
+    for (let n = 0; n < count; n++) {
+      const slot = add(x, z, yaw + rng.jitter(1.4), rng.range(1.9, 3.1) * power, 1.35 * power);
+
+      // Fanned around the circle by index rather than at random: 26 random bearings clump, and a
+      // clump reads as a few big puffs in one place instead of as a wall going up. The jitter on
+      // top is what stops the ring looking stamped.
+      const bearing = (n / count) * Math.PI * 2 + rng.jitter(0.45);
+      const out = rng.range(4.5, 10.5) * power;
+      vx[slot] = Math.cos(bearing) * out;
+      vz[slot] = Math.sin(bearing) * out;
+      // Low against the outward throw. Dust off a road impact boils along the ground and lifts
+      // late; thrown up as hard as it goes out, it climbs clear of the car and reads as a plume.
+      vy[slot] = rng.range(1.6, 3.4) * power;
+      drag[slot] = 3.4;
+    }
   }
 
   function update(dt) {
@@ -129,9 +169,16 @@ export function createDust(scene, camera, rng) {
       py[slot] += vy[slot] * dt;
       pz[slot] += vz[slot] * dt;
       vy[slot] -= 0.6 * dt;                            // settles back down as it spreads
+      // Exponential rather than subtractive, so it is frame-rate independent and cannot push a
+      // puff backwards through zero on a long frame.
+      if (drag[slot] > 0) {
+        const keep = Math.exp(-drag[slot] * dt);
+        vx[slot] *= keep;
+        vz[slot] *= keep;
+      }
       spin[slot] += tilt[slot] * dt;
 
-      const size = START_SIZE + (END_SIZE - START_SIZE) * t;
+      const size = (START_SIZE + (END_SIZE - START_SIZE) * t) * grow[slot];
 
       dummy.position.set(px[slot], py[slot], pz[slot]);
       dummy.rotation.set(tilt[slot] * 0.4, spin[slot], 0);
