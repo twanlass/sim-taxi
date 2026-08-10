@@ -26,6 +26,13 @@ const GEO = new THREE.OctahedronGeometry(DIAMOND_R, 0);
 
 // The outline's thickness, as a multiple of the diamond. At play zoom (1 world unit ≈ 7.7px) 1.12
 // is about 1.7px of rim, which is the weight the marker pins carried back when they had posts.
+//
+// **One weight, for every state the marker is in.** It used to double as the "the taxi has been
+// sent at this rider" mark, re-weighted to 1.34 (≈5px) while a fare was directed and dropped back
+// to this on pickup — so the same crystal wore two different outlines on its way across the board.
+// The heavy one read as a thick black border rather than as a rim, and the difference registered
+// as the marker changing shape mid-trip rather than as a state. The route band already says which
+// rider the car is on its way to, and it says it along the whole road rather than on one corner.
 export const RIM_SCALE = 1.12;
 
 const BLACK = 0x000000;
@@ -307,16 +314,6 @@ export function createDiamond(colorHex) {
     },
     /** What the vessel is currently showing — for the headless tools, which have no GL to read. */
     getFill: () => fill,
-    /**
-     * Re-weight the outline. Used to ink a rider the taxi has been sent at.
-     *
-     * Weight rather than colour, because the crystal underneath is already using colour to say
-     * something: a yellow rim was tried and it disappears into the yellow urgency level, which is
-     * the exact half of the clock where "am I already going to this one?" gets asked most.
-     */
-    setRim(scale) {
-      rim.scale.setScalar(scale);
-    },
   };
 }
 
