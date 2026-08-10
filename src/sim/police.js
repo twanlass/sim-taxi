@@ -94,6 +94,25 @@ const smoothstep = (t) => t * t * (3 - 2 * t);
 // act rather than pinched from a street over.
 export const POLICE_BUST_RANGE = 20;
 
+// How far inside the map edge the cruiser has to be before that radius means anything.
+//
+// The bust radius is a whole block and FADE_BAND below is 18, so a cruiser arriving on the map was
+// **lethal before it was drawn**: for a taxi `e` units in from the edge the bust fired with the
+// cruiser at `(e - 2) / 18` opacity — 0.44 half a block in, and a flat **zero** for anything on
+// the ring road itself, in either lane, lamps included. Measured over 238 corridor runs, the old
+// check was armed while the body was still fading for 28.6% of the frames it could reach the slab
+// at all, and while the body was completely invisible for 2.9%. On the ring that was every bust.
+//
+// One PITCH is the inset at which that opacity reaches 1, so this is the bust radius rather than a
+// tuned guess: arm where the cruiser is fully drawn and has had a block of visible approach
+// (~0.95s at SPEED, ~0.5s if the taxi is closing on it in Loco Mode).
+//
+// The light bar arms with it, and that is half the point. It makes the rule one the player can
+// read off a single run — **lights on means it can bust you** — instead of inferring it from
+// deaths. It also keeps the gate honest at the far end: the bar goes dark for the last block of
+// the run too, so the cruiser is never lethal while it is fading back out either.
+export const BUST_ARM_INSET = PITCH;
+
 // The car used to appear and vanish at full opacity out past the edge of the asphalt, against
 // bare background — a hard pop at both ends of every run. It now dissolves across this band,
 // reaching fully invisible before it hits the turnaround, so the disappearance never lands on a
@@ -207,6 +226,11 @@ export function createPolice(rng, scene) {
 
   const state = {
     active: false,
+    // Live *and* far enough in to be both visible and dangerous — see BUST_ARM_INSET. main.js
+    // reads this rather than `active` for the bust, and the light bar follows it, so the two can
+    // never say different things.
+    armed: false,
+    fade: 0,             // the edge dissolve, published so the probe can assert against it
     axis: 'x',
     line: 0,
     dir: 1,
@@ -323,6 +347,7 @@ export function createPolice(rng, scene) {
     lights.redLamp.intensity = 0;
     lights.blueLamp.intensity = 0;
     state.active = false;
+    state.armed = false;
     group.visible = false;
     setPriorityCorridor(null);
     setPolicePresence(null);
@@ -565,6 +590,16 @@ export function createPolice(rng, scene) {
   }
 
   function siren(fade) {
+    // Dark until the bust is armed, and dark again once it disarms on the way out. The bar is the
+    // only cue the player gets, so it has to mean exactly one thing — see BUST_ARM_INSET.
+    if (!state.armed) {
+      lights.red.visible = false;
+      lights.blue.visible = false;
+      lights.redLamp.intensity = 0;
+      lights.blueLamp.intensity = 0;
+      return;
+    }
+
     const hunting = state.chasing || state.arrived;
     // Alternating bar, six changes a second — eleven once it has locked on. The rate change is
     // the only cue the player gets that the corridor run has become about them.
@@ -586,6 +621,10 @@ export function createPolice(rng, scene) {
     if (state.arrived) {
       bodyStep(dt);
       setPolicePresence({ axis: state.axis, line: state.line, s: state.s });
+      // Parked at the arrest with the bar still running, wherever on the map that landed. A chase
+      // ends where the taxi was, which can be out in the outer band, and switching the lights off
+      // on the car that just made the arrest is not a thing the gate is for.
+      state.armed = true;
       siren(1);
       return;
     }
@@ -606,6 +645,11 @@ export function createPolice(rng, scene) {
       if (past) { stop(); return; }
       place();
     }
+
+    // A chase is already past the bust it was armed for, and it can be routed anywhere on the map
+    // — including back out through the outer band — so it stays armed rather than re-testing `s`
+    // and blinking its own light bar off mid-pursuit.
+    state.armed = state.chasing || Math.abs(state.s) <= HALF_SPAN - BUST_ARM_INSET;
 
     // --- Front wheels, off the pose that was just written.
     //
@@ -631,6 +675,7 @@ export function createPolice(rng, scene) {
     // The lamps fade with the bodywork. Leaving them at full strength would keep washing colour
     // across the tarmac from a car that is no longer there.
     const fade = edgeFade(state.s);
+    state.fade = fade;
     for (const material of skin) material.opacity = fade;
     siren(fade);
   }

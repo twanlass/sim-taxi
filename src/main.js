@@ -351,7 +351,10 @@ function checkPoliceBust() {
   // Engaged, not just active — the bust range still catches the taxi through the cooldown tail,
   // so braking off Loco Mode a beat too close to a cruiser doesn't buy a free pass.
   if (!boost.isEngaged()) return;
-  if (!police.state.active) return;
+  // Armed, not merely active. A cruiser still fading in at the edge of the map used to be able to
+  // end the run before it had drawn a pixel — see BUST_ARM_INSET in sim/police.js. Its light bar
+  // comes on with this, so what the player sees and what can bust them are the same flag.
+  if (!police.state.armed) return;
   if (fares.state.gameOver || traffic.taxi.crashed) return;
   const dx = traffic.taxi.x - police.group.position.x;
   const dz = traffic.taxi.z - police.group.position.z;
@@ -1229,13 +1232,16 @@ if (shot) {
     }
   }
 
-  // Run forward until the police car is mid-city, so the shot shows a live corridor.
+  // Run forward until the police car is mid-city, so the shot shows a live corridor. `armed` is
+  // the same "a block in from the edge" test this used to spell out as `|s| < 30`, and asking for
+  // it by name keeps the shot from drifting off the arming line: armed is exactly the band where
+  // the cruiser is fully opaque with its bar running, which is the car worth photographing.
   if (shot.untilPolice) {
     for (let guard = 0; guard < 90 * 60; guard++) {
       police.update(1 / 60);
       traffic.update(1 / 60);
       fares.update(1 / 60, traffic.taxi);
-      if (police.state.active && Math.abs(police.state.s) < 30) break;
+      if (police.state.armed) break;
     }
     // Follow the car rather than hoping it drives through the middle of the frame.
     const pos = police.group.position;
