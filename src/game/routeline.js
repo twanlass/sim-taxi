@@ -230,8 +230,8 @@ function mitreOffsets(path, halfWidth) {
 
 // Chevrons march from the car toward the destination — the direction of travel — one period every
 // CHEVRON_PERIOD units, at CHEVRON_SPEED units per second of scroll.
-const CHEVRON_PERIOD = 3;
-const CHEVRON_SPEED = 4;
+const CHEVRON_PERIOD = 6;
+const CHEVRON_SPEED = 4 / 3;
 
 export function createRouteLine(scene) {
   // Two triangles per segment of the path.
@@ -296,7 +296,7 @@ export function createRouteLine(scene) {
         // vAcross runs -1..1 across the lane; skewing the phase by how far off-centre a fragment
         // sits pulls the two edges of the stripe back into arms, leaving the point on the
         // centreline leading — the same shape an arrow makes.
-        float phase = fract((vDist - abs(vAcross) * (CHEVRON_PERIOD * 0.5) - uTime * CHEVRON_SPEED) / CHEVRON_PERIOD);
+        float phase = fract((vDist + abs(vAcross) * (CHEVRON_PERIOD * 0.5) - uTime * CHEVRON_SPEED) / CHEVRON_PERIOD);
         float lineDist = abs(phase - 0.5);
         float chevron = 1.0 - smoothstep(0.07, 0.12, lineDist);
         // Chevrons only brighten the band, never darken it or exceed full alpha, and fade out with
