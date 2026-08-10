@@ -3,6 +3,7 @@ import { createTaxiMesh } from '../geometry/taxi.js';
 import { createPerson } from '../geometry/person.js';
 import { mirrorSceneLights } from './avatarlights.js';
 import { VIEW_DIR } from './camera.js';
+import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 
 // The opening tutorial. Two beats, because there are only two things a new player cannot work out
 // by looking:
@@ -109,8 +110,11 @@ function createAvatar(sun, hemi) {
   canvas.width = AVATAR_SIZE;
   canvas.height = AVATAR_SIZE;
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // A second WebGL context, and it honours the same budget flags the main renderer does — see
+  // `util/shot.js`. Not for its own cost, which is a 46px disc, but because `?safe` is asking a
+  // device "what will you render at all", and a context this page opened is part of the answer.
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: getMsaa(), alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, getPixelRatioCap()));
   renderer.setSize(AVATAR_SIZE, AVATAR_SIZE, false);
   renderer.setClearColor(0x000000, 0);
 

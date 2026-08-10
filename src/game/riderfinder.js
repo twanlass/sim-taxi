@@ -3,6 +3,7 @@ import { createPerson } from '../geometry/person.js';
 import { mirrorSceneLights } from './avatarlights.js';
 import { urgencyColorFor } from './urgency.js';
 import { PALETTE } from '../palette.js';
+import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 
 // A HUD row above the Loco Mode pill, left-aligned to it, so both controls sit under the same
 // thumb.
@@ -42,8 +43,12 @@ function createChip(onSelect, sun, hemi) {
   chip.appendChild(canvas);
   button.appendChild(chip);
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // One more WebGL context per chip, and each honours the same budget flags the main renderer
+  // does — see `util/shot.js`. Not for its own cost, which is a 38px disc, but because `?safe` is
+  // asking a device "what will you render at all" and every context this page opens is part of
+  // that answer.
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: getMsaa(), alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, getPixelRatioCap()));
   renderer.setSize(SIZE, SIZE, false);
   renderer.setClearColor(0x000000, 0);
 

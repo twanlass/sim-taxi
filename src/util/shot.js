@@ -138,17 +138,116 @@ export function getSeed({ deterministic = false } = {}) {
 }
 
 /**
- * Screen-space ambient occlusion, via `?ao=off` / `?ao=0` to switch it off (and `?ao=on` to be
- * explicit about the default).
+ * The renderer budget flags, and why they are URL flags rather than settings.
+ *
+ * A phone that comes up black has told you almost nothing. There is no console to read, and the
+ * three failures that produce exactly that picture all report themselves to one and then carry on:
+ * a lost context, a shader the driver refuses to compile, a context that was never created.
+ * Nothing throws, so the page keeps running perfectly over a black canvas — the sim ticks, the HUD
+ * updates, the tutorial talks. (`index.html` now mirrors those console lines onto the screen, and
+ * `?diag` below reports what the device actually granted; this is the third leg.)
+ *
+ * What is left is bisection, and bisecting a renderer means being able to *ask it for less* from
+ * the address bar, on the device, without a rebuild. Each flag drops one of the four things this
+ * page asks a GPU for that a plain three.js page does not:
+ *
+ *   - `?msaa=off`     — the multisampled back buffer. At DPR 2 this is the largest single
+ *                       allocation the page makes.
+ *   - `?shadows=off`  — the sun's 2048² shadow map, or `?shadows=1024` for a quarter of it.
+ *   - `?dpr=1`        — the drawing buffer itself, quartered.
+ *   - `?ao=off`       — the depth prepass, its two render targets, and the shader patch carried by
+ *                       every material in the city.
+ *
+ * `?safe` is all four at their cheapest in one load: no MSAA, a 1024 shadow map, DPR 1, no AO. It
+ * answers "will this device render *anything*", and it is a playable configuration rather than a
+ * diagnostic one — a device that only works this way can still be played this way.
+ *
+ * **Every getter below takes its fallback from safe mode rather than from a literal**, evaluated
+ * per call. One flag therefore moves all of them, an explicit flag still wins over it (`?safe` +
+ * `?msaa=on` bisects upward exactly as `?msaa=off` bisects down), and a module that opens a
+ * renderer of its own — the tutorial's avatar, the rider-finder chips — reads the effective value
+ * without anyone threading it through.
+ */
+export function getSafeMode() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has('safe')) return false;
+  return !isOff(params.get('safe'));
+}
+
+/**
+ * Screen-space ambient occlusion, via `?ao=off` / `?ao=0` (and `?ao=on` to be explicit).
  *
  * A flag rather than a setting because it is decided before anything is meshed: with AO off the
  * shader patch is never installed on a single material, so switching it at runtime would mean
  * recompiling every program in the city. It is here so the cost can be measured on a real phone
  * by loading the same URL twice.
  */
-export function getAmbientOcclusion(fallback = true) {
+export function getAmbientOcclusion(fallback = !getSafeMode()) {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('ao');
   if (raw === null) return fallback;
-  return raw !== 'off' && raw !== '0' && raw !== 'false';
+  return !isOff(raw);
+}
+
+/**
+ * Multisampling, via `?msaa=off`.
+ *
+ * Not the same request as the stencil buffer, even though the two ride in the same back buffer:
+ * `main.js` keeps asking for stencil with MSAA off, because the ghost outlines need it and a
+ * device that declines it has a documented, visible symptom of its own (see `docs/rendering.md`).
+ */
+export function getMsaa(fallback = !getSafeMode()) {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('msaa');
+  if (raw === null) return fallback;
+  return !isOff(raw);
+}
+
+/**
+ * The sun's shadow map, in texels a side, via `?shadows=off` or `?shadows=<size>`. Returns 0 for
+ * "no shadows", which `createScene` reads as "don't ask for the depth pass at all".
+ *
+ * Clamped to a power of two between 256 and 4096: a shadow map is a texture allocation, and an
+ * arbitrary number here would be a quietly rounded one.
+ */
+export function getShadowMapSize(fallback = getSafeMode() ? 1024 : 2048) {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('shadows');
+  if (raw === null) return fallback;
+  if (isOff(raw)) return 0;
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return fallback;
+  const clamped = Math.max(256, Math.min(4096, parsed));
+  return 2 ** Math.round(Math.log2(clamped));
+}
+
+/**
+ * The ceiling on `devicePixelRatio`, via `?dpr=N`.
+ *
+ * The default of 2 is a budget rather than a resolution: past DPR 2 the flat facets this game is
+ * made of gain nothing an eye can see at arm's length, and the drawing buffer grows with the
+ * square. Clamped to 0.5–4 so a typo cannot ask for a buffer no device will allocate.
+ */
+export function getPixelRatioCap(fallback = getSafeMode() ? 1 : 2) {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('dpr');
+  if (raw === null) return fallback;
+  const parsed = Number.parseFloat(raw);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.max(0.5, Math.min(4, parsed));
+}
+
+/**
+ * The on-screen renderer readout, via `?diag`. What it says and why each line is in it are in
+ * `game/diag.js`.
+ */
+export function getDiagnostics() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has('diag')) return false;
+  return !isOff(params.get('diag'));
+}
+
+/** `off` / `0` / `false` — the spelling every switch above takes. */
+function isOff(raw) {
+  return raw === 'off' || raw === '0' || raw === 'false';
 }

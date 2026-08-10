@@ -35,7 +35,9 @@ import { setAmbientOcclusion } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { findRoute, planOrigin } from './game/route.js';
-import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion } from './util/shot.js';
+import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
+  getSafeMode, getMsaa, getShadowMapSize, getPixelRatioCap, getDiagnostics } from './util/shot.js';
+import { createDiagnostics } from './game/diag.js';
 import { isCityConnected, GRID } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE } from './palette.js';
@@ -74,28 +76,46 @@ const runSeed = getRunSeed(seed, Boolean(shot));    // this run's situation — 
 // without every caller having to remember the query parameter. An explicit `?d=` still wins.
 difficulty.pinDifficulty(getDifficultyPin() ?? shot?.difficulty ?? null);
 
+// What this page asks a GPU for, gathered in one place so it can be read off the diagnostics
+// panel and turned down from the address bar. `?safe` sets all four at their cheapest at once and
+// each individual flag still overrides it — see the long note in `util/shot.js` for why a device
+// that renders nothing can only be bisected this way.
+const budget = {
+  safe: getSafeMode(),
+  msaa: getMsaa(),
+  shadowMapSize: getShadowMapSize(),
+  pixelRatioCap: getPixelRatioCap(),
+  ao: getAmbientOcclusion(),
+};
+
 const renderer = new THREE.WebGLRenderer({
-  antialias: true,
+  antialias: budget.msaa,
   // Three defaults the stencil buffer OFF since r163. The taxi's ghost outline stamps its mask
   // into it every frame (see geometry/ghostoutline.js); without the buffer the stencil test
-  // silently passes everywhere and the "outline" fills the whole hull.
+  // silently passes everywhere and the "outline" fills the whole hull. Asked for regardless of
+  // `?msaa` — the two ride in the same back buffer but they are not the same request, and a run
+  // with multisampling off should still get its outlines.
   stencil: true,
   preserveDrawingBuffer: Boolean(shot),
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, budget.pixelRatioCap));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = budget.shadowMapSize > 0;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 // Ambient occlusion is decided here, before a single mesh exists, because `propMaterial()` bakes
 // the decision into the shader it builds — see `util/geo.js`. `?ao=off` turns it off for a
 // like-for-like cost comparison on a real device.
-const aoEnabled = getAmbientOcclusion();
+const aoEnabled = budget.ao;
 setAmbientOcclusion(aoEnabled);
 const ao = createAmbientOcclusion(renderer, { enabled: aoEnabled });
 
-const { scene, sun, hemi, sky } = createScene();
+// `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
+// scene that submitted nothing from a scene that drew and came out black. See `game/diag.js`.
+const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: budget });
+
+const { scene, sun, hemi, sky } = createScene({ shadowMapSize: budget.shadowMapSize });
 
 /**
  * The one place the frame is drawn. Three callers reach it — the live loop, shot mode's single
@@ -1036,6 +1056,9 @@ function frame() {
   // wallclock-anchored so this doesn't change when the retry screen appears. The depth is per
   // event — a wreck bottoms out at SLOW_MO_MIN, a bust much shallower so the chase still moves.
   const nowMs = performance.now();
+  // Held before the crash dilation below: the diagnostics panel's fps is a question about the
+  // device, and a slow-motion wreck would otherwise read as one running at a third of its rate.
+  const wallDt = dt;
   if (nowMs < slowMoUntil) {
     const t = 1 - (slowMoUntil - nowMs) / SLOW_MO_DURATION;
     dt *= slowMoMin + (1 - slowMoMin) * t;
@@ -1178,6 +1201,9 @@ function frame() {
   riderFinder.update(dt, fares.waitingAll());
   dropoffIndicator.update(fares.carrying());
   renderFrame();
+  // After the render, not before: `renderer.info` resets itself at the top of every `render()`,
+  // so this is the frame that just went to the screen rather than the one before it.
+  diag.update(wallDt);
 }
 
 if (shot) {
