@@ -1047,6 +1047,10 @@ already-transparent car. The point lights fade with the bodywork, since leaving 
 washing red and blue across the tarmac from a car that is no longer there. The fade keys off `|s|`,
 so it covers entry as well as exit; the pop existed at both ends.
 
+**The bust is armed a block in from the edge, and the light bar arms with it** — `BUST_ARM_INSET`,
+which is `PITCH`. See [the bust chase](#arming-it-where-it-can-be-seen) for why that number is the
+bust radius rather than a tuned one.
+
 `propMaterial()` returns a fresh instance per call, which is what makes this safe — turning on
 transparency here affects the police car alone and not the merged prop meshes.
 
@@ -1054,9 +1058,46 @@ transparency here affects the police car alone and not the merged prop meshes.
 
 ## The bust chase
 
-Boost within `POLICE_BUST_RANGE` (20 — one block) of a live corridor run and the run is over:
+Boost within `POLICE_BUST_RANGE` (20 — one block) of an **armed** corridor run and the run is over:
 `bustByPolice()` in `main.js` freezes the taxi, drops into slow-mo and holds the run-end banner,
 same beat as a wreck. What it adds is `police.chase(taxi)`.
+
+### Arming it where it can be seen
+
+The bust radius is a block (20) and `FADE_BAND` is 18, so for a while the cruiser was **lethal
+before it was drawn**. For a taxi `e` units in from the map edge, the bust fired with the cruiser
+at `(e − 2) / 18` opacity:
+
+| taxi is… | cruiser's opacity when it busts you | visible approach first |
+|---|---|---|
+| on the ring road (`e` = ±2, either lane) | **0.00** | none, ever |
+| half a block in (e = 10) | 0.44 | 8 units, 0.4s |
+| **one block in (e = 20)** | **1.00** | 18 units, ~0.95s |
+| mid-map (e = 40) | 1.00 | 38 units, ~2.0s |
+
+On the ring that was every bust: the lamps fade with the body, so there was no cue at all — only
+ambient traffic quietly making room for a `setPolicePresence` you couldn't see. Measured over 238
+corridor runs, the old check was armed while the body was still fading for **28.6%** of the frames
+it could reach the slab at all, and while the body was completely invisible for **2.9%**.
+
+`BUST_ARM_INSET` gates the whole thing on `|s| ≤ HALF_SPAN − PITCH`. It is **the bust radius, not a
+tuned number** — the table is why: one `PITCH` in is exactly where that opacity column reaches 1.
+A chase stays armed wherever it is routed, and so does the cruiser parked at an arrest, since both
+are past the bust they were armed for.
+
+**The light bar arms with it**, which is half the point. It makes the rule readable off a single
+run — *lights on means it can bust you* — rather than something inferred from deaths, and it keeps
+the far end of the run honest too: the bar goes dark for the last block, so the cruiser is never
+lethal while it is fading back out either. The corridor itself is unchanged and still runs from the
+map edge, so the signals still open ahead of a cruiser whose bar hasn't come on yet.
+
+What this gives up is a window where the outer band is bust-proof — but only against a cruiser
+that is itself still out in the outer band, since the radius is 20 either way. The moment it is on
+the slab the whole map is armed again, including the ring behind it.
+
+`tools/probe.mjs` asserts the invariant rather than the constant: nothing that can bust you is
+transparent, and nothing that can bust you has a dark light bar. On the code before this those two
+fail at 3198 and 975 of 9346 armed frames.
 
 **Why it exists.** The corridor run is scenery — it drives its line and never acknowledges the
 player. So the bust used to land with the cruiser sailing obliviously past, and being busted read

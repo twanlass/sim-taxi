@@ -20,7 +20,7 @@ import { createDust } from '../src/game/dust.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, laneCost } from '../src/game/route.js';
 import { createCollisions } from '../src/sim/collisions.js';
-import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
+import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET } from '../src/sim/police.js';
 import {
   createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES,
 } from '../src/game/fares.js';
@@ -2036,13 +2036,15 @@ check('the taxi is an ordinary car in the traffic array',
   const bPolice = createPolice(makeRng(seed + 66), bScene);
   const bTaxi = bTraffic.taxi;
 
-  // Fast-forward to a live police run — the corridor logic drives when the car appears.
+  // Fast-forward to a live police run — the corridor logic drives when the car appears. Armed
+  // rather than merely active: the bust does not exist until the cruiser is a block in from the
+  // edge, so a test staged on `active` would sit next to a cop that cannot bust anyone.
   bPolice.state.cooldown = 0;
-  for (let step = 0; step < 60 * 60 && !bPolice.state.active; step++) {
+  for (let step = 0; step < 60 * 60 && !bPolice.state.armed; step++) {
     bPolice.update(1 / 60);
     bTraffic.update(1 / 60);
   }
-  check('police run activates for the bust test', bPolice.state.active);
+  check('police run arms for the bust test', bPolice.state.armed);
 
   // Put the taxi within bust range of the cop, boost engaged.
   bTaxi.x = bPolice.group.position.x + 5;
@@ -2052,7 +2054,7 @@ check('the taxi is an ordinary car in the traffic array',
   const dx = bTaxi.x - bPolice.group.position.x;
   const dz = bTaxi.z - bPolice.group.position.z;
   const near = dx * dx + dz * dz < POLICE_BUST_RANGE * POLICE_BUST_RANGE;
-  if (near && bTaxi.boost && bPolice.state.active && !bFares.state.gameOver && !bTaxi.crashed) {
+  if (near && bTaxi.boost && bPolice.state.armed && !bFares.state.gameOver && !bTaxi.crashed) {
     bTaxi.crashed = true;
     bFares.crash("The fuzz caught you slippin'.", 'Busted!');
   }
@@ -2069,7 +2071,7 @@ check('the taxi is an ordinary car in the traffic array',
   const fFares = createFareSystem(makeRng(seed + 55), fScene);
   const fPolice = createPolice(makeRng(seed + 66), fScene);
   fPolice.state.cooldown = 0;
-  for (let step = 0; step < 60 * 60 && !fPolice.state.active; step++) {
+  for (let step = 0; step < 60 * 60 && !fPolice.state.armed; step++) {
     fPolice.update(1 / 60);
     fTraffic.update(1 / 60);
   }
@@ -2081,6 +2083,54 @@ check('the taxi is an ordinary car in the traffic array',
   const fdz = fTaxi.z - fPolice.group.position.z;
   const farClear = fdx * fdx + fdz * fdz > POLICE_BUST_RANGE * POLICE_BUST_RANGE;
   check('boosting far from the police leaves the run running', farClear && !fFares.state.gameOver);
+}
+
+// --- The bust is never lethal before it is readable -------------------------
+// A cruiser arriving on the map used to be able to end a run before it had drawn a pixel: the bust
+// radius is a block (20) and FADE_BAND is 18, so on the ring road the check fired at exactly zero
+// opacity, lamps included. BUST_ARM_INSET gates the whole thing on the cruiser being a block in.
+//
+// Two invariants, and they are the same invariant said twice on purpose: whatever can bust you is
+// fully drawn, and its light bar is running. The second is what the player actually reads, so the
+// two flags are asserted against each other rather than each against the geometry.
+{
+  const aScene = new THREE.Scene();
+  const aPolice = createPolice(makeRng(seed + 66), aScene);
+  const lamps = aPolice.group.children.filter((child) => child.isPointLight);
+
+  let armedFrames = 0;
+  let armedWhileFading = 0;      // lethal while still transparent — the bug
+  let armedWithLampsDark = 0;    // lethal with no cue at all
+  let litWhileUnarmed = 0;       // the opposite lie: a bar that means nothing
+  let ringExposed = 0;           // armed while the cruiser is still in the outer band
+  let runs = 0;
+  let wasActive = false;
+
+  for (let step = 0; step < 600 * 60; step++) {
+    aPolice.update(1 / 60);
+    const p = aPolice.state;
+    if (p.active && !wasActive) runs += 1;
+    wasActive = p.active;
+
+    const lit = lamps.some((lamp) => lamp.intensity > 0);
+    if (!p.armed) {
+      if (lit) litWhileUnarmed += 1;
+      continue;
+    }
+    armedFrames += 1;
+    if (p.fade < 1) armedWhileFading += 1;
+    if (!lit) armedWithLampsDark += 1;
+    if (Math.abs(p.s) > HALF_SPAN - BUST_ARM_INSET) ringExposed += 1;
+  }
+
+  check('the police car runs corridors for the arming test', runs >= 5, `${runs} runs`);
+  check('the bust is never armed while the cruiser is still fading in',
+    armedWhileFading === 0, `${armedWhileFading} of ${armedFrames} armed frames`);
+  check('an armed cruiser always has its light bar running',
+    armedWithLampsDark === 0, `${armedWithLampsDark} of ${armedFrames} armed frames`);
+  check('the light bar is dark whenever the bust is disarmed', litWhileUnarmed === 0,
+    `${litWhileUnarmed} frames`);
+  check('the bust never arms out in the outer band', ringExposed === 0, `${ringExposed} frames`);
 }
 
 // --- The bust chase --------------------------------------------------------
