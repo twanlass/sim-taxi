@@ -816,10 +816,6 @@ export function createFareSystem(rng, scene) {
       if (fare.stage === 'waiting') {
         // No target: it holds the kerb corner it was shown on.
         marker.update(state.elapsed, null, fare.timeLeft);
-        // Reconciled every frame on top of the push in markDirected: `directed` is also *cleared*
-        // from elsewhere (the hand-off at pickup, a fare that changes target), and one place that
-        // reflects the flag cannot drift from it the way a set of push sites would.
-        marker.setSelected(fare.directed);
       } else {
         marker.update(state.elapsed, taxiCar, fare.timeLeft);
       }
@@ -896,16 +892,12 @@ export function createFareSystem(rng, scene) {
     for (const other of state.fares) {
       if (other === fare || !other.directed) continue;
       other.directed = false;
-      if (other.stage === 'waiting') other.slot.marker.setSelected(false);
     }
     fare.directed = true;
-    // Pushed here as well as reconciled per frame, so the ring lands on the same frame as the route
-    // band rather than a tick later. It also means a caller that directs a fare without running the
-    // sim afterwards — shot mode does exactly that — still renders the state it just set. Only a
-    // rider on the kerb has a surface for it: the yellow rim on their diamond says which of two
-    // waiting riders the taxi is on its way to. A fare aboard needs none — its drop-off is dispatched at
-    // pickup, so there is no undirected state to tell apart.
-    if (fare.stage === 'waiting') fare.slot.marker.setSelected(true);
+    // Nothing on the marker reflects this any more. The diamond's outline used to ink over heavier
+    // for whichever waiting rider the car was on its way to, and it was pushed from here as well as
+    // reconciled per frame so it landed on the same frame as the route band. The band is now the
+    // whole of that answer — see geometry/diamond.js, RIM_SCALE.
     return true;
   }
 

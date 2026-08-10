@@ -26,7 +26,7 @@ import {
 } from '../src/game/fares.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
-import { bounceOffset, KICK_SCALE, KICK_HOP } from '../src/geometry/diamond.js';
+import { bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE } from '../src/geometry/diamond.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
@@ -548,14 +548,6 @@ check('no two cars occupy the same space', worst > 1.6,
       prevSpawnAt = elapsed;
     }
 
-    // Sampled here, before aim() can direct anything: at this point every waiting fare's diamond
-    // has just been ticked against the `directed` it had going into the frame, so the rim and the
-    // flag must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
-    for (const f of fares.state.fares) {
-      if (f.stage !== 'waiting') continue;
-      if (f.slot.marker.isSelected() !== f.directed) selectionOutOfStep += 1;
-    }
-
     aim();
     elapsed += 1 / 60;
 
@@ -660,7 +652,7 @@ check('no two cars occupy the same space', worst > 1.6,
   let movedAtPickup = 0;
   let leakedPin = 0;
   let pinHiddenAtPickup = 0;
-  let selectionOutOfStep = 0;
+  const rimWeights = new Set();
   let wrongOpening = 0;
   let drainedOpening = 0;
   let fillOutOfStep = 0;
@@ -718,17 +710,16 @@ check('no two cars occupy the same space', worst > 1.6,
       }
     }
 
-    // Sampled here, before aim() can direct anything: at this point every waiting fare's diamond
-    // has just been ticked against the `directed` it had going into the frame, so the rim and the
-    // flag must agree exactly. Doing it after aim() would flag the one-frame lag as a bug.
     for (const f of fares.state.fares) {
       // The liquid level *is* the seconds, on both legs — a crystal that drifts from the clock it
       // draws is worse than one that never drained, because it reads as precision and isn't. A
       // VIP's crystal is the one exception: it never drains at all, by design (faremarker.js).
       const want = f.vip ? 1 : Math.max(0, Math.min(1, f.timeLeft / f.limit));
       if (Math.abs(f.slot.marker.getFill() - want) > 1e-6) fillOutOfStep += 1;
-      if (f.stage !== 'waiting') continue;
-      if (f.slot.marker.isSelected() !== f.directed) selectionOutOfStep += 1;
+      // One outline weight, whatever the fare is doing — waiting, directed at, or riding. It was
+      // two for a while (a heavier rim inked the rider the taxi had been sent at), and the change
+      // of weight at the hand-off read as the marker becoming a different object mid-trip.
+      rimWeights.add(f.slot.marker.rim.scale.x.toFixed(4));
     }
 
     aim();
@@ -766,10 +757,11 @@ check('no two cars occupy the same space', worst > 1.6,
   check('the drop-off lands where it was drawn at spawn', movedAtPickup === 0,
     `${movedAtPickup} moved`);
   check('the diamond stays up through the pickup', stillMarked === 0, `${stillMarked} vanished`);
-  // The heavy rim on the diamond is the only thing saying "the taxi is on its way to this one",
-  // which matters most on a board with two riders waiting.
-  check('the selection rim tracks whether the taxi was sent', selectionOutOfStep === 0,
-    `${selectionOutOfStep} frames out of step`);
+  // Which rider the car is on its way to is the route band's job. The diamond's outline says
+  // nothing about it and never changes weight — on the kerb, once directed at, or over the taxi.
+  check('the diamond wears one outline weight for its whole life',
+    rimWeights.size === 1 && rimWeights.has(RIM_SCALE.toFixed(4)),
+    [...rimWeights].join(', '));
   // --- The drop-off is a ring and nothing else.
   //
   // Read off the built marker rather than assumed. The head that used to float over it is gone, so
@@ -824,20 +816,14 @@ check('no two cars occupy the same space', worst > 1.6,
     check('the diamond walks the urgency scale from green to red',
       seen.join(' -> ') === scale.join(' -> '), seen.join(' -> '));
 
-    // The rim is the only mark saying the taxi has been sent at this rider. It reads as *weight*
-    // and must stay black at both weights: it was yellow once, and yellow is a colour this very
-    // crystal wears for a quarter of every clock.
+    // The rim must stay black at the one weight it has: it was yellow once, and yellow is a colour
+    // this very crystal wears for a quarter of every clock, so a yellow rim on a yellow diamond is
+    // no rim at all. The weight itself is asserted across a played run above.
     const hull = diamond.rim;
-    const rim = () => `${hull.material.color.getHexString()}@${hull.scale.x.toFixed(2)}`;
-    diamond.setSelected(false);
-    const idle = rim();
-    diamond.setSelected(true);
-    const sent = rim();
-    diamond.setSelected(false);
-    check('the diamond is inked in heavier black once it is sent, and back again',
-      idle.startsWith('000000') && sent.startsWith('000000')
-      && Number(sent.split('@')[1]) > Number(idle.split('@')[1]) * 1.1
-      && rim() === idle, `${idle} -> ${sent}`);
+    check('the diamond wears a black rim at RIM_SCALE',
+      hull.material.color.getHexString() === '000000'
+      && Math.abs(hull.scale.x - RIM_SCALE) < 1e-9,
+      `${hull.material.color.getHexString()}@${hull.scale.x.toFixed(4)}`);
 
     // --- The level change kicks.
     //

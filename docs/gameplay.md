@@ -672,17 +672,17 @@ lands, so two fares at different levels are told apart by hue and never by wheth
 moving. A fresh rider does not kick on spawn — a marker that pops the moment it appears is
 announcing a change that hasn't happened.
 
-**It inks over in heavy black** once the taxi has been sent at that rider: the same outline the
-crystal always wears, drawn at `1.34` instead of `1.12` — about 5px of rim against 1.7px at play
-zoom. On a board with two riders waiting it is the only thing saying which of them the car is
-already on its way to. The rim was the taxi's **yellow** first, which is what "you told me to do
-this" means everywhere else in the HUD; but this crystal spends a quarter of every clock *being*
-yellow, and a yellow rim on a yellow diamond is no rim at all. Black is the one value nothing on the
-urgency scale can collide with, so the state reads as weight rather than hue. `markDirected` pushes
-it so the rim lands on the same frame as the route band; the per-frame tick reconciles it, because
-`directed` is also *cleared* from elsewhere and one place that reflects the flag cannot drift from
-it. It comes off at pickup: it answered "which of the two waiting riders is the car already going
-to?", and a fare in the car is not one of those.
+**Its outline is one weight, always** — `RIM_SCALE = 1.12`, about 1.7px of rim at play zoom, on the
+kerb and over the taxi alike. It used to carry a second state: once the taxi had been sent at that
+rider the crystal inked over in heavy black, the same outline drawn at `1.34` (≈5px), and dropped
+back to 1.12 at pickup. On a board with two riders waiting that said which of them the car was
+already on its way to. It went because 5px is a *border* rather than a rim — heavy enough to change
+the silhouette — and because a marker that swaps outline weight at the hand-off reads as two
+markers in relay rather than one clock travelling, which is the exact thing the crystal exists to
+say. The route band already answers "which rider?", and it answers it along the whole road instead
+of on one corner. Black stays the rim's colour for the reason it always was: it was the taxi's
+**yellow** first, and this crystal spends a quarter of every clock *being* yellow, so a yellow rim
+on a yellow diamond is no rim at all.
 
 A **diamond on the board means exactly one thing: a clock is running here.** The
 [drop-off](#the-drop-off-is-a-teal-ring-and-nothing-else) wore the same model for a spell and gave

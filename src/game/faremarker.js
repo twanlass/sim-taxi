@@ -3,7 +3,7 @@ import { KERB_H } from '../city/ground.js';
 import { PALETTE } from '../palette.js';
 import { URGENCY_SEGMENTS, urgencyColor } from './urgency.js';
 import {
-  createDiamond, DIAMOND_R, RIM_SCALE, bounceOffset, kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
+  createDiamond, DIAMOND_R, bounceOffset, kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
 } from '../geometry/diamond.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
 
@@ -60,14 +60,12 @@ const LIFT = DIAMOND_R + 4.7;
 const TRANSFER_TIME = 0.65;
 const TRANSFER_ARC = 1.6;      // world units of extra height at the midpoint of the flight
 
-// The outline once the taxi has been sent at this rider: the same black, drawn heavier. 1.34 is
-// about 5px of rim at play zoom against the ordinary 1.7px — the diamond reads as inked.
-//
-// Weight rather than colour. The rim was the taxi's yellow first, which is the colour that means
-// "you told me to do this" everywhere else in the HUD; but this crystal spends a quarter of every
-// clock *being* yellow, and a yellow rim on a yellow diamond is no rim at all. Black is the one
-// value nothing on the urgency scale can collide with.
-const SELECTED_RIM = 1.34;
+// **The outline is one weight for the marker's whole life** — see RIM_SCALE in geometry/diamond.js.
+// It used to ink over at 1.34 (≈5px against the ordinary 1.7px) while the taxi was on its way to
+// this rider and drop back at pickup, so a fare wore a thick black border on the kerb and a hairline
+// one over the car. Two weights on one silhouette read as the marker changing shape at the hand-off
+// rather than as a state, and the heavy one was a border rather than a rim. Which rider the car is
+// going to is the route band's job, and it says it along the whole road instead of on one corner.
 
 // Panic pulse. Below PULSE_BELOW_S the diamond beats — the same object the eye is already reading
 // for colour, so the two cues stack ("red AND getting bigger") rather than compete. The threshold is
@@ -116,7 +114,6 @@ export function createFareMarker(scene, phase = 0) {
   const anchor = new THREE.Vector3();
   const from = new THREE.Vector3();
 
-  let selected = false;
   let level = URGENCY_SEGMENTS;
   // A VIP marker never speaks the urgency scale — see setUrgency and showAt below.
   let vipMarked = false;
@@ -163,20 +160,14 @@ export function createFareMarker(scene, phase = 0) {
     diamond.setFill(fraction);
   }
 
-  function setSelected(on) {
-    if (on === selected) return;
-    selected = on;
-    diamond.setRim(on ? SELECTED_RIM : RIM_SCALE);
-  }
-
   return {
     group,
     // The crystal itself, so a test can read colour and position back the way a player reads them
     // off the screen rather than trusting the arguments it passed in.
     mesh: diamond.mesh,
-    // The outline hull, whose *weight* is the "the taxi is on its way to this one" state. Named
-    // rather than reached for by child index — the crystal grew a second wall underneath it and a
-    // test walking `mesh.children[0]` silently started reading the far wall instead.
+    // The outline hull, at one fixed weight wherever the marker is (see the header). Named rather
+    // than reached for by child index — the crystal grew a second wall underneath it and a test
+    // walking `mesh.children[0]` silently started reading the far wall instead.
     rim: diamond.rim,
     // Likewise the disc on the ground, which has to agree with the crystal on every frame.
     ring: ring.group,
@@ -185,9 +176,6 @@ export function createFareMarker(scene, phase = 0) {
     setFill,
     /** What the crystal is showing, for tools with no GL context to read it back from. */
     getFill: () => diamond.getFill(),
-    /** Mark the rider the taxi has been sent at. Only meaningful while they are still on the kerb. */
-    setSelected,
-    isSelected: () => selected,
     /** Whether the level-change kick is mid-flight — for the headless tools. */
     isKicking: () => kickPending || kickAt !== null,
     /** Whether the marker is between the kerb and the taxi. */
@@ -217,19 +205,18 @@ export function createFareMarker(scene, phase = 0) {
       ring.group.position.set(x, KERB_H + RING_Y, z);
       ring.group.visible = true;
       diamond.mesh.scale.setScalar(1);
-      setSelected(false);
       group.visible = true;
     },
 
     /**
      * The rider is in: fly to wherever `update` is aiming from now on.
      *
-     * The selection rim comes off here. It answered "which of the two waiting riders is the car
-     * already going to?", and a fare in the car is not one of those any more.
+     * Nothing about the crystal changes at the hand-off but where it is — same colour, same fill,
+     * same outline. The heavy selection rim used to come off here, and its going was the one thing
+     * that made the transfer read as two markers rather than one travelling.
      */
     beginTransfer() {
       transferPending = true;
-      setSelected(false);
       // The kerb corner is no longer where this fare is.
       ring.group.visible = false;
     },
