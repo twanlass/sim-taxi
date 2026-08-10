@@ -14,7 +14,7 @@ src/
     layout.js           decides what each block *is* (density, parks) before anything is built
     ground.js           roads, kerbs, block surfaces, crosswalks
     buildings.js        one merged mesh of blocky towers
-    props.js            trees, lamps, street furniture
+    props.js            trees, street furniture
 
   sim/                  things that move on their own
     traffic.js          signals + car physics + the single routing branch. The largest file.

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, jitterVertices, propMaterial } from '../util/geo.js';
-import { PALETTE, color, jitterColor } from '../palette.js';
+import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H } from './ground.js';
 
 /** Park tree — same construction as the terrain prototype's broadleaf, scaled for a city block. */
@@ -39,22 +39,6 @@ function tree(x, z, rng) {
   return parts;
 }
 
-/** Street lamp: pole, arm, head. */
-function lamp(x, z, rng) {
-  const parts = [];
-  const h = 4.2;
-
-  const pole = new THREE.CylinderGeometry(0.08, 0.11, h, 5);
-  pole.translate(x, KERB_H + h / 2, z);
-  parts.push(bakeColor(pole, color('pole')));
-
-  const head = new THREE.BoxGeometry(0.55, 0.18, 0.3);
-  head.translate(x, KERB_H + h, z);
-  parts.push(bakeColor(head, color('rooftop')));
-
-  return parts;
-}
-
 export function createProps(rng, blocks) {
   const parts = [];
 
@@ -66,16 +50,11 @@ export function createProps(rng, blocks) {
     for (let i = 0; i < count; i++) {
       parts.push(...tree(rng.range(x0 + 1.8, x1 - 1.8), rng.range(z0 + 1.8, z1 - 1.8), rng));
     }
-    const inset = 0.75;
-    for (const [lx, lz] of [
-      [x0 + inset, z0 + inset], [x1 - inset, z0 + inset],
-      [x0 + inset, z1 - inset], [x1 - inset, z1 - inset],
-    ]) parts.push(...lamp(lx, lz, rng));
   }
 
   for (const block of blocks) {
     if (block.districtId !== null && block.districtId !== undefined) continue;
-    const { x0, z0, x1, z1, cx, cz } = block.bounds;
+    const { x0, z0, x1, z1 } = block.bounds;
 
     if (block.type === 'park') {
       const count = rng.int(5, 9);
@@ -86,15 +65,6 @@ export function createProps(rng, blocks) {
           rng,
         ));
       }
-    }
-
-    // A lamp at each block corner, set in from the kerb.
-    const inset = 0.75;
-    for (const [lx, lz] of [
-      [x0 + inset, z0 + inset], [x1 - inset, z0 + inset],
-      [x0 + inset, z1 - inset], [x1 - inset, z1 - inset],
-    ]) {
-      parts.push(...lamp(lx, lz, rng));
     }
   }
 
