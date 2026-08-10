@@ -98,7 +98,7 @@ never gets to spend time meshing a broken city.
 |---|---|---|
 | `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | blocky towers | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. |
-| `props.js` | trees, lamps, street furniture | Merged per material via `bakeColor`, so hundreds of props cost one draw call. |
+| `props.js` | trees, street furniture | Merged per material via `bakeColor`, so hundreds of props cost one draw call. |
 
 ### The slab has rounded corners
 
