@@ -79,6 +79,23 @@ function describeBuffers(gl) {
 }
 
 /**
+ * The shader limits a mobile GPU is most likely to be the first to run out of.
+ *
+ * A desktop driver has headroom in all three and a phone's are close to the spec minimums, so a
+ * program that links everywhere else can fail on one device — and this city's materials are not
+ * plain: every prop material carries the AO patch's extra sampler and its uniforms on top of a
+ * flat-shaded Lambert with a shadow map. When the mirrored `THREE.WebGLProgram: Shader Error`
+ * says a program would not link, these are the numbers that say whether it was ever going to.
+ */
+function describeLimits(gl) {
+  return {
+    varyings: gl.getParameter(gl.MAX_VARYING_VECTORS) ?? 0,
+    fragUniforms: gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS) ?? 0,
+    textureUnits: gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) ?? 0,
+  };
+}
+
+/**
  * Build the readout. Returns `{ update }` whether or not it is switched on, so the frame loop
  * calls it unconditionally.
  *
@@ -95,6 +112,9 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
   const gl = renderer.getContext();
   const { renderer: gpu, vendor } = describeGpu(gl);
   const buffers = describeBuffers(gl);
+  const limits = describeLimits(gl);
+  // One pixel, read back off the default framebuffer — see `readCentrePixel`.
+  const centre = new Uint8Array(4);
 
   // Written once. The device does not change under us, and re-reading GL parameters every frame
   // is a pipeline stall for text nobody is watching change.
@@ -104,7 +124,9 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
     `webgl${renderer.capabilities.isWebGL2 ? '2' : '1'}`
       + ` · aa ${buffers.antialias ? 'yes' : 'NO'} (${buffers.samples}x)`
       + ` · stencil ${buffers.stencil ? 'yes' : 'NO'} (${buffers.stencilBits}b)`,
-    `depth ${buffers.depthBits}b · maxtex ${buffers.maxTexture}`,
+    `depth ${buffers.depthBits}b · maxtex ${buffers.maxTexture}`
+      + ` · vary ${limits.varyings} · funif ${limits.fragUniforms}`
+      + ` · tex ${limits.textureUnits}`,
     `flags msaa=${flags.msaa ? 'on' : 'off'} shadows=${flags.shadowMapSize || 'off'}`
       + ` dpr=${flags.pixelRatioCap} ao=${flags.ao ? 'on' : 'off'}`
       + `${flags.safe ? ' [safe]' : ''}`,
@@ -118,6 +140,48 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
   const drawingBuffer = new THREE.Vector2();
 
   element.hidden = false;
+
+  /**
+   * One pixel from the middle of the frame that was just drawn — and the probe that splits the
+   * last two suspects apart.
+   *
+   * A black screen with a live context and a normal draw-call count leaves two very different
+   * bugs standing, and no amount of counting draw calls tells them apart:
+   *
+   *   - **The GPU drew nothing useful.** A shader that links and outputs black, a blend or depth
+   *     state the driver gets wrong, geometry that ends up degenerate. The pixel comes back black
+   *     because the frame really is black.
+   *   - **The GPU drew the city and the screen never got it.** A compositing bug: the canvas
+   *     layer not being promoted, presented, or composited on that device. The pixel comes back
+   *     *sky blue* while the screen stays black — which is the whole answer, and it points at a
+   *     completely different half of the browser than every other line in this panel.
+   *
+   * Read straight after `renderer.render()` in the same task, which is when the default
+   * framebuffer still holds the frame — `preserveDrawingBuffer` is off outside shot mode, and the
+   * buffer is only invalidated once the frame is presented.
+   *
+   * It costs a pipeline stall, which is why it is behind `?diag` and runs twice a second rather
+   * than sixty times. `renderer.readRenderTargetPixels` is deliberately not used: it takes a
+   * render target, and the default framebuffer — the one actually on screen, with the MSAA
+   * resolve this is asking about — is not one.
+   */
+  function readCentrePixel() {
+    if (gl.isContextLost()) return null;
+    try {
+      gl.readPixels(
+        Math.floor(drawingBuffer.x / 2), Math.floor(drawingBuffer.y / 2), 1, 1,
+        gl.RGBA, gl.UNSIGNED_BYTE, centre,
+      );
+    } catch {
+      // A driver that refuses the read is telling us something too, but not something worth
+      // taking the frame loop down for.
+      return null;
+    }
+    // Three leaves its own state bound; the read touches none of it, but the error queue is
+    // shared, so a failure here would otherwise surface as a mystery further down the frame.
+    if (gl.getError() !== gl.NO_ERROR) return null;
+    return `${centre[0]},${centre[1]},${centre[2]}`;
+  }
 
   function update(dt) {
     frames += 1;
@@ -142,7 +206,11 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
       + ` · calls ${info.calls}${lost ? ' (stale)' : ''} · tris ${info.triangles}`
       + ` · progs ${renderer.info.programs?.length ?? '?'}\n`
       + `${drawingBuffer.x}x${drawingBuffer.y} @${window.devicePixelRatio}`
-      + ` · ${fps.toFixed(0)}fps`;
+      + ` · ${fps.toFixed(0)}fps`
+      // Last, because it is the line you only need once the two above have failed to explain
+      // anything. `mid` is the centre pixel of the frame on screen: black here and black on the
+      // screen agree, and anything else means the frame was drawn and never presented.
+      + ` · mid ${readCentrePixel() ?? '--'}`;
   }
 
   return { update };

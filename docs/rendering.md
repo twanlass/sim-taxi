@@ -282,6 +282,22 @@ Two of its lines decide what kind of failure is being looked at:
 - **`calls ~40`** and a black screen — the pipeline ran and the pixels came out wrong. A shader, a
   blend state, or a driver bug; the mirrored `THREE.WebGLProgram` error usually names it.
 
+**`mid` is the tiebreak on that last case**, and it is the one line here that reads the frame
+rather than the API: a single `readPixels` from the centre of the default framebuffer, taken in
+the same task as the render that filled it. Black there and black on screen agree — the frame
+really is black, and the bug is in the drawing. **Sky blue there with a black screen is the whole
+answer**: the city was drawn and never presented, which is a compositing bug and a completely
+different half of the browser from everything else this panel reports. It costs a pipeline stall,
+which is why it is behind the flag and runs twice a second rather than sixty times.
+`readRenderTargetPixels` cannot do it — it takes a render target, and the framebuffer actually on
+screen, with the MSAA resolve this is asking about, is not one.
+
+The limits on the fourth line — `vary`, `funif`, `tex` — are there because a phone's are close to
+the spec minimums where a desktop's have headroom, and this city's materials are not plain: every
+prop carries the AO patch's extra sampler and uniforms on top of a flat-shaded Lambert with a
+shadow map. When a mirrored error says a program would not link, those numbers say whether it was
+ever going to.
+
 The rest is the device describing itself, and the part worth reading twice is what the context was
 **granted** rather than asked for. `getContextAttributes()` and `SAMPLES` report the truth, and a
 driver is free to decline multisampling or a stencil buffer and say nothing — the latter being a

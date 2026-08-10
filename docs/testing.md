@@ -183,8 +183,9 @@ prefixed warnings that would turn a working build into a broken-looking one.
 
 **2. `?diag`** puts [the renderer readout](rendering.md#the-renderer-readout--gamediagjs) in the
 bottom-left corner: the GPU's own name, what the context was *granted* as opposed to asked for,
-and — the two lines that decide it — whether the context is alive and how many draw calls the
-frame just made.
+whether the context is alive, how many draw calls the frame just made, and `mid` — one pixel read
+back out of the frame that is supposedly on screen, which is what separates "drew nothing" from
+"drew the city and never presented it".
 
 **3. `?safe` and the budget flags** let the renderer be turned down from the address bar, on the
 device, with no rebuild. Each drops one of the four things this page asks a GPU for that a plain
@@ -205,9 +206,16 @@ rider-finder chips' too: each of those opens a WebGL context of its own, and "ho
 this page holding" is part of what `?safe` is asking.
 
 The order to try them in is the order of what they rule out. `?diag` first — it answers *which
-kind* of failure this is before anything is changed, and `ctx LOST` versus `calls 0` versus
-`calls 40` and a black screen are three different investigations. Then `?safe`, which is the one
-load that says whether the device will render this scene at all.
+kind* of failure this is before anything is changed, and `ctx LOST`, `calls 0`, `calls 40` with a
+black `mid`, and `calls 40` with a *sky-blue* `mid` are four different investigations. Then
+`?safe`, which is the one load that says whether the device will render this scene at all.
+
+The first report of this was **Android Chrome, with iOS Chrome on the same build working fine**.
+That pair is worth reading carefully rather than as "mobile is broken": iOS Chrome is WebKit, so
+it shares nothing below the JavaScript with Android Chrome's Blink and ANGLE-over-GLES. It says
+the scene, the shaders as written and the game logic are all fine, and puts the fault in the
+bottom half of one browser on one GPU — which is exactly the half none of the headless tools can
+reach, and why the panel reports the driver's own strings and limits.
 
 ## Working notes
 
