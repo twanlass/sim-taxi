@@ -229,9 +229,12 @@ function mitreOffsets(path, halfWidth) {
 }
 
 // Chevrons march from the car toward the destination — the direction of travel — one period every
-// CHEVRON_PERIOD units, at CHEVRON_SPEED units per second of scroll.
+// CHEVRON_PERIOD units, at CHEVRON_SPEED units per second of scroll. CHEVRON_DEPTH is the arm
+// length (in path units, not a fraction of the period) — kept short relative to the lane's
+// HALF_WIDTH so the shape reads as a squat road chevron rather than a tall arrowhead.
 const CHEVRON_PERIOD = 6;
 const CHEVRON_SPEED = 4 / 3;
+const CHEVRON_DEPTH = 1.2;
 
 export function createRouteLine(scene) {
   // Two triangles per segment of the path.
@@ -286,17 +289,26 @@ export function createRouteLine(scene) {
       varying float vAcross;
       const float CHEVRON_PERIOD = ${CHEVRON_PERIOD.toFixed(4)};
       const float CHEVRON_SPEED = ${CHEVRON_SPEED.toFixed(4)};
+      const float CHEVRON_DEPTH = ${CHEVRON_DEPTH.toFixed(4)};
       void main() {
         float head = smoothstep(uHeadGap, uHeadGap + uFadeHead, vDist);
         float tail = smoothstep(0.0, uFadeTail, uLength - vDist);
         float envelope = uOpacity * head * tail;
 
-        // A ">" bent around the centreline, scrolling toward the destination (+vDist) over time so
-        // it reads as motion in the direction the taxi is about to drive, not a static barber pole.
-        // vAcross runs -1..1 across the lane; skewing the phase by how far off-centre a fragment
-        // sits pulls the two edges of the stripe back into arms, leaving the point on the
-        // centreline leading — the same shape an arrow makes.
-        float phase = fract((vDist + abs(vAcross) * (CHEVRON_PERIOD * 0.5) - uTime * CHEVRON_SPEED) / CHEVRON_PERIOD);
+        // Distance from the *destination* end, not the car end. vDist is measured from the car,
+        // so it (and uLength) both shrink every frame the taxi drives — using it directly would
+        // make the chevrons appear to scroll faster or slower with the taxi's own speed. The
+        // destination end of the path doesn't move, so anchoring the phase there decouples the
+        // animation from the taxi entirely; only uTime drives it.
+        float distFromEnd = vDist - uLength;
+
+        // A ">" bent around the centreline, scrolling toward the destination over time so it reads
+        // as motion in the direction the taxi is about to drive, not a static barber pole. vAcross
+        // runs -1..1 across the lane; skewing the phase by how far off-centre a fragment sits pulls
+        // the two edges of the stripe back into arms, leaving the point on the centreline leading —
+        // the same shape an arrow makes. CHEVRON_DEPTH is independent of CHEVRON_PERIOD so spacing
+        // and shape can be tuned separately.
+        float phase = fract((distFromEnd + abs(vAcross) * CHEVRON_DEPTH - uTime * CHEVRON_SPEED) / CHEVRON_PERIOD);
         float lineDist = abs(phase - 0.5);
         float chevron = 1.0 - smoothstep(0.07, 0.12, lineDist);
         // Chevrons only brighten the band, never darken it or exceed full alpha, and fade out with
