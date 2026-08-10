@@ -247,6 +247,104 @@ whichever program compiled first. Whether the patch is installed at all is decid
 `setAmbientOcclusion()` *before any geometry is meshed*, which is why `?ao=` is a URL flag and not a
 panel toggle: switching it live would mean recompiling every program in the city.
 
+## The renderer budget — `?safe` and friends
+
+Four things on this page cost GPU memory that a plain three.js scene doesn't, and each has a URL
+flag that drops it: the multisampled back buffer (`?msaa=off`), the sun's 2048² shadow map
+(`?shadows=off`, or a size), the drawing buffer's pixel ratio (`?dpr=1`), and the AO pass above
+(`?ao=off`). `?safe` is all four at their cheapest at once, and any single flag still overrides it.
+
+**Android defaults to `?safe`**, and that is a holding measure rather than a conclusion: one
+device — a Pixel on a PowerVR D-Series (Tensor G5) — lost the WebGL context in a loop on the full
+budget and holds on the reduced one, and which single flag is responsible is not yet known. It is
+wider than the evidence and it costs real quality on Android phones that were fine, taken because
+the failure it avoids is a black screen rather than a soft one. `?safe=off` restores the full
+budget there, which is how the narrowing gets done; replace the default with the one flag as soon
+as it is known. Desktop and iOS are untouched, so screenshots and the shot list do not move.
+
+They live in `util/shot.js` beside `?seed` and `?cars`, and every getter takes its **fallback from
+safe mode rather than from a literal**, evaluated per call — so one flag moves all of them, and a
+module that opens a renderer of its own reads the effective value without anyone threading it
+through. Two do: the tutorial's avatar bubble and each rider-finder chip. They are a 46px and a
+38px disc respectively and their own cost is nothing, but each is a **WebGL context this page is
+holding**, and that is part of what `?safe` is asking about.
+
+The flags exist because of a failure a desktop cannot see and a phone cannot report — see
+[testing.md](testing.md#when-a-device-renders-nothing) for the whole picture. `stencil: true` is
+deliberately *not* among them: MSAA and the stencil buffer ride in the same back buffer but they
+are separate requests, and a run with multisampling off should still get its ghost outlines.
+
+### Losing the context — `game/recovery.js`
+
+A GPU can take the context away, and one did: a PowerVR D-Series (Tensor G5) rendered the city
+correctly for about a second, reset, restored, and did it again. Draw calls and triangle counts
+were normal right up to each loss, so the scene was never the problem — the device would not keep
+giving us a context on the budget being asked for.
+
+Three handles the mechanics already: it calls `preventDefault()` on the loss, which is what lets
+the browser restore at all, no-ops every `render()` in between, and re-initialises on restore.
+What it cannot do is conclude that **the budget was the problem**, so left alone that loop is a
+black screen for as long as the player will look at one.
+
+Two steps, split by what a live renderer can change:
+
+1. **First loss — in place.** Pixel ratio to 1 and the shadow map to 1024. Both are plain
+   properties, so no material is touched and **the run survives** — which matters, because the
+   player is mid-fare with a clock draining and a reload is a lost run. It is a visibly softer
+   picture and is not pretended otherwise; a context loss is not a routine event on a healthy
+   page, and the cheapest thing that might stop a second one is worth more than the sharpness.
+2. **Second loss — reload into `?safe`.** MSAA is a context attribute and AO is baked into every
+   shader before any geometry is meshed, so neither can be given up without starting over. By then
+   the run is going either way, and a playable game is worth more than the fare in progress.
+
+Already in safe mode and still losing it? It stops, and leaves the mirrored `Context Lost.` on
+screen saying so. A reload loop is worse than a black screen, because it also takes away the panel
+that would have explained it.
+
+### The renderer readout — `game/diag.js`
+
+`?diag` puts a six-line panel in the bottom-left corner. It is `pointer-events: none`, so the Loco
+Mode pill underneath it still takes taps, and it wraps rather than truncating — the GPU string is
+the longest line and also the one most likely to name the culprit, so an ellipsis would clip away
+the reason the panel was opened.
+
+Two of its lines decide what kind of failure is being looked at:
+
+- **`ctx LOST`** — the GPU took the context away. Three catches that itself, sets a flag, and every
+  later `render()` returns immediately; nothing throws and the rest of the page carries on.
+- **`calls 0`** with a live context — the scene submitted nothing. A camera or culling problem, the
+  opposite end of the codebase from a driver one.
+- **`calls ~40`** and a black screen — the pipeline ran and the pixels came out wrong. A shader, a
+  blend state, or a driver bug; the mirrored `THREE.WebGLProgram` error usually names it.
+
+**`mid` is the tiebreak on that last case**, and it is the one line here that reads the frame
+rather than the API: a single `readPixels` from the centre of the default framebuffer, taken in
+the same task as the render that filled it. Black there and black on screen agree — the frame
+really is black, and the bug is in the drawing. **Sky blue there with a black screen is the whole
+answer**: the city was drawn and never presented, which is a compositing bug and a completely
+different half of the browser from everything else this panel reports. It costs a pipeline stall,
+which is why it is behind the flag and runs twice a second rather than sixty times.
+`readRenderTargetPixels` cannot do it — it takes a render target, and the framebuffer actually on
+screen, with the MSAA resolve this is asking about, is not one.
+
+The limits on the fourth line — `vary`, `funif`, `tex` — are there because a phone's are close to
+the spec minimums where a desktop's have headroom, and this city's materials are not plain: every
+prop carries the AO patch's extra sampler and uniforms on top of a flat-shaded Lambert with a
+shadow map. When a mirrored error says a program would not link, those numbers say whether it was
+ever going to.
+
+The rest is the device describing itself, and the part worth reading twice is what the context was
+**granted** rather than asked for. `getContextAttributes()` and `SAMPLES` report the truth, and a
+driver is free to decline multisampling or a stencil buffer and say nothing — the latter being a
+trap this project has already paid for once
+([the ghost outline](#taxi-ghost-outline--geometryghostoutlinejs) fills in solid without it).
+
+GL parameters are read **once**, at construction: the device does not change under us, and
+re-querying the driver every frame is a pipeline stall for text nobody is watching change. The live
+half is averaged over half a second, because a number that changes sixty times a second is
+unreadable on a screen held in one hand — and the question here is "is this drawing at all", not
+"how long did this frame take".
+
 ## Day/night cycle
 
 `src/game/daylight.js` owns the hour → lighting curve. **Currently switched off by default** —

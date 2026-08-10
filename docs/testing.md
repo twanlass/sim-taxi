@@ -155,6 +155,110 @@ out of one URL — it is a build-time switch, so it cannot be toggled after load
 The AO pass is safe to shoot through: its taps are fixed rather than jittered, so it adds nothing
 non-deterministic to a frozen frame. It does change every reference shot once, being new.
 
+## When a device renders nothing
+
+A phone came up **black**: no city, no sky, no markers — and the page underneath it working
+perfectly. The HUD counted, the tutorial talked, its spotlight tracked a taxi nobody could see.
+Nothing in the toolbox above reaches that. `npm run check` passes, because the failure is not in
+any of the logic it asserts; a screenshot from this machine is a picture of this machine's GPU.
+
+**The failure is silent by construction.** Three of the ways a WebGL page stops producing pixels
+throw nothing at all:
+
+| What happened | What three does | What you see |
+|---|---|---|
+| Context lost (memory pressure, driver reset, the OS reclaiming the GPU) | `console.log('THREE.WebGLRenderer: Context Lost.')`, sets a flag, every later `render()` returns immediately | black |
+| A shader the driver refuses to compile | `console.error('THREE.WebGLProgram: Shader Error …')`, carries on | that material missing |
+| No context could be created | `console.error`, from `webglcontextcreationerror` | black |
+
+So `index.html`'s error overlay never opened — it only listens for `error` and
+`unhandledrejection`, and none of the above is either. Three legs were added for this:
+
+**1. Three's own reports are mirrored onto the screen.** An inline script in `index.html`, ahead
+of the module so it catches a context-creation failure mid-evaluation, wraps `console.log/warn/
+error` and copies the messages above into the `#error` panel. It is an **allow-list, not a
+`THREE.` prefix match**: that panel covers the whole screen, and three writes plenty of benign
+prefixed warnings that would turn a working build into a broken-looking one.
+`Context Restored.` takes the panel back down.
+
+**2. `?diag`** puts [the renderer readout](rendering.md#the-renderer-readout--gamediagjs) in the
+bottom-left corner: the GPU's own name, what the context was *granted* as opposed to asked for,
+whether the context is alive, how many draw calls the frame just made, and `mid` — one pixel read
+back out of the frame that is supposedly on screen, which is what separates "drew nothing" from
+"drew the city and never presented it".
+
+**3. `?safe` and the budget flags** let the renderer be turned down from the address bar, on the
+device, with no rebuild. Each drops one of the four things this page asks a GPU for that a plain
+three.js page does not:
+
+```
+?msaa=off        the multisampled back buffer — the largest single allocation at DPR 2
+?shadows=off     the sun's 2048² shadow map (?shadows=1024 for a quarter of it)
+?dpr=1           the drawing buffer itself, quartered
+?ao=off          the depth prepass, its two render targets, and the patch on every material
+?safe            all four at their cheapest, in one load
+```
+
+`?safe` is a **playable** configuration rather than a diagnostic one — a device that only works
+this way can still be played this way. Every flag overrides it, so `?safe&msaa=on` bisects upward
+exactly as `?msaa=off` bisects down, and the flags reach the tutorial avatar's renderer and the
+rider-finder chips' too: each of those opens a WebGL context of its own, and "how many contexts is
+this page holding" is part of what `?safe` is asking.
+
+**Android defaults to it**, as a holding measure — see below. The consequence for bisecting is
+that a bare `?msaa=off` on an Android device tells you nothing, because the other three are
+already off: reach for **`?safe=off`** first and bisect down from the full budget
+(`?safe=off&msaa=off`, and so on). Desktop and iOS are unaffected and bisect either way.
+
+The order to try them in is the order of what they rule out. `?diag` first — it answers *which
+kind* of failure this is before anything is changed, and `ctx LOST`, `calls 0`, `calls 40` with a
+black `mid`, and `calls 40` with a *sky-blue* `mid` are four different investigations. Then
+`?safe`, which is the one load that says whether the device will render this scene at all.
+
+### What the first one turned out to be
+
+`?diag` on the reporting device, in one screenshot:
+
+```
+ANGLE (Imagination Technologies, PowerVR D-Series DXT-48-1536, OpenGL ES 3.2)
+webgl2 · aa yes (4x) · stencil yes (8b)
+depth 24b · maxtex 8192 · vary 15 · funif 1024 · tex 24
+flags msaa=on shadows=2048 dpr=2 ao=on
+ctx LOST · calls 37 (stale) · tris 22969 · progs 27
+822x1520 @2.625 · 60fps · mid --
+```
+
+`THREE.WebGLRenderer: Context Lost.` three times over, and the city visibly rendering for about a
+second between each. **A context-loss loop**, not a rendering bug: 37 draw calls and 23k triangles
+say the scene was fine right up to the moment the driver reset. The GPU is a PowerVR D-Series —
+the Tensor G5 — which is a different vendor from every previous Pixel and a very new driver.
+
+`game/recovery.js` is the answer to the loop itself: turn the budget down rather than leave the
+player looking at a black screen. It de-escalates in two steps, split by what a live renderer can
+change (pixel ratio, shadow map size) versus what needs a new context and new programs (MSAA, AO).
+
+`?safe` holds on that device. **Which one of the four flags is the trigger is still not known** —
+the four single-variable loads have not been run — so Android defaults to the whole reduced budget
+in the meantime. That default is deliberately wider than the evidence (one device, not a platform)
+and costs real quality on Android phones that were rendering this fine; it is taken because the
+failure it avoids is not "slightly soft" but "black screen, no game", and recovery can only climb
+*down* from a budget, never up. It should be replaced with whichever single flag turns out to be
+responsible. `?safe=off` is the escape hatch that keeps that narrowing possible on the affected
+device.
+
+Note `vary 15` — `MAX_VARYING_VECTORS` at the ES spec minimum, against 31 on a desktop. It is not
+what caused this (a program over the limit fails to link, and 27 linked), but it is the sort of
+headroom this panel exists to show, and it is worth remembering before adding a varying.
+
+### Reading the pair
+
+The first report of this was **Android Chrome, with iOS Chrome on the same build working fine**.
+That pair is worth reading carefully rather than as "mobile is broken": iOS Chrome is WebKit, so
+it shares nothing below the JavaScript with Android Chrome's Blink and ANGLE-over-GLES. It says
+the scene, the shaders as written and the game logic are all fine, and puts the fault in the
+bottom half of one browser on one GPU — which is exactly the half none of the headless tools can
+reach, and why the panel reports the driver's own strings and limits.
+
 ## Working notes
 
 These are the things that have actually cost time on this project:

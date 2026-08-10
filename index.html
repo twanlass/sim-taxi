@@ -733,6 +733,26 @@
       }
       body.shot-mode #dbg-toggle, body.shot-mode #dbg-panel { display: none; }
 
+      /* The renderer readout — `?diag`, see src/game/diag.js. Bottom-left rather than top, which
+         is where the money counter and the streak live, and above the boost pill's own corner.
+         It has to survive being photographed on a phone in one hand, so: monospace, a solid
+         backing rather than a text shadow, and small enough that six lines fit on a 320px screen.
+
+         It **wraps rather than truncating**. The GPU string is the longest line here and also the
+         one most likely to name the culprit — "which Adreno is this" is the whole question on a
+         device-specific bug — so an ellipsis would clip away the reason the panel was opened.
+         Two wrapped lines are ugly and legible; one truncated line is neither. */
+      #diag {
+        position: fixed; left: 8px; bottom: 8px; z-index: 29; max-width: calc(100% - 16px);
+        padding: 7px 9px; border-radius: 8px;
+        background: rgba(6, 14, 22, 0.82); color: #b8f0c8;
+        font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap; overflow-wrap: anywhere;
+        pointer-events: none; user-select: none; -webkit-user-select: none;
+      }
+      #diag[hidden] { display: none; }
+      body.shot-mode #diag { display: none; }
+
       #error {
         position: fixed; inset: 0; padding: 24px; background: #2b1b1b; color: #ffb4a8;
         font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -769,18 +789,61 @@
     <div id="home-tip" hidden></div>
     <div id="run-end" hidden></div>
 
+    <div id="diag" hidden></div>
     <div id="error" hidden></div>
     <script>
-      window.addEventListener('error', (e) => {
+      const errorPanel = () => {
         const el = document.getElementById('error');
         el.hidden = false;
-        el.textContent += `${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`;
+        return el;
+      };
+      window.addEventListener('error', (e) => {
+        errorPanel().textContent += `${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`;
       });
       window.addEventListener('unhandledrejection', (e) => {
-        const el = document.getElementById('error');
-        el.hidden = false;
-        el.textContent += `Unhandled rejection: ${e.reason?.stack ?? e.reason}\n\n`;
+        errorPanel().textContent += `Unhandled rejection: ${e.reason?.stack ?? e.reason}\n\n`;
       });
+
+      /* Three's own reports, put where a phone can show them.
+
+         A whole class of rendering failure never throws, so the panel above never opens for it: a
+         lost context, a shader the driver refuses to compile, a context that could not be created
+         at all. Three reports each of those to the console and then carries on drawing nothing —
+         the page keeps running perfectly with a black canvas underneath it, the sim ticking and
+         the HUD updating over the top. That is exactly what an Android device did, and there is
+         no console on a phone to read the explanation out of.
+
+         **An allow-list, not a prefix match.** This panel covers the whole screen, so anything
+         that opens it has to be a failure the game does not come back from. Three writes plenty
+         of benign `THREE.`-prefixed warnings (a missing optional extension, a deprecation), and
+         pasting one of those over the city would turn a working build into a broken one. Every
+         entry here means the renderer has stopped producing pixels; `Context Restored.` is the
+         one that means it started again, and it takes the panel back down.
+
+         Installed inline and ahead of the module script, because a context-creation failure
+         happens while that module is still evaluating. */
+      const FATAL_GL = [
+        'THREE.WebGLRenderer: Context Lost.',
+        'THREE.WebGLRenderer: A WebGL context could not be created',
+        'THREE.WebGLProgram: Shader Error',
+        'THREE.WebGLShader:',
+      ];
+      for (const level of ['error', 'warn', 'log']) {
+        const original = console[level].bind(console);
+        console[level] = (...args) => {
+          original(...args);
+          const first = typeof args[0] === 'string' ? args[0] : '';
+          if (first.startsWith('THREE.WebGLRenderer: Context Restored.')) {
+            const el = document.getElementById('error');
+            el.textContent = '';
+            el.hidden = true;
+            return;
+          }
+          if (FATAL_GL.some((prefix) => first.startsWith(prefix))) {
+            errorPanel().textContent += args.map(String).join(' ') + '\n\n';
+          }
+        };
+      }
     </script>
     <script type="module" src="/src/main.js"></script>
   </body>

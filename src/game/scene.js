@@ -46,7 +46,14 @@ const SUN = {
   fill: 1.5,
 };
 
-export function createScene() {
+/**
+ * @param shadowMapSize  the sun's shadow map, in texels a side. 0 switches shadows off entirely
+ *                       — `?shadows=off`, see `util/shot.js`. It is a *parameter* rather than a
+ *                       constant because it is the second-largest allocation this renderer makes
+ *                       after the drawing buffer, and on a device that comes up black the only
+ *                       way to find out whether that matters is to ask for less of it.
+ */
+export function createScene({ shadowMapSize = 2048 } = {}) {
   const scene = new THREE.Scene();
   // No fog. Three's fog is a function of view-space depth, and an orthographic camera sits a
   // fixed 400 units back from the whole scene — so distance-based fog whites out the entire
@@ -72,13 +79,15 @@ export function createScene() {
     Math.sin(SUN.elevation) * SUN.radius,
     Math.sin(SUN.azimuth) * Math.cos(SUN.elevation) * SUN.radius,
   );
-  sun.castShadow = true;
+  sun.castShadow = shadowMapSize > 0;
 
   // The shadow frustum has to cover the entire city; there's no player to centre it on.
   // A low sun throws shadows far longer than the city is wide, so the shadow frustum has to
   // cover well past the buildings casting them.
   const extent = SPAN * 1.05;
-  sun.shadow.mapSize.set(2048, 2048);
+  // Still set when shadows are off: `castShadow` is what decides whether the map is allocated at
+  // all, and leaving the size configured means the debug panel can turn them back on live.
+  sun.shadow.mapSize.set(Math.max(256, shadowMapSize), Math.max(256, shadowMapSize));
   sun.shadow.camera.left = -extent;
   sun.shadow.camera.right = extent;
   sun.shadow.camera.top = extent;
