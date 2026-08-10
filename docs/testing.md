@@ -205,6 +205,11 @@ exactly as `?msaa=off` bisects down, and the flags reach the tutorial avatar's r
 rider-finder chips' too: each of those opens a WebGL context of its own, and "how many contexts is
 this page holding" is part of what `?safe` is asking.
 
+**Android defaults to it**, as a holding measure — see below. The consequence for bisecting is
+that a bare `?msaa=off` on an Android device tells you nothing, because the other three are
+already off: reach for **`?safe=off`** first and bisect down from the full budget
+(`?safe=off&msaa=off`, and so on). Desktop and iOS are unaffected and bisect either way.
+
 The order to try them in is the order of what they rule out. `?diag` first — it answers *which
 kind* of failure this is before anything is changed, and `ctx LOST`, `calls 0`, `calls 40` with a
 black `mid`, and `calls 40` with a *sky-blue* `mid` are four different investigations. Then
@@ -231,6 +236,15 @@ the Tensor G5 — which is a different vendor from every previous Pixel and a ve
 `game/recovery.js` is the answer to the loop itself: turn the budget down rather than leave the
 player looking at a black screen. It de-escalates in two steps, split by what a live renderer can
 change (pixel ratio, shadow map size) versus what needs a new context and new programs (MSAA, AO).
+
+`?safe` holds on that device. **Which one of the four flags is the trigger is still not known** —
+the four single-variable loads have not been run — so Android defaults to the whole reduced budget
+in the meantime. That default is deliberately wider than the evidence (one device, not a platform)
+and costs real quality on Android phones that were rendering this fine; it is taken because the
+failure it avoids is not "slightly soft" but "black screen, no game", and recovery can only climb
+*down* from a budget, never up. It should be replaced with whichever single flag turns out to be
+responsible. `?safe=off` is the escape hatch that keeps that narrowing possible on the affected
+device.
 
 Note `vary 15` — `MAX_VARYING_VECTORS` at the ES spec minimum, against 31 on a desktop. It is not
 what caused this (a program over the limit fails to link, and 27 linked), but it is the sort of

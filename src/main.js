@@ -36,7 +36,8 @@ import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { findRoute, planOrigin } from './game/route.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
-  getSafeMode, getMsaa, getShadowMapSize, getPixelRatioCap, getDiagnostics } from './util/shot.js';
+  getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
+  getDiagnostics } from './util/shot.js';
 import { createDiagnostics } from './game/diag.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID } from './city/grid.js';
@@ -83,6 +84,9 @@ difficulty.pinDifficulty(getDifficultyPin() ?? shot?.difficulty ?? null);
 // that renders nothing can only be bisected this way.
 const budget = {
   safe: getSafeMode(),
+  // 'url' | 'android' | null — see `safeModeSource`. The panel reports it, because a budget the
+  // player asked for and one the platform default imposed are different things to be looking at.
+  safeSource: safeModeSource(),
   msaa: getMsaa(),
   shadowMapSize: getShadowMapSize(),
   pixelRatioCap: getPixelRatioCap(),

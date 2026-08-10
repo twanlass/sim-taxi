@@ -168,10 +168,59 @@ export function getSeed({ deterministic = false } = {}) {
  * renderer of its own — the tutorial's avatar, the rider-finder chips — reads the effective value
  * without anyone threading it through.
  */
-export function getSafeMode() {
+
+/**
+ * Android, as well as this can be asked.
+ *
+ * `userAgentData` is the one that is actually specified to answer this and is what Chromium hands
+ * over without a string to parse; everything else still needs the user-agent string. **Chrome's
+ * "Desktop site" toggle defeats both** — it sends a Linux x86_64 UA with no Android hint at all —
+ * which is the same shape of trap as the iPad one in `game/homescreen.js`. The consequence here
+ * is mild and the right way round: a phone in desktop mode gets the full budget rather than a
+ * desktop being needlessly turned down, and `?safe` is one tap away if it comes up black.
+ *
+ * Read at call time rather than at import so the module still loads under `npm run check`.
+ */
+export function isAndroid() {
+  if (typeof navigator === 'undefined') return false;
+  if (navigator.userAgentData?.platform === 'Android') return true;
+  return /Android/i.test(navigator.userAgent ?? '');
+}
+
+/**
+ * Why the reduced budget is on: `'url'` for an explicit `?safe`, `'android'` for the platform
+ * default below, `null` for neither. Reported by the diagnostics panel, because "safe mode is on"
+ * and "safe mode is on *and nobody asked for it*" are different things to be looking at.
+ */
+export function safeModeSource() {
   const params = new URLSearchParams(window.location.search);
-  if (!params.has('safe')) return false;
-  return !isOff(params.get('safe'));
+  if (params.has('safe')) return isOff(params.get('safe')) ? null : 'url';
+  return isAndroid() ? 'android' : null;
+}
+
+/**
+ * **Android defaults to the reduced budget**, and this is a holding measure rather than a
+ * conclusion.
+ *
+ * What is actually known: one Android device — a Pixel on a PowerVR D-Series (Tensor G5), a GPU
+ * vendor no previous Pixel used — rendered the city correctly for about a second and then lost
+ * the WebGL context, over and over. `?safe` holds on it. Which *one* of the four flags is the
+ * trigger is not known yet, and the four single-variable loads that would settle it have not been
+ * run, so this gives up all four rather than guessing at one.
+ *
+ * It is deliberately blunt in two directions. It is wider than the evidence — one device, not a
+ * platform — and it is a real quality cost: no multisampling and half the pixel ratio on every
+ * Android phone, most of which were rendering this fine. That trade is taken on purpose, because
+ * the failure it avoids is not "slightly soft" but "black screen, no game", and `game/recovery.js`
+ * can only climb *down* from a budget, never up.
+ *
+ * **`?safe=off` is the escape hatch and is what the narrowing will be done through** — it restores
+ * the full budget on Android, so the single-variable loads (`?safe=off&msaa=off`, and so on) still
+ * work on the device that has the bug. Replace this default with whichever one flag turns out to
+ * be responsible as soon as that is known.
+ */
+export function getSafeMode() {
+  return safeModeSource() !== null;
 }
 
 /**

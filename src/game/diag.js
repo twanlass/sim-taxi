@@ -127,9 +127,12 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
     `depth ${buffers.depthBits}b · maxtex ${buffers.maxTexture}`
       + ` · vary ${limits.varyings} · funif ${limits.fragUniforms}`
       + ` · tex ${limits.textureUnits}`,
+    // The reduced budget is tagged with *why* it is on. `[safe:android]` is the platform default
+    // rather than anything the player asked for, and a screenshot that does not say which is a
+    // screenshot of an unknown configuration.
     `flags msaa=${flags.msaa ? 'on' : 'off'} shadows=${flags.shadowMapSize || 'off'}`
       + ` dpr=${flags.pixelRatioCap} ao=${flags.ao ? 'on' : 'off'}`
-      + `${flags.safe ? ' [safe]' : ''}`,
+      + `${flags.safe ? ` [safe:${flags.safeSource ?? '?'}]` : ''}`,
   ].join('\n');
 
   // Averaged over a second rather than reported per frame: a number that changes sixty times a

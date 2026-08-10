@@ -254,6 +254,14 @@ flag that drops it: the multisampled back buffer (`?msaa=off`), the sun's 2048²
 (`?shadows=off`, or a size), the drawing buffer's pixel ratio (`?dpr=1`), and the AO pass above
 (`?ao=off`). `?safe` is all four at their cheapest at once, and any single flag still overrides it.
 
+**Android defaults to `?safe`**, and that is a holding measure rather than a conclusion: one
+device — a Pixel on a PowerVR D-Series (Tensor G5) — lost the WebGL context in a loop on the full
+budget and holds on the reduced one, and which single flag is responsible is not yet known. It is
+wider than the evidence and it costs real quality on Android phones that were fine, taken because
+the failure it avoids is a black screen rather than a soft one. `?safe=off` restores the full
+budget there, which is how the narrowing gets done; replace the default with the one flag as soon
+as it is known. Desktop and iOS are untouched, so screenshots and the shot list do not move.
+
 They live in `util/shot.js` beside `?seed` and `?cars`, and every getter takes its **fallback from
 safe mode rather than from a literal**, evaluated per call — so one flag moves all of them, and a
 module that opens a renderer of its own reads the effective value without anyone threading it

@@ -55,14 +55,15 @@ export function attachContextRecovery({ renderer, sun, budget, onNotice = () => 
   renderer.domElement.addEventListener('webglcontextlost', () => {
     losses += 1;
 
-    // Nothing left to give up. Say so and stop — a reload loop is worse than a black screen,
-    // because it also takes away the panel that would have explained it.
-    if (budget.safe) {
-      onNotice(`context lost x${losses} — already in safe mode`);
-      return;
-    }
+    // Headroom first, safe mode second. Asking "is there anything left I can turn down without a
+    // reload" before "am I already in safe mode" is what keeps this correct as safe mode's own
+    // contents change: since Android defaults to it, a device can now arrive here already at the
+    // step-one floor, and the old order would have called that "nothing left" while the reload
+    // branch was still the one being skipped.
+    const canDegradeLive = budget.pixelRatioCap > DEGRADED_PIXEL_RATIO
+      || budget.shadowMapSize > DEGRADED_SHADOW_MAP;
 
-    if (losses === 1) {
+    if (canDegradeLive) {
       // Applied while the context is still down, on purpose: these are JS-side properties, and
       // setting them now means the context three restores comes back already inside the smaller
       // budget rather than being handed the old one and losing it again.
@@ -82,9 +83,16 @@ export function attachContextRecovery({ renderer, sun, budget, onNotice = () => 
       return;
     }
 
-    // Second loss: the cheap half did not hold. Everything still on the table needs a fresh
+    // Nothing left to give up. Say so and stop — a reload loop is worse than a black screen,
+    // because it also takes away the panel that would have explained it.
+    if (budget.safe) {
+      onNotice(`context lost x${losses} — already in safe mode`);
+      return;
+    }
+
+    // The live half did not hold. Everything still on the table — MSAA, AO — needs a fresh
     // context and a fresh set of programs, which means a reload.
-    onNotice('context lost twice — reloading into safe mode');
+    onNotice('context lost again — reloading into safe mode');
     const url = new URL(window.location.href);
     url.searchParams.set('safe', '1');
     // `replace` rather than `assign`: the URL that just failed is not somewhere the back button
