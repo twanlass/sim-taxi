@@ -82,6 +82,14 @@ down.
 - **`flatShading` takes its normal from a screen-space derivative,** so on back faces it points into
   the screen and the surface lights as if the sun were behind it. Three's `FLIP_SIDED` only fixes
   the interpolated-normal path. Flip it by hand in any back-face pass.
+- **A moving `InstancedMesh` must set `frustumCulled = false`.** Three computes its bounding sphere
+  once, on the first frame the renderer culls it, from the instance matrices as they stood *then* —
+  and never again. The ambient traffic meshes didn't, and the trucks paid for it: a run opening with
+  no truck latched an empty sphere off `count = 0` (radius −1, at the origin), and a run opening with
+  one latched a 3.1-unit bubble it then drove out of. The cab and the box are separate meshes with
+  separate spheres, so the box could vanish on a frame the cab survived — a box truck with no box.
+  The shadow pass culls against the *sun's* frustum, which covers the whole city, so the shadow kept
+  drawing at the real position under the missing truck.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

@@ -1774,6 +1774,64 @@ check('the taxi is an ordinary car in the traffic array',
     && uTraffic.truckBoxMesh.count === CARS_DEFAULT - 1,
     `car mesh ${uTraffic.mesh.count}, truck mesh ${uTraffic.truckMesh.count}, box mesh ${uTraffic.truckBoxMesh.count}`);
 
+  // The invisible truck. Three computes an InstancedMesh's bounding sphere once, off the instance
+  // matrices as they stood on the first frame the renderer culled it, and never refreshes it — so
+  // a mesh whose instances drive across the city is culled against where they *were*. See the note
+  // by `neverCull` in sim/traffic.js; game/carghosts.js has the same assertion for the same reason.
+  //
+  // Staged at the worst case that shipped: one truck, whose sphere is then a 3.1-unit bubble around
+  // its warmup position, watched through a portrait phone's frustum (where the camera follows the
+  // taxi rather than framing the whole city). Before the fix, a truck plainly on screen went
+  // unsubmitted in 27% of these samples — and since the cab and the box are separate meshes with
+  // separate spheres, some of those frames dropped only the box and left a cab driving down the
+  // street with nothing on its back.
+  {
+    const kScene = new THREE.Scene();
+    const kTraffic = createTraffic(makeRng(seed + 44), kScene, 2, 2, 1);
+    check('every moving vehicle mesh is out of frustum culling',
+      [kTraffic.mesh, kTraffic.wheelMesh,
+        kTraffic.truckMesh, kTraffic.truckWheelMesh, kTraffic.truckBoxMesh]
+        .every((m) => m.frustumCulled === false));
+
+    const kAspect = 390 / 844;
+    const kCam = createCityCamera(kAspect, { zoom: 46 });
+    const kFrustum = new THREE.Frustum();
+    const kMat = new THREE.Matrix4();
+    const kPoint = new THREE.Vector3();
+    // WebGLRenderer.projectObject's own test, verbatim — `frustumCulled` first, and the sphere
+    // only if it is still on. WebGLShadowMap applies the same rule to the sun's frustum, which
+    // covers the whole city, so a stale sphere drops the truck from the play camera while its
+    // shadow keeps sliding along the road underneath it.
+    const submitted = (m) => {
+      kScene.updateMatrixWorld(true);
+      kCam.camera.updateMatrixWorld(true);
+      kMat.multiplyMatrices(kCam.camera.projectionMatrix, kCam.camera.matrixWorldInverse);
+      kFrustum.setFromProjectionMatrix(kMat);
+      return !m.frustumCulled || kFrustum.intersectsObject(m);
+    };
+
+    kTraffic.warmup(10);                 // main.js warms up before its first frame; so does this
+    submitted(kTraffic.truckMesh);       // ...and that first frame is what would latch the sphere
+    let kInShot = 0;
+    let kDropped = 0;
+    for (let step = 0; step < 60 * 60; step++) {
+      kTraffic.update(1 / 60);
+      kCam.followXZ(kTraffic.taxi.x, kTraffic.taxi.z, 1 / 60, 3.2, kAspect);
+      if (step % 15) continue;
+      const onScreen = kTraffic.trucks.some((t) => {
+        kPoint.set(t.x, 1.5, t.z).project(kCam.camera);
+        return Math.abs(kPoint.x) < 0.95 && Math.abs(kPoint.y) < 0.95;
+      });
+      if (!onScreen) continue;
+      kInShot += 1;
+      if (!submitted(kTraffic.truckMesh) || !submitted(kTraffic.truckWheelMesh)
+        || !submitted(kTraffic.truckBoxMesh)) kDropped += 1;
+    }
+    check('a truck on screen is still drawn once it has left where it spawned',
+      kInShot > 20 && kDropped === 0,
+      `${kInShot} sampled frames with a truck in shot, ${kDropped} of them culled away`);
+  }
+
   // truckMesh's instance colour — which tints its chassis (the cab itself is baked dark
   // regardless, see truckCabGeometry) — is painted from PALETTE.carBody, same as an ordinary car.
   // Only the cargo box breaks from that, and it does so by never getting an instance colour at
