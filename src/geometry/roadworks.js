@@ -167,6 +167,34 @@ function rampWedge(width, centreX) {
   return geo;
 }
 
+// A chip off a plank. Long, thin, and thick enough that it still catches the sun edge-on while it
+// tumbles — a chip of the thickness a real splinter would have (PLANK_T/4) is a single pixel at
+// play zoom and flickers in and out of existence as it spins.
+const SPLINTER = [0.5, 0.13, 0.16];
+
+/** How high a splinter's origin sits once it is lying flat on the road. */
+export const SPLINTER_REST_Y = SPLINTER[1] / 2;
+
+/**
+ * A chip off a striped plank, origin at its centre so it tumbles about itself.
+ *
+ * Split down the middle into the barricade's two colours rather than being one or the other. A
+ * plain orange chip is indistinguishable from a cone fragment at this size, and a set of chips
+ * half orange and half white reads as two kinds of debris rather than as one broken thing; carrying
+ * the stripe *within* each chip is what makes a piece spinning past legible as the trestle it came
+ * off. It costs one extra box per instance and they are all merged into the one geometry anyway.
+ */
+export function splinterGeometry() {
+  const [w, h, d] = SPLINTER;
+  const parts = [];
+  for (const side of [-1, 1]) {
+    const half = new THREE.BoxGeometry(w / 2, h, d);
+    half.translate((side * w) / 4, 0, 0);
+    parts.push(bakeColor(half, color(side < 0 ? 'barrier' : 'barrierBand')));
+  }
+  return mergeAll(parts);
+}
+
 /** The heap of dug-out road base, and the flat patch of hole it came from. */
 export function spoilParts(x, z, rng) {
   const parts = [];

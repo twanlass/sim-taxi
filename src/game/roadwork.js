@@ -6,7 +6,8 @@ import { PALETTE } from '../palette.js';
 import { createPerson } from '../geometry/person.js';
 import { markOccluder } from './ssao.js';
 import {
-  coneGeometry, barricadeParts, spoilParts, mergeAll, CONE_REST_Y,
+  coneGeometry, barricadeParts, spoilParts, mergeAll, splinterGeometry,
+  CONE_REST_Y, SPLINTER_REST_Y,
 } from '../geometry/roadworks.js';
 import { launchHop, setClosedLanes } from '../sim/traffic.js';
 import { setRoadworkLanes } from './route.js';
@@ -35,13 +36,18 @@ const RISE = 1.1;              // how far under the road the zone starts, so it 
 // reopens — a wrecked site sitting there for the rest of the run is a stale prop, and the second
 // drive through an already-smashed barricade is a no-op that reads as broken.
 //
-// `LEAVE_DWELL` is measured from the taxi being *clear*, not from the smash: the trestle takes
-// TRESTLE_FLIGHT to finish cartwheeling and the cones a little longer to settle, and fading during
-// that swallows the payoff.
+// `LEAVE_DWELL` is measured from the taxi being *clear* **and the crew being gone**, not from the
+// smash: the trestle takes TRESTLE_FLIGHT to finish cartwheeling, the cones and the splinters a
+// little longer to settle, and the two workers longer still to get off the road. Fading during any
+// of that swallows the payoff — and in the crew's case it swallowed the beat entirely. At overdrive
+// the taxi crosses a 12-unit block in half a second, so the old rule started the zone's fade at
+// about t = 1.35s against a run that ends at 1.15s and a fade that ends at 1.65s: the workers spent
+// the back half of their sprint dissolving, which reads as them vanishing *instead of* escaping.
 const LEAVE_DWELL = 0.8;
 const FADE_OUT = 1.4;
 const SINK = 1.1;              // matches RISE, so it leaves the way it arrived
-const WORKER_FADE = 0.5;       // a worker vanishes once they have reached the kerb and looked back
+const WORKER_HOLD = 0.45;      // a beat at the kerb, turned round, before they go
+const WORKER_FADE = 0.5;       // ...and then they vanish, well ahead of the site itself
 
 // How far the taxi has to be for a zone to appear. Same number and same honest caveat as
 // traffic.js's SPAWN_CLEARANCE: on a desktop the whole city is in frame at once, so this cannot
@@ -67,14 +73,34 @@ const CONE_SPAN = [0.22, 0.78];   // along the segment, kept between the two bar
 const CONE_JITTER_SIDE = 0.12;    // placed by a crew, not stamped by a machine
 const CONE_JITTER_ALONG = 0.15;
 
-const SMASH_SCATTER = 5.5;     // cones this close to a smashed trestle go with it
+const SMASH_SCATTER = 7;       // cones this close to a smashed trestle go with it
 const KNOCK_R = 1.7;           // and any cone the taxi drives over, anywhere in the zone
 const KNOCK_V = 2;             // ...as long as it is actually moving
 
 const CONE_GRAVITY = 26;
 const CONE_SETTLE = 0.3;       // fraction of a cone's flight spent easing into its resting pose
+
+// A cone caught by a trestle going over is thrown harder than one the taxi merely clipped: the
+// blast is the event, the cone is only reporting it. 1.5 rather than a bigger number because the
+// throw is *also* scaled by the taxi's speed, and the two multiply — see `knock`.
+const SMASH_POWER = 1.5;
+// ...which is why there is a ceiling on the vertical. At the overdrive top the speed term alone is
+// 2.15, so 7.6 · 2.15 · 1.5 would launch a cone at 24 m/s: an apex of eleven units, most of a
+// second of hang time, and a cone that leaves frame entirely on a close shot. 13 tops out at 3.25
+// units — about a car length of air, high enough to read as flipped and low enough to stay in the
+// picture with the thing that flipped it.
+const CONE_VY_MAX = 13;
+
 const TRESTLE_FLIGHT = 0.85;   // seconds a knocked trestle spends cartwheeling
 const TRESTLE_THROW = 4.6;     // and how far downfield it lands
+
+// Splintered plank off a trestle that has just been hit. Thrown from the plank line rather than
+// from the road, in a forward fan: a trestle does not disintegrate evenly in all directions, it
+// comes apart along the axis of whatever went through it.
+const CHIPS = 16;              // per trestle, and only one trestle is ever hit at a time
+const CHIP_GRAVITY = 30;       // heavier than a cone. Wood this size drops, it does not float down
+const CHIP_SETTLE = 0.35;      // fraction of the flight spent easing flat onto the road
+const CHIP_PLANK_Y = 0.95;     // roughly the height of the upper plank, where the chips come off
 
 const FLEE_R = 15;             // a worker starts running when the taxi is this close
 const FLEE_DUR = 1.15;
@@ -145,8 +171,10 @@ export function createRoadwork(rng, scene, camera = null) {
   const workers = [];
   const barriers = [];
   const cones = [];
+  const chips = [];
 
   let coneMesh = null;
+  let chipMesh = null;
   const dummy = new THREE.Object3D();
   const qTumble = new THREE.Quaternion();
   const qRest = new THREE.Quaternion();
@@ -263,6 +291,9 @@ export function createRoadwork(rng, scene, camera = null) {
         mesh, laneId: lane.id, s: BARRIER_S, hit: false, hitAt: 0,
         throwX: rng.jitter(0.8), twist: rng.range(-0.9, 0.9),
         x: frame.x, z: frame.z,
+        // Kept so the splinters can be thrown in the trestle's own frame rather than in world
+        // axes — see burstChips. The frame itself is discarded with the matrix it was built for.
+        forward: frame.forward.clone(), right: frame.right.clone(),
       });
 
       // The ramp is bolted to the road, so it joins the static mesh — transformed into world space
@@ -327,6 +358,38 @@ export function createRoadwork(rng, scene, camera = null) {
     writeCones();
   }
 
+  /**
+   * The pool of plank splinters, dormant until a trestle is hit.
+   *
+   * Built with the zone rather than on the smash, for the same reason every pool in game/ is: the
+   * smash is the one frame in the run where a hitch is unaffordable, and building an InstancedMesh
+   * there means compiling a material and uploading a buffer inside it.
+   *
+   * Slots start scaled to zero. A dormant instance at the origin would otherwise be a small striped
+   * chip sitting in the middle of the city — the mesh has no per-instance visibility flag, so
+   * "absent" has to be spelled as "zero size".
+   */
+  function buildChips() {
+    chipMesh = new THREE.InstancedMesh(splinterGeometry(), propMaterial(), CHIPS);
+    chipMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    chipMesh.frustumCulled = false;   // same reason as the cones: these leave their bounding sphere
+    chipMesh.castShadow = true;
+    group.add(chipMesh);
+    materials.push(chipMesh.material);
+
+    for (let n = 0; n < CHIPS; n++) {
+      chips.push({
+        live: false, age: 0, dur: 1,
+        x: 0, y: 0, z: 0, x0: 0, y0: 0, z0: 0,
+        vx: 0, vy: 0, vz: 0,
+        spin: 0, axisX: 0, axisY: 0, axisZ: 0,
+        long: 1, restYaw: 0,
+        quat: new THREE.Quaternion(),
+      });
+    }
+    writeChips();
+  }
+
   function buildWorkers(edge, site) {
     for (let n = 0; n < WORKERS; n++) {
       const person = createPerson({
@@ -357,6 +420,7 @@ export function createRoadwork(rng, scene, camera = null) {
         dz: spot.rz * travel,
         phase: rng.range(0, Math.PI * 2),
         fleeing: 0,
+        held: 0,      // seconds spent standing at the kerb since the run finished
         fade: 1,      // their own, multiplied into the zone's — see setAlpha
       });
     }
@@ -371,6 +435,7 @@ export function createRoadwork(rng, scene, camera = null) {
     state.closedLaneIds = edge.lanes.map((l) => l.id);
     const { site } = buildStatic(edge);
     buildCones(edge);
+    buildChips();
     buildWorkers(edge, site);
     // Published from here rather than polled by main.js: it changes exactly once in a run, and
     // anything that stages a zone directly — shot mode, tools/probe.mjs — gets the closure with it
@@ -434,7 +499,13 @@ export function createRoadwork(rng, scene, camera = null) {
 
   // --- Wrecking it ------------------------------------------------------------
 
-  function knock(cone, fromX, fromZ, speed) {
+  /**
+   * Send a cone flying, away from (fromX, fromZ).
+   *
+   * `power` is the difference between being clipped by a passing wheel and being inside a trestle
+   * as it comes apart — see SMASH_POWER.
+   */
+  function knock(cone, fromX, fromZ, speed, power = 1) {
     if (cone.knocked) return;
     cone.knocked = true;
     cone.age = 0;
@@ -450,17 +521,79 @@ export function createRoadwork(rng, scene, camera = null) {
     // Thrown away from whatever hit it, harder the faster that thing was going. The floor on the
     // speed term is what keeps a cone nudged at walking pace from simply falling over in place.
     const kick = 0.55 + Math.min(1.6, speed / 12);
-    cone.vx = dx * rng.range(2.6, 6.4) * kick + rng.jitter(1.2);
-    cone.vz = dz * rng.range(2.6, 6.4) * kick + rng.jitter(1.2);
-    cone.vy = rng.range(4.2, 7.6) * kick;
+    cone.vx = dx * rng.range(2.6, 6.4) * kick * power + rng.jitter(1.2 * power);
+    cone.vz = dz * rng.range(2.6, 6.4) * kick * power + rng.jitter(1.2 * power);
+    cone.vy = Math.min(CONE_VY_MAX, rng.range(4.2, 7.6) * kick * power);
     // Time to fall back to the road, from the same closed form the position uses. Deriving it
     // rather than picking a duration is what keeps the settle landing exactly when the cone does.
     cone.dur = (2 * cone.vy) / CONE_GRAVITY;
-    cone.spin = rng.range(7, 15) * (rng.chance(0.5) ? 1 : -1);
+    // Was 7..15, which at a cone's flight time is a turn and a half — enough to see it move, not
+    // enough to see it *flip*. At 12..26 a cone thrown by a smash turns three to five times on its
+    // way up and over, which is what carries the chaos: the tumble is the thing the eye reads, not
+    // the height. Scaled by the same power, so a wheel-clipped cone still just topples.
+    cone.spin = rng.range(12, 26) * power * (rng.chance(0.5) ? 1 : -1);
     cone.axisX = rng.range(-1, 1);
     cone.axisZ = rng.range(-1, 1);
     cone.restYaw = rng.range(0, Math.PI * 2);
     cone.restTilt = rng.range(-0.35, 0.35);
+  }
+
+  /**
+   * Blow the pool of chips off a trestle that has just been hit.
+   *
+   * Thrown in the local frame the trestle was placed in — across / up / downfield — for the same
+   * reason its own flight is written that way: "wood going the way the taxi was going" is the
+   * statement, and in world axes that is a different pair of numbers on every street in the city.
+   *
+   * The `live` guard is what makes a second smash cheap rather than wrong: only one trestle per
+   * zone is ever reachable today (see the known issue in docs/traffic.md), but if both became
+   * reachable the second would take whatever the first had not, instead of resetting chips that
+   * are still in the air.
+   */
+  function burstChips(barrier, taxi) {
+    const speed = Math.max(Math.abs(taxi.v), 6);
+    let spawned = 0;
+
+    for (const chip of chips) {
+      if (chip.live) continue;
+      spawned += 1;
+
+      chip.live = true;
+      chip.age = 0;
+      chip.x0 = barrier.x + barrier.right.x * rng.jitter(2.6);
+      chip.z0 = barrier.z + barrier.right.z * rng.jitter(2.6);
+      chip.y0 = CHIP_PLANK_Y + rng.jitter(0.35);
+      chip.x = chip.x0;
+      chip.y = chip.y0;
+      chip.z = chip.z0;
+
+      // Mostly downfield, some sideways spray. The forward term carries the taxi's speed and the
+      // lateral one does not: a plank pushed out of the way goes out of the way at the speed the
+      // crowbar was swung, but what sends it *down the street* is the car.
+      const along = rng.range(0.45, 1) * (2.5 + speed * 0.42);
+      const across = rng.range(-4.6, 4.6);
+      chip.vx = barrier.forward.x * along + barrier.right.x * across;
+      chip.vz = barrier.forward.z * along + barrier.right.z * across;
+      chip.vy = rng.range(3.4, 8.2);
+
+      // Fall time from the plank line to the road, out of the same quadratic the position uses —
+      // not the cone's symmetric 2·vy/g, because a chip starts a metre up and lands at zero, so its
+      // rise and its fall are different lengths.
+      const drop = chip.y0 - SPLINTER_REST_Y;
+      chip.dur = (chip.vy + Math.sqrt(chip.vy * chip.vy + 2 * CHIP_GRAVITY * drop)) / CHIP_GRAVITY;
+
+      // Tumbling end over end about a random axis. Faster than a cone: it is a lighter thing hit by
+      // the same car, and the flutter is most of what tells wood from plastic at this size.
+      chip.spin = rng.range(16, 34) * (rng.chance(0.5) ? 1 : -1);
+      chip.axisX = rng.range(-1, 1);
+      chip.axisY = rng.range(-0.6, 0.6);
+      chip.axisZ = rng.range(-1, 1);
+      chip.long = rng.range(0.7, 1.7);      // splinters and stubs off the same plank
+      chip.restYaw = rng.range(0, Math.PI * 2);
+    }
+
+    if (spawned) writeChips();
+    return spawned;
   }
 
   function smash(barrier, taxi) {
@@ -470,9 +603,10 @@ export function createRoadwork(rng, scene, camera = null) {
     launchHop(taxi);
     for (const cone of cones) {
       if (Math.hypot(cone.x - barrier.x, cone.z - barrier.z) <= SMASH_SCATTER) {
-        knock(cone, barrier.x, barrier.z, taxi.v);
+        knock(cone, barrier.x, barrier.z, taxi.v, SMASH_POWER);
       }
     }
+    burstChips(barrier, taxi);
     // **Everyone** goes, not just whoever the taxi got close to. The proximity test below is the
     // right rule for a taxi merely driving down the street; once a barricade is in the air it is
     // the wrong one — a worker calmly holding a shovel eight units from a trestle cartwheeling past
@@ -494,6 +628,58 @@ export function createRoadwork(rng, scene, camera = null) {
       coneMesh.setMatrixAt(n, dummy.matrix);
     }
     coneMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  function writeChips() {
+    for (let n = 0; n < chips.length; n++) {
+      const chip = chips[n];
+      if (!chip.live) {
+        dummy.scale.setScalar(0);
+        dummy.position.set(0, 0, 0);
+        dummy.quaternion.identity();
+      } else {
+        dummy.position.set(chip.x, chip.y, chip.z);
+        dummy.quaternion.copy(chip.quat);
+        dummy.scale.set(chip.long, 1, 1);
+      }
+      dummy.updateMatrix();
+      chipMesh.setMatrixAt(n, dummy.matrix);
+    }
+    chipMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  function updateChips(dt) {
+    let moving = 0;
+
+    for (const chip of chips) {
+      if (!chip.live || chip.age >= chip.dur) continue;
+      moving += 1;
+
+      chip.age = Math.min(chip.dur, chip.age + dt);
+      const age = chip.age;
+
+      // Closed form, like the cones and the blast's shards: a curve of age rather than an
+      // integrated velocity, so slow-mo is the same shape as full speed and nothing accumulates.
+      chip.x = chip.x0 + chip.vx * age;
+      chip.z = chip.z0 + chip.vz * age;
+      chip.y = Math.max(SPLINTER_REST_Y, chip.y0 + chip.vy * age - 0.5 * CHIP_GRAVITY * age * age);
+
+      spinAxis.set(chip.axisX, chip.axisY, chip.axisZ).normalize();
+      qTumble.setFromAxisAngle(spinAxis, chip.spin * age);
+      const settle = clamp01((age / chip.dur - (1 - CHIP_SETTLE)) / CHIP_SETTLE);
+      if (settle > 0) {
+        // Flat on the road under a yaw of its own — the chip's thin axis is already y, so the
+        // resting pose is a plain heading with a degree or two of lift on one corner. Slerped in
+        // for the same reason the cone's is: blending Eulers gimbals and snaps.
+        restEuler.set(0, chip.restYaw, 0.06);
+        qRest.setFromEuler(restEuler);
+        qTumble.slerp(qRest, smoothstep(settle));
+      }
+      chip.quat.copy(qTumble);
+    }
+
+    if (moving) writeChips();
+    return moving;
   }
 
   function updateCones(dt, taxi) {
@@ -582,11 +768,13 @@ export function createRoadwork(rng, scene, camera = null) {
     let faded = false;
 
     for (const worker of workers) {
-      // Run finished: they are at the kerb, turned round, looking back at the road. Hold that for
-      // the length of the run itself and then fade them out — a figure standing at a kerb forever
-      // beside a wrecked site is the tell that nothing here is going to be cleared up.
+      // Run finished: they are at the kerb, turned round, looking back at the road. Hold that pose
+      // for WORKER_HOLD and then fade them out — a figure standing at a kerb forever beside a
+      // wrecked site is the tell that nothing here is going to be cleared up, and a figure that
+      // starts dissolving the instant they stop never reads as having got there.
       if (worker.fleeing >= FLEE_DUR) {
-        if (worker.fade > 0) {
+        worker.held += dt;
+        if (worker.held >= WORKER_HOLD && worker.fade > 0) {
           worker.fade = Math.max(0, worker.fade - dt / WORKER_FADE);
           faded = true;
         }
@@ -673,6 +861,7 @@ export function createRoadwork(rng, scene, camera = null) {
       // Cones and trestles are still finishing their flights underneath this, deliberately: the
       // last thing that happens is not everything stopping, it is everything going.
       updateCones(dt, taxi);
+      updateChips(dt);
       updateBarriers(taxi);
       updateWorkers(dt, taxi);
       if (state.fade <= 0) teardown();
@@ -690,6 +879,7 @@ export function createRoadwork(rng, scene, camera = null) {
 
     updateBarriers(taxi);
     updateCones(dt, taxi);
+    updateChips(dt);
     updateWorkers(dt, taxi);
 
     // The hop is rendered by traffic.js off `hopFrom`, which it clears on touchdown — so touchdown
@@ -708,7 +898,14 @@ export function createRoadwork(rng, scene, camera = null) {
     // drive; starting the fade at the smash would dissolve the site around it while it is still
     // inside, which is both the wrong beat and the wrong reading — it did not clear the works, it
     // is in them.
-    if (state.smashed && state.leaveAt === null
+    //
+    // And the crew has to be gone before the site is, not with it. Every worker flees on the smash,
+    // so this is only ever a wait, never a deadlock — but it is a wait the fast case genuinely
+    // needs: at overdrive the taxi is clear of the street before the two of them have finished
+    // running. Sequencing it here rather than by lengthening LEAVE_DWELL keeps the beat correct at
+    // both speeds, where a fixed number is only ever right at one of them.
+    const crewGone = workers.every((worker) => worker.fade <= 0);
+    if (state.smashed && state.leaveAt === null && crewGone
       && !state.closedLaneIds.includes(taxi.lane?.id) && !airborne) {
       state.leaveAt = state.t + LEAVE_DWELL;
     }
@@ -719,6 +916,7 @@ export function createRoadwork(rng, scene, camera = null) {
   function active() {
     let n = 0;
     for (const cone of cones) if (cone.knocked && cone.age < cone.dur) n += 1;
+    for (const chip of chips) if (chip.live && chip.age < chip.dur) n += 1;
     for (const barrier of barriers) {
       if (barrier.hit && state.t - barrier.hitAt < TRESTLE_FLIGHT) n += 1;
     }
@@ -732,9 +930,14 @@ export function createRoadwork(rng, scene, camera = null) {
     update,
     active,
     cones,
+    chips,
     barriers,
     /** How many workers are running or have run. For tools/probe.mjs. */
     workersFleeing: () => workers.filter((w) => w.fleeing > 0).length,
+    /** ...how many have finished the run and are standing at the kerb. */
+    workersClear: () => workers.filter((w) => w.fleeing >= FLEE_DUR).length,
+    /** ...and how many have faded out afterwards. The zone waits on this one — see update(). */
+    workersGone: () => workers.filter((w) => w.fade <= 0).length,
     get closedLaneIds() { return state.closedLaneIds; },
     onSmash: (cb) => { smashListeners.push(cb); },
     onLand: (cb) => { landListeners.push(cb); },

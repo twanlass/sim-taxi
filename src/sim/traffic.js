@@ -260,8 +260,45 @@ export const isLaneClosed = (id) => closedLanes.has(id);
 // down at 7.6 with a clear unit in hand. The two numbers are a chain — probe.mjs asserts the margin
 // rather than just the outcome, so moving either one alone fails loudly.
 export const HOP_LEN = 5.5;
-const HOP_HEIGHT = 1.55;    // a bit under half a car length — about 12px of air at play zoom
-const HOP_PITCH = 0.26;     // nose up off the ramp, level at the apex, nose down into the landing
+// Height is free of that chain — it is the *span* that has to land before the hold line, and the
+// apex costs nothing but air. 1.55 was under half a car length and about 12px at play zoom, which
+// at a 3/4 camera is a lift rather than a jump: the taxi's own shadow never separated from it far
+// enough to say the wheels had left the road. 2.75 is most of a car length and about 21px, and the
+// shadow gap is what sells it.
+const HOP_HEIGHT = 2.75;
+const HOP_PITCH = 0.34;     // nose up off the ramp, level at the apex, nose down into the landing
+
+// Touchdown. Two decaying hops, plus a nose-down impulse into the pitch spring so the suspension
+// visibly takes the hit — the spring is underdamped (ζ ≈ 0.4, see the rocking block in the frame
+// loop) and rocks back out of it on its own, which is the whole reason the kick is an impulse
+// rather than a second hand-animated curve.
+//
+// **Paced by a clock, unlike the arc above it**, and the difference is not an inconsistency. The
+// hop is distance-paced because it has to come down before the hold line, so where it ends is the
+// whole constraint. A bounce ends wherever it likes: nothing downstream reads it, it moves the
+// rendered group and nothing else. What it models is a spring settling, and a spring settles in
+// seconds — paced over 3.4 units instead, it ran 0.4s at cruise and 0.15s in overdrive, which is
+// nine frames for two rebounds and lands somewhere between a flicker and nothing at all.
+export const BOUNCE_DUR = 0.42;
+const BOUNCE_HEIGHT = 0.55;
+const BOUNCE_PITCH = 1.25;    // rad/s into pitchV. ω ≈ 7.75, so this dips the nose about 9°
+
+/**
+ * Height of the landing bounce, `t` seconds after touchdown. Zero outside the bounce.
+ *
+ * `|sin|` over two periods is two rebounds; the linear decay takes the second to a third of the
+ * first, so it reads as the tail of a landing rather than as a second jump. The decay was squared
+ * to begin with, which sounds like the same shape and is not: the first hump peaks a quarter of the
+ * way in, where a squared decay has already taken 44% off it, so the visible rebound came out at
+ * 0.22 units against the 0.4 the constant claimed. Exported so tools/probe.mjs can assert the curve
+ * itself — measuring it off the rendered taxi means measuring the speed bob and the pitch lift too,
+ * and at overdrive those are three times the size of the thing being measured.
+ */
+export function landingBounce(t) {
+  const u = t / BOUNCE_DUR;
+  if (u < 0 || u >= 1) return 0;
+  return BOUNCE_HEIGHT * Math.abs(Math.sin(Math.PI * 2 * u)) * (1 - u);
+}
 
 /** Launch `car` off a ramp. Idempotent while already airborne — a second barricade doesn't stack. */
 export function launchHop(car) {
@@ -2343,13 +2380,25 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       let airPitch = 0;
       if (car.hopFrom != null) {
         const u = (car.travelled - car.hopFrom) / HOP_LEN;
-        if (u >= 1) car.hopFrom = null;
-        else {
+        if (u >= 1) {
+          car.hopFrom = null;
+          // Touchdown, and the only frame that can see it — see the note in game/roadwork.js about
+          // reading this flag. Hand the landing to the bounce and load the suspension.
+          car.bounceT = 0;
+          car.pitchV -= BOUNCE_PITCH;
+        } else {
           airY = HOP_HEIGHT * Math.sin(Math.PI * u);
           // Nose up as it leaves the ramp, level at the apex, nose down into the landing. Positive
           // is nose-up here, the same sense as locoWheelie.
           airPitch = HOP_PITCH * Math.cos(Math.PI * u);
         }
+      } else if (car.bounceT != null) {
+        // A separate field from `hopFrom` on purpose: everything that asks "is the taxi airborne"
+        // — the barricade's landing event, the roadworks pack-up, the probe's hop assertions — is
+        // asking about the *arc*, and a bounce that answered yes would move all of them.
+        car.bounceT += dt;
+        if (car.bounceT >= BOUNCE_DUR) car.bounceT = null;
+        else airY = landingBounce(car.bounceT);
       }
 
       const shownPitch = car.pitch + wheelieBoost + airPitch;

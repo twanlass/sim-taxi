@@ -225,16 +225,20 @@ const flyover = createFlyover(scene, makeRng(runSeed + 155));
 // when is part of the situation rather than part of the map.
 const roadwork = createRoadwork(makeRng(runSeed + 177), scene, camera);
 roadwork.onSmash(({ x, z }) => {
-  // A quarter of the wreck's 2.4 — this is a barricade going over, not the run ending.
-  controller.kickShake(0.55);
+  // Just under half the wreck's 2.4. It was 0.55, which is the shake a *kerb* would earn — this is
+  // a trestle exploding across the windscreen, and the camera has to admit that something happened.
+  // Still short of the wreck, because the wreck ends the run and this does not.
+  controller.kickShake(1.1);
   // A proper burst. Two ordinary puffs was what a boosting taxi lays down in two frames, so the
   // impact read as exhaust rather than as hitting something. See `dust.burst`.
   dust.burst(x, z, traffic.taxi.yaw);
 });
 roadwork.onLand(({ x, z }) => {
-  controller.kickShake(0.35);
-  // Smaller than the smash — this is the landing, and it should not upstage the thing it followed.
-  dust.burst(x, z, traffic.taxi.yaw, 7);
+  controller.kickShake(0.7);
+  // The same burst turned down rather than a smaller hand-tuned one — half the puffs at 70% power.
+  // Smaller than the smash on purpose: this is the landing, and it should not upstage the thing it
+  // followed.
+  dust.burst(x, z, traffic.taxi.yaw, 14, 0.7);
 });
 // Aim the next fare's drop-off at one end of the closed street. The router already prices those
 // lanes low (see EDGE_COST.roadwork), which wins the zone any trip that passes nearby; this is what

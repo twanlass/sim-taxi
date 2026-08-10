@@ -14,10 +14,10 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR } from '../src/sim/traffic.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
-import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y } from '../src/geometry/roadworks.js';
+import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, laneCost } from '../src/game/route.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from '../src/sim/police.js';
@@ -3280,6 +3280,14 @@ check('the taxi is an ordinary car in the traffic array',
     let launchAt = null;
     let air = null;
     let airborneAtLine = false;
+    // The wreckage, sampled every frame rather than read at the end: a cone that goes up and comes
+    // back down is indistinguishable from one that never left the road once it has landed, and
+    // "flipped into the air" is the whole claim being made.
+    let peakCone = 0;
+    let peakChip = 0;
+    // Frames spent in the landing bounce. The curve itself is asserted separately, off
+    // `landingBounce` — see below for why it cannot usefully be measured off the rendered taxi.
+    let bounceFrames = 0;
     runwork.onSmash(() => { smashes += 1; });
     runwork.onLand(() => { lands += 1; });
 
@@ -3297,8 +3305,14 @@ check('the taxi is an ordinary car in the traffic array',
       if (before != null && taxi.hopFrom == null && air === null) {
         air = taxi.travelled - launchAt;
       }
+      if (taxi.hopFrom == null && taxi.bounceT != null) bounceFrames += 1;
+      for (const cone of runwork.cones) if (cone.knocked) peakCone = Math.max(peakCone, cone.y);
+      for (const chip of runwork.chips) if (chip.live) peakChip = Math.max(peakChip, chip.y);
     }
-    flights.push({ boosting, smashes, lands, peakY, air, airborneAtLine, taxi, runwork });
+    flights.push({
+      boosting, smashes, lands, peakY, air, airborneAtLine, taxi, runwork,
+      peakCone, peakChip, bounceFrames,
+    });
   }
 
   const cruise = flights.find((f) => !f.boosting);
@@ -3339,6 +3353,57 @@ check('the taxi is an ordinary car in the traffic array',
     flights.every((f) => f.runwork.cones.filter((c) => c.knocked).length >= 4
       && f.runwork.active() === 0),
     flights.map((f) => `${f.runwork.cones.filter((c) => c.knocked).length} knocked`).join(', '));
+
+  // --- The wreckage ---------------------------------------------------------
+  // "More chaotic" is a look, but the two things carrying it are numbers: cones that genuinely
+  // leave the road rather than sliding along it, and wood off the trestle at all. Both are bounded
+  // above as well as below — a cone thrown eleven units up (which SMASH_POWER without CONE_VY_MAX
+  // would do at the overdrive top) leaves the frame on a close shot, and debris that outlives the
+  // zone is a prop nobody cleared away.
+  check('a smash flips cones into the air rather than sliding them along the road',
+    flights.every((f) => f.peakCone > 1.2 && f.peakCone < 4),
+    flights.map((f) => `${f.boosting ? 'boost' : 'cruise'} peak ${f.peakCone.toFixed(2)}`).join(', '));
+
+  check('and blows splinters off the barricade, which land flat on the road',
+    flights.every((f) => {
+      const thrown = f.runwork.chips.filter((c) => c.live);
+      return thrown.length >= 12
+        && thrown.every((c) => c.age >= c.dur && Math.abs(c.y - SPLINTER_REST_Y) < 1e-6);
+    }),
+    flights.map((f) => `${f.runwork.chips.filter((c) => c.live).length} chips, `
+      + `up to ${f.peakChip.toFixed(2)}`).join(', '));
+
+  // The landing bounce, in two halves.
+  //
+  // First that the taxi enters it *on touchdown and at both speeds*: it is paced by a clock while
+  // the arc above it is paced by distance, so the two are wired together at exactly one point — the
+  // frame the arc ends — and a bounce that never started would be invisible in every other number
+  // here. Same frame count at cruise and in overdrive is the point of the clock.
+  const bounceFrames = Math.round(BOUNCE_DUR * 60);
+  check('touchdown hands off to a landing bounce, the same length at either speed',
+    flights.every((f) => Math.abs(f.bounceFrames - bounceFrames) <= 1
+      && f.taxi.bounceT == null),
+    flights.map((f) => `${f.boosting ? 'boost' : 'cruise'} ${f.bounceFrames}`).join(', ')
+    + ` against ${bounceFrames} frames`);
+
+  // ...and then the curve itself, off `landingBounce` rather than off the rendered taxi. The
+  // rendered height also carries the speed bob and the pitch lift, and in overdrive those are three
+  // times the size of the bounce — measured there, a bounce of zero passes and a bounce of double
+  // fails. Two decaying rebounds, the second clearly smaller, back to nothing by the end, and the
+  // whole thing well under the jump it follows: a landing that out-hops the hop reads as a ramp.
+  {
+    const samples = Array.from({ length: 61 }, (_, n) => landingBounce((n / 60) * BOUNCE_DUR));
+    const peakAt = (from, to) => Math.max(...samples.slice(from, to));
+    const first = peakAt(0, 31);
+    const second = peakAt(31, 61);
+    const jump = Math.min(...flights.map((f) => f.peakY));
+    check('the bounce is two decaying rebounds that end on the road',
+      first > 0.3 && first < jump * 0.35
+      && second > 0.05 && second < first * 0.6
+      && landingBounce(-0.1) === 0 && landingBounce(BOUNCE_DUR) === 0
+      && samples[0] === 0,
+      `rebounds ${first.toFixed(2)} then ${second.toFixed(2)}, against a ${jump.toFixed(2)} jump`);
+  }
 
   // --- The dust off a barricade ---------------------------------------------
   // The smash used to emit two ordinary trail puffs, which is exactly what a boosting taxi lays
@@ -3406,14 +3471,30 @@ check('the taxi is an ordinary car in the traffic array',
       // Long enough to drive the block, get clear, dwell and fade — but the assertions are on what
       // happened, not on the clock, so a slower teardown fails rather than passing by luck.
       let allFleeingAt = null;
+      let ranAt = null;      // every worker has finished the sprint and is standing at the kerb
+      let goneAt = null;     // ...and has faded out afterwards
+      let sinkAt = null;     // ...and only then does the site itself start going
       for (let step = 0; step < 60 * 25 && outWork.state.phase !== 'gone'; step++) {
         outTraffic.update(1 / 60);
         outWork.update(1 / 60, taxi, outTraffic.cars, []);
         if (allFleeingAt === null && outWork.state.smashed) allFleeingAt = outWork.workersFleeing();
+        if (ranAt === null && outWork.workersClear() === 2) ranAt = step;
+        if (goneAt === null && outWork.workersGone() === 2) goneAt = step;
+        if (sinkAt === null && outWork.state.phase === 'leaving') sinkAt = step;
       }
 
       check('every worker runs when a barricade goes, not just the nearest',
         allFleeingAt === 2, `${allFleeingAt} of 2 fleeing on the frame of the smash`);
+
+      // The order of the beats, not their durations. It used to come out wrong at speed and only at
+      // speed: the zone's fade is triggered by the taxi being clear of the street, and in overdrive
+      // that happens half a second after the smash — while the crew is still mid-sprint — so they
+      // dissolved on their way to the kerb instead of reaching it. Asserted as an ordering because
+      // that is the thing that has to hold; the constants behind it are free to move.
+      check('the crew runs clear and fades before the site starts packing up',
+        ranAt !== null && goneAt !== null && sinkAt !== null
+        && goneAt > ranAt && sinkAt >= goneAt,
+        `ran clear at frame ${ranAt}, gone at ${goneAt}, site starts sinking at ${sinkAt}`);
 
       check('the zone clears itself away once the taxi is through',
         outWork.state.phase === 'gone' && cleared === 1 && outWork.group.parent === null,

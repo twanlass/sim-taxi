@@ -425,9 +425,10 @@ runs at the same rate as the blast through the crash slow-mo. See
 ### Roadworks — `game/roadwork.js`, `geometry/roadworks.js`
 
 A closed street: two striped trestles, a plywood ramp propped against each, a dozen cones, a spoil
-heap and its hole, and two hi-viz workers. Four draw calls — one merged static mesh for the ramps
+heap and its hole, and two hi-viz workers. Five draw calls — one merged static mesh for the ramps
 and the spoil, one trestle mesh per barricade so it can be thrown, one `InstancedMesh` for the
-cones, plus the two figures. The sim side is in [traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends).
+cones and a second for the plank splinters a smash throws off, plus the two figures. The sim side
+is in [traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends).
 
 **Orange had to be found rather than picked.** The warm end of the wheel is spoken for twice over:
 the taxi owns yellow outright and the urgency scale owns the ambers below it. Measured in the
@@ -482,16 +483,26 @@ driving through read as damage instead of as a clean corridor.
 
 **Going through throws a burst of dust, not a puff.** The smash used to emit two ordinary trail
 puffs — which is precisely what a boosting taxi lays down in two frames, so the one impact in the
-run rendered as exhaust. `dust.burst` fires thirteen at once, each thrown 1.7–2.6× as hard and
-wide, scattered around the point rather than trailing from it: the barricade is something the taxi
-hit, not a surface it is spinning its wheels on. The pool is 90 slots, so a burst costs about a
-seventh of it and leaves the boost trail intact.
+run rendered as exhaust. `dust.burst` now fires **twenty-six** at once, thrown **radially out of
+the impact point** rather than trailing off the back of the car, and stopped against a per-puff
+drag: dust off a road impact punches outward and then halts, and the halt is the half that reads as
+an impact rather than as a plume. The pool is 140 slots, so a burst plus its landing costs under a
+third and leaves the boost trail intact. The landing reuses the same call at `count 14, power 0.7`
+rather than carrying a second set of hand-picked numbers that would drift away from these.
 
-That change surfaced a latent bug in `dust.js`. Giving a burst puff a longer life is not enough on
-its own, because `t` was normalised against the `LIFE` **constant** rather than the puff's own
-span — so a longer-lived puff started at a *negative* age: a sixteenth of its size and above full
-opacity, growing rather than dispersing. Each puff now carries its own `span`. The probe compares a
-burst against a single trail puff rather than against a magic number, which is what caught it.
+Two bugs in `dust.js` surfaced on the way, and both are the same shape — a number that looked
+applied and wasn't:
+
+- `t` was normalised against the `LIFE` **constant** rather than the puff's own span, so a
+  longer-lived burst puff started at a *negative* age: a sixteenth of its size and above full
+  opacity, growing rather than dispersing. Each puff now carries its own `span`.
+- `scale` only ever reached `wide`, which is the **x aspect alone**. A puff asked to be 2.6× the
+  size came out 2.6× as *wide* and exactly as tall and deep as a boost puff — from a 3/4 camera, a
+  smear on the road. This is why the burst kept being reported as too small while the probe's
+  numbers agreed it had grown. Each puff now carries a `grow` multiplier on the whole size curve.
+
+The probe compares a burst against a single trail puff rather than against a magic number, which is
+what caught the first of those.
 
 **Knocked cones come to rest, and they are the first effect here that does.** Position is closed
 form, like the blast's shards — a curve of `age` rather than an integrated velocity, so nothing
@@ -502,10 +513,29 @@ Eulers: Euler blending gimbals through the flat pose and snaps the cone ninety d
 frame. The wreck's shards get away with never settling because the camera cuts to the retry screen;
 this one stays.
 
+A cone caught by a *trestle going over* is thrown harder than one the taxi merely clipped —
+`SMASH_POWER 1.5` on top of the speed term, and 12–26 rad/s of tumble against the old 7–15, which
+is three to five turns on the way up rather than one and a half. The tumble is what the eye reads,
+not the height. **`CONE_VY_MAX 13` is the ceiling**, and it is load-bearing: the speed term alone
+reaches 2.15 at the overdrive top, so power × speed would launch a cone eleven units up and clean
+out of frame on `?shot=15`. 13 tops out at 3.25 — about a car length of air, high enough to read as
+flipped and low enough to stay in the picture with the thing that flipped it.
+
 The trestle cartwheels rather than shattering — it flies 4.6 units downfield on a 1.25-unit arc and
 lands past flat, which reads as slammed rather than laid down. It is animated inside the group that
 carries its placement, so the flight is written in *across / up / downfield* rather than in world
 axes, and works unchanged on a diagonal street.
+
+**It also sheds wood.** `splinterGeometry` is a chip of plank — one box in `barrier` orange, one in
+`barrierBand` white, split down the middle so a piece spinning past is legible as the *trestle* it
+came off rather than as a cone fragment. Sixteen of them come out of a smash, from a pool built
+with the zone (the smash is the one frame in a run where compiling a material is unaffordable),
+thrown in the trestle's own local frame in a forward fan: a plank pushed aside goes aside at
+crowbar speed, but what sends it down the street is the car. Their flight is the cones' closed form
+with one difference — a chip starts a metre up on the plank line and lands at zero, so its rise and
+fall are different lengths and `dur` comes out of the full quadratic rather than the cone's
+symmetric `2·vy / g`. Dormant slots are scaled to zero: an `InstancedMesh` has no per-instance
+visibility, so "absent" has to be spelled as "no size".
 
 `?shot=14` frames a zone and `?shot=15` drives the taxi into one and freezes it mid-arc — the same
 argument as the wreck's shot, since the smash is over in three quarters of a second and needs the
