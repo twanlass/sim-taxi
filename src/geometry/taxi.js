@@ -20,6 +20,11 @@ const TAXI_SCALE = 1.18;
 // World-space distance from the taxi origin back to the bumper — used by the tailpipe flame burst
 // (main.js). Kept here rather than in flames.js so both offsets follow if the mesh ever resizes.
 export const TAXI_TAILPIPE_BACK = (CAR_LEN / 2) * TAXI_SCALE;
+// The same distance forward, to the nose. Named separately from the tailpipe rather than reused,
+// because they are only equal while the body is symmetric about its origin: `tools/probe.mjs`
+// measures the route band's head gap off the front of the car, and reading that off a constant
+// called TAILPIPE would quietly survive a mesh that stopped being symmetric.
+export const TAXI_NOSE = (CAR_LEN / 2) * TAXI_SCALE;
 export const TAXI_TAILPIPE_HEIGHT = 0.42 + CHASSIS_LIFT;
 
 export function createTaxiMesh() {
