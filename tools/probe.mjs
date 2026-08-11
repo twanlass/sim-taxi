@@ -2794,6 +2794,115 @@ check('the taxi is an ordinary car in the traffic array',
     midFlight > 0.1 && beforeRedirect === midFlight
     && Math.abs(cam.state.target.x - midFlight) < midFlight * 0.02,
     `redirected from x=${midFlight.toFixed(3)}`);
+
+  // --- The peek, and the ride home ------------------------------------------
+  // A chip tap doesn't just pan to the rider, it comes back: out, a beat on the kerb, then home to
+  // a taxi that has been driving the whole time. Every one of the three legs is invisible in a
+  // still — the failure mode is a camera that arrives and never returns, which looks exactly like
+  // the pan working — so the sequence is walked frame by frame here.
+  //
+  // The taxi is a stand-in that drives a straight line at a plausible speed (the shipped SPEED is
+  // 8.5 u/s), because what is being asserted is that the return leg *tracks* rather than that it
+  // arrives at any particular corner.
+  const peekTo = { x: 40, z: 0 };
+  const car = { x: -20, z: -20 };
+  const driveCar = (dt) => { car.x += 8.5 * dt; };
+
+  let arrived = 0;
+  cam.cancelGlide();
+  cam.state.target.set(car.x, 0, car.z);
+  cam.peekAt(peekTo.x, peekTo.z, () => car, () => { arrived += 1; });
+
+  // Leg 1: out to the rider. Runs until the target stops moving. The taxi is driven *before* the
+  // camera on every frame, the order main.js steps them in — so what the return leg reads is the
+  // position the car has this frame, not last frame's.
+  let outFrames = 0;
+  let last = cam.state.target.clone();
+  do {
+    last = cam.state.target.clone();
+    driveCar(STEP);
+    cam.updateGlide(STEP, 1.5);
+    outFrames += 1;
+  } while (!cam.state.target.equals(last) && outFrames < 600);
+  check('a peek pans out to the rider first',
+    Math.abs(cam.state.target.x - peekTo.x) < 1e-9 && Math.abs(cam.state.target.z - peekTo.z) < 1e-9
+    && arrived === 0,
+    `landed at x=${cam.state.target.x.toFixed(3)} after ${outFrames} frames`);
+
+  // Leg 2: the beat. The camera has to sit dead still on the rider — long enough to read the kerb,
+  // and not so long that the player is watching a corner while their fare's clock drains.
+  const heldAt = cam.state.target.clone();
+  let holdFrames = 0;
+  while (cam.state.target.equals(heldAt) && holdFrames < 600) {
+    driveCar(STEP);
+    cam.updateGlide(STEP, 1.5);
+    holdFrames += 1;
+  }
+  // Good to a frame or so either side: the legs are being detected by the target moving, so the
+  // first stationary frame fell to the loop above and the last one is the frame that armed the
+  // ride home. The band below is wide enough not to care.
+  const held = holdFrames * STEP;
+  check('a peek holds the rider in frame for about a second', held > 0.5 && held < 1.5,
+    `held ${held.toFixed(2)}s`);
+  check('the peek is still driving the camera through the hold', cam.isGliding() && arrived === 0,
+    arrived ? 'it reported arriving before it came back' : 'the glide retired during the hold');
+
+  // Leg 3: home, onto a car that has not stopped moving.
+  let backFrames = 0;
+  while (cam.isGliding() && backFrames < 600) {
+    driveCar(STEP);
+    cam.updateGlide(STEP, 1.5);
+    backFrames += 1;
+  }
+  // Exactly on it, not near it: the last frame's ease is 1, so the target it landed on is the one
+  // the tracker read this frame. A leg that aimed once when it set off would be out by the ~5 units
+  // the car covered while it travelled.
+  const miss = Math.hypot(cam.state.target.x - car.x, cam.state.target.z - car.z);
+  check('a peek rides home onto the moving taxi', miss < 1e-9 && arrived === 1,
+    `${miss.toFixed(6)} units off after ${backFrames} frames, ${arrived} arrivals`);
+
+  // ...and having arrived, it is over. A peek that kept writing the target would fight the follow
+  // it just handed the framing to.
+  cam.updateGlide(STEP, 1.5);
+  check('a peek retires once it is home', !cam.isGliding() && arrived === 1, `${arrived} arrivals`);
+
+  // The arrival callback is main.js's evidence that the camera is back on the car — it clears
+  // `cameraTakenOver` on it. Anything that outranks a pan has to drop the peek *without* firing it,
+  // or a swipe away mid-peek hands the framing back to the follow-cam and tows the map off it.
+  const droppedBy = (steal) => {
+    arrived = 0;
+    cam.cancelGlide();
+    cam.state.target.set(car.x, 0, car.z);
+    cam.peekAt(peekTo.x, peekTo.z, () => car, () => { arrived += 1; });
+    cam.updateGlide(STEP, 1.5);
+    steal();
+    for (let i = 0; i < 400; i++) cam.updateGlide(STEP, 1.5);
+    return !cam.isGliding() && arrived === 0;
+  };
+  check('a drag mid-peek cancels the ride home', droppedBy(() => {
+    fire('pointerdown', 400, 300);
+    fire('pointermove', 440, 350);
+    fire('pointerup', 440, 350);
+  }), 'the peek survived a drag, or reported arriving anyway');
+  check('a boost chase mid-peek cancels the ride home',
+    droppedBy(() => cam.followXZ(0, 0, STEP, 3.2, 1.5)),
+    'the peek survived a followXZ, or reported arriving anyway');
+  check('a wreck focus mid-peek cancels the ride home',
+    droppedBy(() => cam.focusOn(0, 0, 30, STEP, 1.5)),
+    'the peek survived a focusOn, or reported arriving anyway');
+
+  // A peek fired while the camera is already standing on the rider still holds the beat and still
+  // comes home — the pan out is what's redundant there, not the trip back. (glideTo's own epsilon
+  // case retires immediately, which is why this needs asserting separately.)
+  arrived = 0;
+  cam.cancelGlide();
+  cam.state.target.set(peekTo.x, 0, peekTo.z);
+  cam.peekAt(peekTo.x, peekTo.z, () => car, () => { arrived += 1; });
+  let zeroLength = 0;
+  while (cam.isGliding() && zeroLength < 600) { cam.updateGlide(STEP, 1.5); zeroLength += 1; }
+  check('a peek from on top of the rider still comes home',
+    arrived === 1 && Math.hypot(cam.state.target.x - car.x, cam.state.target.z - car.z) < 1e-9,
+    `${arrived} arrivals after ${zeroLength} frames`);
 }
 
 // --- Loco Mode's overdrive band ---------------------------------------------

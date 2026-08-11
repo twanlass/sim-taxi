@@ -15,10 +15,15 @@ const DISTANCE = 400;
 const RIGHT = new THREE.Vector3(1, 0, -1).normalize();
 const UP = new THREE.Vector3(-1, 0, -1).normalize();
 
-// A one-shot pan to a point that isn't moving — a tap on a rider-finder chip — as opposed to the
-// two follow-cams, which chase a car. Different problem, different curve. Exponential smoothing has
-// no ease *in*: it leaves at its highest speed on the very first frame, which is right when you are
-// closing a gap that keeps reopening, and reads as most of a snap when you start from a dead stop.
+// A one-shot pan — a tap on a rider-finder chip — as opposed to the two follow-cams, which chase a
+// car. Different problem, different curve. Exponential smoothing has no ease *in*: it leaves at its
+// highest speed on the very first frame, which is right when you are closing a gap that keeps
+// reopening, and reads as most of a snap when you start from a dead stop.
+//
+// A pan's destination is usually a point that isn't moving, which is the other half of why this
+// curve suits it. The one exception is a peek's ride home (see peekAt), which travels on the same
+// tween but re-aims at the taxi every frame — a fixed-duration move over a target that drifts a few
+// units, rather than a chase after one that never stops.
 //
 // Duration is driven by distance so a hop to the next block and a cross-town pan both travel at a
 // legible speed, clamped at both ends: under the floor a short pan is a snap again, and over the
@@ -28,6 +33,13 @@ const GLIDE_MIN_TIME = 0.32;
 const GLIDE_MAX_TIME = 0.75;
 // Below this the camera is already there and a tween would only add a frame of nothing.
 const GLIDE_EPSILON = 0.05;
+
+// How long a peek sits on the rider before setting off back to the taxi. Long enough to read who
+// is waiting and which corner they're on — the whole reason the camera went there — and short
+// enough that it never feels like the player is being *shown* something on a clock that is
+// draining. Measured against the pan either side of it: at 0.32-0.75s a leg, a beat much under
+// this reads as the camera arriving and immediately changing its mind.
+const PEEK_HOLD = 0.9;
 
 // Smootherstep. Zero *velocity* and zero *acceleration* at both ends, where plain smoothstep only
 // zeroes velocity — with a move this short the kink at the start of a smoothstep is still visible
@@ -46,7 +58,33 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
 
   // In-flight glide, or null when idle. Held here rather than on `state` because nothing outside
   // reads it — the getters below are the whole interface.
+  //
+  // One field covers the plain pan *and* the multi-leg move a peek is (out, hold, back), so every
+  // existing handover drops a peek exactly as it drops a pan: a drag, a boost chase and a wreck
+  // focus all clear this one variable and nothing is left half-sequenced behind them.
   let glide = null;
+
+  /**
+   * Arm one leg. `dur` comes from the distance at this instant even when `track` will move the
+   * destination later — a taxi cannot outrun the camera over three quarters of a second, so the
+   * duration stays a fair read on how far there is to go.
+   */
+  function armGlide(toX, toZ, { track = null, hold = 0, next = null, onArrive = null } = {}) {
+    const fromX = state.target.x;
+    const fromZ = state.target.z;
+    const clampedX = THREE.MathUtils.clamp(toX, -HALF_SPAN, HALF_SPAN);
+    const clampedZ = THREE.MathUtils.clamp(toZ, -HALF_SPAN, HALF_SPAN);
+    const dist = Math.hypot(clampedX - fromX, clampedZ - fromZ);
+    glide = {
+      fromX, fromZ, toX: clampedX, toZ: clampedZ, t: 0,
+      // Zero when the camera is already standing on the destination: the travel is skipped and
+      // whatever follows it — a peek's beat, its arrival callback — still happens.
+      dur: dist < GLIDE_EPSILON ? 0 : THREE.MathUtils.clamp(dist / GLIDE_SPEED,
+        GLIDE_MIN_TIME, GLIDE_MAX_TIME),
+      track, hold, next, onArrive,
+    };
+    return dist;
+  }
 
   function apply(aspectRatio) {
     const halfH = state.zoom;
@@ -128,16 +166,40 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
      * to the first call's origin — and its duration comes from that shorter remaining distance.
      */
     glideTo(x, z) {
-      const toX = THREE.MathUtils.clamp(x, -HALF_SPAN, HALF_SPAN);
-      const toZ = THREE.MathUtils.clamp(z, -HALF_SPAN, HALF_SPAN);
-      const fromX = state.target.x;
-      const fromZ = state.target.z;
-      const dist = Math.hypot(toX - fromX, toZ - fromZ);
-      if (dist < GLIDE_EPSILON) { glide = null; return; }
-      glide = {
-        fromX, fromZ, toX, toZ, t: 0,
-        dur: THREE.MathUtils.clamp(dist / GLIDE_SPEED, GLIDE_MIN_TIME, GLIDE_MAX_TIME),
-      };
+      // Nothing after the travel, so the epsilon case is simply idle: the camera is already there
+      // and a tween would only add a frame of nothing.
+      if (armGlide(x, z) < GLIDE_EPSILON) glide = null;
+    },
+    /**
+     * Look at `(x, z)` for a beat, then come back to whatever `getReturn()` is pointing at by
+     * then — the rider-finder chip's whole camera move, out and home.
+     *
+     * The pan out exists because the rider may be off-screen entirely; the trip home exists
+     * because *leaving* the camera on them costs the player the same hunt in reverse. They tapped
+     * a chip, not a map: the answer they wanted was "who is waiting, and where", and once they
+     * have it the framing belongs back on the car they are driving. Without this leg the player
+     * pays for the convenience by dragging the map back by hand, which is slower than the pan
+     * saved and lands them somewhere approximate.
+     *
+     * The return destination is re-read every frame rather than fixed when the leg starts: the
+     * taxi has been driving the whole time, and a fixed aim would land on the patch of road it
+     * left. Tracking it means the last frame sits exactly on the car *and* is already moving at
+     * the car's speed, so a follow-cam picking the framing up from here has no gap to close and
+     * nothing snaps.
+     *
+     * `onArrive` fires only if the whole sequence runs to its end. Anything that outranks a pan —
+     * a finger on the map, a boost chase, a wreck — drops the peek where it stands and the
+     * callback never comes, which is what keeps "the camera is back on the taxi" a fact rather
+     * than an assumption.
+     */
+    peekAt(x, z, getReturn, onArrive) {
+      armGlide(x, z, {
+        hold: PEEK_HOLD,
+        next: () => {
+          const home = getReturn();
+          armGlide(home.x, home.z, { track: getReturn, onArrive });
+        },
+      });
     },
     /**
      * Abandon a glide where it stands. The player grabbing the map mid-pan has to win immediately —
@@ -153,14 +215,43 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
      */
     updateGlide(dt, aspectRatio) {
       if (!glide) return false;
-      glide.t = Math.min(glide.t + dt, glide.dur);
-      const e = smootherstep(glide.t / glide.dur);
-      state.target.x = glide.fromX + (glide.toX - glide.fromX) * e;
-      state.target.z = glide.fromZ + (glide.toZ - glide.fromZ) * e;
-      apply(aspectRatio);
-      // Retired on the clock, not on the distance left: smootherstep's tail is flat, so a
-      // "close enough" test would cut the last few frames — the gentlest part of the whole move.
-      if (glide.t >= glide.dur) glide = null;
+
+      // The travel. Skipped entirely on a zero-length leg — see armGlide — which is what lets a
+      // peek fired while the camera is already on the rider still hold the beat and still come
+      // home.
+      if (glide.t < glide.dur) {
+        glide.t = Math.min(glide.t + dt, glide.dur);
+        // Re-aimed before the ease is applied, not after, so the frame that lands is computed
+        // against where the target is *now*. See peekAt.
+        if (glide.track) {
+          const to = glide.track();
+          glide.toX = THREE.MathUtils.clamp(to.x, -HALF_SPAN, HALF_SPAN);
+          glide.toZ = THREE.MathUtils.clamp(to.z, -HALF_SPAN, HALF_SPAN);
+        }
+        const e = smootherstep(glide.t / glide.dur);
+        state.target.x = glide.fromX + (glide.toX - glide.fromX) * e;
+        state.target.z = glide.fromZ + (glide.toZ - glide.fromZ) * e;
+        apply(aspectRatio);
+        // Retired on the clock, not on the distance left: smootherstep's tail is flat, so a
+        // "close enough" test would cut the last few frames — the gentlest part of the whole move.
+        // The landing frame falls through to the stages below, so a plain pan retires on it as it
+        // always did; a peek's beat starts counting on the frame after, at its full length.
+        if (glide.t < glide.dur || glide.hold > 0) return true;
+      }
+
+      // The beat. Nothing moves — the camera just sits on the rider — so this is the one stage
+      // that owns the frame without repainting anything.
+      if (glide.hold > 0) {
+        glide.hold -= dt;
+        return true;
+      }
+
+      // Whatever comes after: for a peek, the ride home. Cleared first so the leg `next` arms
+      // isn't overwritten by this one retiring.
+      const { next, onArrive } = glide;
+      glide = null;
+      if (next) next();
+      else onArrive?.();
       return true;
     },
   };
