@@ -6,6 +6,9 @@ import { KERB_H } from '../city/ground.js';
 import {
   WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries,
 } from '../geometry/wheels.js';
+import {
+  brakeLightGeometry, turnSignalGeometry, brakeLightMaterial, turnSignalMaterial,
+} from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
   GRID, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
@@ -927,13 +930,14 @@ function truckBoxGeometry() {
 
 // --- Brake lights and turn signals -----------------------------------------------------------
 //
-// Neither can be a coloured facet on the body: `carGeometry()`'s vertex colour is baked once and
-// only ever multiplied by the instance's paint tint (see the note there), so there is nowhere in
-// that buffer for a colour that has to flip on and off, frame to frame, independently for every
-// instance in the mesh. `instanceColor` is RGB paint and nothing else.
+// The geometry and materials (LIGHT_D/H/W, brakeLightGeometry(), brakeLightMaterial() and their
+// turn-signal counterparts) live in geometry/lights.js, shared with the taxi's own lights
+// (geometry/taxi.js) — see the note there for why a car's paint tint can't just be repurposed for
+// this. What is here is the *state*: reading a car's braking and signalling levels off its physics
+// each frame, and the InstancedMesh machinery that fleet of ambient vehicles needs and the taxi
+// (an ordinary Group with ordinary Meshes) does not.
 //
-// So each kind of light is its own InstancedMesh, wearing one fixed, always-emissive material, and
-// a car's own pod is scaled by an eased 0..1 *level* rather than snapped between "there" and
+// A car's own pod is scaled by an eased 0..1 *level* rather than snapped between "there" and
 // `ZERO_MATRIX` — the same collapse-to-nothing trick `wreckShell()` uses to retire an instance, just
 // with the scale itself eased instead of stepped. There is no per-instance opacity to animate
 // (`instanceColor` is RGB paint, full stop, and a real fade would need a custom per-instance
@@ -943,23 +947,6 @@ function truckBoxGeometry() {
 // that drives it is also what kills flicker: a one-frame blip in the underlying signal (braking is
 // read off noisy per-frame accel) no longer has time to visibly register before the target flips
 // back.
-// Brake and turn-signal pods share one size — colour (see LIGHT_EMISSIVE and the two materials
-// below) is what tells them apart, not geometry.
-const LIGHT_D = 0.272;                // fore-aft
-const LIGHT_H = 0.544;
-const LIGHT_W = 0.544;                // across the car
-const LIGHT_Y = 0.55 + CHASSIS_LIFT;  // bumper height
-
-// How far a pod's outer faces stand proud of the body's own — the same fix `WHEEL_PROUD`
-// (geometry/wheels.js) already applies to a wheel against the flank. Flush (proud = 0) put a pod's
-// outer face exactly on the same plane as the body's own flank and end-cap faces, and two coplanar
-// faces at the same depth z-fight.
-const LIGHT_PROUD = 0.03;
-
-// Emissive intensity for both kinds of light — high enough to read as self-lit day or night, the
-// same job EMISSIVE does for the fare diamond (geometry/diamond.js), just without a resting/peak
-// pair since these have nothing to peak from: they are either present or not.
-const LIGHT_EMISSIVE = 1.4;
 
 // "Braking" is read off the same longitudinal accel the pitch spring already computes (search
 // "Rocking" below) — losing speed for any real reason (a red, a leader, a corner) dips the nose
@@ -985,64 +972,6 @@ const BRAKE_LIGHT_FALL = 4;     // ~0.75s to dark
 // meant to read as a single blinker flashing, not a fade, so the level jumps straight to its target.
 const TURN_SIGNAL_HZ = 1.1;
 const TURN_SIGNAL_DUTY = 0.6;
-
-/**
- * One light pod, in car-local space. `sx` picks the front (+1) or rear (-1) bumper; `sz` picks a
- * side — `+1` is the car's own right, `-1` its left, in the same local +Z-is-right frame the wheel
- * anchors use (see `wheelAnchors` — a car built at yaw 0 drives down +X, and rightOf/leftOf on that
- * heading resolve to world +Z/-Z, which at yaw 0 *is* local Z). `d`/`h`/`w` size it, taken from the
- * caller rather than fixed here even though brake and turn-signal pods share one size today.
- */
-function lightPod(sx, sz, len, width, d, h, w) {
-  const box = new THREE.BoxGeometry(d, h, w);
-  box.translate(
-    sx * (len / 2 + LIGHT_PROUD - d / 2),
-    LIGHT_Y,
-    sz * (width / 2 + LIGHT_PROUD - w / 2),
-  );
-  return box;
-}
-
-/** Both rear corners in one geometry — the two brake lights only ever switch together. */
-function brakeLightGeometry(len, width) {
-  const parts = [
-    lightPod(-1, -1, len, width, LIGHT_D, LIGHT_H, LIGHT_W),
-    lightPod(-1, 1, len, width, LIGHT_D, LIGHT_H, LIGHT_W),
-  ];
-  const merged = mergeGeometries(parts, false);
-  parts.forEach((p) => p.dispose());
-  return merged;
-}
-
-/** The front and rear pod on one side, in one geometry — a side's pair blinks together. */
-function turnSignalGeometry(len, width, side) {
-  const parts = [
-    lightPod(1, side, len, width, LIGHT_D, LIGHT_H, LIGHT_W),
-    lightPod(-1, side, len, width, LIGHT_D, LIGHT_H, LIGHT_W),
-  ];
-  const merged = mergeGeometries(parts, false);
-  parts.forEach((p) => p.dispose());
-  return merged;
-}
-
-/** Fresh material per mesh, matching `propMaterial()`'s own one-material-per-mesh habit. */
-function brakeLightMaterial() {
-  return new THREE.MeshLambertMaterial({
-    color: color('lightRed'),
-    emissive: color('lightRed'),
-    emissiveIntensity: LIGHT_EMISSIVE,
-    flatShading: true,
-  });
-}
-
-function turnSignalMaterial() {
-  return new THREE.MeshLambertMaterial({
-    color: color('turnSignal'),
-    emissive: color('turnSignal'),
-    emissiveIntensity: LIGHT_EMISSIVE,
-    flatShading: true,
-  });
-}
 
 /** Coordinate along the travel axis for a point. */
 const along = (d, p) => (isXAxis(d) ? p.x : p.z);
@@ -1372,6 +1301,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
   const {
     group: taxiGroup, setOccupied: setTaxiOccupied, setSteer: setTaxiSteer,
+    setLights: setTaxiLights,
   } = createTaxiMesh();
   scene.add(taxiGroup);
 
@@ -2900,6 +2830,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         taxiGroup.position.set(car.x, ROAD_Y + bob + lift + airY + mount, car.z);
         taxiGroup.rotation.set(roll, car.yaw, shownPitch);
         setTaxiSteer(car.wheelAngle);
+        setTaxiLights(car.brakeLevel, car.turnLeftLevel, car.turnRightLevel);
         continue;
       }
 

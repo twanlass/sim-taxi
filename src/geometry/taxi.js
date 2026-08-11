@@ -3,6 +3,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT } from './wheels.js';
+import {
+  brakeLightGeometry, turnSignalGeometry, brakeLightMaterial, turnSignalMaterial,
+} from './lights.js';
 import { addGhostOutline } from './ghostoutline.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
@@ -115,6 +118,24 @@ export function createTaxiMesh() {
   // A smaller rim than the shell's: the default 0.3 on a 0.34-unit-tall sign would double it.
   addGhostOutline(sign, { rim: 0.15 });
 
+  // Brake lights and turn signals — same geometry and materials sim/traffic.js builds its
+  // InstancedMeshes from (see geometry/lights.js), just as ordinary Meshes here since the taxi is
+  // one car, not a fleet. "On"/"off" is the mesh's own scale, same as an ambient car's instance —
+  // see the note in traffic.js by BRAKE_LIGHT_RISE for why scale rather than a colour or opacity
+  // write. Scaled to 0 rather than left out of the group entirely so setLights() below never has
+  // to add or remove children.
+  const brakeLights = new THREE.Mesh(brakeLightGeometry(CAR_LEN, CAR_W), brakeLightMaterial());
+  const turnLeftLight = new THREE.Mesh(turnSignalGeometry(CAR_LEN, CAR_W, -1), turnSignalMaterial());
+  const turnRightLight = new THREE.Mesh(turnSignalGeometry(CAR_LEN, CAR_W, 1), turnSignalMaterial());
+  for (const light of [brakeLights, turnLeftLight, turnRightLight]) {
+    light.scale.setScalar(0);
+    light.userData.pickable = 'taxi';
+    group.add(light);
+    // Smaller than the sign's: these pods are thinner still, and the mask/rim inherit whatever
+    // scale setLights() puts on the light itself, so a dark pod traces no rim at all.
+    addGhostOutline(light, { rim: 0.08 });
+  }
+
   // Slightly oversized against ambient traffic. The player has to find this car at a glance in a
   // street full of identically shaped vehicles.
   group.scale.setScalar(TAXI_SCALE);
@@ -131,5 +152,16 @@ export function createTaxiMesh() {
     for (const wheel of steered) wheel.rotation.y = angle;
   };
 
-  return { group, sign, setOccupied, setSteer };
+  /**
+   * Brake and turn-signal brightness, 0..1 each — straight off the same car object's own
+   * brakeLevel/turnLeftLevel/turnRightLevel sim/traffic.js already computes every frame for every
+   * car, taxi included, since the taxi is just another entry in the `cars` array physics runs over.
+   */
+  const setLights = (brakeLevel, turnLeftLevel, turnRightLevel) => {
+    brakeLights.scale.setScalar(brakeLevel);
+    turnLeftLight.scale.setScalar(turnLeftLevel);
+    turnRightLight.scale.setScalar(turnRightLevel);
+  };
+
+  return { group, sign, setOccupied, setSteer, setLights };
 }
