@@ -89,6 +89,23 @@ export const PALETTE = {
   planeStripe: '#C0524A',
   planeProp: '#33383F',
 
+  // The park flock — see geometry/bird.js. Deliberately the *only* thing in the game with no
+  // chroma at all: a bird is a couple of pixels of moving colour, which is exactly the description
+  // of a fare marker, and the one way to guarantee the eye never reads a takeoff as something it
+  // has to act on is to give it nothing to read. It still has to separate from two backgrounds it
+  // is guaranteed to sit on — the park (#6F9A5A) and the sky (#8CC4E8 → #DCEDF7) — and both are
+  // lighter than these, so a dark bird reads against the grass it walks on and against the sky it
+  // leaves in. `birdWing` is a stop darker than the body so a spread wing separates from the flank
+  // it grew out of; `birdPale` is the one value break, on the breast, so a walking bird is a shape
+  // rather than a pebble.
+  birdBody: '#5B6272',
+  birdWing: '#474D5B',
+  birdPale: '#C4CAD4',
+  // Bill, legs and feet. One dark for every hard part — a warm bill would be correct for a pigeon
+  // and would also be four pixels of amber in a palette where amber means "this fare is running
+  // out of time". See the note on `cone` for the same argument made at length.
+  birdBill: '#2B2F36',
+
   taxiBody: '#F5C130',
   taxiTrim: '#2B2B30',
   taxiSign: '#F2F0E8',

@@ -150,6 +150,14 @@ first attempt did.
 A flyover never appears in any *other* shot, and that is structural rather than lucky: shot mode
 never starts the frame loop, so nothing ever calls `flyover.update()` outside this one preset.
 
+Shot 18 (`birds`) stages a take-off the same way — the [park flock](rendering.md#the-park-flock--gamebirdsjs-geometrybirdjs)
+walks about for most of a run and its departure is over in a couple of seconds — with one difference
+worth knowing. It aims at the **park**, not at the birds: which park they picked comes off the run
+seed and moves between shots, and the flock is in the air by the time the shot freezes, so aiming at
+it would run into the same orthographic trap the flyover's aim solves. The park is on the ground and
+does not move. The same structural point applies in reverse here: since the frame loop never runs,
+every *other* shot renders the flock exactly as `createBirds` settled it — standing on the grass.
+
 Both browser tools take the same two env overrides, for boxes that aren't a Mac desktop:
 
 ```bash

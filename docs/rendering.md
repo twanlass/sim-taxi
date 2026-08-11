@@ -823,6 +823,64 @@ a bar being rotated.
 Four draw calls while one is up — airframe, blade, prop disc, streamers — and none at all the rest
 of the time. `?shot=13` stages one; see [testing.md](testing.md#screenshots).
 
+### The park flock — `game/birds.js`, `geometry/bird.js`
+
+Birds living in the city's parks. They walk about on the grass, pecking and pausing; something puts
+them up; they climb out on a shared heading and fade into the distance; a while later they come back
+in from somewhere else, descend onto a park — often a different one — and land. Scenery on the same
+terms as the flyover: nothing routes around them, nothing collides with them, nothing can be tapped.
+
+**The whole flock is three draw calls.** One `InstancedMesh` for the bodies and one per wing side,
+however many birds there are. A wing beat is a rotation about the shoulder, and a rotation about a
+fixed point in the body's own frame goes straight into the instance matrix — so articulating six to
+ten birds costs no more than instancing six to ten static props would. Per-bird variety is an
+`instanceColor` grey multiplier over the baked vertex colours, drawn once and shared by all three
+meshes so a bird can't wear one shade on its body and another on each wing. All three set
+`frustumCulled = false`, for the reason the ambient traffic has to: a moving `InstancedMesh` latches
+its bounding sphere on the first frame it is culled and never recomputes it, and a flock that
+crosses the map would latch a bubble around one park and vanish the moment it left.
+
+**Each wing is its own geometry, not one mirrored by a negative scale.** A mirror flips the winding
+on every triangle, and `flatShading` then lights the whole wing as if the sun were behind it. The
+probe reads both wingtips back off the instance matrices the flock actually wrote and asserts they
+rise together on an upstroke, because the two sign flips involved (flap about X, sweep about Y) are
+the kind that leave every formula self-consistent and one wing beating the wrong way.
+
+**The taxi coming past is what puts them up**, and that one thread is the only contact between the
+flock and the game — it runs one way, so a run plays identically whether or not it ever happens.
+Two numbers keep it from swamping the effect: a park sits one block off two streets, so the taxi is
+within the 8-unit startle range several times a minute, and an 11-second settle after landing is
+what makes a take-off *the answer to a car going past* rather than the flock's default state. They
+leave away from the car. Failing a startle they go anyway on a 26–52 second timer, and stay away for
+11–22.
+
+**The fade is what ends a departure, not the altitude.** They climb at 2.8 units/s toward a 17–23
+ceiling and are still climbing when the fade runs out over 25 units of travel, so the ceiling is a
+cap they rarely reach. A return leg begins 62 units out — past the far end of the fade-in — so the
+flock is already invisible when it is placed and the first thing the player can see is a smudge that
+resolves into birds. It is `transparent` for both fades and therefore, like the aeroplane, not
+`propMaterial()`: it would otherwise receive AO without being in the depth prepass and wear the
+occlusion of the trees and towers behind it — [the occluder rule](#the-occluder-rule).
+
+**Shadows are on only while the whole flock is on the deck.** The shadow pass ignores a material's
+opacity, so a faded-out flock that kept casting would drag hard shadows across the city with nothing
+visible above them — and the sun is 28.5° up, so a shadow from any real altitude lands two units
+away per unit of height and reads as a smudge crossing a street with nothing over it. The gate is
+0.9 units, which a bird clears about a fifth of a second into its leap.
+
+Two things the camera decided. The pale patch is on the **head**, not the breast: the first attempt
+put it on the chest, which is correct for a pigeon and invisible from 33° up — its top sat under the
+torso's, so every bird was a featureless dark pebble on the grass. On the head it says both "this is
+an animal" and which way it is facing. And the folded wing is swept 1.45 rad, not the 1.18 it
+started at: a rigid panel can't fold at the wrist, so the only way out of the silhouette is to lay
+it along the body, and at 68° a standing bird had 22° of wing sticking out past its tail on both
+sides and read as one that had hurt itself.
+
+Scale is a deliberate lie, as it is for the riders. A pigeon beside a 4-unit car is a quarter of a
+unit long — two pixels at play zoom, which is a speck of dirt on the lawn. This is 1.08 units nose
+to tail on a 1.44 span, so a bird is about 8px at play zoom against a rider's 23. `?shot=18` stages
+a take-off.
+
 ### Route band — `game/routeline.js`
 
 A band of paint down the **lane the taxi will drive**, from just ahead of the car to its

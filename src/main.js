@@ -20,6 +20,7 @@ import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createVanish } from './game/vanish.js';
 import { createFlyover } from './game/flyover.js';
+import { createBirds } from './game/birds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { showRunEnd } from './game/runend.js';
@@ -252,6 +253,14 @@ const vanish = createVanish();
 // game/flyover.js. On the run seed rather than the city seed: which way it crosses and when is
 // part of the situation, not part of the map.
 const flyover = createFlyover(scene, makeRng(runSeed + 155));
+
+// A flock in the parks, walking about until something puts it up — see game/birds.js. Scenery on
+// the same terms as the aeroplane, with one thread back to the game: the taxi coming past is what
+// startles them. That runs one way only, so nothing about a run changes if it never happens.
+//
+// Run seed rather than city seed, like the flyover: *which* park they are in and when they leave is
+// part of the situation. The parks themselves are the map, and those come from `layout`.
+const birds = createBirds(scene, makeRng(runSeed + 199), layout);
 
 // A street closed for roadworks, once per run, forty seconds or so in — see game/roadwork.js.
 // Ambient traffic routes around it and the taxi has never heard of it, so the closed street is the
@@ -1176,6 +1185,10 @@ function frame() {
   flames.update(dt);
   vanish.update(dt);
   flyover.update(dt);
+  // Handed last frame's taxi position, which is all a startle needs — it is a distance test with
+  // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
+  // scenery block in one place.
+  birds.update(dt, traffic.taxi);
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 
@@ -1422,6 +1435,24 @@ if (shot) {
     controller.update(aspect());
   }
 
+  // Stage a take-off and freeze it partway up. Same argument as the flyover and the wreck: the
+  // flock is on the grass for most of a run and the departure is over in a couple of seconds, so
+  // without this the only way to look at one is to load the game and drive at a park. `birdsAt` is
+  // seconds into the climb. The camera is aimed at the park rather than at the birds because which
+  // park they picked comes from the run seed and moves between shots — and because an orthographic
+  // camera aimed at a point in the air is aimed at the wrong point on the ground.
+  if (shot.birdsAt !== undefined) {
+    birds.takeOff();
+    for (let step = 0; step < Math.round(shot.birdsAt * 60); step++) birds.update(1 / 60);
+    // Null only in the stub a parkless city gets, which no seed the generator has actually
+    // produced — the shot then keeps whatever framing it was given.
+    const home = birds.state.area;
+    if (home) {
+      controller.state.target.set((home.x0 + home.x1) / 2, 0, (home.z0 + home.z1) / 2);
+      controller.update(aspect());
+    }
+  }
+
   // Stage a construction zone and let it finish rising out of the road. Placed through the same
   // `place()` a live run calls, so the framing cannot drift out of step with what the player gets
   // — and the camera is aimed at whichever street it picked, since that is drawn from the run seed
@@ -1541,6 +1572,7 @@ window.__taxi = {
   police,
   fares,
   flyover,
+  birds,
   roadwork,
   routeTo,
   findRoute,

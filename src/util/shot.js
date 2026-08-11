@@ -63,6 +63,16 @@ export const SHOTS = [
   // has travelled, by which time the fireball is gone. 1.15s is a couple of frames past the last
   // flame, so this is the picture the player is left looking at while the retry banner comes up.
   { name: 'wreck-smoke', description: 'the wreck after the fire, its smoke collar still up', target: [0, 0], zoom: 26, warmup: 12, wreckAt: 1.15 },
+  // Appended rather than filed next to the flyover it is a sibling of. Shots are addressed by
+  // *index* — `?shot=12`, and the comment four lines up names one — so slotting a new entry into
+  // the middle silently renumbers every shot after it and every reference to one.
+  //
+  // The park flock, framed on the park it lives in. Same problem the flyover has — it walks about
+  // for most of a run and the departure is over in two seconds — so the take-off is staged. 0.75s
+  // in is the leap: the last birds are still leaving the grass while the first are a couple of
+  // units up with their wings at full stretch, which is the frame that has to be judged. Zoom 18
+  // puts the whole park in shot at a size where a bird is about twenty pixels.
+  { name: 'birds', description: 'the park flock going up', target: [0, 0], zoom: 18, warmup: 12, birdsAt: 0.75 },
 ];
 
 export function getActiveShot() {
