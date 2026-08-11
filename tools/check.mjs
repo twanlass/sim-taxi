@@ -19,7 +19,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
   '../src/game/ssao.js', '../src/game/diag.js', '../src/game/recovery.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
-  '../src/game/tutorial.js'];
+  '../src/game/tutorial.js', '../src/game/swipe.js', '../src/game/steer.js'];
 
 const TOOLS = [
   // Runs first: it is the control on every later step. If the road network stops describing the

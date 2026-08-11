@@ -1,7 +1,9 @@
 /**
  * Auto-play soak.
  *
- * Simulates a perfect player: routes the taxi the instant a fare appears or changes hands, with a
+ * Simulates a perfect *router* rather than a player — see autoplay.mjs on what that is worth now
+ * that the game is hand-steered. Sends the taxi at a fare the instant one appears or changes hands,
+ * with a
  * configurable reaction delay. A real player is strictly slower than this, so the run length here
  * is the ceiling — how long the game *can* be survived, not how long it usually is.
  *

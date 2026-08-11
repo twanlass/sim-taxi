@@ -14,7 +14,21 @@ straight/right/left dice. Everything downstream — signals, following distance,
 don't-block-the-box — is untouched and applies to the taxi identically.
 
 That single-branch design is load-bearing: it's why the taxi cannot cheat its way to a
-destination, and why gameplay changes rarely need to touch traffic code. The taxi lives in the
+destination, and why gameplay changes rarely need to touch traffic code.
+
+**It absorbed the swipe controls without a new branch**, which is the strongest evidence it has
+produced for itself. A player steering by hand writes a *one-step* route —
+[gameplay.md](gameplay.md#steering) — so "the next step" is the next thing the player asked for
+rather than the next thing Dijkstra planned, and `route.shift()` on the far side of the junction
+clears it exactly when the instruction expires. Two things had to be added and both are small:
+
+- **`car.coastStraight`.** With no route the branch falls through to the dice, which is right for
+  ambient traffic and unplayable for a car someone is driving. Set on the taxi by the game layer,
+  it takes the straight-through exit instead and falls back to the roll where straight is not one.
+  A flag rather than `isTaxi` so the headless tools consume the rng in exactly the order they
+  always did.
+- **The right-on-red shortcut had to be asked.** It took the turn for any car without a route,
+  which would have peeled a coasting taxi off right at every red it met. The taxi lives in the
 same `cars` array as ambient traffic and is drawn as its own mesh only so it can be raycast and
 highlighted.
 
@@ -934,10 +948,19 @@ to ambient traffic these turns are **forbidden**, to the taxi's router they are 
 asymmetry is the whole vignette — the city empties the street and the fare sends the player down it.
 
 This was not the first build. Originally the taxi genuinely had never heard of the closure, on the
-theory that stumbling into it was the discovery. Measured, that theory was wrong: **the player
-cannot steer.** They tap a rider and the taxi routes itself, so "go and look at the roadworks" is
-not a thing they are able to choose, and the zone was found in 33% of runs — mostly scenery, built
-in full and rarely seen.
+theory that stumbling into it was the discovery. Measured, that theory was wrong, and the reason it
+was wrong was that **the player could not steer.** They tapped a rider and the taxi routed itself,
+so "go and look at the roadworks" was not a thing they were able to choose, and the zone was found
+in 33% of runs — mostly scenery, built in full and rarely seen.
+
+> **That premise is gone.** The player [steers by swiping](gameplay.md#steering) now, so the router
+> no longer decides where the taxi goes and the discount below cannot pull it anywhere. What is left
+> of the two mechanisms is the **aimed drop-off**, which still works and arguably works better: it
+> puts the destination on the closed street and the player drives there themselves. The discount
+> survives because `estimateSeconds` bills the route the router *would* take, so it still moves a
+> fare's clock — bounded at one leg either way — but as a pull it is now dead weight. The numbers
+> below describe the scheme that was measured, and re-measuring them against a hand-steered run is
+> work this change deliberately did not do.
 
 Two mechanisms fix it, and `tools/roadwork-pull.mjs` shows that neither is enough alone:
 

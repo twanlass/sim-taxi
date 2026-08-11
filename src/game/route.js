@@ -116,6 +116,24 @@ function startExits(net, origin, inDir) {
 }
 
 /**
+ * The directions a car in state `from` may actually leave that junction by.
+ *
+ * The same set `findRoute` picks its first step out of, exposed for the swipe controls: a steering
+ * gesture has to be validated against the roads that exist before it becomes `car.route`, or the
+ * sim's `routeDesync` counter — which is meant to be an alarm and never to fire — turns into an
+ * ordinary tally of the player swiping at a wall.
+ *
+ * `startExits` rather than a fresh walk of `origin.outbound`: it already handles the car being on a
+ * lane (the game's case) and not being on one (the probe's), and their answers differ.
+ */
+export function legalDirsFrom(from) {
+  const net = cityNetwork();
+  const origin = net.nodeByGrid(from.i, from.j);
+  if (!origin) return [];
+  return startExits(net, origin, from.d).map((lane) => net.dirOfLane(lane));
+}
+
+/**
  * @param from  {{i, j, d}} the intersection the car is heading toward, and its current heading
  * @param target {{i, j}}   intersection to reach
  * @param cost   optional (lane) -> number, overriding the built-in road-hierarchy weights.

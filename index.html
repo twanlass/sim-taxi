@@ -538,6 +538,46 @@
       body.spotlight-on #spotlight { opacity: 1; }
       body.shot-mode #spotlight, body.game-over #spotlight { display: none; }
 
+      /* --- steer chevron — see src/game/steer.js ------------------------------
+         One arrow, flashed where the finger went down, saying what the swipe was read as. The
+         gesture is otherwise entirely invisible: the taxi may be half a screen away and its turn is
+         a second in the future, so without this a refused swipe and an accepted one look identical
+         at the moment they are made — which is the moment the player is learning the control.
+
+         Rotated to the swipe's own angle rather than snapped to the direction it resolved to. The
+         two differ by up to 45 degrees and that gap is the lesson: the arrow lands where the thumb
+         actually went, and it being *yellow* is what says the game agreed with it.
+
+         Pointer-events off, and under the HUD (20) and the tutorial's spotlight (21) so it never
+         eats the next gesture or covers a control. It is paint, not a control. */
+      #steer {
+        position: fixed; left: 0; top: 0; z-index: 19; pointer-events: none;
+        width: 84px; height: 84px; margin: -42px 0 0 -42px;
+        translate: var(--steer-x, 50vw) var(--steer-y, 50vh);
+        rotate: var(--steer-a, 0deg);
+        opacity: 0;
+      }
+      #steer svg { width: 100%; height: 100%; display: block; }
+      #steer polygon { stroke: #16120a; stroke-width: 3; stroke-linejoin: round; }
+      /* Taxi yellow for "yes, driving there" — PALETTE.taxiBody, the car's own hex, so the answer
+         comes back in the voice of the thing being steered. Refused is the flat grey of a dead
+         control, deliberately not red: swiping into a building is a miss, not a penalty. */
+      #steer.is-on polygon { fill: #F5C130; }
+      #steer.is-off polygon { fill: #8A8A92; }
+      /* Re-triggered by removing and re-adding the class, so a burst of swipes each get their own
+         flash instead of the first one holding the element lit. */
+      #steer.is-on, #steer.is-off { animation: steer-flash 0.42s ease-out forwards; }
+      @keyframes steer-flash {
+        0%   { opacity: 0; scale: 0.6; }
+        22%  { opacity: 1; scale: 1.08; }
+        100% { opacity: 0; scale: 1.3; }
+      }
+      body.shot-mode #steer, body.game-over #steer { display: none; }
+      @media (prefers-reduced-motion: reduce) {
+        #steer.is-on, #steer.is-off { animation: steer-fade 0.42s ease-out forwards; }
+        @keyframes steer-fade { 0% { opacity: 0; } 22% { opacity: 1; } 100% { opacity: 0; } }
+      }
+
       /* --- the HUD's entrance ------------------------------------------------
          Everything the player will need but cannot use yet starts off its own screen edge, and
          slides in once the tutorial has had its say. A run used to open with the full HUD already
@@ -778,6 +818,9 @@
       </svg>
     </div>
     <div id="spotlight" aria-hidden="true"></div>
+    <div id="steer" aria-hidden="true">
+      <svg viewBox="-16 -16 32 32"><polygon points="14,0 -8,-11 -3,0 -8,11" /></svg>
+    </div>
     <div id="coach" hidden>
       <button class="coach-bubble" type="button">
         <span class="coach-avatar"></span>

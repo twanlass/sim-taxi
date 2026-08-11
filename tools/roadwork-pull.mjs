@@ -1,10 +1,16 @@
 /**
  * How often does the player actually meet the construction zone, and what does it cost?
  *
- * The vignette has a problem the rest of the game doesn't: the player cannot steer. They tap a
- * fare and the taxi routes itself, so "drive down the closed street" is not something they can
- * choose to do — either the router sends them or they never see the thing. The first build shipped
+ * The vignette had a problem the rest of the game didn't: the player could not steer. They tapped a
+ * fare and the taxi routed itself, so "drive down the closed street" was not something they could
+ * choose to do — either the router sent them or they never saw the thing. The first build shipped
  * with no pull at all and the zone was, in practice, scenery.
+ *
+ * **The premise expired.** The player steers now (docs/gameplay.md#steering), so the router does not
+ * decide where the taxi goes and knob 1 below cannot pull it anywhere; what it still does is move
+ * the fare's *clock*, since `estimateSeconds` bills the route the router would have taken. Knob 2
+ * survives intact and is now the whole mechanism. The percentages this tool prints were measured
+ * against the routed taxi and have not been re-measured against a driven one.
  *
  * Two knobs answer it, and this tool is what fits the first:
  *

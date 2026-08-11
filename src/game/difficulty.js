@@ -72,10 +72,15 @@ const TUNING = {
   clockFloor: 20,
   clockCeiling: 240,
 
-  // Seconds allowed for the player to notice a rider and tap them. Charged once per fare, not
-  // twice: the drop-off dispatches itself, so the only reaction a fare actually costs is on the
-  // kerb. It sits inside the slack multiplier, so early fares are forgiving about it and late
-  // ones are not.
+  // Seconds allowed for the player to notice a rider and start driving at them. Charged once per
+  // fare, not twice: the drop-off is visible the moment they board, so the reaction a fare costs is
+  // on the kerb. It sits inside the slack multiplier, so early fares are forgiving about it and
+  // late ones are not.
+  //
+  // It is almost certainly too small now. This was fitted against a player whose whole input was
+  // one tap, and the swipe controls replaced that with a drive — see the note in
+  // gameplay.md#the-clocks-are-now-sized-for-a-driver-who-does-not-exist. Deliberately left alone
+  // until the ramp is re-swept against a hand-steered run rather than a perfect router.
   reactionAllowance: 2.5,
 
   // Deliveries at which the board is allowed to hold 2, 3 and 4 fares. The first fare teaches the

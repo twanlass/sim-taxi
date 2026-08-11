@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
 import { createScene } from './game/scene.js';
-import { createCityCamera, attachDragPan, VIEW_DIR } from './game/camera.js';
+import { createCityCamera, VIEW_DIR } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
@@ -34,7 +34,9 @@ import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
 import { setAmbientOcclusion } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
-import { findRoute, planOrigin } from './game/route.js';
+import { findRoute, planOrigin, legalDirsFrom } from './game/route.js';
+import { createSwipe, SWIPE_MIN } from './game/swipe.js';
+import { resolveSteer } from './game/steer.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
   getDiagnostics } from './util/shot.js';
@@ -185,9 +187,10 @@ markOccluder(police.group);
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
 for (const slot of fares.slots) markOccluder(slot.passenger.group);
-// One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and
-// the game is playable without ever touching it on a desktop — but in portrait the frustum is
-// sized by height, so a phone cuts off both sides of the map and panning stops being optional.
+// One fixed 3/4 framing of the whole city. It is the default and the game is playable without the
+// camera ever moving on a desktop — but in portrait the frustum is sized by height, so a phone cuts
+// off both sides of the map and something has to keep the taxi in frame. The follow-cam does; the
+// player's own drag-to-pan used to as well, and lost the gesture to steering.
 const aspect = () => window.innerWidth / window.innerHeight;
 const controller = createCityCamera(aspect(), {
   zoom: shot?.zoom ?? 52,
@@ -197,16 +200,21 @@ const { camera } = controller;
 controller.update(aspect());
 
 // Below this viewport width the frustum is sized by height, so the city runs off both sides and
-// the fixed framing stops working — that's where drag-to-pan and boost-follow earn their keep.
-// Above it (any typical desktop or landscape tablet) the whole city already fits, so both would
-// only move things around for no reason. Live viewport width rather than a media query lets a
+// the fixed framing stops working — that's where the follow-cams and the rider pan earn their keep.
+// Above it (any typical desktop or landscape tablet) the whole city already fits, so all of them
+// would only move things around for no reason. Live viewport width rather than a media query lets a
 // resize flip modes without a reload.
 const NARROW_VIEWPORT = 768;
 const isNarrow = () => window.innerWidth < NARROW_VIEWPORT;
 
 // The camera trails the taxi from the first frame of the run, and keeps doing it until the player
-// takes the framing over — a swipe, or a tap on a rider-finder chip. Both are the player saying
+// takes the framing over — a tap on a rider-finder chip, or on a pin. Both are the player saying
 // where they want to look, and a camera that slides back off it is fighting them.
+//
+// Steering does *not* take it over, which is the one thing that changed when the swipe stopped
+// being a pan. A swipe is now an instruction to the car rather than to the camera, and the whole
+// job of the follow is to keep that car on screen — handing the framing away every time the player
+// turned a corner would leave them driving off the edge of their own view.
 //
 // It exists for the same reason the boost-follow does: on a narrow viewport the fixed framing has
 // already given up, so a run opens with the taxi somewhere off-screen and the player's first job is
@@ -215,27 +223,31 @@ const isNarrow = () => window.innerWidth < NARROW_VIEWPORT;
 // the button. At 1.5 the camera reads as drifting after the taxi rather than locked to it, and a
 // turn at the edge of frame doesn't whip the city round.
 //
-// Narrow only, like the boost-follow: on a desktop the whole city is in frame at all times, and
-// drag-to-pan is switched off there — so a follow would slide the map around under a player with
-// no way to stop it.
+// Narrow only, like the boost-follow: on a desktop the whole city is in frame at all times — so a
+// follow would slide the map around under a player who could already see everything.
 const START_FOLLOW_SMOOTHING = 1.5;
 const BOOST_FOLLOW_SMOOTHING = 3.2;
 let cameraTakenOver = false;
 // Assigned further down, once the fare board and the picker it reads exist. Declared here because
-// the handover below is the one thing that has to reach it, and a swipe cannot arrive before the
+// the handover below is the one thing that has to reach it, and a tap cannot arrive before the
 // module has finished evaluating.
 let tutorial = null;
 const releaseCameraToPlayer = () => {
   cameraTakenOver = true;
-  // A swipe during the tutorial takes the framing off it too. It keeps talking — the lesson is
-  // still worth reading — it just stops moving the map while the player reads it.
+  // Aiming the camera during the tutorial takes the framing off it too. It keeps talking — the
+  // lesson is still worth reading — it just stops moving the map while the player reads it.
   tutorial?.releaseCamera();
 };
 
-// Screenshots frame themselves, and a shot run has no user to drag anything.
-const pan = shot
-  ? null
-  : attachDragPan(controller, renderer.domElement, aspect, isNarrow, releaseCameraToPlayer);
+// Steering is a swipe, so drag-to-pan is gone: one gesture cannot mean both "look over there" and
+// "turn left at the next junction", and of the two the one that drives the car has to win. What the
+// pan was for is covered from elsewhere — the follow-cam keeps the taxi in frame on a narrow
+// viewport, and a rider-finder chip pans to a rider who isn't. `attachDragPan` went with it: an
+// unused export with a test in front of it is worse than a deleted one, and git has it.
+//
+// Assigned further down, once the taxi and the fare board it steers toward exist. Screenshots frame
+// themselves and a shot run has nobody to swipe, so shot mode never binds it.
+let swipe = null;
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
 // The whole crash detonation — shockwave, fireball and shards — behind one `fire()` per car. One
@@ -433,29 +445,119 @@ function routeTo(target) {
   return true;
 }
 
+// --- Swipe steering ----------------------------------------------------------
+//
+// The player drives. A swipe is read as a compass direction (game/steer.js), validated against the
+// roads that actually leave the next junction, and handed to the sim as a **one-step route** — which
+// is the whole trick. `car.route = [dir]` needs no new branch in traffic.js: the single place a car
+// picks its exit already prefers a route over the dice, `route.shift()` already clears the step the
+// frame the turn commits, and everything else that reads `route[0]` — the boosting taxi's priority
+// green, the block on oncoming traffic while it turns left, the overtake offer, the scatter ahead of
+// it — starts answering to the player instead of assuming straight.
+//
+// Swiping the way the car already points means Loco Mode instead. See `SWIPE_BURST`.
+
+// How long one forward swipe holds the boost for.
+//
+// Sized off the overdrive band rather than picked: cruise to BOOST_SPEED (18.7) is 0.43s and 5.8
+// units at BOOST_ACCEL, and 18.7 to OVERDRIVE_SPEED (22.95) is another 1.93s and 40 units at the
+// tapered OVERDRIVE_ACCEL — so 2.36s and 46 units, a shade over two blocks of clear road, is the
+// least it can cost to touch the top end. At 2.5 a swipe down an empty straight just reaches it and
+// anything short of that doesn't, which is the property the band was tuned to have: earned, not
+// held. Below ~1.5s the mode reads as a stutter; much above 3 and holding the pill has no job left.
+let swipeBurst = 2.5;
+// How far a finger travels before it means anything. The module's own default; held here as well so
+// the ⚙️ panel can move it, because where the line between a tap and a swipe belongs is a judgement
+// about thumbs on a real screen.
+let swipeMin = SWIPE_MIN;
+let burstLeft = 0;
+// True while a thumb is physically on the pill, as opposed to a burst the game is holding for the
+// player. `boost.state.held` cannot tell them apart — a burst presses the same button underneath —
+// and the burst timer must not release a hold the player has not let go of.
+let pillHeld = false;
+// The player has steered at least once. The tutorial's second beat waits on it.
+let steeredOnce = false;
+
 /**
- * A rider is in: send the taxi at their drop-off without waiting to be told.
+ * Read one swipe and act on it.
  *
- * The destination was never a decision. It was drawn when they spawned, the price was fixed from
- * it, and its pin is on the map the instant they board — so the tap that used to be required here
- * confirmed a choice with exactly one option while the same flat clock that has to cover the
- * delivery kept draining. The decision this game is actually about — which kerbside rider to grab
- * with two clocks running — is untouched, and it is the seconds for *that* the tap was costing.
- *
- * Nothing is skipped: `directed` is still what resolves the drop-off (see fares.js), it is just
- * set from the pickup rather than from a second tap. And the taxi no longer parks, so a pickup is
- * a pause in a drive rather than a full stop and a restart.
- *
- * The fallback is unreachable in a shipped city — main.js rerolls any seed the router can't solve
- * every pair on — but a taxi that couldn't be routed must still be recoverable by hand rather than
- * cruising on random turns until the rider's clock runs out.
+ * Returns the outcome plus the gesture's own screen angle, for the chevron. Null while the run is
+ * over, which is the one state where a swipe should leave no mark at all.
  */
-function dispatchToDropoff(fare) {
-  if (routeTo(fare.target)) {
-    fares.markDirected(fare);
-    return;
+function steerBySwipe(dx, dy) {
+  const car = traffic.taxi;
+  if (fares.state.gameOver) return null;
+  const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+
+  // `planOrigin` is the junction the car can still make a choice at — the one it is heading toward,
+  // or, if it is already inside a junction, the one on the far side. That is the whole steering
+  // window and the reason there is no queue: a swipe aims at the next choice and nothing further.
+  //
+  // It is also why the window is as short as it is. A lane between two junctions is
+  // PITCH - 2 * HALF_ROAD = 12 units and the hold line sits STOP_SETBACK = 3.4 back from its end,
+  // so a junction is decided over the 8.6 units before that: **1.0s at cruise and 0.37s at the
+  // overdrive top**. Going faster costs reaction time, which is the trade the mode is supposed to
+  // make and did not previously make, because the router was doing the reacting.
+  //
+  // Same 8.6 units traffic.js measures a car's braking warning over (see the note on the fleeing
+  // car's residual), which is not a coincidence: it is simply how much notice this road geometry
+  // gives anybody about anything.
+  const from = planOrigin(car);
+  const outcome = resolveSteer(dx, dy, from.d, legalDirsFrom(from));
+
+  if (outcome.kind === 'boost') {
+    // A re-swipe extends rather than restarting: pressing a car that is still inside the one-second
+    // cooldown tail snaps it back to full send, so bursts chained down a long straight read as one
+    // continuous pull rather than as a stutter. Nothing happens on a dead tank — the pill is the
+    // dial and it has already gone grey — and that reads as a refusal, because it is one.
+    if (!beginBoost()) return { kind: 'refused', dir: from.d, angle };
+    burstLeft = swipeBurst;
+    steeredOnce = true;
+  } else if (outcome.kind === 'turn') {
+    steeredOnce = true;
+    // Validated against the junction's real exits above, so this can never desync — which matters,
+    // because `routeDesync` in traffic.js is an alarm that is supposed to never fire and would
+    // otherwise become a tally of the player swiping at buildings.
+    car.route = [outcome.dir];
+    car.routeConsumed = false;
   }
-  traffic.taxi.parked = true;
+  return { ...outcome, angle };
+}
+
+// Shot mode is the one configuration that keeps the old scheme: every screenshot preset routes the
+// taxi with `routeTo` and expects it to arrive, shot 9 exists to photograph the route band, and a
+// still frame has nobody to swipe at it. Everything below is therefore skipped there.
+if (!shot) {
+  // With no route, carry straight on rather than rolling the dice at every junction.
+  traffic.taxi.coastStraight = true;
+  // A pickup or a drop-off resolves because the player drove here, not because they asked first.
+  fares.setRequireDirected(false);
+  swipe = createSwipe(
+    renderer.domElement,
+    (dx, dy, ox, oy) => showSteerHint(steerBySwipe(dx, dy), ox, oy),
+    () => !fares.state.gameOver && !homeTip?.state.holding,
+    () => swipeMin,
+  );
+}
+
+// The chevron that flashes where the finger went down. The whole of the swipe's feedback: the taxi
+// might be half a screen away and its turn a second in the future, so at the moment the gesture is
+// made — which is the moment the control is being learned — an accepted swipe and a refused one are
+// otherwise indistinguishable.
+const steerHint = document.getElementById('steer');
+function showSteerHint(outcome, originX, originY) {
+  if (!steerHint || !outcome) return;
+  // Removing both classes and forcing a reflow is what re-triggers the animation. Without it a
+  // second swipe inside the 0.42s flash does nothing visible, and a flurry of swipes — exactly what
+  // a player does while working the control out — reads as the game having stopped responding.
+  steerHint.classList.remove('is-on', 'is-off');
+  void steerHint.offsetWidth;
+  steerHint.style.setProperty('--steer-x', `${originX}px`);
+  steerHint.style.setProperty('--steer-y', `${originY}px`);
+  // The swipe's own angle, not the direction it snapped to. CSS rotation and DOM coordinates share
+  // a sign convention — both clockwise with y downward — so atan2(dy, dx) needs no correction.
+  steerHint.style.setProperty('--steer-a', `${outcome.angle}deg`);
+  steerHint.classList.add(outcome.kind === 'refused' ? 'is-off' : 'is-on');
 }
 
 createPicker(
@@ -466,25 +568,14 @@ createPicker(
     if (fares.state.gameOver) return;
     if (kind !== 'passenger' && kind !== 'destination') return;
 
-    // With two fares on the board, *which* pin was tapped is the whole instruction — routing at
-    // "the" target the way the single-fare version did would send the taxi at the wrong one.
+    // A tap no longer dispatches anything — the player drives there themselves — so what is left
+    // for it is the other half of what tapping a rider-finder chip does: take me to them. Narrow
+    // viewports only, for the same reason `selectRider` is: on a desktop the whole city is in frame
+    // and a pan would shove the map out from under someone who can already see the pin.
     const fare = fares.fareFor(hit.object);
-    if (!fare) return;
-
-    // One seat. Refusing the tap outright, rather than driving there and quietly not picking
-    // anyone up, is what teaches the rule the first time a second rider appears.
-    //
-    // Gated on the fare's stage rather than on `kind`: the two agree today, since a waiting fare's
-    // only visible marker is its rider, but the rule is about the fare, not about which mesh was hit.
-    if (fare.stage === 'waiting' && fares.carrying()) {
-      return;
-    }
-
-    if (routeTo(fare.target)) {
-      fares.markDirected(fare);
-    }
+    if (fare && isNarrow()) panToRider(fare);
   },
-  () => Boolean(pan?.didPan()),
+  () => Boolean(swipe?.didSwipe()),
 );
 
 // Camera shortcut: frame the waiting rider on demand. At play zoom on a phone the rider is a
@@ -507,28 +598,17 @@ function panToRider(fare) {
   releaseCameraToPlayer();
 }
 
-// Dispatch the taxi at that rider — same effect as tapping their pin on the map, without having to
-// find it first. A pickup while already carrying someone would be refused at the picker; keep the
-// rule consistent here.
-function dispatchToRider(fare) {
-  if (!fare || fares.state.gameOver) return;
-  if (fares.carrying()) return;
-  if (routeTo(fare.target)) {
-    fares.markDirected(fare);
-  }
-}
-
-// One tap on a chip picks that rider. The camera only follows on a narrow viewport, where the
-// rider may well be off-screen and framing them is the other half of the job; on a desktop the
-// whole city is already in frame, so a pan would shove the map out from under a player who can
-// see the rider fine — same reason drag-to-pan and the follow-cams are narrow-only.
+// One tap on a chip frames that rider. It used to dispatch the taxi at them as well, which is the
+// half the swipe controls take away: where the car goes is the player's, and a button that drove it
+// for them would be the old scheme surviving in a corner of the HUD.
 //
-// The dispatch does not wait for the pan to land: the fare's clock is draining, and a camera move
-// that delayed the taxi leaving would be charging the player for the convenience.
+// Framing is still worth a control of its own. At play zoom a rider is a handful of pixels on a map
+// that no longer fits one screen, so "show me who is waiting and where" is a real question — and on
+// a desktop, where the whole city is in frame, it is already answered, hence the narrow gate. Same
+// reason the follow-cams are narrow-only.
 function selectRider(fare) {
   if (!fare) return;
   if (isNarrow()) panToRider(fare);
-  dispatchToRider(fare);
 }
 
 const riderFinder = createRiderFinder({ onSelect: selectRider, sun, hemi });
@@ -578,9 +658,9 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // The kerb corner, not the junction centre: at this zoom the corner building sits squarely
   // between the camera and the figure otherwise. Same aim as panToRider and the drop-off pointer.
   fareLocation: (fare) => cornerFor(fare.target.i, fare.target.j),
-  // Any fare the player has actually sent the taxi at — including one they found and tapped on the
-  // map while the first bubble was still up.
-  isDispatched: () => Boolean(fares.carrying() || fares.state.fares.some((f) => f.directed)),
+  // The player has taken the wheel: a swipe the taxi accepted, or a rider already aboard because
+  // they drove to one before the bubble got round to asking.
+  hasSteered: () => Boolean(steeredOnce || fares.carrying()),
   // The third beat waits on this rather than on the dispatch: the Loco Mode hint lands a couple of
   // seconds after the first rider is actually dropped off, once the loop has closed one full turn.
   hasDelivered: () => fares.state.delivered > 0,
@@ -593,7 +673,7 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   isBlocked: () => Boolean(homeTip?.state.holding),
   // The same guard the picker uses: the click a mouse synthesises at the end of a drag must not
   // count as an answer to the bubble the player was dragging past.
-  shouldIgnoreTap: () => Boolean(pan?.didPan()),
+  shouldIgnoreTap: () => Boolean(swipe?.didSwipe()),
   // Hold every fare's countdown for as long as the tutorial is talking. It ends on the player's
   // tap, so the clock they are taught with is the full sixty seconds.
   onRunning: (running) => {
@@ -870,20 +950,31 @@ function updateBoostButton(dt) {
   boostButton.disabled = mode === 'empty';
 }
 
+// Engage Loco Mode, whichever control asked for it — the pill under a thumb, or a swipe along the
+// road the taxi is already on. Returns whether the taxi is actually boosting now, which is what
+// tells a forward swipe whether it bought anything worth starting a burst timer for.
+function beginBoost() {
+  if (fares.state.gameOver || boostButton?.disabled) return false;
+  // Doing the thing the third bubble is asking for answers it. Called explicitly rather than left
+  // to the tutorial's window-level tap handler, because `pressBoost`'s preventDefault can suppress
+  // the click a touch would otherwise synthesise — so on a phone the hint would outstay its lesson.
+  tutorial?.dismiss();
+  if (boost.press()) kickLocoMode();
+  return boost.isActive();
+}
+
 // Hold-to-enable, release-to-pause. Pointer events cover both mouse and touch; capturing the
 // pointer on press means dragging off the pill still counts as held, and the matching pointerup
 // fires reliably wherever the finger lifts.
 function pressBoost(event) {
   if (fares.state.gameOver || boostButton.disabled) return;
   event.preventDefault();
-  // Doing the thing the third bubble is asking for answers it. Called explicitly rather than left
-  // to the tutorial's window-level tap handler, because the preventDefault above can suppress the
-  // click a touch would otherwise synthesise — so on a phone the hint would outstay its own lesson.
-  tutorial?.dismiss();
   boostButton.setPointerCapture?.(event.pointerId);
-  if (boost.press()) {
-    kickLocoMode();
-  }
+  // A thumb on the pill outranks a swipe's timer: whatever burst was running, the hold owns the
+  // boost now and only letting go ends it.
+  pillHeld = true;
+  burstLeft = 0;
+  beginBoost();
 }
 
 // Fires only on the transition into Loco Mode — not while it's already active — so a re-press
@@ -912,6 +1003,7 @@ function kickLocoMode() {
   launchSkidT = LAUNCH_SKID_TIME;
 }
 function releaseBoost(event) {
+  pillHeld = false;
   boost.release();
   boostButton.releasePointerCapture?.(event.pointerId);
 }
@@ -924,8 +1016,10 @@ boostButton?.addEventListener('pointerdown', pressBoost);
 boostButton?.addEventListener('pointerup', releaseBoost);
 boostButton?.addEventListener('pointercancel', releaseBoost);
 boostButton?.addEventListener('lostpointercapture', releaseBoost);
-// Alt-tabbing away or switching apps mid-hold should not leave the boost stuck on.
-window.addEventListener('blur', () => boost.release());
+// Alt-tabbing away or switching apps mid-hold should not leave the boost stuck on. A swipe's burst
+// is on the same hook: it is a hold the game is doing on the player's behalf, so it ends the same
+// way a real one would.
+window.addEventListener('blur', () => { pillHeld = false; burstLeft = 0; boost.release(); });
 window.addEventListener('contextmenu', (e) => {
   if (e.target === boostButton) e.preventDefault();
 });
@@ -1075,6 +1169,16 @@ function frame() {
     dt *= slowMoMin + (1 - slowMoMin) * t;
   }
 
+  // A swipe's burst is a hold the game keeps for the player. Ticked on `dt` rather than wallclock
+  // so a crash's slow motion stretches it with everything else, and skipped entirely while a thumb
+  // is on the pill — that hold is the player's and only they end it. Releasing rather than dropping
+  // straight to 'ready' is the point: the burst leaves through the same one-second momentum window
+  // a real release does, so letting a burst lapse next to a police car is exactly as risky.
+  if (burstLeft > 0 && !pillHeld) {
+    burstLeft -= dt;
+    if (burstLeft <= 0) { burstLeft = 0; boost.release(); }
+  }
+
   boost.update(dt);
   // Never re-arm boost on a wrecked taxi — the flag would flick on the next frame otherwise and
   // the collision detector already only checks `if (taxi.boost)`. `taxi.boost` covers the hold
@@ -1162,13 +1266,15 @@ function frame() {
   for (const { type, fare } of
     (homeTip?.state.holding ? NO_FARE_EVENTS : fares.update(dt, traffic.taxi))) {
     if (type === 'pickup') {
-      traffic.taxi.route = [];
-      traffic.taxi.pendingTarget = null;
       // The roof sign lights up while the rider is aboard.
       traffic.setTaxiOccupied(true);
-      // Straight on to where they're going, on the same frame the pin appears — no kerb hold and
-      // no confirming tap.
-      dispatchToDropoff(fare);
+      // Nothing is dispatched. The teal ring is on the road and the off-screen pointer says which
+      // way it is; getting there is the player's job now.
+      //
+      // `car.route` is deliberately *not* cleared here, the way it was when a pickup replaced one
+      // multi-step plan with another. It now holds at most the single turn the player has swiped
+      // for, and a pickup is a thing that happens *while* driving — wiping it would silently eat an
+      // instruction given a second before the kerb.
     } else if (type === 'delivered') {
       popEarning(fare.value);
       updateStreak(difficulty.payoutMultiplier(fares.state.delivered));
@@ -1182,28 +1288,20 @@ function frame() {
         to: boostScreenPos,
         onArrive: () => boost.topUp(fare.vip ? 1 - boost.fraction() : BOOST_FARE_REWARD),
       });
-      traffic.taxi.route = [];
-      traffic.taxi.pendingTarget = null;
       traffic.setTaxiOccupied(false);
     } else if (type === 'vip-missed') {
       // The one fare whose clock running out isn't a run-ending event — see fares.js. If it was
       // riding, the taxi is holding an empty seat with nowhere left to drive; free it up exactly
       // as a delivery would, minus the payout.
-      if (fare.stage === 'riding') {
-        traffic.taxi.route = [];
-        traffic.taxi.pendingTarget = null;
-        traffic.setTaxiOccupied(false);
-      }
+      if (fare.stage === 'riding') traffic.setTaxiOccupied(false);
     }
   }
 
-  // The route is a property of the selection, not of the world — deselecting clears it from view
-  // even though the taxi keeps driving it.
-  if (selected && traffic.taxi.pendingTarget && !fares.state.gameOver) {
-    routeLine.update(traffic.taxi, traffic.taxi.route, dt);
-  } else {
-    routeLine.hide();
-  }
+  // No band. There is no plan to draw — `car.route` is one swiped turn at most, and a stub of
+  // colour a block long flickering on and off with the player's thumb is noise where the old band
+  // was information. The module stays: shot 9 exists to photograph it, and `routeTo` is still on
+  // the `__taxi` hook.
+  routeLine.hide();
 
   layRubber(dt);
   kickDust();
@@ -1237,8 +1335,8 @@ if (shot) {
       for (const { type, fare } of fares.update(1 / 60, traffic.taxi)) {
         if (type !== 'pickup') continue;
         traffic.setTaxiOccupied(true);
-        // Shot mode's stand-in for dispatchToDropoff — the interactive pickup path is in the frame
-        // loop, which a shot never runs.
+        // Shot mode keeps the old tap-to-route scheme, so it dispatches at the drop-off the way
+        // the game used to. Nothing in the frame loop does this any more — the player drives.
         send(fare);
         // Let the fare's diamond finish flying to the taxi, or the shot catches it mid-flight.
         for (let settle = 0; settle < 90; settle++) {
@@ -1437,6 +1535,13 @@ if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) 
     fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds, isPinned: isFareClockPinned },
     routeLine,
     ao,
+    // The two feel constants of the control scheme. Both want a thumb and a moving city to judge.
+    steering: {
+      burst: () => swipeBurst,
+      setBurst: (v) => { swipeBurst = v; },
+      minDistance: () => swipeMin,
+      setMinDistance: (v) => { swipeMin = v; },
+    },
   });
 }
 
@@ -1453,6 +1558,12 @@ window.__taxi = {
   roadwork,
   routeTo,
   findRoute,
+  /**
+   * Steer as a swipe would, in CSS pixels with DOM axes — so a headless driver can exercise the
+   * whole path (screen vector -> direction -> legality -> one-step route) rather than only the
+   * `car.route` write at the end of it, which is the part least likely to be wrong.
+   */
+  steer: (dx, dy) => steerBySwipe(dx, dy),
   camera: controller,
   isSelected: () => selected,
   /**

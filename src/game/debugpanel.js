@@ -47,7 +47,8 @@ const clockLabel = (hour) => {
   return `${String(h).padStart(2, '0')}:${m}`;
 };
 
-export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, routeLine, ao }) {
+export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, routeLine, ao,
+  steering }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
   toggle.type = 'button';
@@ -181,6 +182,32 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, ro
     fares.setSeconds(Number(fareTime.value));
     fareValue.textContent = `${fareTime.value}s · next fare · budget off`;
   });
+
+  // --- Steering -------------------------------------------------------------
+  // Both of these are feel, and feel is not something a headless assertion can settle. The probe
+  // fixes what a swipe *means*; what is left is how long a burst should run and how hard a flick
+  // should have to be, and the only way to answer either is with a thumb on a moving city.
+  //
+  // The burst's floor is not arbitrary: reaching the overdrive band costs 2.36s of clear road from
+  // cruise (see SWIPE_BURST in main.js), so anything under that turns the top end off entirely.
+  const burst = slider(0.5, 5, 0.1, steering.burst());
+  const burstValue = row(panel, 'Loco burst', burst);
+  const showBurst = () => {
+    burstValue.textContent = steering.burst() >= 2.4
+      ? `${steering.burst().toFixed(1)}s · reaches overdrive`
+      : `${steering.burst().toFixed(1)}s · short of overdrive`;
+  };
+  burst.addEventListener('input', () => { steering.setBurst(Number(burst.value)); showBurst(); });
+  showBurst();
+
+  const swipeLen = slider(10, 80, 1, steering.minDistance());
+  const swipeValue = row(panel, 'Swipe length', swipeLen);
+  const showSwipe = () => { swipeValue.textContent = `${steering.minDistance()}px`; };
+  swipeLen.addEventListener('input', () => {
+    steering.setMinDistance(Number(swipeLen.value));
+    showSwipe();
+  });
+  showSwipe();
 
   // Live because it is the whole point: the four modes differ by how much of the road, markings
   // and kerbs they let through, and that is only judgeable against a moving city.

@@ -977,9 +977,14 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // filled in by the game layer; see the turn decision below.
       route: [],
       routeConsumed: false,
-      // A taxi with a fare aboard waits at the kerb until the player says where to. Releasing on
-      // "has a route" rather than on an explicit call means every caller — the game, the probe,
-      // the auto-play soak — releases it just by giving the car somewhere to go.
+      // Set on the taxi by the game layer when the player is steering it by hand: with no route,
+      // carry straight on rather than rolling the dice. See the turn decision below for why it is
+      // a flag and not `isTaxi`.
+      coastStraight: false,
+      // A car held where it stands, releasing itself as soon as it is given a route. Under the
+      // swipe controls the game never sets it — a hand-steered taxi is never waiting to be told
+      // where to go — so what is left is the routed harnesses' fallback for a target they cannot
+      // reach, and the recovery path for a taxi that would otherwise cruise on random turns.
       parked: false,
       isTaxi: false,
       instanceIndex: -1,
@@ -2092,8 +2097,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           if (viaRightOnRed) {
             // The only legal move is the right turn. A routed car takes it if its plan agrees;
             // otherwise it waits for the green like anyone else.
+            //
+            // A hand-steered taxi with no route has *asked* to carry straight on, so it waits too.
+            // Without this exception it would peel off right at every red it met — the one place
+            // the coast rule and this shortcut disagree.
+            const wantsRight = car.route?.length
+              ? car.route[0] === rightOf(car.d)
+              : !car.coastStraight;
             const turn = exitToward(net, car.lane, rightOf(car.d));
-            if (turn && (!car.route?.length || car.route[0] === rightOf(car.d))) {
+            if (turn && wantsRight) {
               chosen = turn;
               if (car.route?.length) car.routeConsumed = true;
             }
@@ -2121,32 +2133,50 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
                 stats.routeDesync += 1;
                 car.route.length = 0;
               }
-              // Weight straight/right/left, then fall back to whatever is legal here. The hand
-              // comes off the turn rather than out of direction arithmetic, which is what lets a
-              // three-way — where one approach can have two distinct lefts — weight them both.
-              const weighted = options.map((turn) => {
-                const kind = turn.hand === 'straight' ? 0 : turn.hand === 'left' ? 2 : 1;
-                // Fleeing the boosting taxi: carrying straight on keeps this car in the taxi's
-                // lane for another whole block, so it barely rolls that option. Still a weight
-                // rather than a filter — at a T-junction straight may be the only legal exit.
-                const w = kind === 0 && car.scatter > 0.5 ? SCATTER_STRAIGHT_W : TURN_WEIGHTS[kind];
-                // A road closed for roadworks, for the same reason and with a stronger version of
-                // the same guarantee. With any open exit present `total` is positive, `roll` is
-                // strictly greater than zero, and a zero-weight option can never win the walk
-                // below — so this reads as a hard ban. With *every* exit closed `total` is zero,
-                // `roll` is zero, and the first iteration's `roll -= 0` satisfies `roll <= 0`:
-                // the car takes `options[0]` and drives on. That degenerate case is what makes a
-                // weight the right shape here. A filter would empty the list, and a car with no
-                // exit holds at the line forever with the whole lane queued behind it.
-                return { turn, w: closedLanes.has(turn.outLane) ? 0 : w };
-              });
-              const total = weighted.reduce((sum, o) => sum + o.w, 0);
-              let roll = rng.next() * total;
-              for (const option of weighted) {
-                roll -= option.w;
-                if (roll <= 0) { chosen = option.turn; break; }
+              // Under the swipe controls the taxi is steered one junction at a time, so "no route"
+              // is the *normal* state rather than an ambient car's — it means the player has not
+              // asked for a turn here. Carrying straight on is the only readable answer: a car that
+              // picked a random exit every time the player kept their thumb still would be
+              // impossible to drive. It falls through to the roll when straight is not an exit
+              // (the map edge, a T-junction), which is what keeps the ring road self-correcting.
+              //
+              // A flag on the car rather than `isTaxi`, so the headless tools — which route the
+              // taxi directly and lean on frame-for-frame determinism — consume the rng in exactly
+              // the same order they always did. Only game/main.js sets it.
+              if (car.coastStraight) {
+                chosen = options.find((turn) => turn.hand === 'straight'
+                  && !closedLanes.has(turn.outLane)) ?? null;
               }
-              chosen ??= options[0];
+
+              if (!chosen) {
+                // Weight straight/right/left, then fall back to whatever is legal here. The hand
+                // comes off the turn rather than out of direction arithmetic, which is what lets a
+                // three-way — where one approach can have two distinct lefts — weight them both.
+                const weighted = options.map((turn) => {
+                  const kind = turn.hand === 'straight' ? 0 : turn.hand === 'left' ? 2 : 1;
+                  // Fleeing the boosting taxi: carrying straight on keeps this car in the taxi's
+                  // lane for another whole block, so it barely rolls that option. Still a weight
+                  // rather than a filter — at a T-junction straight may be the only legal exit.
+                  const w = kind === 0 && car.scatter > 0.5
+                    ? SCATTER_STRAIGHT_W : TURN_WEIGHTS[kind];
+                  // A road closed for roadworks, for the same reason and with a stronger version
+                  // of the same guarantee. With any open exit present `total` is positive, `roll`
+                  // is strictly greater than zero, and a zero-weight option can never win the walk
+                  // below — so this reads as a hard ban. With *every* exit closed `total` is zero,
+                  // `roll` is zero, and the first iteration's `roll -= 0` satisfies `roll <= 0`:
+                  // the car takes `options[0]` and drives on. That degenerate case is what makes a
+                  // weight the right shape here. A filter would empty the list, and a car with no
+                  // exit holds at the line forever with the whole lane queued behind it.
+                  return { turn, w: closedLanes.has(turn.outLane) ? 0 : w };
+                });
+                const total = weighted.reduce((sum, o) => sum + o.w, 0);
+                let roll = rng.next() * total;
+                for (const option of weighted) {
+                  roll -= option.w;
+                  if (roll <= 0) { chosen = option.turn; break; }
+                }
+                chosen ??= options[0];
+              }
             }
 
             // A car being overtaken does not turn left across the car overtaking it. Same
