@@ -2993,6 +2993,211 @@ check('the taxi is an ordinary car in the traffic array',
     'strength 0, all three counts 0');
 }
 
+// --- Box-truck ghost outlines -------------------------------------------------
+//
+// Trucks went without an outline for a while, because they live in their own instance space and the
+// pool read `car.instanceIndex` straight into the *car* meshes — including a truck would have
+// traced whichever car held the same index. Now there is a pool per vehicle class, which is three
+// new ways to be wrong that a car can't be: a mask that misses the cargo box (a part left out of
+// the mask is an occluder of the rim behind it), a rim built as two overlapping hulls (which blends
+// twice and paints a lit band down the flank instead of an outline), and a cross-wired index
+// between two pools that are both filling slots from one nearest-N list.
+{
+  const kScene = new THREE.Scene();
+  // Half the vehicles as trucks, not TRUCK_CHANCE's 1/12: what is under test is the truck path, and
+  // at 1/12 a seed that happens to hold no truck inside GHOST_RADIUS asserts nothing while passing.
+  const kTraffic = createTraffic(makeRng(seed + 44), kScene, 24, 24, 0.5);
+  const kGhosts = createCarGhosts(kScene, kTraffic);
+  kTraffic.warmup(30);
+
+  const {
+    truckCabMask, truckBoxMask, truckWheelMask, truckRim,
+    bodyMask: carMask, wheelMask: carWheelMask, bodyRim: carRim,
+  } = kGhosts;
+  const perTruck = kTraffic.truckWheelsPerCar;
+
+  check('truck ghost pool is sized to the cap',
+    truckCabMask.instanceMatrix.count === MAX_GHOSTS
+    && truckBoxMask.instanceMatrix.count === MAX_GHOSTS
+    && truckRim.instanceMatrix.count === MAX_GHOSTS
+    && truckWheelMask.instanceMatrix.count === MAX_GHOSTS * perTruck,
+    `full ${MAX_GHOSTS} slots per class — the cap is shared, the pools are not`);
+
+  const kPool = [truckCabMask, truckBoxMask, truckWheelMask, truckRim];
+  check('truck ghosts never frustum-cull',
+    kPool.every((m) => m.frustumCulled === false && !m.castShadow),
+    'culling off, no shadows borrowed from the truck meshes');
+
+  check('truck ghosts stamp and resolve in the traffic tiers',
+    [truckCabMask, truckBoxMask, truckWheelMask].every((m) => m.renderOrder === CAR_GHOST_MASK_ORDER)
+    && truckRim.renderOrder === CAR_GHOST_RIM_ORDER,
+    `masks ${CAR_GHOST_MASK_ORDER}, rim ${CAR_GHOST_RIM_ORDER} — same tiers as the cars`);
+
+  // Every opaque part of the truck, the cargo box included. A box missing from the mask is an
+  // occluder like any other: the cab's own rim would resolve straight across it.
+  check('truck ghost masks share all three truck geometries untouched',
+    truckCabMask.geometry === kTraffic.truckMesh.geometry
+    && truckBoxMask.geometry === kTraffic.truckBoxMesh.geometry
+    && truckWheelMask.geometry === kTraffic.truckWheelMesh.geometry
+    && kPool.slice(0, 3).every((m) => !m.geometry.attributes.aAlpha)
+    && truckRim.geometry !== kTraffic.truckMesh.geometry
+    && Boolean(truckRim.geometry.attributes.aAlpha),
+    'cab, box and wheels masked; rim merged, inflated and carrying the alpha');
+
+  // ONE hull for the vehicle, not one per mesh. The rim blends, so two hulls overlapping across the
+  // chassis line draw the same fragment twice — 0.86 against the intended 0.62, measured as a band
+  // down the flank from y 1.65 to 2.95. Count the rims rather than trust the comment.
+  const kRims = [];
+  kScene.traverse((n) => { if (n.isMesh && n.name === 'truckGhostRim') kRims.push(n); });
+  check('a truck wears exactly one rim hull', kRims.length === 1 && kRims[0] === truckRim,
+    'cab and box merged before inflation, so nothing blends twice');
+
+  // ...and that one hull has to cover both. A cab-only hull leaves the tallest thing on the road —
+  // the box roof, a metre above the cab — with no outline at all, which is the whole vehicle as far
+  // as a player glancing at a junction is concerned.
+  const cabBox = new THREE.Box3().setFromBufferAttribute(truckCabMask.geometry.attributes.position);
+  const cargoBox = new THREE.Box3().setFromBufferAttribute(truckBoxMask.geometry.attributes.position);
+  const hull = new THREE.Box3().setFromBufferAttribute(truckRim.geometry.attributes.position);
+  const standoffs = [
+    hull.max.y - cargoBox.max.y,   // box roof
+    hull.max.x - cabBox.max.x,     // cab nose
+    cargoBox.min.x - hull.min.x,   // tail
+    hull.max.z - Math.max(cabBox.max.z, cargoBox.max.z),
+  ];
+  check('the truck rim stands off cab and cargo box alike',
+    standoffs.every((s) => s > 0.2 && s < 0.6) && hull.max.y > cabBox.max.y + 0.5,
+    `${standoffs.map((s) => s.toFixed(2)).join(' / ')} — roof, nose, tail, flank`);
+
+  // --- Drive it.
+  const kFrames = (n) => {
+    for (let f = 0; f < n; f++) { kTraffic.update(1 / 60); kGhosts.update(1 / 60); }
+  };
+
+  // Staged, not drawn. The radius holds ~6.5 vehicles on average, but *which* ones is the seed's
+  // business: on the default seed this scenario opens with a single vehicle inside 30 units and no
+  // truck at all, so a drawn version of this block would pass while asserting nothing. Put the taxi
+  // and two trucks on approaches to one junction instead, and the rest of the traffic wherever the
+  // draw left it — the expectation below is brute-forced from final positions either way.
+  let kI = -1;
+  let kJ = -1;
+  for (let i = 1; i < GRID && kI < 0; i++) {
+    for (let j = 1; j < GRID && kI < 0; j++) {
+      if (ringAxisAt(i, j)) continue;
+      // All four approaches, with room to stage on: the trucks come in from the other three.
+      if ([0, 1, 2, 3].every((d) => approachRoom(d, i, j) >= 8)) { kI = i; kJ = j; }
+    }
+  }
+  const kPlace = (car, d, back) => {
+    const ok = placeCar(car, d, kI, kJ, back);
+    car.route = []; car.parked = false;
+    return ok;
+  };
+  const kDir = 0;
+  const staged = kPlace(kTraffic.taxi, kDir, 4)
+    && kPlace(kTraffic.trucks[0], opposite(kDir), 2)
+    && kPlace(kTraffic.trucks[1], leftOf(kDir), 2)
+    && kPlace(kTraffic.ambient[0], rightOf(kDir), 2);
+  check('the truck ghost scenario stages', staged && kI > 0,
+    `taxi and two trucks onto junction (${kI}, ${kJ})`);
+
+  kTraffic.taxi.boost = true;
+  kFrames(40);
+
+  // Nearest-first across BOTH arrays against one shared cap, recomputed by brute force. A per-class
+  // cap would show up here as more ghosts than MAX_GHOSTS; a per-class radius, as a truck the taxi
+  // is nearer to than a car it did ghost.
+  const kNearest = [
+    ...kTraffic.ambient.map((car) => ({ car, truck: false })),
+    ...kTraffic.trucks.map((car) => ({ car, truck: true })),
+  ]
+    .filter((e) => !e.car.crashed)
+    .map((e) => ({ ...e, dist: Math.hypot(e.car.x - kTraffic.taxi.x, e.car.z - kTraffic.taxi.z) }))
+    .filter((e) => e.dist <= GHOST_RADIUS)
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, MAX_GHOSTS);
+  const kTrucks = kNearest.filter((e) => e.truck);
+  const kCars = kNearest.filter((e) => !e.truck);
+
+  check('trucks are ghosted alongside cars, under one shared cap',
+    kGhosts.state.trucks === kTrucks.length && kGhosts.state.cars === kCars.length
+    && kGhosts.state.active === kNearest.length && kGhosts.state.active <= MAX_GHOSTS
+    && kTrucks.length > 0,
+    `${kGhosts.state.cars} cars + ${kGhosts.state.trucks} trucks of `
+    + `${kTraffic.ambient.length}+${kTraffic.trucks.length} within ${GHOST_RADIUS}`);
+
+  check('every truck ghost mesh is drawn to its own slot count',
+    truckCabMask.count === kTrucks.length && truckBoxMask.count === kTrucks.length
+    && truckRim.count === kTrucks.length
+    && truckWheelMask.count === kTrucks.length * perTruck
+    && carMask.count === kCars.length && carRim.count === kCars.length,
+    `${kTrucks.length} trucks, ${kTrucks.length * perTruck} truck wheels`);
+
+  // The cross-wiring test. Two pools now fill slots out of one nearest-N list, so a truck's slot in
+  // its own pool is NOT its position in that list — get that wrong and a ghost lands on the vehicle
+  // one place along, which looks like a broken outline and like nothing at all headlessly.
+  const kA = new THREE.Matrix4();
+  const kB = new THREE.Matrix4();
+  let kDrift = 0;
+  let truckSlot = 0;
+  let carSlot = 0;
+  for (const { car, truck } of kNearest) {
+    const slot = truck ? truckSlot++ : carSlot++;
+    const body = truck ? kTraffic.truckMesh : kTraffic.mesh;
+    const wheels = truck ? kTraffic.truckWheelMesh : kTraffic.wheelMesh;
+    const per = truck ? perTruck : kTraffic.wheelsPerCar;
+    body.getMatrixAt(car.instanceIndex, kA);
+    (truck ? truckCabMask : carMask).getMatrixAt(slot, kB);
+    if (!kA.equals(kB)) kDrift++;
+    (truck ? truckRim : carRim).getMatrixAt(slot, kB);
+    if (!kA.equals(kB)) kDrift++;
+    if (truck) {
+      // The cargo box rides the cab's transform exactly — read back from its own mesh all the same.
+      kTraffic.truckBoxMesh.getMatrixAt(car.instanceIndex, kA);
+      truckBoxMask.getMatrixAt(slot, kB);
+      if (!kA.equals(kB)) kDrift++;
+    }
+    for (let w = 0; w < per; w++) {
+      wheels.getMatrixAt(car.instanceIndex * per + w, kA);
+      (truck ? truckWheelMask : carWheelMask).getMatrixAt(slot * per + w, kB);
+      if (!kA.equals(kB)) kDrift++;
+    }
+  }
+  check('every ghost sits on its own vehicle across both pools', kDrift === 0,
+    `${kDrift} matrices adrift across ${kNearest.length} vehicles`);
+
+  // Each pool's alphas are written in nearest-first order within that pool, so both stay monotone
+  // even though the two are interleaved in the shared list.
+  const kTruckAlphas = Array.from(kGhosts.truckAlphas.slice(0, kGhosts.state.trucks));
+  check('truck ghost alpha falls off with distance',
+    kTruckAlphas.every((v, k) => v > 0 && v <= GHOST_OPACITY + 1e-6
+      && (k === 0 || v <= kTruckAlphas[k - 1] + 1e-6)),
+    `peak ${Math.max(...kTruckAlphas).toFixed(2)} under the taxi's 0.85, monotone outward`);
+
+  // A wrecked truck leaves the road for good — wreckShell collapses all three of its instances, so
+  // a stale slot would trace a zero-scale truck.
+  const kWreck = kTrucks[0]?.car;
+  if (kWreck) {
+    kTraffic.wreckShell(kWreck);
+    kFrames(1);
+    kTraffic.truckMesh.getMatrixAt(kWreck.instanceIndex, kA);
+    let tracesWreck = false;
+    for (let slot = 0; slot < kGhosts.state.trucks; slot++) {
+      truckRim.getMatrixAt(slot, kB);
+      if (kA.equals(kB)) tracesWreck = true;
+    }
+    check('a wrecked truck drops its ghost', !tracesWreck,
+      `${kGhosts.state.trucks} still ghosted, the wreck not among them`);
+  }
+
+  kTraffic.taxi.boost = false;
+  kTraffic.taxi.crashed = false;
+  kFrames(40);
+  check('truck ghosts retire with the rest when the boost ends',
+    kGhosts.state.strength === 0 && kGhosts.state.trucks === 0 && kGhosts.state.active === 0
+    && kPool.every((m) => m.count === 0),
+    'strength 0, every truck count 0');
+}
+
 // --- Ghost paints -------------------------------------------------------------
 // "Yellow is reserved for the taxi" is a rule palette.js records having already been broken once —
 // an amber ambient car was genuinely mistakable for the player's. The ghost rims are the same trap

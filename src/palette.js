@@ -45,9 +45,11 @@ export const PALETTE = {
   // Yellow is reserved for the taxi. An amber car used to sit in this list and was genuinely
   // mistakable for the player's vehicle at play zoom, where both are a few pixels of warm colour.
   carBody: ['#C9503F', '#2F8F94', '#4E7FC0', '#E4E1DA', '#3F8A63', '#8A6BB0', '#D9D2C3', '#455160'],
-  // The ghost rim worn by a nearby car while it is hidden behind a building — see
-  // game/carghosts.js. Index-aligned with carBody, so a car's `colorIndex` addresses both and each
-  // ghost is unmistakably *that* car rather than a generic hazard mark.
+  // The ghost rim worn by a nearby vehicle while it is hidden behind a building — see
+  // game/carghosts.js. Index-aligned with carBody, so a vehicle's `colorIndex` addresses both and
+  // each ghost is unmistakably *that* vehicle rather than a generic hazard mark. Box trucks read
+  // from this same list: a truck's cab is painted from carBody at its own index (see truckBox
+  // below), so the outline that traces it is that cab's paint lightened, exactly as a car's is.
   //
   // Each one is its own paint with the lightness pulled 70% of the way to 0.74 and **hue and
   // saturation left exactly alone**. Two things that rule is doing:
@@ -67,9 +69,10 @@ export const PALETTE = {
   // fleet's palette covers both, and it is what makes a truck read as "one more vehicle in this
   // traffic" rather than a prop dropped in from elsewhere. Only the cargo box breaks from that: it
   // is baked at this one fixed tan/white rather than tinted per instance, because a real box
-  // truck's box is bare aluminium or cardboard-coloured regardless of the cab up front. No ghost
-  // variant: sim/traffic.js keeps trucks out of the ambient pool game/carghosts.js draws outlines
-  // from, so there is nothing to index either colour against yet.
+  // truck's box is bare aluminium or cardboard-coloured regardless of the cab up front. It gets no
+  // ghost variant of its own even though a truck does wear a ghost outline: the rim traces the
+  // whole vehicle as one hull in one colour (carBodyGhost at the cab's index), because the outline
+  // says "there is a vehicle there", not "these are its panels".
   truckBox: '#DDD4BE',
 
   // --- Game entities. Deliberately higher-chroma than anything in the city so they read

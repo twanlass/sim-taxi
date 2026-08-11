@@ -812,15 +812,43 @@ material recipes so the two paths cannot drift apart.
 
 ### Nearby-traffic ghost outlines — `game/carghosts.js`
 
-The same outline, worn by the handful of ambient cars nearest the taxi and faded in with Loco Mode.
-It exists because `sim/collisions.js` is armed *only* while boosting: the one moment a car hidden
-behind a tower is a crash rather than a surprise is the one moment the player cannot see it. The
-taxi's outline says where the player is; this says what they are about to drive into. It lives in
-`game/` rather than `sim/` because it is a readout of a player-layer concept — the boost — and
+The same outline, worn by the handful of ambient vehicles nearest the taxi and faded in with Loco
+Mode. It exists because `sim/collisions.js` is armed *only* while boosting: the one moment a car
+hidden behind a tower is a crash rather than a surprise is the one moment the player cannot see it.
+The taxi's outline says where the player is; this says what they are about to drive into. It lives
+in `game/` rather than `sim/` because it is a readout of a player-layer concept — the boost — and
 because `main.js` is the only place allowed to know about both.
 
-Each ghost wears **its own car's paint** rather than the taxi's yellow (`carBodyGhost`, index-aligned
-with `carBody`). Three instanced meshes, three draw calls, and none while the player isn't boosting.
+Each ghost wears **its own vehicle's paint** rather than the taxi's yellow (`carBodyGhost`,
+index-aligned with `carBody`). Seven instanced meshes across two pools, and none of them drawing
+while the player isn't boosting.
+
+**Two pools, because a box truck is not a car.** A truck lives in its own instance space
+([why](traffic.md#box-trucks)), so `car.instanceIndex` addresses a car in `mesh` and a truck in
+`truckMesh` — and this module read it straight into the car meshes, with no type check, for as long
+as trucks existed. Including one would have traced it from whichever *car* held the same index, so
+trucks were left out and went un-outlined. That gap pointed the wrong way: a truck is the biggest
+thing on the road, the obstacle that most fills a lane, and at `TRUCK_SPEED` the one most likely to
+still be sitting in the junction the taxi is arriving at. `createPool` now builds one pool per
+vehicle class — a mask per opaque instanced mesh the class draws (car: body + steered wheels; truck:
+cab + cargo box + steered wheels) plus one rim — and selection runs across both arrays into one
+shared cap.
+
+Two things a truck's rim has to answer that a car's did not:
+
+- **One hull for the vehicle, merged before inflation.** The cab and the cargo box are two meshes,
+  so two hulls is the obvious build and it is wrong twice over. The rim blends, so wherever two
+  hulls overlap the fragment is drawn twice and comes out at 0.86 instead of `GHOST_OPACITY`'s 0.62
+  — and inflating the two separately drives them 0.7 units into each other at the chassis line: a
+  doubled band down the flank from y 1.65 to 2.95, about 10px at play zoom, which reads as a lit
+  stripe rather than an outline. Merged first, chassis and box still only *touch* at y 1.5 (one
+  affine scale preserves that), so the whole truck traces at one opacity.
+- **The merge costs the cab roof some rim.** `inflatedGeometry` scales about the bounding box, so
+  each offset is proportional to the part's distance from the centre and only the outer silhouette
+  gets the full 0.35. Measured on the hull it builds: nose +0.35, tail +0.35 off the chassis, box
+  roof +0.35, flank +0.35 — but the **cab roof only +0.17**, ≈1.3px against 2.7px, since it sits
+  well inside a bounding box the box roof defines. That is the one soft edge, it faces the cargo box
+  rather than open sky, and a truck's silhouette is legible from the box alone.
 
 Four things here that the taxi's own outline never had to answer:
 
@@ -836,7 +864,9 @@ Four things here that the taxi's own outline never had to answer:
   per-bit stencil masks, and stencil state is per-material — so that would mean one draw call per
   ghost, which is the whole thing instancing is here to avoid.
 - **The rim is body-only, the mask is not.** The wheel *masks* are mandatory for the reason above:
-  a part left out of the mask is an occluder of the rim behind it. A wheel *rim* is not — a front
+  a part left out of the mask is an occluder of the rim behind it — which is also why a truck's
+  cargo box carries a mask of its own, or the cab's rim would resolve straight across it. A wheel
+  *rim* is not — a front
   wheel reaches x 1.66 against the body hull's 2.0, so it is inside the body's outline everywhere
   but a ~0.4-unit sliver under the valance, about 3px at play zoom against a rim that is 2.3px wide.
   The taxi wears wheel rims because its outline is a find-my-car signal that has to be complete;
@@ -846,15 +876,24 @@ Four things here that the taxi's own outline never had to answer:
   instead, which is also what makes it free for the majority of a run.
 
 Rim thickness is 0.35, not the taxi's 0.3: that 0.3 is applied *before* `TAXI_SCALE = 1.18` on the
-taxi group, so 0.35 unscaled is what matches the taxi's ≈2.7px trace.
+taxi group, so 0.35 unscaled is what matches the taxi's ≈2.7px trace. A truck takes the same 0.35
+rather than a rim scaled to the vehicle — the line is a signal to the player, and a signal reads at
+one weight.
 
 Selection is a plain radius — `GHOST_RADIUS = 30`, i.e. 1.5 × `PITCH`, covering the junction the
-taxi is committed to plus the one behind it. At Loco Mode's 18.7 u/s a car crossing that next
-junction appears about 1.6s out, which is still enough to lift off the button. `MAX_GHOSTS = 8` sits
-deliberately *above* the ~6.5 cars that radius holds on average, so the cap is a rail against a
-queue at a red rather than the real filter — and eviction always drops the farthest car, which the
-distance fade has already made the faintest. Radius is the first number to turn down if it ever
-reads busy.
+taxi is committed to plus the one behind it, measured from vehicle centre for both classes. At Loco
+Mode's 18.7 u/s a car crossing that next junction appears about 1.6s out, which is still enough to
+lift off the button. `MAX_GHOSTS = 8` sits deliberately *above* the ~6.5 vehicles that radius holds
+on average, so the cap is a rail against a queue at a red rather than the real filter — and eviction
+always drops the farthest vehicle, which the distance fade has already made the faintest. Radius is
+the first number to turn down if it ever reads busy.
+
+**The cap is shared across the two pools; the pools are not.** What the cap bounds is how much of
+the frame this may paint, which is a fact about the player's screen and not about which buffer a
+vehicle is drawn from — so one nearest-N list feeds both. Each pool is nevertheless sized for the
+full cap, since three trucks and five cars in range is legal at `TRUCK_CHANCE` and a pool that ran
+out of slots would drop the nearest vehicle on a technicality. The spare slots cost a matrix each
+and draw nothing.
 
 Nothing in the module recomputes a transform. `traffic.update()` has composed every ambient matrix
 by the time it runs, so it reads those matrices straight back out — the same read-back `wreckShell`

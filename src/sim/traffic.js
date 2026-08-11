@@ -1133,10 +1133,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
   // Trucks get their own index space, into their own pair of instanced meshes below — an
   // InstancedMesh draws one geometry for every instance, so a visibly bigger vehicle can't share
-  // the car body's buffer no matter how rare it is. `ambient` therefore stays car-only: it is also
-  // what game/carghosts.js iterates for boost-mode outlines, and that reads `car.instanceIndex`
-  // straight into `mesh`/`wheelMesh` with no type check, so a truck sharing this array would have
-  // its outline traced from the wrong car entirely. Trucks simply don't get ghost outlines yet.
+  // the car body's buffer no matter how rare it is. `ambient` therefore stays car-only, and an
+  // `instanceIndex` only means anything alongside the array it was handed out from: the same index
+  // addresses a car in `mesh` and a truck in `truckMesh`. game/carghosts.js reads both arrays for
+  // its boost-mode outlines and keeps a pool per class for exactly that reason — it used to read
+  // `instanceIndex` straight into the car meshes with no type check, which is why trucks went
+  // without an outline at all until it grew one.
   const ambient = cars.filter((c) => !c.isTaxi && !c.isTruck);
   const trucks = cars.filter((c) => !c.isTaxi && c.isTruck);
   ambient.forEach((car, index) => { car.instanceIndex = index; });

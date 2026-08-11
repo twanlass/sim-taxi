@@ -391,10 +391,14 @@ calls `createTraffic` without passing it, so none of them draw a truck and none 
 physics assertions have to know trucks exist. `main.js` is the one caller that opts the real game
 in, passing `TRUCK_CHANCE` explicitly.
 
-Trucks are left out of `ambient`, the array `game/carghosts.js` iterates for boost-mode outlines:
-that code reads `car.instanceIndex` straight into `mesh`/`wheelMesh` with no type check, and a
-truck's index addresses a slot in the truck meshes instead. So a truck simply doesn't get a ghost
-outline yet — an accepted gap given how rare they are, not an oversight.
+Trucks are left out of `ambient` for the same reason they are left out of the car meshes: an
+`instanceIndex` only means anything alongside the array it came from, and the same index addresses
+a car in `mesh` and a truck in `truckMesh`. `game/carghosts.js` reads *both* arrays for its
+boost-mode outlines and keeps a pool per vehicle class to do it — see
+[the ghost outlines](rendering.md#nearby-traffic-ghost-outlines--gamecarghostsjs). It used to read
+`instanceIndex` straight into the car meshes with no type check, which is why trucks went without
+an outline at all for a while: the only way to include one would have been to trace it from
+whichever *car* held the same index.
 
 **Whichever car this draw happens to pick as the taxi has its `isTruck` forced back to `false`.**
 The taxi always renders through `createTaxiMesh()` regardless of the flag, so this was harmless
