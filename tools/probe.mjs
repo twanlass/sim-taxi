@@ -1054,8 +1054,18 @@ check('no two cars occupy the same space', worst > 1.6,
   // that number needed 18 units of clear road ahead of the leader before it had to brake for its
   // junction, and no lane in this city is that long. The taxi's floor is where it eases up behind
   // the leader as the leader turns off.
+  //
+  // That floor was asserted at `> 1.25` while the taxi had no following term inside a junction: it
+  // entered one tailgating and left it at the overdrive top, because nothing in that branch was
+  // measuring the car in front (see the mid-turn block in traffic.js, and docs/lab.md for what that
+  // cost). Now that it matches the leader instead of accelerating past it, the floor *is* the
+  // leader's own speed while it crosses — and an ambient car's target in a junction is exactly
+  // cruise. So 1.0 is the structural floor, and what this asserts is that the taxi never drops to
+  // ambient speed behind a car it is chasing. Measured across five city seeds: 1.09, 1.65, 1.65,
+  // 1.74, 1.89 — the tight one is the default seed, where the leader spends the sampled window
+  // mid-junction at cruise.
   check('traffic gets out of the boosting taxi\'s way',
-    dIn >= 0 && fleePeak > 0.9 && fleeSpeed > 1.35 && taxiFloor > 1.25,
+    dIn >= 0 && fleePeak > 0.9 && fleeSpeed > 1.35 && taxiFloor > 1.0,
     `leader peaked at ${fleeSpeed.toFixed(2)}x cruise, taxi never fell below ${taxiFloor.toFixed(2)}x`);
 
   // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
@@ -1255,11 +1265,19 @@ check('no two cars occupy the same space', worst > 1.6,
       // there*. The two close on each other at 18.7 + 8.5 = 27 u/s, so a car staged level with
       // the junction ahead has gone by before the taxi has even closed on its leader — the first
       // attempt at this staged one 5.7 units ahead, watched it pass, and then reported a clear
-      // road, correctly. A lane further back along its own chain leaves it in sight at the moment
-      // the decision is actually taken.
+      // road, correctly.
+      //
+      // Which means this staging is calibrated to *when the decision is taken*, and has to move
+      // whenever that moment does. It went from one lane back to **two blocks** back when a leader
+      // crossing a junction in a straight line became passable (see `passable` in traffic.js): the
+      // taxi now pulls out several tenths of a second earlier, and at the old staging the oncoming
+      // car had already swept 0.7 units *past* it by then — so the gate correctly reported a clear
+      // road and the check was passing on an empty scenario rather than on the rule. Measured at
+      // the new staging, the oncoming car is 34 units out and closing as the taxi reaches
+      // PASS_TRIGGER, which is inside PASS_SIGHT and is the trap this is meant to lay.
       const back = roads.nodeById.get(car.lane.from);
       const facing = roads.laneByGrid(opposite(pD), back.gi, back.gj);
-      placeCar(onc, opposite(pD), back.gi, back.gj, facing.length + PITCH);
+      placeCar(onc, opposite(pD), back.gi, back.gj, facing.length + PITCH * 2);
       onc.route = []; onc.parked = false;
     }
     let peak = 0;

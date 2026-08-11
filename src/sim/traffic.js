@@ -1682,7 +1682,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // And who it actually is, which the overtake needs: a car being passed must not turn across
     // the taxi while it is alongside — see `passTarget` below.
     const leaderOf = new Map();
-    for (const [, members] of lanes) {
+    for (const [laneId, members] of lanes) {
       for (let k = 1; k < members.length; k++) {
         const behind = members[k];
         const ahead = members[k - 1];
@@ -1696,11 +1696,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         leaderOf.set(behind.car, ahead.car);
       }
       // The car at the front of a lane has to look past the junction for its leader.
+      //
+      // Asked of a *turning* car too, which it wasn't: the walk starts from the lane the car is
+      // listed under rather than from `car.lane`, because those are the same thing only while the
+      // car is driving. A car mid-turn appears in its entry lane's list at a position past that
+      // lane's end for the first part of the arc and is handed to its exit lane's list at a
+      // negative one for the rest, and `car.lane` stays pointed at the entry lane throughout — so
+      // walking from `car.lane` with a laneS belonging to the exit lane measures from the wrong
+      // end of the junction. `laneId` is what the position means, so it is what the walk uses.
+      // For a driving car the two are identical and this is the call it always made.
       const front = members[0];
-      if (front.car.state === 'drive') {
-        const next = ahead(front.car.lane, front.laneS, LOOKAHEAD)[0];
-        if (next) { leaderDist.set(front.car, next.gap); leaderOf.set(front.car, next.car); }
-      }
+      const next = ahead(net.laneById.get(laneId), front.laneS, LOOKAHEAD)[0];
+      if (next) { leaderDist.set(front.car, next.gap); leaderOf.set(front.car, next.car); }
     }
 
     // --- The two entry tests that aren't the signal.
@@ -1853,8 +1860,20 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // half of the problem the guard could not reach, and the larger half: latching the target
       // and refusing its left turn on its own fixed 1 wreck in 10, because the leader had
       // committed before the taxi did.
+      //
+      // **Except a straight-through crossing**, which is not the thing this gate is about.
+      // `car.state === 'turn'` covers every junction transition including going straight on, and
+      // the danger being guarded is a car turning *across* the borrowed lane — 6 of the 10 measured
+      // mid-pass wrecks were the leader turning left, and every one of the other 4 was a car in the
+      // middle of a real turn. A leader whose committed movement is `hand === 'straight'` sweeps
+      // nothing: it is going down the same road the taxi is, in the lane the taxi is leaving. This
+      // is the trap the whole codebase warns about — `state === 'turn'` is not "is turning" — and
+      // reading it as one cost the pass every junction the leader happened to be inside. On a road
+      // with a junction every 20 units that is 40% of the time, and it is exactly the 40% in which
+      // the taxi is tailgating hard enough to want to pull out.
       const leader = leaderOf.get(taxi);
-      const passable = leader !== undefined && leader.state === 'drive';
+      const passable = leader !== undefined
+        && (leader.state === 'drive' || leader.turn?.hand === 'straight');
 
       // Is the borrowed lane actually empty? World space rather than the lane graph, because a
       // pass always spans a junction — "the oncoming lane" is two lanes and which one matters
@@ -2271,9 +2290,39 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             ? (isRight ? TRUCK_RIGHT_TURN_SPEED : TRUCK_CORNER_SPEED)
             : CORNER_SPEED;
         const cornerTarget = straightOn ? straightTop : boostTurn;
-        car.v = car.v > cornerTarget
-          ? Math.max(cornerTarget, car.v - BRAKE * dt)
-          : Math.min(cornerTarget, car.v + (fullPower ? boostAccel(car.v) : ACCEL) * dt);
+
+        // Don't close on the car in front while crossing a junction.
+        //
+        // This branch had no following term at all, and for ambient traffic it never showed: a car
+        // crosses at cruise and its `cornerTarget` *is* cruise, so it cannot gain on anyone in
+        // here. A boosting taxi can. It enters the junction slow — because it has been tailgating
+        // at `BOOST_GAP` on the approach — and then floors it to the overdrive top across the 8
+        // units of junction with the brake simply absent, closing three units on a car it can see
+        // the whole way. Staged on the lab's straight road (docs/lab.md), that was **43 of 160**
+        // approaches ending as a rear-end at a dead stop with `pass` still 0.00: the taxi never got
+        // to pull out, because it hit the car during the crossing before the straight it would have
+        // passed on began. It is visible in `tools/probe.mjs`'s own overtake scenario too, where
+        // the taxi drives clean through its leader — that scenario just doesn't run collisions.
+        //
+        // The cap is deliberately *not* the drive branch's full stopping-distance curve. Tried, and
+        // it fixes the crash by destroying the mode: against a leader fleeing at `SCATTER_SPEED`
+        // the stopping curve settles the taxi 12–17 units back, it never reaches `PASS_TRIGGER`,
+        // and the overtake stops being offered at all — 160 staged approaches went from 117 passes
+        // to 4. So the rule is the narrower true one: inside the range where the pass has already
+        // been offered and refused, match the leader instead of accelerating past it. The floor at
+        // the leader's own speed is what keeps this a speed target rather than a hold — the taxi
+        // still never stops inside a junction, which is the rule `bargesThrough` exists to keep.
+        let target = cornerTarget;
+        const lead = car.passing ? undefined : leaderOf.get(car);
+        const leadGap = lead === undefined ? undefined : leaderDist.get(car);
+        if (leadGap !== undefined && leadGap < PASS_TRIGGER) {
+          const room = leadGap - (car.boost ? BOOST_GAP : followGap(car, lead));
+          target = Math.min(target, Math.max(lead.v, Math.sqrt(2 * BRAKE * Math.max(0, room))));
+        }
+
+        car.v = car.v > target
+          ? Math.max(target, car.v - BRAKE * dt)
+          : Math.min(target, car.v + (fullPower ? boostAccel(car.v) : ACCEL) * dt);
         car.turnT += (car.v * dt) / car.turnLen;
         car.travelled += car.v * dt;
         car.speedFactor = car.v / SPEED;

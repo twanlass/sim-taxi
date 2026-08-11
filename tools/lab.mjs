@@ -18,7 +18,8 @@ import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { setCityNetwork } from '../src/city/roadnet.js';
 import { createTraffic, placeCar, SPEED } from '../src/sim/traffic.js';
-import { DIR, dirSign, PITCH, LANE } from '../src/city/grid.js';
+import { createCollisions } from '../src/sim/collisions.js';
+import { DIR, dirSign, PITCH, HALF_ROAD, LANE } from '../src/city/grid.js';
 import { labNetwork, labRoadLength, labNodeX, labTreeBlocks, LAB_BLOCKS } from '../src/lab/labroad.js';
 
 const results = [];
@@ -72,80 +73,132 @@ check('verge tree strips flank the road', (() => {
 
 // --- The scenario -----------------------------------------------------------
 //
-// The same staging `lab/passing.js` does, with the same helper shape, driven at a fixed step.
+// The same staging `lab/passing.js` does, with the same helper, driven at a fixed step.
 
-const scene = new THREE.Scene();
-const traffic = createTraffic(makeRng(4242), scene, 2, 2, 0);
-const [taxi, leader] = [traffic.taxi, traffic.cars.find((c) => !c.isTaxi)];
-
-/** Put `car` `dist` units into the carriageway running `d`. Mirrors `placeAlong` in the lab. */
-function placeAlong(car, d, dist) {
-  const step = dirSign(d);
-  let i = step > 0 ? 1 : LAB_BLOCKS - 1;
-  let left = dist;
-  for (let guard = 0; guard <= LAB_BLOCKS; guard++) {
-    const lane = net.laneByGrid(d, i);
-    if (!lane) return false;
-    if (left <= lane.length) return placeCar(car, d, i, 0, lane.length - left);
-    left -= lane.length;
-    const turn = lane.exits.length ? net.turnById.get(lane.exits[0]) : null;
-    if (!turn) return placeCar(car, d, i, 0, 0);
-    left = Math.max(0, left - turn.length);
-    i += step;
-  }
-  return false;
+/** Put `car` on the carriageway running `d`, at world x. Mirrors `placeAtX` in the lab. */
+function placeAtX(car, d, x) {
+  const block = Math.min(LAB_BLOCKS - 1,
+    Math.max(0, Math.floor((x - labNodeX(0)) / PITCH)));
+  const from = labNodeX(block) + HALF_ROAD;
+  const to = labNodeX(block + 1) - HALF_ROAD;
+  const at = Math.min(to, Math.max(from, x));
+  const junction = dirSign(d) > 0 ? block + 1 : block;
+  const lane = net.laneByGrid(d, junction);
+  if (!lane) return false;
+  return placeCar(car, d, junction, 0, lane.length - (dirSign(d) > 0 ? at - from : to - at));
 }
-
-const GAP = 22;
-placeAlong(taxi, DIR.PX, 12);
-placeAlong(leader, DIR.PX, 12 + GAP);
-taxi.v = SPEED;
-leader.v = SPEED;
-
-let maxLateral = 0;         // how far the taxi got from its own lane centre
-let minApproach = Infinity; // closest it came to the car it went round
-let passedAt = null;        // sim time it drew level with the leader
-let tuckedAt = null;        // and got back into lane after
-let stationary = 0;
 
 const STEP = 1 / 60;
-for (let n = 0; n < 60 * 16; n++) {
-  taxi.boost = true;                          // the button, held
-  taxi.boostEasing = false;
-  while (taxi.route.length < 3) taxi.route.push(taxi.d);
 
-  traffic.update(STEP);
+/**
+ * One staged approach: taxi at `start` units into the road, one leader `gap` ahead of it, button
+ * held for the whole run. Returns what the taxi managed and how close it came.
+ */
+function approach(gap, start) {
+  const scene = new THREE.Scene();
+  const traffic = createTraffic(makeRng(4242), scene, 2, 2, 0);
+  const taxi = traffic.taxi;
+  const leader = traffic.cars.find((c) => !c.isTaxi);
+  const collisions = createCollisions(traffic.cars, taxi);
+  let wrecked = false;
+  collisions.onImpact(() => { wrecked = true; });
 
-  maxLateral = Math.max(maxLateral, Math.abs(taxi.z - LANE));
-  if (!leader.crashed) {
-    minApproach = Math.min(minApproach, Math.hypot(taxi.x - leader.x, taxi.z - leader.z));
-    if (passedAt === null && taxi.x > leader.x) passedAt = n * STEP;
+  placeAtX(taxi, DIR.PX, labNodeX(0) + start);
+  placeAtX(leader, DIR.PX, labNodeX(0) + start + gap);
+  taxi.v = SPEED;
+  leader.v = SPEED;
+
+  const out = {
+    wrecked: false, passed: false, top: 0, maxLateral: 0, minApproach: Infinity,
+    passedAt: null, tuckedAt: null, stationary: 0,
+  };
+  for (let n = 0; n < 60 * 30; n++) {
+    taxi.boost = true;                          // the button, held
+    taxi.boostEasing = false;
+    // The road's only exit, handed back as a route — see `docs/lab.md`. Without it `room` in
+    // traffic.js is false and the overtake is never offered at all.
+    while (taxi.route.length < 3) taxi.route.push(taxi.d);
+
+    traffic.update(STEP);
+    collisions.update();
+
+    out.top = Math.max(out.top, taxi.v);
+    out.maxLateral = Math.max(out.maxLateral, Math.abs(taxi.z - LANE));
+    if (wrecked) { out.wrecked = true; break; }
+    if (!leader.crashed) {
+      out.minApproach = Math.min(out.minApproach,
+        Math.hypot(taxi.x - leader.x, taxi.z - leader.z));
+      if (out.passedAt === null && taxi.x > leader.x + 4) {
+        out.passedAt = n * STEP;
+        out.passed = true;
+      }
+    }
+    if (out.passedAt !== null && out.tuckedAt === null && taxi.pass < 0.02) {
+      out.tuckedAt = n * STEP;
+    }
+    if (taxi.v < 0.5) out.stationary += 1;
+    if (taxi.x > labNodeX(LAB_BLOCKS) - 16) break;
   }
-  if (passedAt !== null && tuckedAt === null && taxi.pass < 0.02 && taxi.x > leader.x + 6) {
-    tuckedAt = n * STEP;
-  }
-  if (taxi.v < 0.5) stationary += 1;
-  if (taxi.x > labNodeX(LAB_BLOCKS) - 16) break;
+  return out;
 }
 
-check('the taxi reaches the overdrive band on the straight', taxi.v > SPEED * 2.2,
-  `${taxi.v.toFixed(1)} u/s`);
+const one = approach(22, 12);
+
+check('the taxi reaches the overdrive band on the straight', one.top > SPEED * 2.2,
+  `${one.top.toFixed(1)} u/s`);
 // A pass is a full lane change into the oncoming lane — 2·LANE of offset. Anything less means
 // the taxi merely weaved, which is what the mode does when it is *not* going round anything.
-check('it commits the whole lane', maxLateral > 2 * LANE - 0.6,
-  `${maxLateral.toFixed(2)} units off its lane centre`);
-check('it gets past the car in front', passedAt !== null,
-  passedAt === null ? 'never drew level' : `at ${passedAt.toFixed(1)}s`);
-check('and tucks back in', tuckedAt !== null,
-  tuckedAt === null ? 'still out at the end of the road' : `at ${tuckedAt.toFixed(1)}s`);
+check('it commits the whole lane', one.maxLateral > 2 * LANE - 0.6,
+  `${one.maxLateral.toFixed(2)} units off its lane centre`);
+check('it gets past the car in front', one.passed,
+  one.passed ? `at ${one.passedAt.toFixed(1)}s` : 'never drew level');
+check('and tucks back in', one.tuckedAt !== null,
+  one.tuckedAt === null ? 'still out at the end of the road' : `at ${one.tuckedAt.toFixed(1)}s`);
 // `sim/collisions.js` puts the summed envelope at 2.31 units, so that is the bar: at or under it
-// the pass is a wreck rather than an overtake. Swept across the whole `gap` slider (8 to 70 in ten
-// steps) the closest approach runs 2.97 to 4.06 — snugger than the 3.70 the probe measures in the
-// city, because a lab taxi is at the overdrive top when it pulls out and is therefore further into
-// its lane change when it draws level. Still clear, and clear at every setting.
-check('without clipping it', minApproach > 2.31 && !taxi.crashed && !leader.crashed,
-  `closest approach ${minApproach.toFixed(2)} units against a 2.31 envelope`);
-check('and nothing stops it', stationary === 0, `${stationary} stationary frames`);
+// the pass is a wreck rather than an overtake.
+check('without clipping it', !one.wrecked && one.minApproach > 2.31,
+  `closest approach ${one.minApproach.toFixed(2)} units against a 2.31 envelope`);
+check('and nothing stops it', one.stationary === 0, `${one.stationary} stationary frames`);
+
+// --- Does it pass *reliably*? -----------------------------------------------
+//
+// The single scenario above says the manoeuvre works; this says it works whatever the road hands
+// it. Both axes matter and the second is the one that caught a real bug: `start` slides the whole
+// scenario along the road, which changes where the junctions fall relative to the pass, and the
+// junction is where the taxi used to drive into the back of the car in front.
+//
+// What this was measuring before that bug was fixed: **117 passes, 43 rear-ends** out of 160 — a
+// crash better than one approach in four, every one of them with `pass` still 0.00 because the
+// taxi never got as far as pulling out. Two changes in `sim/traffic.js` took it to 148/12: a
+// leader crossing a junction *in a straight line* is passable (it is not turning across anything),
+// and a car crossing a junction no longer accelerates into the boot of the car in front of it.
+//
+// The bar is set below what is measured but well above what the bug allowed, because the residual
+// is real risk rather than slack: Loco Mode is meant to be dangerous, and docs/traffic.md prices
+// the oncoming lane at about one wreck in ten passes. What must not come back is the *quarter*.
+let passes = 0;
+let wrecks = 0;
+let stuck = 0;
+let runs = 0;
+for (let gap = 10; gap <= 40; gap += 2) {
+  for (let start = 6; start <= 24; start += 2) {
+    const r = approach(gap, start);
+    runs += 1;
+    if (r.wrecked) wrecks += 1;
+    else if (r.passed) passes += 1;
+    else stuck += 1;
+  }
+}
+const rate = (n) => `${((n / runs) * 100).toFixed(0)}%`;
+check('it gets past the car in front nearly every time',
+  passes / runs >= 0.85, `${passes}/${runs} passed (${rate(passes)})`);
+check('and rear-ends it rarely',
+  wrecks / runs <= 0.12, `${wrecks}/${runs} wrecked (${rate(wrecks)})`);
+// The failure mode the first fix has to avoid: braking so early behind a fleeing leader that the
+// taxi never closes to PASS_TRIGGER and the overtake stops being offered. It is not a crash, so
+// the two counters above would both look healthy while the mode quietly did nothing.
+check('and never just sits behind it', stuck === 0,
+  `${stuck}/${runs} never got past and never hit it`);
 
 const failed = results.filter((r) => !r.pass).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);

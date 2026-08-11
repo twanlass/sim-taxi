@@ -123,6 +123,35 @@ out whether they feel right.
   that reads `boost && !boostEasing` rather than `car.boost`, because it is an input rather than a
   hazard.
 
+## What it found on its first day
+
+Worth recording, because it is the argument for the lab existing at all: the very first session with
+it turned up **the taxi rear-ending the car in front on 27% of approaches** — a crash better than
+one in four, where the reported symptom was simply "it only passes about a third of the time".
+
+Two bugs, both in `sim/traffic.js`, neither visible in the city:
+
+1. **A car crossing a junction had no following distance at all.** Ambient traffic never showed it,
+   because a car crosses at cruise and its target while crossing *is* cruise, so it cannot gain on
+   anyone. A boosting taxi enters slow — it has been tailgating at `BOOST_GAP` — and then floors it
+   to the overdrive top across the 8 units of junction with the brake absent, closing three units on
+   a car it can see the whole way. Every one of the 43 crashes had `pass` still at 0.00: the taxi
+   never got as far as pulling out.
+2. **A leader carrying straight on through a junction was treated as "already turning"** and refused
+   as a thing to pass. `car.state === 'turn'` covers every junction transition including going
+   straight on — the trap this codebase warns about in three places — and on a 20-unit grid that is
+   40% of the time, which is exactly the 40% in which the taxi is tailgating hard enough to want to
+   pull out.
+
+Fixed, the same 160 staged approaches go **117 passes / 43 wrecks → 148 / 12**. Both fixes and what
+they cost the city are in [traffic.md](traffic.md#following-distance-inside-a-junction) — and the
+first attempt at (1) is worth reading before touching it, because the obvious fix destroys the mode.
+
+Neither would have been found in the game. In the city the taxi is rarely tailgating at the moment
+it reaches a junction — scatter usually clears the lane first — so the failure reads as "Loco Mode
+is dangerous", which it is supposed to be. It takes a road that is nothing but straight and one car
+that will not get out of the way to turn a rare wreck into the default outcome.
+
 ## Checked headlessly
 
 `tools/lab.mjs`, in `npm run check`. Nothing else imports `src/lab/`, so without it the one page in
@@ -131,9 +160,18 @@ the project whose entire job is to be looked at could stop working silently.
 It asserts the world is what it claims — one straight chain, no signals anywhere, city lane offsets,
 every junction movement a straight-through — and then that the scenario resolves: a taxi staged
 behind a cruising leader with the button held reaches the overdrive band, commits the whole lane,
-gets past, tucks back in, and never comes inside the 2.31-unit collision envelope. Swept across the
-whole `gap` slider the closest approach runs 2.97 to 4.06 units, snugger than the 3.70 the probe
-measures in the city because a lab taxi is at the overdrive top when it pulls out.
+gets past, tucks back in, and never comes inside the 2.31-unit collision envelope.
+
+Then it does that **160 times**, over gap × starting position, and gates on the rates: at least 85%
+get past, no more than 12% rear-end, and — the one a crash counter would miss — *none* may end with
+the taxi neither passing nor hitting anything. That last check is the guard on the fix that was
+tried and thrown out: braking on the full stopping-distance curve behind a fleeing leader stops the
+crashes by never closing to `PASS_TRIGGER` at all, which looks perfect on the first two counters
+while the mode quietly does nothing. Currently 148 / 12 / 0.
+
+The `start` axis is the one that caught the junction bug: sliding the whole scenario along the road
+changes where the junctions fall relative to the pass, and the junction was where the taxi was
+driving into the back of the car in front.
 
 ## Build and deploy
 

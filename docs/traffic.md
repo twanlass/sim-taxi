@@ -182,6 +182,43 @@ at cruise a leader stops constraining beyond 3.3 units of clear road.
 
 The same walk drives the Loco Mode scatter, which reaches `SCATTER_RANGE = 40` — two blocks.
 
+### Following distance *inside* a junction
+
+The mid-turn branch had none at all, and for ambient traffic that never showed: a car crosses at
+cruise and its target while crossing *is* cruise, so it cannot gain on anyone in there. A boosting
+taxi can. It enters a junction slow — because it has been tailgating at `BOOST_GAP` on the approach
+— and then floors it to the overdrive top across the 8 units of junction with the brake simply
+absent, closing three units on a car it can see the whole way.
+
+Staged on [the lab](lab.md)'s straight road, that was **43 of 160** approaches ending as a rear-end
+at a dead stop with `pass` still 0.00: the taxi never got as far as pulling out, because it hit the
+car during the crossing before the straight it would have passed on began. It is visible in
+`tools/probe.mjs`'s own overtake scenario too, where the taxi drives clean through its leader —
+that scenario just never ran collisions.
+
+**The cap is deliberately not the drive branch's stopping-distance curve.** That was tried first and
+it fixes the crash by destroying the mode: against a leader fleeing at `SCATTER_SPEED` the stopping
+curve settles the taxi 12–17 units back, it never reaches `PASS_TRIGGER` (10), and the overtake
+stops being offered at all — the same 160 approaches went from 117 passes to **4**. The rule that
+works is the narrower true one: *inside the range where the pass has already been offered and
+refused, match the leader rather than accelerate past it*. Floored at the leader's own speed, so it
+stays a speed target and never becomes a hold — the taxi still never stops inside a junction, which
+is what [`bargesThrough`](#nothing-stops-the-taxi) exists to guarantee.
+
+What it costs, measured over eight cities with the button held down for a whole run:
+
+| | before | after |
+|---|---|---|
+| wreck every, `?cars=22` | 7.9s | 8.0s |
+| wreck every, `?cars=12` | 10.5s | **11.7s** |
+| ground covered, `?cars=22` | 18.33 u/s | 18.07 |
+| ground covered, `?cars=12` | 18.97 u/s | 18.38 |
+| near-stationary frames | 0.50% | **0.37%** |
+
+About 1.5–3% of ground speed, for not driving into the back of the car in front. The sample is
+small — eight cities, each ending at its first wreck — so read the direction rather than the
+decimals.
+
 > Watch out: a distance short of a junction can land *inside a junction box*, which no lane
 > position can express. The infinite row could, and one probe scenario relied on it — staging a car
 > 18 units back on a 12-unit lane, and the boosting taxi 30 units back from a junction one block
@@ -771,6 +808,16 @@ lane, so the taxi is *always* still alongside when the leader reaches its juncti
 exactly when the left-turn dice are rolled. Measured over 28 overtakes at `?cars=22`, 10 ended in a
 wreck and **every one of them was against a car in the `turn` state**, 6 of those the car being
 passed turning left across the taxi. It was the default outcome, not an edge case.
+
+> **Except a straight-through crossing**, which is not what this gate is about, and reading it as
+> one cost the pass for a long time. `car.state === 'turn'` covers *every* junction transition
+> including carrying straight on — the trap the whole codebase warns about — so the gate refused to
+> pull out around any leader that happened to be inside a junction, which on a 20-unit grid is 40%
+> of the time and is exactly the 40% in which the taxi is tailgating hard enough to want to. The
+> danger it exists to stop is a car turning *across* the borrowed lane; a leader whose committed
+> movement is `hand === 'straight'` is going down the same road in the lane the taxi is leaving and
+> sweeps nothing. Narrowing it to that took the [lab](lab.md)'s staged approaches from 117 passes in
+> 160 to 142.
 
 Refusing that car's left turn while it is being passed — the same courtesy `priorityJunction.block`
 already extends to oncoming traffic — fixes only 1 in 10 of them, because by the time the taxi

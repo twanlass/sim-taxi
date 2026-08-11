@@ -67,7 +67,10 @@ down.
   rather than `#banner`, and why the rider's shaft of light was `lightshaft.js` for as long as it
   existed.
 - **`car.state === 'turn'` includes going straight through a junction.** A real turn is
-  `car.dOut !== car.d`.
+  `car.dOut !== car.d` (or `car.turn.hand !== 'straight'`). This is not a one-off gotcha: reading it
+  as "is turning" is what made the overtake refuse every leader that happened to be inside a
+  junction — 40% of the time on a 20-unit grid — and cost a quarter of all passes. Whenever this
+  flag gates a *danger*, ask which `hand` the danger actually belongs to.
 - **No `distToLine > 0` guard on the stop decision.** A car spawning within `STOP_SETBACK` of its
   target starts past the hold line; that guard once sent cars off the map to x = −1064.
 - **An `onBeforeCompile` patch needs `customProgramCacheKey`.** Three builds the cache key from the
