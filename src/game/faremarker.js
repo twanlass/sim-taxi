@@ -6,6 +6,7 @@ import {
   createDiamond, DIAMOND_R, bounceOffset, kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
 } from '../geometry/diamond.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
+import { popEnvelope, POP_TIME, POP_SCALE_DIAMOND } from './selectpop.js';
 
 // The fare's clock, as a physical object: one geodesic diamond, coloured by how close this fare is
 // to giving up — green, yellow, orange, red, with a disc under the rider's feet in the same colour
@@ -122,6 +123,8 @@ export function createFareMarker(scene, phase = 0) {
   // the call site would tie the animation to the order the calls happen in.
   let kickAt = null;
   let kickPending = false;
+  let popAt = null;
+  let popPending = false;
   let transferAt = null;
   let transferPending = false;
 
@@ -178,6 +181,24 @@ export function createFareMarker(scene, phase = 0) {
     getFill: () => diamond.getFill(),
     /** Whether the level-change kick is mid-flight — for the headless tools. */
     isKicking: () => kickPending || kickAt !== null,
+    /** Likewise the select pop. */
+    isPopping: () => popPending || popAt !== null,
+    /**
+     * The player has just picked this fare: swell and settle back.
+     *
+     * Pushed from `markDirected` (game/fares.js) rather than reconciled per frame, because it is an
+     * acknowledgement of a gesture and not a state — there is nothing to reconcile against, and a
+     * second tap on a rider the taxi is already on its way to has to pop again or it reads as the
+     * tap having been swallowed.
+     *
+     * Stamped on the sim clock inside `update` like the kick, so a frozen shot renders the same
+     * frame every time whatever order the calls happened in.
+     *
+     * Scale only, deliberately: the level-change kick hops as well as swells, and that lift is its
+     * signature. A pop that also left the ground would read as the clock having stepped on the
+     * frame the player tapped, which is the one piece of news the marker must not invent.
+     */
+    pop() { popPending = true; },
     /** Whether the marker is between the kerb and the taxi. */
     isTransferring: () => transferPending || transferAt !== null,
 
@@ -197,6 +218,10 @@ export function createFareMarker(scene, phase = 0) {
       diamond.setFill(1);
       kickAt = null;
       kickPending = false;
+      // Slot reuse: the previous fare on this slot may have been tapped in the last half second of
+      // its life, and a fresh rider opening mid-swell would announce a tap that never happened.
+      popAt = null;
+      popPending = false;
       transferAt = null;
       transferPending = false;
       anchor.set(x, LIFT, z);
@@ -274,14 +299,28 @@ export function createFareMarker(scene, phase = 0) {
         else kick = kickEnvelope(since);
       }
 
+      if (popPending) {
+        popAt = elapsed;
+        popPending = false;
+      }
+      let pop = 0;
+      if (popAt !== null) {
+        const since = elapsed - popAt;
+        // Retired on the clock rather than on the value, same as the kick above — the envelope
+        // passes through 0 on its way to the undershoot, and clearing there would cut the settle off.
+        if (since >= POP_TIME) popAt = null;
+        else pop = popEnvelope(since);
+      }
+
       const pulse = secondsLeft <= PULSE_BELOW_S
         ? PULSE_AMPLITUDE * (0.5 + 0.5 * Math.sin(elapsed * PULSE_HZ * Math.PI * 2))
         : 0;
 
       diamond.mesh.position.y = bounceOffset(elapsed + phase) + kick * KICK_HOP;
-      // The kick and the pulse share the scale channel and simply add: a level change landing inside
-      // the last five seconds should read as a knock on top of a beating marker, not replace it.
-      diamond.mesh.scale.setScalar(1 + kick * KICK_SCALE + pulse);
+      // The kick, the pulse and the pop share the scale channel and simply add: a level change
+      // landing inside the last five seconds should read as a knock on top of a beating marker, not
+      // replace it, and a tap on that same rider has to answer over both.
+      diamond.mesh.scale.setScalar(1 + kick * KICK_SCALE + pulse + pop * POP_SCALE_DIAMOND);
     },
   };
 }

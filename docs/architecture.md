@@ -29,6 +29,7 @@ src/
     routeline.js        the route band painted down the taxi's lane
     pick.js             raycast click picking
     faremarker.js       the fare clock, as a physical object: kerb, flight, taxi
+    selectpop.js        the swell-and-settle curve a tapped rider and their crystal share
     boost.js            crazy-taxi duty cycle (a pure clock, no scene knowledge)
     boostmeter.js       how the Punch It pill reads while it refills — overfill, glow, leading edge
     energybits.js       the sparks a drop-off throws from the taxi into the Punch It pill

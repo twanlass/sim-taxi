@@ -1066,20 +1066,24 @@ The **flight** is `TRANSFER_TIME = 0.65s` on a cubic ease-out, lofted by `sin(ea
 arcs across rather than sliding along the pavement. Both endpoints are anchors without the bounce
 folded in, so the crystal doesn't jump at either end of the flight.
 
-Three animations share the crystal's local transform and simply add:
+Four animations share the crystal's local transform and simply add:
 
 | Channel | Driven by |
 |---|---|
 | `position.y` | the resting bounce, plus `KICK_HOP` × the kick envelope |
-| `scale` | `KICK_SCALE` × the kick envelope, plus the panic pulse's `0.15 × (0.5 + 0.5 sin)` |
+| `scale` | `KICK_SCALE` × the kick envelope, plus the panic pulse's `0.15 × (0.5 + 0.5 sin)`, plus `POP_SCALE_DIAMOND` × the [select pop](gameplay.md#the-tap-pops) |
 
 Adding rather than switching is deliberate: a level change landing inside the last five seconds
-should read as a knock on top of a beating marker, not replace it.
+should read as a knock on top of a beating marker, not replace it — and a tap on that same rider has
+to answer over both. The pop is the one that touches `scale` and *not* `position.y`: the hop is the
+kick's signature, and a pop that left the ground would read as the clock having stepped.
 
 **Everything is a function of sim time**, including the flight and the pulse — no accumulated `dt`
 anywhere — because a frozen shot has to render the same frame every time. Both the kick's and the
 flight's start times are stamped inside `update()` rather than at the call site, so neither animation
-depends on the order `setUrgency`, `beginTransfer` and `update` happen to be called in. Each slot
+depends on the order `setUrgency`, `beginTransfer` and `update` happen to be called in. `pop()` is
+deferred the same way, and there it buys something extra: the rider figure's half of the pop stamps
+in the same tick, so both take their zero from one `state.elapsed` and stay on one curve. Each slot
 gets a fixed phase offset on the bounce so two fares don't pulse in lockstep.
 
 **It is depth-tested**, unlike both markers it replaced — the meter's plate and the timer ring both

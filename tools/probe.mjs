@@ -27,6 +27,7 @@ import {
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
 import { bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE } from '../src/geometry/diamond.js';
+import { POP_SCALE_DIAMOND, POP_SCALE_RIDER } from '../src/game/selectpop.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
@@ -881,6 +882,88 @@ check('no two cars occupy the same space', worst > 1.6,
   } else {
     check('a waiting fare offers only its rider as a target', true, 'no waiter at exit');
     check('a tap on the rider resolves to their fare', true, 'no waiter at exit');
+  }
+}
+
+// --- The select pop --------------------------------------------------------------------------
+// A tap on a rider is answered on the corner it landed on: the figure and the crystal over their
+// head swell together and settle back (game/selectpop.js). It is the only feedback under the
+// finger — what the tap *means* is the route band, and that starts a junction away and runs off
+// across the city — so a pop that silently stopped firing would leave a landed tap looking exactly
+// like a missed one. None of it shows in a still, so drive the frames and read the scales.
+{
+  const kScene = new THREE.Scene();
+  const kTraffic = createTraffic(makeRng(seed + 44), kScene, CARS_DEFAULT);
+  const fares = createFareSystem(makeRng(seed + 55), kScene);
+  kTraffic.warmup(5);
+  // Held still, so the taxi cannot wander into the rider mid-pop and turn the fare into a ride
+  // halfway through the measurement. The spawner never places a rider on the taxi's own junction,
+  // so a parked taxi is a block away at worst — well outside ARRIVE_RADIUS.
+  kTraffic.taxi.parked = true;
+  fares.update(1 / 60, kTraffic.taxi);
+
+  const fare = fares.waiting();
+  const figure = fare?.slot.passenger.postGroup;
+  const crystal = fare?.slot.marker;
+  if (!fare) {
+    check('a fresh rider is not already popping', false, 'no rider on the kerb');
+  } else {
+    // Nothing has been tapped yet. A rider that swelled on spawn would be acknowledging a gesture
+    // nobody made — the same rule the diamond's kick follows.
+    fares.update(1 / 60, kTraffic.taxi);
+    check('a fresh rider is not already popping',
+      !crystal.isPopping() && Math.abs(figure.scale.x - 1) < 1e-9
+      && Math.abs(crystal.mesh.scale.x - 1) < 1e-9,
+      `figure ${figure.scale.x.toFixed(3)}, crystal ${crystal.mesh.scale.x.toFixed(3)}`);
+
+    fares.markDirected(fare);
+    let peakFigure = 0;
+    let peakCrystal = 0;
+    let peakFigureFrame = -1;
+    let peakCrystalFrame = -1;
+    let dipFigure = Infinity;
+    let framesPopping = 0;
+    for (let f = 0; f < 60; f++) {
+      fares.update(1 / 60, kTraffic.taxi);
+      if (crystal.isPopping()) framesPopping += 1;
+      if (figure.scale.x > peakFigure) { peakFigure = figure.scale.x; peakFigureFrame = f; }
+      if (crystal.mesh.scale.x > peakCrystal) { peakCrystal = crystal.mesh.scale.x; peakCrystalFrame = f; }
+      dipFigure = Math.min(dipFigure, figure.scale.x);
+    }
+
+    // Big enough to be seen under a fingertip, and never past the amplitude the constants promise
+    // — this is the one cue a player gets that the tap landed, and it is measured in pixels
+    // (~26px → ~31px on the figure, ~29px → ~35px on the crystal) rather than in taste.
+    check('a tap swells the rider and their crystal',
+      peakFigure > 1.05 && peakFigure <= 1 + POP_SCALE_RIDER + 1e-6
+      && peakCrystal > 1.05 && peakCrystal <= 1 + POP_SCALE_DIAMOND + 1e-6,
+      `figure ${peakFigure.toFixed(3)}, crystal ${peakCrystal.toFixed(3)}`);
+    // One gesture, not two objects that happened to be tapped at once: both halves take their zero
+    // from the same frame's `state.elapsed` and ride the same envelope, so they peak together.
+    check('the two halves pop on the same curve',
+      peakFigureFrame === peakCrystalFrame && peakFigureFrame >= 0,
+      `figure at frame ${peakFigureFrame}, crystal at ${peakCrystalFrame}`);
+    // The undershoot on the way back is what gives the eye an ending to see — without it the last
+    // third is a barely-moving object slowly stopping, which reads as lag rather than as a pop.
+    check('it settles back through rest before it lands',
+      dipFigure < 1 - 1e-3 && dipFigure > 1 - POP_SCALE_RIDER * 0.2,
+      `dips to ${dipFigure.toFixed(4)}`);
+    // A beat, not a state: over well inside half a second, and finishing at exactly rest rather
+    // than parking the rider a few percent large for the rest of their life on the kerb.
+    check('the pop is a beat that lands back at rest',
+      framesPopping > 18 && framesPopping < 32 && !crystal.isPopping()
+      && Math.abs(figure.scale.x - 1) < 1e-9 && Math.abs(crystal.mesh.scale.x - 1) < 1e-9,
+      `${framesPopping} frames, figure ${figure.scale.x.toFixed(4)}`);
+
+    // Re-tapping a rider the taxi is already on its way to has to pop again. It is an
+    // acknowledgement of a gesture, not a state to reconcile — a second tap that did nothing reads
+    // as the tap having been swallowed.
+    fares.markDirected(fare);
+    fares.update(1 / 60, kTraffic.taxi);
+    fares.update(1 / 60, kTraffic.taxi);
+    check('tapping the same rider again pops again',
+      crystal.isPopping() && figure.scale.x > 1 + 1e-6,
+      `figure ${figure.scale.x.toFixed(3)}`);
   }
 }
 
