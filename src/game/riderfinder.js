@@ -10,13 +10,16 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 //
 // A waiting rider is a handful of pixels among a hundred buildings, and on a phone the whole city
 // doesn't fit in one screen. Each waiting fare gets its own chip here — same animated figure the
-// player is hunting for, with the fare's own countdown ring around it — and one tap selects that
-// rider, dispatching the taxi at them, so the whole loop works without ever having to find the pin
-// on the map. It was a double-tap once, with the first tap only moving the camera; picking a rider
-// is the one thing the chip is for, and making it cost two taps on a clock that is draining was
-// worse than the camera move was worth. Two clocks on the kerb means two chips on screen; the row
-// grows rightward so the first slot stays put next to the Loco Mode pill and extra riders pile
-// on beside it.
+// player is hunting for, with the fare's own countdown ring around it — and one tap takes the
+// camera to them, so a rider can always be found without hunting the map for a diamond.
+//
+// It used to dispatch the taxi at them as well, back when tapping a rider *was* the instruction.
+// Under the swipe controls it cannot: where the car goes is the player's, and a button that drove
+// it for them would be the old scheme surviving in a corner of the HUD. What is left is the half
+// this was originally built as — a camera shortcut — and the half that is still a real question.
+//
+// Two clocks on the kerb means two chips on screen; the row grows rightward so the first slot stays
+// put next to the Loco Mode pill and extra riders pile on beside it.
 //
 // One WebGL renderer per chip. MAX_FARES caps the pool at three, so the extra contexts are well
 // under any browser limit. Cheaper alternatives (one renderer, blit to N canvases) exist but the

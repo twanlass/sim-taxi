@@ -11,9 +11,10 @@ of it:**
    a spotlight picks it out of a darkened city. The one thing a new player cannot work out by
    looking is which of the hundred cars down there is theirs — so the car itself says it, and both
    the camera and the light land on it.
-2. **"Tap rider to start."** The spotlight moves to the waiting fare as the camera sets off for
+2. **"Swipe to drive there."** The spotlight moves to the waiting fare as the camera sets off for
    them, so the light is already on the rider and the pan carries the player to it; the bubble comes
-   back once the camera has arrived. Tapping the rider answers it directly.
+   back once the camera has arrived. It names the gesture and, in the same breath, somewhere worth
+   pointing it — and steering the car answers it directly, without a tap on the bubble.
 3. **"Hold to floor it"** — the Loco Mode pill, two seconds after the first rider is *dropped off*,
    with the bubble sitting directly over the pill and its tail pointing down at it, the spotlight on
    the pill and the pill pulsing under it. Skipped entirely if the player has already fired Loco
@@ -25,10 +26,14 @@ down after it lands as an event rather than as the initial state. The clocks are
 through it, so it costs nothing. The camera is already easing onto the taxi during it — that is the
 one thing that should be under way before the bubble speaks.
 
-**A tap anywhere advances**, not just a tap on the bubble. The listener is on `window` rather than a
-full-screen catcher, so the tap still reaches the city underneath — on the second beat the whole
-lesson is the tap landing on the rider, and an overlay would eat the one gesture being taught. It
-shares the picker's `didPan()` guard, so a swipe that dragged the map is not also an answer.
+**A tap anywhere advances** the first beat, not just a tap on the bubble. The listener is on
+`window` rather than a full-screen catcher, so the tap still reaches the city underneath — an
+overlay would eat gestures aimed at the game. It shares the picker's `didSwipe()` guard, so a swipe
+that steered the taxi is not also an answer to the bubble.
+
+The second beat is answered by **driving**, not by tapping: `hasSteered()` in `main.js` is true from
+the first swipe the taxi accepted, or from a rider already aboard because the player got on with it
+before the bubble caught up.
 
 The avatar is the real `createTaxiMesh()` in its own small WebGL context, the way each rider-finder
 chip owns one — so the car in the bubble is the car on the road and cannot drift out of step when
@@ -72,9 +77,9 @@ animate their own transform — the money bump, the streak bump, the Loco Mode p
 top-up flutter — and a `body.hud-ready #boost { transform: none }` outranks `#boost:active` on
 specificity, which would quietly kill the press feedback for the rest of the run.
 
-Nothing else is taught. The drop-off [dispatches itself](#the-drop-off-dispatches-itself) and the
-clock is [a coloured crystal over a head](#the-fares-clock-travels) — neither needs a sentence, and
-every extra beat is one more thing between the player and the game.
+Nothing else is taught. A pickup resolves on arrival and the clock is
+[a coloured crystal over a head](#the-fares-clock-travels) — neither needs a sentence, and every
+extra beat is one more thing between the player and the game.
 
 ### The third beat is not like the other two
 
@@ -130,9 +135,9 @@ road rather than a round sixty seconds with slack to spare, so a lesson spent ou
 straight off the part the player needs. `state.elapsed` is deliberately *not* paused: it drives the
 spawn stagger and the marker animations, neither of which is the player's to pay for.
 
-Nothing auto-advances. Both beats wait for a tap, because a tutorial on a timer is one the slower
-reader loses. A tap mid-type finishes the line instead of dismissing it, so an eager first tap
-cannot throw away a sentence nobody has read.
+Nothing auto-advances. Both beats wait for the player — a tutorial on a timer is one the slower
+reader loses — the first for a tap and the second for a swipe. A tap mid-type finishes the line
+instead of dismissing it, so an eager first tap cannot throw away a sentence nobody has read.
 
 ### Where it sits in the camera's priority list
 
@@ -140,11 +145,12 @@ Below Loco Mode, above the [opening follow](architecture.md), and — unlike eit
 runs on **every** viewport, not just narrow ones. A desktop player has the whole city in frame and
 still cannot tell which car is theirs, which is the entire reason the first beat exists. Because
 moving the framing on a wide viewport takes away the default whole-city shot and nothing there
-would ever put it back (drag-to-pan is narrow-only), the tutorial glides the camera home when it
+would ever put it back (the rider pan is narrow-only), the tutorial glides the camera home when it
 finishes. On a phone it doesn't need to: the opening follow-cam picks the taxi back up.
 
-A swipe hands the camera over mid-tutorial, the same as anywhere else — the bubble keeps talking,
-it just stops moving the map while the player reads it.
+Aiming the camera hands it over mid-tutorial, the same as anywhere else — the bubble keeps talking,
+it just stops moving the map while the player reads it. A steering swipe does **not**: it is an
+instruction to the car, and the framing stays with the tutorial.
 
 ### It runs on every new game
 
@@ -171,51 +177,148 @@ and because the taxi has one seat, all but one of those are riders waiting on th
    [diamond](#the-fares-clock-travels) over their head, coloured by how much of that clock
    is left. The whole trip is drawn now; none of it is shown until they board — see
    [Neither how far nor where](#neither-how-far-nor-where).
-2. Tap them → the taxi routes there.
-3. On arrival the passenger boards, their diamond flies from the kerb to the roof of the taxi, a
-   teal ring appears on the road where they're going, and the taxi **drives straight on to it** —
-   because the instruction it used to ask for is now given for you. See
-   [The drop-off dispatches itself](#the-drop-off-dispatches-itself).
+2. **Drive there.** See [Steering](#steering) — the taxi is always moving and the player turns it.
+3. On arrival the passenger boards, their diamond flies from the kerb to the roof of the taxi, and a
+   teal ring appears on the road where they're going. Drive there too.
 4. Deliver → the fare pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, times the shift's
    multiplier, see [Economy](#economy)), and the board refills.
 5. **Any** fare's clock expiring ends the run.
 
-## The drop-off dispatches itself
+## Steering
 
-**A rider getting in is the taxi's instruction to drive them.** `dispatchToDropoff` in `main.js`
-routes at the drop-off on the pickup frame; the player never taps a destination pin.
+`src/game/swipe.js` reads the gesture, `src/game/steer.js` reads its meaning, and `main.js` puts the
+answer on the car. **The taxi always drives; the player says where.**
 
-The tap it replaced confirmed a choice with exactly one option. Where the rider is going was
-decided when they spawned — the price is fixed from it — and their pin is on the map the instant
-they board, so the second tap added no decision, only
-latency, and it spent that latency out of the *same* flat clock that still has to cover the
-delivery. Meanwhile the decision the game is actually about — which of two kerbside riders to grab
-while both clocks drain — is untouched.
+It replaced tapping a rider and watching the taxi route itself there. What that scheme was actually
+asking of the player was *which* fare, once, and then nothing for the next twenty seconds — the
+driving, which is the part with a city in it, happened without them.
 
-What it costs a slow player is the whole point, and the soak measures it. Modelled as reaction time
-paid on the kerbside legs only (`tools/soak.mjs`), a perfect player at **4s** reaction goes from a
-median of 2 fares to **3** (mean 1.9 → 2.8, worst run 0 → 2). At 1.5s it is unchanged at 2 — the
-faster the player, the less the tap was costing them, which is exactly the wrong way round for a
-tap that carried no decision.
+### A swipe is a one-step route
 
-The pin stays tappable and `directed` still governs arrival, so nothing about
-[arrival requires direction](#arrival-requires-direction) is skipped — the flag is now set from the
-pickup instead of from a second tap.
+The whole integration, and the reason it needed no new branch in the sim. `traffic.js` has exactly
+[one place](traffic.md#the-one-routing-branch) where a car picks its exit, and a car with a `route`
+already takes the next step from it. A swipe writes `car.route = [dir]` and that is all:
 
-**The taxi no longer parks at a pickup.** It used to sit at the kerb with `parked = true` until
-told where to go; now a pickup is a pause in a drive rather than a full stop and a restart. In
-practice it was never much of a stop anyway: the pickup fires with the taxi *inside* the junction
-(`state === 'turn'` at every pickup across four run seeds, still doing the full 8.5 u/s), where the
-`parked` check isn't consulted at all — it coasted across, braked on the far side, and then pulled
-away again on the tap. The one surviving `parked = true` is the fallback for a drop-off the router
-can't reach, which a shipped city never has: `main.js` rerolls any seed where `findRoute` fails a
-pair. It exists so an unroutable taxi is still recoverable by hand rather than cruising on random
-turns until the clock runs out.
+- `route.shift()` at the far side of the junction clears the intent the frame the turn commits, so
+  there is nothing to expire and no queue to manage.
+- Everything else that reads `route[0]` starts answering to the player instead of assuming straight
+  — the boosting taxi's [priority green](traffic.md#boost-crazy-taxi-mode), the block it puts on
+  oncoming traffic while it turns left, the [overtake offer](traffic.md#overtaking), and the
+  scatter ahead of it. All four were previously reading a plan; they now read an intention, which
+  is strictly better information.
 
-Routing on the pickup frame means planning from a turn the car has already committed to —
-`planOrigin` handles exactly that, and `tools/probe.mjs` asserts a fare is delivered end to end
-with no drop-off ever tapped, because a route planned from the wrong origin silently drops its
-first turn and the only symptom is a fare quietly timing out.
+`routeDesync` in `traffic.js` is unchanged and still means what it did — a car whose next step is
+not a legal exit, which should never happen. That is why the swipe is validated against
+`legalDirsFrom(planOrigin(car))` *before* it becomes a route, rather than being thrown at the
+junction to see if it sticks: an alarm that fires every time the player swipes at a building is not
+an alarm any more.
+
+### The window is one junction, and it is short
+
+The intent aims at `planOrigin(car)` — the next junction the car can still make a choice at, which
+is the one it is heading toward, or the one on the far side if it is already inside a junction.
+Nothing further. There is no buffer and no queue.
+
+That is not a rule so much as a measurement. A lane between adjacent junctions is
+`PITCH - 2 × HALF_ROAD` = 12 units, and the hold line sits `STOP_SETBACK` = 3.4 back from its end —
+so a junction is decided over the **8.6 units** before that: **1.0s at cruise, 0.37s at the
+overdrive top**. Going faster costs reaction time, which is the trade Loco Mode is supposed to make
+and did not previously make, because the router was doing the reacting.
+
+It is the same 8.6 units of warning a *car* gets — the number
+[the fleeing-car residual](traffic.md#driving-feel) is measured against — which is not a
+coincidence: it is simply how much notice this road geometry gives anybody about anything.
+
+A swipe during the junction crossing itself aims at the *next* junction, via the same `planOrigin`,
+so the control is never dead. It just never looks more than one choice ahead.
+
+### The four directions are the four screen diagonals
+
+The camera never rotates, so the mapping is a constant. Projecting the grid's directions onto the
+view basis (`RIGHT` and `UP` in `camera.js`, which `steer.js` imports rather than copying) puts
+`-Z` up-right, `+X` down-right, `+Z` down-left and `-X` up-left.
+
+The sector boundaries therefore land on the screen **cardinals** — straight up, down, left, right —
+which is exactly where a thumb goes. It reads as a design problem and is not one, because the roads
+are drawn along those diagonals too: the gesture is "swipe along the road you want", and the road is
+under the finger. The boundary is handled regardless. `resolveSteer` ranks all four by angle and
+walks the ranking, so a swipe straight up with only one of `-X`/`-Z` a road resolves to that road
+rather than being refused for being two degrees the wrong side of a line nobody can see. Past 60°
+nothing is accepted, which is what leaves a 30° dead zone behind the car and refuses the U-turn the
+network cannot express anyway.
+
+### Swipe forward to floor it
+
+A swipe along the current heading is Loco Mode rather than a turn, for `SWIPE_BURST` seconds. The
+pill still works — hold to enable, release to pause — and the two never fight: a thumb on the pill
+cancels any burst timer, and a burst never releases a hold the player has not let go of.
+
+**2.5s, and the number has a reason.** Cruise to `BOOST_SPEED` (18.7) costs 0.43s and 5.8 units at
+`BOOST_ACCEL`; 18.7 to `OVERDRIVE_SPEED` (22.95) costs another 1.93s and 40 units at the tapered
+`OVERDRIVE_ACCEL`. So 2.36s and 46 units — a shade over two blocks of clear road — is the least it
+can cost to touch [the overdrive band](traffic.md#overdrive-only-on-a-straightaway). At 2.5 a swipe
+down an empty straight just reaches it and anything short of that does not, which is the property
+the band was tuned to have: earned rather than held.
+
+A burst ends through `boost.release()`, so it leaves via the same one-second momentum window a real
+release does — letting a burst lapse next to a police car is exactly as risky as letting go.
+
+### With no instruction, carry straight on
+
+`car.coastStraight`, set on the taxi by `main.js`. An unrouted car normally rolls the weighted
+straight/right/left dice, which is fine for ambient traffic and unplayable for a car someone is
+driving: it would turn at random every time the player kept their thumb still. It falls through to
+the roll where straight is not an exit — the map edge, a T-junction — which is what keeps the ring
+road self-correcting.
+
+A flag rather than `isTaxi` because the headless tools route the taxi directly and lean on
+frame-for-frame determinism; leaving the rng consumption alone for them is what keeps `soak.mjs` and
+`eta.mjs` comparable across this change.
+
+The one place the coast rule and an existing shortcut disagreed is **right on red**: that branch
+took the turn for any car without a route, which would have peeled a coasting taxi off right at
+every red it met. It now asks for the turn explicitly.
+
+### What the swipe cost, and what it did not
+
+**Drag-to-pan is gone.** One gesture cannot mean both "look over there" and "turn left at the next
+junction", and of the two the one that drives the car has to win. `attachDragPan` went with it. What
+it was for is covered from elsewhere: the follow-cam keeps the taxi in frame on a narrow viewport,
+and a [rider-finder chip](rendering.md) pans to a rider who is not. A tap on a pin does the same.
+
+**Steering does not take the camera over**, which is the one thing that changed when the swipe
+stopped being a pan. Handing the framing away every time the player turned a corner would leave them
+driving off the edge of their own view.
+
+**The route band is not drawn.** There is no plan to draw — `car.route` is one swiped turn at most,
+and a stub of colour a block long flickering on and off with the player's thumb is noise where the
+band was information. `routeline.js` stays: shot 9 (`route-far`) exists to photograph it, and
+`routeTo` is still on the `__taxi` hook and still what shot mode drives.
+
+**The router stays too.** Every fare's clock is [budgeted](#the-clock-is-budgeted) from
+`chainSeconds`, which is Dijkstra over the same network — so `route.js`, `estimateSeconds` and
+`tools/eta.mjs` are all untouched. What went is the taxi *following* the answer.
+
+### The clocks are now sized for a driver who does not exist
+
+Worth stating plainly, because it is the open question this leaves. A deadline is the time an
+**optimally routed** taxi would need, times the run's slack. A human steering by swipe drives longer
+routes and misses turns, so the same budget is materially harder than the ramp in
+[difficulty.md](difficulty.md) describes. `slack` is the lever; the ⚙️ panel's difficulty slider
+moves it live. It has deliberately not been re-tuned here — what the right number is under hand
+steering is a judgement that needs the thing played, not a sweep run against a perfect player who is
+no longer the player.
+
+### Feedback
+
+A single chevron (`#steer` in `index.html`), flashed where the finger went down: taxi yellow for
+accepted, dead grey for refused. Not red — swiping into a building is a miss, not a penalty.
+
+It is rotated to the swipe's **own** angle rather than to the direction it resolved to. The two
+differ by up to 45°, and that gap is the lesson: the arrow lands where the thumb actually went, and
+its being yellow is what says the game agreed. Without it an accepted swipe and a refused one look
+identical at the moment they are made, which is the moment the control is being learned — the taxi
+may be half a screen away and its turn a second in the future.
 
 ## Neither how far nor where
 
@@ -360,25 +463,27 @@ Not larger, either. One car back in the queue is another `MIN_GAP = 5.3`, past h
 block pitch, and resolving there would pop the rider out mid-block with the pin still a visible
 distance off.
 
-### Arrival requires direction
+### Arrival is drive-by, and used to require direction
 
-A fare only resolves — pickup or drop-off — if the player actually **sent** the taxi at it.
+**Reach a rider and they get in; reach a drop-off and they get out.** Proximity inside
+`ARRIVE_RADIUS` is the whole test.
 
-Without this rule a taxi cruising on random turns wanders into the pin by itself: measured at
-**11 of 40 seeds** completing a drop-off with no tap at all. `directed` lives on the fare, is set by
-whatever routes the taxi at it, and clears whenever that fare's target changes.
+It was not always. `directed` — a flag on the fare, set by whatever routed the taxi at it — was
+required as well, because a taxi taking random turns wanders into a pin by itself: measured at
+**11 of 40 seeds** completing a drop-off with no tap at all. Under [swipe steering](#steering) there
+is no such taxi. Every junction it crosses is one the player either turned it at or left it
+carrying straight on through, so an arrival is theirs by construction and there is nothing left for
+the flag to prove.
 
-On the drop-off leg [the game does the routing](#the-drop-off-dispatches-itself), so the flag is
-set there rather than by a tap — but it is set by the same call that plans the route, so a
-drop-off still only resolves for a taxi that was actually sent at it. Where the rule keeps its
-teeth is the kerb: `beginRide` clears `directed`, and a rider is only ever collected by a taxi the
-player pointed at them.
+The rule is retired rather than deleted: `fares.setRequireDirected(false)` is what `main.js` calls,
+and it defaults **on**. Every headless tool — `probe.mjs`, `autoplay.mjs`, `taxi.mjs`, the soak —
+drives `taxi.route` and `markDirected` straight at the sim and never goes through `main.js`, so they
+keep the behaviour they were written against and stay comparable across the change.
 
-There is one taxi, so `markDirected` also clears the flag on whatever fare held it before: tapping
-a second waiting rider re-routes the car and moves `directed` to that rider, rather than leaving
-the abandoned one still marked. Without that, the abandoned rider stayed armed — if the new route
-happened to pass within `ARRIVE_RADIUS` of its corner, it resolved a pickup too, and the taxi ended
-up "carrying" two riders off a single seat.
+**The one seat had to be rescued from it.** `markDirected` refused a kerbside rider while someone
+was already aboard, and drive-by never calls `markDirected` — so without that check moving to the
+arrival test, a taxi carrying one rider collected the next one it drove past onto the same seat.
+`tools/probe.mjs` asserts the peak never exceeds one.
 
 ### The taxi's roof sign
 
@@ -409,9 +514,10 @@ means a destination.
 What went with it is the rooftop silhouette: the crystal stayed visible over the skyline for a beat
 after the ring itself had slipped behind a tower. The
 [off-screen pointer](rendering.md#off-screen-drop-off-pointer) covers the far end of that — a
-drop-off outside the frame — and inside the frame the route band runs all the way into the disc, so
-there is a line to follow to it. A drop-off briefly hidden behind a building on a road you are
-already driving down is the case that is genuinely worse, and it is worth what it buys.
+drop-off outside the frame. Inside the frame the route band used to run all the way into the disc,
+so there was a line to follow to it; under [swipe steering](#steering) there is no band, and the
+ring on the tarmac is the whole of the answer. A drop-off briefly hidden behind a building on a road
+you are already driving down is the case that is genuinely worse, and it is worth what it buys.
 
 Teal is the point of the colour. Hue on a fare marker now *means* urgency — that is what the
 [diamond over a rider](#the-fares-clock-travels) is saying — and the drop-off has nothing to report:
@@ -419,8 +525,9 @@ no clock of its own, and by the time it is drawn the taxi is already driving at 
 the green-to-red scale is what says "this one is not on it". It wore **Loco Mode's yellow** before,
 on the grounds that the route band, the car and the place it is driving to should be one colour
 saying "this is the job"; but yellow is the taxi's, and a marker that reports nothing was borrowing
-from a vocabulary it isn't part of. The band is still yellow, so band and disc meet at the kerb in
-different colours — the band belongs to the car, the disc to the road. See
+from a vocabulary it isn't part of. The band has since gone with the routing, so the argument is now
+moot in the disc's favour — yellow on the road belongs to the car, and the disc is a place. The
+[steer chevron](#steering) is the one thing still wearing it, and it is the car's answer. See
 [rendering.md](rendering.md#the-drop-off-ring--geometrymarkerjs).
 
 The one decision all of this defers is still deferred: nothing on a marker says which *taxi* is
@@ -487,21 +594,28 @@ essentially unchanged. Sweep via `tools/router-sweep.mjs`.
 `src/game/pick.js` raycasts against objects that opt in via `userData.pickable`, a string kind. The
 ray walks up each hit's parents to find the tag, so a click on any child of the taxi group counts.
 
-Still a plain `click` handler, even though the camera drag-pans now. The disambiguation lives in
-`attachDragPan`: a press only becomes a drag once it crosses `PAN_SLOP = 8px`, and the picker
-ignores the click that closes out one. So a tap is an ordinary click and only a gesture that
-actually moved the map is swallowed. This is exactly why `city-lab`'s `attachCameraControls`
-(which binds pointerdown to dragging unconditionally) is still unused here; it fought
-tap-to-select.
+Still a plain `click` handler, even though a swipe on the same canvas now steers the taxi. The
+disambiguation lives in `createSwipe`: a press only becomes a swipe once it crosses `SWIPE_MIN =
+28px`, and the picker ignores the click that closes out one — so a tap is an ordinary click and only
+a gesture that actually drove the car is swallowed. That guard was written for drag-to-pan and
+survived the gesture it was written for **unchanged**, which is the sign it was the right shape.
+It is also still why `city-lab`'s `attachCameraControls` (which binds pointerdown to dragging
+unconditionally) is unused here.
 
 Every marker carries an oversized invisible hit box, 20 units square — the visible figure is a
 handful of pixels at play zoom, and it stands on a kerb corner four units off the junction the box
 is centred on, so a box merely the size of the junction put the rider on its own edge and lost half
 the taps aimed at it.
 
-**Which** pin was tapped is the instruction, not just that one was: `fares.fareFor(hit.object)`
-walks up from the hit to the fare that owns it. Tapping a kerbside rider while already carrying one
-is refused rather than routing a taxi that could never collect them.
+**A tap no longer dispatches anything.** It used to be the instruction — which pin, resolved through
+`fares.fareFor(hit.object)`, was the whole of it. Under [swipe steering](#steering) where the car
+goes is the player's, so what a tap does now is the other half of what a
+[rider-finder chip](#steering) does: take the camera there. Narrow viewports only, for the same
+reason the chip is — on a desktop the whole city is in frame and a pan would shove the map out from
+under someone who can already see the pin.
+
+The hit boxes and `fareFor` stay exactly as they were. They are what makes "which pin" answerable,
+and the day a control wants that answer again it is still there.
 
 **The taxi is permanently selected.** There is only ever one, so a selection step was pure
 ceremony: every tap on it was either a no-op or an accidental deselect that made the next tap on a
@@ -679,8 +793,9 @@ back to 1.12 at pickup. On a board with two riders waiting that said which of th
 already on its way to. It went because 5px is a *border* rather than a rim — heavy enough to change
 the silhouette — and because a marker that swaps outline weight at the hand-off reads as two
 markers in relay rather than one clock travelling, which is the exact thing the crystal exists to
-say. The route band already answers "which rider?", and it answers it along the whole road instead
-of on one corner. Black stays the rim's colour for the reason it always was: it was the taxi's
+say. There is no route band to answer "which rider?" any more either — under
+[swipe steering](#steering) the answer is wherever the player is pointing the car, which is a thing
+they know because they are doing it. Black stays the rim's colour for the reason it always was: it was the taxi's
 **yellow** first, and this crystal spends a quarter of every clock *being* yellow, so a yellow rim
 on a yellow diamond is no rim at all.
 
@@ -861,10 +976,13 @@ leaves the button dead in the hand until the first drop-off lands.
 **There is no longer a case where holding it does nothing.** A taxi that had just picked someone up
 used to be `parked` — waiting at the kerb for you to tap a destination — and `parked` sets
 `allowed = 0` ahead of anything boost can do, so Loco Mode was dead in the hand until you'd
-dispatched the car. Now [the drop-off dispatches itself](#the-drop-off-dispatches-itself) and the
-taxi is never parked with a rider aboard; boost applies from the pickup frame on. Every other
-reason the taxi slows while boosting is traffic, and those are dealt with in
+dispatched the car. Two changes later there is no dispatch to wait for at all: nothing routes the
+taxi, nothing parks it, and boost applies on every frame of a run. Every other reason the taxi slows
+while boosting is traffic, and those are dealt with in
 [traffic.md](traffic.md#what-was-still-braking-it).
+
+**A forward swipe fires it too**, for a fixed burst — see [Swipe forward to floor it](#swipe-forward-to-floor-it).
+The pill is still the way to hold it open.
 
 Pointer capture on `pointerdown` keeps the boost held even if the finger slides off the pill;
 `pointerup`, `pointercancel`, `lostpointercapture` and the window `blur` all release it, so
@@ -876,7 +994,7 @@ one starting on the pill lets the browser claim the touch and fire `pointercance
 boost the player still has their thumb on. Pointer capture then means nothing else arrives until
 they lift and press again, so it reads as the gas cutting out with no way to get it back. The
 case that hits it is exactly how this game is held: a thumb on the pill and a second finger
-tapping a fare is a pinch gesture as far as the browser is concerned. `preventDefault` on
+swiping the map is a pinch gesture as far as the browser is concerned. `preventDefault` on
 `pointerdown` is explicitly not a fix for that — `touch-action` is the only thing that suppresses
 it, which is why the canvas has carried `none` all along.
 

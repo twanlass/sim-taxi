@@ -11,10 +11,11 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 //   1. Which of the hundred cars down there is *theirs*. The bubble is spoken by the taxi — its
 //      avatar is the car itself, turning — and the camera rides over to it while the line types.
 //      Showing the car saying it does the job that a sentence naming it would not.
-//   2. That a rider is a thing you tap. The camera pans to the first one on the kerb and the same
-//      bubble says so, pointed at a figure that is now in the middle of the frame.
+//   2. That the car is theirs to *drive*. The camera pans to the first rider on the kerb and the
+//      bubble asks for a swipe, pointed at a figure now in the middle of the frame — so the lesson
+//      names the gesture and, in the same breath, somewhere worth pointing it.
 //
-// Everything else in the game — the drop-off dispatching itself, the timer ring, Loco Mode — either
+// Everything else in the game — the pickup resolving on arrival, the timer ring, Loco Mode — either
 // happens without being asked for or is a pill with a label on it. None of it is taught here.
 //
 // It runs at the top of **every** run. Remembering it across loads was tried — a `localStorage`
@@ -27,13 +28,13 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 // spends the clock the player is about to need. That matters more than it did when every rider got
 // a flat sixty seconds: a clock is budgeted from the driving its own trip costs now
 // (see difficulty.md), so what a lesson would eat is margin that was calculated for driving.
-// Nothing auto-advances: both beats wait for a tap, because a tutorial on a timer is one the slower
-// reader loses.
+// Nothing auto-advances: both beats wait for the player, because a tutorial on a timer is one the
+// slower reader loses. The first waits for a tap; the second is answered by driving.
 
 // Every line, in the order it is spoken. Kept together so the whole script is one thing to read.
 const LINES = {
   taxi: "Let's pick up some rides and earn some cash.",
-  rider: 'Tap rider to start.',
+  rider: 'Swipe to drive there.',
   boost: 'Hold to floor it',
 };
 
@@ -334,7 +335,8 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  *                      pixels, for the third beat's spotlight
  * @param waitingFare   () => fare | null — whoever is on the kerb to point at
  * @param fareLocation  (fare) => {x, z} — the kerb corner to centre, not the junction
- * @param isDispatched  () => boolean — has the player sent the taxi at anyone yet
+ * @param hasSteered    () => boolean — has the player driven the car yet: a swipe that the taxi
+ *                      accepted, or a rider already aboard
  * @param hasDelivered  () => boolean — has a rider been dropped off yet; the third beat's countdown
  *                      runs off this, so the Loco Mode hint lands once the loop has closed one turn
  * @param boostUsed     () => boolean — has Loco Mode been fired at least once; if so the third beat
@@ -342,7 +344,7 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  * @param isOver        () => boolean — run ended under the tutorial (a wreck, say); drop everything
  * @param isBlocked     () => boolean — something else is holding the run in front of this, so say
  *                      nothing and take no taps until it lets go
- * @param shouldIgnoreTap () => boolean — true for the click that closes out a camera drag, so a
+ * @param shouldIgnoreTap () => boolean — true for the click that closes out a steering swipe, so a
  *                      swipe does not also dismiss the bubble it dragged past
  * @param onRunning     (running: boolean) => void — fires on start and on the *second* dismissal;
  *                      main.js holds the fare clocks and the HUD's entrance between the two. The
@@ -350,7 +352,7 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  */
 export function createTutorial({
   controller, aspect, isNarrow, taxi, lights, project, pixelsPerUnit, boostAnchor = () => null,
-  waitingFare, fareLocation, isDispatched, hasDelivered = () => false, boostUsed = () => false,
+  waitingFare, fareLocation, hasSteered, hasDelivered = () => false, boostUsed = () => false,
   isOver = () => false, isBlocked = () => false, shouldIgnoreTap = () => false,
   onRunning = () => {},
 }) {
@@ -523,7 +525,7 @@ export function createTutorial({
 
     // Ahead of the opening hold as well as the bubbles: a player quick enough to grab a rider
     // inside the first second should not then be shown a bubble that immediately dismisses itself.
-    if (GATED_STEPS.has(state.step) && isDispatched()) { finish(); return; }
+    if (GATED_STEPS.has(state.step) && hasSteered()) { finish(); return; }
 
     if (state.step === 'wait') {
       wait -= dt;
@@ -533,8 +535,8 @@ export function createTutorial({
       return;
     }
 
-    // (The guard above is also what handles a player who found a rider and tapped them without
-    // waiting to be told — they have just done the whole of beat two unprompted, so the tutorial
+    // (The guard above is also what handles a player who started driving without waiting to be
+    // told — they have just done the whole of beat two unprompted, so the tutorial
     // gets out of the way rather than teaching it back to them. Load-bearing beyond the manners:
     // the fare clocks are held through the gated beats, so a bubble left up over a taxi that is
     // already driving a fare would freeze that fare's countdown for the entire delivery.)
@@ -561,8 +563,8 @@ export function createTutorial({
       return;
     }
 
-    // (Tapping the rider is the lesson, and landing it dismisses the bubble without needing a
-    // second tap on the bubble itself — that is the `isDispatched` check at the top.)
+    // (Steering the car is the lesson, and doing it dismisses the bubble without needing a tap on
+    // the bubble itself — that is the `hasSteered` check at the top.)
     if (state.step === 'restore' && !controller.isGliding()) state.step = 'toBoost';
 
     // The countdown starts at the first drop-off and nowhere earlier, so a player who never
@@ -605,8 +607,9 @@ export function createTutorial({
     },
     holdsCamera: () => CAMERA_STEPS.has(state.step) && !cameraReleased,
     /**
-     * The player has taken the framing over — a swipe. Give up the camera but keep talking: the
-     * lesson is still worth reading, it just stops dragging the map around while they read it.
+     * The player has aimed the camera somewhere themselves — a rider-finder chip, or a tap on a pin.
+     * Give up the framing but keep talking: the lesson is still worth reading, it just stops moving
+     * the map around while they read it.
      */
     releaseCamera() { cameraReleased = true; },
     dismiss,

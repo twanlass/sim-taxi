@@ -34,7 +34,7 @@ can be made and verified in a single step.
 | **modules** | inline in `check.mjs` | Every browser-only module imports *and constructs* in node, and a full simulated day swings the sun from 0.00 to >3 |
 | **roadnet** | `tools/roadnet.mjs` | The road network reproduces the grid at 1e-9 — positions, lanes, turns, legal moves, signal phase across a cycle — plus diagonals, roundabouts and curves the grid can't express. Runs first: it is the control on every step below |
 | **probe** | `tools/probe.mjs` | Traffic invariants: no car in a park, no car off-map, no signal violations, all 5,184 (approach, destination) pairs routable, front wheels locked through corners and straight on the straight |
-| **routing** | `tools/taxi.mjs 30` | Given a target, the routed taxi actually **arrives** — while still stopping at every red |
+| **routing** | `tools/taxi.mjs 30` | Given a target, a routed taxi actually **arrives** — while still stopping at every red. The player's taxi is [steered by hand](gameplay.md#steering) now, but the router still budgets every fare's clock, so this stays the check that it works |
 | **eta** | `tools/eta.mjs 40 3` | Fits and grades the trip-time estimator every fare deadline is budgeted from. Runs before the soak: a drifted estimator makes the soak's numbers a measurement of the drift |
 | **fares** | `tools/soak.mjs 25 4 9` | Auto-plays the fare loop over **9 cities × 9 situations** with a fixed "player reaction" delay, and gates on a **band** around the median |
 | **signals** | `tools/signals.mjs` | Throughput, stationary fraction, green-wave hit rate. Informational — it reports rather than fails |
@@ -291,8 +291,14 @@ These are the things that have actually cost time on this project:
 ## Test hook
 
 The tools drive the game through `window.__taxi` (`traffic`, `boost`, `skids`, `police`, `fares`,
-`daylight`, `routeTo`, `findRoute`, `isSelected`, `redraw`) rather than through the DOM. That's what
-makes the suite fast.
+`daylight`, `routeTo`, `findRoute`, `steer`, `isSelected`, `redraw`) rather than through the DOM.
+That's what makes the suite fast.
+
+`steer(dx, dy)` is the swipe controls' hook and takes the gesture in CSS pixels, so a driver
+exercises the whole path rather than just the `car.route` write at the end of it. What the swipe
+*means* is asserted in `probe.mjs` against `steer.js` directly — it is a pure function — and what
+`smoke.mjs` adds is the part only a browser has: that the listener is on the game's canvas, that
+the events a browser really produces reach it, and that the chevron exists in the document.
 
 > Shot mode renders **once** and stops — there is no loop behind a frozen shot. Poking the world
 > over CDP therefore changes nothing on screen until `__taxi.redraw()` is called, and
@@ -308,13 +314,14 @@ Two things about that tool bit once and are worth keeping in mind when adding to
 **It targets `body > canvas`, not `canvas`.** Every rider-finder chip carries its own 38px WebGL
 canvas, inside `#rider-finder-stack` — which sits *earlier* in the DOM than the game's canvas. Once
 a rider was waiting, `querySelector('canvas')` handed back a chip, so every gesture went to a
-38-pixel button in the corner. The drag check failed for it; the tap check *passed* for it, because
-a click on a chip's canvas bubbles to the chip's button and dispatches the taxi anyway.
+38-pixel button in the corner. The gesture check failed for it; the tap check *passed* for it,
+because a click on a chip's canvas bubbles to the chip's own button.
 
-**The camera checks emulate a phone.** Drag-to-pan, both follow-cams and the rider pan are all
-gated under `NARROW_VIEWPORT = 768`, and the tool launches a 900px window — so the drag check was
-asserting a feature that is deliberately switched off there. That half of the run now flips to a
-390×844 viewport with `Emulation.setDeviceMetricsOverride` first.
+**The camera checks emulate a phone.** Both follow-cams and the rider pan are gated under
+`NARROW_VIEWPORT = 768`, and the tool launches a 900px window — so those checks were asserting a
+feature deliberately switched off there. That half of the run now flips to a 390×844 viewport with
+`Emulation.setDeviceMetricsOverride` first. The steering checks share it, since a swipe is a thumb
+gesture and this is the shape of screen it is for.
 
 A third is about reading state back: anything asserted *at the instant of* an input has to be
 gathered inside a single `Runtime.evaluate`, with no `await` in the middle. Split across round

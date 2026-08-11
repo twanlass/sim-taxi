@@ -12,8 +12,12 @@ export const VIEW_DIR = new THREE.Vector3(1, 0.92, 1).normalize();
 const DISTANCE = 400;
 
 // Screen right is world (+X, -Z) for this view direction; screen up is (-X, -Z).
-const RIGHT = new THREE.Vector3(1, 0, -1).normalize();
-const UP = new THREE.Vector3(-1, 0, -1).normalize();
+//
+// Exported because `game/steer.js` reads a swipe the other way round — a screen-space gesture back
+// into a world direction — and the two have to agree by construction rather than by a second copy
+// of these numbers. The pair is orthonormal in the xz-plane, so that inverse is a plain rotation.
+export const RIGHT = new THREE.Vector3(1, 0, -1).normalize();
+export const UP = new THREE.Vector3(-1, 0, -1).normalize();
 
 // A one-shot pan to a point that isn't moving — a tap on a rider-finder chip — as opposed to the
 // two follow-cams, which chase a car. Different problem, different curve. Exponential smoothing has
@@ -163,109 +167,6 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
       if (glide.t >= glide.dur) glide = null;
       return true;
     },
-  };
-}
-
-// A press has to smear a few pixels before it counts as a drag. Below this it is still a tap, and
-// the camera must not creep — on a phone every selection lands with 2-4px of finger travel, and a
-// camera that answers all of it means the map slides a little every time you pick a fare.
-const PAN_SLOP = 8;
-
-// Panning stops with a corner of the city centred. Further than that and the whole map can be
-// pushed off screen, which on a phone is unrecoverable without a landmark to steer back by.
-const PAN_LIMIT = HALF_SPAN;
-
-/**
- * Drag to pan, tap to pick.
- *
- * The camera was fixed on purpose — with the whole city in frame there is nothing to pan *to*, and
- * a pointerdown bound to dragging is exactly what fought tap-to-select in `city-lab`. A phone
- * breaks the premise: in portrait the frustum is sized by height, so the city runs off both sides
- * and half the fares spawn where you cannot see, let alone tap them.
- *
- * So panning is back, but gated on the slop above rather than on pointerdown, and it reports
- * whether the gesture became a drag so the picker can ignore the click that follows one. Callers
- * can pass `isEnabled` to disable panning on wide viewports where the whole city already fits —
- * kept as a live check so a resize re-enables it without a reload.
- *
- * `onPan` fires once per gesture, on the frame it crosses the slop. It is how the opening
- * follow-cam knows the player has taken the framing over — a swipe is the player saying they want
- * to look somewhere, and nothing should drag them back off it.
- */
-export function attachDragPan(controller, domElement, getAspect, isEnabled = () => true,
-  onPan = () => {}) {
-  let drag = null;
-  let panned = false;
-  let clearPanned = null;
-
-  function panBy(right, up) {
-    // A finger on the map beats a pan already in flight. Cancelled here rather than from the
-    // `onPan` handover callback so it holds for every caller of panBy, not just the drag that
-    // happens to cross the slop.
-    controller.cancelGlide();
-    const target = controller.state.target;
-    target.addScaledVector(RIGHT, right).addScaledVector(UP, up);
-    target.x = THREE.MathUtils.clamp(target.x, -PAN_LIMIT, PAN_LIMIT);
-    target.z = THREE.MathUtils.clamp(target.z, -PAN_LIMIT, PAN_LIMIT);
-    controller.update(getAspect());
-  }
-
-  domElement.addEventListener('pointerdown', (event) => {
-    // Single finger only. A second touch belongs to a pinch, and feeding it into the same
-    // drag makes the map jump to wherever that finger landed.
-    if (!event.isPrimary) return;
-    if (!isEnabled()) return;
-    clearTimeout(clearPanned);
-    drag = { x: event.clientX, y: event.clientY, moved: 0 };
-    panned = false;
-    domElement.setPointerCapture(event.pointerId);
-  });
-
-  const release = () => {
-    drag = null;
-    // `panned` has to survive the click the browser synthesises right after this release — that's
-    // the whole point, so a drag ending over a fare doesn't also route the taxi at it. But past that
-    // one click it was only ever cleared by the *next* pointerdown on this element, and a tap that
-    // lands somewhere else fixed on top of the canvas (the tutorial bubble, a rider-finder chip)
-    // never sends this element one. That left `didPan()` reporting a swipe from minutes ago as
-    // still in progress, and every later tap on those elements got silently read as the tail of a
-    // drag and ignored — including the tap meant to dismiss the tutorial. Queued as a fresh task
-    // rather than cleared here: pointerup -> click dispatch synchronously in the same task, so the
-    // one click this is protecting still sees `panned` true; anything after that is a new tap.
-    if (panned) clearPanned = setTimeout(() => { panned = false; }, 0);
-  };
-  domElement.addEventListener('pointerup', release);
-  domElement.addEventListener('pointercancel', release);
-
-  domElement.addEventListener('pointermove', (event) => {
-    if (!drag || !event.isPrimary) return;
-    const dx = event.clientX - drag.x;
-    const dy = event.clientY - drag.y;
-    drag.moved += Math.hypot(dx, dy);
-    drag.x = event.clientX;
-    drag.y = event.clientY;
-    if (drag.moved < PAN_SLOP) return;
-
-    // First frame past the slop is the moment the gesture becomes a drag; `panned` is reset on
-    // every pointerdown, so this is once per gesture rather than once per move event.
-    if (!panned) onPan();
-    panned = true;
-    // World units per pixel falls straight out of the orthographic frustum: its height is
-    // exactly 2 * zoom, whatever the aspect ratio. Vertical isn't drag-the-map: swipe up pans
-    // the camera up (revealing what's above), swipe down pans it down — on a phone this reads
-    // as "scroll to see more" rather than shoving the ground around.
-    const scale = (controller.state.zoom * 2) / domElement.clientHeight;
-    panBy(-dx * scale, dy * scale);
-  });
-
-  return {
-    /**
-     * True if the gesture that just ended was a drag. Stays true until the next pointerdown, which
-     * is long enough to cover the `click` the browser synthesises after a mouse drag — a drag that
-     * ends over a fare must not also route the taxi at it.
-     */
-    didPan: () => panned,
-    panBy,
   };
 }
 

@@ -42,32 +42,30 @@ that the car reads as leading the camera. Neither has a gate on the way *out*: t
 wherever it landed rather than snapping back.
 
 - **The opening follow**, at rate **1.5**. A run starts with the camera trailing the taxi and keeps
-  doing it until the player takes the framing over — a swipe past `PAN_SLOP`, or a tap on a
-  rider-finder chip. It exists for the same reason drag-to-pan does: in portrait the fixed framing
-  has already given up, so a run otherwise opens with the taxi off-screen and the player's first job
-  is hunting for their own car. Gentler than the boost chase because it is ambient and runs for as
-  long as it is left alone — at 1.5 the camera drifts after the taxi rather than locking to it, and
-  a turn at the edge of frame doesn't whip the city round.
+  doing it until the player aims the framing somewhere themselves — a tap on a rider-finder chip, or
+  on a pin. It exists because in portrait the fixed framing has already given up: a run would
+  otherwise open with the taxi off-screen and the player's first job would be hunting for their own
+  car. Gentler than the boost chase because it is ambient and runs for as long as it is left alone —
+  at 1.5 the camera drifts after the taxi rather than locking to it, and a turn at the edge of frame
+  doesn't whip the city round.
 - **Loco Mode**, at rate **3.2**, which outranks it. Active only while `boost.isActive()`, and it
-  ignores the player's takeover: a drag during boost is quietly overridden on the next frame, because
-  panning is a planning gesture and boost is the opposite.
+  ignores the player's takeover: a pan started before the boost is quietly overridden on the next
+  frame, because looking around is a planning gesture and boost is the opposite.
 
-`attachDragPan` reports the takeover through an `onPan` callback, fired once per gesture on the frame
-it crosses the slop — the same boundary that separates a tap from a drag. Both halves are asserted
-headless in `tools/probe.mjs` against a stub element: a few pixels of finger travel must leave the
-camera alone, and a real swipe must report exactly once.
+Desktop gets neither. The whole city is in frame at all times there, so a follow would slide the map
+around under a player who could already see everything.
 
-Desktop gets neither. The whole city is in frame at all times there, and drag-to-pan is switched off
-above `NARROW_VIEWPORT` — so a follow would slide the map around under a player with no way to stop
-it.
+**Steering does not take the camera over**, and that is the one rule that changed when the swipe
+became a control. It used to: a swipe was `attachDragPan`'s drag-to-pan, the one concession the
+fixed camera made to a phone, and a player who had aimed the map somewhere deliberately should not
+have it towed back. A swipe is now an instruction to the *car*, and the whole job of the follow is
+to keep that car on screen — handing the framing away every time the player turned a corner would
+leave them driving off the edge of their own view.
 
-**Drag-to-pan is the one concession**, and a phone is what forced it: the frustum is sized by
-*height*, so in portrait the city runs off both sides and half the fares spawn where you cannot
-see them. `attachDragPan` only treats a press as a drag once it has moved `PAN_SLOP = 8px` — below
-that it stays a tap, because on a phone every selection lands with a few pixels of finger travel
-and a camera that answers all of it slides the map every time you pick a fare. It reports
-`didPan()` so the picker can swallow the click that closes out a drag, and it clamps the target to
-`HALF_SPAN`, so the map can never be pushed off screen with nothing left to steer back by.
+Drag-to-pan went with it: one gesture cannot mean both "look over there" and "turn left at the next
+junction", and of the two the one that drives the car has to win. See
+[gameplay.md](gameplay.md#steering). What the pan was for is now split between the follow-cam and
+the rider pan below.
 
 ### The rider pan
 
@@ -93,15 +91,18 @@ into a snap or a long one leaving the player watching the camera with a clock dr
 ceiling binds past 112 units; the city's full diagonal is 141.
 
 It sits at the **bottom of the camera priority list** — wreck focus, then the two follows, then this
-— and it is *dropped*, not paused, by anything above it: `followXZ` and `focusOn` both clear it, as
-does `panBy`, so a finger on the map wins on the frame it lands rather than fighting a tween that is
-still writing the target. The tap that starts a pan also takes the camera over, so the opening
-follow is out of the way for the whole flight. The **dispatch doesn't wait for the pan** — the fare's
-clock is draining, so the taxi leaves on the tap.
+— and it is *dropped*, not paused, by anything above it: `followXZ` and `focusOn` both clear it, so
+a chase or a wreck wins on the frame it starts rather than fighting a tween that is still writing
+the target. The tap that starts a pan also takes the camera over, so the opening follow is out of
+the way for the whole flight.
+
+It is also now the **only** camera control the player has, which raises what it is carrying: with
+steering owning the swipe, "show me where they are" has nowhere else to go. It no longer dispatches
+the taxi as well — where the car goes is the player's.
 
 `tools/probe.mjs` asserts the ease-in (first frame moves far less than a linear step), the exact
-arrival and self-retirement, the distance-scaled duration and both clamps, and that a drag mid-pan
-kills it.
+arrival and self-retirement, the distance-scaled duration and both clamps, and that cancelling
+mid-pan stops it dead where it stood.
 
 The `VIEW_DIR` diagonal has consequences elsewhere: screen-up is world `(-1, 0, -1)`, which is why
 riders are placed on the `-X-Z` kerb of a junction — the block on the `+X+Z` side sits between the

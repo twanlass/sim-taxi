@@ -1,9 +1,17 @@
 /**
  * One auto-played run, shared by `soak.mjs` and `difficulty-sweep.mjs`.
  *
- * Simulates a perfect player: routes the taxi the instant a fare appears or changes hands, with a
- * configurable reaction delay. A real player is strictly slower than this, so a run length here is
- * the *ceiling* — how long the game can be survived, not how long it usually is.
+ * Simulates a perfect *router*: sends the taxi at a fare the instant one appears or changes hands,
+ * with a configurable reaction delay, and lets it drive the whole planned route. A real player is
+ * strictly slower than this, so a run length here is the *ceiling* — how long the game can be
+ * survived, not how long it usually is.
+ *
+ * That ceiling got further away from the floor when the game moved to
+ * [swipe steering](../docs/gameplay.md#steering). This harness is no longer even approximately the
+ * person playing: it takes the optimal route at every junction where they take whichever one they
+ * managed to swipe for in time. What it still measures honestly is the *ramp* — the clocks are
+ * budgeted from exactly this router, so a change that makes them tighter shows up here — and that
+ * is what soak.mjs gates on. Read the absolute numbers as a bound, not as a difficulty.
  *
  * It lives in its own module because two tools now drive it and a copied harness is a harness that
  * drifts: the sweep's job is to compare tunings against the soak's number, which only means
@@ -102,8 +110,8 @@ export function play(runSeed, citySeed, { fares: FARES = 40, reaction: REACTION 
     const job = nextJob();
     if (events.length && job && job !== pending && !job.directed) {
       pending = job;
-      // The drop-off leg costs the player nothing: the game routes the taxi there itself on the
-      // pickup frame (main.js:dispatchToDropoff), so the only reaction a run pays for is on the
+      // The drop-off leg costs the player nothing here: the harness routes on at the drop-off on
+      // the pickup frame, so the only reaction a run pays for is on the
       // kerbside legs — deciding which rider to grab, which is the decision the game is about.
       reactIn = job.stage === 'riding' ? 0 : REACTION;
       taxi.route = [];

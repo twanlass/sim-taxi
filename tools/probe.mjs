@@ -40,13 +40,15 @@ import {
 import {
   createCarGhosts, GHOST_RADIUS, MAX_GHOSTS, GHOST_OPACITY,
 } from '../src/game/carghosts.js';
-import { createCityCamera, attachDragPan, VIEW_DIR } from '../src/game/camera.js';
+import { createCityCamera, VIEW_DIR } from '../src/game/camera.js';
+import { createSwipe } from '../src/game/swipe.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath } from '../src/game/routeline.js';
-import { findRoute, allIntersections } from '../src/game/route.js';
+import { findRoute, allIntersections, legalDirsFrom } from '../src/game/route.js';
+import { snapToDir, resolveSteer } from '../src/game/steer.js';
 import { PALETTE } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
 import { createBlast } from '../src/game/blast.js';
@@ -606,7 +608,7 @@ check('no two cars occupy the same space', worst > 1.6,
     xTraffic.update(1 / 60);
     for (const { type, fare } of fares.update(1 / 60, xTraffic.taxi)) {
       if (type !== 'pickup') continue;
-      // The drop-off dispatches itself, same as dispatchToDropoff in main.js.
+      // Route on at the drop-off, the way shot mode still does.
       const r = findRoute(planOrigin(xTraffic.taxi), fare.target);
       if (r) { xTraffic.taxi.route = r; xTraffic.taxi.routeConsumed = false; fares.markDirected(fare); }
     }
@@ -1425,6 +1427,157 @@ for (const from of ints) {
 check('every intersection is routable from every approach', unroutable === 0,
   `${ints.length * ints.length * 4} pairs, longest ${longest} turns`);
 
+// --- Swipe steering ---------------------------------------------------------
+// The whole control scheme, from screen pixels to a car that actually turns. Split in two because
+// the halves fail differently: the mapping is a pure function that is either right or upside down,
+// and the driving is a sim behaviour that can be right in isolation and wrong in traffic.
+
+// The mapping. Every grid direction projects onto a screen *diagonal* under this camera, so these
+// four gestures are the whole vocabulary — and if the basis in camera.js ever moves, this is what
+// says so rather than a player discovering that left is now up.
+{
+  const names = ['+X', '+Z', '-X', '-Z'];
+  const DIAGONALS = [
+    { name: 'up-right', dx: 1, dy: -1, want: 3 },
+    { name: 'down-right', dx: 1, dy: 1, want: 0 },
+    { name: 'down-left', dx: -1, dy: 1, want: 1 },
+    { name: 'up-left', dx: -1, dy: -1, want: 2 },
+  ];
+  const wrong = DIAGONALS.filter((g) => snapToDir(g.dx, g.dy) !== g.want);
+  check('each screen diagonal maps to its grid direction', wrong.length === 0,
+    wrong.map((g) => `${g.name} -> ${names[snapToDir(g.dx, g.dy)]}`).join(', ') || '4/4');
+
+  // Heading +X (screen down-right). Right of it is +Z (down-left on screen), left is -Z (up-right).
+  const ALL = [0, 1, 2, 3];
+  check('a swipe along the heading is Loco Mode, not a turn',
+    resolveSteer(1, 1, 0, ALL).kind === 'boost');
+  check('a swipe behind the car is refused', resolveSteer(-1, -1, 0, ALL).kind === 'refused');
+  check('a swipe to the left of the heading turns left',
+    resolveSteer(1, -1, 0, ALL).dir === leftOf(0));
+  check('a swipe to the right of the heading turns right',
+    resolveSteer(-1, 1, 0, ALL).dir === rightOf(0));
+
+  // Loco Mode is decided before legality, so it still answers on the approach to a junction the
+  // car cannot carry straight on through. Gating it on the exits made the mode silently
+  // unavailable exactly where a player is most likely to reach for it.
+  check('Loco Mode is offered even where straight is not an exit',
+    resolveSteer(1, 1, 0, [1, 3]).kind === 'boost');
+
+  // The sector boundaries fall on the screen cardinals, which is where a thumb naturally goes. A
+  // swipe straight up is 45 degrees off both -X and -Z; with only one of them a road, the gesture
+  // is unambiguous in the only sense that matters and must not be refused for being on a line the
+  // player cannot see. Heading +Z here, so neither candidate is the heading or a U-turn.
+  const upOnlyNX = resolveSteer(0, -1, 1, [2]);
+  const upOnlyNZ = resolveSteer(0, -1, 1, [3]);
+  check('a boundary swipe resolves toward whichever neighbour is a road',
+    upOnlyNX.dir === 2 && upOnlyNZ.dir === 3,
+    `only -X -> ${names[upOnlyNX.dir]}, only -Z -> ${names[upOnlyNZ.dir]}`);
+  check('a swipe with no road anywhere near it is refused',
+    resolveSteer(0, -1, 1, [1]).kind === 'refused');
+}
+
+// The driving. A swiped turn is handed to the sim as a one-step route, which is the entire
+// integration: no new branch at the junction, and `route.shift()` clears the intent the frame the
+// turn commits. What can go wrong is subtler than "it didn't turn" — a route planned from the
+// wrong origin executes one junction late, and `planOrigin` is the only thing standing between the
+// player's swipe and that.
+{
+  const sScene = new THREE.Scene();
+  const sTraffic = createTraffic(makeRng(seed + 44), sScene, CARS_DEFAULT);
+  const sTaxi = sTraffic.taxi;
+  sTaxi.coastStraight = true;
+  sTraffic.warmup(5);
+
+  let asked = 0;
+  let obeyed = 0;
+  let coasted = 0;
+  let wandered = 0;
+  let pending = null;
+
+  // Alternate: steer at one junction, coast through the next. Both halves are being asserted, and
+  // interleaving them is what catches a route that survives its own junction — which would show up
+  // as the coast leg turning too.
+  for (let step = 0; step < 240 * 60; step++) {
+    const before = { state: sTaxi.state, i: sTaxi.i, j: sTaxi.j };
+    sTraffic.update(1 / 60);
+
+    // The frame the car commits to a turn is the frame to read the answer on: `dOut` is set then,
+    // and `route` has already been shifted empty.
+    if (before.state !== 'turn' && sTaxi.state === 'turn') {
+      if (pending !== null) {
+        if (sTaxi.dOut === pending) obeyed += 1;
+        pending = null;
+      } else if (sTaxi.dOut === sTaxi.d) {
+        coasted += 1;
+      } else {
+        // Carrying straight on was legal here and the car turned anyway. Only counted when it was
+        // an option — the ring and the map edge genuinely force a turn.
+        const straight = legalDirsFrom({ i: before.i, j: before.j, d: sTaxi.d }).includes(sTaxi.d);
+        if (straight) wandered += 1;
+      }
+      continue;
+    }
+
+    // Ask for a turn only from a clean approach, and only every other junction.
+    if (pending === null && sTaxi.state === 'drive' && asked === obeyed && obeyed < 40
+      && coasted > asked) {
+      const from = planOrigin(sTaxi);
+      const turn = legalDirsFrom(from).find((d) => d !== from.d);
+      if (turn !== undefined) {
+        sTaxi.route = [turn];
+        sTaxi.routeConsumed = false;
+        pending = turn;
+        asked += 1;
+      }
+    }
+  }
+
+  check('a swiped turn is taken at the very next junction', asked > 10 && obeyed === asked,
+    `${obeyed}/${asked} obeyed`);
+  check('a swiped turn never desyncs from the network', sTraffic.stats.routeDesync === 0,
+    `${sTraffic.stats.routeDesync} desyncs`);
+  check('an unsteered taxi carries straight on rather than turning at random',
+    coasted > 20 && wandered === 0, `${coasted} straight, ${wandered} random turns`);
+}
+
+// Drive-by pickup. With the player steering, `directed` has nothing left to protect against — but
+// the one-seat rule it was smuggling in does, and it lived in `markDirected`, which drive-by never
+// calls. A taxi that collects a second rider off one seat is the failure this catches.
+{
+  const dScene = new THREE.Scene();
+  const dTraffic = createTraffic(makeRng(seed + 44), dScene, CARS_DEFAULT);
+  const dFares = createFareSystem(makeRng(seed + 55), dScene);
+  const dTaxi = dTraffic.taxi;
+  dTaxi.coastStraight = true;
+  dFares.setRequireDirected(false);
+  dTraffic.warmup(5);
+
+  let pickups = 0;
+  let aboardAtOnce = 0;
+  let elapsed = 0;
+
+  // The "player" here steers by route rather than by pixels — the mapping is asserted above, and
+  // what this scenario is about is the arrival rule. Nothing is ever marked directed.
+  while (elapsed < 240 && !dFares.state.gameOver && dFares.state.delivered < 2) {
+    const job = dFares.carrying() ?? dFares.waiting();
+    if (job && dTaxi.state === 'drive' && !dTaxi.route.length) {
+      const r = findRoute(planOrigin(dTaxi), job.target);
+      if (r?.length) { dTaxi.route = [r[0]]; dTaxi.routeConsumed = false; }
+    }
+    dTraffic.update(1 / 60);
+    for (const { type } of dFares.update(1 / 60, dTaxi)) if (type === 'pickup') pickups += 1;
+    aboardAtOnce = Math.max(aboardAtOnce,
+      dFares.state.fares.filter((f) => f.stage === 'riding').length);
+    elapsed += 1 / 60;
+  }
+
+  check('a fare resolves for a hand-steered taxi with nothing marked directed',
+    dFares.state.delivered >= 1 && pickups >= 1 && !dFares.state.fares.some((f) => f.directed),
+    `${pickups} picked up, ${dFares.state.delivered} delivered in ${elapsed.toFixed(0)}s`);
+  check('drive-by pickup still honours the one seat', aboardAtOnce <= 1,
+    `peak ${aboardAtOnce} aboard`);
+}
+
 // --- The drawn route band --------------------------------------------------
 // The band is paint on the lane the taxi will drive, so it has to (a) stay on the tarmac,
 // (b) sit in the *right-hand* lane on every straight, and (c) never re-shape ahead of the car.
@@ -1577,10 +1730,10 @@ check('the taxi is an ordinary car in the traffic array',
     `${sFares.state.delivered} delivered after ${elapsed.toFixed(1)}s`);
 }
 
-// --- The drop-off dispatches itself ----------------------------------------
-// The player taps riders on the kerb and nothing else — no drop-off is ever tapped in this
-// run — and a delivery still has to land. Mirrors main.js:dispatchToDropoff, which routes at the
-// drop-off on the pickup frame instead of parking the taxi for a confirming tap.
+// --- Routing from a pickup frame -------------------------------------------
+// The tap-to-route scheme, which the game no longer plays but shot mode still drives and every tool
+// in this suite is written against: the "player" taps riders on the kerb and nothing else, and a
+// delivery still has to land off a route planned at the drop-off on the pickup frame.
 //
 // The pickup frame is the awkward one and the reason this is asserted rather than assumed: the
 // taxi is *inside* the junction when the rider boards (measured: `state === 'turn'` at every
@@ -2350,61 +2503,77 @@ check('the taxi is an ordinary car in the traffic array',
     `rig ${(rigLock * 180 / Math.PI).toFixed(0)}° vs model ${(chaseLock * 180 / Math.PI).toFixed(0)}°`);
 }
 
-// --- The pan gesture, and the opening follow-cam it hands off from ----------
-// A run opens with the camera trailing the taxi and stops the moment the player swipes, so the
-// whole handover hangs on `attachDragPan` deciding a press *became* a drag — the same 8px boundary
-// that decides tap-versus-pan. Both halves are silent when wrong: a slop that fires too eagerly
-// takes the camera off the taxi on the finger travel of an ordinary tap, and one that never fires
-// leaves the follow towing the map back off wherever the player just swiped to.
+// --- The swipe gesture ------------------------------------------------------
+// The recogniser, on its own. Everything above tests what a swipe *means*; this tests when one is
+// declared to have happened, and both of its failure modes are silent. Too eager and the couple of
+// pixels an ordinary tap smears by turns the taxi at the next junction; too reluctant and the
+// control simply does not answer, which a player reads as the game being broken rather than as a
+// threshold being wrong.
 //
-// This runs on a stub element rather than a DOM, which is enough: attachDragPan only ever calls
-// addEventListener, setPointerCapture and clientHeight on it.
+// A stub element rather than a DOM, which is enough: createSwipe only ever calls addEventListener
+// and setPointerCapture on it.
 {
   const listeners = new Map();
   const el = {
-    clientHeight: 800,
     addEventListener: (type, fn) => listeners.set(type, [...(listeners.get(type) ?? []), fn]),
     setPointerCapture: () => {},
     releasePointerCapture: () => {},
   };
   const fire = (type, x, y) => {
-    for (const fn of listeners.get(type) ?? []) fn({ isPrimary: true, pointerId: 1, clientX: x, clientY: y });
+    for (const fn of listeners.get(type) ?? []) {
+      fn({ isPrimary: true, pointerId: 1, clientX: x, clientY: y });
+    }
   };
 
-  const cam = createCityCamera(1.5, { zoom: 52 });
-  let released = 0;
-  const dragPan = attachDragPan(cam, el, () => 1.5, () => true, () => { released += 1; });
+  const swipes = [];
+  const swipe = createSwipe(el, (dx, dy, ox, oy) => swipes.push({ dx, dy, ox, oy }));
 
-  // A tap with a few pixels of finger travel: still a tap. Nothing moves, and the follow-cam keeps
-  // the taxi — this is the case that made a fixed camera necessary in the first place.
-  const before = cam.state.target.clone();
+  // A tap with a few pixels of finger travel is still a tap: it must reach the picker, and it must
+  // not steer. This is the case a phone produces on literally every touch.
   fire('pointerdown', 400, 300);
   fire('pointermove', 402, 301);
   fire('pointermove', 403, 302);
   fire('pointerup', 403, 302);
-  check('a tap leaves the camera alone', released === 0 && !dragPan.didPan()
-    && cam.state.target.equals(before), `${released} releases`);
+  check('a tap is not a swipe', swipes.length === 0 && !swipe.didSwipe());
 
-  // A real swipe: the map moves and the player owns the framing from here.
+  // A real one. Reported as the displacement from where the finger went down, together with that
+  // origin — the chevron is drawn there, and steer.js reads the direction off the delta.
   fire('pointerdown', 400, 300);
-  fire('pointermove', 430, 340);
-  fire('pointermove', 470, 380);
-  fire('pointerup', 470, 380);
-  check('a swipe hands the camera to the player', released === 1 && dragPan.didPan()
-    && !cam.state.target.equals(before), `${released} releases`);
-  // Once per gesture, not once per move event — the callback is what a run's opening follow-cam is
-  // switched off by, and a second one arriving mid-drag would be a bug hidden by idempotence.
-  fire('pointerdown', 400, 300);
-  fire('pointermove', 460, 360);
-  fire('pointermove', 480, 380);
-  fire('pointerup', 480, 380);
-  check('each swipe reports once', released === 2, `${released} releases over 2 swipes`);
+  fire('pointermove', 410, 310);   // 14px — still short of SWIPE_MIN
+  fire('pointermove', 440, 340);
+  const first = swipes[0];
+  check('a swipe reports its delta and its origin', swipes.length === 1
+    && first?.dx === 40 && first?.dy === 40 && first?.ox === 400 && first?.oy === 300,
+    first ? `d(${first.dx},${first.dy}) from (${first.ox},${first.oy})` : 'never fired');
 
-  // --- The rider pan ---------------------------------------------------------
-  // A tap on a rider-finder chip pans the camera to that rider instead of cutting to them. All of
-  // this is invisible in a screenshot — a pan and a snap render identically once they've landed —
-  // and the failure mode is a curve that technically arrives while reading as a teleport, so the
-  // shape of the move is what gets asserted, not just the destination.
+  // Once per gesture. It fires mid-drag rather than on release — a junction is decided over 8.6
+  // units of road, which is 1.0s at cruise and 0.37s at the overdrive top, so a control that waited
+  // for the finger to lift would spend a good slice of it doing nothing — and a finger that keeps
+  // moving after that must not keep re-steering the car.
+  fire('pointermove', 500, 400);
+  fire('pointermove', 300, 200);
+  check('a swipe fires once, not once per move event', swipes.length === 1,
+    `${swipes.length} for one gesture`);
+
+  // `didSwipe` has to survive the click the browser synthesises on release, which is what stops a
+  // gesture that ended over a rider also counting as a tap on them — and then clear itself, or
+  // every later tap on the tutorial bubble reads as the tail of a swipe from minutes ago.
+  check('a swipe is still reported through the click it synthesises', swipe.didSwipe());
+  fire('pointerup', 300, 200);
+  check('a swipe is still reported through the click it synthesises (after release)',
+    swipe.didSwipe());
+  await new Promise((resolve) => { setTimeout(resolve, 0); });
+  check('a swipe stops being reported once that click has passed', !swipe.didSwipe());
+}
+
+// --- The rider pan -----------------------------------------------------------
+// A tap on a rider-finder chip pans the camera to that rider instead of cutting to them. It is the
+// one camera control the player still has now that steering owns the swipe, so it carries the whole
+// of "show me where they are". All of this is invisible in a screenshot — a pan and a snap render
+// identically once they've landed — and the failure mode is a curve that technically arrives while
+// reading as a teleport, so the shape of the move is what gets asserted, not just the destination.
+{
+  const cam = createCityCamera(1.5, { zoom: 52 });
   const STEP = 1 / 60;
 
   // Eased *in*, which is the whole reason this isn't the follow-cams' exponential smoothing: that
@@ -2460,19 +2629,17 @@ check('the taxi is an ordinary car in the traffic array',
   check('a rider pan clamps to the map like a drag does',
     Math.abs(cam.state.target.x - HALF_SPAN) < 1e-9, `landed at x=${cam.state.target.x.toFixed(2)}`);
 
-  // A finger on the map wins immediately. A tween still writing the target every frame would drag
-  // the city back out from under the drag that interrupted it.
+  // Cancelling wins immediately, and leaves the camera exactly where it had got to. A tween still
+  // writing the target for one more frame would slide the city out from under whatever took over.
   cam.cancelGlide();
   cam.state.target.set(0, 0, 0);
   cam.glideTo(40, 0);
   cam.updateGlide(STEP, 1.5);
-  fire('pointerdown', 400, 300);
-  fire('pointermove', 440, 350);
-  fire('pointerup', 440, 350);
-  const afterDrag = cam.state.target.clone();
+  const atCancel = cam.state.target.clone();
+  cam.cancelGlide();
   const stillPanning = cam.updateGlide(STEP, 1.5);
-  check('a drag kills a pan in flight',
-    !stillPanning && !cam.isGliding() && cam.state.target.equals(afterDrag),
+  check('cancelling a pan stops it dead where it stood',
+    !stillPanning && !cam.isGliding() && cam.state.target.equals(atCancel),
     stillPanning ? 'the pan kept writing the target' : 'ok');
 
   // Same for the follow-cams: a boost chase or a wreck focus starting mid-pan takes the camera
@@ -3769,11 +3936,13 @@ check('the taxi is an ordinary car in the traffic array',
   }
 
   // --- Steering the player into it ------------------------------------------
-  // The player cannot drive. They tap a rider and the taxi routes itself, so unless the router is
-  // told to like the closed street the whole vignette is scenery the game never visits — measured
-  // at 33% of runs before this, 96% after (tools/roadwork-pull.mjs). Two mechanisms do it, and both
-  // fail silently: a discount that never reaches `laneCost` changes nothing, and a drop-off hint
-  // that is quietly dropped changes nothing either.
+  // Both halves of the pull, and both fail silently: a discount that never reaches `laneCost`
+  // changes nothing, and a drop-off hint that is quietly dropped changes nothing either. Measured
+  // at 33% of runs before them and 96% after (tools/roadwork-pull.mjs) — against a taxi that routed
+  // itself, which is no longer how the game is played. The aimed drop-off is the half that still
+  // pulls; the discount now only moves the *clock*, since the route it cheapens is the one
+  // `estimateSeconds` bills rather than the one the taxi drives. Both are still asserted: the
+  // wiring is what breaks silently, and it is the same wiring either way.
   {
     const ends = [closed[0].edge.a, closed[0].edge.b].map((id) => net.nodeById.get(id));
     const junctions = [...net.nodeById.values()].map((n) => ({ i: n.gi, j: n.gj }));

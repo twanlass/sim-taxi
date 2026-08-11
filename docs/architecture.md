@@ -25,8 +25,11 @@ src/
   game/                 the player's layer
     fares.js            fare state machine, spawning, scoring
     difficulty.js       the ramp: one scalar, and every knob hung off it
-    route.js            Dijkstra over the road network's lanes, road-hierarchy weights
-    routeline.js        the route band painted down the taxi's lane
+    route.js            Dijkstra over the road network's lanes — now the fare clocks' budget,
+                        not the taxi's plan
+    routeline.js        the route band painted down the taxi's lane (shot mode only)
+    swipe.js            the steering gesture: pointer events in, one instruction out
+    steer.js            what a swipe means — screen pixels to a grid direction
     pick.js             raycast click picking
     faremarker.js       the fare clock, as a physical object: kerb, flight, taxi
     boost.js            crazy-taxi duty cycle (a pure clock, no scene knowledge)
@@ -169,8 +172,14 @@ isn't caching anything.
 ## Testing hooks
 
 `main.js` exposes `window.__taxi` with `traffic`, `boost`, `skids`, `police`, `fares`, `daylight`,
-`routeTo`, `findRoute`, `isSelected`, `flyover` and `redraw`. The headless tools in `tools/` drive the game
-through this instead of through the DOM, which is what makes the whole suite run in about a second.
+`routeTo`, `findRoute`, `steer`, `isSelected`, `flyover` and `redraw`. The headless tools in `tools/`
+drive the game through this instead of through the DOM, which is what makes the whole suite run in
+about a second.
+
+`steer(dx, dy)` takes a swipe in CSS pixels with DOM axes and runs the whole control path — screen
+vector, direction, legality, one-step route — rather than only the `car.route` write at the end of
+it, which is the part least likely to be wrong. `routeTo` is still there: the router did not go
+anywhere, it just stopped driving the taxi (see [gameplay.md](gameplay.md#steering)).
 
 `redraw()` draws one frame on demand. Shot mode never starts the render loop — it warms the sim,
 renders once and stops — so a shot poked from the console or over CDP keeps showing the frame it

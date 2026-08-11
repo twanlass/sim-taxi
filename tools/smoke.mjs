@@ -120,9 +120,9 @@ try {
   // `body > canvas` rather than `canvas`. The game's canvas is appended to the body, but every
   // rider-finder chip carries a 38px WebGL canvas of its own inside `#rider-finder-stack`, which
   // is *earlier* in the DOM — so as soon as a rider is waiting, a bare `querySelector('canvas')`
-  // hands back a chip. Every gesture below was landing on that: the drag check failed because
-  // `attachDragPan` never saw the events, and the tap check passed for the wrong reason, since a
-  // click on a chip's canvas bubbles to the chip's button and dispatches the taxi anyway.
+  // hands back a chip. Every gesture below was landing on that: the gesture check failed because
+  // the game's own listener never saw the events, and the tap check passed for the wrong reason,
+  // since a click on a chip's canvas bubbles to the chip's own button.
   const GAME_CANVAS = "document.querySelector('body > canvas')";
 
   const clickAt = async (pt) => {
@@ -139,13 +139,16 @@ try {
   await clickAt({ x: 12, y: 12 });
   check('selection cannot be turned off', await evaluate('window.__taxi.isSelected()'));
 
-  // --- Tap the fare marker: it should produce a route.
+  // --- Tap the fare marker: it must *not* drive the taxi anywhere. The tap that used to dispatch
+  // is gone — the player steers — and a picker still quietly routing would be the old scheme
+  // surviving underneath the new one, which nothing headless would notice because main.js is the
+  // only place the two are wired together.
   const targetPt = JSON.parse(await evaluate('JSON.stringify(window.__taxi.targetScreenPosition())'));
   await clickAt(targetPt);
-
-  const routeLen = await evaluate('window.__taxi.traffic.taxi.route.length');
-  const hasTarget = await evaluate('Boolean(window.__taxi.traffic.taxi.pendingTarget)');
-  check('tapping the fare routes the taxi', hasTarget, `route ${routeLen} turns`);
+  check('tapping a rider no longer routes the taxi',
+    (await evaluate('window.__taxi.traffic.taxi.route.length')) === 0
+    && !(await evaluate('Boolean(window.__taxi.traffic.taxi.pendingTarget)')),
+    `route ${await evaluate('window.__taxi.traffic.taxi.route.length')} turns`);
 
   // --- The taxi should be consuming that route as it drives.
   // Poll rather than sample a fixed window: the taxi may be legitimately stopped at a red for
@@ -172,14 +175,14 @@ try {
     { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await sleep(300);   // a resize has to reach the renderer before a gesture means anything
 
-  // --- Drag pans, tap does not. The two share one gesture, so both halves need asserting: this
-  // is the check that would catch drag-panning eating taps, which is what sank the first attempt
-  // at a movable camera here. (The old version of this check compared a literal against null and
-  // could not fail.)
   const camTarget = () => evaluate(
     'JSON.stringify(window.__taxi.camera.state.target.toArray())');
 
-  const dragFrom = async (x, y, dx, dy) => {
+  // --- Swiping steers. The gesture itself is asserted in tools/probe.mjs against a stub element;
+  // what only a real browser can say is that it is bound to the *game's* canvas, that the events a
+  // browser actually produces reach it, and that the chevron the player reads the answer off is in
+  // the document at all. All three are invisible to the node suite and each has a silent failure.
+  const swipeFrom = async (x, y, dx, dy) => {
     await evaluate(`(() => {
       const c = ${GAME_CANVAS};
       const ev = (type, cx, cy) => c.dispatchEvent(new PointerEvent(type, {
@@ -192,14 +195,32 @@ try {
     await sleep(200);
   };
 
-  const beforeDrag = await camTarget();
-  await dragFrom(200, 420, 120, 80);
-  check('dragging pans the camera', (await camTarget()) !== beforeDrag);
+  // A press that never crosses SWIPE_MIN is a tap, and must steer nothing. This is the check that
+  // would catch a threshold low enough for the 2-4px an ordinary selection smears by to turn the
+  // car — the phone-side version of the bug drag-to-pan had.
+  await evaluate('window.__taxi.traffic.taxi.route.length = 0');
+  await swipeFrom(200, 420, 3, 2);
+  check('a tap does not steer', (await evaluate('window.__taxi.traffic.taxi.route.length')) === 0);
 
-  // A press that never crosses the slop must leave the camera exactly where it was.
-  const beforeTap = await camTarget();
-  await dragFrom(200, 420, 3, 2);
-  check('a tap does not pan the camera', (await camTarget()) === beforeTap);
+  // Every grid direction projects onto a screen diagonal, and which diagonals are turns depends on
+  // which way the taxi happens to be pointing — so walk all four and take the first that lands a
+  // turn. One of them always does: the two flanking a heading are its left and its right, and a
+  // junction with neither is a dead end, which this city has none of.
+  let steered = 0;
+  for (const [dx, dy] of [[90, -90], [90, 90], [-90, 90], [-90, -90]]) {
+    await evaluate('window.__taxi.traffic.taxi.route.length = 0');
+    await swipeFrom(200, 420, dx, dy);
+    steered = await evaluate('window.__taxi.traffic.taxi.route.length');
+    if (steered > 0) break;
+  }
+  // Exactly one step, never more. The route is the player's next turn and nothing beyond it; a
+  // length above one would mean something had planned ahead on their behalf.
+  check('swiping steers the taxi', steered === 1, `route ${steered} turns`);
+
+  // The chevron is the whole of the swipe's feedback, and it is pure CSS in index.html — a renamed
+  // class or a missing element loses it with nothing thrown anywhere.
+  check('the swipe leaves a chevron on screen', await evaluate(
+    "Boolean(document.getElementById('steer')?.classList.contains('is-on'))"));
 
   // --- Tapping a rider-finder chip pans the camera to that rider rather than cutting to them.
   // The curve itself is covered in tools/probe.mjs; what only a browser can check is the wiring —

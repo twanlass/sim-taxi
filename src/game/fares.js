@@ -365,6 +365,16 @@ export function createFareSystem(rng, scene) {
   let dropoffHint = null;
 
   /**
+   * Whether an arrival has to have been asked for. See the arrival test in `update`.
+   *
+   * Defaults on, which is the tap-to-route rule, so every headless tool keeps the behaviour it was
+   * written against — `probe.mjs`, `autoplay.mjs` and `taxi.mjs` all drive `taxi.route` and
+   * `markDirected` straight at the sim and never go through main.js. The swipe controls turn it
+   * off, and that is the one caller that does.
+   */
+  let requireDirected = true;
+
+  /**
    * Take the hint if one of its junctions is a legal drop-off for a fare picked up at `spot`, and
    * clear it either way. Returns null when there is nothing usable, which puts the caller back on
    * the ordinary unbiased draw.
@@ -431,9 +441,8 @@ export function createFareSystem(rng, scene) {
    * current slack.
    *
    * The chain is what the taxi is *forced* to do before it can finish this fare — and that is
-   * only ever the rider already aboard. You cannot take a kerbside fare while carrying one
-   * (`markDirected` refuses), and the drop-off dispatches itself, so a carried rider is a
-   * commitment the new arrival has to wait behind whether the player likes it or not. This is the
+   * only ever the rider already aboard. There is one seat, so a carried rider is a commitment the
+   * new arrival has to wait behind whether the player likes it or not. This is the
    * cost `SECOND_FARE_RANGE` and friends used to dodge by placing extras near the current
    * drop-off; budgeting it is what lets the placement rules relax.
    *
@@ -479,8 +488,8 @@ export function createFareSystem(rng, scene) {
 
   function budgetFor(taxiCar, pickup, dropoff, vip = false) {
     const stops = [];
-    // The rider aboard is a commitment: you cannot take a kerbside fare while carrying one
-    // (`markDirected` refuses) and the drop-off dispatches itself.
+    // The rider aboard is a commitment: one seat, so nobody else can be collected until they are
+    // out of it.
     const riding = carrying();
     if (riding) stops.push(riding.dropoff);
     // Then everyone already on the kerb, most urgent first — the same order `waiting()` hands
@@ -842,9 +851,22 @@ export function createFareSystem(rng, scene) {
         return events;
       }
 
-      // Proximity resolves the arrival, but only for a taxi the player actually sent here. No
-      // extra confirmation tap is needed on arrival — the tap that set the route is the intent.
-      if (!fare.directed || distanceToTarget(fare, taxiCar) >= ARRIVE_RADIUS) continue;
+      if (distanceToTarget(fare, taxiCar) >= ARRIVE_RADIUS) continue;
+
+      // Proximity resolves the arrival, but under the tap-to-route controls only for a taxi the
+      // player actually sent here. No extra confirmation tap is needed on arrival — the tap that
+      // set the route is the intent.
+      //
+      // Hand steering removes the question the rule was answering. `directed` exists because a taxi
+      // taking random turns wanders into a pin by itself — 11 of 40 seeds completed a drop-off with
+      // no tap at all — and a player driving the car has, by construction, driven it here on
+      // purpose. What the rule still has to carry across is the **one seat**, which was enforced in
+      // `markDirected` and is therefore enforced nowhere at all once nothing calls it.
+      if (requireDirected) {
+        if (!fare.directed) continue;
+      } else if (fare.stage === 'waiting' && carrying()) {
+        continue;
+      }
 
       if (fare.stage === 'waiting') {
         beginRide(fare);
@@ -941,6 +963,8 @@ export function createFareSystem(rng, scene) {
     update,
     /** Freeze/unfreeze every fare's countdown. See `paused` on the state above. */
     setPaused: (paused) => { state.paused = paused; },
+    /** Drop the "the player must have sent the taxi here" rule. See `requireDirected`. */
+    setRequireDirected: (required) => { requireDirected = required; },
     crash,
     pickables,
     fareFor,
