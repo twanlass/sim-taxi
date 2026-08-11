@@ -403,6 +403,38 @@ try {
     await fetch(`http://127.0.0.1:${PORT}/json/close/${ios.id}`).catch(() => {});
   }
 
+  // --- The high-score table survives a real page load.
+  //
+  // `tools/scores.mjs` covers the ranking and every way storage can misbehave, but it does that
+  // against a fake store — so the one thing it cannot prove is that the real `localStorage` round
+  // trip works in a browser. That is the whole feature: a score written on one load has to be
+  // there on the next. Done over `__taxi.scores` rather than by playing a run to its end, which
+  // would take a minute of wall clock to assert a persistence property that has nothing to do
+  // with how the run finished.
+  {
+    await evaluate(`(() => {
+      window.__taxi.scores.clear();
+      window.__taxi.scores.record({ cash: 321, fares: 7, seconds: 140, shift: 'Busy' })
+        .setName('SMK');
+    })()`);
+    check('a score lands in real localStorage',
+      (await evaluate('window.__taxi.scores.load()[0]?.name')) === 'SMK');
+
+    await client.send('Page.reload');
+    let reloaded = false;
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      if (await evaluate('Boolean(window.__taxi?.scores)').catch(() => false)) { reloaded = true; break; }
+      await sleep(300);
+    }
+    const kept = reloaded ? await evaluate('window.__taxi.scores.load()[0]?.cash') : null;
+    check('and is still there after a reload', kept === 321, reloaded ? `cash ${kept}` : 'page never came back');
+
+    // Leave nothing behind: the offline check below reloads this same page, and a table seeded by
+    // the smoke test is not something a later run should find sitting there.
+    await evaluate('window.__taxi.scores.clear()');
+  }
+
   // --- Offline: a Home Screen launch has to work with no connection at all. This only proves
   // anything run against a built preview (`--url http://localhost:4173`) — the worker registration
   // in main.js is skipped under `import.meta.env.DEV` on purpose, since the dev server rewrites

@@ -168,7 +168,6 @@
       #run-end .run-end-stats {
         display: grid; grid-template-columns: 1fr auto; width: 100%;
         column-gap: clamp(12px, 2.4vh, 20px); row-gap: clamp(8px, 2.3vh, 16px);
-        margin-top: clamp(12px, 3.8vh, 30px);
       }
       /* The wrapper exists so the reveal can animate a stat as a unit; `display: contents` drops it
          out of the layout so its label and value are grid items of the row above, which is what
@@ -197,9 +196,125 @@
          and the column stays put while a row counts. */
       #run-end .stat-value { font-variant-numeric: tabular-nums; }
 
+      /* The slot the three screens take turns in: the stats, the initials prompt and the table.
+         `runend.js` locks a min-height onto it from the stats' own rendered height, so a card
+         centred by `margin: auto` doesn't re-centre — and drag the title up and down the screen —
+         each time a shorter screen swaps in. The margin lives here rather than on any one screen so
+         all three sit at the same distance under the reason. */
+      #run-end .run-end-body {
+        /* Doubled from `clamp(12px, 3.8vh, 30px)`. Doubled at the *cap*, which is what governs on
+           any ordinary viewport, rather than by doubling the `vh` term too: that spends the extra
+           space hardest exactly where there is least of it, and it put "Play again" under the fold
+           on a 390px-tall landscape phone. Measured — retry bottom 366 of 390 and the overlay
+           scrolling — which is the one thing this card's clamps exist to prevent. */
+        width: 100%; margin-top: clamp(14px, 5.2vh, 60px);
+        display: flex; flex-direction: column; justify-content: center;
+      }
+
+      /* --- The initials prompt ------------------------------------------- */
+
+      #run-end .score-entry { display: flex; flex-direction: column; align-items: center; }
+      /* The headline of this screen — "New high score!" is the reward, so it is set at the stats'
+         own weight rather than as a caption over the field. */
+      #run-end .score-entry-lead {
+        font-size: clamp(19px, min(3.9vh, 7.2vw), 30px); font-weight: 800; color: #F5C130;
+        line-height: 1.15; white-space: nowrap;
+      }
+      #run-end .score-entry-hint {
+        margin-top: 6px; font-size: clamp(14px, 2.6vh, 17px); font-weight: 500; opacity: 0.62;
+      }
+
+      /* Three fixed boxes with one transparent <input> stretched over them — see `buildEntry` in
+         runend.js for why it is one field and not three, and why the letters are painted into spans
+         rather than letter-spaced inside the input. */
+      #run-end .score-slots {
+        position: relative; display: flex; gap: clamp(8px, 1.8vh, 14px);
+        margin-top: clamp(12px, 2.6vh, 20px);
+      }
+      #run-end .score-cell {
+        width: clamp(42px, 8.4vh, 62px); padding-bottom: 4px;
+        font-size: clamp(30px, 6.2vh, 46px); font-weight: 800; line-height: 1.1; text-align: center;
+        color: #F5C130; border-bottom: 3px solid rgba(245, 193, 48, 0.3);
+        /* An empty cell would collapse to zero height and the underlines would sit at three
+           different heights as the name is typed. */
+        min-height: 1.1em;
+      }
+      #run-end .score-cell.is-filled { border-bottom-color: rgba(245, 193, 48, 0.55); }
+      /* The caret. The real one is hidden with the input, so the active slot's underline is what
+         says where the next letter lands. */
+      #run-end .score-cell.is-active {
+        border-bottom-color: #F5C130; animation: score-caret 1.06s steps(1, end) infinite;
+      }
+      @keyframes score-caret { 0%, 50% { border-bottom-color: #F5C130; } 50.01%, 100% { border-bottom-color: rgba(245, 193, 48, 0.25); } }
+
+      #run-end .score-input {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        background: none; border: 0; padding: 0; margin: 0; outline: none;
+        /* Invisible, but genuinely present and focusable: the cells behind it are the display, and
+           laying it over all three means a tap anywhere on them opens the keyboard. */
+        opacity: 0; color: transparent; caret-color: transparent;
+        /* 16px is the threshold under which iOS Safari zooms the page on focus, which on a fixed
+           full-screen overlay leaves the card scrolled somewhere the player didn't put it. */
+        font-size: 16px;
+        text-align: center; cursor: text;
+      }
+
+      /* Secondary to "Play again": this one only confirms three letters, so it is outlined rather
+         than filled, and the yellow pill stays the one action that restarts the game. */
+      #run-end .score-ok {
+        margin-top: clamp(14px, 3vh, 24px); padding: 10px 30px; border-radius: 999px;
+        cursor: pointer; border: 2px solid #F5C130; background: none; color: #F5C130;
+        font: 800 16px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        letter-spacing: 0.02em;
+      }
+      #run-end .score-ok:active { transform: scale(0.95); }
+
+      /* --- The table ------------------------------------------------------ */
+
+      #run-end .score-board { width: 100%; }
+      /* Left-aligned, over the left edge of the list it heads. Centred, it floated free of a block
+         whose own columns start hard against that edge, and read as a caption for the card rather
+         than a label on the table. */
+      #run-end .score-board-title {
+        font-size: clamp(14px, 2.6vh, 17px); font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase; opacity: 0.55; text-align: left;
+        margin-bottom: clamp(8px, 2vh, 14px);
+      }
+      /* Same `display: contents` grid as the stats: the <li> drops out of the layout so every
+         column lands on one straight edge down the block. Name takes the slack so the score stays
+         flush right whatever the initials are. */
+      #run-end .score-list {
+        display: grid; grid-template-columns: auto 1fr auto; width: 100%;
+        column-gap: clamp(10px, 2.2vh, 18px); row-gap: clamp(6px, 1.8vh, 12px);
+        list-style: none; margin: 0; padding: 0;
+      }
+      #run-end .score-row { display: contents; }
+      /* A notch under the stats' type: there are five of these rather than four, and they are a
+         reference table rather than the run's own headline figures. */
+      #run-end .score-row > span {
+        font-size: clamp(16px, min(3.1vh, 5.6vw), 23px); font-weight: 800; line-height: 1.2;
+        color: rgba(255, 255, 255, 0.82); white-space: nowrap;
+      }
+      /* Left, not right. With one digit in every rank for a five-row table the two edges are the
+         same line anyway, and aligning left keeps the numbering against the block's own edge with
+         the heading above it. */
+      #run-end .score-rank { text-align: left; color: rgba(255, 255, 255, 0.4); }
+      /* Explicitly left, against the rank beside it. The card centres its text, so without this the
+         name floated in the middle of a `1fr` column with a gap either side of it and the row read
+         as three unrelated things rather than as "1. TWA — $500". */
+      #run-end .score-name { text-align: left; letter-spacing: 0.06em; }
+      #run-end .score-cash { text-align: right; font-variant-numeric: tabular-nums; }
+      /* The run that just ended, in the taxi's own yellow. Picked out by id rather than by rank —
+         a run that ties an existing score sits below it, so matching on the number lights the
+         wrong row. */
+      #run-end .score-row.is-you > span { color: #F5C130; }
+      #run-end .score-row.is-you .score-rank { color: rgba(245, 193, 48, 0.7); }
+
       /* Same pill treatment as #boost — the retry action reads as the primary yellow button. */
       #run-end .retry {
-        margin-top: clamp(14px, 3.5vh, 28px); padding: 14px 26px; border-radius: 999px; cursor: pointer;
+        /* Doubled from `clamp(14px, 3.5vh, 28px)`, the same way as `.run-end-body` above and for
+           the same reason — the two gaps are paid on the same axis and a short viewport pays both. */
+        margin-top: clamp(16px, 4.9vh, 56px); padding: 14px 26px; border-radius: 999px; cursor: pointer;
         border: 2px solid #16120a; background: #F5C130; color: #16120a;
         font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
         letter-spacing: 0.02em; white-space: nowrap;

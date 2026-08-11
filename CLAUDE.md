@@ -62,10 +62,11 @@ down.
 
 ## Traps that have bitten before
 
-- **Don't name a file `beacon.js`** (or an element `#banner`). Ad blockers match those against
-  filter lists — `ERR_BLOCKED_BY_CLIENT` takes the whole module graph down. Hence `#run-end`
-  rather than `#banner`, and why the rider's shaft of light was `lightshaft.js` for as long as it
-  existed.
+- **Don't name a file `beacon.js`** (or an element `#banner`, or anything `leaderboard`). Ad
+  blockers match those against filter lists — `leaderboard` is the IAB's name for a 728×90 ad unit
+  — and `ERR_BLOCKED_BY_CLIENT` takes the whole module graph down. Hence `#run-end` rather than
+  `#banner`, `highscores.js` rather than `leaderboard.js`, and why the rider's shaft of light was
+  `lightshaft.js` for as long as it existed.
 - **`car.state === 'turn'` includes going straight through a junction.** A real turn is
   `car.dOut !== car.d` (or `car.turn.hand !== 'straight'`). This is not a one-off gotcha: reading it
   as "is turning" is what made the overtake refuse every leader that happened to be inside a

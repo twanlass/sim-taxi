@@ -23,6 +23,7 @@ import { createFlyover } from './game/flyover.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { showRunEnd } from './game/runend.js';
+import { recordRun, lastName, clearScores, loadScores } from './game/highscores.js';
 import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
@@ -817,6 +818,50 @@ function formatRunTime(seconds) {
   return `${Math.floor(total / 60)}:${String(secs).padStart(2, '0')}s`;
 }
 
+/**
+ * Whether this run is allowed onto the high-score table.
+ *
+ * Not every run is the same game. A pinned difficulty, a pinned car count, a fare clock dragged
+ * around in the ⚙️ panel or a shot-mode framing all change what a dollar is worth, and a table with
+ * a tuning session sitting at the top of it is worth nothing to the player who earned row two
+ * honestly. Every one of these is already a signal the game keeps for its own reasons; this just
+ * reads them together.
+ *
+ * The stats still show on an unranked run — it happened, and it is still worth a curtain call. It
+ * simply isn't recorded, and the screen goes straight from the tally to Play again.
+ */
+function isRankedRun() {
+  // `difficulty.getPinned()` rather than `getDifficultyPin()`: the URL flag is only one of the two
+  // ways the curve gets pinned, and the ⚙️ panel's slider — the one anybody actually reaches for —
+  // calls `pinDifficulty` directly without touching the URL. Reading the live state catches both.
+  return !shot && pinnedCars === null && difficulty.getPinned() === null && !isFareClockPinned();
+}
+
+/**
+ * Offer the finished run to the table and build what the run-end screen needs to show it.
+ *
+ * Returns `null` when there is nothing to show — an unranked run, or a browser with no storage,
+ * where an empty "Leaderboard" heading would be a promise the game cannot keep.
+ */
+function collectScores() {
+  if (!isRankedRun()) return null;
+  const s = fares.state;
+  const result = recordRun({
+    cash: s.money,
+    fares: s.delivered,
+    seconds: s.elapsed,
+    shift: difficulty.shiftFor(s.delivered).name,
+  });
+  if (!result.entries.length) return null;
+  return {
+    entries: result.entries,
+    rank: result.rank,
+    id: result.id,
+    name: lastName(),
+    onName: result.setName,
+  };
+}
+
 function updateHud(dt) {
   const s = fares.state;
 
@@ -858,6 +903,11 @@ function updateHud(dt) {
           format: (n) => difficulty.SHIFTS[Math.max(0, n - 1)].name },
         { label: 'Cash', value: s.money, format: (n) => `$${n}` },
       ],
+      // Recorded here rather than the moment the run ended, so the write happens on the frame the
+      // screen is actually built — a bust holds this block for up to BUST_BANNER_MAX while the
+      // cruiser closes, and a score saved during that hold would be sitting in storage before the
+      // player had been told the run was over.
+      scores: collectScores(),
       onRetry: () => location.reload(),
     });
     document.body.classList.add('game-over');
@@ -1477,6 +1527,7 @@ if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) 
     fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds, isPinned: isFareClockPinned },
     routeLine,
     ao,
+    scores: { load: loadScores, clear: clearScores },
   });
 }
 
@@ -1495,6 +1546,13 @@ window.__taxi = {
   findRoute,
   camera: controller,
   isSelected: () => selected,
+  /**
+   * The high-score table, for `tools/smoke.mjs` — the node suite drives `game/highscores.js`
+   * against a fake store, so this is the only place the *real* `localStorage` round trip is
+   * exercised. `isRanked` is exposed alongside it because "why did my run not save?" is otherwise
+   * a silent answer spread over four URL flags.
+   */
+  scores: { load: loadScores, record: recordRun, clear: clearScores, isRanked: isRankedRun },
   /**
    * Draw one frame on demand.
    *
