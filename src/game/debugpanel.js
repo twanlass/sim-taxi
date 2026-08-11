@@ -47,7 +47,12 @@ const clockLabel = (hour) => {
   return `${String(h).padStart(2, '0')}:${m}`;
 };
 
-export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, routeLine, ao }) {
+export function createDebugPanel({
+  sun, hemi, sky, daylight, fares, carCount, routeLine, ao,
+  // `{ load, clear }` over game/highscores.js. Defaulted so the panel still constructs in the
+  // `npm run check` boot pass, which builds it against nothing.
+  scores = { load: () => [], clear: () => {} },
+}) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
   toggle.type = 'button';
@@ -239,6 +244,34 @@ export function createDebugPanel({ sun, hemi, sky, daylight, fares, carCount, ro
 
   actions.append(restart, newRun);
   panel.append(actions);
+
+  // --- Scores ---------------------------------------------------------------
+  // The wipe lives here rather than on the run-end card. It is the only destructive control in the
+  // game, and the one place the player is guaranteed to be looking at their scores is the screen
+  // whose primary action is a big yellow "Play again" — putting "Clear" next to it is a misclick
+  // that cannot be undone. Behind the ⚙️ it has to be gone looking for.
+  heading('Scores');
+
+  const wipe = document.createElement('button');
+  wipe.type = 'button';
+  wipe.className = 'dbg-wide';
+  const showCount = () => {
+    const kept = scores.load().length;
+    wipe.textContent = kept ? `Clear ${kept} score${kept === 1 ? '' : 's'}` : 'No scores yet';
+    wipe.disabled = kept === 0;
+  };
+  wipe.addEventListener('click', () => {
+    scores.clear();
+    showCount();
+  });
+  showCount();
+  // Re-read on every open. The count is the only readout here that something *outside* the panel
+  // can change: a run scored since the panel was built leaves the button reading "No scores yet"
+  // and — worse — still `disabled`, so the wipe silently does nothing. Registered as a second
+  // listener rather than folded into the toggle above, because that handler is defined before this
+  // section exists. It runs after it, so `panel.hidden` is already the new state.
+  toggle.addEventListener('click', () => { if (!panel.hidden) showCount(); });
+  panel.append(wipe);
 
   // --- Export ---------------------------------------------------------------
   // Reads live objects rather than the slider positions, so it captures manual overrides too —

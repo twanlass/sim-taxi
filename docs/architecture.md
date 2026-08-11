@@ -43,7 +43,8 @@ src/
     vanish.js           shrink-and-fade for wrecked bodywork, so it is consumed not deleted
     carghosts.js        occluded-only outlines on the traffic nearest the taxi, faded in with boost
     flyover.js          the ambient plane that crosses the city every so often — scenery, nothing more
-    runend.js           the run-end blackout: stats counted out a row at a time
+    runend.js           the run-end blackout: stats counted out, then initials, then the table
+    highscores.js       the local top five — localStorage is the whole backend
     homescreen.js       the iOS-only "add it to your Home Screen" screen; parks the run while up
 
   geometry/             one-off models, all procedural

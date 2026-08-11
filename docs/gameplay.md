@@ -992,8 +992,9 @@ transition into Loco Mode and not on a re-press during a boost that's already ru
 
 `src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
 clock hitting zero, a collision, a police bust — and all three land on the same screen: a title, the
-reason, four stats, and **Play again**. The title is set by the caller, so a timeout reads
-**Too Slow!**, a collision reads **Wrecked!**, and a police bust reads **Busted!**.
+reason, the run's four stats, the [high-score table](#high-scores), and **Play again**. The title is
+set by the caller, so a timeout reads **Too Slow!**, a collision reads **Wrecked!**, and a police
+bust reads **Busted!**.
 
 It is a **full-screen blackout**, not a modal over the city. An earlier pass dimmed the world and
 floated a blurred card on top of it, and the card's edges turned out to be the loudest thing on the
@@ -1045,10 +1046,19 @@ doesn't fit, the overlay scrolls — centred by `margin: auto` on the content ra
 **Nothing appears at once.** The card is revealed as a sequence, because the version before this
 one wrote a single line of `innerHTML` and the whole screen arrived in one frame — which reads as
 the game stopping rather than as a scoreboard. The order is title → reason → each stat in turn →
-**Play again**, and each stat's label **scales down** into place as it fades up before its number
-rolls from zero. A number that rolls gets read; a number that is printed gets skipped past on the
-way to the button. The button is last on purpose, appearing only once the final stat has finished
-counting, so the player isn't invited to leave mid-tally.
+the initials prompt, if the run placed → the table → **Play again**, and each stat's label **scales
+down** into place as it fades up before its number rolls from zero. A number that rolls gets read; a
+number that is printed gets skipped past on the way to the button. The button is last on purpose,
+appearing only once the table has landed, so the player isn't invited to leave mid-tally.
+
+**The stats, the prompt and the table are one slot taking turns**, not a list that grows. `#run-end
+.run-end-body` holds whichever screen is current and cross-fades to the next. Stacking them was the
+first shape and it does not fit: a title, a reason, four stat rows, a prompt and five table rows is
+well past what a landscape phone shows at once, and this card's whole layout exists to keep **Play
+again** above the fold. Swapping also makes each beat a screen of its own, which is the point of the
+sequence — read your run, sign it, see where it placed. The slot is pinned to a `min-height` taken
+from the stats' own rendered height, because a card centred by `margin: auto` re-centres on every
+height change, and without the floor the title hopped up and down between beats.
 
 **The stats are counted out one row at a time**, not staggered. A row's label arrives, its number
 rolls, the number lands and pops, and only after a held beat does the next label appear. An earlier
@@ -1061,9 +1071,17 @@ of the constants rather than something to keep re-checking by eye.
 The whole cadence is ~3.5s and lives in the timeline constants at the top of the module rather
 than in CSS keyframe delays, so it can be re-paced from one place and so the sequence works for
 however many stats it is handed. Playing the rows in turn roughly doubled the wait, so **a tap
-anywhere skips to the end** — finishing every animation and landing every number — and the retry
-pill is `disabled` (and so `pointer-events: none`) until then, which both keeps an invisible button
-from reloading the run mid-tally and lets a tap aimed at it fall through to the skip.
+anywhere skips the beat that is running** — finishing its animations and landing its numbers — and
+the retry pill is `disabled` (and so `pointer-events: none`) until then, which both keeps an
+invisible button from reloading the run mid-tally and lets a tap aimed at it fall through to the
+skip.
+
+**The skip is per-beat, not a jump to the end**, and the initials prompt is why. Every other beat is
+on a timer; the prompt is waiting on the *player*, so nothing skips it and no timer runs past it.
+That is why the handler is a single mutable `skip` that each beat installs on its way in and the
+prompt leaves null, rather than one listener that finishes every animation on the screen. The first
+shape landed the whole timeline at once, which blew straight through the field and threw away the
+name being typed into it.
 
 The counters are anchored to their **first animation frame**, not to `performance.now()` at build
 time. A WAAPI animation starts on the frame after `animate()`, and the game-over frame is exactly
@@ -1075,7 +1093,14 @@ one the blackout painted *under* them and a waiting-rider chip stayed lit in the
 game-over screen — and a chip still on top also swallows the tap that skips.
 
 Under `prefers-reduced-motion` the card prints its final values with no entrance and no roll — the
-sequence is the entire module, so there is nothing else to keep.
+sequence is the entire module, so there is nothing else to keep. **The screens stack there instead
+of swapping.** The whole sequence resolves in one frame under reduced motion, so a swap replaced the
+stats with the prompt before the stats had been on screen for a single frame, and a player who
+opted out of animation never saw their own run summary. Reduced motion means no movement, not less
+content: everything is simply present at once and the card scrolls if it has to. The prompt still
+gives way to the table, since a filled-in form sitting above the table it produced is clutter rather
+than content. A high score still has to be signed — the animation is what was opted out of, not the
+chance to put a name on the run.
 
 | Stat | Source | Notes |
 |---|---|---|
@@ -1090,3 +1115,92 @@ the per-car `heldKey` dedup that kept a held red from counting once per frame) a
 conversion were removed along with the rows.
 Nothing in the simulation uses the conversion; it exists so the stat is in a unit a player has a
 feel for.
+
+## High scores
+
+`src/game/highscores.js`, shown on [the run-end screen](#the-run-end-screen). Five runs, on this
+device and nowhere else: no server, no account, no sync. `localStorage` is the whole backend, which
+makes the failure modes the interesting part of the module rather than the ranking.
+
+> **Trap.** It is **not** `leaderboard.js`, and nothing in the DOM is called `.leaderboard`.
+> "Leaderboard" is the IAB's name for a 728×90 ad unit and filter lists carry generic rules against
+> it — the same trap that keeps `beacon.js` and `#banner` out of this codebase. A blocked module
+> takes the whole graph down with `ERR_BLOCKED_BY_CLIENT` and nothing in the console says why.
+
+**Cash is the score**, tie-broken by fares and then by the shorter run. Cash is what the card leads
+with and what the economy is built around; the tie-breaks matter more than they look on a table this
+small, because two runs that both cleared $200 are common, and "more fares for the same money" then
+"in less time" both describe a player who was working harder for it. Ties go to the incumbent — the
+comparator returns 0 and `sort` is stable, so a new run that exactly matches an existing one lands
+*behind* it.
+
+**Five rows, not ten.** The card is capped at 358px and its own layout is already fighting to keep
+**Play again** above the fold on a landscape phone; ten rows loses that fight. Five is also about as
+far back as anyone cares on a table only they will ever see.
+
+### Not every run counts
+
+A pinned difficulty, a pinned car count, a fare clock dragged around in the ⚙️ panel, or shot mode —
+each of them changes what a dollar is worth, and a table with a tuning session sitting at the top of
+it is worth nothing to the player who earned row two honestly. `isRankedRun()` in `main.js` reads
+all four. An unranked run still gets its stats counted out; it just isn't recorded, and the screen
+goes straight from the tally to **Play again** rather than showing a table this run could never have
+joined.
+
+The difficulty check is `difficulty.getPinned()` rather than `getDifficultyPin()` from `util/shot.js`.
+The URL flag is only one of the two ways the curve gets pinned, and the ⚙️ slider — the one anybody
+actually reaches for — calls `pinDifficulty` directly without touching the URL. Reading the live
+state catches both.
+
+### Signing a run
+
+**Any run that makes the top five is asked for three initials**, not only a new number one. A board
+where one row is named and four are `AAA` reads as broken, and a run that climbs from fifth to
+second deserves a name as much as one that takes the top.
+
+- **One `<input maxlength="3">`, not three fields.** One focus target, and backspace, arrows and the
+  mobile keyboard all behave without a line of code. The arcade look comes from three spans painted
+  from the value on every keystroke — letter-spacing a single field into three slots depends on the
+  glyph advance of a font this game does not control (`ui-rounded` is SF Pro Rounded on iOS and
+  something else everywhere it is developed; see the fit-to-width saga in `homescreen.js`), so the
+  underscores drift out from under the letters on any face but the one it was eyeballed against.
+- **`text-transform: uppercase` is not what makes the name uppercase.** That only changes what is
+  painted; the value would still save as typed. `normaliseName` on every `input` event is — it
+  uppercases, drops anything outside `A–Z0–9`, and caps at three. It runs on the way *out* of
+  storage too, so a hand-edited `localStorage` can't put an eleven-character name through the row
+  layout.
+- **The last initials are remembered** under `simtaxi.initials` and pre-filled, so a repeat player
+  confirms rather than retypes. The caret goes to the end of a pre-filled name rather than selecting
+  it, so the first keystroke of someone changing their initials doesn't wipe all three.
+- **The score is written before the prompt, not after it.** The player is being asked to type on a
+  screen they can close at any moment, and a table that only saves once the prompt is answered loses
+  the run of anyone who shuts the tab on it. Naming is an edit to a saved score, not a condition of
+  saving one.
+- iOS only opens the software keyboard inside a user gesture, so `focus()` is best-effort there. The
+  transparent input is stretched over all three cells, which makes a tap anywhere on them a tap on
+  the field — and **OK** is the way out for anyone who would rather not type at all.
+
+### A dead store is an empty table
+
+`localStorage` is not a property you can rely on. Safari's private mode throws `SecurityError` on a
+*write* while reporting a perfectly good object, blocked third-party storage throws on the property
+access itself, and a full quota throws on `setItem`. Every call in the module is guarded and every
+path degrades to "no table", because a game that dies on the game-over screen because a score could
+not be saved is a far worse bug than one that quietly keeps no scores. A store that refuses the
+write still gets a board for that one screen: the run happened and the rank was earned, it just
+won't be there next time.
+
+The store is **injectable**, which is what lets `tools/scores.mjs` drive the whole thing in node
+against a fake — including the throwing cases and a corrupt payload, which is the half of the module
+a browser on the machine this is developed on would never reach. The real `localStorage` round trip
+is covered once, in `tools/smoke.mjs`, by writing a score and reloading the page.
+
+The key is versioned (`simtaxi.scores.v1`) so a future shape change reads as "no scores yet" rather
+than as a crash. **Clearing lives in the ⚙️ panel**, not on the run-end card: it is the only
+destructive control in the game, and putting it next to a big yellow **Play again** is a misclick
+that cannot be undone.
+
+`shift` is stored on each entry and not shown. It is the one fact that tells two otherwise-similar
+runs apart, and the row is too narrow to carry it — four columns is already what fits at the top of
+the font-size clamp — so it is kept only so a future row can show it without orphaning every
+existing score.

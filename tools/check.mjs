@@ -19,7 +19,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
   '../src/game/ssao.js', '../src/game/diag.js', '../src/game/recovery.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
-  '../src/game/tutorial.js'];
+  '../src/game/tutorial.js', '../src/game/highscores.js'];
 
 const TOOLS = [
   // Runs first: it is the control on every later step. If the road network stops describing the
@@ -27,6 +27,9 @@ const TOOLS = [
   { name: 'roadnet', args: ['tools/roadnet.mjs'],      pick: /(\d+\/\d+) checks passed/ },
   { name: 'probe',   args: ['tools/probe.mjs'],        pick: /(\d+\/\d+) checks passed/ },
   { name: 'routing', args: ['tools/taxi.mjs', '30'],   pick: /arrived (\S+)/ },
+  // Pure logic against a fake `localStorage`, so it costs nothing and covers the half of the score
+  // table a browser on this machine never reaches: a store that throws, and a corrupt payload.
+  { name: 'scores',  args: ['tools/scores.mjs'],       pick: /(\d+\/\d+) checks passed/ },
   // Every fare's deadline is budgeted from `estimateSeconds`, so its error is a difficulty knob
   // whether or not anyone tuned it. Runs before the soak: if the estimator has drifted, the soak's
   // numbers are measuring the drift.
