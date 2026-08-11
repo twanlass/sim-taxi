@@ -939,10 +939,10 @@ function truckBoxGeometry() {
 // for the body it rides on. Real headlamp glass reads dark rather than absent when it's off; at
 // this camera's play zoom (1 unit ≈ 7.7px) a 0.2-unit pod is a couple of pixels, and an absent
 // couple of pixels reads the same as a dark one.
-const LIGHT_D = 0.12;                 // fore-aft
-const LIGHT_H = 0.22;
-const LIGHT_W = 0.22;                 // across the car
-const LIGHT_INSET = 0.14;             // in from the flank, so the pod doesn't poke past the body
+const LIGHT_D = 0.16;                 // fore-aft
+const LIGHT_H = 0.32;
+const LIGHT_W = 0.32;                 // across the car
+const LIGHT_INSET = 0.16;             // in from the flank, so the pod doesn't poke past the body
 const LIGHT_Y = 0.55 + CHASSIS_LIFT;  // bumper height
 
 // Emissive intensity for both kinds of light — high enough to read as self-lit day or night, the
