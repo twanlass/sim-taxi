@@ -865,6 +865,16 @@ other car's centre. The two are only a couple of units apart, but that is enough
 blast across both bodies instead of stacking it on the seam between them, and each call carries
 that car's paint, so the shards come apart in two colours and what flies is visibly two cars.
 
+**Two tyres per car get away.** They bounce out of the wreck and roll off down the street on the
+taxi's heading, and they are the only recognisable piece of car in the whole effect — see
+[rendering.md](rendering.md#the-tyres).
+
+**And one collar of smoke around the pair**, at the point between them — `dust.wreckSmoke()`, the
+same lit puffs a barricade throws, tinted grey and rung around the fire rather than trailed off the
+back of a car. It is drawn under the fireball, so the fire keeps the middle, and it outlives it, so
+the last thing on the road is smoke rather than orange. See
+[rendering.md](rendering.md#the-smoke-collar).
+
 It was four effects fired twice each plus a third wave on a `setTimeout`, and a **debris pool per
 car** on top — a pool re-shot its own pieces on every call, so one shared pool would have snapped
 the taxi's wreckage across to the other car's the instant the second burst fired. All of that is

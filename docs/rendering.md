@@ -484,6 +484,18 @@ point is to make speed itself read.
 An earlier version used camera-facing billboards. They sat in the same plane as the road and read
 as flat stickers next to the faceted cars.
 
+**Three effects come out of this one pool** — the boost trail, the wall a barricade throws
+(`burst`, [below](#roadworks--gameroadworkjs-geometryroadworksjs)) and the smoke collar around a
+wreck (`wreckSmoke`, [below](#wreck--gameblastjs-gamevanishjs)) — and the differences between them
+are options on `burst` rather than three sets of hand-picked numbers: `tint`, `ring` (start each
+puff that far out along its own bearing), `linger` (stretch the life) and `startSize` (begin as a
+cloud rather than at a point). `instanceColor` *is* used for the tint, and it is allocated at build
+time by painting every slot white, not left to be created by the first tinted puff — `setColorAt`
+adds `USE_INSTANCING_COLOR` to the material, so a lazy first call would put a shader compile on the
+frame of a crash. **The tint is rewritten on every spawn**, including the untinted ones: the pool is
+a ring buffer shared with the boost trail, and a slot the collar painted grey comes back round half
+a lap later.
+
 ### Loco Mode kickoff — `game/flames.js`, plus a wheelie in `sim/traffic.js`
 
 Two effects on the press that first engages Loco Mode. Fired from `kickLocoMode()` in `main.js`
@@ -505,11 +517,14 @@ running boost doesn't re-fire either.
   same `Math.abs(Math.sin(pitch)) * (CAR_LEN / 2)` so the rear stays on the road as the nose
   comes up.
 
-### Wreck — `game/blast.js`, `game/vanish.js`
+### Wreck — `game/blast.js`, `game/vanish.js`, plus a smoke collar out of `game/dust.js`
 
-The crash is **one call per car** — `blast.fire(x, z, tint)` — and everything it puts on the road
-lives in one module: a shockwave ring on the tarmac, a fireball, and a scatter of shards in that
-car's paint. Three `InstancedMesh`es, about forty live instances at the peak of a two-car wreck.
+The crash is **one call per car** — `blast.fire(x, z, tint)` — and everything *it* puts on the road
+lives in one module: a shockwave ring on the tarmac, a fireball, a scatter of shards in that car's
+paint, and two tyres that bounce out and roll away. Four `InstancedMesh`es, about forty-five live
+instances at the peak of a two-car wreck.
+Around the pair of them goes one call to [`dust.wreckSmoke`](#dust--gamedustjs), which is
+[the collar](#the-smoke-collar) below.
 
 It replaced a stack of four effects (`sparks.js`, `smoke.js`, `debris.js` and a `blast()` half of
 `flames.js`) fired twice each at two points, plus a third wave on a `setTimeout` — roughly sixty
@@ -551,11 +566,91 @@ per instance into plates and chunks, tinted with that car's paint so a two-car w
 two colours. They no longer bounce, settle or come to rest — wreckage on the tarmac is a detail for
 a camera that stays, and this one pulls into a close-up and then cuts to the retry screen.
 
+#### The tyres
+
+Two per car bounce out of the wreck and roll off down the street. They are the one piece of it that
+is **recognisable**: everything else here is an abstraction — a ring, a sphere, a squashed
+tetrahedron — so the eye is told a car came apart without being shown a single part of one. A wheel
+is the part that survives a real wreck intact and the only one small enough to keep moving after it.
+
+It is `wheelGeometry()` out of `geometry/wheels.js` unchanged, not a torus of its own: the wheel
+that rolls away has to be the wheel that was on the car. It arrives with its tyre colour baked into
+the vertex attribute, so this is the one pool here that wants `vertexColors` and doesn't want
+`instanceColor` — a tyre is black on every car in the city.
+
+- **The bounce is a sequence of parabolas, not one.** Each hop launches at `TYRE_BOUNCE` = 0.5 of
+  the last, so the hop times fall away geometrically (0.64s, 0.32s, 0.16s) and the tyre reads as
+  landing, skipping, and settling into a roll. The walk down the hops is **bounded** at
+  `TYRE_HOPS` = 5, past which the hop is under 4cm and the tyre is simply rolling — an unbounded
+  walk would subdivide parabolas forever as the tyre asymptotes onto the road.
+- **It is a curve of `age`, never an integrated velocity**, like the roadworks cones and unlike a
+  physics packet: nothing accumulates, and a slow-motion frame is the same shape as a full-speed
+  one. That matters here more than usual, because a wreck is *seen* in slow motion.
+- **Horizontal travel is closed-form exponential drag**, so the reach is finite and known —
+  `v / TYRE_DRAG`, 11–14 units. It has to outrun the smoke collar, whose own front reaches about 8;
+  a tyre still inside the smoke when it fades never rolled anywhere. And it is spent slowly enough
+  that the tyre is *still moving* when it fades, because one that stops and then disappears is a
+  thing being deleted.
+- **The spin is the distance covered over the radius** — rolling without slipping, taken from the
+  travel rather than picked to look right, which is the difference between a wheel rolling and a
+  disc being spun and slid along. It costs nothing: the distance is already in hand.
+- **The shadow is half of what sells the bounce.** A hop is about a unit of altitude, which at this
+  camera is a couple of dozen pixels of gap opening between the tyre and its own shadow and closing
+  again. Without it the arc reads as a tyre sliding up-screen.
+
+`fire()` takes the **taxi's** heading for both cars and fans one tyre either side of it. The
+momentum that throws anything downfield is the taxi's — the car it hit is doing 8 u/s to the taxi's
+~19 and may not even be pointing the same way. Fanned evenly instead, half the tyres roll back up
+the road the taxi came down, which reads as an explosion rather than as a collision. Note that the
+heading is a **sim yaw**, not a bearing: `sim/traffic.js` builds it as `atan2(-tz, tx)`, so forward
+is `(cos yaw, −sin yaw)` and the bearing the fan is taken about is `−yaw`.
+
+They fade rather than shrinking. A tyre that shrinks is a tyre being taken away; one that thins out
+while it is still moving is one that got away down the street.
+
+#### The smoke collar
+
+Everything above is unlit flat colour, which is what makes it read at this camera — and it is also
+why a fireball on its own is a bright shape that appears and goes away again. The construction
+zone already had the other half: **lit, faceted, billowing puffs**, the one effect in the game that
+looks like something is still happening after the impact is over. `dust.wreckSmoke(x, z)` is that
+burst, tinted and opened out into a ring, fired **once for the pair of cars at the point between
+them**. Two collars, one per fire, would have packed grey into the seam where the two fireballs
+meet, which is the middle of the blast.
+
+It is `renderOrder` 3 against the fireball's 6, so the fire always keeps its own pixels and the
+collar can only ever be *behind* the flame front — which is what lets it start at a radius of 3,
+tucked against the core, and be pushed clear by its own throw. A collar that starts already clear
+of the fire reads as a second, later event.
+
+Four numbers, and none of them is free:
+
+- **`WRECK_START_SIZE = 1.2`**, against the trail's 0.5. The size curve is tuned for dust coming off
+  a tyre, which begins at a point and swells; at the frame the fireball peaks the collar was still
+  at 29% of its size, and two dozen small hard-edged lumps ringing a blast read as **thrown rubble**,
+  not smoke. The end of the curve is unchanged, so only the early frames move.
+- **`WRECK_LINGER = 1.5`**, measured against the fire rather than picked. A fireball puff gets
+  `PUFF_LIFE` 0.95 × up to 1.4 = 1.33s and a burst puff was already on 1.58s — a tenth of a second
+  past the flame, spent at 4% opacity. At 2.4s the last thing on the road after a wreck is smoke
+  rather than orange, which is the whole point of the effect.
+- **The start radius is rolled per puff** (0.55–1.15 × the ring). At one fixed radius the collar is
+  a torus, and once the fire inside it goes out a torus reads as a smoke *ring* — a shape with a
+  deliberate hole in it — rather than as a cloud around a wreck.
+- **`wreckSmoke` in the palette is set against the road, not against `blastSmoke`.** The fireball is
+  unlit, so its smoke stop can be `#4B4B55` and still read; this pool is Lambert and is lying on
+  `asphalt` `#636972`. A sensible smoke grey by eye (`#6E6259`) came out at the same value as the
+  tarmac and vanished for the entire duration of the fire, leaving smoke that only appeared once the
+  flame had gone — the exact opposite of the brief. It ended up at `#C9C2BB`: roughly 1.8× the
+  road's value, and still well short of the dust's pure white, because white here is a dust cloud
+  and this is what is burning.
+
 `vanish.js` owns the disappearance: each shell shrinks and fades into its own fireball over 0.34s
 of sim time rather than being switched off. It steps on the frame's already-slowed `dt`, so it
-runs at the same rate as the blast through the crash slow-mo. See
+runs at the same rate as the blast through the crash slow-mo — as does the collar, which is stepped
+by the same `dust.update(dt)` the boost trail is. See
 [traffic.md](traffic.md#the-wreck) for the rest of the staging, and
-[testing.md](testing.md#screenshots) for `?shot=12`, which stages a real crash and freezes it.
+[testing.md](testing.md#screenshots) for `?shot=12` and `?shot=17`, which stage a real crash and
+freeze it at the fire and at the smoke respectively.
 
 ### Roadworks — `game/roadwork.js`, `geometry/roadworks.js`
 

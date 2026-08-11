@@ -327,7 +327,9 @@ collisions.onImpact(({ x, z, other }) => {
   // wave on a setTimeout, tuned as a simulation; the beat reads better as one graphic bang per
   // car, and the two of them a couple of units apart already give it the spread the follow-up
   // flare was there to fake.
-  blast.fire(x, z, PALETTE.taxiBody);
+  // The taxi's heading goes with it, and both cars get the taxi's: it is what throws the wreckage
+  // downfield, and it is what the tyres roll away along. See `blast.fire`.
+  blast.fire(x, z, PALETTE.taxiBody, traffic.taxi.yaw);
   controller.kickShake(2.4);
 
   // The car that was hit detonates at its own centre rather than at the shared impact point. The
@@ -338,7 +340,15 @@ collisions.onImpact(({ x, z, other }) => {
   // It used to spin out, snap back onto a lane and drive away. A boosting taxi arrives at ~19 u/s
   // and the survivor shrugging that off made the player's own wreck look like a rule rather than
   // a crash.
-  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex]);
+  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex], traffic.taxi.yaw);
+
+  // And a collar of smoke around the pair — the same lit, faceted puffs a barricade throws, tinted
+  // grey and opened out into a ring (see `dust.wreckSmoke`). The fireball is unlit flat colour, so
+  // on its own it is a bright silhouette that appears and is gone; the dust is Lambert and picks up
+  // the sun, which is exactly the contrast that makes the fire read as the hot middle of something
+  // bigger. One call for both cars, at the point between them: two collars would have packed grey
+  // into the seam where the two fireballs meet, which is the middle of the blast.
+  dust.wreckSmoke((x + other.x) / 2, (z + other.z) / 2, traffic.taxi.yaw);
 
   // Both shells collapse into their own fireballs — see game/vanish.js for why they are faded out
   // rather than simply hidden. `wreckShell` also takes each car off the road for good.
@@ -1328,6 +1338,10 @@ if (shot) {
     for (let step = 0; step < Math.round(shot.wreckAt * 60); step++) {
       blast.update(1 / 60);
       vanish.update(1 / 60);
+      // The smoke collar is part of the wreck now, and it lives in the dust pool rather than in
+      // blast.js — left out of this loop, `?shot=12` would freeze a crash with its smoke still
+      // stacked on the impact point at zero age.
+      dust.update(1 / 60);
     }
   }
 
