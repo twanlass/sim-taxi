@@ -944,6 +944,41 @@ tapping a fare is a pinch gesture as far as the browser is concerned. `preventDe
 `pointerdown` is explicitly not a fix for that — `touch-action` is the only thing that suppresses
 it, which is why the canvas has carried `none` all along.
 
+### Spacebar
+
+On a keyboard, **hold Space** — the same hold, for a hand that isn't dragging the mouse into the
+corner. `keydown` and `keyup` on `window` route into the same `holdLocoMode()` / `boost.release()`
+the pill uses, so the wheelie, the flame, the launch rubber, the tutorial dismissal and the fuel
+economy are all one code path with two ways in. Desktop-only by construction rather than by sniffing
+for a desktop: a phone with no keyboard never fires a `keydown`, and a phone *with* one has earned
+it.
+
+Four things it has to get right:
+
+- **`event.code`, not `event.key`.** The physical bar on any layout, and unlike a `key` of `' '` it
+  doesn't need unpicking from the modifiers (Ctrl/Cmd/Alt+Space are the OS's, and are ignored).
+- **Auto-repeat is dropped** (`event.repeat`). `boost.press()` would return `false` on every repeat
+  anyway, so no wheelie stacks — but a held key firing 30 presses a second through the tutorial
+  dismissal and the disabled check is noise the guard costs one line to remove.
+- **It only claims the key when nothing focusable has it.** Space is the browser's own activation
+  key: tabbing to "Play again" and pressing it has to press *that*, so `spaceIsSpokenFor()` bows out
+  when the target is inside an `input`, `button`, `select`, link or contenteditable. The pill itself
+  is the exception, and not an optional one — clicking it once moves focus onto it, and without the
+  exemption the hotkey would go dead for the rest of the run: the browser synthesises a `click`,
+  which nothing here listens for.
+- **The Home Screen tip outranks it.** `game/homescreen.js` dismisses itself on Space and holds the
+  run behind it, so the press that clears that screen must not also spend fuel on a parked taxi —
+  the same `homeTip.state.holding` guard the tutorial uses. Our listener is registered first, so it
+  sees `holding` still true and bows out.
+
+The window `blur` release matters more here than it did for the pointer: a keyup that lands on
+another window never arrives at all, so alt-tabbing mid-hold is the case where blur is the *only*
+end that hold gets. It clears the `spaceHeld` latch too — that latch is what stops a stray keyup
+(one whose keydown we bowed out of) from cancelling a boost the player is holding on the pill.
+
+The pill carries `aria-keyshortcuts="Space"`; there is no painted "SPACE" label on it, because the
+pill is also the fuel dial and the tutorial's third beat points at it.
+
 ### The refill animation
 
 A drop-off pays two currencies and for a while it only showed one. The flying `$20` says *money*;

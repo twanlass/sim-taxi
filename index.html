@@ -911,7 +911,10 @@
     </div>
     <div id="streak"><span id="streak-count">0</span>x</div>
 
-    <button id="boost" type="button" aria-label="Loco Mode">Loco Mode&trade;</button>
+    <!-- `aria-keyshortcuts` is how the spacebar hold announces itself; nothing is painted on the
+         pill, which is already the fuel dial and the tutorial's third target. See main.js. -->
+    <button id="boost" type="button" aria-label="Loco Mode" aria-keyshortcuts="Space"
+      >Loco Mode&trade;</button>
     <div id="rider-finder-stack" role="group" aria-label="Waiting riders"></div>
     <div id="dropoff-indicator" aria-hidden="true" hidden>
       <svg viewBox="-16 -16 32 32">

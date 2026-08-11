@@ -312,7 +312,9 @@ makes the suite fast.
 
 > `tools/smoke.mjs` clicks with synthetic DOM events. CDP's `Input.dispatchMouseEvent` is accepted
 > in this headless config but never produces a DOM click, so it tests nothing. The picker, raycast
-> and listener are covered; Chrome's OS-level input plumbing is not.
+> and listener are covered; Chrome's OS-level input plumbing is not. **Keys are the exception** —
+> `Input.dispatchKeyEvent` does arrive, which is why the [spacebar hold](gameplay.md#spacebar) is
+> checked with real key events and the taps around it are not.
 
 Two things about that tool bit once and are worth keeping in mind when adding to it.
 

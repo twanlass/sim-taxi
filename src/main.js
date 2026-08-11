@@ -952,11 +952,18 @@ function updateBoostButton(dt) {
 function pressBoost(event) {
   if (fares.state.gameOver || boostButton.disabled) return;
   event.preventDefault();
-  // Doing the thing the third bubble is asking for answers it. Called explicitly rather than left
-  // to the tutorial's window-level tap handler, because the preventDefault above can suppress the
-  // click a touch would otherwise synthesise — so on a phone the hint would outstay its own lesson.
-  tutorial?.dismiss();
   boostButton.setPointerCapture?.(event.pointerId);
+  holdLocoMode();
+}
+
+// The press itself, with no idea what pressed it — the pill and the spacebar both land here.
+function holdLocoMode() {
+  if (fares.state.gameOver || boostButton?.disabled) return;
+  // Doing the thing the third bubble is asking for answers it. Called explicitly rather than left
+  // to the tutorial's window-level tap handler, because the preventDefault in either caller can
+  // suppress the click the gesture would otherwise synthesise — so the hint would outstay its own
+  // lesson (on a phone for the pill, on every device for the key, which synthesises nothing).
+  tutorial?.dismiss();
   if (boost.press()) {
     kickLocoMode();
   }
@@ -1000,8 +1007,56 @@ boostButton?.addEventListener('pointerdown', pressBoost);
 boostButton?.addEventListener('pointerup', releaseBoost);
 boostButton?.addEventListener('pointercancel', releaseBoost);
 boostButton?.addEventListener('lostpointercapture', releaseBoost);
-// Alt-tabbing away or switching apps mid-hold should not leave the boost stuck on.
-window.addEventListener('blur', () => boost.release());
+
+// The spacebar is the same hold, for the hand that is already on the keyboard rather than dragging
+// the mouse down to a pill in the corner. Desktop-only by construction rather than by sniffing for
+// a desktop: a phone with no keyboard never fires a keydown, and a phone *with* one has earned it.
+//
+// `event.code`, not `event.key`: the physical bar on any layout, and it survives the modifiers a
+// `key` of ' ' does not distinguish.
+
+// Whether *this* handler started the hold. A keyup it never saw the keydown for — one typed into
+// the initials field, say — must not cancel a boost the player is holding on the pill.
+let spaceHeld = false;
+
+// Space is the browser's own activation key for whatever has focus, and taking it away from a
+// focused control is an accessibility regression — tabbing to "Play again" and pressing space has
+// to press *that*. So the hotkey only claims the key when focus is somewhere inert (the canvas, the
+// body) or on the pill itself, where the two mean the same thing anyway. Without the pill exemption
+// a player who clicked the pill once would have moved focus onto it and lost the hotkey: the
+// browser would synthesise a `click`, which nothing here listens for, and the key would go dead.
+function spaceIsSpokenFor(target) {
+  if (!(target instanceof Element) || target === boostButton) return false;
+  return Boolean(target.closest('input, textarea, select, button, a[href], [contenteditable]'));
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.code !== 'Space' || event.repeat) return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (spaceIsSpokenFor(event.target)) return;
+  // The "Add to Home Screen" screen sits above the run and holds it, and dismisses itself on Space.
+  // Same guard the tutorial uses (`isBlocked`): the press that clears that screen must not also
+  // spend fuel on a taxi that is parked behind it.
+  if (homeTip?.state.holding) return;
+  // Stops the page scrolling under the game, and stops a focused pill turning the keystroke into a
+  // synthesised click on top of the hold this is already starting.
+  event.preventDefault();
+  spaceHeld = true;
+  holdLocoMode();
+});
+
+window.addEventListener('keyup', (event) => {
+  if (event.code !== 'Space' || !spaceHeld) return;
+  spaceHeld = false;
+  boost.release();
+});
+
+// Alt-tabbing away or switching apps mid-hold should not leave the boost stuck on — and a keyup
+// that lands on another window never reaches us at all, so this is the only end that hold gets.
+window.addEventListener('blur', () => {
+  spaceHeld = false;
+  boost.release();
+});
 window.addEventListener('contextmenu', (e) => {
   if (e.target === boostButton) e.preventDefault();
 });

@@ -435,6 +435,85 @@ try {
     await evaluate('window.__taxi.scores.clear()');
   }
 
+  // --- The spacebar holds Loco Mode.
+  //
+  // Here rather than in the node suite because the whole feature is key plumbing: `boost.press()`
+  // is already covered there, and what only a browser can prove is that a real keystroke reaches
+  // it — through the modifier and auto-repeat guards, and through the focus test that decides
+  // whether the key belongs to the game or to whatever control has focus.
+  //
+  // Last of the checks on this page on purpose. Collision detection is armed for the whole of a
+  // boost and its one-second tail, so a burst of speed can legitimately end the run — every check
+  // above wants a live one, and everything below (service worker, offline reload) does not care.
+  // The page was reloaded by the score check just above, so the tank is full-ish and fresh.
+  //
+  // These *are* CDP `Input` events rather than synthetic DOM ones: unlike `dispatchMouseEvent`
+  // (see the tap checks near the top, which this configuration swallows), key events do arrive.
+  {
+    const mode = () => evaluate('window.__taxi.boost.state.mode');
+    const key = (type) => client.send('Input.dispatchKeyEvent', {
+      type, code: 'Space', key: ' ', windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32,
+    });
+
+    const before = await mode();
+    await key('rawKeyDown');
+    await sleep(200);
+    const held = await mode();
+    const engaged = await evaluate('window.__taxi.traffic.taxi.boost');
+    check('space holds Loco Mode', before === 'ready' && held === 'active' && engaged === true,
+      `${before} → ${held}, taxi.boost ${engaged}`);
+
+    await key('keyUp');
+    await sleep(200);
+    const released = await mode();
+    // 'cooldown', not 'ready': releasing passes through the one-second momentum window first.
+    check('and releasing it lets go', released !== 'active', `${held} → ${released}`);
+
+    // Wait out the tail — it is a second of *sim* time, and this page renders in software.
+    let settled = released;
+    for (let attempt = 0; attempt < 40 && settled === 'cooldown'; attempt++) {
+      await sleep(250);
+      settled = await mode();
+    }
+
+    // Space is the browser's own activation key for whatever has focus. A player typing their
+    // initials into the score prompt must not be flooring it with every word break — and the key
+    // has to stay the field's, which means the game must not `preventDefault` one it declined to
+    // act on. The probe listener reads that back: it is registered after the game's, on the same
+    // target and phase, so it sees the decision the game just made.
+    await evaluate(`(() => {
+      const i = document.createElement('input');
+      i.id = 'smoke-focus-probe';
+      document.body.appendChild(i);
+      i.focus();
+      window.__spaceProbe = null;
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') window.__spaceProbe = e.defaultPrevented;
+      }, { once: true });
+    })()`);
+    await key('rawKeyDown');
+    await key('keyUp');
+    await sleep(200);
+    const swallowed = await evaluate('window.__spaceProbe');
+    const whileTyping = await mode();
+    check('a focused text field keeps the key',
+      whileTyping !== 'active' && swallowed === false,
+      `mode ${settled} → ${whileTyping}, key ${swallowed ? 'taken by the game' : 'left alone'}`);
+    await evaluate("document.getElementById('smoke-focus-probe').remove();"
+      + ' delete window.__spaceProbe;');
+
+    // ...but the pill is the one control where the key and the focus mean the same thing, so it
+    // keeps working after a player has clicked it — the case that would otherwise go quietly dead,
+    // since the browser answers a focused button with a synthesised `click` nothing listens for.
+    await evaluate("document.getElementById('boost').focus()");
+    await key('rawKeyDown');
+    await sleep(200);
+    const onPill = await mode();
+    check('the key survives clicking the pill', onPill === 'active', `mode ${onPill}`);
+    await key('keyUp');
+    await evaluate('document.activeElement?.blur()');
+  }
+
   // --- Offline: a Home Screen launch has to work with no connection at all. This only proves
   // anything run against a built preview (`--url http://localhost:4173`) — the worker registration
   // in main.js is skipped under `import.meta.env.DEV` on purpose, since the dev server rewrites
