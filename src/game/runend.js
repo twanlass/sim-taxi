@@ -219,6 +219,71 @@ function buildStats(stats) {
 }
 
 /**
+ * How much shorter the visual viewport has to be than the layout viewport before we treat the
+ * difference as a software keyboard. A URL bar collapsing is worth a few dozen pixels; a keyboard
+ * is worth a third of the screen. 80px is comfortably between the two.
+ */
+const KEYBOARD_MIN = 80;
+
+/**
+ * Keep the overlay inside the *visual* viewport for as long as the initials field has focus, and
+ * keep the prompt itself scrolled into what that leaves.
+ *
+ * iOS does not shrink the layout viewport when the keyboard opens — it slides the visual viewport
+ * up over an unchanged one — so `#run-end`'s `position: fixed; inset: 0` still measures the whole
+ * screen and centres the card on a point behind the keys. Asking for the field to be scrolled into
+ * view (what this used to do, on a 300ms timer) cannot help: the centre of the scroll container
+ * *is* the covered half. So clamp the container to `visualViewport` instead and let the card's
+ * existing `margin: auto` do the centring against the band that is visible.
+ *
+ * Android resizes the layout viewport itself, so there the two viewports agree and the clamp stays
+ * off — applying it anyway would subtract the keyboard's height a second time. The scroll runs
+ * either way, since a card taller than the remaining band still has to be pointed at the prompt.
+ *
+ * Returns the release: it drops the clamp and unhooks the listeners. Removing a focused element
+ * does not reliably fire `blur`, so the commit path calls this too rather than trusting the event.
+ */
+function followKeyboard(root, entry) {
+  const vv = window.visualViewport;
+  if (!vv) return () => {};
+
+  let frame = 0;
+  const apply = () => {
+    if (window.innerHeight - vv.height - vv.offsetTop > KEYBOARD_MIN) {
+      root.style.setProperty('--kb-top', `${vv.offsetTop}px`);
+      root.style.setProperty('--kb-height', `${vv.height}px`);
+      root.classList.add('is-keyboard');
+    } else {
+      root.classList.remove('is-keyboard');
+    }
+    // The clamp only takes effect on the next layout, so the scroll that depends on it waits a
+    // frame — measured against the old box it would scroll to a position that no longer exists.
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      // `nearest`, not `center`. The prompt is short enough to fit the band the keyboard leaves,
+      // and `nearest` is a no-op once it does; `center` on a block that *doesn't* fit pushes its
+      // top edge — the "New high score!" line, the reason the screen exists — off the top.
+      entry.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+    });
+  };
+
+  // The keyboard animates in, and iOS reports the viewport repeatedly on the way; `scroll` is the
+  // one that fires when iOS shifts the visual viewport without changing its height.
+  vv.addEventListener('resize', apply);
+  vv.addEventListener('scroll', apply);
+  apply();
+
+  return () => {
+    cancelAnimationFrame(frame);
+    vv.removeEventListener('resize', apply);
+    vv.removeEventListener('scroll', apply);
+    root.classList.remove('is-keyboard');
+    root.style.removeProperty('--kb-top');
+    root.style.removeProperty('--kb-height');
+  };
+}
+
+/**
  * The initials prompt: three character cells with a real `<input>` laid transparently over them.
  *
  * **One input, not three.** Three fields means three focus targets, a tab order, and hand-written
@@ -235,7 +300,7 @@ function buildStats(stats) {
  * `text-transform: uppercase` is *not* what makes the name uppercase — that only changes what is
  * painted, and the value would still save as typed. `normaliseName` on every input event is.
  */
-function buildEntry(rank, prefill, commit) {
+function buildEntry(root, rank, prefill, commit) {
   const wrap = el('div', 'score-entry');
   const lead = el('p', 'score-entry-lead',
     rank === 1 ? 'New high score!' : `${ORDINALS[rank - 1] ?? `${rank}th`} best run`);
@@ -278,19 +343,26 @@ function buildEntry(rank, prefill, commit) {
     input.value = normaliseName(input.value);
     paint();
   });
+  /** The keyboard clamp's release while the field has focus, `null` when it doesn't. */
+  let release = null;
+  const unfollow = () => { release?.(); release = null; };
+
   input.addEventListener('focus', () => {
     paint();
-    // The software keyboard takes half the screen with it. The card is a scrolling column, so ask
-    // for the field to be brought back into view rather than leaving it under the keyboard.
-    setTimeout(() => slots.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300);
+    unfollow();
+    release = followKeyboard(root, wrap);
   });
-  input.addEventListener('blur', paint);
+  input.addEventListener('blur', () => { paint(); unfollow(); });
+
+  // The screen is leaving, so the overlay goes back to the full viewport before the board arrives
+  // on it — the keyboard is on its way down and nothing after this point wants the clamp.
+  const done = () => { unfollow(); commit(input.value); };
   input.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
-    commit(input.value);
+    done();
   });
-  ok.addEventListener('click', () => commit(input.value));
+  ok.addEventListener('click', done);
 
   paint();
 
@@ -493,7 +565,7 @@ export function showRunEnd(root, { title, reason, stats, scores = null, onRetry 
    */
   function playEntry() {
     let committed = false;
-    const entry = buildEntry(scores.rank, scores.name ?? '', (name) => {
+    const entry = buildEntry(root, scores.rank, scores.name ?? '', (name) => {
       if (committed) return;
       committed = true;
       const updated = scores.onName?.(name);

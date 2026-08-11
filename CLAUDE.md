@@ -101,6 +101,13 @@ down.
   separate spheres, so the box could vanish on a frame the cab survived — a box truck with no box.
   The shadow pass culls against the *sun's* frustum, which covers the whole city, so the shadow kept
   drawing at the real position under the missing truck.
+- **iOS doesn't resize the layout viewport when the software keyboard opens.** It slides a shorter
+  *visual* viewport up over an unchanged one, so a `position: fixed; inset: 0` overlay still measures
+  the whole screen and anything centred in it — the initials prompt did — sits behind the keys.
+  `scrollIntoView` cannot fix it: the centre of that scroll container *is* the covered half. Clamp
+  the container to `visualViewport` instead (`followKeyboard` in `runend.js`), and only when the two
+  viewports actually disagree — Android resizes the layout viewport itself, and clamping on top of
+  that takes the keyboard's height off twice.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

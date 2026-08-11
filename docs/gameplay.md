@@ -1258,6 +1258,32 @@ second deserves a name as much as one that takes the top.
   transparent input is stretched over all three cells, which makes a tap anywhere on them a tap on
   the field — and **OK** is the way out for anyone who would rather not type at all.
 
+**The keyboard is clamped against, not scrolled around.** iOS does not resize the *layout* viewport
+when the software keyboard opens — it slides a shorter *visual* viewport up over an unchanged one —
+so `#run-end`'s `position: fixed; inset: 0` still measures the whole screen and `margin: auto`
+centres the card on a point behind the keys. The first fix was `scrollIntoView({ block: 'center' })`
+on the cells and it could not work: the centre of that scroll container *is* the covered half, so
+the field landed under the keyboard however the scroll went. `followKeyboard` in `runend.js` reads
+`visualViewport` for as long as the field has focus and sets `--kb-top` / `--kb-height` on the
+overlay, and `#run-end.is-keyboard` clamps `top`/`height` to them — the card then re-centres in the
+band that is actually visible, with no change to how it is laid out. Measured on a fake viewport at
+390×844 with a 336px keyboard: the initials sat at y 508, exactly on the keyboard's top edge, and
+**OK** at 572, entirely behind it; clamped they sit at 340 and 404, with the "New high score!" line
+still on screen.
+
+- **The clamp is conditional.** Android *does* resize the layout viewport, so there the two agree
+  and the clamp stays off — applying it anyway would subtract the keyboard's height twice.
+  `KEYBOARD_MIN` (80px) is the gap that counts as a keyboard rather than a URL bar collapsing.
+- **The scroll still runs**, as `block: 'nearest'` on the prompt rather than `center` on the cells:
+  on a short viewport the card can outgrow even the visible band, and `nearest` pins the top of the
+  prompt instead of pushing "New high score!" off the top of it.
+- **The release is called on commit, not just on `blur`.** Removing a focused element does not
+  reliably fire `blur`, and the board arriving inside a card still clamped to half the screen is a
+  worse bug than the one being fixed.
+- The blackout is the clamped element, so it stops painting where the clamp ends — a spread
+  `box-shadow` in the same colour carries the black past it, because iOS sends the first `resize`
+  while the keys are still sliding up and the strip underneath would otherwise flash the live city.
+
 ### A dead store is an empty table
 
 `localStorage` is not a property you can rely on. Safari's private mode throws `SecurityError` on a
