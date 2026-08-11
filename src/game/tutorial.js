@@ -86,6 +86,12 @@ const AVATAR_SIZE = 54;
 // slow enough that the car is legible as a car at every angle.
 const AVATAR_SPIN = (Math.PI * 2) / 5.5;
 
+// Where the taxi avatar is viewed from: the game camera's elevation, on the rider avatar's azimuth.
+// Derived from VIEW_DIR rather than written out, so the two stay the same height above the ground
+// if the city's camera is ever re-pitched — the framing below is computed from that angle. See the
+// note on the camera itself for why the azimuth is the one thing that moves.
+const AVATAR_VIEW = new THREE.Vector3(0, VIEW_DIR.y, Math.hypot(VIEW_DIR.x, VIEW_DIR.z)).normalize();
+
 const prefersReducedMotion = () =>
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
@@ -143,8 +149,26 @@ function createAvatar(sun, hemi) {
   pivot.add(taxi.group);
   scene.add(pivot);
 
-  // Viewed down the game's own camera direction, so the silhouette in the bubble is the silhouette
-  // on the road — which is the entire point of putting the car in the bubble.
+  // Viewed at the game camera's own elevation, so the silhouette in the bubble is the silhouette on
+  // the road — which is the entire point of putting the car in the bubble — but turned 45° around
+  // to the sunlit side.
+  //
+  // It looked straight down VIEW_DIR at first, azimuth and all, and the car came out half black.
+  // The lights here are the city's own (mirrored above), and at the hour the game parks at the sun
+  // sits at azimuth 153°, elevation 28.5° — a horizontal direction of (−0.78, +0.40) in (x, z). A
+  // camera on +X +Z sees the +X faces, and those sit at n·L = −0.78: unlit at every angle of the
+  // spin, so one whole flank of the car was in shadow through the entire turn while the bubble it
+  // sits in is white. Turned to +Z the camera-facing flank is at +0.40 instead, and only the
+  // quadrant past 27° off the axis falls into shadow — 65% of the visible sweep is lit rather than
+  // 40%.
+  //
+  // +Z is not an arbitrary quarter turn: it is the azimuth the rider's camera below already uses
+  // (and the rider-finder chips with it), so both bubbles now stand in the same afternoon at the
+  // same angle to it rather than one facing the sun and one facing away.
+  //
+  // The azimuth is free to move because the car is *spinning*: turning the camera around the Y axis
+  // only offsets the phase of the spin, so every silhouette that used to come round still does. The
+  // elevation is what the framing below is derived from, and that is untouched.
   //
   // Framed on the cylinder the car sweeps as it turns, so nothing clips at any angle of the spin
   // rather than a bumper being sliced off twice a turn. Measured off the built mesh: visible
@@ -160,11 +184,20 @@ function createAvatar(sun, hemi) {
   const CENTRE_Y = 1.0;
   const FIT = 2.9;               // 2.79 plus 4% air
   const camera = new THREE.OrthographicCamera(-FIT, FIT, FIT, -FIT, 0.1, 60);
-  camera.position.set(0, CENTRE_Y, 0).addScaledVector(VIEW_DIR, 20);
+  camera.position.set(0, CENTRE_Y, 0).addScaledVector(AVATAR_VIEW, 20);
   camera.lookAt(0, CENTRE_Y, 0);
 
-  // A parked angle for reduced motion: three-quarters on, which is the most car-shaped view of it.
-  const stillAngle = Math.PI * 0.18;
+  // A parked angle for reduced motion: three-quarters on, which is the most car-shaped view of it —
+  // and, since this one never turns away from it, the best-lit three-quarter rather than any.
+  //
+  // The car is built along X (CAR_LEN), so at rotation r its flank normal is (sin r, cos r) in
+  // (x, z). Facing the camera on +Z wants cos r > 0; catching the sun at (−0.78, +0.40) wants
+  // −0.78·sin r + 0.40·cos r > 0, i.e. r < 27°. −45° sits well inside both: the flank is at 45° to
+  // the camera (a front three-quarter, nose toward the viewer) and at 0.84 of full sun.
+  //
+  // The old +32° was a three-quarter to the old camera and lit at −0.08 — the one pose a player who
+  // asked for less motion would sit and look at, and it was the shadowed side of the car.
+  const stillAngle = -Math.PI / 4;
 
   // The rider: same city sun/hemi as the taxi above, its own synced copy (an Object3D has one
   // parent, so the taxi's lights can't simply be re-added here) — a figure in a tutorial bubble is
