@@ -302,7 +302,7 @@ These are the things that have actually cost time on this project:
 ## Test hook
 
 The tools drive the game through `window.__taxi` (`traffic`, `boost`, `skids`, `police`, `fares`,
-`daylight`, `routeTo`, `findRoute`, `isSelected`, `redraw`) rather than through the DOM. That's what
+`daylight`, `pause`, `routeTo`, `findRoute`, `isSelected`, `redraw`) rather than through the DOM. That's what
 makes the suite fast.
 
 > Shot mode renders **once** and stops — there is no loop behind a frozen shot. Poking the world
