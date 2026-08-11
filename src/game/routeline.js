@@ -20,6 +20,11 @@ import {
  * Now it follows the same lane centreline and the same junction arcs the car itself drives, at
  * lane width. Nothing ahead of the car depends on where the car is, so the band only ever gets
  * *shorter* from behind — it never re-shapes.
+ *
+ * A soft pulse of brightness rolls along the band toward the destination, so a glance tells you
+ * which way the taxi is about to go without reading the road layout — a stationary wash of colour
+ * reads as "a route exists", not "this is the direction of it". It rides the same `vDist`/`uLength`
+ * fade already computed for the head and tail, so it never brightens past either end of the band.
  */
 
 // The taxi drives one lane, so the band covers one lane: ROAD_W is both lanes.
@@ -132,9 +137,29 @@ export function routePath(car, route) {
     // Mid-junction: pick the arc up where the car is on it. `car.i/j` still name the junction it
     // is turning *at*, and its routed step is already consumed, so the remaining route applies
     // from the junction after this one.
-    for (let s = 0; s <= TURN_STEPS; s++) {
-      const t = car.turnT + (1 - car.turnT) * (s / TURN_STEPS);
-      push(bezier(car.entry, car.control, car.exit, t));
+    //
+    // `car.turnT` is a fraction of `car.turnLen`, which is the hold line's straight run-up
+    // (`car.leadIn`, the crosswalk clearance `STOP_SETBACK` sits back from the junction boundary)
+    // *plus* the arc — not a fraction of the arc alone. The render transform below in traffic.js
+    // splits on that; this used to skip straight to `bezier(..., car.turnT)`, which treated the
+    // run-up as already-curved distance and jumped the drawn band forward by a whole `STOP_SETBACK`
+    // (~3.4 units) the instant a car committed to a turn. Invisible on the old static band, it
+    // showed up as a pop once the pulse animation rode on top of it.
+    const travelled = Math.min(car.turnT, 1) * car.turnLen;
+    if (travelled < car.leadIn) {
+      const t = travelled / car.leadIn;
+      push({
+        x: car.hold.x + (car.entry.x - car.hold.x) * t,
+        z: car.hold.z + (car.entry.z - car.hold.z) * t,
+      });
+      push(car.entry);
+      for (let s = 0; s <= TURN_STEPS; s++) push(bezier(car.entry, car.control, car.exit, s / TURN_STEPS));
+    } else {
+      const t0 = (travelled - car.leadIn) / (car.turnLen - car.leadIn);
+      for (let s = 0; s <= TURN_STEPS; s++) {
+        const t = t0 + (1 - t0) * (s / TURN_STEPS);
+        push(bezier(car.entry, car.control, car.exit, t));
+      }
     }
     const after = nextIntersection(car.dOut, i, j);
     if (!after) return pts;
@@ -223,6 +248,26 @@ function mitreOffsets(path, halfWidth) {
   return offsets;
 }
 
+// The pulse rolls from the car toward the destination — the direction of travel — one crest every
+// PULSE_PERIOD units, at PULSE_SPEED units per second. PULSE_SHARPNESS narrows the crest: 1 is a
+// full sine wave (no dark trough between crests at this spacing), higher values pinch it into a
+// soft travelling glow with real road between crests. PULSE_BOOST caps how much brighter the crest
+// gets over the plain band — kept well under the chevrons' old 0.9 so the motion reads as ambient
+// rather than as a marker in its own right.
+const PULSE_PERIOD = 10;
+const PULSE_SPEED = 3;
+const PULSE_SHARPNESS = 4;
+const PULSE_BOOST = 0.5;
+
+// A freshly routed band sweeps in from the car rather than appearing whole — the same reasoning
+// as the pulse: a static object popping into existence reads as "the UI updated", not "the taxi is
+// headed there now". A fixed *speed* rather than a fixed duration is what makes it read as one
+// consistent motion regardless of the route: a fare next door and one across the map both sweep at
+// the same pace, so the far one just keeps going a little longer rather than visibly rushing to
+// catch up. No easing on top of it — the head fade already hides the first few units of the sweep,
+// so the constant rate is all that's ever visible, and it stays that one rate the whole way out.
+const ROLLOUT_SPEED = 110;
+
 export function createRouteLine(scene) {
   // Two triangles per segment of the path.
   const positions = new Float32Array(MAX_POINTS * 6 * 3);
@@ -244,6 +289,8 @@ export function createRouteLine(scene) {
       uFadeHead: { value: FADE_HEAD },
       uFadeTail: { value: FADE_TAIL },
       uMultiply: { value: 0 },
+      uTime: { value: 0 },
+      uReveal: { value: 0 },
     },
     vertexShader: /* glsl */`
       attribute float aDist;
@@ -265,12 +312,42 @@ export function createRouteLine(scene) {
       uniform float uFadeHead;
       uniform float uFadeTail;
       uniform float uMultiply;
+      uniform float uTime;
+      uniform float uReveal;
       varying float vDist;
+      const float PULSE_PERIOD = ${PULSE_PERIOD.toFixed(4)};
+      const float PULSE_SPEED = ${PULSE_SPEED.toFixed(4)};
+      const float PULSE_SHARPNESS = ${PULSE_SHARPNESS.toFixed(4)};
+      const float PULSE_BOOST = ${PULSE_BOOST.toFixed(4)};
+      const float TAU = 6.2831853;
       void main() {
         float head = smoothstep(uHeadGap, uHeadGap + uFadeHead, vDist);
         float tail = smoothstep(0.0, uFadeTail, uLength - vDist);
-        float a = uOpacity * head * tail;
-        gl_FragColor = vec4(uColor, a);
+        // The rollout sweep: a second, animated tail-style edge that grows from the car out to the
+        // destination when a route is freshly picked, using the same fade width as the real tail so
+        // the leading edge of the sweep looks exactly like the trailing edge it will settle into.
+        // Once uReveal passes uLength this is 1 everywhere and has no effect on the steady state.
+        float reveal = smoothstep(0.0, uFadeTail, uReveal - vDist);
+        float envelope = uOpacity * head * tail * reveal;
+
+        // Position relative to the *destination* end, not the car end. vDist is measured from the
+        // car, so it (and uLength) both shrink every frame the taxi drives — using it directly
+        // would make the pulse appear to roll faster or slower with the taxi's own speed. The
+        // destination end of the path doesn't move, so anchoring the phase there decouples the
+        // animation from the taxi entirely; only uTime drives it.
+        float travel = vDist - uLength;
+
+        // A raised cosine rather than a hard-edged band: a soft crest that rises and falls reads as
+        // a pulse of motion, where a sharp line reads as a marker sitting still and blinking.
+        float theta = TAU * fract((travel - uTime * PULSE_SPEED) / PULSE_PERIOD);
+        float pulse = pow(max(0.0, 0.5 + 0.5 * cos(theta)), PULSE_SHARPNESS);
+        // The pulse only brightens the band, never darkens it or exceeds full alpha, and fades out
+        // with the same head/tail envelope as the band itself so none rolls past its ends.
+        float boost = pulse * envelope * PULSE_BOOST;
+
+        float a = envelope + boost;
+        vec3 rgb = mix(uColor, vec3(1.0), boost);
+        gl_FragColor = vec4(rgb, a);
         #include <colorspace_fragment>
         gl_FragColor = uMultiply > 0.5
           ? vec4(mix(vec3(1.0), gl_FragColor.rgb, a), 1.0)
@@ -305,7 +382,26 @@ export function createRouteLine(scene) {
   mesh.visible = false;
   scene.add(mesh);
 
-  function update(car, route) {
+  // Identity of the route currently sweeping in, so a route that is merely being redrawn this
+  // frame (the common case — every frame, as the car advances) doesn't replay the rollout, while
+  // a genuinely new one (the player tapped a fare, or a pickup redirected to the drop-off) does.
+  // `pendingTarget` is a fresh object every time `routeTo()` runs and stable between those calls,
+  // so identity is all this needs — no route contents to compare.
+  let revealTarget = null;
+  let revealElapsed = 0;
+
+  function update(car, route, dt = 0) {
+    material.uniforms.uTime.value += dt;
+
+    if (car.pendingTarget !== revealTarget) {
+      revealTarget = car.pendingTarget;
+      revealElapsed = 0;
+    }
+    // Always folded in, including the frame a new target starts on — a shot mode frame is a
+    // single call with dt=999 standing in for "let it settle", and that dt has to count even
+    // though this is also the frame the target just changed on, or the sweep never advances.
+    revealElapsed += dt;
+
     const path = routePath(car, route);
     if (path.length < 2) { mesh.visible = false; return; }
 
@@ -326,6 +422,12 @@ export function createRouteLine(scene) {
     material.uniforms.uHeadGap.value = HEAD_GAP * squeeze;
     material.uniforms.uFadeHead.value = FADE_HEAD * squeeze;
     material.uniforms.uFadeTail.value = FADE_TAIL * squeeze;
+
+    // Sweeps out past the far end (by the tail's own fade width) rather than stopping exactly at
+    // `total`, so the reveal edge fully clears the destination and leaves no soft seam sitting
+    // partway down the band once the animation settles.
+    const cap = total + FADE_TAIL * squeeze;
+    material.uniforms.uReveal.value = Math.min(cap, ROLLOUT_SPEED * revealElapsed);
 
     // Offset each point along its mitre rather than offsetting each segment independently.
     // Independent segments leave a wedge of empty road on the outside of every join — invisible

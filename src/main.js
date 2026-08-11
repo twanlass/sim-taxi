@@ -1200,7 +1200,7 @@ function frame() {
   // The route is a property of the selection, not of the world — deselecting clears it from view
   // even though the taxi keeps driving it.
   if (selected && traffic.taxi.pendingTarget && !fares.state.gameOver) {
-    routeLine.update(traffic.taxi, traffic.taxi.route);
+    routeLine.update(traffic.taxi, traffic.taxi.route, dt);
   } else {
     routeLine.hide();
   }
@@ -1410,7 +1410,11 @@ if (shot) {
 
   if (shot.route) send();
   if (selected && traffic.taxi.pendingTarget) {
-    routeLine.update(traffic.taxi, traffic.taxi.route);
+    // A shot reviews the band's steady state, not the moment it was picked — a shot mode frame is
+    // never followed by another, so with a real dt the rollout sweep would freeze here mid-animation
+    // and every route shot would show a truncated band. A dt this large settles even the longest
+    // route's sweep well before this single frame renders.
+    routeLine.update(traffic.taxi, traffic.taxi.route, 999);
   }
   renderFrame();
   document.body.dataset.shotReady = 'true';
