@@ -2083,6 +2083,109 @@ check('the taxi is an ordinary car in the traffic array',
   check('no shard falls through the road', lowest >= 0.2 - 1e-6, `lowest y ${lowest.toFixed(3)}`);
 }
 
+// --- The wreck's smoke collar ----------------------------------------------
+// `dust.wreckSmoke` rings the fireball with the same lit puffs a barricade throws. Its failure
+// modes are all things a screenshot of the impact frame would forgive: a collar that fills in the
+// middle (grey over the one part of the blast that is supposed to be fire), a tint left behind in
+// the ring buffer for the boost trail to inherit, or smoke that dies with the flame it is meant to
+// outlast.
+{
+  const sScene = new THREE.Scene();
+  const smoke = createDust(sScene, null, makeRng(seed + 91));
+
+  // Live puffs as (radius from the collar's centre, scale), read off the InstancedMesh — the
+  // module writes positions in update(), not at spawn.
+  const livePuffs = (d = smoke) => {
+    const matrix = new THREE.Matrix4();
+    const scale = new THREE.Vector3();
+    const position = new THREE.Vector3();
+    const out = [];
+    for (let i = 0; i < d.mesh.count; i++) {
+      d.mesh.getMatrixAt(i, matrix);
+      matrix.decompose(position, new THREE.Quaternion(), scale);
+      if (scale.x > 0) out.push({ r: Math.hypot(position.x, position.z), y: position.y, s: scale.x });
+    }
+    return out;
+  };
+
+  smoke.wreckSmoke(0, 0);
+  smoke.update(1 / 60);
+  const opening = livePuffs();
+  const radii = opening.map((p) => p.r).sort((a, b) => a - b);
+  const outer = radii[radii.length - 1];
+  const middle = radii[Math.floor(radii.length / 2)];
+  const overTheCore = radii.filter((r) => r < 1.5).length;
+
+  // blast.js throws its fireball PUFF_REACH 2.8 and draws it at PUFF_SIZE 3.2 on a 0.5-radius
+  // icosahedron. The core — the pale-gold heart, the first puff of each fire() — barely travels,
+  // so what the collar must not cover is the middle. Stated as a shape rather than as a hard floor
+  // on the nearest puff: the start radius is rolled per puff so the collar is not a torus (a torus
+  // reads as a smoke *ring* once the fire inside it goes out), so the claim is that the bulk of it
+  // sits outside the core, not that no single puff ever strays in.
+  check('the wreck collar opens around the fire rather than over it',
+    opening.length === 24 && middle > 2.2 && outer < 6 && overTheCore <= 3,
+    `${opening.length} puffs, median r ${middle.toFixed(2)}, out to ${outer.toFixed(2)}, `
+    + `${overTheCore} over the core`);
+
+  // And it is thrown outward from there — a collar that only grew in place would read as a lid.
+  for (let step = 0; step < 30; step++) smoke.update(1 / 60);
+  const spread = livePuffs();
+  check('the collar is pushed outward and billows up',
+    Math.max(...spread.map((p) => p.r)) > outer * 1.4
+    && Math.max(...spread.map((p) => p.y)) > 1
+    && Math.max(...spread.map((p) => p.s)) > Math.max(...opening.map((p) => p.s)),
+    `r to ${Math.max(...spread.map((p) => p.r)).toFixed(2)}, `
+    + `y to ${Math.max(...spread.map((p) => p.y)).toFixed(2)}`);
+
+  // It outlives the fire, and by enough to still be *visible* — a puff is at 4% opacity by the end
+  // of its own life, so "one frame longer than the fireball" would be a check that passes on
+  // nothing anyone can see. Measured against a real blast rather than a number copied out of
+  // blast.js: the fireball is what has to be gone, not the shards, which fly on past it.
+  const fire = createBlast(new THREE.Scene(), makeRng(seed + 92));
+  const collar = createDust(new THREE.Scene(), null, makeRng(seed + 93));
+  fire.fire(0, 0, PALETTE.taxiBody);
+  collar.wreckSmoke(0, 0);
+  const fireballUp = () => {
+    const matrix = new THREE.Matrix4();
+    const scale = new THREE.Vector3();
+    let live = 0;
+    for (let i = 0; i < fire.puffMesh.count; i++) {
+      fire.puffMesh.getMatrixAt(i, matrix);
+      matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale);
+      if (scale.x > 0) live += 1;
+    }
+    return live;
+  };
+  let flameOut = 0;
+  let smokeLeft = 0;
+  for (let step = 0; step < 60 * 5; step++) {
+    fire.update(1 / 60);
+    collar.update(1 / 60);
+    if (!flameOut && fireballUp() === 0) {
+      flameOut = step;
+      smokeLeft = livePuffs(collar).filter((p) => p.s > 1).length;
+    }
+  }
+  // And it goes, like everything else in this pool: an instance left at size is still a draw.
+  check('the smoke outlasts the fire and then clears',
+    flameOut > 0 && smokeLeft >= 12 && livePuffs(collar).length === 0,
+    `flame out at ${(flameOut / 60).toFixed(2)}s with ${smokeLeft} puffs still up`);
+
+  // The tint must not survive the slot. The pool is a ring buffer shared with the boost trail, so
+  // a grey left on a slot comes back as one grey puff in a white plume half a lap later.
+  const recycler = createDust(new THREE.Scene(), null, makeRng(seed + 94));
+  recycler.wreckSmoke(0, 0);
+  const greyed = new THREE.Color();
+  recycler.mesh.getColorAt(0, greyed);
+  for (let n = 0; n < 140; n++) recycler.add(0, 0, 0);
+  const reused = new THREE.Color();
+  recycler.mesh.getColorAt(0, reused);
+  check('a recycled collar slot goes back to white for the boost trail',
+    greyed.getHexString() === new THREE.Color(PALETTE.wreckSmoke).getHexString()
+    && reused.getHexString() === 'ffffff',
+    `collar ${greyed.getHexString()}, after ${reused.getHexString()}`);
+}
+
 // --- Busted by the police --------------------------------------------------
 // Boosting near an active police car ends the run with a distinct "Busted!" title. Mirrors the
 // wiring in src/main.js: proximity < POLICE_BUST_RANGE while boosting → fares.crash('...',
