@@ -998,6 +998,16 @@ other car's centre. The two are only a couple of units apart, but that is enough
 blast across both bodies instead of stacking it on the seam between them, and each call carries
 that car's paint, so the shards come apart in two colours and what flies is visibly two cars.
 
+**Two tyres per car get away.** They bounce out of the wreck and roll off down the street on the
+taxi's heading, and they are the only recognisable piece of car in the whole effect — see
+[rendering.md](rendering.md#the-tyres).
+
+**And one collar of smoke around the pair**, at the point between them — `dust.wreckSmoke()`, the
+same lit puffs a barricade throws, tinted grey and rung around the fire rather than trailed off the
+back of a car. It is drawn under the fireball, so the fire keeps the middle, and it outlives it, so
+the last thing on the road is smoke rather than orange. See
+[rendering.md](rendering.md#the-smoke-collar).
+
 It was four effects fired twice each plus a third wave on a `setTimeout`, and a **debris pool per
 car** on top — a pool re-shot its own pieces on every call, so one shared pool would have snapped
 the taxi's wreckage across to the other car's the instant the second burst fired. All of that is
@@ -1230,9 +1240,52 @@ being touched at all.
 
 It drives its **lane** — right-hand traffic, one `LANE` off the road centreline — at `SPEED = 19`
 (about twice traffic). It skips the lane-following and collision machinery entirely, so it never
-queues behind anyone; the priority corridor holds every downstream light green, so same-direction
-cars in the lane are already launching or moving by the time the cruiser arrives behind them.
-A red/blue point light rides with it.
+queues behind anyone. A red/blue point light rides with it.
+
+### Nothing crashes into it, so the lane has to clear
+
+This doc used to argue that never queueing was harmless, because the corridor holds every
+downstream light green and so the cars in the cruiser's lane are already moving by the time it
+arrives. They are moving at 8.5 against 19, which is not enough: what the player saw was the
+cruiser driving *through* the traffic on its own road, one car after another, all the way down an
+arterial.
+
+There is still no collision response — a scripted car on a rail cannot be crashed into, and giving
+it one would mean giving it the whole following model. Instead the lane clears, from both sides:
+
+| Half | Where | What it does |
+|---|---|---|
+| The pull-over | `PULLOVER_*`, `traffic.js` | A car in the cruiser's **own lane** — same road, same direction — dives 1.5 units for the kerb, rides up onto it (part of `KERB_H`, leaning toward the road on its outer wheels), and sheds half its cruise on top of the panic dip. |
+| The dodge | `DODGE_*`, `police.js` | The cruiser moves 1.1 units toward the road centreline to squeeze past, and its nose and front wheels tilt into the swerve. |
+
+Neither half works alone: 1.5 units of pull-over against two 1.7-wide bodies still overlaps.
+Together the two centres end up 2.6 apart with 1.7 of summed half-width — about **0.9 units of
+daylight**, which reads as a squeeze rather than a clip. The cruiser never crosses the centreline,
+because the corridor only clears *junctions* and says nothing about a car already mid-block coming
+the other way.
+
+Three details that are not obvious:
+
+- **The pull-over and the panic shove take the larger of the two, not the sum.** Stacked they reach
+  2.4 units off the lane centre, which puts a body edge 5.17 out — past the 4.85 where building
+  façades start. Taking the max caps it at 4.34.
+- **It survives a junction the car is going straight through.** `state === 'turn'` covers
+  straight-through as well as a real turn, so gating on `'drive'` the way the panic shove does
+  snapped every yielding car back to the lane centre for the eight units of each junction box.
+- **A car with the siren about to come through its junction does not turn across it**
+  (`sirenHoldsTurn`) — the same courtesy the no-left-across-a-pass rule extends to a boosting taxi,
+  and for the same reason. This is the only part that reaches a car mid-junction, since the offset
+  is released for the length of a real turn rather than bending the car off its own arc. It applies
+  to the oncoming lane too, which never pulls over at all but is exactly where a left turn crosses
+  the corridor.
+
+Measured over 199 corridor runs across 24 seeds, frames with the cruiser inside an ambient body
+fell from **1747 to 495**, and the ones on open road — the arterial case above — from **762 to 7**.
+What remains is almost entirely cars mid-turn inside a junction box: the same category
+[the wreck](#the-wreck) already leaves standing as a hazard the player can read.
+
+The oncoming lane needed nothing. Two lane centres are `2·LANE` = 4 apart against 1.7-wide bodies,
+so there was always 2.3 units between them.
 
 The soak test caught the cost of this immediately: a taxi held at a corridor loses time through no
 fault of the player. This doc claimed for a long while that the fare deadline carried a
@@ -1257,6 +1310,23 @@ bust radius rather than a tuned one.
 
 `propMaterial()` returns a fresh instance per call, which is what makes this safe — turning on
 transparency here affects the police car alone and not the merged prop meshes.
+
+### It checks for roadworks too
+
+A park closure is baked into the network, so `legalExits` has always kept the cruiser out of the
+trees. A [roadworks closure](#the-closure-is-soft-and-that-is-not-a-shortcut) is **soft** — two lane
+ids in a set, nothing removed from the graph — so nothing stops a car that does not look, and the
+police car was that car: it drove through the barricades, the cones and the hole.
+
+It looks in three places now, one per way a cruiser can reach a dug-up street:
+
+- **Drawing a corridor.** `lineIsClear` walks the whole line and rejects it if any segment is
+  closed, by a park or by a zone. Six of forty draws used to land on the closed line.
+- **Every junction of a chase.** `turnAt` filters dug exits out in a first pass — only a first
+  pass, because a chase that found every exit closed should drive through the cones rather than
+  abandon the bust over a traffic cone.
+- **Placing the zone.** `eligible` in `roadwork.js` declines an edge on a live siren's road, which
+  closes the one case the other two cannot: a zone rising underneath a run already in progress.
 
 > Once fixed: the police car drove straight through a park. It now respects closed segments.
 

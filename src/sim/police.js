@@ -6,8 +6,9 @@ import {
   DIR, GRID, HALF_SPAN, LANE, PITCH, dirSign, isXAxis, legalExits, lineCoord,
   isSegmentClosed, nextIntersection, opposite,
 } from '../city/grid.js';
+import { cityNetwork } from '../city/roadnet.js';
 import {
-  setPriorityCorridor, setPolicePresence, locoWeave, locoWheelie,
+  setPriorityCorridor, setPolicePresence, locoWeave, locoWheelie, isLaneClosed, sirenLaneAhead,
   LOCO_WEAVE_FADE, WHEELIE_DUR, ROAD_Y,
   wheelAnchors, wheelGeometries, wheelGeometry, steerToward, CHASSIS_LIFT,
 } from './traffic.js';
@@ -17,13 +18,31 @@ import {
 // inside lightPhase.
 //
 // It drives its lane like any other car — right-hand traffic, one LANE off the road centreline in
-// the direction of travel. Speed is still 19 (about twice traffic), so it will visually catch up
-// to same-direction traffic on the corridor road; there is no collision/queueing coupling because
-// the priority corridor holds every downstream light green, so ambient cars in the lane are
-// generally launching or already moving when the cruiser arrives behind them.
+// the direction of travel. Speed is still 19 (about twice traffic), so it catches up to
+// same-direction traffic on the corridor road within a block or two.
+//
+// There is still no collision *response* — nothing here can be crashed into, and nothing here
+// queues — but the lane is no longer shared silently. What used to happen was that the cruiser
+// drove through whatever it caught: the corridor holds every downstream light green, so the
+// argument went that ambient cars in the lane are already moving by the time it arrives, and at
+// 19 against 8.5 that is simply not enough. Now the traffic gets out of the way and the cruiser
+// moves over to meet it — see PULLOVER_* in traffic.js for the car's half and DODGE_* below for the
+// cruiser's. Between them the two bodies clear each other by about 0.9 units.
 
 const SPEED = 19;
 const RUN_MARGIN = 26;          // how far off-map it starts and ends
+
+// --- Squeezing past its own lane ---------------------------------------------
+//
+// The cruiser's half of the pull-over. Ambient traffic in its lane dives for the kerb (PULLOVER_* in
+// traffic.js); this is the cruiser meeting it half way, because 1.5 units of pull-over against two
+// 1.7-wide bodies still leaves them overlapping. Toward the road centreline, never across it —
+// 1.1 off a lane offset of 2 leaves the cruiser 0.9 from the centreline and wholly on its own
+// side, which matters even with the corridor holding the other way stopped, because the corridor
+// only covers junctions and not the cars already mid-block on the far side.
+const DODGE_LATERAL = 1.1;
+const DODGE_LOOK = 24;          // how far ahead it starts moving over — ~1s at chase speed
+const DODGE_EASE = 3.5;         // per second; ~0.3s to commit, so the swerve reads as a swerve
 
 // --- Chase (the bust) -------------------------------------------------------
 //
@@ -36,8 +55,9 @@ const RUN_MARGIN = 26;          // how far off-map it starts and ends
 // speed above the boosting taxi's best day — 22.95 at the top of its overdrive band, and that only
 // on a straightaway — so the gap actually closes, and a hard U-turn when the
 // quarry is behind it. The priority corridor follows each leg, which is not a courtesy — the
-// cruiser has no collision or queueing coupling at all, so an un-yielded cross car is a car it
-// drives straight through at 26 units/s.
+// cruiser has no collision response at all, so an un-yielded *cross* car is still a car it drives
+// straight through at 26 units/s. The corridor is what stops there being one. Traffic in its own
+// lane is handled the other way, by the pull-over above.
 const CHASE_SPEED = 26;
 const CHASE_ACCEL = 30;         // reaches chase speed in ~0.25s from corridor cruise
 const CHASE_BRAKE = 30;
@@ -208,7 +228,12 @@ function lightBar(group) {
   };
 }
 
-export function createPolice(rng, scene) {
+/**
+ * @param cars  the traffic array, so the cruiser can see what is in its lane and move over for it.
+ *              Optional: the probe stands police cars up in empty scenes, and a cruiser with
+ *              nobody to squeeze past simply never dodges.
+ */
+export function createPolice(rng, scene, cars = []) {
   const group = new THREE.Group();
   const body = new THREE.Mesh(policeGeometry(), propMaterial());
   group.add(body);
@@ -255,6 +280,8 @@ export function createPolice(rng, scene) {
     swervePhase: 0,
     uturn: null,         // 0..1 while swinging round, null otherwise
     uturnYaw0: 0,
+    dodge: 0,            // world units moved toward the centreline to pass a yielding car
+    dodgeRate: 0,        // units/s of that, which is what tilts the nose into the swerve
     // Front-wheel lock, and the pose it is differenced from. Same rule as every other car, run
     // over the *drawn* position rather than the rail: the rail turns its corners square, and the
     // arc the player sees is the eased one.
@@ -275,14 +302,34 @@ export function createPolice(rng, scene) {
   };
 
   /**
-   * A park district builds over the road that used to run between its two blocks. The police car
-   * drives a whole line end to end, so a corridor down a line with a closed segment sends it
-   * straight through the trees.
+   * Is the lane leaving (i, j) in direction `d` dug up? A roadworks zone closes both lanes of one
+   * segment for as long as it stands, and the cruiser has no more business driving through the
+   * cones and the hole than an ambient car does.
+   *
+   * Soft closure, so it is a lane id rather than grid geometry — see the roadworks notes in
+   * traffic.js for why the network is never re-baked mid-run.
+   */
+  const exitDug = (d, i, j) => {
+    const lane = cityNetwork().laneOutByGrid(d, i, j);
+    return Boolean(lane) && isLaneClosed(lane.id);
+  };
+
+  /**
+   * A park district builds over the road that used to run between its two blocks, and a roadworks
+   * zone digs a hole in one. The police car drives a whole line end to end, so a corridor down a
+   * line with either on it sends the cruiser straight through the trees or the barricades.
+   *
+   * Both are checked here because both are permanent for the length of a run: a park closure is
+   * baked into the network, and a zone stands for the best part of a minute — far longer than the
+   * ~8s a corridor takes to cross the map. What this cannot catch is a zone rising *during* a run
+   * already under way, which is why roadwork.js declines to place one on a live siren's road.
    */
   const lineIsClear = (axis, line) => {
     for (let k = 0; k < GRID; k++) {
       const closed = axis === 'x' ? isSegmentClosed(k, line, 0) : isSegmentClosed(line, k, 1);
       if (closed) return false;
+      const d = axis === 'x' ? DIR.PX : DIR.PZ;
+      if (axis === 'x' ? exitDug(d, k, line) : exitDug(d, line, k)) return false;
     }
     return true;
   };
@@ -301,6 +348,8 @@ export function createPolice(rng, scene) {
     state.line = line;
     state.dir = rng.chance(0.5) ? 1 : -1;
     state.s = state.dir > 0 ? -HALF_SPAN - RUN_MARGIN : HALF_SPAN + RUN_MARGIN;
+    state.dodge = 0;
+    state.dodgeRate = 0;
     state.active = true;
     state.runs += 1;
     group.visible = true;
@@ -329,7 +378,13 @@ export function createPolice(rng, scene) {
     const c = lineCoord(state.line);
     const sign = state.axis === 'x' ? state.dir : -state.dir;
     const lane = state.uturn === null ? 1 : smoothstep(state.uturn) * 2 - 1;
-    const perp = c + sign * (LANE * lane + state.swerve * locoWeave(state.swervePhase).lateral);
+    // The dodge comes off the lane term rather than being added to the weave, so it is measured
+    // from the lane centre and cannot compound with a weave already leaning that way. Suppressed
+    // mid-U-turn, where the lane term is sweeping across the whole road and "toward the
+    // centreline" is not a fixed direction.
+    const dodge = state.uturn === null ? state.dodge : 0;
+    const perp = c + sign
+      * (LANE * lane - dodge + state.swerve * locoWeave(state.swervePhase).lateral);
     return state.axis === 'x' ? { x: state.s, z: perp } : { x: perp, z: state.s };
   }
 
@@ -337,10 +392,43 @@ export function createPolice(rng, scene) {
     ? (state.dir > 0 ? 0 : Math.PI)
     : (state.dir > 0 ? -Math.PI / 2 : Math.PI / 2));
 
+  /**
+   * Where the nose points on the corridor run: down the rail, plus whatever the dodge is adding
+   * sideways. Composed out of the velocity rather than added to `railYaw` as an offset, because
+   * the sign of "toward the centreline" flips with both the axis and the direction and getting it
+   * from atan2 costs nothing. With no dodge running it reduces exactly to railYaw().
+   *
+   * The chase does not come through here — it takes its heading from the eased drawn position,
+   * which already contains the dodge because the dodge is in the rail.
+   */
+  function railHeading() {
+    if (state.uturn !== null || Math.abs(state.dodgeRate) < 1e-6) return railYaw();
+    const sign = state.axis === 'x' ? state.dir : -state.dir;
+    const fwd = state.dir * SPEED;
+    const perp = -sign * state.dodgeRate;     // + dodge moves toward the centreline
+    const vx = state.axis === 'x' ? fwd : perp;
+    const vz = state.axis === 'x' ? perp : fwd;
+    return Math.atan2(-vz, vx);               // forward for yaw θ is (cos θ, −sin θ)
+  }
+
+  /**
+   * Move over for a car in its own lane, or drift back to the lane centre once past it. Sized and
+   * argued at DODGE_LATERAL; the other half of the manoeuvre is the yielding car's, in traffic.js.
+   */
+  function stepDodge(dt) {
+    const ahead = sirenLaneAhead(cars, {
+      axis: state.axis, line: state.line, dir: state.dir, s: state.s,
+    });
+    const want = state.uturn === null && ahead < DODGE_LOOK ? DODGE_LATERAL : 0;
+    const prev = state.dodge;
+    state.dodge += (want - state.dodge) * Math.min(1, dt * DODGE_EASE);
+    state.dodgeRate = dt > 1e-6 ? (state.dodge - prev) / dt : 0;
+  }
+
   function place() {
     const p = railPoint();
     group.position.set(p.x, ROAD_Y, p.z);
-    group.rotation.y = railYaw();
+    group.rotation.y = railHeading();
   }
 
   function stop() {
@@ -386,12 +474,20 @@ export function createPolice(rng, scene) {
    * turning toward a target it cannot reach that way. `legalExits` already drops U-turns, park
    * closures and the map edge, so the routing inherits the park fix for free.
    *
+   * Roadworks are not in `legalExits` and cannot be — that closure is soft, lives in a lane id set
+   * and changes mid-run — so they are filtered here, in a first pass. Only a first pass: a chase
+   * that finds every exit dug up drives through the cones rather than turning back, because a
+   * cruiser that gave up on the bust to respect a traffic cone is a worse outcome than a cruiser
+   * that ignores one.
+   *
    * Straight carries a small bonus. Without it two equal-cost exits alternate at every junction
    * and the chase visibly dithers down a road it should just be driving down.
    */
   function turnAt(i, j) {
     const dIn = railDir();
-    const exits = legalExits(dIn, i, j);
+    const all = legalExits(dIn, i, j);
+    const clear = all.filter((d) => !exitDug(d, i, j));
+    const exits = clear.length ? clear : all;
     let best = opposite(dIn);     // dead end (every exit closed): back the way it came
     let bestScore = Infinity;
     for (const d of exits) {
@@ -620,7 +716,7 @@ export function createPolice(rng, scene) {
     // keeps ticking so the dive it stopped on rocks back to level.
     if (state.arrived) {
       bodyStep(dt);
-      setPolicePresence({ axis: state.axis, line: state.line, s: state.s });
+      setPolicePresence({ axis: state.axis, line: state.line, s: state.s, dir: state.dir });
       // Parked at the arrest with the bar still running, wherever on the map that landed. A chase
       // ends where the taxi was, which can be out in the outer band, and switching the lights off
       // on the car that just made the arrest is not a thing the gate is for.
@@ -634,6 +730,10 @@ export function createPolice(rng, scene) {
       if (state.cooldown <= 0) start();
       return;
     }
+
+    // Both branches want this: it feeds the rail, and the chase catches up to lane traffic sooner
+    // than the corridor run does because it is 7 u/s quicker.
+    stepDodge(dt);
 
     if (state.chasing) {
       driveChase(dt);
@@ -670,7 +770,7 @@ export function createPolice(rng, scene) {
     // Ambient traffic on this road reads the siren's `s` from here and reacts around it. Set
     // every frame rather than on start so cars ahead brake and swerve as the car catches up,
     // rather than reacting only to a snapshot from when the run began.
-    setPolicePresence({ axis: state.axis, line: state.line, s: state.s });
+    setPolicePresence({ axis: state.axis, line: state.line, s: state.s, dir: state.dir });
 
     // The lamps fade with the bodywork. Leaving them at full strength would keep washing colour
     // across the tarmac from a car that is no longer there.

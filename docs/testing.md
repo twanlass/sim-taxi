@@ -126,6 +126,14 @@ frozen wreck is a different picture. Driving the real path rather than firing th
 what stops the framing drifting away from the thing it exists to review; move `wreckAt` to look at a
 different beat of the explosion (0.08 is the flash, 0.22 the peak, 0.9 the embers).
 
+Shot 17 (`wreck-smoke`) is the same staging one second later, and it exists because shot 12 answers
+only half the question now. The wreck's [smoke collar](rendering.md#the-smoke-collar) is thrown
+outward and is at its most legible once it has travelled — by which time the fireball shot 12 is
+framed on has gone out entirely. At `wreckAt` 1.15 the fire is a couple of frames dead and the
+smoke is what is left, which is what the player is actually looking at while the retry banner comes
+up. The dust pool is stepped alongside the blast in this staging; left out, the collar would freeze
+stacked on the impact point at zero age.
+
 Shot 13 (`flyover`) has the wreck's problem without the wreck's drama: the
 [ambient plane](rendering.md#the-flyover--gameflyoverjs) is up for six seconds every minute or so,
 so there is nothing to point a camera at unless one is staged. It launches a flight, steps it
@@ -313,7 +321,7 @@ a rider was waiting, `querySelector('canvas')` handed back a chip, so every gest
 38-pixel button in the corner. The drag check failed for it; the tap check *passed* for it, because
 a click on a chip's canvas bubbles to the chip's button and dispatches the taxi anyway.
 
-**The camera checks emulate a phone.** Drag-to-pan, both follow-cams and the rider pan are all
+**The camera checks emulate a phone.** Drag-to-pan, both follow-cams and the rider peek are all
 gated under `NARROW_VIEWPORT = 768`, and the tool launches a 900px window — so the drag check was
 asserting a feature that is deliberately switched off there. That half of the run now flips to a
 390×844 viewport with `Emulation.setDeviceMetricsOverride` first.

@@ -40,7 +40,21 @@ const BLACK = 0x000000;
 // The fixed camera sees the face turned *away* from the sun, and pure Lambert on its own shades
 // that face a long way down. The emissive lift keeps the crystal reading as its own hue rather
 // than as a dark facet.
-const EMISSIVE = 0.35;
+export const EMISSIVE = 0.35;
+
+// Where that lift goes at the peak of a select pop (game/selectpop.js) — three times the resting
+// value, which lands the crystal at the saturated end of its own hue rather than washing it out to
+// white. Emissive rather than a colour swap for exactly that reason: the hue is the clock, and a
+// tap may not appear to answer a question about the clock. Turning the light up under the same
+// colour is the one thing that reads as "you touched this" and nothing else.
+//
+// It clips, deliberately: at the peak the emissive term alone is at or past 1 in the hue's strongest
+// channel, so the crystal goes to a flat saturated red/orange/green for a couple of frames and comes
+// back. That is the flash. Captured against a rest frame it is the clearest half of the whole
+// gesture — a crystal that is plainly *lit* rather than merely a little larger — and unlike the
+// rider's figure (see geometry/person.js) it has room to take it: the hue saturates rather than
+// washing out, because the emissive colour is the hue itself and not white.
+export const HIGHLIGHT_EMISSIVE = 1.05;
 
 // --- The fill -----------------------------------------------------------------------------------
 //
@@ -303,6 +317,19 @@ export function createDiamond(colorHex) {
       mesh.material.emissive.set(value);
       // The glass and the surface are the same hue restated, so they follow it to the next level.
       shadeVessel();
+    },
+    /**
+     * Light the crystal up, 0..1 — the colour half of the select pop.
+     *
+     * `emissiveIntensity` rather than the material's colour: the hue is the clock and nothing else
+     * may write it, and this way the highlight cannot outlive a level change or fight `setColor`
+     * over the same channel. It rides the fill too, since the shader scales
+     * `totalEmissiveRadiance` by how full the vessel is — so an almost-spent crystal flashes on the
+     * liquid it has left rather than lighting up the empty glass above it, which is right: the
+     * highlight is a tap being acknowledged, not a clock being topped up.
+     */
+    setHighlight(amount) {
+      mesh.material.emissiveIntensity = THREE.MathUtils.lerp(EMISSIVE, HIGHLIGHT_EMISSIVE, amount);
     },
     /**
      * How full the vessel is, 0..1. The fine hand of the clock: the colour says which quarter, this
