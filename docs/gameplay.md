@@ -32,9 +32,23 @@ shares the picker's `didPan()` guard, so a swipe that dragged the map is not als
 
 The avatar is the real `createTaxiMesh()` in its own small WebGL context, the way each rider-finder
 chip owns one — so the car in the bubble is the car on the road and cannot drift out of step when
-the taxi is restyled. It is viewed down the game's own `VIEW_DIR`, lit by the city's own sun and
-hemisphere fill (mirrored per frame, so turning the day/night cycle on carries into the bubble), and
-framed on the cylinder the car sweeps as it turns so nothing clips at any angle of the spin.
+the taxi is restyled. It is lit by the city's own sun and hemisphere fill (mirrored per frame, so
+turning the day/night cycle on carries into the bubble) and framed on the cylinder the car sweeps as
+it turns, so nothing clips at any angle of the spin.
+
+It is viewed at `VIEW_DIR`'s **elevation** but on the **rider avatar's azimuth** — the same +Z the
+second beat and the rider-finder chips look down. Straight down `VIEW_DIR` was the first go, and it
+put the sun three-quarters behind the car: the `+X` faces sit at `n·L = −0.78` at the hour the game
+parks at, so one whole flank was black at every angle of the spin, inside a white bubble, while the
+rider in the next beat stood in full sun. Turning the camera round the Y axis only offsets the phase
+of a spin that goes all the way round, so no silhouette was lost — 65% of the visible sweep is lit
+now rather than 40%. The reduced-motion still pose moved with it, from a three-quarter at `−0.08`
+to one at `0.84` of full sun.
+
+Its **roof sign is lit**, which is the one place the sign is not the occupancy readout it is
+[everywhere else](#the-taxis-roof-sign): nothing in the bubble is asking whether the taxi is free,
+and the lit off-white is the only bright mark on a roof that is otherwise a dark cabin block — it is
+what makes the shape say "taxi" at 54px.
 
 ### The spotlight
 
