@@ -26,8 +26,9 @@ import {
 } from '../src/game/fares.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
+import { RING_R } from '../src/geometry/targetring.js';
 import { bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE } from '../src/geometry/diamond.js';
-import { createTaxiMesh } from '../src/geometry/taxi.js';
+import { createTaxiMesh, TAXI_NOSE } from '../src/geometry/taxi.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
 import { propMaterial, setAmbientOcclusion, AO_UNIFORMS } from '../src/util/geo.js';
@@ -45,7 +46,7 @@ import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgenc
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
-import { routePath } from '../src/game/routeline.js';
+import { routePath, routeFades } from '../src/game/routeline.js';
 import { findRoute, allIntersections } from '../src/game/route.js';
 import { PALETTE } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
@@ -1513,6 +1514,88 @@ check('every intersection is routable from every approach', unroutable === 0,
   // the path drawn when the route was planned.
   check('the route band never re-shapes ahead of the taxi', drift < 0.05 && frames > 300,
     `max drift ${drift.toFixed(4)} units over ${frames} frames`);
+
+  // --- Both ends of the band stop the same distance short of what they point at.
+  //
+  // The band is bare paint with a fade at each end, and the player reads each fade as one gap: from
+  // the taxi's bumper to where the paint starts, and from where the paint stops to the destination
+  // disc. Those two are measured against different things and are set by different numbers (see
+  // HEAD_GAP / FADE_HEAD / FADE_TAIL in routeline.js), so nothing keeps them in step on its own —
+  // and when they drift apart the band stops looking like it connects the two.
+  //
+  // It had drifted. The tail fade ran 10 units on top of the 1.65–4.41 of road that already sits
+  // between the junction centre the band ends at and the disc out on the pavement corner, so the
+  // paint gave up as much as 6.8 units short — half a block, against 4.2 at the bumper — and by how
+  // much depended only on which of the four directions the taxi arrived from.
+  //
+  // Measured off the real fade envelope rather than off the constants: "where the paint stops" is
+  // where the envelope drops under a fraction of full, which is a function of all three lengths and
+  // the squeeze that shortens them on a stub of a route.
+  {
+    const VISIBLE = 0.28;      // smoothstep(0.35) — where the paint stops reading as paint
+    const smoothstep = (a, b, x) => {
+      const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+      return t * t * (3 - 2 * t);
+    };
+
+    const bandTraffic = createTraffic(makeRng(seed + 92), rScene, 1);
+    const bandTaxi = bandTraffic.taxi;
+    // One step, and only one: a car's world position is derived from its lane during `update`, so
+    // before the first frame `x`/`z` are still 0 and the head gap would be measured from the middle
+    // of the map. Nothing steps inside the loop below — every route is planned and drawn from this
+    // one standing position, which is what makes the two gaps comparable across all of them.
+    bandTraffic.update(1 / 60);
+    let worstHead = 0;
+    let worstTail = 0;
+    let measured = 0;
+
+    for (const target of allIntersections()) {
+      const plan = findRoute(planOrigin(bandTaxi), target);
+      if (!plan || plan.length < 2) continue;        // a stub has nothing to measure at both ends
+      bandTaxi.route = plan;
+      bandTaxi.routeConsumed = false;
+
+      const path = routePath(bandTaxi, bandTaxi.route);
+      if (path.length < 2) continue;
+      const arc = [0];
+      for (let k = 1; k < path.length; k++) {
+        arc.push(arc[k - 1] + Math.hypot(path[k].x - path[k - 1].x, path[k].z - path[k - 1].z));
+      }
+      const total = arc[arc.length - 1];
+      const { headGap, fadeHead, fadeTail } = routeFades(total);
+
+      // Walk the path at a fine step: the visible ends land mid-segment on a 20-unit straight.
+      const STEP = 0.1;
+      let first = null;
+      let last = null;
+      for (let s = 0; s <= total; s += STEP) {
+        if (smoothstep(headGap, headGap + fadeHead, s) * smoothstep(0, fadeTail, total - s) < VISIBLE) continue;
+        let k = 1;
+        while (k < arc.length - 1 && arc[k] < s) k += 1;
+        const seg = arc[k] - arc[k - 1];
+        const t = seg < 1e-9 ? 0 : (s - arc[k - 1]) / seg;
+        const p = {
+          x: path[k - 1].x + (path[k].x - path[k - 1].x) * t,
+          z: path[k - 1].z + (path[k].z - path[k - 1].z) * t,
+        };
+        first ??= p;
+        last = p;
+      }
+      if (!first) continue;
+
+      const corner = cornerFor(target.i, target.j);
+      worstHead = Math.max(worstHead, Math.hypot(first.x - bandTaxi.x, first.z - bandTaxi.z) - TAXI_NOSE);
+      worstTail = Math.max(worstTail, Math.hypot(last.x - corner.x, last.z - corner.z) - RING_R);
+      measured += 1;
+    }
+
+    // A unit and a half of slack: the tail's floor is geometry (the disc is on the kerb, the band
+    // is in the lane) and cannot be driven to zero, so the assertion is that it stays *level with*
+    // the head rather than beating it. At the tail fade's old 10 this ran 2.75 units over.
+    check('the route band ends as close to the disc as it starts from the bumper',
+      measured > 20 && worstTail <= worstHead + 1.5,
+      `${measured} routes, worst ${worstTail.toFixed(2)} at the disc vs ${worstHead.toFixed(2)} at the bumper`);
+  }
 }
 
 // Park districts build over a road. The closure has to be real in the traffic model, not just

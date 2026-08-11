@@ -46,7 +46,62 @@ const HALF_WIDTH = WIDTH / 2;
 // of bare road in front of the car before the fade even starts.
 const HEAD_GAP = 4;
 const FADE_HEAD = 6;
-const FADE_TAIL = 10;
+
+// The tail is much shorter than the head, and deliberately so: the two ends are measured against
+// different things and only look balanced when the numbers differ.
+//
+// The head is measured against the taxi's own bumper, which the path runs out of. The tail is
+// measured against the destination *disc*, which the path does not reach and cannot: the band
+// stops at the junction centre in lane, and the disc sits out on the pavement corner (`cornerFor`,
+// HALF_ROAD + 0.5 on each axis) so it is never under a car. That leaves 1.65–4.41 units of bare
+// road between the band's last vertex and the disc's rim before any fade is applied — the spread
+// is which of the four approach directions the taxi arrives on, since the corner always flips to
+// the −X−Z side to stay in front of the camera.
+//
+// So the tail fade is spent on top of a gap that already exists, where the head fade is spent on
+// bare road. At 10 it doubled the worst case and the band visibly gave up half a block short of
+// the rider. Distance from the last visible paint (α ≥ 0.28 of full) to the disc's rim, over 216
+// routes:
+//
+//     FADE_TAIL        10      6      4      2      0
+//     worst          6.81   5.76   5.28   4.82   4.41
+//     best          -0.81  -0.03   0.48   1.05   1.65
+//
+// against 2.86–4.19 from the bumper to the head end. Shortening it pulls the far cases in and
+// pushes the near ones out — it converges on the geometry's own 1.65–4.41 — so the win is as much
+// the *consistency* as the distance: at 10 the same band could end past the disc or 6.8 short of
+// it depending only on which way the taxi came. 2 keeps a soft edge (~15px at play zoom) and lands
+// the whole range on the head's.
+const FADE_TAIL = 2;
+
+// The rollout sweep's leading edge, which used to be FADE_TAIL and is not the same measurement.
+// The tail is a fade against a fixed marker a fixed distance away; this one is the front of a wipe
+// travelling at ROLLOUT_SPEED, and its width is how soft that wipe looks in motion — nothing to do
+// with where the band ends. Left at the 10 the tail used to carry, which is what the sweep was
+// tuned against; at the tail's new 2 the same wipe reads as a hard line crossing the city.
+const FADE_REVEAL = 10;
+
+/**
+ * The lengths that shape a band of arc length `total`, squeezed to fit if it is short.
+ *
+ * A one-block hop (PITCH is 20) is barely longer than the gap and the two fades put together, so
+ * they scale down in proportion rather than overlapping into a band that never reaches full
+ * opacity anywhere — or, worse, one the head gap swallows whole.
+ *
+ * Exported alongside `routePath` for `tools/probe.mjs`: with both, where the band's paint starts
+ * and stops is arithmetic, and "do the two ends sit the same distance from the things they point
+ * at" becomes an assertion rather than a screenshot. `update` reads it too, so there is one copy
+ * of the formula.
+ */
+export function routeFades(total) {
+  const squeeze = Math.min(1, (total * 0.9) / (HEAD_GAP + FADE_HEAD + FADE_TAIL));
+  return {
+    headGap: HEAD_GAP * squeeze,
+    fadeHead: FADE_HEAD * squeeze,
+    fadeTail: FADE_TAIL * squeeze,
+    fadeReveal: FADE_REVEAL * squeeze,
+  };
+}
 
 // Above the road paint (MARK_Y = 0.02) and below the cars (ROAD_Y = 0.04). Unlike the fare rings
 // this is depth-tested, so traffic drives *over* the band instead of the band painting across
@@ -288,6 +343,7 @@ export function createRouteLine(scene) {
       uHeadGap: { value: HEAD_GAP },
       uFadeHead: { value: FADE_HEAD },
       uFadeTail: { value: FADE_TAIL },
+      uFadeReveal: { value: FADE_REVEAL },
       uMultiply: { value: 0 },
       uTime: { value: 0 },
       uReveal: { value: 0 },
@@ -311,6 +367,7 @@ export function createRouteLine(scene) {
       uniform float uHeadGap;
       uniform float uFadeHead;
       uniform float uFadeTail;
+      uniform float uFadeReveal;
       uniform float uMultiply;
       uniform float uTime;
       uniform float uReveal;
@@ -324,10 +381,10 @@ export function createRouteLine(scene) {
         float head = smoothstep(uHeadGap, uHeadGap + uFadeHead, vDist);
         float tail = smoothstep(0.0, uFadeTail, uLength - vDist);
         // The rollout sweep: a second, animated tail-style edge that grows from the car out to the
-        // destination when a route is freshly picked, using the same fade width as the real tail so
-        // the leading edge of the sweep looks exactly like the trailing edge it will settle into.
+        // destination when a route is freshly picked. Its own fade width (see FADE_REVEAL) — it
+        // used to borrow the tail's, back when the tail was long enough to make a soft wipe.
         // Once uReveal passes uLength this is 1 everywhere and has no effect on the steady state.
-        float reveal = smoothstep(0.0, uFadeTail, uReveal - vDist);
+        float reveal = smoothstep(0.0, uFadeReveal, uReveal - vDist);
         float envelope = uOpacity * head * tail * reveal;
 
         // Position relative to the *destination* end, not the car end. vDist is measured from the
@@ -414,19 +471,20 @@ export function createRouteLine(scene) {
     const total = s[s.length - 1];
     if (total < 0.01) { mesh.visible = false; return; }
 
-    // A one-block hop (PITCH is 20) is barely longer than the gap and the two fades put together.
-    // Scale all three down in proportion rather than letting them overlap into a band that never
-    // reaches full opacity anywhere — or, worse, one the head gap swallows whole.
-    const squeeze = Math.min(1, (total * 0.9) / (HEAD_GAP + FADE_HEAD + FADE_TAIL));
+    // The sweep's edge is squeezed against the same three lengths rather than against itself: what
+    // it must not do is stay wider than the band it is uncovering, and its own length has no say
+    // in whether the band fits.
+    const { headGap, fadeHead, fadeTail, fadeReveal } = routeFades(total);
     material.uniforms.uLength.value = total;
-    material.uniforms.uHeadGap.value = HEAD_GAP * squeeze;
-    material.uniforms.uFadeHead.value = FADE_HEAD * squeeze;
-    material.uniforms.uFadeTail.value = FADE_TAIL * squeeze;
+    material.uniforms.uHeadGap.value = headGap;
+    material.uniforms.uFadeHead.value = fadeHead;
+    material.uniforms.uFadeTail.value = fadeTail;
+    material.uniforms.uFadeReveal.value = fadeReveal;
 
-    // Sweeps out past the far end (by the tail's own fade width) rather than stopping exactly at
+    // Sweeps out past the far end (by the sweep's own fade width) rather than stopping exactly at
     // `total`, so the reveal edge fully clears the destination and leaves no soft seam sitting
     // partway down the band once the animation settles.
-    const cap = total + FADE_TAIL * squeeze;
+    const cap = total + fadeReveal;
     material.uniforms.uReveal.value = Math.min(cap, ROLLOUT_SPEED * revealElapsed);
 
     // Offset each point along its mitre rather than offsetting each segment independently.

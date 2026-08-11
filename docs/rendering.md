@@ -737,11 +737,39 @@ road. But a fade alone still starts *under* the car, and paint emerging from und
 as something the taxi is dragging rather than something it is about to drive over — so nothing is
 drawn for the first `HEAD_GAP` = 4 units, then it fades up over 6. The taxi's nose is
 `(CAR_LEN / 2) * TAXI_SCALE` ≈ 2.0 units ahead of the point the path measures from, so that leaves
-a clear couple of units of bare road in front of the car. Tail fade is 10 — half a block.
+a clear couple of units of bare road in front of the car.
 
-On a hop shorter than the gap and the two fades together (one block is 20 units, they total 20)
+**Tail fade is 2, against the head's 6, and the asymmetry is the point.** The two ends are measured
+against different things. The head runs out of the taxi's own bumper. The tail is measured against
+the destination *disc*, which the band does not reach and cannot: it stops at the junction centre
+in lane, and the disc sits out on the pavement corner so it is never under a car — 1.65–4.41 units
+of bare road before any fade is applied, the spread being which of the four directions the taxi
+arrives from. So a tail fade is spent on top of a gap that already exists.
+
+At 10 it doubled that gap. Distance from the last visible paint to the disc's rim, over 216 routes:
+
+| `FADE_TAIL` | 10 | 6 | 4 | **2** | 0 |
+|---|---|---|---|---|---|
+| worst | 6.81 | 5.76 | 5.28 | **4.82** | 4.41 |
+| best | −0.81 | −0.03 | 0.48 | **1.05** | 1.65 |
+
+against 2.86–4.19 from the bumper to the head end. Shortening it pulls the far cases in and pushes
+the near ones out, converging on the geometry's own 1.65–4.41 — so the win is as much the
+*consistency* as the distance. At 10 the same band could finish past the disc or 6.8 units short of
+it depending only on which way the car came, and the short cases read as the route giving up half a
+block before the rider. `tools/probe.mjs` holds the balance: the worst gap at the disc has to stay
+within a unit and a half of the worst gap at the bumper, over every destination on the board.
+
+The **rollout sweep** — the wipe that runs a freshly picked route out from the car at a fixed 110
+units/second, so a new band grows rather than appearing whole — has its own fade width now,
+`FADE_REVEAL` = 10. It used to borrow the tail's, which was fine while the tail was long; at 2 the
+same wipe would read as a hard line crossing the city. A fade against a fixed marker and the
+leading edge of a moving wipe are not the same measurement.
+
+On a hop shorter than the gap and the two fades together (one block is 20 units, they total 12)
 all three scale down in proportion, rather than overlapping into a band that never reaches full
-opacity anywhere — or one the gap swallows whole.
+opacity anywhere — or one the gap swallows whole. `routeFades(total)` owns that arithmetic, so the
+shader and the probe read the same numbers.
 
 The fade is a **`ShaderMaterial` with a distance-along-the-path attribute**, evaluated per fragment.
 Per-vertex alpha would mean re-tessellating the path at both fade boundaries every frame (and, as
