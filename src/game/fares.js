@@ -4,6 +4,7 @@ import { createPassengerPin, createDestinationPin } from '../geometry/marker.js'
 import { createPerson } from '../geometry/person.js';
 import { createFareMarker } from './faremarker.js';
 import { urgencyLevel, URGENCY_SEGMENTS } from './urgency.js';
+import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_RIDER } from './selectpop.js';
 import { chainSeconds, planOrigin } from './route.js';
 import * as difficulty from './difficulty.js';
 
@@ -292,6 +293,10 @@ export function createFareSystem(rng, scene) {
     const corner = cornerFor(i, j);
     pin.group.position.set(centre.x, 0.12, centre.z);
     pin.postGroup.position.set(corner.x - centre.x, KERB_H, corner.z - centre.z);
+    // The select pop rides on this group (see the update tick), so a slot handed to a new rider —
+    // or to a delivered one climbing out — has to start it back at rest rather than inherit
+    // whatever frame of the last pop it was left on.
+    pin.postGroup.scale.setScalar(1);
     pin.group.visible = true;
   };
 
@@ -540,6 +545,11 @@ export function createFareSystem(rng, scene) {
       // it, a taxi cruising on random turns wanders into the pin on its own — measured at 11 of
       // 40 seeds — and picks up or delivers a fare the player never directed it to.
       directed: false,
+      // The select pop on the figure: `popPending` is a tap waiting to be stamped, `popAt` the sim
+      // time it was stamped at, undefined once the pop has run out. The crystal over their head
+      // runs its own half of the same pop. See `markDirected`.
+      popPending: false,
+      popAt: undefined,
       ridingFor: 0,
       value: 0,
     };
@@ -615,6 +625,13 @@ export function createFareSystem(rng, scene) {
     // boarding animation needs the kerb corner as its origin so the figure can run from it.
     fare.boardingFrom = cornerFor(fare.target.i, fare.target.j);
     fare.boarding = 0;
+    // A rider standing next to the taxi when they were tapped can be collected mid-pop — the pop is
+    // 0.4s and the drive is usually seconds, but not always. The waiting branch that drives the
+    // swell stops running here, so land the figure back at full size before it starts running.
+    fare.popAt = undefined;
+    fare.popPending = false;
+    fare.slot.passenger.postGroup.scale.setScalar(1);
+    fare.slot.passenger.standing?.highlight?.(0);
 
     fare.stage = 'riding';
     // Both ends were drawn at spawn; the pickup is done, so the drop-off becomes the thing the
@@ -778,7 +795,34 @@ export function createFareSystem(rng, scene) {
       const { passenger, marker } = fare.slot;
 
       // Wave the waiting rider. Driven off sim time so it stays deterministic for screenshots.
-      if (fare.stage === 'waiting' && passenger.standing) passenger.standing.wave(state.elapsed);
+      if (fare.stage === 'waiting' && passenger.standing) {
+        passenger.standing.wave(state.elapsed);
+        // ...and swell them if the player has just picked them (see `markDirected`).
+        //
+        // On `postGroup` rather than on the figure's own group for two reasons. `wave` writes
+        // `group.scale` every frame, so a pop there would be overwritten by whichever of the two
+        // ran last. And postGroup's origin is the kerb corner at pavement height — which is where
+        // the rider's feet are — so the swell grows them out of the ground instead of out of their
+        // own waist, and they never sink through the pavement at the undershoot.
+        if (fare.popPending) {
+          fare.popAt = state.elapsed;
+          fare.popPending = false;
+        }
+        let pop = 0;
+        let glow = 0;
+        if (fare.popAt !== undefined) {
+          const since = state.elapsed - fare.popAt;
+          // On the clock, not on the value: the envelope passes through 0 before its undershoot.
+          if (since >= POP_TIME) fare.popAt = undefined;
+          else {
+            pop = popEnvelope(since);
+            glow = popHighlight(since);
+          }
+        }
+        passenger.postGroup.scale.setScalar(1 + pop * POP_SCALE_RIDER);
+        // Both written every frame, so the frame a pop retires is the one that puts the figure back.
+        passenger.standing.highlight(glow);
+      }
       // The drop-off is a ring on the road and holds still — nothing to tick but the beam circling
       // its rim. It used to bounce a floating head, on the grounds that the thing you are being
       // driven at should be the thing moving; the head is gone and the ring's own motion carries
@@ -885,8 +929,12 @@ export function createFareSystem(rng, scene) {
    * two riders aboard at once, sharing the taxi's one seat. Clearing every other fare's flag here
    * is what keeps "whichever one the taxi was last sent at" (see `focus`) true of `directed` as
    * well as of the route.
+   *
+   * `pop` is the tap acknowledgement below, and shot mode turns it off: a staged dispatch is not a
+   * gesture, and a still that happened to freeze a rider mid-swell would show them a few percent
+   * large for a reason nothing in the frame explains.
    */
-  function markDirected(fare = focus()) {
+  function markDirected(fare = focus(), { pop = true } = {}) {
     if (!fare || !state.fares.includes(fare)) return false;
     if (fare.stage === 'waiting' && carrying()) return false;
     for (const other of state.fares) {
@@ -894,7 +942,27 @@ export function createFareSystem(rng, scene) {
       other.directed = false;
     }
     fare.directed = true;
-    // Nothing on the marker reflects this any more. The diamond's outline used to ink over heavier
+    // Acknowledge the tap: the rider and the crystal over their head swell and settle back
+    // together (game/selectpop.js). Here rather than at the two call sites in main.js — a tap on
+    // the pin and a tap on the rider-finder chip are the same instruction, and both land here only
+    // once the route has actually been planned, so the pop never fires for a selection that was
+    // refused.
+    //
+    // Waiting fares only. The drop-off is a disc on the road with nobody standing on it and its
+    // crystal is over the taxi by then; the taxi dispatches itself there on the pickup frame, so
+    // there is usually no tap to acknowledge in the first place.
+    if (pop && fare.stage === 'waiting') {
+      // Flagged rather than stamped, and stamped in the update tick — the same deferral the marker
+      // makes for the same reason (see faremarker.js). It is also what keeps the two halves in
+      // phase: both take their zero from the *same* `state.elapsed`, so the figure and the crystal
+      // are on one curve rather than one frame apart.
+      //
+      // On the fare rather than on the slot: the figure is what pops, but the slot outlives this
+      // rider and a pop is about this one selection.
+      fare.popPending = true;
+      fare.slot.marker.pop();
+    }
+    // Nothing else on the marker reflects this. The diamond's outline used to ink over heavier
     // for whichever waiting rider the car was on its way to, and it was pushed from here as well as
     // reconciled per frame so it landed on the same frame as the route band. The band is now the
     // whole of that answer — see geometry/diamond.js, RIM_SCALE.

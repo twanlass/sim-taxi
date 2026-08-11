@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { color } from '../palette.js';
+import { wheelGeometry, WHEEL_R } from '../geometry/wheels.js';
 
 // The crash detonation, whole. One call — `fire(x, z, tint)` — puts a shockwave ring, a fireball
 // and a handful of shards on the road, and a crash makes exactly two of those calls, one per car.
@@ -28,12 +29,14 @@ import { color } from '../palette.js';
 
 const PUFFS_PER_BLAST = 12;
 const SHARDS_PER_BLAST = 7;
+const TYRES_PER_BLAST = 2;
 
 // Two blast sites per crash and a crash ends the run, so these only ever need to hold two of each.
 // Doubled anyway — the pools are ring buffers, and a wrapped slot silently truncates a burst.
 const MAX_PUFFS = 48;
 const MAX_SHARDS = 28;
 const MAX_RINGS = 4;
+const MAX_TYRES = 8;
 
 // Fireball. REACH is how far a puff drifts from the origin over its whole life: a two-car wreck
 // spans about 4 units, and at 3.4 the two clusters overlap into one blast rather than reading as
@@ -51,6 +54,29 @@ const SHARD_LIFE = 1.25;
 const SHARD_GRAVITY = 22;
 const SHARD_SIZE = 0.34;
 const SHARD_FLOOR = 0.2;
+
+// Tyres. Two per car, and the one piece of the wreck that is *recognisable* — everything else here
+// is an abstraction (a ring, a sphere, a squashed tetrahedron), so the eye is told a car came apart
+// without being shown a single part of one. A wheel is the part that survives a real wreck intact
+// and the only one small enough to keep moving after it.
+//
+// They are the second effect in the game whose flight has a contact with the ground — the
+// roadworks cones are the first — and the same rule applies: position is a curve of `age`, never an
+// integrated velocity, so nothing accumulates and a slow-motion frame is the same shape as a
+// full-speed one. The bounce is a *sequence* of parabolas rather than one: each hop launches at
+// TYRE_BOUNCE of the last, so hop times fall away geometrically (0.64s, 0.32s, 0.16s at these
+// numbers) and the tyre reads as landing, skipping, and settling into a roll.
+//
+// Horizontal travel is exponential drag in closed form, `(v / DRAG) · (1 − e^-DRAG·age)`, so the
+// whole flight has a finite reach — v / DRAG, about 8–11 units, which at the wreck's zoom stays in
+// frame. It is spent slowly enough that the tyre is still rolling when it fades, because a tyre
+// that comes to a stop and *then* disappears is a thing being deleted.
+const TYRE_LIFE = 2.4;
+const TYRE_GRAVITY = 22;      // as the shards, which is exaggerated: a real 9.8 arc reads as float
+const TYRE_BOUNCE = 0.5;      // restitution, per hop
+const TYRE_DRAG = 0.7;        // 1/s on the roll
+const TYRE_HOPS = 5;          // after this many the hop is under 4cm; it is rolling, not bouncing
+const TYRE_FADE = 0.3;        // last fraction of life spent fading out
 
 // Shockwave. The one mark that reads instantly at this camera angle: a flat ring on the road
 // projects as an ellipse spreading out from under the wreck, so the blast has a size before the
@@ -125,6 +151,25 @@ export function createBlast(scene, rng) {
   const shardMesh = makePool(scene, shardGeo, shardMat, MAX_SHARDS, 5);
   shardMesh.castShadow = true;
 
+  // --- Tyres ----------------------------------------------------------------
+  // `wheelGeometry()` unchanged, not a torus of its own: the wheel that rolls away has to be the
+  // wheel that was on the car, and geometry/wheels.js is where every vehicle in the game gets one.
+  // It arrives with its tyre colour already baked into the vertex attribute, hence `vertexColors`
+  // — and no `instanceColor`, because a tyre is black on every car in the city.
+  const tyreGeo = wheelGeometry();
+  const tyreMat = new THREE.MeshLambertMaterial({
+    vertexColors: true,
+    flatShading: true,
+    transparent: true,
+    depthWrite: false,
+  });
+  const tyreAlpha = withInstanceAlpha(tyreGeo, tyreMat, MAX_TYRES);
+  const tyreMesh = makePool(scene, tyreGeo, tyreMat, MAX_TYRES, 5);
+  // The shadow is half of what sells the bounce: a hop is about a unit of altitude, which at this
+  // camera is a couple of dozen pixels of gap opening between the tyre and its own shadow and
+  // closing again. Without it the arc reads as a tyre sliding up-screen.
+  tyreMesh.castShadow = true;
+
   // --- Fireball -------------------------------------------------------------
   // Above the shards, so the core of the blast covers the pieces still inside it.
   const puffGeo = new THREE.IcosahedronGeometry(0.5, 0);
@@ -195,10 +240,23 @@ export function createBlast(scene, rng) {
     ox: new Float32Array(MAX_RINGS),
     oz: new Float32Array(MAX_RINGS),
   };
+  const tyre = {
+    life: new Float32Array(MAX_TYRES),
+    life0: new Float32Array(MAX_TYRES),
+    ox: new Float32Array(MAX_TYRES),
+    oz: new Float32Array(MAX_TYRES),
+    dx: new Float32Array(MAX_TYRES),
+    dz: new Float32Array(MAX_TYRES),
+    bearing: new Float32Array(MAX_TYRES),
+    roll: new Float32Array(MAX_TYRES),      // ground speed at launch, u/s
+    hop: new Float32Array(MAX_TYRES),       // vertical speed at launch, u/s
+    lean: new Float32Array(MAX_TYRES),
+  };
 
   let nextPuff = 0;
   let nextShard = 0;
   let nextRing = 0;
+  let nextTyre = 0;
 
   const dummy = new THREE.Object3D();
   const tintColor = new THREE.Color();
@@ -208,8 +266,15 @@ export function createBlast(scene, rng) {
    * One detonation at (x, z). `tint` paints that car's shards in its own paint, so a two-car wreck
    * throws two colours of wreckage and what lands is visibly two cars — the one thing the old
    * per-car debris pools were carrying that a shared pool could not.
+   *
+   * `yaw` is a **sim heading**, not a bearing: `sim/traffic.js` builds it as `atan2(-tz, tx)`, so
+   * forward is `(cos yaw, −sin yaw)` and the bearing this module fans its tyres about is `−yaw`.
+   * Both cars are given the taxi's, because the momentum that throws anything downfield is the
+   * taxi's — the car it hit is doing 8 u/s to the taxi's ~19 and may not even be pointing the same
+   * way. Left out, the tyres fan evenly around the wreck and half of them roll back up the road
+   * the taxi came down, which reads as an explosion rather than as a collision.
    */
-  function fire(x, z, tint = null) {
+  function fire(x, z, tint = null, yaw = 0) {
     ring.life[nextRing] = RING_LIFE;
     ring.ox[nextRing] = x;
     ring.oz[nextRing] = z;
@@ -277,6 +342,33 @@ export function createBlast(scene, rng) {
       shardMesh.setColorAt(slot, tint ? tintColor.set(tint) : tintColor.set('#FFFFFF'));
     }
     if (shardMesh.instanceColor) shardMesh.instanceColor.needsUpdate = true;
+
+    for (let k = 0; k < TYRES_PER_BLAST; k++) {
+      const slot = nextTyre;
+      nextTyre = (nextTyre + 1) % MAX_TYRES;
+
+      // One either side of the heading rather than two free angles, and never straight down it:
+      // two tyres rolling the same way are one tyre drawn twice, and a tyre that leaves along the
+      // car's own line spends the whole shot behind the fireball it came out of.
+      const side = k % 2 ? 1 : -1;
+      const bearing = -yaw + side * rng.range(0.35, 1.15);
+
+      tyre.life[slot] = TYRE_LIFE * rng.range(0.85, 1.1);
+      tyre.life0[slot] = tyre.life[slot];
+      tyre.ox[slot] = x + rng.jitter(0.6);
+      tyre.oz[slot] = z + rng.jitter(0.6);
+      tyre.dx[slot] = Math.cos(bearing);
+      tyre.dz[slot] = Math.sin(bearing);
+      tyre.bearing[slot] = bearing;
+      tyre.roll[slot] = rng.range(7.5, 10);
+      tyre.hop[slot] = rng.range(6, 8);
+      // A couple of degrees off vertical, fixed for the flight. Bolt upright, four tyres rolling
+      // out of a wreck read as machined; this is the wobble of one that is going to fall over
+      // eventually, without the cost of actually landing it — nothing here is on screen long
+      // enough to have to.
+      tyre.lean[slot] = rng.jitter(0.14);
+      tyreAlpha[slot] = 1;
+    }
   }
 
   function updatePuffs(dt) {
@@ -367,6 +459,88 @@ export function createBlast(scene, rng) {
     }
   }
 
+  /**
+   * Where a tyre's centre is, `age` seconds after it came off. Split out because the probe checks
+   * the bounce and the roll against each other, and a check written from a second copy of the
+   * formula would agree with a bug in the first.
+   *
+   * The height is a walk down the hops: each is a parabola of its own, launched at TYRE_BOUNCE of
+   * the one before, and the walk is bounded — after TYRE_HOPS the tyre is rolling, and its centre
+   * sits at the contact height for the rest of its life.
+   */
+  function tyreAt(slot, age, out) {
+    // Ground track. Closed form of an exponential drag, so the reach is finite and known.
+    const travel = (tyre.roll[slot] / TYRE_DRAG) * (1 - Math.exp(-TYRE_DRAG * age));
+
+    let speed = tyre.hop[slot];
+    let hopAge = age;
+    let hopTime = (2 * speed) / TYRE_GRAVITY;
+    let hops = 0;
+    while (hopAge > hopTime && hops < TYRE_HOPS) {
+      hopAge -= hopTime;
+      speed *= TYRE_BOUNCE;
+      hopTime = (2 * speed) / TYRE_GRAVITY;
+      hops += 1;
+    }
+    // A leaning wheel stands on a point closer to its axle than an upright one does: this is 0.6cm
+    // at the lean rolled above, which nobody will see, and it is here so the contact is *defined*
+    // rather than assumed — the probe's "no tyre through the road" check reads this floor.
+    const floor = WHEEL_R * Math.cos(tyre.lean[slot]);
+    const rise = hops < TYRE_HOPS
+      ? Math.max(0, speed * hopAge - 0.5 * TYRE_GRAVITY * hopAge * hopAge)
+      : 0;
+
+    out.set(
+      tyre.ox[slot] + tyre.dx[slot] * travel,
+      floor + rise,
+      tyre.oz[slot] + tyre.dz[slot] * travel,
+    );
+    return travel;
+  }
+
+  function updateTyres(dt) {
+    let touched = false;
+    for (let slot = 0; slot < MAX_TYRES; slot++) {
+      if (tyre.life[slot] <= 0) continue;
+      touched = true;
+      tyre.life[slot] -= dt;
+      const age = tyre.life0[slot] - Math.max(0, tyre.life[slot]);
+      const t = Math.min(1, age / tyre.life0[slot]);
+
+      const travel = tyreAt(slot, age, dummy.position);
+
+      // Rolling without slipping — the spin is the distance covered over the radius, not a rate
+      // picked to look right. It is what makes the tyre read as *rolling* rather than as a disc
+      // being spun and slid along, and it costs nothing: the distance is already in hand. It runs
+      // through the airborne stretches too, which is correct — a wheel that leaves the car spinning
+      // keeps spinning, and stopping it mid-hop would read as a stall.
+      //
+      // Euler order YXZ, so the matrix is RY·RX·RZ and the three rotations compose in the order the
+      // wheel needs them: spin about its own axle (the geometry's +z), tip it off vertical, then
+      // yaw the whole thing into the direction of travel. In the default XYZ order the lean would
+      // be applied in world space and the tyre would lean sideways relative to its own roll.
+      dummy.rotation.set(tyre.lean[slot], -tyre.bearing[slot], travel / WHEEL_R, 'YXZ');
+      dummy.scale.setScalar(1);
+      dummy.updateMatrix();
+      tyreMesh.setMatrixAt(slot, dummy.matrix);
+
+      // Fade only, no shrink. A tyre that shrinks is a tyre being taken away; one that thins out
+      // while it is still moving is one that got away down the street.
+      tyreAlpha[slot] = Math.min(1, (1 - t) / TYRE_FADE);
+
+      if (tyre.life[slot] <= 0) {
+        dummy.scale.setScalar(0);
+        dummy.updateMatrix();
+        tyreMesh.setMatrixAt(slot, dummy.matrix);
+        tyreAlpha[slot] = 0;
+      }
+    }
+    if (touched) {
+      tyreMesh.instanceMatrix.needsUpdate = true;
+      tyreGeo.attributes.aAlpha.needsUpdate = true;
+    }
+  }
+
   function updateRings(dt) {
     let touched = false;
     for (let slot = 0; slot < MAX_RINGS; slot++) {
@@ -401,6 +575,7 @@ export function createBlast(scene, rng) {
   function update(dt) {
     updatePuffs(dt);
     updateShards(dt);
+    updateTyres(dt);
     updateRings(dt);
   }
 
@@ -409,9 +584,10 @@ export function createBlast(scene, rng) {
     let live = 0;
     for (let slot = 0; slot < MAX_PUFFS; slot++) if (puff.life[slot] > 0) live += 1;
     for (let slot = 0; slot < MAX_SHARDS; slot++) if (shard.life[slot] > 0) live += 1;
+    for (let slot = 0; slot < MAX_TYRES; slot++) if (tyre.life[slot] > 0) live += 1;
     for (let slot = 0; slot < MAX_RINGS; slot++) if (ring.life[slot] > 0) live += 1;
     return live;
   }
 
-  return { fire, update, active, puffMesh, shardMesh, ringMesh };
+  return { fire, update, active, tyreAt, puffMesh, shardMesh, ringMesh, tyreMesh };
 }

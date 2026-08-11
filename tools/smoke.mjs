@@ -230,12 +230,71 @@ try {
         : stillParked ? 'pan queued, camera still parked'
           : `camera cut straight to ${JSON.stringify(tap.target)}`);
 
-    // And it arrives. Generous wait: the pan is under 0.75s of sim time, but this page renders in
-    // software at ~10fps and the frame loop clamps dt, so wall-clock runs longer than sim time.
-    await sleep(2000);
-    const landed = JSON.parse(await camTarget());
-    check('the pan lands and stops', !(await evaluate('window.__taxi.camera.isGliding()'))
-      && Math.hypot(landed[0], landed[2]) > 5, `landed ${Math.hypot(landed[0], landed[2]).toFixed(1)} units out`);
+    // And it arrives, holds the rider for a beat, and rides back to the taxi — the pan out is only
+    // half of what a chip tap does (see camera.js's peekAt). Leaving the camera parked on the kerb
+    // is what used to cost the player a drag back across the map to their own car.
+    //
+    // Polled rather than sampled once: the whole sequence is about two and a half seconds of sim
+    // time, and this page renders in software at ~10fps with a clamped dt, so wall-clock runs
+    // considerably longer than that. The gap to the taxi is what's watched — how far the camera
+    // ever got is the evidence it really went to the rider, and where it ends up is the evidence it
+    // came home rather than being abandoned there.
+    const gapToTaxi = () => evaluate(`(() => {
+      const t = window.__taxi.camera.state.target, taxi = window.__taxi.traffic.taxi;
+      return JSON.stringify({ gliding: window.__taxi.camera.isGliding(),
+        gap: Math.hypot(t.x - taxi.x, t.z - taxi.z) });
+    })()`);
+    let farthest = 0;
+    let ended = null;
+    for (let attempt = 0; attempt < 40 && ended === null; attempt++) {
+      await sleep(250);
+      const s = JSON.parse(await gapToTaxi());
+      farthest = Math.max(farthest, s.gap);
+      if (!s.gliding && farthest > 5) ended = s.gap;
+    }
+    check('the peek visits the rider and rides back to the taxi',
+      ended !== null && ended < 6,
+      ended === null ? `never settled, got ${farthest.toFixed(1)} units from the taxi`
+        : `out to ${farthest.toFixed(1)} units, ended ${ended.toFixed(1)} from the taxi`);
+
+    // ...and the framing stays with the car. Landing on the taxi is only half of what the return
+    // leg is for: the peek hands the camera back to the opening follow-cam on arrival, and without
+    // that handover the taxi simply drives out of the frame the peek just put it in — which is the
+    // same "where is my car" the whole feature exists to answer.
+    //
+    // Waiting a fixed few seconds would be no evidence at all, since the taxi may spend them
+    // sitting at a red — where a camera that was left parked also stays put. So this waits for the
+    // *taxi* to have covered ground and then asks whether the camera came with it. The follow-cam
+    // trails by design (rate 1.5 against ~8.5 u/s is a steady-state lag of about 5.7 units, and
+    // this page renders slowly enough to stretch that), so the gap is checked loosely and the
+    // camera's own travel is what carries the assertion.
+    const before = JSON.parse(await evaluate(
+      `JSON.stringify({ taxi: [window.__taxi.traffic.taxi.x, window.__taxi.traffic.taxi.z],
+        cam: window.__taxi.camera.state.target.toArray() })`));
+    let drove = 0;
+    let camMoved = 0;
+    let gap = 0;
+    // Polls out to 15s: it exits the moment the taxi has covered its 20 units, and only a run that
+    // spends the window at a red — or a stopped sim — ever pays the whole wait.
+    for (let attempt = 0; attempt < 60 && drove < 20; attempt++) {
+      await sleep(250);
+      const s = JSON.parse(await evaluate(`(() => {
+        const t = window.__taxi.camera.state.target, taxi = window.__taxi.traffic.taxi;
+        return JSON.stringify({ taxi: [taxi.x, taxi.z], cam: t.toArray(),
+          gap: Math.hypot(t.x - taxi.x, t.z - taxi.z) });
+      })()`));
+      drove = Math.hypot(s.taxi[0] - before.taxi[0], s.taxi[1] - before.taxi[1]);
+      camMoved = Math.hypot(s.cam[0] - before.cam[0], s.cam[2] - before.cam[2]);
+      gap = s.gap;
+    }
+    // Asserted as "the taxi got well clear of where the camera was left, and the camera is not
+    // there": a parked camera ends up `drove` units behind, so the two thresholds together are
+    // what separate following from parked. The taxi's own travel has to clear the follow-cam's
+    // steady-state lag for that to mean anything, which is why it is polled for rather than timed.
+    check('and the camera stays with the taxi afterwards',
+      ended !== null && drove > 12 && gap < 10,
+      `taxi drove ${drove.toFixed(1)}, camera moved ${camMoved.toFixed(1)}, `
+      + `trailing by ${gap.toFixed(1)}`);
   } else {
     check('a chip tap pans instead of cutting', false,
       narrow ? 'no waiting rider on screen to tap' : 'viewport is not narrow');

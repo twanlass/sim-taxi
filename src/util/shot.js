@@ -58,6 +58,11 @@ export const SHOTS = [
   // looking at: the ramp's pitch, the two rows of cones, and whether anything is fighting the road
   // at the barricade line. At 22 the whole zone is about ninety pixels wide.
   { name: 'roadwork-close', description: 'the closed street, close enough to inspect', target: [0, 0], zoom: 11, warmup: 12, roadworkAt: 1.4 },
+  // The other half of the wreck. Shot 12 freezes the flash, which is the fire's beat and says
+  // nothing about the smoke collar ringing it — that one is thrown outward and only reads once it
+  // has travelled, by which time the fireball is gone. 1.15s is a couple of frames past the last
+  // flame, so this is the picture the player is left looking at while the retry banner comes up.
+  { name: 'wreck-smoke', description: 'the wreck after the fire, its smoke collar still up', target: [0, 0], zoom: 26, warmup: 12, wreckAt: 1.15 },
 ];
 
 export function getActiveShot() {

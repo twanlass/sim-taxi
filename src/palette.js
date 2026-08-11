@@ -155,6 +155,15 @@ export const PALETTE = {
   // The shockwave on the tarmac. A pale warm yellow rather than white — white on this asphalt
   // reads as a lighting artefact, and the ring belongs to the fireball above it.
   blastRing: '#FFE9A8',
+  // The collar of smoke thrown out around a wreck — the construction zone's dust, tinted. It is
+  // set against the **road**, not against `blastSmoke` beside it, and that is the whole of why it
+  // is this light. The fireball is unlit, so its smoke stop can be a dark #4B4B55 and still read;
+  // this pool is Lambert (game/dust.js), it is lying on `asphalt` #636972, and the first attempt
+  // at #6E6259 — a sensible smoke grey by eye — came out at the same value as the tarmac under it
+  // and vanished for the whole of the fire, leaving smoke that only appeared once the flame had
+  // gone. Roughly 1.8× the road's value is what it takes to be seen against it. Warm and well
+  // short of the dust's pure white: white here is a dust cloud, and this is what is burning.
+  wreckSmoke: '#C9C2BB',
 
   lightRed: '#E24B3C',
   lightYellow: '#F0B23A',

@@ -17,6 +17,19 @@ import { PALETTE } from '../palette.js';
 const SKIN = '#E8B78C';
 const HAIR = '#4A3A2E';
 const LEGS = '#3C3A45';
+// How far a tapped rider's figure is lit at the peak of a select pop (game/selectpop.js). A white
+// emissive lift on top of the vertex colours the meshes already carry, so every part of them —
+// jacket, skin, trousers — brightens together and the figure reads as *lit* rather than as
+// repainted. Their own colours are how one rider is told from another on a busy board, and a tap
+// must not disturb that.
+//
+// Measured against the figure rather than guessed: the rider is *already* pale — a light shirt over
+// dark trousers — so it takes very little to send them over. At 0.45 the peak clipped them to a
+// featureless white blob with the raised arm swallowed into the torso, which reads as a sprite
+// failing to load. At 0.3 the shirt and trousers stay separable through the flash and the figure
+// still visibly lights up, which is the whole ask.
+export const HIGHLIGHT_EMISSIVE = 0.3;
+
 const SHOULDER_Y = 2.25;
 const HIP_Y = 1.15;
 const LEG_LEN = 1.15;
@@ -128,6 +141,18 @@ export function createPerson({
     }
   }
 
+  /**
+   * Light the whole figure, 0..1 — the colour half of the select pop.
+   *
+   * A shared white emissive rather than a tint per mesh: five materials writing five different
+   * colours is five things to keep in step, and the flash is over in a third of a second. `0` puts
+   * the emissive back to black, which is what every figure that is not being tapped sits at.
+   */
+  function highlight(amount) {
+    const lift = HIGHLIGHT_EMISSIVE * amount;
+    for (const mesh of meshes) mesh.material.emissive.setScalar(lift);
+  }
+
   /** Zero every articulated joint and undo any pose the boarding pass left behind. */
   function rest() {
     legL.rotation.set(0, 0, 0);
@@ -139,6 +164,9 @@ export function createPerson({
     group.scale.setScalar(1);
     group.visible = true;
     setOpacity(1);
+    // Slot reuse: a rider tapped in the last third of a second of their life would otherwise hand
+    // the next figure on this rig a flash nobody asked for.
+    highlight(0);
   }
 
   /**
@@ -309,5 +337,5 @@ export function createPerson({
 
   rest();
   wave(0);
-  return { group, wave, board, exit, rest, idle, flee };
+  return { group, wave, board, exit, rest, idle, flee, highlight };
 }

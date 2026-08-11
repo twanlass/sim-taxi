@@ -39,6 +39,7 @@ can be made and verified in a single step.
 | **eta** | `tools/eta.mjs 40 3` | Fits and grades the trip-time estimator every fare deadline is budgeted from. Runs before the soak: a drifted estimator makes the soak's numbers a measurement of the drift |
 | **fares** | `tools/soak.mjs 25 4 9` | Auto-plays the fare loop over **9 cities × 9 situations** with a fixed "player reaction" delay, and gates on a **band** around the median |
 | **signals** | `tools/signals.mjs` | Throughput, stationary fraction, green-wave hit rate. Informational — it reports rather than fails |
+| **lab** | `tools/lab.mjs` | [The passing lab](lab.md) at `/lab/`: its road is one straight signal-free chain with the city's own lane geometry, and a taxi staged behind a cruising leader with the button held gets past it and back into lane without clipping it |
 
 `taxi.mjs` is the assertion that matters most and the one **no screenshot can make**.
 
@@ -79,6 +80,7 @@ node tools/soak.mjs 25 4 15 71624 103300      # ...and pin the city, to compare 
 node tools/eta.mjs 100 6                      # refit the trip-time estimator over 6 cities
 node tools/difficulty-sweep.mjs 9 slack       # sweep a difficulty preset: slack, board, gap, shape
 node tools/signals.mjs                        # signal metrics, incl. cycle-length sweeps
+node tools/lab.mjs                            # the passing lab's road and its overtake
 node tools/roadwork-pull.mjs                  # how often a run actually meets the construction zone
 node tools/diag.mjs                           # ad-hoc scratch diagnostics
 node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM
@@ -124,6 +126,14 @@ seconds. Traffic is deliberately *not* stepped with them — the rest of the cit
 frozen wreck is a different picture. Driving the real path rather than firing the effects by hand is
 what stops the framing drifting away from the thing it exists to review; move `wreckAt` to look at a
 different beat of the explosion (0.08 is the flash, 0.22 the peak, 0.9 the embers).
+
+Shot 17 (`wreck-smoke`) is the same staging one second later, and it exists because shot 12 answers
+only half the question now. The wreck's [smoke collar](rendering.md#the-smoke-collar) is thrown
+outward and is at its most legible once it has travelled — by which time the fireball shot 12 is
+framed on has gone out entirely. At `wreckAt` 1.15 the fire is a couple of frames dead and the
+smoke is what is left, which is what the player is actually looking at while the retry banner comes
+up. The dust pool is stepped alongside the blast in this staging; left out, the collar would freeze
+stacked on the impact point at zero age.
 
 Shot 13 (`flyover`) has the wreck's problem without the wreck's drama: the
 [ambient plane](rendering.md#the-flyover--gameflyoverjs) is up for six seconds every minute or so,
@@ -312,7 +322,7 @@ a rider was waiting, `querySelector('canvas')` handed back a chip, so every gest
 38-pixel button in the corner. The drag check failed for it; the tap check *passed* for it, because
 a click on a chip's canvas bubbles to the chip's button and dispatches the taxi anyway.
 
-**The camera checks emulate a phone.** Drag-to-pan, both follow-cams and the rider pan are all
+**The camera checks emulate a phone.** Drag-to-pan, both follow-cams and the rider peek are all
 gated under `NARROW_VIEWPORT = 768`, and the tool launches a 900px window — so the drag check was
 asserting a feature that is deliberately switched off there. That half of the run now flips to a
 390×844 viewport with `Emulation.setDeviceMetricsOverride` first.

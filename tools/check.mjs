@@ -19,7 +19,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
   '../src/game/ssao.js', '../src/game/diag.js', '../src/game/recovery.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
-  '../src/game/tutorial.js', '../src/game/highscores.js'];
+  '../src/game/tutorial.js', '../src/game/highscores.js', '../src/lab/labroad.js'];
 
 const TOOLS = [
   // Runs first: it is the control on every later step. If the road network stops describing the
@@ -43,6 +43,9 @@ const TOOLS = [
   // still has to *run*: it used to be excused from its exit status entirely, which meant an import
   // error printed `ok signals ?` and the suite stayed green with a whole tool dead.
   { name: 'signals', args: ['tools/signals.mjs'],      pick: /throughput\s+: (\S+)/, info: true },
+  // The passing lab at /lab/. Nothing else imports `src/lab/`, so without this the one page in
+  // the project whose entire job is to be looked at could stop working silently.
+  { name: 'lab',     args: ['tools/lab.mjs'],          pick: /(\d+\/\d+) checks passed/ },
 ];
 
 let failed = 0;

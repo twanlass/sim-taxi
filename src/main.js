@@ -6,7 +6,7 @@ import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
-import { createTraffic, placeCar, TRUCK_CHANCE } from './sim/traffic.js';
+import { createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
@@ -171,7 +171,9 @@ const traffic = createTraffic(
   TRUCK_CHANCE,
 );
 const fares = createFareSystem(makeRng(runSeed + 55), scene);
-const police = createPolice(makeRng(runSeed + 66), scene);
+// Given the cars array so the cruiser can see who is in its lane and move over for them — see
+// DODGE_* in sim/police.js. It never mutates it.
+const police = createPolice(makeRng(runSeed + 66), scene, traffic.cars);
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
 // contact. The ghost outlines hung off the taxi are filtered out inside `markOccluder`.
@@ -326,7 +328,9 @@ collisions.onImpact(({ x, z, other }) => {
   // wave on a setTimeout, tuned as a simulation; the beat reads better as one graphic bang per
   // car, and the two of them a couple of units apart already give it the spread the follow-up
   // flare was there to fake.
-  blast.fire(x, z, PALETTE.taxiBody);
+  // The taxi's heading goes with it, and both cars get the taxi's: it is what throws the wreckage
+  // downfield, and it is what the tyres roll away along. See `blast.fire`.
+  blast.fire(x, z, PALETTE.taxiBody, traffic.taxi.yaw);
   controller.kickShake(2.4);
 
   // The car that was hit detonates at its own centre rather than at the shared impact point. The
@@ -337,7 +341,15 @@ collisions.onImpact(({ x, z, other }) => {
   // It used to spin out, snap back onto a lane and drive away. A boosting taxi arrives at ~19 u/s
   // and the survivor shrugging that off made the player's own wreck look like a rule rather than
   // a crash.
-  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex]);
+  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex], traffic.taxi.yaw);
+
+  // And a collar of smoke around the pair — the same lit, faceted puffs a barricade throws, tinted
+  // grey and opened out into a ring (see `dust.wreckSmoke`). The fireball is unlit flat colour, so
+  // on its own it is a bright silhouette that appears and is gone; the dust is Lambert and picks up
+  // the sun, which is exactly the contrast that makes the fire read as the hot middle of something
+  // bigger. One call for both cars, at the point between them: two collars would have packed grey
+  // into the seam where the two fireballs meet, which is the middle of the blast.
+  dust.wreckSmoke((x + other.x) / 2, (z + other.z) / 2, traffic.taxi.yaw);
 
   // Both shells collapse into their own fireballs — see game/vanish.js for why they are faded out
   // rather than simply hidden. `wreckShell` also takes each car off the road for good.
@@ -497,15 +509,29 @@ createPicker(
 // of near-identical blocks to work out which way the map just moved, and whether the rider now
 // under the chip is the one they tapped. Riding the move across keeps the city continuous, so they
 // arrive already knowing where they are and where the taxi was left behind.
+//
+// And it comes *back*. Showing the rider is a glance, not a destination: the taxi is already
+// driving at them, and a camera parked on the kerb leaves the player watching an empty corner
+// while their car is somewhere off-screen — so every chip tap used to end with a drag back across
+// the map, by hand, on a clock that is draining. The peek holds the rider for a beat and then
+// rides home to the taxi (see camera.js's peekAt), which is the same distance the player would
+// have dragged, in a move they don't have to make.
 function panToRider(fare) {
   if (!fare) return;
   const c = cornerFor(fare.target.i, fare.target.j);
-  controller.glideTo(c.x, c.z);
   // Same as a swipe: the player has aimed the camera somewhere deliberately, so the opening
   // follow-cam stops. Without this the taxi would tow the framing straight back off the rider the
   // chip was pointing at — and here it would do it *during* the pan, which reads as the camera
   // losing its nerve halfway.
   releaseCameraToPlayer();
+  controller.peekAt(c.x, c.z, () => traffic.taxi, () => {
+    // The return leg landed on the car and is travelling with it, so hand the framing back to the
+    // opening follow rather than letting go here — parking the camera would only let the taxi
+    // drive out of the frame the peek just spent a second putting it in. Only reached if the whole
+    // sequence ran out; a swipe or a boost mid-peek drops the callback and the player keeps the
+    // camera they took.
+    cameraTakenOver = false;
+  });
 }
 
 // Dispatch the taxi at that rider — same effect as tapping their pin on the map, without having to
@@ -1022,7 +1048,14 @@ function layRubber(dt) {
   // letting go always stops the rubber wherever the car happens to be.
   const launching = car.boost && launchSkidT > 0;
 
-  if (!cornering && !launching) { lastSkidAt = car.travelled; return; }
+  // And the overtake, both halves of it. Throwing a car a full lane sideways at the overdrive top
+  // is the one manoeuvre in the game that breaks traction without turning a corner, and it was the
+  // only one leaving nothing on the road. Keyed on the crab angle rather than on `passing`, so the
+  // marks bracket the two lane *changes* — out and back — and stop while the taxi is simply
+  // driving along in the borrowed lane, which is not a moment anything is sliding.
+  const swapping = laysPassRubber(car);
+
+  if (!cornering && !launching && !swapping) { lastSkidAt = car.travelled; return; }
   // Closer than one mark length, so consecutive stamps overlap into a continuous streak.
   if (car.travelled - lastSkidAt < 0.42) return;
   lastSkidAt = car.travelled;
@@ -1199,11 +1232,12 @@ function frame() {
   } else if (!cameraTakenOver && !fares.state.gameOver && isNarrow()) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, START_FOLLOW_SMOOTHING, aspect());
   } else {
-    // Bottom of the same priority list: a rider-finder chip's pan (see panToRider). It only ever
-    // gets here because the tap that started it also took the camera over, so the opening follow
-    // is already out of the way; a wreck or a boost landing mid-pan drops it — both `focusOn` and
-    // `followXZ` cancel it — rather than resuming a move the player has stopped caring about.
-    // A no-op when nothing is panning, which is every frame on a desktop.
+    // Bottom of the same priority list: a rider-finder chip's peek (see panToRider) — the pan out,
+    // the beat on the rider and the ride home are all one glide, so all three sit at this rung. It
+    // only ever gets here because the tap that started it also took the camera over, so the opening
+    // follow is already out of the way; a wreck or a boost landing mid-peek drops it — both
+    // `focusOn` and `followXZ` cancel it — rather than resuming a move the player has stopped
+    // caring about. A no-op when nothing is panning, which is every frame on a desktop.
     controller.updateGlide(dt, aspect());
   }
 
@@ -1273,8 +1307,10 @@ if (shot) {
   fares.update(0.016, traffic.taxi);          // spawn the first fare
 
   // Send the taxi at whichever fare the shot is about, and keep it directed there.
+  // `pop: false` — the select pop is feedback for a finger, and there isn't one here. A shot that
+  // staged its dispatch a frame or two before rendering would otherwise freeze a rider mid-swell.
   const send = (fare = fares.focus()) => {
-    if (fare && routeTo(fare.target)) fares.markDirected(fare);
+    if (fare && routeTo(fare.target)) fares.markDirected(fare, { pop: false });
     return fare;
   };
 
@@ -1359,6 +1395,10 @@ if (shot) {
     for (let step = 0; step < Math.round(shot.wreckAt * 60); step++) {
       blast.update(1 / 60);
       vanish.update(1 / 60);
+      // The smoke collar is part of the wreck now, and it lives in the dust pool rather than in
+      // blast.js — left out of this loop, `?shot=12` would freeze a crash with its smoke still
+      // stacked on the impact point at zero age.
+      dust.update(1 / 60);
     }
   }
 

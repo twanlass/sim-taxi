@@ -43,7 +43,8 @@ wherever it landed rather than snapping back.
 
 - **The opening follow**, at rate **1.5**. A run starts with the camera trailing the taxi and keeps
   doing it until the player takes the framing over — a swipe past `PAN_SLOP`, or a tap on a
-  rider-finder chip. It exists for the same reason drag-to-pan does: in portrait the fixed framing
+  rider-finder chip. A swipe keeps it for good; a chip tap only borrows it, and hands it back at
+  the end of [the peek](#the-rider-peek). It exists for the same reason drag-to-pan does: in portrait the fixed framing
   has already given up, so a run otherwise opens with the taxi off-screen and the player's first job
   is hunting for their own car. Gentler than the boost chase because it is ambient and runs for as
   long as it is left alone — at 1.5 the camera drifts after the taxi rather than locking to it, and
@@ -69,17 +70,43 @@ and a camera that answers all of it slides the map every time you pick a fare. I
 `didPan()` so the picker can swallow the click that closes out a drag, and it clamps the target to
 `HALF_SPAN`, so the map can never be pushed off screen with nothing left to steer back by.
 
-### The rider pan
+### The rider peek
 
 A tap on a rider-finder chip takes the camera to that rider — narrow viewports only, same rule as
-everything else here. It **pans rather than cutting**, and it is a different curve from either
-follow above: `controller.glideTo(x, z)` starts a one-shot tween, `updateGlide(dt)` steps it from
-the frame loop, and it retires itself on its own clock.
+everything else here — **holds them in frame for a beat, and then rides back to the taxi**. It
+**pans rather than cutting**, and it is a different curve from either follow above:
+`controller.glideTo(x, z)` starts a one-shot tween, `updateGlide(dt)` steps it from the frame loop,
+and it retires itself on its own clock. `controller.peekAt(x, z, getReturn, onArrive)` is the whole
+round trip, and it is what a chip tap actually calls.
 
 A cut costs the player the one thing the fixed camera was chosen to give them. With the whole city
 no longer in frame, a teleport leaves them re-reading a screen of near-identical blocks to work out
 which way the map moved and whether the rider now under the chip is the one they tapped. Riding the
 move across keeps the city continuous.
+
+**And it comes back**, because showing the rider is a glance rather than a destination. The taxi is
+already driving at them on the same tap; leaving the camera parked on the kerb means the player
+watching an empty corner while their own car is off-screen somewhere, so every chip tap ended in a
+drag back across the map by hand — the same distance the pan had just saved them, on a clock that is
+draining. The three legs are one glide, so they all sit at the same rung of the priority list below:
+
+| Leg | What it is |
+|---|---|
+| **Out** | The pan to the rider's kerb corner. Ordinary `glideTo` curve and duration. |
+| **Hold** | `PEEK_HOLD = 0.9s` sitting dead still. Long enough to read who is waiting and where, short enough that it never feels like being *shown* something. Measured against the legs either side: much under this and the camera reads as arriving and immediately changing its mind. |
+| **Home** | Back to the taxi — whose **destination is re-read every frame**, because it has been driving the whole time. A leg aimed once at the start lands on the patch of road the car left; over a typical peek that is about 5 units out. |
+
+The tracked aim is also what makes the handover clean. At the end of a smootherstep the camera is
+moving at exactly the tracked point's speed, so it lands *on* the taxi already travelling with it —
+`panToRider`'s `onArrive` then clears `cameraTakenOver`, handing the framing to the opening
+follow-cam with no gap to close and nothing to snap. Handing it back matters as much as the trip
+does: park the camera on the car instead and the car simply drives out of the frame the peek just
+spent a second putting it in.
+
+`onArrive` fires **only if the whole sequence runs out**. Everything that outranks a pan drops the
+peek where it stands — a finger on the map, a boost chase, a wreck — and the callback never comes,
+so a player who swipes away mid-peek keeps the camera they took rather than having the follow-cam
+tow the map off it.
 
 **A tween, not the exponential ease the follows use.** `1 - exp(-dt * rate)` leaves at its highest
 speed on the very first frame — right when you are closing a gap that keeps reopening, and most of
@@ -95,13 +122,20 @@ ceiling binds past 112 units; the city's full diagonal is 141.
 It sits at the **bottom of the camera priority list** — wreck focus, then the two follows, then this
 — and it is *dropped*, not paused, by anything above it: `followXZ` and `focusOn` both clear it, as
 does `panBy`, so a finger on the map wins on the frame it lands rather than fighting a tween that is
-still writing the target. The tap that starts a pan also takes the camera over, so the opening
-follow is out of the way for the whole flight. The **dispatch doesn't wait for the pan** — the fare's
-clock is draining, so the taxi leaves on the tap.
+still writing the target. All three legs live in the one `glide` field for exactly that reason —
+every existing handover drops a peek the way it always dropped a pan, with nothing left half
+sequenced behind it. The tap that starts a peek also takes the camera over, so the opening follow is
+out of the way for the whole flight. The **dispatch doesn't wait for the pan** — the fare's clock is
+draining, so the taxi leaves on the tap.
 
 `tools/probe.mjs` asserts the ease-in (first frame moves far less than a linear step), the exact
 arrival and self-retirement, the distance-scaled duration and both clamps, and that a drag mid-pan
-kills it.
+kills it. The peek is walked leg by leg against a stand-in taxi driving a straight line: that it
+pans out first, that it then sits still for about a second, that it lands on the moving car to
+within floating-point exactness rather than near it, and that a drag, a boost chase and a wreck
+focus each cancel the ride home *without* reporting an arrival. `tools/smoke.mjs` covers the same
+round trip in a real browser, on the gap between the camera and the taxi: how far it ever got is the
+evidence it visited the rider, where it ends up is the evidence it came home.
 
 The `VIEW_DIR` diagonal has consequences elsewhere: screen-up is world `(-1, 0, -1)`, which is why
 riders are placed on the `-X-Z` kerb of a junction — the block on the `+X+Z` side sits between the
@@ -450,6 +484,18 @@ point is to make speed itself read.
 An earlier version used camera-facing billboards. They sat in the same plane as the road and read
 as flat stickers next to the faceted cars.
 
+**Three effects come out of this one pool** — the boost trail, the wall a barricade throws
+(`burst`, [below](#roadworks--gameroadworkjs-geometryroadworksjs)) and the smoke collar around a
+wreck (`wreckSmoke`, [below](#wreck--gameblastjs-gamevanishjs)) — and the differences between them
+are options on `burst` rather than three sets of hand-picked numbers: `tint`, `ring` (start each
+puff that far out along its own bearing), `linger` (stretch the life) and `startSize` (begin as a
+cloud rather than at a point). `instanceColor` *is* used for the tint, and it is allocated at build
+time by painting every slot white, not left to be created by the first tinted puff — `setColorAt`
+adds `USE_INSTANCING_COLOR` to the material, so a lazy first call would put a shader compile on the
+frame of a crash. **The tint is rewritten on every spawn**, including the untinted ones: the pool is
+a ring buffer shared with the boost trail, and a slot the collar painted grey comes back round half
+a lap later.
+
 ### Loco Mode kickoff — `game/flames.js`, plus a wheelie in `sim/traffic.js`
 
 Two effects on the press that first engages Loco Mode. Fired from `kickLocoMode()` in `main.js`
@@ -471,11 +517,14 @@ running boost doesn't re-fire either.
   same `Math.abs(Math.sin(pitch)) * (CAR_LEN / 2)` so the rear stays on the road as the nose
   comes up.
 
-### Wreck — `game/blast.js`, `game/vanish.js`
+### Wreck — `game/blast.js`, `game/vanish.js`, plus a smoke collar out of `game/dust.js`
 
-The crash is **one call per car** — `blast.fire(x, z, tint)` — and everything it puts on the road
-lives in one module: a shockwave ring on the tarmac, a fireball, and a scatter of shards in that
-car's paint. Three `InstancedMesh`es, about forty live instances at the peak of a two-car wreck.
+The crash is **one call per car** — `blast.fire(x, z, tint)` — and everything *it* puts on the road
+lives in one module: a shockwave ring on the tarmac, a fireball, a scatter of shards in that car's
+paint, and two tyres that bounce out and roll away. Four `InstancedMesh`es, about forty-five live
+instances at the peak of a two-car wreck.
+Around the pair of them goes one call to [`dust.wreckSmoke`](#dust--gamedustjs), which is
+[the collar](#the-smoke-collar) below.
 
 It replaced a stack of four effects (`sparks.js`, `smoke.js`, `debris.js` and a `blast()` half of
 `flames.js`) fired twice each at two points, plus a third wave on a `setTimeout` — roughly sixty
@@ -517,11 +566,91 @@ per instance into plates and chunks, tinted with that car's paint so a two-car w
 two colours. They no longer bounce, settle or come to rest — wreckage on the tarmac is a detail for
 a camera that stays, and this one pulls into a close-up and then cuts to the retry screen.
 
+#### The tyres
+
+Two per car bounce out of the wreck and roll off down the street. They are the one piece of it that
+is **recognisable**: everything else here is an abstraction — a ring, a sphere, a squashed
+tetrahedron — so the eye is told a car came apart without being shown a single part of one. A wheel
+is the part that survives a real wreck intact and the only one small enough to keep moving after it.
+
+It is `wheelGeometry()` out of `geometry/wheels.js` unchanged, not a torus of its own: the wheel
+that rolls away has to be the wheel that was on the car. It arrives with its tyre colour baked into
+the vertex attribute, so this is the one pool here that wants `vertexColors` and doesn't want
+`instanceColor` — a tyre is black on every car in the city.
+
+- **The bounce is a sequence of parabolas, not one.** Each hop launches at `TYRE_BOUNCE` = 0.5 of
+  the last, so the hop times fall away geometrically (0.64s, 0.32s, 0.16s) and the tyre reads as
+  landing, skipping, and settling into a roll. The walk down the hops is **bounded** at
+  `TYRE_HOPS` = 5, past which the hop is under 4cm and the tyre is simply rolling — an unbounded
+  walk would subdivide parabolas forever as the tyre asymptotes onto the road.
+- **It is a curve of `age`, never an integrated velocity**, like the roadworks cones and unlike a
+  physics packet: nothing accumulates, and a slow-motion frame is the same shape as a full-speed
+  one. That matters here more than usual, because a wreck is *seen* in slow motion.
+- **Horizontal travel is closed-form exponential drag**, so the reach is finite and known —
+  `v / TYRE_DRAG`, 11–14 units. It has to outrun the smoke collar, whose own front reaches about 8;
+  a tyre still inside the smoke when it fades never rolled anywhere. And it is spent slowly enough
+  that the tyre is *still moving* when it fades, because one that stops and then disappears is a
+  thing being deleted.
+- **The spin is the distance covered over the radius** — rolling without slipping, taken from the
+  travel rather than picked to look right, which is the difference between a wheel rolling and a
+  disc being spun and slid along. It costs nothing: the distance is already in hand.
+- **The shadow is half of what sells the bounce.** A hop is about a unit of altitude, which at this
+  camera is a couple of dozen pixels of gap opening between the tyre and its own shadow and closing
+  again. Without it the arc reads as a tyre sliding up-screen.
+
+`fire()` takes the **taxi's** heading for both cars and fans one tyre either side of it. The
+momentum that throws anything downfield is the taxi's — the car it hit is doing 8 u/s to the taxi's
+~19 and may not even be pointing the same way. Fanned evenly instead, half the tyres roll back up
+the road the taxi came down, which reads as an explosion rather than as a collision. Note that the
+heading is a **sim yaw**, not a bearing: `sim/traffic.js` builds it as `atan2(-tz, tx)`, so forward
+is `(cos yaw, −sin yaw)` and the bearing the fan is taken about is `−yaw`.
+
+They fade rather than shrinking. A tyre that shrinks is a tyre being taken away; one that thins out
+while it is still moving is one that got away down the street.
+
+#### The smoke collar
+
+Everything above is unlit flat colour, which is what makes it read at this camera — and it is also
+why a fireball on its own is a bright shape that appears and goes away again. The construction
+zone already had the other half: **lit, faceted, billowing puffs**, the one effect in the game that
+looks like something is still happening after the impact is over. `dust.wreckSmoke(x, z)` is that
+burst, tinted and opened out into a ring, fired **once for the pair of cars at the point between
+them**. Two collars, one per fire, would have packed grey into the seam where the two fireballs
+meet, which is the middle of the blast.
+
+It is `renderOrder` 3 against the fireball's 6, so the fire always keeps its own pixels and the
+collar can only ever be *behind* the flame front — which is what lets it start at a radius of 3,
+tucked against the core, and be pushed clear by its own throw. A collar that starts already clear
+of the fire reads as a second, later event.
+
+Four numbers, and none of them is free:
+
+- **`WRECK_START_SIZE = 1.2`**, against the trail's 0.5. The size curve is tuned for dust coming off
+  a tyre, which begins at a point and swells; at the frame the fireball peaks the collar was still
+  at 29% of its size, and two dozen small hard-edged lumps ringing a blast read as **thrown rubble**,
+  not smoke. The end of the curve is unchanged, so only the early frames move.
+- **`WRECK_LINGER = 1.5`**, measured against the fire rather than picked. A fireball puff gets
+  `PUFF_LIFE` 0.95 × up to 1.4 = 1.33s and a burst puff was already on 1.58s — a tenth of a second
+  past the flame, spent at 4% opacity. At 2.4s the last thing on the road after a wreck is smoke
+  rather than orange, which is the whole point of the effect.
+- **The start radius is rolled per puff** (0.55–1.15 × the ring). At one fixed radius the collar is
+  a torus, and once the fire inside it goes out a torus reads as a smoke *ring* — a shape with a
+  deliberate hole in it — rather than as a cloud around a wreck.
+- **`wreckSmoke` in the palette is set against the road, not against `blastSmoke`.** The fireball is
+  unlit, so its smoke stop can be `#4B4B55` and still read; this pool is Lambert and is lying on
+  `asphalt` `#636972`. A sensible smoke grey by eye (`#6E6259`) came out at the same value as the
+  tarmac and vanished for the entire duration of the fire, leaving smoke that only appeared once the
+  flame had gone — the exact opposite of the brief. It ended up at `#C9C2BB`: roughly 1.8× the
+  road's value, and still well short of the dust's pure white, because white here is a dust cloud
+  and this is what is burning.
+
 `vanish.js` owns the disappearance: each shell shrinks and fades into its own fireball over 0.34s
 of sim time rather than being switched off. It steps on the frame's already-slowed `dt`, so it
-runs at the same rate as the blast through the crash slow-mo. See
+runs at the same rate as the blast through the crash slow-mo — as does the collar, which is stepped
+by the same `dust.update(dt)` the boost trail is. See
 [traffic.md](traffic.md#the-wreck) for the rest of the staging, and
-[testing.md](testing.md#screenshots) for `?shot=12`, which stages a real crash and freezes it.
+[testing.md](testing.md#screenshots) for `?shot=12` and `?shot=17`, which stage a real crash and
+freeze it at the fire and at the smoke respectively.
 
 ### Roadworks — `game/roadwork.js`, `geometry/roadworks.js`
 
@@ -1066,20 +1195,25 @@ The **flight** is `TRANSFER_TIME = 0.65s` on a cubic ease-out, lofted by `sin(ea
 arcs across rather than sliding along the pavement. Both endpoints are anchors without the bounce
 folded in, so the crystal doesn't jump at either end of the flight.
 
-Three animations share the crystal's local transform and simply add:
+Four animations share the crystal's local transform and simply add:
 
 | Channel | Driven by |
 |---|---|
 | `position.y` | the resting bounce, plus `KICK_HOP` × the kick envelope |
-| `scale` | `KICK_SCALE` × the kick envelope, plus the panic pulse's `0.15 × (0.5 + 0.5 sin)` |
+| `scale` | `KICK_SCALE` × the kick envelope, plus the panic pulse's `0.15 × (0.5 + 0.5 sin)`, plus `POP_SCALE_DIAMOND` × the [select pop](gameplay.md#the-tap-pops) |
+| `emissiveIntensity` | the select pop's light, `EMISSIVE` (0.35) → `HIGHLIGHT_EMISSIVE` (1.05) and back |
 
 Adding rather than switching is deliberate: a level change landing inside the last five seconds
-should read as a knock on top of a beating marker, not replace it.
+should read as a knock on top of a beating marker, not replace it — and a tap on that same rider has
+to answer over both. The pop is the one that touches `scale` and *not* `position.y`: the hop is the
+kick's signature, and a pop that left the ground would read as the clock having stepped.
 
 **Everything is a function of sim time**, including the flight and the pulse — no accumulated `dt`
 anywhere — because a frozen shot has to render the same frame every time. Both the kick's and the
 flight's start times are stamped inside `update()` rather than at the call site, so neither animation
-depends on the order `setUrgency`, `beginTransfer` and `update` happen to be called in. Each slot
+depends on the order `setUrgency`, `beginTransfer` and `update` happen to be called in. `pop()` is
+deferred the same way, and there it buys something extra: the rider figure's half of the pop stamps
+in the same tick, so both take their zero from one `state.elapsed` and stay on one curve. Each slot
 gets a fixed phase offset on the bounce so two fares don't pulse in lockstep.
 
 **It is depth-tested**, unlike both markers it replaced — the meter's plate and the timer ring both
@@ -1106,6 +1240,21 @@ lift = Math.abs(Math.sin(roll)) * (CAR_W / 2)
 
 Without it, leaning pushes the outer wheels underground. The taxi's ground disc is *not* rolled
 with the body — it used to be, and tilting it into the road caused z-fighting.
+
+**Every body poses with `BODY_EULER_ORDER` (`'YXZ'`, in `util/geo.js`), and the default order is
+wrong here.** Three composes `'XYZ'` as Rx·Ry·Rz, which puts the roll *outside* the yaw and so turns
+it about the **world** X axis — the body's own long axis only when the body happens to be heading
+east. On a north or south street the same number renders as pitch and the lean disappears entirely;
+heading west it leans the opposite way. `'YXZ'` is Ry·Rx·Rz: yaw first, roll about the body, the
+same lean at every heading.
+
+The two orders agree *exactly* at yaw 0, which is what hid this. The ambient cars had it right from
+the start; the taxi, the police cruiser and the aeroplane were all on the default, so for a long
+time the taxi only leaned into corners on two of the four streets it could be on and leaned the
+wrong way on one of them. It surfaced when the overtake got a bank of its own — [the passing
+lab](lab.md)'s road runs due east, so the lane change banked beautifully there and did nothing in
+the game. `tools/probe.mjs` now measures the lean at all four headings and asserts the constant
+reaches every body that leans.
 
 ## The "Add to Home Screen" screen
 
