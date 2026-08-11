@@ -943,16 +943,12 @@ function truckBoxGeometry() {
 // that drives it is also what kills flicker: a one-frame blip in the underlying signal (braking is
 // read off noisy per-frame accel) no longer has time to visibly register before the target flips
 // back.
-const LIGHT_D = 0.32;                 // fore-aft
-const LIGHT_H = 0.64;
-const LIGHT_W = 0.64;                 // across the car
+// Brake and turn-signal pods share one size — colour (see LIGHT_EMISSIVE and the two materials
+// below) is what tells them apart, not geometry.
+const LIGHT_D = 0.272;                // fore-aft
+const LIGHT_H = 0.544;
+const LIGHT_W = 0.544;                // across the car
 const LIGHT_Y = 0.55 + CHASSIS_LIFT;  // bumper height
-
-// The turn signal reads as its own, separately-sized light — twice each pod dimension the brake
-// light uses, on top of whatever `LIGHT_EMISSIVE`/colour difference already sets it apart.
-const TURN_LIGHT_D = LIGHT_D * 2;
-const TURN_LIGHT_H = LIGHT_H * 2;
-const TURN_LIGHT_W = LIGHT_W * 2;
 
 // How far a pod's outer faces stand proud of the body's own — the same fix `WHEEL_PROUD`
 // (geometry/wheels.js) already applies to a wheel against the flank. Flush (proud = 0) put a pod's
@@ -994,8 +990,8 @@ const TURN_SIGNAL_DUTY = 0.6;
  * One light pod, in car-local space. `sx` picks the front (+1) or rear (-1) bumper; `sz` picks a
  * side — `+1` is the car's own right, `-1` its left, in the same local +Z-is-right frame the wheel
  * anchors use (see `wheelAnchors` — a car built at yaw 0 drives down +X, and rightOf/leftOf on that
- * heading resolve to world +Z/-Z, which at yaw 0 *is* local Z). `d`/`h`/`w` size it — the brake and
- * turn-signal meshes call this with different dimensions (see TURN_LIGHT_* above).
+ * heading resolve to world +Z/-Z, which at yaw 0 *is* local Z). `d`/`h`/`w` size it, taken from the
+ * caller rather than fixed here even though brake and turn-signal pods share one size today.
  */
 function lightPod(sx, sz, len, width, d, h, w) {
   const box = new THREE.BoxGeometry(d, h, w);
@@ -1021,8 +1017,8 @@ function brakeLightGeometry(len, width) {
 /** The front and rear pod on one side, in one geometry — a side's pair blinks together. */
 function turnSignalGeometry(len, width, side) {
   const parts = [
-    lightPod(1, side, len, width, TURN_LIGHT_D, TURN_LIGHT_H, TURN_LIGHT_W),
-    lightPod(-1, side, len, width, TURN_LIGHT_D, TURN_LIGHT_H, TURN_LIGHT_W),
+    lightPod(1, side, len, width, LIGHT_D, LIGHT_H, LIGHT_W),
+    lightPod(-1, side, len, width, LIGHT_D, LIGHT_H, LIGHT_W),
   ];
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -1041,8 +1037,8 @@ function brakeLightMaterial() {
 
 function turnSignalMaterial() {
   return new THREE.MeshLambertMaterial({
-    color: color('lightYellow'),
-    emissive: color('lightYellow'),
+    color: color('turnSignal'),
+    emissive: color('turnSignal'),
     emissiveIntensity: LIGHT_EMISSIVE,
     flatShading: true,
   });
