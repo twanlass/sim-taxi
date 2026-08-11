@@ -7,7 +7,7 @@ one taxi you route by tapping. Three.js, no external assets — every mesh is ge
 
 ```bash
 npm install
-npm run dev          # http://localhost:5173
+npm run dev          # http://localhost:5173  (and the passing lab at /lab/)
 ```
 
 Tap the waiting passenger and the taxi drives there, **obeying every traffic signal**. Pick them
@@ -58,6 +58,7 @@ decisions behind it.
 - [gameplay.md](docs/gameplay.md) — fares, routing, the travelling timer
 - [rendering.md](docs/rendering.md) — low-poly technique, lighting, effects
 - [testing.md](docs/testing.md) — the headless suite
+- [lab.md](docs/lab.md) — the passing lab at `/lab/`, a straight road with no lights
 
 ## The idea worth stealing
 

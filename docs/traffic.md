@@ -701,6 +701,10 @@ Once nothing else stops the taxi, the car directly in front is the only thing le
 cannot be gone round *inside* the lane — 4 units wide against a 2.31-unit collision envelope — so
 the taxi goes round outside it: a full lane change into the **oncoming** lane, past, and back.
 
+> There is a workbench for this one: [`/lab/`](lab.md) is a straight road with no lights, a car in
+> front, and a bottomless boost tank, so the manoeuvre can be watched on demand rather than waited
+> for. The numbers below are what it is running.
+
 **The player takes it by keeping the button down.** Holding through a car in front means "go around
 it"; letting go means "tuck in behind". No new control on a HUD that has deliberately few, and the
 button becomes a decision at the one moment it previously made none. It is the one place in

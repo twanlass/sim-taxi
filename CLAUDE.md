@@ -25,13 +25,14 @@ about to change.
 | [docs/difficulty.md](docs/difficulty.md) | The ramp: budgeted clocks, board size, shifts, the sweeps behind the numbers |
 | [docs/rendering.md](docs/rendering.md) | Low-poly technique, camera, lighting, day/night, effects |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
+| [docs/lab.md](docs/lab.md) | The passing lab at `/lab/` — a straight road with no lights, for watching Loco Mode |
 
 ## Commands
 
 ```bash
-npm run dev        # http://localhost:5173
+npm run dev        # http://localhost:5173 — and the passing lab at /lab/
 npm run check      # the whole headless suite, ~1.8s — run this before reporting anything
-npm run build      # production bundle into dist/
+npm run build      # production bundle into dist/ (two pages: the game and /lab/)
 npm run preview    # serve dist/ — rebuild first, it will happily serve a stale one
 ```
 
@@ -95,6 +96,11 @@ down.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and
   per-index jitter tears surfaces open.
 - **Effects must be sized against the camera.** At play zoom 1 world unit ≈ 7.7px.
+- **Never name a Rollup chunk after anything under `src/`.** `vite.config.js` has two entries now
+  (the game and `/lab/`), and a `manualChunks` rule that swept `src/main.js` into a shared chunk
+  made every page importing that chunk *boot the game* — `/lab/` came up with the city's road
+  network installed under its own. Rollup already gives each entry module its own chunk; overriding
+  that turns an import into a boot. See [docs/lab.md](docs/lab.md#build-and-deploy).
 
 ## Deploy
 
