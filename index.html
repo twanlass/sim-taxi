@@ -132,6 +132,32 @@
          this the game-over overlay renders from the first frame and dims the whole game. */
       #run-end[hidden] { display: none; }
 
+      /* The software keyboard, on the one screen that opens one. iOS does not resize the *layout*
+         viewport when the keyboard comes up, so a `position: fixed; inset: 0` overlay still spans
+         the whole screen and its bottom half is simply underneath the keys — scrolling the initials
+         field to the centre of that box parks it behind them, which is what the bug looked like:
+         a field centred on a screen whose bottom half you cannot see. `followKeyboard` (runend.js)
+         measures `visualViewport` for as long as the field has focus and clamps the overlay to it,
+         so `margin: auto` on the card re-centres in the band that is actually visible. Applied only
+         when the two viewports genuinely disagree — Android resizes the layout viewport itself, and
+         clamping on top of that would take the keyboard's height off twice. */
+      #run-end.is-keyboard {
+        top: var(--kb-top, 0px); bottom: auto; height: var(--kb-height, 100%);
+        /* The visible band is about half a screen: 24px of gutter is most of a stat row there. */
+        padding-top: 12px; padding-bottom: 12px;
+        /* The blackout is the element, so clamping it also stops it painting the strip the keyboard
+           is about to cover — and the clamp lands on the first `resize`, which iOS sends while the
+           keys are still sliding up. A spread shadow in the same colour carries the black out past
+           the clamp, so that strip is never the live city for a frame or two. Outer shadows are
+           clipped to outside the border box, so it cannot double-darken what it surrounds. */
+        box-shadow: 0 0 0 100vh rgba(0, 0, 0, 0.95);
+      }
+      /* Both gaps were doubled to spend a tall viewport's slack (see `.run-end-body` below); with
+         the keyboard up there is no slack to spend, so they go back to roughly what they were
+         before the doubling and the prompt fits the band without scrolling. */
+      #run-end.is-keyboard .run-end-body { margin-top: clamp(12px, 3.8vh, 30px); }
+      #run-end.is-keyboard .retry { margin-top: clamp(14px, 3.5vh, 28px); }
+
       #run-end .run-end-card {
         display: flex; flex-direction: column; align-items: center; margin: auto;
         /* No panel of its own — this only holds the content together and gives it a width to be
