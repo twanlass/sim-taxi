@@ -452,6 +452,17 @@ const PASS_BANK_EASE = 2.5;      // units of road for the roll to reach its targ
  * pools and both have to ask the same question.
  */
 export const PASS_RUBBER_SLOPE = 0.2;
+/**
+ * Is this car sliding across the road hard enough to leave rubber?
+ *
+ * A function rather than a constant because the rule had two call sites — `main.js` and the lab —
+ * and only one of them was reachable from a test. `main.js` cannot be imported headlessly (it boots
+ * the game), so its copy of the condition was verified by reading it, which is the same standard
+ * that let the mid-junction following hole sit in this file for as long as it did. Exported, both
+ * callers ask the same question and `tools/lab.mjs` asserts the answer.
+ */
+export const laysPassRubber = (car) => Boolean(car.boost)
+  && Math.abs(car.passSlope) > PASS_RUBBER_SLOPE;
 
 /**
  * Is the car in front actually in front of *this* car — i.e. in the lane it is occupying?

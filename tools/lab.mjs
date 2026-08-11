@@ -17,7 +17,7 @@
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { setCityNetwork } from '../src/city/roadnet.js';
-import { createTraffic, placeCar, SPEED, PASS_RUBBER_SLOPE } from '../src/sim/traffic.js';
+import { createTraffic, placeCar, SPEED, laysPassRubber } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { DIR, dirSign, PITCH, HALF_ROAD, LANE } from '../src/city/grid.js';
 import { labNetwork, labRoadLength, labNodeX, labTreeBlocks, LAB_BLOCKS } from '../src/lab/labroad.js';
@@ -134,7 +134,7 @@ function approach(gap, start) {
     const ds = taxi.travelled - wasTravelled;
     out.bankHigh = Math.max(out.bankHigh, taxi.passBank);
     out.bankLow = Math.min(out.bankLow, taxi.passBank);
-    if (Math.abs(taxi.passSlope) > PASS_RUBBER_SLOPE) out.rubber += ds;
+    if (laysPassRubber(taxi)) out.rubber += ds;
     if (Math.abs(taxi.passSlope) > 0.001) out.changing += ds;
     out.slopeJump = Math.max(out.slopeJump, Math.abs(taxi.passSlope - wasSlope));
     // Displaced from the lane, boosting, and going nowhere sideways: the taxi parked half way

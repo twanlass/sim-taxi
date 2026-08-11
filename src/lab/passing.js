@@ -29,7 +29,7 @@ import { createScene } from '../game/scene.js';
 import { createCityCamera } from '../game/camera.js';
 import { createProps } from '../city/props.js';
 import { setCityNetwork } from '../city/roadnet.js';
-import { createTraffic, placeCar, SPEED, PASS_RUBBER_SLOPE } from '../sim/traffic.js';
+import { createTraffic, placeCar, SPEED, laysPassRubber } from '../sim/traffic.js';
 import { createCollisions } from '../sim/collisions.js';
 import { createBoost, BOOST_DURATION } from '../game/boost.js';
 import { createSkidMarks } from '../game/skidmarks.js';
@@ -475,7 +475,7 @@ function layRubber(dt) {
   // straight-through, and `car.dOut !== car.d` is never true. The launch and the two lane changes
   // are the whole list, and on a road that is nothing but straightaway the lane changes are the
   // only rubber there is — which is exactly what the lab is for looking at.
-  const swapping = taxi.boost && Math.abs(taxi.passSlope) > PASS_RUBBER_SLOPE;
+  const swapping = laysPassRubber(taxi);
   if (!(taxi.boost && launchSkidT > 0) && !swapping) { lastSkidAt = taxi.travelled; return; }
   if (taxi.travelled - lastSkidAt < 0.42) return;
   lastSkidAt = taxi.travelled;
