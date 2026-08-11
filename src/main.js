@@ -35,6 +35,7 @@ import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
 import { setAmbientOcclusion } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
+import { createPause } from './game/pause.js';
 import { findRoute, planOrigin } from './game/route.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
@@ -1137,11 +1138,41 @@ const homeTip = shot ? null : createHomeScreenTip(document.getElementById('home-
 // slowly loses a run they never started. One shared empty list rather than a fresh one per frame.
 const NO_FARE_EVENTS = [];
 
+// The ⏸ at the top of the HUD. Unlike the two holds above it this one stops the *whole* frame (see
+// the early return in `frame()`), because a pause the player asked for has to give back a city in
+// the state they left it — a fare clock held while the traffic kept driving would hand the taxi's
+// own junction back with a car in it.
+const pause = shot ? null : createPause({
+  button: document.getElementById('pause'),
+  veil: document.getElementById('pause-veil'),
+  // Nothing left to hold once the run is over — and the retry screen owns the whole display then.
+  // Never asked on the way out: a pause can always be lifted.
+  canPause: () => !fares.state.gameOver,
+  onChange: (paused) => {
+    // A pause with the gas still down would resume into a boost the player is no longer holding —
+    // the pill's own pointer never comes back up, because the veil took the release. Same reason
+    // the window's `blur` handler drops it.
+    if (paused) boost.release();
+  },
+});
+
 const clock = new THREE.Clock();
 
 function frame() {
   requestAnimationFrame(frame);
+  // Read on every frame, paused or not: `getDelta` measures from its own last call, so skipping it
+  // while paused would hand the first frame after a resume the whole length of the pause. The clamp
+  // caps that at 0.05s — not a teleport, but still a frame of city the player never saw, and the
+  // clamp is there to survive a stalled tab rather than to license stalling on purpose.
   let dt = Math.min(clock.getDelta(), 0.05);
+
+  // Paused. Nothing updates — not the traffic, not the clocks, not the sky — but the frame is still
+  // drawn: with `preserveDrawingBuffer` off, a resize or a rotation with the veil up repaints the
+  // canvas from an empty buffer, and the city would blink out until the player resumed.
+  if (pause?.state.paused) {
+    renderFrame();
+    return;
+  }
 
   // Time dilation for the crash. Scale the whole frame's dt so the blast, the camera pull-in and
   // the shake decay all slow together — that's what sells it as a single cinematic beat rather than
@@ -1542,6 +1573,7 @@ window.__taxi = {
   fares,
   flyover,
   roadwork,
+  pause,
   routeTo,
   findRoute,
   camera: controller,

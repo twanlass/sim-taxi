@@ -1052,6 +1052,37 @@ The press itself also fires a **wheelie**, a tailpipe **flame burst** and a half
 streak of rubber — all three gated on `boost.press()` returning true, so they fire on the
 transition into Loco Mode and not on a re-press during a boost that's already running.
 
+## Pause
+
+`src/game/pause.js`, styled in `index.html` under `#pause` / `#pause-veil`. The ⏸ sits in the top
+centre of the HUD, between the money counter and the streak — the one piece of that edge nothing
+else was using, and the one spot either thumb reaches without crossing the city. It arrives with
+the rest of the HUD (see [the HUD arrives afterwards](#the-hud-arrives-afterwards)) and it is gone
+once the run is over, because a paused ending is not a thing.
+
+**It stops the whole frame, not just the clocks.** `main.js` returns out of `frame()` before any
+`update()` while it is set, so the traffic, the signals, the fare deadlines, the sky and the boost
+tank are all where the player left them. Compare the two holds that already existed: the tutorial's
+`fares.setPaused` and the Home Screen screen's `state.holding` both park the *fare loop* while the
+city keeps driving, which is right for something talking over a live game. A pause that did that
+would hand back a junction with a car in it that arrived while nobody was looking.
+
+Three details in that early return are load-bearing:
+
+- **The frame is still rendered.** `preserveDrawingBuffer` is off, so a resize or a rotation with
+  the veil up repaints the canvas from an empty buffer — the city would blink out and stay out
+  until the player resumed. One static render per frame is the cheap way to be right through both.
+- **`clock.getDelta()` is still read**, above the return. It measures from its own last call, so
+  skipping it would hand the first frame after a resume the whole length of the pause. The 0.05s
+  clamp caps that — it is there to survive a stalled tab, not to license stalling on purpose.
+- **A held boost is dropped** on the way in. The veil takes the pointer release the pill was waiting
+  for, so without it the run would resume into a boost nobody is holding.
+
+Anywhere on the veil resumes, not only the Resume pill, and it resumes on `pointerdown` rather than
+`click` — the release then lands on the canvas with no `click` synthesised after it, since the two
+ends of the gesture are on different elements, which is what stops the tap that resumes from also
+dispatching the taxi at whatever it was over. Escape and P toggle it from a keyboard.
+
 ## The run-end screen
 
 `src/game/runend.js`, styled in `index.html` under `#run-end`. The run ends three ways — a fare's
