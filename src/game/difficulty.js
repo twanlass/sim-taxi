@@ -39,20 +39,30 @@ const TUNING = {
   // 1.0 anyway, because `estimateSeconds` has a measured MAE of 4.35s against real trips (see
   // route.js) and slack is what pays for the traffic you happen to get.
   //
-  // Swept over 9 cities × 3 reaction times (`node tools/difficulty-sweep.mjs 9 slack`), median
-  // fares delivered by a perfect player at 1.5s / 3s / 4s reaction:
+  // **Slack is the fraction of the clock left at the drop-off**, near enough to read off directly:
+  // a fare served straight through eats its estimate and hands back `1 - 1/slack`. At 2.0 that is
+  // half the ring still lit, which is why the shipped game read as generous however the survival
+  // numbers looked — the player is watching the diamond, not the median. 1.7 lands an on-time
+  // drop-off at ~41% (orange) and the end of the ramp at ~5% (red).
   //
-  //   2.2 → 1.35   40 / 31 / 17   — 6 of 9 runs never ended at all
-  //   2.2 → 1.25   15 / 17 / 16
-  //   2.0 → 1.15   15 / 15 / 13   <- shipped
-  //   1.9 → 1.10   14 / 12 / 12   — a run died on fare 0 at 4s reaction
-  //   1.8 → 1.05   12 / 10 / 11   — likewise
+  // Swept over 21 cities × 2 reaction times (`node tools/difficulty-sweep.mjs 21 slack`), median
+  // fares delivered by a perfect player at 1.5s / 4s, and the mean share of the clock a fare's
+  // drive actually ate at deliveries 1-3 / 12+:
   //
-  // 2.0 → 1.15 is the last row where nobody dies during the tutorial (worst p10 across the three
-  // reaction times is 7) and the first where no run survives all 40 fares. Below it the tail
-  // starts eating first-fare runs, which is the one failure a score-attack cannot have.
-  slackStart: 2.0,
-  slackEnd: 1.15,
+  //   2.0 → 1.15   20 / 15   58% → 84%   — was shipped; p10 12/11
+  //   1.7 → 1.10   15 / 11   65% → 85%   — p10 11/4
+  //   1.7 → 1.05   14 / 11   64% → 87%   <- shipped; p10 9/7
+  //   1.6 → 1.05   13 / 12   66% → 86%   — a run died on fare 2 at 1.5s (p10 2)
+  //
+  // 1.7 → 1.05 is the last row where nobody dies during the tutorial. Below it the tail starts
+  // eating first-fare runs, which is the one failure a score-attack cannot have. The floor is not
+  // 1.0 even at the end of the ramp because `estimateSeconds` has a measured MAE of 4.35s against
+  // real trips (see route.js) — at 1.0 the traffic you happen to get decides the fare, not you.
+  //
+  // 2.0 → 1.15 was measured at a median of 15/13 when it shipped and re-measured at 20/15 here:
+  // the build drifted easier underneath the tuning. Re-run the sweep before trusting a row above.
+  slackStart: 1.7,
+  slackEnd: 1.05,
 
   // Floor and ceiling on the resulting clock, in seconds.
   //
@@ -69,7 +79,12 @@ const TUNING = {
   // slack curve stopped doing anything. Sweeping slack from 1.35 down to 1.05 moved the median run
   // length by less than a fare, because the clamp was setting the real slack. The ceiling has to
   // sit clear of the deepest queue the board cap allows, or it *is* the difficulty curve.
-  clockFloor: 20,
+  //
+  // The floor came down from 20 with the slack end: a median 16.4s trip (tools/eta.mjs) budgets
+  // 19.8s at slack 1.05, so 20 had quietly become the clock every short late fare was issued —
+  // `tools/probe.mjs` caught it. **A floor has to be re-checked against the tightest slack on the
+  // curve**, because that is the only place it can start binding.
+  clockFloor: 15,
   clockCeiling: 240,
 
   // Seconds allowed for the player to notice a rider and tap them. Charged once per fare, not
