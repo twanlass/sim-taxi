@@ -1072,6 +1072,7 @@ Four animations share the crystal's local transform and simply add:
 |---|---|
 | `position.y` | the resting bounce, plus `KICK_HOP` × the kick envelope |
 | `scale` | `KICK_SCALE` × the kick envelope, plus the panic pulse's `0.15 × (0.5 + 0.5 sin)`, plus `POP_SCALE_DIAMOND` × the [select pop](gameplay.md#the-tap-pops) |
+| `emissiveIntensity` | the select pop's light, `EMISSIVE` (0.35) → `HIGHLIGHT_EMISSIVE` (1.05) and back |
 
 Adding rather than switching is deliberate: a level change landing inside the last five seconds
 should read as a knock on top of a beating marker, not replace it — and a tap on that same rider has

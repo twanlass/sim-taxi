@@ -26,7 +26,10 @@ import {
 } from '../src/game/fares.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
-import { bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE } from '../src/geometry/diamond.js';
+import {
+  bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, EMISSIVE, HIGHLIGHT_EMISSIVE,
+} from '../src/geometry/diamond.js';
+import { HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER } from '../src/game/selectpop.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
@@ -911,10 +914,17 @@ check('no two cars occupy the same space', worst > 1.6,
     // Nothing has been tapped yet. A rider that swelled on spawn would be acknowledging a gesture
     // nobody made — the same rule the diamond's kick follows.
     fares.update(1 / 60, kTraffic.taxi);
+    // Whichever mesh the rider's own colour lives on — the merged torso is first, and it is the
+    // one a flash has to reach. Read off the material the way a player reads it off the screen.
+    const skin = fare.slot.passenger.standing.group.children[0].material;
     check('a fresh rider is not already popping',
       !crystal.isPopping() && Math.abs(figure.scale.x - 1) < 1e-9
       && Math.abs(crystal.mesh.scale.x - 1) < 1e-9,
       `figure ${figure.scale.x.toFixed(3)}, crystal ${crystal.mesh.scale.x.toFixed(3)}`);
+    check('and is not already lit',
+      skin.emissive.getHex() === 0x000000
+      && Math.abs(crystal.mesh.material.emissiveIntensity - EMISSIVE) < 1e-9,
+      `rider ${skin.emissive.getHexString()}, crystal ${crystal.mesh.material.emissiveIntensity}`);
 
     fares.markDirected(fare);
     let peakFigure = 0;
@@ -923,12 +933,21 @@ check('no two cars occupy the same space', worst > 1.6,
     let peakCrystalFrame = -1;
     let dipFigure = Infinity;
     let framesPopping = 0;
+    let peakRiderLit = 0;
+    let peakCrystalLit = 0;
+    let dimmedRider = 0;      // frames the flash pushed the figure *below* its resting black
+    let dimmedCrystal = 0;    // and the crystal below its resting emissive
     for (let f = 0; f < 60; f++) {
       fares.update(1 / 60, kTraffic.taxi);
       if (crystal.isPopping()) framesPopping += 1;
       if (figure.scale.x > peakFigure) { peakFigure = figure.scale.x; peakFigureFrame = f; }
       if (crystal.mesh.scale.x > peakCrystal) { peakCrystal = crystal.mesh.scale.x; peakCrystalFrame = f; }
       dipFigure = Math.min(dipFigure, figure.scale.x);
+      const lit = crystal.mesh.material.emissiveIntensity;
+      peakRiderLit = Math.max(peakRiderLit, skin.emissive.r);
+      peakCrystalLit = Math.max(peakCrystalLit, lit);
+      if (skin.emissive.r < -1e-9) dimmedRider += 1;
+      if (lit < EMISSIVE - 1e-9) dimmedCrystal += 1;
     }
 
     // Big enough to be seen under a fingertip, and never past the amplitude the constants promise
@@ -954,6 +973,26 @@ check('no two cars occupy the same space', worst > 1.6,
       framesPopping > 18 && framesPopping < 32 && !crystal.isPopping()
       && Math.abs(figure.scale.x - 1) < 1e-9 && Math.abs(crystal.mesh.scale.x - 1) < 1e-9,
       `${framesPopping} frames, figure ${figure.scale.x.toFixed(4)}`);
+
+    // --- The highlight.
+    //
+    // The second channel the same envelope drives: both objects light up and fade back. A swell on
+    // its own is a shape changing size, which the crystal already does three other ways (bounce,
+    // kick, panic pulse) — getting brighter is the one thing nothing else on that corner does.
+    check('the tap lights the rider and the crystal',
+      peakRiderLit > RIDER_HIGHLIGHT * 0.8 && peakRiderLit <= RIDER_HIGHLIGHT + 1e-9
+      && peakCrystalLit > EMISSIVE * 2 && peakCrystalLit <= HIGHLIGHT_EMISSIVE + 1e-9,
+      `rider ${peakRiderLit.toFixed(3)}, crystal ${peakCrystalLit.toFixed(3)}`);
+    // The scale undershoots and that is the best part of it; the *light* must not, or the marker
+    // reads as having been switched off rather than as having finished. Hence the clamp in
+    // `popHighlight` — this is the assertion that says why it is there.
+    check('the light never dips below rest on the way back',
+      dimmedRider === 0 && dimmedCrystal === 0,
+      `${dimmedRider} rider frames, ${dimmedCrystal} crystal frames under rest`);
+    check('and it lands back exactly where it started',
+      skin.emissive.getHex() === 0x000000
+      && Math.abs(crystal.mesh.material.emissiveIntensity - EMISSIVE) < 1e-9,
+      `rider ${skin.emissive.getHexString()}, crystal ${crystal.mesh.material.emissiveIntensity}`);
 
     // Re-tapping a rider the taxi is already on its way to has to pop again. It is an
     // acknowledgement of a gesture, not a state to reconcile — a second tap that did nothing reads

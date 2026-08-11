@@ -4,7 +4,7 @@ import { createPassengerPin, createDestinationPin } from '../geometry/marker.js'
 import { createPerson } from '../geometry/person.js';
 import { createFareMarker } from './faremarker.js';
 import { urgencyLevel, URGENCY_SEGMENTS } from './urgency.js';
-import { popEnvelope, POP_TIME, POP_SCALE_RIDER } from './selectpop.js';
+import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_RIDER } from './selectpop.js';
 import { chainSeconds, planOrigin } from './route.js';
 import * as difficulty from './difficulty.js';
 
@@ -631,6 +631,7 @@ export function createFareSystem(rng, scene) {
     fare.popAt = undefined;
     fare.popPending = false;
     fare.slot.passenger.postGroup.scale.setScalar(1);
+    fare.slot.passenger.standing?.highlight?.(0);
 
     fare.stage = 'riding';
     // Both ends were drawn at spawn; the pickup is done, so the drop-off becomes the thing the
@@ -808,13 +809,19 @@ export function createFareSystem(rng, scene) {
           fare.popPending = false;
         }
         let pop = 0;
+        let glow = 0;
         if (fare.popAt !== undefined) {
           const since = state.elapsed - fare.popAt;
           // On the clock, not on the value: the envelope passes through 0 before its undershoot.
           if (since >= POP_TIME) fare.popAt = undefined;
-          else pop = popEnvelope(since);
+          else {
+            pop = popEnvelope(since);
+            glow = popHighlight(since);
+          }
         }
         passenger.postGroup.scale.setScalar(1 + pop * POP_SCALE_RIDER);
+        // Both written every frame, so the frame a pop retires is the one that puts the figure back.
+        passenger.standing.highlight(glow);
       }
       // The drop-off is a ring on the road and holds still — nothing to tick but the beam circling
       // its rim. It used to bounce a floating head, on the grounds that the thing you are being

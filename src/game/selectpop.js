@@ -8,9 +8,18 @@
 //
 // **One envelope, shared by everything that pops.** The rider figure (game/fares.js) and the
 // crystal above them (game/faremarker.js) are two meshes with two owners; on the same curve they
-// read as one object reacting. Hand-tuned separately they read as two things that happened to be
-// tapped at once — which is what the first version looked like, with the crystal still swelling
-// after the figure had settled.
+// read as one object reacting rather than as two things that happened to be tapped at once. Phase
+// alone is enough to break it: the first cut had the figure stamp its zero at the tap and the
+// crystal stamp its own on the next tick, so the two ran a frame apart. Both defer to the update
+// tick now and take the zero from one `state.elapsed` — `tools/probe.mjs` asserts they peak on the
+// same frame.
+//
+// It drives **two channels**: the swell, and a light that comes up with it and fades back out.
+// Scale alone was a shape changing size, which is easy to miss on a board where the crystal is
+// already bouncing, kicking and pulsing — a thing that got *brighter* is not something anything
+// else on the corner does, so it cannot be mistaken for the clock reporting. The light is a lift on
+// what each object is already emitting rather than a colour of its own: hue on a fare marker means
+// urgency (see game/urgency.js), and a tap must not appear to answer a question about the clock.
 
 export const POP_TIME = 0.4;
 
@@ -41,15 +50,29 @@ export function popEnvelope(t) {
   return Math.sin(Math.PI * u ** 0.55) - POP_DIP * Math.sin(Math.PI * u) * u ** 2;
 }
 
+/**
+ * The highlight's share of the same envelope: the swell, with the undershoot clipped off.
+ *
+ * The scale and the light are one gesture and want one curve, but they part company at the tail.
+ * A negative *scale* is the settle, and it is the best part of the pop; a negative *light* is the
+ * marker going dim, which on a crystal whose whole job is to be found at range reads as it having
+ * been switched off rather than as it having finished. So the flash ends where the curve first
+ * crosses back through rest (0.29s) and the squash carries the last tenth of a second on its own.
+ */
+export const popHighlight = (t) => Math.max(0, popEnvelope(t));
+
 // Peak swell per object, as a fraction over rest. They differ because the two objects are different
 // sizes on screen and the pop has to look like the same gesture on both:
 //
-//   the crystal is ~29px and goes to ~35px at the peak, dipping to ~28px before it lands. Bigger
-//   than the level-change kick's 0.1 (29px → 32px) on purpose — that one is competing only with
-//   itself, this one has to be legible under a fingertip.
+//   the crystal is ~29px and goes to ~38px at the peak, dipping to ~28px before it lands. Several
+//   times the level-change kick's 0.1 (29px → 32px), and deliberately: that one is competing only
+//   with itself at the edge of the eye, this one is answering a finger that is *on* the marker. The
+//   first version shipped at 0.22 (~35px) and came back as "not quite dramatic enough", which is
+//   about right — at that size the swell is inside the range the marker already moves through on
+//   its own, between the resting bounce and a level-change kick.
 //
-//   the rider is ~26px and goes to ~31px. A hair less than the crystal because the figure grows out
-//   of its own feet (see game/fares.js) while the crystal grows about its centre, so the same
+//   the rider is ~26px and goes to ~33px. A little less than the crystal because the figure grows
+//   out of its own feet (see game/fares.js) while the crystal grows about its centre, so the same
 //   fraction travels further on screen.
-export const POP_SCALE_DIAMOND = 0.22;
-export const POP_SCALE_RIDER = 0.2;
+export const POP_SCALE_DIAMOND = 0.34;
+export const POP_SCALE_RIDER = 0.3;

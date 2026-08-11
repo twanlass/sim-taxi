@@ -6,7 +6,7 @@ import {
   createDiamond, DIAMOND_R, bounceOffset, kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
 } from '../geometry/diamond.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
-import { popEnvelope, POP_TIME, POP_SCALE_DIAMOND } from './selectpop.js';
+import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './selectpop.js';
 
 // The fare's clock, as a physical object: one geodesic diamond, coloured by how close this fare is
 // to giving up — green, yellow, orange, red, with a disc under the rider's feet in the same colour
@@ -222,6 +222,9 @@ export function createFareMarker(scene, phase = 0) {
       // its life, and a fresh rider opening mid-swell would announce a tap that never happened.
       popAt = null;
       popPending = false;
+      // `update` only puts the light back on a frame it runs, and a marker hidden mid-flash never
+      // gets one.
+      diamond.setHighlight(0);
       transferAt = null;
       transferPending = false;
       anchor.set(x, LIFT, z);
@@ -304,13 +307,21 @@ export function createFareMarker(scene, phase = 0) {
         popPending = false;
       }
       let pop = 0;
+      let glow = 0;
       if (popAt !== null) {
         const since = elapsed - popAt;
         // Retired on the clock rather than on the value, same as the kick above — the envelope
         // passes through 0 on its way to the undershoot, and clearing there would cut the settle off.
         if (since >= POP_TIME) popAt = null;
-        else pop = popEnvelope(since);
+        else {
+          pop = popEnvelope(since);
+          glow = popHighlight(since);
+        }
       }
+      // Written every frame rather than only while a pop is live: the frame the pop retires is the
+      // one that has to put the light back, and unconditional is one less way to leave a crystal
+      // burning.
+      diamond.setHighlight(glow);
 
       const pulse = secondsLeft <= PULSE_BELOW_S
         ? PULSE_AMPLITUDE * (0.5 + 0.5 * Math.sin(elapsed * PULSE_HZ * Math.PI * 2))
