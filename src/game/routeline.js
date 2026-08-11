@@ -137,9 +137,29 @@ export function routePath(car, route) {
     // Mid-junction: pick the arc up where the car is on it. `car.i/j` still name the junction it
     // is turning *at*, and its routed step is already consumed, so the remaining route applies
     // from the junction after this one.
-    for (let s = 0; s <= TURN_STEPS; s++) {
-      const t = car.turnT + (1 - car.turnT) * (s / TURN_STEPS);
-      push(bezier(car.entry, car.control, car.exit, t));
+    //
+    // `car.turnT` is a fraction of `car.turnLen`, which is the hold line's straight run-up
+    // (`car.leadIn`, the crosswalk clearance `STOP_SETBACK` sits back from the junction boundary)
+    // *plus* the arc — not a fraction of the arc alone. The render transform below in traffic.js
+    // splits on that; this used to skip straight to `bezier(..., car.turnT)`, which treated the
+    // run-up as already-curved distance and jumped the drawn band forward by a whole `STOP_SETBACK`
+    // (~3.4 units) the instant a car committed to a turn. Invisible on the old static band, it
+    // showed up as a pop once the pulse animation rode on top of it.
+    const travelled = Math.min(car.turnT, 1) * car.turnLen;
+    if (travelled < car.leadIn) {
+      const t = travelled / car.leadIn;
+      push({
+        x: car.hold.x + (car.entry.x - car.hold.x) * t,
+        z: car.hold.z + (car.entry.z - car.hold.z) * t,
+      });
+      push(car.entry);
+      for (let s = 0; s <= TURN_STEPS; s++) push(bezier(car.entry, car.control, car.exit, s / TURN_STEPS));
+    } else {
+      const t0 = (travelled - car.leadIn) / (car.turnLen - car.leadIn);
+      for (let s = 0; s <= TURN_STEPS; s++) {
+        const t = t0 + (1 - t0) * (s / TURN_STEPS);
+        push(bezier(car.entry, car.control, car.exit, t));
+      }
     }
     const after = nextIntersection(car.dOut, i, j);
     if (!after) return pts;
