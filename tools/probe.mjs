@@ -14,7 +14,7 @@ import { createLayout } from '../src/city/layout.js';
 import { createGround, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W } from '../src/sim/traffic.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
@@ -2470,6 +2470,177 @@ check('the taxi is an ordinary car in the traffic array',
     `${(corridorLock * 180 / Math.PI).toFixed(1)}° peak on the rail`);
   check('the cruiser steers into the chase', chaseLock > 0.3 && Math.abs(rigLock - chaseLock) < 1e-9,
     `rig ${(rigLock * 180 / Math.PI).toFixed(0)}° vs model ${(chaseLock * 180 / Math.PI).toFixed(0)}°`);
+}
+
+// --- Traffic in the siren's own lane ----------------------------------------
+//
+// The cruiser has no collision response and never will — it is a scripted car on a rail, and
+// giving it a queue would mean giving it the whole following-distance model. What it has instead
+// is a two-sided manoeuvre: ambient traffic in its lane pulls over onto the kerb (PULLOVER_* in
+// traffic.js) and the cruiser moves toward the centreline to get past (DODGE_* in police.js).
+// Neither half is any use alone — 1.5 units of pull-over against two 1.7-wide bodies still
+// overlaps — so what is asserted here is the *outcome*: bodies that do not occupy the same tarmac.
+//
+// Measured against the same run with both halves removed, over 199 corridor runs on 24 seeds:
+// frames with the cruiser inside an ambient body fell from 1747 to 495, and the ones on open road
+// — a cruiser ploughing down an arterial through a queue, which is what this is for — from 762 to
+// 7. What is left is almost entirely cars mid-turn inside a junction box, the same category the
+// collision model already leaves standing as a hazard the player can read.
+{
+  const DT = 1 / 60;
+  // Where a building façade starts: the block begins HALF_ROAD off the centreline and towers are
+  // inset 0.85 into their lot. A car shoved past this is a car parked in a lobby.
+  const FACADE = ROAD_W / 2 + 0.85;
+
+  let armedFrames = 0;
+  let insideBody = 0;
+  let insideDriving = 0;
+  let furthestOut = 0;
+  let pulledOver = 0;
+  let peakDodge = 0;
+  let peakWheel = 0;
+
+  for (const s of [seed, seed + 1, seed + 2]) {
+    const pScene = new THREE.Scene();
+    const pTraffic = createTraffic(makeRng(s + 44), pScene, 30);
+    const pPolice = createPolice(makeRng(s + 66), pScene, pTraffic.cars);
+    pPolice.state.cooldown = 0;
+
+    let t = 0;
+    for (let step = 0; step < 60 * 100; step++) {
+      t += DT;
+      pPolice.update(DT);
+      pTraffic.update(DT, t);
+      if (!pPolice.state.armed) continue;
+      armedFrames += 1;
+      peakDodge = Math.max(peakDodge, pPolice.state.dodge);
+      peakWheel = Math.max(peakWheel, Math.abs(pPolice.state.wheelAngle));
+
+      const p = pPolice.group.position;
+      const axis = pPolice.state.axis;
+      for (const car of pTraffic.cars) {
+        if (car.crashed || car.isTaxi) continue;
+        if (car.pullover > 0.5) pulledOver += 1;
+        // Both bodies sit square to the road on a corridor run, so overlap is two axis-aligned
+        // boxes: touching along the road *and* across it at the same time.
+        const halfW = (car.isTruck ? TRUCK_W : CAR_W) / 2 + CAR_W / 2;
+        const alongGap = Math.abs(axis === 'x' ? car.x - p.x : car.z - p.z) - CAR_LEN;
+        const acrossGap = Math.abs(axis === 'x' ? car.z - p.z : car.x - p.x) - halfW;
+        if (alongGap < 0 && acrossGap < 0) {
+          insideBody += 1;
+          if (car.state === 'drive') insideDriving += 1;
+        }
+        // How far the pull-over throws a body off the road it is on. Only meaningful for a car
+        // running a lane — mid-junction there is no one centreline to measure against.
+        if (car.state !== 'drive') continue;
+        const line = (isXAxis(car.d) ? car.j : car.i);
+        const off = Math.abs((isXAxis(car.d) ? car.z : car.x) - lineCoord(line));
+        furthestOut = Math.max(furthestOut, off + CAR_W / 2);
+      }
+    }
+  }
+
+  check('traffic gets out of the siren\'s way', pulledOver > 50,
+    `${pulledOver} car-frames pulled over across ${armedFrames} armed frames`);
+  check('the cruiser moves over to get past', peakDodge > 1 && peakWheel > 0.02,
+    `${peakDodge.toFixed(2)} units off the lane centre, wheels to ${(peakWheel * 180 / Math.PI).toFixed(1)}°`);
+  // The one that matters: on open road the cruiser no longer drives through anybody. Bounded
+  // rather than pinned at zero because a car can still be part-way through releasing its
+  // pull-over as the cruiser arrives. Same sample with both halves removed: 54.
+  check('it stops driving through the cars in its lane', insideDriving <= 20,
+    `${insideDriving} frames inside a driving body`);
+  // Everything, junction boxes included. 62 frames (3.28%) on this sample before the manoeuvre.
+  check('and mostly stops driving through anyone at all', insideBody < armedFrames * 0.02,
+    `${insideBody} frames (${(100 * insideBody / armedFrames).toFixed(2)}% of armed)`);
+  // The pull-over and the panic shove take the larger of the two rather than adding, precisely so
+  // this holds — summed they reach 5.17 and put a wing through a wall.
+  check('nobody gets shoved into a building', furthestOut < FACADE,
+    `furthest body edge ${furthestOut.toFixed(2)} from the centreline, façades at ${FACADE.toFixed(2)}`);
+}
+
+// --- The cruiser and a dug-up street ----------------------------------------
+//
+// A roadworks closure is soft — two lane ids in a set, nothing removed from the network — so
+// nothing stops a car that does not check it, and the police car was exactly that car. It checks
+// twice now: once when it draws a corridor line, and again at every junction of a chase.
+{
+  setClosedLanes([]);
+  const dScene = new THREE.Scene();
+  const dTraffic = createTraffic(makeRng(seed + 310), dScene, 12);
+  for (let step = 0; step < 300; step++) dTraffic.update(1 / 60);
+  const dWork = createRoadwork(makeRng(seed + 311), dScene, null);
+  const staged = dWork.place(dTraffic.taxi, dTraffic.cars, []);
+
+  const net = cityNetwork();
+  const dug = dWork.closedLaneIds.map((id) => net.laneById.get(id));
+  const ends = [net.nodeById.get(dug[0].from), net.nodeById.get(dug[0].to)];
+  // The line the zone sits on, in the grid terms the cruiser draws its corridor in.
+  const dugAxis = ends[0].gj === ends[1].gj ? 'x' : 'z';
+  const dugLine = dugAxis === 'x' ? ends[0].gj : ends[0].gi;
+
+  let draws = 0;
+  let onTheZone = 0;
+  const dPolice = createPolice(makeRng(seed + 66), dScene, dTraffic.cars);
+  let wasActive = false;
+  for (let step = 0; step < 60 * 600 && draws < 40; step++) {
+    dPolice.state.cooldown = Math.min(dPolice.state.cooldown, 0.5);
+    dPolice.update(1 / 60);
+    if (dPolice.state.active && !wasActive) {
+      draws += 1;
+      if (dPolice.state.axis === dugAxis && dPolice.state.line === dugLine) onTheZone += 1;
+    }
+    wasActive = dPolice.state.active;
+  }
+
+  check('a zone stands somewhere for the cruiser to avoid', staged && dug.length === 2,
+    staged ? `${dugAxis} line ${dugLine}` : 'no candidate');
+  // 6 of 40 before the check went in — one road in twelve, drawn uniformly, is about right.
+  check('a corridor never runs down a dug-up street', onTheZone === 0,
+    `${draws} draws, ${onTheZone} down the closed line`);
+
+  // And the chase, which picks its road a junction at a time and so has to ask again each time.
+  // The quarry is planted on the far side of the zone from the cruiser, which is the case that
+  // used to send it straight through the barricades: the greedy Manhattan score points at the
+  // closed segment because that is the shortest way there.
+  let throughTheZone = 0;
+  let chases = 0;
+  for (let k = 0; k < 4; k++) {
+    const cScene = new THREE.Scene();
+    const cPolice = createPolice(makeRng(seed + 66 + k), cScene, []);
+    cPolice.state.cooldown = 0;
+    for (let step = 0; step < 60 * 120; step++) {
+      cPolice.update(1 / 60);
+      if (cPolice.state.active && Math.abs(cPolice.state.s) < PITCH) break;
+    }
+    if (!cPolice.state.active) continue;
+    chases += 1;
+    // Just past the far end of the closed segment, measured from whichever end the cruiser is
+    // further from — so the direct line to the quarry runs the length of the zone.
+    const from = cPolice.group.position;
+    const far = Math.hypot(ends[0].x - from.x, ends[0].z - from.z)
+      > Math.hypot(ends[1].x - from.x, ends[1].z - from.z) ? ends[0] : ends[1];
+    cPolice.chase({ x: far.x, z: far.z });
+    for (let step = 0; step < 60 * 12 && !cPolice.state.arrived; step++) {
+      cPolice.update(1 / 60);
+      const p = cPolice.group.position;
+      // Inside the closed segment: on its road, and past the junction box at either end. The
+      // boxes are excluded because reaching the quarry means entering the one it is standing in,
+      // and because the chase cuts its corners on about a lane radius (CHASE_SMOOTH), which puts
+      // the drawn car a couple of units into the far side of a junction it is turning through.
+      const onRoad = dugAxis === 'x'
+        ? Math.abs(p.z - ends[0].z) < ROAD_W / 2
+        : Math.abs(p.x - ends[0].x) < ROAD_W / 2;
+      const between = dugAxis === 'x'
+        ? p.x > Math.min(ends[0].x, ends[1].x) + ROAD_W / 2 && p.x < Math.max(ends[0].x, ends[1].x) - ROAD_W / 2
+        : p.z > Math.min(ends[0].z, ends[1].z) + ROAD_W / 2 && p.z < Math.max(ends[0].z, ends[1].z) - ROAD_W / 2;
+      if (onRoad && between) throughTheZone += 1;
+    }
+  }
+  // 90 frames straight through the hole before turnAt learned to ask — 1.5 seconds of cruiser
+  // inside a closed street, which is what this looked like.
+  check('a chase routes around the barricades', chases > 0 && throughTheZone === 0,
+    `${chases} chases, ${throughTheZone} frames inside the closure`);
+  setClosedLanes([]);
 }
 
 // --- The pan gesture, and the opening follow-cam it hands off from ----------

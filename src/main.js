@@ -170,7 +170,9 @@ const traffic = createTraffic(
   TRUCK_CHANCE,
 );
 const fares = createFareSystem(makeRng(runSeed + 55), scene);
-const police = createPolice(makeRng(runSeed + 66), scene);
+// Given the cars array so the cruiser can see who is in its lane and move over for them — see
+// DODGE_* in sim/police.js. It never mutates it.
+const police = createPolice(makeRng(runSeed + 66), scene, traffic.cars);
 // The vehicles, so a car reads as sitting *on* the road rather than pasted over it. The stop bars
 // are left out deliberately — they are 0.05-unit road paint, and their own outline is not a
 // contact. The ghost outlines hung off the taxi are filtered out inside `markOccluder`.

@@ -9,7 +9,7 @@ import {
   coneGeometry, barricadeParts, spoilParts, mergeAll, splinterGeometry,
   CONE_REST_Y, SPLINTER_REST_Y,
 } from '../geometry/roadworks.js';
-import { launchHop, setClosedLanes } from '../sim/traffic.js';
+import { launchHop, setClosedLanes, policeRoad } from '../sim/traffic.js';
 import { setRoadworkLanes } from './route.js';
 
 // A street closed for roadworks: a striped trestle across each end, a scatter of cones, a heap of
@@ -219,6 +219,16 @@ export function createRoadwork(rng, scene, camera = null) {
     const b = net.nodeById.get(edge.b);
     if (!a || !b) return false;
     if (strands(a, ids) || strands(b, ids)) return false;
+
+    // Not on the road a siren is currently running down. sim/police.js checks the closure before
+    // it picks a corridor and again at every chase turn, so the only way a cruiser can end up
+    // driving through a hole is if the hole opens underneath a run already in progress — and this
+    // is the end of that hole to close. A live corridor is one road out of twelve for a few
+    // seconds at a time, so it costs the placement almost nothing.
+    const siren = policeRoad();
+    if (siren && (siren.axis === 'x'
+      ? a.gj === siren.line && b.gj === siren.line
+      : a.gi === siren.line && b.gi === siren.line)) return false;
 
     // A rider standing on a kerb corner at either end would be picked up from inside the zone.
     if (busy.some((spot) => (spot.i === a.gi && spot.j === a.gj)
