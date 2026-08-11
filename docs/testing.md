@@ -311,7 +311,7 @@ a rider was waiting, `querySelector('canvas')` handed back a chip, so every gest
 38-pixel button in the corner. The drag check failed for it; the tap check *passed* for it, because
 a click on a chip's canvas bubbles to the chip's button and dispatches the taxi anyway.
 
-**The camera checks emulate a phone.** Drag-to-pan, both follow-cams and the rider pan are all
+**The camera checks emulate a phone.** Drag-to-pan, both follow-cams and the rider peek are all
 gated under `NARROW_VIEWPORT = 768`, and the tool launches a 900px window — so the drag check was
 asserting a feature that is deliberately switched off there. That half of the run now flips to a
 390×844 viewport with `Emulation.setDeviceMetricsOverride` first.

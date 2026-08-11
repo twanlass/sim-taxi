@@ -43,7 +43,8 @@ wherever it landed rather than snapping back.
 
 - **The opening follow**, at rate **1.5**. A run starts with the camera trailing the taxi and keeps
   doing it until the player takes the framing over — a swipe past `PAN_SLOP`, or a tap on a
-  rider-finder chip. It exists for the same reason drag-to-pan does: in portrait the fixed framing
+  rider-finder chip. A swipe keeps it for good; a chip tap only borrows it, and hands it back at
+  the end of [the peek](#the-rider-peek). It exists for the same reason drag-to-pan does: in portrait the fixed framing
   has already given up, so a run otherwise opens with the taxi off-screen and the player's first job
   is hunting for their own car. Gentler than the boost chase because it is ambient and runs for as
   long as it is left alone — at 1.5 the camera drifts after the taxi rather than locking to it, and
@@ -69,17 +70,43 @@ and a camera that answers all of it slides the map every time you pick a fare. I
 `didPan()` so the picker can swallow the click that closes out a drag, and it clamps the target to
 `HALF_SPAN`, so the map can never be pushed off screen with nothing left to steer back by.
 
-### The rider pan
+### The rider peek
 
 A tap on a rider-finder chip takes the camera to that rider — narrow viewports only, same rule as
-everything else here. It **pans rather than cutting**, and it is a different curve from either
-follow above: `controller.glideTo(x, z)` starts a one-shot tween, `updateGlide(dt)` steps it from
-the frame loop, and it retires itself on its own clock.
+everything else here — **holds them in frame for a beat, and then rides back to the taxi**. It
+**pans rather than cutting**, and it is a different curve from either follow above:
+`controller.glideTo(x, z)` starts a one-shot tween, `updateGlide(dt)` steps it from the frame loop,
+and it retires itself on its own clock. `controller.peekAt(x, z, getReturn, onArrive)` is the whole
+round trip, and it is what a chip tap actually calls.
 
 A cut costs the player the one thing the fixed camera was chosen to give them. With the whole city
 no longer in frame, a teleport leaves them re-reading a screen of near-identical blocks to work out
 which way the map moved and whether the rider now under the chip is the one they tapped. Riding the
 move across keeps the city continuous.
+
+**And it comes back**, because showing the rider is a glance rather than a destination. The taxi is
+already driving at them on the same tap; leaving the camera parked on the kerb means the player
+watching an empty corner while their own car is off-screen somewhere, so every chip tap ended in a
+drag back across the map by hand — the same distance the pan had just saved them, on a clock that is
+draining. The three legs are one glide, so they all sit at the same rung of the priority list below:
+
+| Leg | What it is |
+|---|---|
+| **Out** | The pan to the rider's kerb corner. Ordinary `glideTo` curve and duration. |
+| **Hold** | `PEEK_HOLD = 0.9s` sitting dead still. Long enough to read who is waiting and where, short enough that it never feels like being *shown* something. Measured against the legs either side: much under this and the camera reads as arriving and immediately changing its mind. |
+| **Home** | Back to the taxi — whose **destination is re-read every frame**, because it has been driving the whole time. A leg aimed once at the start lands on the patch of road the car left; over a typical peek that is about 5 units out. |
+
+The tracked aim is also what makes the handover clean. At the end of a smootherstep the camera is
+moving at exactly the tracked point's speed, so it lands *on* the taxi already travelling with it —
+`panToRider`'s `onArrive` then clears `cameraTakenOver`, handing the framing to the opening
+follow-cam with no gap to close and nothing to snap. Handing it back matters as much as the trip
+does: park the camera on the car instead and the car simply drives out of the frame the peek just
+spent a second putting it in.
+
+`onArrive` fires **only if the whole sequence runs out**. Everything that outranks a pan drops the
+peek where it stands — a finger on the map, a boost chase, a wreck — and the callback never comes,
+so a player who swipes away mid-peek keeps the camera they took rather than having the follow-cam
+tow the map off it.
 
 **A tween, not the exponential ease the follows use.** `1 - exp(-dt * rate)` leaves at its highest
 speed on the very first frame — right when you are closing a gap that keeps reopening, and most of
@@ -95,13 +122,20 @@ ceiling binds past 112 units; the city's full diagonal is 141.
 It sits at the **bottom of the camera priority list** — wreck focus, then the two follows, then this
 — and it is *dropped*, not paused, by anything above it: `followXZ` and `focusOn` both clear it, as
 does `panBy`, so a finger on the map wins on the frame it lands rather than fighting a tween that is
-still writing the target. The tap that starts a pan also takes the camera over, so the opening
-follow is out of the way for the whole flight. The **dispatch doesn't wait for the pan** — the fare's
-clock is draining, so the taxi leaves on the tap.
+still writing the target. All three legs live in the one `glide` field for exactly that reason —
+every existing handover drops a peek the way it always dropped a pan, with nothing left half
+sequenced behind it. The tap that starts a peek also takes the camera over, so the opening follow is
+out of the way for the whole flight. The **dispatch doesn't wait for the pan** — the fare's clock is
+draining, so the taxi leaves on the tap.
 
 `tools/probe.mjs` asserts the ease-in (first frame moves far less than a linear step), the exact
 arrival and self-retirement, the distance-scaled duration and both clamps, and that a drag mid-pan
-kills it.
+kills it. The peek is walked leg by leg against a stand-in taxi driving a straight line: that it
+pans out first, that it then sits still for about a second, that it lands on the moving car to
+within floating-point exactness rather than near it, and that a drag, a boost chase and a wreck
+focus each cancel the ride home *without* reporting an arrival. `tools/smoke.mjs` covers the same
+round trip in a real browser, on the gap between the camera and the taxi: how far it ever got is the
+evidence it visited the rider, where it ends up is the evidence it came home.
 
 The `VIEW_DIR` diagonal has consequences elsewhere: screen-up is world `(-1, 0, -1)`, which is why
 riders are placed on the `-X-Z` kerb of a junction — the block on the `+X+Z` side sits between the

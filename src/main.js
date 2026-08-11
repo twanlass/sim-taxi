@@ -496,15 +496,29 @@ createPicker(
 // of near-identical blocks to work out which way the map just moved, and whether the rider now
 // under the chip is the one they tapped. Riding the move across keeps the city continuous, so they
 // arrive already knowing where they are and where the taxi was left behind.
+//
+// And it comes *back*. Showing the rider is a glance, not a destination: the taxi is already
+// driving at them, and a camera parked on the kerb leaves the player watching an empty corner
+// while their car is somewhere off-screen — so every chip tap used to end with a drag back across
+// the map, by hand, on a clock that is draining. The peek holds the rider for a beat and then
+// rides home to the taxi (see camera.js's peekAt), which is the same distance the player would
+// have dragged, in a move they don't have to make.
 function panToRider(fare) {
   if (!fare) return;
   const c = cornerFor(fare.target.i, fare.target.j);
-  controller.glideTo(c.x, c.z);
   // Same as a swipe: the player has aimed the camera somewhere deliberately, so the opening
   // follow-cam stops. Without this the taxi would tow the framing straight back off the rider the
   // chip was pointing at — and here it would do it *during* the pan, which reads as the camera
   // losing its nerve halfway.
   releaseCameraToPlayer();
+  controller.peekAt(c.x, c.z, () => traffic.taxi, () => {
+    // The return leg landed on the car and is travelling with it, so hand the framing back to the
+    // opening follow rather than letting go here — parking the camera would only let the taxi
+    // drive out of the frame the peek just spent a second putting it in. Only reached if the whole
+    // sequence ran out; a swipe or a boost mid-peek drops the callback and the player keeps the
+    // camera they took.
+    cameraTakenOver = false;
+  });
 }
 
 // Dispatch the taxi at that rider — same effect as tapping their pin on the map, without having to
@@ -1149,11 +1163,12 @@ function frame() {
   } else if (!cameraTakenOver && !fares.state.gameOver && isNarrow()) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, START_FOLLOW_SMOOTHING, aspect());
   } else {
-    // Bottom of the same priority list: a rider-finder chip's pan (see panToRider). It only ever
-    // gets here because the tap that started it also took the camera over, so the opening follow
-    // is already out of the way; a wreck or a boost landing mid-pan drops it — both `focusOn` and
-    // `followXZ` cancel it — rather than resuming a move the player has stopped caring about.
-    // A no-op when nothing is panning, which is every frame on a desktop.
+    // Bottom of the same priority list: a rider-finder chip's peek (see panToRider) — the pan out,
+    // the beat on the rider and the ride home are all one glide, so all three sit at this rung. It
+    // only ever gets here because the tap that started it also took the camera over, so the opening
+    // follow is already out of the way; a wreck or a boost landing mid-peek drops it — both
+    // `focusOn` and `followXZ` cancel it — rather than resuming a move the player has stopped
+    // caring about. A no-op when nothing is panning, which is every frame on a desktop.
     controller.updateGlide(dt, aspect());
   }
 
