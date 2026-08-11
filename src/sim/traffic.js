@@ -9,7 +9,7 @@ import {
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
   GRID, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
-  ringAxisAt, isUnsignalised,
+  ringAxisAt, isUnsignalised, lineCoord,
 } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 
@@ -312,11 +312,14 @@ export function launchHop(car) {
 // run is live. Corridor already tells us which axis/line the siren is running on, but not *where*
 // along it — and the frantic reaction below is a proximity effect, not a per-road one, so it needs
 // the s coordinate too. Cleared on stop.
-let policePresence = null;   // { axis: 'x' | 'z', line: number, s: number }
+let policePresence = null;   // { axis: 'x' | 'z', line: number, s: number, dir: 1 | -1 }
 
 export function setPolicePresence(next) {
   policePresence = next;
 }
+
+/** The road a live siren is on, for the things outside the sim that have to stay off it. */
+export const policeRoad = () => policePresence;
 
 // Cars on the police car's own road react as it approaches: swerve outward toward the kerb,
 // wobble in yaw, dip the throttle. The siren straddles the centreline at ~2× traffic speed, so
@@ -325,6 +328,40 @@ const PANIC_RANGE = 26;        // world units at which the reaction begins to fa
 const PANIC_LATERAL = 0.9;     // outward push in world units at full panic (kerb sits ~1.15 out)
 const PANIC_WOBBLE = 0.16;     // yaw jitter amplitude (radians) at full panic
 const PANIC_BRAKE = 0.35;      // fraction of cruise speed shed at full panic
+
+// --- Yielding to the siren ------------------------------------------------------
+//
+// Panic is a reaction; this is a manoeuvre. It only applies to a car in the cruiser's *own* lane
+// — same road, same direction of travel — with the siren coming up behind it, because that is the
+// only geometry the cruiser cannot resolve on its own. Oncoming traffic already clears: the two
+// lane centres are 2·LANE = 4 apart and the bodies are 1.7 wide, so there is a clear 2.3 units
+// between them. Same-lane traffic has *zero* separation by construction — the cruiser drives the
+// identical lane coordinate at 19 (corridor) or 26 (chase) against an 8.5 u/s ambient car, so
+// before this it simply passed through every car it caught up with.
+//
+// The fix is two-sided, and it has to be: the pull-over alone is not enough to clear a 1.7-wide
+// body out of a 1.7-wide car's path.
+//   • The car pulls over by PULLOVER_LATERAL and rides up onto the kerb — outer wheels up, so the
+//     body leans *toward the road* and lifts by part of KERB_H.
+//   • The cruiser dodges toward the road centreline by DODGE_LATERAL (see police.js), which it
+//     can afford because the corridor has already stopped everything that would be coming the
+//     other way.
+// Lane centre is 2 off the centreline and the kerb face is at 4, so the car's outer edge goes
+// from 2.85 to 4.35 — a third of the body over the kerb — while the cruiser drops to 0.9 off the
+// centreline. That is 2.6 between the two centres against 1.7 of summed half-widths: 0.9 units of
+// daylight, which is enough to read as a squeeze rather than a clip.
+const PULLOVER_RANGE = 34;        // how far back the siren is felt. ~1.8s of warning at chase speed
+const PULLOVER_CLEAR = 7;         // how far past the car the siren gets before the car lets go
+const PULLOVER_LATERAL = 1.5;     // pull-over at full yield; 1.15 is where the kerb face starts
+const PULLOVER_BRAKE = 0.5;       // fraction of cruise shed on top of the panic dip
+const PULLOVER_MOUNT = 0.6;       // fraction of KERB_H the body rides up on the kerb
+const PULLOVER_ROLL = 0.11;       // radians of lean toward the road, outer wheels up
+// Eased rather than distance-paced, which is a deliberate departure from the weave and the pass.
+// Both of those freeze a stopped car on purpose; this one must not, because a queue stopped at a
+// red in the cruiser's lane is exactly the case that used to get driven through. Rise is quicker
+// than release so the car dives for the kerb and drifts back out.
+const PULLOVER_RISE = 5;
+const PULLOVER_FALL = 2.2;
 
 // --- Scatter ------------------------------------------------------------------
 //
@@ -422,6 +459,84 @@ function panicTargetFor(car) {
   const dist = Math.abs(along(car.d, car.lane.path.at(car.s)) - policePresence.s);
   if (dist >= PANIC_RANGE) return 0;
   return 1 - dist / PANIC_RANGE;
+}
+
+/**
+ * Is the siren in this car's lane, behind it and closing? 1 once it is on top of the car, ramping
+ * in over PULLOVER_RANGE of approach and released once it is PULLOVER_CLEAR past.
+ *
+ * Same road *and same direction of travel* is what makes this the cruiser's own lane: right-hand
+ * traffic puts both on the same side of the centreline, at the same offset, so the two occupy the
+ * same strip of tarmac. A car pointed the other way is in the opposing lane and is left to panic.
+ */
+function pulloverTargetFor(car) {
+  if (!policePresence || car.isTaxi || car.crashed) return 0;
+  // Not while actually turning. Held sideways off a Bézier the car would cut the near corner's
+  // pavement on a right and swing wide into the far lane on a left, and a mid-arc offset reads as
+  // the car popping off its own line — the same reason the panic shove sits out a turn. Releasing
+  // it here rather than at render time is what makes it a release: the offset eases away over the
+  // front of the arc instead of disappearing on the frame the car commits. Straight-through is
+  // not a turn (see `dOut !== d`) and keeps the offset.
+  if (car.state === 'turn' && car.dOut !== car.d) return 0;
+  const carAxis = isXAxis(car.d) ? 'x' : 'z';
+  if (carAxis !== policePresence.axis) return 0;
+  if ((carAxis === 'x' ? car.j : car.i) !== policePresence.line) return 0;
+  if (dirSign(car.d) !== policePresence.dir) return 0;
+  // Signed gap along the direction both are travelling: negative while the siren is still behind.
+  const rel = policePresence.dir * (policePresence.s - along(car.d, car.lane.path.at(car.s)));
+  if (rel > PULLOVER_CLEAR || rel < -PULLOVER_RANGE) return 0;
+  return rel >= 0 ? 1 : 1 + rel / PULLOVER_RANGE;
+}
+
+/**
+ * Should this car hold its line at the junction it is entering, rather than turn across it?
+ *
+ * Keyed on where the *siren* will be, not on how hard this car is pulling over, because the two
+ * cars this has to stop are different cars. One is in the cruiser's own lane and turning off it;
+ * the other is the oncoming car turning left across the corridor, which never pulls over at all
+ * because it is a whole lane clear of the cruiser right up until the moment it swings into it.
+ * Both are on the siren's road, and both are dangerous for the same window — the second or so the
+ * cruiser needs to reach the box.
+ *
+ * A turn takes about a second at cruise, so the look-ahead is a second of siren: 26 units at the
+ * corridor's 19 u/s, a shade under at a chase's 26.
+ */
+const SIREN_BOX_LOOK = 26;
+
+function sirenHoldsTurn(car) {
+  if (!policePresence || car.isTaxi) return false;
+  const carAxis = isXAxis(car.d) ? 'x' : 'z';
+  if (carAxis !== policePresence.axis) return false;
+  if ((carAxis === 'x' ? car.j : car.i) !== policePresence.line) return false;
+  // The junction this car is arriving at, in the siren's own coordinate, and how far the siren
+  // still has to run to reach it. Negative means the cruiser is already past and there is
+  // nothing left to wait for.
+  const box = lineCoord(carAxis === 'x' ? car.i : car.j);
+  const togo = policePresence.dir * (box - policePresence.s);
+  return togo > 0 && togo < SIREN_BOX_LOOK;
+}
+
+/**
+ * Distance from `s` to the nearest ambient car ahead in the siren's own lane, or Infinity.
+ *
+ * Called from police.js, which has no view of a cars array of its own — hence the parameter
+ * rather than a module-level registry: the probe stands up several independent traffic instances
+ * in one process, and a singleton would hand the cruiser whichever one was built last.
+ *
+ * The taxi is excluded on purpose: a chase closes on it deliberately and pulls up at CHASE_ARRIVE,
+ * and a cruiser that swerved round its own quarry on the way in would undo the whole beat.
+ */
+export function sirenLaneAhead(cars, { axis, line, dir, s }) {
+  let nearest = Infinity;
+  for (const car of cars) {
+    if (car.isTaxi || car.crashed) continue;
+    if ((isXAxis(car.d) ? 'x' : 'z') !== axis) continue;
+    if ((axis === 'x' ? car.j : car.i) !== line) continue;
+    if (dirSign(car.d) !== dir) continue;
+    const gap = dir * (along(car.d, car.lane.path.at(car.s)) - s);
+    if (gap > 0 && gap < nearest) nearest = gap;
+  }
+  return nearest;
 }
 
 /** Whether a live corridor passes through this junction. */
@@ -991,6 +1106,10 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // Frantic reaction to a nearby police siren. Eased toward panicTargetFor() each frame and
       // applied at render as an outward shove, a yaw wobble, and a mild speed dip.
       panic: 0,
+      // Getting out of the siren's way, for the cars actually in its lane — see PULLOVER_* above.
+      // Drives the pull-over, the kerb mount and a harder brake than panic asks for.
+      pullover: 0,
+      pulloverSlope: 0,   // d(offset)/d(road) while pulling over, the tangent of the steering angle
       // Getting out of the boosting taxi's way. Eased toward 1 while the taxi is behind this car
       // in its own lane; drives a higher speed cap and a turn-off-at-the-next-junction bias.
       scatter: 0,
@@ -1970,6 +2089,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       const panicTarget = panicTargetFor(car);
       car.panic += (panicTarget - car.panic) * Math.min(1, dt * 6);
 
+      // The pull-over, ditto — and its slope, which is what points the nose and the front wheels
+      // into the manoeuvre. Taken over the step the car actually drove, so the angle is the one it
+      // is really describing; a car shuffling over from a standstill has no slope and keeps its
+      // wheels straight, which is exactly what a stopped car does.
+      const pulloverTarget = pulloverTargetFor(car);
+      const before = car.pullover;
+      car.pullover += (pulloverTarget - car.pullover)
+        * Math.min(1, dt * (pulloverTarget > car.pullover ? PULLOVER_RISE : PULLOVER_FALL));
+      const pulloverStep = (car.pullover - before) * -PULLOVER_LATERAL;
+      const pulloverDs = car.state === 'drive' ? car.v * dt : 0;
+      car.pulloverSlope = pulloverDs > 0.0001 ? pulloverStep / pulloverDs : 0;
+
       // `car.boost` alone drives every boost-only *rule* (weave, tailgate gap, priority junction,
       // red-light running) all the way through the cooldown tail — that's what keeps the risk
       // alive after the button comes up. Actual boost *speed* is narrower: it drops the instant
@@ -2034,8 +2165,13 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // A car fleeing the boosting taxi lifts its ceiling and finds some urgency to go with it:
         // at ACCEL it would need 24 units to reach the scatter speed and the junction is 20 away,
         // so without the extra push the higher cap would never actually be reached.
+        // A car in the siren's own lane sheds more again as it pulls over — the two multiply out
+        // to 0.33 of cruise, a 2.8 u/s crawl at the kerb. Deliberately not a full stop: a stopped
+        // car is a queue the cruiser has to thread for as long as the corridor holds, and the
+        // whole point is that the lane keeps trickling forward and clears behind the siren.
         const cruiseCap = (car.isTruck ? TRUCK_SPEED : SPEED)
-          * (1 + (SCATTER_SPEED - 1) * car.scatter) * (1 - PANIC_BRAKE * car.panic);
+          * (1 + (SCATTER_SPEED - 1) * car.scatter)
+          * (1 - PANIC_BRAKE * car.panic) * (1 - PULLOVER_BRAKE * car.pullover);
         // The ceiling at full boost is the *overdrive* top, not the BOOST_SPEED one — but the
         // acceleration tapers above BOOST_SPEED, so the band past 18.7 is only ever reached by a
         // car that has had 40 units of straight road and a clear `allowed` to spend it on.
@@ -2127,7 +2263,20 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
                 // Fleeing the boosting taxi: carrying straight on keeps this car in the taxi's
                 // lane for another whole block, so it barely rolls that option. Still a weight
                 // rather than a filter — at a T-junction straight may be the only legal exit.
-                const w = kind === 0 && car.scatter > 0.5 ? SCATTER_STRAIGHT_W : TURN_WEIGHTS[kind];
+                let w = kind === 0 && car.scatter > 0.5 ? SCATTER_STRAIGHT_W : TURN_WEIGHTS[kind];
+                // A siren about to come through this junction: hold your line and let it past
+                // rather than turn across its nose. Exactly the courtesy the no-left-across-a-pass
+                // rule below extends to the taxi, for exactly the same reason — the sim cannot
+                // resolve two cars in one square metre, and this is a manoeuvre the *cruiser*
+                // cannot avoid, since it neither queues nor brakes for anybody.
+                //
+                // It is also the only part of the reaction that can reach a car mid-junction. The
+                // pull-over offset is released for the length of a real turn (pulloverTargetFor),
+                // so a car that commits to one is back on the lane centre with the cruiser coming
+                // through; and an oncoming left-turner never had the offset at all. Between them
+                // that was 115 of the last 188 interpenetrating frames over 67 corridor runs. Not
+                // turning is the only fix that does not bend a car off its own arc.
+                if (kind !== 0 && sirenHoldsTurn(car)) w = SCATTER_STRAIGHT_W;
                 // A road closed for roadworks, for the same reason and with a stronger version of
                 // the same guarantee. With any open exit present `total` is positive, `roll` is
                 // strictly greater than zero, and a zero-weight option can never win the walk
@@ -2356,7 +2505,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         car.x -= Math.sin(car.yaw) * lateral;
         car.z -= Math.cos(car.yaw) * lateral;
       }
-      const steer = car.steer + (car.passSlope ? Math.atan(car.passSlope) : 0);
+      // The pull-over rides in here rather than with the panic shove below, because unlike the
+      // wobble it *is* a steering input: the nose and the front wheels should both point at the
+      // kerb the car is diving for.
+      const steer = car.steer + (car.passSlope ? Math.atan(car.passSlope) : 0)
+        + (car.pulloverSlope ? Math.atan(car.pulloverSlope) : 0);
       if (steer) car.yaw += steer;
 
       // --- Front wheels point where the car is going.
@@ -2390,6 +2543,30 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         car.yaw += wobble;
       }
 
+      // The pull-over, on the same basis. Two things differ from the shove above.
+      //
+      // **It does not add to the panic shove, it replaces it** — the subtraction below leaves the
+      // larger of the two, never the sum. Stacked they reach 2.4 units off the lane centre, which
+      // puts a body edge 5.17 from the road centreline, past the 4.85 where the building façades
+      // start (blockBounds plus the 0.85 lot inset). Taking the max caps the excursion at 4.34,
+      // measured over 199 corridor runs, and costs nothing visually because the pull-over is the
+      // bigger of the two wherever both are running.
+      //
+      // **It carries no state gate of its own.** A real turn is excluded at the *target* (see
+      // pulloverTargetFor), which lets the offset ease out across the front of the arc instead of
+      // vanishing on the frame the car commits to it — and going straight through a junction keeps
+      // the whole offset. That second part is the difference between a car moving over and a car
+      // flickering: a straight-through is `state === 'turn'` too (see `dOut !== d`), so gating on
+      // 'drive' the way the panic shove does snapped every yielding car back to the lane centre
+      // for the eight units of each junction box, 212 of the 353 interpenetrating frames left
+      // after the pull-over first landed.
+      if (car.pullover > 0.001) {
+        const already = car.state === 'drive' ? PANIC_LATERAL * car.panic : 0;
+        const push = Math.max(0, PULLOVER_LATERAL * car.pullover - already);
+        car.x += Math.sin(car.yaw) * push;
+        car.z += Math.cos(car.yaw) * push;
+      }
+
       // A little vertical bob, scaled by how fast the car is actually going, so stopped traffic
       // sits still instead of idling like a boat.
       const bob = Math.sin(car.travelled * 2.4 + car.phase) * 0.045 * car.speedFactor;
@@ -2406,6 +2583,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }
       }
+
+      // Up on the kerb. The outer wheels are the ones that climb it, so the body leans *toward*
+      // the road — the same sign as the lean into a right-hand corner, and away from the kerb the
+      // car is parked against. Only part of KERB_H because only part of the body is up there.
+      const mount = KERB_H * PULLOVER_MOUNT * car.pullover;
+      if (car.pullover > 0.001) roll -= PULLOVER_ROLL * car.pullover;
 
       // Rocking. Pitch is a spring-damper driven by longitudinal acceleration: braking dips the
       // nose forward, easing off the brake lifts it, and the underdamping (ζ ≈ 0.4) makes both
@@ -2470,13 +2653,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         + Math.abs(Math.sin(shownPitch)) * (CAR_LEN / 2);
 
       if (car.isTaxi) {
-        taxiGroup.position.set(car.x, ROAD_Y + bob + lift + airY, car.z);
+        // `mount` is always 0 here — pulloverTargetFor skips the taxi — but it costs nothing to keep
+        // the two position lines saying the same thing.
+        taxiGroup.position.set(car.x, ROAD_Y + bob + lift + airY + mount, car.z);
         taxiGroup.rotation.set(roll, car.yaw, shownPitch);
         setTaxiSteer(car.wheelAngle);
         continue;
       }
 
-      pos.set(car.x, ROAD_Y + bob + lift, car.z);
+      pos.set(car.x, ROAD_Y + bob + lift + mount, car.z);
       quat.setFromEuler(euler.set(roll, car.yaw, car.pitch, 'YXZ'));
       matrix.compose(pos, quat, scl);
       writeAmbient(car);
