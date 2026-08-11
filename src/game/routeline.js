@@ -21,10 +21,10 @@ import {
  * lane width. Nothing ahead of the car depends on where the car is, so the band only ever gets
  * *shorter* from behind — it never re-shapes.
  *
- * Chevrons scroll along the band toward the destination, so a glance tells you which way the taxi
- * is about to go without reading the road layout — a stationary wash of colour reads as "a route
- * exists", not "this is the direction of it". They ride the same `vDist`/`uLength` fade already
- * computed for the head and tail, so they never draw past either end of the band.
+ * A soft pulse of brightness rolls along the band toward the destination, so a glance tells you
+ * which way the taxi is about to go without reading the road layout — a stationary wash of colour
+ * reads as "a route exists", not "this is the direction of it". It rides the same `vDist`/`uLength`
+ * fade already computed for the head and tail, so it never brightens past either end of the band.
  */
 
 // The taxi drives one lane, so the band covers one lane: ROAD_W is both lanes.
@@ -228,23 +228,24 @@ function mitreOffsets(path, halfWidth) {
   return offsets;
 }
 
-// Chevrons march from the car toward the destination — the direction of travel — one period every
-// CHEVRON_PERIOD units, at CHEVRON_SPEED units per second of scroll. CHEVRON_DEPTH is the arm
-// length (in path units, not a fraction of the period) — kept short relative to the lane's
-// HALF_WIDTH so the shape reads as a squat road chevron rather than a tall arrowhead.
-const CHEVRON_PERIOD = 6;
-const CHEVRON_SPEED = 4 / 3;
-const CHEVRON_DEPTH = 1.2;
+// The pulse rolls from the car toward the destination — the direction of travel — one crest every
+// PULSE_PERIOD units, at PULSE_SPEED units per second. PULSE_SHARPNESS narrows the crest: 1 is a
+// full sine wave (no dark trough between crests at this spacing), higher values pinch it into a
+// soft travelling glow with real road between crests. PULSE_BOOST caps how much brighter the crest
+// gets over the plain band — kept well under the chevrons' old 0.9 so the motion reads as ambient
+// rather than as a marker in its own right.
+const PULSE_PERIOD = 10;
+const PULSE_SPEED = 3;
+const PULSE_SHARPNESS = 4;
+const PULSE_BOOST = 0.5;
 
 export function createRouteLine(scene) {
   // Two triangles per segment of the path.
   const positions = new Float32Array(MAX_POINTS * 6 * 3);
   const dists = new Float32Array(MAX_POINTS * 6);
-  const acrosses = new Float32Array(MAX_POINTS * 6);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('aDist', new THREE.BufferAttribute(dists, 1));
-  geometry.setAttribute('aAcross', new THREE.BufferAttribute(acrosses, 1));
 
   // The fade is per-fragment off a distance-along-the-path varying rather than per-vertex alpha:
   // vertex alpha would need the path re-tessellated at both fade boundaries every frame (and
@@ -263,12 +264,9 @@ export function createRouteLine(scene) {
     },
     vertexShader: /* glsl */`
       attribute float aDist;
-      attribute float aAcross;
       varying float vDist;
-      varying float vAcross;
       void main() {
         vDist = aDist;
-        vAcross = aAcross;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
@@ -286,37 +284,33 @@ export function createRouteLine(scene) {
       uniform float uMultiply;
       uniform float uTime;
       varying float vDist;
-      varying float vAcross;
-      const float CHEVRON_PERIOD = ${CHEVRON_PERIOD.toFixed(4)};
-      const float CHEVRON_SPEED = ${CHEVRON_SPEED.toFixed(4)};
-      const float CHEVRON_DEPTH = ${CHEVRON_DEPTH.toFixed(4)};
+      const float PULSE_PERIOD = ${PULSE_PERIOD.toFixed(4)};
+      const float PULSE_SPEED = ${PULSE_SPEED.toFixed(4)};
+      const float PULSE_SHARPNESS = ${PULSE_SHARPNESS.toFixed(4)};
+      const float PULSE_BOOST = ${PULSE_BOOST.toFixed(4)};
+      const float TAU = 6.2831853;
       void main() {
         float head = smoothstep(uHeadGap, uHeadGap + uFadeHead, vDist);
         float tail = smoothstep(0.0, uFadeTail, uLength - vDist);
         float envelope = uOpacity * head * tail;
 
-        // Distance from the *destination* end, not the car end. vDist is measured from the car,
-        // so it (and uLength) both shrink every frame the taxi drives — using it directly would
-        // make the chevrons appear to scroll faster or slower with the taxi's own speed. The
+        // Position relative to the *destination* end, not the car end. vDist is measured from the
+        // car, so it (and uLength) both shrink every frame the taxi drives — using it directly
+        // would make the pulse appear to roll faster or slower with the taxi's own speed. The
         // destination end of the path doesn't move, so anchoring the phase there decouples the
         // animation from the taxi entirely; only uTime drives it.
-        float distFromEnd = vDist - uLength;
+        float travel = vDist - uLength;
 
-        // A ">" bent around the centreline, scrolling toward the destination over time so it reads
-        // as motion in the direction the taxi is about to drive, not a static barber pole. vAcross
-        // runs -1..1 across the lane; skewing the phase by how far off-centre a fragment sits pulls
-        // the two edges of the stripe back into arms, leaving the point on the centreline leading —
-        // the same shape an arrow makes. CHEVRON_DEPTH is independent of CHEVRON_PERIOD so spacing
-        // and shape can be tuned separately.
-        float phase = fract((distFromEnd + abs(vAcross) * CHEVRON_DEPTH - uTime * CHEVRON_SPEED) / CHEVRON_PERIOD);
-        float lineDist = abs(phase - 0.5);
-        float chevron = 1.0 - smoothstep(0.07, 0.12, lineDist);
-        // Chevrons only brighten the band, never darken it or exceed full alpha, and fade out with
-        // the same head/tail envelope as the band itself so none draw past its ends.
-        float boost = chevron * envelope * 0.9;
+        // A raised cosine rather than a hard-edged band: a soft crest that rises and falls reads as
+        // a pulse of motion, where a sharp line reads as a marker sitting still and blinking.
+        float theta = TAU * fract((travel - uTime * PULSE_SPEED) / PULSE_PERIOD);
+        float pulse = pow(max(0.0, 0.5 + 0.5 * cos(theta)), PULSE_SHARPNESS);
+        // The pulse only brightens the band, never darkens it or exceeds full alpha, and fades out
+        // with the same head/tail envelope as the band itself so none rolls past its ends.
+        float boost = pulse * envelope * PULSE_BOOST;
 
         float a = envelope + boost;
-        vec3 rgb = mix(uColor, vec3(1.0), boost * 0.85);
+        vec3 rgb = mix(uColor, vec3(1.0), boost);
         gl_FragColor = vec4(rgb, a);
         #include <colorspace_fragment>
         gl_FragColor = uMultiply > 0.5
@@ -383,16 +377,11 @@ export function createRouteLine(scene) {
 
     let v = 0;
     let n = 0;
-    // across is the side flag (+1/-1), not the mitre magnitude — the chevron shape only needs to
-    // know which edge of the lane a vertex sits on, so a sharp mitre stretching past HALF_WIDTH
-    // doesn't distort it.
-    const push = (p, o, dist, across) => {
+    const push = (p, o, dist) => {
       positions[v++] = p.x + o.x;
       positions[v++] = Y;
       positions[v++] = p.z + o.z;
-      dists[n] = dist;
-      acrosses[n] = across;
-      n++;
+      dists[n++] = dist;
     };
 
     for (let k = 0; k < path.length - 1; k++) {
@@ -402,14 +391,13 @@ export function createRouteLine(scene) {
       const ob = offsets[k + 1];
       const neg = (o) => ({ x: -o.x, z: -o.z });
 
-      push(a, oa, s[k], 1);      push(b, ob, s[k + 1], 1);      push(b, neg(ob), s[k + 1], -1);
-      push(a, oa, s[k], 1);      push(b, neg(ob), s[k + 1], -1); push(a, neg(oa), s[k], -1);
+      push(a, oa, s[k]);      push(b, ob, s[k + 1]);      push(b, neg(ob), s[k + 1]);
+      push(a, oa, s[k]);      push(b, neg(ob), s[k + 1]); push(a, neg(oa), s[k]);
     }
 
     geometry.setDrawRange(0, n);
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.aDist.needsUpdate = true;
-    geometry.attributes.aAcross.needsUpdate = true;
     geometry.computeBoundingSphere();
     mesh.visible = n > 0;
   }
