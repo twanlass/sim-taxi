@@ -829,13 +829,24 @@ hole punched in the middle of the ramp was most of what read as angular. A strai
 has no arc to peel off; its path is a straight line and its yaw is constant, so the offset composes
 with it exactly as it does on a lane.
 
-**The body banks, and rocks both ways.** `PASS_BANK` (0.09 rad at cruise, speed-scaled on the same
+**The body banks, and rocks both ways.** `PASS_BANK` (0.14 rad at cruise, speed-scaled on the same
 clamp the corner lean uses) is driven by the *curvature* of the eased offset — `e''(t) = 6 − 12t`,
 positive over the first half of a change and negative over the second. So the car rolls one way as
 it is thrown out of its lane and the other as it settles into the new one, and mirrors that on the
-way home: a rock over and back per change. It is added to the corner lean rather than replacing it,
-because every pass spans a junction and a taxi that stopped leaning into its corner because it
-happened to be overtaking would read as the suspension giving up half way through.
+way home: a rock over and back per change.
+
+> **It leans the opposite way from a corner, on purpose.** A corner leans *outward*, away from the
+> turn centre, because that is where weight transfer throws a body — leaning inward there reads as
+> a motorbike. The lane change is negated against that: the car dips onto the edge it is heading
+> *for*, so pulling out to overtake drops the driver's side and tucking back in drops the
+> passenger's. Physically the wrong way round, chosen after looking at both. A lane change is over
+> in half a second, and an outward lean spends that half second tipping *away* from the direction
+> the eye is being asked to follow.
+
+It is added to the corner lean rather than replacing it, since they are two things happening to one
+suspension — though in practice they never overlap. A pass is only offered where the route carries
+straight on, and a straight-through crossing contributes no corner lean at all: measured over eight
+cities at `?cars=22`, a pass is displaced through a real corner for exactly **0** frames.
 
 **And it leaves rubber.** Throwing a car a full lane sideways at the overdrive top is the one
 manoeuvre in the game that breaks traction without turning a corner, and it was the only one leaving

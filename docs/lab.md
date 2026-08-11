@@ -123,7 +123,9 @@ out whether they feel right.
   Watch the yaw: the offset is a function of distance, so its slope *is* the steering angle, and
   easing the offset is what eases the steering. Freeze it with `P` at the midpoint to see the crab.
 - **The bank.** Driven by the offset's *curvature*, so the body rolls one way as the car is thrown
-  out of its lane and the other as it settles — and mirrors that coming home. Two rocks per pass.
+  out of its lane and the other as it settles — and mirrors that coming home. Two rocks per pass,
+  dipping onto the edge the car is heading for: driver's side on the way out, passenger's on the way
+  back. `P` at the midpoint is the way to see it.
 - **The rubber.** Laid across both lane changes and nowhere in between, because the taxi is only
   sliding while it is actually moving sideways.
 - **Letting go mid-pass.** Releasing the button is a real abort — it is the one rule in `traffic.js`

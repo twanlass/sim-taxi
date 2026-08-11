@@ -438,10 +438,12 @@ const passEaseSlope = (t) => 6 * t * (1 - t);
  * makes it read is not the size but the *sign flipping* — `passEase`'s second derivative is
  * `6 − 12t`, positive over the first half of the change and negative over the second, so the body
  * rolls one way as the car is thrown out of its lane and the other as it settles into the new one.
- * A rock over and back per change, and a mirrored one on the way home, which is what weight
- * transfer actually does and what the old constant-slope translation could not express at all.
+ * A rock over and back per change, and a mirrored one on the way home, which the old
+ * constant-slope translation could not express at all.
+ *
+ * 0.09 first, which was too polite to read at the speed the manoeuvre happens.
  */
-const PASS_BANK = 0.09;
+const PASS_BANK = 0.14;
 const PASS_BANK_EASE = 2.5;      // units of road for the roll to reach its target — suspension, not a hinge
 /**
  * How much crab angle counts as breaking traction, for the rubber laid during a lane change.
@@ -2844,16 +2846,29 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         }
       }
 
-      // And the lane change leans too. Added to the corner roll rather than replacing it: every
-      // pass spans a junction by construction, so the two overlap for most of a manoeuvre, and a
-      // taxi that stopped leaning into its corner because it happened to be overtaking would read
-      // as the suspension giving up half way through. Positive roll is a lean to the car's right —
-      // the same sense the corner lean uses, where a right-hander leans left and away from the
-      // turn — so the sign of `passBank` carries it with no further bookkeeping. Speed-scaled on
-      // the same clamp, because a lane change at cruise and one at the overdrive top are not the
-      // same event.
+      // And the lane change leans too — but the *other way* from the corner above it, and that is a
+      // deliberate call rather than a sign slip, so it is worth pinning down before someone
+      // "fixes" it.
+      //
+      // A corner leans **outward**, away from the turn centre, because that is where weight
+      // transfer actually throws a body; leaning inward there reads as a motorbike. A lane change
+      // is negated against that: the car dips onto the edge it is heading *for*, so pulling out to
+      // overtake drops the driver's side and tucking back in drops the passenger's. Physically it
+      // is the wrong way round, and it was chosen after looking at both — a lane change is over in
+      // half a second, and an outward lean spends that half second tipping *away* from the
+      // direction the eye is being asked to follow.
+      //
+      // Positive roll is a lean to the car's right — the top tips toward +Z, which is `right` at
+      // any yaw — so the negation is the whole of the difference. Added to the corner roll rather
+      // than replacing it, since they are two things happening to one suspension, though in
+      // practice they never overlap: a pass is only offered where the route carries straight on,
+      // and a straight-through crossing has `turnDir` 0. Measured over eight cities at ?cars=22, a
+      // pass is displaced through a real corner for exactly 0 frames.
+      //
+      // Speed-scaled on the corner lean's own clamp, because a lane change at cruise and one at
+      // the overdrive top are not the same event.
       if (car.passBank) {
-        roll += car.passBank * PASS_BANK * Math.min(2.2, Math.max(0.7, car.v / SPEED));
+        roll -= car.passBank * PASS_BANK * Math.min(2.2, Math.max(0.7, car.v / SPEED));
       }
 
       // Up on the kerb. The outer wheels are the ones that climb it, so the body leans *toward*
