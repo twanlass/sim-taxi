@@ -6,6 +6,9 @@ import { KERB_H } from '../city/ground.js';
 import {
   WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries,
 } from '../geometry/wheels.js';
+import {
+  brakeLightGeometry, turnSignalGeometry, brakeLightMaterial, turnSignalMaterial,
+} from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
   GRID, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
@@ -1032,6 +1035,51 @@ function truckBoxGeometry() {
   return bakeColor(box, color('truckBox'));
 }
 
+// --- Brake lights and turn signals -----------------------------------------------------------
+//
+// The geometry and materials (LIGHT_D/H/W, brakeLightGeometry(), brakeLightMaterial() and their
+// turn-signal counterparts) live in geometry/lights.js, shared with the taxi's own lights
+// (geometry/taxi.js) — see the note there for why a car's paint tint can't just be repurposed for
+// this. What is here is the *state*: reading a car's braking and signalling levels off its physics
+// each frame, and the InstancedMesh machinery that fleet of ambient vehicles needs and the taxi
+// (an ordinary Group with ordinary Meshes) does not.
+//
+// A car's own pod is scaled by an eased 0..1 *level* rather than snapped between "there" and
+// `ZERO_MATRIX` — the same collapse-to-nothing trick `wreckShell()` uses to retire an instance, just
+// with the scale itself eased instead of stepped. There is no per-instance opacity to animate
+// (`instanceColor` is RGB paint, full stop, and a real fade would need a custom per-instance
+// attribute plus an `onBeforeCompile` patch), so scale is the one lever available — but at this
+// camera's play zoom (1 unit ≈ 7.7px) a pod is only a handful of pixels across, where a shrinking
+// box and a dimming light are close to indistinguishable. Easing the level rather than the boolean
+// that drives it is also what kills flicker: a one-frame blip in the underlying signal (braking is
+// read off noisy per-frame accel) no longer has time to visibly register before the target flips
+// back.
+
+// "Braking" is read off the same longitudinal accel the pitch spring already computes (search
+// "Rocking" below) — losing speed for any real reason (a red, a leader, a corner) dips the nose
+// and lights the lamp together, for free. BRAKE_ACCEL is well under BRAKE (11 u/s^2) so the light
+// comes on with the first press rather than only under full deceleration; BRAKE_STOP_V keeps it lit
+// on a car held dead still — queued at a line, accel reads a clean zero there — rather than letting
+// it wink out the instant the car actually stops.
+const BRAKE_ACCEL = 1.5;
+const BRAKE_STOP_V = 0.2;
+
+// The brake level's ease rates, in 1/s — an exponential approach, so "time to reach it" is the
+// usual 3/rate for ~95%. Rise is quick, close to a real lamp's own on-switch; fall is deliberately
+// much slower, both to read as a dramatic lingering glow rather than a lamp and to absorb a
+// one-frame gap in the underlying accel signal, which is exactly what was flickering before.
+const BRAKE_LIGHT_RISE = 20;    // ~0.15s to full
+const BRAKE_LIGHT_FALL = 4;     // ~0.75s to dark
+
+// Real turn signals flash at roughly 60-120 times a minute (1-2 Hz); 1.1 sits toward the slow end
+// of that band on purpose — fast enough to read as blinking, slow enough that each phase holds long
+// enough to actually register. TURN_SIGNAL_DUTY skews the cycle toward "on": a plain 50/50 square
+// wave spends as long dark as lit, and at this size the dark half was reading as the light being
+// broken rather than blinking. Unlike the brake level below, a signal's on/off is not eased — it is
+// meant to read as a single blinker flashing, not a fade, so the level jumps straight to its target.
+const TURN_SIGNAL_HZ = 1.1;
+const TURN_SIGNAL_DUTY = 0.6;
+
 /** Coordinate along the travel axis for a point. */
 const along = (d, p) => (isXAxis(d) ? p.x : p.z);
 
@@ -1173,6 +1221,12 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // Longitudinal-accel rocking. Spring-damped, so both a stop and a pull-away end on a bounce.
       pitch: 0,
       pitchV: 0,
+      // 0..1 brightness for the brake and turn-signal light pods. brakeLevel is eased (see
+      // BRAKE_LIGHT_RISE/FALL) — off frame one along with prevV/v agreeing there is no accel yet.
+      // The turn-signal levels are not eased; they jump straight to their blink target.
+      brakeLevel: 0,
+      turnLeftLevel: 0,
+      turnRightLevel: 0,
       boost: false,
       // True only during the taxi's post-release cooldown tail (see BOOST_COOLDOWN in
       // game/boost.js) — `boost` stays true through it so collision/police/red-light rules keep
@@ -1360,6 +1414,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
   const {
     group: taxiGroup, setOccupied: setTaxiOccupied, setSteer: setTaxiSteer,
+    setLights: setTaxiLights,
   } = createTaxiMesh();
   scene.add(taxiGroup);
 
@@ -1464,6 +1519,52 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   truckBoxMesh.name = 'truckBoxes';
   truckBoxMesh.count = trucks.length;
 
+  // Brake lights and turn signals: three more instanced meshes per vehicle class, none of them
+  // painted — see the note by lightPod() above for why on/off is a matrix write (present or
+  // ZERO_MATRIX) rather than a colour change. No shadow: a couple of pixels of lamp casts nothing
+  // worth the pass.
+  const brakeMesh = neverCull(
+    new THREE.InstancedMesh(brakeLightGeometry(CAR_LEN, CAR_W), brakeLightMaterial(), MAX_AMBIENT),
+  );
+  brakeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  brakeMesh.name = 'carBrakeLights';
+  brakeMesh.count = ambient.length;
+
+  const turnLeftMesh = neverCull(new THREE.InstancedMesh(
+    turnSignalGeometry(CAR_LEN, CAR_W, -1), turnSignalMaterial(), MAX_AMBIENT,
+  ));
+  turnLeftMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  turnLeftMesh.name = 'carTurnSignalsLeft';
+  turnLeftMesh.count = ambient.length;
+
+  const turnRightMesh = neverCull(new THREE.InstancedMesh(
+    turnSignalGeometry(CAR_LEN, CAR_W, 1), turnSignalMaterial(), MAX_AMBIENT,
+  ));
+  turnRightMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  turnRightMesh.name = 'carTurnSignalsRight';
+  turnRightMesh.count = ambient.length;
+
+  const truckBrakeMesh = neverCull(new THREE.InstancedMesh(
+    brakeLightGeometry(TRUCK_LEN, TRUCK_W), brakeLightMaterial(), MAX_AMBIENT,
+  ));
+  truckBrakeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  truckBrakeMesh.name = 'truckBrakeLights';
+  truckBrakeMesh.count = trucks.length;
+
+  const truckTurnLeftMesh = neverCull(new THREE.InstancedMesh(
+    turnSignalGeometry(TRUCK_LEN, TRUCK_W, -1), turnSignalMaterial(), MAX_AMBIENT,
+  ));
+  truckTurnLeftMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  truckTurnLeftMesh.name = 'truckTurnSignalsLeft';
+  truckTurnLeftMesh.count = trucks.length;
+
+  const truckTurnRightMesh = neverCull(new THREE.InstancedMesh(
+    turnSignalGeometry(TRUCK_LEN, TRUCK_W, 1), turnSignalMaterial(), MAX_AMBIENT,
+  ));
+  truckTurnRightMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  truckTurnRightMesh.name = 'truckTurnSignalsRight';
+  truckTurnRightMesh.count = trucks.length;
+
   const tint = new THREE.Color();
   const paint = (car, index) => {
     tint.set(PALETTE.carBody[car.colorIndex]);
@@ -1529,6 +1630,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       truckMesh.count = trucks.length;
       truckWheelMesh.count = trucks.length * TRUCK_FRONT.length;
       truckBoxMesh.count = trucks.length;
+      truckBrakeMesh.count = trucks.length;
+      truckTurnLeftMesh.count = trucks.length;
+      truckTurnRightMesh.count = trucks.length;
     } else {
       car.instanceIndex = ambient.length;
       ambient.push(car);
@@ -1537,6 +1641,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
       mesh.count = ambient.length;
       wheelMesh.count = ambient.length * FRONT.length;
+      brakeMesh.count = ambient.length;
+      turnLeftMesh.count = ambient.length;
+      turnRightMesh.count = ambient.length;
     }
   }
   // With ?cars=1 there are no ambient vehicles at all, so setColorAt is never called and
@@ -1550,6 +1657,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   scene.add(truckMesh);
   scene.add(truckWheelMesh);
   scene.add(truckBoxMesh);
+  scene.add(brakeMesh);
+  scene.add(turnLeftMesh);
+  scene.add(turnRightMesh);
+  scene.add(truckBrakeMesh);
+  scene.add(truckTurnLeftMesh);
+  scene.add(truckTurnRightMesh);
 
   // --- Stop bars ------------------------------------------------------------
   //
@@ -1611,6 +1724,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const euler = new THREE.Euler();
   const ZERO_SCALE = new THREE.Vector3(0, 0, 0);
   const headColor = new THREE.Color();
+  // A light pod that is "off" this frame is written this matrix instead of the body's — same
+  // trick as ZERO_SCALE above, just precomputed once since every hidden pod collapses to the same
+  // thing regardless of where its car actually is.
+  const ZERO_MATRIX = new THREE.Matrix4().makeScale(0, 0, 0);
 
   /**
    * Take a wrecked car off the road and hand its bodywork to the game layer, which shrinks and
@@ -1679,6 +1796,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     }
     bodyInst.instanceMatrix.needsUpdate = true;
     wheelInst.instanceMatrix.needsUpdate = true;
+    // The lights too — a crashed car stops reaching writeAmbient() (the main loop skips anything
+    // `crashed`), so whatever it last wrote would otherwise sit there forever. A brake light lit at
+    // the moment of impact is exactly the frame this fires on.
+    const brakeInst = car.isTruck ? truckBrakeMesh : brakeMesh;
+    const turnLeftInst = car.isTruck ? truckTurnLeftMesh : turnLeftMesh;
+    const turnRightInst = car.isTruck ? truckTurnRightMesh : turnRightMesh;
+    brakeInst.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
+    turnLeftInst.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
+    turnRightInst.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
+    brakeInst.instanceMatrix.needsUpdate = true;
+    turnLeftInst.instanceMatrix.needsUpdate = true;
+    turnRightInst.instanceMatrix.needsUpdate = true;
     if (car.isTruck) {
       truckBoxMesh.setMatrixAt(car.instanceIndex, matrix);
       truckBoxMesh.instanceMatrix.needsUpdate = true;
@@ -1691,11 +1820,17 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const wheelQuat = new THREE.Quaternion();
   const wheelPos = new THREE.Vector3();
   const UP = new THREE.Vector3(0, 1, 0);
+  const lightMatrix = new THREE.Matrix4();
+  const lightScale = new THREE.Vector3();
 
   /**
-   * Write one ambient car's body matrix and the two front wheels hanging off it. The wheels are
-   * composed *through* the body matrix rather than in world space, so they inherit the bob, the
-   * corner lean and the pitch rock for free and stay bolted to the arches through all three.
+   * Write one ambient car's body matrix, the two front wheels hanging off it, and its brake/turn
+   * lights. The wheels are composed *through* the body matrix rather than in world space, so they
+   * inherit the bob, the corner lean and the pitch rock for free and stay bolted to the arches
+   * through all three. The lights need no such composition — their pods are baked at a fixed offset
+   * into their own geometry (see lightPod()) — but they do need their own scale, so each is `pos`
+   * and `quat` (still holding this car's own transform, set by the caller just before this runs)
+   * recomposed at that light's own eased level rather than `scl`'s fixed (1, 1, 1).
    */
   function writeAmbient(car) {
     const bodyInst = car.isTruck ? truckMesh : mesh;
@@ -1713,6 +1848,19 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       wheelMatrix.multiplyMatrices(matrix, wheelLocal);
       wheelInst.setMatrixAt(car.instanceIndex * front.length + w, wheelMatrix);
     }
+
+    // brakeLevel/turnLeftLevel/turnRightLevel are 0..1 set once per frame, above ("Rocking" for the
+    // eased brake level, the turn-signal block right after it for the un-eased blink levels) — this
+    // just renders them. A level of exactly 0 collapses the pod the same way ZERO_MATRIX used to.
+    const brakeInst = car.isTruck ? truckBrakeMesh : brakeMesh;
+    const turnLeftInst = car.isTruck ? truckTurnLeftMesh : turnLeftMesh;
+    const turnRightInst = car.isTruck ? truckTurnRightMesh : turnRightMesh;
+    lightMatrix.compose(pos, quat, lightScale.setScalar(car.brakeLevel));
+    brakeInst.setMatrixAt(car.instanceIndex, lightMatrix);
+    lightMatrix.compose(pos, quat, lightScale.setScalar(car.turnLeftLevel));
+    turnLeftInst.setMatrixAt(car.instanceIndex, lightMatrix);
+    lightMatrix.compose(pos, quat, lightScale.setScalar(car.turnRightLevel));
+    turnRightInst.setMatrixAt(car.instanceIndex, lightMatrix);
   }
 
   /**
@@ -2890,6 +3038,28 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // another cycle. See the note by TRUCK_SPEED for where the two constants are defined.
       const accel = dt > 1e-6 ? (car.v - car.prevV) / dt : 0;
       car.prevV = car.v;
+      // Brake lights read the same signal the pitch dip does — see BRAKE_ACCEL above — plus a
+      // near-standstill floor so a car queued at a line stays lit instead of going dark the instant
+      // accel settles back to zero. Eased rather than snapped straight to the target — see
+      // BRAKE_LIGHT_RISE/FALL — which is what keeps a one-frame gap in `accel` from reading as a
+      // flicker: the level doesn't have time to fall before the target is true again.
+      const brakeTarget = accel < -BRAKE_ACCEL || car.v < BRAKE_STOP_V ? 1 : 0;
+      car.brakeLevel += (brakeTarget - car.brakeLevel)
+        * Math.min(1, dt * (brakeTarget > car.brakeLevel ? BRAKE_LIGHT_RISE : BRAKE_LIGHT_FALL));
+
+      // Turn signals: on for TURN_SIGNAL_DUTY of every cycle rather than a plain 50/50 square wave
+      // (see the note by TURN_SIGNAL_DUTY). `car.phase` — already the idle bob's per-car offset —
+      // desyncs a queue of blinkers from flashing in lockstep. A real turn is `dOut !== d` (see the
+      // note near the top of this file); `hand` says which way, and both only exist while
+      // `state === 'turn'` — the arc across the junction, which is the one window a real driver's
+      // indicator would still be ticking in. No easing here, unlike the brake level above — a
+      // signal is meant to read as a single blinker flashing, so the level jumps straight to target.
+      const turning = car.state === 'turn' && car.turn && car.turn.hand !== 'straight';
+      const cyclePos = (((stats.time + car.phase) * TURN_SIGNAL_HZ) % 1 + 1) % 1;
+      const wantsBlink = turning && cyclePos < TURN_SIGNAL_DUTY;
+      car.turnLeftLevel = wantsBlink && car.turn.hand === 'left' ? 1 : 0;
+      car.turnRightLevel = wantsBlink && car.turn.hand === 'right' ? 1 : 0;
+
       const pitchScale = car.isTruck ? TRUCK_PITCH_SCALE : 1;
       const targetPitch = Math.max(-0.13, Math.min(0.13, accel * 0.014 * pitchScale));
       const pitchDamping = car.isTruck ? 6 * TRUCK_PITCH_DAMPING_MULT : 6;
@@ -2950,6 +3120,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // only doubles as the car's own axis when it happens to be driving east.
         taxiGroup.rotation.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER);
         setTaxiSteer(car.wheelAngle);
+        setTaxiLights(car.brakeLevel, car.turnLeftLevel, car.turnRightLevel);
         continue;
       }
 
@@ -2970,6 +3141,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     truckMesh.instanceMatrix.needsUpdate = true;
     truckWheelMesh.instanceMatrix.needsUpdate = true;
     truckBoxMesh.instanceMatrix.needsUpdate = true;
+    brakeMesh.instanceMatrix.needsUpdate = true;
+    turnLeftMesh.instanceMatrix.needsUpdate = true;
+    turnRightMesh.instanceMatrix.needsUpdate = true;
+    truckBrakeMesh.instanceMatrix.needsUpdate = true;
+    truckTurnLeftMesh.instanceMatrix.needsUpdate = true;
+    truckTurnRightMesh.instanceMatrix.needsUpdate = true;
 
     // --- Stop bar colours, one per approach.
     for (let index = 0; index < bars.length; index++) {

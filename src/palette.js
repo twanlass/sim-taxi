@@ -168,6 +168,9 @@ export const PALETTE = {
   lightRed: '#E24B3C',
   lightYellow: '#F0B23A',
   lightGreen: '#4FBF63',
+  // An ambient car's turn signal — deliberately more orange than lightYellow above so a blinking
+  // indicator doesn't read as a stop-bar amber lifted onto a car.
+  turnSignal: '#FF8A1E',
   lightOff: '#333940',
   pole: '#4C5158',
 

@@ -10,6 +10,8 @@ import { bakeColor } from '../util/geo.js';
 // harmless the moment a constant did. `TAXI_TAILPIPE_HEIGHT` is evaluated when taxi.js loads,
 // which is *during* traffic.js's own evaluation, so reading a `const` off traffic.js there is a
 // temporal-dead-zone error. Nothing here imports back.
+//
+// geometry/lights.js (brake and turn-signal pods) sits beside this file for the identical reason.
 
 // Doubled from the 0.32 / 0.26 they shipped at, because at that size the steering was invisible: a
 // wheel was about 5px long at play zoom and its whole travel from straight to full lock moved the

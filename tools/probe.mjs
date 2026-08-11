@@ -3342,10 +3342,12 @@ check('the taxi is an ordinary car in the traffic array',
     if (node.name === 'ghostRim') rims.push(node);
   });
 
-  // Four parts: shell, roof sign, both steered wheels. Every opaque part of the car must be in
-  // the mask — a part left out counts as an occluder of the rim behind it, and the wheels being
-  // skipped painted a yellow streak along the rocker panel of a fully visible car.
-  check('taxi wears a ghost outline on every opaque part', masks.length === 4 && rims.length === 4,
+  // Seven parts: shell, roof sign, both steered wheels, and the three light pods (brake, left
+  // turn signal, right turn signal). Every opaque part of the car must be in the mask — a part
+  // left out counts as an occluder of the rim behind it, and the wheels being skipped once painted
+  // a yellow streak along the rocker panel of a fully visible car. The light pods are opaque parts
+  // too even though they are usually scaled to nothing — see geometry/taxi.js's setLights().
+  check('taxi wears a ghost outline on every opaque part', masks.length === 7 && rims.length === 7,
     `${masks.length} masks, ${rims.length} rims`);
 
   const rimsHidden = rims.every((r) => r.material.depthFunc === THREE.GreaterDepth
