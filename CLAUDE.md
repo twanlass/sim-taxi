@@ -83,6 +83,12 @@ down.
   reads exactly like z-fighting and got reported as such. `flatShading` (below) is why it lit like a
   surface instead of going black. Check the sign of a face normal computed *from the winding*;
   `computeVertexNormals` launders a reversed triangle into whatever its neighbours say.
+- **`rotation.set(roll, yaw, pitch)` on the default Euler order rolls about the *world* X axis.**
+  Three composes `'XYZ'` as Rx·Ry·Rz, so the roll lands outside the yaw. It coincides with the car's
+  own long axis only when the car is driving east: north and south render the roll as pitch and show
+  no lean at all, west leans the wrong way. Use `BODY_EULER_ORDER` from `util/geo.js`. The two orders
+  agree exactly at yaw 0, which is why this survived for so long — and why the passing lab, whose
+  road runs due east, showed a lane-change bank the game did not.
 - **`flatShading` takes its normal from a screen-space derivative,** so on back faces it points into
   the screen and the surface lights as if the sun were behind it. Three's `FLIP_SIDED` only fixes
   the interpolated-normal path. Flip it by hand in any back-face pass.

@@ -34,7 +34,7 @@ import { POP_SCALE_DIAMOND, POP_SCALE_RIDER } from '../src/game/selectpop.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
-import { propMaterial, setAmbientOcclusion, AO_UNIFORMS } from '../src/util/geo.js';
+import { propMaterial, setAmbientOcclusion, AO_UNIFORMS, BODY_EULER_ORDER } from '../src/util/geo.js';
 import {
   AO_LAYER, markOccluder, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
 } from '../src/game/ssao.js';
@@ -3882,6 +3882,8 @@ check('the taxi is an ordinary car in the traffic array',
     `${clashes} within 25° of taxiGhost, or saturated past its own body colour`);
 }
 
+let planeOrder;   // read out of the block below, checked in 'Which axis a body rolls about'
+
 // --- The ambient flyover --------------------------------------------------------
 // A plane crossing the sky is the one thing in the game with no failure state to notice: if it
 // clips a tower, pops into frame at the edge of a wide monitor, or flies parallel to the streets,
@@ -3995,6 +3997,52 @@ check('the taxi is an ordinary car in the traffic array',
   // backwards, and at exactly 180° it stands still.
   check('the propeller does not strobe', PROP_SPIN / 60 < Math.PI / 2,
     `${THREE.MathUtils.radToDeg(PROP_SPIN / 60).toFixed(1)}° per frame at 60fps`);
+  planeOrder = flyover.group.rotation.order;
+}
+
+// --- Which axis a body rolls about ---------------------------------------------
+// Everything in the game that leans writes `rotation.set(roll, yaw, pitch)`, and the Euler order
+// that lands on decides what the first of those three actually means. Three composes the default
+// 'XYZ' as Rx·Ry·Rz, which puts the roll *outside* the yaw and turns it about the world X axis:
+// a car driving east leans correctly, one driving north or south renders the same number as pitch
+// and shows no lean at all, and one driving west leans the opposite way. 'YXZ' is Ry·Rx·Rz — yaw
+// first, so the roll turns about the body's own long axis and reads the same at every heading.
+//
+// This shipped for a long time and was invisible because everything that leans is *also* usually
+// turning, so the missing lean looked like a car that simply wasn't leaning much. It surfaced when
+// the overtake got a bank of its own: the passing lab's road runs due east, where the two orders
+// agree exactly, so the lane change leaned beautifully at /lab/ and did nothing in the game.
+{
+  // The lean the eye actually reads: how far the body's right-hand side (+Z in model space) has
+  // been lifted or dropped out of the ground plane, at each of the four headings a street runs.
+  const leanByHeading = (order) => [0, Math.PI / 2, Math.PI, -Math.PI / 2].map((yaw) => new THREE.Vector3(0, 0, 1)
+    .applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(0.2, yaw, 0.06, order))).y);
+  const sameEverywhere = (order) => {
+    const [east, ...rest] = leanByHeading(order);
+    return Math.abs(east) > 0.1 && rest.every((y) => Math.abs(y - east) < 1e-9);
+  };
+
+  // The order is read off the objects the game actually draws, not asserted as a string, so the
+  // check fails the moment a call site goes back to the default — which is what happened.
+  const bodyScene = new THREE.Scene();
+  const bodyTraffic = createTraffic(makeRng(seed + 302), bodyScene, 4);
+  const bodyPolice = createPolice(makeRng(seed + 303), bodyScene, bodyTraffic.cars);
+  for (let step = 0; step < 60 * 90; step++) {
+    bodyTraffic.update(1 / 60);
+    bodyPolice.update(1 / 60);
+  }
+
+  // Proof the metric can tell the two apart, so a bug in it can't quietly pass everything.
+  check('the default rotation order really would lose the lean', !sameEverywhere('XYZ'),
+    `world-X roll reads ${leanByHeading('XYZ').map((y) => y.toFixed(2)).join(', ')} east/north/west/south`);
+  check('the taxi leans the same on every street', sameEverywhere(bodyTraffic.taxiGroup.rotation.order),
+    `order ${bodyTraffic.taxiGroup.rotation.order}`);
+  check('so do the ambient cars', sameEverywhere(BODY_EULER_ORDER),
+    `order ${BODY_EULER_ORDER}`);
+  check('and the police cruiser', sameEverywhere(bodyPolice.group.rotation.order),
+    `order ${bodyPolice.group.rotation.order}`);
+  check('and the aeroplane banks about its fuselage', sameEverywhere(planeOrder),
+    `order ${planeOrder}`);
 }
 
 // --- The barricade's geometry, before any of it is placed ----------------------

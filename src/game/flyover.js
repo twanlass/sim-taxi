@@ -1,5 +1,6 @@
 import { createPlaneMesh } from '../geometry/plane.js';
 import { VIEW_DIR } from './camera.js';
+import { BODY_EULER_ORDER } from '../util/geo.js';
 
 // A light aircraft crossing the city every so often. Pure scenery: it is not routed, not
 // collidable, not tappable, and nothing in the fare loop or the difficulty curve knows it exists.
@@ -121,7 +122,10 @@ export function createFlyover(scene, rng) {
       state.alt + bob,
       f.z * state.s + pz * state.offset,
     );
-    plane.group.rotation.set(roll, state.yaw, climb * PITCH_GAIN);
+    // 'YXZ', not the default — see the note by the ambient euler in sim/traffic.js. A flight line
+    // is rolled once per pass, so under the default order half of them would have shown the wing
+    // wobble as a porpoise instead.
+    plane.group.rotation.set(roll, state.yaw, climb * PITCH_GAIN, BODY_EULER_ORDER);
     // Off sim time rather than accumulated, like every other animation in the project, so a frozen
     // shot renders the same blade angle every time.
     plane.blade.rotation.x = state.t * PROP_SPIN;

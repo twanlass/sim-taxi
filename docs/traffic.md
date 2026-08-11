@@ -843,6 +843,14 @@ way home: a rock over and back per change.
 > in half a second, and an outward lean spends that half second tipping *away* from the direction
 > the eye is being asked to follow.
 
+> **It only ever reached the screen on an east–west street.** The taxi posed with Three's default
+> Euler order, which rolls about the **world** X axis rather than the car's own — so the bank
+> rendered as pitch heading north or south, and mirrored heading west. The passing lab's road runs
+> due east, where the default and `BODY_EULER_ORDER` agree exactly, so the bank looked right there
+> and was invisible in the game. Fixed for the taxi, the police cruiser and the aeroplane; see
+> [rendering.md](rendering.md#car-motion). The taxi's *corner* lean had the same defect for as long
+> as it had existed.
+
 It is added to the corner lean rather than replacing it, since they are two things happening to one
 suspension — though in practice they never overlap. A pass is only offered where the route carries
 straight on, and a straight-through crossing contributes no corner lean at all: measured over eight

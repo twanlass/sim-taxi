@@ -1241,6 +1241,21 @@ lift = Math.abs(Math.sin(roll)) * (CAR_W / 2)
 Without it, leaning pushes the outer wheels underground. The taxi's ground disc is *not* rolled
 with the body — it used to be, and tilting it into the road caused z-fighting.
 
+**Every body poses with `BODY_EULER_ORDER` (`'YXZ'`, in `util/geo.js`), and the default order is
+wrong here.** Three composes `'XYZ'` as Rx·Ry·Rz, which puts the roll *outside* the yaw and so turns
+it about the **world** X axis — the body's own long axis only when the body happens to be heading
+east. On a north or south street the same number renders as pitch and the lean disappears entirely;
+heading west it leans the opposite way. `'YXZ'` is Ry·Rx·Rz: yaw first, roll about the body, the
+same lean at every heading.
+
+The two orders agree *exactly* at yaw 0, which is what hid this. The ambient cars had it right from
+the start; the taxi, the police cruiser and the aeroplane were all on the default, so for a long
+time the taxi only leaned into corners on two of the four streets it could be on and leaned the
+wrong way on one of them. It surfaced when the overtake got a bank of its own — [the passing
+lab](lab.md)'s road runs due east, so the lane change banked beautifully there and did nothing in
+the game. `tools/probe.mjs` now measures the lean at all four headings and asserts the constant
+reaches every body that leans.
+
 ## The "Add to Home Screen" screen
 
 `src/game/homescreen.js`, styled under `#home-tip` in `index.html`. A numbered list of the taps that

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor, propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import {
   DIR, GRID, HALF_SPAN, LANE, PITCH, dirSign, isXAxis, legalExits, lineCoord,
@@ -240,6 +240,10 @@ export function createPolice(rng, scene, cars = []) {
   const lights = lightBar(group);
   const front = steeredWheels(group);
   group.visible = false;
+  // Set once, at construction, rather than only where the body is posed: the corridor run writes
+  // `group.rotation.y` on its own (railHeading, below) without going through a full `set`, so an
+  // order left on the default there would be waiting for the first frame the chase rolled the car.
+  group.rotation.order = BODY_EULER_ORDER;
   scene.add(group);
 
   // Every material this car owns. `propMaterial()` hands back a fresh instance per call, so
@@ -682,7 +686,10 @@ export function createPolice(rng, scene, cars = []) {
     const lift = Math.abs(Math.sin(state.roll)) * (CAR_W / 2)
       + Math.abs(Math.sin(shownPitch)) * (CAR_LEN / 2);
     group.position.set(drawn.x, ROAD_Y + lift, drawn.z);
-    group.rotation.set(state.roll, state.yaw, shownPitch);
+    // 'YXZ', not the default — see the note by the ambient euler in sim/traffic.js. The default
+    // 'XYZ' rolls about the world X axis, so a cruiser chasing north or south would show no lean
+    // at all and one heading west would lean into its corners instead of out of them.
+    group.rotation.set(state.roll, state.yaw, shownPitch, BODY_EULER_ORDER);
   }
 
   function siren(fade) {

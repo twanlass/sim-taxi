@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial } from '../util/geo.js';
+import { bakeColor, propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H } from '../city/ground.js';
 import {
@@ -2945,13 +2945,23 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // `mount` is always 0 here — pulloverTargetFor skips the taxi — but it costs nothing to keep
         // the two position lines saying the same thing.
         taxiGroup.position.set(car.x, ROAD_Y + bob + lift + airY + mount, car.z);
-        taxiGroup.rotation.set(roll, car.yaw, shownPitch);
+        // 'YXZ' — not the default — for the same reason the ambient euler below says so. See the
+        // note there: with the default order the roll is applied about the *world* X axis, which
+        // only doubles as the car's own axis when it happens to be driving east.
+        taxiGroup.rotation.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER);
         setTaxiSteer(car.wheelAngle);
         continue;
       }
 
       pos.set(car.x, ROAD_Y + bob + lift + mount, car.z);
-      quat.setFromEuler(euler.set(roll, car.yaw, car.pitch, 'YXZ'));
+      // The order is load-bearing and the default is wrong here. Three composes 'XYZ' as
+      // Rx·Ry·Rz, so the roll lands *outside* the yaw and turns about the world X axis — which is
+      // the car's own long axis only when the car is driving east. Head north or south and the
+      // same number renders as pitch and the lean disappears; head west and it leans the wrong
+      // way. 'YXZ' is Ry·Rx·Rz: yaw first, so the roll turns about the body, and the lean is the
+      // same at every heading. (The two orders agree exactly at yaw 0, which is why the passing
+      // lab — a road running due east — could never have caught this.)
+      quat.setFromEuler(euler.set(roll, car.yaw, car.pitch, BODY_EULER_ORDER));
       matrix.compose(pos, quat, scl);
       writeAmbient(car);
     }

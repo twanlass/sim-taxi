@@ -1,6 +1,22 @@
 import * as THREE from 'three';
 
 /**
+ * The Euler order every body in the game poses with, and it is not the default.
+ *
+ * Everything that leans writes `rotation.set(roll, yaw, pitch, BODY_EULER_ORDER)`. Three composes
+ * the default 'XYZ' as Rx·Ry·Rz, which puts the roll *outside* the yaw and so turns it about the
+ * **world** X axis — which is the body's own long axis only when it happens to be heading east.
+ * Drive north or south and the roll renders as pitch and the lean vanishes; drive west and it
+ * leans the wrong way. 'YXZ' is Ry·Rx·Rz: yaw first, roll about the body, the same lean at every
+ * heading.
+ *
+ * The two orders agree *exactly* at yaw 0, which is why this survived so long — and why the
+ * passing lab, whose road runs due east, showed a lane-change bank that the game did not.
+ * `tools/probe.mjs` asserts the constant reaches every body that leans.
+ */
+export const BODY_EULER_ORDER = 'YXZ';
+
+/**
  * Normalizes a geometry into the form the whole project agrees on:
  *   - non-indexed, so computeVertexNormals() yields genuinely flat facets
  *   - a baked `color` attribute instead of a per-instance material
