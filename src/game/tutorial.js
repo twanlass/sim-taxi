@@ -138,10 +138,12 @@ function createAvatar(sun, hemi) {
   taxi.group.traverse((node) => {
     if (node.name === 'ghostMask' || node.name === 'ghostRim') node.visible = false;
   });
-  // Sign dark — the taxi is empty at the start of a run, and the avatar is a picture of the actual
-  // car, not a logo. (It was lit for a while, back when this had a flat front-lit rig and the
-  // cabin and sign merged into one dark block; the city's own raking sun separates them.)
-  taxi.setOccupied(false);
+  // Sign lit. It was dark for a while on the grounds that the taxi is empty at the start of a run
+  // and the avatar is a picture of the actual car rather than a logo — but the avatar is the only
+  // place in the game where the sign is a *portrait* detail rather than a readout, nothing reads it
+  // for occupancy here, and the lit off-white is the one bright mark on a roof that is otherwise a
+  // dark cabin block. It is what makes the shape say "taxi" at 54px.
+  taxi.setOccupied(true);
 
   // Spun about a parent rather than about the mesh itself, so the taxi keeps whatever local
   // transform createTaxiMesh gave it (the 1.18 scale, the YXZ rotation order for roll).

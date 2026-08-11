@@ -45,6 +45,11 @@ of a spin that goes all the way round, so no silhouette was lost — 65% of the 
 now rather than 40%. The reduced-motion still pose moved with it, from a three-quarter at `−0.08`
 to one at `0.84` of full sun.
 
+Its **roof sign is lit**, which is the one place the sign is not the occupancy readout it is
+[everywhere else](#the-taxis-roof-sign): nothing in the bubble is asking whether the taxi is free,
+and the lit off-white is the only bright mark on a roof that is otherwise a dark cabin block — it is
+what makes the shape say "taxi" at 54px.
+
 ### The spotlight
 
 A single `#spotlight` div: two radial gradients centred on the subject, a warm core over a darkening
