@@ -86,7 +86,11 @@ the taxi behaves differently here than it does in the game, that is a bug in the
 ## The knobs
 
 Sliders on the page, or query parameters, and both re-stage on change. `R` resets, `Space` or the
-pill boosts, the wheel zooms.
+pill boosts, `P` freezes the sim while continuing to draw, and the wheel zooms.
+
+`P` earns its place: the manoeuvre this page exists for takes about half a second at the overdrive
+top, which is not long enough to look at the thing you came to look at — the crab angle at the
+midpoint, how far the body is leaning, where the rubber went.
 
 | | `?param=` | Default | |
 |---|---|---|---|
@@ -112,13 +116,16 @@ out whether they feel right.
 
 - **The run-up.** `BOOST_ACCEL` to 18.7 u/s, then `OVERDRIVE_ACCEL` grinding out the last 4.25 over
   40 units of straight. The readout shows both, in mph.
-- **Scatter fighting the pass.** The car in front floors it to 2.0× cruise with the taxi behind it,
-  which reopens the gap past `PASS_TRIGGER` and cancels the pull-out — so a pass on a clear road is
-  often two or three approaches, not one. That is the shipped behaviour and it is much easier to see
-  here than in traffic.
-- **The commitment.** `PASS_FADE` is 7 units of road for a full 2·`LANE` lane change, and the taxi
-  holds the oncoming lane centre rather than the centreline. Watch the yaw: the offset is a function
-  of distance, so its slope *is* the steering angle.
+- **Scatter.** The car in front floors it to 2.0× cruise with the taxi behind it. It no longer keeps
+  the taxi out of `PASS_TRIGGER` — that was the wall-following bug — but it is still the reason the
+  approach takes the road it does, and it is much easier to watch here than in traffic.
+- **The commitment.** `PASS_FADE` is 10 units of road for a full 2·`LANE` lane change, smoothstepped.
+  Watch the yaw: the offset is a function of distance, so its slope *is* the steering angle, and
+  easing the offset is what eases the steering. Freeze it with `P` at the midpoint to see the crab.
+- **The bank.** Driven by the offset's *curvature*, so the body rolls one way as the car is thrown
+  out of its lane and the other as it settles — and mirrors that coming home. Two rocks per pass.
+- **The rubber.** Laid across both lane changes and nowhere in between, because the taxi is only
+  sliding while it is actually moving sideways.
 - **Letting go mid-pass.** Releasing the button is a real abort — it is the one rule in `traffic.js`
   that reads `boost && !boostEasing` rather than `car.boost`, because it is an input rather than a
   hazard.
@@ -143,14 +150,37 @@ Two bugs, both in `sim/traffic.js`, neither visible in the city:
    40% of the time, which is exactly the 40% in which the taxi is tailgating hard enough to want to
    pull out.
 
-Fixed, the same 160 staged approaches go **117 passes / 43 wrecks → 148 / 12**. Both fixes and what
-they cost the city are in [traffic.md](traffic.md#following-distance-inside-a-junction) — and the
-first attempt at (1) is worth reading before touching it, because the obvious fix destroys the mode.
+Fixed, the same 160 staged approaches go **117 passes / 43 wrecks → 148 / 12**.
 
-Neither would have been found in the game. In the city the taxi is rarely tailgating at the moment
-it reaches a junction — scatter usually clears the lane first — so the failure reads as "Loco Mode
-is dangerous", which it is supposed to be. It takes a road that is nothing but straight and one car
-that will not get out of the way to turn a rare wreck into the default outcome.
+Then the second session, on the follow-up complaint that the taxi "stutters on the approach — it
+brakes instead of blasting by", turned up three more, and they are the ones that mattered:
+
+3. **The following rule treated a moving car as a wall.** `sqrt(2·BRAKE·room)` is the speed you can
+   still *stop* from, which is the wrong question about something driving away from you. It settled
+   the taxi 17.6 units behind a fleeing car — outside `PASS_TRIGGER`, so the pass was never offered
+   — and made the gap speed-dependent enough to produce the stutter directly.
+4. **The car in front was stuttering too**, because the mid-turn branch computed its cruise ceiling
+   from a bare `SPEED` and dropped a fleeing car from 17 to 8.5 at every junction.
+5. **The lane change froze mid-junction**, parking the taxi on the centreline — the worst place on
+   the road — for the whole 8 units of every crossing a pass spanned. That hole in the middle of the
+   ramp was most of what read as "angular".
+
+All five are in [traffic.md](traffic.md#a-moving-leader-is-not-a-wall), with the numbers. Two of the
+fixes are worth reading before touching them, because the *obvious* version of each destroys the
+mode — measured, in both cases, at 4 passes out of 160.
+
+None of them would have been found in the game. In the city the taxi is rarely tailgating at the
+moment it reaches a junction — scatter usually clears the lane first — so the failures read as "Loco
+Mode is dangerous", which it is supposed to be. It takes a road that is nothing but straight, and
+one car that will not get out of the way, to turn a rare wreck into the default outcome. What the
+same changes did to the city, eight seeds with the button held for a whole run:
+
+| | before | after |
+|---|---|---|
+| ground covered, `?cars=22` | 18.07 u/s | **19.15** |
+| wreck every, `?cars=22` | 8.0s | **9.6s** |
+| overtakes | **0.0** / min | **0.8** / min |
+| crawling under 12 u/s | 7.4% of frames | **1.2%** |
 
 ## Checked headlessly
 
@@ -162,16 +192,21 @@ every junction movement a straight-through — and then that the scenario resolv
 behind a cruising leader with the button held reaches the overdrive band, commits the whole lane,
 gets past, tucks back in, and never comes inside the 2.31-unit collision envelope.
 
-Then it does that **160 times**, over gap × starting position, and gates on the rates: at least 85%
-get past, no more than 12% rear-end, and — the one a crash counter would miss — *none* may end with
-the taxi neither passing nor hitting anything. That last check is the guard on the fix that was
-tried and thrown out: braking on the full stopping-distance curve behind a fleeing leader stops the
-crashes by never closing to `PASS_TRIGGER` at all, which looks perfect on the first two counters
-while the mode quietly does nothing. Currently 148 / 12 / 0.
+It also checks the *shape* rather than only the outcome: that the lane change never stalls half way
+across, that the crab angle is eased into rather than snapped to, that the body banks over **and**
+back, and that rubber covers the meat of both changes. Each of those is a bug that shipped.
 
-The `start` axis is the one that caught the junction bug: sliding the whole scenario along the road
+Then it runs the scenario **130 times**, over gap × starting position, and gates on the rates: at
+least 85% get past, no more than 12% rear-end, none may park half way across the road, and — the one
+a crash counter would miss — *none* may end with the taxi neither passing nor hitting anything. That
+last check is the guard on the two fixes that were tried and thrown out: braking on the full
+stopping-distance curve behind a fleeing leader stops the crashes by never closing to `PASS_TRIGGER`
+at all, which looks perfect on the first two counters while the mode quietly does nothing. Currently
+130 / 0 / 0 / 0.
+
+The `start` axis is the one that caught both junction bugs: sliding the whole scenario along the road
 changes where the junctions fall relative to the pass, and the junction was where the taxi was
-driving into the back of the car in front.
+driving into the back of the car in front — and, later, where the lane change was stopping dead.
 
 ## Build and deploy
 

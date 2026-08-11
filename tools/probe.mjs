@@ -139,13 +139,33 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
 check('all cars spawned', traffic.cars.length === 24, `${traffic.cars.length}`);
 
 // --- Run the simulation.
-time('sim 120s', () => traffic.warmup(120));
+//
+// Stepped here rather than through `traffic.warmup` so the frame-by-frame counters can be
+// accumulated. `stats.moving` and `stats.waiting` are reset at the top of every `update()`, so
+// reading them after a 120-second warmup samples **one frame** — and "is anybody ever stopped at a
+// light" is not a question one arbitrary frame can answer. It was asked that way, and it was a
+// latent flake the whole time: across five seeds somebody is stopped on 87–92% of frames, so the
+// single-frame form was a coin with a 1-in-10 tails, and it finally landed tails when an unrelated
+// change shifted the run by a frame.
+let stoppedFrames = 0;
+let simFrames = 0;
+time('sim 120s', () => {
+  for (let f = 0; f < 120 * 60; f++) {
+    traffic.update(1 / 60);
+    simFrames += 1;
+    if (traffic.stats.waiting > 0) stoppedFrames += 1;
+  }
+});
 
 const { stats } = traffic;
 check('no car entered an intersection on red', stats.violations === 0, `${stats.violations} violations`);
 check('traffic is flowing', stats.moving > traffic.cars.length * 0.35,
   `${stats.moving} moving / ${stats.waiting} waiting`);
-check('signals actually stop people', stats.waiting > 0, `${stats.waiting} waiting`);
+// Measured 87–92% across five city seeds. The bar is well under that because what would mean
+// something is signals having stopped *nobody* — a queue that never forms — not a few points of
+// seed-to-seed drift in how busy the junctions happen to be.
+check('signals actually stop people', stoppedFrames > simFrames * 0.5,
+  `someone stopped on ${((stoppedFrames / simFrames) * 100).toFixed(0)}% of frames`);
 
 // --- Positional invariants.
 const positions = traffic.cars.map((c) => ({ x: c.x, z: c.z, state: c.state }));

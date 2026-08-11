@@ -6,7 +6,7 @@ import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
-import { createTraffic, placeCar, TRUCK_CHANCE } from './sim/traffic.js';
+import { createTraffic, placeCar, TRUCK_CHANCE, PASS_RUBBER_SLOPE } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
@@ -972,7 +972,14 @@ function layRubber(dt) {
   // letting go always stops the rubber wherever the car happens to be.
   const launching = car.boost && launchSkidT > 0;
 
-  if (!cornering && !launching) { lastSkidAt = car.travelled; return; }
+  // And the overtake, both halves of it. Throwing a car a full lane sideways at the overdrive top
+  // is the one manoeuvre in the game that breaks traction without turning a corner, and it was the
+  // only one leaving nothing on the road. Keyed on the crab angle rather than on `passing`, so the
+  // marks bracket the two lane *changes* — out and back — and stop while the taxi is simply
+  // driving along in the borrowed lane, which is not a moment anything is sliding.
+  const swapping = car.boost && Math.abs(car.passSlope) > PASS_RUBBER_SLOPE;
+
+  if (!cornering && !launching && !swapping) { lastSkidAt = car.travelled; return; }
   // Closer than one mark length, so consecutive stamps overlap into a continuous streak.
   if (car.travelled - lastSkidAt < 0.42) return;
   lastSkidAt = car.travelled;

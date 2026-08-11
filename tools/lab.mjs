@@ -17,7 +17,7 @@
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { setCityNetwork } from '../src/city/roadnet.js';
-import { createTraffic, placeCar, SPEED } from '../src/sim/traffic.js';
+import { createTraffic, placeCar, SPEED, PASS_RUBBER_SLOPE } from '../src/sim/traffic.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { DIR, dirSign, PITCH, HALF_ROAD, LANE } from '../src/city/grid.js';
 import { labNetwork, labRoadLength, labNodeX, labTreeBlocks, LAB_BLOCKS } from '../src/lab/labroad.js';
@@ -111,6 +111,12 @@ function approach(gap, start) {
   const out = {
     wrecked: false, passed: false, top: 0, maxLateral: 0, minApproach: Infinity,
     passedAt: null, tuckedAt: null, stationary: 0,
+    // How the manoeuvre is *shaped*, not just whether it completed.
+    bankHigh: 0, bankLow: 0,        // the roll rocks both ways per change; these are its extremes
+    rubber: 0,                      // units of road laid with the wheels lit up
+    changing: 0,                    // units of road spent actually moving sideways
+    slopeJump: 0,                   // biggest one-frame jump in the crab angle
+    stalled: 0,                     // frames displaced from the lane but not moving sideways
   };
   for (let n = 0; n < 60 * 30; n++) {
     taxi.boost = true;                          // the button, held
@@ -119,8 +125,21 @@ function approach(gap, start) {
     // traffic.js is false and the overtake is never offered at all.
     while (taxi.route.length < 3) taxi.route.push(taxi.d);
 
+    const wasSlope = taxi.passSlope;
+    const wasTravelled = taxi.travelled;
+
     traffic.update(STEP);
     collisions.update();
+
+    const ds = taxi.travelled - wasTravelled;
+    out.bankHigh = Math.max(out.bankHigh, taxi.passBank);
+    out.bankLow = Math.min(out.bankLow, taxi.passBank);
+    if (Math.abs(taxi.passSlope) > PASS_RUBBER_SLOPE) out.rubber += ds;
+    if (Math.abs(taxi.passSlope) > 0.001) out.changing += ds;
+    out.slopeJump = Math.max(out.slopeJump, Math.abs(taxi.passSlope - wasSlope));
+    // Displaced from the lane, boosting, and going nowhere sideways: the taxi parked half way
+    // across the road. Excludes the settled state out in the borrowed lane, which is `pass === 1`.
+    if (taxi.pass > 0.05 && taxi.pass < 0.95 && Math.abs(taxi.passSlope) < 0.001) out.stalled += 1;
 
     out.top = Math.max(out.top, taxi.v);
     out.maxLateral = Math.max(out.maxLateral, Math.abs(taxi.z - LANE));
@@ -160,6 +179,32 @@ check('without clipping it', !one.wrecked && one.minApproach > 2.31,
   `closest approach ${one.minApproach.toFixed(2)} units against a 2.31 envelope`);
 check('and nothing stops it', one.stationary === 0, `${one.stationary} stationary frames`);
 
+// --- The shape of the manoeuvre ---------------------------------------------
+
+// The lane change used to freeze for the whole 8 units of every junction it crossed, and since
+// every pass spans a junction by construction, most passes stopped dead half way across the road —
+// the taxi sat on the centreline, which docs/traffic.md calls the worst place on it, and then
+// resumed. That hole in the middle of the ramp was most of what read as "angular". Nothing may
+// leave the taxi displaced and not moving.
+check('the lane change never stalls half way across', one.stalled === 0,
+  `${one.stalled} frames displaced but going nowhere sideways`);
+// Smoothstep's whole job: the crab angle eases in and out instead of stepping. The old linear ramp
+// put the *entire* peak slope on the frame the pass began — 0.571, a 30° flick between two frames
+// — and took it all off again in one frame at the other end. What is left is frame quantisation
+// and nothing else: the eased slope starts at zero, so the first frame can only reach
+// `e'(v·dt / PASS_FADE) · PASS_LATERAL / PASS_FADE`, which at the overdrive top and 60fps is 0.18.
+// The bar sits between the two so it still fails if anyone straightens the ramp back out.
+check('and eases into the crab angle rather than snapping to it', one.slopeJump < 0.3,
+  `biggest one-frame change in crab angle ${one.slopeJump.toFixed(3)} (a linear ramp jumps 0.571)`);
+// The bank rocks *both* ways per change — thrown out of the lane one way, settling into it the
+// other — which is what the curvature of the eased offset gives for free and what a constant-slope
+// translation could not express at all.
+check('the body banks over and back', one.bankHigh > 0.25 && one.bankLow < -0.25,
+  `roll ran ${one.bankLow.toFixed(2)} to ${one.bankHigh.toFixed(2)} of full lean`);
+// And leaves rubber over the meat of both changes rather than a token stamp at each end.
+check('and lays rubber across both lane changes', one.rubber > one.changing * 0.5,
+  `${one.rubber.toFixed(1)} of ${one.changing.toFixed(1)} units of lane-change road marked`);
+
 // --- Does it pass *reliably*? -----------------------------------------------
 //
 // The single scenario above says the manoeuvre works; this says it works whatever the road hands
@@ -176,14 +221,23 @@ check('and nothing stops it', one.stationary === 0, `${one.stationary} stationar
 // The bar is set below what is measured but well above what the bug allowed, because the residual
 // is real risk rather than slack: Loco Mode is meant to be dangerous, and docs/traffic.md prices
 // the oncoming lane at about one wreck in ten passes. What must not come back is the *quarter*.
+//
+// The gap axis stops at 34 because that is where the lab's 200-unit road stops being able to
+// finish the job, not where the taxi does: from a 36-unit opening gap the taxi is still only a
+// unit past its leader when the tarmac runs out. Checked by re-running those exact settings on a
+// 320-unit road, where every one of them completes with the taxi 80–106 units clear. A bound that
+// is a property of the *lab* rather than of the manoeuvre, and worth spelling out so it isn't read
+// as one.
 let passes = 0;
 let wrecks = 0;
 let stuck = 0;
+let stalls = 0;
 let runs = 0;
-for (let gap = 10; gap <= 40; gap += 2) {
+for (let gap = 10; gap <= 34; gap += 2) {
   for (let start = 6; start <= 24; start += 2) {
     const r = approach(gap, start);
     runs += 1;
+    stalls += r.stalled;
     if (r.wrecked) wrecks += 1;
     else if (r.passed) passes += 1;
     else stuck += 1;
@@ -199,6 +253,11 @@ check('and rear-ends it rarely',
 // the two counters above would both look healthy while the mode quietly did nothing.
 check('and never just sits behind it', stuck === 0,
   `${stuck}/${runs} never got past and never hit it`);
+// The junction freeze again, across every starting position rather than one. It is worth the
+// second asking because `start` is precisely the axis that decides where the junctions fall
+// relative to the lane change, and the freeze only showed on the ones that lined up.
+check('and never parks half way across the road', stalls === 0,
+  `${stalls} frames displaced but going nowhere sideways, over ${runs} runs`);
 
 const failed = results.filter((r) => !r.pass).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);

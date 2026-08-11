@@ -29,7 +29,7 @@ import { createScene } from '../game/scene.js';
 import { createCityCamera } from '../game/camera.js';
 import { createProps } from '../city/props.js';
 import { setCityNetwork } from '../city/roadnet.js';
-import { createTraffic, placeCar, SPEED } from '../sim/traffic.js';
+import { createTraffic, placeCar, SPEED, PASS_RUBBER_SLOPE } from '../sim/traffic.js';
 import { createCollisions } from '../sim/collisions.js';
 import { createBoost, BOOST_DURATION } from '../game/boost.js';
 import { createSkidMarks } from '../game/skidmarks.js';
@@ -247,7 +247,9 @@ function reseat(car, d, x, v = SPEED) {
   car.pass = 0;
   car.passing = false;
   car.passTarget = null;
+  car.passOffset = 0;
   car.passSlope = 0;
+  car.passBank = 0;
   car.scatter = 0;
   car.panic = 0;
   car.route = [];
@@ -390,6 +392,12 @@ window.addEventListener('keydown', (event) => {
     if (!event.repeat && boost.press()) kickLocoMode();
   } else if (event.code === 'KeyR') {
     stage();
+  } else if (event.code === 'KeyP') {
+    // Freeze the sim, keep drawing. The manoeuvre this page is about takes about half a second at
+    // the overdrive top, which is not long enough to look at the thing you came to look at — the
+    // crab angle at the midpoint, how far the body is leaning, where the rubber went. Rendering
+    // continues, so the frozen frame still responds to the wheel.
+    paused = !paused;
   }
 });
 window.addEventListener('keyup', (event) => {
@@ -464,8 +472,11 @@ function stampRearRubber(car) {
 function layRubber(dt) {
   if (launchSkidT > 0) launchSkidT = Math.max(0, launchSkidT - dt);
   // No corner case here, unlike main.js: this road has no corners. Every junction crossing is a
-  // straight-through, and `car.dOut !== car.d` is never true.
-  if (!(taxi.boost && launchSkidT > 0)) { lastSkidAt = taxi.travelled; return; }
+  // straight-through, and `car.dOut !== car.d` is never true. The launch and the two lane changes
+  // are the whole list, and on a road that is nothing but straightaway the lane changes are the
+  // only rubber there is — which is exactly what the lab is for looking at.
+  const swapping = taxi.boost && Math.abs(taxi.passSlope) > PASS_RUBBER_SLOPE;
+  if (!(taxi.boost && launchSkidT > 0) && !swapping) { lastSkidAt = taxi.travelled; return; }
   if (taxi.travelled - lastSkidAt < 0.42) return;
   lastSkidAt = taxi.travelled;
   stampRearRubber(taxi);
@@ -491,10 +502,14 @@ window.addEventListener('resize', () => {
 });
 
 const clock = new THREE.Clock();
+let paused = false;
 
 function frame() {
   requestAnimationFrame(frame);
   let dt = Math.min(clock.getDelta(), 0.05);
+  // Paused: draw the same frame again and step nothing. `getDelta` is still read above so the
+  // clock doesn't bank the whole pause and hand it back as one enormous step on resume.
+  if (paused) { renderFrame(); return; }
 
   const nowMs = performance.now();
   if (nowMs < slowMoUntil) {
@@ -567,6 +582,9 @@ frame();
 // 40; __lab.stage()`.
 window.__lab = {
   traffic, taxi, boost, net, camera: controller, knobs, stage, redraw: renderFrame,
+  freeze: () => { paused = true; },
+  resume: () => { paused = false; },
+  isPaused: () => paused,
   roadLength: labRoadLength(LAB_BLOCKS),
 };
 

@@ -182,6 +182,39 @@ at cruise a leader stops constraining beyond 3.3 units of clear road.
 
 The same walk drives the Loco Mode scatter, which reaches `SCATTER_RANGE = 40` — two blocks.
 
+### A moving leader is not a wall
+
+`sqrt(2 · BRAKE · room)` is the speed you can still *stop* from inside `room`. Against a car that is
+itself driving away that is the wrong question — it prices in braking to a standstill for something
+that will not be there — and it was the single biggest thing wrong with how Loco Mode felt.
+
+Two symptoms, one cause. The taxi is documented as tailgating at `BOOST_GAP` (4.5 units) and it did
+not: behind a car fleeing at `SCATTER_SPEED` the stopping rule settles it **17.6 units** back, which
+is outside `PASS_TRIGGER`, so on an open road the overtake was never offered at all — measured over
+12 minutes of routed boosting in the city, **zero** passes. And because the cap moves with the gap
+while the mid-junction branch had no cap at all, the taxi spent every lane braking and every
+junction accelerating: a sawtooth with a period of one block, which is what "it stutters on the
+approach" looks like from outside the code.
+
+The rule is now the leader's own speed plus what can be shed over the clear road between them — you
+may out-run the car in front by exactly as much as you can give back before you reach it. A
+*stopped* leader has `v = 0` and it collapses to the old expression exactly, so queueing at a red,
+which everything else here is tuned around, is untouched.
+
+**A speed cap and nothing else.** Following and stopping are now separate quantities: `allowed` is
+the positional budget and only stationary things contribute to the speed it is turned into. The
+leader used to clamp both, and that is where a freeze lived — a taxi abandoning a pass while still
+alongside found zero room against a leader doing 16 u/s, and a budget of zero means `car.v = 0`
+outright: **20.9 u/s to a standstill in one frame**, out in the oncoming lane. The snap-to-line rule
+that did it is about arriving at a *line*, and it is keyed on the stationary distance now.
+
+### The car in front stutters too
+
+The mid-turn branch computed its cruise ceiling from a bare `SPEED`, so a car fleeing the boosting
+taxi at 2.0× cruise dropped to a flat 8.5 the moment it entered a junction and spent the next lane
+climbing back — a 17 ↔ 8.5 sawtooth of its own, with every car behind it braking in time. Both
+branches read `cruiseCapFor` now, which is the same expression written once.
+
 ### Following distance *inside* a junction
 
 The mid-turn branch had none at all, and for ambient traffic that never showed: a car crosses at
@@ -770,6 +803,55 @@ overtaken, measured at **3.70 units** against the 2.31 envelope.
 car in world space and is armed for exactly as long as `car.boost` is true, and `car.x/z` already
 carry the lateral offset — so oncoming traffic, and a leader that turns across the taxi mid-pass,
 became live hazards the moment the taxi could be out there. Zero lines of collision code.
+
+#### The shape of it
+
+Three things decide whether a pass *reads* as driving rather than as a diagram, and the first
+version of the manoeuvre got all three wrong in the same way — by treating a lane change as a
+translation.
+
+**The offset is smoothstepped, not linear.** The offset is a function of distance and the yaw is its
+slope, so a constant slope means the car snaps to a 30° crab on one frame, translates down a ruled
+diagonal, and snaps square again on another: two corners and a straight line. `e(t) = t²(3 − 2t)`
+starts and ends at zero slope, so the yaw eases into the crab and out of it. That costs road —
+smoothstep's peak slope is 1.5× the linear one over the same distance — so `PASS_FADE` went 7 → 10,
+which puts the peak back at 31° and buys the easing at the ends rather than with a steeper middle.
+What is left of the old snap is frame quantisation: 0.18 rad on the first frame at 60fps against the
+0.571 a linear ramp put there.
+
+**It no longer freezes mid-junction.** The offset is frozen through a *corner*, because a lane
+change running through one would peel the car off its own Bézier arc — but `state === 'turn'` covers
+every junction transition, and freezing on all of them meant that, since every pass spans a junction
+by construction, most passes stopped dead half way across the road. The taxi parked at `pass` 0.66,
+`z = −0.9` — near enough exactly the centreline, [the worst place on the
+road](#overtaking) — and drove the whole 8 units of the junction like that before resuming. That
+hole punched in the middle of the ramp was most of what read as angular. A straight-through crossing
+has no arc to peel off; its path is a straight line and its yaw is constant, so the offset composes
+with it exactly as it does on a lane.
+
+**The body banks, and rocks both ways.** `PASS_BANK` (0.09 rad at cruise, speed-scaled on the same
+clamp the corner lean uses) is driven by the *curvature* of the eased offset — `e''(t) = 6 − 12t`,
+positive over the first half of a change and negative over the second. So the car rolls one way as
+it is thrown out of its lane and the other as it settles into the new one, and mirrors that on the
+way home: a rock over and back per change. It is added to the corner lean rather than replacing it,
+because every pass spans a junction and a taxi that stopped leaning into its corner because it
+happened to be overtaking would read as the suspension giving up half way through.
+
+**And it leaves rubber.** Throwing a car a full lane sideways at the overdrive top is the one
+manoeuvre in the game that breaks traction without turning a corner, and it was the only one leaving
+nothing on the road. `main.js` and the lab both stamp while `|passSlope| > PASS_RUBBER_SLOPE`, which
+brackets the two lane *changes* and stops while the taxi is simply driving along in the borrowed
+lane — not a moment anything is sliding.
+
+#### It has to be clear before it comes back
+
+The commitment used to end the moment the taxi's *lane position* went past the leader's, and a lane
+position is a centre point: level, not clear. So the taxi began its tuck-in a metre and a half ahead
+of a car it was still bodily alongside, cut across its nose over the next `PASS_FADE` units, and the
+two came within **2.01** units — inside the 2.31 collision envelope, on every seed, because the
+geometry that produces it has nothing random in it. `PASS_CLEAR` (a car length and a half) is
+measured against the latched `passTarget` in world space instead, and holds the commitment until the
+whole body is past. Closest approach back to 3.65, against the 3.70 this was originally measured at.
 
 #### Sizing it to the city
 

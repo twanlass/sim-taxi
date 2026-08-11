@@ -373,7 +373,69 @@ const SCATTER_STRAIGHT_W = 0.04;  // what the "carry straight on" turn weight co
 // That is why it is offered only where the route carries straight on, and why the offer
 // disappears — and the taxi tucks back in — the moment the next junction is a turn.
 const PASS_LATERAL = 2 * LANE;   // 4 units: our lane centre to the oncoming lane centre
-const PASS_FADE = 7;             // units of road for the full lane change — atan(4/7) ≈ 30° of yaw
+/**
+ * Units of road for the full lane change.
+ *
+ * It was 7, ramped **linearly** — and a linear ramp is why the manoeuvre read as angular. The
+ * offset is a function of distance and the yaw is its slope, so a constant slope means the car
+ * snaps to a 30° crab on one frame, translates in a dead-straight diagonal, and snaps back to
+ * square on another. Two corners and a ruled line: the shape of a lane change drawn with a
+ * set square, not driven.
+ *
+ * The offset is smoothstepped now — `e(t) = t²(3 − 2t)`, so the *slope* starts and ends at zero and
+ * the yaw eases in and out of the crab instead of stepping into it. That costs road, because
+ * smoothstep's peak slope is 1.5× the linear one over the same distance: at 7 units the car would
+ * angle 41° at the midpoint, which is more extreme than what it replaced, not less. 10 puts the
+ * peak back at atan(1.5 · 4/10) ≈ 31°, within a degree of the old constant, and buys the easing at
+ * the ends with three units of road at each rather than with a steeper middle.
+ */
+const PASS_FADE = 7;
+/** Smoothstep and its derivative, for the offset and the yaw that comes off its slope. */
+const passEase = (t) => t * t * (3 - 2 * t);
+const passEaseSlope = (t) => 6 * t * (1 - t);
+/**
+ * How hard the body leans into a lane change, in radians at ambient cruise, scaled by speed the
+ * same way the corner lean is.
+ *
+ * Deliberately a fraction of the 0.3 a corner gets: this is a lane change, not a hairpin. What
+ * makes it read is not the size but the *sign flipping* — `passEase`'s second derivative is
+ * `6 − 12t`, positive over the first half of the change and negative over the second, so the body
+ * rolls one way as the car is thrown out of its lane and the other as it settles into the new one.
+ * A rock over and back per change, and a mirrored one on the way home, which is what weight
+ * transfer actually does and what the old constant-slope translation could not express at all.
+ */
+const PASS_BANK = 0.09;
+const PASS_BANK_EASE = 2.5;      // units of road for the roll to reach its target — suspension, not a hinge
+/**
+ * How much crab angle counts as breaking traction, for the rubber laid during a lane change.
+ *
+ * 0.2 rad is a third of the peak, which covers the middle ~80% of the change: the marks start once
+ * the car is genuinely sliding across and stop as it squares up, rather than bracketing the whole
+ * manoeuvre with two faint dots. Exported because `main.js` and the passing lab both own effect
+ * pools and both have to ask the same question.
+ */
+export const PASS_RUBBER_SLOPE = 0.2;
+
+/**
+ * Is the car in front actually in front of *this* car — i.e. in the lane it is occupying?
+ *
+ * The lane bookkeeping always says yes: a car mid-overtake is still nominally on its own lane at
+ * its own arc length, with the car it is drawing level with recorded as its leader. What decides
+ * the question in the world is the lateral offset, and this is the one place that difference has
+ * teeth.
+ *
+ * It was `car.passing` — the *commitment* — and the gap between the two is where a nasty freeze
+ * lived. Commitment can lapse while the taxi is still bodily out in the other lane: a pass reaching
+ * the edge of the map loses its borrowed lane and drops `room`, and the frame that happens the
+ * leader brake returns, finds a car 1.9 units "ahead" against a 4.5-unit tailgate, and pins the
+ * budget at zero — which snaps `car.v` to 0. Measured: **20.9 u/s to a standstill in a single
+ * frame**, side by side with the car it was overtaking, and then a long sit while the leader drove
+ * off. Asking about the offset instead means the brake comes back when the taxi is back in the
+ * lane, which is the only moment it means anything.
+ *
+ * Half a lane, because that is where the body stops overlapping the lane it came out of.
+ */
+const seesLeader = (car) => !car.passing && car.passOffset < LANE;
 // Where the taxi pulls out, and the number the whole manoeuvre is sized by. Closing to a body
 // length past the leader is (PASS_TRIGGER + 5) units of relative displacement, and at the ~10 u/s
 // a boosting taxi gains on cruising traffic that is 1.83 units of road for every unit of it. At
@@ -638,6 +700,20 @@ const followGap = (follower, leader) => vehicleHalfLen(follower) + vehicleHalfLe
 // TRUCK_LEN) — widening the tailgate for a truck while the hitbox that matters stayed car-sized
 // would just be a taxi that hangs back further from a target it can still clip at the old range.
 const BOOST_GAP = MIN_GAP * 0.85;
+/**
+ * How far clear of the car it just passed the taxi must be before it may cut back in.
+ *
+ * The commitment used to end the moment the taxi's *lane position* went past the leader's, and a
+ * lane position is a centre point: level, not clear. So the taxi began its tuck-in a metre and a
+ * half ahead of a car it was still bodily alongside, cut across its nose over the next
+ * `PASS_FADE` units, and the two came within **2.01** units — inside the 2.31 collision envelope,
+ * on every seed, because the geometry that produces it has nothing random in it. It is the "still
+ * behind it when tucking in" column of the PASS_TRIGGER table, promoted to the usual outcome by a
+ * taxi that now closes properly instead of hanging back.
+ *
+ * A car length and a half puts the whole body past before the wheel comes back.
+ */
+const PASS_CLEAR = CAR_LEN * 1.5;
 const YIELD_RANGE = 15;          // how far ahead oncoming traffic blocks a left turn
 const TURN_WEIGHTS = [0.62, 0.24, 0.14]; // straight, right, left
 
@@ -654,6 +730,18 @@ const BOOST_ACCEL = 24;       // reaches full boost speed in well under a block
 const BOOST_KICK = 1.25;      // instant surge on activation, so the press has a feel
 const BRAKE = 11;             // units/s^2 shedding speed; ~3.3 units to stop from cruise
 const CORNER_SPEED = SPEED * 0.7;
+
+/**
+ * A car's own cruise ceiling: its class's speed, lifted by the flee and dipped by the panic.
+ *
+ * Shared by the drive branch and the mid-turn one because it was written out longhand in the first
+ * and simply omitted from the second, and the omission is visible from across the map: a car
+ * fleeing the boosting taxi ran at 2.0× cruise down a lane and dropped to a flat 8.5 the instant it
+ * entered a junction, giving it a 17 ↔ 8.5 sawtooth with a period of one block — and every car
+ * behind it, the taxi included, braking in time with it.
+ */
+const cruiseCapFor = (car) => (car.isTruck ? TRUCK_SPEED : SPEED)
+  * (1 + (SCATTER_SPEED - 1) * car.scatter) * (1 - PANIC_BRAKE * car.panic);
 
 // Overdrive — the band above BOOST_SPEED, and the one part of the mode that has to be *driven*
 // for rather than pressed for. Holding the button still buys 18.7 u/s in 7.3 units, well under a
@@ -972,7 +1060,13 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       pass: 0,
       passing: false,
       passTarget: null,   // the car currently being overtaken, latched for the whole manoeuvre
-      passSlope: 0,    // d(offset)/d(road) while changing lane — the tangent of the steering angle
+      // What `pass` is turned into: the smoothstepped offset the body is drawn at, the slope of
+      // that offset (which *is* the tangent of the steering angle, since it is per unit of road),
+      // and the roll that comes off its curvature. Derived every frame from `pass`; kept on the car
+      // because the render pass, the rubber and the lab's readout all read them.
+      passOffset: 0,
+      passSlope: 0,
+      passBank: 0,
       // Ambient cars leave `route` empty and fall through to random turns. The taxi's route is
       // filled in by the game layer; see the turn decision below.
       route: [],
@@ -1903,10 +1997,25 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         return true;
       };
 
+      // Still bodily alongside the car it pulled out for? Then the manoeuvre is not over, whatever
+      // the lane arithmetic says. `leaderDist` stops reporting that car the instant the taxi's
+      // *centre* goes past its centre, which drops `near`, which drops the commitment — and the
+      // taxi then cut back across the nose of a car it was level with. Measured against the latched
+      // target in world space instead, and held until it is `PASS_CLEAR` behind, which is the only
+      // definition of "past it" a body has.
+      const alongside = () => {
+        const mark = taxi.passTarget;
+        if (!mark || mark.crashed) return false;
+        const sign = dirSign(taxi.d);
+        const rel = isXAxis(taxi.d) ? (mark.x - taxi.x) * sign : (mark.z - taxi.z) * sign;
+        return rel > -PASS_CLEAR;
+      };
+
       if (taxi.state === 'drive') {
         const was = taxi.passing;
-        taxi.passing = locoHeld && room && near
-          && (taxi.passing || (passable && oncomingClear()));
+        taxi.passing = locoHeld
+          && ((taxi.passing && alongside())
+            || (room && near && (taxi.passing || (passable && oncomingClear()))));
         // Latched on the frame the taxi pulls out and held for the whole manoeuvre, rather than
         // re-read per frame: half way through a pass the taxi is *ahead* of this car in lane
         // coordinates, so `leaderOf` has already moved on to whatever is in front of them both.
@@ -1914,18 +2023,50 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         if (!taxi.passing) taxi.passTarget = null;
       }
 
-      // Paced by distance and frozen mid-junction, both for the same reasons the weave is: a
-      // time-paced offset slides a stopped car sideways, and a lane change that ran through a
-      // corner would peel the car off its own arc. Freezing also means a pass that crosses a
-      // junction — which every pass does — comes out the far side at the offset it went in on.
-      const ds = taxi.state === 'drive' ? taxi.v * dt : 0;
+      // Paced by distance, because a time-paced offset slides a stopped car sideways.
+      //
+      // Frozen through a *corner*, because a lane change running through one would peel the car off
+      // its own Bézier arc — but **not** through a straight-through crossing, which is the trap
+      // again: `state === 'turn'` covers every junction transition, and freezing on all of them
+      // meant that since every pass spans a junction by construction, most passes stopped dead
+      // half way across the road. Measured at the default gap, the taxi parked at `pass` 0.66 —
+      // `z = −0.9`, near enough exactly the centreline, which docs/traffic.md calls the single
+      // worst place on the road — and drove the whole 8 units of the junction like that before
+      // resuming. That is most of what "the passing motion feels very angular" was: not the ramp's
+      // shape but a hole punched in the middle of it.
+      //
+      // A straight-through crossing has no arc to peel off. Its path is a straight line and its
+      // yaw is constant, so the offset composes with it exactly as it does on a lane.
+      const crossingStraight = taxi.state === 'turn' && taxi.turn?.hand === 'straight';
+      const ds = (taxi.state === 'drive' || crossingStraight) ? taxi.v * dt : 0;
       const delta = (taxi.passing ? 1 : 0) - taxi.pass;
       const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / PASS_FADE);
       taxi.pass += step;
-      // The offset is a function of distance, so its slope *is* the tangent of the steering angle
-      // — same trick as the weave, and it needs no easing because the ramp is already smooth. It
-      // falls to zero of its own accord once the car is settled in either lane.
-      taxi.passSlope = ds > 0.0001 ? (step * PASS_LATERAL) / ds : 0;
+
+      // `pass` stays the linear 0..1 *progress* through the change — it is what every gate, test
+      // and readout reads, and "how far through the manoeuvre" is a more useful thing for them to
+      // ask than a position. The shape lives in what comes off it.
+      //
+      // The offset is smoothstepped. The yaw is the offset's slope — the same trick the weave uses,
+      // and the reason there is nothing to ease here: because the offset is a function of *distance*
+      // rather than of time, its slope is exactly the tangent of the steering angle at any speed. So
+      // easing the offset eases the steering for free, and a smoothstep's slope starting and ending
+      // at zero is precisely what stops the car snapping into and out of its crab angle.
+      //
+      // `rate` is d(pass)/d(road), which is ±1/PASS_FADE while ramping and 0 otherwise. Taking it
+      // from the actual step rather than assuming the constant is what keeps the last, clamped
+      // frame of a change honest instead of reporting a full-speed slope for a sliver of movement.
+      const rate = ds > 0.0001 ? step / ds : 0;
+      taxi.passOffset = passEase(taxi.pass) * PASS_LATERAL;
+      taxi.passSlope = passEaseSlope(taxi.pass) * PASS_LATERAL * rate;
+
+      // Body roll, from the curvature of that same offset. `passEase`'s second derivative is
+      // `6 − 12t`, so this is +1 at the start of a change and −1 at the end whichever way the ramp
+      // is running: thrown one way out of the lane, settling the other way into it, and mirrored on
+      // the way back. Eased over PASS_BANK_EASE units of road rather than applied raw, because the
+      // lateral input really does step and a body that stepped with it would be hinged, not sprung.
+      const bankTarget = rate === 0 ? 0 : 1 - 2 * taxi.pass;
+      taxi.passBank += (bankTarget - taxi.passBank) * Math.min(1, ds / PASS_BANK_EASE);
     }
 
     // --- Who is in the boosting taxi's way?
@@ -2009,7 +2150,19 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const distToLine = holdS - car.s;
 
         // --- How much road is this car actually allowed to use before it must be stopped?
+        //
+        // Two numbers, because the constraints are two different kinds of thing.
+        //
+        // `allowed` is the **positional budget**: road this car may consume this frame. Everything
+        // contributes to it, the car in front included, and it is what stops anything driving
+        // through anything else.
+        //
+        // `stopRoom` is the clear road to the nearest thing that is genuinely **standing still** —
+        // a stop line, a refused entry, a kerb hold. It is what the speed target is computed from,
+        // because `sqrt(2·BRAKE·room)` is the speed you can still *stop* inside `room`, and that is
+        // only the right question about something that will still be there when you arrive.
         let allowed = Infinity;
+        let stopRoom = Infinity;
 
         // The signal ahead, read now rather than on arrival — this is what lets it slow early.
         // A corridor or a boosting-taxi priority hold both temporarily signalise the junction, so
@@ -2018,6 +2171,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const sig = approachSignal(car, t);
         if (!sig.open && !taxiClearsYellow(car, sig, distToLine)) {
           allowed = Math.min(allowed, Math.max(0, distToLine));
+          stopRoom = Math.min(stopRoom, Math.max(0, distToLine));
         }
 
         // The car ahead. A boosting taxi used to ignore this entirely — it was out on the
@@ -2029,10 +2183,30 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // lapses, which is what makes letting go of the button a real abort — the taxi drops back
         // behind the car it was passing under ordinary braking instead of sitting alongside it
         // matching speed forever.
-        const ahead = car.passing ? undefined : leaderDist.get(car);
+        //
+        // **A moving leader is not a wall.** `sqrt(2·BRAKE·room)` is the speed you can still stop
+        // from inside `room`, and against a car that is itself driving away that is the wrong
+        // question — it prices in braking to a standstill for something that will not be there. The
+        // cost was not subtle: the docs say the boosting taxi tailgates at `BOOST_GAP` (4.5 units),
+        // and it did not. Behind a car fleeing at `SCATTER_SPEED` (17 u/s) the stopping rule
+        // settles it **17.6 units** back, which is outside `PASS_TRIGGER`, so the overtake was
+        // never even offered on an open road; and because the cap moves with the gap, the taxi
+        // spent every lane braking and every junction accelerating — a sawtooth with a period of
+        // one block, which is what "the taxi stutters on the approach" looks like from the outside.
+        //
+        // The fix is the leader's own speed plus what can be shed over the clear road between them:
+        // you may out-run the car in front by exactly as much as you can give back before reaching
+        // it. A *stopped* leader has `v = 0` and the expression collapses to the old rule exactly,
+        // so queueing at a red — which everything else here is tuned around — is untouched.
+        //
+        let leadCap = Infinity;
+        const ahead = seesLeader(car) ? leaderDist.get(car) : undefined;
         if (ahead !== undefined) {
-          const gap = car.boost ? BOOST_GAP : followGap(car, leaderOf.get(car));
-          allowed = Math.min(allowed, Math.max(0, ahead - gap));
+          const leader = leaderOf.get(car);
+          const gap = car.boost ? BOOST_GAP : followGap(car, leader);
+          const room = Math.max(0, ahead - gap);
+          allowed = Math.min(allowed, room);
+          leadCap = (leader?.v ?? 0) + Math.sqrt(2 * BRAKE * room);
         }
 
         // The rest of the entry test, on the same terms as the signal: read on approach so the
@@ -2041,11 +2215,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // answer cannot change anything and the scan is pure cost.
         if (distToLine <= (car.v * car.v) / (2 * BRAKE) + 2 && entryRefused(car)) {
           allowed = Math.min(allowed, Math.max(0, distToLine));
+          stopRoom = Math.min(stopRoom, Math.max(0, distToLine));
         }
 
         if (car.parked) {
           if (car.route.length) car.parked = false;
-          else allowed = 0;   // eases to a halt rather than stopping dead
+          else { allowed = 0; stopRoom = 0; }   // eases to a halt rather than stopping dead
         }
 
         // Fastest speed still stoppable inside `allowed`, approached under real accel limits.
@@ -2055,8 +2230,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // A car fleeing the boosting taxi lifts its ceiling and finds some urgency to go with it:
         // at ACCEL it would need 24 units to reach the scatter speed and the junction is 20 away,
         // so without the extra push the higher cap would never actually be reached.
-        const cruiseCap = (car.isTruck ? TRUCK_SPEED : SPEED)
-          * (1 + (SCATTER_SPEED - 1) * car.scatter) * (1 - PANIC_BRAKE * car.panic);
+        const cruiseCap = cruiseCapFor(car);
         // The ceiling at full boost is the *overdrive* top, not the BOOST_SPEED one — but the
         // acceleration tapers above BOOST_SPEED, so the band past 18.7 is only ever reached by a
         // car that has had 40 units of straight road and a clear `allowed` to spend it on.
@@ -2064,14 +2238,21 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const accel = fullPower
           ? boostAccel(car.v)
           : ACCEL + (BOOST_ACCEL - ACCEL) * car.scatter;
-        const desired = Math.min(topSpeed, Math.sqrt(2 * BRAKE * Math.max(0, allowed)));
+        const desired = Math.min(
+          topSpeed, leadCap, Math.sqrt(2 * BRAKE * Math.max(0, stopRoom)),
+        );
         car.v = desired > car.v
           ? Math.min(desired, car.v + accel * dt)
           : Math.max(desired, car.v - BRAKE * dt);
 
         let step = Math.min(car.v * dt, Math.max(0, allowed));
-        // Braking only asymptotes toward the line; snap the last sliver so arrival happens.
-        if (allowed < 0.05) { step = Math.max(0, allowed); car.v = 0; }
+        // Braking only asymptotes toward the line; snap the last sliver so arrival happens. Keyed
+        // on `stopRoom` rather than `allowed`, because "you have arrived, stop" is a statement
+        // about a *line*. Against the car in front it was the freeze: a budget of zero behind a
+        // leader still doing 16 u/s set `car.v = 0` outright, and the leader then drove away from a
+        // car that had gone from 20.9 to nothing in one frame. Following is the speed cap's job and
+        // it converges on its own; the budget's job here is only to stop the step overshooting.
+        if (stopRoom < 0.05) { step = Math.max(0, allowed); car.v = 0; }
 
         // No `distToLine > 0` guard: with the hold line set back from the junction, a car can
         // spawn already beyond it, and requiring it to still be approaching meant the decision
@@ -2270,7 +2451,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // cars sag at every block — the boosting taxi especially, which would hit top speed on the
         // straight and then shed a third of it to cross an empty junction in a straight line.
         const straightOn = car.turn.hand === 'straight';
-        const cruise = fullPower ? SPEED * BOOST_SPEED : (car.isTruck ? TRUCK_SPEED : SPEED);
+        // `cruiseCapFor`, not a bare SPEED — the same ceiling the drive branch uses, which is what
+        // stops a car changing its mind about how fast it is going every time it crosses a road.
+        // A car fleeing the boosting taxi runs at `SCATTER_SPEED` (2.0× cruise) on a lane and used
+        // to drop to a flat 8.5 the moment it entered a junction, then spend the next lane climbing
+        // back — a 17 ↔ 8.5 sawtooth with a period of exactly one block. That is what the taxi
+        // behind it was faithfully braking for, and it is what "the taxi stutters on the approach"
+        // turned out to be: the taxi was steady, the car in front was not.
+        const cruise = fullPower ? SPEED * BOOST_SPEED : cruiseCapFor(car);
         // Going straight on is part of the straightaway, so it keeps the overdrive band and keeps
         // building through it; a junction crossed in a straight line is 8 units of the 40 the band
         // needs. Only a real turn is capped at `cruise`, which is what makes a corner cost the top
@@ -2304,25 +2492,32 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // passed on began. It is visible in `tools/probe.mjs`'s own overtake scenario too, where
         // the taxi drives clean through its leader — that scenario just doesn't run collisions.
         //
-        // The cap is deliberately *not* the drive branch's full stopping-distance curve. Tried, and
-        // it fixes the crash by destroying the mode: against a leader fleeing at `SCATTER_SPEED`
-        // the stopping curve settles the taxi 12–17 units back, it never reaches `PASS_TRIGGER`,
-        // and the overtake stops being offered at all — 160 staged approaches went from 117 passes
-        // to 4. So the rule is the narrower true one: inside the range where the pass has already
-        // been offered and refused, match the leader instead of accelerating past it. The floor at
-        // the leader's own speed is what keeps this a speed target rather than a hold — the taxi
-        // still never stops inside a junction, which is the rule `bargesThrough` exists to keep.
+        // Exactly the drive branch's rule, and *exactly* matters: any difference between the two
+        // is a speed target that jumps at the junction boundary, which the car then chases with
+        // real acceleration — the taxi accelerating across every junction and braking down every
+        // lane, four times a block. The first version of this cap applied only inside
+        // `PASS_TRIGGER` and produced precisely that.
+        //
+        // Because the cap is the leader's own speed plus what can be shed in the clear road, it can
+        // never demand a stop behind a moving car, so it stays a speed target and never becomes a
+        // hold. That is what keeps `bargesThrough`'s guarantee intact: nothing stops the taxi
+        // inside a junction.
         let target = cornerTarget;
-        const lead = car.passing ? undefined : leaderOf.get(car);
+        const lead = seesLeader(car) ? leaderOf.get(car) : undefined;
         const leadGap = lead === undefined ? undefined : leaderDist.get(car);
-        if (leadGap !== undefined && leadGap < PASS_TRIGGER) {
-          const room = leadGap - (car.boost ? BOOST_GAP : followGap(car, lead));
-          target = Math.min(target, Math.max(lead.v, Math.sqrt(2 * BRAKE * Math.max(0, room))));
+        if (leadGap !== undefined) {
+          const room = Math.max(0, leadGap - (car.boost ? BOOST_GAP : followGap(car, lead)));
+          target = Math.min(target, lead.v + Math.sqrt(2 * BRAKE * room));
         }
 
+        // Same acceleration as the drive branch, scatter push included: a ceiling a car cannot
+        // climb to is not a ceiling. At plain ACCEL a fleeing car needs 24 units to reach
+        // SCATTER_SPEED and a junction is 8, so without this the cruise cap above would raise the
+        // roof and the car would still cross at the speed it entered.
+        const accel = fullPower ? boostAccel(car.v) : ACCEL + (BOOST_ACCEL - ACCEL) * car.scatter;
         car.v = car.v > target
           ? Math.max(target, car.v - BRAKE * dt)
-          : Math.min(target, car.v + (fullPower ? boostAccel(car.v) : ACCEL) * dt);
+          : Math.min(target, car.v + accel * dt);
         car.turnT += (car.v * dt) / car.turnLen;
         car.travelled += car.v * dt;
         car.speedFactor = car.v / SPEED;
@@ -2402,7 +2597,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // field. Keeping them apart matters: the weave's yaw is eased toward its target every
       // frame, and folding a 4-unit lane change into that eased value would have the ease drag
       // the car back out of the pass.
-      const lateral = car.lateral + car.pass * PASS_LATERAL;
+      const lateral = car.lateral + car.passOffset;
       if (Math.abs(lateral) > 0.001) {
         car.x -= Math.sin(car.yaw) * lateral;
         car.z -= Math.cos(car.yaw) * lateral;
@@ -2456,6 +2651,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           const lean = 0.3 * Math.min(2.2, Math.max(0.7, car.v / SPEED));
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }
+      }
+
+      // And the lane change leans too. Added to the corner roll rather than replacing it: every
+      // pass spans a junction by construction, so the two overlap for most of a manoeuvre, and a
+      // taxi that stopped leaning into its corner because it happened to be overtaking would read
+      // as the suspension giving up half way through. Positive roll is a lean to the car's right —
+      // the same sense the corner lean uses, where a right-hander leans left and away from the
+      // turn — so the sign of `passBank` carries it with no further bookkeeping. Speed-scaled on
+      // the same clamp, because a lane change at cruise and one at the overdrive top are not the
+      // same event.
+      if (car.passBank) {
+        roll += car.passBank * PASS_BANK * Math.min(2.2, Math.max(0.7, car.v / SPEED));
       }
 
       // Rocking. Pitch is a spring-damper driven by longitudinal acceleration: braking dips the
