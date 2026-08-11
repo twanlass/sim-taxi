@@ -261,11 +261,12 @@ const PULSE_BOOST = 0.5;
 
 // A freshly routed band sweeps in from the car rather than appearing whole — the same reasoning
 // as the pulse: a static object popping into existence reads as "the UI updated", not "the taxi is
-// headed there now". ROLLOUT_DURATION is fixed rather than scaled by route length, so picking a
-// fare across the map doesn't read as sluggish next to one next door — both sweep in at the same
-// pace, just covering more ground per second on the long one.
-const ROLLOUT_DURATION = 0.35;
-const easeOutCubic = (t) => 1 - (1 - t) ** 3;
+// headed there now". A fixed *speed* rather than a fixed duration is what makes it read as one
+// consistent motion regardless of the route: a fare next door and one across the map both sweep at
+// the same pace, so the far one just keeps going a little longer rather than visibly rushing to
+// catch up. No easing on top of it — the head fade already hides the first few units of the sweep,
+// so the constant rate is all that's ever visible, and it stays that one rate the whole way out.
+const ROLLOUT_SPEED = 110;
 
 export function createRouteLine(scene) {
   // Two triangles per segment of the path.
@@ -425,8 +426,8 @@ export function createRouteLine(scene) {
     // Sweeps out past the far end (by the tail's own fade width) rather than stopping exactly at
     // `total`, so the reveal edge fully clears the destination and leaves no soft seam sitting
     // partway down the band once the animation settles.
-    const rolloutT = Math.min(1, revealElapsed / ROLLOUT_DURATION);
-    material.uniforms.uReveal.value = (total + FADE_TAIL * squeeze) * easeOutCubic(rolloutT);
+    const cap = total + FADE_TAIL * squeeze;
+    material.uniforms.uReveal.value = Math.min(cap, ROLLOUT_SPEED * revealElapsed);
 
     // Offset each point along its mitre rather than offsetting each segment independently.
     // Independent segments leave a wedge of empty road on the outside of every join — invisible
