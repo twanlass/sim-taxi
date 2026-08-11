@@ -186,11 +186,23 @@ function buildStats(stats) {
     return { label, value, stat };
   });
 
+  // Hidden until its beat starts, and cleared inside `play` below.
+  //
+  // What hides a row otherwise is `fill: 'backwards'` on its own entrance, which only applies from
+  // the moment `animate()` is called — and this screen is built at once but played `STATS_AT` later,
+  // on a timer. In between, the block sat on the card at full opacity showing its labels and its
+  // `format(0)` placeholders, then snapped to hidden as the animations were created and faded back
+  // in: the stats appeared, vanished and arrived again. The old single-pass version never had the
+  // gap, because it created every animation up front with `delay: at`.
+  column.style.opacity = '0';
+
   return {
     node: column,
     /** Total time from the first label to the last number's pop. */
     duration: Math.max(0, cells.length - 1) * STAT_STRIDE + ROW_MS,
     play(anims, landings) {
+      // Same task as the entrances below, so the row is never painted between the two.
+      column.style.opacity = '';
       cells.forEach(({ label, value, stat }, index) => {
         const at = index * STAT_STRIDE;
         anims.push(scaleDownIn(label, at));
