@@ -267,16 +267,19 @@
       /* --- The table ------------------------------------------------------ */
 
       #run-end .score-board { width: 100%; }
+      /* Left-aligned, over the left edge of the list it heads. Centred, it floated free of a block
+         whose own columns start hard against that edge, and read as a caption for the card rather
+         than a label on the table. */
       #run-end .score-board-title {
         font-size: clamp(14px, 2.6vh, 17px); font-weight: 700; letter-spacing: 0.08em;
-        text-transform: uppercase; opacity: 0.55; text-align: center;
+        text-transform: uppercase; opacity: 0.55; text-align: left;
         margin-bottom: clamp(8px, 2vh, 14px);
       }
       /* Same `display: contents` grid as the stats: the <li> drops out of the layout so every
-         column lands on one straight edge down the block. Name takes the slack so the cash column
-         stays flush right whatever the initials are. */
+         column lands on one straight edge down the block. Name takes the slack so the score stays
+         flush right whatever the initials are. */
       #run-end .score-list {
-        display: grid; grid-template-columns: auto 1fr auto auto; width: 100%;
+        display: grid; grid-template-columns: auto 1fr auto; width: 100%;
         column-gap: clamp(10px, 2.2vh, 18px); row-gap: clamp(6px, 1.8vh, 12px);
         list-style: none; margin: 0; padding: 0;
       }
@@ -287,19 +290,20 @@
         font-size: clamp(16px, min(3.1vh, 5.6vw), 23px); font-weight: 800; line-height: 1.2;
         color: rgba(255, 255, 255, 0.82); white-space: nowrap;
       }
-      #run-end .score-rank { text-align: right; color: rgba(255, 255, 255, 0.4); }
-      #run-end .score-name { letter-spacing: 0.06em; }
-      #run-end .score-fares {
-        text-align: right; font-weight: 500; color: rgba(255, 255, 255, 0.45);
-        font-variant-numeric: tabular-nums;
-      }
+      /* Left, not right. With one digit in every rank for a five-row table the two edges are the
+         same line anyway, and aligning left keeps the numbering against the block's own edge with
+         the heading above it. */
+      #run-end .score-rank { text-align: left; color: rgba(255, 255, 255, 0.4); }
+      /* Explicitly left, against the rank beside it. The card centres its text, so without this the
+         name floated in the middle of a `1fr` column with a gap either side of it and the row read
+         as three unrelated things rather than as "1. TWA — $500". */
+      #run-end .score-name { text-align: left; letter-spacing: 0.06em; }
       #run-end .score-cash { text-align: right; font-variant-numeric: tabular-nums; }
       /* The run that just ended, in the taxi's own yellow. Picked out by id rather than by rank —
          a run that ties an existing score sits below it, so matching on the number lights the
          wrong row. */
       #run-end .score-row.is-you > span { color: #F5C130; }
       #run-end .score-row.is-you .score-rank { color: rgba(245, 193, 48, 0.7); }
-      #run-end .score-row.is-you .score-fares { color: rgba(245, 193, 48, 0.7); }
 
       /* Same pill treatment as #boost — the retry action reads as the primary yellow button. */
       #run-end .retry {

@@ -815,7 +815,7 @@ function isRankedRun() {
  * Offer the finished run to the table and build what the run-end screen needs to show it.
  *
  * Returns `null` when there is nothing to show — an unranked run, or a browser with no storage,
- * where an empty "Best runs" heading would be a promise the game cannot keep.
+ * where an empty "Leaderboard" heading would be a promise the game cannot keep.
  */
 function collectScores() {
   if (!isRankedRun()) return null;

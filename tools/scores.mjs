@@ -6,13 +6,13 @@
  * corrupt payload, a hand-edited entry with a NaN in it. Those are exactly the cases that surface
  * as "my scores vanished" months later, and a fake store is the only way to reach them on purpose.
  *
- * The ranking is asserted here too, tie-breaks included, because the order of a five-row table is
- * the one thing the player will notice being wrong immediately.
+ * The ranking is asserted here too — including that nothing *but* the score reorders it, since the
+ * order of a five-row table is the one thing the player will notice being wrong immediately.
  *
  *   node tools/scores.mjs
  */
 import {
-  loadScores, recordRun, clearScores, lastName, normaliseName, MAX_ENTRIES, DEFAULT_NAME,
+  loadScores, recordRun, clearScores, lastName, normaliseName, scoreOf, MAX_ENTRIES, DEFAULT_NAME,
 } from '../src/game/highscores.js';
 
 const results = [];
@@ -80,25 +80,37 @@ const cashes = (store) => loadScores(store).map((e) => e.cash).join(',');
   check('but is still handed the board to show', missed.entries.length === MAX_ENTRIES);
 }
 
-// --- Tie-breaks -------------------------------------------------------------
+// --- One score, and nothing else decides the order --------------------------
 {
+  check('the score is the cash', scoreOf({ cash: 584, fares: 2, seconds: 30 }) === 584);
+
+  // The table ranks by one number and shows that number. Nothing it does not show may reorder it:
+  // more fares does not beat fewer, and a quicker run does not beat a slower one.
   const store = fakeStore();
-  recordRun({ ...run(100, 4, 90), shift: '' }, store);
-  recordRun({ ...run(100, 7, 90), shift: '' }, store);
-  check('equal cash breaks on fares', loadScores(store)[0].fares === 7, `${loadScores(store)[0].fares}`);
+  recordRun({ ...run(100, 4, 90), shift: '' }, store).setName('FEW');
+  recordRun({ ...run(100, 7, 90), shift: '' }, store).setName('MNY');
+  check('more fares on equal cash does not jump the queue',
+    names(store) === 'FEW,MNY', names(store));
 
   const quick = fakeStore();
-  recordRun({ ...run(100, 5, 120), shift: '' }, quick);
-  recordRun({ ...run(100, 5, 40), shift: '' }, quick);
-  check('equal cash and fares breaks on the shorter run',
-    loadScores(quick)[0].seconds === 40, `${loadScores(quick)[0].seconds}`);
+  recordRun({ ...run(100, 5, 120), shift: '' }, quick).setName('SLO');
+  recordRun({ ...run(100, 5, 40), shift: '' }, quick).setName('FST');
+  check('nor does a shorter run on equal cash', names(quick) === 'SLO,FST', names(quick));
 
-  // Stable sort, new entry pushed last: an exact tie leaves the incumbent ahead.
+  // Stable sort, new entry pushed last: a tie leaves the incumbent ahead.
   const tied = fakeStore();
   recordRun(run(100), tied).setName('OLD');
   const second = recordRun(run(100), tied);
-  check('an exact tie ranks behind the incumbent', second.rank === 2, `rank ${second.rank}`);
+  check('a tie ranks behind the incumbent', second.rank === 2, `rank ${second.rank}`);
   check('and the incumbent keeps the top row', loadScores(tied)[0].name === 'OLD');
+
+  // Fares and seconds are still recorded — the score may grow into a formula over them later, and
+  // an entry missing them could not be re-ranked by one.
+  const kept = fakeStore();
+  recordRun({ cash: 40, fares: 2, seconds: 75, shift: 'Busy' }, kept);
+  const row = loadScores(kept)[0];
+  check('fares and seconds are still stored for a future score',
+    row.fares === 2 && row.seconds === 75, `${row.fares} fares, ${row.seconds}s`);
 }
 
 // --- Names ------------------------------------------------------------------

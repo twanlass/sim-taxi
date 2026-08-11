@@ -1122,17 +1122,31 @@ feel for.
 device and nowhere else: no server, no account, no sync. `localStorage` is the whole backend, which
 makes the failure modes the interesting part of the module rather than the ranking.
 
-> **Trap.** It is **not** `leaderboard.js`, and nothing in the DOM is called `.leaderboard`.
-> "Leaderboard" is the IAB's name for a 728×90 ad unit and filter lists carry generic rules against
-> it — the same trap that keeps `beacon.js` and `#banner` out of this codebase. A blocked module
-> takes the whole graph down with `ERR_BLOCKED_BY_CLIENT` and nothing in the console says why.
+> **Trap.** The table is *titled* **Leaderboard** on screen, but it is **not** `leaderboard.js` and
+> nothing in the DOM is called `.leaderboard` — the classes are all `.score-*`. "Leaderboard" is the
+> IAB's name for a 728×90 ad unit and filter lists carry generic rules against it, the same trap
+> that keeps `beacon.js` and `#banner` out of this codebase. What those rules match is URLs, ids and
+> class names, not text content, so the visible word is safe and the filename is not. A blocked
+> module takes the whole graph down with `ERR_BLOCKED_BY_CLIENT` and nothing in the console says why.
 
-**Cash is the score**, tie-broken by fares and then by the shorter run. Cash is what the card leads
-with and what the economy is built around; the tie-breaks matter more than they look on a table this
-small, because two runs that both cleared $200 are common, and "more fares for the same money" then
-"in less time" both describe a player who was working harder for it. Ties go to the incumbent — the
-comparator returns 0 and `sort` is stable, so a new run that exactly matches an existing one lands
-*behind* it.
+**One score, and for now it is the cash.** `scoreOf(entry)` in `highscores.js` is the only thing the
+order is computed from — a function rather than a field read inline, because the point of naming it
+is that the table ranks by a *score*. If that becomes a formula over fares, time and cash later,
+that one line is what changes, and every run already stored keeps its place in the new order.
+`fares` and `seconds` are still recorded on every entry for exactly that reason, even though nothing
+reads them today.
+
+**No tie-breaks.** An earlier pass broke ties on fares and then on the shorter run, and it went with
+the fares column: a table that ranks by one number and then silently reorders equal numbers by a
+quantity it does not show is a table the player cannot check. Two runs on $40 sit in the order they
+were played — ties go to the incumbent, since the comparator returns 0 and `sort` is stable, which
+is the convention every arcade table has used since arcade tables existed.
+
+**A row is rank, name and score, and nothing else.** A fares column sat between the name and the
+cash and came out with the tie-breaks: a second figure beside the score invited the player to work
+out how the two combined into the order in front of them, and they don't combine. The row now shows
+exactly what it is sorted by. The heading and the rank column are left-aligned, against the same
+edge the list's own columns start on; centred, the heading floated free of the block it labels.
 
 **Five rows, not ten.** The card is capped at 358px and its own layout is already fighting to keep
 **Play again** above the fold on a landscape phone; ten rows loses that fight. Five is also about as

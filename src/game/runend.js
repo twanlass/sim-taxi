@@ -41,7 +41,7 @@
  *
  * The DOM is rebuilt on every call. This runs once per run, so nothing here is pooled or reused.
  */
-import { NAME_LENGTH, normaliseName } from './highscores.js';
+import { NAME_LENGTH, normaliseName, scoreOf } from './highscores.js';
 
 // --- The timeline, in ms ----------------------------------------------------
 // Tuned as a whole: the overlay is up for ~3.5s before the button appears. That is the cost of
@@ -295,8 +295,13 @@ function buildEntry(rank, prefill, commit) {
 }
 
 /**
- * The table. Four columns — rank, name, fares, cash — laid out on the same `display: contents`
- * grid the stats use, which is what puts every column on one straight edge down the block.
+ * The table. Three columns — rank, name, score — laid out on the same `display: contents` grid the
+ * stats use, which is what puts every column on one straight edge down the block.
+ *
+ * **One number per row.** A fares column sat between the name and the cash and it had to go: the
+ * table ranks by a single score, and a second figure beside it invited the player to work out how
+ * the two combined into the order they were looking at. They don't combine — the score is the cash
+ * — so the row now shows exactly what it is sorted by and nothing else.
  *
  * The player's own row is picked out by id rather than by rank, because a run that ties an existing
  * score sits *below* it (see `compare` in `highscores.js`) and matching on the number would light
@@ -304,17 +309,16 @@ function buildEntry(rank, prefill, commit) {
  */
 function buildBoard(entries, youId) {
   const wrap = el('div', 'score-board');
-  wrap.append(el('p', 'score-board-title', 'Best runs'));
+  wrap.append(el('p', 'score-board-title', 'Leaderboard'));
 
   const list = el('ol', 'score-list');
   const rows = entries.map((entry, index) => {
     const row = el('li', 'score-row');
     if (youId && entry.id === youId) row.classList.add('is-you');
     row.append(
-      el('span', 'score-rank', `${index + 1}`),
+      el('span', 'score-rank', `${index + 1}.`),
       el('span', 'score-name', entry.name),
-      el('span', 'score-fares', `${entry.fares} ${entry.fares === 1 ? 'fare' : 'fares'}`),
-      el('span', 'score-cash', `$${entry.cash}`),
+      el('span', 'score-cash', `$${scoreOf(entry)}`),
     );
     list.append(row);
     return row;

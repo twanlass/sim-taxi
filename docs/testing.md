@@ -35,7 +35,7 @@ can be made and verified in a single step.
 | **roadnet** | `tools/roadnet.mjs` | The road network reproduces the grid at 1e-9 — positions, lanes, turns, legal moves, signal phase across a cycle — plus diagonals, roundabouts and curves the grid can't express. Runs first: it is the control on every step below |
 | **probe** | `tools/probe.mjs` | Traffic invariants: no car in a park, no car off-map, no signal violations, all 5,184 (approach, destination) pairs routable, front wheels locked through corners and straight on the straight |
 | **routing** | `tools/taxi.mjs 30` | Given a target, the routed taxi actually **arrives** — while still stopping at every red |
-| **scores** | `tools/scores.mjs` | The high-score table against a fake `localStorage`: ranking and tie-breaks, the five-row cap, name normalising, and every way storage misbehaves — corrupt JSON, hand-edited entries, a store that throws on read, one that throws on write |
+| **scores** | `tools/scores.mjs` | The high-score table against a fake `localStorage`: ranking by score with nothing else reordering it, the five-row cap, name normalising, and every way storage misbehaves — corrupt JSON, hand-edited entries, a store that throws on read, one that throws on write |
 | **eta** | `tools/eta.mjs 40 3` | Fits and grades the trip-time estimator every fare deadline is budgeted from. Runs before the soak: a drifted estimator makes the soak's numbers a measurement of the drift |
 | **fares** | `tools/soak.mjs 25 4 9` | Auto-plays the fare loop over **9 cities × 9 situations** with a fixed "player reaction" delay, and gates on a **band** around the median |
 | **signals** | `tools/signals.mjs` | Throughput, stationary fraction, green-wave hit rate. Informational — it reports rather than fails |

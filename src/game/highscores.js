@@ -98,21 +98,30 @@ function sanitise(raw) {
 }
 
 /**
- * Ranking order: cash first, then fares, then the shorter run.
+ * The score a run is ranked by. **One number, and for now it is the cash.**
  *
- * Cash is the score — it is what the run-end card leads with and what the economy is built around.
- * The tie-breaks matter more than they look on a table this small: two runs that both cleared $200
- * are common, and "more fares for the same money" then "in less time" is the right way round,
- * because both describe a player who was working harder for it.
+ * Deliberately a function rather than a field read inline, because the point of naming it is that
+ * the table is ranked by a *score* — if that later becomes a formula over fares, time and cash,
+ * this is the only line that changes and every stored run keeps its place in the new order. Fares
+ * and seconds are still recorded on every entry for exactly that reason, even though nothing reads
+ * them today.
+ */
+export const scoreOf = (entry) => entry.cash;
+
+/**
+ * Ranking order: score, descending. No tie-breaks.
+ *
+ * An earlier pass broke ties on fares and then on the shorter run. It went with the fares column:
+ * a table that ranks by one number and then silently reorders equal numbers by a quantity it does
+ * not show is a table the player cannot check. Two runs on $40 now sit in the order they were
+ * played.
  *
  * Returns negative when `a` ranks ahead. Ties return 0, and `sort` is stable — so a new run that
  * ties an existing one lands *behind* it. The incumbent keeps the higher rank, which is the
  * convention every arcade table has used since arcade tables existed.
  */
 function compare(a, b) {
-  if (a.cash !== b.cash) return b.cash - a.cash;
-  if (a.fares !== b.fares) return b.fares - a.fares;
-  return a.seconds - b.seconds;
+  return scoreOf(b) - scoreOf(a);
 }
 
 /**
