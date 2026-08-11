@@ -259,6 +259,14 @@ const PULSE_SPEED = 3;
 const PULSE_SHARPNESS = 4;
 const PULSE_BOOST = 0.5;
 
+// A freshly routed band sweeps in from the car rather than appearing whole — the same reasoning
+// as the pulse: a static object popping into existence reads as "the UI updated", not "the taxi is
+// headed there now". ROLLOUT_DURATION is fixed rather than scaled by route length, so picking a
+// fare across the map doesn't read as sluggish next to one next door — both sweep in at the same
+// pace, just covering more ground per second on the long one.
+const ROLLOUT_DURATION = 0.35;
+const easeOutCubic = (t) => 1 - (1 - t) ** 3;
+
 export function createRouteLine(scene) {
   // Two triangles per segment of the path.
   const positions = new Float32Array(MAX_POINTS * 6 * 3);
@@ -281,6 +289,7 @@ export function createRouteLine(scene) {
       uFadeTail: { value: FADE_TAIL },
       uMultiply: { value: 0 },
       uTime: { value: 0 },
+      uReveal: { value: 0 },
     },
     vertexShader: /* glsl */`
       attribute float aDist;
@@ -303,6 +312,7 @@ export function createRouteLine(scene) {
       uniform float uFadeTail;
       uniform float uMultiply;
       uniform float uTime;
+      uniform float uReveal;
       varying float vDist;
       const float PULSE_PERIOD = ${PULSE_PERIOD.toFixed(4)};
       const float PULSE_SPEED = ${PULSE_SPEED.toFixed(4)};
@@ -312,7 +322,12 @@ export function createRouteLine(scene) {
       void main() {
         float head = smoothstep(uHeadGap, uHeadGap + uFadeHead, vDist);
         float tail = smoothstep(0.0, uFadeTail, uLength - vDist);
-        float envelope = uOpacity * head * tail;
+        // The rollout sweep: a second, animated tail-style edge that grows from the car out to the
+        // destination when a route is freshly picked, using the same fade width as the real tail so
+        // the leading edge of the sweep looks exactly like the trailing edge it will settle into.
+        // Once uReveal passes uLength this is 1 everywhere and has no effect on the steady state.
+        float reveal = smoothstep(0.0, uFadeTail, uReveal - vDist);
+        float envelope = uOpacity * head * tail * reveal;
 
         // Position relative to the *destination* end, not the car end. vDist is measured from the
         // car, so it (and uLength) both shrink every frame the taxi drives — using it directly
@@ -366,8 +381,25 @@ export function createRouteLine(scene) {
   mesh.visible = false;
   scene.add(mesh);
 
+  // Identity of the route currently sweeping in, so a route that is merely being redrawn this
+  // frame (the common case — every frame, as the car advances) doesn't replay the rollout, while
+  // a genuinely new one (the player tapped a fare, or a pickup redirected to the drop-off) does.
+  // `pendingTarget` is a fresh object every time `routeTo()` runs and stable between those calls,
+  // so identity is all this needs — no route contents to compare.
+  let revealTarget = null;
+  let revealElapsed = 0;
+
   function update(car, route, dt = 0) {
     material.uniforms.uTime.value += dt;
+
+    if (car.pendingTarget !== revealTarget) {
+      revealTarget = car.pendingTarget;
+      revealElapsed = 0;
+    }
+    // Always folded in, including the frame a new target starts on — a shot mode frame is a
+    // single call with dt=999 standing in for "let it settle", and that dt has to count even
+    // though this is also the frame the target just changed on, or the sweep never advances.
+    revealElapsed += dt;
 
     const path = routePath(car, route);
     if (path.length < 2) { mesh.visible = false; return; }
@@ -389,6 +421,12 @@ export function createRouteLine(scene) {
     material.uniforms.uHeadGap.value = HEAD_GAP * squeeze;
     material.uniforms.uFadeHead.value = FADE_HEAD * squeeze;
     material.uniforms.uFadeTail.value = FADE_TAIL * squeeze;
+
+    // Sweeps out past the far end (by the tail's own fade width) rather than stopping exactly at
+    // `total`, so the reveal edge fully clears the destination and leaves no soft seam sitting
+    // partway down the band once the animation settles.
+    const rolloutT = Math.min(1, revealElapsed / ROLLOUT_DURATION);
+    material.uniforms.uReveal.value = (total + FADE_TAIL * squeeze) * easeOutCubic(rolloutT);
 
     // Offset each point along its mitre rather than offsetting each segment independently.
     // Independent segments leave a wedge of empty road on the outside of every join — invisible

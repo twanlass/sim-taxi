@@ -1410,7 +1410,10 @@ if (shot) {
 
   if (shot.route) send();
   if (selected && traffic.taxi.pendingTarget) {
-    routeLine.update(traffic.taxi, traffic.taxi.route);
+    // A shot reviews the band's steady state, not the moment it was picked — a shot mode frame is
+    // never followed by another, so with a real dt the rollout sweep would freeze here mid-animation
+    // and every route shot would show a truncated band. A dt far past ROLLOUT_DURATION settles it.
+    routeLine.update(traffic.taxi, traffic.taxi.route, 999);
   }
   renderFrame();
   document.body.dataset.shotReady = 'true';
