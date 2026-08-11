@@ -16,7 +16,7 @@ and would make the escalation something that happens *to* you rather than someth
 
 | Knob | `d = 0` | `d = 1` | What it does |
 |---|---|---|---|
-| `slack` | 2.0× | 1.15× | Multiplier on the driving each fare costs. **The main lever.** |
+| `slack` | 1.7× | 1.05× | Multiplier on the driving each fare costs. **The main lever.** |
 | `maxFares` | 1 | 4 | Board size. Stepped at 1, 2 and 10 deliveries. |
 | `spawnGap` | 15s | 7s | Seconds between spawns on a non-empty board. |
 | `spawnRadius` | 3 blocks | whole map | How far from the bias point an extra may land. |
@@ -79,7 +79,7 @@ from the right order you can stray.
 
 ### The floor and ceiling are guards, not shapers
 
-`clockFloor` 20s, `clockCeiling` 240s. If either is binding on an ordinary fare, the budget is what
+`clockFloor` 15s, `clockCeiling` 240s. If either is binding on an ordinary fare, the budget is what
 needs fixing — and both earlier values were binding.
 
 90s clipped ordinary late-game clocks, quietly reintroducing the unmeetable deadline the queue chain
@@ -88,24 +88,51 @@ exists to remove. 180s was subtler and worse: with a saturated board the median 
 winning. Sweeping slack from 1.35 down to 1.05 then moved the median run length by less than a fare.
 **A binding ceiling silently becomes the difficulty curve.**
 
+The floor came down from 20 to 15 with the slack end, and it had to: a median 16.4s trip budgets
+19.8s at slack 1.05, so 20 was about to become the clock every short late-game fare was issued.
+`tools/probe.mjs` asserts that directly — **a floor is only ever tested against the tightest slack
+on the curve**, so moving `slackEnd` means re-checking it.
+
 ## What the sweep found
 
-`node tools/difficulty-sweep.mjs [runs] [preset]`, over 9 cities × 3 reaction times. Presets:
-`slack`, `board`, `gap`, `shape`, `shipped`.
+`node tools/difficulty-sweep.mjs [runs] [preset]`, over N cities × 3 reaction times. Presets:
+`slack`, `ramp`, `board`, `gap`, `shape`, `shipped`.
 
-Median fares delivered by a perfect player at 1.5s / 3s / 4s reaction:
+### Slack is what the player actually sees
 
-| slack | 1.5s | 3s | 4s | |
+Slack is not really a survival knob, it is **the fraction of the clock left at the drop-off**. A
+fare served straight through eats its estimate and hands back `1 − 1/slack`, so 2.0 meant an on-time
+delivery landed with half the ring lit — level 3, yellow — however the median said the game was
+going. That is the reading the diamond gives the player every single fare, and it read generous.
+
+| slack | remaining on an on-time drop-off | reads as |
+|---|---|---|
+| 2.0 | 50% | yellow |
+| 1.7 | 41% | orange |
+| 1.15 | 13% | red |
+| 1.05 | 5% | red |
+
+Swept over 21 cities × 2 reaction times, medians at 1.5s / 4s and the mean share of the clock the
+drive ate at deliveries 1-3 / 12+:
+
+| slack | 1.5s | 4s | spend 1-3 → 12+ | |
 |---|---|---|---|---|
-| 2.2 → 1.35 | 40 | 31 | 17 | 6 of 9 runs never ended at all |
-| 2.2 → 1.25 | 15 | 17 | 16 | |
-| **2.0 → 1.15** | **15** | **15** | **13** | shipped |
-| 1.9 → 1.10 | 14 | 12 | 12 | a run died on fare 0 at 4s |
-| 1.8 → 1.05 | 12 | 10 | 11 | likewise |
+| 2.0 → 1.15 | 20 | 15 | 58% → 84% | was shipped; p10 12/11 |
+| 1.7 → 1.10 | 15 | 11 | 65% → 85% | p10 11/4 |
+| **1.7 → 1.05** | **14** | **11** | **64% → 87%** | shipped; p10 9/7 |
+| 1.6 → 1.05 | 13 | 12 | 66% → 86% | a run died on fare 2 at 1.5s (p10 2) |
 
-2.0 → 1.15 is the last row where nobody dies during the tutorial and the first where no run survives
-all 40 fares. Below it the tail starts eating first-fare runs, which is the one failure a
-score-attack cannot have.
+1.7 → 1.05 is the last row where nobody dies during the tutorial. Below it the tail starts eating
+first-fare runs, which is the one failure a score-attack cannot have.
+
+**Shortening the ramp is the wrong way to answer "too easy".** `difficulty-sweep.mjs 21 ramp` moves
+`rampFares` 12 → 8, and both rows tried drop p10 to 2 at a 4s reaction — the curve lands on a player
+who is still learning to read the board, which is exactly what ramping on deliveries rather than on
+the clock exists to avoid. The end of the curve is the thing to move.
+
+**Re-measure before trusting a row.** 2.0 → 1.15 was 15/13 when it shipped and 20/15 when it was
+re-swept for this change: nothing touched `difficulty.js` in between, the rest of the build just got
+faster to drive. A tuning table is a measurement, and it goes stale.
 
 **Widening the spawn gap does not make the game easier.** Across 15→7 through 40→18 the median is
 flat at 12–15 fares, but p10 falls from 7–12 down to 1–6. A sparse board means short queues, short

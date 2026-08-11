@@ -19,6 +19,7 @@
  *
  * Presets:
  *   slack     the main lever — how much more than the estimated work a clock is worth
+ *   ramp      how many deliveries the curve takes to run its length
  *   board     when the 2nd/3rd/4th rider are allowed onto the board
  *   gap       the stagger between spawns
  *   shipped   just the current tuning, at three reaction times
@@ -42,11 +43,20 @@ const PRESETS = {
   shipped: [{ label: 'shipped' }],
 
   slack: [
-    { label: 'slack 2.2→1.35 (shipped)' },
-    { label: 'slack 2.2→1.25', slackEnd: 1.25 },
     { label: 'slack 2.0→1.15', slackStart: 2.0, slackEnd: 1.15 },
-    { label: 'slack 1.9→1.10', slackStart: 1.9, slackEnd: 1.10 },
-    { label: 'slack 1.8→1.05', slackStart: 1.8, slackEnd: 1.05 },
+    { label: 'slack 1.7→1.10', slackStart: 1.7, slackEnd: 1.10 },
+    { label: 'slack 1.7→1.05 (shipped)' },
+    { label: 'slack 1.6→1.05', slackStart: 1.6, slackEnd: 1.05 },
+  ],
+
+  // How fast the ramp arrives, rather than where it ends up. Swept because a player who finds the
+  // shipped curve loose is asking for the hard part sooner as much as for it to be harder — but
+  // the answer was no: at 8 fares both rows below drop p10 to 2 at a 4s reaction, which is the
+  // ramp landing on a player still learning the board. Tighten `slack`, not `rampFares`.
+  ramp: [
+    { label: 'ramp 12 (shipped)' },
+    { label: 'ramp 8, slack 1.8→1.05', rampFares: 8, slackStart: 1.8, slackEnd: 1.05 },
+    { label: 'ramp 8, slack 1.7→1.08', rampFares: 8, slackStart: 1.7, slackEnd: 1.08 },
   ],
 
   board: [
