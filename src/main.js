@@ -1223,8 +1223,10 @@ if (shot) {
   fares.update(0.016, traffic.taxi);          // spawn the first fare
 
   // Send the taxi at whichever fare the shot is about, and keep it directed there.
+  // `pop: false` — the select pop is feedback for a finger, and there isn't one here. A shot that
+  // staged its dispatch a frame or two before rendering would otherwise freeze a rider mid-swell.
   const send = (fare = fares.focus()) => {
-    if (fare && routeTo(fare.target)) fares.markDirected(fare);
+    if (fare && routeTo(fare.target)) fares.markDirected(fare, { pop: false });
     return fare;
   };
 

@@ -521,6 +521,56 @@ is refused rather than routing a taxi that could never collect them.
 ceremony: every tap on it was either a no-op or an accidental deselect that made the next tap on a
 fare do nothing.
 
+### The tap pops
+
+`src/game/selectpop.js`. A tap that lands **swells and lights** the rider *and* the crystal over
+their head, then settles them back, over `POP_TIME = 0.4s`:
+
+| | rest | peak | on the way back |
+|---|---|---|---|
+| rider figure | ~26px | ~33px | dips to ~25px |
+| crystal | ~29px | ~38px | dips to ~28px |
+
+with a light that comes up on the same curve — the crystal's emissive from `0.35` to `1.05`, the
+figure's from black to a `0.3` white lift — and fades out by 0.29s.
+
+It exists because nothing else answers the tap *where it happened*. What the tap means — the taxi
+has been sent — is said by the route band, and that starts a junction away from the finger and runs
+off across the city. On the corner itself the frame after a tap that landed looked exactly like the
+frame after one that missed, which on a rider a handful of pixels tall is a real question a player
+was left to answer by waiting.
+
+Four things it is careful about:
+
+- **One envelope, shared.** The figure and the crystal have different owners (`fares.js` and
+  `faremarker.js`) and different amplitudes, but they take their zero from the same frame's
+  `state.elapsed` and ride the same curve, so they read as the fare reacting rather than as two
+  objects that happened to be tapped at once. Phase alone is enough to break that: the first cut
+  stamped the figure at the tap and the crystal on the next tick, and the two ran a frame apart.
+- **The light is a lift, not a colour.** Hue on a fare marker means urgency, so a tap may not
+  repaint anything — it turns up what each object is already emitting. The crystal can take a lot of
+  it (its emissive *is* its own hue, so it saturates rather than washing out); the rider cannot,
+  being a pale figure to start with, and at `0.45` the peak clipped them to a featureless white blob
+  with the raised arm swallowed into the torso. The light also rides the fill, so an almost-spent
+  crystal flashes on the liquid it has left rather than lighting up the empty glass above it.
+- **Scale only, no hop.** The [level-change kick](#what-the-crystal-does) swells *and* lifts the
+  crystal, and the lift is its signature. A pop that also left the ground would read as the clock
+  having stepped on the frame the player tapped, which is news the marker must not invent.
+- **It undershoots — but only the scale.** The envelope crosses back through rest and dips under
+  before it lands. Decay alone spends its last third as a barely-moving object slowly stopping,
+  which reads as lag; the dip gives the eye an ending to see. The *light* is clamped at zero over
+  the same stretch, because a marker going dim reads as having been switched off rather than as
+  having finished.
+
+It fires from `markDirected`, which is where both entry points — a tap on the pin and a tap on a
+[rider-finder chip](#extra-fares-and-prioritisation) — land once the route has actually been
+planned, so a
+selection that was refused never pops. Waiting fares only: the drop-off is a disc on the road with
+nobody standing on it, and the taxi dispatches itself there. Re-tapping a rider the taxi is already
+on its way to pops again — it acknowledges a gesture rather than reporting a state, and a second tap
+that did nothing reads as a tap that was swallowed. Shot mode passes `{ pop: false }`, since a
+staged dispatch is not a finger.
+
 ## The fare's clock travels
 
 `src/game/faremarker.js`. The countdown is a **physical object that belongs to the fare** — not a
