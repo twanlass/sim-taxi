@@ -933,16 +933,20 @@ function truckBoxGeometry() {
 // instance in the mesh. `instanceColor` is RGB paint and nothing else.
 //
 // So each kind of light is its own InstancedMesh, wearing one fixed, always-emissive material, and
-// a car's own pod is either sitting on the body at full scale or collapsed to `ZERO_MATRIX` — the
-// same trick `wreckShell()` uses to retire an instance, chosen for the same reason: no per-instance
-// emissive attribute, no `onBeforeCompile` patch, just a matrix write already happening every frame
-// for the body it rides on. Real headlamp glass reads dark rather than absent when it's off; at
-// this camera's play zoom (1 unit ≈ 7.7px) a 0.2-unit pod is a couple of pixels, and an absent
-// couple of pixels reads the same as a dark one.
-const LIGHT_D = 0.16;                 // fore-aft
-const LIGHT_H = 0.32;
-const LIGHT_W = 0.32;                 // across the car
-const LIGHT_INSET = 0.16;             // in from the flank, so the pod doesn't poke past the body
+// a car's own pod is scaled by an eased 0..1 *level* rather than snapped between "there" and
+// `ZERO_MATRIX` — the same collapse-to-nothing trick `wreckShell()` uses to retire an instance, just
+// with the scale itself eased instead of stepped. There is no per-instance opacity to animate
+// (`instanceColor` is RGB paint, full stop, and a real fade would need a custom per-instance
+// attribute plus an `onBeforeCompile` patch), so scale is the one lever available — but at this
+// camera's play zoom (1 unit ≈ 7.7px) a pod is only a handful of pixels across, where a shrinking
+// box and a dimming light are close to indistinguishable. Easing the level rather than the boolean
+// that drives it is also what kills flicker: a one-frame blip in the underlying signal (braking is
+// read off noisy per-frame accel) no longer has time to visibly register before the target flips
+// back.
+const LIGHT_D = 0.32;                 // fore-aft
+const LIGHT_H = 0.64;
+const LIGHT_W = 0.64;                 // across the car
+const LIGHT_INSET = LIGHT_W / 2;      // flush with the flank, whatever LIGHT_W is
 const LIGHT_Y = 0.55 + CHASSIS_LIFT;  // bumper height
 
 // Emissive intensity for both kinds of light — high enough to read as self-lit day or night, the
@@ -959,10 +963,24 @@ const LIGHT_EMISSIVE = 1.4;
 const BRAKE_ACCEL = 1.5;
 const BRAKE_STOP_V = 0.2;
 
-// Real turn signals flash at roughly 60-120 times a minute (1-2 Hz); 1.5 Hz sits in the middle of
-// that band. Phased per car off `car.phase` (already carries the idle-bob offset) so a queue of
-// signalling cars doesn't blink in lockstep.
-const TURN_SIGNAL_HZ = 1.5;
+// The brake level's ease rates, in 1/s — an exponential approach, so "time to reach it" is the
+// usual 3/rate for ~95%. Rise is quick, close to a real lamp's own on-switch; fall is deliberately
+// much slower, both to read as a dramatic lingering glow rather than a lamp and to absorb a
+// one-frame gap in the underlying accel signal, which is exactly what was flickering before.
+const BRAKE_LIGHT_RISE = 20;    // ~0.15s to full
+const BRAKE_LIGHT_FALL = 4;     // ~0.75s to dark
+
+// Real turn signals flash at roughly 60-120 times a minute (1-2 Hz); 1.1 sits toward the slow end
+// of that band on purpose — fast enough to read as blinking, slow enough that each phase holds long
+// enough to actually register rather than reading as a flicker. TURN_SIGNAL_DUTY skews the cycle
+// toward "on": a plain 50/50 square wave spends as long dark as lit, and at this size the dark half
+// was reading as the light being broken rather than blinking. Both ease rates are the same and
+// fast relative to the phase length they sit inside (see writeAmbient), so the *edges* are eased —
+// no snap — without turning the blink into a soft, always-partly-lit pulse.
+const TURN_SIGNAL_HZ = 1.1;
+const TURN_SIGNAL_DUTY = 0.6;
+const TURN_SIGNAL_RISE = 10;
+const TURN_SIGNAL_FALL = 10;
 
 /**
  * One light pod, in car-local space. `sx` picks the front (+1) or rear (-1) bumper; `sz` picks a
@@ -1152,9 +1170,11 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // Longitudinal-accel rocking. Spring-damped, so both a stop and a pull-away end on a bounce.
       pitch: 0,
       pitchV: 0,
-      // Whether this frame's brake lights should be lit — set in the render pass below, off
-      // frame one along with prevV/v agreeing that there is no accel yet.
-      braking: false,
+      // Eased 0..1 brightness for the brake and turn-signal light pods — see BRAKE_LIGHT_RISE/FALL
+      // and TURN_SIGNAL_RISE/FALL. Off frame one along with prevV/v agreeing there is no accel yet.
+      brakeLevel: 0,
+      turnLeftLevel: 0,
+      turnRightLevel: 0,
       boost: false,
       // True only during the taxi's post-release cooldown tail (see BOOST_COOLDOWN in
       // game/boost.js) — `boost` stays true through it so collision/police/red-light rules keep
@@ -1741,14 +1761,17 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const wheelQuat = new THREE.Quaternion();
   const wheelPos = new THREE.Vector3();
   const UP = new THREE.Vector3(0, 1, 0);
+  const lightMatrix = new THREE.Matrix4();
+  const lightScale = new THREE.Vector3();
 
   /**
    * Write one ambient car's body matrix, the two front wheels hanging off it, and its brake/turn
    * lights. The wheels are composed *through* the body matrix rather than in world space, so they
    * inherit the bob, the corner lean and the pitch rock for free and stay bolted to the arches
    * through all three. The lights need no such composition — their pods are baked at a fixed offset
-   * into their own geometry (see lightPod()), so "on" is just the body matrix again and "off" is
-   * ZERO_MATRIX.
+   * into their own geometry (see lightPod()) — but they do need their own scale, so each is `pos`
+   * and `quat` (still holding this car's own transform, set by the caller just before this runs)
+   * recomposed at that light's own eased level rather than `scl`'s fixed (1, 1, 1).
    */
   function writeAmbient(car) {
     const bodyInst = car.isTruck ? truckMesh : mesh;
@@ -1767,22 +1790,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       wheelInst.setMatrixAt(car.instanceIndex * front.length + w, wheelMatrix);
     }
 
-    // A real turn is `dOut !== d` (see the note near the top of this file); `hand` says which way,
-    // and both only exist while `state === 'turn'` — the arc across the junction, which is the one
-    // window a real driver's indicator would still be ticking in. `car.phase` — already the idle
-    // bob's per-car offset — desyncs a queue of blinkers from flashing in lockstep.
-    const blinking = car.state === 'turn' && car.turn && car.turn.hand !== 'straight'
-      && Math.floor((stats.time + car.phase) * TURN_SIGNAL_HZ * 2) % 2 === 0;
+    // brakeLevel/turnLeftLevel/turnRightLevel are eased 0..1 targets set once per frame, above (see
+    // "Rocking" for the brake ease and the turn-signal block right after it) — this just renders
+    // them. A level of exactly 0 collapses the pod the same way ZERO_MATRIX used to.
     const brakeInst = car.isTruck ? truckBrakeMesh : brakeMesh;
     const turnLeftInst = car.isTruck ? truckTurnLeftMesh : turnLeftMesh;
     const turnRightInst = car.isTruck ? truckTurnRightMesh : turnRightMesh;
-    brakeInst.setMatrixAt(car.instanceIndex, car.braking ? matrix : ZERO_MATRIX);
-    turnLeftInst.setMatrixAt(
-      car.instanceIndex, blinking && car.turn.hand === 'left' ? matrix : ZERO_MATRIX,
-    );
-    turnRightInst.setMatrixAt(
-      car.instanceIndex, blinking && car.turn.hand === 'right' ? matrix : ZERO_MATRIX,
-    );
+    lightMatrix.compose(pos, quat, lightScale.setScalar(car.brakeLevel));
+    brakeInst.setMatrixAt(car.instanceIndex, lightMatrix);
+    lightMatrix.compose(pos, quat, lightScale.setScalar(car.turnLeftLevel));
+    turnLeftInst.setMatrixAt(car.instanceIndex, lightMatrix);
+    lightMatrix.compose(pos, quat, lightScale.setScalar(car.turnRightLevel));
+    turnRightInst.setMatrixAt(car.instanceIndex, lightMatrix);
   }
 
   /**
@@ -2788,8 +2807,29 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       car.prevV = car.v;
       // Brake lights read the same signal the pitch dip does — see BRAKE_ACCEL above — plus a
       // near-standstill floor so a car queued at a line stays lit instead of going dark the instant
-      // accel settles back to zero.
-      car.braking = accel < -BRAKE_ACCEL || car.v < BRAKE_STOP_V;
+      // accel settles back to zero. Eased rather than snapped straight to the target — see
+      // BRAKE_LIGHT_RISE/FALL — which is what keeps a one-frame gap in `accel` from reading as a
+      // flicker: the level doesn't have time to fall before the target is true again.
+      const brakeTarget = accel < -BRAKE_ACCEL || car.v < BRAKE_STOP_V ? 1 : 0;
+      car.brakeLevel += (brakeTarget - car.brakeLevel)
+        * Math.min(1, dt * (brakeTarget > car.brakeLevel ? BRAKE_LIGHT_RISE : BRAKE_LIGHT_FALL));
+
+      // Turn signals: on for TURN_SIGNAL_DUTY of every cycle rather than a plain 50/50 square wave
+      // (see the note by TURN_SIGNAL_DUTY), eased the same way brake level is. `car.phase` — already
+      // the idle bob's per-car offset — desyncs a queue of blinkers from flashing in lockstep. A
+      // real turn is `dOut !== d` (see the note near the top of this file); `hand` says which way,
+      // and both only exist while `state === 'turn'` — the arc across the junction, which is the one
+      // window a real driver's indicator would still be ticking in.
+      const turning = car.state === 'turn' && car.turn && car.turn.hand !== 'straight';
+      const cyclePos = (((stats.time + car.phase) * TURN_SIGNAL_HZ) % 1 + 1) % 1;
+      const wantsBlink = turning && cyclePos < TURN_SIGNAL_DUTY;
+      const leftTarget = wantsBlink && car.turn.hand === 'left' ? 1 : 0;
+      const rightTarget = wantsBlink && car.turn.hand === 'right' ? 1 : 0;
+      car.turnLeftLevel += (leftTarget - car.turnLeftLevel)
+        * Math.min(1, dt * (leftTarget > car.turnLeftLevel ? TURN_SIGNAL_RISE : TURN_SIGNAL_FALL));
+      car.turnRightLevel += (rightTarget - car.turnRightLevel)
+        * Math.min(1, dt * (rightTarget > car.turnRightLevel ? TURN_SIGNAL_RISE : TURN_SIGNAL_FALL));
+
       const pitchScale = car.isTruck ? TRUCK_PITCH_SCALE : 1;
       const targetPitch = Math.max(-0.13, Math.min(0.13, accel * 0.014 * pitchScale));
       const pitchDamping = car.isTruck ? 6 * TRUCK_PITCH_DAMPING_MULT : 6;
