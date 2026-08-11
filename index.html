@@ -87,6 +87,81 @@
         100% { transform: scale(1);    color: #fff;    }
       }
 
+      /* Pause — the ⏸ between the two counters, and the screen behind it. See src/game/pause.js.
+
+         Set like the counters either side of it rather than as a chip: white, with the HUD's own
+         drop shadow, so the top edge reads as one row of three things instead of two numbers with
+         a button parked between them. The glyph is 26px inside a 44px box — the shape is HUD-sized,
+         the target is thumb-sized. Sized *against the digits*, not to some icon convention: the
+         bars stand 21px, within a pixel of the counters' own cap height at 34px/800, because a
+         glyph set smaller than the numbers it sits between reads as a browser control that
+         wandered onto the HUD rather than as part of it.
+
+         Centred with `left: 0; right: 0` and auto margins, NOT `transform: translateX(-50%)`. The
+         press dip below animates `transform`, and a centring translate there would be overwritten
+         by it — the button would jump to the left edge of the screen for as long as it was held. */
+      #pause {
+        position: fixed; top: 18px; left: 0; right: 0; margin: 0 auto; z-index: 24;
+        width: 44px; height: 44px; padding: 0; border: 0; background: none;
+        display: grid; place-items: center; cursor: pointer;
+        /* The tap wants to land now, not after the browser has waited out a double-tap — and there
+           is nothing here to select or long-press. */
+        touch-action: manipulation;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+        transition: transform 0.1s ease;
+      }
+      #pause:active { transform: scale(0.92); }
+      #pause svg {
+        display: block; width: 26px; height: 26px; fill: #fff;
+        /* The counters' `text-shadow` in its glyph form — same offset, same blur, same colour — so
+           the ⏸ holds against pale asphalt exactly as the numbers do. */
+        filter: drop-shadow(0 2px 6px rgba(20, 40, 55, 0.65));
+      }
+      /* One button, two glyphs: it is a toggle, and while the run is held it offers the way out. */
+      #pause .glyph-play { display: none; }
+      body.is-paused #pause .glyph-pause { display: none; }
+      body.is-paused #pause .glyph-play { display: block; }
+      /* Nothing to pause on a screenshot, and once the run is over the retry pill is the only
+         action on the screen — the same rule the Loco Mode pill and the ⚙️ toggle follow. */
+      body.shot-mode #pause, body.game-over #pause { display: none; }
+
+      /* The screen itself. A dim rather than a blackout: the run is being *held*, not ended, and
+         seeing the city frozen underneath is what says so — the full black belongs to #run-end,
+         which is the one overlay that means the run is finished.
+
+         Under #pause (24) so the button stays lit and clickable above it, over the coach bubble
+         (22) and the spotlight (21), below the run-end blackout (30) and the Home Screen screen
+         (26) — both of those are gates in their own right and outrank a pause. */
+      #pause-veil {
+        position: fixed; inset: 0; z-index: 23;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: rgba(6, 14, 22, 0.72); color: #fff; text-align: center;
+        font: 500 16px/1.5 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+        /* The whole thing resumes, as the pill's presence implies and pause.js implements. */
+        cursor: pointer; touch-action: manipulation;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+      }
+      /* `display: flex` above beats the UA stylesheet's `[hidden] { display: none }`, so without
+         this the veil covers the city from the first frame. Same trap as #run-end. */
+      #pause-veil[hidden] { display: none; }
+      body.shot-mode #pause-veil { display: none; }
+      /* The run-end title's type, a size down: this is the same kind of statement — one word on
+         nothing — but it is a state the player chose rather than the end of their run. */
+      #pause-veil .pause-title {
+        font-size: clamp(28px, 6.2vh, 46px); font-weight: 800; line-height: 1.1;
+        letter-spacing: -0.01em;
+      }
+      /* The same yellow pill as "Play again", because it is the same kind of action: the one thing
+         on the screen that puts the game back in the player's hands. */
+      #pause-veil .pause-resume {
+        margin-top: clamp(16px, 4vh, 34px); padding: 14px 26px; border-radius: 999px;
+        cursor: pointer; border: 2px solid #16120a; background: #F5C130; color: #16120a;
+        font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        letter-spacing: 0.02em; white-space: nowrap;
+        transition: transform 0.1s ease;
+      }
+      #pause-veil .pause-resume:active { transform: scale(0.95); }
+
       /* Earnings fly off the taxi so the payout is visibly connected to the drop-off; the flight
          itself (rise, then travel to the counter) is driven from JS so it can aim at the counter's
          actual on-screen position, which changes with the viewport. */
@@ -694,16 +769,19 @@
 
          main.js adds `hud-ready`: the moment the last bubble is dismissed, or immediately when
          there is no tutorial (`?tutorial=off`, shot mode). */
-      #hud, #streak, #boost, #rider-finder-stack {
+      #hud, #streak, #pause, #boost, #rider-finder-stack {
         opacity: 0;
         transition: opacity 0.45s ease, translate 0.55s cubic-bezier(0.22, 1, 0.36, 1);
       }
-      #hud, #streak { translate: 0 -160%; }
+      #hud, #streak, #pause { translate: 0 -160%; }
       #boost, #rider-finder-stack { translate: 0 200%; }
       /* Invisible is not un-tappable: a 0-opacity pill still takes the tap that was aimed at the
-         rider behind it. (#hud and #streak are already pointer-events: none.) */
+         rider behind it. (#hud and #streak are already pointer-events: none.) The pause button
+         rides in the same group for the same reason it waits at all: there is nothing to pause
+         while the tutorial is still holding the clocks. */
+      body:not(.hud-ready) #pause,
       body:not(.hud-ready) #boost, body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
-      body.hud-ready #hud, body.hud-ready #streak,
+      body.hud-ready #hud, body.hud-ready #streak, body.hud-ready #pause,
       body.hud-ready #boost, body.hud-ready #rider-finder-stack { opacity: 1; translate: 0 0; }
       /* Staggered, top corners first then the bottom ones, so four elements arriving at once read
          as a HUD assembling rather than as a single fade. */
@@ -724,11 +802,14 @@
         }
       }
 
-      body.hud-ready #streak { transition-delay: 0.07s; }
+      /* The pause button lands with the streak counter rather than after it: the two of them are the
+         rest of the same top edge, and staggering a row of three left-to-right would read as the
+         HUD dealing itself out rather than arriving. */
+      body.hud-ready #streak, body.hud-ready #pause { transition-delay: 0.07s; }
       body.hud-ready #boost { transition-delay: 0.14s; }
       body.hud-ready #rider-finder-stack { transition-delay: 0.21s; }
       @media (prefers-reduced-motion: reduce) {
-        #hud, #streak, #boost, #rider-finder-stack { translate: none; }
+        #hud, #streak, #pause, #boost, #rider-finder-stack { translate: none; }
       }
 
       /* --- "Add to Home Screen" screen — see src/game/homescreen.js -------------
@@ -910,6 +991,24 @@
       <div class="money">$<span id="money">0</span></div>
     </div>
     <div id="streak"><span id="streak-count">0</span>x</div>
+
+    <!-- Both glyphs ship in the one button; CSS shows whichever the current state offers. Drawn
+         rather than typed for the same reason the Home Screen tip draws its ⋯ — the pause and play
+         characters are a different weight and shape in every font, and the emoji versions carry
+         their own colour. -->
+    <button id="pause" type="button" aria-label="Pause" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <g class="glyph-pause">
+          <rect x="5.4" y="2.4" width="5.1" height="19.2" rx="1.7" />
+          <rect x="13.5" y="2.4" width="5.1" height="19.2" rx="1.7" />
+        </g>
+        <polygon class="glyph-play" points="6,2.4 20.6,12 6,21.6" />
+      </svg>
+    </button>
+    <div id="pause-veil" role="dialog" aria-modal="true" aria-label="Paused" aria-hidden="true" hidden>
+      <div class="pause-title">Paused</div>
+      <button class="pause-resume" type="button">Resume</button>
+    </div>
 
     <button id="boost" type="button" aria-label="Loco Mode">Loco Mode&trade;</button>
     <div id="rider-finder-stack" role="group" aria-label="Waiting riders"></div>

@@ -164,6 +164,33 @@ try {
   check('signals still hold for the taxi',
     (await evaluate('window.__taxi.traffic.stats.violations')) === 0);
 
+  // --- Pause holds the whole frame, and a tap anywhere lets it go.
+  //
+  // `fares.state.elapsed` is the probe rather than the taxi's position: it advances by `dt` on
+  // every `fares.update` no matter what else is happening, so a taxi legitimately sitting at a red
+  // cannot read as a paused game. That makes this the check that would catch a pause which only
+  // held the clocks — or one the frame loop kept updating behind the veil.
+  const elapsed = () => evaluate('window.__taxi.fares.state.elapsed');
+  await evaluate("document.getElementById('pause').click()");
+  await sleep(150);
+  const veilUp = await evaluate("!document.getElementById('pause-veil').hidden");
+  const held = await elapsed();
+  await sleep(900);
+  const stillHeld = await elapsed();
+  check('the pause button holds the run', veilUp && stillHeld === held,
+    veilUp ? `elapsed ${held.toFixed(2)} → ${stillHeld.toFixed(2)}` : 'no veil');
+
+  // `pointerdown`, which is what the veil actually listens for — a `click` here would pass while
+  // the press-to-resume path was broken.
+  await evaluate(`(() => { document.getElementById('pause-veil').dispatchEvent(
+    new PointerEvent('pointerdown', { pointerId: 7, isPrimary: true, bubbles: true, cancelable: true }));
+  })()`);
+  await sleep(700);
+  const resumed = await elapsed();
+  check('and a tap anywhere resumes it',
+    resumed > stillHeld && (await evaluate("document.getElementById('pause-veil').hidden")),
+    `elapsed ${stillHeld.toFixed(2)} → ${resumed.toFixed(2)}`);
+
   // --- Everything below is a phone. Drag-to-pan, both follow-cams and the rider pan are all gated
   // on `isNarrow()` — under NARROW_VIEWPORT = 768 — so at the 900px window this tool launches with,
   // the drag check below was asserting a feature that is *deliberately* off and had been failing

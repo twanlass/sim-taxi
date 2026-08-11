@@ -47,6 +47,7 @@ src/
     runend.js           the run-end blackout: stats counted out, then initials, then the table
     highscores.js       the local top five — localStorage is the whole backend
     homescreen.js       the iOS-only "add it to your Home Screen" screen; parks the run while up
+    pause.js            the HUD's ⏸ and the screen behind it; stops the frame loop dead
 
   geometry/             one-off models, all procedural
     taxi.js  wheels.js  diamond.js  targetring.js  marker.js  person.js  riderdiamond.js
@@ -69,6 +70,10 @@ are arterials, and that has to reach the signal model.
 
 `main.js` runs one `requestAnimationFrame` loop with a `dt` clamped to 0.05s, so a background tab
 or a stall can never teleport a car through a junction.
+
+The loop's one early exit is the pause button: while it is set, `frame()` renders and returns
+before a single `update()`, so nothing in the game advances at all. See
+[gameplay.md](gameplay.md#pause) for what that has to be careful about.
 
 Order matters in three places:
 
