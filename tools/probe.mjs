@@ -2019,7 +2019,8 @@ check('the taxi is an ordinary car in the traffic array',
   const fired = blast.active();
   blast.update(1 / 60);
 
-  check('both cars fit the pools without wrapping', fired === 2 * (12 + 7 + 1), `${fired} instances`);
+  check('both cars fit the pools without wrapping',
+    fired === 2 * (12 + 7 + 2 + 1), `${fired} instances`);
   check('a blast puts a ring, a fireball and shards on the road',
     liveScales(blast.ringMesh).length === 2
     && liveScales(blast.puffMesh).length === 24
@@ -2083,6 +2084,93 @@ check('the taxi is an ordinary car in the traffic array',
   check('no shard falls through the road', lowest >= 0.2 - 1e-6, `lowest y ${lowest.toFixed(3)}`);
 }
 
+// --- The tyres that get away -------------------------------------------------
+// Two per car bounce out of the wreck and roll off down the street. Everything about them is a
+// closed-form curve of `age`, like the cones and unlike an integrated velocity, so the failure
+// modes are arithmetic rather than drift — a hop walk that never terminates, a tyre sunk through
+// the road, or a spin picked to look right rather than taken from the distance it covered, which
+// is what separates a rolling wheel from a disc being spun and slid.
+{
+  const tScene = new THREE.Scene();
+  const wreck = createBlast(tScene, makeRng(seed + 95));
+  const HEADING = 0.6;
+  wreck.fire(0, 0, PALETTE.taxiBody, HEADING);
+  wreck.fire(3, 1.5, PALETTE.carBody[1], HEADING);
+
+  check('a wreck throws two tyres per car', wreck.tyreMesh.count >= 4);
+
+  // Walk one tyre's whole flight through the same function the render pass uses. A check written
+  // from a second copy of the formula would agree with a bug in the first.
+  const at = new THREE.Vector3();
+  const track = [];
+  for (let step = 0; step <= 150; step++) {
+    const age = step / 60;
+    const travel = wreck.tyreAt(0, age, at);
+    track.push({ age, travel, x: at.x, y: at.y, z: at.z });
+  }
+
+  // It bounces: several distinct arcs, each lower than the last, all of them above the road.
+  const apexes = [];
+  for (let i = 1; i < track.length - 1; i++) {
+    if (track[i].y > track[i - 1].y && track[i].y >= track[i + 1].y) apexes.push(track[i].y);
+  }
+  const floor = Math.min(...track.map((p) => p.y));
+  check('a thrown tyre bounces, in decreasing hops, and never through the road',
+    apexes.length >= 2 && apexes[0] > apexes[1] && apexes[1] > floor + 0.05
+    && floor >= WHEEL_R * Math.cos(0.14) - 1e-6,
+    `hops ${apexes.map((a) => a.toFixed(2)).join(' → ')}, floor ${floor.toFixed(3)}`);
+
+  // And then it is rolling: the hop walk is bounded, so the last stretch of the life sits flat on
+  // the contact height rather than still subdividing parabolas.
+  const settled = track.filter((p) => p.age > 1.6).every((p) => Math.abs(p.y - floor) < 1e-6);
+  check('the hop walk terminates into a roll', settled);
+
+  // Rolling without slipping — the spin the render pass writes is the distance over the radius,
+  // and it is still turning when the tyre fades rather than having stopped and waited.
+  const matrix = new THREE.Matrix4();
+  wreck.update(1 / 60);
+  wreck.tyreMesh.getMatrixAt(0, matrix);
+  const spun = new THREE.Euler().setFromRotationMatrix(matrix, 'YXZ');
+  const turns = track[track.length - 1].travel / WHEEL_R;
+  check('the tyre rolls rather than sliding',
+    Math.abs(spun.z - track[1].travel / WHEEL_R) < 1e-4 && turns > Math.PI * 2,
+    `${(turns / (Math.PI * 2)).toFixed(1)} turns over ${track[track.length - 1].travel.toFixed(1)} units`);
+
+  // It leaves the wreck, along the heading it was given rather than back up the road the taxi came
+  // down, and it stays inside the framing the camera pulls into (WRECK_ZOOM 26 is a half-height of
+  // 26 units, and a tyre off the top of that is a tyre nobody saw).
+  const end = track[track.length - 1];
+  const away = (end.x * Math.cos(-HEADING) + end.z * Math.sin(-HEADING)) / Math.hypot(end.x, end.z);
+  check('the tyre rolls away downfield and stays in frame',
+    Math.hypot(end.x, end.z) > 4 && Math.hypot(end.x, end.z) < 20 && away > 0.3,
+    `${Math.hypot(end.x, end.z).toFixed(1)} units out, ${away.toFixed(2)} of it downfield`);
+
+  // It fades rather than vanishing, and then it goes: an instance left at size is still a draw.
+  const liveTyres = () => {
+    const scale = new THREE.Vector3();
+    let live = 0;
+    for (let i = 0; i < wreck.tyreMesh.count; i++) {
+      wreck.tyreMesh.getMatrixAt(i, matrix);
+      matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale);
+      if (scale.x > 0) live += 1;
+    }
+    return live;
+  };
+  // Sampled every frame rather than probed at one time: a tyre's life is rolled per instance, so
+  // any fixed instant is either inside or past it depending on the seed. The claim is about the
+  // shape — full opacity, then a fade long enough to be a fade, then nothing.
+  const alpha = wreck.tyreMesh.geometry.attributes.aAlpha.array;
+  const opaque = alpha[0];
+  let fadingFrames = 0;
+  for (let step = 0; step < 60 * 4; step++) {
+    wreck.update(1 / 60);
+    if (alpha[0] > 0.03 && alpha[0] < 0.97) fadingFrames += 1;
+  }
+  check('the tyres fade out and the pool clears',
+    opaque === 1 && fadingFrames > 20 && liveTyres() === 0 && wreck.active() === 0,
+    `${fadingFrames} frames of fade, ${liveTyres()} left`);
+}
+
 // --- The wreck's smoke collar ----------------------------------------------
 // `dust.wreckSmoke` rings the fireball with the same lit puffs a barricade throws. Its failure
 // modes are all things a screenshot of the impact frame would forgive: a collar that fills in the
@@ -2128,14 +2216,17 @@ check('the taxi is an ordinary car in the traffic array',
     + `${overTheCore} over the core`);
 
   // And it is thrown outward from there — a collar that only grew in place would read as a lid.
+  // On the medians rather than the extremes: one puff rolled to the far end of its start radius
+  // makes `max` a statement about that puff rather than about the collar.
   for (let step = 0; step < 30; step++) smoke.update(1 / 60);
-  const spread = livePuffs();
+  const spread = livePuffs().map((p) => p.r).sort((a, b) => a - b);
+  const spreadMiddle = spread[Math.floor(spread.length / 2)];
   check('the collar is pushed outward and billows up',
-    Math.max(...spread.map((p) => p.r)) > outer * 1.4
-    && Math.max(...spread.map((p) => p.y)) > 1
-    && Math.max(...spread.map((p) => p.s)) > Math.max(...opening.map((p) => p.s)),
-    `r to ${Math.max(...spread.map((p) => p.r)).toFixed(2)}, `
-    + `y to ${Math.max(...spread.map((p) => p.y)).toFixed(2)}`);
+    spreadMiddle > middle * 1.4
+    && Math.max(...livePuffs().map((p) => p.y)) > 1
+    && Math.max(...livePuffs().map((p) => p.s)) > Math.max(...opening.map((p) => p.s)),
+    `median r ${middle.toFixed(2)} → ${spreadMiddle.toFixed(2)}, out to `
+    + `${spread[spread.length - 1].toFixed(2)}`);
 
   // It outlives the fire, and by enough to still be *visible* — a puff is at 4% opacity by the end
   // of its own life, so "one frame longer than the fireball" would be a check that passes on

@@ -325,7 +325,9 @@ collisions.onImpact(({ x, z, other }) => {
   // wave on a setTimeout, tuned as a simulation; the beat reads better as one graphic bang per
   // car, and the two of them a couple of units apart already give it the spread the follow-up
   // flare was there to fake.
-  blast.fire(x, z, PALETTE.taxiBody);
+  // The taxi's heading goes with it, and both cars get the taxi's: it is what throws the wreckage
+  // downfield, and it is what the tyres roll away along. See `blast.fire`.
+  blast.fire(x, z, PALETTE.taxiBody, traffic.taxi.yaw);
   controller.kickShake(2.4);
 
   // The car that was hit detonates at its own centre rather than at the shared impact point. The
@@ -336,7 +338,7 @@ collisions.onImpact(({ x, z, other }) => {
   // It used to spin out, snap back onto a lane and drive away. A boosting taxi arrives at ~19 u/s
   // and the survivor shrugging that off made the player's own wreck look like a rule rather than
   // a crash.
-  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex]);
+  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex], traffic.taxi.yaw);
 
   // And a collar of smoke around the pair — the same lit, faceted puffs a barricade throws, tinted
   // grey and opened out into a ring (see `dust.wreckSmoke`). The fireball is unlit flat colour, so

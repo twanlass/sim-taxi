@@ -486,8 +486,9 @@ running boost doesn't re-fire either.
 ### Wreck — `game/blast.js`, `game/vanish.js`, plus a smoke collar out of `game/dust.js`
 
 The crash is **one call per car** — `blast.fire(x, z, tint)` — and everything *it* puts on the road
-lives in one module: a shockwave ring on the tarmac, a fireball, and a scatter of shards in that
-car's paint. Three `InstancedMesh`es, about forty live instances at the peak of a two-car wreck.
+lives in one module: a shockwave ring on the tarmac, a fireball, a scatter of shards in that car's
+paint, and two tyres that bounce out and roll away. Four `InstancedMesh`es, about forty-five live
+instances at the peak of a two-car wreck.
 Around the pair of them goes one call to [`dust.wreckSmoke`](#dust--gamedustjs), which is
 [the collar](#the-smoke-collar) below.
 
@@ -530,6 +531,48 @@ Shards are the whole of what is left of the old debris: seven per car, one tetra
 per instance into plates and chunks, tinted with that car's paint so a two-car wreck comes apart in
 two colours. They no longer bounce, settle or come to rest — wreckage on the tarmac is a detail for
 a camera that stays, and this one pulls into a close-up and then cuts to the retry screen.
+
+#### The tyres
+
+Two per car bounce out of the wreck and roll off down the street. They are the one piece of it that
+is **recognisable**: everything else here is an abstraction — a ring, a sphere, a squashed
+tetrahedron — so the eye is told a car came apart without being shown a single part of one. A wheel
+is the part that survives a real wreck intact and the only one small enough to keep moving after it.
+
+It is `wheelGeometry()` out of `geometry/wheels.js` unchanged, not a torus of its own: the wheel
+that rolls away has to be the wheel that was on the car. It arrives with its tyre colour baked into
+the vertex attribute, so this is the one pool here that wants `vertexColors` and doesn't want
+`instanceColor` — a tyre is black on every car in the city.
+
+- **The bounce is a sequence of parabolas, not one.** Each hop launches at `TYRE_BOUNCE` = 0.5 of
+  the last, so the hop times fall away geometrically (0.64s, 0.32s, 0.16s) and the tyre reads as
+  landing, skipping, and settling into a roll. The walk down the hops is **bounded** at
+  `TYRE_HOPS` = 5, past which the hop is under 4cm and the tyre is simply rolling — an unbounded
+  walk would subdivide parabolas forever as the tyre asymptotes onto the road.
+- **It is a curve of `age`, never an integrated velocity**, like the roadworks cones and unlike a
+  physics packet: nothing accumulates, and a slow-motion frame is the same shape as a full-speed
+  one. That matters here more than usual, because a wreck is *seen* in slow motion.
+- **Horizontal travel is closed-form exponential drag**, so the reach is finite and known —
+  `v / TYRE_DRAG`, 11–14 units. It has to outrun the smoke collar, whose own front reaches about 8;
+  a tyre still inside the smoke when it fades never rolled anywhere. And it is spent slowly enough
+  that the tyre is *still moving* when it fades, because one that stops and then disappears is a
+  thing being deleted.
+- **The spin is the distance covered over the radius** — rolling without slipping, taken from the
+  travel rather than picked to look right, which is the difference between a wheel rolling and a
+  disc being spun and slid along. It costs nothing: the distance is already in hand.
+- **The shadow is half of what sells the bounce.** A hop is about a unit of altitude, which at this
+  camera is a couple of dozen pixels of gap opening between the tyre and its own shadow and closing
+  again. Without it the arc reads as a tyre sliding up-screen.
+
+`fire()` takes the **taxi's** heading for both cars and fans one tyre either side of it. The
+momentum that throws anything downfield is the taxi's — the car it hit is doing 8 u/s to the taxi's
+~19 and may not even be pointing the same way. Fanned evenly instead, half the tyres roll back up
+the road the taxi came down, which reads as an explosion rather than as a collision. Note that the
+heading is a **sim yaw**, not a bearing: `sim/traffic.js` builds it as `atan2(-tz, tx)`, so forward
+is `(cos yaw, −sin yaw)` and the bearing the fan is taken about is `−yaw`.
+
+They fade rather than shrinking. A tyre that shrinks is a tyre being taken away; one that thins out
+while it is still moving is one that got away down the street.
 
 #### The smoke collar
 
