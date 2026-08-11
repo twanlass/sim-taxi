@@ -38,6 +38,7 @@ can be made and verified in a single step.
 | **eta** | `tools/eta.mjs 40 3` | Fits and grades the trip-time estimator every fare deadline is budgeted from. Runs before the soak: a drifted estimator makes the soak's numbers a measurement of the drift |
 | **fares** | `tools/soak.mjs 25 4 9` | Auto-plays the fare loop over **9 cities × 9 situations** with a fixed "player reaction" delay, and gates on a **band** around the median |
 | **signals** | `tools/signals.mjs` | Throughput, stationary fraction, green-wave hit rate. Informational — it reports rather than fails |
+| **lab** | `tools/lab.mjs` | [The passing lab](lab.md) at `/lab/`: its road is one straight signal-free chain with the city's own lane geometry, and a taxi staged behind a cruising leader with the button held gets past it and back into lane without clipping it |
 
 `taxi.mjs` is the assertion that matters most and the one **no screenshot can make**.
 
@@ -78,6 +79,7 @@ node tools/soak.mjs 25 4 15 71624 103300      # ...and pin the city, to compare 
 node tools/eta.mjs 100 6                      # refit the trip-time estimator over 6 cities
 node tools/difficulty-sweep.mjs 9 slack       # sweep a difficulty preset: slack, board, gap, shape
 node tools/signals.mjs                        # signal metrics, incl. cycle-length sweeps
+node tools/lab.mjs                            # the passing lab's road and its overtake
 node tools/roadwork-pull.mjs                  # how often a run actually meets the construction zone
 node tools/diag.mjs                           # ad-hoc scratch diagnostics
 node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM

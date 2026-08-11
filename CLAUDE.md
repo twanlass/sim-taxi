@@ -25,13 +25,14 @@ about to change.
 | [docs/difficulty.md](docs/difficulty.md) | The ramp: budgeted clocks, board size, shifts, the sweeps behind the numbers |
 | [docs/rendering.md](docs/rendering.md) | Low-poly technique, camera, lighting, day/night, effects |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
+| [docs/lab.md](docs/lab.md) | The passing lab at `/lab/` — a straight road with no lights, for watching Loco Mode |
 
 ## Commands
 
 ```bash
-npm run dev        # http://localhost:5173
+npm run dev        # http://localhost:5173 — and the passing lab at /lab/
 npm run check      # the whole headless suite, ~1.8s — run this before reporting anything
-npm run build      # production bundle into dist/
+npm run build      # production bundle into dist/ (two pages: the game and /lab/)
 npm run preview    # serve dist/ — rebuild first, it will happily serve a stale one
 ```
 
@@ -66,7 +67,10 @@ down.
   rather than `#banner`, and why the rider's shaft of light was `lightshaft.js` for as long as it
   existed.
 - **`car.state === 'turn'` includes going straight through a junction.** A real turn is
-  `car.dOut !== car.d`.
+  `car.dOut !== car.d` (or `car.turn.hand !== 'straight'`). This is not a one-off gotcha: reading it
+  as "is turning" is what made the overtake refuse every leader that happened to be inside a
+  junction — 40% of the time on a 20-unit grid — and cost a quarter of all passes. Whenever this
+  flag gates a *danger*, ask which `hand` the danger actually belongs to.
 - **No `distToLine > 0` guard on the stop decision.** A car spawning within `STOP_SETBACK` of its
   target starts past the hold line; that guard once sent cars off the map to x = −1064.
 - **An `onBeforeCompile` patch needs `customProgramCacheKey`.** Three builds the cache key from the
@@ -79,6 +83,12 @@ down.
   reads exactly like z-fighting and got reported as such. `flatShading` (below) is why it lit like a
   surface instead of going black. Check the sign of a face normal computed *from the winding*;
   `computeVertexNormals` launders a reversed triangle into whatever its neighbours say.
+- **`rotation.set(roll, yaw, pitch)` on the default Euler order rolls about the *world* X axis.**
+  Three composes `'XYZ'` as Rx·Ry·Rz, so the roll lands outside the yaw. It coincides with the car's
+  own long axis only when the car is driving east: north and south render the roll as pitch and show
+  no lean at all, west leans the wrong way. Use `BODY_EULER_ORDER` from `util/geo.js`. The two orders
+  agree exactly at yaw 0, which is why this survived for so long — and why the passing lab, whose
+  road runs due east, showed a lane-change bank the game did not.
 - **`flatShading` takes its normal from a screen-space derivative,** so on back faces it points into
   the screen and the surface lights as if the sun were behind it. Three's `FLIP_SIDED` only fixes
   the interpolated-normal path. Flip it by hand in any back-face pass.
@@ -95,6 +105,11 @@ down.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and
   per-index jitter tears surfaces open.
 - **Effects must be sized against the camera.** At play zoom 1 world unit ≈ 7.7px.
+- **Never name a Rollup chunk after anything under `src/`.** `vite.config.js` has two entries now
+  (the game and `/lab/`), and a `manualChunks` rule that swept `src/main.js` into a shared chunk
+  made every page importing that chunk *boot the game* — `/lab/` came up with the city's road
+  network installed under its own. Rollup already gives each entry module its own chunk; overriding
+  that turns an import into a boot. See [docs/lab.md](docs/lab.md#build-and-deploy).
 
 ## Deploy
 

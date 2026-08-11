@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sim Taxi — passing lab</title>
+    <!-- Deliberately no manifest, no icons and no service worker. This is a workbench at /lab/,
+         not a thing to install; `public/sw.js` precaches the game's shell and knows nothing about
+         this page, which is exactly right. See docs/lab.md. -->
+    <meta name="robots" content="noindex" />
+    <style>
+      :root { color-scheme: light; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 100%; height: 100%; overflow: hidden; background: #dcedf7;
+        user-select: none; -webkit-user-select: none;
+        -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+        font: 600 13px/1.5 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+      }
+      canvas { display: block; touch-action: none; }
+
+      /* The knobs. Top-left, out of the way of the pill, and deliberately plain — every pixel
+         spent styling a workbench is a pixel not spent on the game. */
+      #lab-panel {
+        position: fixed; top: 14px; left: 14px; z-index: 20;
+        display: grid; gap: 8px;
+        padding: 12px 14px; border-radius: 12px;
+        background: rgba(22, 30, 38, 0.72); color: #eef3f7;
+        backdrop-filter: blur(6px);
+        box-shadow: 0 6px 22px rgba(12, 24, 34, 0.28);
+      }
+      #lab-panel h1 {
+        font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+        opacity: 0.62; font-weight: 700;
+      }
+      #lab-panel label {
+        display: grid; grid-template-columns: 88px 118px 46px; align-items: center; gap: 8px;
+      }
+      #lab-panel input[type="range"] { width: 118px; accent-color: #F5C130; }
+      #lab-panel .value { text-align: right; font-variant-numeric: tabular-nums; opacity: 0.8; }
+      #lab-panel button {
+        justify-self: start; margin-top: 2px;
+        padding: 6px 12px; border: 0; border-radius: 999px; cursor: pointer;
+        background: #F5C130; color: #16120a; font: inherit; font-weight: 800;
+      }
+      #lab-panel .hint { font-size: 11px; font-weight: 600; opacity: 0.55; line-height: 1.45; }
+
+      /* Live speed and manoeuvre state. Bottom-left rather than in the panel: it changes every
+         frame, and a number that moves belongs next to the thing it is describing, not inside a
+         box of controls that don't. */
+      #lab-readout {
+        position: fixed; left: 14px; bottom: 22px; z-index: 20;
+        padding: 7px 12px; border-radius: 999px;
+        background: rgba(22, 30, 38, 0.72); color: #eef3f7;
+        font-variant-numeric: tabular-nums; white-space: nowrap;
+      }
+
+      /* The Loco Mode pill, cut down from the game's. The fill machinery is all gone — the lab's
+         tank is bottomless, so a dial reporting how much is left would report 100% forever. */
+      #boost {
+        position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 20;
+        padding: 14px 34px; border-radius: 999px; cursor: pointer;
+        border: 2px solid #16120a; background: #F5C130;
+        font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        color: #16120a; white-space: nowrap;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+        /* `none`, not `manipulation`: a pan or pinch starting on this pill makes the browser claim
+           the touch and fire `pointercancel`, which releases a boost still physically held down.
+           Same reason the game's pill uses it. */
+        touch-action: none;
+        transition: box-shadow 0.15s ease, transform 0.1s ease;
+      }
+      #boost.is-active {
+        background: #FFE873;
+        box-shadow: 0 0 30px rgba(255, 232, 115, 0.85);
+      }
+      #boost:active { transform: translateX(-50%) scale(0.96); }
+    </style>
+  </head>
+  <body>
+    <div id="lab-panel">
+      <h1>Passing lab</h1>
+      <label>Cars ahead
+        <input id="ahead" type="range" min="0" max="3" step="1" />
+        <span class="value" id="ahead-value"></span>
+      </label>
+      <label>Gap
+        <input id="gap" type="range" min="8" max="70" step="1" />
+        <span class="value" id="gap-value"></span>
+      </label>
+      <label>Oncoming
+        <input id="oncoming" type="range" min="0" max="3" step="1" />
+        <span class="value" id="oncoming-value"></span>
+      </label>
+      <button id="reset" type="button">Reset</button>
+      <p class="hint">Hold <b>Space</b> or the pill to boost · <b>R</b> resets · <b>P</b> pauses · scroll to zoom</p>
+    </div>
+
+    <div id="lab-readout"></div>
+    <button id="boost" type="button" aria-label="Loco Mode">Loco Mode&trade;</button>
+
+    <div id="error" hidden style="position:fixed;inset:0;z-index:99;padding:20px;overflow:auto;
+      background:#1b232b;color:#ffd7d0;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap"></div>
+    <script>
+      /* Same trap the game page installs, for the same reason: on a phone there is no console to
+         read a boot failure out of, and a module that throws while evaluating leaves a blank sky. */
+      const errorPanel = () => {
+        const el = document.getElementById('error');
+        el.hidden = false;
+        return el;
+      };
+      window.addEventListener('error', (e) => {
+        errorPanel().textContent += `${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`;
+      });
+      window.addEventListener('unhandledrejection', (e) => {
+        errorPanel().textContent += `Unhandled rejection: ${e.reason?.stack ?? e.reason}\n\n`;
+      });
+    </script>
+    <script type="module" src="/src/lab/passing.js"></script>
+  </body>
+</html>

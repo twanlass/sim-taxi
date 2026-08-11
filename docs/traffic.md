@@ -182,6 +182,76 @@ at cruise a leader stops constraining beyond 3.3 units of clear road.
 
 The same walk drives the Loco Mode scatter, which reaches `SCATTER_RANGE = 40` — two blocks.
 
+### A moving leader is not a wall
+
+`sqrt(2 · BRAKE · room)` is the speed you can still *stop* from inside `room`. Against a car that is
+itself driving away that is the wrong question — it prices in braking to a standstill for something
+that will not be there — and it was the single biggest thing wrong with how Loco Mode felt.
+
+Two symptoms, one cause. The taxi is documented as tailgating at `BOOST_GAP` (4.5 units) and it did
+not: behind a car fleeing at `SCATTER_SPEED` the stopping rule settles it **17.6 units** back, which
+is outside `PASS_TRIGGER`, so on an open road the overtake was never offered at all — measured over
+12 minutes of routed boosting in the city, **zero** passes. And because the cap moves with the gap
+while the mid-junction branch had no cap at all, the taxi spent every lane braking and every
+junction accelerating: a sawtooth with a period of one block, which is what "it stutters on the
+approach" looks like from outside the code.
+
+The rule is now the leader's own speed plus what can be shed over the clear road between them — you
+may out-run the car in front by exactly as much as you can give back before you reach it. A
+*stopped* leader has `v = 0` and it collapses to the old expression exactly, so queueing at a red,
+which everything else here is tuned around, is untouched.
+
+**A speed cap and nothing else.** Following and stopping are now separate quantities: `allowed` is
+the positional budget and only stationary things contribute to the speed it is turned into. The
+leader used to clamp both, and that is where a freeze lived — a taxi abandoning a pass while still
+alongside found zero room against a leader doing 16 u/s, and a budget of zero means `car.v = 0`
+outright: **20.9 u/s to a standstill in one frame**, out in the oncoming lane. The snap-to-line rule
+that did it is about arriving at a *line*, and it is keyed on the stationary distance now.
+
+### The car in front stutters too
+
+The mid-turn branch computed its cruise ceiling from a bare `SPEED`, so a car fleeing the boosting
+taxi at 2.0× cruise dropped to a flat 8.5 the moment it entered a junction and spent the next lane
+climbing back — a 17 ↔ 8.5 sawtooth of its own, with every car behind it braking in time. Both
+branches read `cruiseCapFor` now, which is the same expression written once.
+
+### Following distance *inside* a junction
+
+The mid-turn branch had none at all, and for ambient traffic that never showed: a car crosses at
+cruise and its target while crossing *is* cruise, so it cannot gain on anyone in there. A boosting
+taxi can. It enters a junction slow — because it has been tailgating at `BOOST_GAP` on the approach
+— and then floors it to the overdrive top across the 8 units of junction with the brake simply
+absent, closing three units on a car it can see the whole way.
+
+Staged on [the lab](lab.md)'s straight road, that was **43 of 160** approaches ending as a rear-end
+at a dead stop with `pass` still 0.00: the taxi never got as far as pulling out, because it hit the
+car during the crossing before the straight it would have passed on began. It is visible in
+`tools/probe.mjs`'s own overtake scenario too, where the taxi drives clean through its leader —
+that scenario just never ran collisions.
+
+**The cap is deliberately not the drive branch's stopping-distance curve.** That was tried first and
+it fixes the crash by destroying the mode: against a leader fleeing at `SCATTER_SPEED` the stopping
+curve settles the taxi 12–17 units back, it never reaches `PASS_TRIGGER` (10), and the overtake
+stops being offered at all — the same 160 approaches went from 117 passes to **4**. The rule that
+works is the narrower true one: *inside the range where the pass has already been offered and
+refused, match the leader rather than accelerate past it*. Floored at the leader's own speed, so it
+stays a speed target and never becomes a hold — the taxi still never stops inside a junction, which
+is what [`bargesThrough`](#nothing-stops-the-taxi) exists to guarantee.
+
+What it costs, measured over eight cities with the button held down for a whole run:
+
+| | before | after |
+|---|---|---|
+| wreck every, `?cars=22` | 7.9s | 8.0s |
+| wreck every, `?cars=12` | 10.5s | **11.7s** |
+| ground covered, `?cars=22` | 18.33 u/s | 18.07 |
+| ground covered, `?cars=12` | 18.97 u/s | 18.38 |
+| near-stationary frames | 0.50% | **0.37%** |
+
+About 1.5–3% of ground speed, for not driving into the back of the car in front. The sample is
+small — eight cities, each ending at its first wreck — so read the direction rather than the
+decimals.
+
 > Watch out: a distance short of a junction can land *inside a junction box*, which no lane
 > position can express. The infinite row could, and one probe scenario relied on it — staging a car
 > 18 units back on a 12-unit lane, and the boosting taxi 30 units back from a junction one block
@@ -701,6 +771,10 @@ Once nothing else stops the taxi, the car directly in front is the only thing le
 cannot be gone round *inside* the lane — 4 units wide against a 2.31-unit collision envelope — so
 the taxi goes round outside it: a full lane change into the **oncoming** lane, past, and back.
 
+> There is a workbench for this one: [`/lab/`](lab.md) is a straight road with no lights, a car in
+> front, and a bottomless boost tank, so the manoeuvre can be watched on demand rather than waited
+> for. The numbers below are what it is running.
+
 **The player takes it by keeping the button down.** Holding through a car in front means "go around
 it"; letting go means "tuck in behind". No new control on a HUD that has deliberately few, and the
 button becomes a decision at the one moment it previously made none. It is the one place in
@@ -729,6 +803,74 @@ overtaken, measured at **3.70 units** against the 2.31 envelope.
 car in world space and is armed for exactly as long as `car.boost` is true, and `car.x/z` already
 carry the lateral offset — so oncoming traffic, and a leader that turns across the taxi mid-pass,
 became live hazards the moment the taxi could be out there. Zero lines of collision code.
+
+#### The shape of it
+
+Three things decide whether a pass *reads* as driving rather than as a diagram, and the first
+version of the manoeuvre got all three wrong in the same way — by treating a lane change as a
+translation.
+
+**The offset is smoothstepped, not linear.** The offset is a function of distance and the yaw is its
+slope, so a constant slope means the car snaps to a 30° crab on one frame, translates down a ruled
+diagonal, and snaps square again on another: two corners and a straight line. `e(t) = t²(3 − 2t)`
+starts and ends at zero slope, so the yaw eases into the crab and out of it. That costs road —
+smoothstep's peak slope is 1.5× the linear one over the same distance — so `PASS_FADE` went 7 → 10,
+which puts the peak back at 31° and buys the easing at the ends rather than with a steeper middle.
+What is left of the old snap is frame quantisation: 0.18 rad on the first frame at 60fps against the
+0.571 a linear ramp put there.
+
+**It no longer freezes mid-junction.** The offset is frozen through a *corner*, because a lane
+change running through one would peel the car off its own Bézier arc — but `state === 'turn'` covers
+every junction transition, and freezing on all of them meant that, since every pass spans a junction
+by construction, most passes stopped dead half way across the road. The taxi parked at `pass` 0.66,
+`z = −0.9` — near enough exactly the centreline, [the worst place on the
+road](#overtaking) — and drove the whole 8 units of the junction like that before resuming. That
+hole punched in the middle of the ramp was most of what read as angular. A straight-through crossing
+has no arc to peel off; its path is a straight line and its yaw is constant, so the offset composes
+with it exactly as it does on a lane.
+
+**The body banks, and rocks both ways.** `PASS_BANK` (0.14 rad at cruise, speed-scaled on the same
+clamp the corner lean uses) is driven by the *curvature* of the eased offset — `e''(t) = 6 − 12t`,
+positive over the first half of a change and negative over the second. So the car rolls one way as
+it is thrown out of its lane and the other as it settles into the new one, and mirrors that on the
+way home: a rock over and back per change.
+
+> **It leans the opposite way from a corner, on purpose.** A corner leans *outward*, away from the
+> turn centre, because that is where weight transfer throws a body — leaning inward there reads as
+> a motorbike. The lane change is negated against that: the car dips onto the edge it is heading
+> *for*, so pulling out to overtake drops the driver's side and tucking back in drops the
+> passenger's. Physically the wrong way round, chosen after looking at both. A lane change is over
+> in half a second, and an outward lean spends that half second tipping *away* from the direction
+> the eye is being asked to follow.
+
+> **It only ever reached the screen on an east–west street.** The taxi posed with Three's default
+> Euler order, which rolls about the **world** X axis rather than the car's own — so the bank
+> rendered as pitch heading north or south, and mirrored heading west. The passing lab's road runs
+> due east, where the default and `BODY_EULER_ORDER` agree exactly, so the bank looked right there
+> and was invisible in the game. Fixed for the taxi, the police cruiser and the aeroplane; see
+> [rendering.md](rendering.md#car-motion). The taxi's *corner* lean had the same defect for as long
+> as it had existed.
+
+It is added to the corner lean rather than replacing it, since they are two things happening to one
+suspension — though in practice they never overlap. A pass is only offered where the route carries
+straight on, and a straight-through crossing contributes no corner lean at all: measured over eight
+cities at `?cars=22`, a pass is displaced through a real corner for exactly **0** frames.
+
+**And it leaves rubber.** Throwing a car a full lane sideways at the overdrive top is the one
+manoeuvre in the game that breaks traction without turning a corner, and it was the only one leaving
+nothing on the road. `main.js` and the lab both stamp while `|passSlope| > PASS_RUBBER_SLOPE`, which
+brackets the two lane *changes* and stops while the taxi is simply driving along in the borrowed
+lane — not a moment anything is sliding.
+
+#### It has to be clear before it comes back
+
+The commitment used to end the moment the taxi's *lane position* went past the leader's, and a lane
+position is a centre point: level, not clear. So the taxi began its tuck-in a metre and a half ahead
+of a car it was still bodily alongside, cut across its nose over the next `PASS_FADE` units, and the
+two came within **2.01** units — inside the 2.31 collision envelope, on every seed, because the
+geometry that produces it has nothing random in it. `PASS_CLEAR` (a car length and a half) is
+measured against the latched `passTarget` in world space instead, and holds the commitment until the
+whole body is past. Closest approach back to 3.65, against the 3.70 this was originally measured at.
 
 #### Sizing it to the city
 
@@ -767,6 +909,16 @@ lane, so the taxi is *always* still alongside when the leader reaches its juncti
 exactly when the left-turn dice are rolled. Measured over 28 overtakes at `?cars=22`, 10 ended in a
 wreck and **every one of them was against a car in the `turn` state**, 6 of those the car being
 passed turning left across the taxi. It was the default outcome, not an edge case.
+
+> **Except a straight-through crossing**, which is not what this gate is about, and reading it as
+> one cost the pass for a long time. `car.state === 'turn'` covers *every* junction transition
+> including carrying straight on — the trap the whole codebase warns about — so the gate refused to
+> pull out around any leader that happened to be inside a junction, which on a 20-unit grid is 40%
+> of the time and is exactly the 40% in which the taxi is tailgating hard enough to want to. The
+> danger it exists to stop is a car turning *across* the borrowed lane; a leader whose committed
+> movement is `hand === 'straight'` is going down the same road in the lane the taxi is leaving and
+> sweeps nothing. Narrowing it to that took the [lab](lab.md)'s staged approaches from 117 passes in
+> 160 to 142.
 
 Refusing that car's left turn while it is being passed — the same courtesy `priorityJunction.block`
 already extends to oncoming traffic — fixes only 1 in 10 of them, because by the time the taxi
