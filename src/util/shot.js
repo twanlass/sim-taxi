@@ -87,13 +87,29 @@ export const SHOTS = [
   // Framed on the taxi at the same zoom as `route-far`, and routed to the far corner for the same
   // reason: the bloom is 11 units wide and a two-block hop would be all bloom.
   { name: 'route-grab', description: 'the route band held under a finger', target: [0, 0], zoom: 22, warmup: 12, select: true, routeFar: true, grabAt: 0.4 },
-  // The package courier (game/parcels.js). **Both need `?parcels=1`** — the layer is off in shot
+  // The helicopter on the pad, in its own dust. Staged for the reason every other ambient thing is
+  // — it visits once every couple of minutes and the landing itself lasts three seconds — and
+  // framed close, because at play zoom the machine is thirty pixels on a roof and the question this
+  // shot is asked to answer is whether the wash, the skids and the blade read at all. `heliAt` is
+  // seconds into the visit: 11.6 is a moment after touchdown, with the dust still going up and the
+  // rotor still winding down off flight rpm.
+  { name: 'heli', description: 'the helicopter settling onto a rooftop pad', target: [0, 0], zoom: 14, warmup: 12, heliAt: 11.6 },
+  // And the same visit at play zoom, which is the other half of the brief the flyover's shot has:
+  // an ambient event has to be noticeable without being a distraction, and that is not a judgement
+  // a close-up can make. 4.4s in is the turn onto final — out over the city, at full bank.
+  { name: 'heli-far', description: 'the helicopter banking onto final, at play zoom', target: [0, 0], zoom: 52, warmup: 12, heliAt: 4.4 },
+  // The package courier (game/parcels.js). **All three need `?parcels=1`** — the layer is off in shot
   // mode by default, and `untilParcel` has nothing to frame without it.
   //
-  // Two framings because the two questions are at different distances. Close: does a kraft box read
-  // as a *parcel* at all, and does the tape cross survive? At play zoom: is the pad's rounded square
-  // distinguishable from a fare's disc, which is the whole of "shape says what a thing is" and the
-  // one claim no assertion can make.
+  // Appended after the helicopter's pair rather than filed with them, for the reason stated above the
+  // `birds` entry: shots are addressed by *index*, so inserting anywhere but the end silently
+  // renumbers every shot after it. These moved from 20-22 to 22-24 when the two `heli` framings landed
+  // on main, which is the cost of that rule being paid rather than a reason to break it.
+  //
+  // Two distances because the two questions are at different distances. Close: does a kraft box read
+  // as a *parcel* at all, and does the tape strip and its label survive at this size? At play zoom: is
+  // the pad's rounded square distinguishable from a fare's disc, which is the whole of "shape says
+  // what a thing is" and the one claim no assertion can make.
   { name: 'parcel', description: 'a package waiting on its pad — needs ?parcels=1', target: [0, 0], zoom: 11, warmup: 12, untilParcel: true },
   { name: 'parcel-board', description: 'a courier pad against the fare board at play zoom — needs ?parcels=1', target: [0, 0], zoom: 30, warmup: 12, untilParcel: true },
   // The taxi wearing its load. `withCargo` shows the rear-deck parcel outright rather than driving

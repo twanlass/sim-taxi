@@ -958,6 +958,110 @@ and the visibility that couldn't be bought there was bought with the extra fifth
 `?shot=18` stages a take-off; `?shot=0` has both flocks at play zoom, which is the framing that
 decides whether any of this worked.
 
+### The rooftop helicopter — `game/chopper.js`, `geometry/helicopter.js`
+
+A helicopter that visits the city's helipad every couple of minutes: in over the skyline on a curve,
+banking through the turn onto final, a hover over the circle, down into its own dust, a few seconds
+sitting with the rotor idling, and then up and away the way it came. Scenery on the same terms as
+the aeroplane and the flocks — nothing routes it, nothing collides with it, nothing can be tapped —
+and about half a minute door to door against the plane's six seconds, which is why the gaps between
+visits are 95–165 seconds rather than 45–90.
+
+**Every city now gets exactly one helipad, and that is this vignette's doing.** A pad used to be a
+coin flip on any deck over 8.5 units with 16 square units of roof, which produced one on 23 cities
+out of 60 and none at all on the other 37 — fine for a piece of roof furniture, useless as a place
+for something to land. `choosePad` in `city/buildings.js` picks the roof after every deck in the city
+is known, which is the same shape as the courtyard's "exactly one a city": a rate that has to be
+exactly one cannot be decided lot by lot. The hard requirement is *width* rather than height — the
+tallest masses are the ones that have set back twice, so the widest deck over 8.5 units is typically
+3 to 5 across and demanding 4.2 of it left two thirds of cities with no candidate. Decks 2.9 and
+wider qualify, the tall ones are preferred, and the roomier half of those is drawn from at random.
+
+The chosen deck's roof furniture is **spliced back out** of the geometry list before the circle goes
+down. A plant room in the middle of a landing pad is the one thing a roof like that cannot have, and
+building the furniture and then dropping it costs one roof's worth of boxes a city — which is the
+price of taking the decision *after* every deck exists rather than as a roll before the next tower
+is built. The probe checks the circle is clear by reading vertices back out of the built mesh.
+
+**The transit is level and the descent is vertical, and that is a clearance rule rather than a
+style.** The machine cruises at 22 units: above `SKYLINE_CEILING` (20.5), which nothing on a roof
+may reach, and below the aeroplane's belly at its lowest (24.9) once the 1.35 to the top of the
+rotor is counted. That is the only altitude in the city which is safe by construction. The first
+version flew a 45-unit glide slope onto the pad — much prettier on paper — and a headless sweep of
+the flown path against a height field of the city put the machine *through* a neighbouring tower on
+eleven cities in twenty-four, by as much as seven units. The pad is on a tall roof but never the
+tallest, and the block next door is one street away. So it arrives over the circle at cruise, comes
+down the hole at 5 units/s easing to 1.6 for the last four, and on the way out climbs vertically all
+the way back to 22 before a single unit of forward travel. `tools/probe.mjs` re-runs that sweep on
+every check.
+
+**The bank has to be spent over the city, not on the way to it.** A leg enters 34 units to one side
+of the final approach line and steers at an aim point that slides onto the pad between 52 and 14
+units out, so it flies a base leg, banks through the turn onto final and rolls level lined up — a
+real approach, and one whose lean lands where a camera can see it. The version before it entered
+pointing 40–65° off the pad and let pure pursuit straighten it out; same manoeuvre on paper, and
+useless, because pursuit converges fastest when the bearing moves fastest, which is when the target
+is *near*. The whole turn happened in the first 1.4 seconds, 75 units out, with the machine still
+faded out and off the edge of the map.
+
+**Bank is scaled by speed, and that one term is what keeps the attitude honest.** A helicopter turns
+by tipping its rotor disc — the disc is the wing — and a *stationary* one turns on its pedals
+instead, so the lean is `turn rate × gain`, clamped at 29°, times how fast it is going. It earns its
+place on the way out: the departure turns hardest in the second it spends going nowhere, and without
+the term it rolled 29° over a hover, which is the single thing that would give the whole model away.
+It also lets the departure be one manoeuvre instead of two. The pedal turn on the climb stops 72°
+short of the departure heading and holds there; the rest is flown, banked, as the machine
+accelerates, so it leaves on a sweeping turn rather than pivoting on the spot and then setting off
+in a straight line.
+
+**And nothing in the flight model is unsteady, so the pose adds a wobble.** The transit is a
+straight line at a fixed height and the hover is a lerp onto a point — between the turn onto final
+and the touchdown the machine held a perfectly rigid attitude for several seconds and read as a
+model being slid along a wire. Two sines per channel at rates that don't share a period, on roll,
+pitch **and yaw** (a helicopter in the cruise sits slightly crabbed and hunts about it), faded in
+over the first 1.6 units off the deck so a parked one is dead still. It is applied at pose time
+only: the attitude jitters, the flight path does not, and the probe asserts both halves — never
+rigid in the air, never twitching on the skids.
+
+Two smaller things the roof decides. The approach lines up with the deck's **long axis**, because
+these roofs are 3 to 8 units wide and the machine is nearly 7 long — arriving across one leaves the
+tail hanging over the parapet — and the settle pedal-turns onto that line before touching down,
+since the last fourteen units are flown straight at the pad from wherever the base leg left it. And
+it parks its **skids** on the H rather than its origin: the model's centre is 0.575 forward of the
+middle of its skids, so putting the origin on the circle sits the machine back on its tail with its
+toes over the far edge.
+
+**The rotor wash is the dust pool, eleven storeys up.** `game/dust.js` grew a `y` for it — every
+other caller comes off the road, and a puff spawned at the road's own height would go up on a street
+under the machine making it. It starts at 3.6 units above the deck rather than on touchdown, since
+ground effect is what a helicopter kicks up on the way *down*, and it is metered through a
+fractional debt rather than rolled per frame so the rate is per second and not per display refresh.
+Two heavier bursts bracket the visit, one as the skids take the weight and one as they leave it.
+The puff size took a rendered close-up to settle: at 0.42 power they were under a unit across, and a
+dozen hard little lit icosahedra ringing the pad read as gravel scattered on the roof. Dust has to
+be bigger than the thing kicking it up.
+
+**The discs are much fainter than the propeller's**, and the reason is the angle. A prop disc is
+edge-on to this camera; a main rotor is flat-on, so the same alpha covers eighty times the pixels —
+a 5.4-unit disc under a camera 33° up projects an ellipse the size of the roof, and at the plane's
+0.11 it read as a grey lens laid over the block behind it. Their strength also tracks the rotor's
+own rate, so the blur fades as the machine spools down to idle on the deck and comes back before it
+lifts: an idling rotor whose blades you can count still wearing a full-strength disc is the single
+thing that makes a parked helicopter look like a decal.
+
+**Shadows are on only near the deck.** Same argument as the flock's: the sun is 28.5° up, so a
+shadow from transit altitude lands 40 units from the machine that threw it. Close in, the surface
+catching it *is* the roof it is landing on, and the shadow sliding onto the pad is the best cue in
+the vignette for how far off the deck it still is. The beacon on the fin blinks 0.2s in every 1.4
+off the visit's own clock, so a frozen shot renders the same state every time — and it is
+`MeshBasicMaterial`, since a lamp lit by a light source is not a lamp.
+
+Scale is the aeroplane's lie again. True to size a Jet Ranger would be a 9-unit rotor over a 12-unit
+machine, which is wider than the roof it lands on. At 5.4 across the rotor it overhangs the circle a
+little, which is what a helicopter on a city pad actually looks like. `?shot=20` puts it on the pad
+in its own dust and `?shot=21` catches the turn onto final at play zoom — the two halves of the same
+question the flyover's shot asks.
+
 ### Route band — `game/routeline.js`
 
 A band of paint down the **lane the taxi will drive**, from just ahead of the car to its

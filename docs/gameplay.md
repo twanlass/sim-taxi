@@ -1139,7 +1139,7 @@ square against a disc is read at a glance.
 - **`?parcels=0`** clears the board to measure the fare loop alone, the way `?cars=1` clears the
   roads. The layer is off in shot mode by default, since every framing in the sweep was composed
   before packages existed; **`?parcels=1`** forces it back on, which is the only way to point a
-  camera at one (`?shot=20`, `?shot=21`).
+  camera at one (`?shot=22`, `?shot=23`, `?shot=24`).
 - **The taxi wears its load.** A small parcel appears on the rear deck — an object on the car rather
   than anything on the glass, for the reason [the roof sign](#the-taxis-roof-sign) is one.
 

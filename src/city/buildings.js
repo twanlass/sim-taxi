@@ -424,8 +424,21 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng) {
   ));
 }
 
+// The landing circle, and how it is sized against the deck under it. The fraction and the ceiling
+// both went up when the helicopter arrived: the pad used to be scenery and is now somewhere a
+// 5.4-unit machine has to sit down (see geometry/helicopter.js), and at the old `* 0.36` clamped to
+// 2 the circle disappeared underneath it. The floor is what keeps a pad on a narrow deck from
+// reading as a dinner plate; `choosePad` prefers roomy decks precisely so the clamp rarely bites.
+const PAD_FRACTION = 0.4;
+const PAD_MIN_R = 1.3;
+const PAD_MAX_R = 2.4;
+// How far the paint stands above the deck — the pad slab plus the H on top of it. What the
+// helicopter's skids rest on, so it is exported rather than re-derived at the far end.
+export const PAD_SURFACE = 0.1;
+
 /**
- * A landing circle with an H on it.
+ * A landing circle with an H on it. Returns the radius it settled on, which is what
+ * `game/chopper.js` sizes its rotor wash against.
  *
  * Painted rather than lit: the deck is `roof` and the mark is `laneMark`, which is the same paint
  * the streets are striped with. That is not thrift, it is the point — an H is road marking that
@@ -434,7 +447,7 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng) {
  * to tap. Every other pale disc in this game is a marker under a rider.
  */
 function helipad(parts, cx, cz, radius, deck) {
-  const r = THREE.MathUtils.clamp(radius, 1.1, 2);
+  const r = THREE.MathUtils.clamp(radius, PAD_MIN_R, PAD_MAX_R);
   const pad = new THREE.CylinderGeometry(r, r, 0.1, 12);
   pad.translate(cx, deck + 0.05, cz);
   parts.push(bakeColor(pad, color('roof')));
@@ -448,6 +461,56 @@ function helipad(parts, cx, cz, radius, deck) {
     parts.push(box(bar, 0.04, leg, cx + dx, deck + 0.1, cz, color('laneMark')));
   }
   parts.push(box(r * 0.6, 0.04, bar, cx, deck + 0.1, cz, color('laneMark')));
+  return r;
+}
+
+// What a deck has to be for the landing circle to look like it belongs there.
+//
+// The side is a hard requirement and the height only a preference, which is the other way round
+// from how it reads. A city is not guaranteed to own a tower with a *wide* roof: the tallest masses
+// are the ones that have set back twice, so the widest deck over 8.5 units is typically 3 to 5
+// across, and demanding 4.2 of it left two thirds of all cities with no candidate at all. 2.9 is
+// the smallest circle this draws (2.6) plus a strip of roof either side of it, and it gets the pad
+// onto a genuine tower on seven cities in eight; the rest land at 6 to 8 units, which is a low-rise
+// with a pad on it rather than a shop with one.
+const PAD_MIN_DECK = 8.5;
+const PAD_MIN_SIDE = 2.9;
+
+/**
+ * Which roof in the city gets the pad — decided once every deck is known, rather than rolled for
+ * as each roof is built.
+ *
+ * It *was* a coin flip per eligible roof, and that produced a helipad on 23 cities out of 60 and
+ * none at all on the other 37. Fine while the pad was scenery. Not fine now that a helicopter flies
+ * in and lands on one (see game/chopper.js), because a city with no pad is a city with no vignette
+ * — so the roll is gone and every city gets exactly one. What the seed decides is *which* roof, and
+ * that is the same shape as the courtyard: "exactly one a city" is not a decision a per-lot roll can
+ * make, and both are therefore taken outside the loop that builds them.
+ *
+ * Every deck wide enough to hold the circle is a candidate; the tall ones are preferred, and among
+ * whichever pool that leaves, the roomier half wins. A landmark on the fourth-tallest tower is
+ * still a landmark, and it beats one on the tallest if the tallest has set back to a chimney.
+ */
+function choosePad(decks, rng) {
+  const fits = decks.filter((d) => Math.min(d.cw, d.cd) > PAD_MIN_SIDE);
+  if (!fits.length) return null;
+
+  const tall = fits.filter((d) => d.deck > PAD_MIN_DECK);
+  // No tower in this city has a roof both high and wide enough: take the highest one that fits and
+  // accept a tight circle on it. Picking the *roomiest* here instead is what the first version did,
+  // and on a fifth of all cities that put the landing pad on a two-storey shop — the widest decks
+  // in a city are the ones that never set back, which is to say the low ones.
+  if (!tall.length) {
+    return fits.reduce((best, d) => (d.deck > best.deck ? d : best));
+  }
+
+  // The roomier half of the tall ones, and then one of those at *random* — a city whose pad is
+  // always on its single widest roof stops having a landmark and starts having a rule, and the
+  // whole point of choosing late is that the seed gets to decide.
+  const roomy = tall.slice()
+    .sort((a, b) => Math.min(b.cw, b.cd) - Math.min(a.cw, a.cd))
+    .slice(0, Math.max(1, Math.ceil(tall.length / 2)));
+  return rng.pick(roomy);
 }
 
 /**
@@ -537,21 +600,22 @@ function roofKit(parts, cx, cz, cw, cd, y, style, body, rng, stats) {
     parts.push(box(cw, capH, cd, cx, y, cz, color('rooftop')));
   }
   const deck = y + capH;
-  const area = cw * cd;
 
-  // A helipad, on the tall ones with the room for it. It claims the whole deck: everything below
-  // returns early, because a plant room in the middle of a landing circle is the one thing a roof
-  // like this cannot have. Rare on top of that — there are only a handful of towers a city tall
-  // enough to qualify, and a helipad on each of them stops being the thing that marks one out.
-  if (deck > 8.5 && area > 16 && rng.chance(0.5)) {
-    stats.helipads += 1;
-    helipad(parts, cx, cz, Math.min(cw, cd) * 0.36, deck);
-    // One unit shoved to the edge, clear of the circle, so the deck still reads as occupied.
-    const uw = rng.range(0.6, 0.9);
-    parts.push(box(uw, 0.45, uw * 0.8, cx + (cw / 2 - uw), deck, cz + (cd / 2 - uw),
-      color('rooftop')));
-    return;
-  }
+  // Every flat deck in the city, with the slice of `parts` its furniture is about to occupy. One of
+  // them becomes the helipad once they are all known — see `choosePad` — and the slice is why the
+  // range is recorded: a landing circle claims the whole roof, because a plant room standing in the
+  // middle of one is the single thing a deck like that cannot have. So the winner's furniture comes
+  // back off. Building it and dropping it costs one roof's worth of boxes a city, and it buys the
+  // pad decision the thing it actually needs, which is to be taken *after* every deck exists.
+  const site = { cx, cz, cw, cd, deck, from: parts.length, to: parts.length };
+  stats.decks.push(site);
+  roofFurniture(parts, cx, cz, cw, cd, deck, rng);
+  site.to = parts.length;
+}
+
+/** The plant room, the AC, and the one-in-eight water tower or mast. */
+function roofFurniture(parts, cx, cz, cw, cd, deck, rng) {
+  const area = cw * cd;
 
   // Plant room / stair bulkhead. Every roof used to get one, which made a skyline of identical
   // boxes wearing identical smaller boxes.
@@ -867,7 +931,11 @@ export function createBuildings(rng, blocks) {
   // Counted rather than inferred. These are all rates the look depends on — one courtyard, a
   // scattering of pitched roofs, a helipad now and then — and a rate that drifts is invisible in
   // any single city. Returning them is what lets `tools/probe.mjs` hold them across seeds.
-  const stats = { pitched: 0, helipads: 0 };
+  // `decks` is not a statistic — it is every flat roof in the city, gathered as they are built so
+  // that the one landing circle can be placed once they all exist. It rides here rather than in a
+  // parameter of its own because it is threaded through exactly the same three call sites the
+  // counters are, and two out-parameters where one would do is two things to keep in step.
+  const stats = { pitched: 0, helipads: 0, decks: [] };
 
   // Every parcel in the city, decided before any of them is built. Two passes rather than one
   // because of the courtyard: **exactly one city block gets hollowed out**, and "exactly one"
@@ -896,6 +964,36 @@ export function createBuildings(rng, blocks) {
   }
   const courtyards = yard ? 1 : 0;
 
+  // The landing circle, on the deck the whole city was built to choose from. Its furniture is
+  // spliced back out first — see the note in `roofKit`. Nothing else has touched `parts` since
+  // that range was recorded except appends past the end of it, so the indices still hold.
+  const site = choosePad(stats.decks, rng);
+  let pad = null;
+  if (site) {
+    for (let i = site.from; i < site.to; i++) parts[i].dispose();
+    parts.splice(site.from, site.to - site.from);
+
+    const r = helipad(parts, site.cx, site.cz, Math.min(site.cw, site.cd) * PAD_FRACTION, site.deck);
+
+    // One unit shoved into a corner, so the deck still reads as occupied — but only if the corner
+    // it is going into is genuinely clear of the circle. The old placement was `cw / 2 - uw` from
+    // the centre, which on the narrow decks the pad usually ends up on put the box *inside* the
+    // paint: a third of all cities landed a helicopter on top of an air conditioner.
+    const uw = rng.range(0.6, 0.9);
+    const ux = site.cw / 2 - uw / 2;
+    const uz = site.cd / 2 - uw * 0.4;
+    if (Math.hypot(ux, uz) > r + uw * 0.75) {
+      parts.push(box(uw, 0.45, uw * 0.8, site.cx + ux, site.deck, site.cz + uz, color('rooftop')));
+    }
+
+    // Where a helicopter puts its skids down: the top of the paint, not the top of the structure.
+    // The deck's own dimensions ride along because the machine is longer than most of these roofs
+    // are wide — `game/chopper.js` lines its approach up with the long axis so it sits along the
+    // building rather than across it.
+    pad = { x: site.cx, z: site.cz, y: site.deck + PAD_SURFACE, r, cw: site.cw, cd: site.cd };
+    stats.helipads += 1;
+  }
+
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
@@ -903,5 +1001,8 @@ export function createBuildings(rng, blocks) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'buildings';
-  return { mesh, count: parts.length, courtyards, ...stats };
+  return {
+    mesh, count: parts.length, courtyards, pad,
+    pitched: stats.pitched, helipads: stats.helipads,
+  };
 }

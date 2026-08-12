@@ -20,6 +20,7 @@ import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createVanish } from './game/vanish.js';
 import { createFlyover } from './game/flyover.js';
+import { createChopper } from './game/chopper.js';
 import { createBirds } from './game/birds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
@@ -164,7 +165,10 @@ daylight.setCycling(false);
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
 scene.add(markOccluder(createGround(makeRng(seed + 11), layout)));
-scene.add(markOccluder(createBuildings(makeRng(seed + 22), layout).mesh));
+// Held onto for its `pad`: exactly one roof in the city carries a landing circle, and the
+// helicopter below has to be told which one — see `choosePad` in city/buildings.js.
+const city = createBuildings(makeRng(seed + 22), layout);
+scene.add(markOccluder(city.mesh));
 scene.add(markOccluder(createProps(makeRng(seed + 33), layout)));
 
 // Density is on the difficulty curve, so the run opens at its bottom and the instanced meshes are
@@ -179,10 +183,15 @@ const traffic = createTraffic(
   TRUCK_CHANCE,
 );
 const fares = createFareSystem(makeRng(runSeed + 55), scene);
-// The package courier — see game/parcels.js. Its own stream off the run seed (233 was unused; the
-// offsets in play are 44, 55, 66, 88, 133, 155, 177, 199 and 211), so adding this layer does not
-// reshuffle where every rider spawns. `?parcels=0` turns it off.
-const parcels = parcelsEnabled ? createParcelSystem(makeRng(runSeed + 233), scene) : null;
+// The package courier — see game/parcels.js. Its own stream off the run seed, so adding this layer
+// does not reshuffle where every rider spawns. `?parcels=0` turns it off.
+//
+// 255 rather than the 233 this shipped on: the helicopter landed on main using 233 too, and the merge
+// resolved both files cleanly while leaving two systems drawing the *same* sequence — `makeRng` is
+// seeded, so equal offsets are not independent streams, they are identical ones. `tools/probe.mjs`
+// now asserts every offset in this file is distinct, because nothing about the collision was visible:
+// no crash, no failing check, just a package board silently correlated with a helicopter.
+const parcels = parcelsEnabled ? createParcelSystem(makeRng(runSeed + 255), scene) : null;
 // Sim time the taxi's accept flourish was stamped at, or null when it is not running. See the frame
 // loop — a courier box landing in the car lights the whole car for the length of a select pop.
 let cargoFlashAt = null;
@@ -267,6 +276,26 @@ const vanish = createVanish();
 // game/flyover.js. On the run seed rather than the city seed: which way it crosses and when is
 // part of the situation, not part of the map.
 const flyover = createFlyover(scene, makeRng(runSeed + 155));
+
+// And a helicopter dropping onto the city's one rooftop helipad every couple of minutes — see
+// game/chopper.js. Run seed rather than city seed, like the aeroplane: *which* way it comes in and
+// when is part of the situation. The pad it lands on is the map, and that comes from `city`.
+//
+// The wash goes through the dust pool the boost trail and the barricade already share, which is why
+// it arrives as a callback rather than as this module handing `game/chopper.js` the pool: a puff
+// this far off the ground is the only thing about it the pool did not already know how to do.
+const chopper = createChopper(scene, makeRng(runSeed + 233), city.pad, {
+  onWash: (x, z, y, yaw, power, count, startSize) => {
+    if (count > 1) {
+      // Opened out around the circle, so the burst reads as air pushed off a deck rather than as a
+      // cloud sitting on top of the machine that made it — the wreck collar's argument, at a
+      // twentieth of its size.
+      dust.burst(x, z, yaw, count, power, { ring: city.pad.r * 0.8, linger: 1.25, startSize, y });
+    } else {
+      dust.add(x, z, yaw, power, 0.3, null, y);
+    }
+  },
+});
 
 // Flocks in the parks, walking about until something puts them up — see game/birds.js. Scenery on
 // the same terms as the aeroplane, with one thread back to the game: the taxi coming past is what
@@ -1385,6 +1414,7 @@ function frame() {
   flames.update(dt);
   vanish.update(dt);
   flyover.update(dt);
+  chopper.update(dt);
   // Handed last frame's taxi position, which is all a startle needs — it is a distance test with
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
   // scenery block in one place.
@@ -1693,6 +1723,30 @@ if (shot) {
     controller.update(aspect());
   }
 
+  // Stage a helicopter visit and freeze it wherever it has got to. `heliAt` is seconds into the
+  // approach, which is enough to reach any part of it: the run is about 25 seconds door to door
+  // (8 in, 2 down, 9 on the deck, 6 away), and the seed fixes the heading, so a given number is
+  // the same picture every time.
+  //
+  // The camera follows the machine rather than the pad, with the same correction the flyover's aim
+  // needs: an orthographic camera projects everything along VIEW_DIR onto the same screen point, so
+  // aiming at the point *under* something eleven storeys up puts it off the top of a close framing.
+  // Slide it back down the view axis to y = 0 instead.
+  if (shot.heliAt !== undefined && chopper.group) {
+    chopper.visit();
+    for (let step = 0; step < Math.round(shot.heliAt * 60); step++) {
+      chopper.update(1 / 60);
+      // Stepped *with* it rather than afterwards. The wash rides in the dust pool, and a pool that
+      // is only started once the flight is over shows every puff of a two-second landing at the
+      // same age — the wreck-smoke lesson, on a roof.
+      dust.update(1 / 60);
+    }
+    const p = chopper.position();
+    const drop = p.y / VIEW_DIR.y;
+    controller.state.target.set(p.x - drop * VIEW_DIR.x, 0, p.z - drop * VIEW_DIR.z);
+    controller.update(aspect());
+  }
+
   // Stage a take-off and freeze it partway up. Same argument as the flyover and the wreck: the
   // flock is on the grass for most of a run and the departure is over in a couple of seconds, so
   // without this the only way to look at one is to load the game and drive at a park. `birdsAt` is
@@ -1890,6 +1944,7 @@ window.__taxi = {
   /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */
   parcels,
   flyover,
+  chopper,
   // Every flock in the city, in build order — `flocks[0]` is the one shot 18 frames.
   flocks,
   roadwork,

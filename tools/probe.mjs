@@ -43,6 +43,8 @@ import { POP_SCALE_DIAMOND, POP_SCALE_RIDER } from '../src/game/selectpop.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
+import { createHelicopterMesh, HELI_SKID_DROP, MAIN_R } from '../src/geometry/helicopter.js';
+import { createChopper, CRUISE_ALT as CHOPPER_ALT, ROTOR_FLIGHT } from '../src/game/chopper.js';
 import {
   birdBodyGeometry, birdWingGeometry, BIRD_LEN, BIRD_SPAN, BIRD_STAND_Y, WING_ROOT,
 } from '../src/geometry/bird.js';
@@ -266,6 +268,11 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
   let pitches = 0;
   let flatOnly = 0;
   let miscounted = 0;
+  let lowPads = 0;
+  let cramped = 0;
+  let cluttered = 0;
+  let padsOffMesh = 0;
+  let lowestPad = Infinity;
   const SEEDS = 24;
   const PAINT = new THREE.Color(PALETTE.laneMark);
 
@@ -291,6 +298,37 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
         && Math.abs(col.getZ(i) - PAINT.b) < 1e-4) { painted = true; break; }
     }
     if (painted !== (built.helipads > 0)) miscounted += 1;
+
+    // The pad the helicopter is sent to, checked against the mesh it is supposed to be part of
+    // rather than against the numbers that produced it.
+    if (built.pad) {
+      const { x, z, y, r } = built.pad;
+      if (y < 6) lowPads += 1;
+      lowestPad = Math.min(lowestPad, y);
+      // Wide enough for the machine's skids (2.5 by 1.24) with paint showing round them. The rotor
+      // is *allowed* to overhang — a real pad on a tower of this size does exactly that — but the
+      // thing has to be able to stand on it.
+      if (r * 2 < 2.6) cramped += 1;
+
+      // Nothing left standing on the circle. This is the check the whole splice in
+      // `createBuildings` exists to pass: the chosen deck grew a plant room and an AC unit like
+      // every other deck, and those come back out when it is picked. A vertex inside the circle and
+      // more than a hand's width above the paint means one of them survived.
+      const pos = built.mesh.geometry.attributes.position;
+      let over = 0;
+      let onPad = 0;
+      for (let i = 0; i < pos.count; i++) {
+        const vy = pos.getY(i);
+        if (Math.hypot(pos.getX(i) - x, pos.getZ(i) - z) > r) continue;
+        if (Math.abs(vy - y) < 0.12) onPad += 1;
+        else if (vy > y + 0.3 && vy < y + 6) over += 1;
+      }
+      if (over > 0) cluttered += 1;
+      // And the pad is where it says it is: the paint has to actually be in the mesh at that
+      // height. A `pad` handed back for a circle that was never built would sail past every other
+      // check here and strand a helicopter in mid-air.
+      if (onPad === 0) padsOffMesh += 1;
+    }
 
     // A courtyard is a hollow block with trees in it, and the trees are the whole point — they
     // are the only green in the buildings mesh, so counting foliage-hued vertices is enough to
@@ -331,11 +369,24 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
   // means the eligibility test has quietly stopped matching anything.
   check('the city builds pitched roofs', flatOnly === 0,
     `${(pitches / SEEDS).toFixed(1)} per city, ${flatOnly} cities with none`);
-  // A handful of towers a city clear the height bar, and under half of those take one.
-  check('helipads are the exception, not the roofline', helipads > 0 && helipads < SEEDS,
+  // Exactly one, every city, no exceptions — the helicopter in game/chopper.js has nowhere to go
+  // otherwise, and a vignette that only happens on some seeds is not a vignette. It was a coin flip
+  // per eligible roof until that landed, which left 62% of cities with no pad at all.
+  check('every city gets exactly one helipad', helipads === SEEDS,
     `${helipads} over ${SEEDS} seeds`);
   check('and the roof stats describe the mesh that was built', miscounted === 0,
     `${miscounted} cities whose helipad count disagrees with their paint`);
+  check('the pad is where the buildings say it is', padsOffMesh === 0,
+    `${padsOffMesh} cities whose pad has no paint under it`);
+  // The two things the machine needs of the roof it lands on: room to stand, and a clear circle.
+  check('and it is big enough to stand a helicopter on', cramped === 0,
+    `${cramped} cities with a pad under 2.6 across`);
+  check('and nothing is left standing on it', cluttered === 0,
+    `${cluttered} cities whose pad still has roof furniture on it`);
+  // It is meant to be *up there*. A pad on a two-storey shop is what picking the roomiest deck
+  // instead of the tallest one does, and it reads as a car park with an H on it.
+  check('and it is on a building worth landing on', lowPads === 0,
+    `lowest pad ${lowestPad.toFixed(1)} units, ${lowPads} under 6`);
 }
 
 // --- Pitched roofs ----------------------------------------------------------
@@ -930,6 +981,30 @@ check('no two cars occupy the same space', worst > 1.6,
   } else {
     check('a waiting rider cannot be taken while carrying', true, 'board not doubled up at exit');
   }
+}
+
+// --- Every generator gets its own stream ---------------------------------------------------------
+//
+// "Every generator draws from its own stream so that changing one system doesn't reshuffle the
+// others" is a rule `src/main.js` states about itself and nothing enforced. It failed the first time
+// two branches picked the same offset independently — the courier and the helicopter both landed on
+// `runSeed + 233`, and the merge resolved cleanly because there was no textual conflict.
+//
+// `makeRng` is seeded, so two equal offsets are not two independent streams: they are the *same*
+// sequence handed to two systems, which correlates them forever with no crash, no failing check and
+// nothing to see. Read as text because that is where the mistake lives — the numbers are literals at
+// their call sites, and there is no runtime object that knows the whole set.
+{
+  const src = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const offsets = [...src.matchAll(/makeRng\((runSeed|seed) \+ (\d+)\)/g)]
+    .map((m) => `${m[1]}+${m[2]}`);
+  const dupes = offsets.filter((o, n) => offsets.indexOf(o) !== n);
+  check('no two generators share a seed offset', dupes.length === 0,
+    dupes.length ? `shared: ${[...new Set(dupes)].join(', ')}` : `${offsets.length} distinct streams`);
+  // The birds pass their offsets through a loop variable, so the literal scan above cannot see them.
+  // Named here so the check is honest about its own blind spot rather than implying full coverage.
+  check('and the scan actually found the call sites', offsets.length >= 12,
+    `${offsets.length} literal offsets (the two flocks pass theirs via a loop)`);
 }
 
 // --- The package courier ------------------------------------------------------------------------
@@ -5030,6 +5105,7 @@ check('the taxi is an ordinary car in the traffic array',
 }
 
 let planeOrder;   // read out of the block below, checked in 'Which axis a body rolls about'
+let chopperOrder; // likewise
 
 // --- The ambient flyover --------------------------------------------------------
 // A plane crossing the sky is the one thing in the game with no failure state to notice: if it
@@ -5145,6 +5221,189 @@ let planeOrder;   // read out of the block below, checked in 'Which axis a body 
   check('the propeller does not strobe', PROP_SPIN / 60 < Math.PI / 2,
     `${THREE.MathUtils.radToDeg(PROP_SPIN / 60).toFixed(1)}° per frame at 60fps`);
   planeOrder = flyover.group.rotation.order;
+}
+
+// --- The rooftop helicopter ------------------------------------------------------
+// The aeroplane's problem, with a second one on top of it: this thing has to *land* somewhere real.
+// Everything about that is a number nobody would be told about if it went wrong — a machine that
+// hovers a foot over its own pad, sits on it back-to-front, flies home through the tower next door,
+// or comes down onto a roof with an air-conditioning unit already standing on it.
+{
+  /** Signed shortest way round, so a heading comparison never trips over the wrap at ±π. */
+  const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  // Inside this of the pad, the tallest thing under the machine is the roof it is landing on —
+  // which it is *supposed* to be over. Outside it, anything under the rotor is a building it is
+  // about to fly through.
+  const OWN_ROOF = 5;
+
+  const model = createHelicopterMesh();
+  const box = new THREE.Box3().setFromObject(model.group);
+  check('the helicopter model measures what geometry/helicopter.js says it does',
+    Math.abs(-box.min.y - HELI_SKID_DROP) < 1e-6,
+    `underside ${(-box.min.y).toFixed(3)} against ${HELI_SKID_DROP}`);
+
+  // The rotor turns 26.7° a frame at 60fps. Two blades is 180° of symmetry, so past 90° it reads as
+  // running backwards and at exactly 180° it stands still — the propeller's constraint, and this
+  // one has to hold at the *flight* rate, the fastest the machine ever spins it.
+  const perFrame = ROTOR_FLIGHT / 60;
+  check('the main rotor does not strobe', perFrame < Math.PI / 2,
+    `${THREE.MathUtils.radToDeg(perFrame).toFixed(1)}° per frame at 60fps`);
+
+  // Its transit altitude has to fit in the gap between the tallest thing on a roof and the lowest
+  // the aeroplane's belly ever gets. Both ends read from the modules that own them.
+  const rotorTop = box.max.y;
+  check('it transits above the skyline and below the aeroplane',
+    CHOPPER_ALT > SKYLINE_CEILING + 1 && CHOPPER_ALT + rotorTop < 26 - PLANE_UNDERSIDE,
+    `cruise ${CHOPPER_ALT}, skyline ${SKYLINE_CEILING}, plane belly ${(26 - PLANE_UNDERSIDE).toFixed(1)}`);
+
+  // A height field of the city the probe built, at two units a cell, so the flown path can be
+  // checked against what is actually standing under it rather than against the ceiling constant.
+  const CELL = 2;
+  const cells = new Map();
+  const cityPos = buildings.mesh.geometry.attributes.position;
+  for (let i = 0; i < cityPos.count; i++) {
+    const key = `${Math.floor(cityPos.getX(i) / CELL)},${Math.floor(cityPos.getZ(i) / CELL)}`;
+    const y = cityPos.getY(i);
+    if (!(cells.get(key) >= y)) cells.set(key, y);
+  }
+  const tallestNear = (x, z, radius) => {
+    let top = 0;
+    const span = Math.ceil(radius / CELL);
+    const gx = Math.floor(x / CELL);
+    const gz = Math.floor(z / CELL);
+    for (let i = -span; i <= span; i++) {
+      for (let j = -span; j <= span; j++) {
+        const h = cells.get(`${gx + i},${gz + j}`);
+        if (h !== undefined && h > top) top = h;
+      }
+    }
+    return top;
+  };
+
+  const pad = buildings.pad;
+  const heliScene = new THREE.Scene();
+  let washes = 0;
+  let bursts = 0;
+  let washOffPad = 0;              // dust kicked up somewhere other than the deck
+  const chopper = createChopper(heliScene, makeRng(seed + 233), pad, {
+    onWash: (x, z, y, yaw, power, count) => {
+      if (count > 1) bursts += 1; else washes += 1;
+      if (Math.abs(y - pad.y) > 1e-6 || Math.hypot(x - pad.x, z - pad.z) > pad.r * 1.3) washOffPad += 1;
+    },
+  });
+
+  // Ten minutes, which is a handful of visits and a lot more waiting.
+  let frames = 0;
+  let flying = 0;
+  let belowPad = 0;                // frames under the paint it is supposed to land on
+  let clearance = Infinity;        // worst gap between its belly and whatever it is over
+  let maxRoll = 0;
+  let bankedOverCity = 0;          // frames of real bank while inside the map and fully painted
+  let hoverLean = 0;               // the worst lean it ever wore with no speed on it
+  let restless = 0;                // airborne frames whose pose differs from the flight state
+  let twitchyOnDeck = 0;           // parked frames where it doesn't
+  let hiddenOverPad = 0;           // frames faded while sitting on the deck
+  let parkOffset = 0;              // how far the skids ended up from the middle of the H
+  let backwards = 0;               // landings facing across the deck rather than along it
+  let departError = 0;             // how far off "the way it came" the departure heading was
+  let landings = 0;
+  let beaconOn = 0;
+  let beaconOff = 0;
+  const alongX = pad.cw >= pad.cd;
+
+  for (let step = 0; step < 600 * 60; step++) {
+    chopper.update(1 / 60);
+    frames++;
+    const st = chopper.state;
+    if (st.mode === 'away') continue;
+    flying++;
+    if (chopper.heli.beacon.visible) beaconOn++; else beaconOff++;
+
+    const dist = Math.hypot(st.x - pad.x, st.z - pad.z);
+    if (st.y < pad.y) belowPad++;
+    if (Math.abs(st.roll) > maxRoll) maxRoll = Math.abs(st.roll);
+    // A bank is what turns a *moving* helicopter; a stationary one turns on its pedals. Leaning
+    // over a hover is the single thing that would give the model away, so the roll is scaled by
+    // speed — and that is worth an assertion, because the departure turns hardest in the second
+    // it spends going nowhere.
+    if (st.speed < 1) hoverLean = Math.max(hoverLean, Math.abs(st.roll));
+
+    // The attitude wobble rides on top of the flight at pose time: the machine is never rigid in
+    // the air and dead still on its skids. Read off the group the game actually draws, since the
+    // whole point of it is that it is *not* in the state the flight model computes.
+    const posed = chopper.group.rotation;
+    const jitter = Math.abs(posed.x - st.roll) + Math.abs(posed.y - st.yaw)
+      + Math.abs(posed.z - st.pitch);
+    if (st.mode === 'idle') { if (jitter > 1e-9) twitchyOnDeck++; }
+    else if (st.y - pad.y > 4 && jitter > 0.02) restless++;
+    if (Math.abs(st.roll) > 0.1 && st.fade > 0.99
+      && Math.max(Math.abs(st.x), Math.abs(st.z)) < HALF_SPAN) bankedOverCity++;
+
+    // Clearance, skipping the pad's own tower — the roof directly under it is the point of the
+    // exercise. Measured to the *rotor* radius, since that is the widest part of the machine.
+    if (dist > OWN_ROOF) {
+      clearance = Math.min(clearance, (st.y - HELI_SKID_DROP) - tallestNear(st.x, st.z, MAIN_R));
+    }
+
+    if (st.mode === 'idle') {
+      if (st.fade < 1) hiddenOverPad++;
+      if (landings !== st.landings) {
+        landings = st.landings;
+        // The skids, not the origin: the model's own centre is a unit and a half forward of them.
+        const f = { x: Math.cos(st.yaw), z: -Math.sin(st.yaw) };
+        parkOffset = Math.max(parkOffset, Math.hypot(
+          st.x + f.x * 0.575 - pad.x, st.z + f.z * 0.575 - pad.z,
+        ));
+        // Sitting along the roof rather than across it — the tail boom overhangs either way, and
+        // the deck's long axis is the direction with room for it.
+        const off = Math.abs(wrapPi(st.yaw - (alongX ? 0 : Math.PI / 2)));
+        if (Math.min(off, Math.PI - off) > 0.5) backwards++;
+      }
+    }
+    if (st.mode === 'out') {
+      departError = Math.max(departError, Math.abs(Math.abs(wrapPi(st.inbound - st.departYaw)) - Math.PI));
+    }
+  }
+
+  check('the helicopter visits every so often, not constantly',
+    chopper.state.visits >= 3 && flying / frames < 0.35,
+    `${chopper.state.visits} visits in 10 min, up ${(100 * flying / frames).toFixed(0)}% of it`);
+  check('and lands on every one of them', chopper.state.landings === chopper.state.visits,
+    `${chopper.state.landings} landings against ${chopper.state.visits} visits`);
+  check('it puts its skids on the H, not its nose', parkOffset < 0.2,
+    `worst ${parkOffset.toFixed(2)} units off centre`);
+  check('and sits along the deck rather than across it', backwards === 0,
+    `${backwards} of ${chopper.state.landings} landings across a ${pad.cw.toFixed(1)}×${pad.cd.toFixed(1)} roof`);
+  check('and leaves the way it came', departError < 0.4,
+    `departure ${departError.toFixed(2)} rad off the reverse of the approach`);
+  check('it never drops through the roof it lands on', belowPad === 0,
+    `${belowPad} frames below the pad`);
+
+  // The one that the level transit and the vertical descent exist for. A glide slope onto the pad
+  // flew through a neighbouring tower on eleven cities in twenty-four, and nothing about that
+  // failure is loud: it is a helicopter passing behind a building it is actually inside.
+  check('and never flies through anything on the way in or out', clearance > 0,
+    `worst clearance ${clearance.toFixed(2)} units over the city`);
+
+  check('it banks where the bank can be seen', bankedOverCity > 60 && maxRoll > 0.35,
+    `${bankedOverCity} frames of lean over the map, peak ${maxRoll.toFixed(2)} rad`);
+  check('and never leans on a hover', hoverLean < 0.05,
+    `worst ${hoverLean.toFixed(3)} rad with nothing on the clock`);
+  check('it is never rigid in the air, and never twitches on the deck',
+    restless > 600 && twitchyOnDeck === 0,
+    `${restless} unsteady frames aloft, ${twitchyOnDeck} on the skids`);
+  check('it is fully painted while it is on the deck', hiddenOverPad === 0,
+    `${hiddenOverPad} frames faded while parked`);
+  check('the beacon blinks rather than sitting on or off',
+    beaconOn > 0 && beaconOff > beaconOn,
+    `lit ${(100 * beaconOn / (beaconOn + beaconOff)).toFixed(0)}% of the time it is up`);
+  // Dust comes off the deck it is landing on, at the height of the paint. A wash spawned at the
+  // road's default height would go up eleven storeys below the machine making it, on a street.
+  check('the rotor wash comes off the pad, not off the road',
+    washes > 20 && bursts >= 2 * chopper.state.landings && washOffPad === 0,
+    `${washes} puffs and ${bursts} bursts over ${chopper.state.landings} landings, ${washOffPad} off the deck`);
+
+  chopperOrder = chopper.group.rotation.order;
 }
 
 // --- The park flock -------------------------------------------------------------
@@ -5396,6 +5655,8 @@ let planeOrder;   // read out of the block below, checked in 'Which axis a body 
     `order ${bodyPolice.group.rotation.order}`);
   check('and the aeroplane banks about its fuselage', sameEverywhere(planeOrder),
     `order ${planeOrder}`);
+  check('and so does the helicopter', sameEverywhere(chopperOrder),
+    `order ${chopperOrder}`);
 }
 
 // --- The barricade's geometry, before any of it is placed ----------------------
