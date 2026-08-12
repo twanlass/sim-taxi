@@ -378,6 +378,11 @@ boostButton.addEventListener('pointerdown', pressBoost);
 boostButton.addEventListener('pointerup', releaseBoost);
 boostButton.addEventListener('pointercancel', releaseBoost);
 boostButton.addEventListener('lostpointercapture', releaseBoost);
+// The game's pill guard, for the same iOS gesture recogniser — see main.js for the long version,
+// including why the `cancelable` test is what keeps Chrome quiet.
+boostButton.addEventListener('touchstart', (event) => {
+  if (event.cancelable) event.preventDefault();
+}, { passive: false });
 window.addEventListener('blur', () => boost.release());
 window.addEventListener('contextmenu', (e) => {
   if (e.target === boostButton) e.preventDefault();

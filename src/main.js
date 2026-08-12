@@ -1068,6 +1068,35 @@ boostButton?.addEventListener('pointerup', releaseBoost);
 boostButton?.addEventListener('pointercancel', releaseBoost);
 boostButton?.addEventListener('lostpointercapture', releaseBoost);
 
+// iOS runs text selection, the magnifier and double-tap zoom off the raw touch stream, and since
+// iOS 15 it does all three on this pill regardless of `-webkit-user-select: none`
+// (webkit.org/b/231161). Cancelling `pointerdown` — which pressBoost already does — does not reach
+// them: that suppresses the compatibility *mouse* events, one layer above the gesture recogniser
+// that is actually selecting "Loco Mode™" and zooming the city. Cancelling `touchstart` does, and
+// on iOS it is the only thing that does.
+//
+// Unconditional, unlike pressBoost, which bails on a game over or an empty tank before it reaches
+// its own preventDefault. Those are precisely the states a player jabs at twice in a row — a drained
+// pill is what "why isn't this working" looks like — so they are the states that most need this.
+// Nothing is lost by cancelling: the pointer events above are the primary stream and keep firing,
+// and the only defaults being dropped are the synthesised click (nothing listens for one here; see
+// spaceIsSpokenFor below) and focus-on-tap, which on a touchscreen has no keyboard behind it.
+//
+// `passive: false` is spelled out rather than left to the default. Browsers force `passive: true`
+// for `touchstart` on window, document and body, and preventDefault from a passive listener is a
+// silent no-op with nothing but a console warning — so a later refactor that moves this listener up
+// to `window` would take the fix out without failing anything.
+//
+// The `cancelable` test is not defensive noise, it is the whole difference between the two engines.
+// Chrome takes `touch-action: none` at its word: it knows there is no default action left on this
+// element and dispatches the touch with `cancelable: false`, where a preventDefault would do
+// nothing but log "Ignored attempt to cancel a touchstart event" on every single press. WebKit is
+// the engine that still has a gesture to run here — which is the bug — so it is the engine that
+// still marks the event cancelable, and the one this line actually fires on.
+boostButton?.addEventListener('touchstart', (event) => {
+  if (event.cancelable) event.preventDefault();
+}, { passive: false });
+
 // The spacebar is the same hold, for the hand that is already on the keyboard rather than dragging
 // the mouse down to a pill in the corner. Desktop-only by construction rather than by sniffing for
 // a desktop: a phone with no keyboard never fires a keydown, and a phone *with* one has earned it.
