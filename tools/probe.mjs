@@ -4783,6 +4783,9 @@ let chopperOrder; // likewise
   let clearance = Infinity;        // worst gap between its belly and whatever it is over
   let maxRoll = 0;
   let bankedOverCity = 0;          // frames of real bank while inside the map and fully painted
+  let hoverLean = 0;               // the worst lean it ever wore with no speed on it
+  let restless = 0;                // airborne frames whose pose differs from the flight state
+  let twitchyOnDeck = 0;           // parked frames where it doesn't
   let hiddenOverPad = 0;           // frames faded while sitting on the deck
   let parkOffset = 0;              // how far the skids ended up from the middle of the H
   let backwards = 0;               // landings facing across the deck rather than along it
@@ -4803,6 +4806,20 @@ let chopperOrder; // likewise
     const dist = Math.hypot(st.x - pad.x, st.z - pad.z);
     if (st.y < pad.y) belowPad++;
     if (Math.abs(st.roll) > maxRoll) maxRoll = Math.abs(st.roll);
+    // A bank is what turns a *moving* helicopter; a stationary one turns on its pedals. Leaning
+    // over a hover is the single thing that would give the model away, so the roll is scaled by
+    // speed — and that is worth an assertion, because the departure turns hardest in the second
+    // it spends going nowhere.
+    if (st.speed < 1) hoverLean = Math.max(hoverLean, Math.abs(st.roll));
+
+    // The attitude wobble rides on top of the flight at pose time: the machine is never rigid in
+    // the air and dead still on its skids. Read off the group the game actually draws, since the
+    // whole point of it is that it is *not* in the state the flight model computes.
+    const posed = chopper.group.rotation;
+    const jitter = Math.abs(posed.x - st.roll) + Math.abs(posed.y - st.yaw)
+      + Math.abs(posed.z - st.pitch);
+    if (st.mode === 'idle') { if (jitter > 1e-9) twitchyOnDeck++; }
+    else if (st.y - pad.y > 4 && jitter > 0.02) restless++;
     if (Math.abs(st.roll) > 0.1 && st.fade > 0.99
       && Math.max(Math.abs(st.x), Math.abs(st.z)) < HALF_SPAN) bankedOverCity++;
 
@@ -4852,8 +4869,13 @@ let chopperOrder; // likewise
   check('and never flies through anything on the way in or out', clearance > 0,
     `worst clearance ${clearance.toFixed(2)} units over the city`);
 
-  check('it banks where the bank can be seen', bankedOverCity > 60 && maxRoll > 0.15,
+  check('it banks where the bank can be seen', bankedOverCity > 60 && maxRoll > 0.35,
     `${bankedOverCity} frames of lean over the map, peak ${maxRoll.toFixed(2)} rad`);
+  check('and never leans on a hover', hoverLean < 0.05,
+    `worst ${hoverLean.toFixed(3)} rad with nothing on the clock`);
+  check('it is never rigid in the air, and never twitches on the deck',
+    restless > 600 && twitchyOnDeck === 0,
+    `${restless} unsteady frames aloft, ${twitchyOnDeck} on the skids`);
   check('it is fully painted while it is on the deck', hiddenOverPad === 0,
     `${hiddenOverPad} frames faded while parked`);
   check('the beacon blinks rather than sitting on or off',

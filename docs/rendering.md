@@ -1004,6 +1004,25 @@ useless, because pursuit converges fastest when the bearing moves fastest, which
 is *near*. The whole turn happened in the first 1.4 seconds, 75 units out, with the machine still
 faded out and off the edge of the map.
 
+**Bank is scaled by speed, and that one term is what keeps the attitude honest.** A helicopter turns
+by tipping its rotor disc — the disc is the wing — and a *stationary* one turns on its pedals
+instead, so the lean is `turn rate × gain`, clamped at 29°, times how fast it is going. It earns its
+place on the way out: the departure turns hardest in the second it spends going nowhere, and without
+the term it rolled 29° over a hover, which is the single thing that would give the whole model away.
+It also lets the departure be one manoeuvre instead of two. The pedal turn on the climb stops 72°
+short of the departure heading and holds there; the rest is flown, banked, as the machine
+accelerates, so it leaves on a sweeping turn rather than pivoting on the spot and then setting off
+in a straight line.
+
+**And nothing in the flight model is unsteady, so the pose adds a wobble.** The transit is a
+straight line at a fixed height and the hover is a lerp onto a point — between the turn onto final
+and the touchdown the machine held a perfectly rigid attitude for several seconds and read as a
+model being slid along a wire. Two sines per channel at rates that don't share a period, on roll,
+pitch **and yaw** (a helicopter in the cruise sits slightly crabbed and hunts about it), faded in
+over the first 1.6 units off the deck so a parked one is dead still. It is applied at pose time
+only: the attitude jitters, the flight path does not, and the probe asserts both halves — never
+rigid in the air, never twitching on the skids.
+
 Two smaller things the roof decides. The approach lines up with the deck's **long axis**, because
 these roofs are 3 to 8 units wide and the machine is nearly 7 long — arriving across one leaves the
 tail hanging over the parapet — and the settle pedal-turns onto that line before touching down,

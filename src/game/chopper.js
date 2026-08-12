@@ -82,15 +82,40 @@ const LIFT_RATE = 3.2;           // and off it — deliberately slower than the 
 // pad before leaving is half of what makes it read as a helicopter rather than as a plane with the
 // wings left off — so a hover turns about its own mast at `PIVOT_RATE` and does not bank doing it.
 // Banking on the spot is the one thing that would give the whole trick away.
-const TURN_RATE = 0.85;          // rad/s in forward flight
+const TURN_RATE = 1.05;          // rad/s in forward flight
 const PIVOT_RATE = 1.5;          // and in the hover
-const ROLL_GAIN = 0.75;          // radians of bank per rad/s of turn — a lean into the corner
-const ROLL_MAX = 0.34;
+// Radians of bank per rad/s of turn — a lean into the corner. Both numbers went up once the thing
+// was on screen: at 0.75 and 0.34 the turn onto final was a 19° lean that read as a machine sliding
+// sideways rather than one *turning*. A helicopter banks harder than an aeroplane for the same
+// corner, because the rotor disc is the wing and tipping it is the only way it has to pull.
+const ROLL_GAIN = 1.05;
+const ROLL_MAX = 0.5;            // 29°, which is a brisk airline turn and a mild one for this
 // Nose attitude. Forward flight is nose-down, the flare is nose-up, and the two are the same
 // channel driven off speed: `PITCH_CRUISE` at full chat, easing through zero to the flare as it
 // slows onto the pad. A helicopter's whole body language is this one angle.
-const PITCH_CRUISE = -0.16;
-const PITCH_FLARE = 0.2;
+const PITCH_CRUISE = -0.2;
+const PITCH_FLARE = 0.26;
+
+/**
+ * The wobble every airborne frame carries on top of whatever the flight is doing.
+ *
+ * Nothing in the flight model is unsteady: the transit is a straight line at a fixed height and the
+ * hover is a lerp onto a point, so between the turn onto final and the touchdown the machine held a
+ * perfectly rigid attitude for several seconds and read as a model being slid along a wire. A real
+ * one is *never* still — it is a platform balanced on a rotor, and the pilot is correcting it
+ * continuously.
+ *
+ * Two sines per channel at rates that don't share a period, so the pattern never visibly repeats,
+ * and it is applied at **pose time only**: the attitude jitters, the flight path does not. Yaw is
+ * in there as well as roll — a helicopter in the cruise sits very slightly crabbed and hunts about
+ * it, which is the part that reads as "flying" rather than "being moved".
+ */
+const WOBBLE_ROLL = [[0.055, 1.7, 0], [0.028, 2.9, 1.1]];
+const WOBBLE_PITCH = [[0.035, 1.3, 0.4], [0.018, 2.3, 2.2]];
+const WOBBLE_YAW = [[0.045, 0.9, 2], [0.022, 2.1, 0.6]];
+// How far off the deck it takes to reach full strength. Parked, the machine is on its skids with
+// the rotor at idle and has to be dead still; the wobble comes in as the weight comes off.
+const WOBBLE_LIFT = 1.6;
 
 // How far off the pad's own long axis a leg may come in. The approach is lined up with the *deck*
 // rather than aimed from anywhere: these roofs are 3 to 8 units wide and the machine is 6 long, so
@@ -230,13 +255,28 @@ export function createChopper(scene, rng, pad, { onWash = () => {} } = {}) {
   /** Horizontal distance from the pad's centre. */
   const outFromPad = () => Math.hypot(state.x - pad.x, state.z - pad.z);
 
+  /** The sum of a channel's sines, faded in with height off the deck. See WOBBLE_ROLL. */
+  function wobble(waves, lift) {
+    let sum = 0;
+    for (const [amplitude, rate, phase] of waves) {
+      sum += amplitude * Math.sin(state.t * rate + phase);
+    }
+    return sum * lift;
+  }
+
   function pose() {
     heli.group.position.set(state.x, state.y, state.z);
+    const lift = clamp((state.y - PARKED_Y) / WOBBLE_LIFT, 0, 1);
     // 'YXZ', not the default — see the note on BODY_EULER_ORDER in util/geo.js. Three composes
     // 'XYZ' as Rx·Ry·Rz, which puts the roll *outside* the yaw and turns it about the world X axis:
     // a machine banking on an eastbound approach would lean correctly and one arriving from the
     // north would render the same number as pitch and not lean at all.
-    heli.group.rotation.set(state.roll, state.yaw, state.pitch, BODY_EULER_ORDER);
+    heli.group.rotation.set(
+      state.roll + wobble(WOBBLE_ROLL, lift),
+      state.yaw + wobble(WOBBLE_YAW, lift),
+      state.pitch + wobble(WOBBLE_PITCH, lift),
+      BODY_EULER_ORDER,
+    );
     heli.mainHub.rotation.y = state.rotor;
     heli.tailHub.rotation.z = state.rotor * TAIL_RATIO;
     heli.setRotorBlur(clamp(state.rotorRate / ROTOR_FLIGHT, 0, 1));
@@ -334,9 +374,14 @@ export function createChopper(scene, rng, pad, { onWash = () => {} } = {}) {
     const turn = clamp(wrapAngle(want - state.yaw), -TURN_RATE * dt, TURN_RATE * dt);
     state.yaw += turn;
     const rate = dt > 0 ? turn / dt : 0;
+    // Scaled by how fast it is going, because that is what a bank *is*: tipping the disc is how a
+    // moving helicopter turns and pedals are how a stationary one does. Without this the departure
+    // — which turns hardest in the second it spends going nowhere — rolled 29° on the spot, and a
+    // machine leaning over a hover is the one thing that gives the whole trick away.
+    const authority = ramp(state.speed, CRUISE * 0.35, 0);
     // Eased rather than snapped: the bank lags the turn, which is what stops a machine rolling
     // level the instant it stops turning.
-    const wantRoll = clamp(-rate * ROLL_GAIN, -ROLL_MAX, ROLL_MAX);
+    const wantRoll = clamp(-rate * ROLL_GAIN, -ROLL_MAX, ROLL_MAX) * authority;
     state.roll += (wantRoll - state.roll) * Math.min(1, dt * 3.5);
     return rate;
   }
@@ -457,17 +502,26 @@ export function createChopper(scene, rng, pad, { onWash = () => {} } = {}) {
    * half of the clearance rule the descent obeys — see SETTLE_DIST. Climbing out *while*
    * accelerating is what a helicopter with a runway in front of it would do, and it was flying
    * through the block next door on half of all cities.
+   *
+   * The pedal turn deliberately **stops `LIFT_HANDOVER` short** of the departure heading: the last
+   * 50° is flown, banked, once the machine has speed on it. Pivoting the whole 180° on the spot and
+   * then setting off in a straight line is two manoeuvres played end to end; handing the rest of the
+   * turn to forward flight makes it one, and puts a lean on the way out to match the one on the way
+   * in. The pivot is *held* there rather than merely exited early, because the climb takes about
+   * four seconds against the turn's two and it would otherwise finish the whole thing while waiting.
    */
+  const LIFT_HANDOVER = 1.25;
+
   function updateLift(dt) {
     state.y = Math.min(CRUISE_ALT, state.y + LIFT_RATE * dt);
-    const off = pivot(state.departYaw, dt);
+    const off = Math.abs(wrapAngle(state.departYaw - state.yaw));
+    if (off > LIFT_HANDOVER) pivot(state.departYaw, dt);
     state.fade = 1;
     wash(dt);
 
-    // Both, not either: the half turn takes 2.1s and the climb about four, and leaving on the first
-    // of the two to finish means accelerating away sideways — a helicopter flying out over the city
-    // with its nose still pointing at where it came from.
-    if (state.y >= CRUISE_ALT - 1e-4 && off < 0.12) state.mode = 'out';
+    // Both, not either: leaving on the climb alone means accelerating away sideways — a helicopter
+    // flying out over the city with its nose still pointing at where it came from.
+    if (state.y >= CRUISE_ALT - 1e-4 && off <= LIFT_HANDOVER + 1e-6) state.mode = 'out';
   }
 
   /** Nose over and away, and fade into the distance. */
