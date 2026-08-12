@@ -63,7 +63,7 @@ import {
 import {
   createCarGhosts, GHOST_RADIUS, MAX_GHOSTS, GHOST_OPACITY,
 } from '../src/game/carghosts.js';
-import { createCityCamera, attachDragPan, VIEW_DIR } from '../src/game/camera.js';
+import { createCityCamera, attachDragPan, frameLead, VIEW_DIR } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
@@ -4504,6 +4504,151 @@ check('the taxi is an ordinary car in the traffic array',
   check('a peek from on top of the rider still comes home',
     arrived === 1 && Math.hypot(cam.state.target.x - car.x, cam.state.target.z - car.z) < 1e-9,
     `${arrived} arrivals after ${zeroLength} frames`);
+}
+
+// --- The follow lead: framing the road ahead --------------------------------
+// Both follows aim past the taxi so the direction it is driving gets the frame, and the whole claim
+// is a *screen* one — the car sits LEAD_FRACTION of a half-frame into the quadrant behind it,
+// whichever way it is pointed. Nothing about that is checkable by eye: a lead that quietly collapses
+// to a third of itself going one way still looks like a chase camera, and the two failures this is
+// really guarding — forgetting the view's 33° foreshortening, and forgetting the follow's own trail
+// — are both invisible on a desktop, which is where they'd be looked at.
+//
+// So the framing is measured by projecting the taxi through a real frustum, at a real portrait
+// aspect, after driving it far enough for both eases to settle.
+{
+  const LEAD_FRACTION = 0.3;      // camera.js's, restated so a change there fails here
+  const ASPECT = 390 / 844;       // an iPhone in portrait — the viewport the follows run on
+  const ZOOM = 52;
+  const BOOST_TOP = SPEED * 2.2;  // what `gain` is measured against; see BOOST_CRUISE
+  const STEP = 1 / 60;
+
+  // The taxi is pinned at the origin and the world is slid under it. followXZ clamps its target to
+  // ±HALF_SPAN, which is the city edge and correctly eats the lead when you drive at it — but that
+  // is 50 units, and a boosting taxi crosses it in under three seconds, so a straight-line run would
+  // measure the clamp rather than the framing.
+  const settle = (yaw, speed, smoothing, seconds = 8) => {
+    const cam = createCityCamera(ASPECT, { zoom: ZOOM });
+    // A sim yaw, as everywhere else: forward is (cos yaw, −sin yaw).
+    const dir = { x: Math.cos(yaw), z: -Math.sin(yaw) };
+    for (let i = 0; i < Math.round(seconds / STEP); i += 1) {
+      cam.state.target.x -= dir.x * speed * STEP;
+      cam.state.target.z -= dir.z * speed * STEP;
+      cam.followXZ(0, 0, STEP, smoothing, ASPECT,
+        { ...dir, gain: Math.min(speed / BOOST_TOP, 1), speed });
+    }
+    cam.camera.updateMatrixWorld(true);
+    // Normalised device coordinates: ±1 is the frame edge on each axis, so this is exactly the
+    // "fraction of a half-frame" the constant is stated in — aspect and foreshortening included.
+    const p = new THREE.Vector3(0, 0, 0).project(cam.camera);
+    return { x: p.x, y: p.y, r: Math.hypot(p.x, p.y), cam };
+  };
+
+  // A camera parked on the origin, purely to read screen bearings off. One world unit up a heading,
+  // projected through this, *is* that heading's direction on screen — so the "behind" test below is
+  // taken from the frustum rather than from a copy of camera.js's basis vectors.
+  const plain = createCityCamera(ASPECT, { zoom: ZOOM }).camera;
+  plain.updateMatrixWorld(true);
+  const screenBearing = (yaw) => {
+    const p = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw)).project(plain);
+    const len = Math.hypot(p.x, p.y);
+    return { x: p.x / len, y: p.y / len };
+  };
+
+  // Eight headings around the compass. The tolerance is 3% of the offset rather than float slop:
+  // the trail term is the *continuous* steady state (v / rate) and the follow is stepped discretely,
+  // which leaves about 0.15 units of lag unpaid at 60fps.
+  let worstOff = 0;
+  let worstAhead = 0;
+  for (let k = 0; k < 8; k += 1) {
+    const yaw = (k * Math.PI) / 4;
+    const { x, y, r } = settle(yaw, BOOST_TOP, 3.2);
+    worstOff = Math.max(worstOff, Math.abs(r - LEAD_FRACTION));
+    // ...and the car has to be *behind* itself, not merely off-centre. A dot of −1 against its own
+    // screen bearing is the car sitting exactly opposite the way it is pointed.
+    const b = screenBearing(yaw);
+    worstAhead = Math.max(worstAhead, (x * b.x + y * b.y) / r + 1);
+  }
+  check('the follow seats the taxi a fixed fraction of the frame behind itself',
+    worstOff < LEAD_FRACTION * 0.03,
+    `worst heading is off by ${(worstOff * 100).toFixed(2)}% of a half-frame`);
+  check('the lead always opens the frame the way the taxi is pointed',
+    worstAhead < 2e-3, `worst heading is ${(Math.acos(1 - worstAhead) * 180 / Math.PI).toFixed(2)}° off`);
+
+  // The point of doing this in screen space. A single world-space lead — the passing lab's, which is
+  // all a due-east road can tell you — is worth wildly different amounts of frame per heading here,
+  // because the diagonal view foreshortens up-screen travel to 0.55 and a portrait frame is twice as
+  // tall as it is wide. Those compound, so the *world* distance has to vary ~4x to hold the framing
+  // still. This is the assertion that fails if someone "simplifies" this to one number.
+  // Straight off frameLead rather than off the settled controller, whose offset also carries the
+  // trail — a constant that is equal in every direction and would dilute the ratio being measured.
+  const reach = (yaw) => {
+    const l = frameLead(Math.cos(yaw), -Math.sin(yaw), 1, ZOOM * ASPECT, ZOOM);
+    return Math.hypot(l.x, l.z);
+  };
+  const spread = reach((3 * Math.PI) / 4) / reach(Math.PI / 4);
+  check('the world lead stretches to hold the screen framing', spread > 3.5 && spread < 4.5,
+    `up-screen lead is ${spread.toFixed(2)}x the across-screen one `
+    + `(${reach((3 * Math.PI) / 4).toFixed(1)} units against ${reach(Math.PI / 4).toFixed(1)})`);
+
+  // Speed drives it, so a taxi held at a red sits dead centre — there is no "ahead" to look down
+  // and the player is reading the junction they are stopped in. Exactly zero, not nearly: the lead
+  // eases to a target of zero, and a floor left in by a stray max() would park the framing off the
+  // car for the whole wait.
+  check('a stopped taxi is framed dead centre', settle(Math.PI / 2, 0, 1.5).r < 1e-9,
+    `${settle(Math.PI / 2, 0, 1.5).r.toFixed(6)} of a half-frame off`);
+
+  // Both follows have to land in the same place, which is what the trail term buys: they run at 1.5
+  // and 3.2, and an uncompensated exponential settles v/rate behind its aim — so the same speed
+  // framed the car differently either side of the Loco Mode press, moving the picture on the one
+  // frame the player is certainly watching.
+  const opening = settle((3 * Math.PI) / 4, BOOST_TOP, 1.5);
+  const chasing = settle((3 * Math.PI) / 4, BOOST_TOP, 3.2);
+  check('the framing does not move when Loco Mode takes the camera over',
+    Math.abs(opening.r - chasing.r) < 0.02,
+    `opening follow ${opening.r.toFixed(3)}, boost chase ${chasing.r.toFixed(3)}`);
+
+  // A corner swings the entire offset across the frame. It is eased separately and more slowly than
+  // the follow (LEAD_RATE), and the thing that would go wrong without that — an overshoot that
+  // throws the car at the edge of frame mid-turn, when the player is reading a new street — has no
+  // tell in a still.
+  {
+    const cam = createCityCamera(ASPECT, { zoom: ZOOM });
+    let yaw = (3 * Math.PI) / 4;
+    let peak = 0;
+    for (let i = 0; i < 60 * 6; i += 1) {
+      const t = i * STEP;
+      if (t > 2 && t < 2.45) yaw += (Math.PI / 2) * (STEP / 0.45);   // a junction taken at speed
+      const dir = { x: Math.cos(yaw), z: -Math.sin(yaw) };
+      cam.state.target.x -= dir.x * BOOST_TOP * STEP;
+      cam.state.target.z -= dir.z * BOOST_TOP * STEP;
+      cam.followXZ(0, 0, STEP, 3.2, ASPECT, { ...dir, gain: 1, speed: BOOST_TOP });
+      if (t > 1.5) {
+        cam.camera.updateMatrixWorld(true);
+        const p = new THREE.Vector3(0, 0, 0).project(cam.camera);
+        peak = Math.max(peak, Math.abs(p.x), Math.abs(p.y));
+      }
+    }
+    check('a corner never throws the taxi at the edge of frame',
+      peak < LEAD_FRACTION * 1.15, `worst ${(peak * 100).toFixed(1)}% of a half-frame from centre`);
+  }
+
+  // Saying nothing is how a caller asks for the car dead centre — the tutorial does, because its
+  // first bubble is pointing at the car and an offset frame reads as pointing beside it. It has to
+  // *retire* a standing lead rather than merely stop adding to it: the tutorial runs after a run has
+  // been under way, so there is always one to retire.
+  {
+    const cam = createCityCamera(ASPECT, { zoom: ZOOM });
+    const dir = { x: Math.cos(Math.PI / 2), z: -Math.sin(Math.PI / 2) };
+    for (let i = 0; i < 240; i += 1) {
+      cam.followXZ(0, 0, STEP, 3.2, ASPECT, { ...dir, gain: 1, speed: BOOST_TOP });
+    }
+    const withLead = Math.hypot(cam.leadOffset().x, cam.leadOffset().z);
+    for (let i = 0; i < 240; i += 1) cam.followXZ(0, 0, STEP, 3.2, ASPECT);
+    const without = Math.hypot(cam.leadOffset().x, cam.leadOffset().z);
+    check('a follow with no aim gives the lead back', withLead > 1 && without < 0.01,
+      `${withLead.toFixed(1)} units of lead, ${without.toFixed(3)} after`);
+  }
 }
 
 // --- Loco Mode's overdrive band ---------------------------------------------

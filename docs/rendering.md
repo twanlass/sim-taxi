@@ -92,9 +92,10 @@ frame is what makes every tap unambiguous and lets the whole city stay on screen
 
 **Two things override the fixed framing**, both by smooth-following the taxi and both on narrow
 viewports only. `controller.followXZ` in `camera.js` closes a fraction `1 - exp(-dt * rate)` of the
-gap per frame toward the taxi's `(x, z)`, so the chase is framerate-independent and lags just enough
-that the car reads as leading the camera. Neither has a gate on the way *out*: the camera is left
-wherever it landed rather than snapping back.
+gap per frame toward its aim, so the chase is framerate-independent. That aim is a little *past* the
+taxi rather than on it — see [leading the car](#leading-the-car), which also covers why the ease's own
+trail is cancelled rather than left in. Neither follow has a gate on the way *out*: the camera is
+left wherever it landed rather than snapping back.
 
 - **The opening follow**, at rate **1.5**. A run starts with the camera trailing the taxi and keeps
   doing it until the player takes the framing over — a swipe past `PAN_SLOP`, or a tap on a
@@ -107,6 +108,55 @@ wherever it landed rather than snapping back.
 - **Loco Mode**, at rate **3.2**, which outranks it. Active only while `boost.isActive()`, and it
   ignores the player's takeover: a drag during boost is quietly overridden on the next frame, because
   panning is a planning gesture and boost is the opposite.
+
+Both aim [past the taxi rather than at it](#leading-the-car).
+
+### Leading the car
+
+A follow centred on the taxi spends half the frame on road already driven, and under Loco Mode that
+is the expensive half — the mode exists to cover ground, and the player was paying for it by swiping
+ahead by hand, mid-boost, which is the one moment panning is the wrong gesture. So the follows aim
+*past* the car and the car settles into the trailing quadrant: heading north-west it sits south-east
+of centre with the north-west of the map opened up in front of it. On a portrait phone at the Loco
+Mode top that is **52 → 68 world units of road ahead**, about three quarters of a block.
+
+`followXZ` takes an `aim` — `{ x, z, gain, speed }`, a ground heading and a strength — and
+`followAim()` in `main.js` builds it from the taxi's yaw and speed. `gain` is the speed against the
+Loco Mode cruise ceiling (`BOOST_CRUISE`, 18.7 u/s), which is what lets one number serve both
+follows: full offset at the boost top, about 45% of it at ordinary cruise, and **dead centre at a
+standstill**, where there is no "ahead" to look down and the player is reading the junction they are
+sitting in. A caller that says nothing — the tutorial, whose first bubble is *pointing* at the car —
+gets the car centred, and a standing offset eased back to zero rather than merely frozen.
+
+**The offset is stated in screen space and converted back**, which is the whole reason `frameLead`
+isn't three lines. A fixed world-space lead — what the passing lab uses, where the road runs due east
+and nothing else is possible — buys wildly different amounts of visibility per heading here, for two
+compounding reasons: the view is a diagonal, so a ground step up-screen is foreshortened to
+`VIEW_DIR.y` = 0.55 of one across it; and the frustum is sized by *height*, so a portrait frame is
+roughly 2:1 the other way. Multiplied out, the same world lead is worth ~4× more of the frame going
+one way than the other — so the world distance has to stretch from **7.2 units across-screen to 28.6
+up-screen** to hold the picture still. `tools/probe.mjs` asserts that ratio, and asserts the framing
+itself by projecting the taxi through a real portrait frustum at eight headings.
+
+Two details carry the rest of it:
+
+- **The follow's own trail is paid back.** An exponential ease settles `v / rate` behind whatever it
+  chases — 5.8 units at the Loco Mode top on rate 3.2, pointing backwards along exactly the axis this
+  is trying to open up. Before any of this the boosting taxi sat 6% of the half-frame *past* centre,
+  so the follow was showing less road ahead than a static frame would have. And the two follows run
+  at 1.5 and 3.2, so the same speed trailed them by different amounts and the framing shifted on the
+  Loco Mode press — the one frame the player is certain to be watching. Cancelling it is what makes
+  `LEAD_FRACTION` a fact about the picture rather than an opening bid.
+- **The offset eases on its own clock** (`LEAD_RATE` 2.4), slower than either follow. It swings
+  through 90° at every corner, and at the follow's own rate that lands as a shove sideways at the
+  moment the player is reading a new street. At 2.4 the frame opens into the turn over about half a
+  second and never overshoots — measured at 30.6% of a half-frame through a junction taken at the
+  boost top, against a 30% steady state.
+
+Near the map edge `followXZ`'s `±HALF_SPAN` clamp absorbs the lead, which is correct: there is
+nothing further out to frame. And a peek's ride home still lands exactly on the car — the follow then
+eases the frame back open ahead of it, which is a drift rather than the snap the tracked aim exists
+to avoid.
 
 `attachDragPan` reports the takeover through an `onPan` callback, fired once per gesture on the frame
 it crosses the slop — the same boundary that separates a tap from a drag. Both halves are asserted

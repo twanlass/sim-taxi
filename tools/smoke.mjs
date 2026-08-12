@@ -390,10 +390,12 @@ try {
     //
     // Waiting a fixed few seconds would be no evidence at all, since the taxi may spend them
     // sitting at a red — where a camera that was left parked also stays put. So this waits for the
-    // *taxi* to have covered ground and then asks whether the camera came with it. The follow-cam
-    // trails by design (rate 1.5 against ~8.5 u/s is a steady-state lag of about 5.7 units, and
-    // this page renders slowly enough to stretch that), so the gap is checked loosely and the
-    // camera's own travel is what carries the assertion.
+    // *taxi* to have covered ground and then asks whether the camera came with it.
+    //
+    // The gap cannot carry that on its own, because the follow does not sit on the taxi: it aims
+    // past it, by up to 13 units at cruise on this viewport (camera.js's LEAD_FRACTION). What
+    // separates following from parked is that the camera *travelled* — a parked one has moved
+    // nothing at all — so `camMoved` is the assertion and the gap is only a sanity bound.
     const before = JSON.parse(await evaluate(
       `JSON.stringify({ taxi: [window.__taxi.traffic.taxi.x, window.__taxi.traffic.taxi.z],
         cam: window.__taxi.camera.state.target.toArray() })`));
@@ -413,14 +415,13 @@ try {
       camMoved = Math.hypot(s.cam[0] - before.cam[0], s.cam[2] - before.cam[2]);
       gap = s.gap;
     }
-    // Asserted as "the taxi got well clear of where the camera was left, and the camera is not
-    // there": a parked camera ends up `drove` units behind, so the two thresholds together are
-    // what separate following from parked. The taxi's own travel has to clear the follow-cam's
-    // steady-state lag for that to mean anything, which is why it is polled for rather than timed.
+    // Asserted as "the taxi covered real ground and the camera covered most of it too". The taxi's
+    // own travel has to clear the follow's lag and lead for either half to mean anything, which is
+    // why it is polled for rather than timed.
     check('and the camera stays with the taxi afterwards',
-      ended !== null && drove > 12 && gap < 10,
+      ended !== null && drove > 12 && camMoved > drove * 0.5 && gap < 20,
       `taxi drove ${drove.toFixed(1)}, camera moved ${camMoved.toFixed(1)}, `
-      + `trailing by ${gap.toFixed(1)}`);
+      + `${gap.toFixed(1)} off the car`);
   } else {
     check('a chip tap pans instead of cutting', false,
       narrow ? 'no waiting rider on screen to tap' : 'viewport is not narrow');
