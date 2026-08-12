@@ -27,12 +27,9 @@ export const BODY_EULER_ORDER = 'YXZ';
  * fiddlier to vary.
  */
 export function bakeColor(geometry, colorInput) {
+  // Converted here rather than left to `bakeColors`, which would otherwise do it a second time and
+  // strand the first copy.
   const geo = geometry.index ? geometry.toNonIndexed() : geometry;
-
-  for (const name of Object.keys(geo.attributes)) {
-    if (name !== 'position' && name !== 'normal') geo.deleteAttribute(name);
-  }
-
   const c = colorInput instanceof THREE.Color ? colorInput : new THREE.Color(colorInput);
   const count = geo.attributes.position.count;
   const colors = new Float32Array(count * 3);
@@ -41,6 +38,28 @@ export function bakeColor(geometry, colorInput) {
     colors[i * 3 + 1] = c.g;
     colors[i * 3 + 2] = c.b;
   }
+  return bakeColors(geo, colors);
+}
+
+/**
+ * The same, with a colour already written per vertex — for geometry that wants a *gradient* rather
+ * than a flat fill.
+ *
+ * This works, and is worth writing down because it looks like it shouldn't: every mesh in this
+ * project is `flatShading: true`, and the obvious expectation is that a flat-shaded surface takes
+ * one colour per face. It does not. `FLAT_SHADED` only reaches the *normal*, which Three derives
+ * from a screen-space derivative of the view position; `vColor` stays an ordinary interpolated
+ * varying either way. So a gradient across a triangle costs nothing but the numbers — no extra
+ * vertices, no second material, no texture. The window reflections in `city/buildings.js` are
+ * built entirely out of that.
+ */
+export function bakeColors(geometry, colors) {
+  const geo = geometry.index ? geometry.toNonIndexed() : geometry;
+
+  for (const name of Object.keys(geo.attributes)) {
+    if (name !== 'position' && name !== 'normal') geo.deleteAttribute(name);
+  }
+
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
 

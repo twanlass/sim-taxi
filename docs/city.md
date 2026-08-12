@@ -125,6 +125,10 @@ shopfront at pavement level, and one of them gets a door with a light surround a
 a canopy over it. Interior lot lines get none of that: the difference between a building with a
 front and one glazed on all four sides is most of what makes a row of them read as a street.
 
+Glass carries a faux reflection: a vertex-colour gradient from `window` toward `windowSky`, with a
+diagonal streak across each façade taken from a noise field over the city. It costs no geometry and
+no rng — see [rendering.md](rendering.md#faux-window-reflections--citybuildingsjs).
+
 Openings are hand-wound quads batched one geometry per face, not `PlaneGeometry` each. A mid-rise
 carries forty windows and the city carries a few thousand; emitted individually they cost more to
 merge than the whole rest of the city. Hand-wound means `tools/probe.mjs` asserts the **sign of the

@@ -12,7 +12,9 @@ import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import { createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
-import { createBuildings, facadeQuads, pitchedRoof, SKYLINE_CEILING } from '../src/city/buildings.js';
+import {
+  createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
+} from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W } from '../src/sim/traffic.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -59,7 +61,7 @@ import { routePath, nearestOnPath, HEAD_GAP } from '../src/game/routeline.js';
 import { findRoute, findRouteVia, MAX_VIA_DETOUR, allIntersections } from '../src/game/route.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
 import { nearestJunction, nextIntersection } from '../src/city/grid.js';
-import { PALETTE } from '../src/palette.js';
+import { PALETTE, BUILDING_COLORS } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
 import { createBlast } from '../src/game/blast.js';
 import {
@@ -194,6 +196,47 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
     `${wound} vertices wound inward`);
   check('and every opening stands proud of it', sunk === 0,
     `${sunk} vertices at or behind the wall plane`);
+}
+
+// --- Faux window reflections ------------------------------------------------
+//
+// Glass is a vertex-colour gradient from `window` toward `windowSky` and nothing else — no envelope
+// map, no second material, no texture. Two things about that are worth holding down.
+{
+  const base = new THREE.Color(PALETTE.window);
+  const sky = new THREE.Color(PALETTE.windowSky);
+  const lum = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+
+  // One: the gradient has to survive the bake. `bakeColors` is the only path in the project that
+  // writes a colour per vertex rather than per geometry, and if it were ever flattened the windows
+  // would still look perfectly fine — just flat — which is exactly the sort of regression that
+  // ships. Asserted at the endpoints, where the answer is exact rather than a judgement.
+  const geo = facadeQuads([{ u: 0, y: 4, w: 1, h: 1.4, g: [0, 0, 1, 1] }],
+    0, 0, 0, 2, 2, base, 0.03, sky);
+  const col = geo.attributes.color;
+  // Vertex order within a quad is [BL, BR, TR, BL, TR, TL]: 0 is a bottom corner, 2 a top one.
+  const bottom = new THREE.Color(col.getX(0), col.getY(0), col.getZ(0));
+  const top = new THREE.Color(col.getX(2), col.getY(2), col.getZ(2));
+  check('a pane carries a gradient rather than one flat colour',
+    bottom.getHexString() === base.getHexString() && top.getHexString() === sky.getHexString(),
+    `bottom #${bottom.getHexString()} → top #${top.getHexString()}`);
+
+  // Two: a *punched* window never outshines the wall it is cut into. `windowSky` is more luminous
+  // than brick (0.25 against 0.18) and than slate, so at full strength a pane on either would come
+  // out brighter than the masonry around it — dark holes in a light wall becoming light patches on
+  // a dark one, which loses the scale cue palette.js keeps `window` dark for in the first place.
+  // Curtain walls are exempt by design and are not checked here: the glass is the wall there.
+  let inverted = 0;
+  const ceilings = [];
+  for (const family of BUILDING_COLORS) {
+    const body = new THREE.Color(PALETTE[family]);
+    const t = wallCeiling(body, base, sky);
+    ceilings.push(`${family} ${t.toFixed(2)}`);
+    const brightest = base.clone().lerp(sky, t);
+    if (lum(brightest) > lum(body)) inverted += 1;
+  }
+  check('a punched window never outshines its own wall', inverted === 0,
+    ceilings.join(', '));
 }
 
 // --- Roofs, and the flight path over them -----------------------------------

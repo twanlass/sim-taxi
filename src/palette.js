@@ -40,7 +40,27 @@ export const PALETTE = {
   rooftop: '#6B6F76',
 
   // Windows stay dark in every lighting condition, which is what sells scale on a blocky mass.
+  // This is the *bottom* of a pane now rather than the whole of it — see `windowSky`.
   window: '#3A424C',
+  // What a pane catches of the sky. Glass is lerped from `window` toward this across each opening
+  // and across each façade, which is the whole of the reflection: no envelope map, no second
+  // material, no texture — just a vertex colour that interpolates. See `bakeColors` in util/geo.js
+  // for why that works on a flat-shaded mesh at all.
+  //
+  // Nowhere near `skyTop` (#8CC4E8), and deliberately: this is a **reflection coefficient**, not
+  // the sky. Glass returns a few percent of what hits it and the rest is the dark room behind, so
+  // a pane painted the colour of the sky reads as a hole cut in the building. It also has to
+  // survive the rule above — windows sell a building's scale by staying dark, and a façade lerped
+  // all the way to this at the top still averages darker than the old flat `window` did, because
+  // the streak that reaches full strength covers about a fifth of a face.
+  //
+  // It has two blues to stay clear of and clears both on saturation rather than hue: `policeBody`
+  // (#2E5FA8) at 226° and the blue car (#4E7FC0) at 222°, against this one's 217°. Nine degrees and
+  // five is nothing — what separates them is 0.47 saturation against 0.87 and 0.75, and the fact
+  // that both of those are *moving boxes on a road* while this is a grid of eight-pixel rectangles
+  // ruled across a wall. A first pass at 0.33 was safer still and read as grey lightening rather
+  // than as sky.
+  windowSky: '#6E8CB0',
   // The ground floor is a different animal from the storeys above it: one continuous pane rather
   // than a punched hole, so it is a stop lighter than `window` (L 0.10 against 0.06) — a shopfront
   // catches the sky where a recessed window catches the room behind it. Keeping it a separate
