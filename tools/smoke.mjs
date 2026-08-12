@@ -560,6 +560,72 @@ try {
     await evaluate('document.activeElement?.blur()');
   }
 
+  // --- The initials prompt: after a tap, the field still has to be editable.
+  //
+  // The value is one centred 16px text run inside a box of three big cells, so a tap on the *first*
+  // cell is a tap well left of the text and the browser collapses the caret to offset 0. With a
+  // pre-filled name that is a dead field — backspace at the start of the value deletes nothing, and
+  // `maxlength` blocks every letter because three characters are already in there. The keyboard is
+  // up, the player types, and nothing on screen moves. That is what "I can't delete or edit" was.
+  // `caretToEnd` in runend.js pins the caret to the end of the value; this is the check that it
+  // still does.
+  //
+  // A real touch, not a synthesised one. An untrusted event does not place a caret, so a synthetic
+  // click would sail through this check against the exact bug it exists to catch.
+  //
+  // Reduced motion, so the prompt is on screen in one frame rather than 3.5s into the stat count —
+  // and, usefully, that path deliberately skips the programmatic `focus()`, which leaves the tap as
+  // the only thing that can focus the field. Which is the case on a phone anyway: iOS only opens
+  // the keyboard inside a user gesture.
+  await client.send('Emulation.setEmulatedMedia',
+    { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  await client.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+  await evaluate(`window.__taxi.showRunEnd({
+    scores: { rank: 1, id: 'smoke', name: 'TWA', entries: [], onName: () => [] },
+  })`);
+  await sleep(400);
+
+  const firstCell = JSON.parse(await evaluate(`(() => {
+    const cell = document.querySelector('.score-cell');
+    if (!cell) return 'null';
+    const r = cell.getBoundingClientRect();
+    return JSON.stringify({ x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) });
+  })()`) ?? 'null');
+
+  if (!firstCell) {
+    check('tapping the initials leaves an editable field', false, 'no prompt on screen');
+  } else {
+    await client.send('Input.dispatchTouchEvent',
+      { type: 'touchStart', touchPoints: [{ x: firstCell.x, y: firstCell.y, id: 1 }] });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await sleep(300);
+
+    const focused = await evaluate(
+      "document.activeElement === document.querySelector('.score-input')");
+    for (const type of ['keyDown', 'keyUp']) {
+      await client.send('Input.dispatchKeyEvent', {
+        type, code: 'Backspace', key: 'Backspace', text: type === 'keyDown' ? '\b' : undefined,
+        windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8,
+      });
+    }
+    await sleep(200);
+    const typed = JSON.parse(await evaluate(`(() => {
+      const i = document.querySelector('.score-input');
+      return JSON.stringify({ value: i.value, cells: [...document.querySelectorAll('.score-cell')].map((c) => c.textContent).join('') });
+    })()`));
+
+    check('a tap on the initials focuses the field', focused);
+    // The cells are the display, so they are checked alongside the value — a field that edits
+    // correctly behind three stale letters is the same bug from the player's side.
+    check('tapping the initials leaves an editable field',
+      typed.value === 'TW' && typed.cells === 'TW',
+      `"TWA" + tap cell 0 + backspace → value "${typed.value}", cells "${typed.cells}"`);
+  }
+
+  await evaluate("document.getElementById('run-end').hidden = true");
+  await client.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+  await client.send('Emulation.setEmulatedMedia', { features: [] });
+
   // --- Offline: a Home Screen launch has to work with no connection at all. This only proves
   // anything run against a built preview (`--url http://localhost:4173`) — the worker registration
   // in main.js is skipped under `import.meta.env.DEV` on purpose, since the dev server rewrites

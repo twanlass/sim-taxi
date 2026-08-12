@@ -1706,6 +1706,21 @@ window.__taxi = {
    * capture. Harmless while the loop is running, since the next frame overwrites it anyway.
    */
   redraw: () => renderFrame(),
+  /**
+   * Put the run-end screen up on demand, over a stub run — for `tools/smoke.mjs`.
+   *
+   * The initials prompt is the one screen in this game made of DOM a finger actually interacts
+   * with: a real field, a real caret, a real soft keyboard. None of that exists in the node suite,
+   * and the only other way in is to lose a run first, so the browser test needs a door. Everything
+   * the screen needs has a default here; the test overrides just the part it is checking.
+   */
+  showRunEnd: (opts = {}) => showRunEnd(hud.banner, {
+    title: 'Shift over',
+    reason: '',
+    stats: [{ label: 'Cash', value: 0, format: (n) => `$${n}` }],
+    onRetry: () => {},
+    ...opts,
+  }),
   /** Screen-space helpers so the browser smoke test can click real pixels. */
   taxiScreenPosition: taxiScreenPos,
   /** The pin the player is meant to be driving at — the newest one if two are on the board. */
