@@ -162,6 +162,31 @@ downward faces on a city whose roofs were all correct.
 > water tower and the mast are built *conditional on fitting*, and the probe checks the tallest
 > thing across 24 seeds rather than trusting the one city the flyover check happens to fly over.
 
+### The helipad
+
+**Exactly one a city, and it is chosen after every roof is built** — the same shape as the courtyard
+below, and for the same reason: "exactly one" cannot be decided lot by lot. It used to be a coin
+flip on any deck over 8.5 units with 16 square units of roof, which gave a pad to 23 cities in 60
+and none at all to the other 37. That was fine while it was scenery. It stopped being fine when a
+[helicopter started landing on it](rendering.md#the-rooftop-helicopter--gamechopperjs-geometryhelicopterjs),
+because a city with no pad is a city with no vignette.
+
+So `roofKit` records every flat deck it builds, and `choosePad` takes one once they all exist. The
+hard requirement is **width**, not height, which reads backwards until you look at the numbers: the
+tallest masses are the ones that have set back twice, so the widest deck over 8.5 units is typically
+3 to 5 across and demanding 4.2 of it left two thirds of all cities with nothing to choose. Any deck
+2.9 or wider can take the circle; the tall ones are preferred, and among them the roomier half is
+drawn from at random so the pad is a landmark rather than a rule. Seven cities in eight put it above
+8.5 units and the rest land between 6 and 8.
+
+The winner's roof furniture is then **spliced back out** of the parts list — a plant room in the
+middle of a landing circle is the one thing a deck like that cannot have, and the one unit that
+stays is moved into a corner only if the corner is genuinely clear of the paint. Building that
+furniture and dropping it costs one roof's worth of boxes a city, which is the price of taking the
+decision after every deck exists. `createBuildings` hands back `pad` — where the paint is, how wide
+the circle came out, and the deck's own dimensions, which is how the helicopter knows to line its
+approach up with the long axis of the roof.
+
 ### Courtyard blocks
 
 A hollow perimeter block — four wings round a planted yard. **Exactly one a city**, which is why

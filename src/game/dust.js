@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { color } from '../palette.js';
 
 // Dust kicked up behind the taxi in crazy mode — and, off the same pool, the wall of it a
-// barricade throws and the collar of smoke that rings a wreck.
+// barricade throws, the collar of smoke that rings a wreck, and the rotor wash a helicopter lifts
+// off a rooftop helipad eleven storeys up.
 //
 // Squashed low-poly spheres rather than camera-facing quads. A billboard is cheaper, but the puffs
 // sat in the same plane as the road and read as flat stickers next to the faceted cars; a lit
@@ -51,6 +52,11 @@ const WRECK_POWER = 1.15;
 const WRECK_RING = 3;
 const WRECK_LINGER = 1.5;
 const WRECK_START_SIZE = 1.2;
+
+// Where a puff starts, vertically, when nobody says otherwise: just off the road, which is where
+// all of this happens except the helicopter's. `add` takes a `y` for that one — see game/chopper.js
+// — and everything else keeps the road it was written against.
+const ROAD_Y = 0.3;
 
 export function createDust(scene, camera, rng) {
   // Detail 0: twenty faces. Enough to read as round at play zoom, few enough that the facets show.
@@ -147,10 +153,13 @@ export function createDust(scene, camera, rng) {
    * a slot the wreck collar painted grey comes back round to the boost trail — and a trail puff
    * that inherited it would be one grey puff in a white plume with nothing to explain it.
    *
+   * `y` is the surface the puff comes off. It defaults to the road because everything that spends
+   * this pool did, until a helicopter started landing on a roof.
+   *
    * Returns the slot, so a caller that wants a different *shape* of throw — the burst below — can
    * overwrite the velocity it was given rather than needing a second spawn path.
    */
-  function add(x, z, yaw, scale = 1, spread = 0.35, tint = null) {
+  function add(x, z, yaw, scale = 1, spread = 0.35, tint = null, y = ROAD_Y) {
     const slot = next;
     next = (next + 1) % MAX_PUFFS;
     mesh.setColorAt(slot, tint ? tintColor.set(tint) : WHITE);
@@ -159,7 +168,7 @@ export function createDust(scene, camera, rng) {
     span[slot] = LIFE * (scale > 1 ? 1.5 : 1);
     life[slot] = span[slot];
     px[slot] = x + rng.jitter(spread);
-    py[slot] = 0.3;
+    py[slot] = y;
     pz[slot] = z + rng.jitter(spread);
 
     // Drifts backwards from the car and rises.
@@ -198,17 +207,18 @@ export function createDust(scene, camera, rng) {
    * `opts.tint` paints the puffs (the wreck collar is this burst in smoke grey), `opts.ring`
    * starts each one that far out along its own bearing, so the burst opens as a collar around
    * something rather than as a cloud on top of it, `opts.linger` stretches how long they are
-   * given — a barricade throws dust that settles, a wreck leaves smoke that hangs — and
-   * `opts.startSize` starts them partway up the size curve rather than at a point.
+   * given — a barricade throws dust that settles, a wreck leaves smoke that hangs —
+   * `opts.startSize` starts them partway up the size curve rather than at a point, and `opts.y` is
+   * the surface it all comes off, for the one caller whose surface is a roof.
    */
   function burst(x, z, yaw, count = 26, power = 1,
-    { tint = null, ring = 0, linger = 1, startSize = START_SIZE } = {}) {
+    { tint = null, ring = 0, linger = 1, startSize = START_SIZE, y = ROAD_Y } = {}) {
     for (let n = 0; n < count; n++) {
       // The scatter on the *start* point is tied to the ring when there is one. At the barricade's
       // 1.35 × power it is nearly as wide as the wreck collar's own radius, which scatters half the
       // puffs back into the middle and fills in the hole the ring was opened for.
       const spread = ring > 0 ? ring * 0.35 : 1.35 * power;
-      const slot = add(x, z, yaw + rng.jitter(1.4), rng.range(1.9, 3.1) * power, spread, tint);
+      const slot = add(x, z, yaw + rng.jitter(1.4), rng.range(1.9, 3.1) * power, spread, tint, y);
 
       // Fanned around the circle by index rather than at random: 26 random bearings clump, and a
       // clump reads as a few big puffs in one place instead of as a wall going up. The jitter on

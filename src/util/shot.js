@@ -87,6 +87,17 @@ export const SHOTS = [
   // Framed on the taxi at the same zoom as `route-far`, and routed to the far corner for the same
   // reason: the bloom is 11 units wide and a two-block hop would be all bloom.
   { name: 'route-grab', description: 'the route band held under a finger', target: [0, 0], zoom: 22, warmup: 12, select: true, routeFar: true, grabAt: 0.4 },
+  // The helicopter on the pad, in its own dust. Staged for the reason every other ambient thing is
+  // — it visits once every couple of minutes and the landing itself lasts three seconds — and
+  // framed close, because at play zoom the machine is thirty pixels on a roof and the question this
+  // shot is asked to answer is whether the wash, the skids and the blade read at all. `heliAt` is
+  // seconds into the visit: 11.6 is a moment after touchdown, with the dust still going up and the
+  // rotor still winding down off flight rpm.
+  { name: 'heli', description: 'the helicopter settling onto a rooftop pad', target: [0, 0], zoom: 14, warmup: 12, heliAt: 11.6 },
+  // And the same visit at play zoom, which is the other half of the brief the flyover's shot has:
+  // an ambient event has to be noticeable without being a distraction, and that is not a judgement
+  // a close-up can make. 4.4s in is the turn onto final — out over the city, at full bank.
+  { name: 'heli-far', description: 'the helicopter banking onto final, at play zoom', target: [0, 0], zoom: 52, warmup: 12, heliAt: 4.4 },
 ];
 
 export function getActiveShot() {
