@@ -108,6 +108,12 @@ down.
   the container to `visualViewport` instead (`followKeyboard` in `runend.js`), and only when the two
   viewports actually disagree — Android resizes the layout viewport itself, and clamping on top of
   that takes the keyboard's height off twice.
+- **Two listeners on the same element fire in registration order, capture flag or not.** At the
+  target node the DOM spec runs capturing and bubbling listeners in the order they were added, so
+  `{ capture: true }` on the canvas does *not* let a later module beat `attachDragPan` to a
+  `pointerdown`. The only ordering that holds regardless of construction order is a capture
+  listener on an **ancestor** — which is why the route-band drag listens on `window`. Getting this
+  wrong throws nothing; the map just slides out from under a gesture meant for something else.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

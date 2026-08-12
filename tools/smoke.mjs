@@ -219,14 +219,93 @@ try {
     await sleep(200);
   };
 
+  // Pick an origin that is *not* on the route band. Pressing the band takes the gesture away from
+  // the camera on purpose (see below), so a pan check that happened to start on it would go on
+  // passing while measuring the wrong feature entirely — and there has been a route on screen
+  // since the fare tap above.
+  const panStart = JSON.parse(await evaluate(`(() => {
+    const spots = [[200, 420], [80, 700], [320, 200], [60, 180], [330, 770], [200, 640]];
+    for (const [x, y] of spots) if (!window.__taxi.pathDrag.hitTest(x, y)) return JSON.stringify({x, y});
+    return JSON.stringify({x: 200, y: 420});
+  })()`));
+
   const beforeDrag = await camTarget();
-  await dragFrom(200, 420, 120, 80);
-  check('dragging pans the camera', (await camTarget()) !== beforeDrag);
+  await dragFrom(panStart.x, panStart.y, 120, 80);
+  check('dragging pans the camera', (await camTarget()) !== beforeDrag,
+    `from (${panStart.x}, ${panStart.y})`);
 
   // A press that never crosses the slop must leave the camera exactly where it was.
   const beforeTap = await camTarget();
-  await dragFrom(200, 420, 3, 2);
+  await dragFrom(panStart.x, panStart.y, 3, 2);
   check('a tap does not pan the camera', (await camTarget()) === beforeTap);
+
+  // --- Dragging the route band re-routes the taxi, and does *not* pan.
+  //
+  // The routing itself is asserted in tools/probe.mjs, where a whole drive can be run headlessly.
+  // What only a browser can check is the wiring, and specifically the ordering: the grab listens
+  // on `window` in the capture phase precisely so it beats `attachDragPan`'s listener on the
+  // canvas, because listener order *within* one element is registration order whatever the capture
+  // flag says. Get that wrong and the symptom is not an error — it is the map sliding out from
+  // under a drag that was meant to move the route, which is invisible to every headless tool here.
+  //
+  // The gesture is held open across round trips (no pointerup until the end) because the re-plan
+  // happens in the frame loop rather than in the move handler: the route the drag produces does
+  // not exist yet at the moment the last `pointermove` returns.
+  const bandGrab = JSON.parse(await evaluate(`(() => {
+    const taxi = window.__taxi.traffic.taxi;
+    // Try a few points along the band rather than trusting one. The taxi keeps driving, so the
+    // route can be down to its last leg by the time this runs, and on a short band most of it is
+    // inside the head gap where a grab is deliberately refused. A failure here has to be able to
+    // say *why* — an intermittent 'the drag is broken' with no state attached is unactionable.
+    let pt = null;
+    for (const f of [0.45, 0.6, 0.35, 0.75, 0.25]) {
+      const p = window.__taxi.routeScreenPosition(f);
+      if (p && window.__taxi.pathDrag.hitTest(p.x, p.y)) { pt = p; break; }
+    }
+    if (!pt) return JSON.stringify({ ok: false, why: 'no grabbable point on the band'
+      + ' — legs ' + taxi.route.length + ', target ' + Boolean(taxi.pendingTarget)
+      + ', over ' + window.__taxi.fares.state.gameOver });
+    const c = ${GAME_CANVAS};
+    const before = window.__taxi.camera.state.target.toArray().join();
+    const ev = (type, cx, cy) => c.dispatchEvent(new PointerEvent(type, {
+      pointerId: 4, isPrimary: true, clientX: cx, clientY: cy, bubbles: true, cancelable: true }));
+    c.setPointerCapture = () => {};
+    ev('pointerdown', pt.x, pt.y);
+    const grabbed = window.__taxi.pathDrag.isGrabbing();
+    for (let s = 1; s <= 8; s++) ev('pointermove', pt.x + 7 * s, pt.y + 5 * s);
+    return JSON.stringify({
+      ok: true,
+      grabbed,
+      via: window.__taxi.pathDrag.via(),
+      legs: taxi.route.length,
+      panned: window.__taxi.camera.state.target.toArray().join() !== before,
+    });
+  })()`));
+
+  check('a press on the route band takes hold of it', bandGrab.ok && bandGrab.grabbed,
+    bandGrab.why ?? `via a point ${bandGrab.legs ?? '?'} legs from the destination`);
+  check('dragging the band names a waypoint', Boolean(bandGrab.via),
+    bandGrab.via ? `via (${bandGrab.via.i}, ${bandGrab.via.j})` : 'none named');
+  check('and does not pan the camera', bandGrab.ok && !bandGrab.panned);
+
+  // Let the frame loop turn the waypoint into a route, then release. The band having been lit the
+  // whole way is the other half of the promise, so the flourish is read back too — it is a shader
+  // uniform, which no screenshot of this software renderer would settle anyway.
+  await sleep(400);
+  const midDrag = JSON.parse(await evaluate(`JSON.stringify({
+    grabbing: window.__taxi.pathDrag.isGrabbing(),
+    legs: window.__taxi.traffic.taxi.route.length,
+    target: Boolean(window.__taxi.traffic.taxi.pendingTarget),
+  })`));
+  check('the route survives being dragged',
+    midDrag.grabbing && midDrag.legs > 0 && midDrag.target,
+    `${midDrag.legs} legs still planned`);
+
+  await evaluate(`${GAME_CANVAS}.dispatchEvent(new PointerEvent('pointerup', {`
+    + ' pointerId: 4, isPrimary: true, bubbles: true, cancelable: true }))');
+  await sleep(200);
+  check('letting go of the band ends the gesture',
+    (await evaluate('window.__taxi.pathDrag.isGrabbing()')) === false);
 
   // --- Tapping a rider-finder chip pans the camera to that rider rather than cutting to them.
   // The curve itself is covered in tools/probe.mjs; what only a browser can check is the wiring —

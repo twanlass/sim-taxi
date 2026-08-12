@@ -150,6 +150,19 @@ first attempt did.
 A flyover never appears in any *other* shot, and that is structural rather than lucky: shot mode
 never starts the frame loop, so nothing ever calls `flyover.update()` outside this one preset.
 
+Shot 19 (`route-grab`) is the third of these, and the most extreme case of it: the
+[grab flourish](gameplay.md#the-grab-flourish) exists **only while a finger is on the band**, and a
+screenshot has no finger. So the shot stages one — `routeLine.setGrab` plus `pathDrag.stage`, the
+latter existing for this and nothing else — and then aims at the grab point rather than at the
+taxi. That aim is the part worth keeping: the first cut inherited `route-far`'s framing on the car,
+and since the bloom is 11 units wide on a route that runs to the far corner of the map, the entire
+subject of the shot was off the bottom of the frame. `grabAt` is the fraction along the band to put
+the finger.
+
+It is also the shot that found the two things the flourish got wrong on the first build — a bloom
+that washed the band white and a handle that disappeared into it — neither of which any assertion
+here could have raised.
+
 Shot 18 (`birds`) stages a take-off the same way — the [park flock](rendering.md#the-park-flock--gamebirdsjs-geometrybirdjs)
 walks about for most of a run and its departure is over in a couple of seconds — with one difference
 worth knowing. It aims at the **park**, not at the birds: which park they picked comes off the run
@@ -310,8 +323,21 @@ These are the things that have actually cost time on this project:
 ## Test hook
 
 The tools drive the game through `window.__taxi` (`traffic`, `boost`, `skids`, `police`, `fares`,
-`daylight`, `pause`, `routeTo`, `findRoute`, `isSelected`, `redraw`) rather than through the DOM. That's what
-makes the suite fast.
+`daylight`, `pause`, `routeTo`, `findRoute`, `findRouteVia`, `pathDrag`, `isSelected`, `redraw`)
+rather than through the DOM. That's what makes the suite fast.
+
+`pathDrag` is there for the one thing only a browser can check about
+[dragging the route band](gameplay.md#dragging-the-route): that a press on the band beats
+`attachDragPan` to the gesture. Its `hitTest(clientX, clientY)` is what lets the camera-pan checks
+pick a drag origin that is *not* on the band — there has been a route on screen since the fare tap
+above them, and a pan check that quietly started re-routing the taxi instead would go on passing
+while measuring the wrong feature. `routeScreenPosition()` is the other half: a point on the band
+to press, read off the same `routePath` the band is built from, so a band that stopped being drawn
+where the tool thinks it is fails rather than drifting.
+
+That check also holds its gesture **open across CDP round trips** — `pointerdown`, the moves, then
+a sleep, then `pointerup` — because the re-plan happens in the frame loop rather than in the move
+handler. The route the drag produces does not exist yet when the last `pointermove` returns.
 
 > Shot mode renders **once** and stops — there is no loop behind a frozen shot. Poking the world
 > over CDP therefore changes nothing on screen until `__taxi.redraw()` is called, and
