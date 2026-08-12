@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { ROUTE_OPACITY } from '../game/routeline.js';
 import {
-  RING_GROW_TIME, RING_SHRINK_TIME, ringGrowScale, ringShrinkScale,
+  RING_GROW_TIME, RING_SHRINK_TIME, ringGrowScale, ringShrinkScale, createSweepFor,
 } from './targetring.js';
 
 // The mark a courier job puts on the ground: a **rounded square**, lying flat on the pavement
@@ -16,11 +16,14 @@ import {
 // silhouette is what carries it: a rounded square and a disc are told apart at 50px in a way two
 // hues never would be.
 //
-// Built as one rim shape and one fill shape shared by every pad on the board — only the position
-// ever differs, since a package has no clock and so no colour to step through. That is also why
-// there is **no sweep beam** here, unlike the fare disc: the beam is that disc's "this is the live
-// thing being driven at" cue, and a courier pad is not being driven at. It is a standing offer. A
-// pad that pulsed forever would be motion carrying no news.
+// Built as one rim, one fill and one sweep-band shape shared by every pad on the board — only the
+// position ever differs, since a package has no clock and so no colour to step through.
+//
+// **It wears the fare disc's beam**, off the same shader (targetring.js, `createSweepFor`). It was
+// left off at first, on the argument that the beam is the disc's "this is the live thing being driven
+// at" cue and a courier pad is a standing offer rather than a target. That reads worse than it argues:
+// on a board where the fare discs glint and the pads sit dead, the pads look like road paint somebody
+// forgot to clean up. The beam is what says a mark belongs to the game, and both marks do.
 
 /** Half-width of the pad. A shade under the fare disc's radius, so the square doesn't out-mass it. */
 export const PAD_R = 3.2;
@@ -61,6 +64,67 @@ const FILL_GEO = new THREE.ShapeGeometry(
   roundedSquare(PAD_R - PAD_RIM / 2, PAD_RADIUS - PAD_RIM / 2), 8,
 ).rotateX(-Math.PI / 2);
 
+// The beam's path. Same shader, same speed, same tail as the disc's — only the shape differs, which is
+// why the geometry is the only thing `createSweepFor` takes.
+//
+// Built by hand rather than from a torus, because the path is a rounded square. The perimeter is
+// sampled once, and each vertex carries its **normalised arc length** as `aAngle` — arc length, not
+// the angle from the centre, or the beam would visibly slow down along the flats and race round the
+// corners where the centre-angle sweeps fastest.
+const SWEEP_WIDTH = PAD_RIM * 1.4;   // a little fatter than the rim, so it reads as a glint on the edge
+const SWEEP_GEO = (() => {
+  // Sampled on the rim's own centreline, so the band sits over the rim rather than beside it.
+  const path = roundedSquare(PAD_R - PAD_RIM / 2, PAD_RADIUS - PAD_RIM / 2);
+  const pts = path.getPoints(96);
+  // `getPoints` closes the loop by repeating the first point; drop it so no zero-length segment
+  // appears, and wrap by index instead.
+  const last = pts[pts.length - 1];
+  if (Math.hypot(last.x - pts[0].x, last.y - pts[0].y) < 1e-6) pts.pop();
+
+  const n = pts.length;
+  // Cumulative arc length round the loop, normalised to 0..2π so it feeds the shared shader unchanged.
+  const cum = new Float32Array(n + 1);
+  for (let i = 0; i < n; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % n];
+    cum[i + 1] = cum[i] + Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  const total = cum[n];
+
+  const position = [];
+  const angle = [];
+  const half = SWEEP_WIDTH / 2;
+  // Outward normal of each segment, from its own tangent. Per segment rather than per vertex: the band
+  // is a couple of hundred pixels round at most, and mitring the corners of a shape this soft buys
+  // nothing the eye can see.
+  for (let i = 0; i < n; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % n];
+    const tx = b.x - a.x;
+    const ty = b.y - a.y;
+    const len = Math.hypot(tx, ty) || 1;
+    const nx = -ty / len;
+    const ny = tx / len;
+    const aOut = [a.x + nx * half, a.y + ny * half];
+    const aIn = [a.x - nx * half, a.y - ny * half];
+    const bOut = [b.x + nx * half, b.y + ny * half];
+    const bIn = [b.x - nx * half, b.y - ny * half];
+    const t0 = (cum[i] / total) * Math.PI * 2;
+    const t1 = (cum[i + 1] / total) * Math.PI * 2;
+    // Two triangles per segment, wound so the face normal comes out **+Y** after the rotation below.
+    // Asserted in tools/probe.mjs across every triangle rather than eyeballed — a band wound the wrong
+    // way is invisible from this camera, which is exactly what a missing beam looks like.
+    const push = (p, t) => { position.push(p[0], p[1], 0); angle.push(t); };
+    push(aIn, t0); push(bIn, t1); push(bOut, t1);
+    push(aIn, t0); push(bOut, t1); push(aOut, t0);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(position), 3));
+  geo.setAttribute('aAngle', new THREE.BufferAttribute(new Float32Array(angle), 1));
+  return geo.rotateX(-Math.PI / 2);
+})();
+
 /**
  * A courier pad in one colour.
  *
@@ -96,6 +160,9 @@ export function createParcelPad(colorHex) {
   fill.raycast = () => {};
   group.add(fill);
 
+  const sweep = createSweepFor(SWEEP_GEO, colorHex);
+  group.add(sweep.mesh);
+
   // Arrival and exit, exactly the fare disc's — see the note above `RING_GROW_TIME` in
   // targetring.js. The envelopes are imported rather than reimplemented: the two shapes differ, the
   // gesture must not, or a courier pad and a drop-off disc appearing on the same board would be two
@@ -106,10 +173,11 @@ export function createParcelPad(colorHex) {
 
   return {
     group,
-    /** Both layers together — they are one mark at two weights, never different colours. */
+    /** All three layers together — one mark at three weights, never different colours. */
     setColor(value) {
       rim.material.color.set(value);
       fill.material.color.set(value);
+      sweep.material.color.set(value);
     },
     /** Arrive: grow out of the centre. Scale goes to nothing now, so no frame draws it full-size. */
     appear() {
@@ -148,11 +216,10 @@ export function createParcelPad(colorHex) {
       pending = null;
     },
     isLeaving: () => pending === 'shrink' || goneAt !== null,
-    /**
-     * Advances whichever size animation is running. There is no beam to spin — see the note at the
-     * top of this file — so on a settled pad this is a couple of null checks.
-     */
+    /** Advances the beam circling the rim, and whichever size animation is running. */
     update(elapsed) {
+      sweep.update(elapsed);
+
       if (pending === 'grow') { grewAt = elapsed; pending = null; }
       else if (pending === 'shrink') { goneAt = elapsed; pending = null; }
 

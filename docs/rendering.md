@@ -1336,11 +1336,24 @@ envelopes exported from `targetring.js`, rather than a second implementation. Th
 differ; the gesture is not, or a courier pad and a drop-off disc landing on the same board would be
 two different kinds of event.
 
-**No sweep beam,** unlike the fare disc. The beam is that disc's "this is the live thing being
-driven at" cue, and a courier pad is not being driven at — it is a standing offer. A pad that pulsed
-forever would be motion carrying no news. `update()` exists as a no-op so a pad is drop-in
-interchangeable with a `createTargetRing` at the call site, and nothing calls `setColor`: a package
-has no clock to repaint for.
+**It wears the fare disc's beam** — same shader, same speed, same tail, off the shared
+`createSweepFor` in `targetring.js`. It was left off at first, on the argument that the beam is that
+disc's "this is the live thing being driven at" cue and a courier pad is a standing offer rather than a
+target. That reads worse than it argues: on a board where the fare discs glint and the pads sit dead,
+the pads look like road paint somebody forgot to clean up. The beam is what says a mark belongs to the
+game, and both marks do.
+
+The **path** is the only part that differs, which is why the geometry is the only thing `createSweepFor`
+takes — two copies of that shader patch would be two beams free to drift apart in speed, tail or
+falloff, and a board carrying a disc and a pad would show two subtly different kinds of "live". The
+band is built by hand round the rounded square, and each vertex carries its **normalised arc length**
+as `aAngle`, not its angle from the centre: on a rounded square those disagree badly — the centre angle
+races through the corners and crawls along the flats — so a beam keyed to the wrong one visibly changes
+speed four times a lap. `tools/probe.mjs` asserts radians-per-world-unit is near-constant round the
+path, and walks all 882 triangles of the three layers for their winding: a hand-wound band facing away
+from this camera is indistinguishable from a beam nobody added.
+
+Nothing calls `setColor`: a package has no clock to repaint for.
 
 > **Trap, and it fired.** The contour is hand-written, so its winding is **asserted, not eyeballed**
 > — the roadworks ramp below shipped wound clockwise throughout and read as z-fighting for weeks. The
@@ -1354,8 +1367,14 @@ has no clock to repaint for.
 A kraft box with a darker lid slab and a tape cross on top, merged into one mesh with one material
 the way every prop here is. Scale is the same deliberate lie [the
 figure](gameplay.md#the-taxis-roof-sign) tells: a real parcel beside a 3.4-unit car would be half a
-unit, which is four pixels at play zoom, so this is a crate a bit under 2 units — ~15px against the
-rider's ~25px, squat and wide where the figure is tall and thin.
+unit, which is four pixels at play zoom, so this is a crate a bit over one unit — squat and wide where
+the figure is tall and thin.
+
+**It was 2.4 units and read about twice too big.** The mistake was matching the rider's 3.3-unit
+*height*, which measures nothing the eye does: a box is mass in all three dimensions where the figure
+is a tall thin sliver, so a 2.4 crate beside a rider read as a shipping container beside a person. At
+1.35 the two have roughly the same apparent area, with the box a shade under — which is what "the same
+size" means for shapes this different.
 
 The cross is on the **top** face because the camera looks down the +X+Z diagonal, which makes the top
 the largest face on screen; a band around the girth would be mostly hidden. It is what says *parcel*
@@ -1390,12 +1409,12 @@ flight has to own its world position. Two nested groups, also the crystal's arra
 one carries the travel and the scale, the inner box goes on spinning and bobbing in local space, so
 the two concerns never fight over one transform.
 
-Going in it shrinks to `FLIGHT_MIN_SCALE` and fades to nothing over `FLIGHT_TIME` (0.55s, a shade under
+Going in it shrinks to `PARCEL_DECK_SCALE` and fades to nothing over `FLIGHT_TIME` (0.55s, a shade under
 the crystal's 0.65 — that one is tuned against the rider's run-and-jump, and the two flights should not
 look like the same object anyway), arcing 1.4 units over the middle. Coming out it does the reverse
 into the pad. Scale and alpha run *with* the travel rather than on their own curve, so the box reads as
-going into the car rather than as fading while it happens to move. It stops at 0.22 rather than at
-nothing, because 0.22 is the size of the deck parcel it becomes.
+going into the car rather than as fading while it happens to move. It stops at the deck parcel's own scale rather than at
+nothing, so the flight ends *on* the object it becomes instead of vanishing beside it.
 
 > **Trap.** `material.transparent` and `depthWrite` are shader-define switches, so changing `opacity`
 > alone does nothing until `needsUpdate` forces a recompile — the rider figure shipped that bug once
@@ -1414,12 +1433,17 @@ body, and the lift has to register on a car that is moving. The brake light and 
 alone — they are lamps with their own state, and lifting them would read as the taxi braking at the
 moment it accepted a package.
 
-The same factory builds the small one on the taxi's rear deck, scaled to 0.22. That copy is in the
+The same factory builds the small one on the taxi's rear deck, at `PARCEL_DECK_SCALE` — exported from
+the mesh and derived from its own width, rather than restated at each of the two call sites that want it
+(the deck copy, and what an incoming flight shrinks *to*). Three numbers encoding "the deck parcel is
+about half a unit wide" is three numbers to get wrong the day the box is resized, which is exactly the
+day that came. The ghost rim is written as a multiple of that scale for the same reason. That copy is in the
 ghost-outline stencil mask like every other opaque part of the car — not for its own silhouette, but
-because a part left *out* of the mask counts as an occluder of the rim behind it. Its rim is passed
-as `0.5` rather than the sign's `0.15`, because `addGhostOutline` inflates in the mesh's own geometry
-space and the 0.22 then shrinks it: 0.5 lands at 0.11 in taxi-local units. Passing 0.15 directly
-would trace a rim a fifth the sign's thickness and read as none at all.
+because a part left *out* of the mask counts as an occluder of the rim behind it. Its rim is written as a
+multiple of `PARCEL_DECK_SCALE` rather than as a raw number, because `addGhostOutline` inflates in the
+mesh's own geometry space and that scale then shrinks it — landing near the roof sign's 0.15 in
+taxi-local units on a part of much the same size. Passing 0.15 directly would trace a rim a fraction of
+the sign's thickness and read as none at all.
 
 ### The drop-off ring — `geometry/marker.js`
 

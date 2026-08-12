@@ -7,7 +7,7 @@ import {
   brakeLightGeometry, turnSignalGeometry, brakeLightMaterial, turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline } from './ghostoutline.js';
-import { createParcel } from './parcel.js';
+import { createParcel, PARCEL_DECK_SCALE } from './parcel.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
 // because it needs to be raycast against for picking, and because it wears things the ambient cars
@@ -127,11 +127,12 @@ export function createTaxiMesh() {
   // HUD entirely, which is what the reward being cash-only asks for.
   //
   // Behind the cabin (local -X is the rear — see TAXI_TAILPIPE_BACK, which is negated at the call
-  // site), on top of the 0.8-tall body, in the 0.65 units of deck the cabin leaves. Scaled down
-  // hard: the kerbside parcel is a deliberately oversized 2.4 units so it reads at all on a corner,
-  // and at that size it would be bigger than the cabin.
+  // site), on top of the 0.8-tall body, in the 0.65 units of deck the cabin leaves. Scaled down hard:
+  // the kerbside parcel is deliberately oversized so it reads at all on a corner, and at that size it
+  // would be wider than the cabin. `PARCEL_DECK_SCALE` is derived from the mesh's own width, so
+  // resizing the box does not silently resize the load.
   const cargo = createParcel({ pickable: null }).group;
-  cargo.scale.setScalar(0.22);
+  cargo.scale.setScalar(PARCEL_DECK_SCALE);
   cargo.position.set(-1.32, 1.18 + CHASSIS_LIFT, 0);
   cargo.visible = false;
   group.add(cargo);
@@ -140,10 +141,11 @@ export function createTaxiMesh() {
   // on the deck would punch a hole in the shell's ghost outline (the same way the wheels once
   // painted a yellow streak along the rocker panel).
   //
-  // The rim is inflated in the mesh's *own* geometry space, which the 0.22 above then shrinks: 0.5
-  // here lands at 0.11 in taxi-local units, near the roof sign's 0.15 on a part of much the same
-  // size. Passing 0.15 directly would trace a rim a fifth as thick as the sign's and read as none.
-  addGhostOutline(cargo.children[0], { rim: 0.5 });
+  // The rim is inflated in the mesh's *own* geometry space, which the scale above then shrinks — so it
+  // is written as a multiple of that scale rather than as a raw number, and lands near the roof sign's
+  // 0.15 in taxi-local units on a part of much the same size. Passing 0.15 directly would trace a rim a
+  // fraction of the sign's thickness and read as none at all.
+  addGhostOutline(cargo.children[0], { rim: 0.12 / PARCEL_DECK_SCALE });
 
   // Brake lights and turn signals — same geometry and materials sim/traffic.js builds its
   // InstancedMeshes from (see geometry/lights.js), just as ordinary Meshes here since the taxi is

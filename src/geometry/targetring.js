@@ -67,16 +67,25 @@ const SWEEP_SPEED = TWO_PI / 3.2;
 const SWEEP_TAIL = TWO_PI * 0.34;
 
 /**
- * The moving highlight, as a `MeshBasicMaterial` patched with a per-vertex angle attribute rather
- * than a bespoke `ShaderMaterial` — it wants everything the base material already does (the same
- * colour as the rim and fill, and three's ordinary `colorspace_fragment` output), only with the
- * alpha of each fragment computed from how far it sits behind a moving head angle.
+ * The moving highlight, over **any** band geometry carrying an `aAngle` attribute — the disc's torus
+ * below, and the courier pad's rounded-square band (geometry/parcelpad.js).
+ *
+ * Shared rather than reimplemented per shape, because the shader *is* the effect: two copies of this
+ * patch would be two beams that could drift apart in speed, tail length or falloff, and a board
+ * carrying both a disc and a pad would show two subtly different kinds of "this is live". The
+ * geometry is the only part that differs, so the geometry is the only part passed in.
+ *
+ * A `MeshBasicMaterial` patched rather than a bespoke `ShaderMaterial`: it wants everything the base
+ * material already does (the same colour as the rim and fill, and three's ordinary
+ * `colorspace_fragment` output), only with each fragment's alpha computed from how far it sits behind
+ * a moving head angle.
  *
  * `customProgramCacheKey` is load-bearing: three keys its program cache off a patched material's
  * *parameters*, not the patch, so without it this would collide with the plain rim material the
- * instant they shared a colour and silently draw with whichever material's shader compiled first.
+ * instant they shared a colour and silently draw with whichever material's shader compiled first. One
+ * key for every shape is correct — they compile the same source, and the geometry is what varies.
  */
-function createSweep(colorHex) {
+export function createSweepFor(geometry, colorHex) {
   const material = new THREE.MeshBasicMaterial({
     color: new THREE.Color(colorHex),
     transparent: true,
@@ -101,7 +110,7 @@ function createSweep(colorHex) {
         + '\t#include <dithering_fragment>');
   };
 
-  const mesh = new THREE.Mesh(SWEEP_GEO, material);
+  const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = 5;   // over the rim (4) and fill (3) — the beam rides on top of both
   mesh.raycast = () => {};
 
@@ -188,7 +197,7 @@ export function createTargetRing(colorHex) {
   fill.raycast = () => {};
   group.add(fill);
 
-  const sweep = createSweep(colorHex);
+  const sweep = createSweepFor(SWEEP_GEO, colorHex);
   group.add(sweep.mesh);
 
   // Growth/exit state. `pending` is a call waiting to be stamped; the stamp happens in `update` so

@@ -944,10 +944,13 @@ check('no two cars occupy the same space', worst > 1.6,
   // face the camera ever saw was its underside, and it read as z-fighting for weeks. A pad wound the
   // wrong way is a flat cyan square lying invisible on the road.
   const pad = createParcelPad(PALETTE.parcel);
-  const [rim, fill] = pad.group.children;
+  const [rim, fill, sweep] = pad.group.children;
   let badWinding = 0;
   let triangles = 0;
-  for (const mesh of [rim, fill]) {
+  // All three layers, the beam band included — it is a hand-wound strip round a rounded-square path,
+  // which is the layer most likely to come out inside-out, and a beam wound away from the camera is
+  // indistinguishable from a beam that was never added.
+  for (const mesh of [rim, fill, sweep]) {
     const p = mesh.geometry.attributes.position;
     // `ShapeGeometry` is **indexed**, so positions 0/1/2 are not a triangle — the index buffer is
     // what says which vertices make one, and reading the attribute in order tests a triangle that
@@ -977,9 +980,39 @@ check('no two cars occupy the same space', worst > 1.6,
   // Both layers, one hue, and it is the courier cyan rather than anything off the urgency scale — a
   // package has no clock, so a green-to-red hue here would be reporting a countdown that cannot
   // exist. Read back the way the fare disc's three layers are.
-  check('the courier pad wears the courier cyan',
-    rim.material.color.getHexString() === new THREE.Color(PALETTE.parcel).getHexString()
-    && fill.material.color.getHexString() === new THREE.Color(PALETTE.parcel).getHexString());
+  check('the courier pad wears the courier cyan on all three layers',
+    [rim, fill, sweep].every(
+      (m) => m.material.color.getHexString() === new THREE.Color(PALETTE.parcel).getHexString(),
+    ));
+  // The beam is the pad's "this mark belongs to the game" cue, and it is the fare disc's beam rather
+  // than a second implementation — same shader, so the same cache key, and an `aAngle` attribute is
+  // what that shader reads. A band without one draws a uniform glow: the pad simply looks brighter,
+  // with nothing travelling, which is the failure the eye is worst at naming.
+  check('the courier pad carries the disc beam, not a copy of it',
+    Boolean(sweep.geometry.attributes.aAngle)
+    && sweep.material.customProgramCacheKey() === 'ring-sweep'
+    && sweep.material.blending === THREE.AdditiveBlending);
+  // Arc length round the perimeter, not angle from the centre. On a rounded square those disagree
+  // badly — the centre angle races through the corners and crawls along the flats — so a beam keyed to
+  // the wrong one visibly changes speed four times a lap. Checked as the spacing between consecutive
+  // vertices being near-uniform, which is what arc-length parameterisation means.
+  check('the pad beam travels at a steady speed round the square', (() => {
+    const a = sweep.geometry.attributes.aAngle;
+    const p = sweep.geometry.attributes.position;
+    let minStep = Infinity;
+    let maxStep = 0;
+    // Each segment contributes six vertices, the first three of which span t0 -> t1 -> t1.
+    for (let v = 0; v + 1 < a.count; v += 6) {
+      const step = a.getX(v + 1) - a.getX(v);
+      if (step <= 0) continue;
+      const dx = p.getX(v + 1) - p.getX(v);
+      const dz = p.getZ(v + 1) - p.getZ(v);
+      const perUnit = step / (Math.hypot(dx, dz) || 1);
+      minStep = Math.min(minStep, perUnit);
+      maxStep = Math.max(maxStep, perUnit);
+    }
+    return maxStep / minStep < 1.35;
+  })(), 'radians per world unit is near-constant round the path');
   check('the courier pad is depth-tested and does not write depth',
     rim.material.depthTest && !rim.material.depthWrite
     && fill.material.depthTest && !fill.material.depthWrite);

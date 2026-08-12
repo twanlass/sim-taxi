@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createParcelPin, createParcelDropPin } from '../geometry/marker.js';
-import { createParcel } from '../geometry/parcel.js';
+import { createParcel, PARCEL_DECK_SCALE } from '../geometry/parcel.js';
 import { KERB_H } from '../city/ground.js';
 import { PARCEL_COLOR } from './urgency.js';
 import { allIntersections, findRoute } from './route.js';
@@ -130,10 +130,11 @@ export const PARCEL_PAD_LIFT = KERB_H + 0.12;
 /**
  * What the box shrinks to as it goes into the taxi, rather than to nothing.
  *
- * It stops at roughly the size of the parcel that appears on the rear deck (0.22 of this mesh), so
- * the flight ends on the object it becomes instead of vanishing next to it.
+ * Exactly the size of the parcel that appears on the rear deck, imported rather than restated, so the
+ * flight ends *on* the object it becomes instead of near it — and so resizing the box cannot leave the
+ * two disagreeing.
  */
-const FLIGHT_MIN_SCALE = 0.22;
+const FLIGHT_MIN_SCALE = PARCEL_DECK_SCALE;
 
 const NO_EVENTS = Object.freeze([]);
 

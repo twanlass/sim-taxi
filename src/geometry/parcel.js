@@ -7,30 +7,47 @@ import { PALETTE } from '../palette.js';
 // otherwise be standing. The same rig serves the small one riding on the taxi's rear deck and the
 // one that flies between the two (game/parcels.js), scaled down by its caller.
 //
-// **Built to read as 📦.** Four parts, and each is doing one job at ~15px:
+// **Built to read as 📦.** Four parts, and each is doing one job at the ~10px this ends up:
 //
 //   - a kraft body, and a slightly darker lid slab so the top seam is a plane rather than a stripe;
 //   - **one** semi-white tape strip, wrapping over the top and down two opposite faces — the single
 //     strip is what says *parcel* rather than *crate*. It was a cross first, which at this size read
-//     as a hot cross bun: two strips on a 2.4-unit box leave four small squares of card and the
-//     silhouette stops being a box with tape on it;
+//     as a hot cross bun: two strips leave four small squares of card and the silhouette stops being a
+//     box with tape on it;
 //   - a white shipping label on one face, beside the strip. It is the brightest thing on the box and
 //     the part that survives longest as the box shrinks.
 //
-// Scale is the same deliberate lie geometry/person.js tells. A real parcel beside a 3.4-unit car
-// would be about half a unit, which is four pixels at play zoom — invisible. This is a crate a bit
-// under 2 units tall, so it lands at ~15px against the rider's ~25px: an object on the corner rather
-// than grit on the screen, and *not a person* at a glance, being squat and wide where the figure is
-// tall and thin.
+// Scale is the same deliberate lie geometry/person.js tells. A real parcel beside a 3.4-unit car would
+// be about half a unit, which is four pixels at play zoom — invisible. This is a crate a bit over a
+// unit, which reads as an object on the corner rather than as grit on the screen, and as *not a person*
+// at a glance: squat and wide where the figure is tall and thin. See BOX_W for why it is not larger.
 //
 // One merged mesh with one material, like every other prop here — colour rides in the geometry via
 // bakeColor, so the whole box is one draw call however many colours the tape and label add.
 
-const BOX_W = 2.4;         // X and Z; a square footprint, so the spin never changes its width
-const BOX_H = 1.9;
-const LID_H = 0.16;
-const TAPE_W = 0.42;
-const TAPE_PROUD = 0.04;   // how far the strip stands off the card it is stuck to
+// X and Z; a square footprint, so the spin never changes its width.
+//
+// **It was 2.4 and read about twice too big.** A box is mass in all three dimensions where the rider
+// figure is a tall thin sliver, so matching the figure's 3.3-unit *height* matched nothing the eye
+// actually measures — a 2.4 crate beside a rider read as a shipping container beside a person. At 1.35
+// the box is a shade smaller than the figure on the axis that matters (apparent area) while still
+// clearing the ~10px floor a shape needs to be a shape at play zoom rather than a smudge.
+const BOX_W = 1.35;
+const BOX_H = 1.07;
+const LID_H = 0.09;
+const TAPE_W = 0.24;
+const TAPE_PROUD = 0.024;  // how far the strip stands off the card it is stuck to
+
+/**
+ * Scale a parcel is drawn at when it is riding on the taxi's rear deck.
+ *
+ * Here rather than at the two call sites that need it (geometry/taxi.js for the deck copy,
+ * game/parcels.js for what the incoming flight shrinks *to*), because it is a fact about this mesh:
+ * three numbers encoding "the deck parcel is about half a unit wide" is three numbers to remember when
+ * the box is resized, and resizing the box is exactly what just happened. Derived from `BOX_W` so it
+ * follows automatically.
+ */
+export const PARCEL_DECK_SCALE = 0.53 / BOX_W;
 
 /**
  * @param pickable  the `userData.pickable` kind, or null for a parcel that is scenery. The picker
@@ -54,7 +71,7 @@ export function createParcel({ pickable = 'parcel' } = {}) {
   box(BOX_W, BOX_H, BOX_W, 0, BOX_H / 2, 0, PALETTE.parcelBox);
   // Very slightly proud of the body on every side, so the lid reads as a separate plane rather than
   // as a stripe painted on one — at this size a flush inset vanishes.
-  box(BOX_W + 0.06, LID_H, BOX_W + 0.06, 0, BOX_H + LID_H / 2, 0, PALETTE.parcelLid);
+  box(BOX_W + 0.034, LID_H, BOX_W + 0.034, 0, BOX_H + LID_H / 2, 0, PALETTE.parcelLid);
 
   // The tape strip: one slab, narrow in X and proud in Z and in Y, which puts it across the top and
   // straight down both Z faces in a single part. The camera looks down the +X+Z diagonal, so one
@@ -72,10 +89,10 @@ export function createParcel({ pickable = 'parcel' } = {}) {
   // that looked like a lighting artefact rather than a label.
   //
   // Proud of the *tape*, not just the card, or it would be buried where the two meet. Kept clear of
-  // the strip in X so the two never fight for the same pixels at 15px.
+  // the strip in X so the two never fight for the same pixels at this size.
   for (const side of [1, -1]) {
-    box(0.86, 0.66, 0.06,
-      0.66 * side, 1.06, side * (BOX_W / 2 + TAPE_PROUD + 0.03), PALETTE.parcelLabel);
+    box(0.48, 0.37, 0.034,
+      0.37 * side, 0.60, side * (BOX_W / 2 + TAPE_PROUD + 0.02), PALETTE.parcelLabel);
   }
 
   const merged = mergeGeometries(parts, false);
@@ -99,7 +116,7 @@ export function createParcel({ pickable = 'parcel' } = {}) {
    */
   function idle(t) {
     group.rotation.y = t * 0.55;
-    group.position.y = Math.sin(t * 1.6) * 0.12;
+    group.position.y = Math.sin(t * 1.6) * 0.07;
   }
 
   /**
