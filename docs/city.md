@@ -82,7 +82,9 @@ traffic routes around it and the router plans around it for free.
 
 The districts and the lone pocket parks are also the only thing in the city with any wildlife in it:
 `game/birds.js` reads the same bounds `city/props.js` plants trees inside, and puts a flock down on
-one of them. See [rendering.md](rendering.md#the-park-flock--gamebirdsjs-geometrybirdjs).
+one of them. **Two flocks, in two different parks** — every seed produces between two and five green
+areas big enough to hold one, and one flock left the other four empty. See
+[rendering.md](rendering.md#the-park-flock--gamebirdsjs-geometrybirdjs).
 
 This is the one generation step that can silently break the game, so the probe asserts two things:
 no vehicle is ever inside a park's bounds, **and** all 5,184 `(approach, destination)` pairs remain

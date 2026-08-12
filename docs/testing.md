@@ -156,7 +156,12 @@ worth knowing. It aims at the **park**, not at the birds: which park they picked
 seed and moves between shots, and the flock is in the air by the time the shot freezes, so aiming at
 it would run into the same orthographic trap the flyover's aim solves. The park is on the ground and
 does not move. The same structural point applies in reverse here: since the frame loop never runs,
-every *other* shot renders the flock exactly as `createBirds` settled it — standing on the grass.
+every *other* shot renders both flocks exactly as `createBirds` settled them — standing on the grass.
+
+Both flocks go up in shot 18 and the framing follows `flocks[0]`. The other one is a park or more
+away, and a zoom that held them both would put each bird back to the handful of pixels this shot
+exists to get past. To look at the second, `?shot=0` has both parks in frame at play zoom — which is
+the framing the pair is actually for.
 
 Both browser tools take the same two env overrides, for boxes that aren't a Mac desktop:
 
