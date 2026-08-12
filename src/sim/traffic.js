@@ -1413,8 +1413,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   taxi.isTruck = false;
 
   const {
-    group: taxiGroup, setOccupied: setTaxiOccupied, setSteer: setTaxiSteer,
-    setLights: setTaxiLights,
+    group: taxiGroup, setOccupied: setTaxiOccupied, setCargo: setTaxiCargo,
+    setSteer: setTaxiSteer, setLights: setTaxiLights,
   } = createTaxiMesh();
   scene.add(taxiGroup);
 
@@ -3166,7 +3166,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   }
 
   return {
-    cars, taxi, taxiGroup, setTaxiOccupied, setCarCount, mesh, wheelMesh, barMesh, update, warmup,
+    cars, taxi, taxiGroup, setTaxiOccupied, setTaxiCargo, setCarCount, mesh, wheelMesh, barMesh,
+    update, warmup,
     wreckShell, stats,
     lightPhase, displayPhase,
     // The instanced cars, index-aligned with `mesh`, and how `wheelMesh` is indexed off them

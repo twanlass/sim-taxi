@@ -7,6 +7,7 @@ import {
   brakeLightGeometry, turnSignalGeometry, brakeLightMaterial, turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline } from './ghostoutline.js';
+import { createParcel } from './parcel.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
 // because it needs to be raycast against for picking, and because it wears things the ambient cars
@@ -118,6 +119,32 @@ export function createTaxiMesh() {
   // A smaller rim than the shell's: the default 0.3 on a 0.34-unit-tall sign would double it.
   addGhostOutline(sign, { rim: 0.15 });
 
+  // The courier's load: a small parcel on the rear deck while a package is aboard (game/parcels.js).
+  //
+  // An object on the car rather than anything on the glass, for the reason the roof sign is one: the
+  // taxi already answers "am I carrying someone" by lighting up, and "am I carrying a package" is
+  // answered best by a package being visibly on the taxi. It also keeps the courier layer off the
+  // HUD entirely, which is what the reward being cash-only asks for.
+  //
+  // Behind the cabin (local -X is the rear — see TAXI_TAILPIPE_BACK, which is negated at the call
+  // site), on top of the 0.8-tall body, in the 0.65 units of deck the cabin leaves. Scaled down
+  // hard: the kerbside parcel is a deliberately oversized 2.4 units so it reads at all on a corner,
+  // and at that size it would be bigger than the cabin.
+  const cargo = createParcel({ pickable: null }).group;
+  cargo.scale.setScalar(0.22);
+  cargo.position.set(-1.32, 1.18 + CHASSIS_LIFT, 0);
+  cargo.visible = false;
+  group.add(cargo);
+  // In the stencil mask like every other opaque part of the car. Not for its own silhouette: any
+  // taxi part left *out* of the mask counts as an occluder of the rim behind it, so an unmasked box
+  // on the deck would punch a hole in the shell's ghost outline (the same way the wheels once
+  // painted a yellow streak along the rocker panel).
+  //
+  // The rim is inflated in the mesh's *own* geometry space, which the 0.22 above then shrinks: 0.5
+  // here lands at 0.11 in taxi-local units, near the roof sign's 0.15 on a part of much the same
+  // size. Passing 0.15 directly would trace a rim a fifth as thick as the sign's and read as none.
+  addGhostOutline(cargo.children[0], { rim: 0.5 });
+
   // Brake lights and turn signals — same geometry and materials sim/traffic.js builds its
   // InstancedMeshes from (see geometry/lights.js), just as ordinary Meshes here since the taxi is
   // one car, not a fleet. "On"/"off" is the mesh's own scale, same as an ambient car's instance —
@@ -146,6 +173,11 @@ export function createTaxiMesh() {
     sign.material.color.set(occupied ? PALETTE.taxiSign : PALETTE.taxiTrim);
   };
 
+  /** Shows the parcel on the rear deck while a courier package is aboard. */
+  const setCargo = (loaded) => {
+    cargo.visible = loaded;
+  };
+
   /** Front-wheel lock, in radians. Both wheels take the same angle — at this zoom the Ackermann
    * difference between inner and outer is well under a pixel. */
   const setSteer = (angle) => {
@@ -163,5 +195,5 @@ export function createTaxiMesh() {
     turnRightLight.scale.setScalar(turnRightLevel);
   };
 
-  return { group, sign, setOccupied, setSteer, setLights };
+  return { group, sign, setOccupied, setCargo, setSteer, setLights };
 }

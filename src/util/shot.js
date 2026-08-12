@@ -87,6 +87,20 @@ export const SHOTS = [
   // Framed on the taxi at the same zoom as `route-far`, and routed to the far corner for the same
   // reason: the bloom is 11 units wide and a two-block hop would be all bloom.
   { name: 'route-grab', description: 'the route band held under a finger', target: [0, 0], zoom: 22, warmup: 12, select: true, routeFar: true, grabAt: 0.4 },
+  // The package courier (game/parcels.js). **Both need `?parcels=1`** — the layer is off in shot
+  // mode by default, and `untilParcel` has nothing to frame without it.
+  //
+  // Two framings because the two questions are at different distances. Close: does a kraft box read
+  // as a *parcel* at all, and does the tape cross survive? At play zoom: is the pad's rounded square
+  // distinguishable from a fare's disc, which is the whole of "shape says what a thing is" and the
+  // one claim no assertion can make.
+  { name: 'parcel', description: 'a package waiting on its pad — needs ?parcels=1', target: [0, 0], zoom: 11, warmup: 12, untilParcel: true },
+  { name: 'parcel-board', description: 'a courier pad against the fare board at play zoom — needs ?parcels=1', target: [0, 0], zoom: 30, warmup: 12, untilParcel: true },
+  // The taxi wearing its load. `withCargo` shows the rear-deck parcel outright rather than driving
+  // the car to a pad and collecting one — the same staging licence `wreckAt` and `grabAt` take, and
+  // for the same reason: a still frame cannot spend the seconds the real path costs, and what is
+  // being looked at is whether a box on the deck reads as cargo rather than as a lump on the roof.
+  { name: 'parcel-aboard', description: 'the taxi carrying a package — needs ?parcels=1', target: [0, 0], zoom: 16, warmup: 12, select: true, untilPickup: true, withCargo: true },
 ];
 
 export function getActiveShot() {
@@ -109,6 +123,25 @@ export function getCarCount(fallback = 12) {
   if (raw === null) return fallback;
   const parsed = Number.parseInt(raw, 10);
   return Number.isNaN(parsed) ? fallback : Math.max(1, parsed);
+}
+
+/**
+ * Whether the package courier layer runs, via `?parcels=0` / `?parcels=1`.
+ *
+ * Returns **null when unpinned**, the way `getDifficultyPin` does, because the default is not a
+ * constant: the layer ships on in an ordinary run and off in shot mode. Every framing in the sweep
+ * was composed before packages existed, and a cyan pad wandering into one is a change to a reference
+ * image that has nothing to do with whatever is being looked at.
+ *
+ * So `?parcels=0` clears the board to measure the fare loop alone (the way `?cars=1` clears the
+ * roads), and `?parcels=1` forces it back on — including in shot mode, which is the only way to
+ * point a camera at a courier job.
+ */
+export function getParcelsPin() {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('parcels');
+  if (raw === null || raw === '') return null;
+  return !(raw === '0' || raw === 'off' || raw === 'false');
 }
 
 /**

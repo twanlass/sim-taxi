@@ -84,6 +84,20 @@ down.
   reads exactly like z-fighting and got reported as such. `flatShading` (below) is why it lit like a
   surface instead of going black. Check the sign of a face normal computed *from the winding*;
   `computeVertexNormals` launders a reversed triangle into whatever its neighbours say.
+- **`ShapeGeometry` is indexed, so `attributes.position` 0/1/2 is not a triangle.** The winding check
+  on the courier pad (`geometry/parcelpad.js`) went red on its first run against a pad that was
+  perfectly fine: reading the position attribute in order tests a triangle that does not exist. Walk
+  `geometry.index` and compute the normal from *that* winding — for every triangle, not just the
+  first. This is the same trap one layer down from the one above it: a winding check written wrong
+  fails exactly like a winding bug.
+- **Re-planning a route every frame stalls the taxi.** `pathdrag` clears `routeConsumed` on every
+  frame the finger is down, which is safe for the second or two a gesture lasts and not safe as a
+  policy: the turn the car has already committed to never retires from the route, so it sits
+  re-deciding the same junction. A probe that bent the route toward a package on every tick earned
+  $34 in seven simulated minutes and delivered nothing. Key a plan on its endpoints and leave it
+  alone in between.
+- **`makeRng()` returns an object, not a function.** `rng()` throws `rng is not a function`; the
+  members are `next`, `range`, `int`, `gauss`, `pick`, `chance`, `jitter`. Reach for `rng.pick(arr)`.
 - **`rotation.set(roll, yaw, pitch)` on the default Euler order rolls about the *world* X axis.**
   Three composes `'XYZ'` as Rx·Ry·Rz, so the roll lands outside the yaw. It coincides with the car's
   own long axis only when the car is driving east: north and south render the roll as pitch and show

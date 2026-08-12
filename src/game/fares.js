@@ -212,7 +212,16 @@ function blockFor(i, j) {
   return { bi: i === 0 ? 0 : i - 1, bj: j === 0 ? 0 : j - 1 };
 }
 
-const onSameBlock = (a, b) => {
+/**
+ * Whether two intersections' corner pins stand on the same physical block.
+ *
+ * Exported for `game/parcels.js`, which has to keep a package's two ends apart for exactly the
+ * reason a fare's are kept apart — and must not re-derive it. A plain `(i, j)` equality check is
+ * blind to the aliasing `blockFor` describes: near the map's origin edge two intersections a whole
+ * block apart by `blockDistance` still park their pins on the same slab, because `cornerFor` flips
+ * the corner inward at `i === 0`.
+ */
+export const onSameBlock = (a, b) => {
   const ba = blockFor(a.i, a.j);
   const bb = blockFor(b.i, b.j);
   return ba.bi === bb.bi && ba.bj === bb.bj;
@@ -1042,6 +1051,15 @@ export function createFareSystem(rng, scene) {
     update,
     /** Freeze/unfreeze every fare's countdown. See `paused` on the state above. */
     setPaused: (paused) => { state.paused = paused; },
+    /**
+     * Add to the run's cash without a fare behind it — the package courier's payout
+     * (game/parcels.js).
+     *
+     * `state.money` is the run's total, not the fare loop's: the counter rolls to it and the run-end
+     * card prints it as "Cash", so courier income belongs in it. This exists so that addition is a
+     * call rather than main.js reaching into another module's state to do it by hand.
+     */
+    credit: (amount) => { state.money += amount; },
     crash,
     pickables,
     fareFor,

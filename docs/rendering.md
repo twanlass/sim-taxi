@@ -1297,6 +1297,61 @@ The beam has to be told to spin: `ring.update(elapsed)` is called from `game/far
 per-frame `update` while the rider's disc is visible, and from `game/fares.js`'s fare loop while a
 fare is `riding`, for the drop-off's. Neither ring ticks while hidden.
 
+### The courier pad — `geometry/parcelpad.js`
+
+A **rounded square** lying flat on the pavement corner, in the courier's fixed cyan: one rim shape
+with the inner square punched out of it as a hole, and one fill shape at the route band's own
+`ROUTE_OPACITY`. Both ends of a package's trip wear one. Same `RING_Y`, same depth-tested /
+`depthWrite: false` pair, and the same load-bearing reason as [the target
+disc](#the-target-disc--geometrytargetringjs): the far half of a flat shape projects *upward on
+screen* at this camera angle, so without the depth test the pad would paint a band across the box
+standing in the middle of it.
+
+**The shape is the whole point.** A courier job is not a fare and is not reached the way one is, so
+it gets a silhouette of its own rather than a second hue on a disc — see
+[gameplay.md](gameplay.md#a-package-has-no-clock-and-so-has-no-diamond). `tools/probe.mjs` asserts
+the corners reach further from the centre than the edge midpoints do, which is true of a square and
+false of every circle: if the pad ever silently becomes a disc, a package and a fare destination
+stop being distinguishable at zoom, and no other check would notice.
+
+**No sweep beam,** unlike the fare disc. The beam is that disc's "this is the live thing being
+driven at" cue, and a courier pad is not being driven at — it is a standing offer. A pad that pulsed
+forever would be motion carrying no news. `update()` exists as a no-op so a pad is drop-in
+interchangeable with a `createTargetRing` at the call site, and nothing calls `setColor`: a package
+has no clock to repaint for.
+
+> **Trap, and it fired.** The contour is hand-written, so its winding is **asserted, not eyeballed**
+> — the roadworks ramp below shipped wound clockwise throughout and read as z-fighting for weeks. The
+> check went red on the first run, and for a third reason worth recording: `ShapeGeometry` is
+> **indexed**, so `attributes.position` items 0/1/2 are not a triangle. Reading the attribute in
+> order tests a triangle that does not exist, and reported a perfectly good pad as face-down. The
+> check walks the index buffer and computes the normal from the winding across all 106 triangles.
+
+### The parcel — `geometry/parcel.js`
+
+A kraft box with a darker lid slab and a tape cross on top, merged into one mesh with one material
+the way every prop here is. Scale is the same deliberate lie [the
+figure](gameplay.md#the-taxis-roof-sign) tells: a real parcel beside a 3.4-unit car would be half a
+unit, which is four pixels at play zoom, so this is a crate a bit under 2 units — ~15px against the
+rider's ~25px, squat and wide where the figure is tall and thin.
+
+The cross is on the **top** face because the camera looks down the +X+Z diagonal, which makes the top
+the largest face on screen; a band around the girth would be mostly hidden. It is what says *parcel*
+rather than *crate*.
+
+`idle(t)` is a slow Y spin plus a gentle bob, off sim time. The rider's answer to "come and get me" is
+a raised waving arm; a box has no arm, so the motion carries all of it — and it is deliberately
+slower than the wave, because a parcel is not impatient, it has no clock. The footprint is square so
+the spin never changes the silhouette's width, which is what makes it read as turning rather than as
+pulsing.
+
+The same factory builds the small one on the taxi's rear deck, scaled to 0.22. That copy is in the
+ghost-outline stencil mask like every other opaque part of the car — not for its own silhouette, but
+because a part left *out* of the mask counts as an occluder of the rim behind it. Its rim is passed
+as `0.5` rather than the sign's `0.15`, because `addGhostOutline` inflates in the mesh's own geometry
+space and the 0.22 then shrinks it: 0.5 lands at 0.11 in taxi-local units. Passing 0.15 directly
+would trace a rim a fifth the sign's thickness and read as none at all.
+
 ### The drop-off ring — `geometry/marker.js`
 
 The drop-off is a **filled disc on the kerb corner and nothing else** — no head, no post. It was a

@@ -179,6 +179,23 @@ export const PALETTE = {
   // game-entity colour here: it has to read against muted buildings from across the board.
   vip: '#A64DFF',
 
+  // The package courier — see game/parcels.js.
+  //
+  // `parcel` is the hue of both of a package's discs (the corner it waits on and the pad it is
+  // going to) and of the route band while the taxi is driving at either. Fixed, and outside the
+  // urgency scale, on exactly the argument `vip` above is made on: a package carries **no clock**,
+  // so painting it green-through-red would be reporting a countdown that does not exist. Cyan
+  // because nothing else here is — clear of urgency's red-to-green, the VIP purple, and the
+  // taxi/routeLine yellow, all of which can be on the board at the same moment. (The old
+  // `destination` teal noted below was the nearest neighbour, and it is free again.)
+  parcel: '#22C3D6',
+  // The box itself: kraft card, a darker lid slab and darker tape again. Muted on purpose — the
+  // parcel is found by the cyan disc under it, and a box in the disc's own colour would read as
+  // part of the marker instead of as cargo sitting on it.
+  parcelBox: '#C69A63',
+  parcelLid: '#A87F4C',
+  parcelTape: '#7C5C3E',
+
   // Urgency, indexed by how much of the clock is left, in quarters. Deliberately not a ramp: a
   // colour that changes imperceptibly tells the player nothing, so it snaps at each quarter lost.
   // 1 and 0 share red — by then there is nothing redder to go to.

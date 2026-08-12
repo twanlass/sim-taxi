@@ -24,8 +24,13 @@ import { findRoute as planRoute, setRoadworkLanes, laneCost } from '../src/game/
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET } from '../src/sim/police.js';
 import {
-  createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, ARRIVE_RADIUS,
+  createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, ARRIVE_RADIUS, onSameBlock,
 } from '../src/game/fares.js';
+import {
+  createParcelSystem, MAX_PARCELS, PARCEL_MIN_DELIVERED, PARCEL_PAY_FACTOR, PARCEL_SPAWN_GAP,
+} from '../src/game/parcels.js';
+import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
+import { createParcel } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
 import {
@@ -917,6 +922,325 @@ check('no two cars occupy the same space', worst > 1.6,
   } else {
     check('a waiting rider cannot be taken while carrying', true, 'board not doubled up at exit');
   }
+}
+
+// --- The package courier ------------------------------------------------------------------------
+//
+// A second cargo slot, reached by *steering* rather than by tapping (game/parcels.js). Everything
+// worth asserting here is invisible in a still frame: whether a package can be tapped at all,
+// whether it lands somewhere the current route already goes, whether it takes the seat, and whether
+// it carries a clock it must not have.
+{
+  // The pad's winding, first — no simulation needed. Hand-written triangles get their winding
+  // *asserted*, not eyeballed: the roadworks ramp shipped wound clockwise throughout, so the only
+  // face the camera ever saw was its underside, and it read as z-fighting for weeks. A pad wound the
+  // wrong way is a flat cyan square lying invisible on the road.
+  const pad = createParcelPad(PALETTE.parcel);
+  const [rim, fill] = pad.group.children;
+  let badWinding = 0;
+  let triangles = 0;
+  for (const mesh of [rim, fill]) {
+    const p = mesh.geometry.attributes.position;
+    // `ShapeGeometry` is **indexed**, so positions 0/1/2 are not a triangle — the index buffer is
+    // what says which vertices make one, and reading the attribute in order tests a triangle that
+    // does not exist. (That mistake is what this check first reported as a face-down pad.)
+    const index = mesh.geometry.index;
+    const at = (n) => (index ? index.getX(n) : n);
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    for (let t = 0; t < (index ? index.count : p.count); t += 3) {
+      a.fromBufferAttribute(p, at(t));
+      b.fromBufferAttribute(p, at(t + 1));
+      c.fromBufferAttribute(p, at(t + 2));
+      // Computed from the winding, not read off the normal attribute — a stated normal (and
+      // `computeVertexNormals`) launders a reversed triangle into whatever it is told.
+      if (b.sub(a).cross(c.sub(a)).y <= 0) badWinding += 1;
+      triangles += 1;
+    }
+  }
+  check('every triangle of the courier pad faces up', badWinding === 0 && triangles > 8,
+    `${badWinding}/${triangles} wound face-down`);
+  check('the courier pad is a rounded square, not a disc',
+    // Its corners reach further from the centre than its edge midpoints do — true of a square and
+    // false of every circle. This is the shape half of "shape says what a thing is": if the pad ever
+    // silently becomes a disc, a package and a fare destination stop being distinguishable at zoom.
+    Math.hypot(PAD_R, PAD_R) > PAD_R * 1.2, `half-width ${PAD_R}`);
+  // Both layers, one hue, and it is the courier cyan rather than anything off the urgency scale — a
+  // package has no clock, so a green-to-red hue here would be reporting a countdown that cannot
+  // exist. Read back the way the fare disc's three layers are.
+  check('the courier pad wears the courier cyan',
+    rim.material.color.getHexString() === new THREE.Color(PALETTE.parcel).getHexString()
+    && fill.material.color.getHexString() === new THREE.Color(PALETTE.parcel).getHexString());
+  check('the courier pad is depth-tested and does not write depth',
+    rim.material.depthTest && !rim.material.depthWrite
+    && fill.material.depthTest && !fill.material.depthWrite);
+
+  // **Nothing about a package is pickable.** This is the whole interaction model: the only way to
+  // reach one is to bend the route through it, so neither marker may carry a hit box and the parcel
+  // mesh itself must not be tagged either. A stray `pickable` here would not throw — it would just
+  // quietly make packages tappable again the day anything raycasts the scene rather than an explicit
+  // target list, which is exactly the trap geometry/person.js warns about.
+  const pScene = new THREE.Scene();
+  const pTraffic = createTraffic(makeRng(seed + 44), pScene, CARS_DEFAULT);
+  const fares = createFareSystem(makeRng(seed + 55), pScene);
+  const parcels = createParcelSystem(makeRng(seed + 233), pScene);
+  pTraffic.warmup(5);
+
+  let tagged = 0;
+  for (const slot of parcels.slots) {
+    for (const pin of [slot.pickup, slot.dropoff]) {
+      pin.group.traverse((node) => { if (node.userData?.pickable) tagged += 1; });
+    }
+  }
+  check('a package cannot be tapped', tagged === 0, `${tagged} pickable nodes`);
+  check('a loose parcel mesh can still be tagged when something wants it to be',
+    createParcel({ pickable: 'parcel' }).mesh.userData.pickable === 'parcel');
+
+  // Now play a run: serve fares the way the soak's perfect player does, and take the cheap courier
+  // detours on the way.
+  //
+  // **This is the gesture, driven for real.** Dragging the band sideways re-plans the route to the
+  // *same* fare through the junction under the finger (`findRouteVia`, game/pathdrag.js), so that is
+  // what happens here — no package is ever routed *at*, because nothing in the game can do that.
+  //
+  // `DETOUR_BUDGET` is the player's greed, in extra legs, and **the trade-off it buys is measured**.
+  // Across three cities, 420s of a perfect fare player who also couriers:
+  //
+  //   budget  survived        fares   fare cash    packages   courier cash
+  //   1 leg   420s ×3         12-14   $233-296     1-3        $14-57
+  //   2 legs  265-341s (died) 5-10    $85-184      2-4        $43-71
+  //   3 legs  identical to 2 legs — past two, the cap almost never binds
+  //
+  // So a one-leg detour is free money and a two-leg one costs you the run: the courier cash never
+  // comes close to replacing the fare income it burns ($71 at best against $150+ forgone). That is
+  // the layer behaving as intended — a real temptation with a real price — and it is why this loop
+  // runs at 1 rather than at MAX_VIA_DETOUR's 6. A greedy player is *supposed* to die here.
+  const DETOUR_BUDGET = 1;
+  let viaTaken = 0;
+  let viaRefused = 0;
+  // **Re-plan only when the plan actually changes.** A drag re-plans every frame the finger is down
+  // and that is safe for the second or two a gesture lasts, but holding it for a whole run is not:
+  // `routeConsumed` cleared on every tick means the turn the car has already committed to never
+  // retires from the route, and the taxi sits re-deciding the same junction forever. (It does —
+  // measured here as a run that earned $34 in seven minutes and delivered nothing.) So key the plan
+  // on its two endpoints and leave it alone in between, which is also what a player does.
+  let plannedFor = null;
+  const aimFare = () => {
+    const job = fares.carrying() ?? fares.waiting();
+    if (!job) return;
+    // The courier errand still outstanding: the pad of the box aboard, or a box on a corner if the
+    // cargo slot is free. Once one is reached its stage flips, its `target` moves, and the key below
+    // changes — which is how the waypoint retires rather than answering with a lap back to it.
+    const errand = parcels.carrying() ?? parcels.state.parcels.find((p) => p.stage === 'waiting');
+    const key = `${job.target.i},${job.target.j}`
+      + (errand ? `|${errand.target.i},${errand.target.j}` : '');
+    if (key === plannedFor && job.directed) return;
+
+    const from = planOrigin(pTraffic.taxi);
+    const bent = errand
+      ? findRouteVia(from, errand.target, job.target, { maxDetour: DETOUR_BUDGET })
+      : null;
+    if (errand) {
+      if (bent) viaTaken += 1;
+      else viaRefused += 1;
+    }
+    const route = bent ?? findRoute(from, job.target);
+    if (!route) return;
+    pTraffic.taxi.route = route;
+    pTraffic.taxi.routeConsumed = false;
+    fares.markDirected(job);
+    plannedFor = key;
+  };
+  // The junctions the taxi's plan already takes it through — the same walk parcels.js does, kept
+  // here independently so the check is not simply agreeing with the code it is testing.
+  const onRoute = () => {
+    const out = [{ i: pTraffic.taxi.i, j: pTraffic.taxi.j }];
+    let { i, j } = pTraffic.taxi;
+    for (const d of pTraffic.taxi.route ?? []) {
+      const next = nextIntersection(d, i, j);
+      if (!next) break;
+      ({ i, j } = next);
+      out.push({ i, j });
+    }
+    return out;
+  };
+
+  let spawns = 0;
+  let spawnedTooEarly = 0;
+  let overCap = 0;
+  let tooShort = 0;
+  let sameBlock = 0;
+  let clashedWithFare = 0;
+  let unroutable = 0;
+  let mispriced = 0;
+  let carriedClock = 0;
+  let landedOnRoute = 0;
+  let bothCarried = 0;
+  let dropPadShownEarly = 0;
+  let prevSpawnAt = -Infinity;
+  let minGap = Infinity;
+  let elapsed = 0;
+
+  while (elapsed < 420 && !fares.state.gameOver && parcels.state.delivered < 3) {
+    pTraffic.update(1 / 60);
+    fares.update(1 / 60, pTraffic.taxi);
+    aimFare();
+
+    // Snapshot the route *before* parcels tick, so a spawn is judged against the plan the player was
+    // actually driving on the frame it appeared.
+    const route = onRoute();
+    for (const { type, parcel } of parcels.update(1 / 60, pTraffic.taxi, {
+      fareSpots: fares.occupiedSpots(),
+      delivered: fares.state.delivered,
+      over: fares.state.gameOver,
+    })) {
+      if (type !== 'spawned') continue;
+      spawns += 1;
+      if (fares.state.delivered < PARCEL_MIN_DELIVERED) spawnedTooEarly += 1;
+      if (parcels.state.parcels.length > MAX_PARCELS) overCap += 1;
+      if (blockDistance(parcel.pickup, parcel.dropoff) < 3) tooShort += 1;
+      if (onSameBlock(parcel.pickup, parcel.dropoff)) sameBlock += 1;
+      // A box may never share a corner with a live fare: two jobs in one place is two jobs the
+      // player cannot tell apart at play zoom.
+      for (const spot of fares.occupiedSpots()) {
+        if ((spot.i === parcel.pickup.i && spot.j === parcel.pickup.j)
+          || (spot.i === parcel.dropoff.i && spot.j === parcel.dropoff.j)) clashedWithFare += 1;
+      }
+      if (!findRoute({ ...parcel.pickup, d: pTraffic.taxi.d }, parcel.dropoff)) unroutable += 1;
+      // Priced exactly as a rider going the same distance is, times the shift it appeared in.
+      const want = Math.round(priceFor(parcel.pickup, parcel.dropoff)
+        * difficulty.payoutMultiplier(parcels.state.delivered) * PARCEL_PAY_FACTOR);
+      if (parcel.value !== want) mispriced += 1;
+      // **No clock.** Not "a long one" — none at all, so there is nothing for a hue to step through
+      // and nothing that can expire and end a run. Asserted on the shape of the object, because that
+      // is where a clock would have to appear first.
+      if ('timeLeft' in parcel || 'limit' in parcel) carriedClock += 1;
+      // The mechanic: a package lands somewhere the current plan does *not* go, so collecting it
+      // costs a deliberate bend of the route band. Only meaningful while the taxi actually has a
+      // route to be off.
+      if (route.length > 1
+        && route.some((r) => r.i === parcel.pickup.i && r.j === parcel.pickup.j)) landedOnRoute += 1;
+      // The far pad stays dark until the box is aboard — four cyan squares on a full board have
+      // nothing to say which belongs to which.
+      if (parcel.slot.dropoff.group.visible) dropPadShownEarly += 1;
+      minGap = Math.min(minGap, elapsed - prevSpawnAt);
+      prevSpawnAt = elapsed;
+    }
+
+    // One cargo slot, from the outside.
+    if (parcels.state.parcels.filter((p) => p.stage === 'carried').length > 1) bothCarried += 1;
+    elapsed += 1 / 60;
+  }
+
+  check('packages appear on the board', spawns >= 2, `${spawns} spawned`);
+  check('no package before the tutorial delivery', spawnedTooEarly === 0,
+    `${spawnedTooEarly} early`);
+  check('never more than MAX_PARCELS', overCap === 0, `${overCap} over`);
+  check('a package trip is worth taking', tooShort === 0 && sameBlock === 0,
+    `${tooShort} too short, ${sameBlock} on one block`);
+  check('a package never shares a corner with a fare', clashedWithFare === 0,
+    `${clashedWithFare} clashes`);
+  check('both ends of a package are drivable', unroutable === 0, `${unroutable} unroutable`);
+  check('a package is priced like a rider going the same distance', mispriced === 0,
+    `${mispriced}/${spawns} mispriced`);
+  check('a package carries no clock', carriedClock === 0, `${carriedClock} with one`);
+  check('a package lands off the route the taxi is already driving', landedOnRoute === 0,
+    `${landedOnRoute}/${spawns} on the plan`);
+  check('the far pad stays dark until the box is aboard', dropPadShownEarly === 0,
+    `${dropPadShownEarly} lit early`);
+  check('the taxi never carries two packages', bothCarried === 0, `${bothCarried} frames with two`);
+  check('packages arrive staggered', spawns < 2 || minGap >= PARCEL_SPAWN_GAP - 0.1,
+    `min gap ${Number.isFinite(minGap) ? minGap.toFixed(2) : '-'}s`);
+  // The run has to have actually completed a courier job end to end for any of the above to mean
+  // much: spawn, bend the band through the pad, collect, bend it through the far pad, get paid.
+  check('a package can be collected and delivered by bending the route band',
+    parcels.state.delivered >= 1,
+    `${parcels.state.delivered} delivered, $${parcels.state.earned}`);
+  check('courier income reaches the run total', parcels.state.earned > 0
+    && fares.state.money >= parcels.state.earned,
+    `$${parcels.state.earned} of $${fares.state.money}`);
+  // The detour cap is the one thing that can quietly make this layer unreachable — a package the
+  // band will not bend to is a pad that just sits there for the rest of the run. At a one-leg budget
+  // most offers are refused and that is the *point*: what gets taken is the package that happens to
+  // be nearly on the way, which is the decision the layer exists to create.
+  check('the route band bends to the packages that are nearly on the way', viaTaken > 0,
+    `${viaTaken} of ${viaTaken + viaRefused} offers within ${DETOUR_BUDGET} extra leg(s)`);
+}
+
+// --- A package rides alongside a passenger, and the run ending clears it -------------------------
+//
+// The point of the whole layer: the seat and the cargo slot are independent. And whichever way the
+// run ends — a clock, a collision, a bust — no cyan pad may be left glowing on the blackout.
+{
+  const cScene = new THREE.Scene();
+  const cTraffic = createTraffic(makeRng(seed + 44), cScene, 1);
+  const fares = createFareSystem(makeRng(seed + 55), cScene);
+  const parcels = createParcelSystem(makeRng(seed + 233), cScene);
+  cTraffic.warmup(2);
+
+  // Get a rider aboard the ordinary way.
+  fares.update(1 / 60, cTraffic.taxi);
+  let guard = 0;
+  while (!fares.carrying() && guard++ < 60 * 200 && !fares.state.gameOver) {
+    cTraffic.update(1 / 60);
+    fares.update(1 / 60, cTraffic.taxi);
+    const job = fares.waiting();
+    if (job && !job.directed) {
+      const r = findRoute(planOrigin(cTraffic.taxi), job.target);
+      if (r) { cTraffic.taxi.route = r; cTraffic.taxi.routeConsumed = false; fares.markDirected(job); }
+    }
+  }
+  const rider = fares.carrying();
+
+  // Force a package onto the board next to the taxi and drive into it. `delivered` is faked past
+  // PARCEL_MIN_DELIVERED so the spawn gate opens — this is testing the cargo slot, not the gate.
+  parcels.state.lastSpawnAt = -Infinity;
+  parcels.update(1 / 60, cTraffic.taxi, { fareSpots: fares.occupiedSpots(), delivered: 9 });
+  const parcel = parcels.state.parcels[0];
+
+  if (rider && parcel) {
+    const clockBefore = rider.timeLeft;
+    const targetBefore = rider.target;
+    // The player's bend of the route band, as a route through the package's junction.
+    const detour = findRoute(planOrigin(cTraffic.taxi), parcel.pickup);
+    if (detour) { cTraffic.taxi.route = detour; cTraffic.taxi.routeConsumed = false; }
+    let g2 = 0;
+    while (!parcels.carrying() && g2++ < 60 * 240 && !fares.state.gameOver) {
+      cTraffic.update(1 / 60);
+      fares.update(1 / 60, cTraffic.taxi);
+      parcels.update(1 / 60, cTraffic.taxi, {
+        fareSpots: fares.occupiedSpots(), delivered: 9, over: fares.state.gameOver,
+      });
+    }
+    check('a package is collected while a passenger is aboard',
+      Boolean(parcels.carrying()) && fares.carrying() === rider,
+      parcels.carrying() ? 'both aboard' : 'never collected');
+    // The seat and the cargo slot do not touch each other. The rider's deadline in particular is
+    // *not* reset, paused or extended by the detour — the seconds the bend costs are the whole price
+    // of the bonus, and a clock that quietly restarted would make the layer free.
+    check('collecting a package does not touch the rider or their clock',
+      fares.carrying() === rider && rider.target === targetBefore
+      && rider.timeLeft < clockBefore && rider.stage === 'riding',
+      `clock ${clockBefore.toFixed(1)}s → ${rider.timeLeft.toFixed(1)}s`);
+  } else {
+    check('a package is collected while a passenger is aboard', false,
+      `rider ${Boolean(rider)}, parcel ${Boolean(parcel)}`);
+    check('collecting a package does not touch the rider or their clock', false, 'no setup');
+  }
+
+  // The run ends. One seam inside parcels.js handles all three ways it can, so this drives the one
+  // that does not go through the fare loop at all.
+  fares.crash('probe', 'Wrecked!');
+  parcels.update(1 / 60, cTraffic.taxi, { fareSpots: [], delivered: 9, over: true });
+  let stillVisible = 0;
+  for (const slot of parcels.slots) {
+    if (slot.pickup.group.visible) stillVisible += 1;
+    if (slot.dropoff.group.visible) stillVisible += 1;
+  }
+  check('the run ending clears every package off the board',
+    parcels.state.parcels.length === 0 && stillVisible === 0,
+    `${parcels.state.parcels.length} live, ${stillVisible} visible`);
 }
 
 // --- Tapping a second waiting rider before the first is picked up -----------------------------
@@ -3995,12 +4319,15 @@ check('the taxi is an ordinary car in the traffic array',
     if (node.name === 'ghostRim') rims.push(node);
   });
 
-  // Seven parts: shell, roof sign, both steered wheels, and the three light pods (brake, left
-  // turn signal, right turn signal). Every opaque part of the car must be in the mask — a part
-  // left out counts as an occluder of the rim behind it, and the wheels being skipped once painted
-  // a yellow streak along the rocker panel of a fully visible car. The light pods are opaque parts
-  // too even though they are usually scaled to nothing — see geometry/taxi.js's setLights().
-  check('taxi wears a ghost outline on every opaque part', masks.length === 7 && rims.length === 7,
+  // Eight parts: shell, roof sign, both steered wheels, the three light pods (brake, left turn
+  // signal, right turn signal), and the courier parcel on the rear deck. Every opaque part of the
+  // car must be in the mask — a part left out counts as an occluder of the rim behind it, and the
+  // wheels being skipped once painted a yellow streak along the rocker panel of a fully visible car.
+  // The light pods are opaque parts too even though they are usually scaled to nothing — see
+  // geometry/taxi.js's setLights() — and the parcel is one even though it is hidden until a package
+  // is aboard, for exactly the same reason: `visible = false` is not the same as absent, and the
+  // frame it comes back is the frame an unmasked box would start eating the shell's rim.
+  check('taxi wears a ghost outline on every opaque part', masks.length === 8 && rims.length === 8,
     `${masks.length} masks, ${rims.length} rims`);
 
   const rimsHidden = rims.every((r) => r.material.depthFunc === THREE.GreaterDepth

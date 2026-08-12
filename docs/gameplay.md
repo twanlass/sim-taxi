@@ -1051,6 +1051,98 @@ the fare soak (`tools/soak.mjs`): frequent enough to be a real event, not so fre
 forgiving misses meaningfully padded the survival curve. Never on the tutorial fare
 (`VIP_MIN_DELIVERED`) — nothing on the board yet for a purple diamond to be distinguished *from*.
 
+## The package courier
+
+`src/game/parcels.js`. A brown parcel sits on a kerb corner on a cyan rounded-square pad. Drive
+near it and the taxi picks it up — **while carrying a passenger, if it is carrying one** — and the
+pad it is going to lights up somewhere else on the map. Drive near that and it pays out in cash.
+One to two on the board, one aboard at a time, and nothing about it can end a run.
+
+### Nothing here is tapped. You steer into it
+
+**This is the feature.** A package cannot be selected: it has no hit box, it is not in the picker's
+target list, and there is no way to dispatch the taxi at one. The only way to collect or deliver a
+package is to make the taxi's route **pass through its junction** — which, since the route is
+planned to whatever fare the player is actually working, means [dragging the route
+band](#dragging-the-route) sideways until it bends through the pad.
+
+Until this existed the band was the one thing on screen the player could reshape and had almost no
+reason to. `pathdrag` answered *which way*, and on an empty street the answer did not matter — the
+only thing that ever made it matter was traffic going solid ahead of you, which is a defensive
+move. A package puts something worth having on a road the route does not currently take, so the
+question becomes worth asking with the streets clear. **The route-drag mechanic gets a reason to
+exist**, and the cost is paid in exactly the right currency: the seconds the detour takes come out
+of the clock of whichever rider is in the back seat.
+
+So it is the first tap-free decision on the board, and the first one that spends *another job's*
+clock. Every other gesture in this game answers "which rider?". This one answers "is the bonus
+worth the seconds?".
+
+### What the detour actually costs
+
+Measured in `tools/probe.mjs`, over three cities, 420s of a perfect fare player who also couriers.
+The one knob is how many extra legs of route the player will accept to reach a pad:
+
+| Detour budget | Survived | Fares | Fare cash | Packages | Courier cash |
+|---|---|---|---|---|---|
+| **1 leg** | 420s, all three | 12–14 | $233–296 | 1–3 | $14–57 |
+| **2 legs** | died at 265–341s | 5–10 | $85–184 | 2–4 | $43–71 |
+| 3 legs | identical to 2 | | | | |
+
+Read the second row carefully: taking the two-leg detours **doubles the courier income and halves
+the run**. Courier cash never comes close to replacing the fare income it burns — $71 at the very
+best against $150-plus forgone — so greed is punished by arithmetic rather than by a rule. What is
+worth taking is the package that is nearly on the way already, which is exactly the decision the
+layer was added to create. (Past two legs the cap stops binding at all; a 5×5 grid is full of
+equal-length alternatives, the same finding [the drag's own cap](#dragging-the-route) rests on.)
+
+The probe therefore plays at a **one-leg** budget, not at `MAX_VIA_DETOUR`'s 6. A greedy player is
+supposed to die there, and a check that asserted otherwise would be asserting the layer is free.
+
+### A package has no clock, and so has no diamond
+
+The board's vocabulary is [shape says what a thing is, hue says whose clock is paying for
+it](#the-drop-off-is-a-ring-and-it-wears-the-riders-clock). A plumbob **means** a countdown. A
+package having no deadline is precisely why it must not have one — and it keeps the courier layer
+from adding a second thing to read to a board that can already carry four fares. The cyan says
+"courier job", full stop, which for a package is the only honest thing a colour can say.
+
+It follows that nothing here can end a run. A parcel sits on its corner until somebody drives
+through it; missing one is not a thing that can happen. It is pure upside by construction, the same
+way a [VIP](#vip-pickups) is, which is what lets it stay optional without ever being a trap.
+
+The hue is fixed and outside the [urgency scale](#urgency-is-one-scale) on exactly the argument the
+VIP's purple is made on — and the *shape* is new for a reason the VIP did not need: a VIP is still a
+fare, reached the way every fare is. A courier job is not, so it gets a silhouette of its own. Two
+hues on one shape would ask the player to tell a package from a rider by colour at 50px; a rounded
+square against a disc is read at a glance.
+
+### The rest of it
+
+- **One cargo slot, independent of the seat.** A second box the taxi drives past while loaded is
+  left where it is — silently swapping the load would throw away a delivery already paid for in
+  detour. The probe asserts the seat and the slot never touch: collecting a package does not move
+  the rider's target and does not reset, pause or extend their clock.
+- **Priced exactly like a rider going the same distance** — `priceFor`, times the shift multiplier,
+  stamped at spawn. `PARCEL_PAY_FACTOR` is the one number to turn if it plays too rich.
+- **Cash only.** No multiplier bump (that number means "this is what a *fare* is worth now"), no
+  boost top-up (Loco Mode fuel is the delivery reward, and a courier detour has delivered nobody),
+  no run-end stat row. The payout takes the same [two-phase flight](#economy) a fare's does, because
+  it is the same kind of event arriving from the same place.
+- **Packages land off the route the taxi is already driving**, at spawn. A box on a road the car was
+  going to take anyway is collected for free and asks nothing. It is a spawn-time bias only — the
+  next fare re-plans everything, and a package ending up on the new route is the "free money" case,
+  which is fine and intended as the exception rather than the rule.
+- **Never before the first delivery** (`PARCEL_MIN_DELIVERED`), for a sharper version of the reason
+  a VIP waits: the second tutorial beat *is* "tap that rider", and a box on the board during it
+  teaches the opposite lesson — it is the one thing on the board that tapping does nothing to.
+- **`?parcels=0`** clears the board to measure the fare loop alone, the way `?cars=1` clears the
+  roads. The layer is off in shot mode by default, since every framing in the sweep was composed
+  before packages existed; **`?parcels=1`** forces it back on, which is the only way to point a
+  camera at one (`?shot=20`, `?shot=21`).
+- **The taxi wears its load.** A small parcel appears on the rear deck — an object on the car rather
+  than anything on the glass, for the reason [the roof sign](#the-taxis-roof-sign) is one.
+
 ## Crazy-taxi mode
 
 The **Loco Mode** button, bottom left. **Hold to enable, release to pause.** A short tap costs a
