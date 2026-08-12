@@ -602,8 +602,9 @@ staged dispatch is not a finger.
 ## The fare's clock travels
 
 `src/game/faremarker.js`. The countdown is a **physical object that belongs to the fare** — not a
-HUD number, not a property of a marker, and not something that changes hands. A geodesic crystal
-floats over the rider's head on the kerb, painted by how much of their clock is left: green → yellow
+HUD number, not a property of a marker, and not something that changes hands. A **plumbob** floats
+over the rider's head on the kerb — a crystal hanging point-down at the person it belongs to, the
+way a plumb bob indicates a spot on the ground — painted by how much of their clock is left: green → yellow
 → orange → red, [by level](#urgency-is-one-scale) — and [draining like a
 glass](#the-crystal-is-a-glass-of-time) between those steps. The instant they get in it **flies to the taxi**
 (`TRANSFER_TIME = 0.65s`, eased, with a small arc) and keeps draining above the roof, because from
@@ -692,9 +693,10 @@ from yellow is a crystal two thirds full. It is the [ring's continuous
 sweep](#it-used-to-be-a-relay) recovered without a second object to learn.
 
 The level is **linear in height**, not in volume. Volume would be the physical answer and it reads
-much worse: an octahedron is widest at its equator, so a volume-true drain spends the middle half of
-the clock inside the middle 20% of the body. The player reads where the line *is*, so equal time has
-to be equal travel. Both ends overshoot the tips slightly, which is what makes a full fare a plain
+much worse: the crystal is widest a third of the way down from its top, so a volume-true drain would
+spend most of the clock in a narrow band up there and then fall through the whole taper in the last
+few seconds. (It was wrong on the octahedron too, which at least drained symmetrically.) The player
+reads where the line *is*, so equal time has to be equal travel. Both ends overshoot the tips slightly, which is what makes a full fare a plain
 solid crystal and a dead one a plain empty vessel, with no highlight stranded on a vertex.
 
 It is **one mesh with a per-fragment alpha**, split in the fragment shader — same silhouette, one
@@ -706,8 +708,8 @@ geometry's **local Y**, so the liquid rides in the vessel instead of sloshing wh
 The first build was opaque: the hue at half lightness above the line. It read as a **dark solid**,
 not as an empty vessel, which is the whole point of the thing.
 
-What stood in the way of real transparency is the **black inverted hull**. It is a larger octahedron
-drawn back-faces-only, so its far faces cover the entire silhouette — glass over it shows a black
+What stood in the way of real transparency is the **black inverted hull**. It is a larger copy of the
+crystal drawn back-faces-only, so its far faces cover the entire silhouette — glass over it shows a black
 void rather than the city. The fix turned out to be draw order rather than a different outline:
 
 > The crystal draws first (`renderOrder` 8) and **writes depth**, blending over the finished opaque
@@ -727,9 +729,9 @@ Three numbers were measured and moved:
   marker came out a dusty rose — the most urgent state on the scale rendering as the least red thing
   on the board. It keeps 90% of its saturation now, and alpha does the emptying rather than the
   tint, which is what glass and liquid actually differ by.
-- The **sheen exponent** went from 2.5 to 5. At 2.5 it was not a highlight but a wash: an octahedron
-  at this camera angle shows almost nothing head-on, so every visible facet picked up most of the
-  lift.
+- The **sheen exponent** went from 2.5 to 5. At 2.5 it was not a highlight but a wash: very little
+  of the crystal is truly head-on at this camera angle, so every visible facet picked up most of the
+  lift. At 5 it stays on the two flanks either side of the front ridge.
 - The **emissive** above the line holds at 0.6 before alpha takes its share, so about 0.2 of the
   liquid's reaches the frame. At 0.22 opaque the shape survived after dark but a nearly-drained
   rider was genuinely hard to find on a night board.

@@ -998,7 +998,7 @@ export function createFareSystem(rng, scene) {
     // Nothing else on the marker reflects this. The diamond's outline used to ink over heavier
     // for whichever waiting rider the car was on its way to, and it was pushed from here as well as
     // reconciled per frame so it landed on the same frame as the route band. The band is now the
-    // whole of that answer — see geometry/diamond.js, RIM_SCALE.
+    // whole of that answer — see geometry/diamond.js, RIM_OFFSET.
     return true;
   }
 

@@ -1111,15 +1111,41 @@ exactly in step with the car being traced. It is called last in the frame, after
 for two reasons: a frame's lag is 0.31 units ≈ 2.4px of rim sliding off its own car at boost speed,
 and a car wrecked on this frame must not wear a ghost over its own fireball.
 
-### The diamond — `geometry/diamond.js`
+### The plumbob — `geometry/diamond.js`
 
-The crystal a waiting rider floats: an octahedron of radius 1.9 — about 29px across at play zoom —
+The crystal a waiting rider floats: a **plumbob**, hanging point-down over whoever it belongs to,
 outlined in black, bouncing, and painted by [urgency](gameplay.md#urgency-is-one-scale). The drop-off
 wore the same model for a while and gave it back, so this is the rider's shape alone now; it stays
 its own module because the shape, the outline and the bounce are a vocabulary the next marker should
-inherit rather than re-derive.
+inherit rather than re-derive. (The file is still `diamond.js`: it is the crystal over a fare
+whatever silhouette it wears, and the rename would have cost a hundred references to buy nothing.)
 
-One geometry serves every diamond on the board and every outline hull too — they differ from the
+**The geometry** is a square bipyramid built by hand: an equator of half-width 1.4 sitting two
+thirds of the way up, a 1.5-unit cap above it and a 3.0-unit point below. 2.8 × 4.5 world units, so
+about 22px wide and — after the camera's 33° elevation foreshortens the height by 0.84 — 29px tall.
+The octahedron it replaces was 3.8 across and read 29 × 24px, so it is the same amount of marker
+stood on its end.
+
+The **equator is turned 45°**, which is the difference between a plumbob and a lozenge. `VIEW_DIR`
+looks down the diagonal, so the octahedron's axis-aligned vertices put an *edge* toward the camera
+and the silhouette came out a flat hexagon. A corner facing the camera runs a ridge down the middle
+of the shape and splits the front into two facets the sun lights differently. The camera never
+rotates, so this is baked into the geometry rather than maintained per frame.
+
+Why this shape at all: a plumb bob is a pointed weight whose entire job is to *indicate a spot on
+the ground*, which is this marker's job too and the one thing a regular octahedron was worst at —
+symmetric top to bottom, it has no more claim on the pavement below it than on the sky above. A long
+lower point has a direction, and it points at the rider. It also borrows a silhouette players
+already know; nothing about what it *says* is borrowed, since the hue here is a clock rather than a
+mood.
+
+Written as **non-indexed triangles wound counter-clockwise from outside**, and `tools/probe.mjs`
+computes every face normal *from the winding* — not from the normal attribute, which
+`computeVertexNormals` would launder — because a flipped triangle would both light as if the sun
+were behind it (`flatShading` reads the screen-space derivative) and punch a hole in the
+back-faces-only rim. See the trap in [CLAUDE.md](../CLAUDE.md).
+
+One geometry serves every crystal on the board and every outline hull too — they differ from the
 surface they wrap only by scale. Colour and emissive are per instance, so a repaint is a `Color.set`
 on one material.
 
@@ -1127,8 +1153,13 @@ The outline is an **inverted hull**: the same geometry drawn a little larger wit
 and a black basic material, so the enlarged back faces sit behind the real surface everywhere except
 around the silhouette. Cheaper than a post-processing edge pass and it needs no render targets —
 these are small objects, not a whole-scene effect. Each hull is a *child* of the mesh it wraps, so
-it inherits animation for free, and the rider's "the taxi is coming" state is one line: scale the
-hull 1.12 → 1.34 and let it stay black. Crystal and hull sit at `renderOrder` **8** and **9** in the
+it inherits animation for free.
+
+**The rim is a distance, not a factor**: `RIM_OFFSET` is 0.22 world units (≈1.7px at play zoom) and
+the hull's scale is computed per axis from it. On the old octahedron the two were the same thing; on
+a shape three times longer below its equator than it is wide, a single multiplier hangs a black
+needle off the bottom point and shaves the flanks. `tools/probe.mjs` measures every hull corner
+against the body corner it came from. Crystal and hull sit at `renderOrder` **8** and **9** in the
 transparent queue — after the ground layers (route band 4, target discs 3–4) and well before the
 ghost outlines at 9990+.
 
@@ -1303,7 +1334,7 @@ in the same tick, so both take their zero from one `state.elapsed` and stay on o
 gets a fixed phase offset on the bounce so two fares don't pulse in lockstep.
 
 **It is depth-tested**, unlike both markers it replaced — the meter's plate and the timer ring both
-drew over everything, and an inverted-hull crystal cannot: with the depth test off an octahedron
+drew over everything, and an inverted-hull crystal cannot: with the depth test off a crystal
 paints its own back faces over its front ones. So a fare behind a tower is hidden with the tower, on
 the kerb and in the car alike. On the kerb the
 [rider-finder chips](gameplay.md#extra-fares-and-prioritisation) cover it — every waiting rider has

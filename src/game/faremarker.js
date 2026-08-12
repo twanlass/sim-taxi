@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import { URGENCY_SEGMENTS, fareColor } from './urgency.js';
 import {
-  createDiamond, DIAMOND_R, bounceOffset, kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
+  createDiamond, DIAMOND_HALF_H, bounceOffset, kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
 } from '../geometry/diamond.js';
 import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './selectpop.js';
 
-// The fare's clock, as a physical object: one geodesic diamond, coloured by how close this fare is
-// to giving up — green, yellow, orange, red.
+// The fare's clock, as a physical object: one plumbob crystal hanging point-down over whoever it
+// belongs to, coloured by how close this fare is to giving up — green, yellow, orange, red.
 //
 // **It belongs to the fare, not to a marker.** It waits over the rider's head on the kerb, and the
 // instant they get in it flies to the taxi and rides above the roof. The clock does not restart at
@@ -44,11 +44,16 @@ import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './select
 // Height above the ground, on the kerb and over the taxi alike.
 //
 // One altitude for both, so the transfer reads as the marker sliding sideways rather than climbing
-// into a different slot. Over a rider (who tops out a little over 3.3) it leaves the diamond's
-// bottom vertex 1.3 units — about 10px at play zoom — of air above their head; over the taxi (which
-// tops out at ~2.85 with its roof sign) it leaves ~1.85. Being a little further off the car is
-// right anyway: the taxi is wide, and a marker tight to the roof reads as part of the vehicle.
-const LIFT = DIAMOND_R + 4.7;
+// into a different slot. Measured from the crystal's bottom point rather than from its middle,
+// which is what keeps the headroom fixed while the shape is retuned: over a rider (who tops out a
+// little over 3.3) it leaves that point 1.3 units — about 10px at play zoom — of air above their
+// head, and over the taxi (which tops out at ~2.85 with its roof sign) ~1.85. Being a little
+// further off the car is right anyway: the taxi is wide, and a marker tight to the roof reads as
+// part of the vehicle.
+//
+// The plumbob's point hangs lower under its own origin than the octahedron's did, so this number
+// grew with the shape and the air above a rider's head did not move.
+const LIFT = DIAMOND_HALF_H + 4.7;
 
 // The flight from the kerb to the taxi. Inherited from the ring this replaces, which was tuned
 // against BOARD_SECONDS = 0.9 in fares.js so the clock lands on the car a beat *before* the rider
@@ -56,8 +61,8 @@ const LIFT = DIAMOND_R + 4.7;
 const TRANSFER_TIME = 0.65;
 const TRANSFER_ARC = 1.6;      // world units of extra height at the midpoint of the flight
 
-// **The outline is one weight for the marker's whole life** — see RIM_SCALE in geometry/diamond.js.
-// It used to ink over at 1.34 (≈5px against the ordinary 1.7px) while the taxi was on its way to
+// **The outline is one weight for the marker's whole life** — see RIM_OFFSET in geometry/diamond.js.
+// It used to ink over at ≈5px against the ordinary 1.7px while the taxi was on its way to
 // this rider and drop back at pickup, so a fare wore a thick black border on the kerb and a hairline
 // one over the car. Two weights on one silhouette read as the marker changing shape at the hand-off
 // rather than as a state, and the heavy one was a border rather than a rim. Which rider the car is

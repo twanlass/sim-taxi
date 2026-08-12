@@ -26,7 +26,7 @@ model with real signals. **The player's taxi is one of those cars** — the only
 its turn at each junction comes from a planned route rather than a dice roll, so it obeys every
 red light exactly like everyone else and cannot cheat its way to a destination.
 
-A passenger appears at an intersection under a floating **diamond**, coloured green through red by
+A passenger appears at an intersection under a floating **plumbob**, coloured green through red by
 how much of their patience is left and swelling each time that colour steps. Tap them to route the
 taxi there — the road ahead of it fills with a **band of paint in that rider's own colour** — and
 once they're aboard a **ring** in the same colour appears on the road where they're going and the

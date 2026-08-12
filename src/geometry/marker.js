@@ -69,8 +69,8 @@ function marker(kind, { buildStanding = null, ringColor = null } = {}) {
   // about 155px across at play zoom, comfortably past the 44px a fingertip needs — while still
   // being well inside the 20-unit block pitch, so two adjacent junctions can never both be hit.
   const HIT = 20;
-  // Tall enough to clear the tallest thing standing over this corner — the fare's diamond, whose
-  // outline tops out a little over 9 — and it starts at the ground so a tap on the disc or on a
+  // Tall enough to clear the tallest thing standing over this corner — the fare's crystal, whose
+  // outline tops out a little over 9.5 — and it starts at the ground so a tap on the disc or on a
   // standing figure lands too.
   const HIT_H = 14.5;
   const hit = new THREE.Mesh(
