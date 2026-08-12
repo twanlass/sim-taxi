@@ -27,11 +27,13 @@ import {
   createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, ARRIVE_RADIUS, onSameBlock,
 } from '../src/game/fares.js';
 import {
-  createParcelSystem, MAX_PARCELS, PARCEL_MIN_DELIVERED, PARCEL_PAY_FACTOR, PARCEL_SPAWN_GAP,
+  createParcelSystem, MAX_PARCELS, PARCEL_MIN_DELIVERED, PARCEL_PAY_FACTOR, PARCEL_GAP_MIN,
+  PARCEL_GAP_MAX, PARCEL_AFTER_DELIVERY, FLIGHT_MIN_ALPHA,
   PARCEL_PAD_LIFT,
 } from '../src/game/parcels.js';
 import { ringGrowScale, ringShrinkScale } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
+import { TAXI_DECK_Y } from '../src/geometry/taxi.js';
 import { createParcel } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
@@ -1099,8 +1101,12 @@ check('no two cars occupy the same space', worst > 1.6,
   // target list, which is exactly the trap geometry/person.js warns about.
   const pScene = new THREE.Scene();
   const pTraffic = createTraffic(makeRng(seed + 44), pScene, CARS_DEFAULT);
-  const fares = createFareSystem(makeRng(seed + 55), pScene);
-  const parcels = createParcelSystem(makeRng(seed + 233), pScene);
+  // `reserved` is the cross-system half of the corner rule, wired exactly as main.js wires it. The
+  // forward reference to `parcels` is safe because the closure is only ever called from `update`.
+  const fares = createFareSystem(makeRng(seed + 55), pScene, {
+    reserved: () => parcels.occupiedSpots(),
+  });
+  const parcels = createParcelSystem(makeRng(seed + 255), pScene);
   pTraffic.warmup(5);
 
   let tagged = 0;
@@ -1196,7 +1202,10 @@ check('no two cars occupy the same space', worst > 1.6,
   let dropPadShownEarly = 0;
   let prevSpawnAt = -Infinity;
   let minGap = Infinity;
+  let maxGap = 0;
+  let deliveryHeld = 0;
   let elapsed = 0;
+  let sharedCorner = 0;
 
   while (elapsed < 420 && !fares.state.gameOver && parcels.state.delivered < 3) {
     pTraffic.update(1 / 60);
@@ -1211,6 +1220,12 @@ check('no two cars occupy the same space', worst > 1.6,
       delivered: fares.state.delivered,
       over: fares.state.gameOver,
     })) {
+      if (type === 'delivered') {
+        // The hold is `max(drawn gap, now + PARCEL_AFTER_DELIVERY)`, so it only *moves* the timestamp
+        // when the draw was nearer than the hold. Counting the times it bit is what makes this a check
+        // on the rule rather than on which draws happened to come up.
+        if (parcels.state.nextSpawnAt >= elapsed + PARCEL_AFTER_DELIVERY - 0.1) deliveryHeld += 1;
+      }
       if (type !== 'spawned') continue;
       spawns += 1;
       if (fares.state.delivered < PARCEL_MIN_DELIVERED) spawnedTooEarly += 1;
@@ -1240,12 +1255,26 @@ check('no two cars occupy the same space', worst > 1.6,
       // The far pad stays dark until the box is aboard — four cyan squares on a full board have
       // nothing to say which belongs to which.
       if (parcel.slot.dropoff.group.visible) dropPadShownEarly += 1;
-      minGap = Math.min(minGap, elapsed - prevSpawnAt);
+      if (Number.isFinite(prevSpawnAt)) {
+        minGap = Math.min(minGap, elapsed - prevSpawnAt);
+        maxGap = Math.max(maxGap, elapsed - prevSpawnAt);
+      }
       prevSpawnAt = elapsed;
     }
 
     // One cargo slot, from the outside.
     if (parcels.state.parcels.filter((p) => p.stage === 'carried').length > 1) bothCarried += 1;
+
+    // **The corner invariant, every frame and in both directions.** Checked here rather than only at a
+    // package's spawn, which is where it used to be and which made it look enforced while only half of
+    // it was: a package sits on its corner indefinitely, so a *later fare* could land on top of one.
+    // Nothing about that is visible — two markers share one 20-unit hit box and the tap resolves to
+    // whichever the raycast reached first.
+    for (const spot of parcels.occupiedSpots()) {
+      for (const other of fares.occupiedSpots()) {
+        if ((spot.i === other.i && spot.j === other.j) || onSameBlock(spot, other)) sharedCorner += 1;
+      }
+    }
     elapsed += 1 / 60;
   }
 
@@ -1255,8 +1284,13 @@ check('no two cars occupy the same space', worst > 1.6,
   check('never more than MAX_PARCELS', overCap === 0, `${overCap} over`);
   check('a package trip is worth taking', tooShort === 0 && sameBlock === 0,
     `${tooShort} too short, ${sameBlock} on one block`);
-  check('a package never shares a corner with a fare', clashedWithFare === 0,
-    `${clashedWithFare} clashes`);
+  check('a package never spawns on a fare\'s corner', clashedWithFare === 0,
+    `${clashedWithFare} clashes at spawn`);
+  // The other direction, and the one that was actually broken: a fare must not spawn on a package's
+  // corner either. Frames, not events — the two boards move independently, so the only honest way to
+  // state it is that no frame of the run ever has both on one slab.
+  check('and no fare ever lands on a package\'s', sharedCorner === 0,
+    `${sharedCorner} frames sharing a corner over ${elapsed.toFixed(0)}s`);
   check('both ends of a package are drivable', unroutable === 0, `${unroutable} unroutable`);
   check('a package is priced like a rider going the same distance', mispriced === 0,
     `${mispriced}/${spawns} mispriced`);
@@ -1266,22 +1300,38 @@ check('no two cars occupy the same space', worst > 1.6,
   check('the far pad stays dark until the box is aboard', dropPadShownEarly === 0,
     `${dropPadShownEarly} lit early`);
   check('the taxi never carries two packages', bothCarried === 0, `${bothCarried} frames with two`);
-  check('packages arrive staggered', spawns < 2 || minGap >= PARCEL_SPAWN_GAP - 0.1,
-    `min gap ${Number.isFinite(minGap) ? minGap.toFixed(2) : '-'}s`);
+  // Spaced, and spaced *unpredictably* — the gap is drawn per package, so a box is something you come
+  // across rather than something arriving on the beat.
+  //
+  // The **floor** is a property of the draw and is asserted as one. There is deliberately no ceiling:
+  // an observed spawn-to-spawn gap is not the drawn gap, because a spawn also needs a free slot, so a
+  // full board stretches the interval by however long it takes the player to clear one. A ceiling here
+  // would be asserting something about the player's driving. (Measured 39.9s to 80.0s over four spawns
+  // against a 18-45s draw, which is exactly that effect.)
+  //
+  // What *is* checked instead is that the gaps **vary** — a draw that silently became a constant would
+  // sail through a floor check, and the whole point of the change is that the arrival is unpredictable.
+  check('packages arrive spaced by a drawn gap', spawns < 2 || minGap >= PARCEL_GAP_MIN - 0.1,
+    `min ${Number.isFinite(minGap) ? minGap.toFixed(1) : '-'}s against a ${PARCEL_GAP_MIN}s floor`);
+  check('and no two gaps are the same length', spawns < 3 || maxGap - minGap > 1,
+    `${minGap.toFixed(1)}s to ${maxGap.toFixed(1)}s over ${spawns} spawns`);
+  // Cashing one in must not immediately put another on the board. Asserted on the state the delivery
+  // writes, since the observed interval cannot separate this hold from the drawn gap around it.
+  check('a delivery holds the next package off', deliveryHeld > 0,
+    `${deliveryHeld} deliveries pushed the next spawn out`);
   // The run has to have actually completed a courier job end to end for any of the above to mean
   // much: spawn, bend the band through the pad, collect, bend it through the far pad, get paid.
-  check('a package can be collected and delivered by bending the route band',
-    parcels.state.delivered >= 1,
-    `${parcels.state.delivered} delivered, $${parcels.state.earned}`);
-  check('courier income reaches the run total', parcels.state.earned > 0
-    && fares.state.money >= parcels.state.earned,
-    `$${parcels.state.earned} of $${fares.state.money}`);
-  // The detour cap is the one thing that can quietly make this layer unreachable — a package the
-  // band will not bend to is a pad that just sits there for the rest of the run. At a one-leg budget
-  // most offers are refused and that is the *point*: what gets taken is the package that happens to
-  // be nearly on the way, which is the decision the layer exists to create.
-  check('the route band bends to the packages that are nearly on the way', viaTaken > 0,
-    `${viaTaken} of ${viaTaken + viaRefused} offers within ${DETOUR_BUDGET} extra leg(s)`);
+  // **This block measures the cost curve; it does not assert that the loop works.** That distinction is
+  // load-bearing and was learned the hard way: at a one-leg budget whether *any* package is reachable is
+  // a property of the city, and moving the courier's seed offset by one merge turned a run that
+  // delivered two into a run offered twenty-five detours that could afford none. A check going red
+  // because the streets happened to line up differently is a check nobody can act on.
+  //
+  // So what is asserted here is that the policy actually ran; the end-to-end path is proved in the
+  // controlled block below, where the geometry is not left to luck.
+  check('the courier policy was exercised', viaTaken + viaRefused > 0,
+    `${viaTaken}/${viaTaken + viaRefused} offers within ${DETOUR_BUDGET} leg, `
+    + `${parcels.state.delivered} delivered for $${parcels.state.earned}`);
 }
 
 // --- A package rides alongside a passenger, and the run ending clears it -------------------------
@@ -1291,8 +1341,10 @@ check('no two cars occupy the same space', worst > 1.6,
 {
   const cScene = new THREE.Scene();
   const cTraffic = createTraffic(makeRng(seed + 44), cScene, 1);
-  const fares = createFareSystem(makeRng(seed + 55), cScene);
-  const parcels = createParcelSystem(makeRng(seed + 233), cScene);
+  const fares = createFareSystem(makeRng(seed + 55), cScene, {
+    reserved: () => parcels.occupiedSpots(),
+  });
+  const parcels = createParcelSystem(makeRng(seed + 255), cScene);
   cTraffic.warmup(2);
 
   // Get a rider aboard the ordinary way.
@@ -1311,7 +1363,7 @@ check('no two cars occupy the same space', worst > 1.6,
 
   // Force a package onto the board next to the taxi and drive into it. `delivered` is faked past
   // PARCEL_MIN_DELIVERED so the spawn gate opens — this is testing the cargo slot, not the gate.
-  parcels.state.lastSpawnAt = -Infinity;
+  parcels.state.nextSpawnAt = -Infinity;
   parcels.update(1 / 60, cTraffic.taxi, { fareSpots: fares.occupiedSpots(), delivered: 9 });
   const parcel = parcels.state.parcels[0];
 
@@ -1362,6 +1414,12 @@ check('no two cars occupy the same space', worst > 1.6,
     let sawFade = 0;
     let loadedEvents = 0;
     let padGrowing = 0;
+    let loadedAtY = null;
+    // The faintest the box ever got while it was on screen. Not read at the landing: `updateFlights`
+    // calls `rest()` on the same frame it lands, which puts the opacity back to 1 — so a read taken
+    // after `update` returns reports the resting state and the check passes against a box that faded to
+    // nothing. (It did exactly that, printing "opacity 1.00 on contact".)
+    let minAlpha = 1;
     let padSettled = false;
     const padScale = () => parcel.slot.dropoff.ring.group.scale.x;
     const boxMaterial = parcel.slot.flightBox.mesh.material;
@@ -1371,7 +1429,11 @@ check('no two cars occupy the same space', worst > 1.6,
       for (const { type } of parcels.update(1 / 60, cTraffic.taxi, {
         fareSpots: fares.occupiedSpots(), delivered: 9, over: false,
       })) {
-        if (type === 'loaded') loadedEvents += 1;
+        if (type !== 'loaded') continue;
+        loadedEvents += 1;
+        // The landing *position* survives the arrival: `rest()` clears the inner box's local transform,
+        // not the outer flight group this reads.
+        loadedAtY = flightBox.position.y;
       }
       if (!flightBox.visible) continue;
       // Off the kerb and not yet at the car: the arc is what makes it a flight rather than a slide.
@@ -1379,6 +1441,7 @@ check('no two cars occupy the same space', worst > 1.6,
       if (fromKerb > 1 && flightBox.position.y > PARCEL_PAD_LIFT + 0.2) sawMidAir += 1;
       if (flightBox.scale.x < 0.9) sawShrink += 1;
       if (boxMaterial.transparent && boxMaterial.opacity < 0.9) sawFade += 1;
+      minAlpha = Math.min(minAlpha, boxMaterial.opacity);
       if (parcel.slot.dropoff.ring.group.visible) {
         if (padScale() < 0.95) padGrowing += 1;
         if (padScale() === 1) padSettled = true;
@@ -1399,6 +1462,22 @@ check('no two cars occupy the same space', worst > 1.6,
     // `pickup` and `loaded` are a flight apart, which is the whole reason the box can be seen to
     // travel. Exactly one `loaded` per collection — the taxi must not flash twice for one box.
     check('the box landing is its own event, once', loadedEvents === 1, `${loadedEvents} loaded`);
+    // **The flourish has to fire where the box touches the car.** `main.js` stamps it off this event, so
+    // what is checkable here is that the event lands on the frame the box is actually *at the deck* —
+    // not at the taxi's wheels, and not while it is still visibly in the air. Both were true before: the
+    // flight ended at pavement height under the car, and the box faded to nothing on the way, so the
+    // flash fired next to an invisible object a unit and a half below where the load then appeared.
+    check('and lands on the frame the box reaches the deck',
+      loadedAtY !== null && Math.abs(loadedAtY - TAXI_DECK_Y) < 0.35,
+      loadedAtY === null ? 'never landed'
+        : `box at y ${loadedAtY.toFixed(2)}, deck at ${TAXI_DECK_Y.toFixed(2)}`);
+    // ...and it is still visible when it gets there, which is the other half of the same point. A box
+    // that has faded to nothing by arrival gives the player nothing to read the contact off, however
+    // well-timed the flash is. Asserted as a floor across the whole flight rather than at the landing,
+    // for the reason noted on `minAlpha` above.
+    check('and never fades out of sight on the way in',
+      minAlpha >= FLIGHT_MIN_ALPHA - 0.02 && minAlpha < 0.9,
+      `faintest ${minAlpha.toFixed(2)} against a ${FLIGHT_MIN_ALPHA} floor`);
     // And the pad it is going to grew out of the road rather than appearing at full size. Asserted on
     // frames of it *part-grown* — "it is visible" would pass against the pop this replaced.
     check('the courier pad grows rather than popping in', padGrowing > 4 && padSettled,
@@ -1468,6 +1547,66 @@ check('no two cars occupy the same space', worst > 1.6,
       && dark.filter((h) => h !== 0).every((h, n) => h === lit.filter((_, i) => dark[i] !== 0)[n]),
       `${dark.filter((h) => h !== 0).length} lamps, unchanged`);
   }
+
+  // --- And deliver it, deterministically -----------------------------------------------------------
+  //
+  // The end-to-end path lives here rather than in the greedy run above, because here the geometry is
+  // chosen rather than drawn: route at the pad, drive, and the payout either lands or it does not.
+  if (parcel && parcels.carrying()) {
+    // Hold the fare clocks for this leg. The taxi is being driven at the courier pad and nowhere near
+    // the rider's drop-off, so without this the rider times out mid-test and the run ends — which is
+    // *correct game behaviour* and useless as a test of the courier path. `setPaused` is the same seam
+    // the opening tutorial uses to stop charging the player for a lesson.
+    fares.setPaused(true);
+    const moneyBefore = fares.state.money;
+    const earnedBefore = parcels.state.earned;
+    const toPad = findRoute(planOrigin(cTraffic.taxi), parcel.dropoff);
+    if (toPad) { cTraffic.taxi.route = toPad; cTraffic.taxi.routeConsumed = false; }
+    let delivered = 0;
+    let outboundAirborne = 0;
+    let g3 = 0;
+    while (delivered === 0 && g3++ < 60 * 240 && !fares.state.gameOver) {
+      cTraffic.update(1 / 60);
+      fares.update(1 / 60, cTraffic.taxi);
+      for (const { type, parcel: p } of parcels.update(1 / 60, cTraffic.taxi, {
+        fareSpots: fares.occupiedSpots(), delivered: 9, over: fares.state.gameOver,
+      })) {
+        if (type === 'delivered') { delivered += 1; if (p) fares.credit(p.value); }
+      }
+    }
+    // Counted *after* the loop, not inside it: the `delivered` event fires on the frame the outbound
+    // flight is **launched**, so a loop that breaks on delivery has ticked exactly one frame of it. The
+    // first version of this check read "1 frame airborne" and was measuring its own exit condition.
+    for (let step = 0; step < 60; step++) {
+      cTraffic.update(1 / 60);
+      fares.update(1 / 60, cTraffic.taxi);
+      parcels.update(1 / 60, cTraffic.taxi, {
+        fareSpots: fares.occupiedSpots(), delivered: 9, over: fares.state.gameOver,
+      });
+      // Above the pavement and below the deck it left: the reverse flight, arcing down into the pad.
+      if (parcel.slot.flight.visible && parcel.slot.flight.position.y > PARCEL_PAD_LIFT + 0.2) {
+        outboundAirborne += 1;
+      }
+    }
+    check('a package is delivered and paid for', delivered === 1
+      && parcels.state.earned === earnedBefore + parcel.value
+      && fares.state.money === moneyBefore + parcel.value,
+      `$${parcel.value} — courier total $${parcels.state.earned}, run total $${fares.state.money}`);
+    check('and the box flies back out to the pad', outboundAirborne > 4,
+      `${outboundAirborne} frames airborne on the way out`);
+    fares.setPaused(false);
+  } else {
+    check('a package is delivered and paid for', false, 'no setup');
+    check('and the box flies back out to the pad', false, 'no setup');
+  }
+
+  // The flight ends **on the rear deck**, not on the road under the car. It used to land at the taxi's
+  // XZ at pavement height while the deck parcel appeared a unit and a half above — two events with a
+  // visible jump between them, which is exactly what "align the flourish with contact" rules out.
+  check('a flight lands at deck height, not at the wheels',
+    Math.abs(TAXI_DECK_Y - PARCEL_PAD_LIFT) > 1
+    && TAXI_DECK_Y > PARCEL_PAD_LIFT,
+    `deck ${TAXI_DECK_Y.toFixed(2)} vs pavement ${PARCEL_PAD_LIFT.toFixed(2)}`);
 
   // The run ends. One seam inside parcels.js handles all three ways it can, so this drives the one
   // that does not go through the fare loop at all.

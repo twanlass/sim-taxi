@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createParcelPin, createParcelDropPin } from '../geometry/marker.js';
 import { createParcel, PARCEL_DECK_SCALE } from '../geometry/parcel.js';
+import { TAXI_DECK_Y } from '../geometry/taxi.js';
 import { KERB_H } from '../city/ground.js';
 import { PARCEL_COLOR } from './urgency.js';
 import { allIntersections, findRoute } from './route.js';
@@ -77,15 +78,32 @@ export const MAX_PARCELS = 2;
  */
 export const PARCEL_MIN_DELIVERED = 1;
 
+// --- Pacing: a package is a find, not a fixture ---------------------------------------------------
+//
+// The gap between spawns is **drawn per package** rather than fixed, and a delivery pushes the next one
+// further out still. Both are about the same thing: a box should feel like something you came across.
+//
+// A flat 12s gap made the board a metronome. With two slots that is a permanent pair of pads on the
+// map — always something to detour for, nothing to notice — and a layer whose whole appeal is "oh,
+// there's one" became scenery. The fare board *wants* to be a steady supply, because serving it is the
+// game; the courier board is the opposite, and copying the fare cadence was copying the wrong thing.
+//
+// A random draw rather than a per-frame chance roll (which is how `VIP_CHANCE` does it): a probability
+// checked every tick is a geometric distribution with a very short mean, and would need its own
+// opportunity clock to behave. One draw at spawn time gives an arrival the player cannot predict, stays
+// deterministic per seed, and is a single number to read in a debugger.
+export const PARCEL_GAP_MIN = 18;
+export const PARCEL_GAP_MAX = 45;
+
 /**
- * Seconds between package spawns.
+ * Extra hold after a delivery, on top of whatever gap was drawn.
  *
- * Longer than any fare's `spawnGap`, and deliberately off the difficulty curve: the courier layer is
- * bonus income, not pressure, so it must not thicken as the ramp does. Staggered rather than spawned
- * together for the reason the fare board staggers — two arriving at once is a moment followed by a
- * lull, where two arriving apart is a standing offer.
+ * Cashing one in must not immediately put another on the board — that is the loop closing on itself,
+ * and it turns a find into a vending machine. The pause afterwards is what makes the *next* one land as
+ * news, and it costs nothing: a package has no clock, so there is nothing being withheld from the
+ * player except the sight of one.
  */
-export const PARCEL_SPAWN_GAP = 12;
+export const PARCEL_AFTER_DELIVERY = 20;
 
 /**
  * Multiplier on a package's distance price. **This is the knob.**
@@ -113,10 +131,28 @@ const MIN_TRIP_BLOCKS = 3;
  * 0.9s run-and-jump so the clock lands a beat before its owner does; a box has nothing to wait for,
  * and the two flights should not look like the same object anyway.
  */
-const FLIGHT_TIME = 0.55;
+export const FLIGHT_TIME = 0.55;
 
-/** Lift over the middle of the flight, so the box arcs across rather than sliding along the road. */
-const FLIGHT_ARC = 1.4;
+/**
+ * Lift over the middle of the flight, so the box arcs across rather than sliding along the road.
+ *
+ * 2.6, up from 1.4. At play zoom a world unit is about 7.7px, so the first number bought roughly eleven
+ * pixels of rise over a half-second — technically an arc and, on a box that had just been halved in
+ * size, not one anybody could see. It is a throw now, which is also what makes the *direction* of the
+ * hand-off legible: the box goes up and over into the car rather than sliding across the tarmac at it.
+ */
+const FLIGHT_ARC = 2.6;
+
+/**
+ * How transparent the box gets at the far end of a flight.
+ *
+ * Not zero, and that is the point. Fading all the way out meant the box was **invisible by the frame it
+ * arrived** — so the moment the player reads as contact happened somewhere earlier and vaguer, and the
+ * taxi's flourish fired on a frame with nothing in it. It keeps a quarter of its opacity all the way in,
+ * lands on the deck at deck size, and is switched off under the flash. The flash is what covers the cut,
+ * which is what a flourish is for.
+ */
+export const FLIGHT_MIN_ALPHA = 0.25;
 
 /**
  * Height the flying box's base rides at — the pavement, matching where the kerb box stands.
@@ -178,7 +214,13 @@ export function createParcelSystem(rng, scene) {
     delivered: 0,
     /** Cash paid out by this layer alone, so the soak can separate it from fare income. */
     earned: 0,
-    lastSpawnAt: -Infinity,
+    /**
+     * Sim time the next package may appear at. `-Infinity` until the first one, so the opening spawn is
+     * governed only by `PARCEL_MIN_DELIVERED`; after that it is a drawn gap, pushed further out by every
+     * delivery. One timestamp rather than a last-spawn plus arithmetic at the call site, because two
+     * separate rules (the draw, and the post-delivery hold) both have to move it.
+     */
+    nextSpawnAt: -Infinity,
     over: false,
   };
 
@@ -349,11 +391,18 @@ export function createParcelSystem(rng, scene) {
    * target the way the fare crystal's does.
    */
   function launch(slot, kind, from, to) {
+    // Height runs pavement <-> deck, whichever way round this flight goes. A box that left the kerb and
+    // arrived at the taxi's *wheels* — which is what a single fixed height gave — put the load on the
+    // road and then popped it onto the roofline.
+    const fromY = kind === 'in' ? PARCEL_PAD_LIFT : TAXI_DECK_Y;
+    const toY = kind === 'in' ? TAXI_DECK_Y : PARCEL_PAD_LIFT;
     slot.flightBox.rest();
     slot.flight.visible = true;
-    slot.flight.position.set(from.x, PARCEL_PAD_LIFT, from.z);
+    slot.flight.position.set(from.x, fromY, from.z);
     slot.flight.scale.setScalar(kind === 'in' ? 1 : FLIGHT_MIN_SCALE);
-    flights.push({ slot, kind, from: { ...from }, to: to ? { ...to } : null, at: null });
+    flights.push({
+      slot, kind, from: { ...from }, to: to ? { ...to } : null, fromY, toY, at: null,
+    });
   }
 
   /**
@@ -404,14 +453,14 @@ export function createParcelSystem(rng, scene) {
       const to = f.to ?? { x: taxiCar.x, z: taxiCar.z };
       f.slot.flight.position.set(
         f.from.x + (to.x - f.from.x) * eased,
-        PARCEL_PAD_LIFT + Math.sin(eased * Math.PI) * FLIGHT_ARC,
+        f.fromY + (f.toY - f.fromY) * eased + Math.sin(eased * Math.PI) * FLIGHT_ARC,
         f.from.z + (to.z - f.from.z) * eased,
       );
       // Scale and alpha run *with* the travel rather than on their own curve, so the box reads as
       // going into the car rather than as fading while it happens to move.
       const shrink = f.kind === 'in' ? 1 - eased : eased;
       f.slot.flight.scale.setScalar(FLIGHT_MIN_SCALE + (1 - FLIGHT_MIN_SCALE) * shrink);
-      f.slot.flightBox.setOpacity(Math.max(0, Math.min(1, shrink)));
+      f.slot.flightBox.setOpacity(FLIGHT_MIN_ALPHA + (1 - FLIGHT_MIN_ALPHA) * shrink);
       f.slot.flightBox.idle(elapsed);
 
       if (t < 1) continue;
@@ -477,10 +526,10 @@ export function createParcelSystem(rng, scene) {
 
     if (delivered >= PARCEL_MIN_DELIVERED
       && state.parcels.length < MAX_PARCELS
-      && state.elapsed - state.lastSpawnAt >= PARCEL_SPAWN_GAP) {
+      && state.elapsed >= state.nextSpawnAt) {
       const spawned = spawn(taxiCar, fareSpots);
       if (spawned) {
-        state.lastSpawnAt = state.elapsed;
+        state.nextSpawnAt = state.elapsed + rng.range(PARCEL_GAP_MIN, PARCEL_GAP_MAX);
         emit('spawned', spawned);
       }
     }
@@ -505,6 +554,9 @@ export function createParcelSystem(rng, scene) {
       } else {
         state.delivered += 1;
         state.earned += parcel.value;
+        // Hold the next spawn off. `max` rather than an assignment: a draw already further out than this
+        // must not be pulled *in* by a delivery, which is the whole direction the hold exists to push.
+        state.nextSpawnAt = Math.max(state.nextSpawnAt, state.elapsed + PARCEL_AFTER_DELIVERY);
         beginDrop(parcel, taxiCar);
         emit('delivered', parcel);
       }

@@ -1513,12 +1513,33 @@ flight has to own its world position. Two nested groups, also the crystal's arra
 one carries the travel and the scale, the inner box goes on spinning and bobbing in local space, so
 the two concerns never fight over one transform.
 
-Going in it shrinks to `PARCEL_DECK_SCALE` and fades to nothing over `FLIGHT_TIME` (0.55s, a shade under
-the crystal's 0.65 — that one is tuned against the rider's run-and-jump, and the two flights should not
-look like the same object anyway), arcing 1.4 units over the middle. Coming out it does the reverse
-into the pad. Scale and alpha run *with* the travel rather than on their own curve, so the box reads as
-going into the car rather than as fading while it happens to move. It stops at the deck parcel's own scale rather than at
-nothing, so the flight ends *on* the object it becomes instead of vanishing beside it.
+Going in it shrinks to `PARCEL_DECK_SCALE` and fades toward `FLIGHT_MIN_ALPHA` over `FLIGHT_TIME` (0.55s,
+a shade under the crystal's 0.65 — that one is tuned against the rider's run-and-jump, and the two flights
+should not look like the same object anyway). Coming out it does the reverse into the pad. Scale and alpha
+run *with* the travel rather than on their own curve, so the box reads as going into the car rather than as
+fading while it happens to move, and it stops at the deck parcel's own scale so the flight ends *on* the
+object it becomes instead of beside it.
+
+Three numbers were measured and moved, all in service of the arrival being a **contact**:
+
+- **The arc is 2.6, up from 1.4.** A world unit is about 7.7px at play zoom, so the first number bought
+  roughly eleven pixels of rise over half a second — technically an arc and, on a box that had just been
+  halved in size, not one anybody could see. It is a lob now, which is also what makes the *direction* of
+  the hand-off legible: up and over into the car rather than sliding across the tarmac at it.
+- **It flies to the deck, not to the road.** The end point was the taxi's XZ at pavement height — under
+  the car's sills — while the deck parcel appeared at `TAXI_DECK_Y`, a unit and a half above. Two events
+  with a visible jump between them. The height now runs pavement ↔ deck whichever way the flight goes, and
+  `TAXI_DECK_Y` is exported from `geometry/taxi.js` and used to place the deck mesh itself, so the two
+  cannot drift.
+- **The fade stops at 0.25.** Fading to zero meant the box was *invisible by the frame it arrived*, so the
+  contact the player reads happened somewhere earlier and vaguer, and the taxi's flourish fired on a frame
+  with nothing in it. The box now lands visible at deck size and is switched off under the flash. Covering
+  the cut is what a flourish is for.
+
+`tools/probe.mjs` asserts the landing frame's height against `TAXI_DECK_Y` and the faintest opacity across
+the whole flight — the second one deliberately as a floor rather than a reading at the landing, because
+`updateFlights` calls `rest()` on the same frame it lands and a read taken after `update` returns reports
+the resting state. It did exactly that, and passed while printing "opacity 1.00 on contact".
 
 > **Trap.** `material.transparent` and `depthWrite` are shader-define switches, so changing `opacity`
 > alone does nothing until `needsUpdate` forces a recompile — the rider figure shipped that bug once

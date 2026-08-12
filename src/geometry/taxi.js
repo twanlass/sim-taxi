@@ -26,6 +26,16 @@ const TAXI_SCALE = 1.18;
 export const TAXI_TAILPIPE_BACK = (CAR_LEN / 2) * TAXI_SCALE;
 export const TAXI_TAILPIPE_HEIGHT = 0.42 + CHASSIS_LIFT;
 
+/**
+ * World height of the rear deck the courier parcel rides on — the top of the body, scaled.
+ *
+ * Exported because `game/parcels.js` flies a box *to* it: the flight used to end at the taxi's XZ at
+ * pavement height, which is under the car's sills, and the deck parcel then appeared a unit and a half
+ * higher. The box arrived at the road and the load materialised on the roofline, which is two events
+ * and a visible jump between them. Landing the flight here is what makes the arrival a contact.
+ */
+export const TAXI_DECK_Y = (1.18 + CHASSIS_LIFT) * TAXI_SCALE;
+
 export function createTaxiMesh() {
   const group = new THREE.Group();
   group.name = 'taxi';
@@ -133,7 +143,7 @@ export function createTaxiMesh() {
   // resizing the box does not silently resize the load.
   const cargo = createParcel({ pickable: null }).group;
   cargo.scale.setScalar(PARCEL_DECK_SCALE);
-  cargo.position.set(-1.32, 1.18 + CHASSIS_LIFT, 0);
+  cargo.position.set(-1.32, TAXI_DECK_Y / TAXI_SCALE, 0);
   cargo.visible = false;
   group.add(cargo);
   // In the stencil mask like every other opaque part of the car. Not for its own silhouette: any

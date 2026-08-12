@@ -43,7 +43,7 @@ import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
   getDiagnostics, getParcelsPin } from './util/shot.js';
-import { createParcelSystem } from './game/parcels.js';
+import { createParcelSystem, FLIGHT_TIME as PARCEL_FLIGHT_TIME } from './game/parcels.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
 import { attachContextRecovery } from './game/recovery.js';
@@ -182,7 +182,12 @@ const traffic = createTraffic(
   pinnedCars ?? difficulty.carCount(Infinity),
   TRUCK_CHANCE,
 );
-const fares = createFareSystem(makeRng(runSeed + 55), scene);
+// `reserved` is how the fare loop learns about the courier's corners without importing it. `parcels`
+// is declared just below and this closure is only ever *called* from the frame loop, long after — the
+// same forward reference `pathDrag`'s `canGrab` makes to `pause`.
+const fares = createFareSystem(makeRng(runSeed + 55), scene, {
+  reserved: () => parcels?.occupiedSpots() ?? [],
+});
 // The package courier — see game/parcels.js. Its own stream off the run seed, so adding this layer
 // does not reshuffle where every rider spawns. `?parcels=0` turns it off.
 //
@@ -1831,7 +1836,7 @@ if (shot) {
   //
   // Only reachable with `?parcels=1`, which is also what turns the layer on in shot mode at all.
   if (shot.untilParcel && parcels) {
-    parcels.state.lastSpawnAt = -Infinity;
+    parcels.state.nextSpawnAt = -Infinity;
     parcels.update(1 / 60, traffic.taxi, { fareSpots: fares.occupiedSpots(), delivered: 9 });
     // A few frames of sim time so the box is mid-spin rather than dead square to the camera, which
     // reads as a crate rather than as something waiting to be collected.
@@ -1839,7 +1844,36 @@ if (shot) {
       parcels.update(1 / 60, traffic.taxi, { fareSpots: fares.occupiedSpots(), delivered: 9 });
     }
     const box = parcels.state.parcels[0];
-    if (box) {
+    // Freeze the box in mid-air.
+    //
+    // Driven rather than teleported. The first cut of this set `taxi.x/z` to the package's junction so
+    // proximity would resolve at once — which put the car exactly where the box was, giving the flight
+    // zero length and a photograph of nothing. It also lies to the traffic model, which carries its own
+    // lane state and would have corrected the position on the next tick anyway. So the taxi is *routed*
+    // there and the sim run until it arrives, the same way `untilPickup` does it, and then the flight is
+    // ticked `flightAt` of the way along — with `traffic.update` still running, because the car keeps
+    // driving through the junction and the box has to chase where it has got to. That chase is the whole
+    // geometry of the shot.
+    if (box && shot.flightAt !== undefined) {
+      routeTo(box.pickup);
+      const tick = () => parcels.update(1 / 60, traffic.taxi, {
+        fareSpots: fares.occupiedSpots(), delivered: 9,
+      });
+      for (let guard = 0; guard < 90 * 60 && !parcels.carrying(); guard++) {
+        traffic.update(1 / 60);
+        tick();
+      }
+      const kerb = cornerFor(box.pickup.i, box.pickup.j);
+      for (let step = 0; step < Math.round(shot.flightAt * PARCEL_FLIGHT_TIME * 60); step++) {
+        traffic.update(1 / 60);
+        tick();
+      }
+      // The midpoint of the crossing, not either end — the arc is the subject.
+      controller.state.target.set(
+        (kerb.x + traffic.taxi.x) / 2, 0, (kerb.z + traffic.taxi.z) / 2,
+      );
+      controller.update(aspect());
+    } else if (box) {
       // The kerb corner, not the junction centre — at close zoom the corner building stands squarely
       // between the camera and anything on the pavement. Same reason `atPassenger` does it.
       const c = cornerFor(box.pickup.i, box.pickup.j);

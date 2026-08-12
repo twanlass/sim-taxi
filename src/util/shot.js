@@ -117,6 +117,11 @@ export const SHOTS = [
   // for the same reason: a still frame cannot spend the seconds the real path costs, and what is
   // being looked at is whether a box on the deck reads as cargo rather than as a lump on the roof.
   { name: 'parcel-aboard', description: 'the taxi carrying a package — needs ?parcels=1', target: [0, 0], zoom: 16, warmup: 12, select: true, untilPickup: true, withCargo: true },
+  // The box mid-flight, which had no framing at all and needed one: the arc, the shrink and the fade
+  // are the whole of that animation and every one of them is a *moment*, gone in half a second. The
+  // probe can count airborne frames; only a picture says whether the throw reads as a throw.
+  // `flightAt` is the fraction along the flight the shot freezes — 0.5 is the top of the arc.
+  { name: 'parcel-flight', description: 'the box crossing to the taxi — needs ?parcels=1', target: [0, 0], zoom: 13, warmup: 12, untilParcel: true, flightAt: 0.5 },
 ];
 
 export function getActiveShot() {

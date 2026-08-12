@@ -259,7 +259,14 @@ function createSlot(scene, index) {
   return { index, passenger, destination, marker };
 }
 
-export function createFareSystem(rng, scene) {
+/**
+ * @param reserved  junctions another system has claimed and this one must not spawn on — the package
+ *                  courier's two ends (game/parcels.js), wired up in main.js. Injected rather than
+ *                  imported: the courier is a layer *on top* of the fare loop and the fare loop must
+ *                  keep working with nothing on top of it, which a hard import would quietly end.
+ *                  Read per call, since the set moves every time a package is collected.
+ */
+export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
     // waiting on the kerb at once — the whole prioritisation puzzle.
@@ -339,7 +346,21 @@ export function createFareSystem(rng, scene) {
       avoid.push(f.target);
       if (f.dropoff) avoid.push(f.dropoff);
     }
+    // ...and every junction another *system* has spoken for — the package courier's two ends
+    // (game/parcels.js), through the injected `reserved` above.
+    //
+    // **This is the half that was missing.** The courier already refused to spawn on a fare's corner,
+    // which made the rule look enforced while only one direction of it was: a package sits on its
+    // corner indefinitely, so given long enough a later fare would land on top of one. Two jobs in one
+    // 20-unit hit box is a tap that resolves to whichever the raycast reached first, and at play zoom
+    // the player cannot see there are two.
+    //
+    // Blocks as well as junctions, matching what the courier does in the other direction, so the
+    // invariant is symmetric and can be asserted as one: `cornerFor` flips its corner inward at
+    // `i === 0`, so two intersections a whole block apart can still park their markers on one slab.
+    const held = reserved();
     const free = (i, j) => !avoid.some((a) => a.i === i && a.j === j)
+      && !held.some((a) => (a.i === i && a.j === j) || onSameBlock({ i, j }, a))
       && (!avoidBlockOf || !onSameBlock({ i, j }, avoidBlockOf));
 
     if (near) {
@@ -362,6 +383,15 @@ export function createFareSystem(rng, scene) {
       const j = rng.int(0, GRID);
       if (free(i, j)) return { i, j };
     }
+    // Sixty random darts can miss a board this constrained — a full fare board plus the courier's
+    // corners is a dozen junctions and their blocks out of thirty-six — so sweep for a free one before
+    // giving up. The old code fell straight through to (0, 0), which does not consult `free` at all and
+    // so was itself able to drop a rider onto a corner already spoken for: a guard with a hole in the
+    // one path that runs when the guard matters most.
+    for (let i = 0; i <= GRID; i++) {
+      for (let j = 0; j <= GRID; j++) if (free(i, j)) return { i, j };
+    }
+    // Genuinely nowhere left. Deterministic rather than random so the failure is reproducible.
     return { i: 0, j: 0 };
   }
 

@@ -1129,6 +1129,21 @@ square against a disc is read at a glance.
   boost top-up (Loco Mode fuel is the delivery reward, and a courier detour has delivered nobody),
   no run-end stat row. The payout takes the same [two-phase flight](#economy) a fare's does, because
   it is the same kind of event arriving from the same place.
+- **A package is a find, not a fixture.** The gap between spawns is **drawn** per package (18–45s)
+  rather than fixed, and a delivery pushes the next one further out again (`PARCEL_AFTER_DELIVERY`). A
+  flat 12s gap made the board a metronome: with two slots that is a permanent pair of pads on the map,
+  always something to detour for and nothing to notice, and a layer whose whole appeal is "oh, there's
+  one" became scenery. The fare board *wants* to be a steady supply, because serving it is the game; the
+  courier board is the opposite, and copying the fare cadence was copying the wrong thing. Cashing one in
+  must not immediately produce another — that is the loop closing on itself, and it turns a find into a
+  vending machine.
+- **Neither board ever puts two jobs on one corner**, in either direction. The courier refuses to spawn
+  on a fare's corner *and* `fares.js` refuses to spawn on a package's, through an injected `reserved`
+  callback — injected rather than imported, because the fare loop has to keep working with nothing layered
+  on top of it. Only the first half existed at one point, which made the rule *look* enforced while a
+  package's indefinite wait guaranteed a later fare would eventually land on one. Blocks as well as
+  junctions, since `cornerFor` flips its corner inward at `i === 0` and two intersections a whole block
+  apart can still share a slab.
 - **Packages land off the route the taxi is already driving**, at spawn. A box on a road the car was
   going to take anyway is collected for free and asks nothing. It is a spawn-time bias only — the
   next fare re-plans everything, and a package ending up on the new route is the "free money" case,
@@ -1139,7 +1154,7 @@ square against a disc is read at a glance.
 - **`?parcels=0`** clears the board to measure the fare loop alone, the way `?cars=1` clears the
   roads. The layer is off in shot mode by default, since every framing in the sweep was composed
   before packages existed; **`?parcels=1`** forces it back on, which is the only way to point a
-  camera at one (`?shot=22`, `?shot=23`, `?shot=24`).
+  camera at one (`?shot=22` to `?shot=25`).
 - **The taxi wears its load.** A small parcel appears on the rear deck — an object on the car rather
   than anything on the glass, for the reason [the roof sign](#the-taxis-roof-sign) is one.
 
@@ -1159,6 +1174,13 @@ Two consequences worth naming:
   envelope, so being handed a package reads as the same *kind* of acknowledgement as a tap that landed.
   Splitting them is what lets the box be seen to travel instead of appearing on a deck that was already
   carrying it.
+- **The flourish fires where the box touches the car**, which took two fixes rather than a timing tweak.
+  The flight used to end at the taxi's XZ at **pavement height** — under the car's sills — while the deck
+  parcel appeared a unit and a half above it, so the arrival and the load were in different places. And
+  the box faded to *zero* on the way in, so it was invisible by the frame it landed and the flash lit an
+  empty patch of road. It now flies to the deck's own height (`TAXI_DECK_Y`, exported from the mesh) and
+  keeps a quarter of its opacity all the way in, switched off under the flash. Covering the cut is what a
+  flourish is for.
 - **`delivered` still pays out at once.** The money is earned on arrival, and making the player wait
   out an animation for it would read as lag. The deck parcel also goes on that frame rather than when
   the outbound box lands: the flying box *is* the load leaving, and two of them on screen at once would
