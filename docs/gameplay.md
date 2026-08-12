@@ -398,9 +398,8 @@ up "carrying" two riders off a single seat.
 
 The passenger **figure** is white — deliberately colourless. Before pickup any taxi could take any
 rider, so a colour on the *person* would imply a commitment that doesn't exist. The crystal over
-their head is spoken for by the clock, which is why the figure under it has to stay out of the way —
-and now that [the kerb carries nothing else](#nothing-on-the-kerb-but-the-rider-and-their-clock), the
-two of them are the whole of what a waiting rider is.
+their head and [the disc under their feet](#the-disc-says-it-again-on-the-ground) are both spoken
+for by the clock, which is why the figure between them has to stay out of the way.
 
 The **roof sign** lights up while a rider is aboard and goes dark once they're dropped off — a
 plain on/off, not a colour. It used to wear the fare's own colour, drawn at spawn from a five-colour
@@ -619,26 +618,27 @@ rather than climbing into a different slot.
 That flight is tuned against `BOARD_SECONDS = 0.9`, so the clock lands on the car a beat *before*
 the rider figure finishes climbing in. The deadline arrives, then its owner does.
 
-### Nothing on the kerb but the rider and their clock
+### The disc says it again, on the ground
 
-A waiting rider is **a white figure and the crystal over their head**. No ring on the pavement, no
-plate, no bar.
+A waiting rider stands in a **disc in their own urgency colour** — the same hue as the crystal over
+their head, on the [drop-off's own shape](#the-drop-off-is-a-ring-and-it-wears-the-riders-clock).
+One hue said twice: at eye level, where the eye happens to be, and on the road, where the taxi is
+actually being aimed. It also survives what the crystal does not — a rider behind a tower still has
+a mark on a plane the buildings mostly don't cover.
 
-They wore a disc for a spell, in the crystal's own colour — one hue said twice, at eye level where
-the eye happens to be and again on the ground where the driving is aimed, and it survived what the
-crystal does not (a rider behind a tower still had a mark on the road). What took it off is not the
-clutter, it is what a disc on the road *means* now that the far end of a trip has one: **the taxi is
-being driven here.** A rider on the kerb is not that. They are somewhere the taxi *may* be sent — the
-choice the whole game is about — and painting them with the mark of a place already chosen made the
-shape say only "this matters", which both ends of the board could claim.
+It never drains. Time is the colour's job; the disc only has to say "here".
 
-So the rule holds in one direction only, which is what makes it a rule: every ring on the road is a
-destination, and there is at most one at a time. What the kerb keeps is the clock, at eye level,
-[bouncing and kicking](#what-the-crystal-does) — and the board gets a lot of paint back, since three
-waiting riders were three discs and three crystals on blocks only ~92px across.
+**A fare owns one disc at a time, and it moves.** The rider's goes dark the instant they board and
+the drop-off's lights on the same frame — the hand-off the crystal makes in the air from the kerb to
+the taxi roof, made on the ground from one end of the trip to the other. So the shape means "a place
+this clock is attached to" wherever it is, and what tells the two ends apart is whether anyone is
+standing in it: a disc with a figure in it is somewhere to collect, an empty one is somewhere to
+deliver. A disc left glowing on an empty pavement would read as a second fare, which is exactly why
+it goes out.
 
-The colour did not disappear with the disc; it moved to the far end of the trip, where the disc is
-still [saying it on the ground](#the-drop-off-is-a-ring-and-it-wears-the-riders-clock).
+The kerb disc was taken off for a spell on the argument that a disc ought to mean "the taxi is being
+driven here" and a rider nobody has tapped is not that. It reads better than it argued: the eye is
+down on the road, and that is where the colour is worth having.
 
 ### It used to be a relay
 
@@ -796,11 +796,11 @@ it back, because a second crystal reporting nothing made the shape ambiguous.
 Four things, in this order:
 
 - **A shaft of light** over the rider, which marked them at range and said nothing else.
-- **A draining ring on the kerb**, an earlier body for the same clock: it *was* the countdown, read
-  by how much of it was left, and it was the only thing marking the corner. A plain disc in the
-  crystal's colour came back for a spell after it and went again — see
-  [Nothing on the kerb](#nothing-on-the-kerb-but-the-rider-and-their-clock). Nothing lies on the
-  pavement under a rider now.
+- **A draining ring on the kerb**, an earlier body for the same clock. A disc is back under the
+  rider now and it is worth being clear about what changed: that one *was* the clock, a countdown
+  the player read by how much of it was left, and it was the only thing marking the corner. This one
+  reports nothing on its own — it repeats the crystal's colour, and the crystal is the clock. See
+  [The disc says it again](#the-disc-says-it-again-on-the-ground).
 - **A seven-segment block count**, which was more precision than the decision needed and cost a
   read to parse.
 - **A meter**: a dark plate carrying a four-segment urgency bar over a three-segment distance bar.

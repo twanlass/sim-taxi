@@ -5,18 +5,20 @@ import { createTargetRing, RING_Y } from './targetring.js';
 // Pickup and drop-off markers.
 //
 // Both are a kerb-corner placement, a tap target, and what stands on it:
-//   - the pickup stands a **figure** there and nothing else.
-//   - the drop-off lays a **disc** on the corner, in the colour of the clock the taxi is racing.
+//   - the pickup stands a **figure** there, over a disc in the fare's urgency colour.
+//   - the drop-off lays the same **disc** on the corner, in the same colour, and nothing else.
 //
-// **A disc on the road means "the taxi is being driven here", and only the drop-off has one.** The
-// rider's kerb wore one too for a spell, in the same urgency colour, and that made the shape say
-// merely "a place that matters" — with two of them on the board and only one of them actually
-// dispatched at. What is left is one rule with one shape behind it, and the hue on it belongs to
-// the fare whose clock is paying for the drive (see game/urgency.js).
+// **A disc marks the end of a trip that a clock is attached to, and one fare owns one at a time.**
+// It is under the rider while they wait and on their destination once they are aboard — the same
+// hand-off the crystal makes when it flies from the kerb to the taxi roof, made on the ground. What
+// tells the two ends apart is not the hue (both are that fare's clock, see game/urgency.js) but
+// whether anybody is standing in it: a disc with a figure in it is somewhere to collect, an empty
+// one is somewhere to deliver. Which is also the difference the player is acting on.
 //
-// The fare's clock itself — the diamond that floats over the rider and then flies to the taxi —
+// The fare's clock itself — the crystal that floats over the rider and then flies to the taxi —
 // belongs to the fare rather than to either marker, and lives in game/faremarker.js. It has to
-// leave the kerb, so it cannot hang off a marker that stays.
+// leave the kerb, so it cannot hang off a marker that stays. The rider's disc lives there too, for
+// the same reason inverted: it has to go dark on a frame this marker knows nothing about.
 //
 // The disc used to sit at the intersection centre — the idea being that a disc on the carriageway
 // would never be occluded — but it left a visible gap between the marker and it, and the eye
@@ -44,7 +46,9 @@ function marker(kind, { buildStanding = null, ringColor = null } = {}) {
   // On postGroup, so the disc follows the same kerb corner as whatever stands on it instead of
   // being stranded at the junction centre.
   //
-  // Only the drop-off builds one. A waiting rider has no disc at all any more — see the header.
+  // The rider's disc is not built here: it is the fare's clock speaking on the ground, it changes
+  // colour every few seconds and it has to go dark the moment they board — all of which belongs to
+  // game/faremarker.js, which owns the clock. This is the drop-off's.
   const ring = ringColor ? createTargetRing(ringColor) : null;
   // place() already lifts postGroup 0.12 above the kerb, so this lands the disc RING_Y over the
   // pavement — the same height the rider's own disc floats at.

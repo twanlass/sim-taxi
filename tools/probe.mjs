@@ -83,8 +83,10 @@ const time = (label, fn) => {
 // Read a rider's diamond back the way a player does — off the material it is painted in, not by
 // trusting the argument we passed in. Its colour is the whole of what that marker says now.
 const diamondHex = (marker) => marker.mesh.material.color.getHexString();
-// The drop-off's disc, rim and fill and sweep — one mark at three weights, so they must never
-// disagree with each other or with the crystal riding over the taxi driving at them.
+// A disc, rim and fill and sweep — one mark at three weights, so they must never disagree with
+// each other or with the crystal that owns them. One reader for each end of a trip: the rider's
+// disc hangs off the travelling marker, the drop-off's off the slot's pin.
+const riderRingHexes = (marker) => marker.ring.children.map((m) => m.material.color.getHexString());
 const ringHexes = (slot) => slot.destination.ring.group.children
   .map((m) => m.material.color.getHexString());
 
@@ -363,8 +365,8 @@ check('no two cars occupy the same space', worst > 1.6,
 
   let marker = null;
   let overTheRider = false;
-  let bareKerb = false;
-  let discAtDropoff = false;
+  let discUnderRider = false;
+  let discMovedToDropoff = false;
   const bandFollows = [];
   let launchedFromKerb = false;
   let transferred = false;
@@ -406,10 +408,13 @@ check('no two cars occupy the same space', worst > 1.6,
         // It stands over the rider from the frame they appear — this is the only thing marking
         // someone on the kerb, so a hidden one is an invisible fare.
         overTheRider = marker.group.visible && distanceTo(kerbAtSpawn) < 0.01;
-        // And it is the *only* thing on that corner besides the figure: the rider wore a disc in
-        // the same colour for a spell, and a ring on the road means "the taxi is being driven
-        // here" now, which a rider nobody has tapped is not.
-        bareKerb = marker.ring === undefined && !fare.slot.destination.group.visible;
+        // The disc lands on the same corner, under their feet — it is the crystal's colour said
+        // again on the ground, where the driving is aimed. And nothing is on the far corner yet.
+        discUnderRider = marker.ring.visible
+          && Math.hypot(marker.ring.position.x - kerbAtSpawn.x,
+            marker.ring.position.z - kerbAtSpawn.z) < 0.01
+          && new Set([...riderRingHexes(marker), diamondHex(marker)]).size === 1
+          && !fare.slot.destination.group.visible;
         route(fare);
       }
       if (type === 'pickup' && fare.slot.marker === marker) {
@@ -417,10 +422,11 @@ check('no two cars occupy the same space', worst > 1.6,
         // Launched from the corner the rider was standing on, not replanted on the car: the
         // hand-off has to read as the same object moving.
         launchedFromKerb = marker.group.visible && distanceTo(kerbAtSpawn) < 0.01;
-        // ...and the disc appears at the far end on the same frame, wearing the clock that is now
-        // riding in the car. Both ends of the trip have said it at once ever since the rider's own
-        // kerb disc went: the crystal over the roof and the ring the taxi is driving at.
-        discAtDropoff = fare.slot.destination.group.visible
+        // ...and the disc makes the same hand-off on the ground that the crystal is making in the
+        // air: out on the kerb corner, on at the drop-off, on one frame and in one colour. A fare
+        // owns exactly one disc at a time, and two lit at once would read as two fares.
+        discMovedToDropoff = !marker.ring.visible
+          && fare.slot.destination.group.visible
           && new Set([...ringHexes(fare.slot), diamondHex(marker)]).size === 1;
         route(fare);
       }
@@ -445,8 +451,8 @@ check('no two cars occupy the same space', worst > 1.6,
   }
 
   check('the clock stands over the rider from the frame they appear', overTheRider);
-  check('and is the only mark on their corner — no disc under a waiting rider', bareKerb);
-  check('the drop-off disc lights in the same colour when they board', discAtDropoff);
+  check('and marks the ground under their feet in the same colour', discUnderRider);
+  check('the disc hands off to the drop-off when they board', discMovedToDropoff);
   check('the route band takes its colour from the fare the taxi was sent at',
     bandFollows.length > 0 && bandFollows.every(Boolean),
     `${bandFollows.filter((b) => !b).length}/${bandFollows.length} dispatches disagreed`);
@@ -922,6 +928,11 @@ check('no two cars occupy the same space', worst > 1.6,
       const want = urgencyColor(level).getHexString();
       const got = diamondHex(diamond);
       if (got !== want) wrongColour.push(`${level}: ${got} != ${want}`);
+      // Crystal and disc are one statement. A disc lagging a level behind would have the board
+      // saying two different things about the same rider.
+      for (const disc of riderRingHexes(diamond)) {
+        if (disc !== want) wrongColour.push(`${level} disc: ${disc} != ${want}`);
+      }
       if (got !== seen.at(-1)) seen.push(got);
     }
     check('each urgency level paints the diamond its own colour', wrongColour.length === 0,

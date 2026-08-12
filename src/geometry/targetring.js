@@ -2,15 +2,17 @@ import * as THREE from 'three';
 import { ROUTE_OPACITY } from '../game/routeline.js';
 
 // The disc a fare marks its ground with: a filled circle inside a solid rim, lying flat on the
-// pavement corner. **One end of a trip wears one** — the drop-off, in the colour of the clock the
-// taxi is racing to it (game/urgency.js) — so "a disc on the road means the taxi is being driven
-// here" is one rule with one shape behind it.
+// pavement corner. **Both ends of a trip wear one** — under the waiting rider, and on the corner
+// they are going to once they are aboard — in that fare's urgency colour either way
+// (game/urgency.js), so "a disc is a place this clock is attached to" is one rule with one shape
+// behind it.
 //
-// The rider's kerb has had one three times and given it back three times: a draining countdown
-// ring, then nothing while the meter and later the diamond carried the clock overhead, then a
-// second body for the crystal's own colour. What finished that last one is what the shape means
-// rather than what it was reporting — a rider is somewhere the taxi *may* be sent, and painting
-// them with the same mark as the place it *is* being sent made the disc say only "this matters".
+// The rider's has come and gone more than once: a draining countdown ring first, then nothing at
+// all while the meter (and later the crystal) carried the clock overhead, then this. The argument
+// against it was that a disc ought to mean "the taxi is being driven here" and a rider nobody has
+// tapped is not that. The argument that won is simpler — the eye is on the road, and the colour
+// belongs wherever the eye is. A rider whose crystal is behind a tower still has a mark on the
+// tarmac.
 //
 // It never drains. Time is the colour's job; this only has to say "here".
 //
@@ -22,8 +24,8 @@ export const RING_R = 3.5;
 const RING_TUBE = 0.16;
 
 // How far the disc floats above the surface it marks, so it paints over the pavement rather than
-// z-fighting with it. Shared by both ends of the trip, which is what keeps them looking like the
-// same object in two colours.
+// z-fighting with it. Shared by both ends of the trip, which is part of what keeps them reading as
+// one object that moved rather than two that happen to match.
 export const RING_Y = 0.2;
 
 // One rim and one fill shape for every disc on the board — only the colour ever differs. The fill

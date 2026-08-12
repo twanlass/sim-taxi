@@ -1207,12 +1207,12 @@ lockstep.
 
 ### The target disc — `geometry/targetring.js`
 
-A filled circle inside a solid rim, lying flat on a kerb corner. **One end of a trip wears one**: the
-drop-off, in the urgency colour of the rider in the car. A waiting rider had one too for a spell and
-gave it back — see [gameplay.md](gameplay.md#nothing-on-the-kerb-but-the-rider-and-their-clock) —
-so there is at most one disc on the board at a time. One rim shape and one fill shape serve it, and
-`setColor` moves all three layers together, since they are one mark at three weights rather than
-different colours.
+A filled circle inside a solid rim, lying flat on a kerb corner. **Both ends of a trip wear one** —
+under the waiting rider and on the corner they are going to — in that fare's urgency colour either
+way, and never both at once for the same fare: the kerb disc goes dark on the frame the drop-off's
+lights (see [gameplay.md](gameplay.md#the-disc-says-it-again-on-the-ground)). One rim shape and one
+fill shape serve every disc on the board — only the colour differs, and `setColor` moves all three
+layers together, since they are one mark at three weights rather than different colours.
 
 `RING_Y = 0.2` above the surface it marks, on all three, so they read as the same object. The fill
 is at the route band's own `ROUTE_OPACITY` — a disc and the band running into it are one weight of
@@ -1238,8 +1238,9 @@ carries its own `customProgramCacheKey` — see the trap in [CLAUDE.md](../CLAUD
 `onBeforeCompile` and three's program cache. `setColor` paints it the same colour as the rim and
 fill; `tools/probe.mjs` reads all three back together and expects one hex, repeated three times.
 
-The beam has to be told to spin: `ring.update(elapsed)` is called from `game/fares.js`'s fare loop
-while a fare is `riding`. It never ticks while hidden, which is every frame with nobody aboard.
+The beam has to be told to spin: `ring.update(elapsed)` is called from `game/faremarker.js`'s own
+per-frame `update` while the rider's disc is visible, and from `game/fares.js`'s fare loop while a
+fare is `riding`, for the drop-off's. Neither ring ticks while hidden.
 
 ### The drop-off ring — `geometry/marker.js`
 
@@ -1293,17 +1294,18 @@ to a moving car, so it owns its own world position for its whole life. The group
 position; the crystal inside it only ever bounces, kicks and pulses in local space, which keeps the
 two concerns from fighting over one transform.
 
-It owns **nothing on the ground**. A second scene-level group used to hold a disc on the rider's
-kerb corner — separate from the crystal's for the inverted reason, since that one flies to the taxi
-and the disc had to stay put until `beginTransfer` switched it off. Both the group and its `setColor`
-call are gone with the disc itself
-([gameplay.md](gameplay.md#nothing-on-the-kerb-but-the-rider-and-their-clock)); the only disc left on
-the board is the drop-off's, and `game/fares.js` paints that one from the same level this module
-paints the crystal from.
+The **ground disc** ([above](#the-target-disc--geometrytargetringjs)) is a second scene-level group,
+separate for the same reason inverted: the crystal's group flies to the taxi and this one has to
+*stay* on the pavement until it is switched off, which happens on `beginTransfer`. `setUrgency`
+paints both, so the two can never disagree about a level — `tools/probe.mjs` reads the disc's rim,
+fill and sweep back alongside the crystal at every step of a drain. The drop-off's disc is painted
+from the same level by `game/fares.js`, one module further out, because that one has to survive this
+marker flying away from it.
 
-`LIFT` is 6.6 on both ends of the trip. Over a rider (topping out a little over 3.3) that leaves the
-bottom vertex 1.3 units — about 10px at play zoom — of air above their head, which is the gap the
-meter's plate was tuned to. Over the taxi (which tops out at ~2.85 including its roof sign) it
+`LIFT` is 7.05 on both ends of the trip, measured from the crystal's **bottom point** rather than
+from its middle — which is what kept the headroom fixed when the shape became a plumbob and grew a
+longer taper. Over a rider (topping out a little over 3.3) that leaves the point 1.3 units — about
+10px at play zoom — of air above their head, which is the gap the meter's plate was tuned to. Over the taxi (which tops out at ~2.85 including its roof sign) it
 leaves ~1.85, and being a little further off is right anyway: the taxi is wide, and a marker tight
 to the roof reads as part of the vehicle. One altitude for both is what makes the transfer read as
 sliding sideways instead of climbing.

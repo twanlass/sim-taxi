@@ -1,8 +1,10 @@
 import * as THREE from 'three';
+import { KERB_H } from '../city/ground.js';
 import { URGENCY_SEGMENTS, fareColor } from './urgency.js';
 import {
   createDiamond, DIAMOND_HALF_H, bounceOffset, kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
 } from '../geometry/diamond.js';
+import { createTargetRing, RING_Y } from '../geometry/targetring.js';
 import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './selectpop.js';
 
 // The fare's clock, as a physical object: one plumbob crystal hanging point-down over whoever it
@@ -29,17 +31,19 @@ import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './select
 // setFill. The fixed hue is already the one thing it needs to say ("this is a VIP"), and a second
 // colour language draining underneath would read as the marker disagreeing with itself.
 //
-// **A waiting rider has no disc under their feet.** They wore one for a spell — the crystal's
-// colour said again on the ground, where the driving is aimed — and it went when a ring on the road
-// became the thing the taxi is being *sent at*. A rider is not that: they are a place the taxi may
-// be sent, and the tap that sends it lands on them either way. So a ring on the tarmac now means
-// exactly one thing, the same way a diamond means exactly one thing, and the kerb before a pickup
-// carries the figure and the clock over their head and nothing else. It also gives the board back
-// a lot of paint: three waiting riders were three discs and three crystals, on a city whose blocks
-// are only ~92px across.
+// **A disc under the rider's feet says it a second time, on the ground.** Same hue, same clock, the
+// drop-off's own shape (geometry/targetring.js) — so a trip is marked the same way at both ends and
+// there is nothing extra to learn. The crystal is at eye level, which is where the eye happens to
+// be; the disc is on the road, which is where the taxi is actually being aimed, and it survives
+// what the crystal does not — a rider behind a tower still has a mark on a plane the buildings
+// mostly don't cover.
+//
+// It goes dark the moment they board. The kerb corner stops meaning anything then — the clock
+// leaves with them, and a disc left glowing on an empty pavement would read as a second fare.
 //
 // Its own module under game/ rather than geometry/ because it owns a lifecycle — kerb, flight,
-// taxi — and not just a mesh. geometry/diamond.js is the model it draws with.
+// taxi — and not just a mesh. geometry/diamond.js and geometry/targetring.js are the models it
+// draws with.
 
 // Height above the ground, on the kerb and over the taxi alike.
 //
@@ -106,6 +110,12 @@ export function createFareMarker(scene, phase = 0) {
 
   scene.add(group);
 
+  // The disc under the rider's feet. Its own scene-level group rather than a child of the one
+  // above: that one flies to the taxi, and this one stays on the pavement until it is switched off.
+  const ring = createTargetRing(fareColor(URGENCY_SEGMENTS));
+  ring.group.visible = false;
+  scene.add(ring.group);
+
   const anchor = new THREE.Vector3();
   const from = new THREE.Vector3();
 
@@ -133,11 +143,13 @@ export function createFareMarker(scene, phase = 0) {
   function setUrgency(next) {
     if (next === level) return;
     level = next;
-    // A VIP's diamond stays its fixed purple rather than cycling the ordinary green-to-red scale —
-    // one colour language per marker, not two fighting for the same rider. The panic pulse (a
-    // shared scale cue, not a colour) still carries urgency for it.
+    // A VIP's crystal and disc stay their fixed purple rather than cycling the ordinary green-to-red
+    // scale — one colour language per marker, not two fighting for the same rider. The panic pulse
+    // (a shared scale cue, not a colour) still carries urgency for it.
     if (vipMarked) return;
-    diamond.setColor(fareColor(next));
+    const colour = fareColor(next);
+    diamond.setColor(colour);
+    ring.setColor(colour);
     kickPending = true;
   }
 
@@ -164,6 +176,8 @@ export function createFareMarker(scene, phase = 0) {
     // than reached for by child index — the crystal grew a second wall underneath it and a test
     // walking `mesh.children[0]` silently started reading the far wall instead.
     rim: diamond.rim,
+    // Likewise the disc on the ground, which has to agree with the crystal on every frame.
+    ring: ring.group,
     isVip: () => vipMarked,
     setUrgency,
     setFill,
@@ -199,7 +213,9 @@ export function createFareMarker(scene, phase = 0) {
       // instead of the urgency scale's top level — see setUrgency.
       level = nextLevel;
       vipMarked = vip;
-      diamond.setColor(fareColor(nextLevel, vip));
+      const openColour = fareColor(nextLevel, vip);
+      diamond.setColor(openColour);
+      ring.setColor(openColour);
       // Full, whatever the level says. A rider appears with their whole clock, and the first tick
       // is a frame away — a crystal that drew empty for that frame would flash the wrong news. A
       // VIP's crystal stays at this fill forever — see setFill — so this is also where it settles.
@@ -217,6 +233,9 @@ export function createFareMarker(scene, phase = 0) {
       transferPending = false;
       anchor.set(x, LIFT, z);
       group.position.copy(anchor);
+      // Same corner, on the pavement: the rider stands in the middle of their own disc.
+      ring.group.position.set(x, KERB_H + RING_Y, z);
+      ring.group.visible = true;
       diamond.mesh.scale.setScalar(1);
       group.visible = true;
     },
@@ -230,10 +249,13 @@ export function createFareMarker(scene, phase = 0) {
      */
     beginTransfer() {
       transferPending = true;
+      // The kerb corner is no longer where this fare is.
+      ring.group.visible = false;
     },
 
     hide() {
       group.visible = false;
+      ring.group.visible = false;
       transferAt = null;
       transferPending = false;
     },
@@ -246,6 +268,10 @@ export function createFareMarker(scene, phase = 0) {
      */
     update(elapsed, target = null, secondsLeft = Infinity) {
       if (!group.visible) return;
+
+      // The beam circling the disc, while there is a disc to circle — it goes dark with the ring
+      // itself at the hand-off (see beginTransfer), so there is nothing left to spin in the car.
+      if (ring.group.visible) ring.update(elapsed);
 
       if (target) anchor.set(target.x, LIFT, target.z);
 
