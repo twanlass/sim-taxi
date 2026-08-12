@@ -101,6 +101,20 @@ down.
   separate spheres, so the box could vanish on a frame the cab survived — a box truck with no box.
   The shadow pass culls against the *sun's* frustum, which covers the whole city, so the shadow kept
   drawing at the real position under the missing truck.
+- **`user-select: none` does not stop iOS selecting text, and `touch-action` does not inherit.**
+  Two separate holes that showed up as one bug on the Loco Mode pill: a thumb on it picked out
+  "Loco Mode™", raised the magnifier and zoomed the city in. iOS 15 stopped honouring
+  `-webkit-user-select: none` for the selection and zoom gestures ([webkit.org/b/231161]) — they run
+  off the raw touch stream, so the `preventDefault` on `pointerdown` misses them too; that only
+  suppresses the compatibility *mouse* events one layer above. What does reach them is
+  `preventDefault` on `touchstart` (guarded by `event.cancelable`: Chrome, which already honours
+  `touch-action: none`, dispatches it non-cancelable and warns on every press) plus keeping the label
+  in a `pointer-events: none` span, so the gesture has no text node to hit-test onto. And
+  `touch-action` is *not* an inherited property, which is why it sits on `*` and not next to the
+  selection properties on `html, body`: set it on the root alone and every control the player
+  actually presses computes `auto` again and keeps its own double-tap zoom.
+
+  [webkit.org/b/231161]: https://bugs.webkit.org/show_bug.cgi?id=231161
 - **iOS doesn't resize the layout viewport when the software keyboard opens.** It slides a shorter
   *visual* viewport up over an unchanged one, so a `position: fixed; inset: 0` overlay still measures
   the whole screen and anything centred in it — the initials prompt did — sits behind the keys.

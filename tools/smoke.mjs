@@ -645,6 +645,49 @@ try {
     check('the key survives clicking the pill', onPill === 'active', `mode ${onPill}`);
     await key('keyUp');
     await evaluate('document.activeElement?.blur()');
+
+    // The pill's gesture surface. Reported as "the button text is selectable, and double-tapping it
+    // zooms": on iOS a thumb resting on the pill picked out "Loco Mode™", raised the magnifier and
+    // zoomed the whole city in, because iOS 15 stopped honouring `-webkit-user-select: none` for
+    // those gestures (webkit.org/b/231161). Three things hold it off and none of them is visible in
+    // a screenshot, so they are asserted here.
+    //
+    // The hit test is the load-bearing one, and it is a hit test rather than a style read on
+    // purpose: what matters is that a finger on the middle of the pill lands on the *button*, which
+    // is true only while the label stays wrapped and out of hit-testing. Unwrap it and this fails;
+    // read `.boost-label`'s `pointer-events` instead and it would still pass with the span gone.
+    //
+    // `hud-ready` first, and then a wait for the entrance to land. The score check above reloaded
+    // the page, so the tutorial is talking and the pill is still parked 200% below the bottom edge —
+    // where `elementFromPoint` is outside the viewport and answers "nothing" whatever the label is
+    // doing. The keyboard checks above never noticed because a keystroke does not care where the
+    // pill is.
+    await evaluate("document.body.classList.add('hud-ready')");
+    await sleep(600);
+    const gestures = JSON.parse(await evaluate(`(() => {
+      const b = document.getElementById('boost');
+      const r = b.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      const cs = getComputedStyle(b);
+      const probe = document.createElement('div');
+      document.body.appendChild(probe);
+      const inherited = getComputedStyle(probe).touchAction;
+      probe.remove();
+      return JSON.stringify({
+        hit: hit ? (hit.id || hit.className || hit.tagName) : 'nothing',
+        touchAction: cs.touchAction, userSelect: cs.userSelect, unstyled: inherited,
+      });
+    })()`));
+    check('a thumb on the pill lands on the pill, not its label',
+      gestures.hit === 'boost', `hit ${gestures.hit}`);
+    check('the pill takes no browser gesture',
+      gestures.touchAction === 'none' && gestures.userSelect === 'none',
+      `touch-action ${gestures.touchAction}, user-select ${gestures.userSelect}`);
+    // `touch-action` does not inherit, so the root-level declaration that covers selection cannot
+    // cover this — every element computes its own. The `*` rule is what stops an unstyled corner of
+    // the HUD from zooming the city on a double tap; a fresh div is the cheapest way to read it.
+    check('nothing else on the page double-taps to zoom',
+      gestures.unstyled === 'manipulation', `unstyled element ${gestures.unstyled}`);
   }
 
   // --- The initials prompt: after a tap, the field still has to be editable.
