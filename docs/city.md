@@ -103,8 +103,70 @@ never gets to spend time meshing a broken city.
 | File | Produces | Notes |
 |---|---|---|
 | `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
-| `buildings.js` | blocky towers | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. |
+| `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, street furniture | Merged per material via `bakeColor`, so hundreds of props cost one draw call. |
+
+### What a building is made of
+
+A lot is subdivided (`splitLot`), and each parcel gets either a **tower** or, rarely, a
+**courtyard block**. Both are built from the same four pieces.
+
+**Massing.** Up to three setback tiers, each shrunk 62–82% off the one below with a ledge where it
+steps in. Height comes from the block's centrality, capped low on purpose — see the note above.
+
+**Façades.** Two treatments, and which one a building gets is decided by its envelope colour
+rather than by a roll: `glass` and `slate` get a **curtain wall** (one continuous ribbon per
+floor), everything masonry gets **punched openings** (a window per bay per floor). A glass tower
+with holes cut in it and a brick walk-up glazed floor to ceiling are both wrong, and tying the two
+together means the city never builds either.
+
+Every face that sits on the **block edge** — i.e. that meets a street — also gets a glazed
+shopfront at pavement level, and one of them gets a door with a light surround and, half the time,
+a canopy over it. Interior lot lines get none of that: the difference between a building with a
+front and one glazed on all four sides is most of what makes a row of them read as a street.
+
+Openings are hand-wound quads batched one geometry per face, not `PlaneGeometry` each. A mid-rise
+carries forty windows and the city carries a few thousand; emitted individually they cost more to
+merge than the whole rest of the city. Hand-wound means `tools/probe.mjs` asserts the **sign of the
+face normal computed from the winding** — see the roadworks ramp in [CLAUDE.md](../CLAUDE.md).
+
+**Roofs.** A cornice on every mass, cut from the building's own colour darkened rather than from a
+shared grey (a flat grey cap on everything drained the tan/brick/concrete families of any way to
+tell each other apart at play zoom). Then a plant room, up to two AC units, and — one roof in eight,
+mid-rise only — a **water tower**: tank, hoop, conical cap and four legs.
+
+> **Nothing on a roof may reach `SKYLINE_CEILING` (20.5).** The ambient aeroplane's belly is at
+> 24.9 on the low side of its jitter and the probe asserts four units of clearance under it. The
+> water tower and the mast are built *conditional on fitting*, and the probe checks the tallest
+> thing across 24 seeds rather than trusting the one city the flyover check happens to fly over.
+
+### Courtyard blocks
+
+A hollow perimeter block — four wings round a planted yard — on an *undivided* block only, so it
+is rare by construction: two or three a city.
+
+It only works because of a measurement. The camera looks down `VIEW_DIR (1, 0.92, 1)`, **33° above
+horizontal**, so a wing of height `h` hides everything within `1.54h` of its inner face. The first
+version had 2.3–3.1-unit wings at 3.2–4.6 tall around a 4.9-unit yard: 6.9 units on the view
+diagonal against 4.9–7.1 of occlusion, and the yard was never once visible — the trees read as
+sitting on the roof of a lumpy box rather than standing in a hole in it.
+
+Two things fix it, and both are ordinary things for a building to do:
+
+- The two wings **facing the camera** (+X and +Z, which are also the two the sun lights) are built
+  from a lower range than the pair behind them. A perimeter block that steps down toward its front
+  is normal architecture, and the camera never rotates, so "the front" is a fixed pair of sides.
+- The wings are thinner. The yard is now 5.7 across — 8.1 on the diagonal against 3.9–5.5 — so a
+  couple of units of the far corner is always in shot.
+
+The trees come from `treeParts()` in `props.js`, the same generator the parks use, and are grown
+from the tall end of its range so a crown always clears a front wing. Sizing them off the *back*
+wings instead produced one ten-unit tree filling a downtown yard like a cauliflower.
+
+Wings meet edge to edge rather than crossing, and each one declares how much of each of its four
+sides is actually exposed. Two sides of a short wing are buried inside the long wing beside it and
+a long wing's inner face only shows across the gap between them; glazing those produced two
+coplanar window grids fighting over the same depth at all four corners.
 
 ### The slab has rounded corners
 

@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import { createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
-import { createBuildings } from '../src/city/buildings.js';
+import { createBuildings, facadeQuads, SKYLINE_CEILING } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W } from '../src/sim/traffic.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -148,6 +148,108 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
 check('layout covers every block', layout.length === GRID * GRID, `${layout.length} blocks`);
 check('some blocks are parks', layout.some((b) => b.type === 'park'),
   `${layout.filter((b) => b.type === 'park').length} parks`);
+
+// --- Façades ----------------------------------------------------------------
+//
+// Windows, shopfronts and doors are hand-wound quads rather than PlaneGeometry — a mid-rise
+// carries forty of them and merging that many separate geometries costs more than the rest of the
+// city put together. Hand-wound means the sign of the normal has to be *computed from the
+// winding* rather than looked at: `computeVertexNormals` launders a reversed triangle into
+// whatever its neighbours say, which is how the roadworks ramp shipped inside out and got
+// reported as z-fighting. The expected normals are written out here rather than imported, so this
+// is a second opinion on the table in buildings.js instead of a restatement of it.
+{
+  const OUT = [[1, 0, 0], [0, 0, 1], [-1, 0, 0], [0, 0, -1]];
+  const CX = 5;
+  const CZ = -7;
+  const HW = 2;
+  const HD = 3;
+  let wound = 0;
+  let sunk = 0;
+
+  for (let side = 0; side < 4; side++) {
+    const want = new THREE.Vector3(...OUT[side]);
+    const geo = facadeQuads(
+      [{ u: 0.4, y: 3, w: 1, h: 1.4 }, { u: -0.4, y: 6, w: 1, h: 1.4 }],
+      side, CX, CZ, HW, HD, new THREE.Color(0x333333),
+    );
+
+    const normal = geo.attributes.normal;
+    for (let i = 0; i < normal.count; i++) {
+      const n = new THREE.Vector3(normal.getX(i), normal.getY(i), normal.getZ(i));
+      if (n.dot(want) < 0.999) wound += 1;
+    }
+
+    // And every corner of it stands *outside* the wall. A quad wound correctly but placed on the
+    // inward side would be a window seen from the room behind it, which back-face culling erases.
+    const wall = side % 2 === 0 ? HW : HD;
+    const position = geo.attributes.position;
+    for (let i = 0; i < position.count; i++) {
+      const offset = new THREE.Vector3(position.getX(i) - CX, 0, position.getZ(i) - CZ).dot(want);
+      if (offset <= wall) sunk += 1;
+    }
+  }
+
+  check('a façade faces out of the wall it is punched into', wound === 0,
+    `${wound} vertices wound inward`);
+  check('and every opening stands proud of it', sunk === 0,
+    `${sunk} vertices at or behind the wall plane`);
+}
+
+// --- Roofs, and the flight path over them -----------------------------------
+//
+// Roof furniture is the only thing in the city that can reach the aeroplane: the tallest possible
+// tower is 16.4 to its parapet and the plane's belly is at 24.9 on the low side of its jitter.
+// A water tower or a mast is built *conditional on fitting under* SKYLINE_CEILING rather than
+// clamped to it, and this is what says the condition covers every city rather than the one seed
+// the flyover check below happens to fly over.
+{
+  let tallest = 0;
+  let tallestSeed = 0;
+  let courtyards = 0;
+  let unplanted = 0;
+  const SEEDS = 24;
+
+  for (let s = 0; s < SEEDS; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 101));
+    const built = createBuildings(makeRng(seed + s * 101 + 22), cityLayout);
+    built.mesh.geometry.computeBoundingBox();
+    const top = built.mesh.geometry.boundingBox.max.y;
+    if (top > tallest) { tallest = top; tallestSeed = s; }
+    courtyards += built.courtyards;
+
+    // A courtyard is a hollow block with trees in it, and the trees are the whole point — they
+    // are the only green in the buildings mesh, so counting foliage-hued vertices is enough to
+    // say the yard was actually planted rather than left as a hole.
+    if (built.courtyards > 0) {
+      const col = built.mesh.geometry.attributes.color;
+      const hsl = { h: 0, s: 0, l: 0 };
+      let green = 0;
+      for (let i = 0; i < col.count; i += 3) {
+        new THREE.Color(col.getX(i), col.getY(i), col.getZ(i)).getHSL(hsl);
+        if (hsl.h > 0.2 && hsl.h < 0.45 && hsl.s > 0.15) green += 1;
+      }
+      if (green === 0) unplanted += 1;
+    }
+  }
+
+  // `createLayout` is not a pure function: it closes segments and installs the road network it
+  // just baked as *the* city network (see the note at the foot of city/layout.js). Sweeping seeds
+  // therefore leaves the probe's own city replaced by whichever one came last, and every traffic
+  // and routing check below silently starts measuring a different town — which is exactly what
+  // happened, to the tune of eight failures with nothing to do with buildings. Rebuild the
+  // probe's own layout to put its network back.
+  createLayout(makeRng(seed));
+
+  check('nothing on a roof reaches the flight path', tallest < SKYLINE_CEILING,
+    `tallest ${tallest.toFixed(2)} on seed +${tallestSeed * 101}, ceiling ${SKYLINE_CEILING}`);
+  // Two or three a city. Rare by construction — only an undivided block is wide enough to hollow
+  // out — so this is a floor on "the city still builds them at all", not a target.
+  check('the city builds courtyard blocks', courtyards / SEEDS > 1,
+    `${(courtyards / SEEDS).toFixed(1)} per city over ${SEEDS} seeds`);
+  check('and plants every one of them', unplanted === 0,
+    `${unplanted} cities with a courtyard and no trees in it`);
+}
 check('all cars spawned', traffic.cars.length === 24, `${traffic.cars.length}`);
 
 // --- Run the simulation.

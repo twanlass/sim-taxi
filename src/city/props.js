@@ -4,10 +4,18 @@ import { bakeColor, jitterVertices, propMaterial } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H } from './ground.js';
 
-/** Park tree — same construction as the terrain prototype's broadleaf, scaled for a city block. */
-function tree(x, z, rng) {
+/**
+ * Park tree — same construction as the terrain prototype's broadleaf, scaled for a city block.
+ *
+ * Exported because `city/buildings.js` plants the same tree in a courtyard, and a courtyard tree
+ * that came out of a second generator would be a different tree: the whole point of it is that the
+ * green rising out of a hollow block is the same green as the park two streets over. It takes a
+ * height range rather than a scale because the courtyard has a hard floor on it — a tree that
+ * doesn't clear the wings around it is a tree nobody ever sees.
+ */
+export function treeParts(x, z, rng, { low = 3.4, high = 5.6 } = {}) {
   const parts = [];
-  const height = rng.range(3.4, 5.6);
+  const height = rng.range(low, high);
   const trunkH = height * 0.42;
 
   const trunk = new THREE.CylinderGeometry(height * 0.035, height * 0.055, trunkH, 6);
@@ -48,7 +56,7 @@ export function createProps(rng, blocks) {
     const { x0, z0, x1, z1 } = district.bounds;
     const count = rng.int(11, 16);
     for (let i = 0; i < count; i++) {
-      parts.push(...tree(rng.range(x0 + 1.8, x1 - 1.8), rng.range(z0 + 1.8, z1 - 1.8), rng));
+      parts.push(...treeParts(rng.range(x0 + 1.8, x1 - 1.8), rng.range(z0 + 1.8, z1 - 1.8), rng));
     }
   }
 
@@ -59,7 +67,7 @@ export function createProps(rng, blocks) {
     if (block.type === 'park') {
       const count = rng.int(5, 9);
       for (let i = 0; i < count; i++) {
-        parts.push(...tree(
+        parts.push(...treeParts(
           rng.range(x0 + 1.6, x1 - 1.6),
           rng.range(z0 + 1.6, z1 - 1.6),
           rng,
