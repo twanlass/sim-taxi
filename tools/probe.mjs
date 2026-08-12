@@ -28,7 +28,9 @@ import {
 } from '../src/game/fares.js';
 import {
   createParcelSystem, MAX_PARCELS, PARCEL_MIN_DELIVERED, PARCEL_PAY_FACTOR, PARCEL_SPAWN_GAP,
+  PARCEL_PAD_LIFT,
 } from '../src/game/parcels.js';
+import { ringGrowScale, ringShrinkScale } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
 import { createParcel } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
@@ -653,9 +655,15 @@ check('no two cars occupy the same space', worst > 1.6,
         // hand-off has to read as the same object moving.
         launchedFromKerb = marker.group.visible && distanceTo(kerbAtSpawn) < 0.01;
         // ...and the disc makes the same hand-off on the ground that the crystal is making in the
-        // air: out on the kerb corner, on at the drop-off, on one frame and in one colour. A fare
-        // owns exactly one disc at a time, and two lit at once would read as two fares.
-        discMovedToDropoff = !marker.ring.visible
+        // air: the kerb corner's pulls back into its own centre as the drop-off's grows out of its
+        // one, on the same frame and in one colour. A fare owns exactly one disc at a time, and two
+        // at full size at once would read as two fares.
+        //
+        // Asserted on the *animations* rather than on `visible`, which is what this check used to
+        // read: the kerb disc now takes RING_SHRINK_TIME to go, so it is still visible on this frame
+        // and only its scale says it is leaving. `isLeaving()` is that state, and the pair of them —
+        // one leaving, one arriving — is the hand-off.
+        discMovedToDropoff = marker.ringLeaving()
           && fare.slot.destination.group.visible
           && new Set([...ringHexes(fare.slot), diamondHex(marker)]).size === 1;
         route(fare);
@@ -1227,6 +1235,130 @@ check('no two cars occupy the same space', worst > 1.6,
     check('a package is collected while a passenger is aboard', false,
       `rider ${Boolean(rider)}, parcel ${Boolean(parcel)}`);
     check('collecting a package does not touch the rider or their clock', false, 'no setup');
+  }
+
+  // --- The box travels, and the pads grow rather than pop -----------------------------------------
+  //
+  // All three of these are animations, which is exactly the class of thing that breaks silently: a
+  // flight that never starts looks like a teleport, and a pad that never grows looks like the pop it
+  // replaced. Each is a function of sim time with the start stamped in `update`, so they are all
+  // checkable here rather than by eye.
+  if (parcel) {
+    const flightBox = parcel.slot.flight;
+    // The inbound flight is already running — it was launched on the frame the box was collected.
+    // Step it and watch the box leave the kerb, shrink, and fade.
+    const kerb = cornerFor(parcel.pickup.i, parcel.pickup.j);
+    const startedAt = { ...flightBox.position };
+    let sawMidAir = 0;
+    let sawShrink = 0;
+    let sawFade = 0;
+    let loadedEvents = 0;
+    let padGrowing = 0;
+    let padSettled = false;
+    const padScale = () => parcel.slot.dropoff.ring.group.scale.x;
+    const boxMaterial = parcel.slot.flightBox.mesh.material;
+    for (let step = 0; step < 90; step++) {
+      cTraffic.update(1 / 60);
+      fares.update(1 / 60, cTraffic.taxi);
+      for (const { type } of parcels.update(1 / 60, cTraffic.taxi, {
+        fareSpots: fares.occupiedSpots(), delivered: 9, over: false,
+      })) {
+        if (type === 'loaded') loadedEvents += 1;
+      }
+      if (!flightBox.visible) continue;
+      // Off the kerb and not yet at the car: the arc is what makes it a flight rather than a slide.
+      const fromKerb = Math.hypot(flightBox.position.x - kerb.x, flightBox.position.z - kerb.z);
+      if (fromKerb > 1 && flightBox.position.y > PARCEL_PAD_LIFT + 0.2) sawMidAir += 1;
+      if (flightBox.scale.x < 0.9) sawShrink += 1;
+      if (boxMaterial.transparent && boxMaterial.opacity < 0.9) sawFade += 1;
+      if (parcel.slot.dropoff.ring.group.visible) {
+        if (padScale() < 0.95) padGrowing += 1;
+        if (padScale() === 1) padSettled = true;
+      }
+    }
+    check('the box flies from the kerb to the taxi', sawMidAir > 4,
+      `${sawMidAir} frames airborne, launched at (${startedAt.x.toFixed(1)}, ${startedAt.z.toFixed(1)})`);
+    check('and shrinks and fades as it goes in', sawShrink > 4 && sawFade > 4,
+      `${sawShrink} frames shrinking, ${sawFade} fading`);
+    // `sawFade` above already proves the material was genuinely transparent while it faded — the
+    // silent failure is `opacity` moving on a material that never recompiled, which is a bug this
+    // project shipped once on the rider figure. This is the *other* half of it: a box left transparent
+    // after landing z-sorts wrong for the rest of the run, and the slot is reused.
+    check('and is opaque again once it has landed',
+      boxMaterial.transparent === false && boxMaterial.depthWrite === true
+      && boxMaterial.opacity === 1,
+      `transparent ${boxMaterial.transparent}, depthWrite ${boxMaterial.depthWrite}, opacity ${boxMaterial.opacity.toFixed(2)}`);
+    // `pickup` and `loaded` are a flight apart, which is the whole reason the box can be seen to
+    // travel. Exactly one `loaded` per collection — the taxi must not flash twice for one box.
+    check('the box landing is its own event, once', loadedEvents === 1, `${loadedEvents} loaded`);
+    // And the pad it is going to grew out of the road rather than appearing at full size. Asserted on
+    // frames of it *part-grown* — "it is visible" would pass against the pop this replaced.
+    check('the courier pad grows rather than popping in', padGrowing > 4 && padSettled,
+      `${padGrowing} frames part-grown, settled ${padSettled}`);
+  } else {
+    for (const label of ['the box flies from the kerb to the taxi',
+      'and shrinks and fades as it goes in',
+      'and is opaque again once it has landed',
+      'the box landing is its own event, once',
+      'the courier pad grows rather than popping in']) check(label, false, 'no setup');
+  }
+
+  // The grow/shrink envelopes themselves, shared by the fare disc and the courier pad so the two
+  // never become different kinds of event. Endpoints and the overshoot, which is the part a typo
+  // turns into a disc that starts full-size or one that never reaches it.
+  check('a disc grows from nothing to exactly full size',
+    ringGrowScale(0) === 0 && ringGrowScale(1) === 1 && ringGrowScale(2) === 1);
+  check('and overshoots on the way, a little', (() => {
+    let peak = 0;
+    for (let t = 0; t <= 1.0001; t += 0.01) peak = Math.max(peak, ringGrowScale(t));
+    return peak > 1.01 && peak < 1.12;
+  })(), 'crosses 1 and settles back');
+  check('a disc shrinks to nothing and stays there',
+    ringShrinkScale(0) === 1 && ringShrinkScale(1) === 0 && ringShrinkScale(3) === 0);
+
+  // The accept flourish. `main.js` drives it off the select pop's envelope, so what is checkable here
+  // is the half that lives in the mesh: every opaque part of the car takes the lift *together*. A car
+  // whose body lit while its wheels stayed dark reads as the paint changing rather than as the car
+  // reacting, and that is exactly what a part left out of this list produces.
+  {
+    const taxiMesh = createTaxiMesh();
+    // The ghost outline's mask and rim are their own materials on purpose and are not part of the
+    // flourish. Everything else with an emissive is a candidate.
+    const emissives = () => {
+      const out = [];
+      taxiMesh.group.traverse((node) => {
+        if (node.isMesh && node.material?.emissive && !/^ghost/.test(node.name)) {
+          out.push(node.material.emissive.getHex());
+        }
+      });
+      return out;
+    };
+    const dark = emissives();
+    taxiMesh.setHighlight(1);
+    const lit = emissives();
+    taxiMesh.setHighlight(0);
+    const back = emissives();
+
+    // Compared frame to frame rather than against zero: **the brake light and both turn signals sit
+    // at a non-zero emissive already** — that baked glow is how they light at all (geometry/lights.js)
+    // — so "every emissive is 0 at rest" is simply false here, and a check written that way is testing
+    // the probe's assumption rather than the car. What matters is which parts *move*.
+    const moved = dark.map((h, n) => h !== lit[n]);
+    const movedTo = lit.filter((_, n) => moved[n]);
+    check('the accept flourish lights every body part of the taxi at once',
+      // Shell, roof sign, both steered wheels and the deck parcel: five, all to the same value, and
+      // all the way back afterwards. A part left out of setHighlight's list is a car whose body lights
+      // while a wheel stays dark, which reads as the paint changing rather than the car reacting.
+      moved.filter(Boolean).length === 5
+      && new Set(movedTo).size === 1
+      && back.every((h, n) => h === dark[n]),
+      `${moved.filter(Boolean).length} parts moved to ${new Set(movedTo).size} value(s), all restored ${back.every((h, n) => h === dark[n])}`);
+    check('and leaves the brake light and indicators alone',
+      // They are not body panels; they are lamps with their own state, and lifting them would read as
+      // the taxi braking at the moment it accepted a package.
+      dark.filter((h) => h !== 0).length === 3
+      && dark.filter((h) => h !== 0).every((h, n) => h === lit.filter((_, i) => dark[i] !== 0)[n]),
+      `${dark.filter((h) => h !== 0).length} lamps, unchanged`);
   }
 
   // The run ends. One seam inside parcels.js handles all three ways it can, so this drives the one

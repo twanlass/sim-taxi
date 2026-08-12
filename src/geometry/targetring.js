@@ -116,6 +116,42 @@ function createSweep(colorHex) {
   };
 }
 
+// --- Arriving and leaving ---------------------------------------------------
+//
+// A disc used to switch on and off. Both ends of a pickup did it on the same frame — the kerb disc
+// went dark as the drop-off's lit — and two marks popping in opposite directions at once reads as
+// two unrelated events rather than as one clock changing hands. So a disc now **grows out of its own
+// centre** when it arrives and pulls back into it when it leaves.
+//
+// Shared with the courier pad (geometry/parcelpad.js) rather than reimplemented there: the two
+// shapes differ, the gesture must not. Both are functions of sim time with the start stamped inside
+// `update`, the same deferral game/faremarker.js makes, so a frozen shot renders the same frame every
+// time however the calls happened to be ordered.
+
+export const RING_GROW_TIME = 0.30;
+export const RING_SHRINK_TIME = 0.20;
+
+// Overshoot on the way in — a back-ease that crosses 1 and settles. ~1.045 at its peak, which is a
+// disc that lands rather than one that eases to a halt; anything larger read as a bounce and started
+// competing with the fare marker's own kick, which is the one thing on the board allowed to pop.
+const GROW_BACK = 1.1;
+
+/** Scale for a disc arriving: 0 → 1 with a small overshoot. */
+export function ringGrowScale(t) {
+  if (t >= 1) return 1;
+  const u = t - 1;
+  return 1 + (GROW_BACK + 1) * u * u * u + GROW_BACK * u * u;
+}
+
+/**
+ * Scale for a disc leaving: 1 → 0, accelerating.
+ *
+ * Deliberately not the mirror of the growth. Arriving is news and wants the beat; leaving is a thing
+ * getting out of the way, and an eased exit spends its last frames as a barely-moving object, which
+ * reads as lag — the same argument the select pop's undershoot rests on.
+ */
+export const ringShrinkScale = (t) => (t >= 1 ? 0 : 1 - t * t);
+
 /**
  * A target disc in one colour.
  *
@@ -155,6 +191,12 @@ export function createTargetRing(colorHex) {
   const sweep = createSweep(colorHex);
   group.add(sweep.mesh);
 
+  // Growth/exit state. `pending` is a call waiting to be stamped; the stamp happens in `update` so
+  // both are functions of one frame's sim time — see the note above RING_GROW_TIME.
+  let grewAt = null;
+  let goneAt = null;
+  let pending = null;      // 'grow' | 'shrink'
+
   return {
     group,
     /** All three layers together — they are one mark at three weights, never different colours. */
@@ -163,9 +205,67 @@ export function createTargetRing(colorHex) {
       fill.material.color.set(value);
       sweep.material.color.set(value);
     },
-    /** Advances the beam circling the rim. Cheap enough to call every frame the disc is visible. */
+    /**
+     * Arrive: grow out of the centre. Sets the scale to nothing *now* as well as flagging the
+     * animation, because there is a frame between this call and the first `update` and a disc drawn
+     * full-size in it is exactly the pop this replaces.
+     */
+    appear() {
+      pending = 'grow';
+      goneAt = null;
+      group.scale.setScalar(0);
+      group.visible = true;
+    },
+    /** Leave: pull back into the centre, then hide. The group stays visible until it has. */
+    vanish() {
+      if (!group.visible) return;
+      pending = 'shrink';
+      grewAt = null;
+    },
+    /**
+     * Jump to fully arrived, cancelling any animation.
+     *
+     * For **shot mode**, which ticks the fare loop exactly once and then freezes: an arrival that is
+     * a function of sim time needs sim time to pass, so a disc that opens at scale 0 and is never
+     * updated again is a disc that is simply not there. Every rider's kerb disc vanished from every
+     * screenshot the day `appear()` landed, which is a worse failure than the pop it replaced —
+     * hence a way to say "be arrived" without pretending a frame went by.
+     */
+    settle() {
+      pending = null;
+      grewAt = null;
+      goneAt = null;
+      group.scale.setScalar(1);
+    },
+    /** Off, with no animation — a run ending, or a slot being handed to the next job. */
+    hideNow() {
+      group.visible = false;
+      group.scale.setScalar(1);
+      grewAt = null;
+      goneAt = null;
+      pending = null;
+    },
+    /** Whether the exit is still playing, so a caller can hold a slot until it finishes. */
+    isLeaving: () => pending === 'shrink' || goneAt !== null,
+    /**
+     * Advances the beam circling the rim, and whichever of the two size animations is running.
+     * Cheap enough to call every frame the disc is visible.
+     */
     update(elapsed) {
       sweep.update(elapsed);
+
+      if (pending === 'grow') { grewAt = elapsed; pending = null; }
+      else if (pending === 'shrink') { goneAt = elapsed; pending = null; }
+
+      if (goneAt !== null) {
+        const t = (elapsed - goneAt) / RING_SHRINK_TIME;
+        group.scale.setScalar(ringShrinkScale(t));
+        if (t >= 1) { group.visible = false; goneAt = null; group.scale.setScalar(1); }
+      } else if (grewAt !== null) {
+        const t = (elapsed - grewAt) / RING_GROW_TIME;
+        group.scale.setScalar(ringGrowScale(t));
+        if (t >= 1) grewAt = null;
+      }
     },
   };
 }

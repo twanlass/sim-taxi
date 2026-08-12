@@ -692,6 +692,11 @@ export function createFareSystem(rng, scene) {
     fare.ringLevel = null;
     paintDropoff(fare, urgencyLevel(urgencyOf(fare)));
     place(fare.slot.destination, fare.dropoff.i, fare.dropoff.j);
+    // It grows out of its own centre rather than appearing at full size, on the same frame the kerb
+    // disc pulls back into *its* one (faremarker.js, beginTransfer). Two discs switching states in
+    // one frame read as two events; two moving in opposite directions read as the one thing that is
+    // actually happening — this clock changing ends of the trip.
+    fare.slot.destination.ring.appear();
     // The rider is aboard, so the deadline is the car's problem now — and the marker goes with
     // them, off the kerb corner it has been waiting on and across to the roof. Nothing is created
     // or destroyed at the hand-off, which is the point: it is the same clock, visibly moving.
@@ -1061,6 +1066,20 @@ export function createFareSystem(rng, scene) {
      */
     credit: (amount) => { state.money += amount; },
     crash,
+    /**
+     * Put every marker's arrival animation straight into its landed state.
+     *
+     * **Shot mode only**, and it exists because of a real regression: a disc now grows out of its own
+     * centre, which is a function of sim time — and a shot ticks this loop exactly once, so the grow
+     * never advanced past its first frame and every rider's kerb disc was missing from every
+     * screenshot. Nothing here touches a clock, so a staged frame is unaffected in every other way.
+     */
+    settleMarkers: () => {
+      for (const slot of slots) {
+        slot.marker.settleRing();
+        slot.destination.ring?.settle();
+      }
+    },
     pickables,
     fareFor,
     markDirected,

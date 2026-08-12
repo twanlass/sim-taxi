@@ -84,6 +84,12 @@ down.
   reads exactly like z-fighting and got reported as such. `flatShading` (below) is why it lit like a
   surface instead of going black. Check the sign of a face normal computed *from the winding*;
   `computeVertexNormals` launders a reversed triangle into whatever its neighbours say.
+- **An animation that opens at zero needs shot mode told to land it.** Shot mode ticks the fare loop
+  **once** and then freezes, so anything driven off sim time is stuck on its first frame. Making the
+  ground discs grow out of their own centre therefore removed the rider's disc from *every*
+  screenshot — `appear()` sets the scale to 0 and nothing ever advanced it. Same class as the route
+  band's `routeLine.update(..., 999)`: if you add an entrance, give it a `settle()` and call it beside
+  `fares.settleMarkers()` before the shot renders.
 - **`ShapeGeometry` is indexed, so `attributes.position` 0/1/2 is not a triangle.** The winding check
   on the courier pad (`geometry/parcelpad.js`) went red on its first run against a pad that was
   perfectly fine: reading the position attribute in order tests a triangle that does not exist. Walk

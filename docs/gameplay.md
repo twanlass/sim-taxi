@@ -1143,6 +1143,32 @@ square against a disc is read at a glance.
 - **The taxi wears its load.** A small parcel appears on the rear deck — an object on the car rather
   than anything on the glass, for the reason [the roof sign](#the-taxis-roof-sign) is one.
 
+### The box visibly changes hands
+
+Nothing about a package teleports. **The box flies**: off the kerb to the taxi, shrinking and fading as
+it goes, and back out of the taxi into the pad on delivery, growing and fading in. It is the same
+argument [the fare's crystal](#the-fares-clock-travels) is built on — nothing is created or destroyed
+at a hand-off, which is why that flight is animated rather than a teleport — applied to the one object
+this layer hands over. Details in [rendering.md](rendering.md#the-parcel--geometryparceljs).
+
+Two consequences worth naming:
+
+- **`pickup` and `loaded` are two events a flight apart.** `pickup` is the moment the player earned
+  the box; `loaded` is the moment it reaches the car, and that is when the taxi reacts — the deck
+  parcel appears and the whole car takes a white emissive lift on the [select pop](#the-tap-pops)'s own
+  envelope, so being handed a package reads as the same *kind* of acknowledgement as a tap that landed.
+  Splitting them is what lets the box be seen to travel instead of appearing on a deck that was already
+  carrying it.
+- **`delivered` still pays out at once.** The money is earned on arrival, and making the player wait
+  out an animation for it would read as lag. The deck parcel also goes on that frame rather than when
+  the outbound box lands: the flying box *is* the load leaving, and two of them on screen at once would
+  read as the taxi carrying a second package.
+
+And the ground marks move rather than blink. A pad **grows out of its own centre** when it arrives and
+pulls back into it when it leaves — as does a fare's disc, both ends. At a rider's pickup the kerb
+disc now shrinks away on the same frame the drop-off's grows in, which is one clock changing ends of a
+trip; two discs switching state in one frame was two events.
+
 ## Crazy-taxi mode
 
 The **Loco Mode** button, bottom left. **Hold to enable, release to pause.** A short tap costs a

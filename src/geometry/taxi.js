@@ -178,6 +178,27 @@ export function createTaxiMesh() {
     cargo.visible = loaded;
   };
 
+  /**
+   * Light the whole car, 0..1 — the flourish that says a courier box has been accepted
+   * (game/parcels.js). Driven from `main.js` off the select pop's own envelope, so an accepted package
+   * reads as the same *kind* of acknowledgement a tapped rider gets.
+   *
+   * A white emissive lift rather than a tint, for the reason every other highlight here is one: hue on
+   * this car means the taxi, and a flash may not repaint it. Every opaque part takes the lift together
+   * — shell, both steered wheels, the roof sign and the deck parcel itself — because a car whose body
+   * lit while its wheels stayed dark reads as the paint changing rather than as the car reacting.
+   *
+   * 0.32 rather than the rider figure's measured 0.3: the taxi's yellow is already the brightest thing
+   * on the road, so it has less headroom before the chequer stripe washes into the body, and the lift
+   * has to be visible against a car that is *moving* at the moment it fires.
+   */
+  const HIGHLIGHT = 0.32;
+  const litParts = [shell, sign, ...steered, cargo.children[0]];
+  const setHighlight = (amount) => {
+    const lift = HIGHLIGHT * amount;
+    for (const part of litParts) part.material.emissive.setScalar(lift);
+  };
+
   /** Front-wheel lock, in radians. Both wheels take the same angle — at this zoom the Ackermann
    * difference between inner and outer is well under a pixel. */
   const setSteer = (angle) => {
@@ -195,5 +216,5 @@ export function createTaxiMesh() {
     turnRightLight.scale.setScalar(turnRightLevel);
   };
 
-  return { group, sign, setOccupied, setCargo, setSteer, setLights };
+  return { group, sign, setOccupied, setCargo, setHighlight, setSteer, setLights };
 }

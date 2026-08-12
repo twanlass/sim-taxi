@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { createParcelPin, createParcelDropPin } from '../geometry/marker.js';
 import { createParcel } from '../geometry/parcel.js';
 import { KERB_H } from '../city/ground.js';
@@ -105,24 +106,67 @@ export const PARCEL_PAY_FACTOR = 1;
  */
 const MIN_TRIP_BLOCKS = 3;
 
+/**
+ * How long the box takes to cross between the kerb and the taxi, either way.
+ *
+ * A shade under the fare crystal's 0.65s (game/faremarker.js). That one is tuned against the rider's
+ * 0.9s run-and-jump so the clock lands a beat before its owner does; a box has nothing to wait for,
+ * and the two flights should not look like the same object anyway.
+ */
+const FLIGHT_TIME = 0.55;
+
+/** Lift over the middle of the flight, so the box arcs across rather than sliding along the road. */
+const FLIGHT_ARC = 1.4;
+
+/**
+ * Height the flying box's base rides at — the pavement, matching where the kerb box stands.
+ *
+ * `place` below puts a marker's group at 0.12 and its postGroup at KERB_H, so a box standing on a pad
+ * has its base there. The flight has to leave and land at that same height or the hand-off reads as
+ * the box hopping onto a different plane.
+ */
+export const PARCEL_PAD_LIFT = KERB_H + 0.12;
+
+/**
+ * What the box shrinks to as it goes into the taxi, rather than to nothing.
+ *
+ * It stops at roughly the size of the parcel that appears on the rear deck (0.22 of this mesh), so
+ * the flight ends on the object it becomes instead of vanishing next to it.
+ */
+const FLIGHT_MIN_SCALE = 0.22;
+
 const NO_EVENTS = Object.freeze([]);
 
 /**
  * The meshes one package needs, built once per slot and reused. A parcel is cheap bookkeeping; a
- * box and two pads are not something to rebuild every twenty seconds.
+ * box, two pads and a flight copy are not something to rebuild every twenty seconds.
  */
 function createSlot(scene, index) {
-  // `pickable: null` on both — a package is never raycast, so tagging it would be a trap for
+  // `pickable: null` throughout — a package is never raycast, so tagging one would be a trap for
   // whoever next picks against the scene rather than against an explicit target list.
   const pickup = createParcelPin(() => createParcel({ pickable: null }));
   const dropoff = createParcelDropPin();
+
+  // The box that crosses between the kerb and the taxi. A **second** parcel rather than the kerb one
+  // reparented: that one lives inside the marker's `postGroup`, two transforms deep on a corner it
+  // must not leave, and this has to own its world position for the whole flight — the same split
+  // game/faremarker.js makes for the crystal, and for the same reason.
+  //
+  // Two nested groups, also the crystal's arrangement: the outer one carries the flight (position,
+  // and the scale that takes the box down into the taxi) and the inner box goes on spinning and
+  // bobbing in local space, so the two concerns never fight over one transform.
+  const flightBox = createParcel({ pickable: null });
+  const flight = new THREE.Group();
+  flight.add(flightBox.group);
+  flight.visible = false;
+  scene.add(flight);
 
   pickup.group.visible = false;
   dropoff.group.visible = false;
   scene.add(pickup.group);
   scene.add(dropoff.group);
 
-  return { index, pickup, dropoff };
+  return { index, pickup, dropoff, flight, flightBox };
 }
 
 export function createParcelSystem(rng, scene) {
@@ -138,6 +182,21 @@ export function createParcelSystem(rng, scene) {
   };
 
   const slots = Array.from({ length: MAX_PARCELS }, (_, index) => createSlot(scene, index));
+
+  // Boxes in the air. Kept out of `state.parcels` for the reason `fares.js` keeps its exit animations
+  // out of `state.fares`: the puzzle is over the moment a package resolves and the animation is only
+  // skin, so a flight must not gate the next spawn. Each entry pins the slot it borrows until it
+  // lands, so a new package cannot land on a slot whose last box is still crossing the road.
+  //
+  //   kind 'in'  — kerb → taxi, shrinking and fading out as it goes
+  //   kind 'out' — taxi → pad, growing and fading in, then the pad pulls back into its own centre
+  const flights = [];
+
+  // Slot indices whose inbound box landed this frame, drained by `update` into `'loaded'` events.
+  // Collected rather than emitted directly because `updateFlights` runs inside a frame that is
+  // already building an event list, and the taxi's own reaction — the deck parcel appearing, the
+  // flourish — belongs to the moment the box *arrives*, not to the moment the player earned it.
+  const landed = [];
 
   /** The package aboard the taxi, if any. One at a time. */
   const carrying = () => state.parcels.find((p) => p.stage === 'carried') ?? null;
@@ -219,7 +278,8 @@ export function createParcelSystem(rng, scene) {
    * reference to the fare system.
    */
   function spawn(taxiCar, fareSpots) {
-    const slot = slots.find((s) => !state.parcels.some((p) => p.slot === s));
+    const slot = slots.find((s) => !state.parcels.some((p) => p.slot === s)
+      && !flights.some((f) => f.slot === s));
     if (!slot) return null;
 
     const taken = [...fareSpots, ...occupiedSpots()];
@@ -259,16 +319,21 @@ export function createParcelSystem(rng, scene) {
 
     place(slot.pickup, pickup.i, pickup.j);
     slot.pickup.standing?.rest?.();
+    // Grows out of its own centre rather than appearing at full size — see targetring.js.
+    slot.pickup.ring?.appear();
     // The pad at the far end stays hidden until the box is aboard. Both ends lit from spawn would put
     // four cyan squares on a full board with nothing to say which belongs to which — the same clutter
     // a preview pin on the far kerb was taken back off the fare board for.
+    slot.dropoff.ring?.hideNow();
     slot.dropoff.group.visible = false;
 
     return parcel;
   }
 
-  /** Take a package off the board and hide its meshes. */
+  /** Take a package off the board and hide its meshes at once, with no animation. */
   function clear(parcel) {
+    parcel.slot.pickup.ring?.hideNow();
+    parcel.slot.dropoff.ring?.hideNow();
     parcel.slot.pickup.group.visible = false;
     parcel.slot.dropoff.group.visible = false;
     const at = state.parcels.indexOf(parcel);
@@ -276,22 +341,104 @@ export function createParcelSystem(rng, scene) {
   }
 
   /**
-   * Collected. The box leaves the corner and the pad it is going to lights up — the ground-level
-   * version of the hand-off a fare's crystal makes in the air from the kerb to the taxi roof.
+   * Launch the box between the kerb and the taxi.
+   *
+   * `from` and `to` are world XZ. A null `to` means "wherever the taxi is on the frame this is being
+   * drawn", read per frame — the car does not stop for this, so an 'in' flight has to catch a moving
+   * target the way the fare crystal's does.
+   */
+  function launch(slot, kind, from, to) {
+    slot.flightBox.rest();
+    slot.flight.visible = true;
+    slot.flight.position.set(from.x, PARCEL_PAD_LIFT, from.z);
+    slot.flight.scale.setScalar(kind === 'in' ? 1 : FLIGHT_MIN_SCALE);
+    flights.push({ slot, kind, from: { ...from }, to: to ? { ...to } : null, at: null });
+  }
+
+  /**
+   * Collected. The box leaves the corner for the taxi and the pad it is going to grows out of the
+   * road — the ground-level version of the hand-off a fare's crystal makes in the air.
+   *
+   * The kerb box is hidden and a flight copy takes over from the same spot, so what the player sees is
+   * one box leaving rather than one disappearing and another appearing.
    */
   function beginCarry(parcel) {
     parcel.stage = 'carried';
     parcel.target = parcel.dropoff;
     parcel.slot.pickup.standing?.rest?.();
     parcel.slot.pickup.group.visible = false;
+    parcel.slot.pickup.ring?.hideNow();
+    // Null destination: `updateFlights` re-reads the taxi every frame, because the car does not stop
+    // for this and the box has to catch it.
+    launch(parcel.slot, 'in', cornerFor(parcel.pickup.i, parcel.pickup.j), null);
     place(parcel.slot.dropoff, parcel.dropoff.i, parcel.dropoff.j);
+    parcel.slot.dropoff.ring?.appear();
+  }
+
+  /**
+   * Delivered. The box comes back out of the taxi, grows into the pad, and the pad then pulls back
+   * into its own centre under it.
+   *
+   * The origin is the taxi's position on *this* frame and stays fixed for the rest of the flight: the
+   * box was set down here, and the car drives on without it.
+   */
+  function beginDrop(parcel, taxiCar) {
+    const pad = cornerFor(parcel.dropoff.i, parcel.dropoff.j);
+    launch(parcel.slot, 'out', { x: taxiCar.x, z: taxiCar.z }, pad);
+    const at = state.parcels.indexOf(parcel);
+    if (at !== -1) state.parcels.splice(at, 1);
+  }
+
+  /** Advance every box in the air, landing and tidying the ones that have arrived. */
+  function updateFlights(elapsed, taxiCar) {
+    for (let n = flights.length - 1; n >= 0; n--) {
+      const f = flights[n];
+      // Stamped on the first frame it is drawn rather than at the call site, the deferral
+      // faremarker.js makes: every animation here is a function of sim time, so a frozen shot renders
+      // the same frame whatever order the calls came in.
+      if (f.at === null) f.at = elapsed;
+
+      const t = Math.min(1, (elapsed - f.at) / FLIGHT_TIME);
+      const eased = 1 - (1 - t) ** 3;
+      const to = f.to ?? { x: taxiCar.x, z: taxiCar.z };
+      f.slot.flight.position.set(
+        f.from.x + (to.x - f.from.x) * eased,
+        PARCEL_PAD_LIFT + Math.sin(eased * Math.PI) * FLIGHT_ARC,
+        f.from.z + (to.z - f.from.z) * eased,
+      );
+      // Scale and alpha run *with* the travel rather than on their own curve, so the box reads as
+      // going into the car rather than as fading while it happens to move.
+      const shrink = f.kind === 'in' ? 1 - eased : eased;
+      f.slot.flight.scale.setScalar(FLIGHT_MIN_SCALE + (1 - FLIGHT_MIN_SCALE) * shrink);
+      f.slot.flightBox.setOpacity(Math.max(0, Math.min(1, shrink)));
+      f.slot.flightBox.idle(elapsed);
+
+      if (t < 1) continue;
+
+      f.slot.flight.visible = false;
+      f.slot.flightBox.rest();
+      flights.splice(n, 1);
+      if (f.kind === 'in') {
+        landed.push(f.slot.index);
+      } else {
+        // The pad has nothing left to mark. It pulls back into its own centre rather than blinking
+        // out, and `update` keeps ticking it below until it has.
+        f.slot.dropoff.ring?.vanish();
+      }
+    }
   }
 
   /**
    * Advances the board and resolves arrivals. Returns the events that happened this frame —
-   * `{type, parcel}`, type one of 'spawned' | 'pickup' | 'delivered' — rather than firing callbacks,
-   * so this module holds no reference to the taxi mesh, the HUD or the fare system. `main.js`
-   * translates them.
+   * `{type, parcel}`, type one of `'spawned' | 'pickup' | 'loaded' | 'delivered'` — rather than firing
+   * callbacks, so this module holds no reference to the taxi mesh, the HUD or the fare system.
+   * `main.js` translates them.
+   *
+   * `pickup` and `loaded` are deliberately two events a flight apart. `pickup` is the moment the
+   * player earned the box; `loaded` is the moment it actually reaches the car, which is when the taxi
+   * gets to react to it. Splitting them is what lets the box visibly travel instead of teleporting
+   * into a deck that was already carrying it. `delivered` pays out at once — the money is earned on
+   * arrival, and making the player wait out an animation for it would read as lag.
    *
    * `fareSpots` is `fares.occupiedSpots()`, `delivered` is `fares.state.delivered`, `over` is
    * `fares.state.gameOver`. Passed in per frame rather than wired up, which is what keeps the
@@ -306,6 +453,16 @@ export function createParcelSystem(rng, scene) {
       if (!state.over) {
         state.over = true;
         for (const parcel of [...state.parcels]) clear(parcel);
+        // A box frozen mid-air over the blackout is the same failure as a pad left glowing under it.
+        for (const f of flights) { f.slot.flight.visible = false; f.slot.flightBox.rest(); }
+        flights.length = 0;
+        landed.length = 0;
+        for (const slot of slots) {
+          slot.pickup.ring?.hideNow();
+          slot.dropoff.ring?.hideNow();
+          slot.pickup.group.visible = false;
+          slot.dropoff.group.visible = false;
+        }
       }
       return NO_EVENTS;
     }
@@ -339,15 +496,35 @@ export function createParcelSystem(rng, scene) {
       if (parcel.stage === 'waiting') {
         // One cargo slot. A second box the taxi drives past while already loaded is simply left
         // where it is — there is nowhere to put it, and silently swapping the load would throw away
-        // a delivery the player had already driven a detour for.
-        if (carrying()) continue;
+        // a delivery the player had already driven a detour for. A box still in the air counts as
+        // loaded: it has been collected, it just has not arrived.
+        if (carrying() || flights.some((f) => f.kind === 'in')) continue;
         beginCarry(parcel);
         emit('pickup', parcel);
       } else {
         state.delivered += 1;
         state.earned += parcel.value;
-        clear(parcel);
+        beginDrop(parcel, taxiCar);
         emit('delivered', parcel);
+      }
+    }
+
+    // Boxes in the air, and then every pad's own arrival/exit animation. The pads are ticked across
+    // *all* slots rather than only for live packages: an outbound flight outlives the package that
+    // paid for it, and the pad it is landing on still has an exit to play.
+    updateFlights(state.elapsed, taxiCar);
+    // No payload: all `main.js` needs to know is that a box reached the car. Which one it was stopped
+    // mattering the moment it was collected.
+    for (let n = 0; n < landed.length; n++) emit('loaded', null);
+    landed.length = 0;
+
+    for (const slot of slots) {
+      for (const pin of [slot.pickup, slot.dropoff]) {
+        if (!pin.group.visible) continue;
+        pin.ring?.update(state.elapsed);
+        // The ring owns its own visibility through the exit animation; once it has finished, the
+        // marker group around it is an empty transform still being traversed every frame.
+        if (pin.ring && !pin.ring.group.visible && !pin.ring.isLeaving()) pin.group.visible = false;
       }
     }
 
@@ -359,6 +536,13 @@ export function createParcelSystem(rng, scene) {
     update,
     carrying,
     occupiedSpots,
+    /** Land every pad's arrival animation at once — shot mode. See `fares.settleMarkers`. */
+    settleMarkers: () => {
+      for (const slot of slots) {
+        slot.pickup.ring?.settle();
+        slot.dropoff.ring?.settle();
+      }
+    },
     /**
      * The one colour a courier job speaks in, wherever it is speaking. A constant, unlike a fare's:
      * there is no clock for it to report.
