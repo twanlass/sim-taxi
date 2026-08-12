@@ -176,6 +176,23 @@ away, and a zoom that held them both would put each bird back to the handful of 
 exists to get past. To look at the second, `?shot=0` has both parks in frame at play zoom — which is
 the framing the pair is actually for.
 
+Shots 20 and 21 (`heli`, `heli-far`) stage a [helicopter visit](rendering.md#the-rooftop-helicopter--gamechopperjs-geometryhelicopterjs)
+and freeze it at two moments of the same run. `heliAt` is seconds into the visit — 11.6 is a beat
+after touchdown, with the dust still going up and the rotor winding down; 4.4 is the turn onto
+final, out over the city with the bank on. They aim at the **machine**, with the flyover's
+projection correction, since the pad's position comes off the *city* seed and the framing has to
+follow the aircraft rather than a fixed point. The dust pool is stepped inside the staging loop
+rather than after it, for the reason the wreck's smoke is: run afterwards, every puff of a
+three-second landing freezes at the same age.
+
+The pair exists because the two questions are different. The close one asks whether the wash, the
+skids and the blade read at all at a size a screenshot can judge; the play-zoom one asks the
+flyover's question — noticeable without being a distraction — which no close-up can answer. Both
+were worth their cost immediately: the first rendering of the close shot is what showed the rotor
+wash coming out as a dozen hard little lit lumps that read as gravel scattered on the roof, and the
+same frame showed the rotor disc, carried over from the propeller's alpha, lying across the block
+behind it as a grey lens.
+
 Both browser tools take the same two env overrides, for boxes that aren't a Mac desktop:
 
 ```bash

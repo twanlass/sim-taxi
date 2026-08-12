@@ -137,6 +137,27 @@ export const PALETTE = {
   planeStripe: '#C0524A',
   planeProp: '#33383F',
 
+  // The helicopter that visits a rooftop pad — see geometry/helicopter.js. Deliberately *not* the
+  // aeroplane's white: the two are the only aircraft in the game and the one place either is
+  // legible is a 40px silhouette, so they are told apart by value rather than by shape. The plane
+  // is a pale thing against a pale sky at 30 units up; this one spends half its vignette parked on
+  // a grey deck eleven storeys down, where white would disappear into `roof` and `rooftop`. A dark
+  // slate body against that deck is the same trick the cars use against the asphalt.
+  //
+  // It carries the plane's cheatline hue rather than a second red, for the reason the plane has one
+  // at all: red is the one warm hue in this game with nothing else to say, and two aircraft sharing
+  // an airline's paint is cheaper than inventing a colour nobody can name.
+  heliBody: '#4A5462',
+  heliStripe: '#C0524A',
+  // The rotors, a stop lighter than `planeProp` — a main rotor is 5 units of blade sweeping over a
+  // pale deck rather than a 2-unit bar against the sky, and at the plane's near-black it read as a
+  // crack in the roof.
+  heliRotor: '#3C424B',
+  // The anti-collision beacon on the tail. Pure and bright rather than the traffic light's
+  // `lightRed`: it is drawn unlit at four pixels across and has to survive being that small, and a
+  // signal red at this size reads as a brake light on a car parked on a roof.
+  heliBeacon: '#FF2E2E',
+
   // The park flock — see geometry/bird.js. Deliberately the *only* thing in the game with no
   // chroma at all: a bird is a couple of pixels of moving colour, which is exactly the description
   // of a fare marker, and the one way to guarantee the eye never reads a takeoff as something it
