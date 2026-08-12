@@ -137,22 +137,35 @@ export const PALETTE = {
   planeStripe: '#C0524A',
   planeProp: '#33383F',
 
-  // The helicopter that visits a rooftop pad — see geometry/helicopter.js. Deliberately *not* the
-  // aeroplane's white: the two are the only aircraft in the game and the one place either is
-  // legible is a 40px silhouette, so they are told apart by value rather than by shape. The plane
-  // is a pale thing against a pale sky at 30 units up; this one spends half its vignette parked on
-  // a grey deck eleven storeys down, where white would disappear into `roof` and `rooftop`. A dark
-  // slate body against that deck is the same trick the cars use against the asphalt.
+  // The helicopter that visits a rooftop pad — see geometry/helicopter.js. Near-white with a warm
+  // cast, and the reason is the deck it parks on: this machine spends half its vignette sitting
+  // eleven storeys down on `roof`/`rooftop` rather than up against the sky, and the dark slate it
+  // used to wear (#4A5462) was within 1.11 contrast of `roof` — the two were the same value, which
+  // is why a parked helicopter read as a smudge on the deck rather than a thing standing on it.
+  // Against the same greys this beige is 6.03 and 4.39. The beige rather than the plane's neutral
+  // white because everything else on a roof is cold grey and a warm body is the cheapest way to
+  // sit apart from it.
   //
-  // It carries the plane's cheatline hue rather than a second red, for the reason the plane has one
-  // at all: red is the one warm hue in this game with nothing else to say, and two aircraft sharing
-  // an airline's paint is cheaper than inventing a colour nobody can name.
-  heliBody: '#4A5462',
-  heliStripe: '#C0524A',
+  // That does put it near the aeroplane's value, which the two used to be told apart by. They are
+  // told apart by paint now — the plane's single red cheatline against this one's orange-over-gold
+  // pair — and by where they are: a plane is only ever a shape crossing open sky at 30 units, and
+  // this is only ever a shape on or just above a roof.
+  heliBody: '#F3EFE4',
+  // The two cheatline bands, orange over gold. Neither can be checked against the body alone —
+  // they sit stacked, so the pair has to separate from the white *and* from each other, and the
+  // gold is the one under pressure from both sides: 1.60 against the body, 1.83 against the
+  // orange. Lightening it wins the second and loses the first.
+  heliStripeOrange: '#D96F22',
+  heliStripeGold: '#EDB733',
   // The rotors, a stop lighter than `planeProp` — a main rotor is 5 units of blade sweeping over a
   // pale deck rather than a 2-unit bar against the sky, and at the plane's near-black it read as a
   // crack in the roof.
   heliRotor: '#3C424B',
+  // Painted tips, the way a real machine wears them, and here they earn it twice over: they are
+  // what makes the blade legible as *turning* at 40 pixels, and on a near-white airframe the
+  // outboard third of a dark bar otherwise vanishes the moment it swings over the fuselage (4.01
+  // against `heliBody`). A stop deeper than `heliBeacon` so the fin's lamp stays the brighter red.
+  heliRotorTip: '#D9382F',
   // The anti-collision beacon on the tail. Pure and bright rather than the traffic light's
   // `lightRed`: it is drawn unlit at four pixels across and has to survive being that small, and a
   // signal red at this size reads as a brake light on a car parked on a roof.

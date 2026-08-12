@@ -1049,6 +1049,21 @@ own rate, so the blur fades as the machine spools down to idle on the deck and c
 lifts: an idling rotor whose blades you can count still wearing a full-strength disc is the single
 thing that makes a parked helicopter look like a decal.
 
+**The paint is chosen against the deck, not against the sky.** The machine used to be dark slate,
+on the argument that the aeroplane owned white and two aircraft should separate by value — which
+was true of the pair and false of the vignette. Half of a visit is spent parked on `roof`/`rooftop`,
+and that slate was within **1.11** contrast of `roof`: the same value, so a landed helicopter read
+as a smudge on the deck rather than a thing standing on it. Near-white with a warm cast is 6.03 and
+4.39 against those two greys, and the warmth is what keeps it off the cold grey everything else on
+a roof is made of. The two aircraft separate by paint instead: the plane's single red cheatline
+against this one's **orange-over-gold** pair, in the same 0.17 of flank the one band had, repeated
+on the fin cap. A pair rather than a single band because a lone stripe on a white body reads as a
+stray line — an edge of its own between two saturated bands is what reads as paint at 40 pixels.
+And the outboard sixth of each rotor blade is **red**, which a real machine wears for the reason
+this one needs it: a dark bar over a near-white fuselage loses its ends exactly when it swings over
+them, and a mark that stays visible all the way round is what makes the blade read as *turning*
+rather than as a line drawn across the roof.
+
 **Shadows are on only near the deck.** Same argument as the flock's: the sun is 28.5° up, so a
 shadow from transit altitude lands 40 units from the machine that threw it. Close in, the surface
 catching it *is* the roof it is landing on, and the shadow sliding onto the pad is the best cue in
