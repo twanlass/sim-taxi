@@ -830,6 +830,17 @@ them up; they climb out on a shared heading and fade into the distance; a while 
 in from somewhere else, descend onto a park — often a different one — and land. Scenery on the same
 terms as the flyover: nothing routes around them, nothing collides with them, nothing can be tapped.
 
+**A city runs two of them, in two different parks.** A 5×5 map has between two and five green areas
+big enough to hold a flock, and one flock meant the rest of them were lawns with nothing on them;
+the second is what makes the map feel inhabited rather than the one park you happen to be near.
+They are built on separate offsets of the run seed, so they lead separate lives — one is on the
+grass while the other is halfway across the city — and each is handed an `avoid` callback naming
+the greens the others are on. `pickArea` treats *keeping off another flock's lawn* as outranking
+*getting a change of scene*, and that order is the whole of the function: half of all cities have
+exactly two usable parks, so asking those two wants the other way round makes every return leg in
+such a city land on the other flock's grass. The probe drives the pair for ten minutes and asserts
+they never share, on the seed whose city has only the two.
+
 **The whole flock is three draw calls.** One `InstancedMesh` for the bodies and one per wing side,
 however many birds there are. A wing beat is a rotation about the shoulder, and a rotation about a
 fixed point in the body's own frame goes straight into the instance matrix — so articulating six to
@@ -877,9 +888,20 @@ it along the body, and at 68° a standing bird had 22° of wing sticking out pas
 sides and read as one that had hurt itself.
 
 Scale is a deliberate lie, as it is for the riders. A pigeon beside a 4-unit car is a quarter of a
-unit long — two pixels at play zoom, which is a speck of dirt on the lawn. This is 1.08 units nose
-to tail on a 1.44 span, so a bird is about 8px at play zoom against a rider's 23. `?shot=18` stages
-a take-off.
+unit long — two pixels at play zoom, which is a speck of dirt on the lawn. This is 1.30 units nose
+to tail on a 1.73 span, so a bird is about 10px at play zoom against a rider's 23. `BIRD_SCALE` is
+the one number that sets it: the model's boxes are written as proportions and every offset and
+exported measurement runs through it, so the bird grows without the shape moving.
+
+**The size is doing work the palette can't.** Birds are the one thing in the game with no chroma at
+all — a couple of pixels of moving colour is the description of a fare marker, and the way to
+guarantee a take-off never reads as something the player has to act on is to give it nothing to
+read. That leaves value as the only channel they have, and the lawn caps it: the grass is luma 134,
+so a body much past 118 stops separating from the ground it stands on and is left telling itself
+apart by hue. The bodies sit at 118 (up from 98, which read as gravel) with the head patch at 221,
+and the visibility that couldn't be bought there was bought with the extra fifth of a unit instead.
+`?shot=18` stages a take-off; `?shot=0` has both flocks at play zoom, which is the framing that
+decides whether any of this worked.
 
 ### Route band — `game/routeline.js`
 
