@@ -44,7 +44,9 @@ const HALF_WIDTH = WIDTH / 2;
 // nothing is drawn for the first HEAD_GAP units. The taxi's nose is (CAR_LEN / 2) * TAXI_SCALE ≈
 // 2.0 units ahead of its centre, which the path measures from, so 4 leaves a clear couple of units
 // of bare road in front of the car before the fade even starts.
-const HEAD_GAP = 4;
+// Exported because `game/pathdrag.js` refuses a grab inside it: nothing is drawn here, and a band
+// you cannot see is not one the player can have meant to take hold of.
+export const HEAD_GAP = 4;
 const FADE_HEAD = 6;
 const FADE_TAIL = 10;
 
@@ -205,6 +207,68 @@ export function routePath(car, route) {
 }
 
 /**
+ * Nearest point on `path` to a world (x, z), as `{ dist, along, x, z, total }`.
+ *
+ * `along` is arc length from the head of the path, which is the same scale the shader's `vDist`
+ * fade and its grab glow are measured in — so one call answers both "did the finger land on the
+ * band" and "where on the band did it land", and the highlight can be centred on the exact point
+ * that was touched rather than on the nearest vertex.
+ *
+ * Exported for `game/pathdrag.js` and asserted in `tools/probe.mjs`: a hit test that is generous
+ * by a metre in the wrong direction is a gesture that fires when the player meant to pan.
+ */
+export function nearestOnPath(path, x, z) {
+  let best = null;
+  let acc = 0;
+  for (let k = 0; k < path.length - 1; k++) {
+    const a = path[k];
+    const b = path[k + 1];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const len2 = dx * dx + dz * dz;
+    const seg = Math.sqrt(len2);
+    const t = len2 < 1e-9 ? 0 : Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len2));
+    const px = a.x + t * dx;
+    const pz = a.z + t * dz;
+    const dist = Math.hypot(x - px, z - pz);
+    if (!best || dist < best.dist) best = { dist, along: acc + t * seg, x: px, z: pz };
+    acc += seg;
+  }
+  if (!best) return null;
+  best.total = acc;
+  return best;
+}
+
+/**
+ * The point a given arc length along `path`, and the path's total length — the inverse of
+ * `nearestOnPath`'s `along`. Shot mode's only use for it is staging a grab that has no finger
+ * behind it; `fraction` is where along the band to put one.
+ */
+export function pointAlongPath(path, fraction) {
+  let total = 0;
+  for (let k = 1; k < path.length; k++) {
+    total += Math.hypot(path[k].x - path[k - 1].x, path[k].z - path[k - 1].z);
+  }
+  const want = total * fraction;
+  let acc = 0;
+  for (let k = 1; k < path.length; k++) {
+    const seg = Math.hypot(path[k].x - path[k - 1].x, path[k].z - path[k - 1].z);
+    if (acc + seg >= want && seg > 1e-9) {
+      const t = (want - acc) / seg;
+      return {
+        x: path[k - 1].x + (path[k].x - path[k - 1].x) * t,
+        z: path[k - 1].z + (path[k].z - path[k - 1].z) * t,
+        along: want,
+        total,
+      };
+    }
+    acc += seg;
+  }
+  const last = path[path.length - 1];
+  return { x: last.x, z: last.z, along: total, total };
+}
+
+/**
  * Half-width offset at each path point, along the mitre of its two adjacent segments, so the
  * band keeps a constant width around a bend instead of gapping on the outside of every join.
  */
@@ -268,6 +332,41 @@ const PULSE_BOOST = 0.5;
 // so the constant rate is all that's ever visible, and it stays that one rate the whole way out.
 const ROLLOUT_SPEED = 110;
 
+// --- The grab flourish ------------------------------------------------------
+//
+// A finger landing on the band has to be answered *on the band*, and answered before anything has
+// moved — the player is being told "this is a handle" at the moment they have not yet pulled it.
+// So the whole response is a lift of what is already there rather than a new object: the paint
+// brightens, thickens slightly, and blooms under the finger.
+//
+// Three parts, and each is doing a different job:
+//
+// - `GRAB_LIFT` brightens the *whole* band. This is the part that says the object you grabbed is
+//   the route, all of it, and not the stretch of tarmac you happen to be touching.
+// - `GRAB_FOCUS` blooms on top of that at the finger. This is the part that says *where*, and it
+//   is what makes the band feel pinned there rather than merely switched on.
+// - `GRAB_WIDEN` thickens the paint. Brightness alone reads as a state change; a band that also
+//   swells reads as something taking weight.
+//
+// The bloom is a Gaussian rather than a disc, `GRAB_GLOW` units either side. About 11 because it
+// wants to be a couple of car lengths of road — wide enough to survive the band bending under it
+// at a junction, narrow enough that it is plainly a point on the route and not the route itself.
+const GRAB_LIFT = 0.30;
+const GRAB_FOCUS = 0.50;
+const GRAB_GLOW = 11;
+const GRAB_WIDEN = 0.30;
+// How far the bloom pushes toward white. Measured down from 0.45: at that value the core went
+// fully white over an additive blend and the band stopped being yellow exactly where the player
+// was looking — the route's own colour is the thing saying "this is the job", and washing it out
+// at the point of contact is the one place it must not go. 0.30 is a hot yellow, not a white.
+const GRAB_WHITEN = 0.30;
+
+// Snaps on and settles off. A grab has to feel instant or it reads as lag on the one gesture whose
+// whole promise is that the path answers your finger; letting go is not news in the same way, so
+// the band eases back rather than dropping.
+const GRAB_RISE = 0.06;
+const GRAB_FALL = 0.18;
+
 export function createRouteLine(scene) {
   // Two triangles per segment of the path.
   const positions = new Float32Array(MAX_POINTS * 6 * 3);
@@ -291,6 +390,8 @@ export function createRouteLine(scene) {
       uMultiply: { value: 0 },
       uTime: { value: 0 },
       uReveal: { value: 0 },
+      uGrab: { value: 0 },
+      uGrabDist: { value: 0 },
     },
     vertexShader: /* glsl */`
       attribute float aDist;
@@ -314,11 +415,17 @@ export function createRouteLine(scene) {
       uniform float uMultiply;
       uniform float uTime;
       uniform float uReveal;
+      uniform float uGrab;
+      uniform float uGrabDist;
       varying float vDist;
       const float PULSE_PERIOD = ${PULSE_PERIOD.toFixed(4)};
       const float PULSE_SPEED = ${PULSE_SPEED.toFixed(4)};
       const float PULSE_SHARPNESS = ${PULSE_SHARPNESS.toFixed(4)};
       const float PULSE_BOOST = ${PULSE_BOOST.toFixed(4)};
+      const float GRAB_LIFT = ${GRAB_LIFT.toFixed(4)};
+      const float GRAB_FOCUS = ${GRAB_FOCUS.toFixed(4)};
+      const float GRAB_GLOW = ${GRAB_GLOW.toFixed(4)};
+      const float GRAB_WHITEN = ${GRAB_WHITEN.toFixed(4)};
       const float TAU = 6.2831853;
       void main() {
         float head = smoothstep(uHeadGap, uHeadGap + uFadeHead, vDist);
@@ -328,7 +435,14 @@ export function createRouteLine(scene) {
         // the leading edge of the sweep looks exactly like the trailing edge it will settle into.
         // Once uReveal passes uLength this is 1 everywhere and has no effect on the steady state.
         float reveal = smoothstep(0.0, uFadeTail, uReveal - vDist);
-        float envelope = uOpacity * head * tail * reveal;
+
+        // The grab: a lift over the whole band plus a bloom under the finger. Inside the same
+        // head/tail envelope as everything else, so a highlight can no more spill past the ends of
+        // the route than the pulse can.
+        float focus = exp(-pow((vDist - uGrabDist) / GRAB_GLOW, 2.0));
+        float held = uGrab * (GRAB_LIFT + GRAB_FOCUS * focus);
+
+        float envelope = uOpacity * (1.0 + held) * head * tail * reveal;
 
         // Position relative to the *destination* end, not the car end. vDist is measured from the
         // car, so it (and uLength) both shrink every frame the taxi drives — using it directly
@@ -345,8 +459,10 @@ export function createRouteLine(scene) {
         // with the same head/tail envelope as the band itself so none rolls past its ends.
         float boost = pulse * envelope * PULSE_BOOST;
 
-        float a = envelope + boost;
-        vec3 rgb = mix(uColor, vec3(1.0), boost);
+        // Clamped: the lift and the pulse crest can both be on the same fragment, and together they
+        // run past 1. Premultiplying an alpha over 1 paints a colour brighter than the paint.
+        float a = min(1.0, envelope + boost);
+        vec3 rgb = mix(uColor, vec3(1.0), min(1.0, boost + uGrab * focus * GRAB_WHITEN));
         gl_FragColor = vec4(rgb, a);
         #include <colorspace_fragment>
         gl_FragColor = uMultiply > 0.5
@@ -390,8 +506,34 @@ export function createRouteLine(scene) {
   let revealTarget = null;
   let revealElapsed = 0;
 
+  // How hard the band is being held, and where. `grabWant` is the instruction (0 or 1) and `grab`
+  // is what is drawn — eased, so nothing about the flourish steps.
+  let grabWant = 0;
+  let grab = 0;
+  let grabAt = 0;
+
+  /**
+   * Take hold of the band, or let go of it.
+   *
+   * @param held true while a finger is down on it
+   * @param at   arc length from the head of the path, from `nearestOnPath`. Left where it was when
+   *             omitted, so releasing fades the bloom out where it stood rather than sliding it to
+   *             the head of the band on the way.
+   */
+  function setGrab(held, at = null) {
+    grabWant = held ? 1 : 0;
+    if (at !== null) grabAt = at;
+  }
+
   function update(car, route, dt = 0) {
     material.uniforms.uTime.value += dt;
+
+    // Exponential-ish approach on a per-frame fraction rather than a tween with a start time: the
+    // grab has no fixed duration — it lasts as long as the finger does.
+    const rate = grabWant > grab ? GRAB_RISE : GRAB_FALL;
+    grab += (grabWant - grab) * Math.min(1, dt / rate);
+    material.uniforms.uGrab.value = grab;
+    material.uniforms.uGrabDist.value = grabAt;
 
     if (car.pendingTarget !== revealTarget) {
       revealTarget = car.pendingTarget;
@@ -432,7 +574,9 @@ export function createRouteLine(scene) {
     // Offset each point along its mitre rather than offsetting each segment independently.
     // Independent segments leave a wedge of empty road on the outside of every join — invisible
     // at 90° corners because the corner was the notch, but obvious across a ten-step arc.
-    const offsets = mitreOffsets(path, HALF_WIDTH);
+    // Thickens under a grab. Rebuilt every frame anyway, so this costs nothing beyond the multiply
+    // — and the mitre keeps the swell even around a bend, which a fixed offset would not.
+    const offsets = mitreOffsets(path, HALF_WIDTH * (1 + GRAB_WIDEN * grab));
 
     let v = 0;
     let n = 0;
@@ -461,5 +605,12 @@ export function createRouteLine(scene) {
     mesh.visible = n > 0;
   }
 
-  return { mesh, update, setBlend, blend: () => blendName, hide: () => { mesh.visible = false; } };
+  return {
+    mesh,
+    update,
+    setBlend,
+    setGrab,
+    blend: () => blendName,
+    hide: () => { mesh.visible = false; },
+  };
 }

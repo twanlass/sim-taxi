@@ -22,7 +22,7 @@ import { findRoute as planRoute, setRoadworkLanes, laneCost } from '../src/game/
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET } from '../src/sim/police.js';
 import {
-  createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES,
+  createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, ARRIVE_RADIUS,
 } from '../src/game/fares.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
@@ -55,8 +55,10 @@ import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgenc
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
-import { routePath } from '../src/game/routeline.js';
-import { findRoute, allIntersections } from '../src/game/route.js';
+import { routePath, nearestOnPath, HEAD_GAP } from '../src/game/routeline.js';
+import { findRoute, findRouteVia, MAX_VIA_DETOUR, allIntersections } from '../src/game/route.js';
+import { GRAB_RADIUS } from '../src/game/pathdrag.js';
+import { nearestJunction, nextIntersection } from '../src/city/grid.js';
 import { PALETTE } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
 import { createBlast } from '../src/game/blast.js';
@@ -1679,6 +1681,266 @@ check('every intersection is routable from every approach', unroutable === 0,
   // the path drawn when the route was planned.
   check('the route band never re-shapes ahead of the taxi', drift < 0.05 && frames > 300,
     `max drift ${drift.toFixed(4)} units over ${frames} frames`);
+}
+
+// --- Dragging the band to re-route -----------------------------------------
+// The player takes hold of the yellow band and pulls it sideways; the junction under their finger
+// becomes a waypoint and the route is re-planned through it, live, while the taxi keeps driving.
+// Four things have to hold, and none of them is visible in a screenshot: the finger has to land on
+// the band and nowhere else, the re-plan has to actually go through the waypoint, a silly drag has
+// to be refused rather than answered with a lap of the city, and — the one that matters — the taxi
+// has to still *arrive*.
+{
+  const dScene = new THREE.Scene();
+  const dTraffic = createTraffic(makeRng(seed + 131), dScene, 1);   // taxi alone: nothing to block it
+  const dTaxi = dTraffic.taxi;
+  dTraffic.warmup(4);
+
+  const dest = { i: dTaxi.i > GRID / 2 ? 0 : GRID, j: dTaxi.j > GRID / 2 ? 0 : GRID };
+  const origin = planOrigin(dTaxi);
+  const direct = findRoute(origin, dest);
+  dTaxi.route = [...direct];
+  dTaxi.routeConsumed = false;
+
+  /** Junctions a route visits, in order, starting with the one the car is heading at. */
+  const junctionsAlong = (from, route) => {
+    const out = [{ i: from.i, j: from.j }];
+    let at = { i: from.i, j: from.j };
+    for (const d of route) {
+      at = nextIntersection(d, at.i, at.j);
+      if (!at) break;
+      out.push({ i: at.i, j: at.j });
+    }
+    return out;
+  };
+  const passesThrough = (route, via) =>
+    junctionsAlong(origin, route).some((p) => p.i === via.i && p.j === via.j);
+
+  // --- The hit test.
+  // Points sampled *on* the drawn band must read as on it, and the arc length must agree with the
+  // one the shader fades against — the grab bloom is centred on this number, so a hit test that
+  // located the finger correctly and mismeasured `along` would light up the wrong stretch of road.
+  const band = routePath(dTaxi, dTaxi.route);
+  let offBand = 0;
+  let alongWrong = 0;
+  let walked = 0;
+  for (let k = 1; k < band.length; k++) {
+    walked += Math.hypot(band[k].x - band[k - 1].x, band[k].z - band[k - 1].z);
+    const near = nearestOnPath(band, band[k].x, band[k].z);
+    if (!near || near.dist > 1e-6) offBand += 1;
+    if (!near || Math.abs(near.along - walked) > 1e-6) alongWrong += 1;
+  }
+  check('a finger on the band reads as on the band', offBand === 0 && band.length > 20,
+    `${band.length} points, ${offBand} missed`);
+  check('and the band says how far along it was touched', alongWrong === 0,
+    `${alongWrong} arc lengths disagreed with the walk`);
+
+  // What separates a grab from a pan is one number, so that number is checked against an
+  // independent one: the path densely resampled and brute-forced. A hit test that measured to the
+  // nearest *vertex* instead of to the nearest point of a segment would pass every check above and
+  // still refuse the middle of a 20-unit straight, which is most of the band.
+  //
+  // Both directions matter. Reading long turns a pan into a re-route; reading short leaves the one
+  // gesture the feature is made of not firing where the paint plainly is.
+  const dense = [];
+  for (let k = 0; k < band.length - 1; k++) {
+    const a = band[k];
+    const b = band[k + 1];
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.1));
+    for (let s = 0; s < steps; s++) {
+      dense.push({ x: a.x + (b.x - a.x) * (s / steps), z: a.z + (b.z - a.z) * (s / steps) });
+    }
+  }
+  const bruteForce = (x, z) => {
+    let best = Infinity;
+    for (const q of dense) best = Math.min(best, Math.hypot(q.x - x, q.z - z));
+    return best;
+  };
+
+  let mismeasured = 0;
+  let disagreed = 0;
+  let probed = 0;
+  let rejected = 0;
+  for (let x = -HALF_SPAN; x <= HALF_SPAN; x += PITCH / 4) {
+    for (let z = -HALF_SPAN; z <= HALF_SPAN; z += PITCH / 4) {
+      const near = nearestOnPath(band, x, z);
+      const ref = bruteForce(x, z);
+      probed += 1;
+      // 0.05 of tolerance covers the resampling step, not the measurement.
+      if (Math.abs(near.dist - ref) > 0.05) mismeasured += 1;
+      if ((near.dist <= GRAB_RADIUS) !== (ref <= GRAB_RADIUS - 0.05)
+        && Math.abs(ref - GRAB_RADIUS) > 0.05) disagreed += 1;
+      if (near.dist > GRAB_RADIUS) rejected += 1;
+    }
+  }
+  check('the hit test measures distance to the paint, not to its corners',
+    mismeasured === 0 && disagreed === 0 && probed > 400,
+    `${probed} points, ${mismeasured} mismeasured`);
+  // And it stays a target rather than becoming the map: most of the city is not the band.
+  check('most of the city is not a grab', rejected > probed * 0.6,
+    `${rejected}/${probed} points rejected at ${GRAB_RADIUS} units`);
+
+  // --- The re-plan.
+  // Every junction on the map, tried as a waypoint. Whatever comes back must go through it and
+  // must still end at the destination; whatever is refused must be refused for a reason.
+  let missedVia = 0;
+  let wrongEnd = 0;
+  let overCap = 0;
+  let taken = 0;
+  let refused = 0;
+  for (const via of allIntersections()) {
+    const route = findRouteVia(origin, via, dest);
+    if (route === null) { refused += 1; continue; }
+    taken += 1;
+    if (!passesThrough(route, via)) missedVia += 1;
+    const ends = junctionsAlong(origin, route).at(-1);
+    if (ends.i !== dest.i || ends.j !== dest.j) wrongEnd += 1;
+    if (route.length > direct.length + MAX_VIA_DETOUR) overCap += 1;
+  }
+  check('a dragged waypoint is actually driven through', missedVia === 0 && taken > 10,
+    `${taken} of ${allIntersections().length} waypoints accepted, ${refused} refused`);
+  check('and the destination is not moved by dragging', wrongEnd === 0);
+  check('no accepted detour exceeds the cap', overCap === 0,
+    `cap ${MAX_VIA_DETOUR} legs over the direct ${direct.length}`);
+  // The cap has to refuse exactly what it claims to, which is not the same as "refuses waypoints
+  // that aren't on the drawn route". A Manhattan grid is full of equal-length alternatives: on
+  // this seed 16 of the 26 junctions the band does *not* pass through cost zero extra legs to go
+  // via, because they sit on a route the same length that the router's straight-then-right-then-
+  // left tie-break simply didn't pick. So the cap is checked against real detour cost.
+  const NO_CAP = 999;
+  let capWrong = 0;
+  let genuineDetours = 0;
+  let worstExtra = 0;
+  for (const p of allIntersections()) {
+    const full = findRouteVia(origin, p, dest, { maxDetour: NO_CAP });
+    if (full === null) continue;
+    const extra = full.length - direct.length;
+    if (extra > 0) genuineDetours += 1;
+    worstExtra = Math.max(worstExtra, extra);
+    for (const cap of [0, 2, MAX_VIA_DETOUR]) {
+      if ((findRouteVia(origin, p, dest, { maxDetour: cap }) !== null) !== (extra <= cap)) {
+        capWrong += 1;
+      }
+    }
+  }
+  check('the detour cap refuses exactly what it says it does',
+    capWrong === 0 && genuineDetours > 3,
+    `${genuineDetours} waypoints cost extra, worst ${worstExtra} legs over a direct ${direct.length}`);
+
+  // And it bites where it is meant to. On a long trip nothing on a 5×5 map can reach the cap; the
+  // case it exists for is the *short* one, where a finger that lands behind the taxi asks for a
+  // lap of the city to reach a destination two blocks away.
+  const near2 = allIntersections()
+    .map((p) => ({ p, route: findRoute(origin, p) }))
+    .find((c) => c.route && c.route.length === 2);
+  const bitten = near2
+    ? allIntersections().filter((p) => findRouteVia(origin, p, near2.p) === null)
+    : [];
+  check('a detour past the cap is refused rather than driven',
+    near2 !== undefined && bitten.length > 0,
+    near2 ? `${bitten.length} waypoints refused for a 2-leg trip` : 'no short trip on this seed');
+
+  // Dragging back onto the route the taxi was already taking gives that route back — this is what
+  // makes the gesture undoable with the same finger that made it, with no revert to implement.
+  const onPath = junctionsAlong(origin, direct)[Math.floor(direct.length / 2)];
+  const rejoined = findRouteVia(origin, onPath, dest);
+  check('dragging back onto the plan restores the plan',
+    rejoined !== null && rejoined.join() === direct.join(),
+    `${rejoined?.length} legs against ${direct.length}`);
+
+  // The waypoint the finger names is the junction nearest it, so a finger anywhere inside a
+  // junction's cell has to name that junction and no other.
+  let snapWrong = 0;
+  for (const p of allIntersections()) {
+    for (const [dx, dz] of [[0, 0], [9, 0], [-9, 0], [0, 9], [0, -9], [6, 6]]) {
+      const snapped = nearestJunction(lineCoord(p.i) + dx, lineCoord(p.j) + dz);
+      const want = { i: Math.min(GRID, Math.max(0, p.i)), j: Math.min(GRID, Math.max(0, p.j)) };
+      // Off the edge of the map the snap clamps, which is the point: a drag past the ring road
+      // pins to the ring rather than stopping answering.
+      const clamped = lineCoord(p.i) + dx < -HALF_SPAN || lineCoord(p.i) + dx > HALF_SPAN
+        || lineCoord(p.j) + dz < -HALF_SPAN || lineCoord(p.j) + dz > HALF_SPAN;
+      if (!clamped && (snapped.i !== want.i || snapped.j !== want.j)) snapWrong += 1;
+    }
+  }
+  check('a finger names the junction it is standing in', snapWrong === 0,
+    `${snapWrong} mis-snapped`);
+
+  // --- And it still arrives.
+  // The assertion no screenshot can make, and the one the whole feature lives or dies on. This is
+  // a *held* drag rather than a single re-plan: `pathdrag.js` re-stitches the waypoint onto a
+  // fresh `planOrigin` every frame, because the taxi keeps driving while the finger is down, and
+  // that is the part with teeth. Planning from the intersection a car mid-turn has already
+  // committed to silently drops the first step; forgetting to clear `routeConsumed` makes the
+  // commit eat the first step of the *new* plan. Either one is a route desync, not a crash, so the
+  // only symptom would be a fare quietly timing out.
+  //
+  // Prefer a waypoint that genuinely lengthens the trip — a Manhattan grid has plenty that cost
+  // nothing, and one of those would drive an identical route and assert nothing.
+  const mid = junctionsAlong(origin, direct)[Math.max(1, Math.floor(direct.length / 2))];
+  const candidates = [];
+  for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const cand = { i: mid.i + di, j: mid.j + dj };
+    if (cand.i < 0 || cand.i > GRID || cand.j < 0 || cand.j > GRID) continue;
+    if (passesThrough(direct, cand)) continue;          // already on the plan; not a detour
+    const route = findRouteVia(planOrigin(dTaxi), cand, dest);
+    if (route) candidates.push({ via: cand, extra: route.length - direct.length });
+  }
+  candidates.sort((a, b) => b.extra - a.extra);
+  const via = candidates[0]?.via ?? null;
+
+  if (!via) {
+    check('a dragged route still arrives', false, 'no sideways waypoint available on this seed');
+  } else {
+    // Mirrors main.js's `routeTo({ via })`, `routeConsumed` reset included.
+    const dragTo = (waypoint) => {
+      const route = findRouteVia(planOrigin(dTaxi), waypoint, dest);
+      if (!route) return false;
+      dTaxi.route = route;
+      dTaxi.routeConsumed = false;
+      dTaxi.parked = false;
+      return true;
+    };
+
+    const plannedLegs = findRouteVia(planOrigin(dTaxi), via, dest).length;
+    const viaCentre = { x: lineCoord(via.i), z: lineCoord(via.j) };
+    const destCentre = { x: lineCoord(dest.i), z: lineCoord(dest.j) };
+
+    // Three seconds of finger down, re-planning on every one of the 180 frames.
+    let held = via;
+    let replans = 0;
+    let refusals = 0;
+    let midTurnReplans = 0;
+    for (let step = 0; step < 180 && held; step++) {
+      if (dTaxi.state === 'turn') midTurnReplans += 1;
+      if (dragTo(held)) replans += 1; else refusals += 1;
+      dTraffic.update(1 / 60);
+      // Retired the moment the taxi is heading at it, exactly as pathdrag.js does — otherwise the
+      // next re-plan asks for a lap back to a junction already behind the car.
+      const from = planOrigin(dTaxi);
+      if (from.i === held.i && from.j === held.j) held = null;
+    }
+
+    let elapsed = 3;
+    let nearestVia = Infinity;
+    let arrived = false;
+    while (elapsed < 180) {
+      dTraffic.update(1 / 60);
+      elapsed += 1 / 60;
+      nearestVia = Math.min(nearestVia,
+        Math.hypot(dTaxi.x - viaCentre.x, dTaxi.z - viaCentre.z));
+      if (Math.hypot(dTaxi.x - destCentre.x, dTaxi.z - destCentre.z) < ARRIVE_RADIUS) {
+        arrived = true;
+        break;
+      }
+    }
+    check('a route re-planned on every frame of a drag still arrives', arrived,
+      `waypoint (${via.i},${via.j}), ${plannedLegs} legs against a direct ${direct.length}, ${elapsed.toFixed(1)}s`);
+    check('and the taxi really drove the detour', nearestVia < ARRIVE_RADIUS,
+      `${replans} re-plans (${midTurnReplans} mid-turn, ${refusals} refused), closest approach ${nearestVia.toFixed(1)}`);
+    check('dragging desyncs nothing and runs no reds',
+      dTraffic.stats.routeDesync === 0 && dTraffic.stats.violations === 0,
+      `${dTraffic.stats.routeDesync} desyncs, ${dTraffic.stats.violations} violations`);
+  }
 }
 
 // Park districts build over a road. The closure has to be real in the traffic model, not just

@@ -496,6 +496,109 @@ stopped-time further, but added enough distance to erase the gain. Measured acro
 unit weights: trip time **−3.9%**, time-stopped-at-signals **−13.7%**, average path length
 essentially unchanged. Sweep via `tools/router-sweep.mjs`.
 
+### Dragging the route
+
+`src/game/pathdrag.js`. **Press the yellow band and pull it sideways.** The junction under your
+finger becomes a waypoint, the route is re-planned through it, and the band redraws on the same
+frame — so you can take the taxi round a block that has gone solid without giving up the fare you
+are driving.
+
+Until this existed the band was the only thing on screen saying what the taxi was about to do and
+the only part of the interface you could not touch. Tapping a rider says **where**; this says
+**which way**, which is the question a player is already asking the moment they can see a queue
+building on the road the band is about to take. It is the one decision the game was showing them
+and not letting them make.
+
+**A single waypoint, snapped to a junction.** Not a freehand line: there is no hand-drawn path a
+city of one-way lanes could honour, and a gesture that let you draw one would have to silently
+throw most of it away. What the player is naming is a corner to go via, and `findRouteVia` answers
+with a real drive — right-hand lanes, no U-turns, arterials still preferred, closed streets still
+avoided. A drag of half a block does nothing until it crosses into the next junction's cell and
+then the whole detour appears at once, which reads as the route *committing* rather than as paint
+smearing under a finger.
+
+Four things about it are load-bearing:
+
+- **It re-plans from where the taxi is now, every frame the finger is down.** The car does not stop
+  while you drag — its clock is running — so a waypoint chosen four seconds ago has to be
+  re-stitched onto a route that now starts a block further on. `planOrigin` is what makes that safe
+  mid-turn, and it is the same trap [the drop-off's own dispatch](#the-drop-off-dispatches-itself)
+  walks into: a route planned from the intersection a turning car has *already committed to*
+  silently drops its first step, and every later turn lands one junction early. Its sibling is
+  `routeConsumed`, which has to be cleared on every re-plan or the commit at the end of the current
+  turn eats the first step of the new plan instead of the old one's. Both failures are a route
+  desync rather than a crash — the only symptom is a fare quietly timing out — which is why the
+  probe drives 180 consecutive re-plans (119 of them mid-turn on the shipped seed) and asserts the
+  taxi still arrives.
+- **The waypoint retires when it is reached**, not when the gesture ends. Once the taxi is heading
+  at it there is nothing left to detour around, and re-planning through a junction the car has
+  driven *past* answers with a lap back to it.
+- **Release commits what is drawn.** No confirm step and no revert. The band has been showing the
+  real route the whole way, and a gesture that undid itself on release would make every frame of
+  that a lie. Undo is dragging back onto the original line, which the router answers with the
+  original route — `tools/probe.mjs` asserts that exactly.
+- **A silly drag is refused rather than answered.** `MAX_VIA_DETOUR = 6` legs over the direct
+  route. A finger that lands behind the taxi, or slips a block wide on a two-block hop, would
+  otherwise be answered with a lap of the city. Under the cap the detour is taken exactly as drawn;
+  over it the band simply holds still and the drag feels like it hit a wall.
+
+**The cap is about short trips, and the numbers say why.** On a corner-to-corner run in the shipped
+city the direct route is 9 legs and the *worst* waypoint on the whole map costs 2 extra — nothing
+a 5×5 grid can produce comes near the cap. Only 10 of the 36 junctions cost anything at all to go
+via, and **16 of the 26 the band does not already pass through cost zero**, because a Manhattan
+grid is full of equal-length alternatives the router's straight-then-right-then-left tie-break
+simply didn't pick. On a two-leg trip the same cap refuses 17 of the 36.
+
+That last figure is also a warning about how to test this: "the waypoint is not on the drawn route"
+is *not* the same claim as "the waypoint costs a detour", and a cap check written against the first
+one goes red for a reason nobody can act on. It is asserted against real leg counts instead.
+
+#### The grab flourish
+
+A finger landing on the band has to be answered **on the band**, and answered before anything has
+moved — the player is being told "this is a handle" at a moment when they have not yet pulled it.
+So the whole response is a lift of what is already there rather than a new object appearing:
+
+| | what it does | what it says |
+|---|---|---|
+| Whole-band lift | +0.30 on the alpha, everywhere | the thing you grabbed is the *route*, not this stretch of tarmac |
+| Bloom at the finger | +0.50 more, Gaussian over ~11 units | and **here** is the point that moves |
+| Thickening | +30% on the band's half-width | something has taken weight |
+| The handle | a ring on the road under the finger | this is the object; it goes where you go |
+
+It snaps on over 0.06s and settles off over 0.18s. A grab has to feel instant or it reads as lag on
+the one gesture whose entire promise is that the path answers your finger; letting go is not news
+in the same way.
+
+Two numbers were measured and moved. The bloom pushed **0.45 toward white** at first and the core
+went fully white over the additive blend, so the band stopped being yellow exactly where the player
+was looking — the route's own colour is what says "this is the job", and washing it out at the
+point of contact is the one place it must not go. At 0.30 it is a hot yellow rather than a white.
+
+And **the handle was additive yellow, and vanished.** It sits at the centre of the brightest thing
+in the frame — the band's own bloom — and adding light to a blown highlight changes nothing. It is
+[the diamond's black rim](#what-the-crystal-does) again: a marker cannot outline itself in the
+colour it is standing on. So the handle *subtracts* first. A darkened disc punches a hole in the
+glow and the bright rim reads against that hole rather than against the road, which comes out as a
+grommet in the paint — which is what the thing actually is.
+
+#### Why the press has to be on `window`
+
+The grab listens for `pointerdown` on **`window`, in the capture phase**, and stops propagation
+when it takes hold. Not on the canvas, where everything else in this game listens.
+
+Both this and [drag-to-pan](#picking) want the same press, and the band must win it. Registering
+after `attachDragPan` does not achieve that: listener order *within one element* is registration
+order whatever the capture flag says, so a capture listener on the canvas still runs second. An
+ancestor's capture phase is the only ordering that holds regardless of which module happens to be
+constructed first. Get it wrong and there is no error — the map slides out from under a drag that
+was meant to move the route, which every headless tool here is blind to. `tools/smoke.mjs` asserts
+the pair: a drag on the band re-routes and does not pan, and a drag anywhere else pans.
+
+The click the browser synthesises after a drag is swallowed by the same `didDrag()` guard the
+camera's `didPan()` uses, so a pull that happens to finish over a rider does not also dispatch the
+taxi at them.
+
 ## Picking
 
 `src/game/pick.js` raycasts against objects that opt in via `userData.pickable`, a string kind. The

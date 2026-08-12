@@ -9,7 +9,7 @@ behind it that aren't obvious from the code.
 | [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts, ground/buildings/props | `src/city/` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
-| [gameplay.md](gameplay.md) | The opening tutorial, the fare loop, routing, picking, the travelling clock, economy, crazy-taxi mode, pause | `src/game/` |
+| [gameplay.md](gameplay.md) | The opening tutorial, the fare loop, routing, dragging the route, picking, the travelling clock, economy, crazy-taxi mode, pause | `src/game/` |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, effects | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
@@ -45,6 +45,12 @@ Once a run, a side street closes for **roadworks** — barricades at both ends, 
 road and two workers standing over it. Ambient traffic routes around it while the taxi's own router
 is told the street is cheap, so it is the emptiest road in the city with a ramp at each end — and a
 fare that leads you down it. See [traffic.md](traffic.md#roadworks-a-street-closed-at-both-ends).
+
+The route the taxi is driving is drawn as a yellow band down the lane, and it is **draggable**:
+press it and pull sideways and the junction under your finger becomes a waypoint the route has to
+go through, re-planned live while the car keeps driving. That is the one way to answer traffic on
+the road ahead without giving up the fare. See
+[dragging the route](gameplay.md#dragging-the-route).
 
 **Loco Mode** (bottom left) is the crazy-taxi button: **hold** for double speed that runs red
 lights, release to pause the meter. Two clear blocks in a row take it past double into the

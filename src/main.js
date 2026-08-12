@@ -31,13 +31,14 @@ import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
 import { createTutorial } from './game/tutorial.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
-import { createRouteLine } from './game/routeline.js';
+import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
 import { setAmbientOcclusion } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createPause } from './game/pause.js';
-import { findRoute, planOrigin } from './game/route.js';
+import { findRoute, findRouteVia, planOrigin } from './game/route.js';
+import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
   getDiagnostics } from './util/shot.js';
@@ -443,6 +444,11 @@ const routeLine = createRouteLine(scene);
 const blendParam = new URLSearchParams(window.location.search).get('blend');
 if (blendParam) routeLine.setBlend(blendParam);
 
+// Drag the band to send the taxi round a different way. Declared here so the picker and the
+// tutorial can both ask whether the click they are about to answer was the end of one; wired up
+// below, once `routeTo` exists.
+let pathDrag = null;
+
 // --- Selection and routing --------------------------------------------------
 
 // The taxi is permanently selected. There is only ever one, so a selection step was pure
@@ -453,10 +459,22 @@ const selected = true;
 /**
  * Route the taxi to an intersection. Planning starts from the intersection the taxi is *heading
  * toward* plus its current heading, because that is the first point at which it can make a choice.
+ *
+ * `via` forces the route through one more junction on the way — the player dragging the route band
+ * sideways (see game/pathdrag.js). It comes through here rather than assigning `car.route`
+ * directly because everything else this function does is load-bearing for a route that is
+ * *replacing* one already part-driven: `routeConsumed` has to be cleared or the turn the car has
+ * already committed to eats the first step of the new plan, and `parked` has to be released.
+ *
+ * The target object's *identity* is what the band's rollout sweep keys off, so a re-plan that
+ * keeps the same destination must pass the same object rather than an equal one — otherwise every
+ * frame of a drag replays the sweep and the band never finishes drawing itself.
  */
-function routeTo(target) {
+function routeTo(target, { via = null } = {}) {
   const car = traffic.taxi;
-  const route = findRoute(planOrigin(car), target);
+  const route = via
+    ? findRouteVia(planOrigin(car), via, target)
+    : findRoute(planOrigin(car), target);
   if (!route) return false;
   car.route = route;
   car.routeConsumed = false;
@@ -520,8 +538,27 @@ createPicker(
       fares.markDirected(fare);
     }
   },
-  () => Boolean(pan?.didPan()),
+  // A gesture that moved the map, or one that pulled the route round, is not also a tap on
+  // whatever it happened to finish over.
+  () => Boolean(pan?.didPan() || pathDrag?.didDrag()),
 );
+
+// The band is only draggable once there is one: a destination is set, the run is live, and the
+// player is not looking at a paused veil or a screenshot.
+pathDrag = createPathDrag({
+  camera,
+  domElement: renderer.domElement,
+  scene,
+  routeLine,
+  getCar: () => traffic.taxi,
+  reroute: (via) => routeTo(traffic.taxi.pendingTarget, { via }),
+  // `pause` is declared further down and only ever read from a pointer handler, which is long
+  // after this module has finished evaluating — same as `homeTip` in the tutorial's guards.
+  canGrab: () => Boolean(
+    !shot && selected && traffic.taxi.pendingTarget
+    && !fares.state.gameOver && !traffic.taxi.crashed && !pause?.state.paused,
+  ),
+});
 
 // Camera shortcut: frame the waiting rider on demand. At play zoom on a phone the rider is a
 // handful of pixels somewhere on a map that no longer fits in one screen, so taking the camera to
@@ -643,7 +680,7 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   isBlocked: () => Boolean(homeTip?.state.holding),
   // The same guard the picker uses: the click a mouse synthesises at the end of a drag must not
   // count as an answer to the bubble the player was dragging past.
-  shouldIgnoreTap: () => Boolean(pan?.didPan()),
+  shouldIgnoreTap: () => Boolean(pan?.didPan() || pathDrag?.didDrag()),
   // Hold every fare's countdown for as long as the tutorial is talking. It ends on the player's
   // tap, so the clock they are taught with is the full sixty seconds.
   onRunning: (running) => {
@@ -1398,6 +1435,11 @@ function frame() {
     }
   }
 
+  // Before the band is rebuilt, not after: a drag re-plans the route from where the taxi is *now*,
+  // and the handle and the grab bloom are placed against the path that re-plan produces. Drawing
+  // first would put both of them on last frame's route for a frame every time the detour changed.
+  pathDrag.update(dt);
+
   // The route is a property of the selection, not of the world — deselecting clears it from view
   // even though the taxi keeps driving it.
   if (selected && traffic.taxi.pendingTarget && !fares.state.gameOver) {
@@ -1640,6 +1682,19 @@ if (shot) {
   }
 
   if (shot.route) send();
+  // A finger on the band. The grab eases in over GRAB_RISE, so the settling dt below has to cover
+  // it — it does, being the same 999 that settles the rollout sweep.
+  if (shot.grabAt != null && traffic.taxi.pendingTarget) {
+    const at = pointAlongPath(routePath(traffic.taxi, traffic.taxi.route), shot.grabAt);
+    routeLine.setGrab(true, at.along);
+    pathDrag.stage(at.x, at.z);
+    pathDrag.update(999);
+    // Aimed at the grab rather than at the taxi the way `routeFar` leaves it. The whole subject is
+    // a bloom 11 units across on a route that runs to the far corner of the map — the first cut of
+    // this shot framed the car and put the flourish off the bottom of the frame entirely.
+    controller.state.target.set(at.x, 0, at.z);
+    controller.update(aspect());
+  }
   if (selected && traffic.taxi.pendingTarget) {
     // A shot reviews the band's steady state, not the moment it was picked — a shot mode frame is
     // never followed by another, so with a real dt the rollout sweep would freeze here mid-animation
@@ -1688,6 +1743,9 @@ window.__taxi = {
   pause,
   routeTo,
   findRoute,
+  findRouteVia,
+  /** The route-band drag, for `tools/smoke.mjs`: `isGrabbing`, `didDrag`, `via`. */
+  pathDrag,
   camera: controller,
   isSelected: () => selected,
   /**
@@ -1723,6 +1781,22 @@ window.__taxi = {
   }),
   /** Screen-space helpers so the browser smoke test can click real pixels. */
   taxiScreenPosition: taxiScreenPos,
+  /**
+   * A point part way along the drawn route band, in screen space — the thing `tools/smoke.mjs`
+   * has to press on to test the drag. Taken off the same `routePath` the band is built from, so a
+   * band that stopped being drawn where the tool thinks it is fails rather than drifting.
+   */
+  routeScreenPosition: (fraction = 0.45) => {
+    const path = routePath(traffic.taxi, traffic.taxi.route);
+    if (path.length < 2) return null;
+    // Along the band's *length*, not along its point indices. A junction arc is ten points over
+    // four units and a straight is two points over twenty, so the middle by index is nowhere near
+    // the middle by distance — half way through a two-leg route landed inside the first turn, a
+    // couple of units from the car, which is inside the head gap where the band is not drawn and
+    // a grab is refused. The tool read that as the drag being broken, intermittently.
+    const at = pointAlongPath(path, fraction);
+    return projectToScreen(at.x, 0, at.z);
+  },
   /** The pin the player is meant to be driving at — the newest one if two are on the board. */
   targetScreenPosition: (fare = fares.focus()) => {
     if (!fare) return null;
