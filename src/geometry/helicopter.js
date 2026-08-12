@@ -46,6 +46,14 @@ const LAMP_R = 0.12;
 const HALO_R = 0.3;
 const HALO_ALPHA = 0.33;
 
+// How much of each blade, from the tip inwards, is painted in `heliRotorTip`. A sixth is what a
+// real machine wears and it holds up here: at play zoom the main rotor is a 40-pixel bar, so this
+// is a 6-pixel mark at each end — enough to follow round, small enough that the blade still reads
+// as one dark bar rather than a barber's pole. The tips are their own boxes butted onto the ends
+// of the bar rather than laid over it: this material is transparent for the fade at both ends of a
+// visit, and two coincident faces at one opacity blend to a third colour that is neither.
+const TIP_FRAC = 1 / 6;
+
 /** One axis-aligned box, coloured and placed. Most of the helicopter is one of these. */
 function box(w, h, d, x, y, z, name) {
   const geometry = new THREE.BoxGeometry(w, h, d);
@@ -69,8 +77,12 @@ function airframe() {
     box(1.2, 0.52, 1.46, 0.75, 0.22, 0, 'carGlass'),
 
     // The cheatline. Same argument as the aeroplane's: a single-value fuselage at play zoom is a
-    // smudge, and one band along the flank is what gives it a top and a bottom.
-    box(2.5, 0.17, 1.44, 0.45, -0.34, 0, 'heliStripe'),
+    // smudge, and one band along the flank is what gives it a top and a bottom. Two bands rather
+    // than the plane's one, occupying the same 0.17 the single band did: on a near-white body the
+    // stripe is the only saturated thing on the machine, and a pair of them separated by their own
+    // edge is what reads as *paint* at 40 pixels instead of as a stray line.
+    box(2.5, 0.09, 1.44, 0.45, -0.30, 0, 'heliStripeOrange'),
+    box(2.5, 0.08, 1.44, 0.45, -0.385, 0, 'heliStripeGold'),
 
     // Engine deck behind the mast, and the mast itself. The hump is most of what separates a
     // helicopter from a car with a fan on it at this size.
@@ -80,8 +92,10 @@ function airframe() {
     box(2.9, 0.4, 0.4, -2.45, 0.3, 0, 'heliBody'),
     box(0.62, 1.15, 0.15, -3.72, 0.78, 0, 'heliBody'),
     box(0.45, 0.1, 1.5, -3.25, 0.4, 0, 'heliBody'),
-    // The fin's tip cap, in the stripe colour, so the tail carries the same paint as the flank.
-    box(0.62, 0.16, 0.16, -3.72, 1.28, 0, 'heliStripe'),
+    // The fin's tip cap, carrying both bands in the same order, so the tail is painted like the
+    // flank. Same 1.20–1.36 the single cap spanned.
+    box(0.62, 0.09, 0.16, -3.72, 1.315, 0, 'heliStripeOrange'),
+    box(0.62, 0.07, 0.16, -3.72, 1.235, 0, 'heliStripeGold'),
   ];
 
   const mast = new THREE.CylinderGeometry(0.11, 0.13, 0.5, 6);
@@ -115,12 +129,18 @@ function airframe() {
 /** A spinning bar and the faint disc it sweeps out — the recipe both rotors are built from. */
 function rotor(radius, chord, thickness, hub, discAlpha, discSegments) {
   // The hub is merged into the blade rather than parented to it: it turns with the blade either
-  // way, and one mesh is one draw call.
-  const bar = box(radius * 2, thickness, chord, 0, 0, 0, 'heliRotor');
-  const cap = box(hub, hub * 0.7, hub, 0, 0, 0, 'heliBody');
-  const geometry = mergeGeometries([bar, cap], false);
-  bar.dispose();
-  cap.dispose();
+  // way, and one mesh is one draw call. It is painted in the rotor's own dark rather than the
+  // body's — it used to be `heliBody`, which was a dark hub on a dark machine and is now a white
+  // one on a white machine, and the mast it caps is `heliRotor` regardless.
+  const tip = radius * TIP_FRAC;
+  const parts = [
+    box((radius - tip) * 2, thickness, chord, 0, 0, 0, 'heliRotor'),
+    box(hub, hub * 0.7, hub, 0, 0, 0, 'heliRotor'),
+    box(tip, thickness, chord, radius - tip / 2, 0, 0, 'heliRotorTip'),
+    box(tip, thickness, chord, -(radius - tip / 2), 0, 0, 'heliRotorTip'),
+  ];
+  const geometry = mergeGeometries(parts, false);
+  parts.forEach((part) => part.dispose());
 
   const blade = new THREE.Mesh(
     geometry,
