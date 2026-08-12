@@ -166,6 +166,51 @@ export function findRoute(from, target, cost = laneCost) {
   return null;
 }
 
+// --- Routing through a waypoint ---------------------------------------------
+//
+// How much longer than the direct route a hand-drawn detour may be, in legs. The player drags the
+// route band sideways (game/pathdrag.js) and the junction under their finger becomes a waypoint;
+// this is what stops a sloppy drag — or a finger that lands behind the taxi — from answering with
+// a lap of the city instead of the one-block dodge that was meant.
+//
+// Six because the honest unit here is "blocks of extra driving", and the gesture's whole vocabulary
+// is one or two of them: pulling a straight run one block sideways costs 2 legs (out and back), a
+// two-block bulge costs 4, and past that the drag has stopped describing a detour and started
+// describing a different trip — which is what tapping a different fare is for. It is a *cap*, not
+// a preference: anything under it is taken exactly as drawn.
+export const MAX_VIA_DETOUR = 6;
+
+/**
+ * The route from `from` to `target` that passes through `via`, or null.
+ *
+ * Two Dijkstra runs stitched at the waypoint, exactly as `chainSeconds` bills a multi-leg trip:
+ * the heading is carried across the join rather than guessed, because `legalExits` forbids
+ * U-turns and the second leg planned from the wrong heading is a route the car cannot drive.
+ *
+ * Null covers three different refusals and the caller wants the same thing for all of them —
+ * keep the route it already had:
+ *
+ *   - either leg is unreachable (a waypoint inside a park district has no junction),
+ *   - the detour blows `maxDetour`,
+ *   - the direct route itself is unroutable, which a shipped city never is.
+ */
+export function findRouteVia(from, via, target, { maxDetour = MAX_VIA_DETOUR } = {}) {
+  const direct = findRoute(from, target);
+  if (direct === null) return null;
+
+  const toVia = findRoute(from, via);
+  if (toVia === null) return null;
+  // An empty first leg means the car is already heading at the waypoint, so the heading it will
+  // arrive on is the one it has now.
+  const atVia = { i: via.i, j: via.j, d: toVia.length ? toVia[toVia.length - 1] : from.d };
+
+  const onward = findRoute(atVia, target);
+  if (onward === null) return null;
+
+  const route = [...toVia, ...onward];
+  return route.length > direct.length + maxDetour ? null : route;
+}
+
 /**
  * Where planning must start from for a given car.
  *

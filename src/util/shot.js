@@ -19,6 +19,11 @@ export const SHOTS = [
   // The route band is the one element a short hop tells you nothing about: with the fare two
   // blocks away the two end fades meet in the middle. This one sends the taxi to the far corner
   // instead, so a full-length band with several turns is in frame.
+  //
+  // Both this and `route-grab` below show the band in `PALETTE.routeLine`'s fallback yellow rather
+  // than in a fare's urgency colour, and that is not a bug to fix here: there *is* no fare, since
+  // the whole point is a destination further away than any rider. `?shot=1` frames a band that is
+  // actually spending someone's clock.
   { name: 'route-far', description: 'the route band, taxi to the far corner', target: [0, 0], zoom: 22, warmup: 12, select: true, routeFar: true },
   // The drop-off, framed on the kerb corner it sits on. It used to be the shot for the pin *before*
   // it was tapped, back when there was such a state, and then for the pin's floating head; the
@@ -73,6 +78,15 @@ export const SHOTS = [
   // units up with their wings at full stretch, which is the frame that has to be judged. Zoom 18
   // puts the whole park in shot at a size where a bird is about twenty pixels.
   { name: 'birds', description: 'the park flock going up', target: [0, 0], zoom: 18, warmup: 12, birdsAt: 0.75 },
+  // The route band with a finger on it. The drag flourish is the one part of that feature a
+  // screenshot answers better than an assertion — whether the lift, the bloom and the handle read
+  // as *one* response to a touch or as three things switching on — and it is also the one part
+  // that cannot be reached any other way: it exists only while a pointer is down, and shot mode
+  // has no pointer. `grabAt` is the fraction along the band the flourish is centred at.
+  //
+  // Framed on the taxi at the same zoom as `route-far`, and routed to the far corner for the same
+  // reason: the bloom is 11 units wide and a two-block hop would be all bloom.
+  { name: 'route-grab', description: 'the route band held under a finger', target: [0, 0], zoom: 22, warmup: 12, select: true, routeFar: true, grabAt: 0.4 },
 ];
 
 export function getActiveShot() {

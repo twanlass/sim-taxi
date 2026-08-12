@@ -119,6 +119,12 @@ down.
 - **A synthesised click cannot test caret placement.** Untrusted events don't move a caret, so a
   `dispatchEvent(new MouseEvent('click'))` check passes against the very bug above. The initials
   check in `tools/smoke.mjs` uses `Input.dispatchTouchEvent` for that reason.
+- **Two listeners on the same element fire in registration order, capture flag or not.** At the
+  target node the DOM spec runs capturing and bubbling listeners in the order they were added, so
+  `{ capture: true }` on the canvas does *not* let a later module beat `attachDragPan` to a
+  `pointerdown`. The only ordering that holds regardless of construction order is a capture
+  listener on an **ancestor** — which is why the route-band drag listens on `window`. Getting this
+  wrong throws nothing; the map just slides out from under a gesture meant for something else.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

@@ -13,6 +13,7 @@ import { spawnSync } from 'node:child_process';
 // browser, and a scope slip in scene.js shipped undetected because nothing headless imported it.
 const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geometry/taxi.js',
   '../src/game/faremarker.js', '../src/geometry/person.js', '../src/game/routeline.js',
+  '../src/game/pathdrag.js',
   '../src/game/dust.js', '../src/game/blast.js', '../src/game/flyover.js', '../src/game/birds.js',
   '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
   '../src/game/dropoffindicator.js', '../src/game/vanish.js', '../src/game/runend.js',

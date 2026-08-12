@@ -79,6 +79,18 @@ export function turnControl(dIn, dOut, i, j) {
     : { x: entry.x, z: exit.z };
 }
 
+/**
+ * Grid intersection nearest a world point, clamped to the map.
+ *
+ * The inverse of `lineCoord` on both axes. It is what turns a finger on the road into a junction
+ * the router can plan through — see `game/pathdrag.js`. Clamped rather than nulled off the edge:
+ * a drag that runs past the ring road should pin to the ring, not stop answering.
+ */
+export function nearestJunction(x, z) {
+  const near = (v) => Math.min(GRID, Math.max(0, Math.round((v + HALF_SPAN) / PITCH)));
+  return { i: near(x), j: near(z) };
+}
+
 /** Intersection reached by leaving (i, j) along d, or null if it would leave the grid. */
 export function nextIntersection(d, i, j) {
   const ni = i + (d === DIR.PX ? 1 : d === DIR.NX ? -1 : 0);
