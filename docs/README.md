@@ -9,7 +9,7 @@ behind it that aren't obvious from the code.
 | [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts, ground/buildings/props | `src/city/` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
-| [gameplay.md](gameplay.md) | The opening tutorial, the fare loop, routing, dragging the route, picking, the travelling clock, economy, crazy-taxi mode, pause | `src/game/` |
+| [gameplay.md](gameplay.md) | The opening tutorial, the fare loop, routing, dragging the route, the package courier, picking, the travelling clock, economy, crazy-taxi mode, pause | `src/game/` |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, effects | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
@@ -40,6 +40,13 @@ delivery pays by distance, $8 for a one-block hop up to $35 across town, times t
 Everything **ramps with the deliveries you land**: the board grows from one rider to four, clocks
 tighten from twice the driving they cost down to 1.15×, traffic thickens, the police come round more
 often, and fares pay up to double. A perfect player survives a median of 15.
+
+Alongside the riders, one or two **packages** wait on corners under cyan rounded-square pads. You
+cannot tap one: the only way to collect or deliver a package is to **drag the route band through its
+junction**, which is what finally gives that gesture a reason to exist. A package rides alongside a
+passenger, carries no clock and can never cost you a run — but the detour is paid out of the clock of
+whoever is in the back seat, and taking every one on offer halves how long you last. See
+[the package courier](gameplay.md#the-package-courier).
 
 Once a run, a side street closes for **roadworks** — barricades at both ends, cones, a hole in the
 road and two workers standing over it. Ambient traffic routes around it while the taxi's own router

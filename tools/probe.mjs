@@ -24,8 +24,17 @@ import { findRoute as planRoute, setRoadworkLanes, laneCost } from '../src/game/
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET } from '../src/sim/police.js';
 import {
-  createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, ARRIVE_RADIUS,
+  createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, ARRIVE_RADIUS, onSameBlock,
 } from '../src/game/fares.js';
+import {
+  createParcelSystem, MAX_PARCELS, PARCEL_MIN_DELIVERED, PARCEL_PAY_FACTOR, PARCEL_GAP_MIN,
+  PARCEL_GAP_MAX, PARCEL_AFTER_DELIVERY, FLIGHT_MIN_ALPHA,
+  PARCEL_PAD_LIFT,
+} from '../src/game/parcels.js';
+import { ringGrowScale, ringShrinkScale } from '../src/geometry/targetring.js';
+import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
+import { TAXI_DECK_Y } from '../src/geometry/taxi.js';
+import { createParcel } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
 import {
@@ -699,9 +708,15 @@ check('no two cars occupy the same space', worst > 1.6,
         // hand-off has to read as the same object moving.
         launchedFromKerb = marker.group.visible && distanceTo(kerbAtSpawn) < 0.01;
         // ...and the disc makes the same hand-off on the ground that the crystal is making in the
-        // air: out on the kerb corner, on at the drop-off, on one frame and in one colour. A fare
-        // owns exactly one disc at a time, and two lit at once would read as two fares.
-        discMovedToDropoff = !marker.ring.visible
+        // air: the kerb corner's pulls back into its own centre as the drop-off's grows out of its
+        // one, on the same frame and in one colour. A fare owns exactly one disc at a time, and two
+        // at full size at once would read as two fares.
+        //
+        // Asserted on the *animations* rather than on `visible`, which is what this check used to
+        // read: the kerb disc now takes RING_SHRINK_TIME to go, so it is still visible on this frame
+        // and only its scale says it is leaving. `isLeaving()` is that state, and the pair of them —
+        // one leaving, one arriving — is the hand-off.
+        discMovedToDropoff = marker.ringLeaving()
           && fare.slot.destination.group.visible
           && new Set([...ringHexes(fare.slot), diamondHex(marker)]).size === 1;
         route(fare);
@@ -968,6 +983,643 @@ check('no two cars occupy the same space', worst > 1.6,
   } else {
     check('a waiting rider cannot be taken while carrying', true, 'board not doubled up at exit');
   }
+}
+
+// --- Every generator gets its own stream ---------------------------------------------------------
+//
+// "Every generator draws from its own stream so that changing one system doesn't reshuffle the
+// others" is a rule `src/main.js` states about itself and nothing enforced. It failed the first time
+// two branches picked the same offset independently — the courier and the helicopter both landed on
+// `runSeed + 233`, and the merge resolved cleanly because there was no textual conflict.
+//
+// `makeRng` is seeded, so two equal offsets are not two independent streams: they are the *same*
+// sequence handed to two systems, which correlates them forever with no crash, no failing check and
+// nothing to see. Read as text because that is where the mistake lives — the numbers are literals at
+// their call sites, and there is no runtime object that knows the whole set.
+{
+  const src = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const offsets = [...src.matchAll(/makeRng\((runSeed|seed) \+ (\d+)\)/g)]
+    .map((m) => `${m[1]}+${m[2]}`);
+  const dupes = offsets.filter((o, n) => offsets.indexOf(o) !== n);
+  check('no two generators share a seed offset', dupes.length === 0,
+    dupes.length ? `shared: ${[...new Set(dupes)].join(', ')}` : `${offsets.length} distinct streams`);
+  // The birds pass their offsets through a loop variable, so the literal scan above cannot see them.
+  // Named here so the check is honest about its own blind spot rather than implying full coverage.
+  check('and the scan actually found the call sites', offsets.length >= 12,
+    `${offsets.length} literal offsets (the two flocks pass theirs via a loop)`);
+}
+
+// --- The package courier ------------------------------------------------------------------------
+//
+// A second cargo slot, reached by *steering* rather than by tapping (game/parcels.js). Everything
+// worth asserting here is invisible in a still frame: whether a package can be tapped at all,
+// whether it lands somewhere the current route already goes, whether it takes the seat, and whether
+// it carries a clock it must not have.
+{
+  // The pad's winding, first — no simulation needed. Hand-written triangles get their winding
+  // *asserted*, not eyeballed: the roadworks ramp shipped wound clockwise throughout, so the only
+  // face the camera ever saw was its underside, and it read as z-fighting for weeks. A pad wound the
+  // wrong way is a flat cyan square lying invisible on the road.
+  const pad = createParcelPad(PALETTE.parcel);
+  const [rim, fill, sweep] = pad.group.children;
+  let badWinding = 0;
+  let triangles = 0;
+  // All three layers, the beam band included — it is a hand-wound strip round a rounded-square path,
+  // which is the layer most likely to come out inside-out, and a beam wound away from the camera is
+  // indistinguishable from a beam that was never added.
+  for (const mesh of [rim, fill, sweep]) {
+    const p = mesh.geometry.attributes.position;
+    // `ShapeGeometry` is **indexed**, so positions 0/1/2 are not a triangle — the index buffer is
+    // what says which vertices make one, and reading the attribute in order tests a triangle that
+    // does not exist. (That mistake is what this check first reported as a face-down pad.)
+    const index = mesh.geometry.index;
+    const at = (n) => (index ? index.getX(n) : n);
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    for (let t = 0; t < (index ? index.count : p.count); t += 3) {
+      a.fromBufferAttribute(p, at(t));
+      b.fromBufferAttribute(p, at(t + 1));
+      c.fromBufferAttribute(p, at(t + 2));
+      // Computed from the winding, not read off the normal attribute — a stated normal (and
+      // `computeVertexNormals`) launders a reversed triangle into whatever it is told.
+      if (b.sub(a).cross(c.sub(a)).y <= 0) badWinding += 1;
+      triangles += 1;
+    }
+  }
+  check('every triangle of the courier pad faces up', badWinding === 0 && triangles > 8,
+    `${badWinding}/${triangles} wound face-down`);
+  check('the courier pad is a rounded square, not a disc',
+    // Its corners reach further from the centre than its edge midpoints do — true of a square and
+    // false of every circle. This is the shape half of "shape says what a thing is": if the pad ever
+    // silently becomes a disc, a package and a fare destination stop being distinguishable at zoom.
+    Math.hypot(PAD_R, PAD_R) > PAD_R * 1.2, `half-width ${PAD_R}`);
+  // Both layers, one hue, and it is the courier cyan rather than anything off the urgency scale — a
+  // package has no clock, so a green-to-red hue here would be reporting a countdown that cannot
+  // exist. Read back the way the fare disc's three layers are.
+  check('the courier pad wears the courier cyan on all three layers',
+    [rim, fill, sweep].every(
+      (m) => m.material.color.getHexString() === new THREE.Color(PALETTE.parcel).getHexString(),
+    ));
+  // The beam is the pad's "this mark belongs to the game" cue, and it is the fare disc's beam rather
+  // than a second implementation — same shader, so the same cache key, and an `aAngle` attribute is
+  // what that shader reads. A band without one draws a uniform glow: the pad simply looks brighter,
+  // with nothing travelling, which is the failure the eye is worst at naming.
+  check('the courier pad carries the disc beam, not a copy of it',
+    Boolean(sweep.geometry.attributes.aAngle)
+    && sweep.material.customProgramCacheKey() === 'ring-sweep'
+    && sweep.material.blending === THREE.AdditiveBlending);
+  // Arc length round the perimeter, not angle from the centre. On a rounded square those disagree
+  // badly — the centre angle races through the corners and crawls along the flats — so a beam keyed to
+  // the wrong one visibly changes speed four times a lap. Checked as the spacing between consecutive
+  // vertices being near-uniform, which is what arc-length parameterisation means.
+  check('the pad beam travels at a steady speed round the square', (() => {
+    const a = sweep.geometry.attributes.aAngle;
+    const p = sweep.geometry.attributes.position;
+    let minStep = Infinity;
+    let maxStep = 0;
+    // Each segment contributes six vertices, the first three of which span t0 -> t1 -> t1.
+    for (let v = 0; v + 1 < a.count; v += 6) {
+      const step = a.getX(v + 1) - a.getX(v);
+      if (step <= 0) continue;
+      const dx = p.getX(v + 1) - p.getX(v);
+      const dz = p.getZ(v + 1) - p.getZ(v);
+      const perUnit = step / (Math.hypot(dx, dz) || 1);
+      minStep = Math.min(minStep, perUnit);
+      maxStep = Math.max(maxStep, perUnit);
+    }
+    return maxStep / minStep < 1.35;
+  })(), 'radians per world unit is near-constant round the path');
+  check('the courier pad is depth-tested and does not write depth',
+    rim.material.depthTest && !rim.material.depthWrite
+    && fill.material.depthTest && !fill.material.depthWrite);
+
+  // **Nothing about a package is pickable.** This is the whole interaction model: the only way to
+  // reach one is to bend the route through it, so neither marker may carry a hit box and the parcel
+  // mesh itself must not be tagged either. A stray `pickable` here would not throw — it would just
+  // quietly make packages tappable again the day anything raycasts the scene rather than an explicit
+  // target list, which is exactly the trap geometry/person.js warns about.
+  const pScene = new THREE.Scene();
+  const pTraffic = createTraffic(makeRng(seed + 44), pScene, CARS_DEFAULT);
+  // `reserved` is the cross-system half of the corner rule, wired exactly as main.js wires it. The
+  // forward reference to `parcels` is safe because the closure is only ever called from `update`.
+  const fares = createFareSystem(makeRng(seed + 55), pScene, {
+    reserved: () => parcels.occupiedSpots(),
+  });
+  const parcels = createParcelSystem(makeRng(seed + 255), pScene);
+  pTraffic.warmup(5);
+
+  let tagged = 0;
+  for (const slot of parcels.slots) {
+    for (const pin of [slot.pickup, slot.dropoff]) {
+      pin.group.traverse((node) => { if (node.userData?.pickable) tagged += 1; });
+    }
+  }
+  check('a package cannot be tapped', tagged === 0, `${tagged} pickable nodes`);
+  check('a loose parcel mesh can still be tagged when something wants it to be',
+    createParcel({ pickable: 'parcel' }).mesh.userData.pickable === 'parcel');
+
+  // Now play a run: serve fares the way the soak's perfect player does, and take the cheap courier
+  // detours on the way.
+  //
+  // **This is the gesture, driven for real.** Dragging the band sideways re-plans the route to the
+  // *same* fare through the junction under the finger (`findRouteVia`, game/pathdrag.js), so that is
+  // what happens here — no package is ever routed *at*, because nothing in the game can do that.
+  //
+  // `DETOUR_BUDGET` is the player's greed, in extra legs, and **the trade-off it buys is measured**.
+  // Across three cities, 420s of a perfect fare player who also couriers:
+  //
+  //   budget  survived        fares   fare cash    packages   courier cash
+  //   1 leg   420s ×3         12-14   $233-296     1-3        $14-57
+  //   2 legs  265-341s (died) 5-10    $85-184      2-4        $43-71
+  //   3 legs  identical to 2 legs — past two, the cap almost never binds
+  //
+  // So a one-leg detour is free money and a two-leg one costs you the run: the courier cash never
+  // comes close to replacing the fare income it burns ($71 at best against $150+ forgone). That is
+  // the layer behaving as intended — a real temptation with a real price — and it is why this loop
+  // runs at 1 rather than at MAX_VIA_DETOUR's 6. A greedy player is *supposed* to die here.
+  const DETOUR_BUDGET = 1;
+  let viaTaken = 0;
+  let viaRefused = 0;
+  // **Re-plan only when the plan actually changes.** A drag re-plans every frame the finger is down
+  // and that is safe for the second or two a gesture lasts, but holding it for a whole run is not:
+  // `routeConsumed` cleared on every tick means the turn the car has already committed to never
+  // retires from the route, and the taxi sits re-deciding the same junction forever. (It does —
+  // measured here as a run that earned $34 in seven minutes and delivered nothing.) So key the plan
+  // on its two endpoints and leave it alone in between, which is also what a player does.
+  let plannedFor = null;
+  const aimFare = () => {
+    const job = fares.carrying() ?? fares.waiting();
+    if (!job) return;
+    // The courier errand still outstanding: the pad of the box aboard, or a box on a corner if the
+    // cargo slot is free. Once one is reached its stage flips, its `target` moves, and the key below
+    // changes — which is how the waypoint retires rather than answering with a lap back to it.
+    const errand = parcels.carrying() ?? parcels.state.parcels.find((p) => p.stage === 'waiting');
+    const key = `${job.target.i},${job.target.j}`
+      + (errand ? `|${errand.target.i},${errand.target.j}` : '');
+    if (key === plannedFor && job.directed) return;
+
+    const from = planOrigin(pTraffic.taxi);
+    const bent = errand
+      ? findRouteVia(from, errand.target, job.target, { maxDetour: DETOUR_BUDGET })
+      : null;
+    if (errand) {
+      if (bent) viaTaken += 1;
+      else viaRefused += 1;
+    }
+    const route = bent ?? findRoute(from, job.target);
+    if (!route) return;
+    pTraffic.taxi.route = route;
+    pTraffic.taxi.routeConsumed = false;
+    fares.markDirected(job);
+    plannedFor = key;
+  };
+  // The junctions the taxi's plan already takes it through — the same walk parcels.js does, kept
+  // here independently so the check is not simply agreeing with the code it is testing.
+  const onRoute = () => {
+    const out = [{ i: pTraffic.taxi.i, j: pTraffic.taxi.j }];
+    let { i, j } = pTraffic.taxi;
+    for (const d of pTraffic.taxi.route ?? []) {
+      const next = nextIntersection(d, i, j);
+      if (!next) break;
+      ({ i, j } = next);
+      out.push({ i, j });
+    }
+    return out;
+  };
+
+  let spawns = 0;
+  let spawnedTooEarly = 0;
+  let overCap = 0;
+  let tooShort = 0;
+  let sameBlock = 0;
+  let clashedWithFare = 0;
+  let unroutable = 0;
+  let mispriced = 0;
+  let carriedClock = 0;
+  let landedOnRoute = 0;
+  let bothCarried = 0;
+  let dropPadShownEarly = 0;
+  let prevSpawnAt = -Infinity;
+  let minGap = Infinity;
+  let maxGap = 0;
+  let deliveryHeld = 0;
+  let elapsed = 0;
+  let sharedCorner = 0;
+
+  while (elapsed < 420 && !fares.state.gameOver && parcels.state.delivered < 3) {
+    pTraffic.update(1 / 60);
+    fares.update(1 / 60, pTraffic.taxi);
+    aimFare();
+
+    // Snapshot the route *before* parcels tick, so a spawn is judged against the plan the player was
+    // actually driving on the frame it appeared.
+    const route = onRoute();
+    for (const { type, parcel } of parcels.update(1 / 60, pTraffic.taxi, {
+      fareSpots: fares.occupiedSpots(),
+      delivered: fares.state.delivered,
+      over: fares.state.gameOver,
+    })) {
+      if (type === 'delivered') {
+        // The hold is `max(drawn gap, now + PARCEL_AFTER_DELIVERY)`, so it only *moves* the timestamp
+        // when the draw was nearer than the hold. Counting the times it bit is what makes this a check
+        // on the rule rather than on which draws happened to come up.
+        if (parcels.state.nextSpawnAt >= elapsed + PARCEL_AFTER_DELIVERY - 0.1) deliveryHeld += 1;
+      }
+      if (type !== 'spawned') continue;
+      spawns += 1;
+      if (fares.state.delivered < PARCEL_MIN_DELIVERED) spawnedTooEarly += 1;
+      if (parcels.state.parcels.length > MAX_PARCELS) overCap += 1;
+      if (blockDistance(parcel.pickup, parcel.dropoff) < 3) tooShort += 1;
+      if (onSameBlock(parcel.pickup, parcel.dropoff)) sameBlock += 1;
+      // A box may never share a corner with a live fare: two jobs in one place is two jobs the
+      // player cannot tell apart at play zoom.
+      for (const spot of fares.occupiedSpots()) {
+        if ((spot.i === parcel.pickup.i && spot.j === parcel.pickup.j)
+          || (spot.i === parcel.dropoff.i && spot.j === parcel.dropoff.j)) clashedWithFare += 1;
+      }
+      if (!findRoute({ ...parcel.pickup, d: pTraffic.taxi.d }, parcel.dropoff)) unroutable += 1;
+      // Priced exactly as a rider going the same distance is, times the shift it appeared in.
+      const want = Math.round(priceFor(parcel.pickup, parcel.dropoff)
+        * difficulty.payoutMultiplier(parcels.state.delivered) * PARCEL_PAY_FACTOR);
+      if (parcel.value !== want) mispriced += 1;
+      // **No clock.** Not "a long one" — none at all, so there is nothing for a hue to step through
+      // and nothing that can expire and end a run. Asserted on the shape of the object, because that
+      // is where a clock would have to appear first.
+      if ('timeLeft' in parcel || 'limit' in parcel) carriedClock += 1;
+      // The mechanic: a package lands somewhere the current plan does *not* go, so collecting it
+      // costs a deliberate bend of the route band. Only meaningful while the taxi actually has a
+      // route to be off.
+      if (route.length > 1
+        && route.some((r) => r.i === parcel.pickup.i && r.j === parcel.pickup.j)) landedOnRoute += 1;
+      // The far pad stays dark until the box is aboard — four cyan squares on a full board have
+      // nothing to say which belongs to which.
+      if (parcel.slot.dropoff.group.visible) dropPadShownEarly += 1;
+      if (Number.isFinite(prevSpawnAt)) {
+        minGap = Math.min(minGap, elapsed - prevSpawnAt);
+        maxGap = Math.max(maxGap, elapsed - prevSpawnAt);
+      }
+      prevSpawnAt = elapsed;
+    }
+
+    // One cargo slot, from the outside.
+    if (parcels.state.parcels.filter((p) => p.stage === 'carried').length > 1) bothCarried += 1;
+
+    // **The corner invariant, every frame and in both directions.** Checked here rather than only at a
+    // package's spawn, which is where it used to be and which made it look enforced while only half of
+    // it was: a package sits on its corner indefinitely, so a *later fare* could land on top of one.
+    // Nothing about that is visible — two markers share one 20-unit hit box and the tap resolves to
+    // whichever the raycast reached first.
+    for (const spot of parcels.occupiedSpots()) {
+      for (const other of fares.occupiedSpots()) {
+        if ((spot.i === other.i && spot.j === other.j) || onSameBlock(spot, other)) sharedCorner += 1;
+      }
+    }
+    elapsed += 1 / 60;
+  }
+
+  check('packages appear on the board', spawns >= 2, `${spawns} spawned`);
+  check('no package before the tutorial delivery', spawnedTooEarly === 0,
+    `${spawnedTooEarly} early`);
+  check('never more than MAX_PARCELS', overCap === 0, `${overCap} over`);
+  check('a package trip is worth taking', tooShort === 0 && sameBlock === 0,
+    `${tooShort} too short, ${sameBlock} on one block`);
+  check('a package never spawns on a fare\'s corner', clashedWithFare === 0,
+    `${clashedWithFare} clashes at spawn`);
+  // The other direction, and the one that was actually broken: a fare must not spawn on a package's
+  // corner either. Frames, not events — the two boards move independently, so the only honest way to
+  // state it is that no frame of the run ever has both on one slab.
+  check('and no fare ever lands on a package\'s', sharedCorner === 0,
+    `${sharedCorner} frames sharing a corner over ${elapsed.toFixed(0)}s`);
+  check('both ends of a package are drivable', unroutable === 0, `${unroutable} unroutable`);
+  check('a package is priced like a rider going the same distance', mispriced === 0,
+    `${mispriced}/${spawns} mispriced`);
+  check('a package carries no clock', carriedClock === 0, `${carriedClock} with one`);
+  check('a package lands off the route the taxi is already driving', landedOnRoute === 0,
+    `${landedOnRoute}/${spawns} on the plan`);
+  check('the far pad stays dark until the box is aboard', dropPadShownEarly === 0,
+    `${dropPadShownEarly} lit early`);
+  check('the taxi never carries two packages', bothCarried === 0, `${bothCarried} frames with two`);
+  // Spaced, and spaced *unpredictably* — the gap is drawn per package, so a box is something you come
+  // across rather than something arriving on the beat.
+  //
+  // The **floor** is a property of the draw and is asserted as one. There is deliberately no ceiling:
+  // an observed spawn-to-spawn gap is not the drawn gap, because a spawn also needs a free slot, so a
+  // full board stretches the interval by however long it takes the player to clear one. A ceiling here
+  // would be asserting something about the player's driving. (Measured 39.9s to 80.0s over four spawns
+  // against a 18-45s draw, which is exactly that effect.)
+  //
+  // What *is* checked instead is that the gaps **vary** — a draw that silently became a constant would
+  // sail through a floor check, and the whole point of the change is that the arrival is unpredictable.
+  check('packages arrive spaced by a drawn gap', spawns < 2 || minGap >= PARCEL_GAP_MIN - 0.1,
+    `min ${Number.isFinite(minGap) ? minGap.toFixed(1) : '-'}s against a ${PARCEL_GAP_MIN}s floor`);
+  check('and no two gaps are the same length', spawns < 3 || maxGap - minGap > 1,
+    `${minGap.toFixed(1)}s to ${maxGap.toFixed(1)}s over ${spawns} spawns`);
+  // Cashing one in must not immediately put another on the board. Asserted on the state the delivery
+  // writes, since the observed interval cannot separate this hold from the drawn gap around it.
+  check('a delivery holds the next package off', deliveryHeld > 0,
+    `${deliveryHeld} deliveries pushed the next spawn out`);
+  // The run has to have actually completed a courier job end to end for any of the above to mean
+  // much: spawn, bend the band through the pad, collect, bend it through the far pad, get paid.
+  // **This block measures the cost curve; it does not assert that the loop works.** That distinction is
+  // load-bearing and was learned the hard way: at a one-leg budget whether *any* package is reachable is
+  // a property of the city, and moving the courier's seed offset by one merge turned a run that
+  // delivered two into a run offered twenty-five detours that could afford none. A check going red
+  // because the streets happened to line up differently is a check nobody can act on.
+  //
+  // So what is asserted here is that the policy actually ran; the end-to-end path is proved in the
+  // controlled block below, where the geometry is not left to luck.
+  check('the courier policy was exercised', viaTaken + viaRefused > 0,
+    `${viaTaken}/${viaTaken + viaRefused} offers within ${DETOUR_BUDGET} leg, `
+    + `${parcels.state.delivered} delivered for $${parcels.state.earned}`);
+}
+
+// --- A package rides alongside a passenger, and the run ending clears it -------------------------
+//
+// The point of the whole layer: the seat and the cargo slot are independent. And whichever way the
+// run ends — a clock, a collision, a bust — no cyan pad may be left glowing on the blackout.
+{
+  const cScene = new THREE.Scene();
+  const cTraffic = createTraffic(makeRng(seed + 44), cScene, 1);
+  const fares = createFareSystem(makeRng(seed + 55), cScene, {
+    reserved: () => parcels.occupiedSpots(),
+  });
+  const parcels = createParcelSystem(makeRng(seed + 255), cScene);
+  cTraffic.warmup(2);
+
+  // Get a rider aboard the ordinary way.
+  fares.update(1 / 60, cTraffic.taxi);
+  let guard = 0;
+  while (!fares.carrying() && guard++ < 60 * 200 && !fares.state.gameOver) {
+    cTraffic.update(1 / 60);
+    fares.update(1 / 60, cTraffic.taxi);
+    const job = fares.waiting();
+    if (job && !job.directed) {
+      const r = findRoute(planOrigin(cTraffic.taxi), job.target);
+      if (r) { cTraffic.taxi.route = r; cTraffic.taxi.routeConsumed = false; fares.markDirected(job); }
+    }
+  }
+  const rider = fares.carrying();
+
+  // Force a package onto the board next to the taxi and drive into it. `delivered` is faked past
+  // PARCEL_MIN_DELIVERED so the spawn gate opens — this is testing the cargo slot, not the gate.
+  parcels.state.nextSpawnAt = -Infinity;
+  parcels.update(1 / 60, cTraffic.taxi, { fareSpots: fares.occupiedSpots(), delivered: 9 });
+  const parcel = parcels.state.parcels[0];
+
+  if (rider && parcel) {
+    const clockBefore = rider.timeLeft;
+    const targetBefore = rider.target;
+    // The player's bend of the route band, as a route through the package's junction.
+    const detour = findRoute(planOrigin(cTraffic.taxi), parcel.pickup);
+    if (detour) { cTraffic.taxi.route = detour; cTraffic.taxi.routeConsumed = false; }
+    let g2 = 0;
+    while (!parcels.carrying() && g2++ < 60 * 240 && !fares.state.gameOver) {
+      cTraffic.update(1 / 60);
+      fares.update(1 / 60, cTraffic.taxi);
+      parcels.update(1 / 60, cTraffic.taxi, {
+        fareSpots: fares.occupiedSpots(), delivered: 9, over: fares.state.gameOver,
+      });
+    }
+    check('a package is collected while a passenger is aboard',
+      Boolean(parcels.carrying()) && fares.carrying() === rider,
+      parcels.carrying() ? 'both aboard' : 'never collected');
+    // The seat and the cargo slot do not touch each other. The rider's deadline in particular is
+    // *not* reset, paused or extended by the detour — the seconds the bend costs are the whole price
+    // of the bonus, and a clock that quietly restarted would make the layer free.
+    check('collecting a package does not touch the rider or their clock',
+      fares.carrying() === rider && rider.target === targetBefore
+      && rider.timeLeft < clockBefore && rider.stage === 'riding',
+      `clock ${clockBefore.toFixed(1)}s → ${rider.timeLeft.toFixed(1)}s`);
+  } else {
+    check('a package is collected while a passenger is aboard', false,
+      `rider ${Boolean(rider)}, parcel ${Boolean(parcel)}`);
+    check('collecting a package does not touch the rider or their clock', false, 'no setup');
+  }
+
+  // --- The box travels, and the pads grow rather than pop -----------------------------------------
+  //
+  // All three of these are animations, which is exactly the class of thing that breaks silently: a
+  // flight that never starts looks like a teleport, and a pad that never grows looks like the pop it
+  // replaced. Each is a function of sim time with the start stamped in `update`, so they are all
+  // checkable here rather than by eye.
+  if (parcel) {
+    const flightBox = parcel.slot.flight;
+    // The inbound flight is already running — it was launched on the frame the box was collected.
+    // Step it and watch the box leave the kerb, shrink, and fade.
+    const kerb = cornerFor(parcel.pickup.i, parcel.pickup.j);
+    const startedAt = { ...flightBox.position };
+    let sawMidAir = 0;
+    let sawShrink = 0;
+    let sawFade = 0;
+    let loadedEvents = 0;
+    let padGrowing = 0;
+    let loadedAtY = null;
+    // The faintest the box ever got while it was on screen. Not read at the landing: `updateFlights`
+    // calls `rest()` on the same frame it lands, which puts the opacity back to 1 — so a read taken
+    // after `update` returns reports the resting state and the check passes against a box that faded to
+    // nothing. (It did exactly that, printing "opacity 1.00 on contact".)
+    let minAlpha = 1;
+    let padSettled = false;
+    const padScale = () => parcel.slot.dropoff.ring.group.scale.x;
+    const boxMaterial = parcel.slot.flightBox.mesh.material;
+    for (let step = 0; step < 90; step++) {
+      cTraffic.update(1 / 60);
+      fares.update(1 / 60, cTraffic.taxi);
+      for (const { type } of parcels.update(1 / 60, cTraffic.taxi, {
+        fareSpots: fares.occupiedSpots(), delivered: 9, over: false,
+      })) {
+        if (type !== 'loaded') continue;
+        loadedEvents += 1;
+        // The landing *position* survives the arrival: `rest()` clears the inner box's local transform,
+        // not the outer flight group this reads.
+        loadedAtY = flightBox.position.y;
+      }
+      if (!flightBox.visible) continue;
+      // Off the kerb and not yet at the car: the arc is what makes it a flight rather than a slide.
+      const fromKerb = Math.hypot(flightBox.position.x - kerb.x, flightBox.position.z - kerb.z);
+      if (fromKerb > 1 && flightBox.position.y > PARCEL_PAD_LIFT + 0.2) sawMidAir += 1;
+      if (flightBox.scale.x < 0.9) sawShrink += 1;
+      if (boxMaterial.transparent && boxMaterial.opacity < 0.9) sawFade += 1;
+      minAlpha = Math.min(minAlpha, boxMaterial.opacity);
+      if (parcel.slot.dropoff.ring.group.visible) {
+        if (padScale() < 0.95) padGrowing += 1;
+        if (padScale() === 1) padSettled = true;
+      }
+    }
+    check('the box flies from the kerb to the taxi', sawMidAir > 4,
+      `${sawMidAir} frames airborne, launched at (${startedAt.x.toFixed(1)}, ${startedAt.z.toFixed(1)})`);
+    check('and shrinks and fades as it goes in', sawShrink > 4 && sawFade > 4,
+      `${sawShrink} frames shrinking, ${sawFade} fading`);
+    // `sawFade` above already proves the material was genuinely transparent while it faded — the
+    // silent failure is `opacity` moving on a material that never recompiled, which is a bug this
+    // project shipped once on the rider figure. This is the *other* half of it: a box left transparent
+    // after landing z-sorts wrong for the rest of the run, and the slot is reused.
+    check('and is opaque again once it has landed',
+      boxMaterial.transparent === false && boxMaterial.depthWrite === true
+      && boxMaterial.opacity === 1,
+      `transparent ${boxMaterial.transparent}, depthWrite ${boxMaterial.depthWrite}, opacity ${boxMaterial.opacity.toFixed(2)}`);
+    // `pickup` and `loaded` are a flight apart, which is the whole reason the box can be seen to
+    // travel. Exactly one `loaded` per collection — the taxi must not flash twice for one box.
+    check('the box landing is its own event, once', loadedEvents === 1, `${loadedEvents} loaded`);
+    // **The flourish has to fire where the box touches the car.** `main.js` stamps it off this event, so
+    // what is checkable here is that the event lands on the frame the box is actually *at the deck* —
+    // not at the taxi's wheels, and not while it is still visibly in the air. Both were true before: the
+    // flight ended at pavement height under the car, and the box faded to nothing on the way, so the
+    // flash fired next to an invisible object a unit and a half below where the load then appeared.
+    check('and lands on the frame the box reaches the deck',
+      loadedAtY !== null && Math.abs(loadedAtY - TAXI_DECK_Y) < 0.35,
+      loadedAtY === null ? 'never landed'
+        : `box at y ${loadedAtY.toFixed(2)}, deck at ${TAXI_DECK_Y.toFixed(2)}`);
+    // ...and it is still visible when it gets there, which is the other half of the same point. A box
+    // that has faded to nothing by arrival gives the player nothing to read the contact off, however
+    // well-timed the flash is. Asserted as a floor across the whole flight rather than at the landing,
+    // for the reason noted on `minAlpha` above.
+    check('and never fades out of sight on the way in',
+      minAlpha >= FLIGHT_MIN_ALPHA - 0.02 && minAlpha < 0.9,
+      `faintest ${minAlpha.toFixed(2)} against a ${FLIGHT_MIN_ALPHA} floor`);
+    // And the pad it is going to grew out of the road rather than appearing at full size. Asserted on
+    // frames of it *part-grown* — "it is visible" would pass against the pop this replaced.
+    check('the courier pad grows rather than popping in', padGrowing > 4 && padSettled,
+      `${padGrowing} frames part-grown, settled ${padSettled}`);
+  } else {
+    for (const label of ['the box flies from the kerb to the taxi',
+      'and shrinks and fades as it goes in',
+      'and is opaque again once it has landed',
+      'the box landing is its own event, once',
+      'the courier pad grows rather than popping in']) check(label, false, 'no setup');
+  }
+
+  // The grow/shrink envelopes themselves, shared by the fare disc and the courier pad so the two
+  // never become different kinds of event. Endpoints and the overshoot, which is the part a typo
+  // turns into a disc that starts full-size or one that never reaches it.
+  check('a disc grows from nothing to exactly full size',
+    ringGrowScale(0) === 0 && ringGrowScale(1) === 1 && ringGrowScale(2) === 1);
+  check('and overshoots on the way, a little', (() => {
+    let peak = 0;
+    for (let t = 0; t <= 1.0001; t += 0.01) peak = Math.max(peak, ringGrowScale(t));
+    return peak > 1.01 && peak < 1.12;
+  })(), 'crosses 1 and settles back');
+  check('a disc shrinks to nothing and stays there',
+    ringShrinkScale(0) === 1 && ringShrinkScale(1) === 0 && ringShrinkScale(3) === 0);
+
+  // The accept flourish. `main.js` drives it off the select pop's envelope, so what is checkable here
+  // is the half that lives in the mesh: every opaque part of the car takes the lift *together*. A car
+  // whose body lit while its wheels stayed dark reads as the paint changing rather than as the car
+  // reacting, and that is exactly what a part left out of this list produces.
+  {
+    const taxiMesh = createTaxiMesh();
+    // The ghost outline's mask and rim are their own materials on purpose and are not part of the
+    // flourish. Everything else with an emissive is a candidate.
+    const emissives = () => {
+      const out = [];
+      taxiMesh.group.traverse((node) => {
+        if (node.isMesh && node.material?.emissive && !/^ghost/.test(node.name)) {
+          out.push(node.material.emissive.getHex());
+        }
+      });
+      return out;
+    };
+    const dark = emissives();
+    taxiMesh.setHighlight(1);
+    const lit = emissives();
+    taxiMesh.setHighlight(0);
+    const back = emissives();
+
+    // Compared frame to frame rather than against zero: **the brake light and both turn signals sit
+    // at a non-zero emissive already** — that baked glow is how they light at all (geometry/lights.js)
+    // — so "every emissive is 0 at rest" is simply false here, and a check written that way is testing
+    // the probe's assumption rather than the car. What matters is which parts *move*.
+    const moved = dark.map((h, n) => h !== lit[n]);
+    const movedTo = lit.filter((_, n) => moved[n]);
+    check('the accept flourish lights every body part of the taxi at once',
+      // Shell, roof sign, both steered wheels and the deck parcel: five, all to the same value, and
+      // all the way back afterwards. A part left out of setHighlight's list is a car whose body lights
+      // while a wheel stays dark, which reads as the paint changing rather than the car reacting.
+      moved.filter(Boolean).length === 5
+      && new Set(movedTo).size === 1
+      && back.every((h, n) => h === dark[n]),
+      `${moved.filter(Boolean).length} parts moved to ${new Set(movedTo).size} value(s), all restored ${back.every((h, n) => h === dark[n])}`);
+    check('and leaves the brake light and indicators alone',
+      // They are not body panels; they are lamps with their own state, and lifting them would read as
+      // the taxi braking at the moment it accepted a package.
+      dark.filter((h) => h !== 0).length === 3
+      && dark.filter((h) => h !== 0).every((h, n) => h === lit.filter((_, i) => dark[i] !== 0)[n]),
+      `${dark.filter((h) => h !== 0).length} lamps, unchanged`);
+  }
+
+  // --- And deliver it, deterministically -----------------------------------------------------------
+  //
+  // The end-to-end path lives here rather than in the greedy run above, because here the geometry is
+  // chosen rather than drawn: route at the pad, drive, and the payout either lands or it does not.
+  if (parcel && parcels.carrying()) {
+    // Hold the fare clocks for this leg. The taxi is being driven at the courier pad and nowhere near
+    // the rider's drop-off, so without this the rider times out mid-test and the run ends — which is
+    // *correct game behaviour* and useless as a test of the courier path. `setPaused` is the same seam
+    // the opening tutorial uses to stop charging the player for a lesson.
+    fares.setPaused(true);
+    const moneyBefore = fares.state.money;
+    const earnedBefore = parcels.state.earned;
+    const toPad = findRoute(planOrigin(cTraffic.taxi), parcel.dropoff);
+    if (toPad) { cTraffic.taxi.route = toPad; cTraffic.taxi.routeConsumed = false; }
+    let delivered = 0;
+    let outboundAirborne = 0;
+    let g3 = 0;
+    while (delivered === 0 && g3++ < 60 * 240 && !fares.state.gameOver) {
+      cTraffic.update(1 / 60);
+      fares.update(1 / 60, cTraffic.taxi);
+      for (const { type, parcel: p } of parcels.update(1 / 60, cTraffic.taxi, {
+        fareSpots: fares.occupiedSpots(), delivered: 9, over: fares.state.gameOver,
+      })) {
+        if (type === 'delivered') { delivered += 1; if (p) fares.credit(p.value); }
+      }
+    }
+    // Counted *after* the loop, not inside it: the `delivered` event fires on the frame the outbound
+    // flight is **launched**, so a loop that breaks on delivery has ticked exactly one frame of it. The
+    // first version of this check read "1 frame airborne" and was measuring its own exit condition.
+    for (let step = 0; step < 60; step++) {
+      cTraffic.update(1 / 60);
+      fares.update(1 / 60, cTraffic.taxi);
+      parcels.update(1 / 60, cTraffic.taxi, {
+        fareSpots: fares.occupiedSpots(), delivered: 9, over: fares.state.gameOver,
+      });
+      // Above the pavement and below the deck it left: the reverse flight, arcing down into the pad.
+      if (parcel.slot.flight.visible && parcel.slot.flight.position.y > PARCEL_PAD_LIFT + 0.2) {
+        outboundAirborne += 1;
+      }
+    }
+    check('a package is delivered and paid for', delivered === 1
+      && parcels.state.earned === earnedBefore + parcel.value
+      && fares.state.money === moneyBefore + parcel.value,
+      `$${parcel.value} — courier total $${parcels.state.earned}, run total $${fares.state.money}`);
+    check('and the box flies back out to the pad', outboundAirborne > 4,
+      `${outboundAirborne} frames airborne on the way out`);
+    fares.setPaused(false);
+  } else {
+    check('a package is delivered and paid for', false, 'no setup');
+    check('and the box flies back out to the pad', false, 'no setup');
+  }
+
+  // The flight ends **on the rear deck**, not on the road under the car. It used to land at the taxi's
+  // XZ at pavement height while the deck parcel appeared a unit and a half above — two events with a
+  // visible jump between them, which is exactly what "align the flourish with contact" rules out.
+  check('a flight lands at deck height, not at the wheels',
+    Math.abs(TAXI_DECK_Y - PARCEL_PAD_LIFT) > 1
+    && TAXI_DECK_Y > PARCEL_PAD_LIFT,
+    `deck ${TAXI_DECK_Y.toFixed(2)} vs pavement ${PARCEL_PAD_LIFT.toFixed(2)}`);
+
+  // The run ends. One seam inside parcels.js handles all three ways it can, so this drives the one
+  // that does not go through the fare loop at all.
+  fares.crash('probe', 'Wrecked!');
+  parcels.update(1 / 60, cTraffic.taxi, { fareSpots: [], delivered: 9, over: true });
+  let stillVisible = 0;
+  for (const slot of parcels.slots) {
+    if (slot.pickup.group.visible) stillVisible += 1;
+    if (slot.dropoff.group.visible) stillVisible += 1;
+  }
+  check('the run ending clears every package off the board',
+    parcels.state.parcels.length === 0 && stillVisible === 0,
+    `${parcels.state.parcels.length} live, ${stillVisible} visible`);
 }
 
 // --- Tapping a second waiting rider before the first is picked up -----------------------------
@@ -4046,12 +4698,15 @@ check('the taxi is an ordinary car in the traffic array',
     if (node.name === 'ghostRim') rims.push(node);
   });
 
-  // Seven parts: shell, roof sign, both steered wheels, and the three light pods (brake, left
-  // turn signal, right turn signal). Every opaque part of the car must be in the mask — a part
-  // left out counts as an occluder of the rim behind it, and the wheels being skipped once painted
-  // a yellow streak along the rocker panel of a fully visible car. The light pods are opaque parts
-  // too even though they are usually scaled to nothing — see geometry/taxi.js's setLights().
-  check('taxi wears a ghost outline on every opaque part', masks.length === 7 && rims.length === 7,
+  // Eight parts: shell, roof sign, both steered wheels, the three light pods (brake, left turn
+  // signal, right turn signal), and the courier parcel on the rear deck. Every opaque part of the
+  // car must be in the mask — a part left out counts as an occluder of the rim behind it, and the
+  // wheels being skipped once painted a yellow streak along the rocker panel of a fully visible car.
+  // The light pods are opaque parts too even though they are usually scaled to nothing — see
+  // geometry/taxi.js's setLights() — and the parcel is one even though it is hidden until a package
+  // is aboard, for exactly the same reason: `visible = false` is not the same as absent, and the
+  // frame it comes back is the frame an unmasked box would start eating the shell's rim.
+  check('taxi wears a ghost outline on every opaque part', masks.length === 8 && rims.length === 8,
     `${masks.length} masks, ${rims.length} rims`);
 
   const rimsHidden = rims.every((r) => r.material.depthFunc === THREE.GreaterDepth

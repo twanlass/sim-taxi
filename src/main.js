@@ -42,7 +42,9 @@ import { findRoute, findRouteVia, planOrigin } from './game/route.js';
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics } from './util/shot.js';
+  getDiagnostics, getParcelsPin } from './util/shot.js';
+import { createParcelSystem, FLIGHT_TIME as PARCEL_FLIGHT_TIME } from './game/parcels.js';
+import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID } from './city/grid.js';
@@ -74,6 +76,9 @@ while (true) {
   seed = (Math.random() * 0xffffffff) >>> 0;
 }
 const runSeed = getRunSeed(seed, Boolean(shot));    // this run's situation — random unless pinned
+// The courier layer: on in an ordinary run, off in shot mode, and `?parcels=0`/`?parcels=1` beats
+// both — see getParcelsPin for why the default is not a constant.
+const parcelsEnabled = getParcelsPin() ?? !shot;
 
 // `?d=0..1` freezes the difficulty curve, so the late game can be looked at without playing ten
 // fares to reach it. Applied before anything constructs, because the car count is read off the
@@ -177,7 +182,24 @@ const traffic = createTraffic(
   pinnedCars ?? difficulty.carCount(Infinity),
   TRUCK_CHANCE,
 );
-const fares = createFareSystem(makeRng(runSeed + 55), scene);
+// `reserved` is how the fare loop learns about the courier's corners without importing it. `parcels`
+// is declared just below and this closure is only ever *called* from the frame loop, long after — the
+// same forward reference `pathDrag`'s `canGrab` makes to `pause`.
+const fares = createFareSystem(makeRng(runSeed + 55), scene, {
+  reserved: () => parcels?.occupiedSpots() ?? [],
+});
+// The package courier — see game/parcels.js. Its own stream off the run seed, so adding this layer
+// does not reshuffle where every rider spawns. `?parcels=0` turns it off.
+//
+// 255 rather than the 233 this shipped on: the helicopter landed on main using 233 too, and the merge
+// resolved both files cleanly while leaving two systems drawing the *same* sequence — `makeRng` is
+// seeded, so equal offsets are not independent streams, they are identical ones. `tools/probe.mjs`
+// now asserts every offset in this file is distinct, because nothing about the collision was visible:
+// no crash, no failing check, just a package board silently correlated with a helicopter.
+const parcels = parcelsEnabled ? createParcelSystem(makeRng(runSeed + 255), scene) : null;
+// Sim time the taxi's accept flourish was stamped at, or null when it is not running. See the frame
+// loop — a courier box landing in the car lights the whole car for the length of a select pop.
+let cargoFlashAt = null;
 // Given the cars array so the cruiser can see who is in its lane and move over for them — see
 // DODGE_* in sim/police.js. It never mutates it.
 const police = createPolice(makeRng(runSeed + 66), scene, traffic.cars);
@@ -1507,6 +1529,55 @@ function frame() {
     }
   }
 
+  // The package courier. Ticked after the fare loop so its spawn placement sees this frame's fare
+  // board, and given nothing but the three facts it needs — where the fares are, how far up the ramp
+  // the run is, and whether the run is over. Nothing routes the taxi at a package: the player
+  // collects one by bending the route band through its pad, so there is no dispatch here and no
+  // arbitration over the wheel. See game/parcels.js.
+  for (const { type, parcel } of
+    (parcels && !homeTip?.state.holding
+      ? parcels.update(dt, traffic.taxi, {
+        fareSpots: fares.occupiedSpots(),
+        delivered: fares.state.delivered,
+        over: fares.state.gameOver,
+      })
+      : NO_FARE_EVENTS)) {
+    if (type === 'loaded') {
+      // The box has finished crossing from the kerb. *Now* the deck parcel appears and the car
+      // flashes — the acknowledgement belongs to the moment the thing arrives, not to the moment it
+      // was earned a flight earlier (see the two events in game/parcels.js).
+      traffic.setTaxiCargo(true);
+      cargoFlashAt = fares.state.elapsed;
+    } else if (type === 'delivered') {
+      // The deck parcel goes now rather than when the outbound box lands, because the box *is* the
+      // load leaving: two of them on screen at once would read as the taxi carrying a second package.
+      traffic.setTaxiCargo(false);
+      // Cash only, deliberately. The payout takes the same two-phase flight a fare's does — off the
+      // taxi, then to the counter — because it is the same kind of event arriving from the same
+      // place, and a bonus that landed in the counter with no visible link to the car would read as
+      // a side effect. What it does *not* touch is the multiplier (that number means "this is what a
+      // fare is worth now", and a package is not a fare) or the boost tank (Loco Mode fuel is the
+      // delivery reward, and a courier detour has not delivered anybody).
+      fares.credit(parcel.value);
+      popEarning(parcel.value);
+    }
+  }
+
+  // The accept flourish, on the select pop's own envelope (game/selectpop.js) so a package landing in
+  // the car reads as the same *kind* of acknowledgement a tapped rider gets rather than as a new
+  // effect to learn. Written every frame while it runs, so the frame it retires is the one that puts
+  // the car back — and clamped at zero on the way out, because a light going negative would dim the
+  // taxi below the city it is driving in.
+  if (cargoFlashAt !== null) {
+    const since = fares.state.elapsed - cargoFlashAt;
+    if (since >= POP_TIME) {
+      traffic.setTaxiHighlight(0);
+      cargoFlashAt = null;
+    } else {
+      traffic.setTaxiHighlight(popHighlight(since));
+    }
+  }
+
   // Before the band is rebuilt, not after: a drag re-plans the route from where the taxi is *now*,
   // and the handle and the grab bloom are placed against the path that re-plan produces. Drawing
   // first would put both of them on last frame's route for a frame every time the detour changed.
@@ -1759,6 +1830,67 @@ if (shot) {
     controller.update(aspect());
   }
 
+  // The package courier. Its board is gated on a delivered fare and a spawn gap, neither of which a
+  // still frame has time for, so the gate is opened by hand: `delivered` is faked past
+  // `PARCEL_MIN_DELIVERED` and the stagger is reset, then one tick puts a box on a corner.
+  //
+  // Only reachable with `?parcels=1`, which is also what turns the layer on in shot mode at all.
+  if (shot.untilParcel && parcels) {
+    parcels.state.nextSpawnAt = -Infinity;
+    parcels.update(1 / 60, traffic.taxi, { fareSpots: fares.occupiedSpots(), delivered: 9 });
+    // A few frames of sim time so the box is mid-spin rather than dead square to the camera, which
+    // reads as a crate rather than as something waiting to be collected.
+    for (let settle = 0; settle < 24; settle++) {
+      parcels.update(1 / 60, traffic.taxi, { fareSpots: fares.occupiedSpots(), delivered: 9 });
+    }
+    const box = parcels.state.parcels[0];
+    // Freeze the box in mid-air.
+    //
+    // Driven rather than teleported. The first cut of this set `taxi.x/z` to the package's junction so
+    // proximity would resolve at once — which put the car exactly where the box was, giving the flight
+    // zero length and a photograph of nothing. It also lies to the traffic model, which carries its own
+    // lane state and would have corrected the position on the next tick anyway. So the taxi is *routed*
+    // there and the sim run until it arrives, the same way `untilPickup` does it, and then the flight is
+    // ticked `flightAt` of the way along — with `traffic.update` still running, because the car keeps
+    // driving through the junction and the box has to chase where it has got to. That chase is the whole
+    // geometry of the shot.
+    if (box && shot.flightAt !== undefined) {
+      routeTo(box.pickup);
+      const tick = () => parcels.update(1 / 60, traffic.taxi, {
+        fareSpots: fares.occupiedSpots(), delivered: 9,
+      });
+      for (let guard = 0; guard < 90 * 60 && !parcels.carrying(); guard++) {
+        traffic.update(1 / 60);
+        tick();
+      }
+      const kerb = cornerFor(box.pickup.i, box.pickup.j);
+      for (let step = 0; step < Math.round(shot.flightAt * PARCEL_FLIGHT_TIME * 60); step++) {
+        traffic.update(1 / 60);
+        tick();
+      }
+      // The midpoint of the crossing, not either end — the arc is the subject.
+      controller.state.target.set(
+        (kerb.x + traffic.taxi.x) / 2, 0, (kerb.z + traffic.taxi.z) / 2,
+      );
+      controller.update(aspect());
+    } else if (box) {
+      // The kerb corner, not the junction centre — at close zoom the corner building stands squarely
+      // between the camera and anything on the pavement. Same reason `atPassenger` does it.
+      const c = cornerFor(box.pickup.i, box.pickup.j);
+      controller.state.target.set(c.x, 0, c.z);
+      controller.update(aspect());
+    }
+  }
+
+  // Load the rear deck without driving to a pad for it — see `parcel-aboard` in util/shot.js. Framed
+  // on the taxi, which `select` alone does not do: the other close framings sit at the map centre and
+  // photograph whatever traffic is passing through it, and at zoom 9 the car has to be aimed at.
+  if (shot.withCargo) {
+    traffic.setTaxiCargo(true);
+    controller.state.target.set(traffic.taxi.x, 0, traffic.taxi.z);
+    controller.update(aspect());
+  }
+
   // Frame the waiting rider rather than the middle of the map.
   const framed = fares.focus();
   if (shot.atPassenger && framed) {
@@ -1803,6 +1935,12 @@ if (shot) {
     // route's sweep well before this single frame renders.
     routeLine.update(traffic.taxi, traffic.taxi.route, 999);
   }
+  // Same argument as the band's 999 above, for the discs and pads: a shot frame is never followed by
+  // another, and a disc that grows out of its own centre is a function of sim time. A shot ticks the
+  // fare loop once, so the grow never got past its first frame — and every rider's kerb disc went
+  // missing from every screenshot the day that animation landed. This lands them all instead.
+  fares.settleMarkers();
+  parcels?.settleMarkers();
   renderFrame();
   document.body.dataset.shotReady = 'true';
 } else {
@@ -1837,6 +1975,8 @@ window.__taxi = {
   skids,
   police,
   fares,
+  /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */
+  parcels,
   flyover,
   chopper,
   // Every flock in the city, in build order — `flocks[0]` is the one shot 18 frames.

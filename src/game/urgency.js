@@ -44,6 +44,19 @@ export const urgencyColor = (level) => COLORS[THREE.MathUtils.clamp(level, 0, UR
 export const VIP_COLOR = new THREE.Color(PALETTE.vip);
 
 /**
+ * A package courier job's fixed cyan — both of its discs and the route band driving at either.
+ *
+ * Here rather than reached for out of `PALETTE` by each caller, for the reason this whole module
+ * exists: it is the one place a job's colour is decided, so the disc on the corner, the pad across
+ * town and the band between them cannot end up disagreeing. It sits beside the VIP purple because
+ * it is the same kind of exception — a hue that deliberately says *what this job is* rather than
+ * how long is left, which for a package is the only honest thing a colour can say: it has no clock.
+ *
+ * `fareColor` below is untouched. A package is not a fare and has no level to be painted from.
+ */
+export const PARCEL_COLOR = new THREE.Color(PALETTE.parcel);
+
+/**
  * **The one colour a fare speaks in**, wherever it is speaking: the crystal over the rider's head,
  * the ring on the road the taxi is driving at, the band of paint between them, and the arrow that
  * stands in for the ring off-frame.

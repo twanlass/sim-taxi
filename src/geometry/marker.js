@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { URGENCY_SEGMENTS, fareColor } from '../game/urgency.js';
+import { URGENCY_SEGMENTS, fareColor, PARCEL_COLOR } from '../game/urgency.js';
 import { createTargetRing, RING_Y } from './targetring.js';
+import { createParcelPad } from './parcelpad.js';
 
 // Pickup and drop-off markers.
 //
@@ -34,7 +35,21 @@ import { createTargetRing, RING_Y } from './targetring.js';
 // The off-screen pointer (game/dropoffindicator.js) covers the one thing the head was still worth:
 // a drop-off that has slipped outside the frame.
 
-function marker(kind, { buildStanding = null, ringColor = null } = {}) {
+/**
+ * @param buildStanding  factory for whatever stands on the corner (a figure, a parcel), or null
+ * @param ringColor      colour for the ground mark, or null for a marker with no mark
+ * @param buildRing      the ground-mark factory. Defaults to the fare disc; the courier markers
+ *                       pass `createParcelPad` so a package's ends are a rounded square instead —
+ *                       shape is what tells a courier job from a fare on this board.
+ * @param pickable       the `userData.pickable` kind for the oversized hit box, or **null for no
+ *                       hit box at all**. A courier marker is never tapped (the only way to reach a
+ *                       package is to bend the route through it), so it builds none — an untappable
+ *                       marker carrying a hit box tagged as pickable is a trap laid for whoever next
+ *                       raycasts the scene rather than an explicit target list.
+ */
+function marker(kind, {
+  buildStanding = null, ringColor = null, buildRing = createTargetRing, pickable = kind,
+} = {}) {
   const group = new THREE.Group();
   group.name = kind;
 
@@ -49,7 +64,7 @@ function marker(kind, { buildStanding = null, ringColor = null } = {}) {
   // The rider's disc is not built here: it is the fare's clock speaking on the ground, it changes
   // colour every few seconds and it has to go dark the moment they board — all of which belongs to
   // game/faremarker.js, which owns the clock. This is the drop-off's.
-  const ring = ringColor ? createTargetRing(ringColor) : null;
+  const ring = ringColor ? buildRing(ringColor) : null;
   // place() already lifts postGroup 0.12 above the kerb, so this lands the disc RING_Y over the
   // pavement — the same height the rider's own disc floats at.
   if (ring) {
@@ -77,13 +92,15 @@ function marker(kind, { buildStanding = null, ringColor = null } = {}) {
   // outline tops out a little over 9.5 — and it starts at the ground so a tap on the disc or on a
   // standing figure lands too.
   const HIT_H = 14.5;
-  const hit = new THREE.Mesh(
-    new THREE.BoxGeometry(HIT, HIT_H, HIT),
-    new THREE.MeshBasicMaterial({ visible: false }),
-  );
-  hit.position.y = HIT_H / 2;
-  hit.userData.pickable = kind;
-  group.add(hit);
+  if (pickable) {
+    const hit = new THREE.Mesh(
+      new THREE.BoxGeometry(HIT, HIT_H, HIT),
+      new THREE.MeshBasicMaterial({ visible: false }),
+    );
+    hit.position.y = HIT_H / 2;
+    hit.userData.pickable = pickable;
+    group.add(hit);
+  }
 
   return { group, ring, postGroup, standing };
 }
@@ -106,3 +123,28 @@ export const createPassengerPin = (buildStanding) =>
  */
 export const createDestinationPin = () =>
   marker('destination', { ringColor: fareColor(URGENCY_SEGMENTS) });
+
+/**
+ * A package waiting to be couriered, and the pad it is going to. See game/parcels.js.
+ *
+ * Three things separate these from the fare markers above, and each one is deliberate:
+ *
+ * - **A rounded square, not a disc** (`createParcelPad`). A courier job is not a fare and is not
+ *   reached the way a fare is, so it gets a silhouette of its own. Two hues on one shape would ask
+ *   the player to tell a package from a rider by colour at 50px; two shapes are read at a glance.
+ * - **Fixed cyan, never repainted.** A package has no clock, so there is no level for a hue to step
+ *   through — which is why `parcels.js` needs no equivalent of `paintDropoff`'s level gate.
+ * - **No hit box.** A package cannot be tapped. The only way to reach one is to drag the route band
+ *   through its corner, so there is nothing here for a raycast to find.
+ *
+ * What still reads exactly as the fare pair does: same shape both ends, and what tells them apart is
+ * whether something is standing in the mark. A pad with a box on it is somewhere to collect; an
+ * empty one is somewhere to deliver.
+ */
+export const createParcelPin = (buildParcel) => marker('parcel', {
+  buildStanding: buildParcel, ringColor: PARCEL_COLOR, buildRing: createParcelPad, pickable: null,
+});
+
+export const createParcelDropPin = () => marker('parcel-dropoff', {
+  ringColor: PARCEL_COLOR, buildRing: createParcelPad, pickable: null,
+});

@@ -178,6 +178,15 @@ export function createFareMarker(scene, phase = 0) {
     rim: diamond.rim,
     // Likewise the disc on the ground, which has to agree with the crystal on every frame.
     ring: ring.group,
+    /**
+     * Whether the kerb disc is mid-exit — it pulls back into its own centre at the hand-off rather
+     * than switching off, so `ring.visible` stays true for RING_SHRINK_TIME after `beginTransfer`.
+     * Exposed for `tools/probe.mjs`, which asserts the hand-off as one disc leaving while the other
+     * arrives; reading `visible` alone would call a shrinking disc "still on the kerb".
+     */
+    ringLeaving: () => ring.isLeaving(),
+    /** Put the kerb disc straight into its arrived state — shot mode. See targetring.js. */
+    settleRing: () => ring.settle(),
     isVip: () => vipMarked,
     setUrgency,
     setFill,
@@ -233,9 +242,10 @@ export function createFareMarker(scene, phase = 0) {
       transferPending = false;
       anchor.set(x, LIFT, z);
       group.position.copy(anchor);
-      // Same corner, on the pavement: the rider stands in the middle of their own disc.
+      // Same corner, on the pavement: the rider stands in the middle of their own disc. It grows
+      // out of its own centre rather than switching on — see targetring.js.
       ring.group.position.set(x, KERB_H + RING_Y, z);
-      ring.group.visible = true;
+      ring.appear();
       diamond.mesh.scale.setScalar(1);
       group.visible = true;
     },
@@ -249,13 +259,18 @@ export function createFareMarker(scene, phase = 0) {
      */
     beginTransfer() {
       transferPending = true;
-      // The kerb corner is no longer where this fare is.
-      ring.group.visible = false;
+      // The kerb corner is no longer where this fare is, so the disc pulls back into its own centre
+      // as the drop-off's grows out of *its* one (fares.js, beginRide). Switching one off on the
+      // frame the other switched on read as two unrelated events; two discs moving in opposite
+      // directions read as one clock changing hands, which is what is actually happening.
+      ring.vanish();
     },
 
     hide() {
       group.visible = false;
-      ring.group.visible = false;
+      // Instant. `hide` is a slot being handed on or a run ending, neither of which is a gesture —
+      // and an animated exit here would be driven by an `update` that is no longer being called.
+      ring.hideNow();
       transferAt = null;
       transferPending = false;
     },

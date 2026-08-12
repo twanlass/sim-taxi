@@ -212,7 +212,16 @@ function blockFor(i, j) {
   return { bi: i === 0 ? 0 : i - 1, bj: j === 0 ? 0 : j - 1 };
 }
 
-const onSameBlock = (a, b) => {
+/**
+ * Whether two intersections' corner pins stand on the same physical block.
+ *
+ * Exported for `game/parcels.js`, which has to keep a package's two ends apart for exactly the
+ * reason a fare's are kept apart — and must not re-derive it. A plain `(i, j)` equality check is
+ * blind to the aliasing `blockFor` describes: near the map's origin edge two intersections a whole
+ * block apart by `blockDistance` still park their pins on the same slab, because `cornerFor` flips
+ * the corner inward at `i === 0`.
+ */
+export const onSameBlock = (a, b) => {
   const ba = blockFor(a.i, a.j);
   const bb = blockFor(b.i, b.j);
   return ba.bi === bb.bi && ba.bj === bb.bj;
@@ -250,7 +259,14 @@ function createSlot(scene, index) {
   return { index, passenger, destination, marker };
 }
 
-export function createFareSystem(rng, scene) {
+/**
+ * @param reserved  junctions another system has claimed and this one must not spawn on — the package
+ *                  courier's two ends (game/parcels.js), wired up in main.js. Injected rather than
+ *                  imported: the courier is a layer *on top* of the fare loop and the fare loop must
+ *                  keep working with nothing on top of it, which a hard import would quietly end.
+ *                  Read per call, since the set moves every time a package is collected.
+ */
+export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
   const state = {
     // Active fares, newest last. At most MAX_FARES, and up to MAX_FARES - 1 of them can be
     // waiting on the kerb at once — the whole prioritisation puzzle.
@@ -330,7 +346,21 @@ export function createFareSystem(rng, scene) {
       avoid.push(f.target);
       if (f.dropoff) avoid.push(f.dropoff);
     }
+    // ...and every junction another *system* has spoken for — the package courier's two ends
+    // (game/parcels.js), through the injected `reserved` above.
+    //
+    // **This is the half that was missing.** The courier already refused to spawn on a fare's corner,
+    // which made the rule look enforced while only one direction of it was: a package sits on its
+    // corner indefinitely, so given long enough a later fare would land on top of one. Two jobs in one
+    // 20-unit hit box is a tap that resolves to whichever the raycast reached first, and at play zoom
+    // the player cannot see there are two.
+    //
+    // Blocks as well as junctions, matching what the courier does in the other direction, so the
+    // invariant is symmetric and can be asserted as one: `cornerFor` flips its corner inward at
+    // `i === 0`, so two intersections a whole block apart can still park their markers on one slab.
+    const held = reserved();
     const free = (i, j) => !avoid.some((a) => a.i === i && a.j === j)
+      && !held.some((a) => (a.i === i && a.j === j) || onSameBlock({ i, j }, a))
       && (!avoidBlockOf || !onSameBlock({ i, j }, avoidBlockOf));
 
     if (near) {
@@ -353,6 +383,15 @@ export function createFareSystem(rng, scene) {
       const j = rng.int(0, GRID);
       if (free(i, j)) return { i, j };
     }
+    // Sixty random darts can miss a board this constrained — a full fare board plus the courier's
+    // corners is a dozen junctions and their blocks out of thirty-six — so sweep for a free one before
+    // giving up. The old code fell straight through to (0, 0), which does not consult `free` at all and
+    // so was itself able to drop a rider onto a corner already spoken for: a guard with a hole in the
+    // one path that runs when the guard matters most.
+    for (let i = 0; i <= GRID; i++) {
+      for (let j = 0; j <= GRID; j++) if (free(i, j)) return { i, j };
+    }
+    // Genuinely nowhere left. Deterministic rather than random so the failure is reproducible.
     return { i: 0, j: 0 };
   }
 
@@ -683,6 +722,11 @@ export function createFareSystem(rng, scene) {
     fare.ringLevel = null;
     paintDropoff(fare, urgencyLevel(urgencyOf(fare)));
     place(fare.slot.destination, fare.dropoff.i, fare.dropoff.j);
+    // It grows out of its own centre rather than appearing at full size, on the same frame the kerb
+    // disc pulls back into *its* one (faremarker.js, beginTransfer). Two discs switching states in
+    // one frame read as two events; two moving in opposite directions read as the one thing that is
+    // actually happening — this clock changing ends of the trip.
+    fare.slot.destination.ring.appear();
     // The rider is aboard, so the deadline is the car's problem now — and the marker goes with
     // them, off the kerb corner it has been waiting on and across to the roof. Nothing is created
     // or destroyed at the hand-off, which is the point: it is the same clock, visibly moving.
@@ -1042,7 +1086,30 @@ export function createFareSystem(rng, scene) {
     update,
     /** Freeze/unfreeze every fare's countdown. See `paused` on the state above. */
     setPaused: (paused) => { state.paused = paused; },
+    /**
+     * Add to the run's cash without a fare behind it — the package courier's payout
+     * (game/parcels.js).
+     *
+     * `state.money` is the run's total, not the fare loop's: the counter rolls to it and the run-end
+     * card prints it as "Cash", so courier income belongs in it. This exists so that addition is a
+     * call rather than main.js reaching into another module's state to do it by hand.
+     */
+    credit: (amount) => { state.money += amount; },
     crash,
+    /**
+     * Put every marker's arrival animation straight into its landed state.
+     *
+     * **Shot mode only**, and it exists because of a real regression: a disc now grows out of its own
+     * centre, which is a function of sim time — and a shot ticks this loop exactly once, so the grow
+     * never advanced past its first frame and every rider's kerb disc was missing from every
+     * screenshot. Nothing here touches a clock, so a staged frame is unaffected in every other way.
+     */
+    settleMarkers: () => {
+      for (const slot of slots) {
+        slot.marker.settleRing();
+        slot.destination.ring?.settle();
+      }
+    },
     pickables,
     fareFor,
     markDirected,

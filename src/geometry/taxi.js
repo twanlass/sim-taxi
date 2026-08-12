@@ -7,6 +7,7 @@ import {
   brakeLightGeometry, turnSignalGeometry, brakeLightMaterial, turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline } from './ghostoutline.js';
+import { createParcel, PARCEL_DECK_SCALE } from './parcel.js';
 
 // The player's taxi. Built as its own Group rather than an instance in the traffic InstancedMesh
 // because it needs to be raycast against for picking, and because it wears things the ambient cars
@@ -24,6 +25,16 @@ const TAXI_SCALE = 1.18;
 // (main.js). Kept here rather than in flames.js so both offsets follow if the mesh ever resizes.
 export const TAXI_TAILPIPE_BACK = (CAR_LEN / 2) * TAXI_SCALE;
 export const TAXI_TAILPIPE_HEIGHT = 0.42 + CHASSIS_LIFT;
+
+/**
+ * World height of the rear deck the courier parcel rides on — the top of the body, scaled.
+ *
+ * Exported because `game/parcels.js` flies a box *to* it: the flight used to end at the taxi's XZ at
+ * pavement height, which is under the car's sills, and the deck parcel then appeared a unit and a half
+ * higher. The box arrived at the road and the load materialised on the roofline, which is two events
+ * and a visible jump between them. Landing the flight here is what makes the arrival a contact.
+ */
+export const TAXI_DECK_Y = (1.18 + CHASSIS_LIFT) * TAXI_SCALE;
 
 export function createTaxiMesh() {
   const group = new THREE.Group();
@@ -118,6 +129,34 @@ export function createTaxiMesh() {
   // A smaller rim than the shell's: the default 0.3 on a 0.34-unit-tall sign would double it.
   addGhostOutline(sign, { rim: 0.15 });
 
+  // The courier's load: a small parcel on the rear deck while a package is aboard (game/parcels.js).
+  //
+  // An object on the car rather than anything on the glass, for the reason the roof sign is one: the
+  // taxi already answers "am I carrying someone" by lighting up, and "am I carrying a package" is
+  // answered best by a package being visibly on the taxi. It also keeps the courier layer off the
+  // HUD entirely, which is what the reward being cash-only asks for.
+  //
+  // Behind the cabin (local -X is the rear — see TAXI_TAILPIPE_BACK, which is negated at the call
+  // site), on top of the 0.8-tall body, in the 0.65 units of deck the cabin leaves. Scaled down hard:
+  // the kerbside parcel is deliberately oversized so it reads at all on a corner, and at that size it
+  // would be wider than the cabin. `PARCEL_DECK_SCALE` is derived from the mesh's own width, so
+  // resizing the box does not silently resize the load.
+  const cargo = createParcel({ pickable: null }).group;
+  cargo.scale.setScalar(PARCEL_DECK_SCALE);
+  cargo.position.set(-1.32, TAXI_DECK_Y / TAXI_SCALE, 0);
+  cargo.visible = false;
+  group.add(cargo);
+  // In the stencil mask like every other opaque part of the car. Not for its own silhouette: any
+  // taxi part left *out* of the mask counts as an occluder of the rim behind it, so an unmasked box
+  // on the deck would punch a hole in the shell's ghost outline (the same way the wheels once
+  // painted a yellow streak along the rocker panel).
+  //
+  // The rim is inflated in the mesh's *own* geometry space, which the scale above then shrinks — so it
+  // is written as a multiple of that scale rather than as a raw number, and lands near the roof sign's
+  // 0.15 in taxi-local units on a part of much the same size. Passing 0.15 directly would trace a rim a
+  // fraction of the sign's thickness and read as none at all.
+  addGhostOutline(cargo.children[0], { rim: 0.12 / PARCEL_DECK_SCALE });
+
   // Brake lights and turn signals — same geometry and materials sim/traffic.js builds its
   // InstancedMeshes from (see geometry/lights.js), just as ordinary Meshes here since the taxi is
   // one car, not a fleet. "On"/"off" is the mesh's own scale, same as an ambient car's instance —
@@ -146,6 +185,32 @@ export function createTaxiMesh() {
     sign.material.color.set(occupied ? PALETTE.taxiSign : PALETTE.taxiTrim);
   };
 
+  /** Shows the parcel on the rear deck while a courier package is aboard. */
+  const setCargo = (loaded) => {
+    cargo.visible = loaded;
+  };
+
+  /**
+   * Light the whole car, 0..1 — the flourish that says a courier box has been accepted
+   * (game/parcels.js). Driven from `main.js` off the select pop's own envelope, so an accepted package
+   * reads as the same *kind* of acknowledgement a tapped rider gets.
+   *
+   * A white emissive lift rather than a tint, for the reason every other highlight here is one: hue on
+   * this car means the taxi, and a flash may not repaint it. Every opaque part takes the lift together
+   * — shell, both steered wheels, the roof sign and the deck parcel itself — because a car whose body
+   * lit while its wheels stayed dark reads as the paint changing rather than as the car reacting.
+   *
+   * 0.32 rather than the rider figure's measured 0.3: the taxi's yellow is already the brightest thing
+   * on the road, so it has less headroom before the chequer stripe washes into the body, and the lift
+   * has to be visible against a car that is *moving* at the moment it fires.
+   */
+  const HIGHLIGHT = 0.32;
+  const litParts = [shell, sign, ...steered, cargo.children[0]];
+  const setHighlight = (amount) => {
+    const lift = HIGHLIGHT * amount;
+    for (const part of litParts) part.material.emissive.setScalar(lift);
+  };
+
   /** Front-wheel lock, in radians. Both wheels take the same angle — at this zoom the Ackermann
    * difference between inner and outer is well under a pixel. */
   const setSteer = (angle) => {
@@ -163,5 +228,5 @@ export function createTaxiMesh() {
     turnRightLight.scale.setScalar(turnRightLevel);
   };
 
-  return { group, sign, setOccupied, setSteer, setLights };
+  return { group, sign, setOccupied, setCargo, setHighlight, setSteer, setLights };
 }

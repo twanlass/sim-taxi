@@ -1385,6 +1385,23 @@ with `depthTest: false` for legibility through buildings, and needed an `ABOVE_R
 worn by the rider's meshes and the taxi's whole body to survive it. Keeping the test on costs
 occlusion by towers and buys all of that back.
 
+**It grows out of its own centre and pulls back into it.** A disc used to switch on and off, and both
+ends of a pickup did it on the same frame — the kerb disc going dark as the drop-off's lit — which
+reads as two unrelated events rather than as one clock changing hands. `appear()` / `vanish()` now
+drive a back-eased 0 → 1 (peaking ~1.045, `RING_GROW_TIME` 0.30s) and an accelerating 1 → 0
+(`RING_SHRINK_TIME` 0.20s). The exit is deliberately *not* the mirror of the entrance: arriving is
+news and wants the beat, leaving is a thing getting out of the way, and an eased exit spends its last
+frames as a barely-moving object — the same argument the select pop's undershoot rests on. Both
+envelopes are exported and the courier pad imports them, so the two shapes differ and the gesture
+cannot.
+
+> **Trap, and it fired.** Shot mode ticks the fare loop **once** and then freezes, so an entrance
+> driven off sim time never gets past its first frame — and `appear()` starts at scale 0. Every
+> rider's kerb disc disappeared from every screenshot, which is a worse failure than the pop it
+> replaced. Hence `settle()`, called via `fares.settleMarkers()` / `parcels.settleMarkers()` right
+> before the shot renders, next to the route band's `routeLine.update(..., 999)` — which exists for
+> exactly the same reason.
+
 **The sweep** is the third layer: a bright head with a fading tail, circling the outer edge of the
 rim once every 3.2s. It is a `MeshBasicMaterial` on the same torus radius as the rim (a little
 fatter), patched with `onBeforeCompile` to read a per-vertex angle attribute and fade each fragment
@@ -1400,6 +1417,158 @@ fill; `tools/probe.mjs` reads all three back together and expects one hex, repea
 The beam has to be told to spin: `ring.update(elapsed)` is called from `game/faremarker.js`'s own
 per-frame `update` while the rider's disc is visible, and from `game/fares.js`'s fare loop while a
 fare is `riding`, for the drop-off's. Neither ring ticks while hidden.
+
+### The courier pad — `geometry/parcelpad.js`
+
+A **rounded square** lying flat on the pavement corner, in the courier's fixed cyan: one rim shape
+with the inner square punched out of it as a hole, and one fill shape at the route band's own
+`ROUTE_OPACITY`. Both ends of a package's trip wear one. Same `RING_Y`, same depth-tested /
+`depthWrite: false` pair, and the same load-bearing reason as [the target
+disc](#the-target-disc--geometrytargetringjs): the far half of a flat shape projects *upward on
+screen* at this camera angle, so without the depth test the pad would paint a band across the box
+standing in the middle of it.
+
+**The shape is the whole point.** A courier job is not a fare and is not reached the way one is, so
+it gets a silhouette of its own rather than a second hue on a disc — see
+[gameplay.md](gameplay.md#a-package-has-no-clock-and-so-has-no-diamond). `tools/probe.mjs` asserts
+the corners reach further from the centre than the edge midpoints do, which is true of a square and
+false of every circle: if the pad ever silently becomes a disc, a package and a fare destination
+stop being distinguishable at zoom, and no other check would notice.
+
+**It arrives and leaves the same way a fare disc does** — `appear()` / `vanish()` off the very
+envelopes exported from `targetring.js`, rather than a second implementation. The shapes are meant to
+differ; the gesture is not, or a courier pad and a drop-off disc landing on the same board would be
+two different kinds of event.
+
+**It wears the fare disc's beam** — same shader, same speed, same tail, off the shared
+`createSweepFor` in `targetring.js`. It was left off at first, on the argument that the beam is that
+disc's "this is the live thing being driven at" cue and a courier pad is a standing offer rather than a
+target. That reads worse than it argues: on a board where the fare discs glint and the pads sit dead,
+the pads look like road paint somebody forgot to clean up. The beam is what says a mark belongs to the
+game, and both marks do.
+
+The **path** is the only part that differs, which is why the geometry is the only thing `createSweepFor`
+takes — two copies of that shader patch would be two beams free to drift apart in speed, tail or
+falloff, and a board carrying a disc and a pad would show two subtly different kinds of "live". The
+band is built by hand round the rounded square, and each vertex carries its **normalised arc length**
+as `aAngle`, not its angle from the centre: on a rounded square those disagree badly — the centre angle
+races through the corners and crawls along the flats — so a beam keyed to the wrong one visibly changes
+speed four times a lap. `tools/probe.mjs` asserts radians-per-world-unit is near-constant round the
+path, and walks all 882 triangles of the three layers for their winding: a hand-wound band facing away
+from this camera is indistinguishable from a beam nobody added.
+
+Nothing calls `setColor`: a package has no clock to repaint for.
+
+> **Trap, and it fired.** The contour is hand-written, so its winding is **asserted, not eyeballed**
+> — the roadworks ramp below shipped wound clockwise throughout and read as z-fighting for weeks. The
+> check went red on the first run, and for a third reason worth recording: `ShapeGeometry` is
+> **indexed**, so `attributes.position` items 0/1/2 are not a triangle. Reading the attribute in
+> order tests a triangle that does not exist, and reported a perfectly good pad as face-down. The
+> check walks the index buffer and computes the normal from the winding across all 106 triangles.
+
+### The parcel — `geometry/parcel.js`
+
+A kraft box with a darker lid slab and a tape cross on top, merged into one mesh with one material
+the way every prop here is. Scale is the same deliberate lie [the
+figure](gameplay.md#the-taxis-roof-sign) tells: a real parcel beside a 3.4-unit car would be half a
+unit, which is four pixels at play zoom, so this is a crate a bit over one unit — squat and wide where
+the figure is tall and thin.
+
+**It was 2.4 units and read about twice too big.** The mistake was matching the rider's 3.3-unit
+*height*, which measures nothing the eye does: a box is mass in all three dimensions where the figure
+is a tall thin sliver, so a 2.4 crate beside a rider read as a shipping container beside a person. At
+1.35 the two have roughly the same apparent area, with the box a shade under — which is what "the same
+size" means for shapes this different.
+
+The cross is on the **top** face because the camera looks down the +X+Z diagonal, which makes the top
+the largest face on screen; a band around the girth would be mostly hidden. It is what says *parcel*
+rather than *crate*.
+
+`idle(t)` is a slow Y spin plus a gentle bob, off sim time. The rider's answer to "come and get me" is
+a raised waving arm; a box has no arm, so the motion carries all of it — and it is deliberately
+slower than the wave, because a parcel is not impatient, it has no clock. The footprint is square so
+the spin never changes the silhouette's width, which is what makes it read as turning rather than as
+pulsing.
+
+**It is built to read as 📦**, and each of the four parts is doing one job at ~15px: a kraft body; a
+darker lid slab so the top seam is a plane rather than a stripe; **one** semi-white tape strip; and a
+white shipping label. The strip wraps over the top and down both Z faces as a *single* box — narrow in
+X, proud in Y and Z — which is one part doing what three would.
+
+It was a tape **cross** first, and at this size that read as a hot cross bun: two strips on a 2.4-unit
+box leave four small squares of card and the silhouette stops being a box with tape on it. The tape
+was also a dark brown, which at 15px on dark card is a shadow rather than a strip — it is off-white
+now, because the strip is the single part that says *parcel* rather than *crate*.
+
+**The label is mirrored onto both Z faces**, which is not decoration. The camera sees exactly two faces
+of a box at this angle and they are always one X face and one Z face, so a label on both Z faces is a
+label that is *always* visible however far the spin has turned — and the visible Z face then carries
+the strip and the label together, which is the pair 📦 shows. With one label it read at half the
+rotation, and the half where it was edge-on was a white sliver that looked like a lighting artefact.
+
+**The flight.** A *third* copy crosses between the kerb and the taxi (`game/parcels.js`), and it is a
+separate mesh rather than the kerb one reparented, for the reason the fare crystal is scene-level: the
+kerb box lives two transforms deep inside a marker's `postGroup` on a corner it must not leave, and a
+flight has to own its world position. Two nested groups, also the crystal's arrangement — the outer
+one carries the travel and the scale, the inner box goes on spinning and bobbing in local space, so
+the two concerns never fight over one transform.
+
+Going in it shrinks to `PARCEL_DECK_SCALE` and fades toward `FLIGHT_MIN_ALPHA` over `FLIGHT_TIME` (0.55s,
+a shade under the crystal's 0.65 — that one is tuned against the rider's run-and-jump, and the two flights
+should not look like the same object anyway). Coming out it does the reverse into the pad. Scale and alpha
+run *with* the travel rather than on their own curve, so the box reads as going into the car rather than as
+fading while it happens to move, and it stops at the deck parcel's own scale so the flight ends *on* the
+object it becomes instead of beside it.
+
+Three numbers were measured and moved, all in service of the arrival being a **contact**:
+
+- **The arc is 2.6, up from 1.4.** A world unit is about 7.7px at play zoom, so the first number bought
+  roughly eleven pixels of rise over half a second — technically an arc and, on a box that had just been
+  halved in size, not one anybody could see. It is a lob now, which is also what makes the *direction* of
+  the hand-off legible: up and over into the car rather than sliding across the tarmac at it.
+- **It flies to the deck, not to the road.** The end point was the taxi's XZ at pavement height — under
+  the car's sills — while the deck parcel appeared at `TAXI_DECK_Y`, a unit and a half above. Two events
+  with a visible jump between them. The height now runs pavement ↔ deck whichever way the flight goes, and
+  `TAXI_DECK_Y` is exported from `geometry/taxi.js` and used to place the deck mesh itself, so the two
+  cannot drift.
+- **The fade stops at 0.25.** Fading to zero meant the box was *invisible by the frame it arrived*, so the
+  contact the player reads happened somewhere earlier and vaguer, and the taxi's flourish fired on a frame
+  with nothing in it. The box now lands visible at deck size and is switched off under the flash. Covering
+  the cut is what a flourish is for.
+
+`tools/probe.mjs` asserts the landing frame's height against `TAXI_DECK_Y` and the faintest opacity across
+the whole flight — the second one deliberately as a floor rather than a reading at the landing, because
+`updateFlights` calls `rest()` on the same frame it lands and a read taken after `update` returns reports
+the resting state. It did exactly that, and passed while printing "opacity 1.00 on contact".
+
+> **Trap.** `material.transparent` and `depthWrite` are shader-define switches, so changing `opacity`
+> alone does nothing until `needsUpdate` forces a recompile — the rider figure shipped that bug once
+> and never faded, it just popped when `visible` flipped. `setOpacity` tracks the last state and only
+> invalidates on a transition, because this runs every frame of a flight and a per-frame recompile is
+> a stall rather than a fade. `tools/probe.mjs` asserts both halves: transparent *while* fading, and
+> opaque with `depthWrite` back on once landed — a box left transparent z-sorts wrong for the rest of
+> the run, and the slot gets reused.
+
+**The accept flourish.** When the box lands, every opaque part of the car takes a white emissive lift
+together — shell, roof sign, both steered wheels and the deck parcel — on the select pop's own
+envelope, so an accepted package reads as the same *kind* of acknowledgement a tapped rider gets rather
+than as a new effect to learn. 0.32 rather than the rider's measured 0.3: the taxi's yellow is already
+the brightest thing on the road, so it has less headroom before the chequer stripe washes into the
+body, and the lift has to register on a car that is moving. The brake light and indicators are left
+alone — they are lamps with their own state, and lifting them would read as the taxi braking at the
+moment it accepted a package.
+
+The same factory builds the small one on the taxi's rear deck, at `PARCEL_DECK_SCALE` — exported from
+the mesh and derived from its own width, rather than restated at each of the two call sites that want it
+(the deck copy, and what an incoming flight shrinks *to*). Three numbers encoding "the deck parcel is
+about half a unit wide" is three numbers to get wrong the day the box is resized, which is exactly the
+day that came. The ghost rim is written as a multiple of that scale for the same reason. That copy is in the
+ghost-outline stencil mask like every other opaque part of the car — not for its own silhouette, but
+because a part left *out* of the mask counts as an occluder of the rim behind it. Its rim is written as a
+multiple of `PARCEL_DECK_SCALE` rather than as a raw number, because `addGhostOutline` inflates in the
+mesh's own geometry space and that scale then shrinks it — landing near the roof sign's 0.15 in
+taxi-local units on a part of much the same size. Passing 0.15 directly would trace a rim a fraction of
+the sign's thickness and read as none at all.
 
 ### The drop-off ring — `geometry/marker.js`
 

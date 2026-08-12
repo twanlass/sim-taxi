@@ -98,6 +98,30 @@ export const SHOTS = [
   // an ambient event has to be noticeable without being a distraction, and that is not a judgement
   // a close-up can make. 4.4s in is the turn onto final — out over the city, at full bank.
   { name: 'heli-far', description: 'the helicopter banking onto final, at play zoom', target: [0, 0], zoom: 52, warmup: 12, heliAt: 4.4 },
+  // The package courier (game/parcels.js). **All three need `?parcels=1`** — the layer is off in shot
+  // mode by default, and `untilParcel` has nothing to frame without it.
+  //
+  // Appended after the helicopter's pair rather than filed with them, for the reason stated above the
+  // `birds` entry: shots are addressed by *index*, so inserting anywhere but the end silently
+  // renumbers every shot after it. These moved from 20-22 to 22-24 when the two `heli` framings landed
+  // on main, which is the cost of that rule being paid rather than a reason to break it.
+  //
+  // Two distances because the two questions are at different distances. Close: does a kraft box read
+  // as a *parcel* at all, and does the tape strip and its label survive at this size? At play zoom: is
+  // the pad's rounded square distinguishable from a fare's disc, which is the whole of "shape says
+  // what a thing is" and the one claim no assertion can make.
+  { name: 'parcel', description: 'a package waiting on its pad — needs ?parcels=1', target: [0, 0], zoom: 11, warmup: 12, untilParcel: true },
+  { name: 'parcel-board', description: 'a courier pad against the fare board at play zoom — needs ?parcels=1', target: [0, 0], zoom: 30, warmup: 12, untilParcel: true },
+  // The taxi wearing its load. `withCargo` shows the rear-deck parcel outright rather than driving
+  // the car to a pad and collecting one — the same staging licence `wreckAt` and `grabAt` take, and
+  // for the same reason: a still frame cannot spend the seconds the real path costs, and what is
+  // being looked at is whether a box on the deck reads as cargo rather than as a lump on the roof.
+  { name: 'parcel-aboard', description: 'the taxi carrying a package — needs ?parcels=1', target: [0, 0], zoom: 16, warmup: 12, select: true, untilPickup: true, withCargo: true },
+  // The box mid-flight, which had no framing at all and needed one: the arc, the shrink and the fade
+  // are the whole of that animation and every one of them is a *moment*, gone in half a second. The
+  // probe can count airborne frames; only a picture says whether the throw reads as a throw.
+  // `flightAt` is the fraction along the flight the shot freezes — 0.5 is the top of the arc.
+  { name: 'parcel-flight', description: 'the box crossing to the taxi — needs ?parcels=1', target: [0, 0], zoom: 13, warmup: 12, untilParcel: true, flightAt: 0.5 },
 ];
 
 export function getActiveShot() {
@@ -120,6 +144,25 @@ export function getCarCount(fallback = 12) {
   if (raw === null) return fallback;
   const parsed = Number.parseInt(raw, 10);
   return Number.isNaN(parsed) ? fallback : Math.max(1, parsed);
+}
+
+/**
+ * Whether the package courier layer runs, via `?parcels=0` / `?parcels=1`.
+ *
+ * Returns **null when unpinned**, the way `getDifficultyPin` does, because the default is not a
+ * constant: the layer ships on in an ordinary run and off in shot mode. Every framing in the sweep
+ * was composed before packages existed, and a cyan pad wandering into one is a change to a reference
+ * image that has nothing to do with whatever is being looked at.
+ *
+ * So `?parcels=0` clears the board to measure the fare loop alone (the way `?cars=1` clears the
+ * roads), and `?parcels=1` forces it back on — including in shot mode, which is the only way to
+ * point a camera at a courier job.
+ */
+export function getParcelsPin() {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('parcels');
+  if (raw === null || raw === '') return null;
+  return !(raw === '0' || raw === 'off' || raw === 'false');
 }
 
 /**

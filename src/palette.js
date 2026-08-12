@@ -200,6 +200,31 @@ export const PALETTE = {
   // game-entity colour here: it has to read against muted buildings from across the board.
   vip: '#A64DFF',
 
+  // The package courier — see game/parcels.js.
+  //
+  // `parcel` is the hue of both of a package's discs (the corner it waits on and the pad it is
+  // going to) and of the route band while the taxi is driving at either. Fixed, and outside the
+  // urgency scale, on exactly the argument `vip` above is made on: a package carries **no clock**,
+  // so painting it green-through-red would be reporting a countdown that does not exist. Cyan
+  // because nothing else here is — clear of urgency's red-to-green, the VIP purple, and the
+  // taxi/routeLine yellow, all of which can be on the board at the same moment. (The old
+  // `destination` teal noted below was the nearest neighbour, and it is free again.)
+  parcel: '#22C3D6',
+  // The box itself, built to read as 📦: kraft card, a darker lid slab for the top seam, one
+  // semi-white tape strip and a white shipping label. Muted browns on purpose — the parcel is *found*
+  // by the cyan pad under it, and a box in the pad's own colour would read as part of the marker
+  // rather than as cargo sitting on it.
+  //
+  // The tape is off-white rather than the darker brown it started as: at ~15px a dark strip on dark
+  // card is a shadow, and the strip is the single part that says "parcel" rather than "crate". The
+  // label is whiter still, being the one bright mark on the box and the last thing to survive as it
+  // shrinks into the taxi. Both are kept off pure white — that belongs to the waiting rider
+  // (`passenger` above), and nothing else in the game should reach for it.
+  parcelBox: '#C69A63',
+  parcelLid: '#A87F4C',
+  parcelTape: '#DED6C4',
+  parcelLabel: '#F2F0E8',
+
   // Urgency, indexed by how much of the clock is left, in quarters. Deliberately not a ramp: a
   // colour that changes imperceptibly tells the player nothing, so it snaps at each quarter lost.
   // 1 and 0 share red — by then there is nothing redder to go to.

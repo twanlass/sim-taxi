@@ -112,6 +112,35 @@ playing ten fares to reach it. It exists because "can you read this board" is th
 screenshot answers better than an assertion — and because the board was capped at three for years
 on a readability judgement made against a marker that no longer exists.
 
+Shots 22–25 (`parcel`, `parcel-board`, `parcel-aboard`, `parcel-flight`) are the only ones that need a **query
+param to work at all**: the package courier is off in shot mode by default, so both want `?parcels=1`. Every framing
+in the sweep was composed before packages existed, and a cyan pad wandering into one is a change to a
+reference image that has nothing to do with whatever is being looked at — so the layer stays out
+unless a shot asks for it. `untilParcel` then opens the spawn gate by hand (faking `delivered` past
+`PARCEL_MIN_DELIVERED` and resetting the stagger), since a still frame has no time to earn a
+delivery. Two distances because the two questions are at different distances: close, does a kraft box
+read as a *parcel* and does the tape cross survive; at play zoom, is the pad's rounded square
+distinguishable from a fare's disc. That second one is the whole of "shape says what a thing is" and
+is the one claim no assertion can make.
+
+`parcel-flight` freezes the box mid-crossing, at `flightAt` of the way along — the arc, the shrink and
+the fade are that animation's whole content and every one of them is a *moment*, gone in half a second.
+The probe can count airborne frames; only a picture says whether the throw reads as a throw. It is
+**driven, not teleported**: the first cut set `taxi.x/z` to the package's junction so proximity would
+resolve immediately, which put the car exactly where the box was — a flight of zero length, and a
+photograph of nothing. It also lies to the traffic model, which carries its own lane state and would
+correct the position on the next tick. So the taxi is routed there and the sim run until it arrives, with
+`traffic.update` still ticking through the flight, because the car keeps driving and the box has to chase
+where it has got to.
+
+`parcel-aboard` stages the load outright (`withCargo`) rather than driving to a
+pad to earn one — the same licence `wreckAt` and `grabAt` take, since a still frame cannot spend the
+seconds the real path costs. It is also the only close framing that **aims the camera at the taxi**:
+`select` does not do that, and every other close shot sits at the map centre and photographs
+whatever traffic passes through it. At zoom 9 the first attempt put the car squarely behind the block
+on its +X+Z side and returned a picture of a roof with a ghost outline behind it — the camera looks
+down that diagonal and cannot be moved off it, so the only fix is a wider framing. 16 clears it.
+
 Shot 9 (`route-far`) is the odd one out: instead of routing at whichever fare the seed produced — often
 two blocks away, where the route band's two end fades meet in the middle and show you nothing — it
 sends the taxi to the **opposite corner of the map**, so a full-length band with several turns is
