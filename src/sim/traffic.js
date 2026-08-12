@@ -898,6 +898,12 @@ const cruiseCapFor = (car) => (car.isTruck ? TRUCK_SPEED : SPEED)
 const OVERDRIVE_SPEED = 2.7;  // multiplier on top speed — 22.95 u/s, 67mph
 const OVERDRIVE_ACCEL = 2.2;  // units/s^2 through the band — 40 units of straight to use it all
 
+// The speed the camera's follow lead reads as "flat out" — 18.7 u/s. The *boost* ceiling rather
+// than the overdrive one on purpose: as the block above says, the band past it takes 40 units of
+// unbroken straight to reach, so scaling the framing by the overdrive top would open the frame
+// fully only on the rare long run and leave it short through the ordinary boosted corner-to-corner.
+export const BOOST_CRUISE = SPEED * BOOST_SPEED;
+
 /**
  * Acceleration available to a car at full boost, which is not one number: full punch up to the
  * BOOST_SPEED ceiling, then the overdrive taper. See the tuning block above for where 2.2 and the

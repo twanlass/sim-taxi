@@ -46,6 +46,79 @@ const PEEK_HOLD = 0.9;
 // as a flick, and the whole point of the pan is that the eye can ride it all the way across.
 const smootherstep = (k) => k * k * k * (k * (k * 6 - 15) + 10);
 
+// --- Leading the car -------------------------------------------------------
+// A follow-cam centred on the taxi spends half the frame on road already driven. Under Loco Mode
+// that is the expensive half: the mode exists to cover ground, and the player was paying for it by
+// swiping ahead by hand — mid-boost, which is the one moment panning is the wrong gesture. So the
+// follows aim *past* the car, and the car settles into the trailing quadrant: heading north-west it
+// sits south-east of centre with the north-west of the map opened up in front of it.
+//
+// The offset is stated in **screen** space and converted back, which is the whole reason this isn't
+// three lines. A fixed world-space lead — what the passing lab uses, where the road runs due east
+// and nothing else is possible — buys wildly different amounts of visibility per heading here, for
+// two compounding reasons:
+//
+//   - the view is a diagonal, so a world direction's screen bearing is not its map bearing, and a
+//     ground step up-screen is foreshortened to VIEW_DIR.y = 0.55 of one across it;
+//   - the frustum is sized by *height*, so in portrait the frame is roughly 2:1 the other way and
+//     there is twice as much room to give away up-screen as sideways.
+//
+// Multiplied out, the same world lead is worth ~4x more of the frame going one way than the other.
+// Framing on the screen fraction instead puts the car at the same place in the picture whichever
+// way it is pointed, on a phone and on a desktop, and the world distance falls out of that.
+const LEAD_FRACTION = 0.3;      // of the half-frame measured along the heading — see frameLead
+// How fast the offset itself eases, on top of whatever rate the follow is closing at. Slower than
+// either follow on purpose: the lead swings through 90° at every corner, and at the follow's own
+// rate that lands as a shove sideways at the exact moment the player is reading a new street. At
+// 2.4 the frame opens into the turn over about half a second, trailing the car through it.
+const LEAD_RATE = 2.4;
+
+// **And the follow's own trail is paid back.** An exponential follow *trails* whatever it is
+// chasing: aiming at a point moving at v and closing
+// `1 - exp(-dt * rate)` of the gap per frame settles v / rate behind it, permanently. That is 5.8
+// units at the Loco Mode top on BOOST_FOLLOW_SMOOTHING, and it points backwards along exactly the
+// axis this is trying to open up — before any of this the boosting taxi sat 6% of the half-frame
+// *past* centre, so the follow was showing less of the road ahead than a static frame would have.
+//
+// The two follows also run at 1.5 and 3.2, so the same speed trailed them by different amounts and
+// the framing shifted on the Loco Mode press — the one frame the player is certain to be watching.
+// Cancelling the trail is what makes LEAD_FRACTION a fact about the picture rather than an opening
+// bid: both follows then seat the car at the same place, and the constant means what it says.
+// Steady-state, so it is only exact at a constant speed; it rides the same ease as the lead itself,
+// which is what keeps a hard stop from snapping the frame back.
+
+// A ground vector's screen offset is (v·RIGHT, (v·UP) * sin(elevation)) — RIGHT lies in the ground
+// plane so it keeps its full length, UP is the ground plane's share of a tilted screen-up. And
+// because VIEW_DIR is a unit vector, its y component *is* that sine: 0.5453 at the fixed 33°.
+const SIN_ELEV = VIEW_DIR.y;
+
+/**
+ * Where to aim, relative to the car, to seat it `LEAD_FRACTION` of a half-frame into the quadrant
+ * behind it. `(dirX, dirZ)` is the heading on the ground — any length, it is normalised here — and
+ * `gain` scales the whole thing from 0 (centred) to 1.
+ *
+ * Derivation, because the closed form below looks like it has lost a step. With `(sx, sy)` the
+ * screen offset of one world unit along the heading, the unit screen bearing is `(sx, sy) / m` and
+ * the distance from centre to the frame edge along it is `m / hypot(sx/halfW, sy/halfH)` — an
+ * ellipse inscribed in the frame rather than the rectangle itself, which is kink-free as the
+ * heading sweeps a corner and agrees with the rectangle on both axes anyway. Wanting
+ * `LEAD_FRACTION` of that, in world units, is that over `m` — and the `m` cancels.
+ *
+ * Exported so `tools/probe.mjs` can check the framing it produces against a real frustum rather
+ * than against a number copied out of here.
+ */
+export function frameLead(dirX, dirZ, gain, halfW, halfH) {
+  const len = Math.hypot(dirX, dirZ);
+  if (len < 1e-6 || gain <= 0) return { x: 0, z: 0 };
+  const ux = dirX / len;
+  const uz = dirZ / len;
+  const sx = ux * RIGHT.x + uz * RIGHT.z;
+  const sy = (ux * UP.x + uz * UP.z) * SIN_ELEV;
+  // RIGHT and UP span the ground plane and SIN_ELEV is non-zero, so sx and sy cannot both vanish.
+  const dist = (LEAD_FRACTION * gain) / Math.hypot(sx / halfW, sy / halfH);
+  return { x: ux * dist, z: uz * dist };
+}
+
 export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 1400);
   const state = {
@@ -63,6 +136,35 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
   // existing handover drops a peek exactly as it drops a pan: a drag, a boost chase and a wreck
   // focus all clear this one variable and nothing is left half-sequenced behind them.
   let glide = null;
+
+  // The live lead offset. Eased rather than written, so the follow reads a continuous offset
+  // through a corner — see LEAD_RATE. Only `followXZ` steps it, so a follow that stops leaves the
+  // offset where it stood, exactly as it leaves the target: nothing here snaps back on the way out.
+  const lead = { x: 0, z: 0 };
+
+  /**
+   * Ease the lead toward what `aim` asks for, or back to centred when nothing is aiming. `aim` is
+   * `{ x, z, gain, speed }`: a heading on the ground, a 0-1 strength — which callers drive off
+   * speed, so a taxi held at a red sits centred and one at the Loco Mode top gets the full offset —
+   * and the speed itself, which pays back the follow's own trail (see above).
+   */
+  function stepLead(aim, dt, smoothing, aspectRatio) {
+    const halfH = state.zoom;
+    const want = aim
+      ? frameLead(aim.x, aim.z, aim.gain ?? 1, halfH * aspectRatio, halfH)
+      : { x: 0, z: 0 };
+    // The trail is along the heading, like the lead, so it is added into it rather than applied
+    // separately — one eased vector carries both and there is one place the framing is decided.
+    const len = aim ? Math.hypot(aim.x, aim.z) : 0;
+    if (len > 1e-6 && aim.speed > 0 && smoothing > 0) {
+      const trail = aim.speed / smoothing;
+      want.x += (aim.x / len) * trail;
+      want.z += (aim.z / len) * trail;
+    }
+    const k = 1 - Math.exp(-dt * LEAD_RATE);
+    lead.x += (want.x - lead.x) * k;
+    lead.z += (want.z - lead.z) * k;
+  }
 
   /**
    * Arm one leg. `dur` comes from the distance at this instant even when `track` will move the
@@ -136,12 +238,18 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
      * Callers hold their own gate on when to follow (e.g. only while boost is active); this just
      * does the one step and leaves the state alone otherwise, so releasing the gate stops the
      * chase without any rubber-band back.
+     *
+     * Pass `aim` — `{ x, z, gain, speed }`, a ground heading, a 0-1 strength and the car's speed —
+     * to frame the road ahead instead of the car itself; see LEAD_FRACTION. Omitting it doesn't
+     * merely skip the offset, it eases any standing one back to zero, so a caller that wants the
+     * car dead centre (the tutorial, pointing at it) gets that by saying nothing.
      */
-    followXZ(x, z, dt, smoothing = 3.2, aspectRatio) {
+    followXZ(x, z, dt, smoothing = 3.2, aspectRatio, aim = null) {
       glide = null;             // a chase outranks a pan; see cancelGlide
+      stepLead(aim, dt, smoothing, aspectRatio);
       const t = 1 - Math.exp(-dt * smoothing);
-      state.target.x += (x - state.target.x) * t;
-      state.target.z += (z - state.target.z) * t;
+      state.target.x += (x + lead.x - state.target.x) * t;
+      state.target.z += (z + lead.z - state.target.z) * t;
       state.target.x = THREE.MathUtils.clamp(state.target.x, -HALF_SPAN, HALF_SPAN);
       state.target.z = THREE.MathUtils.clamp(state.target.z, -HALF_SPAN, HALF_SPAN);
       apply(aspectRatio);
@@ -208,6 +316,11 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
      */
     cancelGlide() { glide = null; },
     isGliding: () => glide !== null,
+    /**
+     * The live follow lead, in world units — how far past the taxi the camera is currently aiming.
+     * A copy, because it is eased in place every frame and a handed-out reference would alias it.
+     */
+    leadOffset: () => ({ x: lead.x, z: lead.z }),
     /**
      * Step a running glide. Returns true on every frame it moved the camera, including the frame it
      * lands on, so a caller can tell "the pan owns this frame" from "nothing to do". A no-op when

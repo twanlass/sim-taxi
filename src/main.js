@@ -6,7 +6,7 @@ import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
-import { createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber } from './sim/traffic.js';
+import { createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber, BOOST_CRUISE } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
@@ -252,6 +252,28 @@ const isNarrow = () => window.innerWidth < NARROW_VIEWPORT;
 // no way to stop it.
 const START_FOLLOW_SMOOTHING = 1.5;
 const BOOST_FOLLOW_SMOOTHING = 3.2;
+
+/**
+ * What both follows aim past the taxi at — the heading it is travelling, and how much of the lead
+ * that heading has earned. See camera.js's LEAD_FRACTION for the framing itself.
+ *
+ * The strength is the speed against the Loco Mode cruise ceiling, which is what makes one number
+ * serve both follows: at the boost top the frame is fully open ahead, at ordinary cruise it is
+ * about 45% of that, and a taxi held at a red drops back to centred — where there is no "ahead" to
+ * look down and the player is reading the junction they are sitting in. It also means the two
+ * follows never fight over the framing at the moment Loco Mode engages: the offset is already
+ * part-way out, and the press extends it rather than starting it.
+ *
+ * `car.yaw` is a sim yaw, not a bearing — forward is `(cos yaw, -sin yaw)`, as everywhere else that
+ * reads it (see the wreck's tyre fan).
+ */
+const followAim = (car) => ({
+  x: Math.cos(car.yaw),
+  z: -Math.sin(car.yaw),
+  gain: Math.min(car.v / BOOST_CRUISE, 1),
+  speed: car.v,
+});
+
 let cameraTakenOver = false;
 // Assigned further down, once the fare board and the picker it reads exist. Declared here because
 // the handover below is the one thing that has to reach it, and a swipe cannot arrive before the
@@ -1461,7 +1483,8 @@ function frame() {
   // ignores `cameraTakenOver` on purpose — a drag during a boost is quietly overridden on the next
   // frame, because panning is a planning gesture and boost is the opposite of planning. None of
   // them has a gate on the way *out*: the camera is left wherever it landed rather than snapping
-  // back.
+  // back. Both aim past the taxi rather than at it (`followAim`), so the road it is driving down
+  // gets the frame the road behind it used to.
   //
   // Wreck focus outranks everything (and runs on every viewport, not only narrow ones): the camera
   // eases into the crash site so the fireball fills the frame before the retry screen shows.
@@ -1474,11 +1497,13 @@ function frame() {
   if (wreckSpot) {
     controller.focusOn(wreckSpot.x, wreckSpot.z, WRECK_ZOOM, dt, aspect());
   } else if (boosting && !fares.state.gameOver && isNarrow()) {
-    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect());
+    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect(),
+      followAim(traffic.taxi));
   } else if (tutorial?.holdsCamera()) {
     tutorial.frameCamera(dt);
   } else if (!cameraTakenOver && !fares.state.gameOver && isNarrow()) {
-    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, START_FOLLOW_SMOOTHING, aspect());
+    controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, START_FOLLOW_SMOOTHING, aspect(),
+      followAim(traffic.taxi));
   } else {
     // Bottom of the same priority list: a rider-finder chip's peek (see panToRider) — the pan out,
     // the beat on the rider and the ride home are all one glide, so all three sit at this rung. It
