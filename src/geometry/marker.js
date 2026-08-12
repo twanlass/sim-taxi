@@ -1,18 +1,24 @@
 import * as THREE from 'three';
-import { PALETTE } from '../palette.js';
+import { URGENCY_SEGMENTS, fareColor } from '../game/urgency.js';
 import { createTargetRing, RING_Y } from './targetring.js';
 
 // Pickup and drop-off markers.
 //
 // Both are a kerb-corner placement, a tap target, and what stands on it:
 //   - the pickup stands a **figure** there, over a disc in the fare's urgency colour.
-//   - the drop-off lays a **teal disc** on the corner and nothing else.
+//   - the drop-off lays the same **disc** on the corner, in the same colour, and nothing else.
 //
-// The disc is the same object at both ends (geometry/targetring.js) and the colour is what tells
-// them apart: a clock at one end, a destination at the other. The fare's clock itself — the diamond
-// that floats over the rider and then flies to the taxi — belongs to the fare rather than to either
-// marker, and lives in game/faremarker.js. It has to leave the kerb, so it cannot hang off a marker
-// that stays.
+// **A disc marks the end of a trip that a clock is attached to, and one fare owns one at a time.**
+// It is under the rider while they wait and on their destination once they are aboard — the same
+// hand-off the crystal makes when it flies from the kerb to the taxi roof, made on the ground. What
+// tells the two ends apart is not the hue (both are that fare's clock, see game/urgency.js) but
+// whether anybody is standing in it: a disc with a figure in it is somewhere to collect, an empty
+// one is somewhere to deliver. Which is also the difference the player is acting on.
+//
+// The fare's clock itself — the crystal that floats over the rider and then flies to the taxi —
+// belongs to the fare rather than to either marker, and lives in game/faremarker.js. It has to
+// leave the kerb, so it cannot hang off a marker that stays. The rider's disc lives there too, for
+// the same reason inverted: it has to go dark on a frame this marker knows nothing about.
 //
 // The disc used to sit at the intersection centre — the idea being that a disc on the carriageway
 // would never be occluded — but it left a visible gap between the marker and it, and the eye
@@ -42,7 +48,7 @@ function marker(kind, { buildStanding = null, ringColor = null } = {}) {
   //
   // The rider's disc is not built here: it is the fare's clock speaking on the ground, it changes
   // colour every few seconds and it has to go dark the moment they board — all of which belongs to
-  // game/faremarker.js, which owns the clock. This is the drop-off's, which is one colour forever.
+  // game/faremarker.js, which owns the clock. This is the drop-off's.
   const ring = ringColor ? createTargetRing(ringColor) : null;
   // place() already lifts postGroup 0.12 above the kerb, so this lands the disc RING_Y over the
   // pavement — the same height the rider's own disc floats at.
@@ -67,8 +73,8 @@ function marker(kind, { buildStanding = null, ringColor = null } = {}) {
   // about 155px across at play zoom, comfortably past the 44px a fingertip needs — while still
   // being well inside the 20-unit block pitch, so two adjacent junctions can never both be hit.
   const HIT = 20;
-  // Tall enough to clear the tallest thing standing over this corner — the fare's diamond, whose
-  // outline tops out a little over 9 — and it starts at the ground so a tap on the disc or on a
+  // Tall enough to clear the tallest thing standing over this corner — the fare's crystal, whose
+  // outline tops out a little over 9.5 — and it starts at the ground so a tap on the disc or on a
   // standing figure lands too.
   const HIT_H = 14.5;
   const hit = new THREE.Mesh(
@@ -86,12 +92,17 @@ export const createPassengerPin = (buildStanding) =>
   marker('passenger', { buildStanding });
 
 /**
- * The drop-off: a teal disc on the kerb corner, and nothing standing on it.
+ * The drop-off: a disc on the kerb corner, and nothing standing on it.
  *
- * One colour, fixed at build time. There is only ever one drop-off on the board — the rider
- * currently aboard — so there is nothing for a per-fare hue to tell it apart from, and by the time
- * it is drawn the taxi is already driving at it. Teal rather than the taxi's yellow because hue on
- * a fare marker means urgency now (see game/faremarker.js), and this one has no clock to report.
+ * **It wears the clock of the rider in the car.** It has no clock of its own — that was the whole
+ * argument for the fixed teal it used to be painted, back when hue on a fare marker meant urgency
+ * and this marker had nothing to report. But the rider aboard is *why* the taxi is driving here,
+ * their deadline is the only one the drive is spending, and the crystal saying so is a small shape
+ * over a moving roof. Painting the destination in that colour puts the seconds on the tarmac at the
+ * far end of the trip, which is where the player is already looking.
+ *
+ * Opens on the top of the scale and is repainted per fare by `game/fares.js`, which owns the clock;
+ * a VIP's stays its fixed purple, the same exception the crystal makes.
  */
 export const createDestinationPin = () =>
-  marker('destination', { ringColor: PALETTE.destination });
+  marker('destination', { ringColor: fareColor(URGENCY_SEGMENTS) });

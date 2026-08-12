@@ -444,6 +444,24 @@ const routeLine = createRouteLine(scene);
 const blendParam = new URLSearchParams(window.location.search).get('blend');
 if (blendParam) routeLine.setBlend(blendParam);
 
+/**
+ * Paint the band in the clock the drive is spending, so the road ahead, the crystal at the end of
+ * it and the disc it stops on are one colour. See game/urgency.js.
+ *
+ * A route with no fare behind it — the recovery re-route, or a target poked in from the console —
+ * falls back to the taxi's own yellow, which is what every route wore before this.
+ *
+ * Called from both the frame loop and the shot path: a shot never runs the loop, and a screenshot
+ * of the band in the wrong colour is exactly the review this is here to serve. A band being
+ * dragged is painted from the same fare — the grab whitens whatever colour is under it (see
+ * `uGrab` in game/routeline.js) rather than replacing it, so a re-route still says whose clock it
+ * is spending while the player is holding it.
+ */
+function paintRouteBand() {
+  const job = fares.directed();
+  routeLine.setColor(job ? fares.colorOf(job) : PALETTE.routeLine);
+}
+
 // Drag the band to send the taxi round a different way. Declared here so the picker and the
 // tutorial can both ask whether the click they are about to answer was the end of one; wired up
 // below, once `routeTo` exists.
@@ -1472,6 +1490,7 @@ function frame() {
   // The route is a property of the selection, not of the world — deselecting clears it from view
   // even though the taxi keeps driving it.
   if (selected && traffic.taxi.pendingTarget && !fares.state.gameOver) {
+    paintRouteBand();
     routeLine.update(traffic.taxi, traffic.taxi.route, dt);
   } else {
     routeLine.hide();
@@ -1482,7 +1501,10 @@ function frame() {
   policeRubber();
   updateHud(dt);
   riderFinder.update(dt, fares.waitingAll());
-  dropoffIndicator.update(fares.carrying());
+  // The arrow stands in for the ring it points at, so it is painted from the same fare — see
+  // game/dropoffindicator.js.
+  const aboard = fares.carrying();
+  dropoffIndicator.update(aboard, aboard && fares.colorOf(aboard));
   renderFrame();
   // After the render, not before: `renderer.info` resets itself at the top of every `render()`,
   // so this is the frame that just went to the screen rather than the one before it.
@@ -1725,6 +1747,7 @@ if (shot) {
     controller.update(aspect());
   }
   if (selected && traffic.taxi.pendingTarget) {
+    paintRouteBand();
     // A shot reviews the band's steady state, not the moment it was picked — a shot mode frame is
     // never followed by another, so with a real dt the rollout sweep would freeze here mid-animation
     // and every route shot would show a truncated band. A dt this large settles even the longest
@@ -1776,6 +1799,12 @@ window.__taxi = {
   /** The route-band drag, for `tools/smoke.mjs`: `isGrabbing`, `didDrag`, `via`. */
   pathDrag,
   camera: controller,
+  /**
+   * The band of paint down the road. Exposed for `tools/smoke.mjs`: the *wiring* that paints it in
+   * the fare's clock lives in the frame loop up there, so the node suite can only assert the two
+   * halves it joins — this is the one place the join itself is visible.
+   */
+  routeLine,
   isSelected: () => selected,
   /**
    * The high-score table, for `tools/smoke.mjs` — the node suite drives `game/highscores.js`

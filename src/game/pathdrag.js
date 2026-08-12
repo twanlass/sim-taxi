@@ -7,7 +7,7 @@ import { routePath, nearestOnPath, HEAD_GAP } from './routeline.js';
 /**
  * Drag the route band to re-route the taxi.
  *
- * Once a destination is set the yellow band is the one thing on screen that says what the taxi is
+ * Once a destination is set the route band is the one thing on screen that says what the taxi is
  * about to do — and until now it was the only part of the interface the player could not touch.
  * Tapping a rider says *where*; this says *which way*, which is the question the player is
  * actually asking when they can see a queue building on the road the band is about to take.
@@ -93,8 +93,9 @@ function createHandle(scene) {
   // reads against that hole rather than against the road. It comes out as a grommet in the paint,
   // which is what the thing actually is.
   const core = new THREE.MeshBasicMaterial({
-    // Black, for the same reason the diamond's rim is: this shape spends its whole life sitting on
-    // the taxi's own yellow, so a rim in that yellow is no rim at all.
+    // Black, for the same reason the crystal's rim is: this shape spends its whole life sitting on
+    // the band, and the band is painted in the fare's clock — a hue that walks from green to red
+    // over a run. No colour survives being drawn on all four of those; an absence of colour does.
     color: new THREE.Color(0x000000),
     transparent: true,
     depthWrite: false,

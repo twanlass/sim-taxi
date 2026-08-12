@@ -4,16 +4,22 @@ import * as THREE from 'three';
 //
 // When a fare is aboard the drop-off can sit behind the viewport edge — the map is bigger than the
 // frame on portrait and the player has been panning. Losing sight of where to drive at costs a
-// beat. This arrow rides the viewport edge in the drop-off's own teal, pointing at the ring the
-// taxi is meant to reach, so the direction is always readable from the HUD.
+// beat. This arrow rides the viewport edge pointing at the ring the taxi is meant to reach, so the
+// direction is always readable from the HUD.
 //
 // It carries more than it used to. The drop-off was a crystal floating at rooftop height, which
 // stayed visible over the skyline for a while after the ring itself had gone behind something; now
 // the marker is the ring and nothing else, and this is the only thing that reports it off-frame.
 //
-// One colour, because the drop-off has one state: it is dispatched at pickup, so there is no
-// waiting-to-be-tapped state for the arrow to distinguish. It briefly had two, matching a pin that
-// opened teal until tapped.
+// **It wears the ring's colour, which is the rider's clock** (see game/urgency.js) — passed in
+// per frame rather than read from a palette, because the thing it stands in for changes colour as
+// the clock drains and an arrow left on a fixed hue would be the one mark on the screen disagreeing
+// about how much trouble the player is in. It was a fixed teal while the ring was, and two states
+// (teal until tapped, yellow after) before that, back when a drop-off was a question rather than an
+// instruction.
+//
+// Set through `style.color` against a `fill: currentColor` polygon: one property write, and the
+// SVG's own markup stays a shape with no colour of its own.
 //
 // The indicator only shows for a *riding* fare, which is also the only fare with a drop-off ring on
 // the map: a waiting rider's destination stays hidden until they board. One pointer, aimed at the
@@ -28,6 +34,9 @@ export function createDropoffIndicator({ camera, pinLocation }) {
 
   const projected = new THREE.Vector3();
   let visible = false;
+  // Last hex written, so a colour that only steps four times over a clock isn't a style write on
+  // every frame the arrow is up.
+  let painted = null;
 
   function setVisible(next) {
     if (visible === next) return;
@@ -36,11 +45,24 @@ export function createDropoffIndicator({ camera, pinLocation }) {
   }
   setVisible(false);
 
-  function update(fare) {
+  /**
+   * @param fare  the rider aboard, or null
+   * @param color what their markers are painted (game/fares.js `colorOf`) — the ring this arrow
+   *              stands in for wears the same one
+   */
+  function update(fare, color = null) {
     // No pointer for a waiting rider: their diamond and their finder chip already handle that job.
     if (!fare || fare.stage !== 'riding') {
       setVisible(false);
       return;
+    }
+
+    if (color) {
+      const hex = `#${color.getHexString()}`;
+      if (hex !== painted) {
+        painted = hex;
+        el.style.color = hex;
+      }
     }
 
     const w = window.innerWidth;

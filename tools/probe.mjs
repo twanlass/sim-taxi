@@ -27,7 +27,7 @@ import {
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
 import {
-  bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, EMISSIVE, HIGHLIGHT_EMISSIVE,
+  bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
 } from '../src/geometry/diamond.js';
 import { HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER } from '../src/game/selectpop.js';
@@ -51,7 +51,7 @@ import {
   createCarGhosts, GHOST_RADIUS, MAX_GHOSTS, GHOST_OPACITY,
 } from '../src/game/carghosts.js';
 import { createCityCamera, attachDragPan, VIEW_DIR } from '../src/game/camera.js';
-import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor } from '../src/game/urgency.js';
+import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
@@ -85,9 +85,12 @@ const time = (label, fn) => {
 // Read a rider's diamond back the way a player does — off the material it is painted in, not by
 // trusting the argument we passed in. Its colour is the whole of what that marker says now.
 const diamondHex = (marker) => marker.mesh.material.color.getHexString();
-// The disc under the rider's feet, rim and fill and sweep — one mark at three weights, so they
-// must never disagree with each other or with the crystal overhead.
-const ringHexes = (marker) => marker.ring.children.map((m) => m.material.color.getHexString());
+// A disc, rim and fill and sweep — one mark at three weights, so they must never disagree with
+// each other or with the crystal that owns them. One reader for each end of a trip: the rider's
+// disc hangs off the travelling marker, the drop-off's off the slot's pin.
+const riderRingHexes = (marker) => marker.ring.children.map((m) => m.material.color.getHexString());
+const ringHexes = (slot) => slot.destination.ring.group.children
+  .map((m) => m.material.color.getHexString());
 
 // Slot 0's bounce phase offset — fares.js staggers the slots so two riders don't pulse in lockstep,
 // and slot 0 draws the zero offset. Named here so the kick assertions can subtract the bounce out.
@@ -365,7 +368,8 @@ check('no two cars occupy the same space', worst > 1.6,
   let marker = null;
   let overTheRider = false;
   let discUnderRider = false;
-  let discClearedAtPickup = false;
+  let discMovedToDropoff = false;
+  const bandFollows = [];
   let launchedFromKerb = false;
   let transferred = false;
   let landedOnTaxi = false;
@@ -387,6 +391,13 @@ check('no two cars occupy the same space', worst > 1.6,
     const route = (fare) => {
       const r = findRoute(planOrigin(fTraffic.taxi), fare.target);
       if (r) { fTraffic.taxi.route = r; fTraffic.taxi.routeConsumed = false; fares.markDirected(fare); }
+      // What the route band is painted from (main.js reads exactly these two): the fare the taxi
+      // has been sent at, and the colour that fare is speaking in. A band on the wrong fare's
+      // clock is a wrong answer drawn across half the city, and it is the widest object on screen.
+      if (r) {
+        bandFollows.push(fares.directed() === fare
+          && fares.colorOf(fare).getHexString() === diamondHex(fare.slot.marker));
+      }
     };
 
     let done = false;
@@ -400,11 +411,12 @@ check('no two cars occupy the same space', worst > 1.6,
         // someone on the kerb, so a hidden one is an invisible fare.
         overTheRider = marker.group.visible && distanceTo(kerbAtSpawn) < 0.01;
         // The disc lands on the same corner, under their feet — it is the crystal's colour said
-        // again on the ground, where the driving is aimed.
+        // again on the ground, where the driving is aimed. And nothing is on the far corner yet.
         discUnderRider = marker.ring.visible
           && Math.hypot(marker.ring.position.x - kerbAtSpawn.x,
             marker.ring.position.z - kerbAtSpawn.z) < 0.01
-          && new Set([...ringHexes(marker), diamondHex(marker)]).size === 1;
+          && new Set([...riderRingHexes(marker), diamondHex(marker)]).size === 1
+          && !fare.slot.destination.group.visible;
         route(fare);
       }
       if (type === 'pickup' && fare.slot.marker === marker) {
@@ -412,9 +424,12 @@ check('no two cars occupy the same space', worst > 1.6,
         // Launched from the corner the rider was standing on, not replanted on the car: the
         // hand-off has to read as the same object moving.
         launchedFromKerb = marker.group.visible && distanceTo(kerbAtSpawn) < 0.01;
-        // ...and the disc goes out on the same frame: the corner stops meaning anything the moment
-        // the clock leaves it, and one left glowing reads as another fare waiting there.
-        discClearedAtPickup = !marker.ring.visible;
+        // ...and the disc makes the same hand-off on the ground that the crystal is making in the
+        // air: out on the kerb corner, on at the drop-off, on one frame and in one colour. A fare
+        // owns exactly one disc at a time, and two lit at once would read as two fares.
+        discMovedToDropoff = !marker.ring.visible
+          && fare.slot.destination.group.visible
+          && new Set([...ringHexes(fare.slot), diamondHex(marker)]).size === 1;
         route(fare);
       }
       // The run may end on the clock rather than a delivery; the marker must clear either way.
@@ -439,7 +454,10 @@ check('no two cars occupy the same space', worst > 1.6,
 
   check('the clock stands over the rider from the frame they appear', overTheRider);
   check('and marks the ground under their feet in the same colour', discUnderRider);
-  check('the ground disc clears when they board', discClearedAtPickup);
+  check('the disc hands off to the drop-off when they board', discMovedToDropoff);
+  check('the route band takes its colour from the fare the taxi was sent at',
+    bandFollows.length > 0 && bandFollows.every(Boolean),
+    `${bandFollows.filter((b) => !b).length}/${bandFollows.length} dispatches disagreed`);
   check('it launches from the corner the rider was standing on', launchedFromKerb);
   check('it flies rather than teleports', transferred && leftTheKerb);
   check('it then rides with the taxi', landedOnTaxi);
@@ -496,6 +514,68 @@ check('no two cars occupy the same space', worst > 1.6,
       `${beats}/120 frames beating, ${calm}/120 calm above the threshold`);
     rider.hide();
   }
+}
+
+// --- The drop-off ring drains with the rider in the car -----------------------
+// The disc at the far end of a trip is painted in the clock of whoever is aboard, and that is only
+// worth anything if it walks the scale as the clock does. The played run above asserts the ring and
+// the crystal never disagree, but a delivery is usually over well before the clock reaches red — so
+// drive one fare's seconds down by hand mid-ride and read all three of the disc's layers back.
+{
+  const dScene = new THREE.Scene();
+  const dTraffic = createTraffic(makeRng(seed + 44), dScene, 24);
+  const dFares = createFareSystem(makeRng(seed + 55), dScene);
+  dTraffic.warmup(5);
+
+  const FRACTIONS = [1, 0.7, 0.45, 0.2, 0.02];
+  const hues = [];
+  let riding = null;
+  let elapsed = 0;
+
+  while (elapsed < 220 && !dFares.state.gameOver && hues.length < FRACTIONS.length) {
+    dTraffic.update(1 / 60);
+    // Held at the fraction under test, so the clock cannot run out while we read it — and the
+    // rider is never routed at their drop-off, so the fare cannot resolve out from under us
+    // either (arrival requires direction; see fares.js).
+    if (riding) riding.timeLeft = riding.limit * FRACTIONS[hues.length];
+    const events = dFares.update(1 / 60, dTraffic.taxi);
+    elapsed += 1 / 60;
+
+    // The pickup frame itself is not a sample: the override above only starts applying on the
+    // frame after, so that one still carries whatever the real clock happened to read.
+    let boarded = false;
+    for (const { type, fare } of events) {
+      if (type === 'spawned' && !riding) {
+        const r = findRoute(planOrigin(dTraffic.taxi), fare.target);
+        if (r) {
+          dTraffic.taxi.route = r;
+          dTraffic.taxi.routeConsumed = false;
+          dFares.markDirected(fare);
+        }
+      }
+      if (type === 'pickup' && !riding) {
+        riding = fare;
+        boarded = true;
+      }
+    }
+
+    if (riding?.stage === 'riding' && !boarded) {
+      const layers = new Set(ringHexes(riding.slot));
+      hues.push(layers.size === 1 ? [...layers][0] : [...layers].join('/'));
+    }
+  }
+
+  check('the drop-off ring walks the urgency scale as the ride runs down',
+    hues.join(' -> ') === FRACTIONS.map((f) => urgencyColor(urgencyLevel(f)).getHexString()).join(' -> '),
+    hues.join(' -> '));
+
+  // The VIP exception, at the seam every one of those surfaces now reads from. A VIP's crystal,
+  // its drop-off ring, its band and its off-screen arrow are one fixed purple at every level —
+  // "this one is a VIP" must never be confusable with how much time it has left.
+  const vipHues = new Set([0, 1, 2, 3, 4].map((l) => fareColor(l, true).getHexString()));
+  check('a VIP speaks one purple at every level of the scale',
+    vipHues.size === 1 && vipHues.has(new THREE.Color(PALETTE.vip).getHexString()),
+    [...vipHues].join(', '));
 }
 
 // --- The difficulty curve is winnable everywhere on it ------------------------
@@ -688,6 +768,8 @@ check('no two cars occupy the same space', worst > 1.6,
   let wrongOpening = 0;
   let drainedOpening = 0;
   let fillOutOfStep = 0;
+  const discOutOfStep = [];
+  let ridingFrames = 0;
   let pickups = 0;
   let stillMarked = 0;   // markers that vanished at pickup instead of flying to the taxi
   let sharedJunction = 0;
@@ -748,10 +830,19 @@ check('no two cars occupy the same space', worst > 1.6,
       // VIP's crystal is the one exception: it never drains at all, by design (faremarker.js).
       const want = f.vip ? 1 : Math.max(0, Math.min(1, f.timeLeft / f.limit));
       if (Math.abs(f.slot.marker.getFill() - want) > 1e-6) fillOutOfStep += 1;
+      // The ring at the far end of a trip under way wears the clock riding in the car — all three
+      // of its layers, on every frame of the ride. A disc a level behind the crystal above the
+      // roof would have the board saying two things about one deadline, which is the whole reason
+      // the colour was moved onto it.
+      if (f.stage === 'riding') {
+        ridingFrames += 1;
+        const hexes = new Set([...ringHexes(f.slot), diamondHex(f.slot.marker)]);
+        if (hexes.size !== 1) discOutOfStep.push([...hexes].join('/'));
+      }
       // One outline weight, whatever the fare is doing — waiting, directed at, or riding. It was
       // two for a while (a heavier rim inked the rider the taxi had been sent at), and the change
       // of weight at the hand-off read as the marker becoming a different object mid-trip.
-      rimWeights.add(f.slot.marker.rim.scale.x.toFixed(4));
+      rimWeights.add(f.slot.marker.rim.scale.toArray().map((n) => n.toFixed(4)).join('/'));
     }
 
     aim();
@@ -777,6 +868,12 @@ check('no two cars occupy the same space', worst > 1.6,
   // and never moves between them, which is exactly the marker this replaced.
   check('the fill tracks the seconds on every live fare', fillOutOfStep === 0,
     `${fillOutOfStep} frames out of step`);
+  // Same argument one step out: the ring the taxi is driving at is the same clock as the crystal
+  // over its roof, so the two may never be seen at different levels.
+  check('the drop-off ring wears the clock riding in the car',
+    ridingFrames > 0 && discOutOfStep.length === 0,
+    `${ridingFrames} frames aboard, ${discOutOfStep.length} out of step`
+    + (discOutOfStep.length ? ` (e.g. ${discOutOfStep[0]})` : ''));
   check('the price agrees with the advertised distance', wrongPrice === 0, `${wrongPrice} mispriced`);
   // The clock now comes from the trip rather than a constant, so "is it enough?" is a live
   // question every spawn rather than something settled once in a comment.
@@ -792,7 +889,8 @@ check('no two cars occupy the same space', worst > 1.6,
   // Which rider the car is on its way to is the route band's job. The diamond's outline says
   // nothing about it and never changes weight — on the kerb, once directed at, or over the taxi.
   check('the diamond wears one outline weight for its whole life',
-    rimWeights.size === 1 && rimWeights.has(RIM_SCALE.toFixed(4)),
+    rimWeights.size === 1
+    && rimWeights.has(RIM_SCALE.toArray().map((n) => n.toFixed(4)).join('/')),
     [...rimWeights].join(', '));
   // --- The drop-off is a ring and nothing else.
   //
@@ -801,13 +899,13 @@ check('no two cars occupy the same space', worst > 1.6,
   // second silhouette competing with the rider's diamond, which is the whole reason it went.
   {
     const pin = createDestinationPin();
-    const hex = (c) => new THREE.Color(c).getHexString();
+    const opening = urgencyColor(URGENCY_SEGMENTS).getHexString();
     const painted = pin.ring.group.children.map((m) => m.material.color.getHexString()).join('/');
-    check('the drop-off ring is teal, rim and fill and sweep',
-      painted === `${hex(PALETTE.destination)}/${hex(PALETTE.destination)}/${hex(PALETTE.destination)}`,
-      painted);
-    check('the drop-off wears no urgency colour',
-      !PALETTE.urgency.map(hex).includes(hex(PALETTE.destination)));
+    // One mark at three weights, so rim, fill and sweep are always the same hex — and it is a hex
+    // off the urgency scale now rather than a teal outside it. Which *level* a live drop-off is
+    // standing at is asserted against a played run below.
+    check('the drop-off ring opens on a full clock, rim and fill and sweep',
+      painted === `${opening}/${opening}/${opening}`, painted);
     // The ring group and nothing else on the corner; the hit box is a child of the root, not of it.
     check('the drop-off stands nothing on its corner',
       pin.standing === null && pin.postGroup.children.length === 1
@@ -834,7 +932,7 @@ check('no two cars occupy the same space', worst > 1.6,
       if (got !== want) wrongColour.push(`${level}: ${got} != ${want}`);
       // Crystal and disc are one statement. A disc lagging a level behind would have the board
       // saying two different things about the same rider.
-      for (const disc of ringHexes(diamond)) {
+      for (const disc of riderRingHexes(diamond)) {
         if (disc !== want) wrongColour.push(`${level} disc: ${disc} != ${want}`);
       }
       if (got !== seen.at(-1)) seen.push(got);
@@ -850,12 +948,76 @@ check('no two cars occupy the same space', worst > 1.6,
 
     // The rim must stay black at the one weight it has: it was yellow once, and yellow is a colour
     // this very crystal wears for a quarter of every clock, so a yellow rim on a yellow diamond is
-    // no rim at all. The weight itself is asserted across a played run above.
+    // no rim at all. That it never *changes* weight is asserted across a played run above.
     const hull = diamond.rim;
     check('the diamond wears a black rim at RIM_SCALE',
       hull.material.color.getHexString() === '000000'
-      && Math.abs(hull.scale.x - RIM_SCALE) < 1e-9,
-      `${hull.material.color.getHexString()}@${hull.scale.x.toFixed(4)}`);
+      && hull.scale.distanceTo(RIM_SCALE) < 1e-9,
+      `${hull.material.color.getHexString()}@${hull.scale.toArray().map((n) => n.toFixed(3))}`);
+
+    // And that weight is a *distance*, which a single scale factor no longer buys: the plumbob is
+    // three times longer below its equator than it is wide, so one multiplier would hang a black
+    // needle off the bottom point and shave the flanks. Measured corner by corner — every vertex of
+    // the hull against the vertex of the body it came from, which is where the rim is widest and so
+    // where a wrong number shows.
+    //
+    // Never *under* the weight, and never more than a tenth over. It is not exact at the equator
+    // and cannot be: those four corners take the horizontal offset in full and then ride up a
+    // little on the vertical scale as well, which lands them at 0.232 against 0.220. That is 0.09px
+    // at play zoom. The tips, where a scale factor does real damage, are exact.
+    {
+      const body = diamond.mesh.geometry.attributes.position;
+      const corner = new THREE.Vector3();
+      let thinnest = Infinity;
+      let thickest = 0;
+      for (let i = 0; i < body.count; i++) {
+        corner.fromBufferAttribute(body, i);
+        const offset = corner.length() === 0 ? RIM_OFFSET
+          : corner.distanceTo(corner.clone().multiply(hull.scale));
+        thinnest = Math.min(thinnest, offset);
+        thickest = Math.max(thickest, offset);
+      }
+      check('and it stands its own weight off every corner of the crystal',
+        thinnest >= RIM_OFFSET - 1e-6 && thickest <= RIM_OFFSET * 1.1,
+        `${thinnest.toFixed(3)} to ${thickest.toFixed(3)} against ${RIM_OFFSET}`);
+    }
+
+    // --- The plumbob's winding.
+    //
+    // Hand-written triangles need their winding asserted, not eyeballed (see CLAUDE.md — the
+    // roadworks ramp shipped inside out and read as z-fighting). It bites twice on this shape: the
+    // crystal is `flatShading`, which takes its normal from a screen-space derivative and so from
+    // the rendered winding, and the outline hull draws the same geometry back-faces-only, so a
+    // flipped triangle is both a facet lit from behind and a hole in the rim.
+    //
+    // Computed **from the winding**, not read back off the normal attribute:
+    // `computeVertexNormals` averages a reversed triangle into whatever its neighbours say, which
+    // is exactly the laundering this is here to catch. A convex shape around the origin gives the
+    // test: every face normal must point away from the centre of its own triangle.
+    {
+      const pos = diamond.mesh.geometry.attributes.position;
+      const a = new THREE.Vector3();
+      const b = new THREE.Vector3();
+      const c = new THREE.Vector3();
+      const edge = new THREE.Vector3();
+      const n = new THREE.Vector3();
+      const centre = new THREE.Vector3();
+      let inward = 0;
+      let faces = 0;
+      for (let i = 0; i < pos.count; i += 3) {
+        a.fromBufferAttribute(pos, i);
+        b.fromBufferAttribute(pos, i + 1);
+        c.fromBufferAttribute(pos, i + 2);
+        n.copy(b).sub(a).cross(edge.copy(c).sub(a)).normalize();
+        centre.copy(a).add(b).add(c).divideScalar(3);
+        faces += 1;
+        // The origin is inside the crystal, so an outward normal has a positive dot with any point
+        // on its own face. A reversed triangle fails this by exactly the sign.
+        if (n.dot(centre) <= 0) inward += 1;
+      }
+      check('every facet of the crystal faces outwards',
+        faces === 8 && inward === 0, `${faces} faces, ${inward} wound inside out`);
+    }
 
     // --- The level change kicks.
     //
@@ -1684,7 +1846,7 @@ check('every intersection is routable from every approach', unroutable === 0,
 }
 
 // --- Dragging the band to re-route -----------------------------------------
-// The player takes hold of the yellow band and pulls it sideways; the junction under their finger
+// The player takes hold of the route band and pulls it sideways; the junction under their finger
 // becomes a waypoint and the route is re-planned through it, live, while the taxi keeps driving.
 // Four things have to hold, and none of them is visible in a screenshot: the finger has to land on
 // the band and nowhere else, the re-plan has to actually go through the waypoint, a silly drag has

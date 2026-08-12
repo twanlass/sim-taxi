@@ -25,6 +25,16 @@ import {
  * which way the taxi is about to go without reading the road layout — a stationary wash of colour
  * reads as "a route exists", not "this is the direction of it". It rides the same `vDist`/`uLength`
  * fade already computed for the head and tail, so it never brightens past either end of the band.
+ *
+ * **The band is painted in the clock it is spending** (`setColor`, driven from `main.js` off the
+ * fare the taxi is currently sent at). It was the taxi's own yellow for a long time, on the
+ * grounds that the band belongs to the car rather than to the road — but the car is not the news.
+ * A route only ever exists because a fare is draining somewhere at the end of it, and the band is
+ * the longest, most visible object on the screen: it runs across half the city on a road the eye
+ * is already following. Carrying the urgency there means the answer to "how much trouble am I in"
+ * is on the way to the answer for "where am I going", instead of on a 29px crystal the player has
+ * to look away to read. `PALETTE.routeLine` is still the fallback for a route with no fare behind
+ * it — the recovery re-route, and a route drawn by hand from the debug panel.
  */
 
 // The taxi drives one lane, so the band covers one lane: ROAD_W is both lanes.
@@ -356,9 +366,11 @@ const GRAB_FOCUS = 0.50;
 const GRAB_GLOW = 11;
 const GRAB_WIDEN = 0.30;
 // How far the bloom pushes toward white. Measured down from 0.45: at that value the core went
-// fully white over an additive blend and the band stopped being yellow exactly where the player
-// was looking — the route's own colour is the thing saying "this is the job", and washing it out
-// at the point of contact is the one place it must not go. 0.30 is a hot yellow, not a white.
+// fully white over an additive blend and the band lost its colour exactly where the player was
+// looking — that colour is the fare's clock (see `setColor`), and washing it out at the point of
+// contact is the one place it must not go. 0.30 is a hot version of whatever hue the band is
+// wearing rather than a white; it was measured against the taxi yellow the band used to be, and
+// it survived the move to the urgency scale because it is a lift rather than a colour of its own.
 const GRAB_WHITEN = 0.30;
 
 // Snaps on and settles off. A grab has to feel instant or it reads as lag on the one gesture whose
@@ -402,9 +414,11 @@ export function createRouteLine(scene) {
       }
     `,
     // `colorspace_fragment` is not optional: a ShaderMaterial gets none of the built-in chunks,
-    // and without it this yellow renders linear — visibly darker than every MeshBasicMaterial
-    // marker beside it. It runs *before* the premultiply, because premultiplied colour is not in
-    // a colour space any more and converting it is wrong by however much alpha isn't 1.
+    // and without it `uColor` renders linear — visibly darker than every MeshBasicMaterial marker
+    // beside it, and out of step with the disc this band runs into, which is an ordinary
+    // MeshBasicMaterial in the same hue. It runs *before* the premultiply, because premultiplied
+    // colour is not in a colour space any more and converting it is wrong by however much alpha
+    // isn't 1.
     fragmentShader: /* glsl */`
       uniform vec3 uColor;
       uniform float uOpacity;
@@ -477,6 +491,15 @@ export function createRouteLine(scene) {
   });
 
   let blendName = ROUTE_BLEND_DEFAULT;
+
+  /**
+   * Paint the band. Called every frame the band is drawn, so the common path is a `Color.copy`
+   * onto the uniform's own instance — never a swap, since three uploads the object it was handed
+   * at compile time.
+   */
+  function setColor(value) {
+    material.uniforms.uColor.value.set(value);
+  }
 
   /** Switch how the band combines with the road. Unknown names fall back to `normal`. */
   function setBlend(name) {
@@ -609,6 +632,9 @@ export function createRouteLine(scene) {
     mesh,
     update,
     setBlend,
+    setColor,
+    /** What the band is painted right now, for tools with no GL context to read it back from. */
+    color: () => material.uniforms.uColor.value,
     setGrab,
     blend: () => blendName,
     hide: () => { mesh.visible = false; },

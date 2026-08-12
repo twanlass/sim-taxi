@@ -1,39 +1,129 @@
 import * as THREE from 'three';
 
-// The geodesic diamond — the shape a fare's clock is drawn as, over the rider and then over the
-// taxi that collects them. game/faremarker.js is what gives it a life; this is just the model.
+// The crystal a fare's clock is drawn as, over the rider and then over the taxi that collects
+// them. game/faremarker.js is what gives it a life; this is just the model.
 //
 // It began as the drop-off pin's head, and for a spell both ends of a trip wore one: teal over the
 // junction the taxi was driving to, urgency-coloured over a rider on the kerb. The drop-off has
 // since gone back to being a ring on the road and nothing else, because a second crystal reporting
 // no state was a silhouette the player had to tell apart from the one that did. So a diamond on the
-// board now means exactly one thing: a clock is running here.
+// board means exactly one thing: a clock is running here — and a ring on the road means exactly one
+// other, that the taxi is being driven there. The two share a colour now (that ring wears the clock
+// of whoever is in the car) but never a shape.
 //
 // It stays its own module rather than folding into game/faremarker.js — the shape, its outline and
 // its bounce are a vocabulary the next marker should take from here rather than re-derive, and this
 // way the model has no idea what a fare is.
 //
-// Octahedron: it reads clearly from straight above, unlike a sphere, and matches the crystal
-// vocabulary used elsewhere in these prototypes.
+// **It is a plumbob** — the crystal that hangs over a Sim: a square bipyramid with a short cap and
+// a long taper below it, floating point-down over whoever it belongs to. The name is the shape's
+// own argument. A plumb bob is a pointed weight on a line, and what it does is *indicate a spot on
+// the ground* — which is exactly this marker's job, and exactly what the octahedron it replaces did
+// worst. A regular octahedron is symmetric top to bottom, so it has no more claim on the pavement
+// under it than on the sky above it, and at a 3/4 camera it reads as a floating lozenge that
+// happens to be near a rider. A long lower point has a direction, and it points at the person.
+//
+// It borrows a shape players already know, which is worth something on its own for a marker whose
+// whole job is "this one, here". Nothing about what it *says* is borrowed: the hue is the fare's
+// clock, not the Sims' mood, and it never goes green-to-red for the same reason.
+//
+// **A vertex faces the camera, not an edge.** The equator is turned 45° so the near corner runs a
+// ridge straight down the silhouette, splitting the front into two facets the sun lights
+// differently. Edge-on instead — which is what the octahedron did, since its vertices sat on the
+// axes and `VIEW_DIR` looks down the diagonal — gives a flat hexagon and a shape with no spine. The
+// camera never rotates (see game/camera.js), so this is a constant baked into the geometry rather
+// than anything maintained per frame.
 //
 // It is a *vessel*: the clock is the liquid in it, and the level drains. See "the fill" below.
 
-export const DIAMOND_R = 1.9;
+// Half-width at the equator, and the two pyramid heights that meet there. The equator sits two
+// thirds of the way up, which is what makes the silhouette a plumbob rather than a stretched
+// octahedron: a stubby cap over a point long enough to aim.
+//
+// 2.8 × 4.5 world units — at play zoom (1 unit ≈ 7.7px) about 22px wide, and 29px tall on screen
+// once the camera's 33° elevation foreshortens the height by 0.84. The octahedron before it was
+// 3.8 units across and read 29 × 24px, so this is the same amount of marker stood up on its end.
+const PLUMB_W = 1.4;
+const PLUMB_TOP = 1.5;
+const PLUMB_BOT = 3.0;
 
-// One geometry for every diamond on the board — the shape never varies, only its colour and where
+/**
+ * Half the crystal's height, and so how far its bottom point hangs below the marker's origin.
+ *
+ * The origin is the *middle* of the shape rather than its equator, which matters twice: the outline
+ * hull is a scale about the origin and would otherwise grow a spike on whichever end is longer, and
+ * `LIFT` in game/faremarker.js measures a rider's headroom from this number.
+ */
+export const DIAMOND_HALF_H = (PLUMB_TOP + PLUMB_BOT) / 2;
+
+const TOP_Y = DIAMOND_HALF_H;
+const BOT_Y = -DIAMOND_HALF_H;
+const EQUATOR_Y = TOP_Y - PLUMB_TOP;
+
+/**
+ * A square bipyramid: four facets up to the top point, four down to the bottom one.
+ *
+ * Non-indexed and wound counter-clockwise seen from outside. Both halves of that matter — the
+ * material is `flatShading`, which takes its normal from a screen-space derivative and so from the
+ * *rendered* winding, and the outline hull draws this same geometry back-faces-only. A reversed
+ * triangle would light as if the sun were behind it and punch a hole in the rim. `tools/probe.mjs`
+ * checks the sign of every face normal computed from the winding, rather than trusting
+ * `computeVertexNormals`, which launders a flipped triangle into whatever its neighbours say.
+ */
+function plumbobGeometry(w, topY, equatorY, botY) {
+  // Turned 45°, so a corner rather than a face points down the camera's diagonal — see the header.
+  const k = w / Math.SQRT2;
+  const ring = [[k, k], [-k, k], [-k, -k], [k, -k]];
+
+  const pos = [];
+  const vertex = (x, y, z) => pos.push(x, y, z);
+  for (let i = 0; i < ring.length; i++) {
+    const [ax, az] = ring[i];
+    const [bx, bz] = ring[(i + 1) % ring.length];
+    // Up: b then a, so the winding runs anticlockwise from outside. Taking them in ring order
+    // instead points the normal back into the crystal.
+    vertex(bx, equatorY, bz); vertex(ax, equatorY, az); vertex(0, topY, 0);
+    // Down: the same pair the other way round, for the same reason.
+    vertex(ax, equatorY, az); vertex(bx, equatorY, bz); vertex(0, botY, 0);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// One geometry for every crystal on the board — the shape never varies, only its colour and where
 // it floats. The outline hulls share it too; they differ from the surface they wrap only by scale.
-const GEO = new THREE.OctahedronGeometry(DIAMOND_R, 0);
+const GEO = plumbobGeometry(PLUMB_W, TOP_Y, EQUATOR_Y, BOT_Y);
 
-// The outline's thickness, as a multiple of the diamond. At play zoom (1 world unit ≈ 7.7px) 1.12
-// is about 1.7px of rim, which is the weight the marker pins carried back when they had posts.
+// The outline's thickness, in **world units** rather than as a scale factor: at play zoom (1 world
+// unit ≈ 7.7px) 0.22 is about 1.7px of rim, which is the weight the marker pins carried back when
+// they had posts.
+//
+// A scalar multiplier is what this used to be, and on a regular octahedron the two are the same
+// thing. On a shape three times longer below the equator than it is wide, they are not: one factor
+// pushes the bottom point out by three times what it gives the flanks, which reads as a black
+// needle hanging off the tip. The rim is a *weight*, so the number that stays fixed has to be the
+// distance — hence a per-axis scale below, chosen so every extreme of the crystal moves out by the
+// same amount.
 //
 // **One weight, for every state the marker is in.** It used to double as the "the taxi has been
-// sent at this rider" mark, re-weighted to 1.34 (≈5px) while a fare was directed and dropped back
-// to this on pickup — so the same crystal wore two different outlines on its way across the board.
-// The heavy one read as a thick black border rather than as a rim, and the difference registered
-// as the marker changing shape mid-trip rather than as a state. The route band already says which
-// rider the car is on its way to, and it says it along the whole road rather than on one corner.
-export const RIM_SCALE = 1.12;
+// sent at this rider" mark, re-weighted to ≈5px while a fare was directed and dropped back on
+// pickup — so the same crystal wore two different outlines on its way across the board. The heavy
+// one read as a thick black border rather than as a rim, and the difference registered as the
+// marker changing shape mid-trip rather than as a state. The route band already says which rider
+// the car is on its way to, and it says it along the whole road rather than on one corner.
+export const RIM_OFFSET = 0.22;
+
+// Equal offsets at the tips and at the flanks — see RIM_OFFSET. The mid-facet rim comes out
+// slightly thinner than at the corners, which is true of any inverted hull and was true of the
+// octahedron's too.
+export const RIM_SCALE = new THREE.Vector3(
+  1 + RIM_OFFSET / PLUMB_W,
+  1 + RIM_OFFSET / DIAMOND_HALF_H,
+  1 + RIM_OFFSET / PLUMB_W,
+);
 
 const BLACK = 0x000000;
 
@@ -75,9 +165,9 @@ export const HIGHLIGHT_EMISSIVE = 1.05;
 //
 // The empty half was opaque at first — the hue at half lightness — and it read as a *dark solid*
 // rather than as an empty vessel, which is the whole point of the thing. What stood in the way of
-// real transparency is the black inverted hull: it is a larger octahedron drawn back-faces-only, so
-// its far faces cover the entire silhouette, and glass over it would show a black void rather than
-// the city. The fix is draw order rather than a different outline —
+// real transparency is the black inverted hull: it is a larger copy of the crystal drawn
+// back-faces-only, so its far faces cover the entire silhouette, and glass over it would show a
+// black void rather than the city. The fix is draw order rather than a different outline —
 //
 //   the crystal draws first (renderOrder 8) and **writes depth**, blending over the finished
 //   opaque scene, then the hull draws (9) with the depth test on. Inside the silhouette its back
@@ -95,16 +185,19 @@ export const HIGHLIGHT_EMISSIVE = 1.05;
 const MENISCUS = 0.16;
 const MENISCUS_CORE = 0.4;
 
-// Where the surface sits at a given fraction, as a multiple of DIAMOND_R. Linear in *height*, not
-// in volume: the player reads the line's position, and equal time has to be equal travel. Volume
-// would be the physical answer and it is much worse here — an octahedron is widest at its equator,
-// so a volume-true drain spends the middle half of the clock inside the middle 20% of the body.
+// Where the surface sits at a given fraction, in the geometry's own local Y. Linear in *height*,
+// not in volume: the player reads the line's position, and equal time has to be equal travel.
+// Volume would be the physical answer and it is much worse here — the crystal is widest a third of
+// the way down from its top, so a volume-true drain would spend most of the clock in a narrow band
+// up there and then fall through the whole taper in the last few seconds. On the plumbob that
+// mistake is worse than it was on the octahedron, which at least drained symmetrically.
 //
-// The overshoot is exactly one band, which pushes full and empty far enough past the tips that no
-// part of the meniscus still touches the geometry. So a fresh fare is a solid crystal (what the
-// marker looked like before any of this) and a dead one is an empty vessel, with no stray highlight
-// parked on a vertex. It costs 8% of the range at each end, which no clock is read at.
-const FILL_OVERSHOOT = 1 + MENISCUS / DIAMOND_R;
+// The overshoot is exactly one band past each tip, so no part of the meniscus still touches the
+// geometry at either extreme. A fresh fare is a solid crystal (what the marker looked like before
+// any of this) and a dead one is an empty vessel, with no stray highlight parked on a vertex. It
+// costs about 7% of the range at each end, which no clock is read at.
+const FILL_BOTTOM = BOT_Y - MENISCUS;
+const FILL_TOP = TOP_Y + MENISCUS;
 
 // How much of the empty half survives the blend. This is what makes it read as *empty* rather than
 // as a second colour: at a third, two thirds of every pixel up there is the city behind the marker,
@@ -132,10 +225,12 @@ const GLASS_EMISSIVE = 0.6;
 // makes this constant per face, so it lands as a couple of clean steps rather than a gradient — a
 // hard-edged highlight is what says "glass" in a faceted city.
 //
-// The exponent matters more than the strength. At 2.5 it is not a highlight but a wash: an
-// octahedron at this camera angle shows almost nothing head-on, so every visible facet picked up
-// most of the lift and the vessel went pale all over. At 5 it stays on the one or two facets
-// actually turned edge-on, which is where a highlight on glass belongs.
+// The exponent matters more than the strength. At 2.5 it is not a highlight but a wash: at this
+// camera angle very little of the crystal is truly head-on, so every visible facet picked up most
+// of the lift and the vessel went pale all over. At 5 it stays on the one or two facets actually
+// turned edge-on, which is where a highlight on glass belongs — and on the plumbob those are the
+// two flanks either side of the front ridge, which is a better place for it than the octahedron's
+// wandering pair.
 const SHEEN = 0.3;
 const SHEEN_POWER = 5;
 
@@ -176,7 +271,7 @@ const glsl = (n) => n.toFixed(4);
  */
 function patchFill(material, flipped = false) {
   const uniforms = {
-    uFill: { value: DIAMOND_R * FILL_OVERSHOOT },
+    uFill: { value: FILL_TOP },
     uGlass: { value: new THREE.Color() },
     uSurface: { value: new THREE.Color() },
   };
@@ -241,6 +336,9 @@ export const DIAMOND_RIM_ORDER = 9;
  * stamps depth, so every hull fragment inside the silhouette fails the test and only the ring
  * around the outside survives. Drawn the other way round, the hull's far faces are what you would
  * see through the empty half of the vessel, and the marker reads as a black void.
+ *
+ * `scale` is a Vector3 rather than a number: an even rim on a shape that is not the same size in
+ * every direction needs a different factor per axis. See RIM_OFFSET.
  */
 export function outlineHull(geometry, scale) {
   const mesh = new THREE.Mesh(
@@ -253,7 +351,7 @@ export function outlineHull(geometry, scale) {
     }),
   );
   mesh.renderOrder = DIAMOND_RIM_ORDER;
-  mesh.scale.setScalar(scale);
+  mesh.scale.copy(scale);
   return mesh;
 }
 
@@ -337,7 +435,7 @@ export function createDiamond(colorHex) {
      */
     setFill(fraction) {
       fill = THREE.MathUtils.clamp(fraction, 0, 1);
-      fillUniforms.uFill.value = DIAMOND_R * FILL_OVERSHOOT * (fill * 2 - 1);
+      fillUniforms.uFill.value = THREE.MathUtils.lerp(FILL_BOTTOM, FILL_TOP, fill);
     },
     /** What the vessel is currently showing — for the headless tools, which have no GL to read. */
     getFill: () => fill,

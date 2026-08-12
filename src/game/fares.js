@@ -3,14 +3,17 @@ import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
 import { createPerson } from '../geometry/person.js';
 import { createFareMarker } from './faremarker.js';
-import { urgencyLevel, URGENCY_SEGMENTS } from './urgency.js';
+import { urgencyLevel, URGENCY_SEGMENTS, fareColor } from './urgency.js';
 import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_RIDER } from './selectpop.js';
 import { chainSeconds, planOrigin } from './route.js';
 import * as difficulty from './difficulty.js';
 
 // The fare loop: a passenger waits at an intersection under a diamond coloured by how long they'll
-// keep waiting, the taxi collects them, a drop-off ring appears, the taxi delivers. Any fare's timer
-// running out ends the run.
+// keep waiting, the taxi collects them, a drop-off ring appears in that same colour, the taxi
+// delivers. Any fare's timer running out ends the run.
+//
+// **One fare, one hue, everywhere it speaks** — the crystal, the ring at the far end of the trip
+// and the band of paint between them, all off `colorOf` below. See game/urgency.js.
 //
 // Each fare is its own little state machine (`waiting → riding → gone`) carrying its own clock, its
 // rider, its drop-off and the one marker that travels between them; up to MAX_FARES run at once.
@@ -620,6 +623,29 @@ export function createFareSystem(rng, scene) {
    */
   const urgencyOf = (fare) => Math.max(0, Math.min(1, fare.timeLeft / fare.limit));
 
+  /**
+   * The colour everything belonging to this fare is painted: the crystal, the ring on the road at
+   * the far end of the trip, and the band of paint the taxi is driving down to reach it.
+   *
+   * One function so the three can never disagree — a band arriving red at an orange disc is two
+   * answers to one question, the same way an orange rider with a yellow chip was.
+   */
+  const colorOf = (fare) => fareColor(urgencyLevel(urgencyOf(fare)), fare.vip);
+
+  /**
+   * Paint this fare's drop-off ring, if the level it is standing at has actually moved.
+   *
+   * Gated rather than written every frame because `setColor` touches three materials, and the
+   * level only steps four times over a whole clock. `ringLevel` is reset by `beginRide`, which is
+   * also the frame the ring first appears — a slot handed to a new fare must not inherit the last
+   * one's level and skip its own opening paint.
+   */
+  function paintDropoff(fare, level) {
+    if (fare.ringLevel === level) return;
+    fare.ringLevel = level;
+    fare.slot.destination.ring.setColor(fareColor(level, fare.vip));
+  }
+
   function beginRide(fare) {
     // Remember where the pickup happened before we overwrite `target` with the drop-off. The
     // boarding animation needs the kerb corner as its origin so the figure can run from it.
@@ -647,12 +673,15 @@ export function createFareSystem(rng, scene) {
     // when the animation ends.
     // The drop-off is revealed now, at the junction drawn when this fare spawned. It never moves —
     // it was always going to be here, the player just could not see it yet.
-    // No retint: the pin is Loco Mode's yellow at build time and stays there. It is an instruction
-    // from the frame it appears, because the taxi is dispatched at it on this same frame — it spent
-    // a spell opening in a resting teal for the stretch where the taxi parked waiting to be told,
-    // and there is no such stretch any more. No per-fare hue either: one rider is aboard at a time,
-    // so there is only ever one drop-off on the board and nothing to tell it apart from. The fare's
-    // own colour lives on the taxi's roof sign now.
+    //
+    // It opens in *this rider's* colour and keeps step with their clock for the whole ride. It was
+    // one fixed hue for a long time (Loco Mode's yellow, then a teal outside the urgency scale) on
+    // the grounds that only one drop-off is ever on the board, so a per-fare hue had nothing to
+    // tell it apart from. What that argument missed is that a colour does not have to distinguish
+    // to be worth reading: the deadline the player is racing is exactly the one attached to the
+    // rider in the car, and the ring is the thing they are driving at.
+    fare.ringLevel = null;
+    paintDropoff(fare, urgencyLevel(urgencyOf(fare)));
     place(fare.slot.destination, fare.dropoff.i, fare.dropoff.j);
     // The rider is aboard, so the deadline is the car's problem now — and the marker goes with
     // them, off the kerb corner it has been waiting on and across to the roof. Nothing is created
@@ -855,8 +884,12 @@ export function createFareSystem(rng, scene) {
       // The same fraction read twice: as a level, which is the colour and steps in quarters, and
       // as a fill, which is the liquid in the crystal and moves every frame.
       const left = urgencyOf(fare);
-      marker.setUrgency(urgencyLevel(left));
+      const level = urgencyLevel(left);
+      marker.setUrgency(level);
       marker.setFill(left);
+      // ...and the ring at the far end of the trip steps with it, so the crystal over the roof and
+      // the disc the taxi is driving at are never a level apart.
+      if (fare.stage === 'riding') paintDropoff(fare, level);
       if (fare.stage === 'waiting') {
         // No target: it holds the kerb corner it was shown on.
         marker.update(state.elapsed, null, fare.timeLeft);
@@ -965,7 +998,7 @@ export function createFareSystem(rng, scene) {
     // Nothing else on the marker reflects this. The diamond's outline used to ink over heavier
     // for whichever waiting rider the car was on its way to, and it was pushed from here as well as
     // reconciled per frame so it landed on the same frame as the route band. The band is now the
-    // whole of that answer — see geometry/diamond.js, RIM_SCALE.
+    // whole of that answer — see geometry/diamond.js, RIM_OFFSET.
     return true;
   }
 
@@ -1013,6 +1046,13 @@ export function createFareSystem(rng, scene) {
     pickables,
     fareFor,
     markDirected,
+    /**
+     * The fare the taxi has actually been sent at, if any — the one the route band belongs to.
+     * At most one is ever flagged: `markDirected` clears every other fare's, because there is one
+     * taxi and it can only be driving at one of them.
+     */
+    directed: () => state.fares.find((f) => f.directed) ?? null,
+    colorOf,
     carrying,
     waiting,
     waitingAll,

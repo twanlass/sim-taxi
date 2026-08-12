@@ -1,16 +1,14 @@
 import * as THREE from 'three';
 import { KERB_H } from '../city/ground.js';
-import { PALETTE } from '../palette.js';
-import { URGENCY_SEGMENTS, urgencyColor } from './urgency.js';
+import { URGENCY_SEGMENTS, fareColor } from './urgency.js';
 import {
-  createDiamond, DIAMOND_R, bounceOffset, kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
+  createDiamond, DIAMOND_HALF_H, bounceOffset, kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
 } from '../geometry/diamond.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
 import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './selectpop.js';
 
-// The fare's clock, as a physical object: one geodesic diamond, coloured by how close this fare is
-// to giving up — green, yellow, orange, red, with a disc under the rider's feet in the same colour
-// for as long as they are standing on the kerb.
+// The fare's clock, as a physical object: one plumbob crystal hanging point-down over whoever it
+// belongs to, coloured by how close this fare is to giving up — green, yellow, orange, red.
 //
 // **It belongs to the fare, not to a marker.** It waits over the rider's head on the kerb, and the
 // instant they get in it flies to the taxi and rides above the roof. The clock does not restart at
@@ -33,13 +31,14 @@ import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './select
 // setFill. The fixed hue is already the one thing it needs to say ("this is a VIP"), and a second
 // colour language draining underneath would read as the marker disagreeing with itself.
 //
-// **The disc is the same colour saying it twice.** The crystal is at eye level where the eye
-// happens to be; the disc is on the ground, which is where the taxi is actually being aimed, and it
-// survives the crystal being lost behind a tower. It is the drop-off's own shape
-// (geometry/targetring.js) in the fare's urgency colour rather than teal, so "a disc is a place the
-// taxi has to reach" holds at both ends of the trip and the hue is the only difference.
+// **A disc under the rider's feet says it a second time, on the ground.** Same hue, same clock, the
+// drop-off's own shape (geometry/targetring.js) — so a trip is marked the same way at both ends and
+// there is nothing extra to learn. The crystal is at eye level, which is where the eye happens to
+// be; the disc is on the road, which is where the taxi is actually being aimed, and it survives
+// what the crystal does not — a rider behind a tower still has a mark on a plane the buildings
+// mostly don't cover.
 //
-// It goes dark the moment the rider boards. The kerb corner stops meaning anything then — the clock
+// It goes dark the moment they board. The kerb corner stops meaning anything then — the clock
 // leaves with them, and a disc left glowing on an empty pavement would read as a second fare.
 //
 // Its own module under game/ rather than geometry/ because it owns a lifecycle — kerb, flight,
@@ -49,11 +48,16 @@ import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './select
 // Height above the ground, on the kerb and over the taxi alike.
 //
 // One altitude for both, so the transfer reads as the marker sliding sideways rather than climbing
-// into a different slot. Over a rider (who tops out a little over 3.3) it leaves the diamond's
-// bottom vertex 1.3 units — about 10px at play zoom — of air above their head; over the taxi (which
-// tops out at ~2.85 with its roof sign) it leaves ~1.85. Being a little further off the car is
-// right anyway: the taxi is wide, and a marker tight to the roof reads as part of the vehicle.
-const LIFT = DIAMOND_R + 4.7;
+// into a different slot. Measured from the crystal's bottom point rather than from its middle,
+// which is what keeps the headroom fixed while the shape is retuned: over a rider (who tops out a
+// little over 3.3) it leaves that point 1.3 units — about 10px at play zoom — of air above their
+// head, and over the taxi (which tops out at ~2.85 with its roof sign) ~1.85. Being a little
+// further off the car is right anyway: the taxi is wide, and a marker tight to the roof reads as
+// part of the vehicle.
+//
+// The plumbob's point hangs lower under its own origin than the octahedron's did, so this number
+// grew with the shape and the air above a rider's head did not move.
+const LIFT = DIAMOND_HALF_H + 4.7;
 
 // The flight from the kerb to the taxi. Inherited from the ring this replaces, which was tuned
 // against BOARD_SECONDS = 0.9 in fares.js so the clock lands on the car a beat *before* the rider
@@ -61,8 +65,8 @@ const LIFT = DIAMOND_R + 4.7;
 const TRANSFER_TIME = 0.65;
 const TRANSFER_ARC = 1.6;      // world units of extra height at the midpoint of the flight
 
-// **The outline is one weight for the marker's whole life** — see RIM_SCALE in geometry/diamond.js.
-// It used to ink over at 1.34 (≈5px against the ordinary 1.7px) while the taxi was on its way to
+// **The outline is one weight for the marker's whole life** — see RIM_OFFSET in geometry/diamond.js.
+// It used to ink over at ≈5px against the ordinary 1.7px while the taxi was on its way to
 // this rider and drop back at pickup, so a fare wore a thick black border on the kerb and a hairline
 // one over the car. Two weights on one silhouette read as the marker changing shape at the hand-off
 // rather than as a state, and the heavy one was a border rather than a rim. Which rider the car is
@@ -93,7 +97,7 @@ const PULSE_AMPLITUDE = 0.15;
  * to be reproducible.
  */
 export function createFareMarker(scene, phase = 0) {
-  const diamond = createDiamond(urgencyColor(URGENCY_SEGMENTS));
+  const diamond = createDiamond(fareColor(URGENCY_SEGMENTS));
   // The rider (or the taxi) under it is the click target — both carry an oversized hit box that
   // already covers this airspace, so intersecting the crystal itself would only cost work on
   // every tap.
@@ -108,7 +112,7 @@ export function createFareMarker(scene, phase = 0) {
 
   // The disc under the rider's feet. Its own scene-level group rather than a child of the one
   // above: that one flies to the taxi, and this one stays on the pavement until it is switched off.
-  const ring = createTargetRing(urgencyColor(URGENCY_SEGMENTS));
+  const ring = createTargetRing(fareColor(URGENCY_SEGMENTS));
   ring.group.visible = false;
   scene.add(ring.group);
 
@@ -139,11 +143,11 @@ export function createFareMarker(scene, phase = 0) {
   function setUrgency(next) {
     if (next === level) return;
     level = next;
-    // A VIP's diamond and disc stay its fixed purple rather than cycling the ordinary green-to-red
+    // A VIP's crystal and disc stay their fixed purple rather than cycling the ordinary green-to-red
     // scale — one colour language per marker, not two fighting for the same rider. The panic pulse
     // (a shared scale cue, not a colour) still carries urgency for it.
     if (vipMarked) return;
-    const colour = urgencyColor(next);
+    const colour = fareColor(next);
     diamond.setColor(colour);
     ring.setColor(colour);
     kickPending = true;
@@ -209,7 +213,7 @@ export function createFareMarker(scene, phase = 0) {
       // instead of the urgency scale's top level — see setUrgency.
       level = nextLevel;
       vipMarked = vip;
-      const openColour = vip ? PALETTE.vip : urgencyColor(nextLevel);
+      const openColour = fareColor(nextLevel, vip);
       diamond.setColor(openColour);
       ring.setColor(openColour);
       // Full, whatever the level says. A rider appears with their whole clock, and the first tick
