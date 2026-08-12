@@ -40,7 +40,54 @@ export const PALETTE = {
   rooftop: '#6B6F76',
 
   // Windows stay dark in every lighting condition, which is what sells scale on a blocky mass.
+  // This is the *bottom* of a pane now rather than the whole of it — see `windowSky`.
   window: '#3A424C',
+  // What a pane catches of the sky. Glass is lerped from `window` toward this across each opening
+  // and across each façade, which is the whole of the reflection: no envelope map, no second
+  // material, no texture — just a vertex colour that interpolates. See `bakeColors` in util/geo.js
+  // for why that works on a flat-shaded mesh at all.
+  //
+  // Nowhere near `skyTop` (#8CC4E8), and deliberately: this is a **reflection coefficient**, not
+  // the sky. Glass returns a few percent of what hits it and the rest is the dark room behind, so
+  // a pane painted the colour of the sky reads as a hole cut in the building. It also has to
+  // survive the rule above — windows sell a building's scale by staying dark, and a façade lerped
+  // all the way to this at the top still averages darker than the old flat `window` did, because
+  // the streak that reaches full strength covers about a fifth of a face.
+  //
+  // It has two blues to stay clear of and clears both on saturation rather than hue: `policeBody`
+  // (#2E5FA8) at 226° and the blue car (#4E7FC0) at 222°, against this one's 217°. Nine degrees and
+  // five is nothing — what separates them is 0.47 saturation against 0.87 and 0.75, and the fact
+  // that both of those are *moving boxes on a road* while this is a grid of eight-pixel rectangles
+  // ruled across a wall. A first pass at 0.33 was safer still and read as grey lightening rather
+  // than as sky.
+  windowSky: '#6E8CB0',
+  // The ground floor is a different animal from the storeys above it: one continuous pane rather
+  // than a punched hole, so it is a stop lighter than `window` (L 0.10 against 0.06) — a shopfront
+  // catches the sky where a recessed window catches the room behind it. Keeping it a separate
+  // entry is also what lets the base of a building read as a base at play zoom, where a window
+  // upstairs is eight pixels and the shopfront band is the whole width of the façade.
+  shopfront: '#4C5A67',
+  // The door — the one warm note on a façade, a door being the part of a building made of
+  // something other than glass and stone.
+  //
+  // It sits at hue 23° where getHSL measures (the working space, not the colour picker's — see the
+  // long note on `cone`), which is the urgency ramp's own family at 20° and four degrees off the
+  // trunk of every tree in the city. What keeps it out of that vocabulary is **value, not hue**:
+  // at L 0.05 against the ramp's 0.42 it is very nearly black, and seven pixels of near-black brown
+  // cannot be read as "this fare is running out of time" however warm it technically is.
+  door: '#4A3D33',
+  // The canopy over a door, and the frame around the door itself. A canvas grey — awnings want to
+  // be striped scarlet and cannot be here, for the reason above.
+  awning: '#8A8478',
+  // The tank on a rooftop water tower. Weathered cedar, which is what those are actually made of,
+  // and the one thing up there that isn't grey — a skyline of nothing but `rooftop` boxes reads as
+  // one repeated smudge rather than as roofs with things on them. Deliberately the trunk's own
+  // family (23° against 22°, saturation 0.61 against 0.61): a water tank and a tree are the two
+  // wooden things in this city and there is nothing to gain from giving them separate browns.
+  watertank: '#7C5C3E',
+  // The hoop bands around that tank, its legs, and the fan grilles on the AC units. One dark for
+  // every piece of rooftop ironwork, same argument as `birdBill`.
+  rooftopIron: '#43484F',
 
   // Yellow is reserved for the taxi. An amber car used to sit in this list and was genuinely
   // mistakable for the player's vehicle at play zoom, where both are a few pixels of warm colour.

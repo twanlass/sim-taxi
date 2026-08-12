@@ -139,6 +139,11 @@ down.
   `pointerdown`. The only ordering that holds regardless of construction order is a capture
   listener on an **ancestor** — which is why the route-band drag listens on `window`. Getting this
   wrong throws nothing; the map just slides out from under a gesture meant for something else.
+- **`createLayout()` is not a pure function.** It closes segments and installs the road network it
+  just baked as *the* city network, so calling it a second time — a probe sweeping seeds, a tool
+  building a comparison city — silently replaces the city everything else is measuring against.
+  Eight traffic and routing checks went red for a change that only touched buildings. Rebuild the
+  layout you meant to keep afterwards.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

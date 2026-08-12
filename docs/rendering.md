@@ -22,6 +22,61 @@ Three things produce it:
 `palette.js` holds every colour in the game by name, plus `jitterColor()` for per-instance
 variation. New colours belong there, not inline.
 
+### Flat shading does not mean flat colour
+
+`bakeColor()` writes one colour to every vertex of a geometry, which is what almost everything
+here wants. `bakeColors()` beside it takes a colour **per vertex**, and the gradient survives —
+which looks like it shouldn't, given every mesh in the project is `flatShading: true`.
+
+It survives because `FLAT_SHADED` only reaches the *normal*. Three derives that from a
+screen-space derivative of the view position; `vColor` stays an ordinary interpolated varying
+either way. So a gradient across a triangle costs nothing but the numbers: no extra vertices, no
+second material, no texture, and it still merges into the same one-mesh-one-material pile as
+everything else.
+
+The window reflections are built entirely out of that.
+
+### Faux window reflections — `city/buildings.js`
+
+Glass is lerped from `window` toward `windowSky` by a weight computed per corner of every pane.
+Nothing is being reflected — it is two numbers and an exponential — but it holds up because **the
+camera never moves**. A real reflection changes when you walk past a building; this one never has
+to.
+
+Three things go into the weight:
+
+| | What it does |
+|---|---|
+| **Height** (`SKY_RISE`) | Higher panes catch more sky, lower ones more of the street. This is the part that reads at play zoom, where a façade is 40px and a pane is 8 — it gives a mass a soft vertical falloff instead of a flat patch |
+| **A diagonal streak** (`STREAK_GAIN`) | A soft band crossing the façade, which is what actually says *glass* rather than *dark paint*. Placed in a diagonal coordinate rather than aimed at anything: the eye reads the diagonal, not the geometry behind it |
+| **Which way the face points** (`FACING`) | +X and +Z are the faces the camera sees and the sun lights, so they get it at full strength; the pair behind get a third. Without this the backs of buildings glowed as brightly as their fronts and the city lost its light direction |
+
+Four details worth keeping:
+
+- **The two front faces are deliberately unequal, and +X is the stronger one even though the sun
+  favours +Z** (azimuth 56°). Matching the reflection to the light makes a corner read as one
+  surface wrapped around it; opposing them puts a value break on the corner, so a tower reads as
+  two glazed elevations meeting.
+- **The streak position comes from a noise field over the city, not from each building's rng.** It
+  is one sky: rolled per building, neighbours on a block caught the light at unrelated places and a
+  street read as a row of independently lit objects. Sampled from a field at 26 units — about a
+  block and a half — a run of buildings shows one sweep passing across them. The field is fixed-seed
+  (the sky does not reseed with the city), which also means the whole feature draws **no rng**, so
+  it is geometry-neutral: asserted identical massing across 60 seeds, and a before/after screenshot
+  differs only by the colour under review.
+- **A quad's gradient must stay on one axis.** A quad is two triangles, so interpolation is exactly
+  linear only when the weights vary along a single axis; a twisted set of four corners shows the
+  diagonal seam between them. Diagonal streaks come from varying the weights *between* panes.
+  Curtain-wall bands are cut into `RIBBON_SEGMENTS` for the same reason — a band is one quad and a
+  quad has two ends, so left-to-right is the only gradient it can hold, which gives a ramp across
+  the whole façade and never the band the streak is meant to be.
+- **A punched window never outshines its own wall** (`wallCeiling`). `windowSky` is more luminous
+  than brick (0.25 against 0.18) and slate (0.20), so a pane at full streak on either comes out
+  brighter than the masonry. On a curtain wall that is correct and wanted — the glass *is* the wall
+  there. On masonry it inverts figure and ground, turning dark holes in a light wall into light
+  patches on a dark one, and takes the scale cue with it. So the punched path carries a ceiling
+  (0.52 on brick, 1.0 on the pale envelopes) and the curtain-wall path does not.
+
 ## Camera
 
 `src/game/camera.js`. A fixed 3/4 orthographic camera:

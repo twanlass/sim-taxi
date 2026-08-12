@@ -12,7 +12,9 @@ import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import { createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
-import { createBuildings } from '../src/city/buildings.js';
+import {
+  createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
+} from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W } from '../src/sim/traffic.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -59,7 +61,7 @@ import { routePath, nearestOnPath, HEAD_GAP } from '../src/game/routeline.js';
 import { findRoute, findRouteVia, MAX_VIA_DETOUR, allIntersections } from '../src/game/route.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
 import { nearestJunction, nextIntersection } from '../src/city/grid.js';
-import { PALETTE } from '../src/palette.js';
+import { PALETTE, BUILDING_COLORS } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
 import { createBlast } from '../src/game/blast.js';
 import {
@@ -151,6 +153,227 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
 check('layout covers every block', layout.length === GRID * GRID, `${layout.length} blocks`);
 check('some blocks are parks', layout.some((b) => b.type === 'park'),
   `${layout.filter((b) => b.type === 'park').length} parks`);
+
+// --- Façades ----------------------------------------------------------------
+//
+// Windows, shopfronts and doors are hand-wound quads rather than PlaneGeometry — a mid-rise
+// carries forty of them and merging that many separate geometries costs more than the rest of the
+// city put together. Hand-wound means the sign of the normal has to be *computed from the
+// winding* rather than looked at: `computeVertexNormals` launders a reversed triangle into
+// whatever its neighbours say, which is how the roadworks ramp shipped inside out and got
+// reported as z-fighting. The expected normals are written out here rather than imported, so this
+// is a second opinion on the table in buildings.js instead of a restatement of it.
+{
+  const OUT = [[1, 0, 0], [0, 0, 1], [-1, 0, 0], [0, 0, -1]];
+  const CX = 5;
+  const CZ = -7;
+  const HW = 2;
+  const HD = 3;
+  let wound = 0;
+  let sunk = 0;
+
+  for (let side = 0; side < 4; side++) {
+    const want = new THREE.Vector3(...OUT[side]);
+    const geo = facadeQuads(
+      [{ u: 0.4, y: 3, w: 1, h: 1.4 }, { u: -0.4, y: 6, w: 1, h: 1.4 }],
+      side, CX, CZ, HW, HD, new THREE.Color(0x333333),
+    );
+
+    const normal = geo.attributes.normal;
+    for (let i = 0; i < normal.count; i++) {
+      const n = new THREE.Vector3(normal.getX(i), normal.getY(i), normal.getZ(i));
+      if (n.dot(want) < 0.999) wound += 1;
+    }
+
+    // And every corner of it stands *outside* the wall. A quad wound correctly but placed on the
+    // inward side would be a window seen from the room behind it, which back-face culling erases.
+    const wall = side % 2 === 0 ? HW : HD;
+    const position = geo.attributes.position;
+    for (let i = 0; i < position.count; i++) {
+      const offset = new THREE.Vector3(position.getX(i) - CX, 0, position.getZ(i) - CZ).dot(want);
+      if (offset <= wall) sunk += 1;
+    }
+  }
+
+  check('a façade faces out of the wall it is punched into', wound === 0,
+    `${wound} vertices wound inward`);
+  check('and every opening stands proud of it', sunk === 0,
+    `${sunk} vertices at or behind the wall plane`);
+}
+
+// --- Faux window reflections ------------------------------------------------
+//
+// Glass is a vertex-colour gradient from `window` toward `windowSky` and nothing else — no envelope
+// map, no second material, no texture. Two things about that are worth holding down.
+{
+  const base = new THREE.Color(PALETTE.window);
+  const sky = new THREE.Color(PALETTE.windowSky);
+  const lum = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+
+  // One: the gradient has to survive the bake. `bakeColors` is the only path in the project that
+  // writes a colour per vertex rather than per geometry, and if it were ever flattened the windows
+  // would still look perfectly fine — just flat — which is exactly the sort of regression that
+  // ships. Asserted at the endpoints, where the answer is exact rather than a judgement.
+  const geo = facadeQuads([{ u: 0, y: 4, w: 1, h: 1.4, g: [0, 0, 1, 1] }],
+    0, 0, 0, 2, 2, base, 0.03, sky);
+  const col = geo.attributes.color;
+  // Vertex order within a quad is [BL, BR, TR, BL, TR, TL]: 0 is a bottom corner, 2 a top one.
+  const bottom = new THREE.Color(col.getX(0), col.getY(0), col.getZ(0));
+  const top = new THREE.Color(col.getX(2), col.getY(2), col.getZ(2));
+  check('a pane carries a gradient rather than one flat colour',
+    bottom.getHexString() === base.getHexString() && top.getHexString() === sky.getHexString(),
+    `bottom #${bottom.getHexString()} → top #${top.getHexString()}`);
+
+  // Two: a *punched* window never outshines the wall it is cut into. `windowSky` is more luminous
+  // than brick (0.25 against 0.18) and than slate, so at full strength a pane on either would come
+  // out brighter than the masonry around it — dark holes in a light wall becoming light patches on
+  // a dark one, which loses the scale cue palette.js keeps `window` dark for in the first place.
+  // Curtain walls are exempt by design and are not checked here: the glass is the wall there.
+  let inverted = 0;
+  const ceilings = [];
+  for (const family of BUILDING_COLORS) {
+    const body = new THREE.Color(PALETTE[family]);
+    const t = wallCeiling(body, base, sky);
+    ceilings.push(`${family} ${t.toFixed(2)}`);
+    const brightest = base.clone().lerp(sky, t);
+    if (lum(brightest) > lum(body)) inverted += 1;
+  }
+  check('a punched window never outshines its own wall', inverted === 0,
+    ceilings.join(', '));
+}
+
+// --- Roofs, and the flight path over them -----------------------------------
+//
+// Roof furniture is the only thing in the city that can reach the aeroplane: the tallest possible
+// tower is 16.4 to its parapet and the plane's belly is at 24.9 on the low side of its jitter.
+// A water tower or a mast is built *conditional on fitting under* SKYLINE_CEILING rather than
+// clamped to it, and this is what says the condition covers every city rather than the one seed
+// the flyover check below happens to fly over.
+{
+  let tallest = 0;
+  let tallestSeed = 0;
+  let courtyards = 0;
+  let manyYards = 0;
+  let unplanted = 0;
+  let helipads = 0;
+  let pitches = 0;
+  let flatOnly = 0;
+  let miscounted = 0;
+  const SEEDS = 24;
+  const PAINT = new THREE.Color(PALETTE.laneMark);
+
+  for (let s = 0; s < SEEDS; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 101));
+    const built = createBuildings(makeRng(seed + s * 101 + 22), cityLayout);
+    built.mesh.geometry.computeBoundingBox();
+    const top = built.mesh.geometry.boundingBox.max.y;
+    if (top > tallest) { tallest = top; tallestSeed = s; }
+    courtyards += built.courtyards;
+    if (built.courtyards > 1) manyYards += 1;
+
+    pitches += built.pitched;
+    helipads += built.helipads;
+    if (built.pitched === 0) flatOnly += 1;
+
+    // The helipad's H is the only thing in the buildings mesh painted in the street's own paint,
+    // so the counter above can be checked against the mesh rather than merely believed.
+    const col = built.mesh.geometry.attributes.color;
+    let painted = false;
+    for (let i = 0; i < col.count; i += 3) {
+      if (Math.abs(col.getX(i) - PAINT.r) < 1e-4 && Math.abs(col.getY(i) - PAINT.g) < 1e-4
+        && Math.abs(col.getZ(i) - PAINT.b) < 1e-4) { painted = true; break; }
+    }
+    if (painted !== (built.helipads > 0)) miscounted += 1;
+
+    // A courtyard is a hollow block with trees in it, and the trees are the whole point — they
+    // are the only green in the buildings mesh, so counting foliage-hued vertices is enough to
+    // say the yard was actually planted rather than left as a hole.
+    if (built.courtyards > 0) {
+      const col = built.mesh.geometry.attributes.color;
+      const hsl = { h: 0, s: 0, l: 0 };
+      let green = 0;
+      for (let i = 0; i < col.count; i += 3) {
+        new THREE.Color(col.getX(i), col.getY(i), col.getZ(i)).getHSL(hsl);
+        if (hsl.h > 0.2 && hsl.h < 0.45 && hsl.s > 0.15) green += 1;
+      }
+      if (green === 0) unplanted += 1;
+    }
+  }
+
+  // `createLayout` is not a pure function: it closes segments and installs the road network it
+  // just baked as *the* city network (see the note at the foot of city/layout.js). Sweeping seeds
+  // therefore leaves the probe's own city replaced by whichever one came last, and every traffic
+  // and routing check below silently starts measuring a different town — which is exactly what
+  // happened, to the tune of eight failures with nothing to do with buildings. Rebuild the
+  // probe's own layout to put its network back.
+  createLayout(makeRng(seed));
+
+  check('nothing on a roof reaches the flight path', tallest < SKYLINE_CEILING,
+    `tallest ${tallest.toFixed(2)} on seed +${tallestSeed * 101}, ceiling ${SKYLINE_CEILING}`);
+  // Exactly one a city, and the ceiling is the half that matters: rolled per lot it came out at
+  // two or three with a tail to five, and a massing repeated five times over a 5×5 grid is not a
+  // landmark, it is just what a block looks like. A city whose blocks all happened to split gets
+  // none rather than a cramped one, so the floor is a rate rather than a per-seed guarantee.
+  check('a city gets one courtyard block, never a district of them', manyYards === 0,
+    `${courtyards} across ${SEEDS} seeds, ${manyYards} with more than one`);
+  check('and nearly every city gets its one', courtyards > SEEDS * 0.85,
+    `${courtyards}/${SEEDS} seeds`);
+  check('and plants every one of them', unplanted === 0,
+    `${unplanted} cities with a courtyard and no trees in it`);
+  // A few a city, on the low masonry stock — which is most of the map, so a city with none at all
+  // means the eligibility test has quietly stopped matching anything.
+  check('the city builds pitched roofs', flatOnly === 0,
+    `${(pitches / SEEDS).toFixed(1)} per city, ${flatOnly} cities with none`);
+  // A handful of towers a city clear the height bar, and under half of those take one.
+  check('helipads are the exception, not the roofline', helipads > 0 && helipads < SEEDS,
+    `${helipads} over ${SEEDS} seeds`);
+  check('and the roof stats describe the mesh that was built', miscounted === 0,
+    `${miscounted} cities whose helipad count disagrees with their paint`);
+}
+
+// --- Pitched roofs ----------------------------------------------------------
+//
+// A roof is nothing but sloped faces, which is exactly the shape the roadworks ramp shipped inside
+// out — its slope normals came out at y = −0.98 and the only face the camera ever saw was the
+// underside. So the sign is computed from the winding here rather than looked at.
+//
+// It has to be done on the shape itself and not on the merged city, and the reason is worth
+// keeping: courtyard trees ride in the buildings mesh, and half of every canopy points downward.
+// A whole-mesh sweep reported 8,847 downward faces on a city whose roofs were all correct.
+{
+  let underhung = 0;
+  let sloped = 0;
+  const shapes = new Set();
+
+  // Enough draws to hit both branches, at footprints from square to long and thin.
+  for (let n = 0; n < 40; n++) {
+    const parts = [];
+    const rng = makeRng(seed + n * 7919);
+    pitchedRoof(parts, 3, -4, 2 + (n % 5) * 2, 3 + (n % 3) * 3, 6.2,
+      new THREE.Color(PALETTE.tan), rng);
+    // The eaves box is pushed first; the roof shape itself is last.
+    const geo = parts[parts.length - 1];
+    shapes.add(geo.attributes.position.count / 3);
+
+    const normal = geo.attributes.normal;
+    for (let i = 0; i < normal.count; i += 3) {
+      const ny = normal.getY(i);
+      if (ny > 0.02) sloped += 1;
+      // The gable's own underside is a genuine downward face at exactly −1, hidden under the
+      // building it sits on. Anything strictly between that and level is a slope on its back.
+      if (ny < -0.02 && ny > -0.995) underhung += 1;
+    }
+    parts.forEach((g) => g.dispose());
+  }
+
+  check('a pitched roof slopes', sloped > 0, `${sloped} upward faces over 40 roofs`);
+  check('and is never laid on its back', underhung === 0,
+    `${underhung} faces sloping downward`);
+  // 4 triangles is the hip (open-ended), 12 the gable. Both shapes have to come out of the run —
+  // a branch that never fires is a shape nobody has ever seen.
+  check('both a hip and a gable get built', shapes.size === 2,
+    `triangle counts seen: ${[...shapes].sort((a, b) => a - b).join(', ')}`);
+}
 check('all cars spawned', traffic.cars.length === 24, `${traffic.cars.length}`);
 
 // --- Run the simulation.
