@@ -44,6 +44,7 @@ src/
     vanish.js           shrink-and-fade for wrecked bodywork, so it is consumed not deleted
     carghosts.js        occluded-only outlines on the traffic nearest the taxi, faded in with boost
     flyover.js          the ambient plane that crosses the city every so often — scenery, nothing more
+    birds.js            the park flock: walks the grass, is startled up by the taxi, comes back
     runend.js           the run-end blackout: stats counted out, then initials, then the table
     highscores.js       the local top five — localStorage is the whole backend
     homescreen.js       the iOS-only "add it to your Home Screen" screen; parks the run while up
@@ -51,7 +52,7 @@ src/
 
   geometry/             one-off models, all procedural
     taxi.js  wheels.js  diamond.js  targetring.js  marker.js  person.js  riderdiamond.js
-    plane.js
+    plane.js bird.js
 
   util/
     rng.js              seeded RNG (mulberry32) + value noise
@@ -176,7 +177,7 @@ isn't caching anything.
 ## Testing hooks
 
 `main.js` exposes `window.__taxi` with `traffic`, `boost`, `skids`, `police`, `fares`, `daylight`,
-`routeTo`, `findRoute`, `isSelected`, `flyover` and `redraw`. The headless tools in `tools/` drive the game
+`routeTo`, `findRoute`, `isSelected`, `flyover`, `birds` and `redraw`. The headless tools in `tools/` drive the game
 through this instead of through the DOM, which is what makes the whole suite run in about a second.
 
 `redraw()` draws one frame on demand. Shot mode never starts the render loop — it warms the sim,

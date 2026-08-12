@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
-import { createGround, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
+import { createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
 import { createBuildings } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W } from '../src/sim/traffic.js';
@@ -34,6 +34,12 @@ import { POP_SCALE_DIAMOND, POP_SCALE_RIDER } from '../src/game/selectpop.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
+import {
+  birdBodyGeometry, birdWingGeometry, BIRD_LEN, BIRD_SPAN, BIRD_STAND_Y, WING_ROOT,
+} from '../src/geometry/bird.js';
+import {
+  createBirds, bodyQuaternion, parkAreas, SETTLE_MIN, STARTLE_RANGE, SHADOW_CEILING,
+} from '../src/game/birds.js';
 import { propMaterial, setAmbientOcclusion, AO_UNIFORMS, BODY_EULER_ORDER } from '../src/util/geo.js';
 import {
   AO_LAYER, markOccluder, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
@@ -4000,6 +4006,172 @@ let planeOrder;   // read out of the block below, checked in 'Which axis a body 
   check('the propeller does not strobe', PROP_SPIN / 60 < Math.PI / 2,
     `${THREE.MathUtils.radToDeg(PROP_SPIN / 60).toFixed(1)}° per frame at 60fps`);
   planeOrder = flyover.group.rotation.order;
+}
+
+// --- The park flock -------------------------------------------------------------
+// Birds in a park have the flyover's problem twice over: nothing about them can fail loudly. A
+// bird that sinks into the grass, walks off the lawn onto the road, beats one wing up while the
+// other goes down, or winks out instead of fading is a thing somebody has to *notice* in a moving
+// picture — so all of it is asserted here, where it is arithmetic.
+{
+  const bodyGeometry = birdBodyGeometry();
+  bodyGeometry.computeBoundingBox();
+  const bounds = bodyGeometry.boundingBox;
+  check('the bird model measures what geometry/bird.js says it does',
+    Math.abs((bounds.max.x - bounds.min.x) - BIRD_LEN) < 1e-6
+    && Math.abs(-bounds.min.y - BIRD_STAND_Y) < 1e-6,
+    `${(bounds.max.x - bounds.min.x).toFixed(2)} long, standing ${(-bounds.min.y).toFixed(2)} clear of its origin`);
+
+  // The wings are two geometries rather than one mirrored by a negative scale — a mirror flips
+  // every triangle's winding, and `flatShading` then lights the whole wing as if the sun were
+  // behind it. Measured off both, so a copy-paste that left one side pointing the wrong way shows
+  // up as a span rather than as a shape nobody looked at closely.
+  const wingBounds = (side) => {
+    const geometry = birdWingGeometry(side);
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox.clone();
+    geometry.dispose();
+    return box;
+  };
+  const rightWing = wingBounds(1);
+  const leftWing = wingBounds(-1);
+  const span = (rightWing.max.z + WING_ROOT.z) - (leftWing.min.z - WING_ROOT.z);
+  check('the wings span what geometry/bird.js says they do', Math.abs(span - BIRD_SPAN) < 1e-6,
+    `${span.toFixed(2)} tip to tip`);
+
+  // Ten minutes of a flock's life, which is several visits and a lot more standing about.
+  const birdScene = new THREE.Scene();
+  const flock = createBirds(birdScene, makeRng(seed + 199), layout);
+  const [flockBody, flockLeft, flockRight] = flock.meshes;
+
+  let onGround = 0;
+  let frames = 0;
+  let lowest = Infinity;              // the lowest point of the lowest bird, ever
+  let offTheGrass = 0;                // walking birds outside the park they live in
+  let dimOnTheGrass = 0;              // frames on the deck at less than full paint
+  let fadeStep = 0;                   // the biggest one-frame change in opacity
+  let wingFaults = 0;                 // frames where the two wings disagreed about which way is up
+  let shadowAloft = 0;                // frames casting shadows with a bird well off the ground
+  let lastFade = flock.state.fade;
+
+  const matrix = new THREE.Matrix4();
+  const tip = new THREE.Vector3();
+  const shoulder = new THREE.Vector3();
+  // Rise of a wingtip above its own shoulder, read off the instance matrix the flock actually
+  // wrote — not recomputed from the flap angle, which is the half of it that could be wrong.
+  const tipRise = (mesh, index, tipZ) => {
+    mesh.getMatrixAt(index, matrix);
+    tip.set(0, 0, tipZ).applyMatrix4(matrix);
+    shoulder.set(0, 0, 0).applyMatrix4(matrix);
+    return tip.y - shoulder.y;
+  };
+
+  for (let step = 0; step < 600 * 60; step++) {
+    flock.update(1 / 60);
+    frames++;
+
+    if (flock.group.visible) {
+      fadeStep = Math.max(fadeStep, Math.abs(flock.state.fade - lastFade));
+      lastFade = flock.state.fade;
+    } else {
+      lastFade = flock.state.fade;
+    }
+
+    const area = flock.state.area;
+    let highest = -Infinity;
+    for (const bird of flock.birds) {
+      lowest = Math.min(lowest, bird.y - BIRD_STAND_Y);
+      highest = Math.max(highest, bird.y);
+      if (flock.state.mode === 'ground'
+        && (bird.x < area.x0 || bird.x > area.x1 || bird.z < area.z0 || bird.z > area.z1)) {
+        offTheGrass++;
+      }
+    }
+    if (flockBody.castShadow && highest > SHADOW_CEILING) shadowAloft++;
+
+    if (flock.state.mode === 'ground') {
+      onGround++;
+      if (flock.state.fade !== 1) dimOnTheGrass++;
+    } else if (flock.state.mode === 'up' || flock.state.mode === 'in') {
+      for (let i = 0; i < flock.birds.length; i++) {
+        // Only on a strong upstroke: at a shallow angle the body's own bank is the same order as
+        // the beat, and this is a test of the beat's sign rather than of the bank's.
+        if (flock.birds[i].flap < 0.6) continue;
+        if (tipRise(flockLeft, i, leftWing.min.z) <= 0) wingFaults++;
+        if (tipRise(flockRight, i, rightWing.max.z) <= 0) wingFaults++;
+      }
+    }
+  }
+
+  check('the flock comes and goes, and spends most of its life on the grass',
+    flock.state.flights >= 3 && flock.state.landings >= 3 && onGround / frames > 0.45,
+    `${flock.state.flights} departures in 10 min, ${(100 * onGround / frames).toFixed(0)}% of it on the deck`);
+  check('no bird ever sinks into the grass', lowest >= KERB_H - 1e-9,
+    `lowest sole ${lowest.toFixed(3)} against a park surface at ${KERB_H.toFixed(2)}`);
+  check('a walking bird stays inside its park', offTheGrass === 0,
+    `${offTheGrass} bird-frames out over the kerb`);
+  check('the flock is fully painted while it is on the ground', dimOnTheGrass === 0,
+    `${dimOnTheGrass} frames walking about half-there`);
+  // The fade is the whole of how a departure ends, so a jump in it is a pop — which is the one
+  // failure here that a player would actually see.
+  check('it fades rather than winking out', fadeStep < 0.05,
+    `biggest one-frame opacity change ${fadeStep.toFixed(4)}`);
+  check('both wings beat the same way up', wingFaults === 0,
+    `${wingFaults} wingtips below their own shoulder on an upstroke`);
+  // The shadow pass ignores a material's opacity, so a faded-out flock that kept casting would
+  // drag hard shadows across the city with nothing visible above them.
+  check('it stops casting shadows once it is off the ground', shadowAloft === 0,
+    `${shadowAloft} frames casting from altitude`);
+  // A moving InstancedMesh latches its bounding sphere on the first frame it is culled and never
+  // recomputes it — the trap the ambient trucks were lost to.
+  check('the flock is never frustum-culled', flock.meshes.every((m) => m.frustumCulled === false),
+    `${flock.meshes.length} meshes for the whole flock`);
+  check('the city has parks for it to live in', parkAreas(layout).length > 0,
+    `${parkAreas(layout).length} green areas`);
+
+  // The taxi coming past is what puts them up. Driven as a car that *shadows* the flock at a fixed
+  // gap, which is not a thing that happens in a run — but a car parked somewhere plausible next to
+  // the park is a test of where the birds happened to land, and this is a test of the range.
+  //
+  // The window it has to fire in is the whole point of the pair. `SETTLE_MIN` is what stops a park
+  // one block off two streets from putting its birds in the air for the whole run; a range that
+  // reached a street over would do the same thing by the other route.
+  const startleAfter = (park) => {
+    const startleScene = new THREE.Scene();
+    const startled = createBirds(startleScene, makeRng(seed + 199), layout);
+    // Short of GROUND_STAY's floor, so a flock that leaves on its own timer never reaches the end
+    // of this loop and Infinity means "the taxi did not do it".
+    for (let step = 0; step < 24 * 60; step++) {
+      startled.update(1 / 60, park(startled.birds));
+      if (startled.state.mode !== 'ground') return (step + 1) / 60;
+    }
+    return Infinity;
+  };
+  // Three units off one bird, so the nearest bird is inside the range whatever the flock does.
+  const nearOne = (flying) => ({ x: flying[0].x + 3, z: flying[0].z });
+  // And past the whole flock rather than past one of them: a point twelve units from the bird you
+  // measured is not twelve units from the other nine, which is what a first attempt at this
+  // measured and why it read as a range that reaches a street over when it doesn't.
+  const clearOfAll = (flying) => ({
+    x: Math.max(...flying.map((bird) => bird.x)) + STARTLE_RANGE + 4,
+    z: flying[0].z,
+  });
+  const startledAt = startleAfter(nearOne);
+  check('the taxi coming past puts the flock up, and not before it has settled',
+    startledAt > SETTLE_MIN - 0.05 && startledAt < SETTLE_MIN + 0.2,
+    `up ${startledAt.toFixed(2)}s in, against a ${SETTLE_MIN}s settle`);
+  check('a taxi a street over leaves them alone', startleAfter(clearOfAll) === Infinity,
+    `${STARTLE_RANGE + 4} units clear of every bird for 24s`);
+
+  // Which axis a bird banks about. Read off `bodyQuaternion` — the function the flock poses every
+  // bird with — rather than off a string, so a call site that went back to the default order fails
+  // here. See the section below for what the default order actually does.
+  const birdLean = (yaw) => new THREE.Vector3(0, 0, 1)
+    .applyQuaternion(bodyQuaternion(0.2, yaw, 0.06, new THREE.Quaternion())).y;
+  const birdLeans = [0, Math.PI / 2, Math.PI, -Math.PI / 2].map(birdLean);
+  check('a bird banks about its own long axis at every heading',
+    Math.abs(birdLeans[0]) > 0.1 && birdLeans.every((y) => Math.abs(y - birdLeans[0]) < 1e-9),
+    `lean ${birdLeans.map((y) => y.toFixed(2)).join(', ')} east/north/west/south`);
 }
 
 // --- Which axis a body rolls about ---------------------------------------------
