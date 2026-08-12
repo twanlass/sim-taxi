@@ -292,13 +292,21 @@ try {
   // whole way is the other half of the promise, so the flourish is read back too — it is a shader
   // uniform, which no screenshot of this software renderer would settle anyway.
   await sleep(400);
+  //
+  // Asserted on the *destination* and on the band still being drawn, not on a leg count. An empty
+  // `route` is a legitimate state — it is `routeTo`'s "the destination is the intersection the taxi
+  // is already heading toward" — and it is what the last leg of every trip looks like. The band is
+  // still painted there (routePath runs from the car to the destination whether or not any turns
+  // remain) and still grabbable, so a check gated on `legs > 0` went red for a state that is
+  // correct, on whichever runs the taxi happened to be one junction out.
   const midDrag = JSON.parse(await evaluate(`JSON.stringify({
     grabbing: window.__taxi.pathDrag.isGrabbing(),
     legs: window.__taxi.traffic.taxi.route.length,
     target: Boolean(window.__taxi.traffic.taxi.pendingTarget),
+    band: Boolean(window.__taxi.routeScreenPosition()),
   })`));
   check('the route survives being dragged',
-    midDrag.grabbing && midDrag.legs > 0 && midDrag.target,
+    midDrag.grabbing && midDrag.target && midDrag.band,
     `${midDrag.legs} legs still planned`);
 
   await evaluate(`${GAME_CANVAS}.dispatchEvent(new PointerEvent('pointerup', {`
