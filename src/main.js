@@ -256,13 +256,26 @@ const vanish = createVanish();
 // part of the situation, not part of the map.
 const flyover = createFlyover(scene, makeRng(runSeed + 155));
 
-// A flock in the parks, walking about until something puts it up — see game/birds.js. Scenery on
+// Flocks in the parks, walking about until something puts them up — see game/birds.js. Scenery on
 // the same terms as the aeroplane, with one thread back to the game: the taxi coming past is what
 // startles them. That runs one way only, so nothing about a run changes if it never happens.
 //
 // Run seed rather than city seed, like the flyover: *which* park they are in and when they leave is
 // part of the situation. The parks themselves are the map, and those come from `layout`.
-const birds = createBirds(scene, makeRng(runSeed + 199), layout);
+//
+// **Two of them**, on separate offsets of that seed so they live separate lives — one is on the
+// grass while the other is halfway across the city, which is what a five-by-five map with two to
+// five parks in it needs to stop feeling like one lawn with something on it and four without. Each
+// is told where the others are and picks a different green; `avoid` is called with the asking
+// flock's own `state` so it can drop itself out of the list by identity. Built in a loop with
+// `push` rather than `map` because `createBirds` settles the flock before it returns — it calls
+// `avoid` during construction, so the array it closes over has to already exist.
+const flocks = [];
+for (const offset of [199, 211]) {
+  flocks.push(createBirds(scene, makeRng(runSeed + offset), layout, {
+    avoid: (state) => flocks.filter((f) => f.state !== state).map((f) => f.state.area),
+  }));
+}
 
 // A street closed for roadworks, once per run, forty seconds or so in — see game/roadwork.js.
 // Ambient traffic routes around it and the taxi has never heard of it, so the closed street is the
@@ -1316,7 +1329,7 @@ function frame() {
   // Handed last frame's taxi position, which is all a startle needs — it is a distance test with
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
   // scenery block in one place.
-  birds.update(dt, traffic.taxi);
+  for (const flock of flocks) flock.update(dt, traffic.taxi);
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 
@@ -1574,12 +1587,18 @@ if (shot) {
   // seconds into the climb. The camera is aimed at the park rather than at the birds because which
   // park they picked comes from the run seed and moves between shots — and because an orthographic
   // camera aimed at a point in the air is aimed at the wrong point on the ground.
+  //
+  // Both flocks go up, and the framing follows the first: the second is a park or more away and a
+  // zoom that held them both would put each of them back to a handful of pixels, which is the thing
+  // this shot exists to look at closely.
   if (shot.birdsAt !== undefined) {
-    birds.takeOff();
-    for (let step = 0; step < Math.round(shot.birdsAt * 60); step++) birds.update(1 / 60);
+    for (const flock of flocks) flock.takeOff();
+    for (let step = 0; step < Math.round(shot.birdsAt * 60); step++) {
+      for (const flock of flocks) flock.update(1 / 60);
+    }
     // Null only in the stub a parkless city gets, which no seed the generator has actually
     // produced — the shot then keeps whatever framing it was given.
-    const home = birds.state.area;
+    const home = flocks[0].state.area;
     if (home) {
       controller.state.target.set((home.x0 + home.x1) / 2, 0, (home.z0 + home.z1) / 2);
       controller.update(aspect());
@@ -1718,7 +1737,8 @@ window.__taxi = {
   police,
   fares,
   flyover,
-  birds,
+  // Every flock in the city, in build order — `flocks[0]` is the one shot 18 frames.
+  flocks,
   roadwork,
   pause,
   routeTo,
@@ -1744,6 +1764,21 @@ window.__taxi = {
    * capture. Harmless while the loop is running, since the next frame overwrites it anyway.
    */
   redraw: () => renderFrame(),
+  /**
+   * Put the run-end screen up on demand, over a stub run — for `tools/smoke.mjs`.
+   *
+   * The initials prompt is the one screen in this game made of DOM a finger actually interacts
+   * with: a real field, a real caret, a real soft keyboard. None of that exists in the node suite,
+   * and the only other way in is to lose a run first, so the browser test needs a door. Everything
+   * the screen needs has a default here; the test overrides just the part it is checking.
+   */
+  showRunEnd: (opts = {}) => showRunEnd(hud.banner, {
+    title: 'Shift over',
+    reason: '',
+    stats: [{ label: 'Cash', value: 0, format: (n) => `$${n}` }],
+    onRetry: () => {},
+    ...opts,
+  }),
   /** Screen-space helpers so the browser smoke test can click real pixels. */
   taxiScreenPosition: taxiScreenPos,
   /**

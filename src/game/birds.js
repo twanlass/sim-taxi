@@ -9,6 +9,12 @@ import { birdBodyGeometry, birdWingGeometry, BIRD_STAND_Y, WING_ROOT } from '../
 // nothing can be tapped on it, and neither the fare loop nor the difficulty curve knows it exists.
 // The model is in geometry/bird.js; this is the life.
 //
+// **A city runs more than one of these.** `main.js` builds two, each on its own seed offset, and
+// hands each an `avoid` callback so they claim different lawns — a 5×5 city has two to five green
+// areas and one flock left all but one empty. Nothing here is shared between them: two flocks are
+// two independent lives that happen to keep out of each other's park, which is also why a second
+// one costs nothing to reason about. See `pickArea`.
+//
 // It lives in `game/` beside the flyover, the dust and the flames rather than in `sim/` beside the
 // traffic, for the same reason the aeroplane does: `sim/` is the cars, the signals and the things
 // the player can hit, and this is an effect. It reads `city/` for the parks and for the height of
@@ -32,7 +38,7 @@ const STAND_Y = PARK_Y + BIRD_STAND_Y;
 export const SHADOW_CEILING = PARK_Y + 0.9;
 
 // How far inside a park's own bounds a bird may walk. The green is inset 0.15 from the block
-// bounds (the kerb takes that), and a bird is a unit long — so this is the kerb plus most of a
+// bounds (the kerb takes that), and a bird is 1.3 units long — so this is the kerb plus most of a
 // bird, which keeps the whole thing on grass rather than half of it over the pavement.
 const PARK_INSET = 1.2;
 
@@ -98,6 +104,8 @@ const FLAP_SWELL = 0.62;
 // 68°, which still left 22° of wing sticking out past the tail on both sides, and a standing bird
 // read as one that had hurt itself. At 1.45 the tip lands at x −0.60 against a tail that ends at
 // −0.63, so the wing disappears into the bird's own outline and the walking silhouette is the body.
+// (Both in the model's own units, before `BIRD_SCALE` — it moves them together, so an angle picked
+// against those two numbers stays right at any size.)
 const FOLD_SWEEP = 1.45;
 // Dropped far enough to sit beside the back rather than on top of it, which is what keeps the two
 // wings from meeting in a flat line down the spine.
@@ -153,7 +161,16 @@ export function parkAreas(layout) {
   return areas.filter((a) => a.x1 - a.x0 > PARK_INSET * 2.5 && a.z1 - a.z0 > PARK_INSET * 2.5);
 }
 
-export function createBirds(scene, rng, layout) {
+/**
+ * One flock, settled in a park and left to get on with it.
+ *
+ * @param avoid  called with this flock's own `state`, returning the areas other flocks are using —
+ *               see `pickArea`. A callback rather than a list because the other flocks move too,
+ *               and it is handed our own `state` so a caller holding all of them can drop *this*
+ *               one from the list by identity, without the two ends having to agree on an index.
+ *               The default makes a lone flock behave exactly as it did before there were two.
+ */
+export function createBirds(scene, rng, layout, { avoid = () => [] } = {}) {
   const group = new THREE.Group();
   group.name = 'birds';
   scene.add(group);
@@ -260,6 +277,31 @@ export function createBirds(scene, rng, layout) {
   function spotIn(area) {
     const b = inside(area);
     return { x: rng.range(b.x0, b.x1), z: rng.range(b.z0, b.z1) };
+  }
+
+  /**
+   * A lawn to put down on: one no other flock has claimed, and — when asked — not the one we just
+   * left. Both are wants rather than rules, and **which one gives way first is the whole of this
+   * function**: keeping off another flock's green outranks getting a change of scene.
+   *
+   * Half the cities the generator makes have exactly two green areas big enough for a flock, which
+   * with two flocks means the pair fills the map. Ask those two wants in the other order and every
+   * return leg in such a city has to land on the other flock's lawn to satisfy the change of scene
+   * — 4,700 frames of the two piled onto one green in a ten-minute probe run, which was the first
+   * version of this. Giving up the move instead costs a flock nothing a player can see: it comes
+   * back to the park it left, having been away and out of sight for twenty seconds.
+   *
+   * The last fallback is a city with one park, or none free — neither of which the layout generator
+   * has produced — and it lands somewhere rather than leaving a flock circling.
+   */
+  function pickArea(notThis = null) {
+    const taken = avoid(state);
+    const free = areas.filter((a) => !taken.includes(a));
+    const fresh = free.filter((a) => a !== notThis);
+    if (fresh.length) return rng.pick(fresh);
+    if (free.length) return rng.pick(free);
+    const moved = areas.filter((a) => a !== notThis);
+    return rng.pick(moved.length ? moved : areas);
   }
 
   function newTarget(bird) {
@@ -445,10 +487,12 @@ export function createBirds(scene, rng, layout) {
     // Usually a different park. The flock is the same flock either way — what moves is where it
     // decided to spend the afternoon, and a city whose birds only ever use one lawn is a city with
     // one lawn worth looking at.
-    if (areas.length > 1 && rng.chance(0.6)) {
-      const others = areas.filter((a) => a !== state.area);
-      state.area = rng.pick(others);
-    }
+    //
+    // And *always* a different one if another flock moved onto our green while we were away: two
+    // flocks stacked on one lawn is the single arrangement the pair exists to avoid, and coming
+    // home to it would undo the separation a whole run had been keeping.
+    const occupied = avoid(state).includes(state.area);
+    if (areas.length > 1 && (occupied || rng.chance(0.6))) state.area = pickArea(state.area);
     const area = state.area;
     const cx = (area.x0 + area.x1) / 2;
     const cz = (area.z0 + area.z1) / 2;
@@ -561,7 +605,7 @@ export function createBirds(scene, rng, layout) {
 
   /** Put the flock down in a park, walking, as if it had just landed. */
   function settle(area = null) {
-    state.area = area ?? rng.pick(areas);
+    state.area = area ?? pickArea();
     state.mode = 'ground';
     state.settled = 0;
     state.stay = rng.range(GROUND_STAY[0], GROUND_STAY[1]);

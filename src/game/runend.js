@@ -337,12 +337,52 @@ function buildEntry(root, rank, prefill, commit) {
     });
   };
 
+  /**
+   * The caret lives at the end of the value, always.
+   *
+   * A tap puts it wherever the finger landed, and what the finger lands on is not what it looks
+   * like: the value is one centred 16px text run inside a ~214px box of cells, so the glyphs
+   * occupy about 30px in the middle and everything either side of them is empty field. Tapping the
+   * *first* cell is therefore a tap well left of the text, and the caret collapses to offset 0.
+   *
+   * With three letters already in the field — a returning player's initials are pre-filled from
+   * their last run — offset 0 is a dead field. Backspace at the start of the value deletes nothing,
+   * and `maxlength` blocks every letter because the value is already full. The keyboard is up, the
+   * player types, and the screen does not move: measured on an emulated phone, tapping cell 0 with
+   * `TWA` in the field left `TWA` after both a backspace and a keystroke.
+   *
+   * Snapping to the end also makes the painted caret honest. `paint` marks the slot at
+   * `text.length` on the assumption that is where the next letter goes; before this the real caret
+   * could sit two cells away from the one blinking (tapping cell 1 put it mid-value, so a backspace
+   * took out the middle letter while the last cell was the one lit).
+   *
+   * A selection that isn't collapsed is left alone: select-all-then-type is a legitimate way to
+   * replace all three, and it already does the right thing.
+   */
+  const caretToEnd = () => {
+    const start = input.selectionStart;
+    if (start === null || start !== input.selectionEnd) return;
+    const end = input.value.length;
+    if (start !== end) input.setSelectionRange?.(end, end);
+  };
+
   input.addEventListener('input', () => {
     // Rewriting the value moves the caret to the end, which is where it already is for every
     // keystroke that survives the filter — and exactly where it should go for one that doesn't.
     input.value = normaliseName(input.value);
+    caretToEnd();
     paint();
   });
+
+  // `click`, not `focus`: the browser places the tap's caret *after* firing focus, so a snap on
+  // focus alone is undone by the very tap that triggered it. `click` is the last event of a tap on
+  // every engine here, so it lands after the placement. `selectionchange` covers dragging the caret
+  // handle, which produces no click at all (it is element-scoped and simply never fires where it
+  // isn't supported); `keyup` covers the arrow keys on the desktops that predate it.
+  input.addEventListener('click', caretToEnd);
+  input.addEventListener('selectionchange', caretToEnd);
+  input.addEventListener('select', caretToEnd);
+  input.addEventListener('keyup', caretToEnd);
   /** The keyboard clamp's release while the field has focus, `null` when it doesn't. */
   let release = null;
   const unfollow = () => { release?.(); release = null; };
@@ -371,8 +411,9 @@ function buildEntry(root, rank, prefill, commit) {
     focus() {
       input.focus({ preventScroll: true });
       // Puts the caret at the end of a pre-filled name rather than selecting it, so the first
-      // keystroke of someone changing their initials doesn't wipe all three.
-      input.setSelectionRange?.(input.value.length, input.value.length);
+      // keystroke of someone changing their initials doesn't wipe all three. Same rule the tap path
+      // enforces above — this only covers the browsers that open the keyboard without one.
+      caretToEnd();
       paint();
     },
   };

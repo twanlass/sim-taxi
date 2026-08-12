@@ -108,6 +108,17 @@ down.
   the container to `visualViewport` instead (`followKeyboard` in `runend.js`), and only when the two
   viewports actually disagree — Android resizes the layout viewport itself, and clamping on top of
   that takes the keyboard's height off twice.
+- **A tap on a field lands where the *text* is, not where the boxes are.** The initials prompt is
+  one centred 16px input stretched over three big cells, so its glyphs occupy ~30px in the middle of
+  a ~214px box and a tap on the first cell collapses the caret to offset 0. With a name pre-filled
+  the field is then completely inert — backspace at offset 0 deletes nothing and `maxlength` blocks
+  every letter because the value is already full — which reads as "the keyboard opens and I can't
+  type". Anywhere a hidden caret is painted somewhere else, pin the real one to match
+  (`caretToEnd` in `runend.js`). Hook it on `click`, never on `focus` alone: the browser places the
+  tap's caret *after* it fires focus, so a snap on focus is undone by the tap that caused it.
+- **A synthesised click cannot test caret placement.** Untrusted events don't move a caret, so a
+  `dispatchEvent(new MouseEvent('click'))` check passes against the very bug above. The initials
+  check in `tools/smoke.mjs` uses `Input.dispatchTouchEvent` for that reason.
 - **Two listeners on the same element fire in registration order, capture flag or not.** At the
   target node the DOM spec runs capturing and bubbling listeners in the order they were added, so
   `{ capture: true }` on the canvas does *not* let a later module beat `attachDragPan` to a

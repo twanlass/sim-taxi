@@ -18,12 +18,20 @@ import { color } from '../palette.js';
 //
 // Scale is a deliberate lie, as it is for the riders in geometry/person.js. A pigeon next to a
 // 4-unit car should be a quarter of a unit long, which is two pixels at play zoom and reads as a
-// speck of dirt on the grass. This is a bit over a unit — a gull, near enough, at the 1 unit ≈ 1.1m
-// the taxi sets — so the silhouette survives the camera.
+// speck of dirt on the grass. This is well over a unit — a big gull, at the 1 unit ≈ 1.1m the taxi
+// sets — so the silhouette survives the camera.
+//
+// **The proportions below are the model; `BIRD_SCALE` is how big it gets drawn.** Every box, every
+// offset and every exported measurement runs through it, so growing the bird is one number and
+// nothing about the shape moves. It went to 1.2 because at 1.0 a bird was 8px at play zoom — a
+// speck you had to already know about — and the palette can't spend any more on making them read
+// (see the luma note beside `birdBody`), so the rest of the visibility has to come from size.
+// 10px is where a walking bird resolves into a body with a pale head on it.
+export const BIRD_SCALE = 1.2;
 
-export const BIRD_LEN = 1.08;        // bill tip to tail tip
-export const BIRD_SPAN = 1.44;       // wingtip to wingtip, wings spread level
-export const BIRD_STAND_Y = 0.33;    // origin to the soles, i.e. how far to lift it off the grass
+export const BIRD_LEN = 1.08 * BIRD_SCALE;       // bill tip to tail tip
+export const BIRD_SPAN = 1.44 * BIRD_SCALE;      // wingtip to wingtip, wings spread level
+export const BIRD_STAND_Y = 0.33 * BIRD_SCALE;   // origin to the soles, i.e. the lift off the grass
 
 /**
  * Where a wing hangs off the body, in model space — the +Z (right) side; the left wing mirrors the
@@ -31,12 +39,18 @@ export const BIRD_STAND_Y = 0.33;    // origin to the soles, i.e. how far to lif
  * with the shoulder at their own origin and this offset is applied in the instance matrix instead
  * of being baked in.
  */
-export const WING_ROOT = { x: 0.05, y: 0.09, z: 0.10 };
+export const WING_ROOT = { x: 0.05 * BIRD_SCALE, y: 0.09 * BIRD_SCALE, z: 0.10 * BIRD_SCALE };
 
-/** One axis-aligned box, coloured and placed. Every part of a bird is one of these. */
+/**
+ * One axis-aligned box, coloured and placed. Every part of a bird is one of these.
+ *
+ * Dimensions and offsets are in the model's own units — `BIRD_SCALE` is applied here, once, so the
+ * numbers written below stay the proportions of a bird rather than the size of one.
+ */
 function box(w, h, d, x, y, z, name) {
-  const geometry = new THREE.BoxGeometry(w, h, d);
-  geometry.translate(x, y, z);
+  const s = BIRD_SCALE;
+  const geometry = new THREE.BoxGeometry(w * s, h * s, d * s);
+  geometry.translate(x * s, y * s, z * s);
   return bakeColor(geometry, color(name));
 }
 

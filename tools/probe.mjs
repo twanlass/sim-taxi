@@ -4434,6 +4434,46 @@ let planeOrder;   // read out of the block below, checked in 'Which axis a body 
   check('a bird banks about its own long axis at every heading',
     Math.abs(birdLeans[0]) > 0.1 && birdLeans.every((y) => Math.abs(y - birdLeans[0]) < 1e-9),
     `lean ${birdLeans.map((y) => y.toFixed(2)).join(', ')} east/north/west/south`);
+
+  // --- Two flocks, two parks ------------------------------------------------------
+  // `main.js` runs a pair, wired to keep off each other's lawn. Built here exactly the way it
+  // builds them — the loop-and-push, the `avoid` closure and both seed offsets — because the part
+  // that can break is the wiring, not the flock: a callback that read the wrong flock's state, or
+  // one evaluated once at construction instead of at every pick, still produces two flocks that
+  // fly perfectly well and spend the run standing in the same park.
+  const pairScene = new THREE.Scene();
+  const pair = [];
+  for (const offset of [199, 211]) {
+    pair.push(createBirds(pairScene, makeRng(seed + offset), layout, {
+      avoid: (state) => pair.filter((f) => f.state !== state).map((f) => f.state.area),
+    }));
+  }
+
+  // Every seed the layout generator produces has at least two areas big enough for a flock, so the
+  // pair should never be forced to share. Asserted over the whole sweep of city seeds rather than
+  // this one, since "how many parks does a city get" is the thing that would quietly make the
+  // second flock pointless — and it is the layout generator's to change, not this file's.
+  let leanestCity = Infinity;
+  for (let s = 0; s < 200; s++) leanestCity = Math.min(leanestCity, parkAreas(createLayout(makeRng(s))).length);
+  check('every city has a park for each flock', leanestCity >= 2,
+    `${leanestCity} green areas in the barest of 200 city seeds`);
+
+  let shared = 0;                     // frames with both flocks claiming the same green
+  let bothOnTheDeck = 0;              // frames neither is flying, i.e. when it would be seen
+  for (let step = 0; step < 600 * 60; step++) {
+    for (const flock of pair) flock.update(1 / 60);
+    if (pair.every((f) => f.state.mode === 'ground')) {
+      bothOnTheDeck++;
+      if (pair[0].state.area === pair[1].state.area) shared++;
+    }
+  }
+  check('the two flocks keep to separate parks', shared === 0,
+    `${shared} of ${bothOnTheDeck} frames with both on the grass had them sharing one`);
+  // They are on separate seed offsets so that a run has one flock on the grass while the other is
+  // out — a pair that moved together would be one flock drawn twice.
+  check('the two flocks lead separate lives',
+    pair[0].state.flights !== pair[1].state.flights || pair[0].state.area !== pair[1].state.area,
+    `${pair[0].state.flights} and ${pair[1].state.flights} departures in the same 10 min`);
 }
 
 // --- Which axis a body rolls about ---------------------------------------------

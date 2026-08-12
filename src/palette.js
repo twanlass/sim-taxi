@@ -96,15 +96,22 @@ export const PALETTE = {
   // is guaranteed to sit on — the park (#6F9A5A) and the sky (#8CC4E8 → #DCEDF7) — and both are
   // lighter than these, so a dark bird reads against the grass it walks on and against the sky it
   // leaves in. `birdWing` is a stop darker than the body so a spread wing separates from the flank
-  // it grew out of; `birdPale` is the one value break, on the breast, so a walking bird is a shape
+  // it grew out of; `birdPale` is the one value break, on the head, so a walking bird is a shape
   // rather than a pebble.
-  birdBody: '#5B6272',
-  birdWing: '#474D5B',
-  birdPale: '#C4CAD4',
+  //
+  // Lifted 20 points of luma over the first pass, which had them at 98/77 and reading as gravel.
+  // **This is as light as they go**, and the ceiling is the lawn rather than taste: the grass is
+  // luma 134, so a body much past 118 loses the value break it stands on and is left separating
+  // from the park by hue alone. Everything else visibility asks for is spent on size instead — a
+  // fifth longer, see `BIRD_SCALE` — because a bird can grow without walking into the grass.
+  birdBody: '#6E7688',           // luma 118, against grass at 134 and sky at 183 → 233
+  birdWing: '#5A6070',           // 96
+  birdPale: '#D8DEE8',           // 221 — the patch on the head, and the whole of how a bird reads
   // Bill, legs and feet. One dark for every hard part — a warm bill would be correct for a pigeon
   // and would also be four pixels of amber in a palette where amber means "this fare is running
-  // out of time". See the note on `cone` for the same argument made at length.
-  birdBill: '#2B2F36',
+  // out of time". See the note on `cone` for the same argument made at length. Lifted with the
+  // rest, and by less: it is the shadow line under a lighter bird and wants to stay a dark.
+  birdBill: '#343943',           // 57
 
   taxiBody: '#F5C130',
   taxiTrim: '#2B2B30',
