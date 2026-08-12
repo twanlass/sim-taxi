@@ -274,13 +274,109 @@ function groundFloor(parts, cx, cz, w, d, streetSides, rng) {
 }
 
 /**
+ * A landing circle with an H on it.
+ *
+ * Painted rather than lit: the deck is `roof` and the mark is `laneMark`, which is the same paint
+ * the streets are striped with. That is not thrift, it is the point — an H is road marking that
+ * happens to be eleven storeys up, and borrowing a colour the eye already files as "paint on a
+ * surface" is what keeps a pale circle at play zoom from reading as something the player is meant
+ * to tap. Every other pale disc in this game is a marker under a rider.
+ */
+function helipad(parts, cx, cz, radius, deck) {
+  const r = THREE.MathUtils.clamp(radius, 1.1, 2);
+  const pad = new THREE.CylinderGeometry(r, r, 0.1, 12);
+  pad.translate(cx, deck + 0.05, cz);
+  parts.push(bakeColor(pad, color('roof')));
+
+  // The H, as three bars. Drawn as flat boxes standing 0.04 off the deck rather than as quads,
+  // because from 33° above a quad lying on a surface and the surface itself are one plane and the
+  // depth buffer picks between them per pixel.
+  const bar = r * 0.16;
+  const leg = r * 0.9;
+  for (const dx of [-r * 0.3, r * 0.3]) {
+    parts.push(box(bar, 0.04, leg, cx + dx, deck + 0.1, cz, color('laneMark')));
+  }
+  parts.push(box(r * 0.6, 0.04, bar, cx, deck + 0.1, cz, color('laneMark')));
+}
+
+/**
+ * A pitched roof, instead of a flat deck and its clutter.
+ *
+ * Two shapes, and both come out of Three's own generators rather than being hand-built: a hip is
+ * `ConeGeometry` with four radial segments and a gable is `CylinderGeometry` with three, rotated
+ * onto its side. That is worth saying out loud — a roof is nothing but sloped faces, which is
+ * exactly the shape the roadworks ramp shipped inside out (see CLAUDE.md), and a generated
+ * geometry cannot be wound backwards. Rotation and positive non-uniform scale both preserve
+ * handedness, so neither step can undo it either.
+ *
+ * Only the low masonry buildings get one. A pitch on a ten-storey tower is a folly, and on a
+ * curtain wall it is a contradiction — but on the two- and three-storey stuff that makes up most
+ * of the map, it is the difference between a suburb and a row of shoeboxes.
+ *
+ * Exported so `tools/probe.mjs` can check the winding on the shape itself. It cannot be checked on
+ * the merged city: courtyard trees ship in the same mesh and half of every canopy points downward,
+ * which is exactly the false negative a whole-mesh sweep gives you.
+ */
+export function pitchedRoof(parts, cx, cz, cw, cd, y, body, rng) {
+  // The eaves the roof sits on, overhanging the walls by 0.2 all round.
+  parts.push(box(cw + 0.4, 0.16, cd + 0.4, cx, y, cz, shade(body, 0.86)));
+  const base = y + 0.16;
+  const w = cw + 0.4;
+  const d = cd + 0.4;
+  const rise = THREE.MathUtils.clamp(Math.min(w, d) * 0.42, 1, 2.4);
+
+  // Slate or clay tile. The tile is `brick` darkened, which keeps its hue and saturation exactly
+  // and only drops the value — and that is what makes it safe warm colour in a game where warm
+  // colour is spoken for. It lands at 11.4° in the working space, five degrees off the roadworks
+  // cone, but at saturation 0.57 against 0.96 and lightness 0.16 against 0.44 it is a third of the
+  // cone's brightness; more to the point, `brick` itself is already a wall colour standing on
+  // streets all over this city, so the eye has read this hue as masonry since before there were
+  // roofs. A tile roof is the same clay as the wall under it, fired darker. See the note on `cone`
+  // in palette.js for the argument this one is a corollary of.
+  //
+  // Mixed rather than picked per building family: a brick building with a slate roof and a tan one
+  // with a tile roof are both ordinary, and tying the two together made a street of low-rise read
+  // as two kinds of building rather than as a dozen different ones.
+  const col = rng.chance(0.45)
+    ? jitterColor(shade(color('brick'), 0.72), rng, { h: 0.012, l: 0.05 })
+    : jitterColor(color('roof'), rng, { h: 0.02, l: 0.07 });
+
+  if (rng.chance(0.45)) {
+    // Hip: a four-sided pyramid. Its base square has a circumradius of 1, so a side is √2 — hence
+    // the rotation onto the axes and the /√2 in the scale.
+    // Open-ended: the base cap is four triangles of floor sitting on the eaves box, and nothing
+    // ever sees under a roof from 33° above it.
+    const geo = new THREE.ConeGeometry(1, 1, 4, 1, true);
+    geo.rotateY(Math.PI / 4);
+    geo.scale(w / Math.SQRT2, rise, d / Math.SQRT2);
+    geo.translate(cx, base + rise / 2, cz);
+    parts.push(bakeColor(geo, col));
+    return;
+  }
+
+  // Gable: a triangular prism laid on its side, ridge along the *longer* axis — a ridge running
+  // the short way across a long building reads as a tent pitched sideways.
+  const alongX = w > d;
+  const span = alongX ? d : w;         // across the slope
+  const len = alongX ? w : d;          // along the ridge
+  const geo = new THREE.CylinderGeometry(1, 1, 1, 3);
+  // Axis Y → -Z, and the triangle's lone vertex (at +Z) → +Y, so the flat edge lands underneath.
+  geo.rotateX(-Math.PI / 2);
+  // Circumradius 1 puts the base edge at √3 across and the apex 1.5 above it.
+  geo.scale(span / Math.sqrt(3), rise / 1.5, len);
+  if (alongX) geo.rotateY(Math.PI / 2);
+  geo.translate(cx, base + rise / 3, cz);
+  parts.push(bakeColor(geo, col));
+}
+
+/**
  * A cornice, and then whatever the roof can carry.
  *
  * The cornice is the cheapest of the lot and does the most work: twelve triangles of ledge
  * standing 0.18 proud of the walls turns the top of a box into the top of a *building*, and it
  * reads at play zoom where none of the rest of this does.
  */
-function roofKit(parts, cx, cz, cw, cd, y, style, body, rng) {
+function roofKit(parts, cx, cz, cw, cd, y, style, body, rng, stats) {
   const capH = 0.3;
   if (style === 'punched') {
     parts.push(box(cw + 0.36, capH, cd + 0.36, cx, y, cz, shade(body)));
@@ -292,6 +388,20 @@ function roofKit(parts, cx, cz, cw, cd, y, style, body, rng) {
   const deck = y + capH;
   const area = cw * cd;
 
+  // A helipad, on the tall ones with the room for it. It claims the whole deck: everything below
+  // returns early, because a plant room in the middle of a landing circle is the one thing a roof
+  // like this cannot have. Rare on top of that — there are only a handful of towers a city tall
+  // enough to qualify, and a helipad on each of them stops being the thing that marks one out.
+  if (deck > 8.5 && area > 16 && rng.chance(0.5)) {
+    stats.helipads += 1;
+    helipad(parts, cx, cz, Math.min(cw, cd) * 0.36, deck);
+    // One unit shoved to the edge, clear of the circle, so the deck still reads as occupied.
+    const uw = rng.range(0.6, 0.9);
+    parts.push(box(uw, 0.45, uw * 0.8, cx + (cw / 2 - uw), deck, cz + (cd / 2 - uw),
+      color('rooftop')));
+    return;
+  }
+
   // Plant room / stair bulkhead. Every roof used to get one, which made a skyline of identical
   // boxes wearing identical smaller boxes.
   if (rng.chance(0.55) && area > 6) {
@@ -299,13 +409,14 @@ function roofKit(parts, cx, cz, cw, cd, y, style, body, rng) {
       cx + rng.jitter(cw * 0.2), deck, cz + rng.jitter(cd * 0.2), color('rooftop')));
   }
 
-  // Air conditioning. Small enough to be one pixel of shadow at play zoom and to be the thing
-  // that makes a roof look occupied when the camera comes in close.
+  // Air conditioning. Sized up a touch from the first pass, where at 0.5–0.85 wide they were four
+  // pixels at play zoom and went unnoticed entirely; they are the thing that makes a roof look
+  // occupied, so they have to be legible from the framing the game is actually played at.
   const units = area > 14 ? rng.int(0, 2) : rng.int(0, 1);
   for (let n = 0; n < units; n++) {
-    const uw = rng.range(0.5, 0.85);
-    const ud = rng.range(0.45, 0.75);
-    const uh = rng.range(0.3, 0.5);
+    const uw = rng.range(0.6, 1);
+    const ud = rng.range(0.5, 0.85);
+    const uh = rng.range(0.35, 0.6);
     const ux = cx + rng.jitter(Math.max(0, cw / 2 - uw));
     const uz = cz + rng.jitter(Math.max(0, cd / 2 - ud));
     parts.push(box(uw, uh, ud, ux, deck, uz, color('rooftop')));
@@ -404,7 +515,7 @@ function buildableOf(lot) {
   };
 }
 
-function buildTower(lot, block, rng, parts) {
+function buildTower(lot, block, rng, parts, stats) {
   const { w, d, cx, cz } = buildableOf(lot);
   if (w < 2 || d < 2) return;
 
@@ -460,7 +571,15 @@ function buildTower(lot, block, rng, parts) {
     cd *= shrink;
   }
 
-  roofKit(parts, cx, cz, cw, cd, y, style, body, rng);
+  // Low, masonry, and never set back — anything else keeps its flat deck. `tier === 1` is the
+  // "never set back" test: the loop increments it once per tier built.
+  const lowRise = tier === 1 && style === 'punched' && height <= 8 && Math.min(cw, cd) > 2;
+  if (lowRise && rng.chance(0.45)) {
+    stats.pitched += 1;
+    pitchedRoof(parts, cx, cz, cw, cd, y, body, rng);
+  } else {
+    roofKit(parts, cx, cz, cw, cd, y, style, body, rng, stats);
+  }
 }
 
 // --- Courtyard blocks -------------------------------------------------------
@@ -589,25 +708,37 @@ function buildCourtyard(lot, block, rng, parts) {
 
 export function createBuildings(rng, blocks) {
   const parts = [];
-  let courtyards = 0;
+  // Counted rather than inferred. These are all rates the look depends on — one courtyard, a
+  // scattering of pitched roofs, a helipad now and then — and a rate that drifts is invisible in
+  // any single city. Returning them is what lets `tools/probe.mjs` hold them across seeds.
+  const stats = { pitched: 0, helipads: 0 };
 
+  // Every parcel in the city, decided before any of them is built. Two passes rather than one
+  // because of the courtyard: **exactly one city block gets hollowed out**, and "exactly one"
+  // cannot be decided lot by lot. Rolled per lot instead it came out at two or three a city with
+  // the tail running to five, and a distinctive massing repeated five times across a 5×5 grid
+  // stops being distinctive — it just becomes the shape a block is.
+  const lots = [];
   for (const block of blocks) {
     if (block.type !== 'built') continue;
     const { x0, z0, x1, z1 } = block.bounds;
-
-    for (const lot of splitLot(x0, z0, x1, z1, 2, rng)) {
-      const buildable = buildableOf(lot);
-      // Only an undivided block is wide enough to hollow out and still leave wings with rooms in
-      // them, so this is rare by construction rather than by a low roll — two or three per city.
-      const roomy = buildable.w > COURT_MIN && buildable.d > COURT_MIN;
-      if (roomy && rng.chance(0.55)) {
-        buildCourtyard(lot, block, rng, parts);
-        courtyards += 1;
-      } else {
-        buildTower(lot, block, rng, parts);
-      }
-    }
+    for (const lot of splitLot(x0, z0, x1, z1, 2, rng)) lots.push({ lot, block });
   }
+
+  // Only an *undivided* block is wide enough to hollow out and still leave wings with rooms in
+  // them, so the candidate list is short to begin with — five or so on a typical seed. A city
+  // whose blocks all happened to split gets no courtyard rather than a cramped one.
+  const roomy = lots.filter(({ lot }) => {
+    const b = buildableOf(lot);
+    return b.w > COURT_MIN && b.d > COURT_MIN;
+  });
+  const yard = roomy.length ? rng.pick(roomy) : null;
+
+  for (const entry of lots) {
+    if (entry === yard) buildCourtyard(entry.lot, entry.block, rng, parts);
+    else buildTower(entry.lot, entry.block, rng, parts, stats);
+  }
+  const courtyards = yard ? 1 : 0;
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -616,5 +747,5 @@ export function createBuildings(rng, blocks) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'buildings';
-  return { mesh, count: parts.length, courtyards };
+  return { mesh, count: parts.length, courtyards, ...stats };
 }

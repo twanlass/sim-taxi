@@ -130,10 +130,28 @@ carries forty windows and the city carries a few thousand; emitted individually 
 merge than the whole rest of the city. Hand-wound means `tools/probe.mjs` asserts the **sign of the
 face normal computed from the winding** — see the roadworks ramp in [CLAUDE.md](../CLAUDE.md).
 
-**Roofs.** A cornice on every mass, cut from the building's own colour darkened rather than from a
-shared grey (a flat grey cap on everything drained the tan/brick/concrete families of any way to
-tell each other apart at play zoom). Then a plant room, up to two AC units, and — one roof in eight,
-mid-rise only — a **water tower**: tank, hoop, conical cap and four legs.
+**Roofs.** Flat by default: a cornice cut from the building's own colour darkened rather than from
+a shared grey (a flat grey cap on everything drained the tan/brick/concrete families of any way to
+tell each other apart at play zoom), then a plant room, up to two AC units, and — one roof in
+eight, mid-rise only — a **water tower**: tank, hoop, conical cap and four legs.
+
+Two exceptions to the flat deck, which together are most of what gives the map a suburb-to-downtown
+gradient:
+
+| | Where | Rate |
+|---|---|---|
+| **Pitched roof** — a hip (four-sided pyramid) or a gable (triangular prism, ridge along the long axis), in slate or clay tile | Low masonry buildings only: single-tier, ≤ 8 units tall. A pitch on a ten-storey tower is a folly and on a curtain wall a contradiction | ~14 a city, about a quarter of all buildings |
+| **Helipad** — a dark circle with an `H` in the street's own `laneMark` paint | Tall towers with a clear deck. It claims the whole roof: no plant room, no water tower, no mast | 2 cities in 5 get one |
+
+Both roof shapes come out of Three's own generators — a hip is `ConeGeometry` with four radial
+segments, a gable is `CylinderGeometry` with three, rotated onto its side — rather than being hand
+built. That is deliberate: a roof is nothing but sloped faces, which is exactly the shape the
+roadworks ramp shipped inside out, and a generated geometry cannot be wound backwards. Rotation
+and positive non-uniform scale both preserve handedness, so neither step can undo it.
+
+The winding is still asserted, on the shape itself rather than on the merged city — courtyard trees
+ride in the same mesh and half of every canopy points downward, so a whole-mesh sweep reported 8,847
+downward faces on a city whose roofs were all correct.
 
 > **Nothing on a roof may reach `SKYLINE_CEILING` (20.5).** The ambient aeroplane's belly is at
 > 24.9 on the low side of its jitter and the probe asserts four units of clearance under it. The
@@ -142,8 +160,14 @@ mid-rise only — a **water tower**: tank, hoop, conical cap and four legs.
 
 ### Courtyard blocks
 
-A hollow perimeter block — four wings round a planted yard — on an *undivided* block only, so it
-is rare by construction: two or three a city.
+A hollow perimeter block — four wings round a planted yard. **Exactly one a city**, which is why
+`createBuildings` walks the lots twice: "exactly one" cannot be decided lot by lot. Rolled per lot
+it came out at two or three with the tail running to five, and a distinctive massing repeated five
+times across a 5×5 grid stops being distinctive — it just becomes the shape a block is.
+
+Only an *undivided* block is wide enough to hollow out and still leave wings with rooms in them, so
+the candidate list is short to begin with. A city whose blocks all happened to split gets no
+courtyard rather than a cramped one; over 200 seeds that has not yet happened.
 
 It only works because of a measurement. The camera looks down `VIEW_DIR (1, 0.92, 1)`, **33° above
 horizontal**, so a wing of height `h` hides everything within `1.54h` of its inner face. The first

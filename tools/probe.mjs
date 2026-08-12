@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import { createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
-import { createBuildings, facadeQuads, SKYLINE_CEILING } from '../src/city/buildings.js';
+import { createBuildings, facadeQuads, pitchedRoof, SKYLINE_CEILING } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W } from '../src/sim/traffic.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -207,8 +207,14 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
   let tallest = 0;
   let tallestSeed = 0;
   let courtyards = 0;
+  let manyYards = 0;
   let unplanted = 0;
+  let helipads = 0;
+  let pitches = 0;
+  let flatOnly = 0;
+  let miscounted = 0;
   const SEEDS = 24;
+  const PAINT = new THREE.Color(PALETTE.laneMark);
 
   for (let s = 0; s < SEEDS; s++) {
     const cityLayout = createLayout(makeRng(seed + s * 101));
@@ -217,6 +223,21 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
     const top = built.mesh.geometry.boundingBox.max.y;
     if (top > tallest) { tallest = top; tallestSeed = s; }
     courtyards += built.courtyards;
+    if (built.courtyards > 1) manyYards += 1;
+
+    pitches += built.pitched;
+    helipads += built.helipads;
+    if (built.pitched === 0) flatOnly += 1;
+
+    // The helipad's H is the only thing in the buildings mesh painted in the street's own paint,
+    // so the counter above can be checked against the mesh rather than merely believed.
+    const col = built.mesh.geometry.attributes.color;
+    let painted = false;
+    for (let i = 0; i < col.count; i += 3) {
+      if (Math.abs(col.getX(i) - PAINT.r) < 1e-4 && Math.abs(col.getY(i) - PAINT.g) < 1e-4
+        && Math.abs(col.getZ(i) - PAINT.b) < 1e-4) { painted = true; break; }
+    }
+    if (painted !== (built.helipads > 0)) miscounted += 1;
 
     // A courtyard is a hollow block with trees in it, and the trees are the whole point — they
     // are the only green in the buildings mesh, so counting foliage-hued vertices is enough to
@@ -243,12 +264,69 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
 
   check('nothing on a roof reaches the flight path', tallest < SKYLINE_CEILING,
     `tallest ${tallest.toFixed(2)} on seed +${tallestSeed * 101}, ceiling ${SKYLINE_CEILING}`);
-  // Two or three a city. Rare by construction — only an undivided block is wide enough to hollow
-  // out — so this is a floor on "the city still builds them at all", not a target.
-  check('the city builds courtyard blocks', courtyards / SEEDS > 1,
-    `${(courtyards / SEEDS).toFixed(1)} per city over ${SEEDS} seeds`);
+  // Exactly one a city, and the ceiling is the half that matters: rolled per lot it came out at
+  // two or three with a tail to five, and a massing repeated five times over a 5×5 grid is not a
+  // landmark, it is just what a block looks like. A city whose blocks all happened to split gets
+  // none rather than a cramped one, so the floor is a rate rather than a per-seed guarantee.
+  check('a city gets one courtyard block, never a district of them', manyYards === 0,
+    `${courtyards} across ${SEEDS} seeds, ${manyYards} with more than one`);
+  check('and nearly every city gets its one', courtyards > SEEDS * 0.85,
+    `${courtyards}/${SEEDS} seeds`);
   check('and plants every one of them', unplanted === 0,
     `${unplanted} cities with a courtyard and no trees in it`);
+  // A few a city, on the low masonry stock — which is most of the map, so a city with none at all
+  // means the eligibility test has quietly stopped matching anything.
+  check('the city builds pitched roofs', flatOnly === 0,
+    `${(pitches / SEEDS).toFixed(1)} per city, ${flatOnly} cities with none`);
+  // A handful of towers a city clear the height bar, and under half of those take one.
+  check('helipads are the exception, not the roofline', helipads > 0 && helipads < SEEDS,
+    `${helipads} over ${SEEDS} seeds`);
+  check('and the roof stats describe the mesh that was built', miscounted === 0,
+    `${miscounted} cities whose helipad count disagrees with their paint`);
+}
+
+// --- Pitched roofs ----------------------------------------------------------
+//
+// A roof is nothing but sloped faces, which is exactly the shape the roadworks ramp shipped inside
+// out — its slope normals came out at y = −0.98 and the only face the camera ever saw was the
+// underside. So the sign is computed from the winding here rather than looked at.
+//
+// It has to be done on the shape itself and not on the merged city, and the reason is worth
+// keeping: courtyard trees ride in the buildings mesh, and half of every canopy points downward.
+// A whole-mesh sweep reported 8,847 downward faces on a city whose roofs were all correct.
+{
+  let underhung = 0;
+  let sloped = 0;
+  const shapes = new Set();
+
+  // Enough draws to hit both branches, at footprints from square to long and thin.
+  for (let n = 0; n < 40; n++) {
+    const parts = [];
+    const rng = makeRng(seed + n * 7919);
+    pitchedRoof(parts, 3, -4, 2 + (n % 5) * 2, 3 + (n % 3) * 3, 6.2,
+      new THREE.Color(PALETTE.tan), rng);
+    // The eaves box is pushed first; the roof shape itself is last.
+    const geo = parts[parts.length - 1];
+    shapes.add(geo.attributes.position.count / 3);
+
+    const normal = geo.attributes.normal;
+    for (let i = 0; i < normal.count; i += 3) {
+      const ny = normal.getY(i);
+      if (ny > 0.02) sloped += 1;
+      // The gable's own underside is a genuine downward face at exactly −1, hidden under the
+      // building it sits on. Anything strictly between that and level is a slope on its back.
+      if (ny < -0.02 && ny > -0.995) underhung += 1;
+    }
+    parts.forEach((g) => g.dispose());
+  }
+
+  check('a pitched roof slopes', sloped > 0, `${sloped} upward faces over 40 roofs`);
+  check('and is never laid on its back', underhung === 0,
+    `${underhung} faces sloping downward`);
+  // 4 triangles is the hip (open-ended), 12 the gable. Both shapes have to come out of the run —
+  // a branch that never fires is a shape nobody has ever seen.
+  check('both a hip and a gable get built', shapes.size === 2,
+    `triangle counts seen: ${[...shapes].sort((a, b) => a - b).join(', ')}`);
 }
 check('all cars spawned', traffic.cars.length === 24, `${traffic.cars.length}`);
 
