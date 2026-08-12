@@ -242,6 +242,45 @@ focus each cancel the ride home *without* reporting an arrival. `tools/smoke.mjs
 round trip in a real browser, on the gap between the camera and the taxi: how far it ever got is the
 evidence it visited the rider, where it ends up is the evidence it came home.
 
+### Camera shake
+
+Two kinds, sharing one jitter: `apply()` offsets `camera.position` by ±amplitude on each axis
+before the `lookAt`. The whole of the difference between them is how they are *driven*.
+
+- **Impulses** are fired once with `kickShake(amplitude)` and decay exponentially at 5/s. The
+  amplitude is the event's own claim about itself, stated at the call site: a wreck is **2.4** (~19px
+  at play zoom), a barricade smashed is **1.1**, a bust **0.9**, the landing after a roadworks ramp
+  **0.7**. `kickShake` takes a max, so a big hit overrides a smaller one still decaying and a
+  secondary tap cannot cancel it.
+- **Loco Mode rumbles**, held for as long as the button is. `setRumble(level)` is *asked for* every
+  frame with a 0-1 strength rather than fired, so there is nothing to switch off on the way out —
+  a mode that ends stops asking and the level eases back to zero (`RUMBLE_RATE` 8, about a quarter
+  of a second either way).
+
+The rumble's full amplitude is **0.18 world units — about 1.4px at play zoom**, so the picture
+typically moves under a pixel and peaks around two. That is a quarter of the gentlest impulse in the
+game, and the smallness is the specification rather than timidity: this runs for fifteen seconds
+at a stretch, over a road the player is reading at 23 u/s, where an event-sized kick would be a
+fight with the thing it is decorating.
+
+`level` is the same speed gain the [follow lead](#leading-the-car) uses (`locoRumble()` in
+`main.js`, speed against `BOOST_CRUISE`), which does real work: Loco Mode can be pressed at a red,
+and a camera shaking before the car has moved reads as a fault rather than as speed. So the rumble
+arrives with the acceleration and, on the release, leaves with the coast-down — which is also why
+it keys off `isActive()` rather than the wider `isEngaged()` the boost-only *rules* use. Unlike the
+follows it is not narrow-only: a desktop player gets no chase at all, and so has the least else to
+tell them the mode is up. The two shakes take a `max`, so a wreck mid-boost still lands as a wreck
+and the rumble leaves no floor under a kick that should fall away to nothing.
+
+`updateShake` steps both and repaints, and every other camera path (`followXZ`, `focusOn`,
+`updateGlide`) reads the same state — which is what stops the boost chase, repainting a few lines
+later in the same frame, from quietly painting the rumble back out. `tools/probe.mjs` measures the
+amplitude off `camera.position` for exactly that reason: that the state is right is not the claim.
+It asserts the ease-in, that the level still stands after ten seconds (the failure a decaying
+impulse would have), that a release returns to *exactly* still, that an impact still reads as one
+over it, and that a follow repaint keeps it. The passing lab at [`/lab/`](lab.md) drives the same
+rumble off the same gain, which makes it the place to watch one held for minutes at a time.
+
 The `VIEW_DIR` diagonal has consequences elsewhere: screen-up is world `(-1, 0, -1)`, which is why
 riders are placed on the `-X-Z` kerb of a junction — the block on the `+X+Z` side sits between the
 camera and anything standing on it. It is also what set the timer ring's sweep start at `-3π/4` for

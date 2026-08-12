@@ -29,7 +29,7 @@ import { createScene } from '../game/scene.js';
 import { createCityCamera } from '../game/camera.js';
 import { createProps } from '../city/props.js';
 import { setCityNetwork } from '../city/roadnet.js';
-import { createTraffic, placeCar, SPEED, laysPassRubber } from '../sim/traffic.js';
+import { createTraffic, placeCar, SPEED, laysPassRubber, BOOST_CRUISE } from '../sim/traffic.js';
 import { createCollisions } from '../sim/collisions.js';
 import { createBoost, BOOST_DURATION } from '../game/boost.js';
 import { createSkidMarks } from '../game/skidmarks.js';
@@ -548,6 +548,11 @@ function frame() {
   blast.update(dt);
   flames.update(dt);
   vanish.update(dt);
+  // The game's Loco Mode rumble, on the game's own terms — off the speed, and only while the button
+  // is held. The lab exists to watch this mode at length, which makes it the one place a rumble
+  // that is too strong to live with for fifteen seconds would show up.
+  controller.setRumble(taxi.crashed || !boost.isActive()
+    ? 0 : Math.min(taxi.v / BOOST_CRUISE, 1));
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 

@@ -4651,6 +4651,102 @@ check('the taxi is an ordinary car in the traffic array',
   }
 }
 
+// --- Camera shake: the impulses, and Loco Mode's rumble ----------------------
+// Two things share one jitter, and the whole of the difference between them is in how they are
+// *driven*: a kick is fired once and decays, a rumble is asked for every frame and eased. Both
+// failure modes are silent. A rumble routed through the impulse path decays away a second into a
+// fifteen-second mode and the shake is simply gone; a rumble that is merely stopped rather than
+// eased to zero leaves the city buzzing under a taxi that has parked. And neither has a tell in a
+// still: a screenshot of a shaking camera is a screenshot of a camera.
+//
+// The amplitude is measured off `camera.position` rather than read off the state, because the state
+// being right is not the claim — the claim is that the jitter reaches the picture, and it has to
+// survive a follow calling `apply()` again after `updateShake` has.
+{
+  const RUMBLE_AMPLITUDE = 0.18;  // camera.js's, restated so a change there fails here
+  const ASPECT = 390 / 844;
+  const ZOOM = 52;                // play zoom: 1 world unit is ~7.7px on a phone
+  const PX_PER_UNIT = 844 / (2 * ZOOM);
+  const STEP = 1 / 60;
+
+  // Half the peak-to-peak travel of `camera.position` over `frames`, on its widest axis — which is
+  // the amplitude, since the target is held still and a uniform jitter fills its range. Runs the
+  // frame the way main.js does: ask, then step, then let whatever owns the camera repaint it.
+  const measure = (cam, frames, step) => {
+    const lo = [Infinity, Infinity, Infinity];
+    const hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < frames; i += 1) {
+      step(i);
+      const p = [cam.camera.position.x, cam.camera.position.y, cam.camera.position.z];
+      for (let a = 0; a < 3; a += 1) {
+        lo[a] = Math.min(lo[a], p[a]);
+        hi[a] = Math.max(hi[a], p[a]);
+      }
+    }
+    return Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2;
+  };
+
+  {
+    const cam = createCityCamera(ASPECT, { zoom: ZOOM });
+    const hold = () => { cam.setRumble(1); cam.updateShake(STEP, ASPECT); };
+
+    // Eased in, not switched on. The press already has a wheelie and a flame on it; a jitter
+    // arriving on the same frame at full size reads as the renderer glitching.
+    hold();
+    const first = cam.state.rumble;
+    check('the Loco Mode rumble eases in', first > 0 && first < 0.25 * RUMBLE_AMPLITUDE,
+      `${(first / RUMBLE_AMPLITUDE * 100).toFixed(0)}% of full after one frame`);
+
+    // And then *holds*, which is the half a decaying impulse cannot do. Ten seconds — a boost is
+    // fifteen — and the amplitude is measured over the last two of them.
+    for (let i = 0; i < Math.round(10 / STEP); i += 1) hold();
+    const amp = measure(cam, Math.round(2 / STEP), hold);
+    check('and holds for the whole of a boost', Math.abs(amp - RUMBLE_AMPLITUDE) < 0.02,
+      `${amp.toFixed(3)} units after 10s, against ${RUMBLE_AMPLITUDE}`);
+
+    // Tiny is the entire specification. The gentlest one-shot kick in the game is the roadworks
+    // landing at 0.7 units; a rumble anywhere near that, held for fifteen seconds, is a fight with
+    // the road the player is trying to read.
+    check('the rumble is a texture, not a hit', amp < 0.25,
+      `${amp.toFixed(3)} units, ~${(amp * PX_PER_UNIT).toFixed(1)}px on a 390x844 phone`);
+
+    // A wreck over a running rumble still lands as a wreck: the two take a max rather than the
+    // rumble capping what an impulse can do. Re-kicked every frame rather than sampled through its
+    // own decay — `kickShake` takes a max, so that pins it at 2.4 — because a handful of samples of
+    // a decaying jitter measures the sampling as much as it measures the shake, and this is a
+    // claim about which of the two decides the amplitude, not about the decay curve.
+    const hit = measure(cam, 60, () => { cam.kickShake(2.4); hold(); });
+    check('an impact still lands over a rumble', hit > 2,
+      `${hit.toFixed(2)} units against the rumble's ${RUMBLE_AMPLITUDE}`);
+
+    // Letting go: back to exactly still. Not "small" — a floor left under the camera by a stray
+    // max() is a city that never stops buzzing, and it would be blamed on anything but this.
+    for (let i = 0; i < Math.round(3 / STEP); i += 1) {
+      cam.setRumble(0);
+      cam.updateShake(STEP, ASPECT);
+    }
+    const idle = measure(cam, 30, () => { cam.setRumble(0); cam.updateShake(STEP, ASPECT); });
+    check('and stops dead when the button is released', cam.state.rumble === 0 && idle === 0,
+      `${cam.state.rumble} level, ${idle} units of travel`);
+  }
+
+  // The rumble has to survive the follow. `updateShake` repaints, and then the boost chase repaints
+  // again from the same state a few lines later — so a jitter held anywhere but in that state would
+  // be painted straight back out, on exactly the frames the mode is running.
+  {
+    const cam = createCityCamera(ASPECT, { zoom: ZOOM });
+    const follow = () => {
+      cam.setRumble(1);
+      cam.updateShake(STEP, ASPECT);
+      cam.followXZ(0, 0, STEP, 3.2, ASPECT);
+    };
+    for (let i = 0; i < Math.round(4 / STEP); i += 1) follow();   // settle the chase onto the spot
+    const amp = measure(cam, Math.round(2 / STEP), follow);
+    check('a follow repaint keeps the rumble', Math.abs(amp - RUMBLE_AMPLITUDE) < 0.02,
+      `${amp.toFixed(3)} units under a boost chase`);
+  }
+}
+
 // --- Loco Mode's overdrive band ---------------------------------------------
 // The mode's ceiling is 22.95 u/s, but holding the button does not buy it: BOOST_ACCEL runs out at
 // 18.7 and the last 4.25 u/s arrive at 2.2 u/s², which is 40 units of unbroken straight road. The

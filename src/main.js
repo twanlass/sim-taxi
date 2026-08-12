@@ -274,6 +274,30 @@ const followAim = (car) => ({
   speed: car.v,
 });
 
+/**
+ * How hard the camera should rumble this frame — 0-1, handed to `controller.setRumble`. Loco Mode
+ * and nothing else: it is the one mode that is *about* the speed, and the rumble is the only part
+ * of it the camera says out loud. See RUMBLE_AMPLITUDE in camera.js for how little that is.
+ *
+ * Off the same speed gain the lead uses, which is doing real work rather than tidiness. Loco Mode
+ * can be pressed from a standing start — at a red, off the line — and a camera that starts shaking
+ * before the car has moved reads as a fault in the game rather than as speed; a taxi stopped dead
+ * with the button held is asking for the *next* fifteen seconds, not shaking through this one. So
+ * the rumble arrives with the acceleration and, on the release, leaves with the coast-down.
+ *
+ * Unlike the follow it is not narrow-only. A desktop player has the whole city in frame and gets no
+ * chase at all, which is exactly why they have the least to tell them the mode is up.
+ *
+ * Deliberately *not* gated on `isEngaged`: the cooldown tail keeps the boost-only rules armed, but
+ * the speed cap is already easing back over it, so the gain takes the rumble down through the tail
+ * on its own — and a rumble that outlived the hold would be the camera reporting a mode the player
+ * has let go of.
+ */
+function locoRumble() {
+  if (!boost.isActive() || fares.state.gameOver || traffic.taxi.crashed) return 0;
+  return Math.min(traffic.taxi.v / BOOST_CRUISE, 1);
+}
+
 let cameraTakenOver = false;
 // Assigned further down, once the fare board and the picker it reads exist. Declared here because
 // the handover below is the one thing that has to reach it, and a swipe cannot arrive before the
@@ -1446,6 +1470,9 @@ function frame() {
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
   // scenery block in one place.
   for (const flock of flocks) flock.update(dt, traffic.taxi);
+  // Asked for every frame — see setRumble. It rides the same dt as the impulse shakes, so a wreck's
+  // slow-mo stretches the rumble's fade-out with everything else in the beat.
+  controller.setRumble(locoRumble());
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 

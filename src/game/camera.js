@@ -92,6 +92,28 @@ const LEAD_RATE = 2.4;
 // because VIEW_DIR is a unit vector, its y component *is* that sine: 0.5453 at the fixed 33°.
 const SIN_ELEV = VIEW_DIR.y;
 
+// --- Shake ------------------------------------------------------------------
+// Two kinds of it, sharing one jitter. An **impulse** is fired once and decays — a wreck, a
+// barricade, a bust; a **rumble** is a level *asked for* every frame and eased in and out, which is
+// what Loco Mode holds. The bigger of the two wins rather than the two adding: a wreck landing
+// mid-boost has to read as the wreck, and the rumble must not leave a floor under a kick that is
+// meant to fall away to nothing.
+const SHAKE_DECAY = 5;          // per second; an impulse is under a tenth of itself in half a second
+
+// The rumble's full amplitude, in world units, at `setRumble(1)`. Deliberately about a pixel: at
+// play zoom (52 — the frame is 2*52 units tall) one world unit is ~7.7px on a phone, so this is
+// 1.4px of camera travel per axis, and the three axes are independent, so what lands on screen is
+// typically under a pixel of picture with peaks near two.
+//
+// A rumble is a texture under the speed, not an event. The gentlest one-shot kick in the game is
+// the roadworks landing at 0.7 (~5px), and anything near *that* held for fifteen seconds at a
+// stretch is a fight with the road the player is trying to read.
+const RUMBLE_AMPLITUDE = 0.18;
+// How fast the level chases what the caller is asking for. Both directions, so the press fades it
+// in over about a quarter of a second — under the wheelie and the flame, which are what actually
+// punctuate the press — and the release takes it out over the same, roughly with the coast-down.
+const RUMBLE_RATE = 8;
+
 /**
  * Where to aim, relative to the car, to seat it `LEAD_FRACTION` of a half-frame into the quadrant
  * behind it. `(dirX, dirZ)` is the heading on the ground — any length, it is normalised here — and
@@ -127,7 +149,15 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
     // Current shake magnitude, in world units. Non-zero means apply() jitters camera.position by
     // ±this on each axis before lookAt. Decayed each frame from main.js via updateShake().
     shake: 0,
+    // The held rumble, same units, eased toward `rumbleWant` by updateShake(). Separate from
+    // `shake` because it does not decay: it sits wherever the caller is holding it.
+    rumble: 0,
   };
+
+  // What the caller last asked for. Kept off `state` so there is one place a rumble is read from —
+  // `state.rumble` is the level actually in the picture, and a debug readout or a check wanting to
+  // know "is the camera rumbling" means that one, not the request behind it.
+  let rumbleWant = 0;
 
   // In-flight glide, or null when idle. Held here rather than on `state` because nothing outside
   // reads it — the getters below are the whole interface.
@@ -198,10 +228,11 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
     camera.updateProjectionMatrix();
 
     camera.position.copy(state.target).addScaledVector(VIEW_DIR, DISTANCE);
-    if (state.shake > 0.001) {
-      camera.position.x += (Math.random() * 2 - 1) * state.shake;
-      camera.position.y += (Math.random() * 2 - 1) * state.shake;
-      camera.position.z += (Math.random() * 2 - 1) * state.shake;
+    const jitter = Math.max(state.shake, state.rumble);
+    if (jitter > 0.001) {
+      camera.position.x += (Math.random() * 2 - 1) * jitter;
+      camera.position.y += (Math.random() * 2 - 1) * jitter;
+      camera.position.z += (Math.random() * 2 - 1) * jitter;
     }
     camera.lookAt(state.target);
   }
@@ -222,14 +253,32 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
       state.shake = Math.max(state.shake, amplitude);
     },
     /**
-     * Decay the shake and repaint the camera. Called every frame from main.js so a running shake
-     * refreshes independent of any pan/follow. Exponential decay reads as a natural fall-off
-     * rather than a hard cut, and the low-threshold snap-to-zero avoids repainting forever.
+     * Ask for a held rumble — `level` is 0-1 of `RUMBLE_AMPLITUDE`, the same 0-1 vocabulary the
+     * follow's `aim.gain` uses, and callers drive it off speed for the same reason.
+     *
+     * Asked for *every frame*, not fired: this is a request, and it is the caller's own gate that
+     * decides whether the rumble is up. So there is nothing to switch off on the way out — a mode
+     * that ends simply stops asking, and anything that forgets to call it eases back to still
+     * rather than leaving the city buzzing. Unlike `kickShake` it does not take a max, because a
+     * level that could only ever go up is not a level.
+     */
+    setRumble(level) {
+      rumbleWant = THREE.MathUtils.clamp(level, 0, 1) * RUMBLE_AMPLITUDE;
+    },
+    /**
+     * Step both shakes and repaint the camera. Called every frame from main.js so a running shake
+     * refreshes independent of any pan/follow. The impulse decays exponentially, which reads as a
+     * natural fall-off rather than a hard cut; the rumble eases toward whatever `setRumble` last
+     * asked for. Both snap to zero under a low threshold so an idle camera stops repainting — the
+     * frame that lands on zero still repaints, which is what clears the last jittered position
+     * instead of leaving it standing.
      */
     updateShake(dt, aspectRatio) {
-      if (state.shake <= 0.001) return;
-      state.shake *= Math.exp(-dt * 5);
+      if (state.shake <= 0 && state.rumble <= 0 && rumbleWant <= 0) return;
+      state.shake *= Math.exp(-dt * SHAKE_DECAY);
       if (state.shake < 0.01) state.shake = 0;
+      state.rumble += (rumbleWant - state.rumble) * (1 - Math.exp(-dt * RUMBLE_RATE));
+      if (state.rumble < 0.001) state.rumble = 0;
       apply(aspectRatio);
     },
     /**
