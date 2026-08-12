@@ -187,8 +187,8 @@ and because the taxi has one seat, all but one of those are riders waiting on th
    [Neither how far nor where](#neither-how-far-nor-where).
 2. Tap them → the taxi routes there.
 3. On arrival the passenger boards, their diamond flies from the kerb to the roof of the taxi, a
-   teal ring appears on the road where they're going, and the taxi **drives straight on to it** —
-   because the instruction it used to ask for is now given for you. See
+   ring in that same urgency colour appears on the road where they're going, and the taxi **drives
+   straight on to it** — because the instruction it used to ask for is now given for you. See
    [The drop-off dispatches itself](#the-drop-off-dispatches-itself).
 4. Deliver → the fare pays out (`FARE_BASE + FARE_PER_BLOCK × blocks`, times the shift's
    multiplier, see [Economy](#economy)), and the board refills.
@@ -398,8 +398,9 @@ up "carrying" two riders off a single seat.
 
 The passenger **figure** is white — deliberately colourless. Before pickup any taxi could take any
 rider, so a colour on the *person* would imply a commitment that doesn't exist. The crystal over
-their head and the disc under their feet are both spoken for by the clock, which is why the figure
-between them has to stay out of the way.
+their head is spoken for by the clock, which is why the figure under it has to stay out of the way —
+and now that [the kerb carries nothing else](#nothing-on-the-kerb-but-the-rider-and-their-clock), the
+two of them are the whole of what a waiting rider is.
 
 The **roof sign** lights up while a rider is aboard and goes dark once they're dropped off — a
 plain on/off, not a colour. It used to wear the fare's own colour, drawn at spawn from a five-colour
@@ -407,9 +408,10 @@ palette (`nextFareColor()`), because that colour was what paired a rider with th
 across the map. The drop-off carries no fare colour any more, so with nothing left to pair with,
 the sign's job shrank to the one thing still worth saying at a glance: is the taxi free.
 
-#### The drop-off is a teal ring, and nothing else
+#### The drop-off is a ring, and it wears the rider's clock
 
-The disc on the tarmac and the off-screen pointer that stands in for it are one fixed **teal**.
+The disc on the tarmac and the off-screen pointer that stands in for it are painted from the
+[urgency scale](#urgency-is-one-scale), at whatever level the rider **in the car** is standing at.
 Nothing floats above it.
 
 **It lost its head.** The drop-off was a crystal on a gold post, then the crystal alone at rooftop
@@ -417,8 +419,8 @@ height, then that crystal in teal once a waiting rider's marker became the same 
 step is what finished it: two diamonds on the board, and only one of them reporting anything. The
 player had to tell "a clock is running here" from "this is just a place", by hue, on two shapes
 that were otherwise identical — when the ring underneath was already saying "this is just a place",
-at ground level, where the driving happens. So a diamond on the board now means a clock, and a ring
-means a destination.
+at ground level, where the driving happens. So a diamond on the board means a clock, and a ring
+means a place the taxi is being driven to.
 
 What went with it is the rooftop silhouette: the crystal stayed visible over the skyline for a beat
 after the ring itself had slipped behind a tower. The
@@ -427,18 +429,44 @@ drop-off outside the frame — and inside the frame the route band runs all the 
 there is a line to follow to it. A drop-off briefly hidden behind a building on a road you are
 already driving down is the case that is genuinely worse, and it is worth what it buys.
 
-Teal is the point of the colour. Hue on a fare marker now *means* urgency — that is what the
-[diamond over a rider](#the-fares-clock-travels) is saying — and the drop-off has nothing to report:
-no clock of its own, and by the time it is drawn the taxi is already driving at it. A colour outside
-the green-to-red scale is what says "this one is not on it". It wore **Loco Mode's yellow** before,
-on the grounds that the route band, the car and the place it is driving to should be one colour
-saying "this is the job"; but yellow is the taxi's, and a marker that reports nothing was borrowing
-from a vocabulary it isn't part of. The band is still yellow, so band and disc meet at the kerb in
-different colours — the band belongs to the car, the disc to the road. See
-[rendering.md](rendering.md#the-drop-off-ring--geometrymarkerjs).
+**The colour is the argument that changed.** It was a fixed **teal** for a long time, and the
+reasoning was sound as far as it went: hue on a fare marker means urgency, the drop-off has no clock
+of its own, and only one is ever on the board — so a per-fare hue had nothing to tell it apart from,
+and a colour outside the green-to-red scale is what says "this one is not on it". (Before the teal it
+was **Loco Mode's yellow**, on the grounds that the car, the band and the place it is driving to are
+one statement; yellow is the taxi's, and a marker reporting nothing was borrowing a vocabulary it
+isn't part of.)
+
+What that missed is that a colour does not have to *distinguish* to be worth reading. The ring is
+where the player is looking — it is the thing being driven at, at ground level, for the whole second
+leg of a trip — and the deadline they are racing is the one attached to the rider in the car. Putting
+that clock on the tarmac means the answer arrives without a glance up at a 29px crystal riding a
+moving roof. The disc reports nothing *of its own*; it repeats what the crystal above the taxi is
+already saying, in the place the eye already is. A VIP's stays its
+[fixed purple](#vip-pickups) at every level, the same exception the crystal makes.
+
+So the marker language is: **shape says what a thing is, hue says whose clock is paying for it.** A
+diamond is a clock, a ring is a destination, a band is a route — and all three of them, for one
+trip, are the same colour. See [rendering.md](rendering.md#the-drop-off-ring--geometrymarkerjs).
 
 The one decision all of this defers is still deferred: nothing on a marker says which *taxi* is
 taking a trip. The day there is more than one, that stays the player's call.
+
+#### The route band wears it too
+
+`src/game/routeline.js`, painted per frame from `fares.colorOf()` on whichever fare the taxi has
+been [sent at](#arrival-requires-direction). It was the taxi's own yellow before — the band belongs
+to the car, not to the road — and the car is not the news. A route only exists because a fare is
+draining at the end of it.
+
+It is the **largest thing on the screen by a wide margin**: a lane-width band running across half a
+5×5 city, on a road the eye is already following because that is where the taxi is going. Urgency
+carried there is urgency the player takes in while doing the thing they were doing anyway, instead of
+having to look away to a small shape at the edge of vision. Both the destination and the trouble
+arrive in one read.
+
+`PALETTE.routeLine`'s yellow is still the fallback for a route with no fare behind it — the
+[recovery](traffic.md) re-route, and a route poked in by hand from the debug panel.
 
 ## Routing
 
@@ -581,18 +609,6 @@ glass](#the-crystal-is-a-glass-of-time) between those steps. The instant they ge
 (`TRANSFER_TIME = 0.65s`, eased, with a small arc) and keeps draining above the roof, because from
 that moment the deadline is the car's problem.
 
-**A disc under the rider's feet carries the same colour.** One hue, said twice: the crystal at eye
-level where the eye happens to be, and the disc on the ground, which is where the taxi is actually
-being aimed. The disc is the [drop-off's own shape](#the-drop-off-is-a-teal-ring-and-nothing-else)
-in the fare's urgency colour rather than teal, so "a disc is a place the taxi has to reach" holds at
-both ends of a trip and the hue is the only difference between them. It also survives what the
-crystal does not: a rider behind a tower still has a mark on the road, because the disc is on a
-plane the buildings mostly don't cover.
-
-It never drains — time is the colour's job — and it **goes dark the moment they board**. The kerb
-corner stops meaning anything then; the clock leaves with them, and a disc left glowing on an empty
-pavement reads as another fare waiting there.
-
 **The rider getting in and the deadline moving into the car are one gesture.** Nothing is created or
 destroyed at the hand-off — the same object leaves the kerb corner it has been standing on and
 crosses to the roof, which is the whole reason the flight is animated rather than a teleport. It is
@@ -601,6 +617,27 @@ rather than climbing into a different slot.
 
 That flight is tuned against `BOARD_SECONDS = 0.9`, so the clock lands on the car a beat *before*
 the rider figure finishes climbing in. The deadline arrives, then its owner does.
+
+### Nothing on the kerb but the rider and their clock
+
+A waiting rider is **a white figure and the crystal over their head**. No ring on the pavement, no
+plate, no bar.
+
+They wore a disc for a spell, in the crystal's own colour — one hue said twice, at eye level where
+the eye happens to be and again on the ground where the driving is aimed, and it survived what the
+crystal does not (a rider behind a tower still had a mark on the road). What took it off is not the
+clutter, it is what a disc on the road *means* now that the far end of a trip has one: **the taxi is
+being driven here.** A rider on the kerb is not that. They are somewhere the taxi *may* be sent — the
+choice the whole game is about — and painting them with the mark of a place already chosen made the
+shape say only "this matters", which both ends of the board could claim.
+
+So the rule holds in one direction only, which is what makes it a rule: every ring on the road is a
+destination, and there is at most one at a time. What the kerb keeps is the clock, at eye level,
+[bouncing and kicking](#what-the-crystal-does) — and the board gets a lot of paint back, since three
+waiting riders were three discs and three crystals on blocks only ~92px across.
+
+The colour did not disappear with the disc; it moved to the far end of the trip, where the disc is
+still [saying it on the ground](#the-drop-off-is-a-ring-and-it-wears-the-riders-clock).
 
 ### It used to be a relay
 
@@ -749,7 +786,7 @@ of on one corner. Black stays the rim's colour for the reason it always was: it 
 on a yellow diamond is no rim at all.
 
 A **diamond on the board means exactly one thing: a clock is running here.** The
-[drop-off](#the-drop-off-is-a-teal-ring-and-nothing-else) wore the same model for a spell and gave
+[drop-off](#the-drop-off-is-a-ring-and-it-wears-the-riders-clock) wore the same model for a spell and gave
 it back, because a second crystal reporting nothing made the shape ambiguous.
 
 ### What it replaced on the kerb
@@ -757,10 +794,11 @@ it back, because a second crystal reporting nothing made the shape ambiguous.
 Four things, in this order:
 
 - **A shaft of light** over the rider, which marked them at range and said nothing else.
-- **A draining ring on the kerb**, an earlier body for the same clock. A disc is back under the
-  rider now and it is worth being clear about what changed: that one *was* the clock, a countdown
-  the player read by how much of it was left, and it was the only thing marking the corner. This one
-  reports nothing on its own — it repeats the crystal's colour, and the crystal is the clock.
+- **A draining ring on the kerb**, an earlier body for the same clock: it *was* the countdown, read
+  by how much of it was left, and it was the only thing marking the corner. A plain disc in the
+  crystal's colour came back for a spell after it and went again — see
+  [Nothing on the kerb](#nothing-on-the-kerb-but-the-rider-and-their-clock). Nothing lies on the
+  pavement under a rider now.
 - **A seven-segment block count**, which was more precision than the decision needed and cost a
   read to parse.
 - **A meter**: a dark plate carrying a four-segment urgency bar over a three-segment distance bar.
@@ -777,11 +815,14 @@ range — and three of them no longer crowd a city whose blocks are only ~92px a
 
 `src/game/urgency.js`. Four levels, even quarters of the clock, each with its own colour.
 
-Two surfaces show it — the fare's diamond, wherever it currently is, and the countdown around each
-rider-finder chip — and they both read from here. A rider showing orange on the map whose chip is
-yellow in the corner is two answers to one question. It was three until the
-[timer ring](#it-used-to-be-a-relay) went, which is exactly why the scale was pulled out of the ring
-into its own module in the first place.
+Four surfaces show it — the fare's diamond wherever it currently is, the
+[ring on the road](#the-drop-off-is-a-ring-and-it-wears-the-riders-clock) the taxi is being driven
+at, the [route band](#the-route-band-wears-it-too) running between them, and the countdown around
+each rider-finder chip — and they all read from here, through one `fareColor(level, vip)` that also
+owns the VIP exception. A rider showing orange on the map whose chip is yellow in the corner is two
+answers to one question, and a band arriving red at an orange disc is the same mistake drawn across
+half the city. It was three surfaces until the [timer ring](#it-used-to-be-a-relay) went, which is
+exactly why the scale was pulled out of the ring into its own module in the first place.
 
 Even quarters rather than the ring's old 0.60 / 0.35 / 0.15 bands: those held the top level through
 the first 40% of the clock and then ran through the other three in a rush. The levels outlived the
@@ -864,10 +905,11 @@ that decision trivial.
 ## VIP pickups
 
 `src/game/fares.js` and `src/game/faremarker.js`. A rare rider layered on top of the ordinary
-board — their diamond and its ground disc open on a fixed purple, never drawn from the urgency
-scale, so "this one is a VIP" is never confused with how much time they have left. The
-rider-finder chip agrees: a VIP's countdown ring wears the same purple instead of the ordinary
-green-to-red scale.
+board — their diamond opens on a fixed purple, never drawn from the urgency scale, so "this one is a
+VIP" is never confused with how much time they have left, and every other surface that fare speaks
+through follows it: the ring on the road at the far end of their trip, the route band driving at it,
+and the off-screen pointer. The rider-finder chip agrees too: a VIP's countdown ring wears the same
+purple instead of the ordinary green-to-red scale.
 
 Everything about a VIP is the ordinary fare loop with three numbers turned:
 

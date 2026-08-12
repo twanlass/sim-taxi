@@ -27,11 +27,11 @@ its turn at each junction comes from a planned route rather than a dice roll, so
 red light exactly like everyone else and cannot cheat its way to a destination.
 
 A passenger appears at an intersection under a floating **diamond**, coloured green through red by
-how much of their patience is left, swelling each time that colour steps, with a **disc**
-under their feet in the same colour. Tap them to
-route the taxi there — the diamond inks over in heavy black to say the car is on its way — and once
-they're aboard a **teal ring** appears on the road where they're going and the taxi drives on to it
-**without being told to**. The only choice on the board is which rider to grab. The clock does
+how much of their patience is left and swelling each time that colour steps. Tap them to route the
+taxi there — the road ahead of it fills with a **band of paint in that rider's own colour** — and
+once they're aboard a **ring** in the same colour appears on the road where they're going and the
+taxi drives on to it **without being told to**. Diamond, band and ring: one trip, one hue. The only
+choice on the board is which rider to grab. The clock does
 **not** reset at pickup — one deadline covers spawn to drop-off, which is
 the whole tension of the game, and it is **budgeted from the driving that trip actually costs**
 rather than being the same number for everyone. A delivery pays by distance, $8 for a one-block hop

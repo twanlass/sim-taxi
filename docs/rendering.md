@@ -1176,10 +1176,12 @@ lockstep.
 
 ### The target disc — `geometry/targetring.js`
 
-A filled circle inside a solid rim, lying flat on a kerb corner. **Both ends of a trip wear one**:
-under the waiting rider in the fare's urgency colour, on the drop-off corner in teal. One rim shape
-and one fill shape serve every disc on the board — only the colour differs, and `setColor` moves
-all three layers together, since they are one mark at three weights rather than different colours.
+A filled circle inside a solid rim, lying flat on a kerb corner. **One end of a trip wears one**: the
+drop-off, in the urgency colour of the rider in the car. A waiting rider had one too for a spell and
+gave it back — see [gameplay.md](gameplay.md#nothing-on-the-kerb-but-the-rider-and-their-clock) —
+so there is at most one disc on the board at a time. One rim shape and one fill shape serve it, and
+`setColor` moves all three layers together, since they are one mark at three weights rather than
+different colours.
 
 `RING_Y = 0.2` above the surface it marks, on all three, so they read as the same object. The fill
 is at the route band's own `ROUTE_OPACITY` — a disc and the band running into it are one weight of
@@ -1205,31 +1207,31 @@ carries its own `customProgramCacheKey` — see the trap in [CLAUDE.md](../CLAUD
 `onBeforeCompile` and three's program cache. `setColor` paints it the same colour as the rim and
 fill; `tools/probe.mjs` reads all three back together and expects one hex, repeated three times.
 
-The beam has to be told to spin: `ring.update(elapsed)` is called from `game/faremarker.js`'s own
-per-frame `update` while the rider's disc is visible, and from `game/fares.js`'s fare loop while a
-fare is `riding`, for the drop-off's. Neither ring ticks while hidden.
+The beam has to be told to spin: `ring.update(elapsed)` is called from `game/fares.js`'s fare loop
+while a fare is `riding`. It never ticks while hidden, which is every frame with nobody aboard.
 
 ### The drop-off ring — `geometry/marker.js`
 
 The drop-off is a **filled disc on the kerb corner and nothing else** — no head, no post. It was a
 crystal on a gold post, then the crystal alone at y = 9.6, then that crystal in teal; it went when
 the rider's marker became the same model and the board had two identical silhouettes on it, only one
-of which reported anything. See [gameplay.md](gameplay.md#the-drop-off-is-a-teal-ring-and-nothing-else).
+of which reported anything. See [gameplay.md](gameplay.md#the-drop-off-is-a-ring-and-it-wears-the-riders-clock).
 
-**One colour, fixed at build time** — `destination` `#5FE0D9`, rim and fill alike. There is only ever
-one drop-off on the board, so there is nothing for a per-fare hue to tell it apart from, and by the
-time it is drawn the taxi is already driving at it. Teal keeps it clear of the urgency scale, which
-is what hue on a fare marker means now.
+**It wears the clock of the rider in the car**, rim, fill and sweep alike: built on the top of the
+urgency scale and repainted by `game/fares.js` (`paintDropoff`) whenever that clock steps a level, so
+the disc and the crystal riding over the taxi are never seen a level apart. A VIP's stays its fixed
+purple. The gate is on the level, not the frame — three materials, four steps in a whole clock.
 
-**It has worn three colours.** Teal-until-tapped then yellow, back when a drop-off above a `parked`
+**It has worn four colours.** Teal-until-tapped then yellow, back when a drop-off above a `parked`
 taxi was a question rather than an instruction; then Loco Mode's yellow throughout, once the taxi
-[dispatched itself at pickup](gameplay.md#the-drop-off-dispatches-itself) and there was no
-unanswered stretch left; now teal again for a different reason than the first time — not "you have
-not answered this yet" but "this one is not on the urgency scale".
+[dispatched itself at pickup](gameplay.md#the-drop-off-dispatches-itself) and there was no unanswered
+stretch left; then a fixed teal, on the argument that a marker with no clock of its own had to sit
+outside the urgency scale; and now the scale itself, on the argument that the clock the drive is
+spending belongs on the thing being driven at.
 
-Band and disc are no longer the same paint — the band is the taxi's yellow — but they still meet on
-the same tarmac at the same opacity, so a disc heavier than the band running into it would read as
-the louder half of one mark. The disc used to wash its far half up over the base of the post at its
+Band and disc are the same paint again as a result — both are that fare's colour — and they already
+met on the same tarmac at the same opacity, so the band running into the disc now reads as one mark
+from the car to the kerb. The disc used to wash its far half up over the base of the post at its
 centre, back when it was translucent *and* something stood in it; nothing stands in this one.
 
 The taxi's roof sign no longer wears a fare colour either — it just lights on and off with whether
@@ -1240,8 +1242,10 @@ framing that shows the ring close up.
 ### Off-screen drop-off pointer
 
 `game/dropoffindicator.js`, styled under `#dropoff-indicator` in `index.html`. An arrow that clamps
-to the viewport edge and rotates to point at the drop-off, in the ring's own teal, shown only while
-a fare is aboard.
+to the viewport edge and rotates to point at the drop-off, shown only while a fare is aboard. It
+wears the ring's colour, which is that rider's clock: the colour is written from JS onto the
+wrapper's `color` and the polygon fills with `currentColor`, so a level change is one style write.
+The value in the stylesheet is only what it opens on before the first pickup.
 
 It carries more weight since the head came off. A crystal at rooftop height stayed visible over the
 skyline for a beat after the ring had gone behind a tower; the arrow only covers the *off-frame*
@@ -1258,11 +1262,13 @@ to a moving car, so it owns its own world position for its whole life. The group
 position; the crystal inside it only ever bounces, kicks and pulses in local space, which keeps the
 two concerns from fighting over one transform.
 
-The **ground disc** ([above](#the-target-disc--geometrytargetringjs)) is a second scene-level group,
-separate for the same reason inverted: the crystal's group flies to the taxi and this one has to
-*stay* on the pavement until it is switched off, which happens on `beginTransfer`. `setUrgency`
-paints both, so the two can never disagree about a level — `tools/probe.mjs` reads the disc's rim,
-fill and sweep back alongside the crystal at every step of a drain.
+It owns **nothing on the ground**. A second scene-level group used to hold a disc on the rider's
+kerb corner — separate from the crystal's for the inverted reason, since that one flies to the taxi
+and the disc had to stay put until `beginTransfer` switched it off. Both the group and its `setColor`
+call are gone with the disc itself
+([gameplay.md](gameplay.md#nothing-on-the-kerb-but-the-rider-and-their-clock)); the only disc left on
+the board is the drop-off's, and `game/fares.js` paints that one from the same level this module
+paints the crystal from.
 
 `LIFT` is 6.6 on both ends of the trip. Over a rider (topping out a little over 3.3) that leaves the
 bottom vertex 1.3 units — about 10px at play zoom — of air above their head, which is the gap the

@@ -2,15 +2,15 @@ import * as THREE from 'three';
 import { ROUTE_OPACITY } from '../game/routeline.js';
 
 // The disc a fare marks its ground with: a filled circle inside a solid rim, lying flat on the
-// pavement corner. Both ends of a trip wear one — under the waiting rider in their urgency colour,
-// on the drop-off corner in teal — so "a disc means a place the taxi has to reach" is one rule with
-// one shape behind it.
+// pavement corner. **One end of a trip wears one** — the drop-off, in the colour of the clock the
+// taxi is racing to it (game/urgency.js) — so "a disc on the road means the taxi is being driven
+// here" is one rule with one shape behind it.
 //
-// The rider's has come and gone twice. It was a draining countdown ring first, then nothing at all
-// while the meter (and later the diamond) carried the clock overhead, and it is back now as a
-// second body for the same colour: the diamond says the urgency at eye level and the disc says it
-// on the ground, where the driving is actually aimed. Two surfaces, one hue, no extra thing to
-// learn — and a rider whose crystal is behind a tower still has a mark on the road.
+// The rider's kerb has had one three times and given it back three times: a draining countdown
+// ring, then nothing while the meter and later the diamond carried the clock overhead, then a
+// second body for the crystal's own colour. What finished that last one is what the shape means
+// rather than what it was reporting — a rider is somewhere the taxi *may* be sent, and painting
+// them with the same mark as the place it *is* being sent made the disc say only "this matters".
 //
 // It never drains. Time is the colour's job; this only has to say "here".
 //

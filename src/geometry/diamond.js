@@ -7,7 +7,9 @@ import * as THREE from 'three';
 // junction the taxi was driving to, urgency-coloured over a rider on the kerb. The drop-off has
 // since gone back to being a ring on the road and nothing else, because a second crystal reporting
 // no state was a silhouette the player had to tell apart from the one that did. So a diamond on the
-// board now means exactly one thing: a clock is running here.
+// board means exactly one thing: a clock is running here — and a ring on the road means exactly one
+// other, that the taxi is being driven there. The two share a colour now (that ring wears the clock
+// of whoever is in the car) but never a shape.
 //
 // It stays its own module rather than folding into game/faremarker.js — the shape, its outline and
 // its bounce are a vocabulary the next marker should take from here rather than re-derive, and this

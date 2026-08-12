@@ -147,6 +147,18 @@ try {
   const hasTarget = await evaluate('Boolean(window.__taxi.traffic.taxi.pendingTarget)');
   check('tapping the fare routes the taxi', hasTarget, `route ${routeLen} turns`);
 
+  // ...and the band it draws is painted in that rider's clock, not the taxi's old yellow. Only the
+  // frame loop performs that join (the band's colour, the fare's colour and `directed` are three
+  // separate objects headlessly), so this is the one place it is checked end to end.
+  const bandPaint = JSON.parse(await evaluate(`JSON.stringify((() => {
+    const t = window.__taxi, fare = t.fares.directed();
+    return { band: t.routeLine.color().getHexString(),
+      fare: fare ? t.fares.colorOf(fare).getHexString() : null };
+  })())`));
+  check('the band wears the clock it is spending',
+    bandPaint.fare !== null && bandPaint.band === bandPaint.fare,
+    `band ${bandPaint.band}, fare ${bandPaint.fare}`);
+
   // --- The taxi should be consuming that route as it drives.
   // Poll rather than sample a fixed window: the taxi may be legitimately stopped at a red for
   // several seconds, and under software rendering sim time advances only a fraction of real time.

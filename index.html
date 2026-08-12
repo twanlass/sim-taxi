@@ -588,23 +588,27 @@
 
       /* Off-screen drop-off pointer. An arrow that clamps to the viewport edge and rotates to
          point at the drop-off ring, so the direction to drive stays readable when the ring has
-         slipped off the frame (portrait, or after panning). Wears the ring's own teal — there is
-         only ever one drop-off on the board, so the arrow does not have to identify which fare it
-         belongs to, only where that ring is. It also carries more weight than it used to: the
-         drop-off no longer floats a marker above the rooftops, so this is what says "over there"
-         once the ring is out of frame. */
+         slipped off the frame (portrait, or after panning). It also carries more weight than it
+         used to: the drop-off no longer floats a marker above the rooftops, so this is what says
+         "over there" once the ring is out of frame.
+
+         The colour is written from JS (game/dropoffindicator.js) rather than set here: the ring
+         this arrow stands in for is painted in the rider's clock now, and the arrow has to step
+         with it. The value below is only what it opens on before the first fare is aboard. */
       #dropoff-indicator {
         position: fixed; left: 50%; top: 50%; z-index: 18;
         width: 34px; height: 34px; pointer-events: none; user-select: none;
         transform: translate(-50%, -50%);
+        color: #3ECF5A;   /* PALETTE.urgency[4] — a full clock */
       }
       #dropoff-indicator[hidden] { display: none; }
       #dropoff-indicator svg { display: block; width: 100%; height: 100%;
         filter: drop-shadow(0 2px 4px rgba(10, 20, 30, 0.45)); }
       /* Outlined to the same weight as the markers in the world, so the arrow reads as the same
-         graphic vocabulary, in the one colour the drop-off has. */
+         graphic vocabulary. `currentColor` is what lets one style write on the wrapper repaint it
+         as the fare's clock drains. */
       #dropoff-indicator polygon {
-        fill: #5FE0D9;   /* PALETTE.destination — the ring this arrow stands in for */
+        fill: currentColor;
         stroke: #0a1615; stroke-width: 3; stroke-linejoin: round;
       }
       body.shot-mode #dropoff-indicator { display: none; }

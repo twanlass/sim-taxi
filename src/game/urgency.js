@@ -3,10 +3,10 @@ import { PALETTE } from '../palette.js';
 
 // How close a fare is to giving up, as a small integer.
 //
-// One model, three surfaces: the fare's diamond, the disc under the rider it belongs to, and the
-// countdown around each chip in the rider-finder stack. They all have to agree — a rider showing
-// orange on the map and a yellow chip in the corner is two answers to one question — so the levels
-// and their colours live here rather than in any of them.
+// One model, four surfaces: the fare's diamond, the ring on the road it is being driven at, the
+// route band running between the two, and the countdown around each chip in the rider-finder stack.
+// They all have to agree — a rider showing orange on the map and a yellow chip in the corner is two
+// answers to one question — so the levels and their colours live here rather than in any of them.
 //
 // There were four while a timer ring rode with the taxi. Pulling the scale out of that ring into
 // its own module is what let the ring be deleted without taking the scale with it.
@@ -37,5 +37,19 @@ const COLORS = PALETTE.urgency.map((hex) => new THREE.Color(hex));
 /** Colour for a level. Clamped, so a fare past its deadline stays on the bottom step. */
 export const urgencyColor = (level) => COLORS[THREE.MathUtils.clamp(level, 0, URGENCY_SEGMENTS)];
 
-/** Colour for a fraction — the form the ring and the finder chips want. */
-export const urgencyColorFor = (fraction) => urgencyColor(urgencyLevel(fraction));
+/**
+ * A VIP's fixed purple. Never drawn from the scale above — "this one is a VIP" must not be
+ * confusable with how much time it has left.
+ */
+export const VIP_COLOR = new THREE.Color(PALETTE.vip);
+
+/**
+ * **The one colour a fare speaks in**, wherever it is speaking: the crystal over the rider's head,
+ * the ring on the road the taxi is driving at, the band of paint between them, and the arrow that
+ * stands in for the ring off-frame.
+ *
+ * A single seam, because the alternative is four callers each remembering the VIP exception. It was
+ * three of them for a while and one of them (the drop-off) sat outside the scale entirely, which is
+ * exactly the split this replaces: hue on anything belonging to a fare now means that fare's clock.
+ */
+export const fareColor = (level, vip = false) => (vip ? VIP_COLOR : urgencyColor(level));

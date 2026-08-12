@@ -9,7 +9,7 @@ export const SHOTS = [
   { name: 'routed', description: 'taxi selected with its route drawn', target: [0, 0], zoom: 52, warmup: 12, select: true, route: true },
   { name: 'close', description: 'close on the selected taxi', target: [0, 0], zoom: 26, warmup: 12, select: true, route: true },
   { name: 'pin', description: 'unclaimed passenger — white, not yet aboard', target: [18, 18], zoom: 26, warmup: 12 },
-  { name: 'riding', description: 'taxi carrying a fare: its clock overhead and the teal drop-off ring', target: [0, 0], zoom: 44, warmup: 12, select: true, untilPickup: true },
+  { name: 'riding', description: 'taxi carrying a fare: its clock overhead and the drop-off ring in the same colour', target: [0, 0], zoom: 44, warmup: 12, select: true, untilPickup: true },
   { name: 'riding-close', description: 'close on the taxi with its roof sign lit', target: [0, 0], zoom: 24, warmup: 12, select: true, untilPickup: true },
   // Asset-inspection framing: close enough to judge vehicle detail that is a couple of pixels
   // wide at play zoom. Cheaper than guessing whether a change to the model actually landed.

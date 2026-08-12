@@ -82,9 +82,10 @@ export const PALETTE = {
 
   // The ambient flyover — see geometry/plane.js. A white aeroplane against a pale sky is a blank
   // shape, so it carries a cheatline; red because it is the one hue in the game with nothing else
-  // to say (yellow is the taxi's, teal is the drop-off's, and the urgency scale owns the rest of
-  // the warm end). Deliberately a shade off `carBody[0]`, which is a red car: at play zoom the two
-  // never share a frame region, but nothing is gained by making them the same paint.
+  // to say (yellow is the taxi's, purple is a VIP's, and the urgency scale owns the rest of the
+  // warm end — both ends of a trip and the band between them). Deliberately a shade off
+  // `carBody[0]`, which is a red car: at play zoom the two never share a frame region, but nothing
+  // is gained by making them the same paint.
   planeBody: '#EDEEF0',
   planeStripe: '#C0524A',
   planeProp: '#33383F',
@@ -141,25 +142,17 @@ export const PALETTE = {
   // glance rather than in a read.
   urgency: ['#E8433A', '#E8433A', '#E8922E', '#E0D233', '#3ECF5A'],
 
-  // The drop-off marker: one teal, fixed, worn by the ring on the tarmac and by the off-screen
-  // pointer that stands in for it. Only one drop-off is ever on the board — the rider currently
-  // aboard — so it has nothing to be told apart from, and a per-fare hue there was saying something
-  // the player could not use.
-  //
-  // Teal because the marker has no state to report. Hue on a *fare* marker means urgency now — that
-  // is what the diamond over a waiting rider is saying — and the drop-off has no clock of its own,
-  // so it has to sit outside that scale entirely. It wore the taxi's yellow for a while, on the
-  // grounds that the car, the route band and the place it is driving to were one statement; but
-  // yellow is the taxi's, and borrowing it put a marker that reports nothing inside a vocabulary it
-  // is not part of.
-  //
-  // One entry rather than two. It used to be a head colour plus the same hue lightened for the disc
-  // beneath it — and before that a third for the post under the head. The head is gone and the disc
-  // is the whole marker, so there is one weight left to name.
-  destination: '#5FE0D9',
+  // **There is no drop-off colour any more.** A `destination` teal (#5FE0D9) lived here, worn by
+  // the ring on the tarmac and by the off-screen pointer that stands in for it, on the argument
+  // that the marker had no clock of its own and so had to sit outside the urgency scale entirely.
+  // (It wore the taxi's yellow before that, and teal-until-tapped before *that*.) Both ends of a
+  // trip and the band between them are painted from `urgency` now: the deadline the drive is
+  // spending is the rider's, whichever end of the trip you are looking at. See game/urgency.js.
+
   // The taxi's own yellow, lightened. This used to be `select` as well, worn by a pool on the road
-  // marking the taxi as selected; that pool is gone and the route band is the only thing wearing
-  // it now. Yellow rather than white because white is the unclaimed-passenger marker.
+  // marking the taxi as selected; that pool is gone, and what still wears it is the route band on
+  // a route with no fare behind it — the recovery re-route. Yellow rather than white because white
+  // is the unclaimed-passenger marker.
   routeLine: '#FFE873',
 
   // The crash — see game/blast.js. Three stops of one ramp rather than three separate effects:
