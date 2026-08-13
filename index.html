@@ -45,7 +45,16 @@
          took unprefixed `user-select` in 17, and `-webkit-touch-callout` has no standard
          equivalent at all. */
       html, body {
-        width: 100%; height: 100%; overflow: hidden; background: #dcedf7;
+        /* `100%` alone is the pre-`viewport-fit=cover` fallback for browsers without `dvh`
+           support. With `viewport-fit=cover` + `black-translucent` (see the status-bar-style meta
+           tag), an installed iOS PWA's true frame now runs edge-to-edge including the bottom
+           safe area, but `height: 100%` on standalone iOS resolves against a containing block
+           that stops short of it — so the canvas (sized off the live `window.innerHeight`, which
+           *does* read the full frame) draws correctly while `body`'s own box, and the
+           `overflow: hidden` clip it applies to its children, both end early, leaving a strip of
+           bare page background the height of the home indicator's safe area. `100dvh` tracks the
+           real rendered viewport instead of a stale percentage reference, closing that gap. */
+        width: 100%; height: 100%; height: 100dvh; overflow: hidden; background: #dcedf7;
         user-select: none; -webkit-user-select: none;
         -webkit-touch-callout: none;
         /* No grey flash under a tap either — every control here has its own :active state. */
@@ -1068,7 +1077,21 @@
         el.hidden = false;
         return el;
       };
+      /* An error the browser refuses to describe did not come from this page.
+
+         `Script error.` at `:0:0` with a null `error` is the anonymised form the spec hands a page
+         for an exception thrown by a script from another origin — every field is stripped so a page
+         can't read a foreign script's internals back out of its own handler. Nothing here is
+         cross-origin: the module graph is served off this domain, so anything *this* game throws
+         arrives with a filename, a line and a stack. Which makes an anonymised one, by
+         construction, somebody else's script running in the tab — iOS Safari raises one from the
+         page menu's Search item on an ordinary tab (not a Home Screen launch), and extensions and
+         content blockers do the same. The panel is `inset: 0`, so opening it for that replaces a
+         working game with a message that names nothing and offers nobody anything to act on. Count
+         them instead; `window.__foreignErrors` has the tally if a report ever needs it. */
+      window.__foreignErrors = 0;
       window.addEventListener('error', (e) => {
+        if (!e.filename && !e.lineno && !e.error) { window.__foreignErrors += 1; return; }
         errorPanel().textContent += `${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`;
       });
       window.addEventListener('unhandledrejection', (e) => {

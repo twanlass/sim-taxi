@@ -224,7 +224,7 @@ block and a cross-town pan both travel at a legible speed, without a short pan d
 into a snap or a long one leaving the player watching the camera with a clock draining. The clamp
 ceiling binds past 112 units; the city's full diagonal is 141.
 
-It sits at the **bottom of the camera priority list** — wreck focus, then the two follows, then this
+It sits at the **bottom of the camera priority list** — [the closing shot](#the-closing-shot), then the two follows, then this
 — and it is *dropped*, not paused, by anything above it: `followXZ` and `focusOn` both clear it, as
 does `panBy`, so a finger on the map wins on the frame it lands rather than fighting a tween that is
 still writing the target. All three legs live in the one `glide` field for exactly that reason —
@@ -280,6 +280,42 @@ It asserts the ease-in, that the level still stands after ten seconds (the failu
 impulse would have), that a release returns to *exactly* still, that an impact still reads as one
 over it, and that a follow repaint keeps it. The passing lab at [`/lab/`](lab.md) drives the same
 rumble off the same gain, which makes it the place to watch one held for minutes at a time.
+
+### The closing shot
+
+Every ending gets the same beat: the camera eases into whatever ended the run, the sim drops into
+slow motion, and the run-end screen waits for both. It is one claim at the **top** of the priority
+list — `controller.focusOn(endSpot.x, endSpot.z, endZoom, dt)`, which moves the target and the zoom
+together on one rate so they converge in step — and it runs on **every** viewport, not only narrow
+ones, because it is a cut scene rather than a driving aid. Only three numbers differ:
+
+| Ending | Where it looks | Zoom | Slow-mo floor | Banner waits |
+|---|---|---|---|---|
+| **Wrecked** | the impact point | 26 | 0.18 | 2600ms |
+| **Busted** | the taxi, so the cruiser swings into a held shot | 26 | 0.42 | until the cop pulls up, 3400–4800ms |
+| **Too Slow** | `fares.state.failSpot` — the corner the expired clock was counting down to | 30 | 0.40 | 2400ms |
+
+The timeout is the odd one out and it is what the third row is for: nothing happens *to the taxi*, so
+there is no impact to point at. What failed is a **place** — the drop-off ring the rider never
+reached, or the kerb they gave up waiting on — and `fares.js` names it (`state.failSpot`) rather than
+main.js guessing, because `fare.target` is already whichever end of the trip was still owed. It is the
+**pavement corner**, not the junction centre: that is where the pin and its ring actually stand, and
+at this zoom the difference is the subject sitting several units off frame centre.
+
+Which is also why the fare system **leaves that one pin standing** where a wreck clears the whole
+board — a two-second pull-in onto a junction that has just been emptied is a shot of nothing. The
+rest of the board still goes, and the expired fare still leaves `state.fares`, so nothing keeps
+ticking.
+
+The taxi **stops** for it, exactly as it does for a bust (`crashed`, the flag every loop in
+`traffic.js` already skips): the run is over, and a car still driving a route to a fare that no
+longer exists — through the very ring the shot is holding on — argues with the ending being shown.
+
+Shallower slow-mo than a wreck and a wider stop on the zoom, both for the same reason: there is no
+blast to stretch out and nothing on its way in, so the beat is a *held look* rather than a replay. At
+wreck depth the city around the marker crawls with nothing to justify it, and at wreck zoom the
+marker fills the frame and the junction it stands on — half of what makes it a place — is cropped
+away. All the delays are wallclock, so the slow-mo never stretches the wait for the retry screen.
 
 The `VIEW_DIR` diagonal has consequences elsewhere: screen-up is world `(-1, 0, -1)`, which is why
 riders are placed on the `-X-Z` kerb of a junction — the block on the `+X+Z` side sits between the

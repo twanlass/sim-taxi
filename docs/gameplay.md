@@ -1429,6 +1429,13 @@ reason, the run's four stats, the [high-score table](#high-scores), and **Play a
 set by the caller, so a timeout reads **Too Slow!**, a collision reads **Wrecked!**, and a police
 bust reads **Busted!**.
 
+All three also **hold the screen back for a beat** while the camera pulls into whatever ended the run
+— the wreck, the cruiser, or the corner a fare's clock ran out on. See
+[the closing shot](rendering.md#the-closing-shot) for the framing and the three sets of numbers; the
+one thing that belongs here is that a timeout's shot is of the **drop-off the taxi never reached**,
+which is the only place in the game where the answer to "what went wrong" is somewhere other than
+where the taxi is standing.
+
 It is a **full-screen blackout**, not a modal over the city. An earlier pass dimmed the world and
 floated a blurred card on top of it, and the card's edges turned out to be the loudest thing on the
 screen. Blacking the whole viewport out puts the run's numbers on nothing at all, which is what

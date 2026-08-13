@@ -769,6 +769,27 @@ try {
   await client.send('Emulation.setTouchEmulationEnabled', { enabled: false });
   await client.send('Emulation.setEmulatedMedia', { features: [] });
 
+  // --- The crash panel opens for this page's crashes and nobody else's.
+  //
+  // A cross-origin script's exception reaches `window.onerror` anonymised — `Script error.` at
+  // `:0:0`, no `error` object — and iOS Safari raises one from the page menu's Search item on an
+  // ordinary tab. The panel is `inset: 0`, so honouring that paints a message naming nothing over
+  // a game that is running perfectly. Both directions are checked, because "ignore errors" passes
+  // the first half on its own and takes the boot-failure panel down with it.
+  const panelOpensFor = async (init) => evaluate(`(() => {
+    const el = document.getElementById('error');
+    el.textContent = ''; el.hidden = true;
+    window.dispatchEvent(new ErrorEvent('error', ${JSON.stringify(init)}));
+    const open = !el.hidden;
+    el.textContent = ''; el.hidden = true;
+    return open;
+  })()`);
+
+  check('a foreign script error leaves the game on screen',
+    (await panelOpensFor({ message: 'Script error.', filename: '', lineno: 0, colno: 0 })) === false);
+  check('and this page\'s own crashes still open the panel',
+    (await panelOpensFor({ message: 'boom', filename: `${baseUrl}/src/main.js`, lineno: 12, colno: 3 })) === true);
+
   // --- Offline: a Home Screen launch has to work with no connection at all. This only proves
   // anything run against a built preview (`--url http://localhost:4173`) — the worker registration
   // in main.js is skipped under `import.meta.env.DEV` on purpose, since the dev server rewrites

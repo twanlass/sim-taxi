@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
+import { viewportSize } from './util/viewport.js';
 import { createScene } from './game/scene.js';
 import { createCityCamera, attachDragPan, VIEW_DIR } from './game/camera.js';
 import { createLayout } from './city/layout.js';
@@ -114,7 +115,7 @@ const renderer = new THREE.WebGLRenderer({
   preserveDrawingBuffer: Boolean(shot),
 });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, budget.pixelRatioCap));
-renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setSize(viewportSize().width, viewportSize().height);
 renderer.shadowMap.enabled = budget.shadowMapSize > 0;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
@@ -220,7 +221,7 @@ for (const slot of fares.slots) markOccluder(slot.passenger.group);
 // One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and
 // the game is playable without ever touching it on a desktop — but in portrait the frustum is
 // sized by height, so a phone cuts off both sides of the map and panning stops being optional.
-const aspect = () => window.innerWidth / window.innerHeight;
+const aspect = () => { const s = viewportSize(); return s.width / s.height; };
 const controller = createCityCamera(aspect(), {
   zoom: shot?.zoom ?? 52,
   target: shot?.target ?? [0, 0],
@@ -234,7 +235,7 @@ controller.update(aspect());
 // only move things around for no reason. Live viewport width rather than a media query lets a
 // resize flip modes without a reload.
 const NARROW_VIEWPORT = 768;
-const isNarrow = () => window.innerWidth < NARROW_VIEWPORT;
+const isNarrow = () => viewportSize().width < NARROW_VIEWPORT;
 
 // The camera trails the taxi from the first frame of the run, and keeps doing it until the player
 // takes the framing over — a swipe, or a tap on a rider-finder chip. Both are the player saying
@@ -431,7 +432,26 @@ const BUST_BANNER_DELAY = 3400;
 const BUST_BANNER_MAX = 4800;
 const BUST_BANNER_HOLD = 500;
 const BUST_SLOW_MO_MIN = 0.42;
-let wreckSpot = null;
+
+// And the third ending gets the same beat on its own dial again. A fare's clock running out has
+// nothing happening *to the taxi* to look at — nothing hit it and nothing pulled it over — so the
+// subject of the shot is the place the run failed instead: the drop-off ring the rider never
+// reached, or the kerb corner they gave up waiting on. `fares.state.failSpot` is that corner, and
+// the fare system leaves its pin standing rather than clearing it with the rest of the board.
+//
+// Shallower slow-mo than a wreck and a wider stop on the zoom, for the same reason in both cases:
+// there is no blast to stretch out and no cruiser on its way in, so what the beat is doing is
+// holding a look at a junction rather than replaying an event. At wreck depth the city around the
+// marker crawls with nothing to justify it, and at wreck zoom the marker fills the frame and the
+// junction it stands on — half of what makes it a place — is cropped away.
+const TIMEOUT_BANNER_DELAY = 2400;
+const TIMEOUT_ZOOM = 30;
+const TIMEOUT_SLOW_MO_MIN = 0.4;
+
+// Where the camera holds for whichever ending the run got, and how far in it pulls. Set by all
+// three: a wreck and a bust put it on the taxi, a timeout on the corner the taxi never reached.
+let endSpot = null;
+let endZoom = WRECK_ZOOM;
 let crashBannerAt = null;
 let slowMoUntil = 0;
 let slowMoMin = SLOW_MO_MIN;
@@ -472,7 +492,8 @@ collisions.onImpact(({ x, z, other }) => {
   vanish.take(traffic.wreckShell(traffic.taxi));
   vanish.take(traffic.wreckShell(other));
 
-  wreckSpot = { x, z };
+  endSpot = { x, z };
+  endZoom = WRECK_ZOOM;
   crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
   slowMoMin = SLOW_MO_MIN;
@@ -495,7 +516,8 @@ collisions.onImpact(({ x, z, other }) => {
 function bustByPolice() {
   if (fares.state.gameOver || traffic.taxi.crashed) return;
   controller.kickShake(0.9);
-  wreckSpot = { x: traffic.taxi.x, z: traffic.taxi.z };
+  endSpot = { x: traffic.taxi.x, z: traffic.taxi.z };
+  endZoom = WRECK_ZOOM;
   bustAt = performance.now();
   crashBannerAt = bustAt + BUST_BANNER_DELAY;
   slowMoUntil = performance.now() + SLOW_MO_DURATION;
@@ -765,7 +787,7 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // Orthographic, so world-units-per-pixel falls straight out of the frustum height: the vertical
   // world span is exactly 2 * zoom. This is what keeps the spotlight the same size on every
   // viewport, and correct if a wreck ever pulls the zoom in under it.
-  pixelsPerUnit: () => window.innerHeight / (2 * controller.state.zoom),
+  pixelsPerUnit: () => viewportSize().height / (2 * controller.state.zoom),
   // The third beat points at a control rather than at something in the city, so its spotlight is
   // measured off the pill's own box. Declared after this call; `function` hoisting covers it.
   boostAnchor: boostScreenPos,
@@ -824,9 +846,10 @@ let moneyRoll = null;
 /** A world point in viewport pixels. The one place the NDC-to-pixels arithmetic lives. */
 function projectToScreen(x, y, z) {
   const v = new THREE.Vector3(x, y, z).project(camera);
+  const s = viewportSize();
   return {
-    x: (v.x * 0.5 + 0.5) * window.innerWidth,
-    y: (-v.y * 0.5 + 0.5) * window.innerHeight,
+    x: (v.x * 0.5 + 0.5) * s.width,
+    y: (-v.y * 0.5 + 0.5) * s.height,
   };
 }
 
@@ -1050,8 +1073,11 @@ function updateHud(dt) {
   }
 
   if (s.gameOver && hud.banner && hud.banner.hidden) {
-    // A crash holds the banner for CRASH_BANNER_DELAY so the blast and the camera pull-in
-    // land before the retry screen appears. Timeouts have no such beat — reveal immediately.
+    // Every ending holds the banner while its own closing beat plays — CRASH_BANNER_DELAY for the
+    // blast, the cruiser's arrival for a bust, TIMEOUT_BANNER_DELAY for the pull-in on the corner a
+    // fare's clock ran out on. All three are wallclock, so the slow-mo doesn't stretch the wait.
+    // `crashBannerAt` is null only for a run ended from outside the game (the console hook), which
+    // has nothing to wait for.
     if (crashBannerAt !== null && performance.now() < crashBannerAt) return;
     showRunEnd(hud.banner, {
       title: s.failTitle,
@@ -1085,7 +1111,8 @@ function updateHud(dt) {
 }
 
 window.addEventListener('resize', () => {
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  const s = viewportSize();
+  renderer.setSize(s.width, s.height);
   controller.resize(aspect());
 });
 
@@ -1513,16 +1540,18 @@ function frame() {
   // back. Both aim past the taxi rather than at it (`followAim`), so the road it is driving down
   // gets the frame the road behind it used to.
   //
-  // Wreck focus outranks everything (and runs on every viewport, not only narrow ones): the camera
-  // eases into the crash site so the fireball fills the frame before the retry screen shows.
+  // End-of-run focus outranks everything (and runs on every viewport, not only narrow ones): the
+  // camera eases into whatever ended the run — the crash site, the cop pulling up, or the corner a
+  // fare's clock ran out on — so the last thing the player sees is the reason, framed, before the
+  // retry screen shows. One claim for all three; only the point and the zoom differ.
   //
   // The tutorial sits below Loco Mode and above the opening follow, and unlike the follows it runs
   // on every viewport — a desktop player has the whole city in frame and still cannot tell which
   // car is theirs, which is the entire reason the first bubble exists. It frames from here rather
   // than from its own update() so this list stays the one place the camera is decided.
   const boosting = boost.isActive();
-  if (wreckSpot) {
-    controller.focusOn(wreckSpot.x, wreckSpot.z, WRECK_ZOOM, dt, aspect());
+  if (endSpot) {
+    controller.focusOn(endSpot.x, endSpot.z, endZoom, dt, aspect());
   } else if (boosting && !fares.state.gameOver && isNarrow()) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect(),
       followAim(traffic.taxi));
@@ -1569,6 +1598,24 @@ function frame() {
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       traffic.setTaxiOccupied(false);
+    } else if (type === 'failed') {
+      // The run ended on a clock rather than on an impact — see the TIMEOUT_* block. The camera
+      // takes the corner the fare was counting down to (`failSpot`, left standing by fares.js), the
+      // sim drops into a shallow slow-mo, and the retry screen waits for both.
+      //
+      // The taxi stops for it, the same way it does for a bust and for the same reason: the run is
+      // over, and a car still driving a route to a fare that no longer exists — through the very
+      // ring the shot is holding on — argues with the ending being shown. `crashed` is the flag
+      // every loop in traffic.js already skips, so it does the whole job. Boost goes with it, or a
+      // held pill would keep burning fuel behind the banner.
+      endSpot = fares.state.failSpot ?? { x: traffic.taxi.x, z: traffic.taxi.z };
+      endZoom = TIMEOUT_ZOOM;
+      crashBannerAt = performance.now() + TIMEOUT_BANNER_DELAY;
+      slowMoUntil = performance.now() + SLOW_MO_DURATION;
+      slowMoMin = TIMEOUT_SLOW_MO_MIN;
+      traffic.taxi.crashed = true;
+      traffic.taxi.v = 0;
+      boost.release();
     } else if (type === 'vip-missed') {
       // The one fare whose clock running out isn't a run-ending event — see fares.js. If it was
       // riding, the taxi is holding an empty seat with nowhere left to drive; free it up exactly
@@ -1748,7 +1795,7 @@ if (shot) {
       collisions.update();
       traffic.update(1 / 60);
     }
-    controller.state.target.set(wreckSpot?.x ?? victim.x, 0, wreckSpot?.z ?? victim.z);
+    controller.state.target.set(endSpot?.x ?? victim.x, 0, endSpot?.z ?? victim.z);
     controller.update(aspect());
     for (let step = 0; step < Math.round(shot.wreckAt * 60); step++) {
       blast.update(1 / 60);

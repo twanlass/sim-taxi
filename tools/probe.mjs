@@ -3154,6 +3154,89 @@ check('the taxi is an ordinary car in the traffic array',
     `${parkedWhileCarrying} frames held at the kerb`);
 }
 
+// --- Running out of time ends the run on its own beat ----------------------
+// The third ending has nothing happening to the taxi to look at, so main.js points the closing
+// camera at `state.failSpot` — the corner the clock was counting down to — and holds the retry
+// screen while it gets there. Two halves, both of which fail silently: a null `failSpot` drops the
+// shot back onto the taxi, and a pin cleared with the rest of the board leaves it framing an empty
+// junction. Neither shows up in any other number here.
+{
+  const tScene = new THREE.Scene();
+  const tTraffic = createTraffic(makeRng(seed + 44), tScene, CARS_DEFAULT);
+  const tFares = createFareSystem(makeRng(seed + 55), tScene);
+  const tTaxi = tTraffic.taxi;
+  tTraffic.warmup(5);
+
+  // Mirrors main.js:routeTo.
+  const routeTo = (target) => {
+    const r = findRoute(planOrigin(tTaxi), target);
+    if (!r) return false;
+    tTaxi.route = r; tTaxi.routeConsumed = false; tTaxi.parked = false;
+    return true;
+  };
+
+  // Drive the opening fare all the way to a pickup first, so the clock that expires belongs to a
+  // rider *aboard* — the case the beat exists for, where the corner in the shot is the drop-off at
+  // the far end of the trip rather than the kerb the taxi is standing next to.
+  let riding = null;
+  let elapsed = 0;
+  while (elapsed < 200 && !tFares.state.gameOver && !riding) {
+    tTraffic.update(1 / 60);
+    for (const { type, fare } of tFares.update(1 / 60, tTaxi)) {
+      if (type === 'pickup') { tTaxi.route = []; riding = fare; }
+    }
+    elapsed += 1 / 60;
+    const waiting = tFares.waiting();
+    if (waiting && !waiting.directed && routeTo(waiting.target)) tFares.markDirected(waiting);
+  }
+
+  check('a rider is aboard before the timeout is staged', Boolean(riding),
+    `${elapsed.toFixed(1)}s without a pickup`);
+
+  // The opening fare is never a VIP, but pin it: a VIP's clock running out is the one timeout that
+  // doesn't end the run, and this block would then be asserting nothing.
+  riding.vip = false;
+  const dropoff = { i: riding.target.i, j: riding.target.j };
+  riding.timeLeft = 1 / 120;                   // one more tick takes it under zero
+  const failed = tFares.update(1 / 60, tTaxi).find((e) => e.type === 'failed');
+
+  check('a missed drop-off ends the run', Boolean(failed) && tFares.state.gameOver,
+    `gameOver ${tFares.state.gameOver}`);
+
+  const aim = cornerFor(dropoff.i, dropoff.j);
+  const spot = tFares.state.failSpot;
+  check('the closing camera is aimed at the drop-off that was missed',
+    Boolean(spot) && Math.hypot(spot.x - aim.x, spot.z - aim.z) < 1e-6,
+    spot ? `${spot.x.toFixed(1)},${spot.z.toFixed(1)} vs ${aim.x.toFixed(1)},${aim.z.toFixed(1)}`
+      : 'no failSpot');
+  check('the missed drop-off ring is left standing for the shot',
+    riding.slot.destination.group.visible);
+  check('the expired fare still stops ticking', !tFares.state.fares.includes(riding));
+}
+
+{
+  // And a rider who gives up on the kerb aims the same shot at their own corner, without a second
+  // code path: `target` is whichever end of the trip was still owed.
+  const kScene = new THREE.Scene();
+  const kTraffic = createTraffic(makeRng(seed + 44), kScene, CARS_DEFAULT);
+  const kFares = createFareSystem(makeRng(seed + 55), kScene);
+  kTraffic.warmup(3);
+  kFares.update(1 / 60, kTraffic.taxi);        // an empty board always refills — this is that fare
+  const kerbFare = kFares.state.fares[0];
+  kerbFare.vip = false;
+  const corner = cornerFor(kerbFare.target.i, kerbFare.target.j);
+  kerbFare.timeLeft = 1 / 120;
+  kFares.update(1 / 60, kTraffic.taxi);
+
+  const spot = kFares.state.failSpot;
+  check('a rider who gives up waiting puts the shot on their own kerb corner',
+    kFares.state.gameOver && Boolean(spot)
+      && Math.hypot(spot.x - corner.x, spot.z - corner.z) < 1e-6,
+    spot ? `${spot.x.toFixed(1)},${spot.z.toFixed(1)}` : 'no failSpot');
+  check('the rider who gave up is left standing for the shot',
+    kerbFare.slot.passenger.group.visible);
+}
+
 // --- Taxi-vs-car collisions ------------------------------------------------
 // The whole feature only fires while boosting, and its silent failure modes are: no impact ever
 // detected, an impact that doesn't wreck the taxi, or a wrecked car left driving around because
