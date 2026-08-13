@@ -32,6 +32,7 @@ const SIGN_Z    = '#C0BDB0';
 const CHECKER   = '#2B2B30';   // taxiTrim
 const TIRE      = '#141419';
 const HUB       = '#3A3D45';
+const SHADOW    = '#3E1878';   // a deep violet, not black — black on #A46BFF greys out and reads dirty
 
 // ----- Geometry (world units — same numbers as src/geometry/taxi.js) -----
 const CAR_LEN = 3.4;
@@ -50,9 +51,14 @@ const COS = Math.cos(Math.PI / 6);
 const SIN = Math.sin(Math.PI / 6);
 const U   = 66;
 
-// Projection origin picked after eyeballing the bounding box below; see FIT comment.
-const OX = SIZE / 2 - 6;
-const OY = SIZE * 0.58;
+// Projection origin. This is the world origin — the centre of the car's footprint on the ground —
+// and it is *not* where the car ends up: the iso projection is not symmetric about it (the roof
+// sign rises well above y = 0, the wheels barely dip below), so putting the origin at the middle of
+// the canvas leaves the car high and to one side. It used to be nudged by hand-tuned constants,
+// which is how the icon shipped sitting up in the top-left of its frame. Instead, keep the origin
+// plain and re-centre from the *measured* bounding box in RECENTRE below.
+const OX = SIZE / 2;
+const OY = SIZE / 2;
 
 const project = (x, y, z) => [
   OX + (x - z) * COS * U,
@@ -135,20 +141,54 @@ layers.push(...boxFaces(CABIN_CX - CABIN_L / 2, CABIN_CX + CABIN_L / 2,
 layers.push(...boxFaces(SIGN_X0, SIGN_X1, SIGN_Y0, SIGN_Y1, SIGN_Z0, SIGN_Z1,
                         SIGN_TOP, SIGN_X, SIGN_Z));
 
-// FIT check — dump the projected bounding box so a future tweak can re-center by tweaking OX/OY/U.
+// ----- RECENTRE — measure what we actually drew and slide it to the middle of the canvas.
+// Measured over the car alone, deliberately: the contact shadow below is soft-edged and mostly
+// transparent, so letting it pull the centre up would leave the car itself riding high again.
+// Its few px of overhang past the wheels is what a grounded object is supposed to look like.
+const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+for (const l of layers) for (const [x, y] of l.pts) {
+  if (x < bounds.minX) bounds.minX = x;
+  if (y < bounds.minY) bounds.minY = y;
+  if (x > bounds.maxX) bounds.maxX = x;
+  if (y > bounds.maxY) bounds.maxY = y;
+}
+const DX = SIZE / 2 - (bounds.minX + bounds.maxX) / 2;
+const DY = SIZE / 2 - (bounds.minY + bounds.maxY) / 2;
+
 if (process.env.DEBUG_ICON) {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const l of layers) for (const [x, y] of l.pts) {
-    if (x < minX) minX = x; if (y < minY) minY = y;
-    if (x > maxX) maxX = x; if (y > maxY) maxY = y;
-  }
-  console.log(`bounds x[${minX.toFixed(1)}, ${maxX.toFixed(1)}] y[${minY.toFixed(1)}, ${maxY.toFixed(1)}]`);
+  const w = bounds.maxX - bounds.minX, h = bounds.maxY - bounds.minY;
+  console.log(`bounds x[${fmt(bounds.minX)}, ${fmt(bounds.maxX)}] y[${fmt(bounds.minY)}, ${fmt(bounds.maxY)}]`);
+  console.log(`size ${fmt(w)}×${fmt(h)} (${(w / SIZE * 100).toFixed(0)}% of frame), recentre by ${fmt(DX)},${fmt(DY)}`);
 }
 
+// ----- Contact shadow — an ellipse lying on the ground plane, drawn before the car.
+// Authored in world x/z units and pushed through the projection as an SVG matrix rather than
+// hand-fitting screen-space radii: the ground plane's map to screen is exactly linear, so
+// (x, z) → (a·x + c·z + e, b·x + d·z + f) is the whole of it, and the ellipse then shears the way
+// the city's ground planes do. Cheaper than a feGaussianBlur too — a blur's filter region is
+// resolution-dependent and turns to mush at the 16px favicon; a gradient resamples cleanly.
+const SHADOW_RX = 2.30;   // along the car's length (half-length is 1.7)
+const SHADOW_RZ = 1.45;   // across it (half-width is 0.85)
+const groundMatrix = [COS * U, SIN * U, -COS * U, SIN * U, OX, OY].map(fmt).join(',');
+const shadowSvg = `    <ellipse cx="0" cy="0" rx="${SHADOW_RX}" ry="${SHADOW_RZ}"
+      fill="url(#contact)" transform="matrix(${groundMatrix})"/>`;
+
 // ----- Emit SVG -----
+// The gradient is in objectBoundingBox units, i.e. the ellipse's own space, so the falloff is
+// circular *in world terms* and arrives on screen already sheared with the ellipse. Opaque core,
+// then a fast shoulder — a linear ramp reads as a flat grey disc rather than as light falling off.
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SIZE} ${SIZE}" width="${SIZE}" height="${SIZE}">
+  <defs>
+    <radialGradient id="contact">
+      <stop offset="0"    stop-color="${SHADOW}" stop-opacity="0.50"/>
+      <stop offset="0.55" stop-color="${SHADOW}" stop-opacity="0.44"/>
+      <stop offset="0.86" stop-color="${SHADOW}" stop-opacity="0.15"/>
+      <stop offset="1"    stop-color="${SHADOW}" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
   <rect width="${SIZE}" height="${SIZE}" fill="${BG}"/>
-  <g shape-rendering="geometricPrecision">
+  <g shape-rendering="geometricPrecision" transform="translate(${fmt(DX)},${fmt(DY)})">
+${shadowSvg}
 ${layers.map((l) => `    <polygon points="${poly(l.pts)}" fill="${l.fill}"/>`).join('\n')}
   </g>
 </svg>
