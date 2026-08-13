@@ -12,7 +12,11 @@
  * for them arrive. That means the very first load has to happen online; every one after, on the
  * same deploy, works with no connection at all.
  */
-const CACHE_NAME = 'sim-taxi-v1';
+// Bump this whenever one of the unhashed shell files below changes. They're the one exception to
+// the immutability the cache-first strategy assumes: `apple-touch-icon.png` keeps its name across
+// a redesign, so without a new cache name an installed client serves the old artwork forever.
+// v2: recentred the taxi in the icon and gave it a contact shadow.
+const CACHE_NAME = 'sim-taxi-v2';
 
 const PRECACHE_URLS = [
   '/',
