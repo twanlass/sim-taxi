@@ -45,7 +45,16 @@
          took unprefixed `user-select` in 17, and `-webkit-touch-callout` has no standard
          equivalent at all. */
       html, body {
-        width: 100%; height: 100%; overflow: hidden; background: #dcedf7;
+        /* `100%` alone is the pre-`viewport-fit=cover` fallback for browsers without `dvh`
+           support. With `viewport-fit=cover` + `black-translucent` (see the status-bar-style meta
+           tag), an installed iOS PWA's true frame now runs edge-to-edge including the bottom
+           safe area, but `height: 100%` on standalone iOS resolves against a containing block
+           that stops short of it — so the canvas (sized off the live `window.innerHeight`, which
+           *does* read the full frame) draws correctly while `body`'s own box, and the
+           `overflow: hidden` clip it applies to its children, both end early, leaving a strip of
+           bare page background the height of the home indicator's safe area. `100dvh` tracks the
+           real rendered viewport instead of a stale percentage reference, closing that gap. */
+        width: 100%; height: 100%; height: 100dvh; overflow: hidden; background: #dcedf7;
         user-select: none; -webkit-user-select: none;
         -webkit-touch-callout: none;
         /* No grey flash under a tap either — every control here has its own :active state. */
