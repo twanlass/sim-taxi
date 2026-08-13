@@ -284,6 +284,12 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     gameOver: false,
     failTitle: 'Too Slow!',
     failReason: null,
+    // Where the closing shot looks, for the one ending that has no impact to point at. A wreck and
+    // a bust both happen *to the taxi*, so main.js already knows where to put the camera; a fare's
+    // clock running out happens at the other end of the map, on the corner the run was driving at.
+    // Set by the timeout below and read once by main.js — null until then, and on a wreck or a bust
+    // for good.
+    failSpot: null,
     // Holds every fare's countdown where it stands — the opening tutorial sets it while it is
     // talking (see game/tutorial.js). Only the *clock* stops: fares still spawn, riders still
     // wave, diamonds still bob, and the city behind the bubble carries on. A player being told how
@@ -953,7 +959,21 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         }
         state.gameOver = true;
         state.failReason = "Patience wasn't your fare's strong suit.";
-        for (const other of [...state.fares]) clear(other);
+        // The point the camera pulls into for the closing beat: the corner this clock was counting
+        // down to — the drop-off for a rider aboard, the kerb they were standing on for one who gave
+        // up waiting, since `target` is already whichever end of the trip was still owed. The
+        // *pavement* corner rather than the junction centre, because that is where the pin and its
+        // ring actually stand (see `place`); aiming at the centre puts the subject of the shot a
+        // couple of units off frame centre at the zoom main.js pulls to.
+        state.failSpot = cornerFor(fare.target.i, fare.target.j);
+        // Everything else on the board goes, exactly as a wreck clears it — but *this* fare's pin
+        // stays up. The camera is about to spend two seconds on it, and hiding it first would leave
+        // that shot pointed at an empty junction: the whole thing the beat has to say is "here is
+        // the corner you didn't reach". It still leaves `state.fares` on the line below, so nothing
+        // keeps ticking a clock that has already run out.
+        for (const other of [...state.fares]) { if (other !== fare) clear(other); }
+        const expired = state.fares.indexOf(fare);
+        if (expired !== -1) state.fares.splice(expired, 1);
         for (const e of exits) {
           e.slot.passenger.group.visible = false;
           e.slot.passenger.standing?.rest?.();
