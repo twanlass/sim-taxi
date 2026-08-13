@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
+import { viewportSize } from './util/viewport.js';
 import { createScene } from './game/scene.js';
 import { createCityCamera, attachDragPan, VIEW_DIR } from './game/camera.js';
 import { createLayout } from './city/layout.js';
@@ -114,7 +115,7 @@ const renderer = new THREE.WebGLRenderer({
   preserveDrawingBuffer: Boolean(shot),
 });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, budget.pixelRatioCap));
-renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setSize(viewportSize().width, viewportSize().height);
 renderer.shadowMap.enabled = budget.shadowMapSize > 0;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
@@ -220,7 +221,7 @@ for (const slot of fares.slots) markOccluder(slot.passenger.group);
 // One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and
 // the game is playable without ever touching it on a desktop — but in portrait the frustum is
 // sized by height, so a phone cuts off both sides of the map and panning stops being optional.
-const aspect = () => window.innerWidth / window.innerHeight;
+const aspect = () => { const s = viewportSize(); return s.width / s.height; };
 const controller = createCityCamera(aspect(), {
   zoom: shot?.zoom ?? 52,
   target: shot?.target ?? [0, 0],
@@ -234,7 +235,7 @@ controller.update(aspect());
 // only move things around for no reason. Live viewport width rather than a media query lets a
 // resize flip modes without a reload.
 const NARROW_VIEWPORT = 768;
-const isNarrow = () => window.innerWidth < NARROW_VIEWPORT;
+const isNarrow = () => viewportSize().width < NARROW_VIEWPORT;
 
 // The camera trails the taxi from the first frame of the run, and keeps doing it until the player
 // takes the framing over — a swipe, or a tap on a rider-finder chip. Both are the player saying
@@ -741,7 +742,7 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // Orthographic, so world-units-per-pixel falls straight out of the frustum height: the vertical
   // world span is exactly 2 * zoom. This is what keeps the spotlight the same size on every
   // viewport, and correct if a wreck ever pulls the zoom in under it.
-  pixelsPerUnit: () => window.innerHeight / (2 * controller.state.zoom),
+  pixelsPerUnit: () => viewportSize().height / (2 * controller.state.zoom),
   // The third beat points at a control rather than at something in the city, so its spotlight is
   // measured off the pill's own box. Declared after this call; `function` hoisting covers it.
   boostAnchor: boostScreenPos,
@@ -800,9 +801,10 @@ let moneyRoll = null;
 /** A world point in viewport pixels. The one place the NDC-to-pixels arithmetic lives. */
 function projectToScreen(x, y, z) {
   const v = new THREE.Vector3(x, y, z).project(camera);
+  const s = viewportSize();
   return {
-    x: (v.x * 0.5 + 0.5) * window.innerWidth,
-    y: (-v.y * 0.5 + 0.5) * window.innerHeight,
+    x: (v.x * 0.5 + 0.5) * s.width,
+    y: (-v.y * 0.5 + 0.5) * s.height,
   };
 }
 
@@ -1061,7 +1063,8 @@ function updateHud(dt) {
 }
 
 window.addEventListener('resize', () => {
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  const s = viewportSize();
+  renderer.setSize(s.width, s.height);
   controller.resize(aspect());
 });
 
