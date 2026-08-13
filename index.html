@@ -1077,7 +1077,21 @@
         el.hidden = false;
         return el;
       };
+      /* An error the browser refuses to describe did not come from this page.
+
+         `Script error.` at `:0:0` with a null `error` is the anonymised form the spec hands a page
+         for an exception thrown by a script from another origin — every field is stripped so a page
+         can't read a foreign script's internals back out of its own handler. Nothing here is
+         cross-origin: the module graph is served off this domain, so anything *this* game throws
+         arrives with a filename, a line and a stack. Which makes an anonymised one, by
+         construction, somebody else's script running in the tab — iOS Safari raises one from the
+         page menu's Search item on an ordinary tab (not a Home Screen launch), and extensions and
+         content blockers do the same. The panel is `inset: 0`, so opening it for that replaces a
+         working game with a message that names nothing and offers nobody anything to act on. Count
+         them instead; `window.__foreignErrors` has the tally if a report ever needs it. */
+      window.__foreignErrors = 0;
       window.addEventListener('error', (e) => {
+        if (!e.filename && !e.lineno && !e.error) { window.__foreignErrors += 1; return; }
         errorPanel().textContent += `${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`;
       });
       window.addEventListener('unhandledrejection', (e) => {

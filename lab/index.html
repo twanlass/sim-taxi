@@ -115,7 +115,11 @@
         el.hidden = false;
         return el;
       };
+      window.__foreignErrors = 0;
       window.addEventListener('error', (e) => {
+        // Anonymised `Script error.` at `:0:0` — a cross-origin script's exception, never this
+        // page's own. Ignored for the reason the game page ignores it; see index.html.
+        if (!e.filename && !e.lineno && !e.error) { window.__foreignErrors += 1; return; }
         errorPanel().textContent += `${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`;
       });
       window.addEventListener('unhandledrejection', (e) => {
