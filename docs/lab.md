@@ -83,6 +83,11 @@ Everything else — the pass, the weave, the scatter, the tailgate at `BOOST_GAP
 pulling out is allowed — is `sim/traffic.js` driving `traffic.taxi` exactly as `main.js` does. **If
 the taxi behaves differently here than it does in the game, that is a bug in the lab.**
 
+That includes the camera's [Loco Mode rumble](rendering.md#camera-shake), driven here off the same
+speed gain and the same held button. A bottomless tank makes this the one place the rumble can be
+watched for minutes rather than for a tankful, which is where a level that is pleasant for five
+seconds and wearing for fifty would give itself away.
+
 ## The knobs
 
 Sliders on the page, or query parameters, and both re-stage on change. `R` resets, `Space` or the

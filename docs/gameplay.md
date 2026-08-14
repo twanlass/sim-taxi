@@ -1385,6 +1385,11 @@ The press itself also fires a **wheelie**, a tailpipe **flame burst** and a half
 streak of rubber — all three gated on `boost.press()` returning true, so they fire on the
 transition into Loco Mode and not on a re-press during a boost that's already running.
 
+And the camera **rumbles** for as long as the hold lasts — about a pixel, scaled by speed so it
+arrives with the acceleration rather than on the press, and eased back out on the release. It is
+the one piece of Loco Mode's feedback a desktop player gets, since the boost chase is
+narrow-viewport only. See [rendering.md](rendering.md#camera-shake).
+
 ## Pause
 
 `src/game/pause.js`, styled in `index.html` under `#pause` / `#pause-veil`. The ⏸ sits in the top
