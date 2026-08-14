@@ -16,6 +16,7 @@ import { createBoostMeter } from './game/boostmeter.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
+import { createCityEntry } from './game/cityentry.js';
 import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createVanish } from './game/vanish.js';
@@ -174,7 +175,10 @@ scene.add(markOccluder(createGround(makeRng(seed + 11), layout)));
 // helicopter below has to be told which one — see `choosePad` in city/buildings.js.
 const city = createBuildings(makeRng(seed + 22), layout);
 scene.add(markOccluder(city.mesh));
-scene.add(markOccluder(createProps(makeRng(seed + 33), layout)));
+// Held onto for the entrance animation below — the trees rise out of the parks the same way the
+// buildings rise out of their lots.
+const propsMesh = createProps(makeRng(seed + 33), layout);
+scene.add(markOccluder(propsMesh));
 
 // Density is on the difficulty curve, so the run opens at its bottom and the instanced meshes are
 // sized for its top — an InstancedMesh cannot be resized once built. An explicit `?cars=N` beats
@@ -297,6 +301,17 @@ const pan = shot
   : attachDragPan(controller, renderer.domElement, aspect, isNarrow, releaseCameraToPlayer);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
+
+// The city's entrance: buildings and trees rise out of the ground in a wave from the centre, with
+// a puff of dust off each building's footprint as it lands — see game/cityentry.js. It borrows the
+// boost trail's dust pool rather than building one of its own: the entrance is over two seconds
+// into a run, long before anything else can be spending slots. Shot mode settles it below, next to
+// the markers — a frozen frame of half-grown city is never the screenshot anybody asked for.
+const cityEntry = createCityEntry({
+  meshes: [city.mesh, propsMesh],
+  sites: city.entrySites,
+  dust,
+});
 // The whole crash detonation — shockwave, fireball and shards — behind one `fire()` per car. One
 // pool serves both cars: nothing here is re-shot from a stored position, so a second call cannot
 // drag the first car's wreckage across to the second the way the old debris pools could.
@@ -1472,6 +1487,8 @@ function frame() {
   }
   updateBoostButton(dt);
   skids.update(dt);
+  // Before the dust pool ticks, so a building's ground-burst is at age zero on the frame it fires.
+  cityEntry.update(dt);
   dust.update(dt);
   blast.update(dt);
   flames.update(dt);
@@ -2022,6 +2039,9 @@ if (shot) {
   // missing from every screenshot the day that animation landed. This lands them all instead.
   fares.settleMarkers();
   parcels?.settleMarkers();
+  // The city's own entrance is an animation that opens at zero too — unsettled, every screenshot
+  // is an empty street grid.
+  cityEntry.settle();
   renderFrame();
   document.body.dataset.shotReady = 'true';
 } else {
@@ -2060,6 +2080,8 @@ window.__taxi = {
   parcels,
   flyover,
   chopper,
+  /** The opening rise-out-of-the-ground animation. `cityEntry.replay()` reruns it on demand. */
+  cityEntry,
   // Every flock in the city, in build order — `flocks[0]` is the one shot 18 frames.
   flocks,
   roadwork,

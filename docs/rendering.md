@@ -1804,6 +1804,34 @@ lab](lab.md)'s road runs due east, so the lane change banked beautifully there a
 the game. `tools/probe.mjs` now measures the lean at all four headings and asserts the constant
 reaches every body that leans.
 
+### The city entrance — `game/cityentry.js`
+
+**Prototype.** When a run opens, the streets and ground are already in place and the buildings and
+trees grow out of them in a wave from the city centre: each object rises from the kerb while it
+fades in, overshoots its full size (easeOutBack, peak ~1.09) and settles, with a puff of dust off
+each building's footprint as it breaks ground. About two seconds end to end. Replay it from the
+console with `__taxi.cityEntry.replay()`.
+
+The interesting constraint is that the city is **two merged meshes** — that's the whole rendering
+strategy above — so there are no per-building objects to animate. Instead every vertex is stamped
+at build time with its building's ground anchor in an `aEntry` attribute (`stampEntry` in
+`util/geo.js`), and a vertex-shader patch scales each vertex about its own anchor off one shared
+clock uniform. The merge never comes apart; the whole animation is one uniform write per frame.
+The per-object delay jitter is a **hash** of the anchor, not an rng draw, so stamping is
+geometry-neutral: the city a seed builds is byte-for-byte the same city.
+
+Things the module already accounts for (details in its header comment): composed
+`customProgramCacheKey`s so the patch coexists with the SSAO patch; a patched
+`customDepthMaterial` so shadows grow with their buildings; a fragment discard while an object is
+unrevealed, because a scale-0 building is a flat depth-writing sheet at kerb height rather than
+nothing; and `settle()` on the shot path, since a frozen shot would otherwise render an empty
+street grid — the same class of bug as the fare discs' `settleMarkers()`.
+
+The dust rides the boost trail's pool in `game/dust.js`. That's a deliberate borrow: the entrance
+is over ~2s into the run, before anything else can be spending slots. One modest burst per
+building (5 puffs, power 0.7–1.1 by footprint) — the first pass at power ~0.6 was invisible at
+play zoom, where a two-unit cloud is a couple of pixels of haze.
+
 ## The "Add to Home Screen" screen
 
 `src/game/homescreen.js`, styled under `#home-tip` in `index.html`. A numbered list of the taps that
