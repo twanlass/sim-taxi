@@ -19,11 +19,15 @@ of it:**
    the pill and the pill pulsing under it. Skipped entirely if the player has already fired Loco
    Mode.
 
-A beat of city comes first: `OPENING_HOLD` of traffic moving with nothing on screen, because a run
-that opens mid-sentence gives the player nothing to attach the sentence to, and the lights coming
-down after it lands as an event rather than as the initial state. The clocks are already held
-through it, so it costs nothing. The camera is already easing onto the taxi during it — that is the
-one thing that should be under way before the bubble speaks.
+The city's own entrance comes first: the whole tutorial is held frozen (via its `isBlocked` hook —
+the same one the "Add to Home Screen" screen uses) while the buildings rise out of the ground
+around the taxi ([the entrance animation](rendering.md#the-city-entrance--gamecityentryjs)), then
+`OPENING_HOLD` — now just a 250ms breath — separates the last building settling from the lights
+coming down. The hold used to be a full second of static city, because a run that opens
+mid-sentence gives the player nothing to attach the sentence to; three-plus seconds of the city
+building itself does that job better than the second of idling traffic did. The clocks are already
+held through all of it, so it costs nothing. The camera is already easing onto the taxi during it —
+that is the one thing that should be under way before the bubble speaks.
 
 **A tap anywhere advances**, not just a tap on the bubble. The listener is on `window` rather than a
 full-screen catcher, so the tap still reaches the city underneath — on the second beat the whole

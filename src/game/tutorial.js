@@ -48,11 +48,15 @@ const PAUSE_AFTER = new Set([',', '.', '!', '?']);
 // actually played — hiding it on the same frame would cut the animation the dismissal is for.
 const CLOSE_MS = 220;
 
-// A beat of city before the tutorial says anything. A run that opens mid-sentence gives the player
-// nothing to attach the sentence to; one second of traffic moving is enough to establish that there
-// is a place here, and the lights coming down after it lands as an event rather than as the initial
-// state. The clocks are already held, so it costs nothing.
-const OPENING_HOLD = 1.0;
+// A beat between the city finishing its entrance and the tutorial saying anything. This was a
+// full second of static city back when a run opened on one — the beat existed to establish that
+// there is a place here before the lights came down. The entrance animation now does that job
+// with three-plus seconds of the city building itself (main.js holds this whole module frozen
+// behind `isBlocked` until the wave lands), so all that is needed after it is a breath: long
+// enough that the last building settling and the lights dimming read as two events, short enough
+// that the tutorial still feels triggered by the entrance ending. The clocks are already held, so
+// it costs nothing.
+const OPENING_HOLD = 0.25;
 
 // A beat between the first bubble leaving and the camera setting off for the rider, so the two
 // moves read as consecutive rather than as one interrupting the other.

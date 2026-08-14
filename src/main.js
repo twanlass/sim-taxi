@@ -302,15 +302,20 @@ const pan = shot
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
 
-// The city's entrance: buildings and trees rise out of the ground in a wave from the centre, with
-// a puff of dust off each building's footprint as it lands — see game/cityentry.js. It borrows the
-// boost trail's dust pool rather than building one of its own: the entrance is over two seconds
-// into a run, long before anything else can be spending slots. Shot mode settles it below, next to
-// the markers — a frozen frame of half-grown city is never the screenshot anybody asked for.
+// The city's entrance: buildings and trees rise out of the ground in a wave that spreads from the
+// taxi's spawn — the run starts where the player's car is, and the city builds itself outward from
+// them — with a puff of dust off each building's footprint as it lands. See game/cityentry.js. It
+// borrows the boost trail's dust pool rather than building one of its own: the entrance runs out
+// in the opening seconds, long before anything else can be spending slots. Shot mode settles it
+// below, next to the markers — a frozen frame of half-grown city is never the screenshot anybody
+// asked for.
 const cityEntry = createCityEntry({
   meshes: [city.mesh, propsMesh],
   sites: city.entrySites,
   dust,
+  // The spawn point for now — the wave is re-aimed at the taxi's *post-warmup* position at the
+  // bottom of this file, which is where the player actually first sees the car.
+  from: { x: traffic.taxi.x, z: traffic.taxi.z },
 });
 // The whole crash detonation — shockwave, fireball and shards — behind one `fire()` per car. One
 // pool serves both cars: nothing here is re-shot from a stored position, so a second call cannot
@@ -806,8 +811,11 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   isOver: () => fares.state.gameOver,
   // The "Add to Home Screen" screen gets there first on iOS in a tab, and holds the run until it is
   // tapped. `homeTip` is declared further down and only ever read from the frame loop, which is
-  // long after this module has finished evaluating.
-  isBlocked: () => Boolean(homeTip?.state.holding),
+  // long after this module has finished evaluating. The city's own entrance holds the tutorial the
+  // same way: the spotlight dimming a city that is still building itself would upstage the build,
+  // and the first bubble should land as the thing that happens *after* the last building does.
+  // The 250ms beat between the two is the tutorial's own OPENING_HOLD.
+  isBlocked: () => Boolean(homeTip?.state.holding) || cityEntry.running(),
   // The same guard the picker uses: the click a mouse synthesises at the end of a drag must not
   // count as an answer to the bubble the player was dragging past.
   shouldIgnoreTap: () => Boolean(pan?.didPan() || pathDrag?.didDrag()),
@@ -1488,7 +1496,11 @@ function frame() {
   updateBoostButton(dt);
   skids.update(dt);
   // Before the dust pool ticks, so a building's ground-burst is at age zero on the frame it fires.
-  cityEntry.update(dt);
+  // Held while the "Add to Home Screen" screen is up: it parks the whole run behind a near-black
+  // veil, and the entrance playing out under it would be spent before anyone saw it. The tutorial
+  // waits on the entrance in turn (see `isBlocked` above), so the opening chain is one order:
+  // overlay, then the wave, then a beat, then the spotlight.
+  if (!homeTip?.state.holding) cityEntry.update(dt);
   dust.update(dt);
   blast.update(dt);
   flames.update(dt);
@@ -2046,6 +2058,11 @@ if (shot) {
   document.body.dataset.shotReady = 'true';
 } else {
   traffic.warmup(10);
+  // Re-aim the entrance wave at the taxi *after* the warmup: it was created with the spawn
+  // point, and ten sim-seconds of warmup drive the taxi a couple of blocks from there — so the
+  // wave was visibly emanating from a spot the player's car had already left. Costs nothing:
+  // the entrance clock hasn't taken its first tick yet.
+  cityEntry.replay(traffic.taxi);
   frame();
 }
 

@@ -1807,10 +1807,12 @@ reaches every body that leans.
 ### The city entrance — `game/cityentry.js`
 
 **Prototype.** When a run opens, the streets and ground are already in place and the buildings and
-trees grow out of them in a wave from the city centre: each object rises from the kerb while it
-fades in, overshoots its full size (easeOutBack, peak ~1.09) and settles, with a puff of dust off
-each building's footprint as it breaks ground. About two seconds end to end. Replay it from the
-console with `__taxi.cityEntry.replay()`.
+trees grow out of them in a wave that spreads from the taxi's spawn — the run starts where the
+player's car is, and the city builds itself outward from them. Each object rises from the kerb
+while it fades in, overshoots its full size (easeOutBack, peak ~1.09) and settles, with a puff of
+dust off each building's footprint as it breaks ground. Three to four seconds end to end,
+depending on where the taxi spawned. Replay it from the console with `__taxi.cityEntry.replay()`,
+or re-aim the wave with `__taxi.cityEntry.replay(__taxi.traffic.taxi)`.
 
 The interesting constraint is that the city is **two merged meshes** — that's the whole rendering
 strategy above — so there are no per-building objects to animate. Instead every vertex is stamped
@@ -1828,9 +1830,10 @@ nothing; and `settle()` on the shot path, since a frozen shot would otherwise re
 street grid — the same class of bug as the fare discs' `settleMarkers()`.
 
 The dust rides the boost trail's pool in `game/dust.js`. That's a deliberate borrow: the entrance
-is over ~2s into the run, before anything else can be spending slots. One modest burst per
-building (5 puffs, power 0.7–1.1 by footprint) — the first pass at power ~0.6 was invisible at
-play zoom, where a two-unit cloud is a couple of pixels of haze.
+runs out in the opening seconds, before anything else can be spending slots. One burst per
+building (7 puffs, power ~0.9–1.25 by footprint, started most of the way up the size curve) — the
+first pass at 5 puffs and power ~0.6 was invisible at play zoom, where a two-unit cloud is a
+couple of pixels of haze.
 
 ## The "Add to Home Screen" screen
 
