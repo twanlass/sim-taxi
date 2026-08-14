@@ -15,8 +15,9 @@ import { HALF_SPAN } from '../city/grid.js';
 // whole buildings pop individually out of a mesh that never stops being one mesh.
 //
 // The per-object timeline, in local t over ENTRY_DUR seconds:
-//   - scale runs an easeOutBack from 0: rises out of the ground, overshoots to ~1.09 around
-//     t = 0.7, settles at exactly 1 — the "overscale pop" beat in one curve.
+//   - scale runs an easeOutBack from 0: rises out of the ground, overshoots its full size
+//     (by OVERSHOOT — the peak's timing and height both follow it), settles at exactly 1 —
+//     the "overscale pop" beat in one curve.
 //   - XZ runs the same curve mapped onto [XZ_FROM, 1], so a mass swells outward a little as it
 //     rises rather than telescoping up at full footprint.
 //   - alpha fades in over the first FADE_IN of t, then holds at 1.
@@ -47,18 +48,21 @@ import { HALF_SPAN } from '../city/grid.js';
 // itself outward from them — which is why it is a uniform rather than baked into the delay: the
 // spawn isn't known when the vertices are stamped.
 //
-// WAVE started at 0.016 (whole entrance ~2s from the centre) and the stagger read as a single
-// city-wide pop; at 0.03 a block visibly waits for the block before it. The far corner is 90–130
-// units from a typical spawn, so the sweep runs ~2.7–4s plus one grow.
-//
 // These four are *defaults*: each backs a live uniform so the ⚙️ panel can scrub them and replay
-// (see `tune` below). A value that survives tuning gets promoted back into its constant here.
-const WAVE = 0.03;
-const JITTER = 0.35;
-const ENTRY_DUR = 0.65;
-// easeOutBack's overshoot parameter — 1.7 peaks the curve at ~1.09, a visible pop that stays
-// short of cartoon rubber.
-const OVERSHOOT = 1.7;
+// (see `tune` below). A value that survives tuning gets promoted back into its constant here —
+// which is exactly where this set came from: tuned by hand in the panel, 2026-08-14.
+//
+// The feel it lands on is quick-and-snappy over slow-and-processional: a brisk sweep (the far
+// corner is 90–130 units from a typical spawn, so the wave crosses the city in ~1.4–2s), each
+// object popping up in under a third of a second, and ZERO jitter — with a sweep this fast the
+// per-object scatter read as noise, where clean distance rings read as one wavefront. The pop is
+// the loudest of the four: 3.9 peaks at +37%, well into cartoon territory, and that is the point —
+// at 0.3s a subtler overshoot was over before it registered.
+const WAVE = 0.015;
+const JITTER = 0;
+const ENTRY_DUR = 0.3;
+// easeOutBack's overshoot parameter — see the note above; peak lands around t = 0.47 of the grow.
+const OVERSHOOT = 3.9;
 const XZ_FROM = 0.65;
 const FADE_IN = 0.3;
 
@@ -78,7 +82,8 @@ const f = (n) => Number(n).toFixed(4);
 const ENTRY_VERTEX = `#include <begin_vertex>
 	// This vertex's object in its entrance: 0 = still underground, 1 = settled. Mirrors delayOf().
 	float eT = clamp((uEntryTime - (distance(aEntry.xy, uEntryFrom) * uEntryWave + aEntry.z * uEntryJitter)) / uEntryDur, 0.0, 1.0);
-	// easeOutBack: 0 at 0, peaks past 1 around 0.7 (by uEntryOver), exactly 1 at 1.
+	// easeOutBack: 0 at 0, peaks past 1 partway through (height and timing set by uEntryOver),
+	// exactly 1 at 1.
 	float eB = eT - 1.0;
 	float eS = 1.0 + (uEntryOver + 1.0) * eB * eB * eB + uEntryOver * eB * eB;
 	transformed.y = ${f(KERB_H)} + (transformed.y - ${f(KERB_H)}) * eS;

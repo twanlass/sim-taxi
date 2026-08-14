@@ -1496,11 +1496,17 @@ function frame() {
   updateBoostButton(dt);
   skids.update(dt);
   // Before the dust pool ticks, so a building's ground-burst is at age zero on the frame it fires.
-  // Held while the "Add to Home Screen" screen is up: it parks the whole run behind a near-black
-  // veil, and the entrance playing out under it would be spent before anyone saw it. The tutorial
-  // waits on the entrance in turn (see `isBlocked` above), so the opening chain is one order:
-  // overlay, then the wave, then a beat, then the spotlight.
-  if (!homeTip?.state.holding) cityEntry.update(dt);
+  // The "Add to Home Screen" screen (iOS in a tab) *skips* the entrance outright rather than
+  // holding it: the overlay shows the city sunk into black, and a city that hasn't built yet is a
+  // bare street grid under the veil — which reads as a broken load, not as a treat being saved
+  // for later. `holding` is true from the module's creation (see game/homescreen.js), so the
+  // settle lands before the first frame ever draws an empty block. Everyone else — desktop, and
+  // installed standalone iOS — never constructs the tip and keeps the animation.
+  if (homeTip?.state.holding) {
+    if (cityEntry.running()) cityEntry.settle();
+  } else {
+    cityEntry.update(dt);
+  }
   dust.update(dt);
   blast.update(dt);
   flames.update(dt);

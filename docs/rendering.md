@@ -1809,10 +1809,19 @@ reaches every body that leans.
 **Prototype.** When a run opens, the streets and ground are already in place and the buildings and
 trees grow out of them in a wave that spreads from the taxi's spawn — the run starts where the
 player's car is, and the city builds itself outward from them. Each object rises from the kerb
-while it fades in, overshoots its full size (easeOutBack, peak ~1.09) and settles, with a puff of
-dust off each building's footprint as it breaks ground. Three to four seconds end to end,
-depending on where the taxi spawned. Replay it from the console with `__taxi.cityEntry.replay()`,
-or re-aim the wave with `__taxi.cityEntry.replay(__taxi.traffic.taxi)`.
+while it fades in, overshoots its full size (easeOutBack, peak +37%) and settles, with a puff of
+dust off each building's footprint as it breaks ground. About two seconds end to end — the
+defaults were tuned in the panel below toward quick-and-snappy: a brisk sweep, a 0.3s grow, zero
+delay jitter (clean distance rings read as one wavefront at this speed) and a deliberately
+cartoon-loud pop, which at 0.3s is over before a subtler one would register. Replay it from the
+console with `__taxi.cityEntry.replay()`, or re-aim the wave with
+`__taxi.cityEntry.replay(__taxi.traffic.taxi)`.
+
+On iOS in a browser tab — where [the "Add to Home Screen" screen](#the-add-to-home-screen-screen)
+parks the run behind its veil — the entrance is skipped outright rather than deferred: a city
+that hasn't built yet is a bare street grid under the overlay, which reads as a broken load. The
+skip lands before the first frame (see the frame loop in main.js), so that screen always dims a
+finished city.
 
 The levers — wave speed, per-object grow time, delay jitter, overshoot, dust strength — are live
 uniforms with a **City entrance** section in the ⚙️ panel (`?debug`): every slider replays the
