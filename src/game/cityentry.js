@@ -50,6 +50,9 @@ import { HALF_SPAN } from '../city/grid.js';
 // WAVE started at 0.016 (whole entrance ~2s from the centre) and the stagger read as a single
 // city-wide pop; at 0.03 a block visibly waits for the block before it. The far corner is 90–130
 // units from a typical spawn, so the sweep runs ~2.7–4s plus one grow.
+//
+// These four are *defaults*: each backs a live uniform so the ⚙️ panel can scrub them and replay
+// (see `tune` below). A value that survives tuning gets promoted back into its constant here.
 const WAVE = 0.03;
 const JITTER = 0.35;
 const ENTRY_DUR = 0.65;
@@ -70,16 +73,14 @@ const DUST_COUNT = 7;
 
 const f = (n) => Number(n).toFixed(4);
 
-// The per-object delay, in JS for the dust schedule. The GLSL below computes the *same* formula
-// from the same stamped anchor and origin — change one and the dust stops meeting its building.
-const delayOf = (x, z, from, rand) => Math.hypot(x - from.x, z - from.z) * WAVE + rand * JITTER;
-
+// The tunable levers ride in uniforms (`uEntryWave` and friends below); only the values nobody
+// scrubs — the pivot height, the footprint swell, the fade window — are baked as literals.
 const ENTRY_VERTEX = `#include <begin_vertex>
 	// This vertex's object in its entrance: 0 = still underground, 1 = settled. Mirrors delayOf().
-	float eT = clamp((uEntryTime - (distance(aEntry.xy, uEntryFrom) * ${f(WAVE)} + aEntry.z * ${f(JITTER)})) / ${f(ENTRY_DUR)}, 0.0, 1.0);
-	// easeOutBack: 0 at 0, ~1.09 around 0.7, exactly 1 at 1.
+	float eT = clamp((uEntryTime - (distance(aEntry.xy, uEntryFrom) * uEntryWave + aEntry.z * uEntryJitter)) / uEntryDur, 0.0, 1.0);
+	// easeOutBack: 0 at 0, peaks past 1 around 0.7 (by uEntryOver), exactly 1 at 1.
 	float eB = eT - 1.0;
-	float eS = 1.0 + ${f(OVERSHOOT + 1)} * eB * eB * eB + ${f(OVERSHOOT)} * eB * eB;
+	float eS = 1.0 + (uEntryOver + 1.0) * eB * eB * eB + uEntryOver * eB * eB;
 	transformed.y = ${f(KERB_H)} + (transformed.y - ${f(KERB_H)}) * eS;
 	float eXZ = mix(${f(XZ_FROM)}, 1.0, eS);
 	transformed.x = aEntry.x + (transformed.x - aEntry.x) * eXZ;
@@ -92,6 +93,21 @@ export function createCityEntry({ meshes, sites = [], dust = null, from = { x: 0
   // way, so `replay` can re-aim the wave without touching a single compiled program.
   const uEntryTime = { value: 0 };
   const uEntryFrom = { value: new THREE.Vector2(from.x, from.z) };
+  // The levers, live. Uniforms rather than baked literals so the ⚙️ panel can scrub them and hit
+  // replay without a single shader recompile. `dustBoost` is the odd one out — the dust runs on
+  // the CPU, so it is a plain multiplier read at burst time.
+  const uEntryWave = { value: WAVE };
+  const uEntryJitter = { value: JITTER };
+  const uEntryDur = { value: ENTRY_DUR };
+  const uEntryOver = { value: OVERSHOOT };
+  let dustBoost = 1;
+
+  // The per-object delay, in JS for the dust schedule. The GLSL above computes the *same*
+  // formula from the same stamped anchor and uniforms — change one and the dust stops meeting
+  // its building.
+  const delayOf = (x, z, rand) =>
+    Math.hypot(x - uEntryFrom.value.x, z - uEntryFrom.value.y) * uEntryWave.value
+    + rand * uEntryJitter.value;
 
   // Past the furthest corner's delay plus one full grow — every eT clamps to 1 from here on.
   // Measured from the origin, not the centre: a taxi spawned near an edge pushes the far corner
@@ -102,15 +118,16 @@ export function createCityEntry({ meshes, sites = [], dust = null, from = { x: 0
       ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) =>
         Math.hypot(sx * HALF_SPAN - uEntryFrom.value.x, sz * HALF_SPAN - uEntryFrom.value.y)),
     );
-    return cornerDist * WAVE + JITTER + ENTRY_DUR + 0.1;
+    return cornerDist * uEntryWave.value + uEntryJitter.value + uEntryDur.value + 0.1;
   };
 
   const patchVertex = (shader) => {
-    shader.uniforms.uEntryTime = uEntryTime;
-    shader.uniforms.uEntryFrom = uEntryFrom;
+    Object.assign(shader.uniforms, { uEntryTime, uEntryFrom, uEntryWave, uEntryJitter, uEntryDur, uEntryOver });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>',
-        '#include <common>\nattribute vec3 aEntry;\nuniform float uEntryTime;\nuniform vec2 uEntryFrom;\nvarying float vEntryFade;')
+        '#include <common>\nattribute vec3 aEntry;\nuniform float uEntryTime;\nuniform vec2 uEntryFrom;'
+        + '\nuniform float uEntryWave;\nuniform float uEntryJitter;\nuniform float uEntryDur;\nuniform float uEntryOver;'
+        + '\nvarying float vEntryFade;')
       .replace('#include <begin_vertex>', ENTRY_VERTEX);
   };
 
@@ -153,10 +170,10 @@ export function createCityEntry({ meshes, sites = [], dust = null, from = { x: 0
     mesh.customDepthMaterial = depth;
   }
 
-  // Dust fires in delay order, so playback is one pointer walking a sorted list. Rebuilt on a
-  // re-aimed replay, because the delays are a function of the origin.
+  // Dust fires in delay order, so playback is one pointer walking a sorted list. Rebuilt on every
+  // replay, because the delays are a function of the origin and the tunable levers.
   const buildQueue = () => sites
-    .map((s) => ({ ...s, at: delayOf(s.x, s.z, { x: uEntryFrom.value.x, z: uEntryFrom.value.y }, s.rand) + DUST_AT }))
+    .map((s) => ({ ...s, at: delayOf(s.x, s.z, s.rand) + DUST_AT }))
     .sort((a, b) => a.at - b.at);
   let queue = buildQueue();
   let head = 0;
@@ -185,9 +202,12 @@ export function createCityEntry({ meshes, sites = [], dust = null, from = { x: 0
       // start most of the way up the size curve: the first pass (five puffs at 0.55–0.75,
       // startSize 0.75) never registered at play zoom — a cloud two units wide on a whole-city
       // framing is a couple of pixels of haze.
-      dust?.burst(s.x, s.z, s.rand * Math.PI * 2, DUST_COUNT, Math.min(1.25, 0.72 + s.r * 0.09), {
-        ring: s.r * 0.55, linger: 1.15, startSize: 1.0,
-      });
+      const power = Math.min(1.25, 0.72 + s.r * 0.09) * dustBoost;
+      if (power > 0.05) {
+        dust?.burst(s.x, s.z, s.rand * Math.PI * 2, DUST_COUNT, power, {
+          ring: s.r * 0.55, linger: 1.15, startSize: 1.0,
+        });
+      }
     }
 
     if (uEntryTime.value >= endAt()) finish();
@@ -204,17 +224,45 @@ export function createCityEntry({ meshes, sites = [], dust = null, from = { x: 0
    * the car is right now.
    */
   function replay(from2 = null) {
-    if (from2) {
-      uEntryFrom.value.set(from2.x, from2.z);
-      queue = buildQueue();
-    }
+    if (from2) uEntryFrom.value.set(from2.x, from2.z);
+    // Always rebuilt, not only on a re-aim: the dust delays bake in the wave/jitter levers, and a
+    // replay after a `tune` would otherwise fire every burst on the old schedule.
+    queue = buildQueue();
     uEntryTime.value = 0;
     head = 0;
     done = false;
     for (const material of materials) material.transparent = true;
   }
 
+  /**
+   * Read the levers, for the ⚙️ panel's sliders and its settings-JSON export. `grow` is
+   * ENTRY_DUR's public name — "duration" next to "wave" reads as the whole entrance's length,
+   * which it is not.
+   */
+  function tuning() {
+    return {
+      wave: uEntryWave.value,
+      jitter: uEntryJitter.value,
+      grow: uEntryDur.value,
+      overshoot: uEntryOver.value,
+      dust: dustBoost,
+    };
+  }
+
+  /**
+   * Move any subset of the levers. Live — the uniforms feed compiled programs, so a mid-flight
+   * change shows on the next frame — but the dust schedule only re-bakes on `replay()`, which is
+   * how the panel uses this: scrub, release, replay.
+   */
+  function tune(next = {}) {
+    if (next.wave !== undefined) uEntryWave.value = next.wave;
+    if (next.jitter !== undefined) uEntryJitter.value = next.jitter;
+    if (next.grow !== undefined) uEntryDur.value = next.grow;
+    if (next.overshoot !== undefined) uEntryOver.value = next.overshoot;
+    if (next.dust !== undefined) dustBoost = next.dust;
+  }
+
   // `time` is the animation clock, not the wall clock — under a software renderer the two drift
   // apart (dt clamps at 0.05s), so anything that wants to catch a mid-entrance frame polls this.
-  return { update, settle, replay, running: () => !done, time: () => uEntryTime.value };
+  return { update, settle, replay, tune, tuning, running: () => !done, time: () => uEntryTime.value };
 }

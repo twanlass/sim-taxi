@@ -1814,6 +1814,11 @@ dust off each building's footprint as it breaks ground. Three to four seconds en
 depending on where the taxi spawned. Replay it from the console with `__taxi.cityEntry.replay()`,
 or re-aim the wave with `__taxi.cityEntry.replay(__taxi.traffic.taxi)`.
 
+The levers — wave speed, per-object grow time, delay jitter, overshoot, dust strength — are live
+uniforms with a **City entrance** section in the ⚙️ panel (`?debug`): every slider replays the
+entrance on release, and the panel's settings-JSON export captures the values under
+`cityEntrance`, keyed to the module's constants for pasting a keeper back in.
+
 The interesting constraint is that the city is **two merged meshes** — that's the whole rendering
 strategy above — so there are no per-building objects to animate. Instead every vertex is stamped
 at build time with its building's ground anchor in an `aEntry` attribute (`stampEntry` in

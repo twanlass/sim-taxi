@@ -2081,6 +2081,14 @@ if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) 
     routeLine,
     ao,
     scores: { load: loadScores, clear: clearScores },
+    // The entrance levers. The panel's replay re-aims the wave at wherever the taxi is *now* —
+    // the point of replaying from the panel is judging the opening, and the opening's wave starts
+    // at the player's car.
+    cityEntry: {
+      tuning: cityEntry.tuning,
+      tune: cityEntry.tune,
+      replay: () => cityEntry.replay(traffic.taxi),
+    },
   });
 }
 
