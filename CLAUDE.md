@@ -142,7 +142,13 @@ down.
   it was reading zero, and no canvas-sizing trick could move an edge the UA owned. The pieces
   travel together: `viewport-fit=cover`, the `black-translucent` status-bar meta, and the
   `--safe-*` calc()s on every pinned HUD element. Drop any one and the app is either letterboxed
-  or has its HUD under the Dynamic Island.
+  or has its HUD under the Dynamic Island. And even with all three, the **bottom stays short**:
+  in standalone mode the layout viewport, `window.innerHeight` and percentage heights all stop
+  ~34pt above the physical bottom (measured: a strip of bare sky under the canvas). `100vh` is
+  the one length that reaches it from a cold start — `100dvh` reads the short value until the
+  phone has been rotated once — so html/body, every `inset: 0` overlay, and the canvas (via
+  `util/viewport.js`, which measures a hidden `100vw×100vh` probe instead of trusting
+  `innerHeight`) all size themselves by it.
 - **iOS doesn't resize the layout viewport when the software keyboard opens.** It slides a shorter
   *visual* viewport up over an unchanged one, so a `position: fixed; inset: 0` overlay still measures
   the whole screen and anything centred in it — the initials prompt did — sits behind the keys.

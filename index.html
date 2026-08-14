@@ -25,10 +25,15 @@
          meta above, and `cover` is the whole story: without it iOS spends the notch and
          home-indicator insets *itself*, by shrinking the layout viewport — which is exactly the
          short bottom — and `env(safe-area-inset-*)` reads 0 because the UA has already applied
-         the inset, which is why no padding could account for it. With `cover` the layout viewport
-         is the full screen, the insets report their real values, and the `--safe-*` maths below
-         keeps the HUD out from under the hardware. (The tag is deprecated in favour of the
-         manifest, but the manifest has no translucent option — this is still the only way in.) -->
+         the inset, which is why no padding could account for it. With `cover` the top underlaps
+         for real and the insets report their values — but the *bottom* stays short even then
+         (measured on-device: a strip of bare sky under the canvas): in standalone mode the layout
+         viewport, `window.innerHeight` and percentage heights all stop ~34pt above the physical
+         bottom. `100vh` is the one length that reaches it, which is why html/body and every
+         `inset: 0` overlay below carry it and the canvas is sized through util/viewport.js. The
+         `--safe-*` maths keeps the HUD out from under the hardware at both ends. (The tag is
+         deprecated in favour of the manifest, but the manifest has no translucent option — this
+         is still the only way in.) -->
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#A46BFF" />
     <style>
@@ -65,8 +70,14 @@
          likely to be pressed. The `-webkit-` prefixes still earn their place: iOS Safari only
          took unprefixed `user-select` in 17, and `-webkit-touch-callout` has no standard
          equivalent at all. */
+      /* `100vh`, NOT `height: 100%`. On an installed iOS app (`black-translucent` +
+         `viewport-fit=cover`) the percentage resolves against a layout viewport that stops ~34pt
+         short of the physical bottom — the home-indicator zone — while `100vh` resolves to the
+         full screen, and is the one length that is right from a cold start (`100dvh` reads the
+         short value until the phone has been rotated once). The canvas is sized by the same rule
+         in JS — see util/viewport.js. Everywhere else the two spellings agree exactly. */
       html, body {
-        width: 100%; height: 100%; overflow: hidden; background: #dcedf7;
+        width: 100vw; height: 100vh; overflow: hidden; background: #dcedf7;
         user-select: none; -webkit-user-select: none;
         -webkit-touch-callout: none;
         /* No grey flash under a tap either — every control here has its own :active state. */
@@ -167,8 +178,14 @@
          Under #pause (24) so the button stays lit and clickable above it, over the coach bubble
          (22) and the spotlight (21), below the run-end blackout (30) and the Home Screen screen
          (26) — both of those are gates in their own right and outrank a pause. */
+      /* Every full-screen overlay carries `width: 100vw; height: 100vh` on top of `inset: 0`,
+         because `inset: 0` alone stops at the layout viewport — which on an installed iOS app is
+         ~34pt short of the physical bottom (see the html/body comment above). The explicit height
+         wins over `bottom: 0` (an over-constrained fixed box keeps top+height), so each overlay
+         reaches the same true bottom the canvas draws to; without it the blackout and the veil
+         leave a strip of live city showing under themselves. */
       #pause-veil {
-        position: fixed; inset: 0; z-index: 23;
+        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 23;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
         background: rgba(6, 14, 22, 0.72); color: #fff; text-align: center;
         font: 500 16px/1.5 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
@@ -224,7 +241,8 @@
          screen — a hard blackout puts the run's numbers on nothing at all, which is what makes
          them the ending rather than an overlay on top of one. */
       #run-end {
-        position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+        position: fixed; inset: 0; width: 100vw; height: 100vh;
+        display: flex; flex-direction: column; align-items: center;
         /* Above every other overlay (the tweak toggle and the rider chips at 20). Without a
            z-index of its own the blackout paints *under* them, so the waiting-rider chips stayed
            lit in the bottom-left corner of the game-over screen — and a chip that is still on top
@@ -790,7 +808,7 @@
          *not dimmed*, which at this contrast is not the same as lit. It dies by --r0 so it only
          ever touches the clear centre and never washes out the falloff. */
       #spotlight {
-        position: fixed; inset: 0; z-index: 21; pointer-events: none;
+        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 21; pointer-events: none;
         opacity: 0; transition: opacity 0.45s ease;
         background:
           radial-gradient(circle at var(--sx, 50%) var(--sy, 50%),
@@ -873,7 +891,7 @@
          rather than a different place — and it means the black behind the list is genuinely black,
          with no skyline competing with the one thing the player has to read. */
       #home-tip {
-        position: fixed; inset: 0;
+        position: fixed; inset: 0; width: 100vw; height: 100vh;
         /* Above the flying earnings (25), below the run-end blackout (30) — a run that somehow
            ended behind this should still show its own screen on top. */
         z-index: 26;
@@ -1029,7 +1047,7 @@
       body.shot-mode #diag { display: none; }
 
       #error {
-        position: fixed; inset: 0; background: #2b1b1b; color: #ffb4a8;
+        position: fixed; inset: 0; width: 100vw; height: 100vh; background: #2b1b1b; color: #ffb4a8;
         padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right))
                  calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
         font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;

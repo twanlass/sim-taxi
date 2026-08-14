@@ -42,7 +42,7 @@ function readSafeInsets() {
   }
 }
 
-export function createDropoffIndicator({ camera, pinLocation }) {
+export function createDropoffIndicator({ camera, pinLocation, viewport = null }) {
   const el = document.getElementById('dropoff-indicator');
   if (!el) return { update: () => {} };
 
@@ -82,8 +82,10 @@ export function createDropoffIndicator({ camera, pinLocation }) {
       }
     }
 
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    // The frame the renderer actually draws — `window.inner*` stops short of it on an installed
+    // iOS app (see util/viewport.js), and an arrow clamped to the short edge floats mid-screen.
+    const w = viewport ? viewport.width() : window.innerWidth;
+    const h = viewport ? viewport.height() : window.innerHeight;
     const c = pinLocation(fare.target.i, fare.target.j);
     // Aimed at the ring on the road, which is the whole marker now. It used to aim halfway up the
     // pin's post so the arrow pointed at the crystal rather than at the tarmac under it.
