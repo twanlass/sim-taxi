@@ -98,6 +98,39 @@ export function jitterVertices(geometry, rng, amount) {
 }
 
 /**
+ * Deterministic 0..1 hash of a ground position — the entrance animation's per-object jitter.
+ *
+ * A hash of the anchor rather than a draw from the generator's rng on purpose: stamping entry
+ * anchors must not spend a draw, or adding the animation would reshuffle every building and tree
+ * it animates. Same construction as the classic GLSL one-liner, so it needs no state.
+ */
+export function hash01(x, z) {
+  const s = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+/**
+ * Stamp every vertex of a geometry with its object's entrance anchor: `aEntry = (cx, cz, rand)`.
+ *
+ * This is what lets the city-entrance animation (game/cityentry.js) grow whole buildings and
+ * trees out of a single merged mesh: the merge erases object identity, so the identity rides in
+ * a vertex attribute instead. `cx/cz` is the point the object scales out of, `rand` its share of
+ * the per-object delay jitter. Call it *after* `bakeColor`/`bakeColors` — those strip every
+ * attribute they don't know about.
+ */
+export function stampEntry(geometry, cx, cz, rand) {
+  const count = geometry.attributes.position.count;
+  const data = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    data[i * 3] = cx;
+    data[i * 3 + 1] = cz;
+    data[i * 3 + 2] = rand;
+  }
+  geometry.setAttribute('aEntry', new THREE.BufferAttribute(data, 3));
+  return geometry;
+}
+
+/**
  * The one shared uniform bag every AO-lit material reads.
  *
  * `game/ssao.js` writes the texture and the texel size into it once, and every patched material

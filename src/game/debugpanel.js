@@ -52,6 +52,9 @@ export function createDebugPanel({
   // `{ load, clear }` over game/highscores.js. Defaulted so the panel still constructs in the
   // `npm run check` boot pass, which builds it against nothing.
   scores = { load: () => [], clear: () => {} },
+  // The city-entrance animation's levers — `{ tuning, tune, replay }` over game/cityentry.js.
+  // Defaulted for the same reason as `scores`.
+  cityEntry = { tuning: () => ({ wave: 0, jitter: 0, grow: 0, overshoot: 0, dust: 0 }), tune: () => {}, replay: () => {} },
 }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
@@ -212,6 +215,52 @@ export function createDebugPanel({
     showOcclusion();
   });
 
+  // --- City entrance ----------------------------------------------------------
+  // The opening rise-out-of-the-ground animation (game/cityentry.js). All five are live — the
+  // shader levers are uniforms — but the animation is over by the time this panel can be opened,
+  // so every slider replays the entrance on release: scrub, let go, watch. The values live in
+  // the entry module and are read back here, so the Export section captures them with the rest.
+  heading('City entrance');
+
+  const entryStart = cityEntry.tuning();
+
+  /** The overshoot's visible size: where the easeOutBack peaks, as a percentage past full. */
+  const peakOf = (o) => {
+    if (o <= 0) return 0;
+    const b = -2 * o / (3 * (o + 1));                       // where the curve's derivative is zero
+    return Math.round(((o + 1) * b ** 3 + o * b ** 2) * 100);
+  };
+
+  /** A lever: applies live on input, updates its readout, and replays the entrance on release. */
+  function entryLever(label, min, max, step, key, show) {
+    const el = slider(min, max, step, entryStart[key]);
+    const value = row(panel, label, el);
+    const paint = () => { value.textContent = show(Number(el.value)); };
+    el.addEventListener('input', () => {
+      cityEntry.tune({ [key]: Number(el.value) });
+      paint();
+    });
+    el.addEventListener('change', () => cityEntry.replay());
+    paint();
+    return el;
+  }
+
+  entryLever('Wave speed', 0.005, 0.08, 0.005, 'wave',
+    (v) => `${(v * 1000).toFixed(0)}ms/unit`);
+  entryLever('Grow time', 0.2, 1.5, 0.05, 'grow', (v) => `${v.toFixed(2)}s`);
+  entryLever('Jitter', 0, 1, 0.05, 'jitter', (v) => `${v.toFixed(2)}s`);
+  entryLever('Overshoot', 0, 4, 0.1, 'overshoot',
+    (v) => `${v.toFixed(1)} · +${peakOf(v)}%`);
+  entryLever('Dust', 0, 2, 0.05, 'dust',
+    (v) => (v > 0.05 ? `${v.toFixed(2)}x` : 'off'));
+
+  const replayEntry = document.createElement('button');
+  replayEntry.type = 'button';
+  replayEntry.className = 'dbg-wide';
+  replayEntry.textContent = 'Replay entrance';
+  replayEntry.addEventListener('click', () => cityEntry.replay());
+  panel.append(replayEntry);
+
   // --- Needs a rebuild ------------------------------------------------------
   heading('Restart to apply');
 
@@ -296,6 +345,9 @@ export function createDebugPanel({
       routeBlend: routeLine.blend(),
       ambientOcclusion: ao.state.enabled ? Number(ao.state.strength.toFixed(2)) : false,
     },
+    // The keys map onto game/cityentry.js's constants: wave → WAVE, grow → ENTRY_DUR,
+    // jitter → JITTER, overshoot → OVERSHOOT; dust is the multiplier on the burst power.
+    cityEntrance: cityEntry.tuning(),
   });
 
   const output = document.createElement('textarea');

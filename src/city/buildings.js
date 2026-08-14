@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, bakeColors, propMaterial } from '../util/geo.js';
+import { bakeColor, bakeColors, hash01, propMaterial, stampEntry } from '../util/geo.js';
 import { BUILDING_COLORS, color, jitterColor } from '../palette.js';
 import { valueNoise2D } from '../util/rng.js';
 import { KERB_H } from './ground.js';
@@ -958,9 +958,21 @@ export function createBuildings(rng, blocks) {
   });
   const yard = roomy.length ? rng.pick(roomy) : null;
 
+  // Every part a lot builds is stamped with that lot's ground anchor, which is what lets the
+  // entrance animation (game/cityentry.js) grow whole buildings out of the one merged mesh. The
+  // jitter is a hash of the anchor rather than a draw from `rng`, so the stamping is provably
+  // geometry-neutral: the city a seed builds is the same city with or without it. `entrySites`
+  // is the same anchors handed back as a list, for the dust each building kicks up as it lands.
+  const entrySites = [];
   for (const entry of lots) {
+    const from = parts.length;
     if (entry === yard) buildCourtyard(entry.lot, entry.block, rng, parts);
     else buildTower(entry.lot, entry.block, rng, parts, stats);
+    if (parts.length === from) continue;      // a lot too narrow to build stamps nothing
+    const b = buildableOf(entry.lot);
+    const rand = hash01(b.cx, b.cz);
+    for (let i = from; i < parts.length; i++) stampEntry(parts[i], b.cx, b.cz, rand);
+    entrySites.push({ x: b.cx, z: b.cz, r: Math.max(b.w, b.d) / 2, rand });
   }
   const courtyards = yard ? 1 : 0;
 
@@ -973,6 +985,7 @@ export function createBuildings(rng, blocks) {
     for (let i = site.from; i < site.to; i++) parts[i].dispose();
     parts.splice(site.from, site.to - site.from);
 
+    const padFrom = parts.length;
     const r = helipad(parts, site.cx, site.cz, Math.min(site.cw, site.cd) * PAD_FRACTION, site.deck);
 
     // One unit shoved into a corner, so the deck still reads as occupied — but only if the corner
@@ -992,6 +1005,13 @@ export function createBuildings(rng, blocks) {
     // building rather than across it.
     pad = { x: site.cx, z: site.cz, y: site.deck + PAD_SURFACE, r, cw: site.cw, cd: site.cd };
     stats.helipads += 1;
+
+    // The pad replaces furniture on a roof whose walls are already stamped, and `site.cx/cz` *is*
+    // the anchor that tower was stamped with — setback tiers never move off their lot centre — so
+    // hashing the same point makes the landing circle rise with its own building.
+    for (let i = padFrom; i < parts.length; i++) {
+      stampEntry(parts[i], site.cx, site.cz, hash01(site.cx, site.cz));
+    }
   }
 
   const merged = mergeGeometries(parts, false);
@@ -1002,7 +1022,7 @@ export function createBuildings(rng, blocks) {
   mesh.receiveShadow = true;
   mesh.name = 'buildings';
   return {
-    mesh, count: parts.length, courtyards, pad,
+    mesh, count: parts.length, courtyards, pad, entrySites,
     pitched: stats.pitched, helipads: stats.helipads,
   };
 }

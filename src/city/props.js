@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, jitterVertices, propMaterial } from '../util/geo.js';
+import { bakeColor, hash01, jitterVertices, propMaterial, stampEntry } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H } from './ground.js';
 
@@ -50,13 +50,24 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6 } = {}) {
 export function createProps(rng, blocks) {
   const parts = [];
 
+  // Every tree stamped with its own trunk position, so the entrance animation (game/cityentry.js)
+  // can pop each one individually out of the merged mesh. The x/z draws stay in the same order the
+  // bare `treeParts` calls made them, and the jitter is a hash rather than a draw — see the note
+  // in createBuildings — so the planting a seed produces is untouched.
+  const plant = (x, z) => {
+    const tree = treeParts(x, z, rng);
+    const rand = hash01(x, z);
+    for (const part of tree) stampEntry(part, x, z, rand);
+    parts.push(...tree);
+  };
+
   // Districts are planted as one area so trees fall across the old road line too — nothing
   // gives away a merged park faster than a treeless stripe down the middle of it.
   for (const district of blocks.districts ?? []) {
     const { x0, z0, x1, z1 } = district.bounds;
     const count = rng.int(11, 16);
     for (let i = 0; i < count; i++) {
-      parts.push(...treeParts(rng.range(x0 + 1.8, x1 - 1.8), rng.range(z0 + 1.8, z1 - 1.8), rng));
+      plant(rng.range(x0 + 1.8, x1 - 1.8), rng.range(z0 + 1.8, z1 - 1.8));
     }
   }
 
@@ -67,11 +78,7 @@ export function createProps(rng, blocks) {
     if (block.type === 'park') {
       const count = rng.int(5, 9);
       for (let i = 0; i < count; i++) {
-        parts.push(...treeParts(
-          rng.range(x0 + 1.6, x1 - 1.6),
-          rng.range(z0 + 1.6, z1 - 1.6),
-          rng,
-        ));
+        plant(rng.range(x0 + 1.6, x1 - 1.6), rng.range(z0 + 1.6, z1 - 1.6));
       }
     }
   }

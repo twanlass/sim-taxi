@@ -1804,6 +1804,51 @@ lab](lab.md)'s road runs due east, so the lane change banked beautifully there a
 the game. `tools/probe.mjs` now measures the lean at all four headings and asserts the constant
 reaches every body that leans.
 
+### The city entrance — `game/cityentry.js`
+
+**Prototype.** When a run opens, the streets and ground are already in place and the buildings and
+trees grow out of them in a wave that spreads from the taxi's spawn — the run starts where the
+player's car is, and the city builds itself outward from them. Each object rises from the kerb
+while it fades in, overshoots its full size (easeOutBack, peak +37%) and settles, with a puff of
+dust off each building's footprint as it breaks ground. About two seconds end to end — the
+defaults were tuned in the panel below toward quick-and-snappy: a brisk sweep, a 0.3s grow, zero
+delay jitter (clean distance rings read as one wavefront at this speed) and a deliberately
+cartoon-loud pop, which at 0.3s is over before a subtler one would register. Replay it from the
+console with `__taxi.cityEntry.replay()`, or re-aim the wave with
+`__taxi.cityEntry.replay(__taxi.traffic.taxi)`.
+
+On iOS in a browser tab — where [the "Add to Home Screen" screen](#the-add-to-home-screen-screen)
+parks the run behind its veil — the entrance is skipped outright rather than deferred: a city
+that hasn't built yet is a bare street grid under the overlay, which reads as a broken load. The
+skip lands before the first frame (see the frame loop in main.js), so that screen always dims a
+finished city.
+
+The levers — wave speed, per-object grow time, delay jitter, overshoot, dust strength — are live
+uniforms with a **City entrance** section in the ⚙️ panel (`?debug`): every slider replays the
+entrance on release, and the panel's settings-JSON export captures the values under
+`cityEntrance`, keyed to the module's constants for pasting a keeper back in.
+
+The interesting constraint is that the city is **two merged meshes** — that's the whole rendering
+strategy above — so there are no per-building objects to animate. Instead every vertex is stamped
+at build time with its building's ground anchor in an `aEntry` attribute (`stampEntry` in
+`util/geo.js`), and a vertex-shader patch scales each vertex about its own anchor off one shared
+clock uniform. The merge never comes apart; the whole animation is one uniform write per frame.
+The per-object delay jitter is a **hash** of the anchor, not an rng draw, so stamping is
+geometry-neutral: the city a seed builds is byte-for-byte the same city.
+
+Things the module already accounts for (details in its header comment): composed
+`customProgramCacheKey`s so the patch coexists with the SSAO patch; a patched
+`customDepthMaterial` so shadows grow with their buildings; a fragment discard while an object is
+unrevealed, because a scale-0 building is a flat depth-writing sheet at kerb height rather than
+nothing; and `settle()` on the shot path, since a frozen shot would otherwise render an empty
+street grid — the same class of bug as the fare discs' `settleMarkers()`.
+
+The dust rides the boost trail's pool in `game/dust.js`. That's a deliberate borrow: the entrance
+runs out in the opening seconds, before anything else can be spending slots. One burst per
+building (7 puffs, power ~0.9–1.25 by footprint, started most of the way up the size curve) — the
+first pass at 5 puffs and power ~0.6 was invisible at play zoom, where a two-unit cloud is a
+couple of pixels of haze.
+
 ## The "Add to Home Screen" screen
 
 `src/game/homescreen.js`, styled under `#home-tip` in `index.html`. A numbered list of the taps that

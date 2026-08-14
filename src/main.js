@@ -16,6 +16,7 @@ import { createBoostMeter } from './game/boostmeter.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
+import { createCityEntry } from './game/cityentry.js';
 import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createVanish } from './game/vanish.js';
@@ -174,7 +175,10 @@ scene.add(markOccluder(createGround(makeRng(seed + 11), layout)));
 // helicopter below has to be told which one — see `choosePad` in city/buildings.js.
 const city = createBuildings(makeRng(seed + 22), layout);
 scene.add(markOccluder(city.mesh));
-scene.add(markOccluder(createProps(makeRng(seed + 33), layout)));
+// Held onto for the entrance animation below — the trees rise out of the parks the same way the
+// buildings rise out of their lots.
+const propsMesh = createProps(makeRng(seed + 33), layout);
+scene.add(markOccluder(propsMesh));
 
 // Density is on the difficulty curve, so the run opens at its bottom and the instanced meshes are
 // sized for its top — an InstancedMesh cannot be resized once built. An explicit `?cars=N` beats
@@ -297,6 +301,22 @@ const pan = shot
   : attachDragPan(controller, renderer.domElement, aspect, isNarrow, releaseCameraToPlayer);
 
 const dust = createDust(scene, camera, makeRng(seed + 77));
+
+// The city's entrance: buildings and trees rise out of the ground in a wave that spreads from the
+// taxi's spawn — the run starts where the player's car is, and the city builds itself outward from
+// them — with a puff of dust off each building's footprint as it lands. See game/cityentry.js. It
+// borrows the boost trail's dust pool rather than building one of its own: the entrance runs out
+// in the opening seconds, long before anything else can be spending slots. Shot mode settles it
+// below, next to the markers — a frozen frame of half-grown city is never the screenshot anybody
+// asked for.
+const cityEntry = createCityEntry({
+  meshes: [city.mesh, propsMesh],
+  sites: city.entrySites,
+  dust,
+  // The spawn point for now — the wave is re-aimed at the taxi's *post-warmup* position at the
+  // bottom of this file, which is where the player actually first sees the car.
+  from: { x: traffic.taxi.x, z: traffic.taxi.z },
+});
 // The whole crash detonation — shockwave, fireball and shards — behind one `fire()` per car. One
 // pool serves both cars: nothing here is re-shot from a stored position, so a second call cannot
 // drag the first car's wreckage across to the second the way the old debris pools could.
@@ -791,8 +811,11 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   isOver: () => fares.state.gameOver,
   // The "Add to Home Screen" screen gets there first on iOS in a tab, and holds the run until it is
   // tapped. `homeTip` is declared further down and only ever read from the frame loop, which is
-  // long after this module has finished evaluating.
-  isBlocked: () => Boolean(homeTip?.state.holding),
+  // long after this module has finished evaluating. The city's own entrance holds the tutorial the
+  // same way: the spotlight dimming a city that is still building itself would upstage the build,
+  // and the first bubble should land as the thing that happens *after* the last building does.
+  // The 250ms beat between the two is the tutorial's own OPENING_HOLD.
+  isBlocked: () => Boolean(homeTip?.state.holding) || cityEntry.running(),
   // The same guard the picker uses: the click a mouse synthesises at the end of a drag must not
   // count as an answer to the bubble the player was dragging past.
   shouldIgnoreTap: () => Boolean(pan?.didPan() || pathDrag?.didDrag()),
@@ -1472,6 +1495,18 @@ function frame() {
   }
   updateBoostButton(dt);
   skids.update(dt);
+  // Before the dust pool ticks, so a building's ground-burst is at age zero on the frame it fires.
+  // The "Add to Home Screen" screen (iOS in a tab) *skips* the entrance outright rather than
+  // holding it: the overlay shows the city sunk into black, and a city that hasn't built yet is a
+  // bare street grid under the veil — which reads as a broken load, not as a treat being saved
+  // for later. `holding` is true from the module's creation (see game/homescreen.js), so the
+  // settle lands before the first frame ever draws an empty block. Everyone else — desktop, and
+  // installed standalone iOS — never constructs the tip and keeps the animation.
+  if (homeTip?.state.holding) {
+    if (cityEntry.running()) cityEntry.settle();
+  } else {
+    cityEntry.update(dt);
+  }
   dust.update(dt);
   blast.update(dt);
   flames.update(dt);
@@ -2022,10 +2057,18 @@ if (shot) {
   // missing from every screenshot the day that animation landed. This lands them all instead.
   fares.settleMarkers();
   parcels?.settleMarkers();
+  // The city's own entrance is an animation that opens at zero too — unsettled, every screenshot
+  // is an empty street grid.
+  cityEntry.settle();
   renderFrame();
   document.body.dataset.shotReady = 'true';
 } else {
   traffic.warmup(10);
+  // Re-aim the entrance wave at the taxi *after* the warmup: it was created with the spawn
+  // point, and ten sim-seconds of warmup drive the taxi a couple of blocks from there — so the
+  // wave was visibly emanating from a spot the player's car had already left. Costs nothing:
+  // the entrance clock hasn't taken its first tick yet.
+  cityEntry.replay(traffic.taxi);
   frame();
 }
 
@@ -2044,6 +2087,14 @@ if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) 
     routeLine,
     ao,
     scores: { load: loadScores, clear: clearScores },
+    // The entrance levers. The panel's replay re-aims the wave at wherever the taxi is *now* —
+    // the point of replaying from the panel is judging the opening, and the opening's wave starts
+    // at the player's car.
+    cityEntry: {
+      tuning: cityEntry.tuning,
+      tune: cityEntry.tune,
+      replay: () => cityEntry.replay(traffic.taxi),
+    },
   });
 }
 
@@ -2060,6 +2111,8 @@ window.__taxi = {
   parcels,
   flyover,
   chopper,
+  /** The opening rise-out-of-the-ground animation. `cityEntry.replay()` reruns it on demand. */
+  cityEntry,
   // Every flock in the city, in build order — `flocks[0]` is the one shot 18 frames.
   flocks,
   roadwork,
