@@ -18,6 +18,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/chopper.js',
   '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
   '../src/game/dropoffindicator.js', '../src/game/vanish.js', '../src/game/runend.js',
+  '../src/util/viewport.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
   '../src/game/ssao.js', '../src/game/diag.js', '../src/game/recovery.js', '../src/game/pause.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',

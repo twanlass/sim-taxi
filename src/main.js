@@ -46,6 +46,7 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getA
 import { createParcelSystem, FLIGHT_TIME as PARCEL_FLIGHT_TIME } from './game/parcels.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
+import { createViewport } from './util/viewport.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
@@ -113,8 +114,12 @@ const renderer = new THREE.WebGLRenderer({
   stencil: true,
   preserveDrawingBuffer: Boolean(shot),
 });
+// NOT `window.innerWidth/innerHeight`: on an installed iOS app those stop short of the physical
+// bottom of the screen, and the strip the canvas doesn't cover shows as bare sky under the game.
+// See util/viewport.js for the measurement that is actually right.
+const viewport = createViewport();
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, budget.pixelRatioCap));
-renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setSize(viewport.width(), viewport.height());
 renderer.shadowMap.enabled = budget.shadowMapSize > 0;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
@@ -220,7 +225,7 @@ for (const slot of fares.slots) markOccluder(slot.passenger.group);
 // One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and
 // the game is playable without ever touching it on a desktop — but in portrait the frustum is
 // sized by height, so a phone cuts off both sides of the map and panning stops being optional.
-const aspect = () => window.innerWidth / window.innerHeight;
+const aspect = () => viewport.width() / viewport.height();
 const controller = createCityCamera(aspect(), {
   zoom: shot?.zoom ?? 52,
   target: shot?.target ?? [0, 0],
@@ -234,7 +239,7 @@ controller.update(aspect());
 // only move things around for no reason. Live viewport width rather than a media query lets a
 // resize flip modes without a reload.
 const NARROW_VIEWPORT = 768;
-const isNarrow = () => window.innerWidth < NARROW_VIEWPORT;
+const isNarrow = () => viewport.width() < NARROW_VIEWPORT;
 
 // The camera trails the taxi from the first frame of the run, and keeps doing it until the player
 // takes the framing over — a swipe, or a tap on a rider-finder chip. Both are the player saying
@@ -732,6 +737,9 @@ const dropoffIndicator = createDropoffIndicator({
   // pointer's job is to show where the marker went off-screen, and the marker isn't at the
   // junction.
   pinLocation: cornerFor,
+  // The same measurement the renderer trusts, so the arrow clamps to the edge of the frame that
+  // is actually drawn — `window.inner*` is short of it on an installed iOS app.
+  viewport,
 });
 
 // --- Opening tutorial -------------------------------------------------------
@@ -762,7 +770,7 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // Orthographic, so world-units-per-pixel falls straight out of the frustum height: the vertical
   // world span is exactly 2 * zoom. This is what keeps the spotlight the same size on every
   // viewport, and correct if a wreck ever pulls the zoom in under it.
-  pixelsPerUnit: () => window.innerHeight / (2 * controller.state.zoom),
+  pixelsPerUnit: () => viewport.height() / (2 * controller.state.zoom),
   // The third beat points at a control rather than at something in the city, so its spotlight is
   // measured off the pill's own box. Declared after this call; `function` hoisting covers it.
   boostAnchor: boostScreenPos,
@@ -822,8 +830,8 @@ let moneyRoll = null;
 function projectToScreen(x, y, z) {
   const v = new THREE.Vector3(x, y, z).project(camera);
   return {
-    x: (v.x * 0.5 + 0.5) * window.innerWidth,
-    y: (-v.y * 0.5 + 0.5) * window.innerHeight,
+    x: (v.x * 0.5 + 0.5) * viewport.width(),
+    y: (-v.y * 0.5 + 0.5) * viewport.height(),
   };
 }
 
@@ -1084,8 +1092,12 @@ function updateHud(dt) {
   }
 }
 
-window.addEventListener('resize', () => {
-  renderer.setSize(window.innerWidth, window.innerHeight);
+// Through the viewport's own change feed rather than `window.resize`: an iOS cold-start settle —
+// the screen's true height arriving a few hundred ms after launch — changes the measurement
+// without ever firing a resize event, and the canvas has to follow it or the game keeps the
+// dead strip the settle just revealed.
+viewport.onChange((w, h) => {
+  renderer.setSize(w, h);
   controller.resize(aspect());
 });
 

@@ -16,7 +16,9 @@
 // the immutability the cache-first strategy assumes: `apple-touch-icon.png` keeps its name across
 // a redesign, so without a new cache name an installed client serves the old artwork forever.
 // v2: recentred the taxi in the icon and gave it a contact shadow.
-const CACHE_NAME = 'sim-taxi-v2';
+// v3: manifest gained `display_override: ["fullscreen"]` — the manifest is cache-first, so
+//     without a bump an installed client keeps the status bar forever.
+const CACHE_NAME = 'sim-taxi-v3';
 
 const PRECACHE_URLS = [
   '/',
