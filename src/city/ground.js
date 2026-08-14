@@ -10,15 +10,54 @@ import {
 const KERB_H = 0.35;
 const MARK_Y = 0.02;
 
-function box(w, h, d, x, y, z, col) {
-  const geo = new THREE.BoxGeometry(w, h, d);
-  geo.translate(x, y + h / 2, z);
-  return bakeColor(geo, col);
-}
-
 /** Flat quad lying on the road surface — cheaper than a box for paint markings. */
 function paint(w, d, x, z, col, y = MARK_Y) {
   const geo = new THREE.PlaneGeometry(w, d);
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(x, y, z);
+  return bakeColor(geo, col);
+}
+
+// Kerb corners round off rather than meeting at a sharp right angle. The radius stays small: a
+// building's footprint sets back only 0.85 units from the block edge (`INSET` in buildings.js),
+// so anything larger would round the sidewalk straight into a building corner.
+const CURB_RADIUS = 0.6;
+const CURB_SEGMENTS = 8;
+
+/** A rectangle with rounded corners, centred on the origin. */
+function roundedRectShape(w, d, radius) {
+  const hw = w / 2;
+  const hd = d / 2;
+  const shape = new THREE.Shape();
+  shape.moveTo(-hw + radius, -hd);
+  shape.lineTo(hw - radius, -hd);
+  shape.absarc(hw - radius, -hd + radius, radius, -Math.PI / 2, 0, false);
+  shape.lineTo(hw, hd - radius);
+  shape.absarc(hw - radius, hd - radius, radius, 0, Math.PI / 2, false);
+  shape.lineTo(-hw + radius, hd);
+  shape.absarc(-hw + radius, hd - radius, radius, Math.PI / 2, Math.PI, false);
+  shape.lineTo(-hw, -hd + radius);
+  shape.absarc(-hw + radius, -hd + radius, radius, Math.PI, Math.PI * 1.5, false);
+  return shape;
+}
+
+/** A kerb block: a rounded-corner rectangle in plan, extruded up to height h. */
+function curbBox(w, h, d, x, y, z, col, radius = CURB_RADIUS) {
+  const geo = new THREE.ExtrudeGeometry(roundedRectShape(w, d, radius), {
+    depth: h, bevelEnabled: false, curveSegments: CURB_SEGMENTS,
+  });
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(x, y, z);
+  return bakeColor(geo, col);
+}
+
+// The sidewalk surface sits 0.15 in from the kerb's own edge (see the `- 0.3` below), so its
+// corners are rounded to a slightly tighter radius to stay concentric with the kerb beneath it.
+const PAVE_RADIUS = CURB_RADIUS - 0.15;
+
+/** The flat sidewalk surface on top of a kerb block, rounded to match its corners. */
+function roundedPaint(w, d, x, z, col, y) {
+  const geo = new THREE.ShapeGeometry(roundedRectShape(w, d, PAVE_RADIUS), CURB_SEGMENTS);
   geo.rotateX(-Math.PI / 2);
   geo.translate(x, y, z);
   return bakeColor(geo, col);
@@ -165,8 +204,8 @@ export function createGround(rng, blocks) {
     const { x0, x1, z0, z1, cx, cz } = district.bounds;
     const w = x1 - x0;
     const d = z1 - z0;
-    parts.push(box(w, KERB_H, d, cx, 0, cz, jitterColor(PALETTE.kerb, rng, { l: 0.02 })));
-    parts.push(paint(w - 0.3, d - 0.3, cx, cz, jitterColor(PALETTE.park, rng, { l: 0.03 }), KERB_H + 0.01));
+    parts.push(curbBox(w, KERB_H, d, cx, 0, cz, jitterColor(PALETTE.kerb, rng, { l: 0.02 })));
+    parts.push(roundedPaint(w - 0.3, d - 0.3, cx, cz, jitterColor(PALETTE.park, rng, { l: 0.03 }), KERB_H + 0.01));
   }
 
   // --- Block platforms: raised kerb + sidewalk surface, or grass for parks.
@@ -176,10 +215,10 @@ export function createGround(rng, blocks) {
     const w = block.bounds.x1 - x0;
     const d = block.bounds.z1 - z0;
 
-    parts.push(box(w, KERB_H, d, cx, 0, cz, jitterColor(PALETTE.kerb, rng, { l: 0.02 })));
+    parts.push(curbBox(w, KERB_H, d, cx, 0, cz, jitterColor(PALETTE.kerb, rng, { l: 0.02 })));
 
     const surface = block.type === 'park' ? PALETTE.park : PALETTE.sidewalk;
-    parts.push(paint(w - 0.3, d - 0.3, cx, cz, jitterColor(surface, rng, { l: 0.03 }), KERB_H + 0.01));
+    parts.push(roundedPaint(w - 0.3, d - 0.3, cx, cz, jitterColor(surface, rng, { l: 0.03 }), KERB_H + 0.01));
   }
 
   // --- Dashed centre lines, one run per gap between intersections.
