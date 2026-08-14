@@ -34,7 +34,14 @@
          having none at all. */
       * { margin: 0; padding: 0; box-sizing: border-box; touch-action: manipulation; }
       /* Matches PALETTE.skyBottom, so the frame before WebGL's first paint is the sky rather
-         than a flash of a different colour. */
+         than a flash of a different colour. After that, main.js repaints it every time the
+         daylight ground colour changes — see the note by `updatePageBackground` — because on an
+         installed iOS PWA WebKit will not let the document draw into the bottom ~60px of a
+         standalone app's own screen (confirmed by reddening `document.body` and watching only
+         that strip change colour; `viewport-fit=cover` + `black-translucent` do get the canvas
+         under the *top* status bar, just not this). A static sky blue there reads fine by
+         daylight coincidence and wrong at night, so this colour now tracks the scene instead of
+         fighting a boundary nothing in page code can move. */
       /* Nothing on this page is prose to be read — it's a surface you tap and drag on. Without
          these, a long press anywhere on iOS still finds *something* selectable (the callout hunts
          past the canvas for the nearest text node) and pops the Copy / Look Up / Translate

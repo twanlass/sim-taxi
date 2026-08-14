@@ -159,6 +159,25 @@ const daylight = createDaylight({ sun, hemi, sky });
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
 
+// index.html's `html, body` background starts at PALETTE.skyBottom to cover the frame before
+// WebGL's first paint, then this repaints it to the current ground colour on every change after
+// that. It exists because of a boundary nothing here can move: on an installed iOS PWA, WebKit
+// caps the document short of the true bottom of the screen (confirmed by turning `document.body`
+// red and watching only that strip change — the canvas above it is genuinely rendering, not just
+// colour-matching), by more than `env(safe-area-inset-bottom)` accounts for, regardless of
+// `viewport-fit=cover` / `black-translucent` or what the renderer is sized to. A fixed sky blue in
+// that gap looks fine by daytime coincidence and wrong at night; tracking the ground colour makes
+// it read as part of the vignette instead of a seam.
+let paintedGroundColor = null;
+function updatePageBackground() {
+  const hex = `#${hemi.groundColor.getHexString()}`;
+  if (hex !== paintedGroundColor) {
+    paintedGroundColor = hex;
+    document.body.style.backgroundColor = hex;
+  }
+}
+updatePageBackground();
+
 // Every generator draws from its own stream so that changing one system doesn't reshuffle the
 // others — editing building code shouldn't move the parks. `layout` was already produced above
 // so the connectivity guard could reroll before we spent time meshing.
@@ -1475,6 +1494,7 @@ function frame() {
   for (const flock of flocks) flock.update(dt, traffic.taxi);
   controller.updateShake(dt, aspect());
   daylight.update(dt);
+  updatePageBackground();
 
   // The two halves of the ramp that live in `sim/`. They are pushed rather than pulled because
   // `sim/` must not import from `game/` — the same reason `traffic.taxi.boost` is written here
