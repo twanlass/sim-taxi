@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { viewportSize } from '../util/viewport.js';
 
 // Off-screen drop-off pointer.
 //
@@ -66,7 +65,8 @@ export function createDropoffIndicator({ camera, pinLocation }) {
       }
     }
 
-    const { width: w, height: h } = viewportSize();
+    const w = window.innerWidth;
+    const h = window.innerHeight;
     const c = pinLocation(fare.target.i, fare.target.j);
     // Aimed at the ring on the road, which is the whole marker now. It used to aim halfway up the
     // pin's post so the arrow pointed at the crystal rather than at the tarmac under it.
