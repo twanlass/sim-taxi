@@ -135,6 +135,14 @@ down.
   actually presses computes `auto` again and keeps its own double-tap zoom.
 
   [webkit.org/b/231161]: https://bugs.webkit.org/show_bug.cgi?id=231161
+- **`env(safe-area-inset-*)` reads 0 until `viewport-fit=cover` is on the viewport meta.** Without
+  `cover`, iOS spends the notch and home-indicator insets *itself*, by shrinking the layout
+  viewport — which is how `black-translucent` once measured as capping the document short of the
+  true bottom "by more than the inset accounts for": the `env()` that was supposed to account for
+  it was reading zero, and no canvas-sizing trick could move an edge the UA owned. The pieces
+  travel together: `viewport-fit=cover`, the `black-translucent` status-bar meta, and the
+  `--safe-*` calc()s on every pinned HUD element. Drop any one and the app is either letterboxed
+  or has its HUD under the Dynamic Island.
 - **iOS doesn't resize the layout viewport when the software keyboard opens.** It slides a shorter
   *visual* viewport up over an unchanged one, so a `position: fixed; inset: 0` overlay still measures
   the whole screen and anything centred in it — the initials prompt did — sits behind the keys.

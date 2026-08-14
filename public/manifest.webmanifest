@@ -3,6 +3,7 @@
   "short_name": "Sim Taxi",
   "start_url": "/",
   "display": "standalone",
+  "display_override": ["fullscreen"],
   "background_color": "#dcedf7",
   "theme_color": "#A46BFF",
   "icons": [

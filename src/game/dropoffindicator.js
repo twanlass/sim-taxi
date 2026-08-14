@@ -28,9 +28,26 @@ import * as THREE from 'three';
 const EDGE_MARGIN = 36;   // px kept clear from the viewport edge, so the arrow lives on the HUD
                           // rather than sliced by it
 
+// The viewport's edges are no longer the *usable* edges: with `viewport-fit=cover` the page runs
+// under the status bar and the home indicator, and an arrow clamped 36px from the raw edge parks
+// itself beneath either one. `env()` is CSS-only, so the values come off the `--safe-*` custom
+// properties index.html sets on :root — computed values, so `env()` has already been substituted
+// and they read back as plain px. Re-read on resize because rotating the phone moves the notch
+// to a side.
+const safe = { top: 0, right: 0, bottom: 0, left: 0 };
+function readSafeInsets() {
+  const style = getComputedStyle(document.documentElement);
+  for (const side of Object.keys(safe)) {
+    safe[side] = parseFloat(style.getPropertyValue(`--safe-${side}`)) || 0;
+  }
+}
+
 export function createDropoffIndicator({ camera, pinLocation }) {
   const el = document.getElementById('dropoff-indicator');
   if (!el) return { update: () => {} };
+
+  readSafeInsets();
+  window.addEventListener('resize', readSafeInsets);
 
   const projected = new THREE.Vector3();
   let visible = false;
@@ -74,9 +91,14 @@ export function createDropoffIndicator({ camera, pinLocation }) {
     const sx = (projected.x * 0.5 + 0.5) * w;
     const sy = (-projected.y * 0.5 + 0.5) * h;
 
+    // The band the arrow may live in: the viewport, less the hardware's corners, less the margin.
+    const minX = safe.left + EDGE_MARGIN;
+    const maxX = w - safe.right - EDGE_MARGIN;
+    const minY = safe.top + EDGE_MARGIN;
+    const maxY = h - safe.bottom - EDGE_MARGIN;
+
     // Fully on-screen with a small margin: the pin itself is visible, no arrow needed.
-    if (sx >= EDGE_MARGIN && sx <= w - EDGE_MARGIN
-      && sy >= EDGE_MARGIN && sy <= h - EDGE_MARGIN) {
+    if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
       setVisible(false);
       return;
     }
@@ -84,17 +106,18 @@ export function createDropoffIndicator({ camera, pinLocation }) {
     setVisible(true);
 
     // Clamp along the line from the viewport centre to the projected point, so the arrow sits
-    // where the pin would exit the frame.
+    // where the pin would exit the frame. The distance to each edge is asymmetric now — the safe
+    // band is not centred on the viewport — so the reach depends on the direction of travel.
     const cx = w / 2;
     const cy = h / 2;
     const dx = sx - cx;
     const dy = sy - cy;
-    const maxX = cx - EDGE_MARGIN;
-    const maxY = cy - EDGE_MARGIN;
+    const reachX = dx > 0 ? maxX - cx : cx - minX;
+    const reachY = dy > 0 ? maxY - cy : cy - minY;
     // Guard the divide when the projected point coincides with the centre.
     const scale = Math.min(
-      Math.abs(dx) > 0.001 ? maxX / Math.abs(dx) : Infinity,
-      Math.abs(dy) > 0.001 ? maxY / Math.abs(dy) : Infinity,
+      Math.abs(dx) > 0.001 ? reachX / Math.abs(dx) : Infinity,
+      Math.abs(dy) > 0.001 ? reachY / Math.abs(dy) : Infinity,
     );
     const px = cx + dx * scale;
     const py = cy + dy * scale;
