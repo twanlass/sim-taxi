@@ -1751,6 +1751,53 @@ skyline for a beat after the ring had gone behind a tower; the arrow only covers
 case, which is the one the map being bigger than the viewport actually creates. It aims at `y = 0.1`
 now — the ring on the road — where it used to aim halfway up the pin's post.
 
+### Off-screen police warning
+
+`game/sirenglow.js`, styled under `#siren-glow` in `index.html`. Red and blue washing in over the
+viewport edge the police cruiser is coming from, strobing in step with its own light bar and gone by
+the time the car is properly in frame.
+
+Same problem as the pointer above and aimed the other way. The drop-off is somewhere the player is
+driving *to*, and a pointer is navigation; the siren is something driving *at* them, and this is a
+threat they cannot see yet. `POLICE_BUST_RANGE` is one block, and a block is about a third of a
+portrait phone's frame at play zoom — so a cruiser one screen edge away is already close enough to
+end a run, and the only cue it existed was ambient traffic pulling over to a car that was off-frame.
+
+**It is on exactly when the light bar is on.** `state.armed` gates both, so the rule the player
+already learns from a single run — [*lights on means it can bust
+you*](traffic.md#arming-it-where-it-can-be-seen) — extends to the edge of the screen without needing
+a second rule. A cruiser still fading in at the map edge cannot bust anyone and gets no wash. The
+probe asserts both halves directly: nothing unarmed ever lights the edge, and nothing armed and
+off-frame ever fails to.
+
+The strobe comes off `sirenOn()` in `sim/police.js` rather than a clock of its own, which is the
+only reason the two stay in step — including the rate change to 11Hz once the cruiser has locked on,
+which is the only cue that a corridor run has become about you. The off colour holds the same low
+glow the lamps do (14/90 of the lit one): a hard on/off alternation reads as flicker rather than as
+a siren.
+
+Two numbers decide how hard it burns, multiplied:
+
+| | | |
+|---|---|---|
+| off-frame | `FADE_ON` 0.88 → `FADE_FULL` 1.30 | as a fraction of the half-frame, so 1.0 is the edge exactly. Ramped rather than switched: the cruiser crosses the band in about half a second, so "you can see it" hands over to "it is behind the edge" as a fade. |
+| proximity | `GLOW_NEAR` 40 → `GLOW_FAR` 120 | world units, so the wash is a distance read and not just a bearing — full inside two blocks, easing back to a `GLOW_FLOOR` of 0.35 at six. Never to zero: a siren on the far side of the city is still worth knowing about, it just isn't the thing about to happen. |
+
+`q` is the **max** of the two axes' offsets rather than their length, which is what makes 1.0 mean
+"on the frame edge" for every bearing — a viewport is a rectangle, and a radial measure calls the
+corners off-screen while they are plainly in shot.
+
+Drawn as one fixed full-screen div carrying two radial gradients, centred *on* the point where the
+cruiser crosses the frame edge, so a side approach shows half a bloom and a corner shows a quarter
+with no per-side special cases. `mix-blend-mode: screen`, because an emergency light adds rather
+than tints and over a daylit city an alpha red reads as a muddy filter. That blend is a full-frame
+compositing pass, which is why the element is `hidden` outright whenever the wash is off — a siren
+is up for a few seconds a minute. Not a three.js light: a real one would mean lighting a city built
+for a single global key off a car that is by definition outside the frustum.
+
+Under the HUD at `z-index: 8`, over the canvas and below everything else — this is light in the
+world, and washing it across the money counter would read as a UI effect.
+
 ### The fare marker — `game/faremarker.js`
 
 Where the fare's diamond is, and how it gets there. What its colour *means* is in

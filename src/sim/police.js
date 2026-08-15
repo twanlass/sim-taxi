@@ -133,6 +133,22 @@ export const POLICE_BUST_RANGE = 20;
 // the run too, so the cruiser is never lethal while it is fading back out either.
 export const BUST_ARM_INSET = PITCH;
 
+// Bar changes a second: six on a corridor run, eleven once it has locked on. The rate change is the
+// only cue the player gets that the run has become about them.
+const SIREN_HZ = 6;
+const SIREN_HUNT_HZ = 11;
+
+/**
+ * Which half of the strobe the bar is in — true for red, false for blue.
+ *
+ * Exported because `game/sirenglow.js` washes the same alternation over the frame edge while the
+ * cruiser is off-screen, and a second clock keeping its own time would drift out of step with the
+ * car it is standing in for. One function, two consumers, including the rate change.
+ */
+export function sirenOn(flash, hunting = false) {
+  return Math.floor(flash * (hunting ? SIREN_HUNT_HZ : SIREN_HZ)) % 2 === 0;
+}
+
 // The car used to appear and vanish at full opacity out past the edge of the asphalt, against
 // bare background — a hard pop at both ends of every run. It now dissolves across this band,
 // reaching fully invisible before it hits the turnaround, so the disappearance never lands on a
@@ -222,9 +238,9 @@ function lightBar(group) {
 
   return {
     red: make(PALETTE.lightRed, -0.42),
-    blue: make('#4D9BFF', 0.42),
+    blue: make(PALETTE.sirenBlue, 0.42),
     redLamp: lamp(PALETTE.lightRed, -0.42),
-    blueLamp: lamp('#4D9BFF', 0.42),
+    blueLamp: lamp(PALETTE.sirenBlue, 0.42),
   };
 }
 
@@ -704,9 +720,7 @@ export function createPolice(rng, scene, cars = []) {
     }
 
     const hunting = state.chasing || state.arrived;
-    // Alternating bar, six changes a second — eleven once it has locked on. The rate change is
-    // the only cue the player gets that the corridor run has become about them.
-    const on = Math.floor(state.flash * (hunting ? 11 : 6)) % 2 === 0;
+    const on = sirenOn(state.flash, hunting);
     lights.red.visible = on;
     lights.blue.visible = !on;
     // Never fully dark on either side — a hard on/off strobe reads as flicker rather than a

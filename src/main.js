@@ -35,6 +35,7 @@ import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
 import { createTutorial } from './game/tutorial.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
+import { createSirenGlow } from './game/sirenglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
 import { setAmbientOcclusion } from './util/geo.js';
@@ -763,6 +764,10 @@ const dropoffIndicator = createDropoffIndicator({
   // is actually drawn — `window.inner*` is short of it on an installed iOS app.
   viewport,
 });
+
+// The other half of the same problem, aimed the other way: the drop-off is somewhere the player is
+// driving to, and the police car is something driving at them. See game/sirenglow.js.
+const sirenGlow = createSirenGlow({ camera, viewport });
 
 // --- Opening tutorial -------------------------------------------------------
 
@@ -1745,6 +1750,9 @@ function frame() {
   // game/dropoffindicator.js.
   const aboard = fares.carrying();
   dropoffIndicator.update(aboard, aboard && fares.colorOf(aboard));
+  // After the police update above, so the wash is aimed at where the cruiser is this frame rather
+  // than trailing it by one.
+  sirenGlow.update(police, traffic.taxi);
   renderFrame();
   // After the render, not before: `renderer.info` resets itself at the top of every `render()`,
   // so this is the frame that just went to the screen rather than the one before it.

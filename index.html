@@ -695,6 +695,46 @@
       }
       body.shot-mode #dropoff-indicator { display: none; }
 
+      /* --- the off-screen police warning -------------------------------------
+         Red and blue washing in over the frame edge the cruiser is coming from, strobing in step
+         with its own light bar. See src/game/sirenglow.js for when it is up and why it is armed off
+         exactly the same flag the bar is.
+
+         Everything that moves arrives as a custom property: --siren-x/--siren-y are where the
+         cruiser crosses the frame edge, --siren-r is the bloom's radius (sized against the
+         viewport, since this is light spilling past the edge of the *frame*), and --siren-red /
+         --siren-blue are the two alphas the strobe alternates between. Centring the gradient *on*
+         the edge is what gives a side approach half a bloom and a corner a quarter, with no
+         per-side special cases.
+
+         `screen` rather than plain alpha: an emergency light adds, it doesn't tint, and over a
+         daylit city an alpha red reads as a muddy filter rather than as a lamp. It costs a
+         full-frame blend, which is why sirenglow.js keeps the element `hidden` outright whenever
+         the wash is off — a siren is up for a few seconds a minute.
+
+         Under the HUD (z-index 8, over the canvas and below everything else): this is light in the
+         world, and washing it across the money counter would read as a UI effect. */
+      #siren-glow {
+        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 8;
+        pointer-events: none; user-select: none;
+        mix-blend-mode: screen;
+        background:
+          /* PALETTE.lightRed #E24B3C */
+          radial-gradient(circle var(--siren-r, 200px) at var(--siren-x, 50%) var(--siren-y, 50%),
+            rgba(226, 75, 60, var(--siren-red, 0)) 0%,
+            rgba(226, 75, 60, calc(var(--siren-red, 0) * 0.45)) 45%,
+            rgba(226, 75, 60, 0) 100%),
+          /* PALETTE.sirenBlue #4D9BFF */
+          radial-gradient(circle var(--siren-r, 200px) at var(--siren-x, 50%) var(--siren-y, 50%),
+            rgba(77, 155, 255, var(--siren-blue, 0)) 0%,
+            rgba(77, 155, 255, calc(var(--siren-blue, 0) * 0.45)) 45%,
+            rgba(77, 155, 255, 0) 100%);
+      }
+      #siren-glow[hidden] { display: none; }
+      /* A wash over the edge of every frame would be the loudest thing in a screenshot, and the
+         run-end card is not a moment to still be warning about traffic. */
+      body.shot-mode #siren-glow, body.game-over #siren-glow { display: none; }
+
       /* --- coach bubble ---------------------------------------------------
          The opening tutorial: a speech bubble from the taxi itself, bottom centre, with the car
          turning slowly in a round avatar and the line typing itself out. Two beats, and that is
@@ -1110,6 +1150,7 @@
         <polygon points="13,0 -9,-10 -4,0 -9,10" />
       </svg>
     </div>
+    <div id="siren-glow" aria-hidden="true" hidden></div>
     <div id="spotlight" aria-hidden="true"></div>
     <div id="coach" hidden>
       <button class="coach-bubble" type="button">
