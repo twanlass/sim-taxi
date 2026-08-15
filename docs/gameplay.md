@@ -1060,7 +1060,7 @@ forgiving misses meaningfully padded the survival curve. Never on the tutorial f
 `src/game/parcels.js`. A brown parcel sits on a kerb corner on a cyan rounded-square pad. Drive
 near it and the taxi picks it up — **while carrying a passenger, if it is carrying one** — and the
 pad it is going to lights up somewhere else on the map. Drive near that and it pays out in cash.
-One to two on the board, one aboard at a time, and nothing about it can end a run.
+One on the board (`MAX_PARCELS`), one aboard at a time, and nothing about it can end a run.
 
 ### Nothing here is tapped. You steer into it
 
@@ -1087,21 +1087,36 @@ worth the seconds?".
 Measured in `tools/probe.mjs`, over three cities, 420s of a perfect fare player who also couriers.
 The one knob is how many extra legs of route the player will accept to reach a pad:
 
-| Detour budget | Survived | Fares | Fare cash | Packages | Courier cash |
-|---|---|---|---|---|---|
-| **1 leg** | 420s, all three | 12–14 | $233–296 | 1–3 | $14–57 |
-| **2 legs** | died at 265–341s | 5–10 | $85–184 | 2–4 | $43–71 |
-| 3 legs | identical to 2 | | | | |
+Re-measured at one slot (seeds 71624, 4242, 90210; the two-slot numbers this table used to carry are
+in the row below it):
 
-Read the second row carefully: taking the two-leg detours **doubles the courier income and halves
-the run**. Courier cash never comes close to replacing the fare income it burns — $71 at the very
-best against $150-plus forgone — so greed is punished by arithmetic rather than by a rule. What is
-worth taking is the package that is nearly on the way already, which is exactly the decision the
-layer was added to create. (Past two legs the cap stops binding at all; a 5×5 grid is full of
-equal-length alternatives, the same finding [the drag's own cap](#dragging-the-route) rests on.)
+| Detour budget | Survived | Fares | Fare cash | Boxes offered | Delivered | Courier cash |
+|---|---|---|---|---|---|---|
+| **1 leg** | 420s, all three | 12–16 | $252–319 | 1–2 | 0–1 | $0–26 |
+| **2 legs** | 297s, 403s, 420s | 8–12 | $135–261 | 3 | 2–3 | $40–54 |
+| 3 legs | indistinguishable from 2 | | | | | |
+| *(2 slots, 1 leg)* | *420s, all three* | *12–14* | *$233–296* | | *1–3* | *$14–57* |
+
+The shape of the trade is unchanged: the two-leg detours roughly double the courier income and cost
+the run in the worst city, and courier cash never comes close to replacing the fare income it burns
+— $54 at the very best against $100-plus forgone. Greed is punished by arithmetic rather than by a
+rule, and what is worth taking is the package that is nearly on the way already, which is exactly
+the decision the layer was added to create. (Past two legs the cap stops binding at all; a 5×5 grid
+is full of equal-length alternatives, the same finding [the drag's own cap](#dragging-the-route)
+rests on.)
 
 The probe therefore plays at a **one-leg** budget, not at `MAX_VIA_DETOUR`'s 6. A greedy player is
 supposed to die there, and a check that asserted otherwise would be asserting the layer is free.
+
+**What the single slot cost, and it is not nothing.** A box the player declines holds the board for
+the rest of the run, so at a one-leg budget the layer now goes quiet: two of the three cities offered
+exactly one box, it never came within a leg of the route, and nothing else ever appeared. Delivered
+counts at that budget fell from 1–3 to 0–1. That is the honest price of "one question about one
+corner" — the flip side of the box not being a supply is that a *bad* box is the only box. A player
+who takes the occasional two-leg detour clears the slot and sees three, which is the behaviour the
+pacing assumes. If it plays too quiet, the lever is not `MAX_PARCELS`: it is giving a long-ignored
+box permission to move, which needs to happen without a countdown and without anything vanishing
+from under a player already driving at it.
 
 ### A package has no clock, and so has no diamond
 
@@ -1133,14 +1148,22 @@ square against a disc is read at a glance.
   boost top-up (Loco Mode fuel is the delivery reward, and a courier detour has delivered nobody),
   no run-end stat row. The payout takes the same [two-phase flight](#economy) a fare's does, because
   it is the same kind of event arriving from the same place.
+- **One box on the board at a time** (`MAX_PARCELS`). It held two at first, on the argument that a
+  choice of which detour to take beats a single offer, and what it actually produced was a *supply* —
+  a pair of cyan pads is something you serve rather than something you notice, and it put two jobs'
+  worth of cyan against a fare board that can already carry four discs, so the eye had to sort which
+  box before it could ask whether either was worth the seconds. One box is one question, about one
+  corner, which is the decision this layer exists to create.
 - **A package is a find, not a fixture.** The gap between spawns is **drawn** per package (18–45s)
   rather than fixed, and a delivery pushes the next one further out again (`PARCEL_AFTER_DELIVERY`). A
-  flat 12s gap made the board a metronome: with two slots that is a permanent pair of pads on the map,
-  always something to detour for and nothing to notice, and a layer whose whole appeal is "oh, there's
-  one" became scenery. The fare board *wants* to be a steady supply, because serving it is the game; the
-  courier board is the opposite, and copying the fare cadence was copying the wrong thing. Cashing one in
-  must not immediately produce another — that is the loop closing on itself, and it turns a find into a
-  vending machine.
+  flat 12s gap made the board a metronome: back when it held two, that was a permanent pair of pads on
+  the map, always something to detour for and nothing to notice, and a layer whose whole appeal is "oh,
+  there's one" became scenery. The fare board *wants* to be a steady supply, because serving it is the
+  game; the courier board is the opposite, and copying the fare cadence was copying the wrong thing.
+  Cashing one in must not immediately produce another — that is the loop closing on itself, and it turns
+  a find into a vending machine. At one slot the slot itself does most of the pacing: an uncollected box
+  holds the board until somebody drives through it, and the drawn gap governs how long after a
+  *resolution* the next one lands.
 - **Neither board ever puts two jobs on one corner**, in either direction. The courier refuses to spawn
   on a fare's corner *and* `fares.js` refuses to spawn on a package's, through an injected `reserved`
   callback — injected rather than imported, because the fare loop has to keep working with nothing layered
