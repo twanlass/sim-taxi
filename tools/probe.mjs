@@ -16,7 +16,7 @@ import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
 } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, BOOST_CRUISE } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, BOOST_CRUISE, SPAWN_CLEARANCE } from '../src/sim/traffic.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
@@ -5358,6 +5358,17 @@ check('the taxi is an ordinary car in the traffic array',
   }
   check('the cap never becomes the filter', peakInRange <= MAX_GHOSTS,
     `peak ${peakInRange} vehicles in range over 15s of boosting, cap ${MAX_GHOSTS}`);
+
+  // The horizon has a ceiling, and it is the spawn clearance. A mid-run arrival appears at least
+  // SPAWN_CLEARANCE from the taxi; if the ghost radius ever reached that, a car would materialise
+  // already wearing an outline — a ghost blinking into existence beside the taxi, with no vehicle
+  // having driven into view — which is indistinguishable from the outline bug this whole module
+  // exists to prevent. Measured on the current pair: no spawn lands inside the radius, the nearest
+  // 52.6 units out, and the margin is 8 units (0.43s at BOOST_CRUISE). Raising one means raising
+  // the other first.
+  check('a car can never spawn inside the ghost horizon', GHOST_RADIUS < SPAWN_CLEARANCE,
+    `radius ${GHOST_RADIUS} under a spawn clearance of ${SPAWN_CLEARANCE},`
+    + ` ${((SPAWN_CLEARANCE - GHOST_RADIUS) / BOOST_CRUISE).toFixed(2)}s of margin`);
 
   // Nearest-first, radius-limited, capped — recomputed by brute force and compared. This is what
   // catches a selection that quietly degrades into "whichever cars the loop reached first".

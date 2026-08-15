@@ -1421,6 +1421,18 @@ vehicle was dropped on 5.5% of frames; at 12 that is 0.0% and stays there out to
 probe drives fifteen seconds of boosting and asserts the cap never binds, so the two numbers cannot
 drift apart again silently.
 
+**The horizon has a ceiling: `SPAWN_CLEARANCE`.** A mid-run arrival appears at least 50 units from
+the taxi ([why](traffic.md)), so 42 sits under it with 8 units — 0.43s at `BOOST_CRUISE` — to spare.
+If the radius ever reached the clearance, a car would materialise *already wearing an outline*: a
+ghost blinking into existence beside the taxi with no vehicle having driven into view, which is
+indistinguishable from the bug this module exists to prevent. `tools/probe.mjs` asserts the two stay
+apart. Measured over 40 runs: no spawn lands inside the radius, the nearest 52.6 units out.
+
+What the clearance does *not* buy is a car you saw arrive. About a quarter of spawn points are
+hidden behind a building at the moment they are used, and the nearest measured arrival was inside
+the ghost radius 0.7s later. No warning horizon can cover a vehicle that did not exist a second
+ago — that is a property of growing the traffic mid-run, not of the outlines.
+
 **The cap is shared across the two pools; the pools are not.** What the cap bounds is how much of
 the frame this may paint, which is a fact about the player's screen and not about which buffer a
 vehicle is drawn from — so one nearest-N list feeds both. Each pool is nevertheless sized for the
