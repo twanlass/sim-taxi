@@ -36,6 +36,20 @@ export const TAXI_TAILPIPE_HEIGHT = 0.42 + CHASSIS_LIFT;
  */
 export const TAXI_DECK_Y = (1.18 + CHASSIS_LIFT) * TAXI_SCALE;
 
+/**
+ * Where the rear tyres meet the road, in world units off the taxi's own origin: the axle sits
+ * `TAXI_REAR_AXLE_BACK` behind it and each tread `TAXI_REAR_TRACK` out to its own side.
+ *
+ * Exported because the boost trail comes off the wheels now — one plume per rear tyre rather than
+ * one off the centreline (see `kickDust` in main.js and in the lab). Read straight off the anchors
+ * the wheels are *built* at and put through the group's scale, so resizing a wheel or rescaling the
+ * car takes the dust with it. The hand-typed 1.2 / 1.04 the rubber stamps at are the reason to
+ * derive these: the track number stopped matching the car the day WHEEL_W doubled, and nothing said so.
+ */
+const REAR_ANCHOR = wheelAnchors(CAR_LEN, CAR_W).find((anchor) => !anchor.front);
+export const TAXI_REAR_AXLE_BACK = -REAR_ANCHOR.x * TAXI_SCALE;
+export const TAXI_REAR_TRACK = Math.abs(REAR_ANCHOR.z) * TAXI_SCALE;
+
 export function createTaxiMesh() {
   const group = new THREE.Group();
   group.name = 'taxi';
