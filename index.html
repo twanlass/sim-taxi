@@ -137,13 +137,13 @@
         display: grid; place-items: center;
         filter: drop-shadow(0 2px 6px rgba(20, 40, 55, 0.65));
         /* Two ways in, and the transform is shared between them. The pop is the fallback — a chip
-           raised with nothing on screen to fly from (`setCarrying`, and reduced motion). The real
-           pickup is `flyIn`, which drives this same transform from the box's own place in the city
-           with a Web Animation; those outrank transitions in the cascade, so the two cannot fight.
+           raised with nothing on screen to come in from (`setCarrying`, and reduced motion). The real
+           pickup is `flyIn`, which drives this same transform *and* the opacity with a Web Animation
+           of its own; those outrank transitions in the cascade, so the two cannot fight.
 
-           `.is-flying` kills the transition for the length of that flight, and it has to: the box
-           arrives already opaque, at the size and the spot the world box just vanished from, and a
-           0.16s fade over the seam is exactly the dissolve the flight exists to avoid.
+           `.is-flying` kills the transition for the length of that arrival, and it has to: the chip
+           fades up on its own curve, timed to overlap the world box still fading out across the map,
+           and a 0.16s transition running underneath would be a second fade on the same property.
 
            Nothing here is driven off sim time, so shot mode has nothing to land (see the `settle()`
            note in CLAUDE.md); the whole chip is hidden with #hud there anyway. */

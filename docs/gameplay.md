@@ -1264,27 +1264,36 @@ square against a disc is read at a glance.
 
 ### The box visibly changes hands
 
-Nothing about a package teleports. **The box flies**: off the kerb and up into its slot in the HUD on
-pickup, and back out of the taxi into the pad on delivery, growing and fading in. It is the same
-argument [the fare's crystal](#the-fares-clock-travels) is built on — nothing is created or destroyed
-at a hand-off, which is why that flight is animated rather than a teleport — applied to the one object
-this layer hands over. Details in [rendering.md](rendering.md#the-parcel--geometryparceljs).
+Nothing about a package teleports. **The box flies**: out of the world and into the HUD on pickup, and
+back out of the taxi into the pad on delivery, growing and fading in. It is the same argument [the
+fare's crystal](#the-fares-clock-travels) is built on — nothing is created or destroyed at a hand-off,
+which is why that flight is animated rather than a teleport — applied to the one object this layer
+hands over. Details in [rendering.md](rendering.md#the-parcel--geometryparceljs).
 
-Three consequences worth naming:
+**The pickup is two moves that cross-fade**, and the join between them is faked on purpose:
 
-- **The pickup crosses between two renderers, and the seam is the whole design.** The world box is
-  hidden on the frame it is collected and `parcels.js` hands over a `handoff` record: the world point of
-  the box's **own centre** (not the junction, not the pavement under it — the bob and the half-height
-  are both real) and the **facing** its idle spin had reached, wrapped to (−π, π] rather than passed on
-  as the tens of radians it has accumulated. `main.js` projects that point, measures what the camera is
-  currently giving a world unit, and opens the chip there, at that size, at that angle. Get any one of
-  the three wrong and the box *jumps* on the frame it changes hands, which is the teleport the flight
-  exists to replace — while reading, from the DOM, as a chip that came up correctly.
+1. **In the city** (`parcels.js`, sim time): the kerb box is hidden and a flying copy takes over from
+   the same spot — the same pose by *construction*, since the copy stands at the corner at
+   `PARCEL_PAD_LIFT` and runs the same `idle` off the same clock. It rises, swells, slides away toward
+   the corner of the screen the chip lives in, and fades out. The rise eases *out* (a thing being
+   picked up); the drift eases *in*, accelerating away (a thing leaving).
+2. **In the HUD** (`cargochip.js`, wall time): near the end of that — 78% along, with the world box
+   down to ~a third opacity and still moving — `'loaded'` fires carrying the point the box had reached.
+   The chip grows and fades in with a **short slide out of that direction**, capped at 120px, and
+   inherits the spin the world copy was still turning at.
+
+The first cut of this handed off **pixel-exact**: same point, same apparent size, same angle, on a
+single frame, with the two ends of the seam verified to land on the same pixels. It was seamless and it
+read as *too fast* — an exact hand-off has no moment in it where the object is visibly travelling, so
+there is nothing to follow. Two shorter moves that overlap and agree only on **direction** take longer
+to say the same thing and read as one journey. Which is why what leaves `parcels.js` is a point and a
+direction rather than a pose, and why the chip quotes the box's position instead of tracking it.
+
+Two more consequences worth naming:
+
 - **The taxi's flourish fires on the pickup**, not on an arrival at the car: the whole car takes a white
   emissive lift on the [select pop](#the-tap-pops)'s own envelope, so collecting a package reads as the
-  same *kind* of acknowledgement as a tap that landed. There is no second event any more. `'loaded'`
-  existed to mark the frame the box reached the deck, and it went with the deck — the travel it was
-  splitting off is still there, but it now finishes in a DOM animation this module cannot observe.
+  same *kind* of acknowledgement as a tap that landed.
 - **`delivered` still pays out at once.** The money is earned on arrival, and making the player wait
   out an animation for it would read as lag. The chip goes down on that frame rather than when the
   outbound box lands: the flying box *is* the load leaving, and a corner still holding one while a
@@ -1330,25 +1339,26 @@ unbroken move: with nothing to arrive at on the car, the box has one destination
   which is what holds the digits up there as well.
 - **It does not spin — once it has landed.** The kerb box turns because a slow rotation is the box's
   substitute for the rider's waving arm: "this is a thing to pick up". This one has already been picked
-  up, so it rides still. The exception is the flight in, which *inherits* the spin the box arrived with
-  and eases it out over the same 620ms — a box that snapped square on the frame it changed renderers
-  would undo the seam the position and the size just bought. It settles to the **nearest quarter turn**,
-  which is at most 45° of travel: the box's footprint is square by design, so a quarter turn from square
-  is the same picture, and landing the raw angle instead crams up to half a turn into 620ms and reads as
-  a flourish rather than as the same spin running down.
-- **Raised by the pickup, lowered by the delivery.** `flyIn` is what a `'pickup'` does to it and is what
-  raises it; `setCarrying(false)` is what a `'delivered'` does. The flight starts opaque, at the world
-  box's size — `gamePxPerUnit / CHIP_PX_PER_UNIT`, both measured rather than assumed, since the game's
-  zoom moves — and the path lifts before it sweeps, so the box leaves the ground rather than sliding
-  across the city at an angle. Under `prefers-reduced-motion` it hands over to the plain pop.
+  up, so it rides still. The exception is the arrival, which *inherits* the spin the world copy was
+  still turning at and eases it out over the same 460ms — a box sitting dead square while the other one
+  is visibly still moving reads as a different object. It settles to the **nearest quarter turn**, which
+  is at most 45° of travel: the box's footprint is square by design, so a quarter turn from square is
+  the same picture, and landing the raw angle instead crams up to half a turn into the slide and reads
+  as a flourish rather than as the same spin running down.
+- **Raised by the hand-off, lowered by the delivery.** `flyIn` is what a `'loaded'` does to it and is
+  what raises it; `setCarrying(false)` is what a `'delivered'` does. It opens small (0.45) and fully
+  transparent, is opaque by 45% of the way in — so the *arrival* is the growth settling rather than a
+  fade finishing — and lands with a hair of overshoot, the same punctuation the money counter's bump
+  makes. Under `prefers-reduced-motion` it hands over to the plain pop.
 - **Checked in `tools/smoke.mjs`, not in the node suite**: a WebGL context inside a DOM node, carried by
   a Web Animation, has no headless equivalent. Two assertions matter. The **share of the canvas actually
   drawn** — the frustum is computed from the box's own dimensions, so the failure mode is a correct
-  element with the box framed off the side of it, which reads as a pass in the DOM. And that the flight
-  **starts away from home and ends at home**: a transform that begins at the identity is a chip that
-  popped in the corner while the box vanished across town, which is exactly the teleport this replaced.
-  The smoke run pins `prefers-reduced-motion: no-preference` through CDP for that check, or a headless
-  build answering `reduce` would quietly be asserting the fallback.
+  element with the box framed off the side of it, which reads as a pass in the DOM. And that the arrival
+  **starts away from its slot, small and transparent, in the box's own quadrant, and ends square in the
+  slot at full size**: an identity transform is a chip appearing in the corner while the box vanishes
+  across town, and a sign error is one sliding in from the opposite side. The smoke run pins
+  `prefers-reduced-motion: no-preference` through CDP for that check, or a headless build answering
+  `reduce` would quietly be asserting the fallback.
 
 ## Crazy-taxi mode
 

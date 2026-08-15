@@ -1745,13 +1745,28 @@ flight — the last deliberately as a floor rather than a reading at either end,
 calls `rest()` on the same frame it lands and a read taken after `update` returns reports the resting
 state. It did exactly that, and passed while printing "opacity 1.00 on contact".
 
-**The inbound flight is not in the world at all.** A collected box goes to the HUD (below), so what
-`parcels.js` produces on a pickup is a `handoff` record rather than a mesh in the air: the world point of
-the box's own centre — read off the live transform, so the marker's 0.12 lift, the kerb height, the ±0.07
-bob and `PARCEL_CENTRE_Y` are all in it — and the facing its spin had reached, wrapped to (−π, π]. That
-record is the seam between two renderers, and every field of it is a way for the box to jump on the frame
-it changes hands. `tools/probe.mjs` asserts each one: on the corner to within 0.01, at the box's middle
-rather than the pavement 0.58 below it, and a facing rather than an accumulated angle.
+**The pickup's lift.** A collected box does not arrive anywhere in the city — it **leaves**. The kerb
+copy is hidden and the flying copy takes over from the same spot, standing at the corner at
+`PARCEL_PAD_LIFT` and running the same `idle` off the same clock, so the two are one pose by
+construction rather than by a reading taken on the hand-off frame. Over `LIFT_TIME` (0.45s) it climbs
+3.6, swells to 1.35, slides 5.5 along `TOWARD_HUD` and fades to nothing.
+
+- **Two curves, and the difference is the read.** The rise eases *out* — the box leaves the pad smartly
+  and settles, which is a thing being picked up. The drift eases *in*, accelerating away, which is a
+  thing leaving. One shared curve gives a box that either jumps sideways or floats up and stops.
+- **It gets bigger, not smaller.** It is not going into anything, and what it becomes is more than twice
+  its size, so shrinking would point at the wrong end of the journey.
+- **`TOWARD_HUD` is derived, not typed.** It is `UP − RIGHT` from `game/camera.js`, normalised —
+  screen-up-and-left across the ground plane, which is where the chip sits. The answer comes out as
+  exactly −X and that is not a licence to write −X: the view never rotates, so one world direction is
+  one screen direction, and this is the arithmetic that would have to be redone if the azimuth moved.
+- **The hand-off fires at 78%, not at the end**, carrying the point the box had reached (its middle,
+  which is what the chip's picture is centred on). At the end there is nothing left to cross-fade with
+  and the chip reads as a separate pop.
+
+`tools/probe.mjs` asserts the lift starts on the kerb to within 0.01 in all three axes, that it climbs,
+swells, fades and moves −X, that the kerb is empty from that frame, and that the hand-off fires **once**,
+late, with the box still visible and clearly on its way out (measured: 81% along, alpha 0.30).
 
 > **Trap.** `material.transparent` and `depthWrite` are shader-define switches, so changing `opacity`
 > alone does nothing until `needsUpdate` forces a recompile — the rider figure shipped that bug once
@@ -1786,15 +1801,19 @@ the same one the digits above it wear. Three things about the view:
   since gone — and the box was what got smaller for it. It measures 52% of the canvas drawn, which is
   what `tools/smoke.mjs` asserts a floor under: a camera pointed slightly wrong frames the box off the
   side of an element that still passes every DOM check.
-- **The flight in is sized by the ratio of the two cameras.** `CHIP_PX_PER_UNIT` is `SIZE / (2·FIT)` —
-  18.3px per world unit, against the city's ~7.7 at play zoom, so the box in the corner is more than
-  twice the size of the box on the road. The chip opens at `gamePxPerUnit / CHIP_PX_PER_UNIT` of full
-  size and grows from there; both numbers are *measured*, the game's by projecting a step along
-  `RIGHT` from `game/camera.js` — the one ground direction this view foreshortens by nothing, so its
-  pixel length is a world unit's with no elevation term to fold back out. A scale baked in at 7.7 is
-  right at play zoom and wrong during a Loco Mode pull-out. The spin comes across too and eases to the
-  nearest quarter turn: a square box a quarter turn from square is the same picture, so the longest
-  settle is 45° rather than 180°.
+- **The arrival quotes the box's direction rather than tracking it.** The chip grows from 0.45, fades
+  up (opaque by 45% of the way, so the arrival is the growth settling rather than a fade finishing),
+  and slides in from a **fraction** of the way toward where the world box faded out — 26% of the gap,
+  capped at 120px, scaled along the line so the cap shortens the slide without bending it off the
+  direction the box left in. It inherits that box's spin and eases it to the nearest quarter turn: a
+  square box a quarter turn from square is the same picture, so the longest settle is 45° rather than
+  180°.
+
+  The first cut *did* track it — the chip opened at the box's exact screen point and exact apparent
+  size (the ratio of the two cameras' scales: this canvas gives a world unit `SIZE / (2·FIT)` = 18.3px
+  against the city's ~7.7, measured live because the zoom moves) and flew the whole distance in one
+  move. It was verified pixel-exact and it read as **too fast**: a hand-off with no overlap gives the
+  eye nothing to follow. The exactness was the thing to give up.
 
 **The accept flourish.** When a package is collected, every opaque part of the car takes a white
 emissive lift together — shell, roof sign and both steered wheels — on the select pop's own envelope,

@@ -573,60 +573,73 @@ try {
   check('delivering it puts the chip back down',
     chipAfter.on === false && chipAfter.hidden === 'true');
 
-  // --- ...and the flight that puts it up. See `flyIn` in src/game/cargochip.js.
+  // --- ...and the arrival that puts it up. See `flyIn` in src/game/cargochip.js.
   //
-  // The pickup is now a hand-off between two renderers: the world box is hidden and the chip opens at
-  // that box's place on screen, at its size, then flies to its slot. The half that can be asserted from
-  // outside is that the flight **starts away from home and ends at home** — a transform that begins at
-  // the identity is a chip that popped in the corner with the box vanishing across town, which is
-  // precisely the teleport this replaced and reads from the DOM as a perfect pass.
+  // The second half of a pickup: the world box has lifted off its pad and is fading out somewhere
+  // across the city, and the chip grows and fades in with a short slide **from that direction**. Three
+  // things are assertable from outside and each rules out a way this reads as a pop rather than an
+  // arrival: it starts *away* from its slot (an identity transform is a chip appearing in the corner
+  // with the box vanishing across town), it starts *small* and *transparent*, and it ends square in
+  // its slot at full size.
   //
   // Driven with a hand-made hand-off rather than a real one, for the reason the states above are: a
   // courier job is minutes of software-rendered sim away. The numbers are a plausible one — a box a
-  // few hundred pixels down and right of the HUD corner, at the game camera's ~7.7px per world unit.
+  // few hundred pixels down and right of the HUD corner.
   const flightStart = JSON.parse(await evaluate(`(() => {
     const chip = window.__taxi.cargoChip;
     if (!chip) return JSON.stringify({ missing: true });
     chip.setCarrying(false);
-    chip.flyIn({ x: 420, y: 380, pxPerUnit: 7.7, yaw: 0.8 });
+    chip.flyIn({ x: 420, y: 380, yaw: 0.8 });
     const el = document.getElementById('cargo-chip');
-    const m = new DOMMatrix(getComputedStyle(el).transform);
+    const s = getComputedStyle(el);
+    const m = new DOMMatrix(s.transform);
     return JSON.stringify({
       on: el.classList.contains('is-on'),
       flying: el.classList.contains('is-flying'),
-      // How far the chip is from its resting place, and how big it is, on the flight's first frame.
+      // How far the chip is from its resting place, how big it is, and how visible, on frame one.
       offset: Math.hypot(m.e, m.f),
       scale: m.a,
+      opacity: Number(s.opacity),
+      // ...and that the slide points the right way: the box is down and to the right of the corner,
+      // so the chip must start down and to the right of its slot. A sign error here is a chip sliding
+      // in from the opposite quadrant, which is the one way the direction can be wrong and still move.
+      down: m.f > 0,
+      right: m.e > 0,
       animations: el.getAnimations().length,
     });
   })()`));
-  check('a pickup flies the chip in from the box\'s own place on screen',
+  check('a pickup brings the chip in from the direction the box left in',
     flightStart.missing !== true
     && flightStart.on === true && flightStart.flying === true
-    && flightStart.offset > 100 && flightStart.scale < 0.9 && flightStart.animations > 0,
+    && flightStart.offset > 40 && flightStart.scale < 0.9 && flightStart.opacity < 0.5
+    && flightStart.down === true && flightStart.right === true
+    && flightStart.animations > 0,
     flightStart.missing ? 'no courier layer on this page'
       : `starts ${flightStart.offset.toFixed(0)}px out at ${flightStart.scale.toFixed(2)}x, `
-        + `${flightStart.animations} animation(s)`);
+        + `opacity ${flightStart.opacity.toFixed(2)}, ${flightStart.animations} animation(s)`);
 
   // ...and lands. Waited out rather than awaited on `animation.finished`, which needs a promise this
-  // `evaluate` does not resolve. 620ms of flight, generously over-waited: a check that raced the
+  // `evaluate` does not resolve. 460ms of slide, generously over-waited: a check that raced the
   // animation would be flaky in the one direction that matters, reporting a landing that never came.
   await sleep(1200);
   const flightEnd = JSON.parse(await evaluate(`(() => {
     const el = document.getElementById('cargo-chip');
-    const m = new DOMMatrix(getComputedStyle(el).transform);
+    const s = getComputedStyle(el);
+    const m = new DOMMatrix(s.transform);
     return JSON.stringify({
       flying: el.classList.contains('is-flying'),
       offset: Math.hypot(m.e, m.f),
       scale: m.a,
+      opacity: Number(s.opacity),
       hidden: el.getAttribute('aria-hidden'),
     });
   })()`));
-  check('and lands it square in its slot',
+  check('and settles it square in its slot',
     flightEnd.offset < 0.5 && Math.abs(flightEnd.scale - 1) < 0.01
+    && flightEnd.opacity > 0.99
     && flightEnd.flying === false && flightEnd.hidden === 'false',
     `${flightEnd.offset.toFixed(1)}px out at ${flightEnd.scale.toFixed(2)}x, `
-    + `still flying ${flightEnd.flying}`);
+    + `opacity ${flightEnd.opacity.toFixed(2)}, still flying ${flightEnd.flying}`);
 
   await evaluate('window.__taxi.cargoChip?.setCarrying(false)');
 
