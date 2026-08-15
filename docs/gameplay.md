@@ -1353,23 +1353,35 @@ unbroken move: with nothing to arrive at on the car, the box has one destination
   an object that does not need one. Bare, it reads like the rest of the HUD: the cash total and the ⏸
   are marks on the sky too. The only thing between the box and a pale road is `#hud`'s own drop shadow,
   which is what holds the digits up there as well.
-- **It does not spin — once it has landed.** The kerb box turns because a slow rotation is the box's
-  substitute for the rider's waving arm: "this is a thing to pick up". This one has already been picked
-  up, so it rides still. The exception is the arrival, which *inherits* the spin the world copy was
-  still turning at and eases it out over the same 460ms — a box sitting dead square while the other one
-  is visibly still moving reads as a different object. It settles to the **nearest quarter turn**, which
-  is at most 45° of travel: the box's footprint is square by design, so a quarter turn from square is
-  the same picture, and landing the raw angle instead crams up to half a turn into the slide and reads
-  as a flourish rather than as the same spin running down.
+- **It turns, slowly, the whole time it is aboard** — a 360° every 20 seconds, with a bob of 0.03
+  world units (about half a pixel at 42px) on a 4.6s period. It used to land square and sit dead
+  still, on the argument that the kerb box's spin *means* "this is a thing to pick up" and repeating
+  it on a readout asks for a second pickup. What that actually bought was a live mesh in its own lit
+  context posed to look exactly like a static icon. The distinction survives in the **rate**: the
+  kerb box comes round every 11.4s and bobs 0.07, so this one is visibly the slower, calmer of the
+  two — and a package cannot be selected at all, so there is no gesture for the misreading to cost.
+  Under `prefers-reduced-motion` it parks square and level, checked per frame.
+- **The arrival hands over to that turn.** It *inherits* the spin the world copy was still turning at
+  and eases the excess away over the same 460ms — a box sitting dead square while the other one is
+  visibly still moving reads as a different object — leaving it on the idle turn rather than stopping
+  it. The residual is folded to the **nearest quarter turn**, which is at most 45° of travel: the
+  box's footprint is square by design, so a quarter turn from square is the same picture, and landing
+  the raw angle instead crams up to half a turn into the slide and reads as a flourish rather than as
+  the same spin running down.
 - **Raised by the hand-off, lowered by the delivery.** `flyIn` is what a `'loaded'` does to it and is
   what raises it; `setCarrying(false)` is what a `'delivered'` does. It opens small (0.45) and fully
   transparent, is opaque by 45% of the way in — so the *arrival* is the growth settling rather than a
   fade finishing — and lands with a hair of overshoot, the same punctuation the money counter's bump
   makes. Under `prefers-reduced-motion` it hands over to the plain pop.
 - **Checked in `tools/smoke.mjs`, not in the node suite**: a WebGL context inside a DOM node, carried by
-  a Web Animation, has no headless equivalent. Two assertions matter. The **share of the canvas actually
+  a Web Animation, has no headless equivalent. Three assertions matter. The **share of the canvas actually
   drawn** — the frustum is computed from the box's own dimensions, so the failure mode is a correct
-  element with the box framed off the side of it, which reads as a pass in the DOM. And that the arrival
+  element with the box framed off the side of it, which reads as a pass in the DOM. That it **keeps
+  turning**: two draws a second apart, differenced per pixel, because a chip that draws once and never
+  again is what a correct static icon looks like from the DOM and from any screenshot. That one is read
+  per pixel rather than as a mean over the box — the two visible faces swing through the sun in opposite
+  directions, so a mean nets most of the turn out (2 of 255 against 18) — and its floor of 8 is set above
+  the **2.3** the bob alone reads, so a chip that wobbles without turning still fails it. And that the arrival
   **starts away from its slot, small and transparent, in the box's own quadrant, and ends square in the
   slot at full size**: an identity transform is a chip appearing in the corner while the box vanishes
   across town, and a sign error is one sliding in from the opposite side. The smoke run pins

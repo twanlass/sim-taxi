@@ -496,6 +496,49 @@ try {
     chipUp.on === true && chipUp.hidden === 'false' && chipUp.drawn > 0.3,
     `${(chipUp.drawn * 100).toFixed(0)}% of the canvas drawn`);
 
+  // ...and it is riding along rather than sitting there as a picture. The chip turns a full circle
+  // every 20s and bobs half a pixel, both driven from `render` off wall time — so the way this fails
+  // is not an exception, it is a chip that draws once and never changes again, which is precisely
+  // what a *correct* static icon looks like from the DOM and from any single screenshot.
+  //
+  // Two draws a second apart, differenced **per pixel**. Not by coverage and not by mean brightness:
+  // the box's footprint is square by design, so a turn barely moves the silhouette, and the two
+  // visible faces swing through the sun in opposite directions, so a mean over the whole box nets
+  // most of it out — 18° of turn moves the mean by 2 of 255 and moves individual pixels by ten times
+  // that. The first sample is stashed on the page rather than returned: the renderer does not
+  // preserve its drawing buffer, so each grab has to happen in the same task as its own draw.
+  const chipGrab = (stash) => evaluate(`(() => {
+    const chip = window.__taxi.cargoChip;
+    if (!chip) return JSON.stringify({ missing: true });
+    const src = document.querySelector('#cargo-chip canvas');
+    chip.render();
+    const c = document.createElement('canvas');
+    c.width = src.width; c.height = src.height;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(src, 0, 0);
+    const px = ctx.getImageData(0, 0, c.width, c.height).data;
+    if (${stash}) { window.__chipFrame = px; return JSON.stringify({ ok: true }); }
+    const was = window.__chipFrame;
+    delete window.__chipFrame;
+    let diff = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      diff += Math.abs(px[i] - was[i]) + Math.abs(px[i + 1] - was[i + 1])
+        + Math.abs(px[i + 2] - was[i + 2]);
+    }
+    return JSON.stringify({ diff: diff / (px.length / 4 * 3) });
+  })()`);
+
+  await chipGrab(true);
+  await sleep(1000);
+  const chipMoved = JSON.parse(await chipGrab(false));
+  // Measured: **18.4** of 255 for a second of the real thing, **2.3** with the turn stopped and only
+  // the bob left running, 0 for a frozen box — there is nothing else in this canvas to move. So the
+  // floor is 8: comfortably under a real turn, and above the reading for a chip that only wobbles,
+  // which is the near miss this check would otherwise pass.
+  check('and it turns while it rides', chipMoved.diff > 8,
+    chipMoved.missing ? 'no courier layer on this page'
+      : `${chipMoved.diff.toFixed(1)} of 255 mean pixel change over 1s`);
+
   // --- Tapping a package: a detour with a rider aboard, a dispatch with the seat empty. See
   // src/game/parcels.js.
   //
