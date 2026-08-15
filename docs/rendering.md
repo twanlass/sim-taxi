@@ -465,7 +465,7 @@ They live in `util/shot.js` beside `?seed` and `?cars`, and every getter takes i
 safe mode rather than from a literal**, evaluated per call — so one flag moves all of them, and a
 module that opens a renderer of its own reads the effective value without anyone threading it
 through. Three do: the tutorial's avatar bubble, each rider-finder chip, and the courier
-[cargo chip](gameplay.md#the-load-is-repeated-in-the-hud). They are a 46px, a 38px and a 42px disc
+[cargo chip](gameplay.md#the-load-is-repeated-in-the-hud). They are 46px, 38px and 42px square
 respectively and their own cost is nothing, but each is a **WebGL context this page is holding**, and
 that is part of what `?safe` is asking about.
 
@@ -1690,9 +1690,11 @@ the resting state. It did exactly that, and passed while printing "opacity 1.00 
 > the run, and the slot gets reused.
 
 **The fourth copy is in the HUD.** While a package is aboard, `game/cargochip.js` draws the same box
-into a 42px disc under the cash total — the deck parcel is about four pixels at play zoom, and the
+into a 42px square under the cash total — the deck parcel is about four pixels at play zoom, and the
 [courier doc](gameplay.md#the-load-is-repeated-in-the-hud) covers why that needed answering and why the
-chip sits where it does. Two things about the view:
+chip sits where it does. It is the box alone, with no disc behind it and no rim around it; `#hud`'s own
+drop shadow is what lifts it off a pale road, the same one the digits above it wear. Two things about
+the view:
 
 - **The camera keeps `VIEW_DIR`'s elevation and mirrors its azimuth in x**, so the vector is
   `(−VIEW_DIR.x, VIEW_DIR.y, VIEW_DIR.z)` — still unit length, since negating one component of a unit
@@ -1700,16 +1702,18 @@ chip sits where it does. Two things about the view:
   deck. The azimuth turns for the reason [the tutorial avatar's does](gameplay.md#the-opening-tutorial):
   at the hour the game parks at, the sun's horizontal direction is (−0.78, +0.40), so the +X faces the
   city camera looks at sit at n·L = −0.78. Out in the world that is what makes the shadows read; in a
-  42px disc with no ground under it, half a black box is a smudge. From the −X +Z quadrant the visible
+  42px square with no ground under it, half a black box is a smudge. From the −X +Z quadrant the visible
   X face is at +0.78 and the Z face stays at +0.40, and the visible Z face is the one carrying the strip
   and a label — the pair 📦 shows.
 - **The frustum is computed, not eyeballed.** The box stands 1.16 tall and 1.384 across at the lid, so
   at 45° its half-diagonal is 0.979 and its screen half-height is 1.16·cos33/2 + 0.979·sin33 = 1.02 —
-  near enough the same number as the half-width, so one square frustum covers both. `FIT` is 1.42, that
-  plus a wide margin: the disc is a *circle*, and a box framed to its inscribed square has its corners
-  against the rim twice as often as a figure does. It measures 34% of the canvas drawn, which is what
-  `tools/smoke.mjs` asserts a floor under — a camera pointed slightly wrong frames the box off the side
-  of a disc that still passes every DOM check.
+  near enough the same number as the half-width, so one square frustum covers both. `FIT` is 1.15, that
+  plus 13% for the drop shadow and nothing else, because a *square* canvas has no corner for the box to
+  foul. It was 1.42 while there was a disc behind it: a box framed to a circle's inscribed square has
+  its corners against the rim twice a turn, so a quarter of the frame was air paid to a plate that has
+  since gone — and the box was what got smaller for it. It measures 52% of the canvas drawn, which is
+  what `tools/smoke.mjs` asserts a floor under: a camera pointed slightly wrong frames the box off the
+  side of an element that still passes every DOM check.
 
 **The accept flourish.** When the box lands, every opaque part of the car takes a white emissive lift
 together — shell, roof sign, both steered wheels and the deck parcel — on the select pop's own

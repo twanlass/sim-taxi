@@ -1226,7 +1226,7 @@ trip; two discs switching state in one frame was two events.
 
 ### The load is repeated in the HUD
 
-`src/game/cargochip.js` — a 42px disc under the cash total, holding the box itself, up for exactly as
+`src/game/cargochip.js` — the box itself at 42px under the cash total, up for exactly as
 long as a package is aboard.
 
 The deck parcel above is the honest answer to "does the car have one", and at play zoom it is **about
@@ -1246,10 +1246,13 @@ blinked through the pickup flight was left inferring their own cargo from a pad 
   pressed, in a layer whose defining rule is that [a package cannot be tapped](#nothing-here-is-tapped-you-steer-into-it).
   Up beside the cash total it is unambiguously a readout, and it inherits `#hud`'s `pointer-events: none`
   so a thumb that lands on it goes straight through to the city.
-- **No ring around it.** A rider chip's ring is a clock. A package has none — that is the whole of
-  [why it has no diamond](#a-package-has-no-clock-and-so-has-no-diamond) — so a ring here would be the
-  one shape on screen lying about it. What it wears instead is a thin *solid* cyan rim: `PALETTE.parcel`,
-  unbroken, the colour of both pads and of the band driving at them.
+- **The box and nothing else** — no disc behind it, no rim around it. A rider chip needs its disc
+  because the ring around it is a clock, and a clock needs a dial to be read against. A package has
+  none, which is the whole of [why it has no diamond](#a-package-has-no-clock-and-so-has-no-diamond),
+  so there was never anything for a ring here to say — and with the ring gone the disc is a plate under
+  an object that does not need one. Bare, it reads like the rest of the HUD: the cash total and the ⏸
+  are marks on the sky too. The only thing between the box and a pale road is `#hud`'s own drop shadow,
+  which is what holds the digits up there as well.
 - **It does not spin.** The kerb box turns because a slow rotation is the box's substitute for the
   rider's waving arm — "this is a thing to pick up". This one has already been picked up. A spinning
   readout would be asking for a second pickup.

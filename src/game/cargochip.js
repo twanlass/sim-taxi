@@ -26,14 +26,17 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 // and it inherits `#hud`'s `pointer-events: none` so a thumb that lands on it goes through to the
 // city underneath.
 //
-// ## No ring around it
+// ## The box and nothing else
 //
-// A rider chip's ring is a clock. A package has no clock — that is the courier layer's defining
-// property, the reason it can never end a run and the reason it has no plumbob out on the map — so
-// a ring here would be the one shape on screen that lies about it. What the chip carries instead is
-// a thin *solid* cyan rim: the pad colour, unbroken, saying "courier job" and nothing about time.
+// No disc behind it and no rim around it. A rider chip needs its disc because the ring around it is
+// a clock, and a clock needs a dial to be read against. A package has no clock — that is the courier
+// layer's defining property, the reason it can never end a run and the reason it has no plumbob out
+// on the map — so there was never anything for a ring here to say, and with the ring gone the disc
+// is a plate under an object that does not need one. Bare, it reads like the rest of the HUD: the
+// cash total and the ⏸ are marks on the sky too. The only thing standing between the box and a pale
+// road is `#hud`'s own drop shadow, which is what holds the digits up there as well.
 
-/** Canvas edge, and the disc it fills. A shade under the rider chip's 49px outer button. */
+/** Canvas edge. A shade under the rider chip's 49px outer button. */
 const SIZE = 42;
 
 /**
@@ -47,7 +50,7 @@ const SIZE = 42;
  * The azimuth is *turned*, though, for the reason tutorial.js turns its own: at the hour the game
  * parks at the sun sits at azimuth 153°, a horizontal direction of (−0.78, +0.40) in (x, z), so the
  * +X faces the city camera looks at are at n·L = −0.78 — unlit. In the world that is fine, it is
- * what makes the shadows read. In a 42px disc with no ground under it, half a black box is just a
+ * what makes the shadows read. In a 42px square with no ground under it, half a black box is just a
  * dark smudge. Mirroring x sends the camera to the −X +Z quadrant instead: the visible X face goes
  * to +0.78 and the Z face stays at +0.40, so both lit faces are the ones on screen. Negating a
  * component of a unit vector leaves it unit, so the elevation comes through untouched.
@@ -57,10 +60,13 @@ const CHIP_VIEW = new THREE.Vector3(-VIEW_DIR.x, VIEW_DIR.y, VIEW_DIR.z);
 // Framing, measured off the mesh rather than guessed. The box stands 1.16 tall (BOX_H + LID_H) and
 // 1.384 across at the lid, so at 45° its half-diagonal is 0.979 and its screen half-height is
 // 1.16·cos33/2 + 0.979·sin33 = 1.02 — near enough the same number as the half-width, so one square
-// frustum covers both. FIT is that plus a wide margin: the disc is a *circle*, and a box framed to
-// its inscribed square has its corners hard against the rim twice as often as a figure does.
+// frustum covers both. FIT is that plus 13%, which is margin for the drop shadow and for nothing
+// else: a *square* canvas has no corner for the box to foul. It was 1.42 while there was a disc
+// behind it, because a box framed to a circle's inscribed square has its corners hard against the
+// rim twice a turn — 25% of the frame was air paid to a plate that has since gone, and the box was
+// the thing that got smaller for it.
 const CENTRE_Y = 0.58;
-const FIT = 1.42;
+const FIT = 1.15;
 
 /**
  * @param sun   the city's key light, read rather than re-parented (an Object3D has one parent)
@@ -76,7 +82,7 @@ export function createCargoChip({ sun, hemi }) {
   el.appendChild(canvas);
 
   // One more WebGL context, honouring the same budget flags the main renderer does — see
-  // `util/shot.js`. Not for its own cost, which is a 42px disc, but because `?safe` is asking a
+  // `util/shot.js`. Not for its own cost, which is a 42px square, but because `?safe` is asking a
   // device "what will you render at all" and every context this page opens is part of that answer.
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: getMsaa(), alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, getPixelRatioCap()));

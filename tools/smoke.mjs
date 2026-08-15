@@ -467,13 +467,13 @@ try {
     chipDown.missing ? 'no courier layer on this page' : `aria-hidden ${chipDown.hidden}`);
 
   const chipUp = JSON.parse(await chipState('chip.setCarrying(true); chip.render()'));
-  // A 1.16-unit box in a frustum half-height of 1.42 covers a bit over a quarter of the square
-  // canvas, so 0.15 is a floor with room under it rather than a measurement to keep in step. What
-  // it actually rules out is the two ways this can be wrong and look fine: nothing drawn at all,
-  // and a box drawn outside the frame.
+  // A 1.16-unit box in a frustum half-height of 1.15 measures 52% of the canvas, so 0.3 is a floor
+  // with room under it rather than a reading to keep in step. What it rules out is the two ways
+  // this can be wrong and still look fine from the DOM: nothing drawn at all, and a box framed
+  // outside the canvas.
   check('a package aboard raises the cargo chip',
-    chipUp.on === true && chipUp.hidden === 'false' && chipUp.drawn > 0.15,
-    `${(chipUp.drawn * 100).toFixed(0)}% of the disc drawn`);
+    chipUp.on === true && chipUp.hidden === 'false' && chipUp.drawn > 0.3,
+    `${(chipUp.drawn * 100).toFixed(0)}% of the canvas drawn`);
 
   const chipAfter = JSON.parse(await chipState('chip.setCarrying(false)'));
   check('delivering it puts the chip back down',
