@@ -19,14 +19,14 @@
  * drawing buffer — the city would blink out and stay out until the player resumed. One static
  * render per frame is the cheap way to stay correct through both.
  *
- * **Anywhere on the screen resumes**, not only the Resume pill. The pill is the affordance; the
- * whole veil is the target, the same bargain the Home Screen tip makes. It resumes on
- * `pointerdown` rather than on `click` so the press is what lands: the matching release then falls
- * on the canvas with no `click` synthesised after it — the two ends of the gesture are on different
- * elements — which is what stops the tap that resumes from also dispatching the taxi at whatever it
- * happened to be over. `click` is handled as well, because a keyboard activating the pill fires
- * that and nothing else. `setPaused` is idempotent, so a pointer gesture that somehow produced
- * both costs nothing.
+ * **Only the Resume pill resumes**, not the rest of the veil — a stray tap while reading the
+ * paused screen must not drop the player straight back into traffic. It resumes on `pointerdown`
+ * rather than on `click` so the press is what lands: the matching release then falls on the canvas
+ * with no `click` synthesised after it — the two ends of the gesture are on different elements —
+ * which is what stops the tap that resumes from also dispatching the taxi at whatever it happened
+ * to be over. `click` is handled as well, because a keyboard activating the pill fires that and
+ * nothing else. `setPaused` is idempotent, so a pointer gesture that somehow produced both costs
+ * nothing.
  *
  * Escape and P toggle it from a keyboard, which is also what makes the button reachable without a
  * pointer at all.
@@ -50,6 +50,8 @@ const stillPlease = () => window.matchMedia?.('(prefers-reduced-motion: reduce)'
  */
 export function createPause({ button, veil, canPause = () => true, onChange } = {}) {
   if (!button || !veil) return null;
+  const resumeButton = veil.querySelector('.pause-resume');
+  if (!resumeButton) return null;
 
   const state = { paused: false };
   let fade = null;
@@ -93,8 +95,8 @@ export function createPause({ button, veil, canPause = () => true, onChange } = 
   const toggle = () => setPaused(!state.paused);
 
   button.addEventListener('click', toggle);
-  veil.addEventListener('pointerdown', () => setPaused(false));
-  veil.addEventListener('click', () => setPaused(false));
+  resumeButton.addEventListener('pointerdown', () => setPaused(false));
+  resumeButton.addEventListener('click', () => setPaused(false));
   window.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' && event.key !== 'p' && event.key !== 'P') return;
     // Not while typing initials into the run-end screen, where P is a letter.

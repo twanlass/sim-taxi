@@ -189,8 +189,7 @@
         display: flex; flex-direction: column; align-items: center; justify-content: center;
         background: rgba(6, 14, 22, 0.72); color: #fff; text-align: center;
         font: 500 16px/1.5 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
-        /* The whole thing resumes, as the pill's presence implies and pause.js implements. */
-        cursor: pointer; touch-action: manipulation;
+        touch-action: manipulation;
         user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
       }
       /* `display: flex` above beats the UA stylesheet's `[hidden] { display: none }`, so without

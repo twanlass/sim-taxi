@@ -176,7 +176,8 @@ try {
   check('signals still hold for the taxi',
     (await evaluate('window.__taxi.traffic.stats.violations')) === 0);
 
-  // --- Pause holds the whole frame, and a tap anywhere lets it go.
+  // --- Pause holds the whole frame, a tap elsewhere on the veil leaves it held, and only the
+  // Resume pill lets it go.
   //
   // `fares.state.elapsed` is the probe rather than the taxi's position: it advances by `dt` on
   // every `fares.update` no matter what else is happening, so a taxi legitimately sitting at a red
@@ -192,16 +193,27 @@ try {
   check('the pause button holds the run', veilUp && stillHeld === held,
     veilUp ? `elapsed ${held.toFixed(2)} → ${stillHeld.toFixed(2)}` : 'no veil');
 
-  // `pointerdown`, which is what the veil actually listens for — a `click` here would pass while
-  // the press-to-resume path was broken.
-  await evaluate(`(() => { document.getElementById('pause-veil').dispatchEvent(
+  // A tap on the veil's title, away from the Resume pill, must not resume — otherwise reading the
+  // paused screen risks dropping straight back into traffic.
+  await evaluate(`(() => { document.querySelector('#pause-veil .pause-title').dispatchEvent(
+    new PointerEvent('pointerdown', { pointerId: 7, isPrimary: true, bubbles: true, cancelable: true }));
+  })()`);
+  await sleep(300);
+  const afterStrayTap = await elapsed();
+  check('a tap elsewhere on the veil does not resume it',
+    afterStrayTap === stillHeld && !(await evaluate("document.getElementById('pause-veil').hidden")),
+    `elapsed ${stillHeld.toFixed(2)} → ${afterStrayTap.toFixed(2)}`);
+
+  // `pointerdown`, which is what the Resume pill actually listens for — a `click` here would pass
+  // while the press-to-resume path was broken.
+  await evaluate(`(() => { document.querySelector('#pause-veil .pause-resume').dispatchEvent(
     new PointerEvent('pointerdown', { pointerId: 7, isPrimary: true, bubbles: true, cancelable: true }));
   })()`);
   await sleep(700);
   const resumed = await elapsed();
-  check('and a tap anywhere resumes it',
-    resumed > stillHeld && (await evaluate("document.getElementById('pause-veil').hidden")),
-    `elapsed ${stillHeld.toFixed(2)} → ${resumed.toFixed(2)}`);
+  check('and the Resume pill resumes it',
+    resumed > afterStrayTap && (await evaluate("document.getElementById('pause-veil').hidden")),
+    `elapsed ${afterStrayTap.toFixed(2)} → ${resumed.toFixed(2)}`);
 
   // --- Everything below is a phone. Drag-to-pan, both follow-cams and the rider pan are all gated
   // on `isNarrow()` — under NARROW_VIEWPORT = 768 — so at the 900px window this tool launches with,
@@ -596,7 +608,7 @@ try {
     await sleep(150);
     const behindVeil = await mode();
     check('a paused run ignores the key', behindVeil !== 'active', `mode ${behindVeil}`);
-    await evaluate(`(() => { document.getElementById('pause-veil').dispatchEvent(
+    await evaluate(`(() => { document.querySelector('#pause-veil .pause-resume').dispatchEvent(
       new PointerEvent('pointerdown', { pointerId: 8, isPrimary: true, bubbles: true, cancelable: true }));
     })()`);
     await sleep(300);
