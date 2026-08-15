@@ -1392,6 +1392,14 @@ the slab the whole map is armed again, including the ring behind it.
 transparent, and nothing that can bust you has a dark light bar. On the code before this those two
 fail at 3198 and 975 of 9346 armed frames.
 
+**And it reaches past the edge of the frame.** Being fully drawn is only a cue if the cruiser is in
+shot, and on a portrait phone at play zoom a block is about a third of the frame — so a cruiser one
+screen edge away is already inside the bust radius of anything on that edge, with nothing to see but
+ambient traffic pulling over to a car that isn't there. `game/sirenglow.js` washes the bar's own red
+and blue in over the edge the cruiser is coming from, armed off this same `state.armed` and strobing
+off this same `sirenOn()`, so the whole rule stays one rule. See
+[rendering.md](rendering.md#off-screen-police-warning).
+
 **Why it exists.** The corridor run is scenery — it drives its line and never acknowledges the
 player. So the bust used to land with the cruiser sailing obliviously past, and being busted read
 as a rule firing somewhere off-screen rather than as a cop catching you. The chase makes the car

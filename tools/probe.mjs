@@ -22,7 +22,10 @@ import { createDust } from '../src/game/dust.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, laneCost } from '../src/game/route.js';
 import { createCollisions } from '../src/sim/collisions.js';
-import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET } from '../src/sim/police.js';
+import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET, sirenOn } from '../src/sim/police.js';
+import {
+  edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM,
+} from '../src/game/sirenglow.js';
 import {
   createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, ARRIVE_RADIUS, onSameBlock,
 } from '../src/game/fares.js';
@@ -4028,6 +4031,143 @@ check('the taxi is an ordinary car in the traffic array',
   check('the light bar is dark whenever the bust is disarmed', litWhileUnarmed === 0,
     `${litWhileUnarmed} frames`);
   check('the bust never arms out in the outer band', ringExposed === 0, `${ringExposed} frames`);
+}
+
+// --- The off-screen police warning -----------------------------------------
+// A cruiser one screen edge away is already inside POLICE_BUST_RANGE of anywhere on that edge, and
+// until this existed the only cue it was out there was ambient traffic pulling over to a car the
+// player could not see. game/sirenglow.js washes red and blue in over the edge it is coming from.
+//
+// The whole feature is a bearing and a strength, so it is checked as numbers here rather than
+// looked at: the strength is what says "it is off-frame and how close", the bearing is what says
+// "that way", and the strobe has to stay in step with the bar it stands in for.
+{
+  // The pure half first, against a phone-shaped frame. Nothing here needs a cruiser — these are the
+  // properties the geometry has to have for any of them.
+  const W = 390;
+  const H = 844;
+  const onEdge = (g) => Math.abs(g.x) < 1e-6 || Math.abs(g.x - W) < 1e-6
+    || Math.abs(g.y) < 1e-6 || Math.abs(g.y - H) < 1e-6;
+
+  check('a cruiser in the middle of the frame gets no wash',
+    edgeGlow(W / 2, H / 2, W, H, 30) === null);
+  check('and one merely near the edge still gets none',
+    edgeGlow(W * 0.92, H / 2, W, H, 30) === null, 'q = 0.84, under FADE_ON');
+
+  // Eight bearings, one per compass point plus the corners, all well outside the frame.
+  const bearings = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+  let offEdge = 0;
+  let wrongWay = 0;
+  let notFull = 0;
+  for (const [ux, uz] of bearings) {
+    const g = edgeGlow(W / 2 + ux * W, H / 2 + uz * H, W, H, 10);
+    if (!g) { notFull += 1; continue; }
+    if (!onEdge(g)) offEdge += 1;
+    // Same side of the frame centre on both axes as the cruiser itself — the one thing the player
+    // reads off it.
+    if (Math.sign(g.x - W / 2) !== Math.sign(ux) || Math.sign(g.y - H / 2) !== Math.sign(uz)) {
+      wrongWay += 1;
+    }
+    if (g.strength < 0.999) notFull += 1;
+  }
+  check('the wash sits on the frame edge, whichever way the cruiser is', offEdge === 0,
+    `${offEdge} of ${bearings.length} off the edge`);
+  check('and on the edge the cruiser is actually behind', wrongWay === 0, `${wrongWay} wrong`);
+  check('a close cruiser well off-frame burns at full strength', notFull === 0, `${notFull} short`);
+
+  // Distance is the second read: same bearing, further away, dimmer — down to a floor, because a
+  // siren on the far side of the city is still worth knowing about.
+  const near = edgeGlow(W * 2, H / 2, W, H, GLOW_NEAR);
+  const mid = edgeGlow(W * 2, H / 2, W, H, (GLOW_NEAR + GLOW_FAR) / 2);
+  const far = edgeGlow(W * 2, H / 2, W, H, GLOW_FAR * 2);
+  check('the wash dims with distance', near.strength > mid.strength && mid.strength > far.strength,
+    `${near.strength.toFixed(2)} → ${mid.strength.toFixed(2)} → ${far.strength.toFixed(2)}`);
+  check('and never all the way out while the cruiser is armed',
+    Math.abs(far.strength - GLOW_FLOOR) < 1e-9, `floor ${far.strength.toFixed(2)}`);
+
+  // Now against a live corridor run, through the play camera. Two lies to rule out, and they are
+  // the same pair the light bar is checked for above: a wash over an unarmed cruiser (a warning
+  // about something that cannot bust you) and no wash over an armed one that is off-frame (the
+  // silence this exists to end).
+  const gScene = new THREE.Scene();
+  const gPolice = createPolice(makeRng(seed + 66), gScene);
+  const gCam = createCityCamera(W / H, { zoom: 46 });
+  gCam.update(W / H);
+  const taxiAt = { x: lineCoord(2), z: lineCoord(2) };     // parked mid-map, so the camera is still
+  const projected = new THREE.Vector3();
+
+  let washedUnarmed = 0;
+  let silentOffFrame = 0;
+  let washedOnFrame = 0;
+  let offFrameFrames = 0;
+  let litFrames = 0;
+  for (let step = 0; step < 600 * 60; step++) {
+    gPolice.update(1 / 60);
+    const car = gPolice.group.position;
+    projected.copy(car).project(gCam.camera);
+    const sx = (projected.x * 0.5 + 0.5) * W;
+    const sy = (-projected.y * 0.5 + 0.5) * H;
+    // The composed rule, arming gate and all — the same call main.js makes every frame.
+    const glow = sirenWash(
+      gPolice.state, sx, sy, W, H, Math.hypot(taxiAt.x - car.x, taxiAt.z - car.z),
+    );
+
+    if (!gPolice.state.armed) {
+      if (glow) washedUnarmed += 1;
+      continue;
+    }
+    litFrames += 1;
+    // Comfortably inside the frame — the cruiser is there to be seen, so the wash has to be gone.
+    const inside = sx > W * 0.1 && sx < W * 0.9 && sy > H * 0.1 && sy < H * 0.9;
+    if (inside && glow) washedOnFrame += 1;
+    // Comfortably outside it, by more than the fade band's own reach.
+    const outside = sx < -W * 0.5 || sx > W * 1.5 || sy < -H * 0.5 || sy > H * 1.5;
+    if (outside) {
+      offFrameFrames += 1;
+      if (!glow) silentOffFrame += 1;
+    }
+  }
+
+  check('the police wash runs over a live corridor', litFrames > 0 && offFrameFrames > 0,
+    `${litFrames} armed frames, ${offFrameFrames} of them off-frame`);
+  check('nothing that cannot bust you lights the frame edge', washedUnarmed === 0,
+    `${washedUnarmed} frames`);
+  check('an armed cruiser off the frame always lights it', silentOffFrame === 0,
+    `${silentOffFrame} of ${offFrameFrames} off-frame armed frames`);
+  check('and the wash is gone once the cruiser is plainly on screen', washedOnFrame === 0,
+    `${washedOnFrame} frames`);
+
+  // The strobe is the cruiser's own, not a second clock — `sirenOn` is what both read. Over a
+  // second each colour has to take the top several times, and neither may ever go fully dark:
+  // a hard on/off alternation reads as flicker rather than as a siren.
+  let redPeaks = 0;
+  let bluePeaks = 0;
+  let dark = 0;
+  let huntDiffers = 0;
+  // Parked far off the frame at close range, so the strength is a flat 1 and the only thing moving
+  // is the strobe.
+  const strobing = (flash, hunting) => sirenWash(
+    { armed: true, flash, chasing: hunting, arrived: false }, W * 2, H / 2, W, H, GLOW_NEAR,
+  );
+  for (let f = 0; f < 120; f++) {
+    const flash = f / 120;
+    const wash = strobing(flash, false);
+    if (wash.red > wash.blue) redPeaks += 1;
+    if (wash.blue > wash.red) bluePeaks += 1;
+    if (wash.red <= 0 || wash.blue <= 0) dark += 1;
+    const hunt = strobing(flash, true);
+    if ((hunt.red > hunt.blue) !== (wash.red > wash.blue)) huntDiffers += 1;
+  }
+  const held = strobing(0.5, false);
+  check('the off half of the strobe holds the light bar\'s own low glow',
+    Math.abs(Math.min(held.red, held.blue) - SIREN_DIM) < 1e-9
+    && Math.abs(Math.max(held.red, held.blue) - 1) < 1e-9,
+    `${SIREN_DIM.toFixed(3)} of the lit side`);
+  check('the wash alternates red and blue', redPeaks > 20 && bluePeaks > 20,
+    `${redPeaks} red / ${bluePeaks} blue frames of 120`);
+  check('and neither half ever goes fully dark', dark === 0, `${dark} frames`);
+  check('the strobe speeds up once the cruiser has locked on', huntDiffers > 0,
+    `${huntDiffers} of 120 frames differ from the corridor rate`);
 }
 
 // --- The bust chase --------------------------------------------------------

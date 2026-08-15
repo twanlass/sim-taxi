@@ -289,6 +289,11 @@ export const PALETTE = {
   wreckSmoke: '#C9C2BB',
 
   lightRed: '#E24B3C',
+  // The blue half of a police light bar, paired with `lightRed` above. Brighter and bluer than
+  // `policeBody` on purpose: the bar has to read as a lamp against the car carrying it, not as more
+  // bodywork. `game/sirenglow.js` washes both over the frame edge while the cruiser is off-screen,
+  // so the same two colours have to be nameable from more than one place.
+  sirenBlue: '#4D9BFF',
   lightYellow: '#F0B23A',
   lightGreen: '#4FBF63',
   // An ambient car's turn signal — deliberately more orange than lightYellow above so a blinking
