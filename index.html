@@ -136,16 +136,25 @@
         width: 42px; height: 42px;
         display: grid; place-items: center;
         filter: drop-shadow(0 2px 6px rgba(20, 40, 55, 0.65));
-        /* Pops in when the box lands in the car, on the money counter's own easing — the pickup is
-           an arrival, and it should register as one rather than appearing between two frames.
-           Nothing here is driven off sim time, so shot mode has nothing to land (see the
-           `settle()` note in CLAUDE.md); the whole chip is hidden with #hud there anyway. */
+        /* Two ways in, and the transform is shared between them. The pop is the fallback — a chip
+           raised with nothing on screen to come in from (`setCarrying`, and reduced motion). The real
+           pickup is `flyIn`, which drives this same transform *and* the opacity with a Web Animation
+           of its own; those outrank transitions in the cascade, so the two cannot fight.
+
+           `.is-flying` kills the transition for the length of that arrival, and it has to: the chip
+           fades up on its own curve, timed to overlap the world box still fading out across the map,
+           and a 0.16s transition running underneath would be a second fade on the same property.
+
+           Nothing here is driven off sim time, so shot mode has nothing to land (see the `settle()`
+           note in CLAUDE.md); the whole chip is hidden with #hud there anyway. */
         opacity: 0; transform: scale(0.55); transform-origin: center;
         transition: opacity 0.16s ease, transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
       }
       #cargo-chip.is-on { opacity: 1; transform: scale(1); }
+      #cargo-chip.is-flying { transition: none; }
       #cargo-chip canvas { display: block; width: 42px; height: 42px; }
-      /* The chip still arrives and still leaves; it just stops springing to do it. */
+      /* The chip still arrives and still leaves; it just stops springing — or flying — to do it.
+         `flyIn` checks the same query and hands over to the plain pop. */
       @media (prefers-reduced-motion: reduce) {
         #cargo-chip, #cargo-chip.is-on { transform: none; transition: opacity 0.16s ease; }
       }

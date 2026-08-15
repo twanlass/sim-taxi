@@ -32,12 +32,12 @@ import {
 import {
   createParcelSystem, MAX_PARCELS, PARCEL_MIN_DELIVERED, PARCEL_PAY_FACTOR, PARCEL_GAP_MIN,
   PARCEL_GAP_MAX, PARCEL_AFTER_DELIVERY, FLIGHT_MIN_ALPHA,
-  PARCEL_PAD_LIFT,
+  PARCEL_PAD_LIFT, LIFT_TIME,
 } from '../src/game/parcels.js';
 import { ringGrowScale, ringShrinkScale } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
 import { TAXI_DECK_Y } from '../src/geometry/taxi.js';
-import { createParcel } from '../src/geometry/parcel.js';
+import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
 import {
@@ -1502,96 +1502,108 @@ check('no two cars occupy the same space', worst > 1.6,
     check('collecting a package does not touch the rider or their clock', false, 'no setup');
   }
 
-  // --- The box travels, and the pads grow rather than pop -----------------------------------------
+  // --- The box lifts out of the world, and the pad grows rather than popping ----------------------
   //
-  // All three of these are animations, which is exactly the class of thing that breaks silently: a
-  // flight that never starts looks like a teleport, and a pad that never grows looks like the pop it
-  // replaced. Each is a function of sim time with the start stamped in `update`, so they are all
-  // checkable here rather than by eye.
+  // A collected box rises off its pad, swells, slides away toward the corner of the screen the HUD chip
+  // lives in, and fades out; near the end of that it emits `'loaded'` carrying the point it had reached,
+  // which is what the chip comes in from (game/cargochip.js). The chip's half is a Web Animation and
+  // belongs to `tools/smoke.mjs`. What belongs *here* is the lift: it starts exactly where the kerb box
+  // stood, it goes the right way, and it hands over once, near the end, still moving.
   if (parcel) {
-    const flightBox = parcel.slot.flight;
-    // The inbound flight is already running — it was launched on the frame the box was collected.
-    // Step it and watch the box leave the kerb, shrink, and fade.
     const kerb = cornerFor(parcel.pickup.i, parcel.pickup.j);
-    const startedAt = { ...flightBox.position };
-    let sawMidAir = 0;
-    let sawShrink = 0;
-    let sawFade = 0;
+    const lift = parcel.slot.flight;
+    // The lift is already running — it was launched on the frame the box was collected. Its first
+    // position is the seam: the flying copy has to stand exactly where the kerb copy did, or the box
+    // jumps on the frame it changes objects.
+    check('a collected box lifts off from the corner it was standing on',
+      lift.visible
+      && Math.hypot(lift.position.x - kerb.x, lift.position.z - kerb.z) < 0.01
+      && Math.abs(lift.position.y - PARCEL_PAD_LIFT) < 0.01,
+      `(${lift.position.x.toFixed(2)}, ${lift.position.y.toFixed(2)}, `
+      + `${lift.position.z.toFixed(2)}) against kerb (${kerb.x.toFixed(2)}, `
+      + `${PARCEL_PAD_LIFT.toFixed(2)}, ${kerb.z.toFixed(2)})`);
+
+    // Step the lift and watch it climb, swell, fade, and set off up-screen and to the left — which is
+    // world −X for this camera (see TOWARD_HUD in game/parcels.js). Nothing may cross the road to the
+    // taxi, and nothing may be left on the kerb.
+    let rose = 0;
+    let swelled = 0;
+    let faded = 0;
+    let towardHud = 0;
+    let kerbBoxShown = 0;
     let loadedEvents = 0;
+    let handedAt = null;      // the fraction of the lift that had run when it handed over
+    let handedAlpha = null;   // ...and how visible the box still was
     let padGrowing = 0;
-    let loadedAtY = null;
-    // The faintest the box ever got while it was on screen. Not read at the landing: `updateFlights`
-    // calls `rest()` on the same frame it lands, which puts the opacity back to 1 — so a read taken
-    // after `update` returns reports the resting state and the check passes against a box that faded to
-    // nothing. (It did exactly that, printing "opacity 1.00 on contact".)
-    let minAlpha = 1;
     let padSettled = false;
+    let stillFlying = 0;
     const padScale = () => parcel.slot.dropoff.ring.group.scale.x;
     const boxMaterial = parcel.slot.flightBox.mesh.material;
+    const liftStartedAt = parcels.state.elapsed;
     for (let step = 0; step < 90; step++) {
       cTraffic.update(1 / 60);
       fares.update(1 / 60, cTraffic.taxi);
-      for (const { type } of parcels.update(1 / 60, cTraffic.taxi, {
+      for (const event of parcels.update(1 / 60, cTraffic.taxi, {
         fareSpots: fares.occupiedSpots(), delivered: 9, over: false,
       })) {
-        if (type !== 'loaded') continue;
+        if (event.type !== 'loaded') continue;
         loadedEvents += 1;
-        // The landing *position* survives the arrival: `rest()` clears the inner box's local transform,
-        // not the outer flight group this reads.
-        loadedAtY = flightBox.position.y;
+        handedAt = (parcels.state.elapsed - liftStartedAt) / LIFT_TIME;
+        handedAlpha = boxMaterial.opacity;
+        // The point handed over is the box's *middle*, which is what the chip's picture is centred
+        // on — a hand-off aimed at its base points the chip's slide half a box low.
+        if (event.at) {
+          const middle = lift.position.y + PARCEL_CENTRE_Y * lift.scale.y;
+          if (Math.abs(event.at.y - middle) > 0.02) handedAlpha = null;
+        }
       }
-      if (!flightBox.visible) continue;
-      // Off the kerb and not yet at the car: the arc is what makes it a flight rather than a slide.
-      const fromKerb = Math.hypot(flightBox.position.x - kerb.x, flightBox.position.z - kerb.z);
-      if (fromKerb > 1 && flightBox.position.y > PARCEL_PAD_LIFT + 0.2) sawMidAir += 1;
-      if (flightBox.scale.x < 0.9) sawShrink += 1;
-      if (boxMaterial.transparent && boxMaterial.opacity < 0.9) sawFade += 1;
-      minAlpha = Math.min(minAlpha, boxMaterial.opacity);
+      if (parcel.slot.pickup.group.visible) kerbBoxShown += 1;
+      if (parcel.slot.flight.visible) {
+        stillFlying += 1;
+        if (lift.position.y > PARCEL_PAD_LIFT + 0.5) rose += 1;
+        if (lift.scale.x > 1.02) swelled += 1;
+        if (boxMaterial.transparent && boxMaterial.opacity < 0.9) faded += 1;
+        // Up-screen and to the left is world −X for this view, so the box's x must only ever fall.
+        if (lift.position.x < kerb.x - 0.5) towardHud += 1;
+      }
       if (parcel.slot.dropoff.ring.group.visible) {
         if (padScale() < 0.95) padGrowing += 1;
         if (padScale() === 1) padSettled = true;
       }
     }
-    check('the box flies from the kerb to the taxi', sawMidAir > 4,
-      `${sawMidAir} frames airborne, launched at (${startedAt.x.toFixed(1)}, ${startedAt.z.toFixed(1)})`);
-    check('and shrinks and fades as it goes in', sawShrink > 4 && sawFade > 4,
-      `${sawShrink} frames shrinking, ${sawFade} fading`);
-    // `sawFade` above already proves the material was genuinely transparent while it faded — the
-    // silent failure is `opacity` moving on a material that never recompiled, which is a bug this
-    // project shipped once on the rider figure. This is the *other* half of it: a box left transparent
-    // after landing z-sorts wrong for the rest of the run, and the slot is reused.
-    check('and is opaque again once it has landed',
-      boxMaterial.transparent === false && boxMaterial.depthWrite === true
-      && boxMaterial.opacity === 1,
-      `transparent ${boxMaterial.transparent}, depthWrite ${boxMaterial.depthWrite}, opacity ${boxMaterial.opacity.toFixed(2)}`);
-    // `pickup` and `loaded` are a flight apart, which is the whole reason the box can be seen to
-    // travel. Exactly one `loaded` per collection — the taxi must not flash twice for one box.
-    check('the box landing is its own event, once', loadedEvents === 1, `${loadedEvents} loaded`);
-    // **The flourish has to fire where the box touches the car.** `main.js` stamps it off this event, so
-    // what is checkable here is that the event lands on the frame the box is actually *at the deck* —
-    // not at the taxi's wheels, and not while it is still visibly in the air. Both were true before: the
-    // flight ended at pavement height under the car, and the box faded to nothing on the way, so the
-    // flash fired next to an invisible object a unit and a half below where the load then appeared.
-    check('and lands on the frame the box reaches the deck',
-      loadedAtY !== null && Math.abs(loadedAtY - TAXI_DECK_Y) < 0.35,
-      loadedAtY === null ? 'never landed'
-        : `box at y ${loadedAtY.toFixed(2)}, deck at ${TAXI_DECK_Y.toFixed(2)}`);
-    // ...and it is still visible when it gets there, which is the other half of the same point. A box
-    // that has faded to nothing by arrival gives the player nothing to read the contact off, however
-    // well-timed the flash is. Asserted as a floor across the whole flight rather than at the landing,
-    // for the reason noted on `minAlpha` above.
-    check('and never fades out of sight on the way in',
-      minAlpha >= FLIGHT_MIN_ALPHA - 0.02 && minAlpha < 0.9,
-      `faintest ${minAlpha.toFixed(2)} against a ${FLIGHT_MIN_ALPHA} floor`);
+    check('and rises, swells and fades on the way out', rose > 8 && swelled > 8 && faded > 8,
+      `${rose} frames climbing, ${swelled} swelling, ${faded} fading`);
+    check('and sets off toward the corner the chip sits in', towardHud > 6,
+      `${towardHud} frames past the kerb toward the HUD`);
+    check('and the kerb it left is empty from that frame on',
+      kerbBoxShown === 0, `${kerbBoxShown} frames still showing the kerb box`);
+    // Exactly one hand-off per pickup: a second is a second chip arrival over the first.
+    check('the hand-off to the HUD is its own event, once',
+      loadedEvents === 1 && handedAt !== null, `${loadedEvents} loaded`);
+    // **And it fires while the box is still going.** At the end of the lift there is nothing left to
+    // cross-fade with and the chip reads as a separate pop — which is the version this replaced. The
+    // band is around `LIFT_HANDOFF`, and the alpha is the half that actually matters: still visible,
+    // clearly on the way out.
+    check('and it fires late in the lift, with the box still on screen and fading',
+      handedAt !== null && handedAt > 0.6 && handedAt < 0.95
+      && handedAlpha !== null && handedAlpha > 0.1 && handedAlpha < 0.6,
+      handedAt === null ? 'never handed over'
+        : `at ${(handedAt * 100).toFixed(0)}% of the lift, alpha ${handedAlpha?.toFixed(2)}`);
+    // ...and the box does eventually go. A lift left running is a box parked in the sky.
+    check('and the box is gone by the end of it', stillFlying < 60,
+      `${stillFlying} frames airborne of 90`);
     // And the pad it is going to grew out of the road rather than appearing at full size. Asserted on
     // frames of it *part-grown* — "it is visible" would pass against the pop this replaced.
     check('the courier pad grows rather than popping in', padGrowing > 4 && padSettled,
       `${padGrowing} frames part-grown, settled ${padSettled}`);
   } else {
-    for (const label of ['the box flies from the kerb to the taxi',
-      'and shrinks and fades as it goes in',
-      'and is opaque again once it has landed',
-      'the box landing is its own event, once',
+    for (const label of ['a collected box lifts off from the corner it was standing on',
+      'and rises, swells and fades on the way out',
+      'and sets off toward the corner the chip sits in',
+      'and the kerb it left is empty from that frame on',
+      'the hand-off to the HUD is its own event, once',
+      'and it fires late in the lift, with the box still on screen and fading',
+      'and the box is gone by the end of it',
       'the courier pad grows rather than popping in']) check(label, false, 'no setup');
   }
 
@@ -1638,10 +1650,12 @@ check('no two cars occupy the same space', worst > 1.6,
     const moved = dark.map((h, n) => h !== lit[n]);
     const movedTo = lit.filter((_, n) => moved[n]);
     check('the accept flourish lights every body part of the taxi at once',
-      // Shell, roof sign, both steered wheels and the deck parcel: five, all to the same value, and
-      // all the way back afterwards. A part left out of setHighlight's list is a car whose body lights
-      // while a wheel stays dark, which reads as the paint changing rather than the car reacting.
-      moved.filter(Boolean).length === 5
+      // Shell, roof sign and both steered wheels: four, all to the same value, and all the way back
+      // afterwards. A part left out of setHighlight's list is a car whose body lights while a wheel
+      // stays dark, which reads as the paint changing rather than the car reacting. (It was five while
+      // a parcel rode the rear deck — the load is a chip in the HUD now, and there is nothing on the
+      // car to light.)
+      moved.filter(Boolean).length === 4
       && new Set(movedTo).size === 1
       && back.every((h, n) => h === dark[n]),
       `${moved.filter(Boolean).length} parts moved to ${new Set(movedTo).size} value(s), all restored ${back.every((h, n) => h === dark[n])}`);
@@ -1690,16 +1704,27 @@ check('no two cars occupy the same space', worst > 1.6,
     // Counted *after* the loop, not inside it: the `delivered` event fires on the frame the outbound
     // flight is **launched**, so a loop that breaks on delivery has ticked exactly one frame of it. The
     // first version of this check read "1 frame airborne" and was measuring its own exit condition.
+    //
+    // The faintest the box gets is tracked *while it flies*, never read at the landing: `updateFlights`
+    // calls `rest()` on the same frame it arrives, which puts the opacity back to 1 — so a read taken
+    // after `update` returns reports the resting state and would pass against a box that was invisible
+    // the whole way. (An earlier version of this did exactly that, printing "opacity 1.00 on contact".)
+    const boxMaterial = parcel.slot.flightBox.mesh.material;
+    let sawGrow = 0;
+    let sawFade = 0;
+    let minAlpha = 1;
     for (let step = 0; step < 60; step++) {
       cTraffic.update(1 / 60);
       fares.update(1 / 60, cTraffic.taxi);
       parcels.update(1 / 60, cTraffic.taxi, {
         fareSpots: fares.occupiedSpots(), delivered: 9, over: fares.state.gameOver,
       });
+      if (!parcel.slot.flight.visible) continue;
       // Above the pavement and below the deck it left: the reverse flight, arcing down into the pad.
-      if (parcel.slot.flight.visible && parcel.slot.flight.position.y > PARCEL_PAD_LIFT + 0.2) {
-        outboundAirborne += 1;
-      }
+      if (parcel.slot.flight.position.y > PARCEL_PAD_LIFT + 0.2) outboundAirborne += 1;
+      if (parcel.slot.flight.scale.x < 0.9) sawGrow += 1;
+      if (boxMaterial.transparent && boxMaterial.opacity < 0.9) sawFade += 1;
+      minAlpha = Math.min(minAlpha, boxMaterial.opacity);
     }
     check('a package is delivered and paid for', delivered === 1
       && parcels.state.earned === earnedBefore + parcel.value
@@ -1707,6 +1732,23 @@ check('no two cars occupy the same space', worst > 1.6,
       `$${parcel.value} — courier total $${parcels.state.earned}, run total $${fares.state.money}`);
     check('and the box flies back out to the pad', outboundAirborne > 4,
       `${outboundAirborne} frames airborne on the way out`);
+    check('and grows and fades in as it comes out of the car', sawGrow > 4 && sawFade > 4,
+      `${sawGrow} frames part-size, ${sawFade} fading`);
+    // Never invisible on the way: a box that starts from nothing gives the player no frame to read the
+    // load *leaving* off, which is the whole job of the outbound flight. Asserted as a floor across the
+    // flight rather than at either end, for the reason noted above.
+    check('and never leaves the car out of sight',
+      minAlpha >= FLIGHT_MIN_ALPHA - 0.02 && minAlpha < 0.9,
+      `faintest ${minAlpha.toFixed(2)} against a ${FLIGHT_MIN_ALPHA} floor`);
+    // `sawFade` proves the material was genuinely transparent while it faded — the silent failure is
+    // `opacity` moving on a material that never recompiled, which is a bug this project shipped once on
+    // the rider figure. This is the *other* half of it: a box left transparent after landing z-sorts
+    // wrong for the rest of the run, and the slot is reused.
+    check('and is opaque again once it has landed',
+      boxMaterial.transparent === false && boxMaterial.depthWrite === true
+      && boxMaterial.opacity === 1,
+      `transparent ${boxMaterial.transparent}, depthWrite ${boxMaterial.depthWrite}, `
+      + `opacity ${boxMaterial.opacity.toFixed(2)}`);
     // Cashing one in must not immediately put the next on the board. This matters more at one slot
     // than it did at two: the delivery is now the moment the board goes *empty*, so without the hold
     // the very next frame is free to refill it and the find becomes a vending machine.
@@ -1714,15 +1756,18 @@ check('no two cars occupy the same space', worst > 1.6,
       heldFor >= PARCEL_AFTER_DELIVERY - 0.1, `next spawn ${heldFor.toFixed(1)}s out`);
     fares.setPaused(false);
   } else {
-    check('a package is delivered and paid for', false, 'no setup');
-    check('and the box flies back out to the pad', false, 'no setup');
-    check('and cashing it in holds the next package off', false, 'no setup');
+    for (const label of ['a package is delivered and paid for',
+      'and the box flies back out to the pad',
+      'and grows and fades in as it comes out of the car',
+      'and never leaves the car out of sight',
+      'and is opaque again once it has landed',
+      'and cashing it in holds the next package off']) check(label, false, 'no setup');
   }
 
-  // The flight ends **on the rear deck**, not on the road under the car. It used to land at the taxi's
-  // XZ at pavement height while the deck parcel appeared a unit and a half above — two events with a
-  // visible jump between them, which is exactly what "align the flourish with contact" rules out.
-  check('a flight lands at deck height, not at the wheels',
+  // The outbound flight leaves **from the rear deck**, not from the road under the car. Launched at
+  // pavement height it starts under the car's own sills, which reads as the box being posted out
+  // through the tarmac rather than lifted off the taxi.
+  check('a delivery leaves at deck height, not at the wheels',
     Math.abs(TAXI_DECK_Y - PARCEL_PAD_LIFT) > 1
     && TAXI_DECK_Y > PARCEL_PAD_LIFT,
     `deck ${TAXI_DECK_Y.toFixed(2)} vs pavement ${PARCEL_PAD_LIFT.toFixed(2)}`);
@@ -5351,15 +5396,16 @@ check('the taxi is an ordinary car in the traffic array',
     if (node.name === 'ghostRim') rims.push(node);
   });
 
-  // Eight parts: shell, roof sign, both steered wheels, the three light pods (brake, left turn
-  // signal, right turn signal), and the courier parcel on the rear deck. Every opaque part of the
-  // car must be in the mask — a part left out counts as an occluder of the rim behind it, and the
-  // wheels being skipped once painted a yellow streak along the rocker panel of a fully visible car.
-  // The light pods are opaque parts too even though they are usually scaled to nothing — see
-  // geometry/taxi.js's setLights() — and the parcel is one even though it is hidden until a package
-  // is aboard, for exactly the same reason: `visible = false` is not the same as absent, and the
-  // frame it comes back is the frame an unmasked box would start eating the shell's rim.
-  check('taxi wears a ghost outline on every opaque part', masks.length === 8 && rims.length === 8,
+  // Seven parts: shell, roof sign, both steered wheels, and the three light pods (brake, left turn
+  // signal, right turn signal). Every opaque part of the car must be in the mask — a part left out
+  // counts as an occluder of the rim behind it, and the wheels being skipped once painted a yellow
+  // streak along the rocker panel of a fully visible car. The light pods are opaque parts too even
+  // though they are usually scaled to nothing — see geometry/taxi.js's setLights().
+  //
+  // It was eight while a courier parcel rode the rear deck. The load is a chip in the HUD now
+  // (game/cargochip.js) and the car carries nothing, which is one fewer silhouette to mask rather
+  // than one that stopped mattering.
+  check('taxi wears a ghost outline on every opaque part', masks.length === 7 && rims.length === 7,
     `${masks.length} masks, ${rims.length} rims`);
 
   const rimsHidden = rims.every((r) => r.material.depthFunc === THREE.GreaterDepth

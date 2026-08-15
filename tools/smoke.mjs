@@ -94,6 +94,14 @@ try {
   await client.send('Runtime.enable');
   await client.send('Page.enable');
   await client.send('Network.enable');
+  // Pin the motion preference to what an ordinary player's browser reports, rather than inheriting
+  // whatever this headless build happens to default to. Several HUD entrances — the cargo chip's
+  // flight in from the city is the one asserted below — hand over to a plain fade under `reduce`, so
+  // a build that answers `reduce` turns those checks into assertions about the fallback while still
+  // printing PASS.
+  await client.send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+  });
   await client.send('Page.navigate', { url: baseUrl });
 
   const evaluate = async (expression) => {
@@ -443,10 +451,11 @@ try {
   // --- The courier box in the HUD, while a package is aboard. See src/game/cargochip.js.
   //
   // Here rather than in the node suite because the whole thing is browser-only: a WebGL context
-  // inside a DOM node. And driven through `__taxi.cargoChip` rather than by couriering a real
-  // package, which would mean playing a fare, waiting out the spawn gap and dragging the route band
-  // through a pad — several minutes of software-rendered sim for a chip whose two states are the
-  // thing being asserted. `setCarrying(true)` is exactly what a `'loaded'` event does to it.
+  // inside a DOM node, carried in by a Web Animation. And driven through `__taxi.cargoChip` rather
+  // than by couriering a real package, which would mean playing a fare, waiting out the spawn gap and
+  // dragging the route band through a pad — several minutes of software-rendered sim for a chip whose
+  // states are the thing being asserted. `setCarrying(true)` is the flightless half of what a
+  // `'pickup'` does to it; `flyIn` is the other half, and is checked on its own below.
   //
   // The pixel count is the half that matters. The chip's framing is *computed* — the frustum is
   // derived from the box's own dimensions at the camera's elevation — so the failure mode is not a
@@ -585,6 +594,76 @@ try {
   const chipAfter = JSON.parse(await chipState('chip.setCarrying(false)'));
   check('delivering it puts the chip back down',
     chipAfter.on === false && chipAfter.hidden === 'true');
+
+  // --- ...and the arrival that puts it up. See `flyIn` in src/game/cargochip.js.
+  //
+  // The second half of a pickup: the world box has lifted off its pad and is fading out somewhere
+  // across the city, and the chip grows and fades in with a short slide **from that direction**. Three
+  // things are assertable from outside and each rules out a way this reads as a pop rather than an
+  // arrival: it starts *away* from its slot (an identity transform is a chip appearing in the corner
+  // with the box vanishing across town), it starts *small* and *transparent*, and it ends square in
+  // its slot at full size.
+  //
+  // Driven with a hand-made hand-off rather than a real one, for the reason the states above are: a
+  // courier job is minutes of software-rendered sim away. The numbers are a plausible one — a box a
+  // few hundred pixels down and right of the HUD corner.
+  const flightStart = JSON.parse(await evaluate(`(() => {
+    const chip = window.__taxi.cargoChip;
+    if (!chip) return JSON.stringify({ missing: true });
+    chip.setCarrying(false);
+    chip.flyIn({ x: 420, y: 380, yaw: 0.8 });
+    const el = document.getElementById('cargo-chip');
+    const s = getComputedStyle(el);
+    const m = new DOMMatrix(s.transform);
+    return JSON.stringify({
+      on: el.classList.contains('is-on'),
+      flying: el.classList.contains('is-flying'),
+      // How far the chip is from its resting place, how big it is, and how visible, on frame one.
+      offset: Math.hypot(m.e, m.f),
+      scale: m.a,
+      opacity: Number(s.opacity),
+      // ...and that the slide points the right way: the box is down and to the right of the corner,
+      // so the chip must start down and to the right of its slot. A sign error here is a chip sliding
+      // in from the opposite quadrant, which is the one way the direction can be wrong and still move.
+      down: m.f > 0,
+      right: m.e > 0,
+      animations: el.getAnimations().length,
+    });
+  })()`));
+  check('a pickup brings the chip in from the direction the box left in',
+    flightStart.missing !== true
+    && flightStart.on === true && flightStart.flying === true
+    && flightStart.offset > 40 && flightStart.scale < 0.9 && flightStart.opacity < 0.5
+    && flightStart.down === true && flightStart.right === true
+    && flightStart.animations > 0,
+    flightStart.missing ? 'no courier layer on this page'
+      : `starts ${flightStart.offset.toFixed(0)}px out at ${flightStart.scale.toFixed(2)}x, `
+        + `opacity ${flightStart.opacity.toFixed(2)}, ${flightStart.animations} animation(s)`);
+
+  // ...and lands. Waited out rather than awaited on `animation.finished`, which needs a promise this
+  // `evaluate` does not resolve. 460ms of slide, generously over-waited: a check that raced the
+  // animation would be flaky in the one direction that matters, reporting a landing that never came.
+  await sleep(1200);
+  const flightEnd = JSON.parse(await evaluate(`(() => {
+    const el = document.getElementById('cargo-chip');
+    const s = getComputedStyle(el);
+    const m = new DOMMatrix(s.transform);
+    return JSON.stringify({
+      flying: el.classList.contains('is-flying'),
+      offset: Math.hypot(m.e, m.f),
+      scale: m.a,
+      opacity: Number(s.opacity),
+      hidden: el.getAttribute('aria-hidden'),
+    });
+  })()`));
+  check('and settles it square in its slot',
+    flightEnd.offset < 0.5 && Math.abs(flightEnd.scale - 1) < 0.01
+    && flightEnd.opacity > 0.99
+    && flightEnd.flying === false && flightEnd.hidden === 'false',
+    `${flightEnd.offset.toFixed(1)}px out at ${flightEnd.scale.toFixed(2)}x, `
+    + `opacity ${flightEnd.opacity.toFixed(2)}, still flying ${flightEnd.flying}`);
+
+  await evaluate('window.__taxi.cargoChip?.setCarrying(false)');
 
   // --- The "back to the taxi" chip, once the player's own car is off-frame. See
   // src/game/taxifinder.js.

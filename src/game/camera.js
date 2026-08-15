@@ -12,8 +12,15 @@ export const VIEW_DIR = new THREE.Vector3(1, 0.92, 1).normalize();
 const DISTANCE = 400;
 
 // Screen right is world (+X, -Z) for this view direction; screen up is (-X, -Z).
-const RIGHT = new THREE.Vector3(1, 0, -1).normalize();
-const UP = new THREE.Vector3(-1, 0, -1).normalize();
+//
+// Both are exported because they are the ground plane's screen basis, and anything that wants to move
+// a thing in the *world* toward somewhere on the **screen** has to come through them. The courier's
+// pickup does (game/parcels.js): the collected box slides off toward the corner the HUD chip lives in,
+// which is `UP − RIGHT`. That the answer comes out as exactly −X is not a licence to type −X — the
+// view never rotates, so one world direction is one screen direction, and this is the arithmetic that
+// would have to be redone if the azimuth ever moved.
+export const RIGHT = new THREE.Vector3(1, 0, -1).normalize();
+export const UP = new THREE.Vector3(-1, 0, -1).normalize();
 
 // A one-shot pan — a tap on a rider-finder chip — as opposed to the two follow-cams, which chase a
 // car. Different problem, different curve. Exponential smoothing has no ease *in*: it leaves at its
