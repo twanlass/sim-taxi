@@ -316,15 +316,34 @@ export function createDebugPanel({
     locoLevers.push(sync);
   }
 
-  locoLever('Kick', 'kick', 1, 2.5, 0.05, (v) => `${v.toFixed(2)}x · ${speedText(SPEED * v)}`);
-  locoLever('Boost top', 'speed', 1.2, 4, 0.05, (v) => speedText(SPEED * v));
-  locoLever('Punch', 'accel', 4, 60, 1, (v) => `${v.toFixed(0)} u/s²`);
-  locoLever('Overdrive', 'overdriveSpeed', 1.2, 5, 0.05, (v) => speedText(SPEED * v));
-  locoLever('Band accel', 'overdriveAccel', 0.2, 24, 0.1, (v) => `${v.toFixed(1)} u/s²`);
+  // The ranges go far past anything shippable on purpose — the question these sliders exist to
+  // answer is "how does *much* faster feel", and a slider that stops at 1.5x the shipped value
+  // cannot answer it. The tops are where the game stops being a game rather than where it stops
+  // being tuned: 20x cruise is 170 u/s, which crosses the whole 100-unit city in 0.6s.
+  //
+  // Two things genuinely break up there, and both are the game telling the truth rather than a bug
+  // to fix. **Collisions start to tunnel** past ~135 u/s, where one frame at 60fps covers more
+  // than the 2.31-unit collision envelope and the taxi passes through cars instead of hitting
+  // them. And **`LOOKAHEAD` is 32 units**, so above about 26 u/s the taxi is already travelling
+  // faster than it can see far enough ahead to brake for — which is most of what "significantly
+  // faster" actually feels like from the driving seat.
+  //
+  // The step stays fine enough to land on the shipped value with the arrow keys, which is what
+  // makes a range this wide usable at the bottom of it as well as the top.
+  locoLever('Kick', 'kick', 1, 10, 0.05, (v) => `${v.toFixed(2)}x · ${speedText(SPEED * v)}`);
+  locoLever('Boost top', 'speed', 1.2, 12, 0.1, (v) => speedText(SPEED * v));
+  // Raised with the ceilings rather than for its own sake: a ceiling a car cannot climb to is not
+  // a ceiling, and at the shipped 24 u/s² a 100 u/s boost top would take 200 units — ten blocks —
+  // to reach, so uncapping the speed alone would buy a number that never appears on the road.
+  locoLever('Punch', 'accel', 4, 300, 1, (v) => `${v.toFixed(0)} u/s²`);
+  locoLever('Overdrive', 'overdriveSpeed', 1.2, 20, 0.1, (v) => speedText(SPEED * v));
+  locoLever('Band accel', 'overdriveAccel', 0.2, 150, 0.5, (v) => `${v.toFixed(1)} u/s²`);
   // Not the taxi's alone — there is one brake in the sim and it is what every car stops on. It is
   // here because it owns the coast-down after the button is let go, which is the last phase of
-  // the curve above; the readout says so rather than leaving it to be discovered.
-  locoLever('Brake', 'brake', 3, 30, 0.5, (v) => `${v.toFixed(1)} u/s² · all traffic`);
+  // the curve above; the readout says so rather than leaving it to be discovered. Its top went up
+  // with the rest: shedding 170 u/s at the shipped 11 u/s² is fifteen seconds of coasting, which
+  // is longer than the run-up that earned it.
+  locoLever('Brake', 'brake', 3, 80, 0.5, (v) => `${v.toFixed(1)} u/s² · all traffic`);
 
   const resetLoco = document.createElement('button');
   resetLoco.type = 'button';

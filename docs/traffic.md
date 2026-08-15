@@ -603,6 +603,43 @@ everything the city does to the ramp is absent from it by construction.
 **Copy settings JSON** in the panel captures the tuning under `locoMode`, keyed to the constant
 names above.
 
+#### The sliders go a long way past shippable
+
+| Lever | Range | At the top |
+|---|---|---|
+| Kick | 1–10× | 85 u/s the instant the button goes down |
+| Boost top | 1.2–12× | 102 u/s, 298mph |
+| Punch | 4–300 u/s² | |
+| Overdrive | 1.2–20× | 170 u/s, 496mph |
+| Band accel | 0.2–150 u/s² | |
+| Brake | 3–80 u/s² | |
+
+The question these exist to answer is *how does much faster feel*, and a slider stopping at 1.5×
+the shipped value cannot answer it. The tops are where the game stops being a game, not where it
+stops being tuned — 170 u/s crosses the whole 100-unit city in 0.6 seconds.
+
+The acceleration ranges went up **with** the ceilings rather than for their own sake, and that is
+the same rule as everywhere else on this page: a ceiling a car cannot climb to is not a ceiling. At
+the shipped 2.2 u/s² band accel, a 20× overdrive ceiling measures **21.9 u/s** on a real drive — a
+number that never appears on the road. Uncapping the speed alone buys nothing.
+
+Two things genuinely break up there, and both are the game telling the truth rather than bugs:
+
+- **Collisions tunnel** past ~135 u/s. One frame at 60fps then covers more than the 2.31-unit
+  collision envelope, so the taxi passes through cars instead of hitting them. Measured at 510
+  u/s: ten seconds of holding the button through traffic, no wreck.
+- **`LOOKAHEAD` is 32 units**, so above about 26 u/s the taxi is already moving faster than it can
+  see far enough ahead to brake for. That is most of what "significantly faster" feels like from
+  the driving seat.
+
+Nothing else does. Across the whole range — and past it — `car.v`, `car.x` and `car.z` stay finite
+and the taxi stays on the network, because `step` is clamped to `allowed` however fast the car
+thinks it is going.
+
+**Past the end of a slider**, `window.__taxi.loco` is the same handle the panel drives:
+`__taxi.loco.set({ overdriveSpeed: 60 })` is 510 u/s. `setLocoTuning` takes any finite positive
+number and there is nothing to protect — a silly number makes a silly game, which is the point.
+
 **It stays in its lane and weaves inside it.** The first version slid a full `LANE` out onto the
 road centreline to overtake, and that is what made the mode a lottery: on the centreline the taxi
 sits 2 units from a same-direction leader and 2 from oncoming traffic, while the collision envelope

@@ -2111,6 +2111,19 @@ if (shot) {
   frame();
 }
 
+// The Loco Mode ramp. Pushed into the panel rather than imported by it for the same reason the
+// difficulty knobs are pushed into `sim/` — the sim owns these numbers, and the panel is one more
+// thing allowed to move them, alongside `traffic.taxi.boost` and `setCarCount`.
+//
+// Hoisted out of the panel's arguments so `window.__taxi.loco` can hand out the same handle. The
+// panel's sliders are bounded and this is not: `setLocoTuning` takes any finite positive number,
+// so `__taxi.loco.set({ overdriveSpeed: 60 })` from the console is the way past the top of a
+// slider. There is nothing to protect — a silly number makes a silly game, which is the point.
+const loco = {
+  get: locoTuning, set: setLocoTuning, reset: resetLocoTuning, ramp: locoRamp,
+  defaults: LOCO_DEFAULTS,
+};
+
 // The gear button sits top-right at small widths and started overlapping the streak counter
 // there — most players never open it anyway, so it's opt-in now: `?debug` or `?settings` in the
 // URL, either present with no value needed.
@@ -2134,13 +2147,7 @@ if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) 
       tune: cityEntry.tune,
       replay: () => cityEntry.replay(traffic.taxi),
     },
-    // The Loco Mode ramp. Pushed in rather than imported by the panel for the same reason the
-    // difficulty knobs are pushed into `sim/` — the sim owns these numbers, and the panel is one
-    // more thing allowed to move them, alongside `traffic.taxi.boost` and `setCarCount`.
-    loco: {
-      get: locoTuning, set: setLocoTuning, reset: resetLocoTuning, ramp: locoRamp,
-      defaults: LOCO_DEFAULTS,
-    },
+    loco,
   });
 }
 
@@ -2148,6 +2155,11 @@ window.__taxi = {
   traffic,
   daylight,
   boost,
+  /**
+   * Loco Mode's speed ramp — `get`, `set`, `reset`, `ramp`, `defaults`. The ⚙️ panel's sliders
+   * drive the same handle, so this is where you go for a value past the end of one of them.
+   */
+  loco,
   tutorial,
   carGhosts,
   skids,
