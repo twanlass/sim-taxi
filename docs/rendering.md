@@ -242,6 +242,45 @@ focus each cancel the ride home *without* reporting an arrival. `tools/smoke.mjs
 round trip in a real browser, on the gap between the camera and the taxi: how far it ever got is the
 evidence it visited the rider, where it ends up is the evidence it came home.
 
+### Getting back to the taxi
+
+`src/game/taxifinder.js`. The camera is the player's the moment they swipe, and it stays theirs —
+nothing here tows it back onto the car. The bill for that arrives when the taxi drives off the frame
+entirely, which on a phone is one look across town away: the only way home was to drag the map until
+the yellow car turned up, a hunt across near-identical blocks on a clock that is draining. So while
+the taxi is **completely** off-frame a chip of it fades in at the opposite end of the bottom row
+from the rider chips, and a tap rides the camera back. Same affordance as those, pointed the other
+way: they answer *who is waiting*, this answers *where am I*.
+
+**The test is the whole silhouette outside the frame**, the car's on-screen radius included (2.79
+world units, measured off the built mesh, times the live pixels-per-unit so a zoom change can't
+shift it) — not "mostly off" and not "near the edge", because a chip offering to find something the
+player can still see is one they learn to ignore. Two things keep it off the boundary: **14px of
+hysteresis**, so a taxi tracking the frame edge doesn't blink it on and off, and a **0.4s dwell**,
+so a car clipping a corner never raises it at all. It is armed off the *raw* frame rather than the
+safe-area insets, unlike [the drop-off arrow](#off-screen-drop-off-pointer) — the canvas draws under
+the status bar, so a car up there is on screen even with hardware sitting over it.
+
+The camera move is `controller.chaseTo(getTaxi, onArrive)` — **a peek's ride home with no trip out**,
+sharing its code. Same smootherstep and the same distance-driven 0.32–0.75s, because it is the same
+kind of move: the player asked to be taken there, not teleported. The aim is re-read every frame, so
+it lands on a car that has been driving the whole time and is already travelling at its speed, and
+`onArrive` clears `cameraTakenOver` — the framing goes back to the opening follow rather than being
+parked on a car that would drive straight out of it again. As ever, anything outranking a pan drops
+the ride and the callback never comes.
+
+The chip is **the car and a disc, and no ring**: a rider chip's ring is a clock, and the taxi has
+none. So the ring's 49px outer diameter becomes the disc itself, which is what keeps the two bottom
+corners the same weight. Inside it is the real `createTaxiMesh` lit by the city's own sun
+(`mirrorSceneLights`, shared with the tutorial avatar and the rider chips), parked at the same
+front three-quarter the tutorial's still avatar uses — the best-lit pose, at 0.84 of full sun. It
+does **not** turn to the taxi's heading: at 44px a yaw is noise, and three quarters of the compass
+would put the car's lit flank away from that camera and leave the chip a dark smudge for most of a
+run. Which way to look is what the camera move answers.
+
+Armed only when nothing else has the framing: a run that has ended, a tutorial pointing at the city,
+or a pan already in flight — including its own, which is what drops the chip on the tap.
+
 ### The closing shot
 
 Every ending gets the same beat: the camera eases into whatever ended the run, the sim drops into
@@ -464,10 +503,11 @@ as it is known. Desktop and iOS are untouched, so screenshots and the shot list 
 They live in `util/shot.js` beside `?seed` and `?cars`, and every getter takes its **fallback from
 safe mode rather than from a literal**, evaluated per call — so one flag moves all of them, and a
 module that opens a renderer of its own reads the effective value without anyone threading it
-through. Three do: the tutorial's avatar bubble, each rider-finder chip, and the courier
-[cargo chip](gameplay.md#the-load-is-repeated-in-the-hud). They are 46px, 38px and 42px square
-respectively and their own cost is nothing, but each is a **WebGL context this page is holding**, and
-that is part of what `?safe` is asking about.
+through. Four do: the tutorial's avatar bubble, each rider-finder chip, the courier
+[cargo chip](gameplay.md#the-load-is-repeated-in-the-hud) and the
+[taxi finder](#getting-back-to-the-taxi). They are 46px, 38px, 42px and 44px square respectively and
+their own cost is nothing, but each is a **WebGL context this page is holding**, and that is part of
+what `?safe` is asking about.
 
 The flags exist because of a failure a desktop cannot see and a phone cannot report — see
 [testing.md](testing.md#when-a-device-renders-nothing) for the whole picture. `stencil: true` is
@@ -1777,6 +1817,10 @@ It carries more weight since the head came off. A crystal at rooftop height stay
 skyline for a beat after the ring had gone behind a tower; the arrow only covers the *off-frame*
 case, which is the one the map being bigger than the viewport actually creates. It aims at `y = 0.1`
 now — the ring on the road — where it used to aim halfway up the pin's post.
+
+The third thing the map outgrowing the frame can lose is the **taxi itself**, and that one gets a
+chip rather than an arrow: a direction is enough when you already know what is over there, and not
+enough when what is missing is your own car. See [getting back to the taxi](#getting-back-to-the-taxi).
 
 ### Off-screen police warning
 

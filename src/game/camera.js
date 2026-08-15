@@ -188,6 +188,17 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
     return dist;
   }
 
+  /**
+   * A leg that follows a point which is still moving — the ride home. Shared by a peek's return
+   * leg and by the taxi-finder chip, which is the same move without the trip out: the destination
+   * is re-read every frame, so it lands *on* the car and already travelling at its speed rather
+   * than on the patch of road the car was standing on when the leg was armed.
+   */
+  function armChase(getTarget, onArrive) {
+    const to = getTarget();
+    armGlide(to.x, to.z, { track: getTarget, onArrive });
+  }
+
   function apply(aspectRatio) {
     const halfH = state.zoom;
     const halfW = halfH * aspectRatio;
@@ -303,11 +314,23 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
     peekAt(x, z, getReturn, onArrive) {
       armGlide(x, z, {
         hold: PEEK_HOLD,
-        next: () => {
-          const home = getReturn();
-          armGlide(home.x, home.z, { track: getReturn, onArrive });
-        },
+        next: () => armChase(getReturn, onArrive),
       });
+    },
+    /**
+     * Ride to a point that is moving, and hand the framing over when you get there — the
+     * taxi-finder chip's whole camera move (see game/taxifinder.js), and the same leg a peek comes
+     * home on.
+     *
+     * Same curve and the same distance-driven duration as `glideTo`, because it is the same kind of
+     * move: the player has asked to be taken somewhere, not to be teleported. What the tracking
+     * buys is the landing — `getTarget` is re-read every frame, so a car that has driven half a
+     * block during the pan is still exactly under the camera when it stops, and the camera is
+     * already moving at the car's speed when a follow-cam picks it up. `onArrive` fires only if the
+     * move runs out; anything that outranks a pan drops it where it stands, as ever.
+     */
+    chaseTo(getTarget, onArrive) {
+      armChase(getTarget, onArrive);
     },
     /**
      * Abandon a glide where it stands. The player grabbing the map mid-pan has to win immediately —
