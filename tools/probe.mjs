@@ -3990,9 +3990,11 @@ check('the taxi is an ordinary car in the traffic array',
 // radius is a block (20) and FADE_BAND is 18, so on the ring road the check fired at exactly zero
 // opacity, lamps included. BUST_ARM_INSET gates the whole thing on the cruiser being a block in.
 //
-// Two invariants, and they are the same invariant said twice on purpose: whatever can bust you is
-// fully drawn, and its light bar is running. The second is what the player actually reads, so the
-// two flags are asserted against each other rather than each against the geometry.
+// The light bar runs ahead of that gate rather than with it, which is the grace period: the siren
+// is up from the spawn frame and the bust arms a block in, so three invariants rather than two.
+// Whatever can bust you is fully drawn and lit; nothing is lit between runs; and every run
+// telegraphs itself for a beat first. The last one is the tuning, so it is measured in seconds and
+// not merely asserted to be non-zero.
 {
   const aScene = new THREE.Scene();
   const aPolice = createPolice(makeRng(seed + 66), aScene);
@@ -4001,22 +4003,37 @@ check('the taxi is an ordinary car in the traffic array',
   let armedFrames = 0;
   let armedWhileFading = 0;      // lethal while still transparent — the bug
   let armedWithLampsDark = 0;    // lethal with no cue at all
-  let litWhileUnarmed = 0;       // the opposite lie: a bar that means nothing
+  let litWhileIdle = 0;          // the opposite lie: a bar burning with no cruiser on the map
+  let darkWhileVisible = 0;      // a drawn cruiser running dark — the announcement missed
   let ringExposed = 0;           // armed while the cruiser is still in the outer band
   let runs = 0;
   let wasActive = false;
+  // Seconds of *visible* light bar before the bust arms, taken per run and kept at its worst.
+  // FADE_BAND (18) out to the arming line (HALF_SPAN − BUST_ARM_INSET) is 38 units at SPEED = 19,
+  // so this should land near 2s.
+  let telegraph = 0;
+  let telegraphTaken = false;
+  let worstTelegraph = Infinity;
 
   for (let step = 0; step < 600 * 60; step++) {
     aPolice.update(1 / 60);
     const p = aPolice.state;
-    if (p.active && !wasActive) runs += 1;
+    if (p.active && !wasActive) { runs += 1; telegraph = 0; telegraphTaken = false; }
     wasActive = p.active;
 
     const lit = lamps.some((lamp) => lamp.intensity > 0);
-    if (!p.armed) {
-      if (lit) litWhileUnarmed += 1;
+    if (!p.lit) {
+      if (lit) litWhileIdle += 1;
       continue;
     }
+    // Lit and drawing: the bar has to actually be burning. The frames before that are the car
+    // still out past FADE_BAND, where the lamps are scaled to nothing along with the bodywork.
+    if (p.fade > 0 && !lit) darkWhileVisible += 1;
+    if (!p.armed) {
+      if (p.fade > 0) telegraph += 1 / 60;
+      continue;
+    }
+    if (!telegraphTaken) { worstTelegraph = Math.min(worstTelegraph, telegraph); telegraphTaken = true; }
     armedFrames += 1;
     if (p.fade < 1) armedWhileFading += 1;
     if (!lit) armedWithLampsDark += 1;
@@ -4028,8 +4045,11 @@ check('the taxi is an ordinary car in the traffic array',
     armedWhileFading === 0, `${armedWhileFading} of ${armedFrames} armed frames`);
   check('an armed cruiser always has its light bar running',
     armedWithLampsDark === 0, `${armedWithLampsDark} of ${armedFrames} armed frames`);
-  check('the light bar is dark whenever the bust is disarmed', litWhileUnarmed === 0,
-    `${litWhileUnarmed} frames`);
+  check('a cruiser that is drawing at all has its light bar running', darkWhileVisible === 0,
+    `${darkWhileVisible} frames`);
+  check('the light bar is dark between runs', litWhileIdle === 0, `${litWhileIdle} frames`);
+  check('every run telegraphs itself before the bust arms', worstTelegraph >= 1.5,
+    `${worstTelegraph.toFixed(2)}s of visible siren on the tightest run`);
   check('the bust never arms out in the outer band', ringExposed === 0, `${ringExposed} frames`);
 }
 
@@ -4086,9 +4106,11 @@ check('the taxi is an ordinary car in the traffic array',
     Math.abs(far.strength - GLOW_FLOOR) < 1e-9, `floor ${far.strength.toFixed(2)}`);
 
   // Now against a live corridor run, through the play camera. Two lies to rule out, and they are
-  // the same pair the light bar is checked for above: a wash over an unarmed cruiser (a warning
-  // about something that cannot bust you) and no wash over an armed one that is off-frame (the
-  // silence this exists to end).
+  // the same pair the light bar is checked for above: a wash over a cruiser between runs (a
+  // warning about a car that is not on the map) and no wash over a lit one that is off-frame (the
+  // silence this exists to end). Gated on `lit` rather than `armed` because that is what the bar
+  // does — the wash covers the grace period before the bust arms, same as the siren it stands in
+  // for.
   const gScene = new THREE.Scene();
   const gPolice = createPolice(makeRng(seed + 66), gScene);
   const gCam = createCityCamera(W / H, { zoom: 46 });
@@ -4096,7 +4118,7 @@ check('the taxi is an ordinary car in the traffic array',
   const taxiAt = { x: lineCoord(2), z: lineCoord(2) };     // parked mid-map, so the camera is still
   const projected = new THREE.Vector3();
 
-  let washedUnarmed = 0;
+  let washedUnlit = 0;
   let silentOffFrame = 0;
   let washedOnFrame = 0;
   let offFrameFrames = 0;
@@ -4112,8 +4134,8 @@ check('the taxi is an ordinary car in the traffic array',
       gPolice.state, sx, sy, W, H, Math.hypot(taxiAt.x - car.x, taxiAt.z - car.z),
     );
 
-    if (!gPolice.state.armed) {
-      if (glow) washedUnarmed += 1;
+    if (!gPolice.state.lit) {
+      if (glow) washedUnlit += 1;
       continue;
     }
     litFrames += 1;
@@ -4129,11 +4151,11 @@ check('the taxi is an ordinary car in the traffic array',
   }
 
   check('the police wash runs over a live corridor', litFrames > 0 && offFrameFrames > 0,
-    `${litFrames} armed frames, ${offFrameFrames} of them off-frame`);
-  check('nothing that cannot bust you lights the frame edge', washedUnarmed === 0,
-    `${washedUnarmed} frames`);
-  check('an armed cruiser off the frame always lights it', silentOffFrame === 0,
-    `${silentOffFrame} of ${offFrameFrames} off-frame armed frames`);
+    `${litFrames} lit frames, ${offFrameFrames} of them off-frame`);
+  check('nothing with a dark light bar lights the frame edge', washedUnlit === 0,
+    `${washedUnlit} frames`);
+  check('a lit cruiser off the frame always lights it', silentOffFrame === 0,
+    `${silentOffFrame} of ${offFrameFrames} off-frame lit frames`);
   check('and the wash is gone once the cruiser is plainly on screen', washedOnFrame === 0,
     `${washedOnFrame} frames`);
 
@@ -4147,7 +4169,7 @@ check('the taxi is an ordinary car in the traffic array',
   // Parked far off the frame at close range, so the strength is a flat 1 and the only thing moving
   // is the strobe.
   const strobing = (flash, hunting) => sirenWash(
-    { armed: true, flash, chasing: hunting, arrived: false }, W * 2, H / 2, W, H, GLOW_NEAR,
+    { lit: true, flash, chasing: hunting, arrived: false }, W * 2, H / 2, W, H, GLOW_NEAR,
   );
   for (let f = 0; f < 120; f++) {
     const flash = f / 120;

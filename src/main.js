@@ -537,8 +537,9 @@ function checkPoliceBust() {
   // so braking off Loco Mode a beat too close to a cruiser doesn't buy a free pass.
   if (!boost.isEngaged()) return;
   // Armed, not merely active. A cruiser still fading in at the edge of the map used to be able to
-  // end the run before it had drawn a pixel — see BUST_ARM_INSET in sim/police.js. Its light bar
-  // comes on with this, so what the player sees and what can bust them are the same flag.
+  // end the run before it had drawn a pixel — see BUST_ARM_INSET in sim/police.js. The light bar
+  // runs a block ahead of this on purpose: the siren says a cop is here, and the gap between the
+  // two is the beat the player gets to lift off before one can bust them.
   if (!police.state.armed) return;
   if (fares.state.gameOver || traffic.taxi.crashed) return;
   const dx = traffic.taxi.x - police.group.position.x;
