@@ -96,6 +96,17 @@ down.
   `geometry.index` and compute the normal from *that* winding — for every triangle, not just the
   first. This is the same trap one layer down from the one above it: a winding check written wrong
   fails exactly like a winding bug.
+- **Vertex-shader animation has to be patched into *every* depth pass, and there are two.** The
+  sun's shadow map is the one people remember; the SSAO prepass in `game/ssao.js` is the other, and
+  it fails differently. AO is sampled in screen space, so an unpatched prepass drew the city's
+  entrance at its finished size and painted each building's contact crease onto the *bare road* it
+  hadn't risen out of yet — reported, reasonably, as "the SSAO looks like it isn't realtime". It is;
+  it was rendering a different scene. The two passes cannot share one material: three's shadow map
+  assigns `side` on whatever depth material it is handed, flipping FrontSide to BackSide
+  (`WebGLShadowMap.getDepthMaterial`), so a shared instance leaves the prepass stamping the depth of
+  every building's far wall. Hence `setOccluderDepthMaterial()` beside `customDepthMaterial`, and a
+  draw list rather than `scene.overrideMaterial` — an override is all-or-nothing and silently
+  outranks any per-mesh choice.
 - **Re-planning a route every frame stalls the taxi.** `pathdrag` clears `routeConsumed` on every
   frame the finger is down, which is safe for the second or two a gesture lasts and not safe as a
   policy: the turn the car has already committed to never retires from the route, so it sits

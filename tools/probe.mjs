@@ -55,8 +55,9 @@ import {
 } from '../src/game/birds.js';
 import { propMaterial, setAmbientOcclusion, AO_UNIFORMS, BODY_EULER_ORDER } from '../src/util/geo.js';
 import {
-  AO_LAYER, markOccluder, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
+  AO_LAYER, markOccluder, unmarkOccluder, occluderList, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
 } from '../src/game/ssao.js';
+import { createCityEntry } from '../src/game/cityentry.js';
 import {
   GHOST_MASK_ORDER, GHOST_RIM_ORDER, CAR_GHOST_MASK_ORDER, CAR_GHOST_RIM_ORDER,
 } from '../src/geometry/ghostoutline.js';
@@ -5070,8 +5071,9 @@ check('the taxi is an ordinary car in the traffic array',
 
   // The occluder filter, which is the failure that would actually be visible: the ghost outline's
   // inflated rim hull stamped into the depth prepass draws AO around a silhouette 0.3 units bigger
-  // than the car, and `overrideMaterial` strips exactly the flags that would otherwise keep it
-  // out. The taxi carries masks, rims and an invisible hit box, so it exercises the whole rule.
+  // than the car, and the prepass swaps a mesh's material out wholesale, which strips exactly the
+  // flags that would otherwise keep it out. The taxi carries masks, rims and an invisible hit box,
+  // so it exercises the whole rule.
   const aoTaxi = createTaxiMesh();
   markOccluder(aoTaxi.group);
   const casting = [];
@@ -5090,6 +5092,76 @@ check('the taxi is an ordinary car in the traffic array',
   const receivingOnly = excluded.filter((o) => o.material.vertexColors && solid(o.material));
   check('no propMaterial mesh receives AO without casting it', receivingOnly.length === 0,
     'every lit prop mesh on the taxi is in the prepass');
+
+  // The layer decides who renders in the prepass; the draw list decides what they render *as*. A
+  // mesh in one and not the other is silent either way — off the list it stamps depth through its
+  // own lit material, off the layer it is swapped onto a depth material and never drawn.
+  const enrolled = occluderList();
+  check('the AO draw list holds exactly the meshes on the AO layer',
+    casting.length > 0 && casting.every((o) => enrolled.has(o))
+    && excluded.every((o) => !enrolled.has(o)),
+    `${casting.length} enrolled, ${excluded.length} left out`);
+
+  // The list holds a hard reference and swaps a material onto every entry each frame, so anything
+  // that disposes an occluder — roadwork's slab is the one that does — has to hand it back.
+  unmarkOccluder(aoTaxi.group);
+  check('unmarkOccluder clears both the layer and the draw list',
+    casting.every((o) => !enrolled.has(o) && !o.layers.isEnabled(AO_LAYER)),
+    `${casting.length} released`);
+
+  // The entrance's depth materials (game/cityentry.js). The city's shape lives in its vertex
+  // shader, so any depth pass that renders it unpatched draws the *finished* building. For the sun
+  // that lands the whole skyline's shadows on frame one; for the AO prepass — whose result is
+  // sampled in screen space, not per surface — it traces a contact crease around edges and corners
+  // that have not risen out of the ground yet, painted onto the bare road standing there instead.
+  const entryMeshes = [0, 1].map(() => new THREE.Mesh(
+    new THREE.BufferGeometry(), new THREE.MeshLambertMaterial()));
+  createCityEntry({ meshes: entryMeshes });
+  const entryDepth = entryMeshes.flatMap((m) => [m.customDepthMaterial, m.userData.aoDepthMaterial]);
+
+  check('both depth passes get a patched material for the entrance',
+    entryDepth.length === 4 && entryDepth.every((m) => m?.isMeshDepthMaterial
+      && m.depthPacking === THREE.RGBADepthPacking),
+    'customDepthMaterial for the sun, userData.aoDepthMaterial for the AO prepass');
+
+  // Same stub trick as the Lambert patch above: a `.replace()` on a chunk that moved does nothing,
+  // compiles fine, and animates nothing.
+  const entryShaders = entryDepth.map((material) => {
+    const stub = {
+      uniforms: {},
+      vertexShader: '#include <common>\nvoid main() {\n\t#include <begin_vertex>\n}',
+      fragmentShader: '#include <common>\nvoid main() {\n}',
+    };
+    material.onBeforeCompile(stub, null);
+    return stub;
+  });
+  check('every entrance depth pass runs the grow and discards what has not risen',
+    entryShaders.every((s) => s.vertexShader.includes('attribute vec3 aEntry')
+      && s.vertexShader.includes('uEntryTime')
+      && s.fragmentShader.includes('discard')),
+    'a scale-0 building is a flat sheet at kerb height, not nothing');
+
+  // Two instances, not one shared. Three's shadow map assigns `side` on whatever depth material it
+  // is handed, flipping FrontSide to BackSide through its `shadowSide` table
+  // (WebGLShadowMap.getDepthMaterial) — every frame, and before the next frame's AO pass reads it.
+  // Sharing the instance would leave the prepass stamping the depth of each building's *far* wall,
+  // which is AO that is wrong everywhere rather than wrong for two seconds.
+  check('the shadow map and the AO prepass hold separate depth materials',
+    entryMeshes.every((m) => m.customDepthMaterial !== m.userData.aoDepthMaterial),
+    'the shadow pass mutates the material it is given');
+  for (const m of entryMeshes) m.customDepthMaterial.side = THREE.BackSide; // what the shadow pass does
+  check('a shadow pass flipping `side` cannot reach the AO prepass material',
+    entryMeshes.every((m) => m.userData.aoDepthMaterial.side === THREE.FrontSide),
+    'the AO prepass still draws front faces');
+
+  // And the mechanism that makes a per-mesh depth material reachable at all. `overrideMaterial` is
+  // all-or-nothing: set it and every one of those choices is silently outranked.
+  const aoSource = fs.readFileSync(new URL('../src/game/ssao.js', import.meta.url), 'utf8');
+  check('the prepass picks a depth material per mesh rather than overriding the scene',
+    /userData\.aoDepthMaterial \|\| depthMaterial/.test(aoSource)
+    && /scene\.overrideMaterial = null/.test(aoSource)
+    && !/scene\.overrideMaterial = depthMaterial/.test(aoSource),
+    'occluders swapped individually, any override cleared for the pass');
 
   // The rejection window, recomputed from the camera and the car rather than trusted. Both bounds
   // fall out of VIEW_DIR's elevation, so re-angling the camera fails here rather than in a

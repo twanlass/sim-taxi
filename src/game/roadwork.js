@@ -4,7 +4,7 @@ import { cityNetwork } from '../city/roadnet.js';
 import { propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 import { createPerson } from '../geometry/person.js';
-import { markOccluder } from './ssao.js';
+import { markOccluder, unmarkOccluder } from './ssao.js';
 import {
   coneGeometry, barricadeParts, spoilParts, mergeAll, splinterGeometry,
   CONE_REST_Y, SPLINTER_REST_Y,
@@ -824,6 +824,10 @@ export function createRoadwork(rng, scene, camera = null) {
 
     group.visible = false;
     scene.remove(group);
+    // Before the dispose below, not after: the AO prepass holds a hard reference to every occluder
+    // and swaps its material each frame, so a freed mesh left enrolled is both a leak and a swap
+    // onto disposed geometry.
+    unmarkOccluder(group);
     group.traverse((object) => {
       if (!object.isMesh) return;
       object.geometry.dispose();

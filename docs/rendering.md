@@ -405,10 +405,10 @@ contain the solid world and nothing else. Two halves to the rule, and both are a
 `tools/probe.mjs`:
 
 - **An occluder is an opaque, colour-writing mesh.** Everything that fails that would corrupt the
-  prepass rather than contribute to it. `scene.overrideMaterial` strips exactly the flags that keep
-  the ghost outline out of a normal pass — its mask writes no colour and its rim is a hull inflated
-  0.3 units past the car — so an unfiltered traversal draws AO around a silhouette bigger than the
-  taxi. The invisible raycast boxes are the same story.
+  prepass rather than contribute to it. The prepass swaps a mesh's material out wholesale, which
+  strips exactly the flags that keep the ghost outline out of a normal pass — its mask writes no
+  colour and its rim is a hull inflated 0.3 units past the car — so an unfiltered traversal draws AO
+  around a silhouette bigger than the taxi. The invisible raycast boxes are the same story.
 - **Anything lit by `propMaterial()` has to be in there.** A mesh that *receives* AO without
   *casting* it samples the occlusion of whatever stands behind it: a rider in front of a building
   would wear that building's contact line across their chest. This is why the riders are marked
@@ -416,6 +416,27 @@ contain the solid world and nothing else. Two halves to the rule, and both are a
 
 The stop bars are the one deliberate omission — 0.05-unit road paint, whose own outline is not a
 contact.
+
+`markOccluder()` also enrols the mesh in the prepass's **draw list**, which is what the pass walks
+to pick each mesh's depth material. That is why it is a list and not a `scene.overrideMaterial`: an
+override is all-or-nothing, and one occluder in this game doesn't hold still. The city's
+[entrance](city.md) animates entirely in its vertex shader, so drawn through the *shared* depth
+material it stands at its finished size in the depth buffer while the colour pass shows it a third
+grown — and because AO is sampled in screen space, the resulting contact crease lands on whatever is
+actually visible at those pixels: bare road, under the outline of a building that has not risen yet.
+`setOccluderDepthMaterial()` is how a mesh names its own.
+
+That material is deliberately **not** `mesh.customDepthMaterial`, even though the sun's pass wants
+the identical patched shader. Three's shadow map assigns `side` on whatever depth material it is
+handed, flipping FrontSide to BackSide through its `shadowSide` table
+(`WebGLShadowMap.getDepthMaterial`) — every frame, before the next frame's AO pass reads it. Sharing
+one instance would leave the prepass stamping the depth of each building's *far* wall, which is AO
+that is wrong everywhere rather than wrong for two seconds. Two instances carrying the same patch
+cost one extra program.
+
+Because the list holds a hard reference and writes a material onto every entry each frame, anything
+that *disposes* an occluder has to hand it back with `unmarkOccluder()`. The roadworks slab
+(`game/roadwork.js`) is the only thing that does.
 
 The lookup itself rides in `propMaterial()` (`util/geo.js`) as an `onBeforeCompile` patch on
 three's `<aomap_fragment>` hook, keyed in screen space off `gl_FragCoord`. It carries a
