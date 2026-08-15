@@ -278,6 +278,13 @@ does **not** turn to the taxi's heading: at 44px a yaw is noise, and three quart
 would put the car's lit flank away from that camera and leave the chip a dark smudge for most of a
 run. Which way to look is what the camera move answers.
 
+**The car flashes when the ride lands** — the same white emissive lift on the same envelope a courier
+box landing in it fires (see [the accept flourish](#the-parcel--geometryparceljs)), because it is the
+same claim about the car: *this one, here*. On arrival rather than on the tap, and that is the whole
+timing: the flash is over in 0.29s where the ride takes up to 0.75s, so firing it at the press would
+spend it on a car that is still off-frame. It rides `onArrive`, so a swipe away mid-ride cancels the
+flash along with the trip.
+
 Armed only when nothing else has the framing: a run that has ended, a tutorial pointing at the city,
 or a pan already in flight — including its own, which is what drops the chip on the tap.
 
@@ -1763,6 +1770,11 @@ the brightest thing on the road, so it has less headroom before the chequer stri
 body, and the lift has to register on a car that is moving. The brake light and indicators are left
 alone — they are lamps with their own state, and lifting them would read as the taxi braking at the
 moment it accepted a package.
+
+**Two things fire it**, and they make the same claim about the car: *this one, here*. The other is
+[the ride back to the taxi](#getting-back-to-the-taxi) landing, where it answers a player who had
+lost the car rather than a box arriving in it. One flourish rather than two, so the gesture is
+learned once.
 
 The same factory builds the small one on the taxi's rear deck, at `PARCEL_DECK_SCALE` — exported from
 the mesh and derived from its own width, rather than restated at each of the two call sites that want it

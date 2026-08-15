@@ -581,6 +581,20 @@ try {
     finderUp ? `${(finder.drawn * 100).toFixed(0)}% of the canvas drawn`
       : `the chip never appeared${finderWhy}`);
 
+  // The taxi's flourish, summed across the car rather than maxed. `setTaxiHighlight` lifts the
+  // emissive of five parts together (shell, roof sign, both steered wheels, the deck box), and the
+  // sign and the lamps already sit at a constant 1 — so the *brightest* part of this car is 1 with
+  // or without a flash, and only the total moves. Read at rest first: what is asserted below is the
+  // rise, not an absolute.
+  const taxiLift = () => evaluate(`(() => {
+    let sum = 0;
+    window.__taxi.traffic.taxiGroup.traverse((n) => {
+      if (n.material && n.material.emissive) sum += n.material.emissive.r;
+    });
+    return sum;
+  })()`);
+  const restLift = await taxiLift();
+
   // The tap rides the camera back rather than cutting to the car — the same distinction the rider
   // peek is checked on, and invisible for the same reason: a pan and a cut are identical once they
   // have landed. Synchronously after the click: a glide is queued and the camera has not moved.
@@ -595,21 +609,40 @@ try {
     !backTap.gliding ? 'no ride started'
       : backParked ? 'ride queued, camera still parked' : 'the camera cut straight to the taxi');
 
-  // ...and it arrives, on a car that has been driving the whole way.
+  // ...and it arrives, on a car that has been driving the whole way — and the car flashes as it
+  // lands. Both are watched by the one loop, because the flash *starts* on the frame the ride
+  // retires: a poll that stopped at `!gliding` would exit one tick before the thing it is looking
+  // for. It runs on at 120ms until the lift has been seen, which is well inside the flourish's
+  // 0.29s of sim time (this page renders in software, so sim time runs slower than the clock).
   let backGap = null;
-  for (let attempt = 0; attempt < 20 && backGap === null; attempt++) {
-    await sleep(250);
+  let peakLift = restLift;
+  for (let attempt = 0; attempt < 60; attempt++) {
+    await sleep(120);
     const s = JSON.parse(await evaluate(`(() => {
       const t = window.__taxi.camera.state.target, taxi = window.__taxi.traffic.taxi;
-      return JSON.stringify({ gliding: window.__taxi.camera.isGliding(),
+      let lift = 0;
+      window.__taxi.traffic.taxiGroup.traverse((n) => {
+        if (n.material && n.material.emissive) lift += n.material.emissive.r;
+      });
+      return JSON.stringify({ gliding: window.__taxi.camera.isGliding(), lift,
         gap: Math.hypot(t.x - taxi.x, t.z - taxi.z) });
     })()`));
-    if (!s.gliding) backGap = s.gap;
+    peakLift = Math.max(peakLift, s.lift);
+    if (!s.gliding) {
+      if (backGap === null) backGap = s.gap;
+      if (peakLift > restLift + 0.05) break;
+    }
   }
   // A few units of slack for the frames between the landing and the poll that reads it: the car is
   // still driving, and on a wide viewport nothing follows it once the ride has handed over.
   check('the ride back lands on the taxi', backGap !== null && backGap < 12,
     backGap === null ? 'never settled' : `${backGap.toFixed(1)} units off the car`);
+  // The flourish that says *this car, here* — the same one a courier box landing fires. Measured as
+  // a rise over rest rather than against a number: five parts take `HIGHLIGHT * popHighlight(t)`
+  // together, so a peak-height flash is 5 × 0.32 × 0.944 = 1.51 and any tick inside the envelope is
+  // some fraction of that. Anything clearly over the noise floor means it fired.
+  check('and the taxi flashes when it lands', peakLift > restLift + 0.2,
+    `emissive across the car ${restLift.toFixed(2)} → ${peakLift.toFixed(2)}`);
   check('and the chip takes itself down again',
     (await evaluate('window.__taxi.taxiFinder.isUp()')) === false);
 
