@@ -284,9 +284,9 @@ three.js page does not:
 
 `?safe` is a **playable** configuration rather than a diagnostic one — a device that only works
 this way can still be played this way. Every flag overrides it, so `?safe&msaa=on` bisects upward
-exactly as `?msaa=off` bisects down, and the flags reach the tutorial avatar's renderer and the
-rider-finder chips' too: each of those opens a WebGL context of its own, and "how many contexts is
-this page holding" is part of what `?safe` is asking.
+exactly as `?msaa=off` bisects down, and the flags reach the tutorial avatar's renderer, the
+rider-finder chips' and the courier cargo chip's too: each of those opens a WebGL context of its
+own, and "how many contexts is this page holding" is part of what `?safe` is asking.
 
 **Android defaults to it**, as a holding measure — see below. The consequence for bisecting is
 that a bare `?msaa=off` on an Android device tells you nothing, because the other three are
@@ -407,7 +407,10 @@ Two things about that tool bit once and are worth keeping in mind when adding to
 canvas, inside `#rider-finder-stack` — which sits *earlier* in the DOM than the game's canvas. Once
 a rider was waiting, `querySelector('canvas')` handed back a chip, so every gesture went to a
 38-pixel button in the corner. The drag check failed for it; the tap check *passed* for it, because
-a click on a chip's canvas bubbles to the chip's button and dispatches the taxi anyway.
+a click on a chip's canvas bubbles to the chip's button and dispatches the taxi anyway. The
+[cargo chip](gameplay.md#the-load-is-repeated-in-the-hud) has since put a 42px canvas earlier still —
+it lives in `#hud`, the first element in the body — so the rule has more than one thing enforcing it
+now.
 
 **The camera checks emulate a phone.** Drag-to-pan, both follow-cams and the rider peek are all
 gated under `NARROW_VIEWPORT = 768`, and the tool launches a 900px window — so the drag check was

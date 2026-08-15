@@ -1188,7 +1188,8 @@ square against a disc is read at a glance.
   before packages existed; **`?parcels=1`** forces it back on, which is the only way to point a
   camera at one (`?shot=22` to `?shot=25`).
 - **The taxi wears its load.** A small parcel appears on the rear deck — an object on the car rather
-  than anything on the glass, for the reason [the roof sign](#the-taxis-roof-sign) is one.
+  than anything on the glass, for the reason [the roof sign](#the-taxis-roof-sign) is one. And it is
+  [repeated in the HUD](#the-load-is-repeated-in-the-hud), because on the car it is four pixels.
 
 ### The box visibly changes hands
 
@@ -1222,6 +1223,44 @@ And the ground marks move rather than blink. A pad **grows out of its own centre
 pulls back into it when it leaves — as does a fare's disc, both ends. At a rider's pickup the kerb
 disc now shrinks away on the same frame the drop-off's grows in, which is one clock changing ends of a
 trip; two discs switching state in one frame was two events.
+
+### The load is repeated in the HUD
+
+`src/game/cargochip.js` — a 42px disc under the cash total, holding the box itself, up for exactly as
+long as a package is aboard.
+
+The deck parcel above is the honest answer to "does the car have one", and at play zoom it is **about
+four pixels**, on a car the player is mostly not looking at because they are reading the road ahead of
+it. The cyan drop pad lighting up across town says *where*; nothing on screen said *what*. A player who
+blinked through the pickup flight was left inferring their own cargo from a pad they never asked for.
+
+- **The real mesh, not an icon.** `createParcel` in its own small WebGL context, lit by the city's own
+  sun through `mirrorSceneLights` — the same rig as the [tutorial avatar](#the-opening-tutorial) and the
+  [rider-finder chips](#extra-fares-and-prioritisation), so the box in the corner cannot drift out of
+  step when the box on the road is restyled.
+- **Three-quarter view, at the game camera's own elevation, with the azimuth mirrored** so that both
+  visible faces are lit ones — see [rendering.md](rendering.md#the-parcel--geometryparceljs) for the
+  angle and the framing.
+- **It sits with the money, not with the rider chips.** The bottom-left row is the reach zone and
+  everything in it is a control; a chip parked at the end of it would be the one that does nothing when
+  pressed, in a layer whose defining rule is that [a package cannot be tapped](#nothing-here-is-tapped-you-steer-into-it).
+  Up beside the cash total it is unambiguously a readout, and it inherits `#hud`'s `pointer-events: none`
+  so a thumb that lands on it goes straight through to the city.
+- **No ring around it.** A rider chip's ring is a clock. A package has none — that is the whole of
+  [why it has no diamond](#a-package-has-no-clock-and-so-has-no-diamond) — so a ring here would be the
+  one shape on screen lying about it. What it wears instead is a thin *solid* cyan rim: `PALETTE.parcel`,
+  unbroken, the colour of both pads and of the band driving at them.
+- **It does not spin.** The kerb box turns because a slow rotation is the box's substitute for the
+  rider's waving arm — "this is a thing to pick up". This one has already been picked up. A spinning
+  readout would be asking for a second pickup.
+- **Raised and lowered by the same two events as the deck parcel** — `'loaded'` and `'delivered'`,
+  beside `traffic.setTaxiCargo` rather than instead of it, so the corner and the car can never disagree
+  about whether there is a box aboard. It arrives on the money counter's own easing, because a pickup is
+  an arrival and should register as one.
+- **Checked in `tools/smoke.mjs`, not in the node suite**: a WebGL context inside a DOM node has no
+  headless equivalent. The assertion that matters is the **share of the disc actually drawn** — the
+  frustum is computed from the box's own dimensions, so the failure mode is a correct element with the
+  box framed off the side of it, which reads as a pass in the DOM and as an empty disc on screen.
 
 ## Crazy-taxi mode
 

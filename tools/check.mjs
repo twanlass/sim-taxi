@@ -24,6 +24,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/ssao.js', '../src/game/diag.js', '../src/game/recovery.js', '../src/game/pause.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
   '../src/geometry/parcel.js', '../src/geometry/parcelpad.js', '../src/game/parcels.js',
+  '../src/game/cargochip.js',
   '../src/game/tutorial.js', '../src/game/highscores.js', '../src/lab/labroad.js'];
 
 const TOOLS = [
