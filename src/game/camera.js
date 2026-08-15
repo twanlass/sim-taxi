@@ -12,7 +12,14 @@ export const VIEW_DIR = new THREE.Vector3(1, 0.92, 1).normalize();
 const DISTANCE = 400;
 
 // Screen right is world (+X, -Z) for this view direction; screen up is (-X, -Z).
-const RIGHT = new THREE.Vector3(1, 0, -1).normalize();
+//
+// RIGHT is exported because it is the one ground direction the view foreshortens by *nothing*: it lies
+// in the ground plane and square across the screen, so the pixel length of a step along it is the
+// pixel length of a world unit, whatever the zoom. That makes it the ruler anything measuring "how big
+// is a world unit on screen right now" should use — the courier's hand-off into the HUD does (main.js),
+// because the box has to open in the corner at the size it closed at in the city. Measuring up-screen
+// instead would need the elevation's cosine folded back out, which is a term to get wrong for nothing.
+export const RIGHT = new THREE.Vector3(1, 0, -1).normalize();
 const UP = new THREE.Vector3(-1, 0, -1).normalize();
 
 // A one-shot pan — a tap on a rider-finder chip — as opposed to the two follow-cams, which chase a
