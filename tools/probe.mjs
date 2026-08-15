@@ -3867,7 +3867,10 @@ check('the taxi is an ordinary car in the traffic array',
   recycler.wreckSmoke(0, 0);
   const greyed = new THREE.Color();
   recycler.mesh.getColorAt(0, greyed);
-  for (let n = 0; n < 140; n++) recycler.add(0, 0, 0);
+  // A full lap of the ring, measured off the pool rather than typed: MAX_PUFFS is private to
+  // dust.js and has moved twice (90 → 140 → 200, the last of those when the boost trail became a
+  // plume per rear wheel). A hard-coded lap length stops reaching slot 0 the moment it grows.
+  for (let n = 0; n < recycler.mesh.count; n++) recycler.add(0, 0, 0);
   const reused = new THREE.Color();
   recycler.mesh.getColorAt(0, reused);
   check('a recycled collar slot goes back to white for the boost trail',

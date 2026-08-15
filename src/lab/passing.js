@@ -41,7 +41,9 @@ import { createCarGhosts } from '../game/carghosts.js';
 import { createDaylight, DAY_SECONDS } from '../game/daylight.js';
 import { createAmbientOcclusion, markOccluder } from '../game/ssao.js';
 import { setAmbientOcclusion } from '../util/geo.js';
-import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../geometry/taxi.js';
+import {
+  TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK,
+} from '../geometry/taxi.js';
 import { DIR, dirSign, dirYaw, HALF_ROAD, PITCH } from '../city/grid.js';
 import { PALETTE } from '../palette.js';
 import { getAmbientOcclusion, getMsaa, getPixelRatioCap, getShadowMapSize } from '../util/shot.js';
@@ -487,11 +489,24 @@ function layRubber(dt) {
   stampRearRubber(taxi);
 }
 
+// One plume per rear tyre, off the contact patch, exactly as main.js lays it — and the lab is the
+// place to look at it, since a lane change here swings the two trails apart against a straight
+// road with nothing else moving.
 function kickDust() {
   if (!taxi.boost || taxi.v < 2) { lastDustAt = taxi.travelled; return; }
   if (taxi.travelled - lastDustAt < 0.47) return;
   lastDustAt = taxi.travelled;
-  dust.add(taxi.x - Math.cos(taxi.yaw) * 1.9, taxi.z + Math.sin(taxi.yaw) * 1.9, taxi.yaw);
+  const fx = Math.cos(taxi.yaw);
+  const fz = -Math.sin(taxi.yaw);
+  const rx = Math.sin(taxi.yaw);
+  const rz = Math.cos(taxi.yaw);
+  for (const side of [-1, 1]) {
+    dust.add(
+      taxi.x - fx * TAXI_REAR_AXLE_BACK + rx * side * TAXI_REAR_TRACK,
+      taxi.z - fz * TAXI_REAR_AXLE_BACK + rz * side * TAXI_REAR_TRACK,
+      taxi.yaw,
+    );
+  }
 }
 
 // --- Frame ------------------------------------------------------------------
