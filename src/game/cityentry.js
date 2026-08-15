@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { KERB_H } from '../city/ground.js';
 import { HALF_SPAN } from '../city/grid.js';
+import { setOccluderDepthMaterial } from './ssao.js';
 
 // The city's entrance: streets and ground are already in place, then the buildings and trees
 // grow out of them in a wave — rise from the kerb, fade in, overshoot their full size and settle
@@ -26,10 +27,11 @@ import { HALF_SPAN } from '../city/grid.js';
 //   - `customProgramCacheKey` on every patched material, *composed with* the key already there —
 //     propMaterial() may carry the SSAO patch, and two different onBeforeCompiles sharing one
 //     cache key silently get one program (the diamond-fill bug, see CLAUDE.md).
-//   - A shadow map renders through a depth material, not the lit one, so without a patched
-//     `customDepthMaterial` every building's shadow stands at full size before the building
-//     exists. The depth patch also discards unrevealed fragments: a scale-0 building is a *flat
-//     sheet at kerb height*, not nothing, and it casts a footprint-shaped shadow.
+//   - *Every* depth pass renders through a depth material, not the lit one, so an unpatched one
+//     draws the finished building. That is both the sun's shadow map and the SSAO prepass, and
+//     both are patched below. The depth patch also discards unrevealed fragments: a scale-0
+//     building is a *flat sheet at kerb height*, not nothing, and it casts a footprint-shaped
+//     shadow.
 //   - The same discard runs in the lit material, because that flat sheet also writes depth —
 //     invisible at alpha 0, but still able to clip pixels out of whatever crosses kerb height.
 //   - Shot mode ticks once and freezes, so anything driven off sim time is stuck on its first
@@ -38,9 +40,8 @@ import { HALF_SPAN } from '../city/grid.js';
 //
 // Known prototype shortcuts: the meshes stay `transparent` only while the entrance runs (flipped
 // back on finish — a merged transparent city can't self-sort, but at a fast fade nothing shows);
-// the SSAO prepass still sees full-size buildings during the grow (its depth pass isn't patched —
-// a contact shadow arriving a beat early reads fine); and the discard branch stays compiled in
-// afterwards, where its cost is a clamped no-op per vertex and a dead branch per fragment.
+// and the discard branch stays compiled in afterwards, where its cost is a clamped no-op per
+// vertex and a dead branch per fragment.
 
 // The wave: each object's delay is its distance from the wave's origin times WAVE, plus its own
 // hashed share of JITTER so a ring of same-radius buildings doesn't land as one stamped rank.
@@ -165,14 +166,30 @@ export function createCityEntry({ meshes, sites = [], dust = null, from = { x: 0
     material.transparent = true;
     materials.push(material);
 
-    // The sun's pass — without this the whole city's shadows arrive on frame one.
-    const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-    depth.customProgramCacheKey = () => 'city-entry-depth';
-    depth.onBeforeCompile = (shader) => {
-      patchVertex(shader);
-      patchFragment(shader, { alpha: false });
+    // The two depth passes. Both need the same patch for the same reason — a depth pass renders
+    // through a depth material, not the lit one, so unpatched it draws the finished building — and
+    // both need the discard, because a scale-0 building is a *flat sheet at kerb height* rather
+    // than nothing, and a sheet stamps a footprint-shaped hole into whatever reads the buffer.
+    //
+    // Two instances rather than one shared: three's shadow map assigns `side` on the material it
+    // is handed every frame, flipping FrontSide to BackSide, so a shared instance would have the
+    // AO prepass stamping the depth of each building's far wall. See `setOccluderDepthMaterial`.
+    const makeDepth = () => {
+      const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+      depth.customProgramCacheKey = () => 'city-entry-depth';
+      depth.onBeforeCompile = (shader) => {
+        patchVertex(shader);
+        patchFragment(shader, { alpha: false });
+      };
+      return depth;
     };
-    mesh.customDepthMaterial = depth;
+    // The sun's pass — without this the whole city's shadows arrive on frame one.
+    mesh.customDepthMaterial = makeDepth();
+    // The AO prepass — without this the city's *contact shadows* arrive on frame one, drawn
+    // around edges and corners that have not risen out of the ground yet. It reads worse than the
+    // early shadows would have, because AO is sampled in screen space: the crease lands on
+    // whatever is visible at those pixels, which during the wave is bare road.
+    setOccluderDepthMaterial(mesh, makeDepth());
   }
 
   // Dust fires in delay order, so playback is one pointer walking a sorted list. Rebuilt on every

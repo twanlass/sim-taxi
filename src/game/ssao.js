@@ -90,13 +90,35 @@ const MIN_RADIUS_TEXELS = 1.0;
 const MAX_RADIUS_TEXELS = 6.0;
 
 /**
+ * The prepass's draw list, in enrolment order — every mesh `markOccluder` has taken.
+ *
+ * Kept as a list rather than left to `scene.overrideMaterial` because an override is
+ * all-or-nothing, and one occluder in this game does not hold still: the city's entrance animation
+ * lives entirely in a vertex shader (`game/cityentry.js`), so a mesh drawn with the *shared* depth
+ * material stands at its finished size in the depth buffer while the colour pass shows it a third
+ * grown. The AO texture is sampled in screen space, so what that produced was a contact crease
+ * traced around a building that was not there yet, painted onto the bare road under it.
+ *
+ * Walking the list instead means each mesh can name its own depth material — see
+ * `setOccluderDepthMaterial`. It costs two property writes per occluder per frame, on a list
+ * measured at 36 entries in an ordinary run — nothing beside the pass it is setting up.
+ */
+const occluders = new Set();
+
+/** The draw list, for `tools/probe.mjs`. Read it; `markOccluder` is what writes it. */
+export function occluderList() {
+  return occluders;
+}
+
+/**
  * Put `root` and everything under it into the depth prepass.
  *
  * The filter is the rule, not a convenience: **an AO occluder is an opaque, colour-writing mesh.**
  * Everything that fails it would corrupt the prepass rather than contribute to it — the ghost
- * outline's mask writes no colour and its rim is an inflated hull flagged `transparent`, and
- * `overrideMaterial` would strip both of those flags and let them stamp depth as if they were the
- * car. The invisible raycast boxes on the taxi and the markers are the same story.
+ * outline's mask writes no colour and its rim is an inflated hull flagged `transparent`, and the
+ * prepass swaps a mesh's material out wholesale, which strips both of those flags and lets them
+ * stamp depth as if they were the car. The invisible raycast boxes on the taxi and the markers are
+ * the same story.
  *
  * The other half of the rule is that anything lit by `propMaterial()` has to be in here. A mesh
  * that *receives* AO without *casting* it samples the occlusion of whatever stands behind it —
@@ -109,8 +131,42 @@ export function markOccluder(root) {
     if (!material || material.transparent || material.visible === false) return;
     if (material.colorWrite === false) return;
     object.layers.enable(AO_LAYER);
+    occluders.add(object);
   });
   return root;
+}
+
+/**
+ * Take `root` back out again. The draw list holds a hard reference to every mesh in it, so
+ * anything that disposes an occluder has to say so — `game/roadwork.js` tears its slab down and
+ * builds no replacement, and without this the prepass would go on swapping materials on a mesh
+ * whose geometry has been freed.
+ */
+export function unmarkOccluder(root) {
+  root.traverse((object) => {
+    if (!object.isMesh) return;
+    object.layers.disable(AO_LAYER);
+    occluders.delete(object);
+  });
+  return root;
+}
+
+/**
+ * Give one mesh its own material for the depth prepass, for when the shared one draws the wrong
+ * shape — which today means anything whose geometry is computed in its vertex shader.
+ *
+ * This deliberately does **not** reuse `mesh.customDepthMaterial`, tempting as that is: the two
+ * passes want the same patched shader, but three's shadow map *mutates* that material on every
+ * frame it renders — `WebGLShadowMap.getDepthMaterial` assigns `result.side` from its `shadowSide`
+ * table, which flips a FrontSide material to BackSide. Sharing the instance would leave the AO
+ * prepass drawing back faces, i.e. stamping the depth of each building's *far* wall. Two instances
+ * carrying the same patch is a second program and no ambiguity.
+ *
+ * Pass `null` to go back to the shared material.
+ */
+export function setOccluderDepthMaterial(mesh, material) {
+  mesh.userData.aoDepthMaterial = material || null;
+  return mesh;
 }
 
 const AO_VERTEX = /* glsl */ `
@@ -246,6 +302,12 @@ export function createAmbientOcclusion(renderer, { enabled = true, strength = 0.
   let width = 0;
   let height = 0;
 
+  // Swap scratch, reused frame to frame so the pass allocates nothing. `swapped` is a snapshot of
+  // the draw list rather than a second walk of the Set: restoring has to touch exactly the meshes
+  // that were swapped, in the order their materials were saved.
+  const swapped = [];
+  const savedMaterials = [];
+
   /**
    * Sized off the drawing buffer every frame rather than off a resize event. It is two
    * comparisons, and it covers the cases an event does not: a pixel-ratio change on a monitor
@@ -312,13 +374,34 @@ export function createAmbientOcclusion(renderer, { enabled = true, strength = 0.
       // The shadow map is a property of the sun, not of this pass — left on, three would rebuild
       // all 2048x2048 of it a second time per frame for a render that never reads it.
       renderer.shadowMap.autoUpdate = false;
-      scene.overrideMaterial = depthMaterial;
+      // Cleared, not set: the depth material is chosen per mesh below, and an override left on by
+      // anything else would silently outrank every one of those choices.
+      scene.overrideMaterial = null;
       camera.layers.set(AO_LAYER);
+
+      // The draw list, swapped onto its depth materials. The layer mask is still what decides who
+      // renders; this decides what they render *as*.
+      let count = 0;
+      for (const mesh of occluders) {
+        swapped[count] = mesh;
+        savedMaterials[count] = mesh.material;
+        mesh.material = mesh.userData.aoDepthMaterial || depthMaterial;
+        count += 1;
+      }
+
       // packDepthToRGBA(1.0) is exactly white, so a white clear is the far plane — which is what
       // makes empty sky reject every tap that reaches it instead of creasing against the skyline.
       renderer.setClearColor(0xffffff, 1);
       renderer.setRenderTarget(depthTarget);
       renderer.render(scene, camera);
+
+      for (let i = 0; i < count; i += 1) {
+        swapped[i].material = savedMaterials[i];
+        // Dropped rather than left behind: a stale entry here would keep a disposed mesh and its
+        // material alive until the next frame overwrote the slot.
+        swapped[i] = null;
+        savedMaterials[i] = null;
+      }
 
       scene.overrideMaterial = savedOverride;
       camera.layers.mask = savedMask;
