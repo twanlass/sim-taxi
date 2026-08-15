@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
 import { createScene } from './game/scene.js';
-import { createCityCamera, attachDragPan, VIEW_DIR, RIGHT as SCREEN_RIGHT } from './game/camera.js';
+import { createCityCamera, attachDragPan, VIEW_DIR } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
@@ -963,23 +963,6 @@ function projectToScreen(x, y, z) {
   };
 }
 
-/**
- * How many viewport pixels the camera is currently giving a world unit.
- *
- * Measured rather than assumed: play zoom puts it near 7.7px, and it is nowhere near that during a
- * Loco Mode pull-out or on a phone in portrait. The step is along `SCREEN_RIGHT` because that is the
- * one world direction this view foreshortens by nothing (see camera.js), so the pixels it spans *are*
- * a world unit's worth with no elevation term to fold out.
- *
- * The courier hand-off is what needs this: the box's flight into the HUD has to open at exactly the
- * size the box closed at in the city, and "exactly" is a ratio between two cameras' scales.
- */
-function worldPxPerUnit(x, y, z) {
-  const from = projectToScreen(x, y, z);
-  const to = projectToScreen(x + SCREEN_RIGHT.x, y, z + SCREEN_RIGHT.z);
-  return Math.hypot(to.x - from.x, to.y - from.y);
-}
-
 /** Screen position of the taxi, for anchoring the earnings pop. */
 function taxiScreenPos() {
   return projectToScreen(traffic.taxi.x, 1.4, traffic.taxi.z);
@@ -1791,7 +1774,7 @@ function frame() {
   // the run is, and whether the run is over. Nothing routes the taxi at a package: the player
   // collects one by bending the route band through its pad, so there is no dispatch here and no
   // arbitration over the wheel. See game/parcels.js.
-  for (const { type, parcel } of
+  for (const { type, parcel, at } of
     (parcels && !homeTip?.state.holding
       ? parcels.update(dt, traffic.taxi, {
         fareSpots: fares.occupiedSpots(),
@@ -1800,28 +1783,23 @@ function frame() {
       })
       : NO_FARE_EVENTS)) {
     if (type === 'pickup') {
-      // The box has just been lifted off its corner, and this is the frame it changes renderers: the
-      // world copy is already hidden and the chip picks it up from exactly where that one was
-      // standing. `parcel.handoff` is the world point and the spin `parcels.js` measured off the live
-      // box (it owns those facts); turning them into pixels is this module's half, because the
-      // projection is.
-      //
-      // Nothing lands on the taxi any more — there is no deck parcel to appear, which is what lets the
-      // pickup be one move from the kerb to the readout rather than a flight into the car followed by
-      // a chip popping up in a different corner of the screen.
-      const from = parcel.handoff;
-      if (from && cargoChip) {
-        const at = projectToScreen(from.x, from.y, from.z);
-        cargoChip.flyIn({
-          x: at.x, y: at.y, pxPerUnit: worldPxPerUnit(from.x, from.y, from.z), yaw: from.yaw,
-        });
+      // The car's own acknowledgement, on the frame the detour paid off and the box leaves the pad.
+      // It is not "the load arrived here" — the load is on its way to the corner of the screen — it is
+      // the same flourish a tapped rider gets, fired on the object the player is watching at the
+      // moment they collected something. Nothing appears on the taxi: there is no deck parcel any
+      // more, which is what lets the pickup be one journey out of the world rather than two hops.
+      flashTaxi();
+    } else if (type === 'loaded') {
+      // The lift is nearly done and the box is nearly transparent. `at` is where it had got to, in the
+      // world, on *this* frame — `parcels.js` owns that fact; turning it into a pixel is this module's
+      // half, because the projection is. The chip then comes in from that direction under the last of
+      // the fade (see `flyIn` in game/cargochip.js).
+      if (at && cargoChip) {
+        const p = projectToScreen(at.x, at.y, at.z);
+        cargoChip.flyIn({ x: p.x, y: p.y, yaw: at.yaw });
       } else {
         cargoChip?.setCarrying(true);
       }
-      // The car's own acknowledgement, on the frame the detour paid off. It is not "the load arrived
-      // here" any more — the load is going to the corner — it is the same flourish a tapped rider gets,
-      // fired on the object the player is actually watching at the moment they collected something.
-      flashTaxi();
     } else if (type === 'delivered') {
       // The chip goes down now rather than when the outbound box lands, because that box *is* the load
       // leaving: the corner still holding one while a package is being set down on a pad would read as

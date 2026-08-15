@@ -11,14 +11,14 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 // pixels** at play zoom, on the one object the player is steering rather than studying — and this chip
 // was added beside it to say the same thing at a size that can be read, which left the board carrying
 // two versions of one fact. The deck parcel is gone (geometry/taxi.js). The box is collected *into
-// here*, which is also what lets the pickup be a single unbroken move instead of a flight into a mesh
-// followed by a chip popping up somewhere else.
+// here*, which is also what lets the pickup be one journey out of the world instead of a flight into a
+// mesh followed by a chip popping up somewhere else.
 //
 // Same rig as the rider-finder chips and the tutorial bubble — a 42px WebGL context lit by the city's
 // own sun (`mirrorSceneLights`) drawing `createParcel`, the real box rather than a picture of one, so
 // it cannot drift out of step when the box is restyled. That the chip draws the *same mesh* is what
-// makes the flight below possible at all: the thing that lands in the corner is the thing that left
-// the kerb, not a picture standing in for it.
+// makes the arrival below work at all: the thing that grows into the corner is the thing that left the
+// kerb, not a picture standing in for it.
 //
 // ## Why it sits with the money and not with the rider chips
 //
@@ -70,38 +70,34 @@ const CHIP_VIEW = new THREE.Vector3(-VIEW_DIR.x, VIEW_DIR.y, VIEW_DIR.z);
 // the thing that got smaller for it.
 //
 // The centre is the mesh's own half-height, imported rather than the 0.58 it used to be typed as: the
-// flight below lines this canvas's centre up with a point in the city, and the two ends of that line
-// have to be the same point on the box.
+// point the world half of a pickup reports is the middle of the box (game/parcels.js), and the two
+// ends of that line should be the same point on it.
 const CENTRE_Y = PARCEL_CENTRE_Y;
 const FIT = 1.15;
 
-/**
- * Pixels this canvas gives a world unit, across the frame.
- *
- * An orthographic frustum `2·FIT` wide drawn into `SIZE` pixels — 18.3px per unit, against the game
- * camera's ~7.7 at play zoom. **The box in the corner is more than twice the size of the box on the
- * road**, which is the whole reason the chip exists, and it is also the number the flight needs: the
- * hand-off starts at `gamePxPerUnit / CHIP_PX_PER_UNIT` of full size, so the first frame in the HUD is
- * exactly as big as the last frame in the city, and the growth after it is the box coming forward to
- * be read rather than a pop.
- *
- * Measured across the frame, not up it, so it can be compared against a screen-horizontal world step
- * at the other end. Both cameras share `VIEW_DIR.y`, so a *vertical* world unit is foreshortened by
- * the same cosine in each — but only the horizontal one is foreshortened by nothing in both, which
- * makes it the one axis that needs no elevation term to compare.
- */
-const CHIP_PX_PER_UNIT = SIZE / (2 * FIT);
-
-/**
- * How long the box takes to fly from the kerb into the corner, in ms.
- *
- * Longer than the outbound world flight's 550ms (`FLIGHT_TIME` in game/parcels.js) because it is
- * covering the whole screen rather than a car's length of road, and a cross-screen move at the short
- * duration reads as a flick rather than as something being carried. Wall time rather than sim time,
- * unlike everything in parcels.js: the thing being animated is a DOM element, and it goes on animating
- * through a pause the way the rest of the HUD does.
- */
-const FLY_MS = 620;
+// --- Coming in from the city ------------------------------------------------------------------
+//
+// The second half of a pickup. `game/parcels.js` lifts the collected box out of the world — up, away
+// toward this corner, fading — and near the end of that it says where the box had got to. From there
+// the chip **grows and fades in, with a short slide from that direction**, arriving as the world copy
+// finishes disappearing.
+//
+// **It travels a fraction of the way, not all of it.** The chip is not tracking the box across the
+// city; it is quoting its direction. A first cut did track it — the chip opened at the box's exact
+// screen point, at its exact apparent size, and flew the whole distance — and the seam was pixel-exact
+// and the result read as *too fast*, because a hand-off with no overlap gives the eye nothing to
+// follow. A short slide out of the right quadrant, overlapping the world box's last frames, reads as
+// one continuous journey and takes longer to say so.
+const FLY_MS = 460;
+// How much of the gap between the chip's slot and the box's last position it actually covers, and the
+// ceiling on that. Without the cap a package collected at the far corner of the map starts the chip
+// most of a screen away, which is the full-journey version again — and off the top-left corner, where
+// there is no screen to start from.
+const DRIFT_FRACTION = 0.26;
+const DRIFT_MAX = 120;
+// What it grows from. Bigger than the CSS pop's 0.55 would look at this distance — the slide is doing
+// part of the arriving — and small enough that "it got bigger" is the thing you notice.
+const START_SCALE = 0.45;
 
 /**
  * @param sun   the city's key light, read rather than re-parented (an Object3D has one parent)
@@ -174,32 +170,17 @@ export function createCargoChip({ sun, hemi }) {
     },
 
     /**
-     * Fly the box in from the city: it lifts off the kerb it was standing on, sweeps up into the
-     * corner and settles into the chip's slot at chip size.
+     * Bring the box in: it grows, fades up, and slides the last of the way from wherever the world
+     * copy was when it faded out.
      *
-     * `at` is where the box's own centre is on screen this frame, and `pxPerUnit` is what the game
-     * camera gives a world unit *across* the frame there — both measured in main.js, which owns the
-     * projection. `yaw` is the spin the kerb box had reached. Between them they are the whole of the
-     * hand-off: the chip opens at that point, at that size, at that angle, on the frame the world box
-     * is hidden, so nothing about the box changes across the seam except that it is now a piece of HUD.
-     *
-     * The three have to be *given* rather than assumed. The city's zoom moves (Loco Mode pulls the
-     * camera out), so a scale baked in at 7.7px per unit is right at one zoom and wrong at every other;
-     * the box bobs and spins, so the angle and even the height are only true for the frame they were
-     * read on.
-     *
-     * ## The path, and why it goes up before it goes across
-     *
-     * Three keyframes. The middle one has the box 78% of the way up but only 38% of the way across, so
-     * it *rises* off the pavement first and then sweeps into the corner. A straight line reads as the
-     * box being dragged across the city at an angle; the lift says it left the ground, which is the
-     * thing that actually happened, and it is the same shape the world flight throws its outbound box
-     * on (`FLIGHT_ARC` in game/parcels.js).
-     *
-     * Scale leads a little — 60% of the growth is done by the midpoint — so the box has already
-     * arrived at readable size while it is still travelling, rather than snapping to size at the end.
+     * `x, y` is that spot in viewport pixels — main.js projects it from the point `parcels.js` reports
+     * on its `'loaded'` event, because the projection is main.js's half of the job. `yaw` is the facing
+     * the box had spun to. Neither is a pose to match: the world copy is still on screen, thin and
+     * still moving, and this is a *cross-fade* out of the same quadrant rather than a hand-off on one
+     * frame. What has to be right is the **direction** — a chip that slid in from the opposite corner
+     * would read as a different object arriving.
      */
-    flyIn({ x, y, pxPerUnit, yaw = 0 }) {
+    flyIn({ x, y, yaw = 0 }) {
       if (carrying) return;
       carrying = true;
       el.setAttribute('aria-hidden', 'false');
@@ -208,31 +189,39 @@ export function createCargoChip({ sun, hemi }) {
 
       const home = el.getBoundingClientRect();
       // A chip with no box measures fine — it is a 42px grid cell whether or not `is-on` is set — but a
-      // HUD that is `display: none` (shot mode, the run-end blackout) measures 0×0, and a flight aimed
-      // from a rectangle at the origin is a box swooping in from off the top-left corner of the screen.
-      // Raise it where it stands instead: there is nothing on screen for the flight to be seamless with.
+      // HUD that is `display: none` (shot mode, the run-end blackout) measures 0×0, and a slide aimed
+      // from a rectangle at the origin comes in from off the top-left corner of the screen. Raise it
+      // where it stands instead: there is nothing on screen for it to be continuous with.
       const canFly = home.width > 0 && Number.isFinite(x) && Number.isFinite(y)
-        && pxPerUnit > 0 && !reducedMotion?.matches;
+        && !reducedMotion?.matches;
       el.classList.toggle('is-flying', canFly);
       el.classList.add('is-on');
       if (!canFly) return;
 
+      // A fraction of the way toward the box, capped — see DRIFT_FRACTION. Scaled along the line
+      // rather than clamped per axis, so the cap shortens the slide without bending it off the
+      // direction the box actually left in.
       const dx = x - (home.left + home.width / 2);
       const dy = y - (home.top + home.height / 2);
-      const k = pxPerUnit / CHIP_PX_PER_UNIT;
-      const mid = (from, to, f) => from + (to - from) * f;
+      const reach = Math.min(DRIFT_FRACTION, DRIFT_MAX / (Math.hypot(dx, dy) || 1));
+      const ox = dx * reach;
+      const oy = dy * reach;
 
       flight = el.animate([
-        { transform: `translate(${dx}px, ${dy}px) scale(${k})` },
-        {
-          transform: `translate(${dx * 0.62}px, ${dy * 0.22}px) scale(${mid(k, 1, 0.6)})`,
-          offset: 0.55,
-        },
-        { transform: 'translate(0px, 0px) scale(1)' },
-      ], { duration: FLY_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'both' });
+        { transform: `translate(${ox}px, ${oy}px) scale(${START_SCALE})`, opacity: 0 },
+        // Opaque well before it lands, so the *arrival* is the growth settling rather than a fade
+        // finishing — and so the overlap with the world box is a genuine cross-fade rather than two
+        // faint objects. Transform is left out of this frame deliberately: a keyframe that names only
+        // one property interpolates the others straight through it.
+        { opacity: 1, offset: 0.45 },
+        { transform: 'translate(0px, 0px) scale(1)', opacity: 1 },
+        // A hair of overshoot on the way in (the 1.12 in the curve), which is the same "this arrived"
+        // punctuation the money counter's bump makes.
+      ], { duration: FLY_MS, easing: 'cubic-bezier(0.22, 1.12, 0.36, 1)', fill: 'both' });
 
-      // The spin the box arrived with, eased out over the same flight — a box that snapped square on
-      // the frame it changed owners would undo the seam the position and the scale just bought.
+      // The spin the world copy was still turning at, eased out over the slide — so the box that fades
+      // up in the corner is mid-turn like the one fading out across the map, rather than sitting dead
+      // square from its first frame while the other is visibly still moving.
       //
       // Negated, because the chip's camera is the city's mirrored in X (see CHIP_VIEW): a mirrored view
       // of a box at yaw θ is the ordinary view of one at −θ. The mirror also flips the *image*, which
@@ -245,7 +234,7 @@ export function createCargoChip({ sun, hemi }) {
       // square box a quarter turn from square is *the same picture* — the footprint is square by
       // design (geometry/parcel.js) precisely so its spin never changes its width — so "settle it
       // square" has four right answers and this takes the near one. Landing the raw angle instead
-      // means up to half a turn crammed into 620ms, which is nine times the speed the box was
+      // means up to half a turn crammed into the slide, which is many times the speed the box was
       // actually rotating at and reads as a flourish rather than as the same spin running down.
       const QUARTER = Math.PI / 2;
       const settled = -yaw - Math.round(-yaw / QUARTER) * QUARTER;

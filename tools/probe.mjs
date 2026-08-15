@@ -32,7 +32,7 @@ import {
 import {
   createParcelSystem, MAX_PARCELS, PARCEL_MIN_DELIVERED, PARCEL_PAY_FACTOR, PARCEL_GAP_MIN,
   PARCEL_GAP_MAX, PARCEL_AFTER_DELIVERY, FLIGHT_MIN_ALPHA,
-  PARCEL_PAD_LIFT,
+  PARCEL_PAD_LIFT, LIFT_TIME,
 } from '../src/game/parcels.js';
 import { ringGrowScale, ringShrinkScale } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
@@ -1502,76 +1502,108 @@ check('no two cars occupy the same space', worst > 1.6,
     check('collecting a package does not touch the rider or their clock', false, 'no setup');
   }
 
-  // --- The box hands off to the HUD, and the pad grows rather than popping ------------------------
+  // --- The box lifts out of the world, and the pad grows rather than popping ----------------------
   //
-  // A collected box leaves the world for the corner of the screen (game/cargochip.js). The flight
-  // itself is a Web Animation and belongs to `tools/smoke.mjs`; what belongs *here* is the record it
-  // starts from, because that record is the seam. Every field of it is a way for the box to jump on
-  // the frame it changes renderers, and a jump of half a box's height looks exactly like the teleport
-  // the flight exists to replace — while reading, from the DOM, as a chip that came up correctly.
+  // A collected box rises off its pad, swells, slides away toward the corner of the screen the HUD chip
+  // lives in, and fades out; near the end of that it emits `'loaded'` carrying the point it had reached,
+  // which is what the chip comes in from (game/cargochip.js). The chip's half is a Web Animation and
+  // belongs to `tools/smoke.mjs`. What belongs *here* is the lift: it starts exactly where the kerb box
+  // stood, it goes the right way, and it hands over once, near the end, still moving.
   if (parcel) {
     const kerb = cornerFor(parcel.pickup.i, parcel.pickup.j);
-    const { handoff } = parcel;
-    // Bang on the corner in plan. The box stands at the pin's own origin, so any drift here is a
-    // hand-off measured against the junction centre — half a block out, which is most of the screen
-    // at play zoom.
-    check('a collected box hands off from the corner it was standing on',
-      Boolean(handoff)
-      && Math.hypot(handoff.x - kerb.x, handoff.z - kerb.z) < 0.01,
-      handoff ? `(${handoff.x.toFixed(2)}, ${handoff.z.toFixed(2)}) against kerb `
-        + `(${kerb.x.toFixed(2)}, ${kerb.z.toFixed(2)})`
-        : 'no handoff recorded');
-    // ...and at the box's own middle, which is what the chip's camera is centred on. The bob is ±0.07
-    // and live, so this is a band rather than an equality — but a band far tighter than the 0.58 that
-    // separates the box's centre from the pavement it is standing on, which is the error being ruled
-    // out.
-    const middle = PARCEL_PAD_LIFT + PARCEL_CENTRE_Y;
-    check('and from its own centre, not the pavement under it',
-      Boolean(handoff) && Math.abs(handoff.y - middle) <= 0.08,
-      handoff ? `y ${handoff.y.toFixed(3)} against ${middle.toFixed(3)} ±0.07 of bob`
-        : 'no handoff recorded');
-    // The spin comes across too, wrapped to a facing rather than handed over as the tens of radians
-    // the idle has accumulated — the chip eases this to square, and easing 40 radians would spin the
-    // box six times on the way into the corner.
-    check('and hands over a facing, not an accumulated spin',
-      Boolean(handoff) && handoff.yaw > -Math.PI - 1e-6 && handoff.yaw <= Math.PI + 1e-6,
-      handoff ? `yaw ${handoff.yaw.toFixed(2)} rad` : 'no handoff recorded');
+    const lift = parcel.slot.flight;
+    // The lift is already running — it was launched on the frame the box was collected. Its first
+    // position is the seam: the flying copy has to stand exactly where the kerb copy did, or the box
+    // jumps on the frame it changes objects.
+    check('a collected box lifts off from the corner it was standing on',
+      lift.visible
+      && Math.hypot(lift.position.x - kerb.x, lift.position.z - kerb.z) < 0.01
+      && Math.abs(lift.position.y - PARCEL_PAD_LIFT) < 0.01,
+      `(${lift.position.x.toFixed(2)}, ${lift.position.y.toFixed(2)}, `
+      + `${lift.position.z.toFixed(2)}) against kerb (${kerb.x.toFixed(2)}, `
+      + `${PARCEL_PAD_LIFT.toFixed(2)}, ${kerb.z.toFixed(2)})`);
 
-    // Nothing flies to the taxi any more, and nothing rides on it. The check is worth its line because
-    // the failure it rules out is *two boxes*: a world flight left running alongside the HUD's one is
-    // the same package collected twice, in two places, which no single-object assertion would catch.
-    let worldFlightFrames = 0;
+    // Step the lift and watch it climb, swell, fade, and set off up-screen and to the left — which is
+    // world −X for this camera (see TOWARD_HUD in game/parcels.js). Nothing may cross the road to the
+    // taxi, and nothing may be left on the kerb.
+    let rose = 0;
+    let swelled = 0;
+    let faded = 0;
+    let towardHud = 0;
     let kerbBoxShown = 0;
+    let loadedEvents = 0;
+    let handedAt = null;      // the fraction of the lift that had run when it handed over
+    let handedAlpha = null;   // ...and how visible the box still was
     let padGrowing = 0;
     let padSettled = false;
+    let stillFlying = 0;
     const padScale = () => parcel.slot.dropoff.ring.group.scale.x;
+    const boxMaterial = parcel.slot.flightBox.mesh.material;
+    const liftStartedAt = parcels.state.elapsed;
     for (let step = 0; step < 90; step++) {
       cTraffic.update(1 / 60);
       fares.update(1 / 60, cTraffic.taxi);
-      parcels.update(1 / 60, cTraffic.taxi, {
+      for (const event of parcels.update(1 / 60, cTraffic.taxi, {
         fareSpots: fares.occupiedSpots(), delivered: 9, over: false,
-      });
-      if (parcel.slot.flight.visible) worldFlightFrames += 1;
+      })) {
+        if (event.type !== 'loaded') continue;
+        loadedEvents += 1;
+        handedAt = (parcels.state.elapsed - liftStartedAt) / LIFT_TIME;
+        handedAlpha = boxMaterial.opacity;
+        // The point handed over is the box's *middle*, which is what the chip's picture is centred
+        // on — a hand-off aimed at its base points the chip's slide half a box low.
+        if (event.at) {
+          const middle = lift.position.y + PARCEL_CENTRE_Y * lift.scale.y;
+          if (Math.abs(event.at.y - middle) > 0.02) handedAlpha = null;
+        }
+      }
       if (parcel.slot.pickup.group.visible) kerbBoxShown += 1;
+      if (parcel.slot.flight.visible) {
+        stillFlying += 1;
+        if (lift.position.y > PARCEL_PAD_LIFT + 0.5) rose += 1;
+        if (lift.scale.x > 1.02) swelled += 1;
+        if (boxMaterial.transparent && boxMaterial.opacity < 0.9) faded += 1;
+        // Up-screen and to the left is world −X for this view, so the box's x must only ever fall.
+        if (lift.position.x < kerb.x - 0.5) towardHud += 1;
+      }
       if (parcel.slot.dropoff.ring.group.visible) {
         if (padScale() < 0.95) padGrowing += 1;
         if (padScale() === 1) padSettled = true;
       }
     }
-    check('and no box crosses the road to the taxi',
-      worldFlightFrames === 0, `${worldFlightFrames} frames of world flight after the pickup`);
+    check('and rises, swells and fades on the way out', rose > 8 && swelled > 8 && faded > 8,
+      `${rose} frames climbing, ${swelled} swelling, ${faded} fading`);
+    check('and sets off toward the corner the chip sits in', towardHud > 6,
+      `${towardHud} frames past the kerb toward the HUD`);
     check('and the kerb it left is empty from that frame on',
       kerbBoxShown === 0, `${kerbBoxShown} frames still showing the kerb box`);
+    // Exactly one hand-off per pickup: a second is a second chip arrival over the first.
+    check('the hand-off to the HUD is its own event, once',
+      loadedEvents === 1 && handedAt !== null, `${loadedEvents} loaded`);
+    // **And it fires while the box is still going.** At the end of the lift there is nothing left to
+    // cross-fade with and the chip reads as a separate pop — which is the version this replaced. The
+    // band is around `LIFT_HANDOFF`, and the alpha is the half that actually matters: still visible,
+    // clearly on the way out.
+    check('and it fires late in the lift, with the box still on screen and fading',
+      handedAt !== null && handedAt > 0.6 && handedAt < 0.95
+      && handedAlpha !== null && handedAlpha > 0.1 && handedAlpha < 0.6,
+      handedAt === null ? 'never handed over'
+        : `at ${(handedAt * 100).toFixed(0)}% of the lift, alpha ${handedAlpha?.toFixed(2)}`);
+    // ...and the box does eventually go. A lift left running is a box parked in the sky.
+    check('and the box is gone by the end of it', stillFlying < 60,
+      `${stillFlying} frames airborne of 90`);
     // And the pad it is going to grew out of the road rather than appearing at full size. Asserted on
     // frames of it *part-grown* — "it is visible" would pass against the pop this replaced.
     check('the courier pad grows rather than popping in', padGrowing > 4 && padSettled,
       `${padGrowing} frames part-grown, settled ${padSettled}`);
   } else {
-    for (const label of ['a collected box hands off from the corner it was standing on',
-      'and from its own centre, not the pavement under it',
-      'and hands over a facing, not an accumulated spin',
-      'and no box crosses the road to the taxi',
+    for (const label of ['a collected box lifts off from the corner it was standing on',
+      'and rises, swells and fades on the way out',
+      'and sets off toward the corner the chip sits in',
       'and the kerb it left is empty from that frame on',
+      'the hand-off to the HUD is its own event, once',
+      'and it fires late in the lift, with the box still on screen and fading',
+      'and the box is gone by the end of it',
       'the courier pad grows rather than popping in']) check(label, false, 'no setup');
   }
 
