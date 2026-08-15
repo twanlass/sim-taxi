@@ -12,9 +12,12 @@ import { sirenOn } from '../sim/police.js';
 // existed was ambient traffic pulling over to a car that was off-frame.
 //
 // **It is on exactly when the light bar is on**, which is the whole reason it can be trusted:
-// `state.armed` gates both (see BUST_ARM_INSET in sim/police.js — *lights on means it can bust
-// you*). A cruiser still fading in at the map edge cannot bust anyone and gets no glow, so the wash
-// never cries wolf and never stays quiet about something lethal.
+// `state.lit` gates both, so the wash is the same announcement seen through the frame edge rather
+// than a second rule with its own opinion. That includes the run-up — the bar lights as the cruiser
+// spawns and the bust only arms a block in (BUST_ARM_INSET in sim/police.js), so the wash covers
+// that grace period too. Telegraphing the cop early is the point of it; what it must never do is
+// stay quiet about one that is already lethal, and being armed off the earlier of the two flags is
+// what rules that out.
 //
 // The strobe comes off `sirenOn()` rather than a clock of its own, so the wash and the bar are the
 // same siren seen from two places and cannot drift apart — including the rate change to 11Hz once
@@ -100,20 +103,20 @@ export function edgeGlow(sx, sy, w, h, distance) {
 }
 
 /**
- * The whole rule, and the reason this module is worth having outside the DOM: the arming gate, the
+ * The whole rule, and the reason this module is worth having outside the DOM: the light-bar gate, the
  * geometry above, and the strobe, composed into the four numbers the CSS wants.
  *
  * `tools/probe.mjs` drives this against a live corridor run. Splitting the gate out into the caller
- * would have left the one property that matters most — *nothing that cannot bust you lights the
- * frame edge* — asserted nowhere but by reading main.js.
+ * would have left the one property that matters most — *the wash is up for exactly the frames the
+ * light bar is* — asserted nowhere but by reading main.js.
  *
  * @param state     the cruiser's published state (sim/police.js)
  * @returns {{x, y, radius, red, blue}} or null when the wash is off
  */
 export function sirenWash(state, sx, sy, w, h, distance) {
-  // Not armed is not merely "far away": it is a cruiser that cannot bust anyone and whose own light
-  // bar is dark. Warning about it would be the one thing this must never do.
-  if (!state || !state.armed) return null;
+  // Unlit is not merely "far away": it is a cruiser between runs, with its own light bar dark.
+  // Washing the frame for one would be warning about a car that is not there.
+  if (!state || !state.lit) return null;
 
   const glow = edgeGlow(sx, sy, w, h, distance);
   if (!glow) return null;
@@ -165,7 +168,7 @@ export function createSirenGlow({ camera, viewport = null }) {
   }
 
   /**
-   * @param police  the cruiser (sim/police.js) — `state.armed` is what arms this, same as the bar
+   * @param police  the cruiser (sim/police.js) — `state.lit` is what arms this, same as the bar
    * @param taxi    the player's car, for the proximity read
    */
   function update(police, taxi) {

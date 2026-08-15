@@ -1763,12 +1763,13 @@ threat they cannot see yet. `POLICE_BUST_RANGE` is one block, and a block is abo
 portrait phone's frame at play zoom — so a cruiser one screen edge away is already close enough to
 end a run, and the only cue it existed was ambient traffic pulling over to a car that was off-frame.
 
-**It is on exactly when the light bar is on.** `state.armed` gates both, so the rule the player
-already learns from a single run — [*lights on means it can bust
-you*](traffic.md#arming-it-where-it-can-be-seen) — extends to the edge of the screen without needing
-a second rule. A cruiser still fading in at the map edge cannot bust anyone and gets no wash. The
-probe asserts both halves directly: nothing unarmed ever lights the edge, and nothing armed and
-off-frame ever fails to.
+**It is on exactly when the light bar is on.** `state.lit` gates both, so the rule the player
+already learns from a single run — [*lights on means a cop is
+here*](traffic.md#the-lights-lead-the-gate) — extends to the edge of the screen without needing a
+second rule. That includes the run-up: the bar comes on as the cruiser spawns and the bust only
+arms a block in, so the wash covers the two-second grace period as well, which is the part of it a
+player off-frame most needs. The probe asserts both halves directly: nothing with a dark bar ever
+lights the edge, and nothing lit and off-frame ever fails to.
 
 The strobe comes off `sirenOn()` in `sim/police.js` rather than a clock of its own, which is the
 only reason the two stay in step — including the rate change to 11Hz once the cruiser has locked on,
