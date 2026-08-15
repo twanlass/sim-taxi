@@ -193,8 +193,10 @@ function asphaltFade(size, radius) {
 export function createGround(rng, blocks) {
   const parts = [];
 
-  // Asphalt slab under everything. Kept tight to the outer roads — a wide apron reads as a
-  // grey void around the city once there's no fog to hide where it ends. The edge itself is
+  // Asphalt slab under everything. Kept tight to the outer roads — a wide apron reads as a grey
+  // void around the city, and nothing hides where it ends. (The scene does carry a haze now, but
+  // it is a gradient over the whole frame rather than an edge fade: at the map's corners it is
+  // 0.17 of the way to the sky, which is a long way short of hiding an apron.) The edge itself is
   // feathered rather than cut: see `asphaltFade`.
   parts.push(bakeColor(roundedSlab(SLAB, SLAB_RADIUS), color('asphalt')));
 

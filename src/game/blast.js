@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { color } from '../palette.js';
+import { unlitMaterial } from '../util/geo.js';
 import { wheelGeometry, WHEEL_R } from '../geometry/wheels.js';
 
 // The crash detonation, whole. One call — `fire(x, z, tint)` — puts a shockwave ring, a fireball
@@ -127,7 +128,7 @@ export function createBlast(scene, rng) {
   // ring belongs to the same faceted city as everything else.
   const ringGeo = new THREE.RingGeometry(0.8, 1, 14);
   ringGeo.rotateX(-Math.PI / 2);
-  const ringMat = new THREE.MeshBasicMaterial({
+  const ringMat = unlitMaterial({
     color: color('blastRing'),
     transparent: true,
     depthWrite: false,
@@ -173,7 +174,7 @@ export function createBlast(scene, rng) {
   // --- Fireball -------------------------------------------------------------
   // Above the shards, so the core of the blast covers the pieces still inside it.
   const puffGeo = new THREE.IcosahedronGeometry(0.5, 0);
-  const puffMat = new THREE.MeshBasicMaterial({
+  const puffMat = unlitMaterial({
     transparent: true,
     depthWrite: false,
   });

@@ -56,7 +56,15 @@ function sample(hour) {
   };
 }
 
-export function createDaylight({ sun, hemi, sky }, startHour = 16.4) {
+/**
+ * @param fog  the scene's haze, or null. Its colour is driven from the same keyframes as everything
+ *             else here — and specifically from the **horizon**, since what the haze is standing in
+ *             for is the air between the camera and the back of the city, and what that air is lit
+ *             by is the sky just above the skyline. Reading `bottom` rather than carrying a colour
+ *             of its own is also what stops the two drifting apart: a fog tint tuned at golden hour
+ *             and left alone is a pale blue wash over a midnight city.
+ */
+export function createDaylight({ sun, hemi, sky, fog = null }, startHour = 16.4) {
   const state = { hour: startHour, cycling: true, dayLength: DAY_SECONDS };
 
   function apply(hour = state.hour) {
@@ -80,6 +88,7 @@ export function createDaylight({ sun, hemi, sky }, startHour = 16.4) {
     hemi.intensity = look.fill;
     sky.uniforms.topColor.value.copy(look.top);
     sky.uniforms.bottomColor.value.copy(look.bottom);
+    if (fog) fog.color.copy(look.bottom);
 
     return look;
   }

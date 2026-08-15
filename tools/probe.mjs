@@ -34,13 +34,14 @@ import {
   PARCEL_GAP_MAX, PARCEL_AFTER_DELIVERY, FLIGHT_MIN_ALPHA,
   PARCEL_PAD_LIFT, LIFT_TIME,
 } from '../src/game/parcels.js';
-import { ringGrowScale, ringShrinkScale } from '../src/geometry/targetring.js';
+import { createTargetRing, ringGrowScale, ringShrinkScale } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
 import { TAXI_DECK_Y } from '../src/geometry/taxi.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
 import {
+  createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
 } from '../src/geometry/diamond.js';
 import { HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
@@ -68,7 +69,12 @@ import {
 import {
   createCarGhosts, GHOST_RADIUS, MAX_GHOSTS, GHOST_OPACITY,
 } from '../src/game/carghosts.js';
-import { createCityCamera, attachDragPan, frameLead, VIEW_DIR } from '../src/game/camera.js';
+import {
+  createCityCamera, attachDragPan, frameLead,
+  VIEW_DIR, RIGHT, UP, DISTANCE, PLAY_ZOOM, DEPTH_PER_SCREEN_UNIT,
+} from '../src/game/camera.js';
+import { createScene, HAZE_TOP, hazeRange } from '../src/game/scene.js';
+import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
@@ -5640,6 +5646,167 @@ check('the taxi is an ordinary car in the traffic array',
   check('every render goes through the AO pass',
     !/renderer\.render\(scene, camera\)/.test(outsideRenderFrame),
     'main.js renders only via renderFrame()');
+}
+
+// --- Atmospheric perspective --------------------------------------------------
+//
+// The haze over the back of the frame (game/scene.js). Every number here is re-derived from a real
+// frustum rather than read back off the fog object, because the whole feature is one claim about
+// where the ramp sits relative to the picture: place the band wrong and the failure is either a
+// flat wash over the entire city — the thing the old "an ortho camera can't have fog" note was
+// afraid of — or nothing visible at all. Both look like "fog didn't work" in a screenshot.
+{
+  const smoothstep = (a, b, x) => {
+    const t = THREE.MathUtils.clamp((x - a) / (b - a), 0, 1);
+    return t * t * (3 - 2 * t);
+  };
+
+  // Haze on a world point, read exactly as the shader reads it: view-space depth through a real
+  // camera matrix, then three's own linear-fog curve.
+  const hazeAt = (controller, fog, x, y, z) => {
+    controller.camera.updateMatrixWorld();
+    const depth = -new THREE.Vector3(x, y, z)
+      .applyMatrix4(controller.camera.matrixWorldInverse).z;
+    return smoothstep(fog.near, fog.far, depth);
+  };
+
+  const world = createScene({ shadowMapSize: 0 });
+  const cam = createCityCamera(0.5, { zoom: PLAY_ZOOM });
+  cam.update(0.5);
+
+  // The claim DEPTH_PER_SCREEN_UNIT rests on: screen-right is perpendicular to the view direction,
+  // so moving across the frame changes nothing about how far away a thing is. Without it the haze
+  // would lean with the diagonal instead of banding.
+  check('screen-right carries no depth, so the haze is a vertical gradient',
+    Math.abs(RIGHT.dot(VIEW_DIR)) < 1e-12,
+    `RIGHT·VIEW_DIR = ${RIGHT.dot(VIEW_DIR).toExponential(1)}`);
+
+  // A ground point at the top or bottom edge of the frame, at any pan. `zoom` is the frame's
+  // half-height in world units of *screen*, and a ground step is foreshortened by VIEW_DIR.y.
+  const frameEdge = (controller, sign) => {
+    const reach = (sign * controller.state.zoom) / VIEW_DIR.y;
+    return {
+      x: controller.state.target.x + UP.x * reach,
+      z: controller.state.target.z + UP.z * reach,
+    };
+  };
+
+  const bottom = frameEdge(cam, -1);
+  const top = frameEdge(cam, +1);
+  check('the near edge of the play frame is perfectly clear',
+    hazeAt(cam, world.fog, bottom.x, 0, bottom.z) < 1e-6,
+    `depth ${(DISTANCE - PLAY_ZOOM * DEPTH_PER_SCREEN_UNIT).toFixed(1)} sits on the near plane`);
+  check('the far edge of the play frame carries exactly HAZE_TOP',
+    Math.abs(hazeAt(cam, world.fog, top.x, 0, top.z) - HAZE_TOP) < 1e-4,
+    `${hazeAt(cam, world.fog, top.x, 0, top.z).toFixed(4)} against ${HAZE_TOP}`);
+
+  // Pan-invariance, which is the whole reason the band is anchored on the frame rather than on the
+  // map. The camera and its target move together, so the depth of the bottom edge of the screen is
+  // a constant — a player who has panned to the corner still gets a clear foreground, and the haze
+  // can never creep forward onto the taxi.
+  cam.state.target.set(HALF_SPAN, 0, -HALF_SPAN);
+  cam.update(0.5);
+  const pannedBottom = frameEdge(cam, -1);
+  const pannedTop = frameEdge(cam, +1);
+  check('panning to the map edge moves neither end of the ramp',
+    hazeAt(cam, world.fog, pannedBottom.x, 0, pannedBottom.z) < 1e-6
+    && Math.abs(hazeAt(cam, world.fog, pannedTop.x, 0, pannedTop.z) - HAZE_TOP) < 1e-4,
+    'the frame carries its own depth band');
+
+  // And nothing in the city ever wears more than the number that was tuned. The far corner of the
+  // map sits at depth 465 against the frame's 480, which is the coincidence that lets one constant
+  // be stated about the picture and be true of the whole board.
+  const home = createCityCamera(0.5, { zoom: PLAY_ZOOM });
+  home.update(0.5);
+  let worst = 0;
+  for (const x of [-HALF_SPAN, HALF_SPAN]) {
+    for (const z of [-HALF_SPAN, HALF_SPAN]) worst = Math.max(worst, hazeAt(home, world.fog, x, 0, z));
+  }
+  check('no corner of the city is hazier than the frame edge it was tuned against',
+    worst > 0.15 && worst <= HAZE_TOP,
+    `worst corner ${worst.toFixed(3)} against ${HAZE_TOP}`);
+
+  // The wreck close-up (zoom 26) and the far end of the wheel. A frame that spans less depth gets
+  // less haze across it, which is what a shorter column of air should do — and the ramp must not
+  // run away at the other end either.
+  const closeUp = createCityCamera(0.5, { zoom: 26 });
+  closeUp.update(0.5);
+  const closeTop = frameEdge(closeUp, +1);
+  const closeBottom = frameEdge(closeUp, -1);
+  const closeSpread = hazeAt(closeUp, world.fog, closeTop.x, 0, closeTop.z)
+    - hazeAt(closeUp, world.fog, closeBottom.x, 0, closeBottom.z);
+  check('a close-up spans less haze than the play frame',
+    closeSpread > 0.05 && closeSpread < HAZE_TOP,
+    `${closeSpread.toFixed(3)} across the wreck zoom`);
+
+  // The band's own arithmetic, at the two zooms the game actually uses it at. `far` is a ramp
+  // length rather than a distance anything is drawn at, and a sign slip there reads as no fog.
+  const band = hazeRange();
+  check('the fog band is placed around the camera standoff, not from the eye',
+    band.near > DISTANCE * 0.75 && band.near < DISTANCE && band.far > band.near,
+    `${band.near.toFixed(0)} → ${band.far.toFixed(0)} on a ${DISTANCE}-unit standoff`);
+  check('asking for no haze pushes the ramp past anything drawn',
+    hazeRange(0).far > 1e5, `${hazeRange(0).far.toExponential(1)}`);
+
+  // The colour has to follow the sky or the whole thing inverts after dark: a pale blue haze over a
+  // midnight city lights the back of the board *brighter* than the front. Driven off the horizon,
+  // which is the sky the far edge of the city is actually standing in front of.
+  {
+    const dayWorld = createScene({ shadowMapSize: 0 });
+    const daylight = createDaylight(dayWorld);
+    let worstDrift = 0;
+    let darkest = 1;
+    for (const hour of [0, 5, 6.5, 9, 13, 16.4, 18.6, 20, 23]) {
+      daylight.apply(hour);
+      const horizon = dayWorld.sky.uniforms.bottomColor.value;
+      worstDrift = Math.max(worstDrift,
+        Math.abs(dayWorld.fog.color.r - horizon.r),
+        Math.abs(dayWorld.fog.color.g - horizon.g),
+        Math.abs(dayWorld.fog.color.b - horizon.b));
+      darkest = Math.min(darkest, dayWorld.fog.color.getHSL({ h: 0, s: 0, l: 0 }).l);
+    }
+    check('the haze is the horizon colour at every hour of the day',
+      worstDrift < 1e-9, `worst channel drift ${worstDrift.toExponential(1)}`);
+    check('a night haze is dark rather than a pale wash over a dark city',
+      darkest < 0.12, `darkest lightness ${darkest.toFixed(3)}`);
+    check('the parked palette entry agrees with the horizon it stands in for',
+      `#${createScene({ shadowMapSize: 0 }).fog.color.getHexString().toUpperCase()}` === PALETTE.skyBottom,
+      `${PALETTE.fog} against skyBottom ${PALETTE.skyBottom}`);
+  }
+
+  // --- Unlit means unfogged.
+  //
+  // The rule `unlitMaterial()` (util/geo.js) carries: a marker's whole content is its hue, and a
+  // hue mixed toward the sky by distance is a clock reporting the wrong time. Checked on the real
+  // materials rather than on the helper, since what matters is that the markers went through it.
+  check('the sky dome takes no fog',
+    world.sky.fog === false, 'a fogged backdrop would flatten its own gradient');
+  check('a fare disc takes no haze',
+    createTargetRing(PALETTE.urgency[4]).group.children.every((m) => m.material.fog === false),
+    'rim, fill and sweep');
+  const crystal = createDiamond(PALETTE.urgency[4]);
+  check("a fare's crystal takes no haze either, lit though it is",
+    crystal.mesh.material.fog === false && crystal.rim.material.fog === false,
+    'the hue is the clock');
+  check('a courier pad takes no haze',
+    createParcelPad(PALETTE.parcel).group.children.every((m) => m.material.fog === false));
+  check('the city itself does take it',
+    propMaterial().fog === true, 'everything lit is in the air');
+
+  // The half of the rule a runtime check cannot reach: whatever gets added next. Every unlit
+  // material in the game has to come through the one helper, and the only exemption is an
+  // invisible raycast box — which draws nothing there is anything to fog.
+  const strays = [];
+  for (const file of fs.readdirSync(new URL('../src', import.meta.url), { recursive: true })) {
+    if (!String(file).endsWith('.js') || String(file) === 'util/geo.js') continue;
+    const text = fs.readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8');
+    // The constructor and the ~120 characters after it, so `visible: false` is in reach.
+    for (const m of text.matchAll(/new THREE\.MeshBasicMaterial\(([\s\S]{0,120})/g)) {
+      if (!/visible:\s*false/.test(m[1])) strays.push(String(file));
+    }
+  }
+  check('every unlit material goes through unlitMaterial()',
+    strays.length === 0, strays.length ? `bare in ${strays.join(', ')}` : 'no bare MeshBasicMaterial');
 }
 
 // --- Nearby-traffic ghost outlines --------------------------------------------

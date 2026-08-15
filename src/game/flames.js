@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { unlitMaterial } from '../util/geo.js';
 
 // One-shot flame burst out the tailpipe when Loco Mode fires up. Same instanced-plus-alpha-
 // attribute recipe as dust.js — different tuning so the burst reads as *hot*: hot orange, additive
@@ -24,7 +25,7 @@ export function createFlames(scene, rng) {
 
   // Additive so the flame *lights up* the road behind it rather than sitting on it as an opaque
   // blob — a taillight-orange decal would just read as another sticker.
-  const material = new THREE.MeshBasicMaterial({
+  const material = unlitMaterial({
     color: '#FF8A2A',
     transparent: true,
     depthWrite: false,

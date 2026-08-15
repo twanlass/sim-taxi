@@ -9,7 +9,15 @@ import { HALF_SPAN } from '../city/grid.js';
 // rotates — only the target and the zoom move — so a billboard is a constant orientation computed
 // once from this, not a per-frame lookAt.
 export const VIEW_DIR = new THREE.Vector3(1, 0.92, 1).normalize();
-const DISTANCE = 400;
+// How far back the camera stands from its target. Exported because view-space *depth* is measured
+// from here — the haze in `scene.js` is a band placed around this standoff, and stated relative to
+// it rather than from zero.
+export const DISTANCE = 400;
+
+// The frustum half-height the game actually plays at, in world units — the vertical world span is
+// exactly twice this. `main.js` passes it (a shot's `?zoom=` overrides), and `scene.js` tunes the
+// haze against it, so it lives here rather than as a literal in each.
+export const PLAY_ZOOM = 52;
 
 // Screen right is world (+X, -Z) for this view direction; screen up is (-X, -Z).
 //
@@ -98,6 +106,19 @@ const LEAD_RATE = 2.4;
 // plane so it keeps its full length, UP is the ground plane's share of a tilted screen-up. And
 // because VIEW_DIR is a unit vector, its y component *is* that sine: 0.5453 at the fixed 33°.
 const SIN_ELEV = VIEW_DIR.y;
+
+// How much view-space **depth** one world unit of screen *height* is worth, over the ground plane.
+//
+// It is a single number because of a coincidence this projection hands over for free: `RIGHT` is
+// exactly perpendicular to `VIEW_DIR` — (1,0,-1)·(1,0.92,1) is 0 before either is normalised — so
+// moving across the screen changes nothing about how far away a point is. Depth over the ground is
+// therefore a function of **screen height alone**, and anything keyed on it (the haze in scene.js)
+// comes out as a clean vertical gradient rather than something that leans with the diagonal.
+//
+// The derivation: a ground step of `u` along UP is foreshortened to `u * SIN_ELEV` of screen height
+// and moves `u * -UP·VIEW_DIR` further from the camera, so the ratio is the second over the first.
+// 1.537 at this view direction — the frame's 52-unit half-height is 80 units of depth.
+export const DEPTH_PER_SCREEN_UNIT = -UP.dot(VIEW_DIR) / SIN_ELEV;
 
 /**
  * Where to aim, relative to the car, to seat it `LEAD_FRACTION` of a half-frame into the quadrant

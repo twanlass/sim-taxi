@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ROUTE_OPACITY } from '../game/routeline.js';
+import { unlitMaterial } from '../util/geo.js';
 import {
   RING_GROW_TIME, RING_SHRINK_TIME, ringGrowScale, ringShrinkScale, createSweepFor,
 } from './targetring.js';
@@ -144,13 +145,13 @@ export function createParcelPad(colorHex) {
 
   const rim = new THREE.Mesh(
     RIM_GEO,
-    new THREE.MeshBasicMaterial({ color: color.clone(), depthWrite: false }),
+    unlitMaterial({ color: color.clone(), depthWrite: false }),
   );
   rim.renderOrder = 4;
   rim.raycast = () => {};
   group.add(rim);
 
-  const fill = new THREE.Mesh(FILL_GEO, new THREE.MeshBasicMaterial({
+  const fill = new THREE.Mesh(FILL_GEO, unlitMaterial({
     color: color.clone(),
     transparent: true,
     opacity: ROUTE_OPACITY,

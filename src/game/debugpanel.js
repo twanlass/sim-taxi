@@ -1,4 +1,5 @@
 import { ROUTE_BLENDS } from './routeline.js';
+import { HAZE_TOP, setHazeTop } from './scene.js';
 import * as difficulty from './difficulty.js';
 
 // A small tweak panel behind a gear button.
@@ -49,6 +50,9 @@ const clockLabel = (hour) => {
 
 export function createDebugPanel({
   sun, hemi, sky, daylight, fares, carCount, routeLine, ao,
+  // The scene's haze (game/scene.js). Defaulted to null for the same reason `scores` is defaulted:
+  // the `npm run check` boot pass builds this panel against nothing.
+  fog = null,
   // `{ load, clear }` over game/highscores.js. Defaulted so the panel still constructs in the
   // `npm run check` boot pass, which builds it against nothing.
   scores = { load: () => [], clear: () => {} },
@@ -215,6 +219,23 @@ export function createDebugPanel({
     showOcclusion();
   });
 
+  // Atmospheric perspective — how much haze the top of the frame carries (game/scene.js). Two
+  // planes on a fog object, so unlike the AO lookup above there is nothing to recompile and this
+  // can be a plain slider. Live because the whole judgement is a comparison: the only way to know
+  // whether the back of the city has separated from the front is to watch the front stay put while
+  // the back moves.
+  const haze = slider(0, 0.5, 0.01, HAZE_TOP);
+  haze.disabled = !fog;
+  const hazeValue = row(panel, 'Haze', haze);
+  const showHaze = () => {
+    hazeValue.textContent = fog ? Number(haze.value).toFixed(2) : 'no fog';
+  };
+  showHaze();
+  haze.addEventListener('input', () => {
+    if (fog) setHazeTop(fog, Number(haze.value));
+    showHaze();
+  });
+
   // --- City entrance ----------------------------------------------------------
   // The opening rise-out-of-the-ground animation (game/cityentry.js). All five are live — the
   // shader levers are uniforms — but the animation is over by the time this panel can be opened,
@@ -338,6 +359,7 @@ export function createDebugPanel({
       ambientIntensity: Number(hemi.intensity.toFixed(2)),
       skyTop: `#${sky.uniforms.topColor.value.getHexString()}`,
       skyBottom: `#${sky.uniforms.bottomColor.value.getHexString()}`,
+      haze: Number(haze.value),
     },
     game: {
       fareSeconds: fares.getSeconds(),

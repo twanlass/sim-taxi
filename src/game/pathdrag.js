@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
+import { unlitMaterial } from '../util/geo.js';
 import { nearestJunction } from '../city/grid.js';
 import { planOrigin } from './route.js';
 import { routePath, nearestOnPath, HEAD_GAP } from './routeline.js';
@@ -92,7 +93,7 @@ function createHandle(scene) {
   // So the handle *subtracts* first. A darkened disc punches a hole in the glow, and the rim
   // reads against that hole rather than against the road. It comes out as a grommet in the paint,
   // which is what the thing actually is.
-  const core = new THREE.MeshBasicMaterial({
+  const core = unlitMaterial({
     // Black, for the same reason the crystal's rim is: this shape spends its whole life sitting on
     // the band, and the band is painted in the fare's clock — a hue that walks from green to red
     // over a run. No colour survives being drawn on all four of those; an absence of colour does.
@@ -101,7 +102,7 @@ function createHandle(scene) {
     depthWrite: false,
     side: THREE.DoubleSide,
   });
-  const rim = new THREE.MeshBasicMaterial({
+  const rim = unlitMaterial({
     color: new THREE.Color(PALETTE.routeLine),
     transparent: true,
     depthWrite: false,

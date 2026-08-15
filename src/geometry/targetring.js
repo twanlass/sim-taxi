@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ROUTE_OPACITY } from '../game/routeline.js';
+import { unlitMaterial } from '../util/geo.js';
 
 // The disc a fare marks its ground with: a filled circle inside a solid rim, lying flat on the
 // pavement corner. **Both ends of a trip wear one** — under the waiting rider, and on the corner
@@ -86,7 +87,7 @@ const SWEEP_TAIL = TWO_PI * 0.34;
  * key for every shape is correct — they compile the same source, and the geometry is what varies.
  */
 export function createSweepFor(geometry, colorHex) {
-  const material = new THREE.MeshBasicMaterial({
+  const material = unlitMaterial({
     color: new THREE.Color(colorHex),
     transparent: true,
     depthWrite: false,
@@ -181,13 +182,13 @@ export function createTargetRing(colorHex) {
 
   const rim = new THREE.Mesh(
     RIM_GEO,
-    new THREE.MeshBasicMaterial({ color: color.clone(), depthWrite: false }),
+    unlitMaterial({ color: color.clone(), depthWrite: false }),
   );
   rim.renderOrder = 4;
   rim.raycast = () => {};
   group.add(rim);
 
-  const fill = new THREE.Mesh(FILL_GEO, new THREE.MeshBasicMaterial({
+  const fill = new THREE.Mesh(FILL_GEO, unlitMaterial({
     color: color.clone(),
     transparent: true,
     opacity: ROUTE_OPACITY,

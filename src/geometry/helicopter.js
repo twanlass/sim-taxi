@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor } from '../util/geo.js';
+import { bakeColor, unlitMaterial } from '../util/geo.js';
 import { color } from '../palette.js';
 
 // A light twin-skid helicopter — a Jet Ranger, in the same sense the aeroplane is a Cessna:
@@ -148,7 +148,7 @@ function rotor(radius, chord, thickness, hub, discAlpha, discSegments) {
   );
   const disc = new THREE.Mesh(
     new THREE.CircleGeometry(radius, discSegments),
-    new THREE.MeshBasicMaterial({
+    unlitMaterial({
       color: '#FFFFFF',
       transparent: true,
       opacity: discAlpha,
@@ -207,11 +207,11 @@ export function createHelicopterMesh() {
   // at the size it is actually seen at; on its own the lamp is a red pixel that could be anything.
   const lamp = new THREE.Mesh(
     new THREE.OctahedronGeometry(LAMP_R, 0),
-    new THREE.MeshBasicMaterial({ color: color('heliBeacon'), transparent: true }),
+    unlitMaterial({ color: color('heliBeacon'), transparent: true }),
   );
   const halo = new THREE.Mesh(
     new THREE.OctahedronGeometry(HALO_R, 0),
-    new THREE.MeshBasicMaterial({
+    unlitMaterial({
       color: color('heliBeacon'),
       transparent: true,
       opacity: HALO_ALPHA,
