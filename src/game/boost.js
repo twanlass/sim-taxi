@@ -4,10 +4,10 @@
 // headless tests can all read the same state without any of them owning it.
 //
 // The meter does not refill on its own. Every drop of it is *earned* — the run opens with a third
-// of a tank and each successful drop-off pours another third in — so a spent tank is a real cost
-// and the only way back is to go work a fare. An earlier version trickled back up on its own
-// (and fast-recharged from empty), which meant waiting was a valid way to get boost back and the
-// meter said nothing about how the run was going.
+// of a tank, each successful drop-off pours another third in, and a package delivered pours half of
+// that — so a spent tank is a real cost and the only way back is to go do a job. An earlier version
+// trickled back up on its own (and fast-recharged from empty), which meant waiting was a valid way
+// to get boost back and the meter said nothing about how the run was going.
 //
 // Releasing mid-spend just pauses the drain, so a short tap costs a short slice of fuel and a long
 // hold keeps flowing until it runs out — the decision is *how long* to press as well as *when*.
@@ -19,6 +19,14 @@ export const BOOST_DURATION = 15;
 // hoarded — a start from empty left the button dead in the hand until the first drop-off landed.
 export const BOOST_START_FRACTION = 1 / 3;
 export const BOOST_FARE_REWARD = 1 / 3;
+
+// A package pays half what a rider does: 2.5s of boost, six deliveries to a full tank. Half rather
+// than a third keeps the fare the thing that fuels the run — a courier detour still has not
+// delivered anybody — while giving the errand something the cash alone could not, since the payout
+// is deliberately small enough that greed is punished by arithmetic (see docs/gameplay.md). A sixth
+// is also the smallest slice the pill's pour animation still reads as *filling* rather than
+// twitching: ~0.35s of pour at POUR_RATE, against the ~0.7s a fare's third takes.
+export const BOOST_PARCEL_REWARD = 1 / 6;
 
 // Releasing used to drop straight back to 'ready' and take every boost-only rule (collision,
 // police bust range, running reds) with it in the same frame — you could floor it at a cop or a

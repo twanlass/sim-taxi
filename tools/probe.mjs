@@ -77,7 +77,8 @@ import { PALETTE, BUILDING_COLORS } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
 import { createBlast } from '../src/game/blast.js';
 import {
-  createBoost, BOOST_DURATION, BOOST_START_FRACTION, BOOST_FARE_REWARD, BOOST_COOLDOWN,
+  createBoost, BOOST_DURATION, BOOST_START_FRACTION, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD,
+  BOOST_COOLDOWN,
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 
@@ -4872,6 +4873,60 @@ check('the taxi is an ordinary car in the traffic array',
   c.topUp(BOOST_FARE_REWARD);
   for (let i = 0; i < 60; i++) c.update(1 / 60);
   check('top-ups clamp at a full tank', c.fraction() === 1, `${c.fraction().toFixed(3)}`);
+
+  // A package pays into the same tank at half the rate — the courier layer's only claim on the
+  // meter. Two of them are worth exactly one fare, which is the whole statement of the ratio.
+  const d = createBoost(BOOST_DURATION, 0);
+  d.topUp(BOOST_PARCEL_REWARD);
+  d.topUp(BOOST_PARCEL_REWARD);
+  for (let i = 0; i < 60 * 2; i++) d.update(1 / 60);
+  check('two packages pour what one drop-off does',
+    Math.abs(d.fraction() - BOOST_FARE_REWARD) < 1e-9,
+    `${d.fraction().toFixed(3)} vs ${BOOST_FARE_REWARD.toFixed(3)}`);
+  check('a package pays less than a fare does', BOOST_PARCEL_REWARD < BOOST_FARE_REWARD);
+
+  // And it revives a dead tank the same way a drop-off does — a sixth is small, but it is never
+  // *nothing*: 2.5s of boost is a straightaway's worth, and the pill has to come back off `.is-empty`
+  // for it or the reward is invisible.
+  // Drained rather than started at zero: only a tank that has actually run dry reaches 'empty', and
+  // 'empty' is the mode the revival has to come back out of.
+  const e = createBoost();
+  e.press();
+  for (let i = 0; i < 60 * 7; i++) e.update(1 / 60);
+  e.topUp(BOOST_PARCEL_REWARD);
+  e.update(1 / 60);
+  check('a package revives an empty meter under a held button', e.isActive() && e.fraction() > 0,
+    `mode ${e.state.mode}, ${e.fraction().toFixed(3)}`);
+}
+
+// --- ...and its pour animation at a package's smaller slice ------------------
+//
+// The pour is what makes a reward *visible*, and a sixth of a tank is the smallest slice anything
+// pays. The worry is that it lands too fast to read as filling: at POUR_RATE (half a tank a second)
+// a sixth takes ~0.33s, against the ~0.7s a fare's third takes. Assert it stays a pour — long enough
+// to see, and still overshooting so the pill's spring fires the same way.
+{
+  const b = createBoost(BOOST_DURATION, 0);
+  const m = createBoostMeter();
+  const dt = 1 / 60;
+  b.topUp(BOOST_PARCEL_REWARD);
+
+  let peak = -1, t = 0, pourT = null;
+  for (let i = 0; i < 60 * 2; i++) {
+    b.update(dt);
+    const pouring = b.state.pending > 0;
+    m.update(dt, b.fraction(), pouring);
+    t += dt;
+    if (!pouring && pourT === null) pourT = t;
+    peak = Math.max(peak, m.state.pct);
+  }
+
+  check('a package pours long enough to read as filling', pourT > 0.25 && pourT < 0.5,
+    `${pourT.toFixed(2)}s`);
+  check('and the bar still overshoots it', peak > BOOST_PARCEL_REWARD + 0.02,
+    `peaked at ${(peak * 100).toFixed(1)}% of a ${(BOOST_PARCEL_REWARD * 100).toFixed(1)}% pour`);
+  check('the bar settles on the fuel a package left', Math.abs(m.state.pct - b.fraction()) < 1e-9,
+    `${(m.state.pct * 100).toFixed(1)}% vs ${(b.fraction() * 100).toFixed(1)}% fuel`);
 }
 
 // --- The Punch It pill's fill animation -------------------------------------
