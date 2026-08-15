@@ -62,7 +62,8 @@ the road ahead without giving up the fare. See
 **Loco Mode** (bottom left) is the crazy-taxi button: **hold** for double speed that runs red
 lights, release to pause the meter. Two clear blocks in a row take it past double into the
 overdrive band, and any corner takes that back. A full tank is 15 seconds of boost, earned rather than
-regenerated: you start with a third and each drop-off tops it up by another third.
+regenerated: you start with a third, each drop-off tops it up by another third, and a delivered
+package pours in half of that.
 
 ## Conventions worth knowing before editing
 

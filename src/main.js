@@ -11,7 +11,7 @@ import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
-import { createBoost, BOOST_FARE_REWARD } from './game/boost.js';
+import { createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
@@ -1668,14 +1668,21 @@ function frame() {
       // The deck parcel goes now rather than when the outbound box lands, because the box *is* the
       // load leaving: two of them on screen at once would read as the taxi carrying a second package.
       traffic.setTaxiCargo(false);
-      // Cash only, deliberately. The payout takes the same two-phase flight a fare's does — off the
-      // taxi, then to the counter — because it is the same kind of event arriving from the same
-      // place, and a bonus that landed in the counter with no visible link to the car would read as
-      // a side effect. What it does *not* touch is the multiplier (that number means "this is what a
-      // fare is worth now", and a package is not a fare) or the boost tank (Loco Mode fuel is the
-      // delivery reward, and a courier detour has not delivered anybody).
+      // Cash and fuel, the same two currencies a drop-off pays, and both take the same two-phase
+      // flight a fare's does — off the taxi, then to the counter and to the pill — because it is the
+      // same kind of event arriving from the same place, and a bonus that landed in either place
+      // with no visible link to the car would read as a side effect. The fuel is deliberately *half*
+      // a fare's (see BOOST_PARCEL_REWARD): an errand pays into the tank, but a fare still fills it
+      // twice as fast, so the courier layer stays a detour rather than the way you fuel a run. What
+      // a package still does not touch is the multiplier — that number means "this is what a *fare*
+      // is worth now", and a package is not a fare.
       fares.credit(parcel.value);
       popEarning(parcel.value);
+      flyEnergyToBoost({
+        from: taxiScreenPos,
+        to: boostScreenPos,
+        onArrive: () => boost.topUp(BOOST_PARCEL_REWARD),
+      });
     }
   }
 

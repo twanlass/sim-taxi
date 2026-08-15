@@ -1129,10 +1129,14 @@ square against a disc is read at a glance.
   the rider's target and does not reset, pause or extend their clock.
 - **Priced exactly like a rider going the same distance** — `priceFor`, times the shift multiplier,
   stamped at spawn. `PARCEL_PAY_FACTOR` is the one number to turn if it plays too rich.
-- **Cash only.** No multiplier bump (that number means "this is what a *fare* is worth now"), no
-  boost top-up (Loco Mode fuel is the delivery reward, and a courier detour has delivered nobody),
-  no run-end stat row. The payout takes the same [two-phase flight](#economy) a fare's does, because
-  it is the same kind of event arriving from the same place.
+- **Cash and a splash of fuel.** No multiplier bump (that number means "this is what a *fare* is
+  worth now") and no run-end stat row, but a delivered package does pour **a sixth of a tank** into
+  Loco Mode — half what a drop-off pays (`BOOST_PARCEL_REWARD` against `BOOST_FARE_REWARD`). Both
+  the payout and the fuel take the same [two-phase flight](#economy) a fare's do, because it is the
+  same kind of event arriving from the same place. The half is the whole argument: an errand that
+  paid nothing into the tank was the only job in the game whose reward the pill ignored, and one
+  that paid a fare's third would make a courier run the *cheap* way to fuel a run — six packages to
+  a full tank keeps the fare the thing that fills it.
 - **A package is a find, not a fixture.** The gap between spawns is **drawn** per package (18–45s)
   rather than fixed, and a delivery pushes the next one further out again (`PARCEL_AFTER_DELIVERY`). A
   flat 12s gap made the board a metronome: with two slots that is a permanent pair of pads on the map,
@@ -1202,11 +1206,11 @@ short slice, a long hold flows until the tank is empty. Full tank is 15 seconds 
 decision is now *how long* to press as well as *when*. The button doubles as the dial: a `--pct`
 CSS variable tracks the fuel level, dropping as you drain and climbing as a drop-off pours fuel in.
 
-**The meter never refills on its own.** The run opens with **a third of a tank** and each
-successful drop-off pours in **another third** — that is the only source of fuel. Spend it all and
-the pill goes grey and dead (`.is-empty`, `disabled`) until you deliver someone. A top-up that
-lands while you're still holding the button rolls straight back into boost rather than making you
-press again.
+**The meter never refills on its own.** The run opens with **a third of a tank**, each successful
+drop-off pours in **another third**, and a [delivered package](#the-rest-of-it) pours in **a
+sixth** — that is the whole list of sources, and all three are jobs done. Spend it all and the pill
+goes grey and dead (`.is-empty`, `disabled`) until you deliver something. A top-up that lands while
+you're still holding the button rolls straight back into boost rather than making you press again.
 
 Both ways out of a boost — letting go, and running the tank dry — pass through the one-second
 `'cooldown'` momentum window first, so `'empty'` is where a drained tank lands *after* that tail
@@ -1302,10 +1306,16 @@ that has driven on — and a pill a resize has moved — are still aimed at corr
 hidden (shot mode, or the run-end blackout) the flight is skipped and the fuel is handed over
 anyway: losing earned boost to a presentation detail would be a real bug wearing a cosmetic one.
 
+A delivered package fires the same swarm from the same car to the same pill, for `BOOST_PARCEL_REWARD`
+instead — one effect for "you got fuel", regardless of which job paid it. It sits behind the courier
+payout's flight for the same reason a fare's does.
+
 Then the pour itself. `boost.topUp(BOOST_FARE_REWARD)` queues the fuel as *pending* and pours it in
-at half a tank per second (~0.7s) so the bar visibly fills rather than snaps. Since that pour is now
-the *only* way fuel ever enters the meter, it carries the rest of the reward and gets three more
-layers, all timed by `src/game/boostmeter.js` and shaped in `index.html`:
+at half a tank per second (~0.7s) so the bar visibly fills rather than snaps. A package's sixth takes
+half that (~0.35s), which the probe pins as the floor: below about a quarter-second the fill stops
+reading as a fill and starts reading as a jump. Since that pour is now the *only* way fuel ever
+enters the meter, it carries the rest of the reward and gets three more layers, all timed by
+`src/game/boostmeter.js` and shaped in `index.html`:
 
 | Layer | What it does | Wiring |
 |---|---|---|
