@@ -9,6 +9,7 @@ import { nextIntersection } from '../city/grid.js';
 import {
   ARRIVE_RADIUS, blockDistance, cornerFor, intersectionCentre, onSameBlock, priceFor,
 } from './fares.js';
+import { popEnvelope } from './selectpop.js';
 import * as difficulty from './difficulty.js';
 
 // The package courier: a second cargo slot on a taxi that has one seat.
@@ -19,20 +20,31 @@ import * as difficulty from './difficulty.js';
 // splash of Loco Mode fuel (half what a fare pays — `BOOST_PARCEL_REWARD`, spent in main.js: this
 // module reports the delivery and stays out of the economy).
 //
-// ## Nothing here is tapped. You steer into it.
+// ## A package is never a destination. It is a **detour**.
 //
-// **This is the whole feature.** A package cannot be selected: it has no hit box, it is not in the
-// picker's target list, and there is no way to dispatch the taxi at one. The only way to collect or
-// deliver a package is to make the taxi's route **pass through its junction** — which, since the
-// route is planned to whatever fare the player is actually working, means **dragging the route band
-// sideways** until it bends through the pad (see game/pathdrag.js).
+// **This is the whole feature, and it survives the box becoming tappable.** There is still no way to
+// dispatch the taxi at a package. The only way to collect or deliver one is to make the taxi's route
+// **pass through its junction**, on the way to wherever it was already going — the fare the player
+// is actually working. Two gestures ask for that same bend:
 //
-// That is why the layer is worth having. Until now the band was the one thing on screen the player
-// could reshape and had no reason to reshape unless traffic went solid ahead of them: `pathdrag`
-// answered "which way", and the answer almost never mattered. A package puts something *on* a road
-// the route does not currently take, so the question becomes worth asking on an empty street. The
-// route-drag mechanic gets a reason to exist, and it costs the player exactly the seconds the detour
-// costs — spent out of the clock of whichever rider is in the back seat.
+//   - **drag the route band** sideways until it crosses the pad (game/pathdrag.js), or
+//   - **tap the box**, which is `findRouteVia` again with the waypoint named rather than aimed at.
+//
+// The tap is the newer half and it is a shortcut, not a second mechanic: it plans the identical
+// origin → box → destination route, under the identical `MAX_VIA_DETOUR` cap, and refuses in the
+// identical case. What it removes is the aiming. A drag asks the player to work out *which junction*
+// bends the band through a box that may be half a city from the paint, then hold a finger on a
+// moving car's route while they do it; on a phone that is a two-handed job for a decision — "take
+// this one?" — that is a single yes or no. The tap says "include this" and lets the router find the
+// bend.
+//
+// What the tap costs is worth writing down, because it is the thing this trades away: the drag was
+// the *price* of a package, and skill at aiming it was part of what the box was worth. A tap makes
+// collection free and leaves only the routing cost. The cap is what keeps that from being a
+// one-tap payout — over it the tap is refused and the route holds exactly still, which is the same
+// wall a drag hits. The drag is still the only gesture that can say anything the tap cannot: it
+// answers "which way", so it is what you reach for when the road ahead has gone solid, and it can
+// bend through a corner no marker is standing on.
 //
 // It also means there is no `directed` flag here and no arbitration with the fare system. `fares.js`
 // needs that rule because a taxi cruising on random turns would otherwise wander into a pin and
@@ -40,7 +52,8 @@ import * as difficulty from './difficulty.js';
 // it has no clock to lose, missing one costs nothing, and collecting one by luck is a small gift
 // rather than a stolen decision. **A package that happens to sit on the route you were already
 // driving is free money, and that is intended.** Spawn placement below is what keeps that from being
-// the common case.
+// the common case. The tap does not touch `directed` either: it re-plans the route to the *same*
+// fare, so whose clock is paying for the drive never changes hands.
 //
 // ## A package has no clock, and so has no diamond
 //
@@ -187,6 +200,31 @@ export const PARCEL_PAD_LIFT = KERB_H + 0.12;
  */
 const FLIGHT_MIN_SCALE = PARCEL_DECK_SCALE;
 
+// --- Answering the tap --------------------------------------------------------------------------
+//
+// A tap on a rider is answered by the rider (game/selectpop.js): the figure and the crystal swell and
+// settle, because the route band — which is what the tap *means* — starts a junction away from the
+// finger and runs off across the city.
+//
+// A tap on a box has the opposite problem. The band's answer lands exactly where the finger is: it
+// bends and comes through the pad, which is the most legible confirmation in the game. What it cannot
+// say is **no**. A drag that is refused is felt through the finger — the band stops following and the
+// gesture hits a wall — but a tap that is refused looks precisely like a tap that missed a 20-unit hit
+// box on a shape a few pixels across, and the player's next move is to tap it again.
+//
+// So both answers are given on the corner, on the pop's own envelope, and they differ in **sign**:
+//
+//   accepted  the end you tapped swells                  — taken, and here is where the route bends
+//   refused   it flinches inward and settles back        — heard, and no
+//
+// One channel rather than two (no colour, no new object): hue on this board is spoken for, a package
+// has nothing to report with it, and a shape that grew *and* lit would out-shout the band that is
+// simultaneously redrawing itself through the same corner.
+export const ACK_SWELL = 0.22;
+// Smaller than the swell on purpose. A refusal is the quieter of the two events — nothing has changed
+// and nothing is about to — and a flinch as deep as the swell is tall reads as a second kind of yes.
+export const ACK_FLINCH = -0.12;
+
 const NO_EVENTS = Object.freeze([]);
 
 /**
@@ -212,6 +250,12 @@ function createSlot(scene, index) {
   flight.add(flightBox.group);
   flight.visible = false;
   scene.add(flight);
+
+  // Which slot a picked object belongs to, the way fares.js tags its own two markers. The picker
+  // hands back whatever mesh the ray hit — an invisible hit box, two groups deep — and `parcelFor`
+  // walks up from it to here.
+  pickup.group.userData.parcelSlot = index;
+  dropoff.group.userData.parcelSlot = index;
 
   pickup.group.visible = false;
   dropoff.group.visible = false;
@@ -269,6 +313,12 @@ export function createParcelSystem(rng, scene) {
     const corner = cornerFor(i, j);
     pin.group.position.set(centre.x, 0.12, centre.z);
     pin.postGroup.position.set(corner.x - centre.x, KERB_H, corner.z - centre.z);
+    // A slot is reused for the rest of the run, and a pin goes invisible mid-envelope every time a
+    // package is collected — the loop at the bottom of `update` skips hidden pins, so whatever scale
+    // the last tap left on this corner is still on it. Reset on placement rather than on hiding:
+    // there are three ways a pin goes dark (collected, delivered, game over) and one way it comes
+    // back.
+    pin.postGroup.scale.setScalar(1);
     pin.group.visible = true;
   };
 
@@ -371,6 +421,12 @@ export function createParcelSystem(rng, scene) {
       // package appeared in — so a courier job found during Rush Hour is worth Rush Hour money
       // whenever it happens to get delivered.
       value: 0,
+      // Sim time of the last tap on this package, and which way its corner answers — see
+      // `acknowledge`. Null rather than -Infinity so a package that has never been tapped skips the
+      // envelope entirely instead of evaluating it at t = ∞ every frame of its life.
+      ackAt: null,
+      ackAmp: 0,
+      ackPending: false,
     };
     parcel.value = Math.round(
       priceFor(pickup, dropoff) * difficulty.payoutMultiplier(state.delivered) * PARCEL_PAY_FACTOR,
@@ -399,6 +455,39 @@ export function createParcelSystem(rng, scene) {
     parcel.slot.dropoff.group.visible = false;
     const at = state.parcels.indexOf(parcel);
     if (at !== -1) state.parcels.splice(at, 1);
+  }
+
+  /** Whichever end of an errand is on the board right now — the corner a tap can land on. */
+  const liveEnd = (parcel) => (parcel.stage === 'waiting' ? parcel.slot.pickup : parcel.slot.dropoff);
+
+  /**
+   * Which package owns a picked object, walking up from the hit the way the picker does.
+   *
+   * `fares.fareFor`'s twin, and separate from it for the same reason this module is separate: the two
+   * boards never share a slot, a corner or an index.
+   */
+  function parcelFor(object) {
+    for (let node = object; node; node = node.parent) {
+      const slot = node.userData?.parcelSlot;
+      if (slot !== undefined) return state.parcels.find((p) => p.slot.index === slot) ?? null;
+    }
+    return null;
+  }
+
+  /**
+   * Answer a tap on this package's live corner: `accepted` swells it, a refusal flinches it. See
+   * ACK_SWELL above for why the sign is the whole of the difference.
+   *
+   * Called by `main.js` once the re-plan has actually been attempted, never from the picker directly
+   * — the same discipline `fares.markDirected` keeps, so a refused tap can never be answered as if it
+   * had landed. It stamps a flag rather than the time, and `update` takes the zero from the same
+   * `state.elapsed` every other animation here reads: a frozen shot then renders the same frame
+   * whatever order the calls came in.
+   */
+  function acknowledge(parcel, accepted) {
+    if (!parcel || !state.parcels.includes(parcel)) return;
+    parcel.ackPending = true;
+    parcel.ackAmp = accepted ? ACK_SWELL : ACK_FLINCH;
   }
 
   /**
@@ -433,6 +522,10 @@ export function createParcelSystem(rng, scene) {
   function beginCarry(parcel) {
     parcel.stage = 'carried';
     parcel.target = parcel.dropoff;
+    // The errand's live end moves from the kerb to the pad, and the tap that was answered on the kerb
+    // did not happen to the pad. Without this the drop-off corner opens mid-swell — an object that
+    // reacted to a gesture nobody made on it.
+    parcel.ackAt = null;
     parcel.slot.pickup.standing?.rest?.();
     parcel.slot.pickup.group.visible = false;
     parcel.slot.pickup.ring?.hideNow();
@@ -590,8 +683,25 @@ export function createParcelSystem(rng, scene) {
     landed.length = 0;
 
     for (const slot of slots) {
+      const owner = state.parcels.find((p) => p.slot === slot) ?? null;
+      if (owner?.ackPending) {
+        owner.ackPending = false;
+        owner.ackAt = state.elapsed;
+      }
+      // Only the end that was tapped answers, and only while its envelope is running. Every other
+      // pin is written back to rest on the same pass, which is what keeps a slot that changed hands
+      // mid-swell from carrying the leftover.
+      const acked = owner && owner.ackAt !== null ? liveEnd(owner) : null;
+
       for (const pin of [slot.pickup, slot.dropoff]) {
         if (!pin.group.visible) continue;
+        // The acknowledgement rides `postGroup` — the kerb corner, with the pad and whatever is
+        // standing on it — because `ring.group`'s own scale is spoken for by the pad's arrival and
+        // exit animations, and the box's by the flight. This is the one transform on this corner that
+        // nothing else writes.
+        pin.postGroup.scale.setScalar(pin === acked
+          ? 1 + owner.ackAmp * popEnvelope(state.elapsed - owner.ackAt)
+          : 1);
         pin.ring?.update(state.elapsed);
         // The ring owns its own visibility through the exit animation; once it has finished, the
         // marker group around it is an empty transform still being traversed every frame.
@@ -607,6 +717,17 @@ export function createParcelSystem(rng, scene) {
     update,
     carrying,
     occupiedSpots,
+    /**
+     * Objects the picker may hit — the one end of each live errand that is actually on the board.
+     *
+     * `fares.pickables()`'s twin, and the same rule: the pin that is *showing* is the pin that can be
+     * tapped. A collected package's kerb marker is hidden with a box still crossing the road to the
+     * taxi, and a hit box left in the target list over a corner with nothing on it would answer a tap
+     * aimed at the street.
+     */
+    pickables: () => state.parcels.map((p) => liveEnd(p).group),
+    parcelFor,
+    acknowledge,
     /** Land every pad's arrival animation at once — shot mode. See `fares.settleMarkers`. */
     settleMarkers: () => {
       for (const slot of slots) {

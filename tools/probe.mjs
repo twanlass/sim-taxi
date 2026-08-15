@@ -44,7 +44,7 @@ import {
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
 } from '../src/geometry/diamond.js';
 import { HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
-import { POP_SCALE_DIAMOND, POP_SCALE_RIDER } from '../src/game/selectpop.js';
+import { POP_SCALE_DIAMOND, POP_SCALE_RIDER, POP_TIME } from '../src/game/selectpop.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
@@ -1099,11 +1099,16 @@ check('no two cars occupy the same space', worst > 1.6,
     rim.material.depthTest && !rim.material.depthWrite
     && fill.material.depthTest && !fill.material.depthWrite);
 
-  // **Nothing about a package is pickable.** This is the whole interaction model: the only way to
-  // reach one is to bend the route through it, so neither marker may carry a hit box and the parcel
-  // mesh itself must not be tagged either. A stray `pickable` here would not throw — it would just
-  // quietly make packages tappable again the day anything raycasts the scene rather than an explicit
-  // target list, which is exactly the trap geometry/person.js warns about.
+  // **A package is tapped now, and what the tap asks for is a detour.** Half the interaction model is
+  // unchanged — nothing in the game dispatches the taxi *at* a box — and half of it is inverted: the
+  // live end of an errand carries a hit box, and a tap on it re-plans the current route through that
+  // junction (`divertToParcel` in main.js).
+  //
+  // So the assertion is no longer "nothing here is pickable". It is that exactly the corner standing
+  // on the board is, that it is tagged with the kind main.js switches on, and that the copies which
+  // can never be tapped — the box in flight, the one riding the taxi's deck — still are not. A stray
+  // `pickable` on one of those would not throw; it would quietly answer a tap aimed at the road behind
+  // it, which is the trap geometry/person.js warns about.
   const pScene = new THREE.Scene();
   const pTraffic = createTraffic(makeRng(seed + 44), pScene, CARS_DEFAULT);
   // `reserved` is the cross-system half of the corner rule, wired exactly as main.js wires it. The
@@ -1114,15 +1119,82 @@ check('no two cars occupy the same space', worst > 1.6,
   const parcels = createParcelSystem(makeRng(seed + 255), pScene);
   pTraffic.warmup(5);
 
-  let tagged = 0;
+  const tagsUnder = (root) => {
+    const kinds = [];
+    root.traverse((node) => { if (node.userData?.pickable) kinds.push(node.userData.pickable); });
+    return kinds;
+  };
+  const pinTags = [];
+  let flightTagged = 0;
   for (const slot of parcels.slots) {
-    for (const pin of [slot.pickup, slot.dropoff]) {
-      pin.group.traverse((node) => { if (node.userData?.pickable) tagged += 1; });
-    }
+    pinTags.push(tagsUnder(slot.pickup.group).join('+'), tagsUnder(slot.dropoff.group).join('+'));
+    flightTagged += tagsUnder(slot.flight).length;
   }
-  check('a package cannot be tapped', tagged === 0, `${tagged} pickable nodes`);
+  check('each courier marker carries exactly one tap target, tagged by which end it is',
+    pinTags.length === MAX_PARCELS * 2
+    && pinTags.every((t, n) => t === (n % 2 === 0 ? 'parcel' : 'parcel-dropoff')),
+    pinTags.join(' | '));
+  // The flight copy shares its geometry factory with the kerb box and is a *sibling* of both markers
+  // in the scene, so it is the one most likely to pick a tag up by accident — and it spends its whole
+  // life crossing the road between two corners that are themselves tappable.
+  check('the box in flight is not tappable', flightTagged === 0, `${flightTagged} tagged`);
   check('a loose parcel mesh can still be tagged when something wants it to be',
     createParcel({ pickable: 'parcel' }).mesh.userData.pickable === 'parcel');
+
+  // The rest of the tap: `parcelFor` maps a hit back to the errand that owns it, `pickables()` offers
+  // only the end that is actually standing on the board, and `acknowledge` answers on the corner.
+  //
+  // The acknowledgement is the half a screenshot cannot check and a player would notice first. Its
+  // whole job is to distinguish a tap that landed from one that was refused, and the two differ only
+  // in the **sign** of one scale — so both directions are asserted, and so is the return to exactly
+  // rest, because a corner left a few percent large for the rest of the run is the failure mode of
+  // every envelope in this game.
+  const kScene = new THREE.Scene();
+  const kTraffic = createTraffic(makeRng(seed + 46), kScene, CARS_DEFAULT);
+  const kFares = createFareSystem(makeRng(seed + 57), kScene, {
+    reserved: () => kParcels.occupiedSpots(),
+  });
+  const kParcels = createParcelSystem(makeRng(seed + 257), kScene);
+  kTraffic.warmup(2);
+  const kTick = () => kParcels.update(1 / 60, kTraffic.taxi, {
+    fareSpots: kFares.occupiedSpots(), delivered: 9,
+  });
+  kParcels.state.nextSpawnAt = -Infinity;
+  kTick();
+  const box = kParcels.state.parcels[0];
+  if (box) {
+    const live = () => (box.stage === 'waiting' ? box.slot.pickup : box.slot.dropoff);
+    // What the picker would actually hand back: the hit box itself, not the marker root. `parcelFor`
+    // has to walk up from it, which is the only reason it is a walk rather than a lookup.
+    const hit = live().group.children.find((c) => c.userData?.pickable);
+    check('a tap on the hit box resolves to the package that owns it',
+      kParcels.parcelFor(hit) === box);
+    check('a tap on something else resolves to nothing',
+      kParcels.parcelFor(kTraffic.taxiGroup) === null);
+    check('only the end on the board is offered to the picker',
+      kParcels.pickables().length === 1 && kParcels.pickables()[0] === live().group);
+
+    // Scale is written in `update`'s per-slot pass, so each reading needs a tick to produce it.
+    const scaleAt = (seconds) => {
+      for (let n = 0; n < Math.round(seconds * 60); n++) kTick();
+      return live().postGroup.scale.x;
+    };
+    kParcels.acknowledge(box, true);
+    kTick();                                       // stamps the envelope's zero
+    const swell = scaleAt(POP_TIME * 0.25);        // the peak, see game/selectpop.js
+    const restedAfterSwell = scaleAt(POP_TIME);
+    kParcels.acknowledge(box, false);
+    kTick();
+    const flinch = scaleAt(POP_TIME * 0.25);
+    const restedAfterFlinch = scaleAt(POP_TIME);
+    check('an accepted tap swells the corner it landed on', swell > 1.05, swell.toFixed(3));
+    check('a refused tap flinches it inward instead', flinch < 0.97, flinch.toFixed(3));
+    check('and both land back on exactly rest',
+      restedAfterSwell === 1 && restedAfterFlinch === 1,
+      `${restedAfterSwell} / ${restedAfterFlinch}`);
+  } else {
+    check('a package spawned to tap', false);
+  }
 
   // Now play a run: serve fares the way the soak's perfect player does, and take the cheap courier
   // detours on the way.

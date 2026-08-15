@@ -487,6 +487,79 @@ try {
     chipUp.on === true && chipUp.hidden === 'false' && chipUp.drawn > 0.3,
     `${(chipUp.drawn * 100).toFixed(0)}% of the canvas drawn`);
 
+  // --- Tapping a package bends the route through it. See src/game/parcels.js.
+  //
+  // Here rather than in the node suite because the half that can go wrong here is the **picker**:
+  // a hit box that was never added to the target list, a `pickable` kind main.js doesn't switch on,
+  // or a `parcelFor` walk that stops one node short all fail by doing precisely nothing, which is
+  // also what a tap on the road does. The routing itself is `findRouteVia`, which `tools/probe.mjs`
+  // covers far better than a software-rendered page can.
+  //
+  // The board is loaded by hand rather than played into: a package spawns on a drawn 18–45s gap and
+  // only after the first delivery, which is minutes of sim under llvmpipe for a marker whose two
+  // states are the thing being asserted. `delivered: 9` is passed to this one call only — the frame
+  // loop goes on ticking it with the run's real count, which never removes a package already on the
+  // board.
+  const parcelTap = async () => {
+    const setup = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const t = window.__taxi;
+      if (!t.parcels) return { missing: true };
+      t.parcels.state.nextSpawnAt = -Infinity;
+      t.parcels.update(1 / 60, t.traffic.taxi,
+        { fareSpots: t.fares.occupiedSpots(), delivered: 9 });
+      const box = t.parcels.state.parcels[0];
+      if (!box) return { missing: true };
+      // Guarantee a destination to bend. With none — the beat between a delivery and the next tap —
+      // the tap routes *at* the box instead, which is a different branch and not the one being read
+      // here.
+      const job = t.fares.carrying() ?? t.fares.waiting();
+      if (job) t.routeTo(job.target);
+      return {
+        target: t.traffic.taxi.pendingTarget,
+        legs: t.traffic.taxi.route.length,
+        acked: box.ackAt !== null,
+      };
+    })())`));
+    if (setup.missing) return { missing: true };
+
+    await clickAt(JSON.parse(await evaluate('JSON.stringify(window.__taxi.parcelScreenPosition())')));
+
+    const after = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const t = window.__taxi, box = t.parcels.state.parcels[0];
+      return {
+        gone: !box,
+        acked: Boolean(box) && box.ackAt !== null,
+        amp: box?.ackAmp ?? 0,
+        target: t.traffic.taxi.pendingTarget,
+        legs: t.traffic.taxi.route.length,
+      };
+    })())`));
+    return { before: setup, after };
+  };
+
+  const tapped = await parcelTap();
+  if (tapped.missing) {
+    check('tapping a package is answered', false, 'no package to tap');
+  } else if (tapped.after.gone) {
+    // The taxi drove through the pad in the second the tap took. Nothing is wrong; there is just
+    // nothing left to assert against, and a check that failed on it would be flaky by construction.
+    check('tapping a package is answered', true, 'collected before the tap landed — skipped');
+  } else {
+    check('tapping a package is answered on its corner',
+      tapped.before.acked === false && tapped.after.acked === true,
+      `ack ${tapped.before.acked} -> ${tapped.after.acked}`);
+    check('and the answer is a detour taken, not a refusal',
+      tapped.after.amp > 0, `amplitude ${tapped.after.amp}`);
+    // The invariant the whole layer rests on: a package is never a destination. Whatever the tap did
+    // to the route, the place the taxi is being driven to is the one it was already being driven to.
+    check('tapping a package never re-aims the taxi at it',
+      tapped.after.target !== null
+      && tapped.after.target.i === tapped.before.target.i
+      && tapped.after.target.j === tapped.before.target.j,
+      `${JSON.stringify(tapped.before.target)} -> ${JSON.stringify(tapped.after.target)}`
+      + `, ${tapped.before.legs} -> ${tapped.after.legs} legs`);
+  }
+
   const chipAfter = JSON.parse(await chipState('chip.setCarrying(false)'));
   check('delivering it puts the chip back down',
     chipAfter.on === false && chipAfter.hidden === 'true');

@@ -42,10 +42,11 @@ import { createParcelPad } from './parcelpad.js';
  *                       pass `createParcelPad` so a package's ends are a rounded square instead —
  *                       shape is what tells a courier job from a fare on this board.
  * @param pickable       the `userData.pickable` kind for the oversized hit box, or **null for no
- *                       hit box at all**. A courier marker is never tapped (the only way to reach a
- *                       package is to bend the route through it), so it builds none — an untappable
- *                       marker carrying a hit box tagged as pickable is a trap laid for whoever next
- *                       raycasts the scene rather than an explicit target list.
+ *                       hit box at all**. Every marker on the board carries one today — a tap on a
+ *                       courier marker bends the current route through it rather than dispatching
+ *                       the taxi at it (game/parcels.js), but it is still a tap. The null option
+ *                       stays because a marker carrying a hit box nothing answers is a trap laid for
+ *                       whoever next raycasts the scene rather than an explicit target list.
  */
 function marker(kind, {
   buildStanding = null, ringColor = null, buildRing = createTargetRing, pickable = kind,
@@ -134,17 +135,19 @@ export const createDestinationPin = () =>
  *   the player to tell a package from a rider by colour at 50px; two shapes are read at a glance.
  * - **Fixed cyan, never repainted.** A package has no clock, so there is no level for a hue to step
  *   through — which is why `parcels.js` needs no equivalent of `paintDropoff`'s level gate.
- * - **No hit box.** A package cannot be tapped. The only way to reach one is to drag the route band
- *   through its corner, so there is nothing here for a raycast to find.
+ * - **A hit box that means something else.** These carried none for a long time, on the argument
+ *   that the only way to reach a package was to drag the route band through its corner. A tap on one
+ *   now asks for exactly that bend — the taxi is never *dispatched* at a package, it is routed at
+ *   whatever it was already going to through the box. See game/parcels.js.
  *
  * What still reads exactly as the fare pair does: same shape both ends, and what tells them apart is
  * whether something is standing in the mark. A pad with a box on it is somewhere to collect; an
  * empty one is somewhere to deliver.
  */
 export const createParcelPin = (buildParcel) => marker('parcel', {
-  buildStanding: buildParcel, ringColor: PARCEL_COLOR, buildRing: createParcelPad, pickable: null,
+  buildStanding: buildParcel, ringColor: PARCEL_COLOR, buildRing: createParcelPad,
 });
 
 export const createParcelDropPin = () => marker('parcel-dropoff', {
-  ringColor: PARCEL_COLOR, buildRing: createParcelPad, pickable: null,
+  ringColor: PARCEL_COLOR, buildRing: createParcelPad,
 });

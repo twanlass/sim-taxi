@@ -1062,13 +1062,12 @@ near it and the taxi picks it up — **while carrying a passenger, if it is carr
 pad it is going to lights up somewhere else on the map. Drive near that and it pays out in cash.
 One on the board (`MAX_PARCELS`), one aboard at a time, and nothing about it can end a run.
 
-### Nothing here is tapped. You steer into it
+### A package is never a destination. It is a detour
 
-**This is the feature.** A package cannot be selected: it has no hit box, it is not in the picker's
-target list, and there is no way to dispatch the taxi at one. The only way to collect or deliver a
-package is to make the taxi's route **pass through its junction** — which, since the route is
-planned to whatever fare the player is actually working, means [dragging the route
-band](#dragging-the-route) sideways until it bends through the pad.
+**This is the feature.** There is no way to dispatch the taxi at a package. The only way to collect
+or deliver one is to make the taxi's route **pass through its junction**, on the way to wherever it
+was already going — which, since the route is planned to whatever fare the player is actually
+working, means bending that route sideways until it crosses the pad.
 
 Until this existed the band was the one thing on screen the player could reshape and had almost no
 reason to. `pathdrag` answered *which way*, and on an empty street the answer did not matter — the
@@ -1078,9 +1077,80 @@ question becomes worth asking with the streets clear. **The route-drag mechanic 
 exist**, and the cost is paid in exactly the right currency: the seconds the detour takes come out
 of the clock of whichever rider is in the back seat.
 
-So it is the first tap-free decision on the board, and the first one that spends *another job's*
-clock. Every other gesture in this game answers "which rider?". This one answers "is the bonus
-worth the seconds?".
+So it is the first decision on the board that spends *another job's* clock. Every other gesture in
+this game answers "which rider?". This one answers "is the bonus worth the seconds?".
+
+#### Two gestures ask for the same bend
+
+**Drag the band** through the pad, or **tap the box**. Both plan the identical route — origin →
+box → destination, `findRouteVia`, under the identical `MAX_VIA_DETOUR` cap — and both refuse in
+the identical case. `divertToParcel` in `main.js` is the tap's whole implementation, and the thing
+it does *not* do is route the taxi at the package: the destination, the fare, and which clock is
+paying are all untouched, exactly as when a finger pulls the band.
+
+The tap removes the **aiming**, not the decision. A drag asks the player to work out which junction
+bends the band through a box that may be half a city from the paint, and then to hold a finger on
+the route of a car that is still driving while they do it. On a phone that is a two-handed job in
+service of a single yes-or-no. The tap says *include this* and lets the router find the bend.
+
+What that trades away is worth stating plainly, because it was the original argument for the box
+having no hit box at all: **the drag was the price of a package**, and skill at aiming it was part
+of what a box was worth. A tap makes the collection free and leaves only the routing cost. The
+[detour cap](#what-the-detour-actually-costs) is the whole of what keeps that from being a one-tap
+payout — over it the tap is refused and the route holds exactly still, the same wall the drag hits.
+Whether the layer still plays as a temptation once the aiming is gone is the open question; the
+number to turn if it does not is the cap, not `MAX_PARCELS`.
+
+The drag keeps the half the tap cannot express. It answers *which way*, so it is still what you
+reach for when the road ahead has gone solid, and it can bend a route through a corner no marker is
+standing on.
+
+Two things the tap deliberately does not do:
+
+- **It does not persist.** The waypoint is spent the moment it is planned. The next thing that
+  re-plans — a pickup [dispatching itself](#the-drop-off-dispatches-itself), a tap on another rider
+  — drops it, and the player taps the box again if they still want it. Re-applying it every frame
+  is the one shape this must not take: `routeConsumed` is cleared on every re-plan, so a standing
+  diversion means the turn the car has already committed to never retires from the route and the
+  taxi sits re-deciding the same junction. Measured, in `tools/probe.mjs`: $34 earned in seven
+  simulated minutes and nothing delivered.
+- **It does not check the clock.** A detour under the cap is taken exactly as asked, even when it
+  costs the rider in the back their fare. That is the trade this layer exists to offer, and it is
+  the player's to make — the same one the drag has always let them make.
+
+With no destination at all — the beat between a delivery and the next tap — there is nothing to
+bend, so the taxi is simply routed at the box. Nothing is being spent in that window, so a free
+errand is a better answer than a refusal the player has no way to read.
+
+#### The corner answers, and the sign is the answer
+
+A tap on a rider is answered by [the rider](#the-tap-pops), because what the tap *means* — the taxi
+has been sent — is said by a band that starts a junction away from the finger.
+
+A tap on a box has the opposite problem. The band's answer lands exactly where the finger is: it
+bends and comes through the pad, which is the most legible confirmation in the game. What it cannot
+say is **no**. A refused drag is felt through the finger — the band stops following, the gesture
+hits a wall — but a refused tap looks precisely like a tap that missed a shape a few pixels across,
+and the player's next move is to tap it again.
+
+So both answers are given on the corner, on [the pop's own envelope](#the-tap-pops), and they
+differ only in sign:
+
+| | what the corner does |
+|---|---|
+| Taken | swells (`ACK_SWELL`, +22%) — and here is where the route bends |
+| Refused | flinches inward and settles (`ACK_FLINCH`, −12%) — heard, and no |
+
+One channel, not two. No colour: hue on this board is spoken for by the clocks, and a package has
+nothing to report with it. No light either — a shape that grew *and* lit would out-shout the band
+redrawing itself through the same corner on the same frame. The flinch is deliberately shallower
+than the swell is tall: a refusal is the quieter event, nothing has changed and nothing is about to,
+and a flinch as deep as the swell reads as a second kind of yes.
+
+It rides the marker's `postGroup` — the kerb corner, with the pad and whatever is standing on it —
+because the pad's own scale is spoken for by its arrival and exit animations and the box's by the
+flight. And `main.js` calls it only once the re-plan has actually been attempted, the same
+discipline `markDirected` keeps, so a refused tap can never be answered as though it had landed.
 
 ### What the detour actually costs
 
@@ -1243,7 +1313,9 @@ blinked through the pickup flight was left inferring their own cargo from a pad 
   angle and the framing.
 - **It sits with the money, not with the rider chips.** The bottom-left row is the reach zone and
   everything in it is a control; a chip parked at the end of it would be the one that does nothing when
-  pressed, in a layer whose defining rule is that [a package cannot be tapped](#nothing-here-is-tapped-you-steer-into-it).
+  pressed. That got sharper rather than weaker once [the box on the road became
+  tappable](#two-gestures-ask-for-the-same-bend): a second box on the glass that answers nothing is now
+  a box the player has every reason to press.
   Up beside the cash total it is unambiguously a readout, and it inherits `#hud`'s `pointer-events: none`
   so a thumb that lands on it goes straight through to the city.
 - **The box and nothing else** — no disc behind it, no rim around it. A rider chip needs its disc
