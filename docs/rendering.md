@@ -618,6 +618,23 @@ the same sun as the cars.
 Emitted whenever the taxi is boosting *and moving* — not only in corners like the rubber, since the
 point is to make speed itself read.
 
+**Two plumes, one per rear tyre.** Each spawns at the contact patch that wheel actually stands on:
+`TAXI_REAR_AXLE_BACK` (1.20) behind the origin and `TAXI_REAR_TRACK` (0.83) out to its own side,
+both exported from `geometry/taxi.js` and read off the same `wheelAnchors` the wheels are *built*
+at, through the group's 1.18 scale — so resizing a wheel or rescaling the car takes the dust with
+it. It used to be a single puff on the centreline 1.9 back, which is behind the axle and *between*
+the wheels: dust with nothing under it. Off the tyres instead, the pair separates on a straight and
+swings apart through a corner, because the outside wheel travels further than the inside one. They
+still merge behind the car — a puff swells to `END_SIZE` 2.3 against a 1.65 track — so the wide shot
+keeps a single (wider) wake and the close shot gains two sources.
+
+> **The pool had to grow for it: 140 → 200.** The trail spends a slot *per wheel* every 0.47 units
+> travelled, so at the overdrive top of 22.95 u/s it lays ~98 puffs a second and holds ~103 alive
+> across `LIFE`. Against 140 that left 37 for everything else, and a barricade smash costs 26 with
+> another 14 for its landing — the trail would have recycled the burst's own puffs out from under
+> it, which is the exact failure the earlier 90 → 140 jump was made to fix. The probe's
+> ring-buffer check laps the pool off `mesh.count` rather than a typed 140 for the same reason.
+
 > Per-puff alpha needs a custom `aAlpha` instanced attribute plus a three-line `onBeforeCompile`
 > patch multiplying it into `gl_FragColor.a`. `instanceColor` cannot carry it: it is RGB only, and
 > a 4-component colour attribute triggers `USE_COLOR_ALPHA` and a different code path.
@@ -857,8 +874,8 @@ puffs — which is precisely what a boosting taxi lays down in two frames, so th
 run rendered as exhaust. `dust.burst` now fires **twenty-six** at once, thrown **radially out of
 the impact point** rather than trailing off the back of the car, and stopped against a per-puff
 drag: dust off a road impact punches outward and then halts, and the halt is the half that reads as
-an impact rather than as a plume. The pool is 140 slots, so a burst plus its landing costs under a
-third and leaves the boost trail intact. The landing reuses the same call at `count 14, power 0.7`
+an impact rather than as a plume. The pool is 200 slots, so a burst plus its landing costs a fifth
+and leaves the boost trail intact. The landing reuses the same call at `count 14, power 0.7`
 rather than carrying a second set of hand-picked numbers that would drift away from these.
 
 Two bugs in `dust.js` surfaced on the way, and both are the same shape — a number that looked

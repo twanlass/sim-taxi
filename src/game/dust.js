@@ -12,12 +12,18 @@ import { color } from '../palette.js';
 // One InstancedMesh, one draw call, a ring buffer of slots. Per-puff alpha needs a custom
 // attribute — `instanceColor` is RGB only — so a small shader patch multiplies it in at the end.
 
-// 140 rather than the original 90 because a smash now costs 26 slots and its landing another 14.
-// At 90 a burst plus its landing took nearly half the pool, and the boost trail — which spends a
-// slot every frame — recycled the burst's own puffs out from under it before they had faded. The
-// wreck collar's 24 need no headroom of their own: the trail stops on the frame it is fired,
-// because the taxi that was laying it down has just been destroyed.
-const MAX_PUFFS = 140;
+// 200 rather than the 140 it sat at, because the boost trail now costs twice what it did: it is a
+// plume per rear tyre rather than one off the centreline (see `kickDust` in main.js). The trail
+// spends a slot per wheel every 0.47 units travelled, so at the overdrive top of 22.95 u/s it is
+// laying ~98 puffs a second and holding ~103 of them alive across LIFE — against 140 that left 37
+// for everything else, and a smash costs 26 with another 14 for its landing. The trail was
+// recycling the burst's own puffs out from under it before they had faded, which is exactly the
+// failure the jump from 90 to 140 was made to fix.
+//
+// (140 was itself up from the original 90 for the same reason. The wreck collar's 24 still need no
+// headroom of their own: the trail stops on the frame it is fired, because the taxi that was
+// laying it down has just been destroyed.)
+const MAX_PUFFS = 200;
 const LIFE = 1.05;
 const START_ALPHA = 0.62;
 const START_SIZE = 0.5;

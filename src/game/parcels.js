@@ -64,11 +64,17 @@ import * as difficulty from './difficulty.js';
 /**
  * How many packages can be on the board at once.
  *
- * Two, so there is sometimes a choice of which detour to take and sometimes only one on offer — and
- * never so many that the cyan starts competing with the fare board for the eye. The taxi carries one
- * at a time regardless, which is what keeps a pickup wired to exactly one drop-off.
+ * **One.** Two was the first shape — the argument being that a choice of which detour to take is
+ * more interesting than a single offer — and on the board it read as the opposite: a pair of cyan
+ * pads is a supply, and a supply is a thing you serve rather than a thing you notice. It also put
+ * two jobs' worth of cyan against a fare board that can already carry four discs, so the eye had to
+ * sort *which* box before it could ask whether either was worth the seconds.
+ *
+ * One box is one question — "is this one on the way?" — asked about a specific corner, which is the
+ * decision this layer exists to create. The taxi carries one at a time regardless, so a single slot
+ * also means the thing on the map and the thing in the car are never two different jobs.
  */
-export const MAX_PARCELS = 2;
+export const MAX_PARCELS = 1;
 
 /**
  * Deliveries before the first package appears.
@@ -85,10 +91,17 @@ export const PARCEL_MIN_DELIVERED = 1;
 // The gap between spawns is **drawn per package** rather than fixed, and a delivery pushes the next one
 // further out still. Both are about the same thing: a box should feel like something you came across.
 //
-// A flat 12s gap made the board a metronome. With two slots that is a permanent pair of pads on the
-// map — always something to detour for, nothing to notice — and a layer whose whole appeal is "oh,
-// there's one" became scenery. The fare board *wants* to be a steady supply, because serving it is the
-// game; the courier board is the opposite, and copying the fare cadence was copying the wrong thing.
+// A flat 12s gap made the board a metronome: back when the board held two, that was a permanent pair
+// of pads on the map — always something to detour for, nothing to notice — and a layer whose whole
+// appeal is "oh, there's one" became scenery. The fare board *wants* to be a steady supply, because
+// serving it is the game; the courier board is the opposite, and copying the fare cadence was copying
+// the wrong thing.
+//
+// At one slot the gap is doing rather less work than it was, because the slot itself is now the
+// pacing: an uncollected box holds the board until somebody drives through it, and the drawn gap only
+// governs how long after a *resolution* the next one lands. Kept as a draw anyway — a player who
+// couriers steadily is exactly the one the metronome would have been visible to, and the numbers cost
+// nothing to keep.
 //
 // A random draw rather than a per-frame chance roll (which is how `VIP_CHANCE` does it): a probability
 // checked every tick is a geometric distribution with a very short mean, and would need its own
@@ -288,10 +301,12 @@ export function createParcelSystem(rng, scene) {
   /**
    * Pick an intersection a package may use.
    *
-   * `taken` is every spot already spoken for — by a live fare as well as by the other package — so a
-   * box never lands on a corner a rider is waving from or inside a disc that is already there. Two
-   * markers on one corner is two jobs in one place, and at play zoom the player cannot tell there
-   * are two.
+   * `taken` is every spot already spoken for — by a live fare, and by this package's own other end —
+   * so a box never lands on a corner a rider is waving from or inside a disc that is already there.
+   * Two markers on one corner is two jobs in one place, and at play zoom the player cannot tell there
+   * are two. It still reads the whole of `occupiedSpots()` rather than assuming a single slot: the
+   * cap is a constant, and a draw that quietly depended on its value would be the thing that broke if
+   * it ever moved back up.
    *
    * `avoid` is the taxi's current route (above). It is a *preference*, not a filter: if excluding it
    * leaves nothing, the draw falls back to the unrestricted set rather than failing to spawn. A city
@@ -367,8 +382,9 @@ export function createParcelSystem(rng, scene) {
     // Grows out of its own centre rather than appearing at full size — see targetring.js.
     slot.pickup.ring?.appear();
     // The pad at the far end stays hidden until the box is aboard. Both ends lit from spawn would put
-    // four cyan squares on a full board with nothing to say which belongs to which — the same clutter
-    // a preview pin on the far kerb was taken back off the fare board for.
+    // two cyan squares on the board with nothing to say which was the errand and which the answer —
+    // the same clutter a preview pin on the far kerb was taken back off the fare board for. (At two
+    // slots this was four squares and unarguable; at one it is the same argument, quieter.)
     slot.dropoff.ring?.hideNow();
     slot.dropoff.group.visible = false;
 

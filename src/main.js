@@ -27,7 +27,9 @@ import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { showRunEnd } from './game/runend.js';
 import { recordRun, lastName, clearScores, loadScores } from './game/highscores.js';
-import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from './geometry/taxi.js';
+import {
+  TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK,
+} from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
@@ -1359,13 +1361,32 @@ function layRubber(dt) {
 
 // Dust comes off the back of the car whenever it's boosting and actually moving — not only in
 // corners like the rubber, since the point is to make speed itself read.
+//
+// Two plumes, one per rear tyre, off the contact patch each one actually stands on
+// (TAXI_REAR_* in geometry/taxi.js). It used to be a single puff on the centreline 1.9 back, which
+// is behind the axle and between the wheels — dust with nothing under it. Coming off the tyres
+// instead gives the mode the thing that reads as traction breaking: two trails that separate on a
+// straight and swing apart through a corner, because the outside wheel is travelling further than
+// the inside one. They still merge behind the car — a puff swells to END_SIZE 2.3 against a track
+// of 2 × 0.83 — so what the wide shot keeps is a wider wake, and what the close shot gains is a
+// pair of sources. Same puff either side: this is the one effect duplicated, not a new one.
 let lastDustAt = 0;
 function kickDust() {
   const car = traffic.taxi;
   if (!car.boost || car.v < 2) { lastDustAt = car.travelled; return; }
   if (car.travelled - lastDustAt < 0.47) return;
   lastDustAt = car.travelled;
-  dust.add(car.x - Math.cos(car.yaw) * 1.9, car.z + Math.sin(car.yaw) * 1.9, car.yaw);
+  const fx = Math.cos(car.yaw);
+  const fz = -Math.sin(car.yaw);
+  const rx = Math.sin(car.yaw);
+  const rz = Math.cos(car.yaw);
+  for (const side of [-1, 1]) {
+    dust.add(
+      car.x - fx * TAXI_REAR_AXLE_BACK + rx * side * TAXI_REAR_TRACK,
+      car.z - fz * TAXI_REAR_AXLE_BACK + rz * side * TAXI_REAR_TRACK,
+      car.yaw,
+    );
+  }
 }
 
 // The cruiser gets the same treatment while it is running the taxi down — rubber when it throws
