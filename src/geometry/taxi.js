@@ -67,11 +67,35 @@ export function createTaxiMesh() {
 
 
 
-  // Chequer stripe along each flank.
+  // Chequer stripe along each flank — the one piece of livery that says "taxi" from the side, the
+  // way the roof sign says it from above.
+  //
+  // Six cells rather than a real two-row chequerboard, and that is a zoom decision, not a stylistic
+  // one. The band is 0.22 tall, which through TAXI_SCALE is ~2px at play zoom (1 unit ≈ 7.7px), so
+  // splitting it into two rows would ask for a 1px row and get mush. One row of alternating cells
+  // reads as chequer at this size; a chequerboard reads as a grey smear.
+  //
+  // Six is also what the app icon paints (tools/make-icon.mjs), so the car on the home screen and
+  // the car on the road wear the same livery. At CAR_LEN * 0.82 that puts a cell at ~0.55 world
+  // units ≈ 4px — the finest pitch that survives. Twelve cells (square ones, matching the band's
+  // own height) measure ~2px each and alias into a flicker as the car turns.
+  const STRIPE_CELLS = 6;
+  const stripeLen = CAR_LEN * 0.82;
+  const cellLen = stripeLen / STRIPE_CELLS;
   for (const side of [-1, 1]) {
-    const stripe = new THREE.BoxGeometry(CAR_LEN * 0.82, 0.22, 0.06);
-    stripe.translate(0, 0.82 + CHASSIS_LIFT, side * (CAR_W / 2 + 0.02));
-    parts.push(bakeColor(stripe, color('taxiTrim')));
+    for (let i = 0; i < STRIPE_CELLS; i++) {
+      const cell = new THREE.BoxGeometry(cellLen, 0.22, 0.06);
+      cell.translate(
+        -stripeLen / 2 + (i + 0.5) * cellLen,
+        0.82 + CHASSIS_LIFT,
+        side * (CAR_W / 2 + 0.02),
+      );
+      // Both colours painted, rather than letting the light cells fall through to the body: the
+      // body is `taxiBody` yellow, and a yellow-and-black band is a hazard stripe, not a taxi. The
+      // white is `taxiSign`, the off-white the roof sign already lights up in — the car's existing
+      // white, so the livery stays a two-colour car rather than gaining a third.
+      parts.push(bakeColor(cell, color(i % 2 === 0 ? 'taxiTrim' : 'taxiSign')));
+    }
   }
 
   // Rear wheels only — the fronts steer, so they hang off the group as their own meshes below.
@@ -217,6 +241,12 @@ export function createTaxiMesh() {
    * 0.32 rather than the rider figure's measured 0.3: the taxi's yellow is already the brightest thing
    * on the road, so it has less headroom before the chequer stripe washes into the body, and the lift
    * has to be visible against a car that is *moving* at the moment it fires.
+   *
+   * The stripe's white cells clip at this lift, and that is fine rather than merely tolerated: the roof
+   * sign is the same `taxiSign` off-white and has taken the same lift since the flourish existed. What
+   * still reads through the flash is the *dark* cells, which have the whole of the lift to climb — so
+   * the chequer stays legible as chequer while the car is lit, which is the thing the headroom argument
+   * above is actually protecting.
    */
   const HIGHLIGHT = 0.32;
   const litParts = [shell, sign, ...steered, cargo.children[0]];

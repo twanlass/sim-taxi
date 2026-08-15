@@ -1327,6 +1327,28 @@ The band still offsets each *point* along its mitre rather than offsetting each 
 independently. Independent segments leave a wedge of bare road on the outside of every join —
 invisible when the corner *was* the notch, obvious across a ten-step arc.
 
+### The taxi's chequer — `geometry/taxi.js`
+
+A band down each flank, `CAR_LEN * 0.82` long and 0.22 tall, split into **six cells** alternating
+`taxiTrim` near-black and `taxiSign` off-white. Six boxes a side rather than one, merged into the
+shell with everything else, so the livery costs a draw call of nothing.
+
+**One row, not a chequerboard**, and that is a zoom decision. Through `TAXI_SCALE` the band is about
+2px tall at play zoom, so a second row would ask for 1px and get mush; a single row of alternating
+cells is the largest thing that still reads as *chequer* at this size. Six cells puts one at ~4px —
+about the finest pitch that survives. Square cells matching the band's own height would want twelve,
+at ~2px each, which alias into a flicker as the car turns.
+
+**Both colours are painted.** Letting the light cells fall through to the body was tried in the app
+icon (`tools/make-icon.mjs` paints three dark cells and shows yellow between them, which is right at
+180px on a static image); on the car it makes a yellow-and-black band, which is a hazard stripe, not
+a taxi. The white is the roof sign's own off-white rather than a new entry, so the livery keeps the
+car to two colours.
+
+The white cells clip under the accept flourish's 0.32 emissive lift, and that is fine — the roof sign
+is the same off-white and has always taken the same lift. The *dark* cells have the whole of the lift
+to climb, so the chequer stays legible as chequer while the car is lit.
+
 ### Taxi ghost outline — `geometry/ghostoutline.js`
 
 The taxi's silhouette, traced as a yellow rim (`taxiGhost` in the palette) drawn **only on pixels
@@ -1767,7 +1789,9 @@ together — shell, roof sign, both steered wheels and the deck parcel — on th
 envelope, so an accepted package reads as the same *kind* of acknowledgement a tapped rider gets rather
 than as a new effect to learn. 0.32 rather than the rider's measured 0.3: the taxi's yellow is already
 the brightest thing on the road, so it has less headroom before the chequer stripe washes into the
-body, and the lift has to register on a car that is moving. The brake light and indicators are left
+body, and the lift has to register on a car that is moving. The chequer's white cells clip at it and
+its dark ones do not, which is what keeps the band readable through the flash — see
+[The taxi's chequer](#the-taxis-chequer--geometrytaxijs). The brake light and indicators are left
 alone — they are lamps with their own state, and lifting them would read as the taxi braking at the
 moment it accepted a package.
 
