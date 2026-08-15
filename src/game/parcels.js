@@ -20,12 +20,12 @@ import * as difficulty from './difficulty.js';
 // splash of Loco Mode fuel (half what a fare pays — `BOOST_PARCEL_REWARD`, spent in main.js: this
 // module reports the delivery and stays out of the economy).
 //
-// ## A package is never a destination. It is a **detour**.
+// ## With a rider aboard, a package is never a destination. It is a **detour**.
 //
-// **This is the whole feature, and it survives the box becoming tappable.** There is still no way to
-// dispatch the taxi at a package. The only way to collect or deliver one is to make the taxi's route
-// **pass through its junction**, on the way to wherever it was already going — the fare the player
-// is actually working. Two gestures ask for that same bend:
+// **This is the feature, and the rule is about the seat.** While somebody is riding, their clock is
+// the one being spent, so there is no way to dispatch the taxi at a package: the only way to collect
+// or deliver one is to make the taxi's route **pass through its junction**, on the way to the fare
+// the player is actually working. Two gestures ask for that same bend:
 //
 //   - **drag the route band** sideways until it crosses the pad (game/pathdrag.js), or
 //   - **tap the box**, which is `findRouteVia` again with the waypoint named rather than aimed at.
@@ -46,14 +46,24 @@ import * as difficulty from './difficulty.js';
 // answers "which way", so it is what you reach for when the road ahead has gone solid, and it can
 // bend through a corner no marker is standing on.
 //
+// **With the seat empty, the same tap is a dispatch** (`divertToParcel` in main.js): the taxi is
+// routed straight at the box and the band repaints in this layer's own cyan — no urgency, because a
+// package has none to report. There is no committed clock for the detour cap to protect in that
+// window, so the cap does not apply; the only clocks running are the waiting riders' own, and
+// whether to spend them couriering instead of cruising at a kerb has always been the player's call.
+// A dispatch is not an exception to the rule above — it is what the rule reduces to when the seat
+// it protects is empty.
+//
 // It also means there is no `directed` flag here and no arbitration with the fare system. `fares.js`
 // needs that rule because a taxi cruising on random turns would otherwise wander into a pin and
 // collect a fare nobody asked for — measured at 11 of 40 seeds. A package has none of that exposure:
 // it has no clock to lose, missing one costs nothing, and collecting one by luck is a small gift
 // rather than a stolen decision. **A package that happens to sit on the route you were already
 // driving is free money, and that is intended.** Spawn placement below is what keeps that from being
-// the common case. The tap does not touch `directed` either: it re-plans the route to the *same*
-// fare, so whose clock is paying for the drive never changes hands.
+// the common case. The detour tap does not touch `directed` either: it re-plans the route to the
+// *same* fare, so whose clock is paying for the drive never changes hands. (The empty-seat dispatch
+// leaves it alone too — a waiting rider the player had sent the taxi at stays `directed`, so driving
+// past them on the way to the box still picks them up, the same gift a lucky detour has always been.)
 //
 // ## A package has no clock, and so has no diamond
 //
@@ -94,8 +104,8 @@ export const MAX_PARCELS = 1;
  *
  * Mirrors `VIP_MIN_DELIVERED` in `fares.js`, for a sharper version of the same reason. The second
  * tutorial beat *is* "tap that rider" — a box on a corner during it is a second thing competing for
- * the one gesture being taught, and worse here than for a VIP, because the box teaches the opposite
- * lesson: it is the one thing on the board that tapping does nothing to.
+ * the one gesture being taught, and worse here than for a VIP, because a tap on it *answers*: with
+ * the seat empty it dispatches the taxi, which is the tutorial's lesson aimed at the wrong target.
  */
 export const PARCEL_MIN_DELIVERED = 1;
 

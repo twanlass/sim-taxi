@@ -487,7 +487,8 @@ try {
     chipUp.on === true && chipUp.hidden === 'false' && chipUp.drawn > 0.3,
     `${(chipUp.drawn * 100).toFixed(0)}% of the canvas drawn`);
 
-  // --- Tapping a package bends the route through it. See src/game/parcels.js.
+  // --- Tapping a package: a detour with a rider aboard, a dispatch with the seat empty. See
+  // src/game/parcels.js.
   //
   // Here rather than in the node suite because the half that can go wrong here is the **picker**:
   // a hit box that was never added to the target list, a `pickable` kind main.js doesn't switch on,
@@ -509,13 +510,15 @@ try {
         { fareSpots: t.fares.occupiedSpots(), delivered: 9 });
       const box = t.parcels.state.parcels[0];
       if (!box) return { missing: true };
-      // Guarantee a destination to bend. With none — the beat between a delivery and the next tap —
-      // the tap routes *at* the box instead, which is a different branch and not the one being read
-      // here.
+      // Give the tap a route to act on. Whether the run happens to have a rider aboard right now
+      // decides which branch this reads — a detour around a fare's route, or a dispatch that
+      // replaces it — so the seat is recorded rather than assumed.
       const job = t.fares.carrying() ?? t.fares.waiting();
       if (job) t.routeTo(job.target);
       return {
+        carried: Boolean(t.fares.carrying()),
         target: t.traffic.taxi.pendingTarget,
+        box: { i: box.target.i, j: box.target.j },
         legs: t.traffic.taxi.route.length,
         acked: box.ackAt !== null,
       };
@@ -527,11 +530,15 @@ try {
     const after = JSON.parse(await evaluate(`JSON.stringify((() => {
       const t = window.__taxi, box = t.parcels.state.parcels[0];
       return {
-        gone: !box,
+        // Collected counts as gone: a pickup moves the box aboard, resets its ack for the drop-off
+        // corner, and retires a dispatch's route — nothing below is assertable against it.
+        gone: !box || box.stage !== 'waiting',
         acked: Boolean(box) && box.ackAt !== null,
         amp: box?.ackAmp ?? 0,
         target: t.traffic.taxi.pendingTarget,
         legs: t.traffic.taxi.route.length,
+        band: t.routeLine.color().getHexString(),
+        parcelHue: t.parcels.colorOf().getHexString(),
       };
     })())`));
     return { before: setup, after };
@@ -548,16 +555,31 @@ try {
     check('tapping a package is answered on its corner',
       tapped.before.acked === false && tapped.after.acked === true,
       `ack ${tapped.before.acked} -> ${tapped.after.acked}`);
-    check('and the answer is a detour taken, not a refusal',
+    check('and the answer is taken, not a refusal',
       tapped.after.amp > 0, `amplitude ${tapped.after.amp}`);
-    // The invariant the whole layer rests on: a package is never a destination. Whatever the tap did
-    // to the route, the place the taxi is being driven to is the one it was already being driven to.
-    check('tapping a package never re-aims the taxi at it',
-      tapped.after.target !== null
-      && tapped.after.target.i === tapped.before.target.i
-      && tapped.after.target.j === tapped.before.target.j,
-      `${JSON.stringify(tapped.before.target)} -> ${JSON.stringify(tapped.after.target)}`
-      + `, ${tapped.before.legs} -> ${tapped.after.legs} legs`);
+    if (tapped.before.carried) {
+      // The seat is a commitment: whatever the tap did to the route, the place the taxi is being
+      // driven to is the one it was already being driven to.
+      check('with a rider aboard, tapping a package never re-aims the taxi at it',
+        tapped.after.target !== null
+        && tapped.after.target.i === tapped.before.target.i
+        && tapped.after.target.j === tapped.before.target.j,
+        `${JSON.stringify(tapped.before.target)} -> ${JSON.stringify(tapped.after.target)}`
+        + `, ${tapped.before.legs} -> ${tapped.after.legs} legs`);
+    } else {
+      // No rider, no committed clock: the tap is a dispatch, and the box's own junction is now the
+      // destination — even when the taxi was mid-drive at a waiting rider.
+      check('with the seat empty, tapping a package re-aims the taxi at it',
+        tapped.after.target !== null
+        && tapped.after.target.i === tapped.before.box.i
+        && tapped.after.target.j === tapped.before.box.j,
+        `${JSON.stringify(tapped.before.target)} -> ${JSON.stringify(tapped.after.target)}`);
+      // The band on a dispatch wears the courier cyan — a package has no clock, so no urgency hue.
+      // Read back through routeLine.color() after the frame loop has repainted it.
+      check('and the band repaints in the courier cyan',
+        tapped.after.band === tapped.after.parcelHue,
+        `band #${tapped.after.band}, courier #${tapped.after.parcelHue}`);
+    }
   }
 
   const chipAfter = JSON.parse(await chipState('chip.setCarrying(false)'));

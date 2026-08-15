@@ -469,7 +469,10 @@ having to look away to a small shape at the edge of vision. Both the destination
 arrive in one read.
 
 `PALETTE.routeLine`'s yellow is still the fallback for a route with no fare behind it — the
-[recovery](traffic.md) re-route, and a route poked in by hand from the debug panel.
+[recovery](traffic.md) re-route, and a route poked in by hand from the debug panel. A route sent
+*at* a package — the [empty-seat dispatch](#with-a-rider-aboard-a-package-is-a-detour-with-the-seat-empty-a-destination)
+— wears the courier's own cyan instead: a package has no clock, so an urgency hue there would be
+reporting a countdown that does not exist.
 
 ## Routing
 
@@ -1062,12 +1065,13 @@ near it and the taxi picks it up — **while carrying a passenger, if it is carr
 pad it is going to lights up somewhere else on the map. Drive near that and it pays out in cash.
 One on the board (`MAX_PARCELS`), one aboard at a time, and nothing about it can end a run.
 
-### A package is never a destination. It is a detour
+### With a rider aboard, a package is a detour. With the seat empty, a destination
 
-**This is the feature.** There is no way to dispatch the taxi at a package. The only way to collect
-or deliver one is to make the taxi's route **pass through its junction**, on the way to wherever it
-was already going — which, since the route is planned to whatever fare the player is actually
-working, means bending that route sideways until it crosses the pad.
+**The rule is about the seat.** While somebody is riding, their clock is the one being spent, so
+there is no way to dispatch the taxi at a package. The only way to collect or deliver one is to
+make the taxi's route **pass through its junction**, on the way to wherever it was already going —
+which, since the route is planned to whatever fare the player is actually working, means bending
+that route sideways until it crosses the pad.
 
 Until this existed the band was the one thing on screen the player could reshape and had almost no
 reason to. `pathdrag` answered *which way*, and on an empty street the answer did not matter — the
@@ -1082,11 +1086,11 @@ this game answers "which rider?". This one answers "is the bonus worth the secon
 
 #### Two gestures ask for the same bend
 
-**Drag the band** through the pad, or **tap the box**. Both plan the identical route — origin →
-box → destination, `findRouteVia`, under the identical `MAX_VIA_DETOUR` cap — and both refuse in
-the identical case. `divertToParcel` in `main.js` is the tap's whole implementation, and the thing
-it does *not* do is route the taxi at the package: the destination, the fare, and which clock is
-paying are all untouched, exactly as when a finger pulls the band.
+**Drag the band** through the pad, or **tap the box**. With a rider aboard both plan the identical
+route — origin → box → destination, `findRouteVia`, under the identical `MAX_VIA_DETOUR` cap — and
+both refuse in the identical case. `divertToParcel` in `main.js` is the tap's whole implementation,
+and the thing the detour does *not* do is route the taxi at the package: the destination, the fare,
+and which clock is paying are all untouched, exactly as when a finger pulls the band.
 
 The tap removes the **aiming**, not the decision. A drag asks the player to work out which junction
 bends the band through a box that may be half a city from the paint, and then to hold a finger on
@@ -1118,9 +1122,21 @@ Two things the tap deliberately does not do:
   costs the rider in the back their fare. That is the trade this layer exists to offer, and it is
   the player's to make — the same one the drag has always let them make.
 
-With no destination at all — the beat between a delivery and the next tap — there is nothing to
-bend, so the taxi is simply routed at the box. Nothing is being spent in that window, so a free
-errand is a better answer than a refusal the player has no way to read.
+#### The empty-seat tap is a dispatch
+
+With nobody in the back there is no committed clock for the detour cap to protect, so the box is
+allowed to be the destination: the tap routes the taxi straight at it, and the band repaints in the
+courier's own cyan — [the band wears the clock it is spending](#the-route-band-wears-it-too), and a
+package has none to report, so the hue says "errand" and nothing else. The dispatch replaces
+whatever the taxi was driving at, including a waiting rider the player had tapped: the same
+retarget rule every fare tap already follows, applied to one more kind of target, with the waiting
+rider's clock draining exactly as it would have. On arrival the drive retires itself the way a
+fare's legs do — route and target cleared, taxi back to cruising — and the drop-off pad that lights
+up is itself tappable, so an empty-seat courier run is two taps end to end.
+
+This is not an exception to the rule above; it is what the rule reduces to when the seat it
+protects is empty. It also subsumes the old between-jobs case: with no destination at all there was
+never anything to bend, and the tap has always routed at the box in that beat.
 
 #### The corner answers, and the sign is the answer
 
