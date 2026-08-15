@@ -585,6 +585,17 @@ if (blendParam) routeLine.setBlend(blendParam);
  * is spending while the player is holding it.
  */
 function paintRouteBand() {
+  // A route sent *at* a package end — the empty-seat dispatch, see `divertToParcel` — wears the
+  // courier's own cyan: a package has no clock, so an urgency hue would be reporting a countdown
+  // that does not exist, and the fallback yellow would say "no job here at all". Matched on
+  // `pendingTarget`'s identity, the same identity the band's rollout sweep keys off — so a route
+  // that merely *bends through* a pad on the way to a fare keeps that fare's colour, because the
+  // clock the drive is spending is still the rider's.
+  const target = traffic.taxi.pendingTarget;
+  if (target && parcels?.state.parcels.some((p) => p.target === target)) {
+    routeLine.setColor(parcels.colorOf());
+    return;
+  }
   const job = fares.directed();
   routeLine.setColor(job ? fares.colorOf(job) : PALETTE.routeLine);
 }
@@ -658,15 +669,16 @@ function dispatchToDropoff(fare) {
 }
 
 /**
- * A tap on a package: bend the route the taxi is already driving so that it goes through the box.
+ * A tap on a package. What it means turns on the seat — see game/parcels.js.
  *
- * **Not a dispatch.** Nothing in the game routes the taxi *at* a package — see game/parcels.js. This
- * is `findRouteVia` with the waypoint named rather than aimed at: same origin, same destination, same
+ * **Rider aboard: a detour, never a dispatch.** The seat is a commitment and its clock is the one
+ * draining, so nothing may re-aim the taxi at a package while somebody is riding. The tap is
+ * `findRouteVia` with the waypoint named rather than aimed at: same origin, same destination, same
  * fare still `directed`, same `MAX_VIA_DETOUR` cap, one junction added in the middle. It is exactly
  * what a drag on the route band produces when the finger lands on the box's corner, minus the aiming
  * — which on a phone is the whole difficulty of the gesture and none of the decision.
  *
- * Two things it deliberately does not do:
+ * Two things the detour deliberately does not do:
  *
  * - **It does not persist.** The waypoint is spent the moment it is planned; the next thing that
  *   re-plans (a pickup dispatching itself, a tap on another rider) drops it, and the player taps the
@@ -678,16 +690,22 @@ function dispatchToDropoff(fare) {
  *   costs the rider in the back their fare. That is the trade the layer exists to offer, and it is
  *   the player's to make — the same one the drag has always let them make.
  *
- * With no destination — the beat between a delivery and the next tap, where `pendingTarget` is null —
- * there is nothing to bend, so the taxi is simply routed at the box. Nothing is being spent in that
- * window, so a free errand is the right answer rather than a refusal the player cannot read.
+ * **Seat empty: a dispatch.** With nobody in the back there is no committed clock for a detour cap
+ * to protect, so the box is allowed to be the destination: the taxi is routed straight at it, and
+ * the band repaints in the courier's own cyan (`paintRouteBand`) — a package has no urgency, and
+ * the hue says so. This replaces whatever the taxi was driving at, including a waiting rider the
+ * player had tapped — the same retarget rule every fare tap already follows, applied to one more
+ * kind of target, and the waiting rider's clock keeps draining exactly as it would have. The drive
+ * retires itself on arrival (the `'pickup'`/`'delivered'` handling in the frame loop), the way a
+ * fare's own legs do. It subsumes the old between-jobs case: with no destination at all there was
+ * never anything to bend, and the tap has always routed at the box in that beat.
  */
 function divertToParcel(parcel) {
   if (!parcel) return;
   const target = traffic.taxi.pendingTarget;
-  // The refusals are `findRouteVia`'s: over the detour cap, or a leg the router cannot solve. Either
+  // The dispatch's refusals are the router's only; the detour's add `findRouteVia`'s cap. Either
   // way `routeTo` leaves the route exactly as it was and the corner flinches — see `acknowledge`.
-  const taken = target
+  const taken = target && fares.carrying()
     ? routeTo(target, { via: parcel.target })
     : routeTo(parcel.target);
   parcels?.acknowledge(parcel, taken);
@@ -1771,9 +1789,12 @@ function frame() {
 
   // The package courier. Ticked after the fare loop so its spawn placement sees this frame's fare
   // board, and given nothing but the three facts it needs — where the fares are, how far up the ramp
-  // the run is, and whether the run is over. Nothing routes the taxi at a package: the player
-  // collects one by bending the route band through its pad, so there is no dispatch here and no
-  // arbitration over the wheel. See game/parcels.js.
+  // the run is, and whether the run is over. With a rider aboard nothing routes the taxi at a
+  // package — the player collects one by bending the route band through its pad — but an empty-seat
+  // tap dispatches straight at one (see divertToParcel), and that drive has to retire on arrival
+  // the way a fare's own legs do: the route-clearing on `'pickup'` and `'delivered'` below, guarded
+  // on `pendingTarget`'s identity so a detour's collection leaves the fare's route alone.
+  // See game/parcels.js.
   for (const { type, parcel, at } of
     (parcels && !homeTip?.state.holding
       ? parcels.update(dt, traffic.taxi, {
@@ -1783,6 +1804,14 @@ function frame() {
       })
       : NO_FARE_EVENTS)) {
     if (type === 'pickup') {
+      // A box that was the destination — an empty-seat dispatch — retires the drive on arrival.
+      // Without this the consumed route's stub and the stale `pendingTarget` keep the band
+      // machinery live against a corner that no longer has anything on it. Guarded on identity so
+      // a detour's collection leaves the fare's route alone.
+      if (traffic.taxi.pendingTarget === parcel.pickup) {
+        traffic.taxi.route = [];
+        traffic.taxi.pendingTarget = null;
+      }
       // The car's own acknowledgement, on the frame the detour paid off and the box leaves the pad.
       // It is not "the load arrived here" — the load is on its way to the corner of the screen — it is
       // the same flourish a tapped rider gets, fired on the object the player is watching at the
@@ -1801,6 +1830,11 @@ function frame() {
         cargoChip?.setCarrying(true);
       }
     } else if (type === 'delivered') {
+      // Same retirement as `'pickup'` above, for a dispatch aimed at the drop-off pad.
+      if (traffic.taxi.pendingTarget === parcel.dropoff) {
+        traffic.taxi.route = [];
+        traffic.taxi.pendingTarget = null;
+      }
       // The chip goes down now rather than when the outbound box lands, because that box *is* the load
       // leaving: the corner still holding one while a package is being set down on a pad would read as
       // the taxi carrying a second.
