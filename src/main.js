@@ -649,12 +649,57 @@ function dispatchToDropoff(fare) {
   traffic.taxi.parked = true;
 }
 
+/**
+ * A tap on a package: bend the route the taxi is already driving so that it goes through the box.
+ *
+ * **Not a dispatch.** Nothing in the game routes the taxi *at* a package — see game/parcels.js. This
+ * is `findRouteVia` with the waypoint named rather than aimed at: same origin, same destination, same
+ * fare still `directed`, same `MAX_VIA_DETOUR` cap, one junction added in the middle. It is exactly
+ * what a drag on the route band produces when the finger lands on the box's corner, minus the aiming
+ * — which on a phone is the whole difficulty of the gesture and none of the decision.
+ *
+ * Two things it deliberately does not do:
+ *
+ * - **It does not persist.** The waypoint is spent the moment it is planned; the next thing that
+ *   re-plans (a pickup dispatching itself, a tap on another rider) drops it, and the player taps the
+ *   box again if they still want it. Re-applying it every frame is the one shape this must not take —
+ *   `routeConsumed` is cleared on every re-plan, so a standing diversion means the turn the car has
+ *   already committed to never retires from the route and the taxi sits re-deciding the same junction
+ *   (measured in `tools/probe.mjs`: $34 earned in seven simulated minutes, nothing delivered).
+ * - **It does not check the clock.** A detour under the cap is taken exactly as asked, even when it
+ *   costs the rider in the back their fare. That is the trade the layer exists to offer, and it is
+ *   the player's to make — the same one the drag has always let them make.
+ *
+ * With no destination — the beat between a delivery and the next tap, where `pendingTarget` is null —
+ * there is nothing to bend, so the taxi is simply routed at the box. Nothing is being spent in that
+ * window, so a free errand is the right answer rather than a refusal the player cannot read.
+ */
+function divertToParcel(parcel) {
+  if (!parcel) return;
+  const target = traffic.taxi.pendingTarget;
+  // The refusals are `findRouteVia`'s: over the detour cap, or a leg the router cannot solve. Either
+  // way `routeTo` leaves the route exactly as it was and the corner flinches — see `acknowledge`.
+  const taken = target
+    ? routeTo(target, { via: parcel.target })
+    : routeTo(parcel.target);
+  parcels?.acknowledge(parcel, taken);
+}
+
 createPicker(
   camera,
   renderer.domElement,
-  () => [traffic.taxiGroup, ...fares.pickables()],
+  () => [traffic.taxiGroup, ...fares.pickables(), ...(parcels?.pickables() ?? [])],
   (kind, hit) => {
     if (fares.state.gameOver) return;
+
+    // The courier board answers a tap with a detour rather than a destination, so it is handled
+    // before the fare board rather than inside it — there is no fare behind a package and nothing
+    // below this line would find one.
+    if (kind === 'parcel' || kind === 'parcel-dropoff') {
+      divertToParcel(parcels?.parcelFor(hit.object));
+      return;
+    }
+
     if (kind !== 'passenger' && kind !== 'destination') return;
 
     // With two fares on the board, *which* pin was tapped is the whole instruction — routing at
@@ -2237,6 +2282,23 @@ window.__taxi = {
   targetScreenPosition: (fare = fares.focus()) => {
     if (!fare) return null;
     const c = fares.intersectionCentre(fare.target.i, fare.target.j);
+    return projectToScreen(c.x, 5, c.z);
+  },
+  /**
+   * Where to tap to reach the live end of the courier errand, for `tools/smoke.mjs`.
+   *
+   * The tap is a picker interaction, which is the one class of thing the node suite is blind to:
+   * everything it could assert about `divertToParcel` is the router's, and what a browser has to
+   * answer is whether a finger on that corner reaches the hit box at all — the same reason the
+   * route-band drag is smoke-tested rather than probed.
+   *
+   * Aimed at the *junction centre* rather than the pad, matching `targetScreenPosition` above: the
+   * hit box is 20 units square and centred there, so a centre tap is inside it at any camera angle
+   * while the pad's own corner is 4 units out toward one edge.
+   */
+  parcelScreenPosition: (parcel = parcels?.state.parcels[0]) => {
+    if (!parcel) return null;
+    const c = fares.intersectionCentre(parcel.target.i, parcel.target.j);
     return projectToScreen(c.x, 5, c.z);
   },
 };
