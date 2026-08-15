@@ -1127,17 +1127,24 @@ check('no two cars occupy the same space', worst > 1.6,
   // what happens here — no package is ever routed *at*, because nothing in the game can do that.
   //
   // `DETOUR_BUDGET` is the player's greed, in extra legs, and **the trade-off it buys is measured**.
-  // Across three cities, 420s of a perfect fare player who also couriers:
+  // Across three cities (seeds 71624, 4242, 90210), 420s of a perfect fare player who also couriers,
+  // re-measured at MAX_PARCELS = 1:
   //
-  //   budget  survived        fares   fare cash    packages   courier cash
-  //   1 leg   420s ×3         12-14   $233-296     1-3        $14-57
-  //   2 legs  265-341s (died) 5-10    $85-184      2-4        $43-71
-  //   3 legs  identical to 2 legs — past two, the cap almost never binds
+  //   budget  survived            fares   fare cash    offered  delivered  courier cash
+  //   1 leg   420s x3             12-16   $252-319     1-2      0-1        $0-26
+  //   2 legs  297s, 403s, 420s    8-12    $135-261     3        2-3        $40-54
+  //   3 legs  indistinguishable from 2 legs — past two, the cap almost never binds
+  //   (at 2 slots, 1 leg: 420s x3, 12-14 fares, $233-296, 1-3 delivered for $14-57)
   //
-  // So a one-leg detour is free money and a two-leg one costs you the run: the courier cash never
-  // comes close to replacing the fare income it burns ($71 at best against $150+ forgone). That is
-  // the layer behaving as intended — a real temptation with a real price — and it is why this loop
-  // runs at 1 rather than at MAX_VIA_DETOUR's 6. A greedy player is *supposed* to die here.
+  // So a one-leg detour is free money and a two-leg one costs you the run in the worst city: the
+  // courier cash never comes close to replacing the fare income it burns ($54 at best against $100+
+  // forgone). That is the layer behaving as intended — a real temptation with a real price — and it
+  // is why this loop runs at 1 rather than at MAX_VIA_DETOUR's 6. A greedy player is *supposed* to
+  // die here.
+  //
+  // The single slot is visible in the "offered" column and is why the spawn-count floor below is 1.
+  // A declined box holds the board for the rest of the run, so at a one-leg budget two of the three
+  // cities saw exactly one box and never collected it. See docs/gameplay.md for what that costs.
   const DETOUR_BUDGET = 1;
   let viaTaken = 0;
   let viaRefused = 0;
@@ -1191,6 +1198,8 @@ check('no two cars occupy the same space', worst > 1.6,
   let spawns = 0;
   let spawnedTooEarly = 0;
   let overCap = 0;
+  let liveOverCap = 0;
+  let deliveries = 0;
   let tooShort = 0;
   let sameBlock = 0;
   let clashedWithFare = 0;
@@ -1221,6 +1230,7 @@ check('no two cars occupy the same space', worst > 1.6,
       over: fares.state.gameOver,
     })) {
       if (type === 'delivered') {
+        deliveries += 1;
         // The hold is `max(drawn gap, now + PARCEL_AFTER_DELIVERY)`, so it only *moves* the timestamp
         // when the draw was nearer than the hold. Counting the times it bit is what makes this a check
         // on the rule rather than on which draws happened to come up.
@@ -1264,6 +1274,10 @@ check('no two cars occupy the same space', worst > 1.6,
 
     // One cargo slot, from the outside.
     if (parcels.state.parcels.filter((p) => p.stage === 'carried').length > 1) bothCarried += 1;
+    // And one *board* slot, every frame rather than only on the frames a package spawns. The spawn-
+    // time count below cannot see a cap that leaks between events — which is the only way this could
+    // now break, since `spawn` is the one thing that adds to `state.parcels`.
+    if (parcels.state.parcels.length > MAX_PARCELS) liveOverCap += 1;
 
     // **The corner invariant, every frame and in both directions.** Checked here rather than only at a
     // package's spawn, which is where it used to be and which made it look enforced while only half of
@@ -1278,10 +1292,18 @@ check('no two cars occupy the same space', worst > 1.6,
     elapsed += 1 / 60;
   }
 
-  check('packages appear on the board', spawns >= 2, `${spawns} spawned`);
+  // One spawn, not two. **The floor moved down with the cap, deliberately.** At two slots the board
+  // refilled on its own and a run of this length always saw several; at one, a box that goes
+  // uncollected holds the board until somebody drives through it, so every spawn after the first is a
+  // fact about how the player drove rather than about the spawn policy — and this run's player takes
+  // only the detours that cost a single leg, which in an unlucky city is none of them. Asserting more
+  // than one here would be asserting the city's geometry, the same trap the missing gap *ceiling*
+  // below is written around.
+  check('packages appear on the board', spawns >= 1, `${spawns} spawned`);
   check('no package before the tutorial delivery', spawnedTooEarly === 0,
     `${spawnedTooEarly} early`);
-  check('never more than MAX_PARCELS', overCap === 0, `${overCap} over`);
+  check('never more than MAX_PARCELS', overCap === 0 && liveOverCap === 0,
+    `${overCap} over at spawn, ${liveOverCap} frames over`);
   check('a package trip is worth taking', tooShort === 0 && sameBlock === 0,
     `${tooShort} too short, ${sameBlock} on one block`);
   check('a package never spawns on a fare\'s corner', clashedWithFare === 0,
@@ -1317,8 +1339,13 @@ check('no two cars occupy the same space', worst > 1.6,
     `${minGap.toFixed(1)}s to ${maxGap.toFixed(1)}s over ${spawns} spawns`);
   // Cashing one in must not immediately put another on the board. Asserted on the state the delivery
   // writes, since the observed interval cannot separate this hold from the drawn gap around it.
-  check('a delivery holds the next package off', deliveryHeld > 0,
-    `${deliveryHeld} deliveries pushed the next spawn out`);
+  //
+  // Stated as "every delivery this run made" rather than "at least one", because *whether this run
+  // delivers at all* is a property of the city — the same reason the policy check below measures the
+  // cost curve instead of asserting the loop works. The deterministic proof of the hold is in the
+  // controlled block, where a delivery is arranged rather than hoped for.
+  check('a delivery holds the next package off', deliveryHeld === deliveries,
+    `${deliveryHeld}/${deliveries} deliveries pushed the next spawn out`);
   // The run has to have actually completed a courier job end to end for any of the above to mean
   // much: spawn, bend the band through the pad, collect, bend it through the far pad, get paid.
   // **This block measures the cost curve; it does not assert that the loop works.** That distinction is
@@ -1564,6 +1591,7 @@ check('no two cars occupy the same space', worst > 1.6,
     if (toPad) { cTraffic.taxi.route = toPad; cTraffic.taxi.routeConsumed = false; }
     let delivered = 0;
     let outboundAirborne = 0;
+    let heldFor = 0;
     let g3 = 0;
     while (delivered === 0 && g3++ < 60 * 240 && !fares.state.gameOver) {
       cTraffic.update(1 / 60);
@@ -1571,7 +1599,14 @@ check('no two cars occupy the same space', worst > 1.6,
       for (const { type, parcel: p } of parcels.update(1 / 60, cTraffic.taxi, {
         fareSpots: fares.occupiedSpots(), delivered: 9, over: fares.state.gameOver,
       })) {
-        if (type === 'delivered') { delivered += 1; if (p) fares.credit(p.value); }
+        if (type === 'delivered') {
+          delivered += 1;
+          if (p) fares.credit(p.value);
+          // How far past *now* the next spawn was pushed, read on the frame the delivery wrote it.
+          // The greedy run above counts the same rule over whatever deliveries the city allowed it;
+          // this is the one that always runs.
+          heldFor = parcels.state.nextSpawnAt - parcels.state.elapsed;
+        }
       }
     }
     // Counted *after* the loop, not inside it: the `delivered` event fires on the frame the outbound
@@ -1594,10 +1629,16 @@ check('no two cars occupy the same space', worst > 1.6,
       `$${parcel.value} — courier total $${parcels.state.earned}, run total $${fares.state.money}`);
     check('and the box flies back out to the pad', outboundAirborne > 4,
       `${outboundAirborne} frames airborne on the way out`);
+    // Cashing one in must not immediately put the next on the board. This matters more at one slot
+    // than it did at two: the delivery is now the moment the board goes *empty*, so without the hold
+    // the very next frame is free to refill it and the find becomes a vending machine.
+    check('and cashing it in holds the next package off',
+      heldFor >= PARCEL_AFTER_DELIVERY - 0.1, `next spawn ${heldFor.toFixed(1)}s out`);
     fares.setPaused(false);
   } else {
     check('a package is delivered and paid for', false, 'no setup');
     check('and the box flies back out to the pad', false, 'no setup');
+    check('and cashing it in holds the next package off', false, 'no setup');
   }
 
   // The flight ends **on the rear deck**, not on the road under the car. It used to land at the taxi's
