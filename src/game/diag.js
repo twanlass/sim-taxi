@@ -107,7 +107,13 @@ function describeLimits(gl) {
  */
 export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}) {
   const element = enabled ? document.getElementById('diag') : null;
-  if (!element) return { update: () => {} };
+  // **Every** method, not just `update`. The doc above says "leaves every method a no-op" and this
+  // stub was one short: `note` was missing, so `attachContextRecovery`'s `onNotice` threw
+  // `diag.note is not a function` on any device that lost its context without `?diag` — which is
+  // every player, and inside the one handler whose whole job is to survive that moment. It threw
+  // *before* the reload into safe mode, so the recovery path it aborted was the one that would have
+  // got the picture back. Caught by a swiftshader box dropping the context under a headless run.
+  if (!element) return { update: () => {}, note: () => {} };
 
   const gl = renderer.getContext();
   const { renderer: gpu, vendor } = describeGpu(gl);

@@ -33,6 +33,7 @@ import {
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
+import { createCargoChip } from './game/cargochip.js';
 import { createTutorial } from './game/tutorial.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createSirenGlow } from './game/sirenglow.js';
@@ -755,6 +756,10 @@ function selectRider(fare) {
 }
 
 const riderFinder = createRiderFinder({ onSelect: selectRider, sun, hemi });
+// The courier load, pictured in the HUD's own corner while a package is aboard — see
+// game/cargochip.js. Built only when the layer is on, because it opens a WebGL context of its own
+// and a run under `?parcels=0` can never have anything to put in it.
+const cargoChip = parcels ? createCargoChip({ sun, hemi }) : null;
 const dropoffIndicator = createDropoffIndicator({
   camera,
   // Aim at the kerb corner where the pin actually stands, not the intersection centre — the
@@ -1690,11 +1695,15 @@ function frame() {
       // flashes — the acknowledgement belongs to the moment the thing arrives, not to the moment it
       // was earned a flight earlier (see the two events in game/parcels.js).
       traffic.setTaxiCargo(true);
+      // Beside the deck parcel, never instead of it: the chip is a readout *of* the load on the car,
+      // and the two appearing on different frames would be two events for one arrival.
+      cargoChip?.setCarrying(true);
       cargoFlashAt = fares.state.elapsed;
     } else if (type === 'delivered') {
       // The deck parcel goes now rather than when the outbound box lands, because the box *is* the
       // load leaving: two of them on screen at once would read as the taxi carrying a second package.
       traffic.setTaxiCargo(false);
+      cargoChip?.setCarrying(false);
       // Cash and fuel, the same two currencies a drop-off pays, and both take the same two-phase
       // flight a fare's does — off the taxi, then to the counter and to the pill — because it is the
       // same kind of event arriving from the same place, and a bonus that landed in either place
@@ -1747,6 +1756,8 @@ function frame() {
   policeRubber();
   updateHud(dt);
   riderFinder.update(dt, fares.waitingAll());
+  // A no-op unless a package is aboard — it draws nothing while the chip is down.
+  cargoChip?.render();
   // The arrow stands in for the ring it points at, so it is painted from the same fare — see
   // game/dropoffindicator.js.
   const aboard = fares.carrying();
@@ -2146,6 +2157,12 @@ window.__taxi = {
   fares,
   /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */
   parcels,
+  /**
+   * The HUD's courier box, for `tools/smoke.mjs` — null whenever `parcels` is. Everything about
+   * this chip is browser-only (a WebGL context in a DOM node), so a page is the only place it can
+   * be asserted at all: `setCarrying(true)` is what a `'loaded'` event does to it.
+   */
+  cargoChip,
   flyover,
   chopper,
   /** The opening rise-out-of-the-ground animation. `cityEntry.replay()` reruns it on demand. */

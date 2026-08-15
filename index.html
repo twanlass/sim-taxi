@@ -117,6 +117,39 @@
         100% { transform: scale(1);    color: #fff;    }
       }
 
+      /* Cargo chip — the courier box, pictured under the cash total while a package is aboard. See
+         src/game/cargochip.js for what is inside it and why it lives up here rather than at the end
+         of the rider-finder row.
+
+         **The box and nothing else.** No disc behind it, no rim around it. A rider chip needs its
+         disc because the ring around it is a clock and a clock needs a dial to be read against; the
+         courier layer's defining property is that a package *has* no clock, so there was nothing for
+         a ring to say — and once the ring goes, the disc is a plate under an object that does not
+         need one. What is left reads like the rest of the HUD: the cash total and the ⏸ are both
+         bare marks on the sky too.
+
+         The drop shadow stays, and is the same one they wear — `#hud`'s own `text-shadow` in its
+         filter form, so the box holds against pale asphalt exactly as the digits above it do. It is
+         a lift off the background rather than a background of its own. */
+      #cargo-chip {
+        margin-top: 4px;
+        width: 42px; height: 42px;
+        display: grid; place-items: center;
+        filter: drop-shadow(0 2px 6px rgba(20, 40, 55, 0.65));
+        /* Pops in when the box lands in the car, on the money counter's own easing — the pickup is
+           an arrival, and it should register as one rather than appearing between two frames.
+           Nothing here is driven off sim time, so shot mode has nothing to land (see the
+           `settle()` note in CLAUDE.md); the whole chip is hidden with #hud there anyway. */
+        opacity: 0; transform: scale(0.55); transform-origin: center;
+        transition: opacity 0.16s ease, transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      #cargo-chip.is-on { opacity: 1; transform: scale(1); }
+      #cargo-chip canvas { display: block; width: 42px; height: 42px; }
+      /* The chip still arrives and still leaves; it just stops springing to do it. */
+      @media (prefers-reduced-motion: reduce) {
+        #cargo-chip, #cargo-chip.is-on { transform: none; transition: opacity 0.16s ease; }
+      }
+
       /* Streak counter — mirrors the money counter at the opposite corner, and like the money
          counter it's on screen from the first frame reading `0x`. It used to stay hidden until
          the first drop-off, but an empty corner gives the player nothing to aim at; showing the
@@ -1118,6 +1151,10 @@
   <body>
     <div id="hud">
       <div class="money">$<span id="money">0</span></div>
+      <!-- The courier load, drawn into by game/cargochip.js while a package is aboard. Empty here:
+           the box inside it is the real `createParcel` mesh in a WebGL context of its own, the same
+           way the rider-finder chips draw the real figure. -->
+      <div id="cargo-chip" role="img" aria-label="Package aboard" aria-hidden="true"></div>
     </div>
     <div id="streak"><span id="streak-count">0</span>x</div>
 

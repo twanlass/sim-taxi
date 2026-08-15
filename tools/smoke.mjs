@@ -117,10 +117,11 @@ try {
   // this headless configuration but never synthesises a DOM click — the page observes nothing at
   // all — so it silently tests neither the picker nor anything else. This does exercise the real
   // listener, raycast and hit-test path; it just doesn't cover Chrome's OS-level input plumbing.
-  // `body > canvas` rather than `canvas`. The game's canvas is appended to the body, but every
-  // rider-finder chip carries a 38px WebGL canvas of its own inside `#rider-finder-stack`, which
-  // is *earlier* in the DOM — so as soon as a rider is waiting, a bare `querySelector('canvas')`
-  // hands back a chip. Every gesture below was landing on that: the drag check failed because
+  // `body > canvas` rather than `canvas`. The game's canvas is appended to the body, but the HUD
+  // chips each carry a small WebGL canvas of their own — 38px inside `#rider-finder-stack`, 42px
+  // inside `#cargo-chip`, which is earlier still, being the first element in the body — and both
+  // sit *before* the game's in the DOM, so a bare `querySelector('canvas')` hands back a chip.
+  // Every gesture below was landing on that: the drag check failed because
   // `attachDragPan` never saw the events, and the tap check passed for the wrong reason, since a
   // click on a chip's canvas bubbles to the chip's button and dispatches the taxi anyway.
   const GAME_CANVAS = "document.querySelector('body > canvas')";
@@ -438,6 +439,57 @@ try {
     check('a chip tap pans instead of cutting', false,
       narrow ? 'no waiting rider on screen to tap' : 'viewport is not narrow');
   }
+
+  // --- The courier box in the HUD, while a package is aboard. See src/game/cargochip.js.
+  //
+  // Here rather than in the node suite because the whole thing is browser-only: a WebGL context
+  // inside a DOM node. And driven through `__taxi.cargoChip` rather than by couriering a real
+  // package, which would mean playing a fare, waiting out the spawn gap and dragging the route band
+  // through a pad — several minutes of software-rendered sim for a chip whose two states are the
+  // thing being asserted. `setCarrying(true)` is exactly what a `'loaded'` event does to it.
+  //
+  // The pixel count is the half that matters. The chip's framing is *computed* — the frustum is
+  // derived from the box's own dimensions at the camera's elevation — so the failure mode is not a
+  // missing element, it is a correct element with the box framed off the side of it, which reads in
+  // a screenshot as an empty disc and reads in the DOM as a pass. Everything is done inside one
+  // `evaluate` with no await in the middle: the renderer does not preserve its drawing buffer, so
+  // the readback has to happen in the same task as the draw.
+  const chipState = (expr = 'null') => evaluate(`(() => {
+    const chip = window.__taxi.cargoChip;
+    if (!chip) return JSON.stringify({ missing: true });
+    ${expr};
+    const el = document.getElementById('cargo-chip');
+    const src = el.querySelector('canvas');
+    const c = document.createElement('canvas');
+    c.width = src.width; c.height = src.height;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(src, 0, 0);
+    const data = ctx.getImageData(0, 0, c.width, c.height).data;
+    let drawn = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 200) drawn += 1;
+    return JSON.stringify({
+      on: el.classList.contains('is-on'),
+      hidden: el.getAttribute('aria-hidden'),
+      drawn: drawn / (data.length / 4),
+    });
+  })()`);
+
+  const chipDown = JSON.parse(await chipState());
+  check('the cargo chip starts down', chipDown.on === false && chipDown.hidden === 'true',
+    chipDown.missing ? 'no courier layer on this page' : `aria-hidden ${chipDown.hidden}`);
+
+  const chipUp = JSON.parse(await chipState('chip.setCarrying(true); chip.render()'));
+  // A 1.16-unit box in a frustum half-height of 1.15 measures 52% of the canvas, so 0.3 is a floor
+  // with room under it rather than a reading to keep in step. What it rules out is the two ways
+  // this can be wrong and still look fine from the DOM: nothing drawn at all, and a box framed
+  // outside the canvas.
+  check('a package aboard raises the cargo chip',
+    chipUp.on === true && chipUp.hidden === 'false' && chipUp.drawn > 0.3,
+    `${(chipUp.drawn * 100).toFixed(0)}% of the canvas drawn`);
+
+  const chipAfter = JSON.parse(await chipState('chip.setCarrying(false)'));
+  check('delivering it puts the chip back down',
+    chipAfter.on === false && chipAfter.hidden === 'true');
 
   // --- The "Add to Home Screen" nudge shows on iOS and nowhere else.
   //
