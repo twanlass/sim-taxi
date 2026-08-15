@@ -98,8 +98,8 @@ export const SHOTS = [
   // an ambient event has to be noticeable without being a distraction, and that is not a judgement
   // a close-up can make. 4.4s in is the turn onto final — out over the city, at full bank.
   { name: 'heli-far', description: 'the helicopter banking onto final, at play zoom', target: [0, 0], zoom: 52, warmup: 12, heliAt: 4.4 },
-  // The package courier (game/parcels.js). **All three need `?parcels=1`** — the layer is off in shot
-  // mode by default, and `untilParcel` has nothing to frame without it.
+  // The package courier (game/parcels.js). **Both need `?parcels=1`** — the layer is off in shot mode
+  // by default, and `untilParcel` has nothing to frame without it.
   //
   // Appended after the helicopter's pair rather than filed with them, for the reason stated above the
   // `birds` entry: shots are addressed by *index*, so inserting anywhere but the end silently
@@ -112,16 +112,11 @@ export const SHOTS = [
   // what a thing is" and the one claim no assertion can make.
   { name: 'parcel', description: 'a package waiting on its pad — needs ?parcels=1', target: [0, 0], zoom: 11, warmup: 12, untilParcel: true },
   { name: 'parcel-board', description: 'a courier pad against the fare board at play zoom — needs ?parcels=1', target: [0, 0], zoom: 30, warmup: 12, untilParcel: true },
-  // The taxi wearing its load. `withCargo` shows the rear-deck parcel outright rather than driving
-  // the car to a pad and collecting one — the same staging licence `wreckAt` and `grabAt` take, and
-  // for the same reason: a still frame cannot spend the seconds the real path costs, and what is
-  // being looked at is whether a box on the deck reads as cargo rather than as a lump on the roof.
-  { name: 'parcel-aboard', description: 'the taxi carrying a package — needs ?parcels=1', target: [0, 0], zoom: 16, warmup: 12, select: true, untilPickup: true, withCargo: true },
-  // The box mid-flight, which had no framing at all and needed one: the arc, the shrink and the fade
-  // are the whole of that animation and every one of them is a *moment*, gone in half a second. The
-  // probe can count airborne frames; only a picture says whether the throw reads as a throw.
-  // `flightAt` is the fraction along the flight the shot freezes — 0.5 is the top of the arc.
-  { name: 'parcel-flight', description: 'the box crossing to the taxi — needs ?parcels=1', target: [0, 0], zoom: 13, warmup: 12, untilParcel: true, flightAt: 0.5 },
+  // There were two more here, `parcel-aboard` and `parcel-flight`, and both photographed a load that
+  // has since left the world: the box no longer rides on the taxi's rear deck and no longer crosses
+  // the road to get there — it flies into the HUD (game/cargochip.js), and shot mode hides the HUD.
+  // Removed from the **end** of the list rather than blanked in place, which is the one edit the
+  // index-addressing rule above allows without renumbering anything that survived.
 ];
 
 export function getActiveShot() {

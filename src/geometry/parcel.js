@@ -50,6 +50,17 @@ const TAPE_PROUD = 0.024;  // how far the strip stands off the card it is stuck 
 export const PARCEL_DECK_SCALE = 0.53 / BOX_W;
 
 /**
+ * Half the box's standing height — the point a picture of it should be centred on.
+ *
+ * The HUD chip frames the box around this (game/cargochip.js) and the pickup hand-off measures the
+ * kerb box's screen position from it (game/parcels.js), which is precisely why it is one number here
+ * rather than the same `0.58` typed at both ends: the two have to agree to the pixel or the box
+ * *jumps* on the frame the world hands it to the corner, and a box resized on one side of that seam
+ * would open a gap nothing asserts.
+ */
+export const PARCEL_CENTRE_Y = (BOX_H + LID_H) / 2;
+
+/**
  * @param pickable  the `userData.pickable` kind, or null for a parcel that is scenery. The picker
  *                  works off an explicit target list, so an untagged box is unreachable either way
  *                  — but tagging one that can never be picked (the copies on the taxi and in flight)

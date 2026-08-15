@@ -1256,53 +1256,56 @@ square against a disc is read at a glance.
 - **`?parcels=0`** clears the board to measure the fare loop alone, the way `?cars=1` clears the
   roads. The layer is off in shot mode by default, since every framing in the sweep was composed
   before packages existed; **`?parcels=1`** forces it back on, which is the only way to point a
-  camera at one (`?shot=22` to `?shot=25`).
-- **The taxi wears its load.** A small parcel appears on the rear deck — an object on the car rather
-  than anything on the glass, for the reason [the roof sign](#the-taxis-roof-sign) is one. And it is
-  [repeated in the HUD](#the-load-is-repeated-in-the-hud), because on the car it is four pixels.
+  camera at one (`?shot=22` and `?shot=23`).
+- **The taxi does not wear its load.** It used to: a small parcel on the rear deck, which at play zoom
+  is [about four pixels](#the-load-is-carried-into-the-hud). The load is stated in the HUD instead, at a
+  size that can be read, and the car goes back to saying exactly one thing about what it is carrying —
+  [the roof sign](#the-taxis-roof-sign), for a rider.
 
 ### The box visibly changes hands
 
-Nothing about a package teleports. **The box flies**: off the kerb to the taxi, shrinking and fading as
-it goes, and back out of the taxi into the pad on delivery, growing and fading in. It is the same
+Nothing about a package teleports. **The box flies**: off the kerb and up into its slot in the HUD on
+pickup, and back out of the taxi into the pad on delivery, growing and fading in. It is the same
 argument [the fare's crystal](#the-fares-clock-travels) is built on — nothing is created or destroyed
 at a hand-off, which is why that flight is animated rather than a teleport — applied to the one object
 this layer hands over. Details in [rendering.md](rendering.md#the-parcel--geometryparceljs).
 
-Two consequences worth naming:
+Three consequences worth naming:
 
-- **`pickup` and `loaded` are two events a flight apart.** `pickup` is the moment the player earned
-  the box; `loaded` is the moment it reaches the car, and that is when the taxi reacts — the deck
-  parcel appears and the whole car takes a white emissive lift on the [select pop](#the-tap-pops)'s own
-  envelope, so being handed a package reads as the same *kind* of acknowledgement as a tap that landed.
-  Splitting them is what lets the box be seen to travel instead of appearing on a deck that was already
-  carrying it.
-- **The flourish fires where the box touches the car**, which took two fixes rather than a timing tweak.
-  The flight used to end at the taxi's XZ at **pavement height** — under the car's sills — while the deck
-  parcel appeared a unit and a half above it, so the arrival and the load were in different places. And
-  the box faded to *zero* on the way in, so it was invisible by the frame it landed and the flash lit an
-  empty patch of road. It now flies to the deck's own height (`TAXI_DECK_Y`, exported from the mesh) and
-  keeps a quarter of its opacity all the way in, switched off under the flash. Covering the cut is what a
-  flourish is for.
+- **The pickup crosses between two renderers, and the seam is the whole design.** The world box is
+  hidden on the frame it is collected and `parcels.js` hands over a `handoff` record: the world point of
+  the box's **own centre** (not the junction, not the pavement under it — the bob and the half-height
+  are both real) and the **facing** its idle spin had reached, wrapped to (−π, π] rather than passed on
+  as the tens of radians it has accumulated. `main.js` projects that point, measures what the camera is
+  currently giving a world unit, and opens the chip there, at that size, at that angle. Get any one of
+  the three wrong and the box *jumps* on the frame it changes hands, which is the teleport the flight
+  exists to replace — while reading, from the DOM, as a chip that came up correctly.
+- **The taxi's flourish fires on the pickup**, not on an arrival at the car: the whole car takes a white
+  emissive lift on the [select pop](#the-tap-pops)'s own envelope, so collecting a package reads as the
+  same *kind* of acknowledgement as a tap that landed. There is no second event any more. `'loaded'`
+  existed to mark the frame the box reached the deck, and it went with the deck — the travel it was
+  splitting off is still there, but it now finishes in a DOM animation this module cannot observe.
 - **`delivered` still pays out at once.** The money is earned on arrival, and making the player wait
-  out an animation for it would read as lag. The deck parcel also goes on that frame rather than when
-  the outbound box lands: the flying box *is* the load leaving, and two of them on screen at once would
-  read as the taxi carrying a second package.
+  out an animation for it would read as lag. The chip goes down on that frame rather than when the
+  outbound box lands: the flying box *is* the load leaving, and a corner still holding one while a
+  package is being set down would read as the taxi carrying a second.
 
 And the ground marks move rather than blink. A pad **grows out of its own centre** when it arrives and
 pulls back into it when it leaves — as does a fare's disc, both ends. At a rider's pickup the kerb
 disc now shrinks away on the same frame the drop-off's grows in, which is one clock changing ends of a
 trip; two discs switching state in one frame was two events.
 
-### The load is repeated in the HUD
+### The load is carried into the HUD
 
 `src/game/cargochip.js` — the box itself at 42px under the cash total, up for exactly as
-long as a package is aboard.
+long as a package is aboard, and **flown there from the corner it was standing on**.
 
-The deck parcel above is the honest answer to "does the car have one", and at play zoom it is **about
-four pixels**, on a car the player is mostly not looking at because they are reading the road ahead of
-it. The cyan drop pad lighting up across town says *where*; nothing on screen said *what*. A player who
-blinked through the pickup flight was left inferring their own cargo from a pad they never asked for.
+A deck parcel is the honest answer to "does the car have one", and at play zoom it is **about four
+pixels**, on a car the player is mostly not looking at because they are reading the road ahead of it.
+The cyan drop pad lighting up across town says *where*; nothing legible said *what*. This chip was
+added beside the deck box to fix that, which left the board carrying two versions of one fact — so the
+deck box went and the collected package comes *here* instead. That is also what lets the pickup be one
+unbroken move: with nothing to arrive at on the car, the box has one destination rather than two.
 
 - **The real mesh, not an icon.** `createParcel` in its own small WebGL context, lit by the city's own
   sun through `mirrorSceneLights` — the same rig as the [tutorial avatar](#the-opening-tutorial) and the
@@ -1325,17 +1328,27 @@ blinked through the pickup flight was left inferring their own cargo from a pad 
   an object that does not need one. Bare, it reads like the rest of the HUD: the cash total and the ⏸
   are marks on the sky too. The only thing between the box and a pale road is `#hud`'s own drop shadow,
   which is what holds the digits up there as well.
-- **It does not spin.** The kerb box turns because a slow rotation is the box's substitute for the
-  rider's waving arm — "this is a thing to pick up". This one has already been picked up. A spinning
-  readout would be asking for a second pickup.
-- **Raised and lowered by the same two events as the deck parcel** — `'loaded'` and `'delivered'`,
-  beside `traffic.setTaxiCargo` rather than instead of it, so the corner and the car can never disagree
-  about whether there is a box aboard. It arrives on the money counter's own easing, because a pickup is
-  an arrival and should register as one.
-- **Checked in `tools/smoke.mjs`, not in the node suite**: a WebGL context inside a DOM node has no
-  headless equivalent. The assertion that matters is the **share of the disc actually drawn** — the
-  frustum is computed from the box's own dimensions, so the failure mode is a correct element with the
-  box framed off the side of it, which reads as a pass in the DOM and as an empty disc on screen.
+- **It does not spin — once it has landed.** The kerb box turns because a slow rotation is the box's
+  substitute for the rider's waving arm: "this is a thing to pick up". This one has already been picked
+  up, so it rides still. The exception is the flight in, which *inherits* the spin the box arrived with
+  and eases it out over the same 620ms — a box that snapped square on the frame it changed renderers
+  would undo the seam the position and the size just bought. It settles to the **nearest quarter turn**,
+  which is at most 45° of travel: the box's footprint is square by design, so a quarter turn from square
+  is the same picture, and landing the raw angle instead crams up to half a turn into 620ms and reads as
+  a flourish rather than as the same spin running down.
+- **Raised by the pickup, lowered by the delivery.** `flyIn` is what a `'pickup'` does to it and is what
+  raises it; `setCarrying(false)` is what a `'delivered'` does. The flight starts opaque, at the world
+  box's size — `gamePxPerUnit / CHIP_PX_PER_UNIT`, both measured rather than assumed, since the game's
+  zoom moves — and the path lifts before it sweeps, so the box leaves the ground rather than sliding
+  across the city at an angle. Under `prefers-reduced-motion` it hands over to the plain pop.
+- **Checked in `tools/smoke.mjs`, not in the node suite**: a WebGL context inside a DOM node, carried by
+  a Web Animation, has no headless equivalent. Two assertions matter. The **share of the canvas actually
+  drawn** — the frustum is computed from the box's own dimensions, so the failure mode is a correct
+  element with the box framed off the side of it, which reads as a pass in the DOM. And that the flight
+  **starts away from home and ends at home**: a transform that begins at the identity is a chip that
+  popped in the corner while the box vanished across town, which is exactly the teleport this replaced.
+  The smoke run pins `prefers-reduced-motion: no-preference` through CDP for that check, or a headless
+  build answering `reduce` would quietly be asserting the fallback.
 
 ## Crazy-taxi mode
 

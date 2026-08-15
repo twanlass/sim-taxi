@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
 import { createScene } from './game/scene.js';
-import { createCityCamera, attachDragPan, VIEW_DIR } from './game/camera.js';
+import { createCityCamera, attachDragPan, VIEW_DIR, RIGHT as SCREEN_RIGHT } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
@@ -49,7 +49,7 @@ import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
   getDiagnostics, getParcelsPin } from './util/shot.js';
-import { createParcelSystem, FLIGHT_TIME as PARCEL_FLIGHT_TIME } from './game/parcels.js';
+import { createParcelSystem } from './game/parcels.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
 import { createViewport } from './util/viewport.js';
@@ -963,6 +963,23 @@ function projectToScreen(x, y, z) {
   };
 }
 
+/**
+ * How many viewport pixels the camera is currently giving a world unit.
+ *
+ * Measured rather than assumed: play zoom puts it near 7.7px, and it is nowhere near that during a
+ * Loco Mode pull-out or on a phone in portrait. The step is along `SCREEN_RIGHT` because that is the
+ * one world direction this view foreshortens by nothing (see camera.js), so the pixels it spans *are*
+ * a world unit's worth with no elevation term to fold out.
+ *
+ * The courier hand-off is what needs this: the box's flight into the HUD has to open at exactly the
+ * size the box closed at in the city, and "exactly" is a ratio between two cameras' scales.
+ */
+function worldPxPerUnit(x, y, z) {
+  const from = projectToScreen(x, y, z);
+  const to = projectToScreen(x + SCREEN_RIGHT.x, y, z + SCREEN_RIGHT.z);
+  return Math.hypot(to.x - from.x, to.y - from.y);
+}
+
 /** Screen position of the taxi, for anchoring the earnings pop. */
 function taxiScreenPos() {
   return projectToScreen(traffic.taxi.x, 1.4, traffic.taxi.z);
@@ -1782,19 +1799,33 @@ function frame() {
         over: fares.state.gameOver,
       })
       : NO_FARE_EVENTS)) {
-    if (type === 'loaded') {
-      // The box has finished crossing from the kerb. *Now* the deck parcel appears and the car
-      // flashes — the acknowledgement belongs to the moment the thing arrives, not to the moment it
-      // was earned a flight earlier (see the two events in game/parcels.js).
-      traffic.setTaxiCargo(true);
-      // Beside the deck parcel, never instead of it: the chip is a readout *of* the load on the car,
-      // and the two appearing on different frames would be two events for one arrival.
-      cargoChip?.setCarrying(true);
+    if (type === 'pickup') {
+      // The box has just been lifted off its corner, and this is the frame it changes renderers: the
+      // world copy is already hidden and the chip picks it up from exactly where that one was
+      // standing. `parcel.handoff` is the world point and the spin `parcels.js` measured off the live
+      // box (it owns those facts); turning them into pixels is this module's half, because the
+      // projection is.
+      //
+      // Nothing lands on the taxi any more — there is no deck parcel to appear, which is what lets the
+      // pickup be one move from the kerb to the readout rather than a flight into the car followed by
+      // a chip popping up in a different corner of the screen.
+      const from = parcel.handoff;
+      if (from && cargoChip) {
+        const at = projectToScreen(from.x, from.y, from.z);
+        cargoChip.flyIn({
+          x: at.x, y: at.y, pxPerUnit: worldPxPerUnit(from.x, from.y, from.z), yaw: from.yaw,
+        });
+      } else {
+        cargoChip?.setCarrying(true);
+      }
+      // The car's own acknowledgement, on the frame the detour paid off. It is not "the load arrived
+      // here" any more — the load is going to the corner — it is the same flourish a tapped rider gets,
+      // fired on the object the player is actually watching at the moment they collected something.
       flashTaxi();
     } else if (type === 'delivered') {
-      // The deck parcel goes now rather than when the outbound box lands, because the box *is* the
-      // load leaving: two of them on screen at once would read as the taxi carrying a second package.
-      traffic.setTaxiCargo(false);
+      // The chip goes down now rather than when the outbound box lands, because that box *is* the load
+      // leaving: the corner still holding one while a package is being set down on a pad would read as
+      // the taxi carrying a second.
       cargoChip?.setCarrying(false);
       // Cash and fuel, the same two currencies a drop-off pays, and both take the same two-phase
       // flight a fare's does — off the taxi, then to the counter and to the pill — because it is the
@@ -2105,51 +2136,19 @@ if (shot) {
       parcels.update(1 / 60, traffic.taxi, { fareSpots: fares.occupiedSpots(), delivered: 9 });
     }
     const box = parcels.state.parcels[0];
-    // Freeze the box in mid-air.
-    //
-    // Driven rather than teleported. The first cut of this set `taxi.x/z` to the package's junction so
-    // proximity would resolve at once — which put the car exactly where the box was, giving the flight
-    // zero length and a photograph of nothing. It also lies to the traffic model, which carries its own
-    // lane state and would have corrected the position on the next tick anyway. So the taxi is *routed*
-    // there and the sim run until it arrives, the same way `untilPickup` does it, and then the flight is
-    // ticked `flightAt` of the way along — with `traffic.update` still running, because the car keeps
-    // driving through the junction and the box has to chase where it has got to. That chase is the whole
-    // geometry of the shot.
-    if (box && shot.flightAt !== undefined) {
-      routeTo(box.pickup);
-      const tick = () => parcels.update(1 / 60, traffic.taxi, {
-        fareSpots: fares.occupiedSpots(), delivered: 9,
-      });
-      for (let guard = 0; guard < 90 * 60 && !parcels.carrying(); guard++) {
-        traffic.update(1 / 60);
-        tick();
-      }
-      const kerb = cornerFor(box.pickup.i, box.pickup.j);
-      for (let step = 0; step < Math.round(shot.flightAt * PARCEL_FLIGHT_TIME * 60); step++) {
-        traffic.update(1 / 60);
-        tick();
-      }
-      // The midpoint of the crossing, not either end — the arc is the subject.
-      controller.state.target.set(
-        (kerb.x + traffic.taxi.x) / 2, 0, (kerb.z + traffic.taxi.z) / 2,
-      );
-      controller.update(aspect());
-    } else if (box) {
+    if (box) {
       // The kerb corner, not the junction centre — at close zoom the corner building stands squarely
       // between the camera and anything on the pavement. Same reason `atPassenger` does it.
+      //
+      // There were two more courier framings here, and both went with the deck parcel: `parcel-aboard`
+      // photographed the box riding on the car, and `parcel-flight` froze the crossing `flightAt` of
+      // the way along. A collected box goes to the HUD now, and shot mode hides the HUD — so what
+      // those two framed no longer exists in a still. The flight is checked in `tools/smoke.mjs`, on a
+      // page, which is the only place a DOM animation can be checked at all.
       const c = cornerFor(box.pickup.i, box.pickup.j);
       controller.state.target.set(c.x, 0, c.z);
       controller.update(aspect());
     }
-  }
-
-  // Load the rear deck without driving to a pad for it — see `parcel-aboard` in util/shot.js. Framed
-  // on the taxi, which `select` alone does not do: the other close framings sit at the map centre and
-  // photograph whatever traffic is passing through it, and at zoom 9 the car has to be aimed at.
-  if (shot.withCargo) {
-    traffic.setTaxiCargo(true);
-    controller.state.target.set(traffic.taxi.x, 0, traffic.taxi.z);
-    controller.update(aspect());
   }
 
   // Frame the waiting rider rather than the middle of the map.
@@ -2255,9 +2254,10 @@ window.__taxi = {
   /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */
   parcels,
   /**
-   * The HUD's courier box, for `tools/smoke.mjs` — null whenever `parcels` is. Everything about
-   * this chip is browser-only (a WebGL context in a DOM node), so a page is the only place it can
-   * be asserted at all: `setCarrying(true)` is what a `'loaded'` event does to it.
+   * The HUD's courier box, for `tools/smoke.mjs` — null whenever `parcels` is. Everything about this
+   * chip is browser-only (a WebGL context in a DOM node, and now a Web Animation carrying it in from
+   * the city), so a page is the only place it can be asserted at all. `flyIn` is what a `'pickup'`
+   * does to it; `setCarrying` is the flightless version of the same, and what a delivery puts back.
    */
   cargoChip,
   /**
