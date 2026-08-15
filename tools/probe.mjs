@@ -46,6 +46,7 @@ import {
 import { HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER, POP_TIME } from '../src/game/selectpop.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
+import { isCarOffScreen } from '../src/game/taxifinder.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
 import { createHelicopterMesh, HELI_SKID_DROP, MAIN_R } from '../src/geometry/helicopter.js';
@@ -4867,6 +4868,96 @@ check('the taxi is an ordinary car in the traffic array',
   check('a peek from on top of the rider still comes home',
     arrived === 1 && Math.hypot(cam.state.target.x - car.x, cam.state.target.z - car.z) < 1e-9,
     `${arrived} arrivals after ${zeroLength} frames`);
+
+  // --- The ride back to the taxi --------------------------------------------
+  // The taxi-finder chip's whole camera move: a peek's homeward leg on its own, with no trip out.
+  // It shares `armChase` with the peek, so what is worth asserting separately is that it is a
+  // *ride* and not a cut — the one thing a player would notice going wrong, and the one thing a
+  // still frame cannot show — and that it still lands on a car that never stopped driving.
+  arrived = 0;
+  car.x = -20;
+  car.z = -20;
+  cam.cancelGlide();
+  cam.state.target.set(40, 0, 40);
+  cam.chaseTo(() => car, () => { arrived += 1; });
+  const chaseStart = cam.state.target.clone();
+  driveCar(STEP);
+  cam.updateGlide(STEP, 1.5);
+  const chaseFirst = chaseStart.distanceTo(cam.state.target);
+  // Same ease-in as every other pan here: the first frame is a small fraction of the linear step,
+  // rather than the camera leaving at full speed and reading as most of a snap.
+  const chaseLinear = chaseStart.distanceTo(new THREE.Vector3(car.x, 0, car.z)) * (STEP / 0.75);
+  check('the ride back to the taxi eases in rather than cutting',
+    chaseFirst > 0 && chaseFirst < chaseLinear * 0.1 && arrived === 0,
+    `${chaseFirst.toFixed(4)} units on frame 1 vs ${chaseLinear.toFixed(3)} linear`);
+
+  let chaseFrames = 1;
+  while (cam.isGliding() && chaseFrames < 600) {
+    driveCar(STEP);
+    cam.updateGlide(STEP, 1.5);
+    chaseFrames += 1;
+  }
+  // Exactly on the car, not near it: the aim is re-read every frame, so the ~5 units it covers
+  // during the move are already paid for when the camera stops. That is what lets main.js hand the
+  // framing straight to the follow-cam on arrival with no gap to close.
+  const chaseMiss = Math.hypot(cam.state.target.x - car.x, cam.state.target.z - car.z);
+  check('the ride back lands on the moving taxi and reports it',
+    chaseMiss < 1e-9 && arrived === 1 && !cam.isGliding(),
+    `${chaseMiss.toFixed(6)} units off after ${chaseFrames} frames, ${arrived} arrivals`);
+
+  // And it is dropped like any other pan. The chip's own arrival is what clears `cameraTakenOver`,
+  // so a swipe away mid-ride firing it anyway would hand the framing back to a follow-cam the
+  // player has just taken it from.
+  arrived = 0;
+  cam.cancelGlide();
+  cam.state.target.set(40, 0, 40);
+  cam.chaseTo(() => car, () => { arrived += 1; });
+  cam.updateGlide(STEP, 1.5);
+  fire('pointerdown', 400, 300);
+  fire('pointermove', 440, 350);
+  fire('pointerup', 440, 350);
+  for (let i = 0; i < 400; i++) cam.updateGlide(STEP, 1.5);
+  check('a drag mid-ride cancels the trip back to the taxi',
+    !cam.isGliding() && arrived === 0,
+    'the ride survived a drag, or reported arriving anyway');
+}
+
+// --- Is the taxi off screen? ------------------------------------------------
+// The test the taxi-finder chip is armed off (game/taxifinder.js). Its whole job is a boundary, and
+// both ways of getting a boundary wrong are invisible in the browser until they are annoying: too
+// eager and the chip offers to find a car the player can see, too shy and it never comes up at all.
+// The hysteresis is the part that cannot be eyeballed — the symptom is a chip that blinks while the
+// taxi tracks the frame edge, which is exactly the situation it exists for.
+{
+  const W = 390;
+  const H = 844;
+  const R = 22;                    // the car's on-screen radius at play zoom, near enough
+  const SLACK = 14;                // taxifinder.js's EDGE_SLACK, restated so a change there fails here
+  const at = (x, y, wasOff = false) => isCarOffScreen(x, y, R, W, H, wasOff);
+
+  check('a taxi in the middle of the frame is not off screen', !at(W / 2, H / 2));
+  // Every edge, since a sign slip on one axis leaves the other three working.
+  check('a taxi well past each edge is off screen',
+    at(-200, H / 2) && at(W + 200, H / 2) && at(W / 2, -200) && at(W / 2, H + 200));
+  // Half a car showing is still a car you can see. This is the case that separates "completely off
+  // screen" from "mostly off screen", and it is the one the feature was asked for in those words.
+  check('a taxi half off the edge is not off screen', !at(-R / 2, H / 2) && !at(W + R / 2, H / 2));
+  // Just clear of the frame, but inside the slack: not yet, or the chip appears on the frame the
+  // last pixel leaves and takes itself down again on the next.
+  check('a taxi just clear of the edge waits out the slack', !at(-R - SLACK / 2, H / 2));
+  check('a taxi clear of the edge by the slack is off screen', !!at(-R - SLACK - 1, H / 2));
+
+  // The band itself: once it is up, the chip stays up until a pixel of car is genuinely back in
+  // frame — which is the asymmetry that stops the boundary flickering.
+  const inBand = -R - SLACK / 2;
+  check('the edge test is hysteretic', !at(inBand, H / 2, false) && at(inBand, H / 2, true),
+    `${SLACK}px band outside the frame`);
+  check('a pixel of car back in frame takes the chip down again',
+    !at(-R + 1, H / 2, true), 'still reported off screen with the car overlapping the edge');
+
+  // The corners, where both axes are outside at once — a car can be diagonally clear of the frame
+  // without being past either edge by much.
+  check('a taxi off a corner is off screen', !!at(-R - SLACK - 1, -R - SLACK - 1));
 }
 
 // --- The follow lead: framing the road ahead --------------------------------

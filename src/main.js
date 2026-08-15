@@ -33,6 +33,7 @@ import {
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
+import { createTaxiFinder } from './game/taxifinder.js';
 import { createCargoChip } from './game/cargochip.js';
 import { createTutorial } from './game/tutorial.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
@@ -210,9 +211,16 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
 // now asserts every offset in this file is distinct, because nothing about the collision was visible:
 // no crash, no failing check, just a package board silently correlated with a helicopter.
 const parcels = parcelsEnabled ? createParcelSystem(makeRng(runSeed + 255), scene) : null;
-// Sim time the taxi's accept flourish was stamped at, or null when it is not running. See the frame
-// loop — a courier box landing in the car lights the whole car for the length of a select pop.
-let cargoFlashAt = null;
+// Sim time the taxi's flourish was stamped at, or null when it is not running. See the frame loop —
+// it lights the whole car for the length of a select pop.
+//
+// Two things fire it, and they are the same claim about the car: *this one, here*. A courier box
+// landing in it is an acknowledgement that the thing arrived; the camera riding back to it (see
+// `panToTaxi`) is a player who had lost the car being handed it again, at the moment it lands in
+// frame. Reusing one flourish rather than inventing a second is the point — the player learns the
+// gesture once.
+let taxiFlashAt = null;
+const flashTaxi = () => { taxiFlashAt = fares.state.elapsed; };
 // Given the cars array so the cruiser can see who is in its lane and move over for them — see
 // DODGE_* in sim/police.js. It never mutates it.
 const police = createPolice(makeRng(runSeed + 66), scene, traffic.cars);
@@ -800,7 +808,46 @@ function selectRider(fare) {
   dispatchToRider(fare);
 }
 
+// The same shortcut aimed the other way: back to the taxi, from wherever the player left the
+// framing. The camera is theirs for good once they swipe — nothing drags it back onto the car —
+// which on a phone means a look across town can leave the taxi off-frame entirely, and the only way
+// home was to drag the map until the yellow car turned up. See game/taxifinder.js for when the chip
+// that calls this is up.
+function panToTaxi() {
+  // Tracked rather than aimed once, for the same reason a peek's ride home is: the car has been
+  // driving the whole time the chip was up, and a leg fixed at the tap would land on the road it
+  // left. The landing is on the car and already travelling with it, so clearing `cameraTakenOver`
+  // hands the framing to the opening follow-cam with no gap to close — and handing it back is the
+  // point, since parking the camera on the car would only let it drive out of the frame the move
+  // just spent half a second putting it in.
+  controller.chaseTo(() => traffic.taxi, () => {
+    cameraTakenOver = false;
+    // And the car says which one it is, on the same flourish a courier box landing in it fires.
+    // **On arrival, not on the tap**: the flash is over in 0.29s and the ride takes up to 0.75s, so
+    // firing it at the press would spend the whole thing on a car that is still off-frame — a
+    // flourish nobody is in a position to see. Here it lands on the frame the camera stops, which is
+    // the frame the player is looking for their taxi in. It rides `onArrive`, so a swipe away
+    // mid-ride cancels the flash along with the trip: the player has changed their mind about where
+    // to look, and a car lighting up off-screen behind them would be answering a question they
+    // withdrew.
+    flashTaxi();
+  });
+}
+
 const riderFinder = createRiderFinder({ onSelect: selectRider, sun, hemi });
+// The chip that answers "where did my car go" — up only while the taxi is completely off-frame.
+const taxiFinder = createTaxiFinder({
+  sun,
+  hemi,
+  project: projectToScreen,
+  // The frame the renderer actually draws, not `window.inner*` — which is short of it on an
+  // installed iOS app, and would report a car in that strip as off-screen when it is on it.
+  frame: viewport,
+  // Orthographic, so world-units-per-pixel falls straight out of the frustum height: the vertical
+  // world span is exactly 2 * zoom. Read per frame, since a wreck pulls the zoom in under it.
+  pixelsPerUnit: () => viewport.height() / (2 * controller.state.zoom),
+  onTap: panToTaxi,
+});
 // The courier load, pictured in the HUD's own corner while a package is aboard — see
 // game/cargochip.js. Built only when the layer is on, because it opens a WebGL context of its own
 // and a run under `?parcels=0` can never have anything to put in it.
@@ -1743,7 +1790,7 @@ function frame() {
       // Beside the deck parcel, never instead of it: the chip is a readout *of* the load on the car,
       // and the two appearing on different frames would be two events for one arrival.
       cargoChip?.setCarrying(true);
-      cargoFlashAt = fares.state.elapsed;
+      flashTaxi();
     } else if (type === 'delivered') {
       // The deck parcel goes now rather than when the outbound box lands, because the box *is* the
       // load leaving: two of them on screen at once would read as the taxi carrying a second package.
@@ -1767,16 +1814,16 @@ function frame() {
     }
   }
 
-  // The accept flourish, on the select pop's own envelope (game/selectpop.js) so a package landing in
-  // the car reads as the same *kind* of acknowledgement a tapped rider gets rather than as a new
-  // effect to learn. Written every frame while it runs, so the frame it retires is the one that puts
-  // the car back — and clamped at zero on the way out, because a light going negative would dim the
-  // taxi below the city it is driving in.
-  if (cargoFlashAt !== null) {
-    const since = fares.state.elapsed - cargoFlashAt;
+  // The taxi's flourish, on the select pop's own envelope (game/selectpop.js) so a package landing in
+  // the car — or the camera landing back on it — reads as the same *kind* of acknowledgement a tapped
+  // rider gets rather than as a new effect to learn. Written every frame while it runs, so the frame
+  // it retires is the one that puts the car back — and clamped at zero on the way out, because a
+  // light going negative would dim the taxi below the city it is driving in.
+  if (taxiFlashAt !== null) {
+    const since = fares.state.elapsed - taxiFlashAt;
     if (since >= POP_TIME) {
       traffic.setTaxiHighlight(0);
-      cargoFlashAt = null;
+      taxiFlashAt = null;
     } else {
       traffic.setTaxiHighlight(popHighlight(since));
     }
@@ -1801,6 +1848,11 @@ function frame() {
   policeRubber();
   updateHud(dt);
   riderFinder.update(dt, fares.waitingAll());
+  // Armed only when nothing else already has the framing in hand: a run that has ended has the
+  // closing shot, the tutorial is pointing the camera at the city itself, and a pan in flight is
+  // already on its way somewhere — including this chip's own, which is what drops it on the tap.
+  taxiFinder.update(dt, traffic.taxi,
+    !fares.state.gameOver && !controller.isGliding() && !tutorial?.holdsCamera());
   // A no-op unless a package is aboard — it draws nothing while the chip is down.
   cargoChip?.render();
   // The arrow stands in for the ring it points at, so it is painted from the same fare — see
@@ -2208,6 +2260,12 @@ window.__taxi = {
    * be asserted at all: `setCarrying(true)` is what a `'loaded'` event does to it.
    */
   cargoChip,
+  /**
+   * The "back to the taxi" chip, for `tools/smoke.mjs`: `isUp()` is whether it is currently
+   * offering itself. Browser-only in the same way the cargo chip is — a WebGL context in a DOM
+   * node, driven off a projection through the live camera.
+   */
+  taxiFinder,
   flyover,
   chopper,
   /** The opening rise-out-of-the-ground animation. `cityEntry.replay()` reruns it on demand. */
