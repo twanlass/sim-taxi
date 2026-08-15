@@ -1066,6 +1066,20 @@
         width: 100%; padding: 3px 4px; border: 0; border-radius: 6px;
         background: rgba(0, 0, 0, 0.35); color: #cfe0ea; font: 500 11px/1.3 inherit;
       }
+      /* The Loco Mode ramp preview — see the Loco section in src/game/debugpanel.js. Sized in
+         the panel's own content width (258px less its 14px sides) so the curve reaches both
+         edges; the taxi's yellow because it is the taxi's speed the curve is describing. */
+      .dbg-ramp {
+        display: block; width: 100%; height: auto; margin: 2px 0 4px;
+        border-radius: 6px; background: rgba(0, 0, 0, 0.3);
+      }
+      .dbg-ramp-ref { stroke: rgba(232, 238, 242, 0.22); stroke-width: 1; stroke-dasharray: 2 3; }
+      .dbg-ramp-curve { fill: none; stroke: #F5C130; stroke-width: 1.6; stroke-linejoin: round; }
+      .dbg-ramp-curve.coast { stroke-dasharray: 3 3; opacity: 0.75; }
+      .dbg-note {
+        margin: 0 0 8px; font-size: 10.5px; line-height: 1.4; opacity: 0.6;
+        font-variant-numeric: tabular-nums;
+      }
       .dbg-actions { display: flex; gap: 6px; margin-top: 10px; }
       .dbg-wide {
         width: 100%; margin-top: 10px; padding: 7px 4px; border: 0; border-radius: 8px;

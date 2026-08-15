@@ -16,7 +16,8 @@ import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
 } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W,
+  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT } from '../src/sim/traffic.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
@@ -4964,6 +4965,89 @@ check('the taxi is an ordinary car in the traffic array',
   // within a couple of units of a corner exit, which is where the go-go-go feel lives.
   check('boost speed itself is still instant', runToBoostTop < 5,
     `${runToBoostTop.toFixed(1)} units of straight road`);
+}
+
+// --- The Loco Mode ramp, as live tuning -------------------------------------
+//
+// The six numbers above are a tuning object now, so the ⚙️ panel can move them while the game is
+// running (see the Loco section in game/debugpanel.js). Two things have to hold and neither shows
+// on screen.
+//
+// The first is that the shipped tuning is *still the shipped tuning* — every number quoted in
+// docs/traffic.md, and the entire block of checks above, is stated against these six, so a typo in
+// the defaults would move the game and leave the documentation describing a build that no longer
+// exists.
+//
+// The second is the one a tuning panel actually dies of: a use site that captured its constant
+// into a local at module load, leaving a slider that moves, reports, redraws its preview and
+// changes nothing at all until the page is reloaded. That cannot be caught by reading the tuning
+// back — it reads back fine — so it is caught by driving the sim past the shipped ceiling.
+{
+  check('the Loco defaults are the shipped constants',
+    LOCO_DEFAULTS.kick === 1.25 && LOCO_DEFAULTS.speed === 2.2 && LOCO_DEFAULTS.accel === 24
+    && LOCO_DEFAULTS.overdriveSpeed === 2.7 && LOCO_DEFAULTS.overdriveAccel === 2.2
+    && LOCO_DEFAULTS.brake === 11,
+    JSON.stringify(LOCO_DEFAULTS));
+  check('and the derived ceilings match the docs',
+    Math.abs(boostCruise() - 18.7) < 1e-9 && Math.abs(overdriveTop() - 22.95) < 1e-9,
+    `${boostCruise().toFixed(2)} / ${overdriveTop().toFixed(2)} u/s`);
+  check('22.95 u/s reads as 67mph', Math.round(overdriveTop() * MPH_PER_UNIT) === 67,
+    `${(overdriveTop() * MPH_PER_UNIT).toFixed(1)} mph`);
+
+  // The panel's preview is drawn from locoRamp(), so if it disagrees with the physics the picture
+  // on screen is of a mode the game does not have. Checked against the closed form rather than
+  // against a recorded number: the punch covers (18.7² − 10.625²) / (2·24) = 4.93 units from the
+  // kick, and the band (22.95² − 18.7²) / (2·2.2) = 40.2 more.
+  const ramp = locoRamp();
+  const reached = (v) => ramp.find((p) => p.v >= v - 1e-3)?.s ?? Infinity;
+  const toCap = reached(boostCruise());
+  const toTop = reached(overdriveTop());
+  check('the ramp preview agrees with the punch', Math.abs(toCap - 4.93) < 0.6,
+    `${toCap.toFixed(2)} units to ${boostCruise().toFixed(1)} u/s`);
+  check('and with the 40 units the band costs', Math.abs(toTop - toCap - 40.2) < 1.2,
+    `${(toTop - toCap).toFixed(1)} units of band`);
+  check('the ramp lets go and lands back at cruise',
+    ramp.some((p) => p.release) && Math.abs(ramp[ramp.length - 1].v - SPEED) < 1e-6,
+    `ends at ${ramp[ramp.length - 1].v.toFixed(2)} u/s`);
+
+  // An overdrive ceiling under the boost cap is a mode with no band at all — boostAccel never
+  // reaches its taper — so it is clamped up rather than taken at face value.
+  setLocoTuning({ overdriveSpeed: 1.0 });
+  check('an overdrive ceiling below the boost cap is clamped up',
+    locoTuning().overdriveSpeed === locoTuning().speed,
+    `${locoTuning().overdriveSpeed} vs cap ${locoTuning().speed}`);
+  const beforeJunk = JSON.stringify(locoTuning());
+  setLocoTuning({ accel: NaN, brake: -4, speed: 'fast' });
+  check('and junk is ignored rather than fed to the sim',
+    JSON.stringify(locoTuning()) === beforeJunk, locoTuning().accel + ' u/s²');
+  resetLocoTuning();
+  check('reset puts every knob back',
+    JSON.stringify(locoTuning()) === JSON.stringify({ ...LOCO_DEFAULTS }), JSON.stringify(locoTuning()));
+
+  // The end-to-end one. Same scenario as the overdrive block above, with the ceiling raised: if
+  // any use site is reading a captured copy, the taxi tops out at the shipped 22.95 and this is
+  // the only check in the suite that notices.
+  const drive = () => {
+    const s2 = new THREE.Scene();
+    const t2 = createTraffic(makeRng(seed + 44), s2, CARS_DEFAULT);
+    t2.warmup(5);
+    t2.taxi.boost = true;
+    let peak = 0;
+    for (let i = 0; i < 60 * 300; i++) { t2.update(1 / 60); peak = Math.max(peak, t2.taxi.v); }
+    return peak;
+  };
+  setLocoTuning({ overdriveSpeed: 3.6, overdriveAccel: 8 });
+  const raised = drive();
+  check('raising the ceiling in the tuning raises the sim', raised > overdriveTop() - 0.5,
+    `${raised.toFixed(2)} of ${overdriveTop().toFixed(2)} u/s`);
+  check('and it is the tuning doing it, not the old constant', raised > 22.95 + 1,
+    `${raised.toFixed(2)} u/s against a shipped ceiling of 22.95`);
+
+  // Everything after this point in the file drives the shipped game. Leaving the tuning moved
+  // would quietly re-tune every later check in a way that is very hard to trace back to here.
+  resetLocoTuning();
+  check('and the tuning is back to shipped for the rest of the suite',
+    overdriveTop() === SPEED * 2.7, `${overdriveTop().toFixed(2)} u/s`);
 }
 
 // --- The Loco Mode meter ----------------------------------------------------

@@ -565,6 +565,44 @@ of straight road.
 2.7 rather than something rounder because [the bust chase](#the-bust-chase) runs at 26 and has to
 stay faster than the quarry on its best day; 22.95 leaves the cruiser 3 u/s to close with.
 
+### The ramp is live tuning
+
+The six numbers that make the ramp — `BOOST_KICK`, `BOOST_SPEED`, `BOOST_ACCEL`,
+`OVERDRIVE_SPEED`, `OVERDRIVE_ACCEL` and `BRAKE` — are the defaults of a tuning object rather than
+the values the physics reads directly. `LOCO_DEFAULTS` holds them, `setLocoTuning()` moves them and
+`resetLocoTuning()` puts them back, and the **Loco Mode** section of the ⚙️ panel (`?debug`) is
+wired to all three. The point is the driving seat: the shape of this mode is a feel, and a feel
+cannot be tuned by editing a constant, rebuilding and hunting for a straightaway to test it on.
+Hold the boost button, drag, feel, drag again.
+
+Nothing is captured into a local at module load, and that is the whole discipline of the change: a
+use site holding its own copy is a slider that moves, reports, redraws its preview and changes
+nothing until the page is reloaded. It is also why `BOOST_CRUISE` is now `boostCruise()`. The check
+that catches it is in `tools/probe.mjs` and it is the only one that can — it raises the ceiling in
+the tuning and then *drives the sim*, because the tuning always reads back correctly whether or not
+anything downstream is listening.
+
+Two knobs reach further than the taxi, deliberately:
+
+- **`brake`** is what every car in the city stops on. There is no separate taxi brake, and it owns
+  the coast-down after the button is let go, which is a phase of the ramp. The panel labels it. It
+  is also what `LOOKAHEAD` (32) is derived against, so a soft brake or a tall ceiling can outrun
+  the horizon the following rule can see — that is where the rear-ends come from when a tuning
+  session produces them.
+- **`accel`** is also the top of the scatter lerp — a car fleeing the boosting taxi is pushed
+  toward the taxi's own punch, because a ceiling a car cannot climb to is not a ceiling. Raising
+  the punch raises the scatter with it.
+
+The panel draws the curve above the sliders from `locoRamp()` — the same module's own integrator,
+over the same tuning the physics reads, rather than a formula written out a second time in the
+panel. A preview with its own copy of the maths is one that can be wrong, and it would be wrong in
+the direction that matters: it would go on looking right after somebody changed the sim. `locoRamp()`
+is the ideal curve on a clear straight road, which is exactly what the numbers above describe —
+everything the city does to the ramp is absent from it by construction.
+
+**Copy settings JSON** in the panel captures the tuning under `locoMode`, keyed to the constant
+names above.
+
 **It stays in its lane and weaves inside it.** The first version slid a full `LANE` out onto the
 road centreline to overtake, and that is what made the mode a lottery: on the centreline the taxi
 sits 2 units from a same-direction leader and 2 from oncoming traffic, while the collision envelope

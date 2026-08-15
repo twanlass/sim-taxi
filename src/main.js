@@ -6,7 +6,10 @@ import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
-import { createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber, BOOST_CRUISE } from './sim/traffic.js';
+import {
+  createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber,
+  boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
+} from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
@@ -282,7 +285,7 @@ const BOOST_FOLLOW_SMOOTHING = 3.2;
 const followAim = (car) => ({
   x: Math.cos(car.yaw),
   z: -Math.sin(car.yaw),
-  gain: Math.min(car.v / BOOST_CRUISE, 1),
+  gain: Math.min(car.v / boostCruise(), 1),
   speed: car.v,
 });
 
@@ -2130,6 +2133,13 @@ if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) 
       tuning: cityEntry.tuning,
       tune: cityEntry.tune,
       replay: () => cityEntry.replay(traffic.taxi),
+    },
+    // The Loco Mode ramp. Pushed in rather than imported by the panel for the same reason the
+    // difficulty knobs are pushed into `sim/` — the sim owns these numbers, and the panel is one
+    // more thing allowed to move them, alongside `traffic.taxi.boost` and `setCarCount`.
+    loco: {
+      get: locoTuning, set: setLocoTuning, reset: resetLocoTuning, ramp: locoRamp,
+      defaults: LOCO_DEFAULTS,
     },
   });
 }

@@ -122,7 +122,8 @@ Mode top that is **52 → 68 world units of road ahead**, about three quarters o
 
 `followXZ` takes an `aim` — `{ x, z, gain, speed }`, a ground heading and a strength — and
 `followAim()` in `main.js` builds it from the taxi's yaw and speed. `gain` is the speed against the
-Loco Mode cruise ceiling (`BOOST_CRUISE`, 18.7 u/s), which is what lets one number serve both
+Loco Mode cruise ceiling (`boostCruise()`, 18.7 u/s by default — a function rather than a
+constant since the ⚙️ panel can move it), which is what lets one number serve both
 follows: full offset at the boost top, about 45% of it at ordinary cruise, and **dead centre at a
 standstill**, where there is no "ahead" to look down and the player is reading the junction they are
 sitting in. A caller that says nothing — the tutorial, whose first bubble is *pointing* at the car —
@@ -2003,7 +2004,8 @@ that it returns after a reload, under an emulated iPhone.
 the streak counter now lives, and it's a tool almost no player needs to see. Split by cost:
 
 - **Live** — day cycle on/off, day length, time of day, sun colour/strength, ambient fill, fare
-  clock, route blend, occlusion strength
+  clock, route blend, occlusion strength, the city-entrance levers, and the
+  [Loco Mode ramp](traffic.md#the-ramp-is-live-tuning)
 - **Restart to apply** — car count (writes a URL parameter and reloads)
 
 Pretending a rebuild-only value is live would just show a slider that silently does nothing.

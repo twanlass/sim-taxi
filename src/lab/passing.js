@@ -29,7 +29,7 @@ import { createScene } from '../game/scene.js';
 import { createCityCamera } from '../game/camera.js';
 import { createProps } from '../city/props.js';
 import { setCityNetwork } from '../city/roadnet.js';
-import { createTraffic, placeCar, SPEED, laysPassRubber } from '../sim/traffic.js';
+import { createTraffic, placeCar, SPEED, laysPassRubber, MPH_PER_UNIT } from '../sim/traffic.js';
 import { createCollisions } from '../sim/collisions.js';
 import { createBoost, BOOST_DURATION } from '../game/boost.js';
 import { createSkidMarks } from '../game/skidmarks.js';
@@ -82,10 +82,6 @@ const TAXI_START = 12;
 // Reset this far short of the east end. The last junction is a dead end — no exits, so the sim
 // holds the car at the line there (correctly) — and watching the taxi park is not the point.
 const RESET_MARGIN = 16;
-
-// 22.95 u/s is 67mph — see OVERDRIVE_SPEED in docs/traffic.md. The readout is in mph because
-// "18.7 units per second" means nothing about how fast a car looks.
-const MPH_PER_UNIT = 67 / 22.95;
 
 // --- Renderer and scene -----------------------------------------------------
 

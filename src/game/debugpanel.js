@@ -1,5 +1,7 @@
 import { ROUTE_BLENDS } from './routeline.js';
 import * as difficulty from './difficulty.js';
+import { SPEED, MPH_PER_UNIT } from '../sim/traffic.js';
+import { PITCH } from '../city/grid.js';
 
 // A small tweak panel behind a gear button.
 //
@@ -55,6 +57,14 @@ export function createDebugPanel({
   // The city-entrance animation's levers — `{ tuning, tune, replay }` over game/cityentry.js.
   // Defaulted for the same reason as `scores`.
   cityEntry = { tuning: () => ({ wave: 0, jitter: 0, grow: 0, overshoot: 0, dust: 0 }), tune: () => {}, replay: () => {} },
+  // Loco Mode's speed ramp — `{ get, set, reset, ramp, defaults }` over sim/traffic.js, pushed in
+  // by main.js. Defaulted like the two above so the `npm run check` boot pass builds the panel
+  // against nothing; the section then draws a flat curve and moves a tuning nobody is reading.
+  loco = {
+    defaults: { kick: 1, speed: 1, accel: 1, overdriveSpeed: 1, overdriveAccel: 1, brake: 1 },
+    get: () => ({ ...loco.defaults }), set: () => {}, reset: () => {},
+    ramp: () => [{ s: 0, t: 0, v: 0 }],
+  },
 }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
@@ -215,6 +225,120 @@ export function createDebugPanel({
     showOcclusion();
   });
 
+  // --- Loco Mode --------------------------------------------------------------
+  // The speed ramp, live. Every knob here is read by sim/traffic.js on the frame after it moves,
+  // so the way to use this section is with the boost button held down: drag, feel, drag again.
+  //
+  // The curve above the sliders is drawn from `loco.ramp()` — the sim module's own integrator over
+  // the same tuning the physics reads — rather than from a formula written out again here. A
+  // preview with its own copy of the maths is a preview that can be wrong, and it would be wrong
+  // in the direction that matters: it would go on looking right after somebody changed the sim.
+  heading('Loco Mode');
+
+  const PREVIEW_W = 230, PREVIEW_H = 76;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svgEl = (name, attrs) => {
+    const node = document.createElementNS(svgNS, name);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    return node;
+  };
+
+  const preview = svgEl('svg', {
+    class: 'dbg-ramp', viewBox: `0 0 ${PREVIEW_W} ${PREVIEW_H}`, 'aria-hidden': 'true',
+  });
+  const cruiseLine = svgEl('line', { class: 'dbg-ramp-ref' });
+  const capLine = svgEl('line', { class: 'dbg-ramp-ref' });
+  const heldPath = svgEl('path', { class: 'dbg-ramp-curve' });
+  const coastPath = svgEl('path', { class: 'dbg-ramp-curve coast' });
+  preview.append(cruiseLine, capLine, heldPath, coastPath);
+  panel.append(preview);
+
+  const rampNote = document.createElement('p');
+  rampNote.className = 'dbg-note';
+  panel.append(rampNote);
+
+  const mph = (v) => Math.round(v * MPH_PER_UNIT);
+  /** A speed, in both units — the panel's whole vocabulary for "how fast is that". */
+  const speedText = (v) => `${v.toFixed(2)} u/s · ${mph(v)} mph`;
+
+  /** Redraw the curve and the line under it from whatever the tuning currently is. */
+  function paintRamp() {
+    const tuning = loco.get();
+    const samples = loco.ramp();
+    const top = SPEED * tuning.overdriveSpeed;
+    const cap = SPEED * tuning.speed;
+    const extent = Math.max(1, samples[samples.length - 1].s);
+    const ceiling = Math.max(top, SPEED) * 1.08;
+    const x = (s) => (s / extent) * PREVIEW_W;
+    const y = (v) => PREVIEW_H - (v / ceiling) * (PREVIEW_H - 2) - 1;
+
+    for (const [line, v] of [[cruiseLine, SPEED], [capLine, cap]]) {
+      line.setAttribute('x1', 0); line.setAttribute('x2', PREVIEW_W);
+      line.setAttribute('y1', y(v)); line.setAttribute('y2', y(v));
+    }
+
+    const releaseAt = samples.findIndex((p) => p.release);
+    const cut = releaseAt === -1 ? samples.length : releaseAt + 1;
+    const d = (rows) => rows
+      .map((p, i) => `${i ? 'L' : 'M'}${x(p.s).toFixed(1)},${y(p.v).toFixed(1)}`).join('');
+    heldPath.setAttribute('d', d(samples.slice(0, cut)));
+    coastPath.setAttribute('d', releaseAt === -1 ? '' : d(samples.slice(releaseAt)));
+
+    // What the curve costs, which is the reading the shape alone can't give: the top end is only
+    // ever worth what the road it needs is worth, and the city's blocks are 20 units apart.
+    const reached = samples.find((p) => p.v >= top - 1e-3);
+    rampNote.textContent = reached
+      ? `top ${speedText(top)} after ${reached.s.toFixed(0)}u `
+        + `· ${(reached.s / PITCH).toFixed(1)} blocks of clear straight`
+      : `never reaches ${speedText(top)} — band accel too low`;
+  }
+
+  const locoLevers = [];
+
+  /** One knob: applies live on input, repaints the curve, and reports what it just bought. */
+  function locoLever(label, key, min, max, step, show) {
+    const el = slider(min, max, step, loco.get()[key]);
+    const value = row(panel, label, el);
+    // Read back from the tuning rather than off the slider: `setLocoTuning` clamps the overdrive
+    // ceiling up to the boost cap, so the value that landed is not always the one that was
+    // dragged, and a readout showing the drag rather than the result is a lie about the sim.
+    const sync = () => {
+      const landed = loco.get()[key];
+      el.value = String(landed);
+      value.textContent = show(landed);
+    };
+    el.addEventListener('input', () => {
+      loco.set({ [key]: Number(el.value) });
+      sync();
+      paintRamp();
+    });
+    sync();
+    locoLevers.push(sync);
+  }
+
+  locoLever('Kick', 'kick', 1, 2.5, 0.05, (v) => `${v.toFixed(2)}x · ${speedText(SPEED * v)}`);
+  locoLever('Boost top', 'speed', 1.2, 4, 0.05, (v) => speedText(SPEED * v));
+  locoLever('Punch', 'accel', 4, 60, 1, (v) => `${v.toFixed(0)} u/s²`);
+  locoLever('Overdrive', 'overdriveSpeed', 1.2, 5, 0.05, (v) => speedText(SPEED * v));
+  locoLever('Band accel', 'overdriveAccel', 0.2, 24, 0.1, (v) => `${v.toFixed(1)} u/s²`);
+  // Not the taxi's alone — there is one brake in the sim and it is what every car stops on. It is
+  // here because it owns the coast-down after the button is let go, which is the last phase of
+  // the curve above; the readout says so rather than leaving it to be discovered.
+  locoLever('Brake', 'brake', 3, 30, 0.5, (v) => `${v.toFixed(1)} u/s² · all traffic`);
+
+  const resetLoco = document.createElement('button');
+  resetLoco.type = 'button';
+  resetLoco.className = 'dbg-wide';
+  resetLoco.textContent = 'Reset Loco Mode';
+  resetLoco.addEventListener('click', () => {
+    loco.reset();
+    for (const sync of locoLevers) sync();
+    paintRamp();
+  });
+  panel.append(resetLoco);
+
+  paintRamp();
+
   // --- City entrance ----------------------------------------------------------
   // The opening rise-out-of-the-ground animation (game/cityentry.js). All five are live — the
   // shader levers are uniforms — but the animation is over by the time this panel can be opened,
@@ -348,6 +472,11 @@ export function createDebugPanel({
     // The keys map onto game/cityentry.js's constants: wave → WAVE, grow → ENTRY_DUR,
     // jitter → JITTER, overshoot → OVERSHOOT; dust is the multiplier on the burst power.
     cityEntrance: cityEntry.tuning(),
+    // The keys map onto sim/traffic.js's: kick → BOOST_KICK, speed → BOOST_SPEED,
+    // accel → BOOST_ACCEL, overdriveSpeed/overdriveAccel → OVERDRIVE_*, brake → BRAKE. Read from
+    // the tuning rather than the sliders, so a clamped overdrive ceiling exports as what the sim
+    // is actually running.
+    locoMode: loco.get(),
   });
 
   const output = document.createElement('textarea');
