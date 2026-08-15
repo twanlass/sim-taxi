@@ -1449,10 +1449,11 @@ Three details in that early return are load-bearing:
 - **A held boost is dropped** on the way in. The veil takes the pointer release the pill was waiting
   for, so without it the run would resume into a boost nobody is holding.
 
-Anywhere on the veil resumes, not only the Resume pill, and it resumes on `pointerdown` rather than
-`click` — the release then lands on the canvas with no `click` synthesised after it, since the two
-ends of the gesture are on different elements, which is what stops the tap that resumes from also
-dispatching the taxi at whatever it was over. Escape and P toggle it from a keyboard.
+Only the Resume pill resumes — a stray tap elsewhere on the veil must not drop the player back into
+traffic — and it resumes on `pointerdown` rather than `click` — the release then lands on the canvas
+with no `click` synthesised after it, since the two ends of the gesture are on different elements,
+which is what stops the tap that resumes from also dispatching the taxi at whatever it was over.
+Escape and P toggle it from a keyboard.
 
 ## The run-end screen
 
