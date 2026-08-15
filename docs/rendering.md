@@ -1387,13 +1387,39 @@ taxi group, so 0.35 unscaled is what matches the taxi's ≈2.7px trace. A truck 
 rather than a rim scaled to the vehicle — the line is a signal to the player, and a signal reads at
 one weight.
 
-Selection is a plain radius — `GHOST_RADIUS = 30`, i.e. 1.5 × `PITCH`, covering the junction the
-taxi is committed to plus the one behind it, measured from vehicle centre for both classes. At Loco
-Mode's 18.7 u/s a car crossing that next junction appears about 1.6s out, which is still enough to
-lift off the button. `MAX_GHOSTS = 8` sits deliberately *above* the ~6.5 vehicles that radius holds
-on average, so the cap is a rail against a queue at a red rather than the real filter — and eviction
-always drops the farthest vehicle, which the distance fade has already made the faintest. Radius is
-the first number to turn down if it ever reads busy.
+Selection is a plain radius — `GHOST_RADIUS = 42`, i.e. 2.1 × `PITCH`, reaching past the junction
+the taxi is committed to and covering the one after it, measured from vehicle centre for both
+classes.
+
+**It was 30, and 30 was a braking distance rather than a warning.** This got reported as "cars
+behind buildings sometimes don't get an outline", which is exactly what it looked like: the outline
+did arrive, it arrived at 1.3s out at Loco cruise (1.05s in overdrive), and by then the junction was
+already a commitment. Measured over 150 headless boost crashes — taking the vehicle the taxi went on
+to hit and resolving occlusion against the city's own building and tree geometry — 4 of the 17 crash
+partners that were hidden 1.5s before impact wore **no outline at all**, and the rest averaged 0.41
+alpha; at 2.0s it was 6 of 19. At 42 the same 150 crashes give 0 of 17 unoutlined at 1.5s, mean
+alpha 0.55.
+
+The figure that matters is the *fully lit* one, `GHOST_RADIUS - FADE_BAND` = 36 — a ghost inside the
+fade band is nearly transparent, which is not a warning — and that is 1.9s at 18.7 u/s against the
+old 1.3s. `tools/probe.mjs` asserts it in seconds rather than as a bare 42, because the bare number
+is the half that went stale.
+
+The old note here warned that a wider radius would put half a dozen more cars in range and turn the
+skyline into a wireframe. Both halves were wrong, and the correction is worth keeping because the
+argument will come back. 30 held **3.4** vehicles a frame, not the 6.5 that note assumed. And a rim
+only rasterises where something in the depth buffer sits *in front of* it, so a vehicle standing in
+the open costs fill and paints **nothing** — what the player actually sees is only the hidden ones,
+and widening from 30 to 42 takes those from 0.77 to 1.28 a frame. Half an extra outline on screen,
+for two thirds more warning.
+
+`MAX_GHOSTS = 12` sits deliberately *above* the 6.1 vehicles the new radius holds on average, so the
+cap stays a rail against a queue at a red rather than becoming the real filter. It had to move with
+the radius: eviction drops the *farthest* vehicle, and farthest is not safest — the car two junctions
+out is the whole point of the wider horizon. At radius 42 with the old cap of 8, a genuinely hidden
+vehicle was dropped on 5.5% of frames; at 12 that is 0.0% and stays there out to a radius of 46. The
+probe drives fifteen seconds of boosting and asserts the cap never binds, so the two numbers cannot
+drift apart again silently.
 
 **The cap is shared across the two pools; the pools are not.** What the cap bounds is how much of
 the frame this may paint, which is a fact about the player's screen and not about which buffer a
