@@ -89,6 +89,14 @@
       input, textarea { user-select: text; -webkit-user-select: text; }
       canvas { display: block; touch-action: none; cursor: pointer; }
 
+      /* The top row's type, in one place. The two counters set from `--hud-count-size` and the ⏸
+         between them centres itself against `--hud-count-line` — the line box those digits occupy
+         — so the three of them share one centre line and a change of size moves all three. */
+      :root {
+        --hud-count-size: 34px;
+        --hud-count-line: calc(var(--hud-count-size) * 1.5); /* the 1.5 in the `font` shorthands */
+      }
+
       #hud {
         position: fixed; top: calc(18px + var(--safe-top)); left: calc(18px + var(--safe-left));
         font: 600 14px/1.5 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
@@ -96,7 +104,7 @@
         pointer-events: none; user-select: none;
       }
       #hud .money {
-        font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums;
+        font-size: var(--hud-count-size); font-weight: 800; font-variant-numeric: tabular-nums;
         display: inline-block; transform-origin: left center;
       }
       /* A short green bump when the flying earning lands and the total ticks up, so the counter
@@ -116,7 +124,7 @@
       #streak {
         position: fixed; top: calc(18px + var(--safe-top)); right: calc(18px + var(--safe-right));
         font: 600 14px/1.5 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums;
+        font-size: var(--hud-count-size); font-weight: 800; font-variant-numeric: tabular-nums;
         color: #fff; text-shadow: 0 2px 6px rgba(20, 40, 55, 0.65);
         pointer-events: none; user-select: none;
         transform-origin: right center;
@@ -137,18 +145,27 @@
 
          Set like the counters either side of it rather than as a chip: white, with the HUD's own
          drop shadow, so the top edge reads as one row of three things instead of two numbers with
-         a button parked between them. The glyph is 26px inside a 44px box — the shape is HUD-sized,
-         the target is thumb-sized. Sized *against the digits*, not to some icon convention: the
-         bars stand 21px, within a pixel of the counters' own cap height at 34px/800, because a
-         glyph set smaller than the numbers it sits between reads as a browser control that
-         wandered onto the HUD rather than as part of it.
+         a button parked between them. The glyph is 26px in a box 44px wide — the shape is
+         HUD-sized, the target is thumb-sized. Sized *against the digits*, not to some icon
+         convention: the bars stand 21px, within a pixel of the counters' own cap height at
+         34px/800, because a glyph set smaller than the numbers it sits between reads as a browser
+         control that wandered onto the HUD rather than as part of it.
+
+         The box is as *tall* as the counters' line box (`--hud-count-line`), not 44px square, and
+         that is what puts the ⏸ on their centre line. Three things pinned to the same `top` do not
+         share a centre unless they are the same height: the counters' digits sit inside a 51px
+         line box, so their cap band centres 25px down from the top, while a 44px button centres
+         its glyph at 22 — the ⏸ rode 3px high for as long as the box was square, which is visible
+         at this size and was reported as such. Matching the heights lands them within half a pixel
+         (measured), because a line box distributes its leading evenly about the digits. Vertical
+         only: the width stays 44px so the tap target keeps its size and the press dip stays round.
 
          Centred with `left: 0; right: 0` and auto margins, NOT `transform: translateX(-50%)`. The
          press dip below animates `transform`, and a centring translate there would be overwritten
          by it — the button would jump to the left edge of the screen for as long as it was held. */
       #pause {
         position: fixed; top: calc(18px + var(--safe-top)); left: 0; right: 0; margin: 0 auto; z-index: 24;
-        width: 44px; height: 44px; padding: 0; border: 0; background: none;
+        width: 44px; height: var(--hud-count-line); padding: 0; border: 0; background: none;
         display: grid; place-items: center; cursor: pointer;
         /* The tap wants to land now, not after the browser has waited out a double-tap — and there
            is nothing here to select or long-press. */
