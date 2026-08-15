@@ -2470,6 +2470,34 @@ check('no two cars occupy the same space', worst > 1.6,
     dIn >= 0 && fleePeak > 0.9 && fleeSpeed > 1.35 && taxiFloor > 1.0,
     `leader peaked at ${fleeSpeed.toFixed(2)}x cruise, taxi never fell below ${taxiFloor.toFixed(2)}x`);
 
+  // 1b. The same staging with a truck as the leader. Trucks never scatter — too big to skitter,
+  // see the scatter block in traffic.js — and `car.scatter` only ever rises via the `mark` that
+  // now skips them, so the envelope must hold at exactly 0 and the truck must never exceed its
+  // own cruise (TRUCK_SPEED = 0.65 × SPEED; speedFactor is v/SPEED). Flipping isTruck after
+  // createTraffic is safe here: the truck meshes are sized for every ambient slot, and this
+  // scenario only ever reads the sim.
+  const tScene = new THREE.Scene();
+  const tTraffic = createTraffic(makeRng(seed + 103), tScene, 2);
+  const [tTaxi, truck] = tTraffic.cars;
+  truck.isTruck = true;
+  place(tTaxi, dIn, 30);
+  place(truck, dIn, 12);
+  tTaxi.boost = true;
+  let truckFlee = 0;
+  let truckTop = 0;
+  for (let f = 0; f < 60 * 2; f++) {
+    tTraffic.update(1 / 60);
+    tTaxi.boost = true;
+    truckFlee = Math.max(truckFlee, truck.scatter);
+    // Skip the first half second: every car spawns already rolling at SPEED (v = SPEED at spawn,
+    // trucks included), so the staged truck opens above its own cruise and spends ~0.3s braking
+    // down to it. That shed is staging, not scatter.
+    if (f > 30 && truck.state === 'drive') truckTop = Math.max(truckTop, truck.speedFactor);
+  }
+  check('a truck ignores the boosting taxi behind it',
+    truckFlee === 0 && truckTop > 0 && truckTop < 0.7,
+    `scatter envelope peaked at ${truckFlee.toFixed(2)}, speed at ${truckTop.toFixed(2)}x cruise`);
+
   // 2. A boosting taxi turning left used to stop dead under a green: the oncoming lane shares its
   // axis, so it kept its green, and the left-turn yield then refused to let the taxi go — waiting
   // on a car that was itself waiting. The priority hold now denies that one direction (`block` in

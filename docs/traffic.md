@@ -631,7 +631,9 @@ the taxi is about to land on — floors it (`SCATTER_SPEED` = 2.0× cruise, kept
 2.2 so the taxi still closes and the flee reads as *not quite enough*) and all but stops rolling
 "carry straight on" when it reaches the next junction. Speed buys the second it takes to get there;
 turning off is what actually clears the lane. It eases in over ~0.1s and out over ~0.8s, so a car
-doesn't visibly deflate the instant the taxi turns away.
+doesn't visibly deflate the instant the taxi turns away. **Trucks never scatter** — a 5.6-unit box
+flooring it and skittering off at the next junction reads as weightless, so a truck ahead stays an
+obstacle the taxi has to pass or follow.
 
 **Don't-block-the-box, priced in time.** The 1.5× following-distance margin on the exit lane exists
 because the lane can back up during the second or so a turn takes. A boosting taxi crosses in
