@@ -469,7 +469,10 @@ having to look away to a small shape at the edge of vision. Both the destination
 arrive in one read.
 
 `PALETTE.routeLine`'s yellow is still the fallback for a route with no fare behind it — the
-[recovery](traffic.md) re-route, and a route poked in by hand from the debug panel.
+[recovery](traffic.md) re-route, and a route poked in by hand from the debug panel. A route sent
+*at* a package — the [empty-seat dispatch](#with-a-rider-aboard-a-package-is-a-detour-with-the-seat-empty-a-destination)
+— wears the courier's own cyan instead: a package has no clock, so an urgency hue there would be
+reporting a countdown that does not exist.
 
 ## Routing
 
@@ -1062,13 +1065,13 @@ near it and the taxi picks it up — **while carrying a passenger, if it is carr
 pad it is going to lights up somewhere else on the map. Drive near that and it pays out in cash.
 One on the board (`MAX_PARCELS`), one aboard at a time, and nothing about it can end a run.
 
-### Nothing here is tapped. You steer into it
+### With a rider aboard, a package is a detour. With the seat empty, a destination
 
-**This is the feature.** A package cannot be selected: it has no hit box, it is not in the picker's
-target list, and there is no way to dispatch the taxi at one. The only way to collect or deliver a
-package is to make the taxi's route **pass through its junction** — which, since the route is
-planned to whatever fare the player is actually working, means [dragging the route
-band](#dragging-the-route) sideways until it bends through the pad.
+**The rule is about the seat.** While somebody is riding, their clock is the one being spent, so
+there is no way to dispatch the taxi at a package. The only way to collect or deliver one is to
+make the taxi's route **pass through its junction**, on the way to wherever it was already going —
+which, since the route is planned to whatever fare the player is actually working, means bending
+that route sideways until it crosses the pad.
 
 Until this existed the band was the one thing on screen the player could reshape and had almost no
 reason to. `pathdrag` answered *which way*, and on an empty street the answer did not matter — the
@@ -1078,9 +1081,92 @@ question becomes worth asking with the streets clear. **The route-drag mechanic 
 exist**, and the cost is paid in exactly the right currency: the seconds the detour takes come out
 of the clock of whichever rider is in the back seat.
 
-So it is the first tap-free decision on the board, and the first one that spends *another job's*
-clock. Every other gesture in this game answers "which rider?". This one answers "is the bonus
-worth the seconds?".
+So it is the first decision on the board that spends *another job's* clock. Every other gesture in
+this game answers "which rider?". This one answers "is the bonus worth the seconds?".
+
+#### Two gestures ask for the same bend
+
+**Drag the band** through the pad, or **tap the box**. With a rider aboard both plan the identical
+route — origin → box → destination, `findRouteVia`, under the identical `MAX_VIA_DETOUR` cap — and
+both refuse in the identical case. `divertToParcel` in `main.js` is the tap's whole implementation,
+and the thing the detour does *not* do is route the taxi at the package: the destination, the fare,
+and which clock is paying are all untouched, exactly as when a finger pulls the band.
+
+The tap removes the **aiming**, not the decision. A drag asks the player to work out which junction
+bends the band through a box that may be half a city from the paint, and then to hold a finger on
+the route of a car that is still driving while they do it. On a phone that is a two-handed job in
+service of a single yes-or-no. The tap says *include this* and lets the router find the bend.
+
+What that trades away is worth stating plainly, because it was the original argument for the box
+having no hit box at all: **the drag was the price of a package**, and skill at aiming it was part
+of what a box was worth. A tap makes the collection free and leaves only the routing cost. The
+[detour cap](#what-the-detour-actually-costs) is the whole of what keeps that from being a one-tap
+payout — over it the tap is refused and the route holds exactly still, the same wall the drag hits.
+Whether the layer still plays as a temptation once the aiming is gone is the open question; the
+number to turn if it does not is the cap, not `MAX_PARCELS`.
+
+The drag keeps the half the tap cannot express. It answers *which way*, so it is still what you
+reach for when the road ahead has gone solid, and it can bend a route through a corner no marker is
+standing on.
+
+Two things the tap deliberately does not do:
+
+- **It does not persist.** The waypoint is spent the moment it is planned. The next thing that
+  re-plans — a pickup [dispatching itself](#the-drop-off-dispatches-itself), a tap on another rider
+  — drops it, and the player taps the box again if they still want it. Re-applying it every frame
+  is the one shape this must not take: `routeConsumed` is cleared on every re-plan, so a standing
+  diversion means the turn the car has already committed to never retires from the route and the
+  taxi sits re-deciding the same junction. Measured, in `tools/probe.mjs`: $34 earned in seven
+  simulated minutes and nothing delivered.
+- **It does not check the clock.** A detour under the cap is taken exactly as asked, even when it
+  costs the rider in the back their fare. That is the trade this layer exists to offer, and it is
+  the player's to make — the same one the drag has always let them make.
+
+#### The empty-seat tap is a dispatch
+
+With nobody in the back there is no committed clock for the detour cap to protect, so the box is
+allowed to be the destination: the tap routes the taxi straight at it, and the band repaints in the
+courier's own cyan — [the band wears the clock it is spending](#the-route-band-wears-it-too), and a
+package has none to report, so the hue says "errand" and nothing else. The dispatch replaces
+whatever the taxi was driving at, including a waiting rider the player had tapped: the same
+retarget rule every fare tap already follows, applied to one more kind of target, with the waiting
+rider's clock draining exactly as it would have. On arrival the drive retires itself the way a
+fare's legs do — route and target cleared, taxi back to cruising — and the drop-off pad that lights
+up is itself tappable, so an empty-seat courier run is two taps end to end.
+
+This is not an exception to the rule above; it is what the rule reduces to when the seat it
+protects is empty. It also subsumes the old between-jobs case: with no destination at all there was
+never anything to bend, and the tap has always routed at the box in that beat.
+
+#### The corner answers, and the sign is the answer
+
+A tap on a rider is answered by [the rider](#the-tap-pops), because what the tap *means* — the taxi
+has been sent — is said by a band that starts a junction away from the finger.
+
+A tap on a box has the opposite problem. The band's answer lands exactly where the finger is: it
+bends and comes through the pad, which is the most legible confirmation in the game. What it cannot
+say is **no**. A refused drag is felt through the finger — the band stops following, the gesture
+hits a wall — but a refused tap looks precisely like a tap that missed a shape a few pixels across,
+and the player's next move is to tap it again.
+
+So both answers are given on the corner, on [the pop's own envelope](#the-tap-pops), and they
+differ only in sign:
+
+| | what the corner does |
+|---|---|
+| Taken | swells (`ACK_SWELL`, +22%) — and here is where the route bends |
+| Refused | flinches inward and settles (`ACK_FLINCH`, −12%) — heard, and no |
+
+One channel, not two. No colour: hue on this board is spoken for by the clocks, and a package has
+nothing to report with it. No light either — a shape that grew *and* lit would out-shout the band
+redrawing itself through the same corner on the same frame. The flinch is deliberately shallower
+than the swell is tall: a refusal is the quieter event, nothing has changed and nothing is about to,
+and a flinch as deep as the swell reads as a second kind of yes.
+
+It rides the marker's `postGroup` — the kerb corner, with the pad and whatever is standing on it —
+because the pad's own scale is spoken for by its arrival and exit animations and the box's by the
+flight. And `main.js` calls it only once the re-plan has actually been attempted, the same
+discipline `markDirected` keeps, so a refused tap can never be answered as though it had landed.
 
 ### What the detour actually costs
 
@@ -1186,42 +1272,109 @@ square against a disc is read at a glance.
 - **`?parcels=0`** clears the board to measure the fare loop alone, the way `?cars=1` clears the
   roads. The layer is off in shot mode by default, since every framing in the sweep was composed
   before packages existed; **`?parcels=1`** forces it back on, which is the only way to point a
-  camera at one (`?shot=22` to `?shot=25`).
-- **The taxi wears its load.** A small parcel appears on the rear deck — an object on the car rather
-  than anything on the glass, for the reason [the roof sign](#the-taxis-roof-sign) is one.
+  camera at one (`?shot=22` and `?shot=23`).
+- **The taxi does not wear its load.** It used to: a small parcel on the rear deck, which at play zoom
+  is [about four pixels](#the-load-is-carried-into-the-hud). The load is stated in the HUD instead, at a
+  size that can be read, and the car goes back to saying exactly one thing about what it is carrying —
+  [the roof sign](#the-taxis-roof-sign), for a rider.
 
 ### The box visibly changes hands
 
-Nothing about a package teleports. **The box flies**: off the kerb to the taxi, shrinking and fading as
-it goes, and back out of the taxi into the pad on delivery, growing and fading in. It is the same
-argument [the fare's crystal](#the-fares-clock-travels) is built on — nothing is created or destroyed
-at a hand-off, which is why that flight is animated rather than a teleport — applied to the one object
-this layer hands over. Details in [rendering.md](rendering.md#the-parcel--geometryparceljs).
+Nothing about a package teleports. **The box flies**: out of the world and into the HUD on pickup, and
+back out of the taxi into the pad on delivery, growing and fading in. It is the same argument [the
+fare's crystal](#the-fares-clock-travels) is built on — nothing is created or destroyed at a hand-off,
+which is why that flight is animated rather than a teleport — applied to the one object this layer
+hands over. Details in [rendering.md](rendering.md#the-parcel--geometryparceljs).
 
-Two consequences worth naming:
+**The pickup is two moves that cross-fade**, and the join between them is faked on purpose:
 
-- **`pickup` and `loaded` are two events a flight apart.** `pickup` is the moment the player earned
-  the box; `loaded` is the moment it reaches the car, and that is when the taxi reacts — the deck
-  parcel appears and the whole car takes a white emissive lift on the [select pop](#the-tap-pops)'s own
-  envelope, so being handed a package reads as the same *kind* of acknowledgement as a tap that landed.
-  Splitting them is what lets the box be seen to travel instead of appearing on a deck that was already
-  carrying it.
-- **The flourish fires where the box touches the car**, which took two fixes rather than a timing tweak.
-  The flight used to end at the taxi's XZ at **pavement height** — under the car's sills — while the deck
-  parcel appeared a unit and a half above it, so the arrival and the load were in different places. And
-  the box faded to *zero* on the way in, so it was invisible by the frame it landed and the flash lit an
-  empty patch of road. It now flies to the deck's own height (`TAXI_DECK_Y`, exported from the mesh) and
-  keeps a quarter of its opacity all the way in, switched off under the flash. Covering the cut is what a
-  flourish is for.
+1. **In the city** (`parcels.js`, sim time): the kerb box is hidden and a flying copy takes over from
+   the same spot — the same pose by *construction*, since the copy stands at the corner at
+   `PARCEL_PAD_LIFT` and runs the same `idle` off the same clock. It rises, swells, slides away toward
+   the corner of the screen the chip lives in, and fades out. The rise eases *out* (a thing being
+   picked up); the drift eases *in*, accelerating away (a thing leaving).
+2. **In the HUD** (`cargochip.js`, wall time): near the end of that — 78% along, with the world box
+   down to ~a third opacity and still moving — `'loaded'` fires carrying the point the box had reached.
+   The chip grows and fades in with a **short slide out of that direction**, capped at 120px, and
+   inherits the spin the world copy was still turning at.
+
+The first cut of this handed off **pixel-exact**: same point, same apparent size, same angle, on a
+single frame, with the two ends of the seam verified to land on the same pixels. It was seamless and it
+read as *too fast* — an exact hand-off has no moment in it where the object is visibly travelling, so
+there is nothing to follow. Two shorter moves that overlap and agree only on **direction** take longer
+to say the same thing and read as one journey. Which is why what leaves `parcels.js` is a point and a
+direction rather than a pose, and why the chip quotes the box's position instead of tracking it.
+
+Two more consequences worth naming:
+
+- **The taxi's flourish fires on the pickup**, not on an arrival at the car: the whole car takes a white
+  emissive lift on the [select pop](#the-tap-pops)'s own envelope, so collecting a package reads as the
+  same *kind* of acknowledgement as a tap that landed.
 - **`delivered` still pays out at once.** The money is earned on arrival, and making the player wait
-  out an animation for it would read as lag. The deck parcel also goes on that frame rather than when
-  the outbound box lands: the flying box *is* the load leaving, and two of them on screen at once would
-  read as the taxi carrying a second package.
+  out an animation for it would read as lag. The chip goes down on that frame rather than when the
+  outbound box lands: the flying box *is* the load leaving, and a corner still holding one while a
+  package is being set down would read as the taxi carrying a second.
 
 And the ground marks move rather than blink. A pad **grows out of its own centre** when it arrives and
 pulls back into it when it leaves — as does a fare's disc, both ends. At a rider's pickup the kerb
 disc now shrinks away on the same frame the drop-off's grows in, which is one clock changing ends of a
 trip; two discs switching state in one frame was two events.
+
+### The load is carried into the HUD
+
+`src/game/cargochip.js` — the box itself at 42px under the cash total, up for exactly as
+long as a package is aboard, and **flown there from the corner it was standing on**.
+
+A deck parcel is the honest answer to "does the car have one", and at play zoom it is **about four
+pixels**, on a car the player is mostly not looking at because they are reading the road ahead of it.
+The cyan drop pad lighting up across town says *where*; nothing legible said *what*. This chip was
+added beside the deck box to fix that, which left the board carrying two versions of one fact — so the
+deck box went and the collected package comes *here* instead. That is also what lets the pickup be one
+unbroken move: with nothing to arrive at on the car, the box has one destination rather than two.
+
+- **The real mesh, not an icon.** `createParcel` in its own small WebGL context, lit by the city's own
+  sun through `mirrorSceneLights` — the same rig as the [tutorial avatar](#the-opening-tutorial) and the
+  [rider-finder chips](#extra-fares-and-prioritisation), so the box in the corner cannot drift out of
+  step when the box on the road is restyled.
+- **Three-quarter view, at the game camera's own elevation, with the azimuth mirrored** so that both
+  visible faces are lit ones — see [rendering.md](rendering.md#the-parcel--geometryparceljs) for the
+  angle and the framing.
+- **It sits with the money, not with the rider chips.** The bottom-left row is the reach zone and
+  everything in it is a control; a chip parked at the end of it would be the one that does nothing when
+  pressed. That got sharper rather than weaker once [the box on the road became
+  tappable](#two-gestures-ask-for-the-same-bend): a second box on the glass that answers nothing is now
+  a box the player has every reason to press.
+  Up beside the cash total it is unambiguously a readout, and it inherits `#hud`'s `pointer-events: none`
+  so a thumb that lands on it goes straight through to the city.
+- **The box and nothing else** — no disc behind it, no rim around it. A rider chip needs its disc
+  because the ring around it is a clock, and a clock needs a dial to be read against. A package has
+  none, which is the whole of [why it has no diamond](#a-package-has-no-clock-and-so-has-no-diamond),
+  so there was never anything for a ring here to say — and with the ring gone the disc is a plate under
+  an object that does not need one. Bare, it reads like the rest of the HUD: the cash total and the ⏸
+  are marks on the sky too. The only thing between the box and a pale road is `#hud`'s own drop shadow,
+  which is what holds the digits up there as well.
+- **It does not spin — once it has landed.** The kerb box turns because a slow rotation is the box's
+  substitute for the rider's waving arm: "this is a thing to pick up". This one has already been picked
+  up, so it rides still. The exception is the arrival, which *inherits* the spin the world copy was
+  still turning at and eases it out over the same 460ms — a box sitting dead square while the other one
+  is visibly still moving reads as a different object. It settles to the **nearest quarter turn**, which
+  is at most 45° of travel: the box's footprint is square by design, so a quarter turn from square is
+  the same picture, and landing the raw angle instead crams up to half a turn into the slide and reads
+  as a flourish rather than as the same spin running down.
+- **Raised by the hand-off, lowered by the delivery.** `flyIn` is what a `'loaded'` does to it and is
+  what raises it; `setCarrying(false)` is what a `'delivered'` does. It opens small (0.45) and fully
+  transparent, is opaque by 45% of the way in — so the *arrival* is the growth settling rather than a
+  fade finishing — and lands with a hair of overshoot, the same punctuation the money counter's bump
+  makes. Under `prefers-reduced-motion` it hands over to the plain pop.
+- **Checked in `tools/smoke.mjs`, not in the node suite**: a WebGL context inside a DOM node, carried by
+  a Web Animation, has no headless equivalent. Two assertions matter. The **share of the canvas actually
+  drawn** — the frustum is computed from the box's own dimensions, so the failure mode is a correct
+  element with the box framed off the side of it, which reads as a pass in the DOM. And that the arrival
+  **starts away from its slot, small and transparent, in the box's own quadrant, and ends square in the
+  slot at full size**: an identity transform is a chip appearing in the corner while the box vanishes
+  across town, and a sign error is one sliding in from the opposite side. The smoke run pins
+  `prefers-reduced-motion: no-preference` through CDP for that check, or a headless build answering
+  `reduce` would quietly be asserting the fallback.
 
 ## Crazy-taxi mode
 
@@ -1449,10 +1602,11 @@ Three details in that early return are load-bearing:
 - **A held boost is dropped** on the way in. The veil takes the pointer release the pill was waiting
   for, so without it the run would resume into a boost nobody is holding.
 
-Anywhere on the veil resumes, not only the Resume pill, and it resumes on `pointerdown` rather than
-`click` — the release then lands on the canvas with no `click` synthesised after it, since the two
-ends of the gesture are on different elements, which is what stops the tap that resumes from also
-dispatching the taxi at whatever it was over. Escape and P toggle it from a keyboard.
+Only the Resume pill resumes — a stray tap elsewhere on the veil must not drop the player back into
+traffic — and it resumes on `pointerdown` rather than `click` — the release then lands on the canvas
+with no `click` synthesised after it, since the two ends of the gesture are on different elements,
+which is what stops the tap that resumes from also dispatching the taxi at whatever it was over.
+Escape and P toggle it from a keyboard.
 
 ## The run-end screen
 

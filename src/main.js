@@ -36,6 +36,8 @@ import {
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
+import { createTaxiFinder } from './game/taxifinder.js';
+import { createCargoChip } from './game/cargochip.js';
 import { createTutorial } from './game/tutorial.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createSirenGlow } from './game/sirenglow.js';
@@ -50,7 +52,7 @@ import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
   getDiagnostics, getParcelsPin } from './util/shot.js';
-import { createParcelSystem, FLIGHT_TIME as PARCEL_FLIGHT_TIME } from './game/parcels.js';
+import { createParcelSystem } from './game/parcels.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
 import { createViewport } from './util/viewport.js';
@@ -212,9 +214,16 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
 // now asserts every offset in this file is distinct, because nothing about the collision was visible:
 // no crash, no failing check, just a package board silently correlated with a helicopter.
 const parcels = parcelsEnabled ? createParcelSystem(makeRng(runSeed + 255), scene) : null;
-// Sim time the taxi's accept flourish was stamped at, or null when it is not running. See the frame
-// loop — a courier box landing in the car lights the whole car for the length of a select pop.
-let cargoFlashAt = null;
+// Sim time the taxi's flourish was stamped at, or null when it is not running. See the frame loop —
+// it lights the whole car for the length of a select pop.
+//
+// Two things fire it, and they are the same claim about the car: *this one, here*. A courier box
+// landing in it is an acknowledgement that the thing arrived; the camera riding back to it (see
+// `panToTaxi`) is a player who had lost the car being handed it again, at the moment it lands in
+// frame. Reusing one flourish rather than inventing a second is the point — the player learns the
+// gesture once.
+let taxiFlashAt = null;
+const flashTaxi = () => { taxiFlashAt = fares.state.elapsed; };
 // Given the cars array so the cruiser can see who is in its lane and move over for them — see
 // DODGE_* in sim/police.js. It never mutates it.
 const police = createPolice(makeRng(runSeed + 66), scene, traffic.cars);
@@ -540,8 +549,9 @@ function checkPoliceBust() {
   // so braking off Loco Mode a beat too close to a cruiser doesn't buy a free pass.
   if (!boost.isEngaged()) return;
   // Armed, not merely active. A cruiser still fading in at the edge of the map used to be able to
-  // end the run before it had drawn a pixel — see BUST_ARM_INSET in sim/police.js. Its light bar
-  // comes on with this, so what the player sees and what can bust them are the same flag.
+  // end the run before it had drawn a pixel — see BUST_ARM_INSET in sim/police.js. The light bar
+  // runs a block ahead of this on purpose: the siren says a cop is here, and the gap between the
+  // two is the beat the player gets to lift off before one can bust them.
   if (!police.state.armed) return;
   if (fares.state.gameOver || traffic.taxi.crashed) return;
   const dx = traffic.taxi.x - police.group.position.x;
@@ -578,6 +588,17 @@ if (blendParam) routeLine.setBlend(blendParam);
  * is spending while the player is holding it.
  */
 function paintRouteBand() {
+  // A route sent *at* a package end — the empty-seat dispatch, see `divertToParcel` — wears the
+  // courier's own cyan: a package has no clock, so an urgency hue would be reporting a countdown
+  // that does not exist, and the fallback yellow would say "no job here at all". Matched on
+  // `pendingTarget`'s identity, the same identity the band's rollout sweep keys off — so a route
+  // that merely *bends through* a pad on the way to a fare keeps that fare's colour, because the
+  // clock the drive is spending is still the rider's.
+  const target = traffic.taxi.pendingTarget;
+  if (target && parcels?.state.parcels.some((p) => p.target === target)) {
+    routeLine.setColor(parcels.colorOf());
+    return;
+  }
   const job = fares.directed();
   routeLine.setColor(job ? fares.colorOf(job) : PALETTE.routeLine);
 }
@@ -650,12 +671,64 @@ function dispatchToDropoff(fare) {
   traffic.taxi.parked = true;
 }
 
+/**
+ * A tap on a package. What it means turns on the seat — see game/parcels.js.
+ *
+ * **Rider aboard: a detour, never a dispatch.** The seat is a commitment and its clock is the one
+ * draining, so nothing may re-aim the taxi at a package while somebody is riding. The tap is
+ * `findRouteVia` with the waypoint named rather than aimed at: same origin, same destination, same
+ * fare still `directed`, same `MAX_VIA_DETOUR` cap, one junction added in the middle. It is exactly
+ * what a drag on the route band produces when the finger lands on the box's corner, minus the aiming
+ * — which on a phone is the whole difficulty of the gesture and none of the decision.
+ *
+ * Two things the detour deliberately does not do:
+ *
+ * - **It does not persist.** The waypoint is spent the moment it is planned; the next thing that
+ *   re-plans (a pickup dispatching itself, a tap on another rider) drops it, and the player taps the
+ *   box again if they still want it. Re-applying it every frame is the one shape this must not take —
+ *   `routeConsumed` is cleared on every re-plan, so a standing diversion means the turn the car has
+ *   already committed to never retires from the route and the taxi sits re-deciding the same junction
+ *   (measured in `tools/probe.mjs`: $34 earned in seven simulated minutes, nothing delivered).
+ * - **It does not check the clock.** A detour under the cap is taken exactly as asked, even when it
+ *   costs the rider in the back their fare. That is the trade the layer exists to offer, and it is
+ *   the player's to make — the same one the drag has always let them make.
+ *
+ * **Seat empty: a dispatch.** With nobody in the back there is no committed clock for a detour cap
+ * to protect, so the box is allowed to be the destination: the taxi is routed straight at it, and
+ * the band repaints in the courier's own cyan (`paintRouteBand`) — a package has no urgency, and
+ * the hue says so. This replaces whatever the taxi was driving at, including a waiting rider the
+ * player had tapped — the same retarget rule every fare tap already follows, applied to one more
+ * kind of target, and the waiting rider's clock keeps draining exactly as it would have. The drive
+ * retires itself on arrival (the `'pickup'`/`'delivered'` handling in the frame loop), the way a
+ * fare's own legs do. It subsumes the old between-jobs case: with no destination at all there was
+ * never anything to bend, and the tap has always routed at the box in that beat.
+ */
+function divertToParcel(parcel) {
+  if (!parcel) return;
+  const target = traffic.taxi.pendingTarget;
+  // The dispatch's refusals are the router's only; the detour's add `findRouteVia`'s cap. Either
+  // way `routeTo` leaves the route exactly as it was and the corner flinches — see `acknowledge`.
+  const taken = target && fares.carrying()
+    ? routeTo(target, { via: parcel.target })
+    : routeTo(parcel.target);
+  parcels?.acknowledge(parcel, taken);
+}
+
 createPicker(
   camera,
   renderer.domElement,
-  () => [traffic.taxiGroup, ...fares.pickables()],
+  () => [traffic.taxiGroup, ...fares.pickables(), ...(parcels?.pickables() ?? [])],
   (kind, hit) => {
     if (fares.state.gameOver) return;
+
+    // The courier board answers a tap with a detour rather than a destination, so it is handled
+    // before the fare board rather than inside it — there is no fare behind a package and nothing
+    // below this line would find one.
+    if (kind === 'parcel' || kind === 'parcel-dropoff') {
+      divertToParcel(parcels?.parcelFor(hit.object));
+      return;
+    }
+
     if (kind !== 'passenger' && kind !== 'destination') return;
 
     // With two fares on the board, *which* pin was tapped is the whole instruction — routing at
@@ -756,7 +829,50 @@ function selectRider(fare) {
   dispatchToRider(fare);
 }
 
+// The same shortcut aimed the other way: back to the taxi, from wherever the player left the
+// framing. The camera is theirs for good once they swipe — nothing drags it back onto the car —
+// which on a phone means a look across town can leave the taxi off-frame entirely, and the only way
+// home was to drag the map until the yellow car turned up. See game/taxifinder.js for when the chip
+// that calls this is up.
+function panToTaxi() {
+  // Tracked rather than aimed once, for the same reason a peek's ride home is: the car has been
+  // driving the whole time the chip was up, and a leg fixed at the tap would land on the road it
+  // left. The landing is on the car and already travelling with it, so clearing `cameraTakenOver`
+  // hands the framing to the opening follow-cam with no gap to close — and handing it back is the
+  // point, since parking the camera on the car would only let it drive out of the frame the move
+  // just spent half a second putting it in.
+  controller.chaseTo(() => traffic.taxi, () => {
+    cameraTakenOver = false;
+    // And the car says which one it is, on the same flourish a courier box landing in it fires.
+    // **On arrival, not on the tap**: the flash is over in 0.29s and the ride takes up to 0.75s, so
+    // firing it at the press would spend the whole thing on a car that is still off-frame — a
+    // flourish nobody is in a position to see. Here it lands on the frame the camera stops, which is
+    // the frame the player is looking for their taxi in. It rides `onArrive`, so a swipe away
+    // mid-ride cancels the flash along with the trip: the player has changed their mind about where
+    // to look, and a car lighting up off-screen behind them would be answering a question they
+    // withdrew.
+    flashTaxi();
+  });
+}
+
 const riderFinder = createRiderFinder({ onSelect: selectRider, sun, hemi });
+// The chip that answers "where did my car go" — up only while the taxi is completely off-frame.
+const taxiFinder = createTaxiFinder({
+  sun,
+  hemi,
+  project: projectToScreen,
+  // The frame the renderer actually draws, not `window.inner*` — which is short of it on an
+  // installed iOS app, and would report a car in that strip as off-screen when it is on it.
+  frame: viewport,
+  // Orthographic, so world-units-per-pixel falls straight out of the frustum height: the vertical
+  // world span is exactly 2 * zoom. Read per frame, since a wreck pulls the zoom in under it.
+  pixelsPerUnit: () => viewport.height() / (2 * controller.state.zoom),
+  onTap: panToTaxi,
+});
+// The courier load, pictured in the HUD's own corner while a package is aboard — see
+// game/cargochip.js. Built only when the layer is on, because it opens a WebGL context of its own
+// and a run under `?parcels=0` can never have anything to put in it.
+const cargoChip = parcels ? createCargoChip({ sun, hemi }) : null;
 const dropoffIndicator = createDropoffIndicator({
   camera,
   // Aim at the kerb corner where the pin actually stands, not the intersection centre — the
@@ -1676,10 +1792,13 @@ function frame() {
 
   // The package courier. Ticked after the fare loop so its spawn placement sees this frame's fare
   // board, and given nothing but the three facts it needs — where the fares are, how far up the ramp
-  // the run is, and whether the run is over. Nothing routes the taxi at a package: the player
-  // collects one by bending the route band through its pad, so there is no dispatch here and no
-  // arbitration over the wheel. See game/parcels.js.
-  for (const { type, parcel } of
+  // the run is, and whether the run is over. With a rider aboard nothing routes the taxi at a
+  // package — the player collects one by bending the route band through its pad — but an empty-seat
+  // tap dispatches straight at one (see divertToParcel), and that drive has to retire on arrival
+  // the way a fare's own legs do: the route-clearing on `'pickup'` and `'delivered'` below, guarded
+  // on `pendingTarget`'s identity so a detour's collection leaves the fare's route alone.
+  // See game/parcels.js.
+  for (const { type, parcel, at } of
     (parcels && !homeTip?.state.holding
       ? parcels.update(dt, traffic.taxi, {
         fareSpots: fares.occupiedSpots(),
@@ -1687,16 +1806,42 @@ function frame() {
         over: fares.state.gameOver,
       })
       : NO_FARE_EVENTS)) {
-    if (type === 'loaded') {
-      // The box has finished crossing from the kerb. *Now* the deck parcel appears and the car
-      // flashes — the acknowledgement belongs to the moment the thing arrives, not to the moment it
-      // was earned a flight earlier (see the two events in game/parcels.js).
-      traffic.setTaxiCargo(true);
-      cargoFlashAt = fares.state.elapsed;
+    if (type === 'pickup') {
+      // A box that was the destination — an empty-seat dispatch — retires the drive on arrival.
+      // Without this the consumed route's stub and the stale `pendingTarget` keep the band
+      // machinery live against a corner that no longer has anything on it. Guarded on identity so
+      // a detour's collection leaves the fare's route alone.
+      if (traffic.taxi.pendingTarget === parcel.pickup) {
+        traffic.taxi.route = [];
+        traffic.taxi.pendingTarget = null;
+      }
+      // The car's own acknowledgement, on the frame the detour paid off and the box leaves the pad.
+      // It is not "the load arrived here" — the load is on its way to the corner of the screen — it is
+      // the same flourish a tapped rider gets, fired on the object the player is watching at the
+      // moment they collected something. Nothing appears on the taxi: there is no deck parcel any
+      // more, which is what lets the pickup be one journey out of the world rather than two hops.
+      flashTaxi();
+    } else if (type === 'loaded') {
+      // The lift is nearly done and the box is nearly transparent. `at` is where it had got to, in the
+      // world, on *this* frame — `parcels.js` owns that fact; turning it into a pixel is this module's
+      // half, because the projection is. The chip then comes in from that direction under the last of
+      // the fade (see `flyIn` in game/cargochip.js).
+      if (at && cargoChip) {
+        const p = projectToScreen(at.x, at.y, at.z);
+        cargoChip.flyIn({ x: p.x, y: p.y, yaw: at.yaw });
+      } else {
+        cargoChip?.setCarrying(true);
+      }
     } else if (type === 'delivered') {
-      // The deck parcel goes now rather than when the outbound box lands, because the box *is* the
-      // load leaving: two of them on screen at once would read as the taxi carrying a second package.
-      traffic.setTaxiCargo(false);
+      // Same retirement as `'pickup'` above, for a dispatch aimed at the drop-off pad.
+      if (traffic.taxi.pendingTarget === parcel.dropoff) {
+        traffic.taxi.route = [];
+        traffic.taxi.pendingTarget = null;
+      }
+      // The chip goes down now rather than when the outbound box lands, because that box *is* the load
+      // leaving: the corner still holding one while a package is being set down on a pad would read as
+      // the taxi carrying a second.
+      cargoChip?.setCarrying(false);
       // Cash and fuel, the same two currencies a drop-off pays, and both take the same two-phase
       // flight a fare's does — off the taxi, then to the counter and to the pill — because it is the
       // same kind of event arriving from the same place, and a bonus that landed in either place
@@ -1715,16 +1860,16 @@ function frame() {
     }
   }
 
-  // The accept flourish, on the select pop's own envelope (game/selectpop.js) so a package landing in
-  // the car reads as the same *kind* of acknowledgement a tapped rider gets rather than as a new
-  // effect to learn. Written every frame while it runs, so the frame it retires is the one that puts
-  // the car back — and clamped at zero on the way out, because a light going negative would dim the
-  // taxi below the city it is driving in.
-  if (cargoFlashAt !== null) {
-    const since = fares.state.elapsed - cargoFlashAt;
+  // The taxi's flourish, on the select pop's own envelope (game/selectpop.js) so a package landing in
+  // the car — or the camera landing back on it — reads as the same *kind* of acknowledgement a tapped
+  // rider gets rather than as a new effect to learn. Written every frame while it runs, so the frame
+  // it retires is the one that puts the car back — and clamped at zero on the way out, because a
+  // light going negative would dim the taxi below the city it is driving in.
+  if (taxiFlashAt !== null) {
+    const since = fares.state.elapsed - taxiFlashAt;
     if (since >= POP_TIME) {
       traffic.setTaxiHighlight(0);
-      cargoFlashAt = null;
+      taxiFlashAt = null;
     } else {
       traffic.setTaxiHighlight(popHighlight(since));
     }
@@ -1749,6 +1894,13 @@ function frame() {
   policeRubber();
   updateHud(dt);
   riderFinder.update(dt, fares.waitingAll());
+  // Armed only when nothing else already has the framing in hand: a run that has ended has the
+  // closing shot, the tutorial is pointing the camera at the city itself, and a pan in flight is
+  // already on its way somewhere — including this chip's own, which is what drops it on the tap.
+  taxiFinder.update(dt, traffic.taxi,
+    !fares.state.gameOver && !controller.isGliding() && !tutorial?.holdsCamera());
+  // A no-op unless a package is aboard — it draws nothing while the chip is down.
+  cargoChip?.render();
   // The arrow stands in for the ring it points at, so it is painted from the same fare — see
   // game/dropoffindicator.js.
   const aboard = fares.carrying();
@@ -1999,51 +2151,19 @@ if (shot) {
       parcels.update(1 / 60, traffic.taxi, { fareSpots: fares.occupiedSpots(), delivered: 9 });
     }
     const box = parcels.state.parcels[0];
-    // Freeze the box in mid-air.
-    //
-    // Driven rather than teleported. The first cut of this set `taxi.x/z` to the package's junction so
-    // proximity would resolve at once — which put the car exactly where the box was, giving the flight
-    // zero length and a photograph of nothing. It also lies to the traffic model, which carries its own
-    // lane state and would have corrected the position on the next tick anyway. So the taxi is *routed*
-    // there and the sim run until it arrives, the same way `untilPickup` does it, and then the flight is
-    // ticked `flightAt` of the way along — with `traffic.update` still running, because the car keeps
-    // driving through the junction and the box has to chase where it has got to. That chase is the whole
-    // geometry of the shot.
-    if (box && shot.flightAt !== undefined) {
-      routeTo(box.pickup);
-      const tick = () => parcels.update(1 / 60, traffic.taxi, {
-        fareSpots: fares.occupiedSpots(), delivered: 9,
-      });
-      for (let guard = 0; guard < 90 * 60 && !parcels.carrying(); guard++) {
-        traffic.update(1 / 60);
-        tick();
-      }
-      const kerb = cornerFor(box.pickup.i, box.pickup.j);
-      for (let step = 0; step < Math.round(shot.flightAt * PARCEL_FLIGHT_TIME * 60); step++) {
-        traffic.update(1 / 60);
-        tick();
-      }
-      // The midpoint of the crossing, not either end — the arc is the subject.
-      controller.state.target.set(
-        (kerb.x + traffic.taxi.x) / 2, 0, (kerb.z + traffic.taxi.z) / 2,
-      );
-      controller.update(aspect());
-    } else if (box) {
+    if (box) {
       // The kerb corner, not the junction centre — at close zoom the corner building stands squarely
       // between the camera and anything on the pavement. Same reason `atPassenger` does it.
+      //
+      // There were two more courier framings here, and both went with the deck parcel: `parcel-aboard`
+      // photographed the box riding on the car, and `parcel-flight` froze the crossing `flightAt` of
+      // the way along. A collected box goes to the HUD now, and shot mode hides the HUD — so what
+      // those two framed no longer exists in a still. The flight is checked in `tools/smoke.mjs`, on a
+      // page, which is the only place a DOM animation can be checked at all.
       const c = cornerFor(box.pickup.i, box.pickup.j);
       controller.state.target.set(c.x, 0, c.z);
       controller.update(aspect());
     }
-  }
-
-  // Load the rear deck without driving to a pad for it — see `parcel-aboard` in util/shot.js. Framed
-  // on the taxi, which `select` alone does not do: the other close framings sit at the map centre and
-  // photograph whatever traffic is passing through it, and at zoom 9 the car has to be aimed at.
-  if (shot.withCargo) {
-    traffic.setTaxiCargo(true);
-    controller.state.target.set(traffic.taxi.x, 0, traffic.taxi.z);
-    controller.update(aspect());
   }
 
   // Frame the waiting rider rather than the middle of the map.
@@ -2167,6 +2287,19 @@ window.__taxi = {
   fares,
   /** The package courier, or null under `?parcels=0` and in shot mode. See game/parcels.js. */
   parcels,
+  /**
+   * The HUD's courier box, for `tools/smoke.mjs` — null whenever `parcels` is. Everything about this
+   * chip is browser-only (a WebGL context in a DOM node, and now a Web Animation carrying it in from
+   * the city), so a page is the only place it can be asserted at all. `flyIn` is what a `'pickup'`
+   * does to it; `setCarrying` is the flightless version of the same, and what a delivery puts back.
+   */
+  cargoChip,
+  /**
+   * The "back to the taxi" chip, for `tools/smoke.mjs`: `isUp()` is whether it is currently
+   * offering itself. Browser-only in the same way the cargo chip is — a WebGL context in a DOM
+   * node, driven off a projection through the live camera.
+   */
+  taxiFinder,
   flyover,
   chopper,
   /** The opening rise-out-of-the-ground animation. `cityEntry.replay()` reruns it on demand. */
@@ -2241,6 +2374,23 @@ window.__taxi = {
   targetScreenPosition: (fare = fares.focus()) => {
     if (!fare) return null;
     const c = fares.intersectionCentre(fare.target.i, fare.target.j);
+    return projectToScreen(c.x, 5, c.z);
+  },
+  /**
+   * Where to tap to reach the live end of the courier errand, for `tools/smoke.mjs`.
+   *
+   * The tap is a picker interaction, which is the one class of thing the node suite is blind to:
+   * everything it could assert about `divertToParcel` is the router's, and what a browser has to
+   * answer is whether a finger on that corner reaches the hit box at all — the same reason the
+   * route-band drag is smoke-tested rather than probed.
+   *
+   * Aimed at the *junction centre* rather than the pad, matching `targetScreenPosition` above: the
+   * hit box is 20 units square and centred there, so a centre tap is inside it at any camera angle
+   * while the pad's own corner is 4 units out toward one edge.
+   */
+  parcelScreenPosition: (parcel = parcels?.state.parcels[0]) => {
+    if (!parcel) return null;
+    const c = fares.intersectionCentre(parcel.target.i, parcel.target.j);
     return projectToScreen(c.x, 5, c.z);
   },
 };

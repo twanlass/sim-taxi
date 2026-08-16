@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 import { createParcelPin, createParcelDropPin } from '../geometry/marker.js';
-import { createParcel, PARCEL_DECK_SCALE } from '../geometry/parcel.js';
+import { createParcel, PARCEL_DECK_SCALE, PARCEL_CENTRE_Y } from '../geometry/parcel.js';
 import { TAXI_DECK_Y } from '../geometry/taxi.js';
 import { KERB_H } from '../city/ground.js';
 import { PARCEL_COLOR } from './urgency.js';
 import { allIntersections, findRoute } from './route.js';
+import { RIGHT as SCREEN_RIGHT, UP as SCREEN_UP } from './camera.js';
 import { nextIntersection } from '../city/grid.js';
 import {
   ARRIVE_RADIUS, blockDistance, cornerFor, intersectionCentre, onSameBlock, priceFor,
 } from './fares.js';
+import { popEnvelope } from './selectpop.js';
 import * as difficulty from './difficulty.js';
 
 // The package courier: a second cargo slot on a taxi that has one seat.
@@ -19,20 +21,65 @@ import * as difficulty from './difficulty.js';
 // splash of Loco Mode fuel (half what a fare pays — `BOOST_PARCEL_REWARD`, spent in main.js: this
 // module reports the delivery and stays out of the economy).
 //
-// ## Nothing here is tapped. You steer into it.
+// ## Where a collected box goes: the corner of the screen, not the back of the car
 //
-// **This is the whole feature.** A package cannot be selected: it has no hit box, it is not in the
-// picker's target list, and there is no way to dispatch the taxi at one. The only way to collect or
-// deliver a package is to make the taxi's route **pass through its junction** — which, since the
-// route is planned to whatever fare the player is actually working, means **dragging the route band
-// sideways** until it bends through the pad (see game/pathdrag.js).
+// The load used to fly into the taxi and ride on its rear deck. Both halves of that are gone. The deck
+// parcel was **about four pixels** at play zoom (geometry/taxi.js), which is a statement of fact the
+// player cannot read, on the one object they are steering rather than studying — so the HUD chip that
+// was added to say the same thing legibly (game/cargochip.js) was answering a question the car had
+// already answered badly, and the board carried two versions of one truth.
 //
-// That is why the layer is worth having. Until now the band was the one thing on screen the player
-// could reshape and had no reason to reshape unless traffic went solid ahead of them: `pathdrag`
-// answered "which way", and the answer almost never mattered. A package puts something *on* a road
-// the route does not currently take, so the question becomes worth asking on an empty street. The
-// route-drag mechanic gets a reason to exist, and it costs the player exactly the seconds the detour
-// costs — spent out of the clock of whichever rider is in the back seat.
+// So the box is collected *into the readout*, in two halves that cross-fade. This module owns the
+// first: the kerb parcel is hidden, a flying copy takes over from the same spot, and it **rises,
+// swells, slides away toward the corner of the screen the chip lives in, and fades out** (`LIFT_TIME`
+// and the constants under it). Near the end of that it emits `'loaded'` carrying the world point the
+// box had reached; `main.js` projects it and the chip comes in from that direction under the last of
+// the fade.
+//
+// **The continuity is faked, on purpose.** The first cut of this handed the chip off pixel-exact —
+// same point, same apparent size, same angle, on a single frame — and the seam was perfect and the
+// whole thing read as *too fast*, because an exact hand-off has no moment in it where the object is
+// visibly travelling. Two shorter moves that agree only on **direction**, overlapping, read as one
+// longer journey. Which is why what leaves here is a direction and a point rather than a pose.
+//
+// This module still knows nothing about the HUD or the DOM. It reports a world position and an angle,
+// which are facts it owns; turning those into pixels is main.js's job, the same division every other
+// event here keeps. It does read the camera's screen basis (`RIGHT`/`UP`) — the box has to slide
+// toward a place on the *screen*, and that is the only way to say where that is in world terms.
+//
+// ## With a rider aboard, a package is never a destination. It is a **detour**.
+//
+// **This is the feature, and the rule is about the seat.** While somebody is riding, their clock is
+// the one being spent, so there is no way to dispatch the taxi at a package: the only way to collect
+// or deliver one is to make the taxi's route **pass through its junction**, on the way to the fare
+// the player is actually working. Two gestures ask for that same bend:
+//
+//   - **drag the route band** sideways until it crosses the pad (game/pathdrag.js), or
+//   - **tap the box**, which is `findRouteVia` again with the waypoint named rather than aimed at.
+//
+// The tap is the newer half and it is a shortcut, not a second mechanic: it plans the identical
+// origin → box → destination route, under the identical `MAX_VIA_DETOUR` cap, and refuses in the
+// identical case. What it removes is the aiming. A drag asks the player to work out *which junction*
+// bends the band through a box that may be half a city from the paint, then hold a finger on a
+// moving car's route while they do it; on a phone that is a two-handed job for a decision — "take
+// this one?" — that is a single yes or no. The tap says "include this" and lets the router find the
+// bend.
+//
+// What the tap costs is worth writing down, because it is the thing this trades away: the drag was
+// the *price* of a package, and skill at aiming it was part of what the box was worth. A tap makes
+// collection free and leaves only the routing cost. The cap is what keeps that from being a
+// one-tap payout — over it the tap is refused and the route holds exactly still, which is the same
+// wall a drag hits. The drag is still the only gesture that can say anything the tap cannot: it
+// answers "which way", so it is what you reach for when the road ahead has gone solid, and it can
+// bend through a corner no marker is standing on.
+//
+// **With the seat empty, the same tap is a dispatch** (`divertToParcel` in main.js): the taxi is
+// routed straight at the box and the band repaints in this layer's own cyan — no urgency, because a
+// package has none to report. There is no committed clock for the detour cap to protect in that
+// window, so the cap does not apply; the only clocks running are the waiting riders' own, and
+// whether to spend them couriering instead of cruising at a kerb has always been the player's call.
+// A dispatch is not an exception to the rule above — it is what the rule reduces to when the seat
+// it protects is empty.
 //
 // It also means there is no `directed` flag here and no arbitration with the fare system. `fares.js`
 // needs that rule because a taxi cruising on random turns would otherwise wander into a pin and
@@ -40,7 +87,10 @@ import * as difficulty from './difficulty.js';
 // it has no clock to lose, missing one costs nothing, and collecting one by luck is a small gift
 // rather than a stolen decision. **A package that happens to sit on the route you were already
 // driving is free money, and that is intended.** Spawn placement below is what keeps that from being
-// the common case.
+// the common case. The detour tap does not touch `directed` either: it re-plans the route to the
+// *same* fare, so whose clock is paying for the drive never changes hands. (The empty-seat dispatch
+// leaves it alone too — a waiting rider the player had sent the taxi at stays `directed`, so driving
+// past them on the way to the box still picks them up, the same gift a lucky detour has always been.)
 //
 // ## A package has no clock, and so has no diamond
 //
@@ -81,8 +131,8 @@ export const MAX_PARCELS = 1;
  *
  * Mirrors `VIP_MIN_DELIVERED` in `fares.js`, for a sharper version of the same reason. The second
  * tutorial beat *is* "tap that rider" — a box on a corner during it is a second thing competing for
- * the one gesture being taught, and worse here than for a VIP, because the box teaches the opposite
- * lesson: it is the one thing on the board that tapping does nothing to.
+ * the one gesture being taught, and worse here than for a VIP, because a tap on it *answers*: with
+ * the seat empty it dispatches the taxi, which is the tutorial's lesson aimed at the wrong target.
  */
 export const PARCEL_MIN_DELIVERED = 1;
 
@@ -140,13 +190,66 @@ export const PARCEL_PAY_FACTOR = 1;
 const MIN_TRIP_BLOCKS = 3;
 
 /**
- * How long the box takes to cross between the kerb and the taxi, either way.
+ * How long the outbound box takes to cross from the taxi to the pad.
  *
  * A shade under the fare crystal's 0.65s (game/faremarker.js). That one is tuned against the rider's
  * 0.9s run-and-jump so the clock lands a beat before its owner does; a box has nothing to wait for,
  * and the two flights should not look like the same object anyway.
+ *
+ * The pickup has its own clock — see `LIFT_TIME` below.
  */
 export const FLIGHT_TIME = 0.55;
+
+// --- The pickup: the box leaves the world -----------------------------------------------------
+//
+// A collected box does not arrive anywhere in the city. It **lifts off the pad, swells, slides away
+// toward the corner of the screen the HUD chip lives in, and fades out** — and the chip fades in from
+// that direction under the tail of the fade (game/cargochip.js). Two motions, one read: the thing left
+// the map and turned up in the readout.
+//
+// This is a *faked* continuity rather than a tracked one, and deliberately so. The first cut handed
+// the chip off pixel-exact — same point, same apparent size, same angle, on one frame — and the seam
+// was perfect and the whole thing read as **too fast**: an exact hand-off has nothing to look at,
+// because there is no moment where the object is visibly *travelling* rather than being somewhere. A
+// cross-fade between two shorter moves that only agree on **direction** is longer, softer, and reads
+// as one journey. What matters is that both halves point the same way; what does not matter is that
+// they line up to the pixel.
+export const LIFT_TIME = 0.45;
+
+/**
+ * Which way "toward the HUD" is, in the world.
+ *
+ * The chip sits in the **top-left** of the screen, so the box slides up-screen and to the left.
+ * Derived from the camera's own screen basis rather than typed as a vector, even though it comes out
+ * as exactly −X: the view never rotates — only the target and the zoom move — so one fixed world
+ * direction *is* one fixed screen direction, and this is the arithmetic that would have to be redone
+ * if the azimuth ever moved. (`UP − RIGHT`, normalised: screen-up-and-left across the ground plane.)
+ */
+const TOWARD_HUD = new THREE.Vector3().subVectors(SCREEN_UP, SCREEN_RIGHT).normalize();
+
+// How far the box climbs, and how far it slides toward the corner. At play zoom a world unit is about
+// 7.7px and a vertical one is foreshortened to 0.84 of that, so 3.6 up is ~23px and 5.5 along
+// `TOWARD_HUD` is ~(−30, +16) — a little over fifty pixels of travel in half a second, which is
+// enough to be a departure and not so much that the box is gone before the eye finds it.
+const LIFT_RISE = 3.6;
+const LIFT_DRIFT = 5.5;
+// And it gets *bigger* on the way out rather than shrinking. It is not going into anything, and what
+// it becomes is more than twice its size — the chip's 42px frame holds 2·FIT = 2.3 world units, about
+// 18px to a unit against the city's ~7.7 at play zoom (game/cargochip.js) — so shrinking would point
+// at the wrong end of the journey.
+const LIFT_SWELL = 1.35;
+// The fade holds full opacity for the first 37% and reaches zero at the end, so the box is solid
+// while it is doing the part worth watching and thin while it is handing over.
+const LIFT_FADE_LEAD = 1.6;
+/**
+ * How far along the lift the HUD is told to start its half.
+ *
+ * Not at the end. At 0.78 the world box is down to ~35% opacity and still moving, so the chip's own
+ * fade-in overlaps the last of it — the two are briefly both on screen, which is what makes it a
+ * cross-fade rather than one thing stopping and another starting. Emitted once per lift (`handed`),
+ * because a second `'loaded'` is a second chip flight over the first.
+ */
+const LIFT_HANDOFF = 0.78;
 
 /**
  * Lift over the middle of the flight, so the box arcs across rather than sliding along the road.
@@ -154,38 +257,62 @@ export const FLIGHT_TIME = 0.55;
  * 2.6, up from 1.4. At play zoom a world unit is about 7.7px, so the first number bought roughly eleven
  * pixels of rise over a half-second — technically an arc and, on a box that had just been halved in
  * size, not one anybody could see. It is a throw now, which is also what makes the *direction* of the
- * hand-off legible: the box goes up and over into the car rather than sliding across the tarmac at it.
+ * hand-off legible: the box goes up and over out of the car rather than sliding across the tarmac.
  */
 const FLIGHT_ARC = 2.6;
 
 /**
- * How transparent the box gets at the far end of a flight.
+ * How transparent the box is at the taxi end of the outbound flight.
  *
- * Not zero, and that is the point. Fading all the way out meant the box was **invisible by the frame it
- * arrived** — so the moment the player reads as contact happened somewhere earlier and vaguer, and the
- * taxi's flourish fired on a frame with nothing in it. It keeps a quarter of its opacity all the way in,
- * lands on the deck at deck size, and is switched off under the flash. The flash is what covers the cut,
- * which is what a flourish is for.
+ * Not zero, and that is the point. Fading from nothing meant the box was **invisible for the frames it
+ * left in**, so the moment the player reads as the load leaving happened somewhere vaguer and later than
+ * the delivery it belongs to. It keeps a quarter of its opacity at the car and is opaque by the pad.
  */
 export const FLIGHT_MIN_ALPHA = 0.25;
 
 /**
- * Height the flying box's base rides at — the pavement, matching where the kerb box stands.
+ * Height a box's base rides at on a pad — the pavement, matching where the kerb box stands.
  *
  * `place` below puts a marker's group at 0.12 and its postGroup at KERB_H, so a box standing on a pad
- * has its base there. The flight has to leave and land at that same height or the hand-off reads as
- * the box hopping onto a different plane.
+ * has its base there. Both flights have to touch that height — the outbound to land on it, the lift to
+ * *leave* from it — or a box changes plane on the frame it changes hands.
  */
 export const PARCEL_PAD_LIFT = KERB_H + 0.12;
 
 /**
- * What the box shrinks to as it goes into the taxi, rather than to nothing.
+ * What the outbound box grows *from* as it comes out of the taxi, rather than from nothing.
  *
- * Exactly the size of the parcel that appears on the rear deck, imported rather than restated, so the
- * flight ends *on* the object it becomes instead of near it — and so resizing the box cannot leave the
- * two disagreeing.
+ * The size a parcel would be if it were riding on the car (`PARCEL_DECK_SCALE`), imported rather than
+ * restated. Nothing rides there any more — the load is a chip in the HUD (game/cargochip.js) — but the
+ * number is still the right one: it is "a box, at the scale this car handles boxes at", and a delivery
+ * that opened at full kerb size would read as the pad producing one rather than the taxi setting it down.
  */
 const FLIGHT_MIN_SCALE = PARCEL_DECK_SCALE;
+
+// --- Answering the tap --------------------------------------------------------------------------
+//
+// A tap on a rider is answered by the rider (game/selectpop.js): the figure and the crystal swell and
+// settle, because the route band — which is what the tap *means* — starts a junction away from the
+// finger and runs off across the city.
+//
+// A tap on a box has the opposite problem. The band's answer lands exactly where the finger is: it
+// bends and comes through the pad, which is the most legible confirmation in the game. What it cannot
+// say is **no**. A drag that is refused is felt through the finger — the band stops following and the
+// gesture hits a wall — but a tap that is refused looks precisely like a tap that missed a 20-unit hit
+// box on a shape a few pixels across, and the player's next move is to tap it again.
+//
+// So both answers are given on the corner, on the pop's own envelope, and they differ in **sign**:
+//
+//   accepted  the end you tapped swells                  — taken, and here is where the route bends
+//   refused   it flinches inward and settles back        — heard, and no
+//
+// One channel rather than two (no colour, no new object): hue on this board is spoken for, a package
+// has nothing to report with it, and a shape that grew *and* lit would out-shout the band that is
+// simultaneously redrawing itself through the same corner.
+export const ACK_SWELL = 0.22;
+// Smaller than the swell on purpose. A refusal is the quieter of the two events — nothing has changed
+// and nothing is about to — and a flinch as deep as the swell is tall reads as a second kind of yes.
+export const ACK_FLINCH = -0.12;
 
 const NO_EVENTS = Object.freeze([]);
 
@@ -199,10 +326,10 @@ function createSlot(scene, index) {
   const pickup = createParcelPin(() => createParcel({ pickable: null }));
   const dropoff = createParcelDropPin();
 
-  // The box that crosses between the kerb and the taxi. A **second** parcel rather than the kerb one
-  // reparented: that one lives inside the marker's `postGroup`, two transforms deep on a corner it
-  // must not leave, and this has to own its world position for the whole flight — the same split
-  // game/faremarker.js makes for the crystal, and for the same reason.
+  // The box that crosses from the taxi to the pad on a delivery. A **second** parcel rather than the
+  // kerb one reparented: that one lives inside the marker's `postGroup`, two transforms deep on a
+  // corner it must not leave, and this has to own its world position for the whole flight — the same
+  // split game/faremarker.js makes for the crystal, and for the same reason.
   //
   // Two nested groups, also the crystal's arrangement: the outer one carries the flight (position,
   // and the scale that takes the box down into the taxi) and the inner box goes on spinning and
@@ -212,6 +339,12 @@ function createSlot(scene, index) {
   flight.add(flightBox.group);
   flight.visible = false;
   scene.add(flight);
+
+  // Which slot a picked object belongs to, the way fares.js tags its own two markers. The picker
+  // hands back whatever mesh the ray hit — an invisible hit box, two groups deep — and `parcelFor`
+  // walks up from it to here.
+  pickup.group.userData.parcelSlot = index;
+  dropoff.group.userData.parcelSlot = index;
 
   pickup.group.visible = false;
   dropoff.group.visible = false;
@@ -243,17 +376,17 @@ export function createParcelSystem(rng, scene) {
 
   // Boxes in the air. Kept out of `state.parcels` for the reason `fares.js` keeps its exit animations
   // out of `state.fares`: the puzzle is over the moment a package resolves and the animation is only
-  // skin, so a flight must not gate the next spawn. Each entry pins the slot it borrows until it
-  // lands, so a new package cannot land on a slot whose last box is still crossing the road.
+  // skin, so a flight must not gate the next spawn. Each entry pins the slot it borrows until it is
+  // done, so a new package cannot land on a slot whose last box is still in the air.
   //
-  //   kind 'in'  — kerb → taxi, shrinking and fading out as it goes
-  //   kind 'out' — taxi → pad, growing and fading in, then the pad pulls back into its own centre
+  //   kind 'lift' — the pickup: off the pad, up, away toward the HUD's corner, fading out
+  //   kind 'drop' — the delivery: taxi → pad, growing and fading in, then the pad pulls into itself
   const flights = [];
 
-  // Slot indices whose inbound box landed this frame, drained by `update` into `'loaded'` events.
-  // Collected rather than emitted directly because `updateFlights` runs inside a frame that is
-  // already building an event list, and the taxi's own reaction — the deck parcel appearing, the
-  // flourish — belongs to the moment the box *arrives*, not to the moment the player earned it.
+  // Where each lift had got to when it handed over, drained by `update` into `'loaded'` events. The
+  // point is collected here rather than emitted from `updateFlights` because that runs inside a frame
+  // which is already building an event list — and it is a *point* rather than a bare signal because
+  // what reads it (main.js, then the HUD chip) needs somewhere to come in from.
   const landed = [];
 
   /** The package aboard the taxi, if any. One at a time. */
@@ -269,6 +402,12 @@ export function createParcelSystem(rng, scene) {
     const corner = cornerFor(i, j);
     pin.group.position.set(centre.x, 0.12, centre.z);
     pin.postGroup.position.set(corner.x - centre.x, KERB_H, corner.z - centre.z);
+    // A slot is reused for the rest of the run, and a pin goes invisible mid-envelope every time a
+    // package is collected — the loop at the bottom of `update` skips hidden pins, so whatever scale
+    // the last tap left on this corner is still on it. Reset on placement rather than on hiding:
+    // there are three ways a pin goes dark (collected, delivered, game over) and one way it comes
+    // back.
+    pin.postGroup.scale.setScalar(1);
     pin.group.visible = true;
   };
 
@@ -371,6 +510,12 @@ export function createParcelSystem(rng, scene) {
       // package appeared in — so a courier job found during Rush Hour is worth Rush Hour money
       // whenever it happens to get delivered.
       value: 0,
+      // Sim time of the last tap on this package, and which way its corner answers — see
+      // `acknowledge`. Null rather than -Infinity so a package that has never been tapped skips the
+      // envelope entirely instead of evaluating it at t = ∞ every frame of its life.
+      ackAt: null,
+      ackAmp: 0,
+      ackPending: false,
     };
     parcel.value = Math.round(
       priceFor(pickup, dropoff) * difficulty.payoutMultiplier(state.delivered) * PARCEL_PAY_FACTOR,
@@ -401,44 +546,96 @@ export function createParcelSystem(rng, scene) {
     if (at !== -1) state.parcels.splice(at, 1);
   }
 
+  /** Whichever end of an errand is on the board right now — the corner a tap can land on. */
+  const liveEnd = (parcel) => (parcel.stage === 'waiting' ? parcel.slot.pickup : parcel.slot.dropoff);
+
   /**
-   * Launch the box between the kerb and the taxi.
+   * Which package owns a picked object, walking up from the hit the way the picker does.
    *
-   * `from` and `to` are world XZ. A null `to` means "wherever the taxi is on the frame this is being
-   * drawn", read per frame — the car does not stop for this, so an 'in' flight has to catch a moving
-   * target the way the fare crystal's does.
+   * `fares.fareFor`'s twin, and separate from it for the same reason this module is separate: the two
+   * boards never share a slot, a corner or an index.
    */
-  function launch(slot, kind, from, to) {
-    // Height runs pavement <-> deck, whichever way round this flight goes. A box that left the kerb and
-    // arrived at the taxi's *wheels* — which is what a single fixed height gave — put the load on the
-    // road and then popped it onto the roofline.
-    const fromY = kind === 'in' ? PARCEL_PAD_LIFT : TAXI_DECK_Y;
-    const toY = kind === 'in' ? TAXI_DECK_Y : PARCEL_PAD_LIFT;
+  function parcelFor(object) {
+    for (let node = object; node; node = node.parent) {
+      const slot = node.userData?.parcelSlot;
+      if (slot !== undefined) return state.parcels.find((p) => p.slot.index === slot) ?? null;
+    }
+    return null;
+  }
+
+  /**
+   * Answer a tap on this package's live corner: `accepted` swells it, a refusal flinches it. See
+   * ACK_SWELL above for why the sign is the whole of the difference.
+   *
+   * Called by `main.js` once the re-plan has actually been attempted, never from the picker directly
+   * — the same discipline `fares.markDirected` keeps, so a refused tap can never be answered as if it
+   * had landed. It stamps a flag rather than the time, and `update` takes the zero from the same
+   * `state.elapsed` every other animation here reads: a frozen shot then renders the same frame
+   * whatever order the calls came in.
+   */
+  function acknowledge(parcel, accepted) {
+    if (!parcel || !state.parcels.includes(parcel)) return;
+    parcel.ackPending = true;
+    parcel.ackAmp = accepted ? ACK_SWELL : ACK_FLINCH;
+  }
+
+  /**
+   * Launch the outbound box from the taxi to the pad. `from` and `to` are world XZ.
+   *
+   * The origin height is the rear deck rather than the road: a flight that started at the taxi's XZ at
+   * pavement height starts under the car's own sills, which reads as the box being posted out through
+   * the tarmac instead of lifted off the car.
+   */
+  function launch(slot, from, to) {
     slot.flightBox.rest();
     slot.flight.visible = true;
-    slot.flight.position.set(from.x, fromY, from.z);
-    slot.flight.scale.setScalar(kind === 'in' ? 1 : FLIGHT_MIN_SCALE);
+    slot.flight.position.set(from.x, TAXI_DECK_Y, from.z);
+    slot.flight.scale.setScalar(FLIGHT_MIN_SCALE);
     flights.push({
-      slot, kind, from: { ...from }, to: to ? { ...to } : null, fromY, toY, at: null,
+      slot, kind: 'drop', from: { ...from }, to: { ...to },
+      fromY: TAXI_DECK_Y, toY: PARCEL_PAD_LIFT, at: null,
     });
   }
 
   /**
-   * Collected. The box leaves the corner for the taxi and the pad it is going to grows out of the
-   * road — the ground-level version of the hand-off a fare's crystal makes in the air.
+   * Start the pickup's lift, standing the flying copy exactly where the kerb box was.
    *
-   * The kerb box is hidden and a flight copy takes over from the same spot, so what the player sees is
-   * one box leaving rather than one disappearing and another appearing.
+   * **Nothing is measured here, and that is the point.** The kerb box is a `standing` group inside a
+   * marker two transforms deep — junction centre, then the corner at `KERB_H` — with `idle(elapsed)`
+   * adding its bob and spin. The flight copy is put at the corner at `PARCEL_PAD_LIFT` (which is those
+   * two transforms, added up) and ticked with `idle` off the *same* clock below. So the two are the
+   * same pose by construction rather than by a reading taken on the hand-off frame, and the swap
+   * cannot drift however the box was moving when it was collected.
+   */
+  function launchLift(slot, from) {
+    slot.flightBox.rest();
+    slot.flight.visible = true;
+    slot.flight.position.set(from.x, PARCEL_PAD_LIFT, from.z);
+    slot.flight.scale.setScalar(1);
+    flights.push({
+      slot, kind: 'lift', from: { ...from }, fromY: PARCEL_PAD_LIFT, at: null, handed: false,
+    });
+  }
+
+  /**
+   * Collected. The box lifts off the corner and heads out of the world, and the pad it is going to
+   * grows out of the road — the ground-level version of the hand-off a fare's crystal makes in the air.
+   *
+   * Nothing flies to the taxi. The kerb box is hidden and the flying copy takes over from the same
+   * spot on the same frame, so what the player sees is one box leaving rather than one disappearing
+   * and another appearing.
    */
   function beginCarry(parcel) {
     parcel.stage = 'carried';
     parcel.target = parcel.dropoff;
+    // The errand's live end moves from the kerb to the pad, and the tap that was answered on the kerb
+    // did not happen to the pad. Without this the drop-off corner opens mid-swell — an object that
+    // reacted to a gesture nobody made on it.
+    parcel.ackAt = null;
     parcel.slot.pickup.standing?.rest?.();
     parcel.slot.pickup.group.visible = false;
     parcel.slot.pickup.ring?.hideNow();
-    // Null destination: `updateFlights` re-reads the taxi every frame, because the car does not stop
-    // for this and the box has to catch it.
-    launch(parcel.slot, 'in', cornerFor(parcel.pickup.i, parcel.pickup.j), null);
+    launchLift(parcel.slot, cornerFor(parcel.pickup.i, parcel.pickup.j));
     place(parcel.slot.dropoff, parcel.dropoff.i, parcel.dropoff.j);
     parcel.slot.dropoff.ring?.appear();
   }
@@ -452,13 +649,13 @@ export function createParcelSystem(rng, scene) {
    */
   function beginDrop(parcel, taxiCar) {
     const pad = cornerFor(parcel.dropoff.i, parcel.dropoff.j);
-    launch(parcel.slot, 'out', { x: taxiCar.x, z: taxiCar.z }, pad);
+    launch(parcel.slot, { x: taxiCar.x, z: taxiCar.z }, pad);
     const at = state.parcels.indexOf(parcel);
     if (at !== -1) state.parcels.splice(at, 1);
   }
 
-  /** Advance every box in the air, landing and tidying the ones that have arrived. */
-  function updateFlights(elapsed, taxiCar) {
+  /** Advance every box in the air, landing and tidying the ones that are done. */
+  function updateFlights(elapsed) {
     for (let n = flights.length - 1; n >= 0; n--) {
       const f = flights[n];
       // Stamped on the first frame it is drawn rather than at the call site, the deferral
@@ -466,19 +663,62 @@ export function createParcelSystem(rng, scene) {
       // the same frame whatever order the calls came in.
       if (f.at === null) f.at = elapsed;
 
+      if (f.kind === 'lift') {
+        const t = Math.min(1, (elapsed - f.at) / LIFT_TIME);
+        // Two curves, and the difference between them is the read. The **rise** eases *out*: the box
+        // leaves the pad smartly and settles, which is a thing being picked up. The **drift** eases
+        // *in*, accelerating away toward the corner, which is a thing leaving. One shared curve gives
+        // a box that either jumps sideways or floats up and stops.
+        const rise = 1 - (1 - t) ** 2;
+        const away = t * t;
+        f.slot.flight.position.set(
+          f.from.x + TOWARD_HUD.x * LIFT_DRIFT * away,
+          f.fromY + LIFT_RISE * rise,
+          f.from.z + TOWARD_HUD.z * LIFT_DRIFT * away,
+        );
+        f.slot.flight.scale.setScalar(1 + (LIFT_SWELL - 1) * rise);
+        f.slot.flightBox.setOpacity(Math.min(1, (1 - t) * LIFT_FADE_LEAD));
+        // The same idle the kerb box was running, off the same clock — this copy inherits the spin
+        // mid-turn instead of snapping square the moment it becomes a different object.
+        f.slot.flightBox.idle(elapsed);
+
+        if (!f.handed && t >= LIFT_HANDOFF) {
+          f.handed = true;
+          landed.push({
+            x: f.slot.flight.position.x,
+            // The box's middle rather than its base: what reads this points a 42px picture of the box
+            // at it, and that picture is centred on `PARCEL_CENTRE_Y` (game/cargochip.js).
+            y: f.slot.flight.position.y + PARCEL_CENTRE_Y * f.slot.flight.scale.y,
+            z: f.slot.flight.position.z,
+            // Which way it is *facing*, wrapped to (−π, π] — not the angle the idle has accumulated,
+            // which after a minute on a corner is some tens of radians. Both point the same way and
+            // only one is a fact about the box; the chip eases this back to square, and easing 40
+            // radians would spin it six times on the way in.
+            yaw: Math.atan2(
+              Math.sin(f.slot.flightBox.group.rotation.y),
+              Math.cos(f.slot.flightBox.group.rotation.y),
+            ),
+          });
+        }
+
+        if (t < 1) continue;
+        f.slot.flight.visible = false;
+        f.slot.flightBox.rest();
+        flights.splice(n, 1);
+        continue;
+      }
+
       const t = Math.min(1, (elapsed - f.at) / FLIGHT_TIME);
       const eased = 1 - (1 - t) ** 3;
-      const to = f.to ?? { x: taxiCar.x, z: taxiCar.z };
       f.slot.flight.position.set(
-        f.from.x + (to.x - f.from.x) * eased,
+        f.from.x + (f.to.x - f.from.x) * eased,
         f.fromY + (f.toY - f.fromY) * eased + Math.sin(eased * Math.PI) * FLIGHT_ARC,
-        f.from.z + (to.z - f.from.z) * eased,
+        f.from.z + (f.to.z - f.from.z) * eased,
       );
       // Scale and alpha run *with* the travel rather than on their own curve, so the box reads as
-      // going into the car rather than as fading while it happens to move.
-      const shrink = f.kind === 'in' ? 1 - eased : eased;
-      f.slot.flight.scale.setScalar(FLIGHT_MIN_SCALE + (1 - FLIGHT_MIN_SCALE) * shrink);
-      f.slot.flightBox.setOpacity(FLIGHT_MIN_ALPHA + (1 - FLIGHT_MIN_ALPHA) * shrink);
+      // coming out of the car rather than as fading in while it happens to move.
+      f.slot.flight.scale.setScalar(FLIGHT_MIN_SCALE + (1 - FLIGHT_MIN_SCALE) * eased);
+      f.slot.flightBox.setOpacity(FLIGHT_MIN_ALPHA + (1 - FLIGHT_MIN_ALPHA) * eased);
       f.slot.flightBox.idle(elapsed);
 
       if (t < 1) continue;
@@ -486,13 +726,9 @@ export function createParcelSystem(rng, scene) {
       f.slot.flight.visible = false;
       f.slot.flightBox.rest();
       flights.splice(n, 1);
-      if (f.kind === 'in') {
-        landed.push(f.slot.index);
-      } else {
-        // The pad has nothing left to mark. It pulls back into its own centre rather than blinking
-        // out, and `update` keeps ticking it below until it has.
-        f.slot.dropoff.ring?.vanish();
-      }
+      // The pad has nothing left to mark. It pulls back into its own centre rather than blinking out,
+      // and `update` keeps ticking it below until it has.
+      f.slot.dropoff.ring?.vanish();
     }
   }
 
@@ -502,10 +738,11 @@ export function createParcelSystem(rng, scene) {
    * callbacks, so this module holds no reference to the taxi mesh, the HUD or the fare system.
    * `main.js` translates them.
    *
-   * `pickup` and `loaded` are deliberately two events a flight apart. `pickup` is the moment the
-   * player earned the box; `loaded` is the moment it actually reaches the car, which is when the taxi
-   * gets to react to it. Splitting them is what lets the box visibly travel instead of teleporting
-   * into a deck that was already carrying it. `delivered` pays out at once — the money is earned on
+   * `pickup` and `loaded` are deliberately two events a lift apart. `pickup` is the moment the player
+   * earned the box and it leaves the pad; `loaded` fires near the end of that lift and carries `at`,
+   * the world point the box had reached — the cue for the HUD to start bringing its own copy in, and
+   * the direction it should come from. Splitting them is what lets the box be seen to *leave* rather
+   * than blink from a corner into a corner. `delivered` pays out at once — the money is earned on
    * arrival, and making the player wait out an animation for it would read as lag.
    *
    * `fareSpots` is `fares.occupiedSpots()`, `delivered` is `fares.state.delivered`, `over` is
@@ -536,7 +773,7 @@ export function createParcelSystem(rng, scene) {
     }
 
     let events = null;
-    const emit = (type, parcel) => { (events ??= []).push({ type, parcel }); };
+    const emit = (type, parcel, extra) => { (events ??= []).push({ type, parcel, ...extra }); };
 
     // Snapshot before spawning: resolving an arrival splices out from under the loop, and a package
     // spawned *this* frame must not also be ticked in it.
@@ -564,9 +801,11 @@ export function createParcelSystem(rng, scene) {
       if (parcel.stage === 'waiting') {
         // One cargo slot. A second box the taxi drives past while already loaded is simply left
         // where it is — there is nowhere to put it, and silently swapping the load would throw away
-        // a delivery the player had already driven a detour for. A box still in the air counts as
-        // loaded: it has been collected, it just has not arrived.
-        if (carrying() || flights.some((f) => f.kind === 'in')) continue;
+        // a delivery the player had already driven a detour for. `carrying()` alone is the whole
+        // test: a collected package flips its stage on the frame it is reached, so there is no window
+        // where a box has been earned but is not yet counted — the lift that follows is an exit
+        // animation, not a delivery in progress.
+        if (carrying()) continue;
         beginCarry(parcel);
         emit('pickup', parcel);
       } else {
@@ -583,15 +822,32 @@ export function createParcelSystem(rng, scene) {
     // Boxes in the air, and then every pad's own arrival/exit animation. The pads are ticked across
     // *all* slots rather than only for live packages: an outbound flight outlives the package that
     // paid for it, and the pad it is landing on still has an exit to play.
-    updateFlights(state.elapsed, taxiCar);
-    // No payload: all `main.js` needs to know is that a box reached the car. Which one it was stopped
-    // mattering the moment it was collected.
-    for (let n = 0; n < landed.length; n++) emit('loaded', null);
+    updateFlights(state.elapsed);
+    // Where each lift had got to when it handed over. Carried on the event rather than looked up
+    // afterwards, because it is a world position on *that* frame and the camera does not hold still.
+    for (const at of landed) emit('loaded', null, { at });
     landed.length = 0;
 
     for (const slot of slots) {
+      const owner = state.parcels.find((p) => p.slot === slot) ?? null;
+      if (owner?.ackPending) {
+        owner.ackPending = false;
+        owner.ackAt = state.elapsed;
+      }
+      // Only the end that was tapped answers, and only while its envelope is running. Every other
+      // pin is written back to rest on the same pass, which is what keeps a slot that changed hands
+      // mid-swell from carrying the leftover.
+      const acked = owner && owner.ackAt !== null ? liveEnd(owner) : null;
+
       for (const pin of [slot.pickup, slot.dropoff]) {
         if (!pin.group.visible) continue;
+        // The acknowledgement rides `postGroup` — the kerb corner, with the pad and whatever is
+        // standing on it — because `ring.group`'s own scale is spoken for by the pad's arrival and
+        // exit animations, and the box's by the flight. This is the one transform on this corner that
+        // nothing else writes.
+        pin.postGroup.scale.setScalar(pin === acked
+          ? 1 + owner.ackAmp * popEnvelope(state.elapsed - owner.ackAt)
+          : 1);
         pin.ring?.update(state.elapsed);
         // The ring owns its own visibility through the exit animation; once it has finished, the
         // marker group around it is an empty transform still being traversed every frame.
@@ -607,6 +863,17 @@ export function createParcelSystem(rng, scene) {
     update,
     carrying,
     occupiedSpots,
+    /**
+     * Objects the picker may hit — the one end of each live errand that is actually on the board.
+     *
+     * `fares.pickables()`'s twin, and the same rule: the pin that is *showing* is the pin that can be
+     * tapped. A collected package's kerb marker is hidden with a box still crossing the road to the
+     * taxi, and a hit box left in the target list over a corner with nothing on it would answer a tap
+     * aimed at the street.
+     */
+    pickables: () => state.parcels.map((p) => liveEnd(p).group),
+    parcelFor,
+    acknowledge,
     /** Land every pad's arrival animation at once — shot mode. See `fares.settleMarkers`. */
     settleMarkers: () => {
       for (const slot of slots) {

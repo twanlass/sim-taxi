@@ -243,6 +243,52 @@ focus each cancel the ride home *without* reporting an arrival. `tools/smoke.mjs
 round trip in a real browser, on the gap between the camera and the taxi: how far it ever got is the
 evidence it visited the rider, where it ends up is the evidence it came home.
 
+### Getting back to the taxi
+
+`src/game/taxifinder.js`. The camera is the player's the moment they swipe, and it stays theirs —
+nothing here tows it back onto the car. The bill for that arrives when the taxi drives off the frame
+entirely, which on a phone is one look across town away: the only way home was to drag the map until
+the yellow car turned up, a hunt across near-identical blocks on a clock that is draining. So while
+the taxi is **completely** off-frame a chip of it fades in at the opposite end of the bottom row
+from the rider chips, and a tap rides the camera back. Same affordance as those, pointed the other
+way: they answer *who is waiting*, this answers *where am I*.
+
+**The test is the whole silhouette outside the frame**, the car's on-screen radius included (2.79
+world units, measured off the built mesh, times the live pixels-per-unit so a zoom change can't
+shift it) — not "mostly off" and not "near the edge", because a chip offering to find something the
+player can still see is one they learn to ignore. Two things keep it off the boundary: **14px of
+hysteresis**, so a taxi tracking the frame edge doesn't blink it on and off, and a **0.4s dwell**,
+so a car clipping a corner never raises it at all. It is armed off the *raw* frame rather than the
+safe-area insets, unlike [the drop-off arrow](#off-screen-drop-off-pointer) — the canvas draws under
+the status bar, so a car up there is on screen even with hardware sitting over it.
+
+The camera move is `controller.chaseTo(getTaxi, onArrive)` — **a peek's ride home with no trip out**,
+sharing its code. Same smootherstep and the same distance-driven 0.32–0.75s, because it is the same
+kind of move: the player asked to be taken there, not teleported. The aim is re-read every frame, so
+it lands on a car that has been driving the whole time and is already travelling at its speed, and
+`onArrive` clears `cameraTakenOver` — the framing goes back to the opening follow rather than being
+parked on a car that would drive straight out of it again. As ever, anything outranking a pan drops
+the ride and the callback never comes.
+
+The chip is **the car and a disc, and no ring**: a rider chip's ring is a clock, and the taxi has
+none. So the ring's 49px outer diameter becomes the disc itself, which is what keeps the two bottom
+corners the same weight. Inside it is the real `createTaxiMesh` lit by the city's own sun
+(`mirrorSceneLights`, shared with the tutorial avatar and the rider chips), parked at the same
+front three-quarter the tutorial's still avatar uses — the best-lit pose, at 0.84 of full sun. It
+does **not** turn to the taxi's heading: at 44px a yaw is noise, and three quarters of the compass
+would put the car's lit flank away from that camera and leave the chip a dark smudge for most of a
+run. Which way to look is what the camera move answers.
+
+**The car flashes when the ride lands** — the same white emissive lift on the same envelope a courier
+box landing in it fires (see [the accept flourish](#the-parcel--geometryparceljs)), because it is the
+same claim about the car: *this one, here*. On arrival rather than on the tap, and that is the whole
+timing: the flash is over in 0.29s where the ride takes up to 0.75s, so firing it at the press would
+spend it on a car that is still off-frame. It rides `onArrive`, so a swipe away mid-ride cancels the
+flash along with the trip.
+
+Armed only when nothing else has the framing: a run that has ended, a tutorial pointing at the city,
+or a pan already in flight — including its own, which is what drops the chip on the tap.
+
 ### The closing shot
 
 Every ending gets the same beat: the camera eases into whatever ended the run, the sim drops into
@@ -465,9 +511,11 @@ as it is known. Desktop and iOS are untouched, so screenshots and the shot list 
 They live in `util/shot.js` beside `?seed` and `?cars`, and every getter takes its **fallback from
 safe mode rather than from a literal**, evaluated per call — so one flag moves all of them, and a
 module that opens a renderer of its own reads the effective value without anyone threading it
-through. Two do: the tutorial's avatar bubble and each rider-finder chip. They are a 46px and a
-38px disc respectively and their own cost is nothing, but each is a **WebGL context this page is
-holding**, and that is part of what `?safe` is asking about.
+through. Four do: the tutorial's avatar bubble, each rider-finder chip, the courier
+[cargo chip](gameplay.md#the-load-is-carried-into-the-hud) and the
+[taxi finder](#getting-back-to-the-taxi). They are 46px, 38px, 42px and 44px square respectively and
+their own cost is nothing, but each is a **WebGL context this page is holding**, and that is part of
+what `?safe` is asking about.
 
 The flags exist because of a failure a desktop cannot see and a phone cannot report — see
 [testing.md](testing.md#when-a-device-renders-nothing) for the whole picture. `stencil: true` is
@@ -1280,6 +1328,28 @@ The band still offsets each *point* along its mitre rather than offsetting each 
 independently. Independent segments leave a wedge of bare road on the outside of every join —
 invisible when the corner *was* the notch, obvious across a ten-step arc.
 
+### The taxi's chequer — `geometry/taxi.js`
+
+A band down each flank, `CAR_LEN * 0.82` long and 0.22 tall, split into **six cells** alternating
+`taxiTrim` near-black and `taxiSign` off-white. Six boxes a side rather than one, merged into the
+shell with everything else, so the livery costs a draw call of nothing.
+
+**One row, not a chequerboard**, and that is a zoom decision. Through `TAXI_SCALE` the band is about
+2px tall at play zoom, so a second row would ask for 1px and get mush; a single row of alternating
+cells is the largest thing that still reads as *chequer* at this size. Six cells puts one at ~4px —
+about the finest pitch that survives. Square cells matching the band's own height would want twelve,
+at ~2px each, which alias into a flicker as the car turns.
+
+**Both colours are painted.** Letting the light cells fall through to the body was tried in the app
+icon (`tools/make-icon.mjs` paints three dark cells and shows yellow between them, which is right at
+180px on a static image); on the car it makes a yellow-and-black band, which is a hazard stripe, not
+a taxi. The white is the roof sign's own off-white rather than a new entry, so the livery keeps the
+car to two colours.
+
+The white cells clip under the accept flourish's 0.32 emissive lift, and that is fine — the roof sign
+is the same off-white and has always taken the same lift. The *dark* cells have the whole of the lift
+to climb, so the chequer stays legible as chequer while the car is lit.
+
 ### Taxi ghost outline — `geometry/ghostoutline.js`
 
 The taxi's silhouette, traced as a yellow rim (`taxiGhost` in the palette) drawn **only on pixels
@@ -1646,40 +1716,58 @@ label that is *always* visible however far the spin has turned — and the visib
 the strip and the label together, which is the pair 📦 shows. With one label it read at half the
 rotation, and the half where it was edge-on was a white sliver that looked like a lighting artefact.
 
-**The flight.** A *third* copy crosses between the kerb and the taxi (`game/parcels.js`), and it is a
-separate mesh rather than the kerb one reparented, for the reason the fare crystal is scene-level: the
-kerb box lives two transforms deep inside a marker's `postGroup` on a corner it must not leave, and a
-flight has to own its world position. Two nested groups, also the crystal's arrangement — the outer
-one carries the travel and the scale, the inner box goes on spinning and bobbing in local space, so
-the two concerns never fight over one transform.
+**The outbound flight.** A *third* copy crosses from the taxi to the pad on a delivery
+(`game/parcels.js`), and it is a separate mesh rather than the kerb one reparented, for the reason the
+fare crystal is scene-level: the kerb box lives two transforms deep inside a marker's `postGroup` on a
+corner it must not leave, and a flight has to own its world position. Two nested groups, also the
+crystal's arrangement — the outer one carries the travel and the scale, the inner box goes on spinning
+and bobbing in local space, so the two concerns never fight over one transform.
 
-Going in it shrinks to `PARCEL_DECK_SCALE` and fades toward `FLIGHT_MIN_ALPHA` over `FLIGHT_TIME` (0.55s,
-a shade under the crystal's 0.65 — that one is tuned against the rider's run-and-jump, and the two flights
-should not look like the same object anyway). Coming out it does the reverse into the pad. Scale and alpha
-run *with* the travel rather than on their own curve, so the box reads as going into the car rather than as
-fading while it happens to move, and it stops at the deck parcel's own scale so the flight ends *on* the
-object it becomes instead of beside it.
+It grows from `PARCEL_DECK_SCALE` and fades in from `FLIGHT_MIN_ALPHA` over `FLIGHT_TIME` (0.55s, a shade
+under the crystal's 0.65 — that one is tuned against the rider's run-and-jump, and the two flights should
+not look like the same object anyway). Scale and alpha run *with* the travel rather than on their own
+curve, so the box reads as coming out of the car rather than as fading in while it happens to move.
 
-Three numbers were measured and moved, all in service of the arrival being a **contact**:
+Two numbers were measured, both in service of the departure being a **hand-off** rather than a spawn:
 
 - **The arc is 2.6, up from 1.4.** A world unit is about 7.7px at play zoom, so the first number bought
   roughly eleven pixels of rise over half a second — technically an arc and, on a box that had just been
   halved in size, not one anybody could see. It is a lob now, which is also what makes the *direction* of
-  the hand-off legible: up and over into the car rather than sliding across the tarmac at it.
-- **It flies to the deck, not to the road.** The end point was the taxi's XZ at pavement height — under
-  the car's sills — while the deck parcel appeared at `TAXI_DECK_Y`, a unit and a half above. Two events
-  with a visible jump between them. The height now runs pavement ↔ deck whichever way the flight goes, and
-  `TAXI_DECK_Y` is exported from `geometry/taxi.js` and used to place the deck mesh itself, so the two
-  cannot drift.
-- **The fade stops at 0.25.** Fading to zero meant the box was *invisible by the frame it arrived*, so the
-  contact the player reads happened somewhere earlier and vaguer, and the taxi's flourish fired on a frame
-  with nothing in it. The box now lands visible at deck size and is switched off under the flash. Covering
-  the cut is what a flourish is for.
+  the hand-off legible: up and over out of the car rather than sliding across the tarmac.
+- **It leaves from the deck, not from the road.** Launched at the taxi's XZ at pavement height it starts
+  under the car's own sills, which reads as the box being posted out through the tarmac. `TAXI_DECK_Y` is
+  exported from `geometry/taxi.js` for this.
+- **The fade starts at 0.25**, not at zero. From nothing the box is *invisible for the frames it leaves
+  in*, so the moment the player reads as the load departing happens later and vaguer than the delivery it
+  belongs to.
 
-`tools/probe.mjs` asserts the landing frame's height against `TAXI_DECK_Y` and the faintest opacity across
-the whole flight — the second one deliberately as a floor rather than a reading at the landing, because
-`updateFlights` calls `rest()` on the same frame it lands and a read taken after `update` returns reports
-the resting state. It did exactly that, and passed while printing "opacity 1.00 on contact".
+`tools/probe.mjs` asserts the airborne frames, the growth, and the faintest opacity across the whole
+flight — the last deliberately as a floor rather than a reading at either end, because `updateFlights`
+calls `rest()` on the same frame it lands and a read taken after `update` returns reports the resting
+state. It did exactly that, and passed while printing "opacity 1.00 on contact".
+
+**The pickup's lift.** A collected box does not arrive anywhere in the city — it **leaves**. The kerb
+copy is hidden and the flying copy takes over from the same spot, standing at the corner at
+`PARCEL_PAD_LIFT` and running the same `idle` off the same clock, so the two are one pose by
+construction rather than by a reading taken on the hand-off frame. Over `LIFT_TIME` (0.45s) it climbs
+3.6, swells to 1.35, slides 5.5 along `TOWARD_HUD` and fades to nothing.
+
+- **Two curves, and the difference is the read.** The rise eases *out* — the box leaves the pad smartly
+  and settles, which is a thing being picked up. The drift eases *in*, accelerating away, which is a
+  thing leaving. One shared curve gives a box that either jumps sideways or floats up and stops.
+- **It gets bigger, not smaller.** It is not going into anything, and what it becomes is more than twice
+  its size, so shrinking would point at the wrong end of the journey.
+- **`TOWARD_HUD` is derived, not typed.** It is `UP − RIGHT` from `game/camera.js`, normalised —
+  screen-up-and-left across the ground plane, which is where the chip sits. The answer comes out as
+  exactly −X and that is not a licence to write −X: the view never rotates, so one world direction is
+  one screen direction, and this is the arithmetic that would have to be redone if the azimuth moved.
+- **The hand-off fires at 78%, not at the end**, carrying the point the box had reached (its middle,
+  which is what the chip's picture is centred on). At the end there is nothing left to cross-fade with
+  and the chip reads as a separate pop.
+
+`tools/probe.mjs` asserts the lift starts on the kerb to within 0.01 in all three axes, that it climbs,
+swells, fades and moves −X, that the kerb is empty from that frame, and that the hand-off fires **once**,
+late, with the box still visible and clearly on its way out (measured: 81% along, alpha 0.30).
 
 > **Trap.** `material.transparent` and `depthWrite` are shader-define switches, so changing `opacity`
 > alone does nothing until `needsUpdate` forces a recompile — the rider figure shipped that bug once
@@ -1689,26 +1777,72 @@ the resting state. It did exactly that, and passed while printing "opacity 1.00 
 > opaque with `depthWrite` back on once landed — a box left transparent z-sorts wrong for the rest of
 > the run, and the slot gets reused.
 
-**The accept flourish.** When the box lands, every opaque part of the car takes a white emissive lift
-together — shell, roof sign, both steered wheels and the deck parcel — on the select pop's own
-envelope, so an accepted package reads as the same *kind* of acknowledgement a tapped rider gets rather
-than as a new effect to learn. 0.32 rather than the rider's measured 0.3: the taxi's yellow is already
+**The third copy is in the HUD, and it is where a collected box goes.** While a package is aboard,
+`game/cargochip.js` draws the same box into a 42px square under the cash total — a parcel on the taxi's
+rear deck was about four pixels at play zoom, which is why that one is gone and the
+[courier doc](gameplay.md#the-load-is-carried-into-the-hud) covers the argument. It is the box alone,
+with no disc behind it and no rim around it; `#hud`'s own drop shadow is what lifts it off a pale road,
+the same one the digits above it wear. Three things about the view:
+
+- **The camera keeps `VIEW_DIR`'s elevation and mirrors its azimuth in x**, so the vector is
+  `(−VIEW_DIR.x, VIEW_DIR.y, VIEW_DIR.z)` — still unit length, since negating one component of a unit
+  vector leaves it one. The elevation is what makes the silhouette in the corner the silhouette on the
+  deck. The azimuth turns for the reason [the tutorial avatar's does](gameplay.md#the-opening-tutorial):
+  at the hour the game parks at, the sun's horizontal direction is (−0.78, +0.40), so the +X faces the
+  city camera looks at sit at n·L = −0.78. Out in the world that is what makes the shadows read; in a
+  42px square with no ground under it, half a black box is a smudge. From the −X +Z quadrant the visible
+  X face is at +0.78 and the Z face stays at +0.40, and the visible Z face is the one carrying the strip
+  and a label — the pair 📦 shows.
+- **The frustum is computed, not eyeballed.** The box stands 1.16 tall and 1.384 across at the lid, so
+  at 45° its half-diagonal is 0.979 and its screen half-height is 1.16·cos33/2 + 0.979·sin33 = 1.02 —
+  near enough the same number as the half-width, so one square frustum covers both. `FIT` is 1.15, that
+  plus 13% for the drop shadow and nothing else, because a *square* canvas has no corner for the box to
+  foul. It was 1.42 while there was a disc behind it: a box framed to a circle's inscribed square has
+  its corners against the rim twice a turn, so a quarter of the frame was air paid to a plate that has
+  since gone — and the box was what got smaller for it. It measures 52% of the canvas drawn, which is
+  what `tools/smoke.mjs` asserts a floor under: a camera pointed slightly wrong frames the box off the
+  side of an element that still passes every DOM check.
+- **The arrival quotes the box's direction rather than tracking it.** The chip grows from 0.45, fades
+  up (opaque by 45% of the way, so the arrival is the growth settling rather than a fade finishing),
+  and slides in from a **fraction** of the way toward where the world box faded out — 26% of the gap,
+  capped at 120px, scaled along the line so the cap shortens the slide without bending it off the
+  direction the box left in. It inherits that box's spin and eases it to the nearest quarter turn: a
+  square box a quarter turn from square is the same picture, so the longest settle is 45° rather than
+  180°.
+
+  The first cut *did* track it — the chip opened at the box's exact screen point and exact apparent
+  size (the ratio of the two cameras' scales: this canvas gives a world unit `SIZE / (2·FIT)` = 18.3px
+  against the city's ~7.7, measured live because the zoom moves) and flew the whole distance in one
+  move. It was verified pixel-exact and it read as **too fast**: a hand-off with no overlap gives the
+  eye nothing to follow. The exactness was the thing to give up.
+
+**The accept flourish.** When a package is collected, every opaque part of the car takes a white
+emissive lift together — shell, roof sign and both steered wheels — on the select pop's own envelope,
+so an accepted package reads as the same *kind* of acknowledgement a tapped rider gets rather than as a
+new effect to learn. (It was five parts while a box rode the deck.) 0.32 rather than the rider's measured 0.3: the taxi's yellow is already
 the brightest thing on the road, so it has less headroom before the chequer stripe washes into the
-body, and the lift has to register on a car that is moving. The brake light and indicators are left
+body, and the lift has to register on a car that is moving. The chequer's white cells clip at it and
+its dark ones do not, which is what keeps the band readable through the flash — see
+[The taxi's chequer](#the-taxis-chequer--geometrytaxijs). The brake light and indicators are left
 alone — they are lamps with their own state, and lifting them would read as the taxi braking at the
 moment it accepted a package.
 
-The same factory builds the small one on the taxi's rear deck, at `PARCEL_DECK_SCALE` — exported from
-the mesh and derived from its own width, rather than restated at each of the two call sites that want it
-(the deck copy, and what an incoming flight shrinks *to*). Three numbers encoding "the deck parcel is
-about half a unit wide" is three numbers to get wrong the day the box is resized, which is exactly the
-day that came. The ghost rim is written as a multiple of that scale for the same reason. That copy is in the
-ghost-outline stencil mask like every other opaque part of the car — not for its own silhouette, but
-because a part left *out* of the mask counts as an occluder of the rim behind it. Its rim is written as a
-multiple of `PARCEL_DECK_SCALE` rather than as a raw number, because `addGhostOutline` inflates in the
-mesh's own geometry space and that scale then shrinks it — landing near the roof sign's 0.15 in
-taxi-local units on a part of much the same size. Passing 0.15 directly would trace a rim a fraction of
-the sign's thickness and read as none at all.
+**Two things fire it**, and they make the same claim about the car: *this one, here*. The other is
+[the ride back to the taxi](#getting-back-to-the-taxi) landing, where it answers a player who had
+lost the car rather than a box arriving in it. One flourish rather than two, so the gesture is
+learned once.
+
+**Two numbers are exported from the mesh** rather than restated wherever they are wanted, because both
+are facts about *this box* and both have to agree across a seam. `PARCEL_DECK_SCALE` is "the size this
+car handles a box at", derived from `BOX_W` — it is what the outbound flight grows from, and it was
+named the day the box was resized and three hand-typed numbers encoding "about half a unit wide" all
+needed finding. `PARCEL_CENTRE_Y` is half the standing height, and it is both the point the chip's
+camera is centred on and the point the pickup hand-off is measured from: the two ends of that line have
+to be the same point on the box, or it moves on the frame it changes renderers.
+
+The deck copy those numbers were first written for is gone — the taxi carries nothing now, so it also
+drops out of the ghost-outline stencil mask, which is seven parts rather than eight (`tools/probe.mjs`
+counts them, because a part left *out* of the mask counts as an occluder of the rim behind it).
 
 ### The drop-off ring — `geometry/marker.js`
 
@@ -1752,6 +1886,10 @@ skyline for a beat after the ring had gone behind a tower; the arrow only covers
 case, which is the one the map being bigger than the viewport actually creates. It aims at `y = 0.1`
 now — the ring on the road — where it used to aim halfway up the pin's post.
 
+The third thing the map outgrowing the frame can lose is the **taxi itself**, and that one gets a
+chip rather than an arrow: a direction is enough when you already know what is over there, and not
+enough when what is missing is your own car. See [getting back to the taxi](#getting-back-to-the-taxi).
+
 ### Off-screen police warning
 
 `game/sirenglow.js`, styled under `#siren-glow` in `index.html`. Red and blue washing in over the
@@ -1764,12 +1902,13 @@ threat they cannot see yet. `POLICE_BUST_RANGE` is one block, and a block is abo
 portrait phone's frame at play zoom — so a cruiser one screen edge away is already close enough to
 end a run, and the only cue it existed was ambient traffic pulling over to a car that was off-frame.
 
-**It is on exactly when the light bar is on.** `state.armed` gates both, so the rule the player
-already learns from a single run — [*lights on means it can bust
-you*](traffic.md#arming-it-where-it-can-be-seen) — extends to the edge of the screen without needing
-a second rule. A cruiser still fading in at the map edge cannot bust anyone and gets no wash. The
-probe asserts both halves directly: nothing unarmed ever lights the edge, and nothing armed and
-off-frame ever fails to.
+**It is on exactly when the light bar is on.** `state.lit` gates both, so the rule the player
+already learns from a single run — [*lights on means a cop is
+here*](traffic.md#the-lights-lead-the-gate) — extends to the edge of the screen without needing a
+second rule. That includes the run-up: the bar comes on as the cruiser spawns and the bust only
+arms a block in, so the wash covers the two-second grace period as well, which is the part of it a
+player off-frame most needs. The probe asserts both halves directly: nothing with a dark bar ever
+lights the edge, and nothing lit and off-frame ever fails to.
 
 The strobe comes off `sirenOn()` in `sim/police.js` rather than a clock of its own, which is the
 only reason the two stay in step — including the rate change to 11Hz once the cruiser has locked on,

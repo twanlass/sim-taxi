@@ -380,6 +380,11 @@ const PULLOVER_FALL = 2.2;
 // moves instead: a car with the boosting taxi on its bumper floors it, and takes the next turn
 // it can rather than staying on the taxi's road. The first buys the ~1s to the junction with no
 // speed drop, the second is what actually clears the lane.
+//
+// Trucks never scatter. A 5.6-unit box flooring it to 2.0x cruise and skittering off at the next
+// junction reads as weightless — the panic flee is a car-sized reaction. A truck ahead is simply
+// an obstacle Loco Mode has to pass or follow, same as it treats the truck's speed everywhere
+// else (TRUCK_SPEED, TRUCK_CORNER_SPEED above).
 const SCATTER_RANGE = 40;      // how far back the taxi is felt — two blocks, ~2s at boost speed
 const SCATTER_SPEED = 2.0;     // multiplier on cruise while fleeing. Just under the taxi's 2.2, so
                                // it still closes and the flee reads as *not quite enough*.
@@ -1556,7 +1561,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   taxi.isTruck = false;
 
   const {
-    group: taxiGroup, setOccupied: setTaxiOccupied, setCargo: setTaxiCargo,
+    group: taxiGroup, setOccupied: setTaxiOccupied,
     setHighlight: setTaxiHighlight, setSteer: setTaxiSteer, setLights: setTaxiLights,
   } = createTaxiMesh();
   scene.add(taxiGroup);
@@ -2507,7 +2512,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     if (taxiActive && taxi.boost) {
       const mark = (lane, fromS) => {
         for (const { car } of ahead(lane, fromS, SCATTER_RANGE)) {
-          if (!car.isTaxi) fleeing.add(car);
+          // Trucks are exempt — too big to skitter. See the scatter tuning block up top.
+          if (!car.isTaxi && !car.isTruck) fleeing.add(car);
         }
       };
 
@@ -3309,7 +3315,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   }
 
   return {
-    cars, taxi, taxiGroup, setTaxiOccupied, setTaxiCargo, setTaxiHighlight, setCarCount, mesh,
+    cars, taxi, taxiGroup, setTaxiOccupied, setTaxiHighlight, setCarCount, mesh,
     wheelMesh, barMesh, update, warmup,
     wreckShell, stats,
     lightPhase, displayPhase,

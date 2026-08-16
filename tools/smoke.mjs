@@ -94,6 +94,14 @@ try {
   await client.send('Runtime.enable');
   await client.send('Page.enable');
   await client.send('Network.enable');
+  // Pin the motion preference to what an ordinary player's browser reports, rather than inheriting
+  // whatever this headless build happens to default to. Several HUD entrances — the cargo chip's
+  // flight in from the city is the one asserted below — hand over to a plain fade under `reduce`, so
+  // a build that answers `reduce` turns those checks into assertions about the fallback while still
+  // printing PASS.
+  await client.send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+  });
   await client.send('Page.navigate', { url: baseUrl });
 
   const evaluate = async (expression) => {
@@ -117,10 +125,11 @@ try {
   // this headless configuration but never synthesises a DOM click — the page observes nothing at
   // all — so it silently tests neither the picker nor anything else. This does exercise the real
   // listener, raycast and hit-test path; it just doesn't cover Chrome's OS-level input plumbing.
-  // `body > canvas` rather than `canvas`. The game's canvas is appended to the body, but every
-  // rider-finder chip carries a 38px WebGL canvas of its own inside `#rider-finder-stack`, which
-  // is *earlier* in the DOM — so as soon as a rider is waiting, a bare `querySelector('canvas')`
-  // hands back a chip. Every gesture below was landing on that: the drag check failed because
+  // `body > canvas` rather than `canvas`. The game's canvas is appended to the body, but the HUD
+  // chips each carry a small WebGL canvas of their own — 38px inside `#rider-finder-stack`, 42px
+  // inside `#cargo-chip`, which is earlier still, being the first element in the body — and both
+  // sit *before* the game's in the DOM, so a bare `querySelector('canvas')` hands back a chip.
+  // Every gesture below was landing on that: the drag check failed because
   // `attachDragPan` never saw the events, and the tap check passed for the wrong reason, since a
   // click on a chip's canvas bubbles to the chip's button and dispatches the taxi anyway.
   const GAME_CANVAS = "document.querySelector('body > canvas')";
@@ -176,7 +185,8 @@ try {
   check('signals still hold for the taxi',
     (await evaluate('window.__taxi.traffic.stats.violations')) === 0);
 
-  // --- Pause holds the whole frame, and a tap anywhere lets it go.
+  // --- Pause holds the whole frame, a tap elsewhere on the veil leaves it held, and only the
+  // Resume pill lets it go.
   //
   // `fares.state.elapsed` is the probe rather than the taxi's position: it advances by `dt` on
   // every `fares.update` no matter what else is happening, so a taxi legitimately sitting at a red
@@ -192,16 +202,27 @@ try {
   check('the pause button holds the run', veilUp && stillHeld === held,
     veilUp ? `elapsed ${held.toFixed(2)} → ${stillHeld.toFixed(2)}` : 'no veil');
 
-  // `pointerdown`, which is what the veil actually listens for — a `click` here would pass while
-  // the press-to-resume path was broken.
-  await evaluate(`(() => { document.getElementById('pause-veil').dispatchEvent(
+  // A tap on the veil's title, away from the Resume pill, must not resume — otherwise reading the
+  // paused screen risks dropping straight back into traffic.
+  await evaluate(`(() => { document.querySelector('#pause-veil .pause-title').dispatchEvent(
+    new PointerEvent('pointerdown', { pointerId: 7, isPrimary: true, bubbles: true, cancelable: true }));
+  })()`);
+  await sleep(300);
+  const afterStrayTap = await elapsed();
+  check('a tap elsewhere on the veil does not resume it',
+    afterStrayTap === stillHeld && !(await evaluate("document.getElementById('pause-veil').hidden")),
+    `elapsed ${stillHeld.toFixed(2)} → ${afterStrayTap.toFixed(2)}`);
+
+  // `pointerdown`, which is what the Resume pill actually listens for — a `click` here would pass
+  // while the press-to-resume path was broken.
+  await evaluate(`(() => { document.querySelector('#pause-veil .pause-resume').dispatchEvent(
     new PointerEvent('pointerdown', { pointerId: 7, isPrimary: true, bubbles: true, cancelable: true }));
   })()`);
   await sleep(700);
   const resumed = await elapsed();
-  check('and a tap anywhere resumes it',
-    resumed > stillHeld && (await evaluate("document.getElementById('pause-veil').hidden")),
-    `elapsed ${stillHeld.toFixed(2)} → ${resumed.toFixed(2)}`);
+  check('and the Resume pill resumes it',
+    resumed > afterStrayTap && (await evaluate("document.getElementById('pause-veil').hidden")),
+    `elapsed ${afterStrayTap.toFixed(2)} → ${resumed.toFixed(2)}`);
 
   // --- Everything below is a phone. Drag-to-pan, both follow-cams and the rider pan are all gated
   // on `isNarrow()` — under NARROW_VIEWPORT = 768 — so at the 900px window this tool launches with,
@@ -427,6 +448,378 @@ try {
       narrow ? 'no waiting rider on screen to tap' : 'viewport is not narrow');
   }
 
+  // --- The courier box in the HUD, while a package is aboard. See src/game/cargochip.js.
+  //
+  // Here rather than in the node suite because the whole thing is browser-only: a WebGL context
+  // inside a DOM node, carried in by a Web Animation. And driven through `__taxi.cargoChip` rather
+  // than by couriering a real package, which would mean playing a fare, waiting out the spawn gap and
+  // dragging the route band through a pad — several minutes of software-rendered sim for a chip whose
+  // states are the thing being asserted. `setCarrying(true)` is the flightless half of what a
+  // `'pickup'` does to it; `flyIn` is the other half, and is checked on its own below.
+  //
+  // The pixel count is the half that matters. The chip's framing is *computed* — the frustum is
+  // derived from the box's own dimensions at the camera's elevation — so the failure mode is not a
+  // missing element, it is a correct element with the box framed off the side of it, which reads in
+  // a screenshot as an empty disc and reads in the DOM as a pass. Everything is done inside one
+  // `evaluate` with no await in the middle: the renderer does not preserve its drawing buffer, so
+  // the readback has to happen in the same task as the draw.
+  const chipState = (expr = 'null') => evaluate(`(() => {
+    const chip = window.__taxi.cargoChip;
+    if (!chip) return JSON.stringify({ missing: true });
+    ${expr};
+    const el = document.getElementById('cargo-chip');
+    const src = el.querySelector('canvas');
+    const c = document.createElement('canvas');
+    c.width = src.width; c.height = src.height;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(src, 0, 0);
+    const data = ctx.getImageData(0, 0, c.width, c.height).data;
+    let drawn = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 200) drawn += 1;
+    return JSON.stringify({
+      on: el.classList.contains('is-on'),
+      hidden: el.getAttribute('aria-hidden'),
+      drawn: drawn / (data.length / 4),
+    });
+  })()`);
+
+  const chipDown = JSON.parse(await chipState());
+  check('the cargo chip starts down', chipDown.on === false && chipDown.hidden === 'true',
+    chipDown.missing ? 'no courier layer on this page' : `aria-hidden ${chipDown.hidden}`);
+
+  const chipUp = JSON.parse(await chipState('chip.setCarrying(true); chip.render()'));
+  // A 1.16-unit box in a frustum half-height of 1.15 measures 52% of the canvas, so 0.3 is a floor
+  // with room under it rather than a reading to keep in step. What it rules out is the two ways
+  // this can be wrong and still look fine from the DOM: nothing drawn at all, and a box framed
+  // outside the canvas.
+  check('a package aboard raises the cargo chip',
+    chipUp.on === true && chipUp.hidden === 'false' && chipUp.drawn > 0.3,
+    `${(chipUp.drawn * 100).toFixed(0)}% of the canvas drawn`);
+
+  // --- Tapping a package: a detour with a rider aboard, a dispatch with the seat empty. See
+  // src/game/parcels.js.
+  //
+  // Here rather than in the node suite because the half that can go wrong here is the **picker**:
+  // a hit box that was never added to the target list, a `pickable` kind main.js doesn't switch on,
+  // or a `parcelFor` walk that stops one node short all fail by doing precisely nothing, which is
+  // also what a tap on the road does. The routing itself is `findRouteVia`, which `tools/probe.mjs`
+  // covers far better than a software-rendered page can.
+  //
+  // The board is loaded by hand rather than played into: a package spawns on a drawn 18–45s gap and
+  // only after the first delivery, which is minutes of sim under llvmpipe for a marker whose two
+  // states are the thing being asserted. `delivered: 9` is passed to this one call only — the frame
+  // loop goes on ticking it with the run's real count, which never removes a package already on the
+  // board.
+  const parcelTap = async () => {
+    const setup = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const t = window.__taxi;
+      if (!t.parcels) return { missing: true };
+      t.parcels.state.nextSpawnAt = -Infinity;
+      t.parcels.update(1 / 60, t.traffic.taxi,
+        { fareSpots: t.fares.occupiedSpots(), delivered: 9 });
+      const box = t.parcels.state.parcels[0];
+      if (!box) return { missing: true };
+      // Give the tap a route to act on. Whether the run happens to have a rider aboard right now
+      // decides which branch this reads — a detour around a fare's route, or a dispatch that
+      // replaces it — so the seat is recorded rather than assumed.
+      const job = t.fares.carrying() ?? t.fares.waiting();
+      if (job) t.routeTo(job.target);
+      return {
+        carried: Boolean(t.fares.carrying()),
+        target: t.traffic.taxi.pendingTarget,
+        box: { i: box.target.i, j: box.target.j },
+        legs: t.traffic.taxi.route.length,
+        acked: box.ackAt !== null,
+      };
+    })())`));
+    if (setup.missing) return { missing: true };
+
+    await clickAt(JSON.parse(await evaluate('JSON.stringify(window.__taxi.parcelScreenPosition())')));
+
+    const after = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const t = window.__taxi, box = t.parcels.state.parcels[0];
+      return {
+        // Collected counts as gone: a pickup moves the box aboard, resets its ack for the drop-off
+        // corner, and retires a dispatch's route — nothing below is assertable against it.
+        gone: !box || box.stage !== 'waiting',
+        acked: Boolean(box) && box.ackAt !== null,
+        amp: box?.ackAmp ?? 0,
+        target: t.traffic.taxi.pendingTarget,
+        legs: t.traffic.taxi.route.length,
+        band: t.routeLine.color().getHexString(),
+        parcelHue: t.parcels.colorOf().getHexString(),
+      };
+    })())`));
+    return { before: setup, after };
+  };
+
+  const tapped = await parcelTap();
+  if (tapped.missing) {
+    check('tapping a package is answered', false, 'no package to tap');
+  } else if (tapped.after.gone) {
+    // The taxi drove through the pad in the second the tap took. Nothing is wrong; there is just
+    // nothing left to assert against, and a check that failed on it would be flaky by construction.
+    check('tapping a package is answered', true, 'collected before the tap landed — skipped');
+  } else {
+    check('tapping a package is answered on its corner',
+      tapped.before.acked === false && tapped.after.acked === true,
+      `ack ${tapped.before.acked} -> ${tapped.after.acked}`);
+    check('and the answer is taken, not a refusal',
+      tapped.after.amp > 0, `amplitude ${tapped.after.amp}`);
+    if (tapped.before.carried) {
+      // The seat is a commitment: whatever the tap did to the route, the place the taxi is being
+      // driven to is the one it was already being driven to.
+      check('with a rider aboard, tapping a package never re-aims the taxi at it',
+        tapped.after.target !== null
+        && tapped.after.target.i === tapped.before.target.i
+        && tapped.after.target.j === tapped.before.target.j,
+        `${JSON.stringify(tapped.before.target)} -> ${JSON.stringify(tapped.after.target)}`
+        + `, ${tapped.before.legs} -> ${tapped.after.legs} legs`);
+    } else {
+      // No rider, no committed clock: the tap is a dispatch, and the box's own junction is now the
+      // destination — even when the taxi was mid-drive at a waiting rider.
+      check('with the seat empty, tapping a package re-aims the taxi at it',
+        tapped.after.target !== null
+        && tapped.after.target.i === tapped.before.box.i
+        && tapped.after.target.j === tapped.before.box.j,
+        `${JSON.stringify(tapped.before.target)} -> ${JSON.stringify(tapped.after.target)}`);
+      // The band on a dispatch wears the courier cyan — a package has no clock, so no urgency hue.
+      // Read back through routeLine.color() after the frame loop has repainted it.
+      check('and the band repaints in the courier cyan',
+        tapped.after.band === tapped.after.parcelHue,
+        `band #${tapped.after.band}, courier #${tapped.after.parcelHue}`);
+    }
+  }
+
+  const chipAfter = JSON.parse(await chipState('chip.setCarrying(false)'));
+  check('delivering it puts the chip back down',
+    chipAfter.on === false && chipAfter.hidden === 'true');
+
+  // --- ...and the arrival that puts it up. See `flyIn` in src/game/cargochip.js.
+  //
+  // The second half of a pickup: the world box has lifted off its pad and is fading out somewhere
+  // across the city, and the chip grows and fades in with a short slide **from that direction**. Three
+  // things are assertable from outside and each rules out a way this reads as a pop rather than an
+  // arrival: it starts *away* from its slot (an identity transform is a chip appearing in the corner
+  // with the box vanishing across town), it starts *small* and *transparent*, and it ends square in
+  // its slot at full size.
+  //
+  // Driven with a hand-made hand-off rather than a real one, for the reason the states above are: a
+  // courier job is minutes of software-rendered sim away. The numbers are a plausible one — a box a
+  // few hundred pixels down and right of the HUD corner.
+  const flightStart = JSON.parse(await evaluate(`(() => {
+    const chip = window.__taxi.cargoChip;
+    if (!chip) return JSON.stringify({ missing: true });
+    chip.setCarrying(false);
+    chip.flyIn({ x: 420, y: 380, yaw: 0.8 });
+    const el = document.getElementById('cargo-chip');
+    const s = getComputedStyle(el);
+    const m = new DOMMatrix(s.transform);
+    return JSON.stringify({
+      on: el.classList.contains('is-on'),
+      flying: el.classList.contains('is-flying'),
+      // How far the chip is from its resting place, how big it is, and how visible, on frame one.
+      offset: Math.hypot(m.e, m.f),
+      scale: m.a,
+      opacity: Number(s.opacity),
+      // ...and that the slide points the right way: the box is down and to the right of the corner,
+      // so the chip must start down and to the right of its slot. A sign error here is a chip sliding
+      // in from the opposite quadrant, which is the one way the direction can be wrong and still move.
+      down: m.f > 0,
+      right: m.e > 0,
+      animations: el.getAnimations().length,
+    });
+  })()`));
+  check('a pickup brings the chip in from the direction the box left in',
+    flightStart.missing !== true
+    && flightStart.on === true && flightStart.flying === true
+    && flightStart.offset > 40 && flightStart.scale < 0.9 && flightStart.opacity < 0.5
+    && flightStart.down === true && flightStart.right === true
+    && flightStart.animations > 0,
+    flightStart.missing ? 'no courier layer on this page'
+      : `starts ${flightStart.offset.toFixed(0)}px out at ${flightStart.scale.toFixed(2)}x, `
+        + `opacity ${flightStart.opacity.toFixed(2)}, ${flightStart.animations} animation(s)`);
+
+  // ...and lands. Waited out rather than awaited on `animation.finished`, which needs a promise this
+  // `evaluate` does not resolve. 460ms of slide, generously over-waited: a check that raced the
+  // animation would be flaky in the one direction that matters, reporting a landing that never came.
+  await sleep(1200);
+  const flightEnd = JSON.parse(await evaluate(`(() => {
+    const el = document.getElementById('cargo-chip');
+    const s = getComputedStyle(el);
+    const m = new DOMMatrix(s.transform);
+    return JSON.stringify({
+      flying: el.classList.contains('is-flying'),
+      offset: Math.hypot(m.e, m.f),
+      scale: m.a,
+      opacity: Number(s.opacity),
+      hidden: el.getAttribute('aria-hidden'),
+    });
+  })()`));
+  check('and settles it square in its slot',
+    flightEnd.offset < 0.5 && Math.abs(flightEnd.scale - 1) < 0.01
+    && flightEnd.opacity > 0.99
+    && flightEnd.flying === false && flightEnd.hidden === 'false',
+    `${flightEnd.offset.toFixed(1)}px out at ${flightEnd.scale.toFixed(2)}x, `
+    + `opacity ${flightEnd.opacity.toFixed(2)}, still flying ${flightEnd.flying}`);
+
+  await evaluate('window.__taxi.cargoChip?.setCarrying(false)');
+
+  // --- The "back to the taxi" chip, once the player's own car is off-frame. See
+  // src/game/taxifinder.js.
+  //
+  // Browser-only in the same three ways at once: the edge test runs off a projection through the
+  // live camera, the chip is a WebGL context in a DOM node, and the tap has to reach main.js. The
+  // node suite covers the boundary arithmetic and the camera curve; this covers the wiring between
+  // them, which is the part that fails silently — a chip that never comes up looks exactly like a
+  // taxi that is never off screen.
+  //
+  // The tutorial is dismissed first rather than waited out. While it is framing the city it owns
+  // the camera, and this parks the camera somewhere deliberate — two claims on the same thing, and
+  // the one that loses is this test.
+  await evaluate(`(() => {
+    const t = window.__taxi.tutorial;
+    for (let i = 0; i < 8 && t && t.holdsCamera(); i++) t.dismiss();
+  })()`);
+
+  // A real swipe first, and it is not decoration: on a narrow viewport the opening follow-cam is
+  // still trailing the taxi, and it would tow the framing straight back onto the car this test is
+  // about to lose. The swipe is how the camera becomes the player's — which is also the only way a
+  // player ever ends up in this state.
+  //
+  // The origin is picked again rather than reusing `panStart` from the pan checks above: a press on
+  // the route band is a grab rather than a pan (deliberately — see the band checks), the taxi has
+  // driven half the city since that point was chosen, and a swipe that silently became a band drag
+  // leaves the follow-cam holding the camera and this whole block failing several steps later.
+  const swipeFrom = JSON.parse(await evaluate(`(() => {
+    const spots = [[200, 420], [80, 700], [320, 200], [60, 180], [330, 770], [200, 640]];
+    for (const [x, y] of spots) if (!window.__taxi.pathDrag.hitTest(x, y)) return JSON.stringify({x, y});
+    return JSON.stringify({x: 200, y: 420});
+  })()`));
+  await dragFrom(swipeFrom.x, swipeFrom.y, 120, 80);
+
+  // Then 250 units clear of the taxi, which puts it off the frame on any viewport this could run
+  // at — the frustum is 52 world units tall and the widest this page gets is a couple of hundred
+  // across. Written onto the camera target rather than swiped the whole way, because how far a
+  // finger can drag is not what is being asserted.
+  //
+  // `update()` after the write, and it is not optional: `state.target` is where the camera *wants*
+  // to be, and only `apply()` copies that onto the camera itself. Nothing in the frame loop does it
+  // for an idle camera — the pan branch is a no-op when there is no pan — so a written target with
+  // no repaint leaves the projection this chip reads pointing exactly where it was, and the car
+  // sitting in the middle of the frame while `state.target` says otherwise.
+  await evaluate(`(() => {
+    const cam = window.__taxi.camera, taxi = window.__taxi.traffic.taxi;
+    cam.cancelGlide();
+    cam.state.target.set(taxi.x + 250, 0, taxi.z + 250);
+    cam.update(innerWidth / innerHeight);
+  })()`);
+
+  // Polled: the chip waits out a short dwell before it appears (SHOW_DELAY), and this page renders
+  // in software at ~10fps with a clamped dt, so sim time runs at a fraction of wall clock.
+  let finderUp = false;
+  for (let attempt = 0; attempt < 20 && !finderUp; attempt++) {
+    await sleep(250);
+    finderUp = await evaluate('window.__taxi.taxiFinder.isUp()');
+  }
+  // Drawn as well as up. The framing is *computed* from the car's own dimensions, so the failure
+  // mode is a live chip with the taxi framed off the side of it — which reads as an empty disc on
+  // screen and as a pass from the DOM. Same one-task readback as the cargo chip above: the
+  // renderer does not preserve its drawing buffer.
+  const finder = JSON.parse(await evaluate(`(() => {
+    window.__taxi.taxiFinder.render();
+    const el = document.getElementById('taxi-finder');
+    const src = el.querySelector('canvas');
+    const c = document.createElement('canvas');
+    c.width = src.width; c.height = src.height;
+    c.getContext('2d').drawImage(src, 0, 0);
+    const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let drawn = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 200) drawn += 1;
+    return JSON.stringify({ on: el.classList.contains('is-on'),
+      hidden: el.getAttribute('aria-hidden'), drawn: drawn / (data.length / 4) });
+  })()`));
+  // A chip that never appears has half a dozen reasons it might not have, all of them off-screen
+  // state — an unfinished tutorial still holding the camera, a run that ended during the sleeps
+  // above, a camera that was towed back onto the car. An intermittent "it never appeared" with
+  // none of that attached is unactionable, so the failure carries it.
+  const finderWhy = finderUp ? '' : ` — ${await evaluate(`JSON.stringify({
+    over: window.__taxi.fares.state.gameOver,
+    gliding: window.__taxi.camera.isGliding(),
+    holds: Boolean(window.__taxi.tutorial && window.__taxi.tutorial.holdsCamera()),
+    car: window.__taxi.taxiScreenPosition(),
+    frame: [innerWidth, innerHeight],
+  })`)}`;
+  check('the taxi chip comes up once the car is off screen',
+    finderUp && finder.on === true && finder.hidden === 'false' && finder.drawn > 0.15,
+    finderUp ? `${(finder.drawn * 100).toFixed(0)}% of the canvas drawn`
+      : `the chip never appeared${finderWhy}`);
+
+  // The taxi's flourish, summed across the car rather than maxed. `setTaxiHighlight` lifts the
+  // emissive of five parts together (shell, roof sign, both steered wheels, the deck box), and the
+  // sign and the lamps already sit at a constant 1 — so the *brightest* part of this car is 1 with
+  // or without a flash, and only the total moves. Read at rest first: what is asserted below is the
+  // rise, not an absolute.
+  const taxiLift = () => evaluate(`(() => {
+    let sum = 0;
+    window.__taxi.traffic.taxiGroup.traverse((n) => {
+      if (n.material && n.material.emissive) sum += n.material.emissive.r;
+    });
+    return sum;
+  })()`);
+  const restLift = await taxiLift();
+
+  // The tap rides the camera back rather than cutting to the car — the same distinction the rider
+  // peek is checked on, and invisible for the same reason: a pan and a cut are identical once they
+  // have landed. Synchronously after the click: a glide is queued and the camera has not moved.
+  const backTap = JSON.parse(await evaluate(`(() => {
+    const cam = window.__taxi.camera;
+    const before = cam.state.target.toArray();
+    document.getElementById('taxi-finder').click();
+    return JSON.stringify({ gliding: cam.isGliding(), before, after: cam.state.target.toArray() });
+  })()`));
+  const backParked = backTap.before.every((v, i) => v === backTap.after[i]);
+  check('tapping the taxi chip rides back instead of cutting', backTap.gliding && backParked,
+    !backTap.gliding ? 'no ride started'
+      : backParked ? 'ride queued, camera still parked' : 'the camera cut straight to the taxi');
+
+  // ...and it arrives, on a car that has been driving the whole way — and the car flashes as it
+  // lands. Both are watched by the one loop, because the flash *starts* on the frame the ride
+  // retires: a poll that stopped at `!gliding` would exit one tick before the thing it is looking
+  // for. It runs on at 120ms until the lift has been seen, which is well inside the flourish's
+  // 0.29s of sim time (this page renders in software, so sim time runs slower than the clock).
+  let backGap = null;
+  let peakLift = restLift;
+  for (let attempt = 0; attempt < 60; attempt++) {
+    await sleep(120);
+    const s = JSON.parse(await evaluate(`(() => {
+      const t = window.__taxi.camera.state.target, taxi = window.__taxi.traffic.taxi;
+      let lift = 0;
+      window.__taxi.traffic.taxiGroup.traverse((n) => {
+        if (n.material && n.material.emissive) lift += n.material.emissive.r;
+      });
+      return JSON.stringify({ gliding: window.__taxi.camera.isGliding(), lift,
+        gap: Math.hypot(t.x - taxi.x, t.z - taxi.z) });
+    })()`));
+    peakLift = Math.max(peakLift, s.lift);
+    if (!s.gliding) {
+      if (backGap === null) backGap = s.gap;
+      if (peakLift > restLift + 0.05) break;
+    }
+  }
+  // A few units of slack for the frames between the landing and the poll that reads it: the car is
+  // still driving, and on a wide viewport nothing follows it once the ride has handed over.
+  check('the ride back lands on the taxi', backGap !== null && backGap < 12,
+    backGap === null ? 'never settled' : `${backGap.toFixed(1)} units off the car`);
+  // The flourish that says *this car, here* — the same one a courier box landing fires. Measured as
+  // a rise over rest rather than against a number: five parts take `HIGHLIGHT * popHighlight(t)`
+  // together, so a peak-height flash is 5 × 0.32 × 0.944 = 1.51 and any tick inside the envelope is
+  // some fraction of that. Anything clearly over the noise floor means it fired.
+  check('and the taxi flashes when it lands', peakLift > restLift + 0.2,
+    `emissive across the car ${restLift.toFixed(2)} → ${peakLift.toFixed(2)}`);
+  check('and the chip takes itself down again',
+    (await evaluate('window.__taxi.taxiFinder.isUp()')) === false);
+
   // --- The "Add to Home Screen" nudge shows on iOS and nowhere else.
   //
   // This is here rather than in the node suite because the whole feature is a user-agent test, and
@@ -596,7 +989,7 @@ try {
     await sleep(150);
     const behindVeil = await mode();
     check('a paused run ignores the key', behindVeil !== 'active', `mode ${behindVeil}`);
-    await evaluate(`(() => { document.getElementById('pause-veil').dispatchEvent(
+    await evaluate(`(() => { document.querySelector('#pause-veil .pause-resume').dispatchEvent(
       new PointerEvent('pointerdown', { pointerId: 8, isPrimary: true, bubbles: true, cancelable: true }));
     })()`);
     await sleep(300);

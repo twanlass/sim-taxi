@@ -706,7 +706,9 @@ the taxi is about to land on — floors it (`SCATTER_SPEED` = 2.0× cruise, kept
 2.2 so the taxi still closes and the flee reads as *not quite enough*) and all but stops rolling
 "carry straight on" when it reaches the next junction. Speed buys the second it takes to get there;
 turning off is what actually clears the lane. It eases in over ~0.1s and out over ~0.8s, so a car
-doesn't visibly deflate the instant the taxi turns away.
+doesn't visibly deflate the instant the taxi turns away. **Trucks never scatter** — a 5.6-unit box
+flooring it and skittering off at the next junction reads as weightless, so a truck ahead stays an
+obstacle the taxi has to pass or follow.
 
 **Don't-block-the-box, priced in time.** The 1.5× following-distance margin on the exit lane exists
 because the lane can back up during the second or so a turn takes. A boosting taxi crosses in
@@ -1398,9 +1400,11 @@ already-transparent car. The point lights fade with the bodywork, since leaving 
 washing red and blue across the tarmac from a car that is no longer there. The fade keys off `|s|`,
 so it covers entry as well as exit; the pop existed at both ends.
 
-**The bust is armed a block in from the edge, and the light bar arms with it** — `BUST_ARM_INSET`,
-which is `PITCH`. See [the bust chase](#arming-it-where-it-can-be-seen) for why that number is the
-bust radius rather than a tuned one.
+**The light bar runs for the whole of a run; the bust arms a block in from the edge** —
+`BUST_ARM_INSET`, which is `PITCH`. The gap between the two is deliberate: about two seconds of
+visible siren before the cruiser can take a run off you. See
+[the bust chase](#arming-it-where-it-can-be-seen) for why that number is the bust radius rather
+than a tuned one.
 
 `propMaterial()` returns a fresh instance per call, which is what makes this safe — turning on
 transparency here affects the police car alone and not the merged prop meshes.
@@ -1453,12 +1457,6 @@ tuned number** — the table is why: one `PITCH` in is exactly where that opacit
 A chase stays armed wherever it is routed, and so does the cruiser parked at an arrest, since both
 are past the bust they were armed for.
 
-**The light bar arms with it**, which is half the point. It makes the rule readable off a single
-run — *lights on means it can bust you* — rather than something inferred from deaths, and it keeps
-the far end of the run honest too: the bar goes dark for the last block, so the cruiser is never
-lethal while it is fading back out either. The corridor itself is unchanged and still runs from the
-map edge, so the signals still open ahead of a cruiser whose bar hasn't come on yet.
-
 What this gives up is a window where the outer band is bust-proof — but only against a cruiser
 that is itself still out in the outer band, since the radius is 20 either way. The moment it is on
 the slab the whole map is armed again, including the ring behind it.
@@ -1467,12 +1465,34 @@ the slab the whole map is armed again, including the ring behind it.
 transparent, and nothing that can bust you has a dark light bar. On the code before this those two
 fail at 3198 and 975 of 9346 armed frames.
 
+### The lights lead the gate
+
+The bar used to arm off `state.armed` too, on the argument that one flag meant the rule could be
+read off a single run — *lights on means it can bust you*. It made the cue honest and it made it
+late: the siren came up a block in, which is also the moment the bust exists, so the first thing
+the player learned about a cruiser was that it had already got them.
+
+So the two are separate flags now. `state.lit` goes up in `start()`, on the frame the cruiser
+spawns off the slab, and comes down in `stop()`; `state.armed` is unchanged. The lamps still scale
+by `fade`, so nothing shines out of a car that hasn't drawn yet — the announcement arrives exactly
+as the body does, at `|s| = HALF_SPAN + FADE_BAND`, and the arming line is 38 units further on.
+At `SPEED` = 19 that is **2.0 seconds of visible siren before the bust exists**, measured per run
+by the probe (`every run telegraphs itself before the bust arms`) rather than assumed from the
+arithmetic. Half that if the taxi is driving at it in Loco Mode, which is the case the grace period
+is for.
+
+The rule the player reads is now *lights on means a cop is here* — and the beat between seeing one
+and being caught by one is the room to lift off. The three invariants the probe holds: an armed
+cruiser is fully drawn and lit, a cruiser that is drawing at all is lit, and nothing is lit between
+runs.
+
 **And it reaches past the edge of the frame.** Being fully drawn is only a cue if the cruiser is in
 shot, and on a portrait phone at play zoom a block is about a third of the frame — so a cruiser one
 screen edge away is already inside the bust radius of anything on that edge, with nothing to see but
 ambient traffic pulling over to a car that isn't there. `game/sirenglow.js` washes the bar's own red
-and blue in over the edge the cruiser is coming from, armed off this same `state.armed` and strobing
-off this same `sirenOn()`, so the whole rule stays one rule. See
+and blue in over the edge the cruiser is coming from, armed off the same `state.lit` the bar is and
+strobing off this same `sirenOn()`, so the whole rule stays one rule — the grace period included.
+See
 [rendering.md](rendering.md#off-screen-police-warning).
 
 **Why it exists.** The corridor run is scenery — it drives its line and never acknowledges the
