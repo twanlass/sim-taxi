@@ -14,9 +14,13 @@ happening to agree on the same magic number.
 GRID  = 5     // blocks per side  → 6×6 = 36 intersections
 PITCH = 20    // distance between road centrelines
 ROAD_W = 8    // full road width (two lanes)
-BLOCK = 12    // PITCH - ROAD_W, the buildable footprint
+BLOCK = 12    // PITCH - ROAD_W, the buildable footprint between two ordinary streets
 LANE  = 2     // lane centre offset from the centreline
 SPAN  = 100   // GRID * PITCH, the whole city
+
+ARTERIAL_ROAD_W = 10.667   // ROAD_W × 4/3 — a main street is divided, see below
+LANE_TO_KERB    = 2        // lane centre to its own kerb, the same on every road
+MEDIAN_W        = 2.4      // the planted island between an arterial's carriageways
 ```
 
 Intersections are indexed `(i, j)` from `0..GRID`, and `lineCoord(i) = i * PITCH - HALF_SPAN`
@@ -57,6 +61,71 @@ Bézier a car follows through a junction.
 Because it is the only source of truth, closing a road automatically affects ambient traffic,
 route planning, and the connectivity assertions in the probe, with no extra plumbing.
 
+## Divided arterials, and the planted median
+
+An arterial is **a third wider** than an ordinary street — 10.67 kerb to kerb against 8 — and every
+bit of the extra width goes into the middle. The two carriageways sit exactly where they would on an
+8-unit street *relative to their own kerb*, and what opens up between them is a 2.67-unit centre
+strip with nothing driving on it.
+
+**Measuring from the kerb rather than from the centreline is what makes this cheap.** Every tuned
+number in the sim that involves the edge of the road is a distance from the lane centre outward —
+the pull-over that rides a car up onto the kerb at 1.15, the 2 units of weave room, the façade line
+a panicking car must not reach — and all of them survive untouched. `LANE_TO_KERB` is the invariant,
+and `tools/roadnet.mjs` asserts it on every edge in the network. What did have to move are the
+numbers measured *across* the middle: the overtake
+([traffic.md](traffic.md#on-a-divided-arterial-it-is-a-wider-swing)) and the police dodge.
+
+It also gives the map a hierarchy you can read at a glance from a fixed camera, which is what the
+arterials were always for and which a 64% green share alone could never show.
+
+Four functions in `grid.js` carry it, all keyed on the line index:
+
+| | |
+|---|---|
+| `halfRoadX(j)` / `halfRoadZ(i)` | how wide that road is |
+| `laneOffX(j)` / `laneOffZ(i)` | how far its lanes sit off the centreline |
+| `junctionReach(d, i, j)` | how far the junction box reaches along d — the **crossing** road's half-width, not this road's |
+| `medianRuns()` | every stretch of planted island in the city |
+
+`junctionReach` is the one with a trap in it. Where nothing crosses — a park closure can leave a
+junction with only the road you are on — the box is this road's own half-width, because there is no
+carriageway to clear. That case used to be invisible: with every street 8 wide the two answers were
+the same number. `roadnet.js` reaches the identical conclusion from the arms it can see, which is
+what keeps the two models equal at 1e-9 instead of adding a third documented difference to
+[roadnet.md](roadnet.md#two-differences-on-purpose).
+
+### The island
+
+`medianRuns()` returns one run per gap between junctions, skipping any road a park district built
+over, stopping `MEDIAN_END_GAP` (1.8) short of each junction box — that is where the turns cross,
+and where the double-line paint takes over from the island. A run comes out 8.4 units long between
+two ordinary streets and 7.07 where the two arterials cross each other.
+
+It lives in `grid.js` rather than in `ground.js` because two systems have to agree on it exactly:
+`ground.js` lays the kerb and the grass, and `props.js` plants the trees standing on it.
+
+`MEDIAN_W` is sized off what has to stay clear, not off the 2.67 the widening opens up. A car in its
+lane has its inner flank at `laneOff − CAR_W/2` = 2.48 from the centreline, so 2.4 of island leaves
+1.28 of asphalt shoulder either side — enough that the strip reads as an island *in* a road rather
+than as two roads with a gap. Widen it and the police dodge has to come down with it; the probe
+asserts that nothing but a passing taxi is ever over one.
+
+The ends are **stadium caps**, not square corners. At 2.4 across and eight long, a square-ended
+planter reads as a kerbstone dropped in the road.
+
+### The trees are short on purpose
+
+The camera looks down at 33°, so anything of height h hides the ground within `1.54h` behind it —
+and what is behind a median is the far carriageway of the road the player is most likely to be
+driving down. That lane centre is 3.33 across, which is 4.71 along the view diagonal; a 2.9-unit
+tree with a 0.9 crown reaches about 5.7, so it **does** pass in front of a car over there.
+
+That is unavoidable at this camera angle. The only lever is how often, so median trees are drawn
+from 2.1–2.9 (against the 3.4–5.6 a pavement tree gets) and there are one or two per run rather than
+a row: two crowns cover about 45% of an 8.4-unit island, so a car in the far lane is behind a trunk
+for well under half of each block.
+
 ## Layout: what a block *is*
 
 `layout.js` decides each block's identity before anything is built, so ground, buildings and props
@@ -65,9 +134,13 @@ all read one decision rather than each rolling their own dice and disagreeing.
 **Density falls off from the centre.** That's what produces a downtown instead of a uniform mat of
 identical towers, and it makes parks more likely out in the cheap suburbs.
 
-**Arterials.** Two roads per axis are marked as arterials and handed to `configureSignals()`. They
-take a larger green share, which gives the map a fast/slow grain worth learning. See
-[traffic.md](traffic.md#arterials).
+**Arterials.** One road per axis is marked as an arterial and handed to `configureSignals()`. They
+take a larger green share, which gives the map a fast/slow grain worth learning, and they are
+[wider](#divided-arterials-and-the-planted-median). See [traffic.md](traffic.md#arterials).
+
+They are decided **first**, before anything else in `createLayout`, because a wide road takes its
+extra width out of the blocks either side of it and `blockBounds` cannot answer until
+`setArterialLines` has been told.
 
 ## Park districts close roads
 

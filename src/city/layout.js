@@ -1,5 +1,5 @@
 import {
-  GRID, blockBounds, HALF_SPAN, segmentKey, setClosedSegments, setParkBlocks,
+  GRID, blockBounds, HALF_SPAN, segmentKey, setArterialLines, setClosedSegments, setParkBlocks,
 } from './grid.js';
 import { roadNetFromGrid, setCityNetwork } from './roadnet.js';
 import { configureSignals } from '../sim/traffic.js';
@@ -13,6 +13,27 @@ import { configureSignals } from '../sim/traffic.js';
  * a uniform mat of identical towers. Parks are more likely out in the cheaper suburbs.
  */
 export function createLayout(rng) {
+  // --- Arterials, first ------------------------------------------------------
+  // Road hierarchy is a property of the city, so it is decided here alongside the blocks and
+  // handed to the signal model. Two main streets, one per axis, drawn from the middle lines so
+  // they genuinely run *through* the city rather than skirting an edge. Four arterials (the
+  // previous count) meant most junctions had an arterial on at least one axis, which flattened
+  // the hierarchy back out. Each gets a coordinated direction of travel, so the map has a grain:
+  // some streets simply move better than others, and in one direction more than the other.
+  //
+  // This runs **before** anything else because an arterial is a third wider than a side street
+  // and takes that width out of the blocks either side of it — so `blockBounds` cannot answer
+  // until `setArterialLines` has been told. See the divided-arterial note in `grid.js`.
+  const middle = () => (rng.chance(0.5) ? 2 : 3);
+
+  const arterialX = new Set([middle()]);   // runs east-west
+  const arterialZ = new Set([middle()]);   // runs north-south
+  const dirX = new Map([...arterialX].map((j) => [j, rng.chance(0.5) ? 1 : -1]));
+  const dirZ = new Map([...arterialZ].map((i) => [i, rng.chance(0.5) ? 1 : -1]));
+
+  setArterialLines({ x: arterialX, z: arterialZ });
+  configureSignals({ arterialX, arterialZ, dirX, dirZ });
+
   // A park district is two adjacent blocks *plus the road that used to separate them*, merged
   // into one solid green mass. Leaving the road in place produced two parks either side of a
   // street, which still reads as the same repeating grid. Closing the segment is what actually
@@ -57,23 +78,6 @@ export function createLayout(rng) {
   }
 
   setClosedSegments(closed);
-
-  // --- Arterials -------------------------------------------------------------
-  // Road hierarchy is a property of the city, so it is decided here alongside the blocks and
-  // handed to the signal model. Two roads per axis, never adjacent, each with a coordinated
-  // direction of travel — so the map has a grain: some streets simply move better than others,
-  // and in one direction more than the other.
-  // Two main streets, one per axis, drawn from the middle lines so they genuinely run *through*
-  // the city rather than skirting an edge. Four arterials (the previous count) meant most
-  // junctions had an arterial on at least one axis, which flattened the hierarchy back out.
-  const middle = () => (rng.chance(0.5) ? 2 : 3);
-
-  const arterialX = new Set([middle()]);   // runs east-west
-  const arterialZ = new Set([middle()]);   // runs north-south
-  const dirX = new Map([...arterialX].map((j) => [j, rng.chance(0.5) ? 1 : -1]));
-  const dirZ = new Map([...arterialZ].map((i) => [i, rng.chance(0.5) ? 1 : -1]));
-
-  configureSignals({ arterialX, arterialZ, dirX, dirZ });
 
   const blocks = [];
 

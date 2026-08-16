@@ -1,4 +1,4 @@
-import { GRID, HALF_ROAD, isParkBlock, lineCoord } from '../city/grid.js';
+import { GRID, halfRoadX, halfRoadZ, isParkBlock, lineCoord } from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
 import { createPerson } from '../geometry/person.js';
@@ -156,16 +156,20 @@ export const isFareClockPinned = () => fareSecondsOverride !== null;
 //
 // It has to cover a taxi held at that junction's red light, which is the one place the car can
 // stop and stay stopped short of the pin. The hold line puts the car's centre at
-// HALF_ROAD + STOP_SETBACK = 7.4 back along its lane, and the lane itself is LANE = 2 off the
-// centreline, so a taxi waiting at the target's line sits hypot(7.4, 2) = 7.67 out — measured
-// worst case 7.69 over 548 held-at-the-target samples in the headless sim. At 7 that was
-// 0.4 too far: the car parked on the corner, right beside the pin, with the drop refusing to
-// resolve until the light turned green. 9 clears it with margin.
+// junctionReach + STOP_SETBACK back along its lane, and the lane itself is that road's offset off
+// the centreline. On two ordinary streets that is hypot(4 + 3.4, 2) = 7.67 — measured worst case
+// 7.69 over 548 held-at-the-target samples in the headless sim, and at 7 it was 0.4 too far: the
+// car parked on the corner, right beside the pin, with the drop refusing to resolve until the
+// light turned green.
+//
+// **The worst case is a junction of two divided arterials**, where the hold line is 5.33 + 3.4
+// back and the lane is 3.33 across: hypot(8.73, 3.33) = 9.34, which walked straight through the 9
+// this used to be. 9.6 clears it by a quarter of a unit.
 //
 // Not larger. Queued a car back from the line is another 5.3 (MIN_GAP), which is past half the
 // 20-unit block pitch — resolving there would pop the rider out mid-block with the pin still a
 // visible distance away, which reads as the drop landing in the wrong place.
-export const ARRIVE_RADIUS = 9;
+export const ARRIVE_RADIUS = 9.6;
 
 // How long the rider takes to run from the kerb and hop into the taxi after pickup fires.
 //
@@ -193,10 +197,16 @@ export function cornerFor(i, j) {
   // (they start 0.85 into the block). And the camera looks down the +X+Z diagonal, so the block
   // on the +X+Z side of a junction is between the viewer and anything standing on it — the rider
   // has to go on the -X-Z kerb, flipping only at the grid edge where there is no block.
-  const inset = HALF_ROAD + 0.5;
+  // Half a unit past the kerb, and the kerb is per-road now: a pin on the corner of a divided
+  // arterial has to step back the extra 1.33 that road took out of the block, or it stands in the
+  // carriageway. The two axes are asked separately — a junction of a main street and a side street
+  // has a wide kerb on one and an ordinary one on the other.
   const sx = i === 0 ? 1 : -1;
   const sz = j === 0 ? 1 : -1;
-  return { x: lineCoord(i) + sx * inset, z: lineCoord(j) + sz * inset };
+  return {
+    x: lineCoord(i) + sx * (halfRoadZ(i) + 0.5),
+    z: lineCoord(j) + sz * (halfRoadX(j) + 0.5),
+  };
 }
 
 export const intersectionCentre = (i, j) => ({ x: lineCoord(i), z: lineCoord(j) });

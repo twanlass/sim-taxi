@@ -18,7 +18,8 @@ import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import {
   GRID, PITCH, LANE, HALF_ROAD, lineCoord, legalExits, entryPoint, exitPoint, turnControl,
-  laneOffsetCoord, isXAxis, dirSign, nextIntersection,
+  laneOffsetCoord, isXAxis, dirSign, nextIntersection, junctionReach,
+  HALF_ARTERIAL, LANE_TO_KERB,
 } from '../src/city/grid.js';
 // Only constants and the pre-port road-class helper. The signal model this tool validates is
 // frozen below rather than imported, so that pointing traffic.js at the network cannot turn the
@@ -449,9 +450,23 @@ for (let s = 0; s < SEEDS; s++) {
   {
     check(`${tag} no degenerate lanes`, net.lanes.every((l) => !l.degenerate),
       `${net.lanes.filter((l) => l.degenerate).length} degenerate`);
-    check(`${tag} lanes span a block`,
-      net.lanes.every((l) => near(l.length, PITCH - 2 * HALF_ROAD) <= TOL),
-      `lengths ${[...new Set(net.lanes.map((l) => l.length.toFixed(6)))].join(',')}`);
+    // A lane runs from one junction box to the next, so its length is the pitch less the two
+    // boxes it sits between. That used to be one number; a divided arterial makes the box 5.33
+    // deep for everything crossing it, so a lane is 12 units long between two ordinary streets
+    // and 10.67 where one end meets a main road.
+    const spans = [];
+    for (let i = 0; i <= GRID; i++) {
+      for (let j = 0; j <= GRID; j++) {
+        for (let d = 0; d < 4; d++) {
+          const lane = net.laneByGrid(d, i, j);
+          if (!lane) continue;
+          const back = isXAxis(d) ? { i: i - dirSign(d), j } : { i, j: j - dirSign(d) };
+          const want = PITCH - junctionReach(d, i, j) - junctionReach(d, back.i, back.j);
+          spans.push([near(lane.length, want), `(${i},${j}) d${d}`]);
+        }
+      }
+    }
+    worst(`${tag} lanes span a block`, spans);
     check(`${tag} every legal turn has a path`,
       net.turns.filter((t) => t.legal).every((t) => t.length > 0));
     // Right turns are tighter than lefts under right-hand traffic — the sign the lane offset is
@@ -461,13 +476,34 @@ for (let s = 0; s < SEEDS; s++) {
     const mean = (xs) => xs.reduce((a, b) => a + b.length, 0) / Math.max(1, xs.length);
     check(`${tag} right turns tighter than left`, mean(rights) < mean(lefts),
       `right ${mean(rights).toFixed(2)} left ${mean(lefts).toFixed(2)}`);
-    check(`${tag} lane offset is LANE`,
+    // Perpendicular distance to the centreline, not the distance between the two midpoints. Those
+    // coincided only while every lane was trimmed by the same amount at both ends; a lane running
+    // from an ordinary junction into a divided arterial's is trimmed 4 at one end and 5.33 at the
+    // other, so its midpoint by arc length sits a good half-unit down the road from the
+    // centreline's and the straight-line distance picks up that shift as offset.
+    check(`${tag} lane offset matches its road`,
       net.lanes.every((l) => {
-        const mid = l.path.at(l.length / 2);
         const c = l.edge.curve;
-        const cm = c.at(c.length / 2);
-        return near(Math.hypot(mid.x - cm.x, mid.z - cm.z), LANE) <= TOL;
+        if (c.kind !== 'line') return true;   // arcs are covered by the concentric check below
+        const mid = l.path.at(l.length / 2);
+        const p0 = c.at(0);
+        const t = c.tangentAt(0);
+        const perp = Math.abs((mid.x - p0.x) * t.z - (mid.z - p0.z) * t.x);
+        return near(perp, l.edge.laneOffset) <= TOL;
       }));
+
+    // An arterial is a third wider than a side street and the whole of the extra width goes into
+    // the middle, so its lanes sit further from the centreline while staying the same distance
+    // from their own kerb. That invariant is what lets every kerb-measured constant in the sim
+    // survive the widening untouched — see the divided-arterial note in grid.js — so it is worth
+    // asserting on the network rather than only where it is written down.
+    check(`${tag} arterials are divided, side streets are not`,
+      net.edges.every((e) => {
+        const half = e.klass === 'arterial' ? HALF_ARTERIAL : HALF_ROAD;
+        return near(e.halfWidth, half) <= TOL && near(e.laneOffset, half - LANE_TO_KERB) <= TOL;
+      }));
+    check(`${tag} a lane is LANE_TO_KERB from its own kerb`,
+      net.edges.every((e) => near(e.halfWidth - e.laneOffset, LANE_TO_KERB) <= TOL));
   }
 
   // --- Routing --------------------------------------------------------------

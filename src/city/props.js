@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, jitterVertices, propMaterial, stampEntry } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H, PARK_EDGE, roundedRectShape } from './ground.js';
+import { MEDIAN_W, medianRuns } from './grid.js';
 
 /**
  * Park tree — same construction as the terrain prototype's broadleaf, scaled for a city block.
@@ -259,8 +260,8 @@ export function createProps(rng, blocks) {
   // can pop each one individually out of the merged mesh. The x/z draws stay in the same order the
   // bare `treeParts` calls made them, and the jitter is a hash rather than a draw — see the note
   // in createBuildings — so the planting a seed produces is untouched.
-  const plant = (x, z) => {
-    const tree = treeParts(x, z, rng);
+  const plant = (x, z, size) => {
+    const tree = treeParts(x, z, rng, size);
     const rand = hash01(x, z);
     for (const part of tree) stampEntry(part, x, z, rand);
     parts.push(...tree);
@@ -332,6 +333,41 @@ export function createProps(rng, blocks) {
         if (clearOfFurniture(x, z)) break;
       }
       if (clearOfFurniture(x, z)) plant(x, z);
+    }
+  }
+
+  // --- The arterials' medians -------------------------------------------------
+  //
+  // Small trees down the middle of every main street. Planted last so the park draws above keep
+  // the stream they have always had — a seed's parks look the same as they did before medians
+  // existed.
+  //
+  // **Short, and not many.** The camera looks down at 33°, so anything of height h hides the
+  // ground within 1.54h behind it, and what is behind a median is the far carriageway of the road
+  // the player is most likely to be driving. The lane centre is 3.33 across, which is 4.71 along
+  // the view diagonal; a 2.9-unit tree with a 0.9 crown reaches about 5.7, so it *does* pass in
+  // front of a car over there. That is unavoidable at this camera angle — the only lever is how
+  // often. Hence one or two per run rather than a row, and the tall end of the range capped well
+  // under the 3.4 a pavement tree starts at: two crowns cover about 45% of an 8.4-unit island, so
+  // a car in the far lane is behind a trunk for well under half of each block.
+  const MEDIAN_TREE = { low: 2.1, high: 2.9 };
+  // Off the stadium cap, so a crown never overhangs the end of its own island into the junction.
+  const MEDIAN_TREE_MARGIN = MEDIAN_W / 2 + 1.0;
+
+  for (const run of medianRuns()) {
+    const along = run.to - run.from;
+    const usable = along - MEDIAN_TREE_MARGIN * 2;
+    if (usable <= 0) continue;
+
+    const count = rng.int(1, 2);
+    for (let n = 0; n < count; n++) {
+      // Spread evenly and then jittered, rather than sampled: at one or two per island a pair of
+      // random draws puts both trees at the same end about as often as it spaces them.
+      const t = (n + 0.5) / count;
+      const s = run.from + MEDIAN_TREE_MARGIN + usable * t + rng.range(-0.35, 0.35);
+      const c = run.axis === 'x' ? (run.z0 + run.z1) / 2 : (run.x0 + run.x1) / 2;
+      if (run.axis === 'x') plant(s, c + rng.range(-0.15, 0.15), MEDIAN_TREE);
+      else plant(c + rng.range(-0.15, 0.15), s, MEDIAN_TREE);
     }
   }
 

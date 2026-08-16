@@ -3,7 +3,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial, unlitMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import {
-  DIR, GRID, HALF_SPAN, LANE, PITCH, dirSign, isXAxis, legalExits, lineCoord,
+  DIR, GRID, HALF_SPAN, PITCH, dirSign, isXAxis, laneOffX, laneOffZ,
+  legalExits, lineCoord,
   isSegmentClosed, nextIntersection, opposite,
 } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
@@ -17,7 +18,7 @@ import {
 // every crossing road goes red, and the traffic model reacts on its own because the override lives
 // inside lightPhase.
 //
-// It drives its lane like any other car — right-hand traffic, one LANE off the road centreline in
+// It drives its lane like any other car — right-hand traffic, one lane offset off the centreline in
 // the direction of travel. Speed is still 19 (about twice traffic), so it catches up to
 // same-direction traffic on the corridor road within a block or two.
 //
@@ -40,6 +41,12 @@ const RUN_MARGIN = 26;          // how far off-map it starts and ends
 // 1.1 off a lane offset of 2 leaves the cruiser 0.9 from the centreline and wholly on its own
 // side, which matters even with the corridor holding the other way stopped, because the corridor
 // only covers junctions and not the cars already mid-block on the far side.
+// Toward the centreline, so the cruiser and the car diving for the kerb open a gap between them
+// from both sides. It is a distance from the lane centre, which is what keeps it safe on a divided
+// arterial: the cruiser ends up 2.6 from the yielding car's centre whatever the road's width. The
+// ceiling is the median — `laneOff − MEDIAN_W/2 − CAR_W/2` is 1.28 on an arterial, so 1.1 keeps the
+// flank off the kerb with 0.18 to spare. Widen the median and this has to come down with it; the
+// probe asserts no vehicle but a passing taxi is ever over one.
 const DODGE_LATERAL = 1.1;
 const DODGE_LOOK = 24;          // how far ahead it starts moving over — ~1s at chase speed
 const DODGE_EASE = 3.5;         // per second; ~0.3s to commit, so the swerve reads as a swerve
@@ -405,9 +412,10 @@ export function createPolice(rng, scene, cars = []) {
   }
 
   /**
-   * Where the rail puts the car this frame. Right-hand traffic: the lane sits one LANE off the
-   * road centreline, on the right of travel — matches laneOffsetCoord() in grid.js so the cruiser
-   * lines up with ambient cars in the lane. `sign` folds the two axes' opposite conventions into
+   * Where the rail puts the car this frame. Right-hand traffic: the lane sits one lane offset off
+   * the road centreline, on the right of travel — read off the corridor's own road rather than
+   * taken as LANE, so the cruiser lines up with ambient cars on a divided arterial too (matches
+   * laneOffsetCoord() in grid.js). `sign` folds the two axes' opposite conventions into
    * one, so the weave and the U-turn's road crossing are written once.
    *
    * Mid-U-turn the lane term sweeps from −1 to +1 of itself, which is exactly the two lanes of
@@ -422,8 +430,9 @@ export function createPolice(rng, scene, cars = []) {
     // mid-U-turn, where the lane term is sweeping across the whole road and "toward the
     // centreline" is not a fixed direction.
     const dodge = state.uturn === null ? state.dodge : 0;
+    const off = state.axis === 'x' ? laneOffX(state.line) : laneOffZ(state.line);
     const perp = c + sign
-      * (LANE * lane - dodge + state.swerve * locoWeave(state.swervePhase).lateral);
+      * (off * lane - dodge + state.swerve * locoWeave(state.swervePhase).lateral);
     return state.axis === 'x' ? { x: state.s, z: perp } : { x: perp, z: state.s };
   }
 

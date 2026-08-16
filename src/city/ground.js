@@ -3,8 +3,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import {
-  GRID, PITCH, ROAD_W, HALF_ROAD, SPAN, HALF_SPAN, lineCoord,
-  isUnsignalised, isSegmentClosed,
+  GRID, PITCH, ROAD_W, SPAN, HALF_SPAN, lineCoord,
+  isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
+  medianRuns, MEDIAN_W,
 } from './grid.js';
 
 const KERB_H = 0.35;
@@ -57,8 +58,8 @@ const PAVE_INSET = 0.15;
 const PAVE_RADIUS = CURB_RADIUS - PAVE_INSET;
 
 /** The flat sidewalk surface on top of a kerb block, rounded to match its corners. */
-function roundedPaint(w, d, x, z, col, y) {
-  const geo = new THREE.ShapeGeometry(roundedRectShape(w, d, PAVE_RADIUS), CURB_SEGMENTS);
+function roundedPaint(w, d, x, z, col, y, radius = PAVE_RADIUS) {
+  const geo = new THREE.ShapeGeometry(roundedRectShape(w, d, radius), CURB_SEGMENTS);
   geo.rotateX(-Math.PI / 2);
   geo.translate(x, y, z);
   return bakeColor(geo, col);
@@ -289,38 +290,80 @@ export function createGround(rng, blocks) {
     }
   }
 
+  // --- The planted median ----------------------------------------------------
+  //
+  // What the extra third of an arterial's width buys. A kerbed island down the middle of every
+  // main street, between junctions but not through them — built exactly like a block platform,
+  // because that is what it is: a raised kerb with something green on top. `grid.js` owns where
+  // the runs are, so the trees `props.js` plants stand on the same rectangles.
+  //
+  // Stadium ends rather than square corners. At 2.4 across and eight or nine long, a square-ended
+  // planter reads as a kerbstone dropped in the road; the cap is what makes it a traffic island.
+  const islands = new Map();
+  for (const run of medianRuns()) {
+    islands.set(`${run.axis}|${run.line}|${run.k}`, run);
+
+    const w = run.x1 - run.x0;
+    const d = run.z1 - run.z0;
+    const cx = (run.x0 + run.x1) / 2;
+    const cz = (run.z0 + run.z1) / 2;
+    const radius = MEDIAN_W / 2;
+
+    parts.push(curbBox(w, KERB_H, d, cx, 0, cz,
+      jitterColor(PALETTE.kerb, rng, { l: 0.02 }), radius));
+    parts.push(roundedPaint(w - PAVE_INSET * 2, d - PAVE_INSET * 2, cx, cz,
+      jitterColor(PALETTE.park, rng, { l: 0.03 }), KERB_H + 0.01, radius - PAVE_INSET));
+  }
+
   // --- Dashed centre lines, one run per gap between intersections.
   const DASH = 1.6;
   const GAP = 1.4;
   const markColor = color('laneMark');
-  const arterialX = blocks.arterials?.x ?? new Set();
-  const arterialZ = blocks.arterials?.z ?? new Set();
 
-  // A main street reads as one at a glance: solid double centre line rather than dashes.
+  // Where an arterial has no island — the stretch either side of each junction — the median is
+  // painted instead. Set at the island's own half-width rather than the 0.45 of an ordinary double
+  // line, so the paint reads as the same divider opening out to let the turns across.
+  const DOUBLE_OFF = MEDIAN_W / 2 - 0.3;
   const doubleLine = (axis, c, from, to) => {
-    for (const off of [-0.45, 0.45]) {
+    if (to - from < 0.05) return;
+    for (const off of [-DOUBLE_OFF, DOUBLE_OFF]) {
       if (axis === 'x') parts.push(paint(to - from, 0.16, (from + to) / 2, c + off, markColor));
       else parts.push(paint(0.16, to - from, c + off, (from + to) / 2, markColor));
     }
   };
 
-  for (let i = 0; i <= GRID; i++) {
-    const c = lineCoord(i);
+  // The two axes are walked separately. The road running along Z at x = c is bounded in z by the
+  // *X* roads at each end of the gap, and the road running along X at z = c by the Z roads — the
+  // same number until an arterial made one of them 5.33.
+  const markRoad = (axis, line) => {
+    const c = lineCoord(line);
+    const arterial = axis === 'z' ? isArterialZ(line) : isArterialX(line);
 
-    for (let j = 0; j < GRID; j++) {
-      const from = lineCoord(j) + HALF_ROAD;
-      const to = lineCoord(j + 1) - HALF_ROAD;
+    for (let k = 0; k < GRID; k++) {
+      const from = lineCoord(k) + (axis === 'z' ? halfRoadX(k) : halfRoadZ(k));
+      const to = lineCoord(k + 1) - (axis === 'z' ? halfRoadX(k + 1) : halfRoadZ(k + 1));
 
-      // Index i names two roads: the one running along Z at x = c, and the one running along X
-      // at z = c. Each is independently an arterial or not.
-      if (arterialZ.has(i)) doubleLine('z', c, from, to);
-      if (arterialX.has(i)) doubleLine('x', c, from, to);
+      if (arterial) {
+        const island = islands.get(`${axis}|${line}|${k}`);
+        if (island) {
+          doubleLine(axis, c, from, island.from);
+          doubleLine(axis, c, island.to, to);
+        } else {
+          doubleLine(axis, c, from, to);
+        }
+        continue;
+      }
 
       for (let s = from + GAP; s + DASH < to; s += DASH + GAP) {
-        if (!arterialZ.has(i)) parts.push(paint(0.18, DASH, c, s + DASH / 2, markColor));
-        if (!arterialX.has(i)) parts.push(paint(DASH, 0.18, s + DASH / 2, c, markColor));
+        if (axis === 'z') parts.push(paint(0.18, DASH, c, s + DASH / 2, markColor));
+        else parts.push(paint(DASH, 0.18, s + DASH / 2, c, markColor));
       }
     }
+  };
+
+  for (let i = 0; i <= GRID; i++) {
+    markRoad('z', i);
+    markRoad('x', i);
   }
 
   // --- Crosswalks.
@@ -340,12 +383,16 @@ export function createGround(rng, blocks) {
 
       const cx = lineCoord(i);
       const cz = lineCoord(j);
-      const offset = HALF_ROAD + BAR_LEN / 2 + 0.15;
+      // Clear of the junction box on the axis it is laid off, which is the *crossing* road's
+      // half-width — so a crossing beside a divided arterial is set back the extra 1.33 rather
+      // than being painted inside the box.
+      const offX = halfRoadZ(i) + BAR_LEN / 2 + 0.15;
+      const offZ = halfRoadX(j) + BAR_LEN / 2 + 0.15;
 
       // A crossing laid west or east of the junction is walked *across* the road running along X;
       // one laid north or south is walked across the road running along Z.
-      const acrossX = !arterialX.has(j);
-      const acrossZ = !arterialZ.has(i);
+      const acrossX = !isArterialX(j);
+      const acrossZ = !isArterialZ(i);
 
       // No crossing onto a road that no longer exists.
       const west = acrossX && i > 0 && !isSegmentClosed(i, j, 2);
@@ -354,13 +401,17 @@ export function createGround(rng, blocks) {
       const north = acrossZ && j < GRID && !isSegmentClosed(i, j, 1);
 
       for (let b = 0; b < BARS; b++) {
-        // Spread the bars across the road width, centred on the centreline.
-        const t = (b - (BARS - 1) / 2) * (ROAD_W / (BARS + 0.6));
+        // Spread the bars across the width of the road being *crossed*, centred on its centreline.
+        // Always 8 in practice — a crossing is never laid across an arterial, see above — but
+        // written off the road rather than off ROAD_W so it stays true if that rule ever changes.
+        const spread = (b - (BARS - 1) / 2) / (BARS + 0.6);
+        const tx = spread * 2 * halfRoadX(j);   // along z, across the road running along X
+        const tz = spread * 2 * halfRoadZ(i);   // along x, across the road running along Z
 
-        if (west) parts.push(paint(BAR_LEN, BAR_W, cx - offset, cz + t, crossColor));
-        if (east) parts.push(paint(BAR_LEN, BAR_W, cx + offset, cz + t, crossColor));
-        if (south) parts.push(paint(BAR_W, BAR_LEN, cx + t, cz - offset, crossColor));
-        if (north) parts.push(paint(BAR_W, BAR_LEN, cx + t, cz + offset, crossColor));
+        if (west) parts.push(paint(BAR_LEN, BAR_W, cx - offX, cz + tx, crossColor));
+        if (east) parts.push(paint(BAR_LEN, BAR_W, cx + offX, cz + tx, crossColor));
+        if (south) parts.push(paint(BAR_W, BAR_LEN, cx + tz, cz - offZ, crossColor));
+        if (north) parts.push(paint(BAR_W, BAR_LEN, cx + tz, cz + offZ, crossColor));
       }
     }
   }

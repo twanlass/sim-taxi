@@ -19,7 +19,7 @@ about to change.
 |---|---|
 | [docs/README.md](docs/README.md) | **Index — start here** |
 | [docs/architecture.md](docs/architecture.md) | Module map, frame loop, seeding, `window.__taxi` test hook |
-| [docs/city.md](docs/city.md) | Coordinates, direction encoding, layout, park districts |
+| [docs/city.md](docs/city.md) | Coordinates, direction encoding, layout, park districts, divided arterials |
 | [docs/traffic.md](docs/traffic.md) | Signals, arterials, ring road, car physics, boost, police corridor, the bust chase |
 | [docs/gameplay.md](docs/gameplay.md) | Fare loop, routing, picking, timer ring, economy |
 | [docs/difficulty.md](docs/difficulty.md) | The ramp: budgeted clocks, board size, shifts, the sweeps behind the numbers |
@@ -50,6 +50,11 @@ breakage surfaces three steps later. Any scripted edit must assert its match and
 once shipped undetected because nothing headless imported it.
 
 **Colours live in `palette.js`.** Geometry constants live in `city/grid.js`. Don't inline either.
+
+**A road's width is not one number.** An arterial is a third wider than a side street, so
+`ROAD_W`/`HALF_ROAD`/`LANE` are the *ordinary street's* values and anything asking about a specific
+road has to go through `halfRoadX/Z`, `laneOffX/Z`, `laneOffsetFor` or `junctionReach`
+([city.md](docs/city.md#divided-arterials-and-the-planted-median)).
 
 **Two seeds, kept separate.** `?seed=` is the city and `?run=` is the situation; both are random
 each load unless pinned. Shot mode pins the city seed so screenshots don't move under an
@@ -128,6 +133,23 @@ Omit the whole section if there's nothing to note.
   re-deciding the same junction. A probe that bent the route toward a package on every tick earned
   $34 in seven simulated minutes and delivered nothing. Key a plan on its endpoints and leave it
   alone in between.
+- **A constant measured *across* the road did not survive the arterials being widened; one measured
+  from the kerb did.** The extra third of an arterial's width all goes into the middle, so a lane
+  sits at 3.33 rather than 2 while staying the same 2 units off its own kerb. Everything phrased as
+  "so far out from the lane centre" — the pull-over, the weave room, the façade clearance — came
+  through untouched. Everything phrased in `LANE` as a stand-in for *half the road* broke, and
+  quietly: `PASS_LATERAL = 2 * LANE` sent the boosting taxi's overtake into the **median** instead
+  of the oncoming lane, level with the car it was passing, which is the precise failure the old
+  centreline overtake was abandoned for. When you meet a `LANE` or a `HALF_ROAD`, ask which of the
+  two things it means, because only one of them is still a constant.
+- **The junction box reaches by the *crossing* road's width, and the arm opposite is not a
+  crossing.** Deriving a node's per-arm radius as "the widest other arm" reads fine and is wrong:
+  the arm opposite is the same road carrying on through, so a wide road ends up holding itself back
+  at its own junctions — every entry and exit point on an arterial off by 1.33, caught only because
+  `tools/roadnet.mjs` compares the network against `grid.js` at 1e-9. Same shape one layer up:
+  `grid.js` had to learn that a junction where the crossing road has been **closed** reaches by this
+  road's width instead, a case that was invisible while every street was 8 wide because both
+  answers were 4.
 - **`makeRng()` returns an object, not a function.** `rng()` throws `rng is not a function`; the
   members are `next`, `range`, `int`, `gauss`, `pick`, `chance`, `jitter`. Reach for `rng.pick(arr)`.
 - **`rotation.set(roll, yaw, pitch)` on the default Euler order rolls about the *world* X axis.**
