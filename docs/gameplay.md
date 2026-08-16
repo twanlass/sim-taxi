@@ -18,16 +18,36 @@ near lane.
 | Phase | What happens | Length |
 |---|---|---|
 | `wait` | The city's own [entrance wave](rendering.md) is still running. The taxi is already in the garage by now, so the wave spreads out from the depot — the building the camera is about to go to | until the wave lands |
-| `approach` | `focusOn` eases target and zoom together onto the door, from the play framing at zoom 52 down to **15** | ≤ 2.6s |
-| `settle` | A beat on the shut door, so arriving and the door moving read as two events | 0.3s |
-| `door` | The curtain winds up on an ease-*out* — a roller door leaves fast under its counterweight and creeps the last few inches | 1.15s |
-| `reveal` | The car sitting in a lit doorway. This is the shot | 0.45s |
-| `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. The zoom starts widening as the nose clears the door, so the pull-back is already under way | ~2.5s |
-| `release` | `focusOn` back to whatever framing the run would have had — the city's centre on a desktop, the taxi on a phone, where the opening follow-cam picks it up | ≤ 2.2s |
+| `approach` | `focusOn` eases target and zoom together onto the door, from the play framing at zoom 52 down to **15** | ~1.4s, capped at 1.9 |
+| `settle` | A beat on the shut door, so arriving and the door moving read as two events | 0.12s |
+| `door` | The curtain winds up on an ease-*out* — a roller door leaves fast under its counterweight and creeps the last few inches | 0.95s |
+| `reveal` | The car sitting in a lit doorway. This is the shot | 0.35s |
+| `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. The zoom starts widening as the nose clears the door, so the pull-back is already under way | ~2.7s |
+| `release` | `focusOn` back to whatever framing the run would have had — the city's centre on a desktop, the taxi on a phone, where the opening follow-cam picks it up | ~1.3s, capped at 2.0 |
+
+Both eased legs normally retire on **arrival** rather than on their cap, and the caps sit just past
+where that happens: they are a backstop against a resize or a device dropping frames, not the thing
+that sets the pace. The approach's rate came up from 1.7 to 2.4 for the same reason the `settle`
+beat came down from 0.3 — the tail of an exponential is the part nobody is watching, and at 1.7 the
+last third of a second was the frame creeping the final 2% of a zoom with the door sitting there
+shut.
 
 Then the tutorial starts. The three openers **queue on one guard**: the city builds itself, the taxi
 comes out of its garage, and only then does anything start talking. `isBlocked` in `main.js` chains
 them, and the fare loop is held for the whole of it — see [the board waits](#the-board-waits) below.
+
+### Where the taxi parks
+
+Its nose sits `NOSE_BEHIND` = 0.25 units back from the shut curtain, and the number that matters is
+what that is measured from: **`TAXI_TAILPIPE_BACK`, half the *drawn* car**. The taxi group wears
+`TAXI_SCALE` = 1.18, so the body on screen is 4.01 units long where `CAR_LEN` says 3.4 — and parking
+it by half of `CAR_LEN` put the nose a third of a unit *through* the closed door, as a yellow
+rectangle stamped across the middle of the shutter. The bay is sized off the same number: 5.2 deep,
+which is the car plus the recess plus somewhere for the back bumper. The probe asserts both ends.
+
+The back half of the body is hidden behind the +Z jamb at this camera, and no width of opening
+changes that — the sightline gains a unit of z for every unit of x, so it walks out of the doorway
+before it clears the bay. That is the shot rather than a limitation of it: a nose in a lit doorway.
 
 ### The taxi is out of the traffic model for the whole of it
 

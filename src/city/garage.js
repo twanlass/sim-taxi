@@ -33,7 +33,11 @@ const SIDE_INSET = 0.9;          // setback off the block's other three edges
 const HEIGHT = 5.0;              // parapet line
 const DOOR_W = 5.4;
 const DOOR_H = 3.4;
-const BAY_D = 4.6;               // how far the bay is sunk into the mass
+// How far the bay is sunk into the mass. Sized off the car that has to fit in it: the *drawn*
+// taxi is 4.01 units long (CAR_LEN through TAXI_SCALE — see the note on `parkedX` in
+// game/opening.js), and it parks with its nose clear of the shut door, so the bay needs that plus
+// the recess plus somewhere to put the back bumper.
+const BAY_D = 5.2;
 const RECESS = 0.3;              // the curtain plane, behind the street face
 
 // The door's centre, measured from the block's **−Z** edge rather than from its middle. This is
@@ -135,12 +139,9 @@ export function garageSite(block) {
     doorH: DOOR_H,
     kerbX,
     laneX,
-    // Where the taxi waits: nose 0.1 units back from the curtain plane, so it is *in* the doorway
-    // when the door clears it rather than a car-length back in the dark. The back half of the body
-    // is still hidden behind the +Z jamb at this camera — the bay is 4.6 deep and the sightline
-    // gains a unit of z for every unit of x — and that is wanted: a nose in a lit doorway is the
-    // shot, and no width of opening changes it, because the camera is looking 45° across the door.
-    startX: curtainX - 1.8,
+    // The back wall of the bay. Exported because the drive-out is planned against the door plane
+    // and the probe checks the void is actually a void.
+    bayX: frontX - BAY_D,
     exitZ: doorZ,
     // The fillet onto the lane, and it is not a free choice: the arc has to be tangent to the lane
     // it lands in *and* to the driveway it leaves, so its radius is exactly the gap between the
@@ -191,7 +192,7 @@ export function createGarage(block, rng) {
   const bz1 = z1 - SIDE_INSET;
   const dz0 = doorZ - DOOR_W / 2;
   const dz1 = doorZ + DOOR_W / 2;
-  const bayX = frontX - BAY_D;          // the back wall of the bay
+  const bayX = site.bayX;               // the back wall of the bay
   const base = KERB_H;
   const head = base + DOOR_H;           // the lintel: where the curtain winds away
   const top = base + HEIGHT;

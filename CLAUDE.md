@@ -184,6 +184,12 @@ down.
   `pointerdown`. The only ordering that holds regardless of construction order is a capture
   listener on an **ancestor** — which is why the route-band drag listens on `window`. Getting this
   wrong throws nothing; the map just slides out from under a gesture meant for something else.
+- **The drawn taxi is not `CAR_LEN` long.** `createTaxiMesh` puts `TAXI_SCALE = 1.18` on the group,
+  so the body on screen is 4.01 units where the simulation's constant says 3.4 — and every sim
+  number (following distance, the collision envelope, `MIN_GAP`) is in the 3.4 space, which is why
+  the discrepancy never surfaces there. It surfaces the moment anything *places* the taxi against
+  scenery: parking it in the garage by half of `CAR_LEN` put its nose a third of a unit through a
+  shut door. The drawn half-length is already exported as `TAXI_TAILPIPE_BACK`.
 - **A face pointing at the camera is not the same as a face the camera can see.** The view is a
   fixed diagonal, so the sightline off any surface climbs 0.92 of a unit for every unit it travels
   in *both* x and z — which means it leaves the block it started on diagonally and can end up

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { arcCurve, lineCurve } from '../city/curves.js';
 import { PAVEMENT_Y } from '../city/garage.js';
 import { SPEED, releaseCar, stageCar } from '../sim/traffic.js';
+import { TAXI_TAILPIPE_BACK } from '../geometry/taxi.js';
 import { setGhostOutlines } from '../geometry/ghostoutline.js';
 import { aimAtHeight } from './camera.js';
 
@@ -33,30 +34,34 @@ import { aimAtHeight } from './camera.js';
 // `camera.js`'s own MIN_ZOOM is 14: past that the AO radius clamp starts painting a false crease
 // up any wall standing behind a car (see docs/rendering.md).
 const DOOR_ZOOM = 15;
-// `focusOn` moves the target and the zoom on one exponential rate. 1.7 crosses most of the way in
-// about a second and a half, which is a camera *travelling* rather than cutting or creeping.
-const APPROACH_RATE = 1.7;
-const RELEASE_RATE = 1.5;
+// `focusOn` moves the target and the zoom on one exponential rate. 2.4 crosses most of the way in
+// about a second, which is a camera *travelling* rather than cutting or creeping. It came up from
+// 1.7 because the tail of an exponential is the part nobody is watching: at 1.7 the last third of a
+// second was the frame creeping the final 2% of a zoom while the door sat there shut.
+const APPROACH_RATE = 2.4;
+const RELEASE_RATE = 1.6;
 // Hard stops on both eased legs. An exponential never technically arrives, and the run must not be
 // hostage to the last few percent of a zoom — a resize, a pathological start, a device dropping
-// frames all end the same way without these.
-const APPROACH_MAX = 2.6;
-const RELEASE_MAX = 2.2;
-// Zoom left, in world units, when an eased leg is called finished. Under a unit of frustum height
-// there is nothing further to watch happen.
-const ZOOM_EPSILON = 0.8;
+// frames all end the same way without these. Both sit just past where `arrived` normally fires, so
+// they are a backstop rather than the thing that sets the pace.
+const APPROACH_MAX = 1.9;
+const RELEASE_MAX = 2.0;
+// Zoom left, in world units, when an eased leg is called finished. A unit of frustum height out of
+// fifteen is under 2% of the frame and there is nothing left to watch happen.
+const ZOOM_EPSILON = 1.0;
 
 // A beat with the camera parked on a shut door, so the arrival and the door moving read as two
-// events rather than as one continuous move.
-const SETTLE = 0.3;
-const DOOR_TIME = 1.15;
+// events rather than as one continuous move. It only has to be *perceptible* — a tenth of a second
+// separates them, and any more is dead air with the whole run queued behind it.
+const SETTLE = 0.12;
+const DOOR_TIME = 0.95;
 // And a beat on the open door with the car sitting in it. This is the shot the whole vignette is
-// for; anything under about a third of a second and the reveal is over before it lands.
-const REVEAL = 0.45;
+// for; much under a third of a second and the reveal is over before it lands.
+const REVEAL = 0.35;
 
 // --- The drive-out ----------------------------------------------------------
 
-const ACCEL = 4.2;               // u/s², out of the bay
+const ACCEL = 5.0;               // u/s², out of the bay
 const BRAKE = 8.0;               // u/s², holding at the kerb for a gap
 const CREEP = 3.4;               // across the forecourt
 const TURN_V = 4.6;              // through the fillet onto the lane
@@ -90,6 +95,17 @@ const DROP_TO = 0.4;
 const DROP_PITCH = 0.95;
 const RISE_PITCH = 0.6;
 
+// How far behind the shut curtain the taxi's nose parks.
+//
+// **Measured off the drawn car, not the simulated one**, which is the whole point of the constant.
+// The taxi group wears `TAXI_SCALE` = 1.18, so the body on screen is 4.01 units long where
+// `CAR_LEN` says 3.4 — and parking it by half of CAR_LEN put the nose a third of a unit *through* a
+// closed door: a yellow rectangle stamped across the middle of the shutter, and the first thing
+// anyone looking at the shot saw. `TAXI_TAILPIPE_BACK` is that half-length, already exported from
+// geometry/taxi.js for the exhaust. The clearance on top of it covers the curtain's own 0.08.
+const NOSE_BEHIND = 0.25;
+const parkedX = (site) => site.curtainX - TAXI_TAILPIPE_BACK - NOSE_BEHIND;
+
 const smoothstep = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
 
 /**
@@ -106,8 +122,8 @@ const smoothstep = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
  * and a millimetre between them is a car twitching sideways on the handover.
  */
 export function exitPath(site) {
-  const { startX, exitZ, kerbX, turnR } = site;
-  const run = lineCurve({ x: startX, z: exitZ }, { x: kerbX, z: exitZ });
+  const { exitZ, kerbX, turnR } = site;
+  const run = lineCurve({ x: parkedX(site), z: exitZ }, { x: kerbX, z: exitZ });
   // Centre one radius to the +Z side of the driveway, so the arc leaves heading +X and arrives
   // heading +Z: a right turn, into the near lane.
   const fillet = arcCurve({ x: kerbX, z: exitZ + turnR }, turnR, -Math.PI / 2, Math.PI / 2);
@@ -152,8 +168,9 @@ export function createOpening({
   let landed = false;
   let released = false;       // is the taxi back in the traffic model
 
+  const parked = path.at(0);
   const startTangent = path.tangentAt(0);
-  stageCar(taxi, site.startX, site.exitZ, Math.atan2(-startTangent.z, startTangent.x));
+  stageCar(taxi, parked.x, parked.z, Math.atan2(-startTangent.z, startTangent.x));
   taxi.kerbLift = PAVEMENT_Y;
   setDoor(0);
   setGhostOutlines(taxiGroup, false);

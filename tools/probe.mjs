@@ -38,7 +38,7 @@ import {
 } from '../src/game/parcels.js';
 import { createTargetRing, ringGrowScale, ringShrinkScale } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
-import { TAXI_DECK_Y } from '../src/geometry/taxi.js';
+import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK } from '../src/geometry/taxi.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin } from '../src/geometry/marker.js';
@@ -7542,7 +7542,7 @@ let chopperOrder; // likewise
   // opening, clear of every lining panel: a solid mass would have vertices in it.
   check('the bay is genuinely hollow', (() => {
     const p = garage.shell.geometry.attributes.position;
-    const inside = (x, y, z) => x > site.frontX - 4.4 && x < site.curtainX - 0.2
+    const inside = (x, y, z) => x > site.bayX + 0.2 && x < site.curtainX - 0.2
       && y > KERB_H + 0.2 && y < head - 0.2
       && z > site.doorZ - site.doorW / 2 + 0.2 && z < site.doorZ + site.doorW / 2 - 0.2;
     for (let i = 0; i < p.count; i++) {
@@ -7582,6 +7582,18 @@ let chopperOrder; // likewise
 
   // --- The exit path.
   const path = exitPath(site);
+
+  // Where the taxi parks, against the two things it has to fit between. The nose one is the check
+  // that would have caught the bug this constant exists for: the drawn taxi is TAXI_SCALE longer
+  // than `CAR_LEN`, and parking it by the sim's half-length put a yellow rectangle through the
+  // middle of a shut shutter.
+  const parked = path.at(0);
+  check('the parked taxi is behind the shut door',
+    parked.x + TAXI_TAILPIPE_BACK < site.curtainX - 0.08,
+    `nose ${(site.curtainX - (parked.x + TAXI_TAILPIPE_BACK)).toFixed(2)} behind the curtain`);
+  check('...and clear of the back of the bay',
+    parked.x - TAXI_TAILPIPE_BACK > site.bayX + 0.2,
+    `tail ${(parked.x - TAXI_TAILPIPE_BACK - site.bayX).toFixed(2)} off the wall`);
   const endTangent = path.tangentAt(path.total);
   const joinBefore = path.tangentAt(path.run.length - 1e-6);
   const joinAfter = path.tangentAt(path.run.length + 1e-6);
