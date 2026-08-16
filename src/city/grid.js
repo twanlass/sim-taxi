@@ -101,20 +101,29 @@ export function nextIntersection(d, i, j) {
 
 // --- Ring road --------------------------------------------------------------
 //
-// The outermost roads form a signal-free ring: traffic on it never stops, and only the four
-// corners — where the ring meets itself — carry lights.
+// The outermost roads form a signal-free ring: traffic on it never stops. The four corners carry
+// no lights either — they have two arms, so every movement through one is a bend, and the two
+// bends sweep opposite sides of the corner without meeting. See `bakeSignals` in roadnet.js.
 
-/** 'x' or 'z' if this junction sits on the ring, null if it is an interior junction. */
+/**
+ * 'x' or 'z' if this junction sits on a *single* ring road, null otherwise — an interior
+ * junction, or a corner, where both ring roads run through and neither axis is the answer.
+ */
 export function ringAxisAt(i, j) {
   const onX = j === 0 || j === GRID;   // road running along X
   const onZ = i === 0 || i === GRID;   // road running along Z
-  if (onX && onZ) return null;         // a corner: signalised like any other junction
+  if (onX && onZ) return null;         // a corner: on both, so no one axis has priority
   if (onX) return 'x';
   if (onZ) return 'z';
   return null;
 }
 
-export const isUnsignalised = (i, j) => ringAxisAt(i, j) !== null;
+/** The four points where the ring meets itself. Two arms apiece, at a right angle. */
+export const isRingCorner = (i, j) => (i === 0 || i === GRID) && (j === 0 || j === GRID);
+
+// Both halves of the ring are light-free: the long runs, where cross traffic yields into a gap,
+// and the corners, where there is no cross traffic to yield to.
+export const isUnsignalised = (i, j) => ringAxisAt(i, j) !== null || isRingCorner(i, j);
 
 // --- Closed segments --------------------------------------------------------
 //
