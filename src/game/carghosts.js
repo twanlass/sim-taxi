@@ -14,6 +14,11 @@ import {
 // matters is the one moment the player cannot see it. The taxi's own outline says where the player
 // is; this says what they are about to drive into.
 //
+// It runs whether or not the taxi is currently boosting — see update()'s `want`. A warning that
+// only appeared once the collision test was already armed would only ever confirm a decision
+// already made; showing it beforehand is what lets the player see the hidden car and choose not to
+// press the button at all.
+//
 // Why only the nearest dozen: not to keep the screen clean — a rim paints nothing at all on a
 // vehicle standing in the open (see GHOST_RADIUS) — but because tracing every car in the city is
 // fill and stencil traffic spent on vehicles too far away to be the player's problem. The radius
@@ -100,7 +105,7 @@ export const GHOST_RADIUS = 42;
  */
 export const MAX_GHOSTS = 12;
 
-/** Seconds to fade the whole set in or out with the boost. */
+/** Seconds to fade the whole set in at run start, or out when the taxi crashes. */
 const GHOST_FADE = 0.35;
 
 /**
@@ -383,10 +388,11 @@ export function createCarGhosts(scene, traffic) {
    * at the top of overdrive), which reads as the outline being broken rather than as lag.
    */
   function update(dt) {
-    // `taxi.boost` stays true through BOOST_COOLDOWN, which is right: the collision test is armed
-    // through the tail too, so the warning should outlast the button. `crashed` is belt-and-braces
-    // — collisions.js clears `boost` on impact — but it costs one condition and says the intent.
-    const want = (taxi.boost && !taxi.crashed) ? 1 : 0;
+    // Not gated on `taxi.boost`. The collision test is only armed while boosting, but the whole
+    // point of a warning is to inform the decision to press the button, not just to accompany it —
+    // a player who never sees the hidden car until they're already committed gets no benefit from
+    // the outline. `crashed` still cuts it: a wrecked taxi has nothing left to warn.
+    const want = !taxi.crashed ? 1 : 0;
     const step = dt / GHOST_FADE;
     state.strength += Math.sign(want - state.strength)
       * Math.min(Math.abs(want - state.strength), step);

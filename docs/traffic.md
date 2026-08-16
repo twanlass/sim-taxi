@@ -464,7 +464,7 @@ in, passing `TRUCK_CHANCE` explicitly.
 Trucks are left out of `ambient` for the same reason they are left out of the car meshes: an
 `instanceIndex` only means anything alongside the array it came from, and the same index addresses
 a car in `mesh` and a truck in `truckMesh`. `game/carghosts.js` reads *both* arrays for its
-boost-mode outlines and keeps a pool per vehicle class to do it — see
+nearby-traffic outlines and keeps a pool per vehicle class to do it — see
 [the ghost outlines](rendering.md#nearby-traffic-ghost-outlines--gamecarghostsjs). It used to read
 `instanceIndex` straight into the car meshes with no type check, which is why trucks went without
 an outline at all for a while: the only way to include one would have been to trace it from
