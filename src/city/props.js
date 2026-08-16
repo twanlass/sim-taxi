@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, jitterVertices, propMaterial, stampEntry } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
-import { KERB_H } from './ground.js';
+import { KERB_H, PARK_EDGE } from './ground.js';
 
 /**
  * Park tree — same construction as the terrain prototype's broadleaf, scaled for a city block.
@@ -74,13 +74,19 @@ export function createProps(rng, blocks) {
     parts.push(...tree);
   };
 
+  // Trees stand on the grass, not on the walk that rings it: `PARK_EDGE` is where the green
+  // starts, and the rest is a trunk's own radius (~0.2 at the thick end) plus room for the
+  // planting to look intentional. Derived from the ground's own number so the two can't drift —
+  // this was a bare 1.8 while the green ran to the kerb, which is a trunk on the paving now.
+  const TREE_MARGIN = PARK_EDGE + 0.6;
+
   // Districts are planted as one area so trees fall across the old road line too — nothing
   // gives away a merged park faster than a treeless stripe down the middle of it.
   for (const district of blocks.districts ?? []) {
     const { x0, z0, x1, z1 } = district.bounds;
     const count = rng.int(11, 16);
     for (let i = 0; i < count; i++) {
-      plant(rng.range(x0 + 1.8, x1 - 1.8), rng.range(z0 + 1.8, z1 - 1.8));
+      plant(rng.range(x0 + TREE_MARGIN, x1 - TREE_MARGIN), rng.range(z0 + TREE_MARGIN, z1 - TREE_MARGIN));
     }
   }
 
@@ -91,7 +97,7 @@ export function createProps(rng, blocks) {
     if (block.type === 'park') {
       const count = rng.int(5, 9);
       for (let i = 0; i < count; i++) {
-        plant(rng.range(x0 + 1.6, x1 - 1.6), rng.range(z0 + 1.6, z1 - 1.6));
+        plant(rng.range(x0 + TREE_MARGIN, x1 - TREE_MARGIN), rng.range(z0 + TREE_MARGIN, z1 - TREE_MARGIN));
       }
     }
   }

@@ -80,6 +80,22 @@ the same repeating grid, just greener. Closing the segment is what actually brea
 The closure is real, not cosmetic. `setClosedSegments()` removes the segment from `legalExits`, so
 traffic routes around it and the router plans around it for free.
 
+### A park has a frontage
+
+A park is a block on a street, so it presents the same pavement to the street that a built block
+does: `ground.js` lays a **1.0-unit walk** around the inside of the kerb and cuts the lawn out of
+it (one `ShapeGeometry` with a hole, rather than grass laid over paving — two coplanar opaque
+surfaces cost the overlap twice). Without it, a park was the one block in the city with no frontage
+at all: the 0.15 of kerb a block's platform leaves showing is about a pixel at play zoom, so against
+grass the edge vanished and the green read as a rug dropped on the asphalt.
+
+`PARK_EDGE` — the kerb plus that walk — is where the green starts, and it is **exported because two
+other systems stand things on the grass**: `props.js` plants trunks clear of it and `birds.js` keeps
+the flock off the paving. Both derived their margin from the bare 0.15 before the walk existed, so
+both would have been left standing on it. The probe measures the inset off the mesh rather than
+trusting the constant, and checks the winding of the ring while it is there — a hole is triangulated
+by earcut, not laid out in rows.
+
 The districts and the lone pocket parks are also the only thing in the city with any wildlife in it:
 `game/birds.js` reads the same bounds `city/props.js` plants trees inside, and puts a flock down on
 one of them. **Two flocks, in two different parks** — every seed produces between two and five green
@@ -102,7 +118,7 @@ never gets to spend time meshing a broken city.
 
 | File | Produces | Notes |
 |---|---|---|
-| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
+| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, street furniture | Merged per material via `bakeColor`, so hundreds of props cost one draw call. |
 

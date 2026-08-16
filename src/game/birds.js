@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BODY_EULER_ORDER } from '../util/geo.js';
-import { KERB_H } from '../city/ground.js';
+import { KERB_H, PARK_EDGE } from '../city/ground.js';
 import { birdBodyGeometry, birdWingGeometry, BIRD_STAND_Y, WING_ROOT } from '../geometry/bird.js';
 
 // A flock living in the city's parks. It potters about on the grass, takes off — often because the
@@ -37,10 +37,12 @@ const STAND_Y = PARK_Y + BIRD_STAND_Y;
 // like it.
 export const SHADOW_CEILING = PARK_Y + 0.9;
 
-// How far inside a park's own bounds a bird may walk. The green is inset 0.15 from the block
-// bounds (the kerb takes that), and a bird is 1.3 units long — so this is the kerb plus most of a
-// bird, which keeps the whole thing on grass rather than half of it over the pavement.
-const PARK_INSET = 1.2;
+// How far inside a park's own bounds a bird may walk. The green starts `PARK_EDGE` in from the
+// block bounds — the kerb plus the walk that rings it — and a bird is 1.3 units long, so this is
+// that edge plus most of a bird, which keeps the whole thing on grass rather than half of it over
+// the pavement. Derived rather than written down: it was the bare 0.15 of kerb until the parks
+// grew a walk, and a hard-coded 1.2 would have put the flock on the paving the day they did.
+const PARK_INSET = PARK_EDGE + 1.05;
 
 // --- The rhythm ------------------------------------------------------------------
 // The same brief the flyover has: often enough that a run gets several, rare enough that each one

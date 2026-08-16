@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
-import { createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
+import { createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, PARK_EDGE } from '../src/city/ground.js';
 import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
 } from '../src/city/buildings.js';
@@ -178,6 +178,77 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
 check('layout covers every block', layout.length === GRID * GRID, `${layout.length} blocks`);
 check('some blocks are parks', layout.some((b) => b.type === 'park'),
   `${layout.filter((b) => b.type === 'park').length} parks`);
+
+// --- The walk round a park --------------------------------------------------
+//
+// A park presents the same pavement to the street that a built block does, and the green starts
+// `PARK_EDGE` inside the block's own bounds. Two things worth asserting rather than looking at.
+//
+// The **inset** is the one two other systems read: `city/props.js` plants trunks clear of the walk
+// and `game/birds.js` keeps the flock off it, both deriving their margin from `PARK_EDGE`. A walk
+// widened here without them noticing is a tree growing out of the paving.
+//
+// The **winding** is the standing trap: the walk is a `ShapeGeometry` with the lawn cut out of it
+// as a hole, and a hole is triangulated by earcut rather than laid out in rows like a plain
+// rounded rectangle. `computeVertexNormals` would launder a reversed triangle into whatever its
+// neighbours say, so the normal is computed from the winding — the roadworks ramp and the courier
+// pad both shipped this way round.
+{
+  const surfaceY = KERB_H + 0.01;
+  const pos = ground.geometry.attributes.position;
+  const col = ground.geometry.attributes.color;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const n = new THREE.Vector3();
+
+  let facingDown = 0;
+  let surfaceTris = 0;
+  for (let t = 0; t < pos.count; t += 3) {
+    a.fromBufferAttribute(pos, t);
+    b.fromBufferAttribute(pos, t + 1);
+    c.fromBufferAttribute(pos, t + 2);
+    if (Math.abs(a.y - surfaceY) > 1e-4 || Math.abs(b.y - surfaceY) > 1e-4
+      || Math.abs(c.y - surfaceY) > 1e-4) continue;
+    n.crossVectors(b.clone().sub(a), c.clone().sub(a));
+    // Earcut leaves a handful of zero-area triangles at the corners of a holed shape. They draw
+    // nothing and have no normal to have got wrong; what must not appear is one facing the dirt.
+    if (n.lengthSq() < 1e-12) continue;
+    surfaceTris += 1;
+    if (n.normalize().y < 0.999) facingDown += 1;
+  }
+  check('every block surface faces the sky', facingDown === 0 && surfaceTris > 0,
+    `${facingDown} of ${surfaceTris} wound the wrong way`);
+
+  // Where the green actually starts, measured off the mesh: the extent of the park-coloured
+  // vertices on a park block against the block's own bounds.
+  const areas = [
+    ...(layout.districts ?? []).map((d) => d.bounds),
+    ...layout.filter((bl) => bl.type === 'park' && (bl.districtId ?? null) === null)
+      .map((bl) => bl.bounds),
+  ];
+  let worstGrass = 0;      // how far the grass inset strays from PARK_EDGE
+  let thinnestWalk = Infinity;
+  for (const area of areas) {
+    let grass = Infinity;
+    let paved = Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+      if (Math.abs(pos.getY(i) - surfaceY) > 1e-4) continue;
+      if (x < area.x0 || x > area.x1 || z < area.z0 || z > area.z1) continue;
+      const inset = Math.min(x - area.x0, area.x1 - x, z - area.z0, area.z1 - z);
+      // Grass is the only green in the palette's block surfaces; paving is a neutral grey.
+      if (col.getY(i) > col.getX(i) && col.getY(i) > col.getZ(i)) grass = Math.min(grass, inset);
+      else paved = Math.min(paved, inset);
+    }
+    worstGrass = Math.max(worstGrass, Math.abs(grass - PARK_EDGE));
+    thinnestWalk = Math.min(thinnestWalk, grass - paved);
+  }
+  check('a park is ringed by pavement, not grass to the kerb line', areas.length > 0
+    && worstGrass < 1e-4 && thinnestWalk > 0.5,
+    `${areas.length} parks · grass inset off by ${worstGrass.toExponential(1)} · walk ${thinnestWalk.toFixed(2)} wide`);
+}
 
 // --- Façades ----------------------------------------------------------------
 //
