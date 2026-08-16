@@ -620,8 +620,11 @@ contain the solid world and nothing else. Two halves to the rule, and both are a
   would wear that building's contact line across their chest. This is why the riders are marked
   even though a figure is 23px tall.
 
-The stop bars are the one deliberate omission — 0.05-unit road paint, whose own outline is not a
-contact.
+The junction signage is in there — the signal heads and the stop signs are `propMaterial()`, so a
+head hanging in front of a tower would otherwise wear that tower's contact crease. Their **lenses**
+are not: they are `unlitMaterial`, which the prepass filters out with everything else that fails
+the first rule above. Under `?signals=bars` the painted bars stay out for the reason they always
+did — 0.05-unit road paint, whose own outline is not a contact.
 
 `markOccluder()` also enrols the mesh in the prepass's **draw list**, which is what the pass walks
 to pick each mesh's depth material. That is why it is a list and not a `scene.overrideMaterial`: an

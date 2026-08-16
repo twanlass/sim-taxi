@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
+import { bakeColor, propMaterial, unlitMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { KERB_H } from '../city/ground.js';
 import {
@@ -10,6 +10,10 @@ import {
   brakeLightGeometry, turnSignalGeometry, brakeLightMaterial, turnSignalMaterial,
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
+import {
+  signalBodyGeometry, signalFaceGeometry, signalLampGeometry, stopSignGeometry,
+  signalStyle, HEAD_Y, LAMP_Y, LAMPS_PER_FACE, SIGN_OFFSET,
+} from '../geometry/signage.js';
 import {
   GRID, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
   ringAxisAt, isUnsignalised, lineCoord,
@@ -1691,50 +1695,173 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   scene.add(truckTurnLeftMesh);
   scene.add(truckTurnRightMesh);
 
-  // --- Stop bars ------------------------------------------------------------
+  // --- Junction signage -----------------------------------------------------
   //
-  // The signal lives on the road, not on a pole. Corner-mounted heads were unreadable from this
-  // camera: one head served two opposing approaches, it sat nearer the block corner than the road
-  // it governed, and nothing about it said which direction it applied to. A bar painted across
-  // the lane you are driving, at the point you would stop, removes both ambiguities — there is
-  // exactly one bar for your approach and it is directly in front of you.
+  // Two looks, chosen by `?signals=` before anything here is meshed — see geometry/signage.js for
+  // the whole argument and for the geometry itself. `heads` (the default) hangs a four-faced
+  // signal over the middle of every signalised junction and stands a stop sign on the kerb of
+  // every approach that has to yield at a junction with no light. `bars` is the painted
+  // stop-bar look this replaced, kept so the two can be compared in a browser rather than from
+  // memory.
   //
-  // Placed just outside the crosswalk, so a car holding at the line sits behind the bar rather
-  // than on top of it.
-  // Measured back from where the lane ends, which is the junction boundary. The old form measured
-  // from the junction *centre* and subtracted HALF_ROAD to get here.
+  // Both are driven from the same place at the bottom of `update`, through `paintSignals`, and
+  // both read `displaySignal` — the boosting taxi's hold never reaches a lamp, for the reason in
+  // docs/traffic.md.
+
+  // Where an approach's stop line is: just outside the crosswalk, so a car holding there sits
+  // behind the line rather than on top of it. Measured back from where the *lane* ends, which is
+  // the junction boundary — the old form measured from the junction centre and subtracted
+  // HALF_ROAD to get here. Still the anchor in both looks: it is where the bar was painted and it
+  // is where the stop sign stands.
   const BAR_SETBACK = 2.05;
 
-  const barGeo = bakeColor(new THREE.PlaneGeometry(0.7, 3.6), new THREE.Color(1, 1, 1));
-  barGeo.rotateX(-Math.PI / 2);
+  const style = signalStyle();
+  // The meshes `main.js` has to enrol in the AO prepass. Passed out rather than marked here so
+  // this file keeps knowing nothing about `game/ssao.js` — same shape as `mesh`/`truckMesh`.
+  const signage = [];
 
-  // One bar per signalised approach. `node.inbound` *is* "traffic can arrive this way" — a lane
-  // exists only where a road does — so the map-edge and closed-segment guards the grid loop needed
-  // are not ported, they are simply gone. A junction the network left unsignalised has no bars,
-  // which is the visible half of that difference.
-  const bars = [];
+  // `node.inbound` *is* "traffic can arrive this way" — a lane exists only where a road does — so
+  // the map-edge and closed-segment guards the old grid loop needed are not ported, they are
+  // simply gone.
+  //
+  // The split is `node.signal`, never `ringAxisAt`: a closure can leave an *interior* junction
+  // with nothing to arbitrate, and the grid, deciding from (i, j) alone, would light it. What the
+  // two branches produce is a light or a stop sign, so getting this wrong is now visible rather
+  // than merely wrong.
+  const bars = [];        // 'bars': one painted bar per signalised approach
+  const faces = [];       // 'heads': one head face per signalised approach
+  const bodies = [];      // 'heads': one casing per signalised junction
+  const signs = [];       // 'heads': one sign per yielding approach at an unsignalised junction
   for (const node of net.nodes) {
-    if (!node.signal) continue;
     for (const lane of node.inbound) {
       if (lane.degenerate) continue;
       const at = Math.max(0, lane.length - BAR_SETBACK);
       const point = lane.path.at(at);
-      bars.push({ lane, x: point.x, z: point.z, yaw: yawOf(lane.path.tangentAt(at)) });
+      const tangent = lane.path.tangentAt(at);
+      const yaw = yawOf(tangent);
+      if (node.signal) {
+        if (style === 'bars') bars.push({ lane, x: point.x, z: point.z, yaw });
+        // `yaw + PI` because the geometry is built facing +X and a signal faces its *driver*,
+        // who is coming the other way. Taken per approach rather than from the node's own
+        // orientation so a junction whose arms are not at right angles still aims each face down
+        // the road it governs.
+        else faces.push({ lane, node, yaw: yaw + Math.PI });
+      } else if (lane.phase !== node.priorityStreet && style !== 'bars') {
+        // The yielding side of an unsignalised junction — on the shipped layout that is a street
+        // meeting the ring road, and the sim already makes it wait for `RING_YIELD` units of clear
+        // road before it goes. A stop sign is what that behaviour has always looked like from
+        // outside; it just had nothing drawn for it. The priority street gets nothing, which is
+        // correct: it is a two-way stop, and traffic on the ring never stops.
+        //
+        // Right-hand traffic, so the post goes to the driver's own right. That is
+        // `forward × up` = `(-tz, tx)`, and it is worth deriving rather than guessing: the
+        // mirror image is also a plausible-looking sign on a plausible-looking pavement, just
+        // on the far kerb across the junction from the driver who has to read it. The check is
+        // `laneOffsetCoord` — heading +X, a lane sits at +Z of its centreline, and (-tz, tx) on
+        // (1, 0) is (0, 1).
+        signs.push({
+          x: point.x - tangent.z * SIGN_OFFSET,
+          z: point.z + tangent.x * SIGN_OFFSET,
+          yaw: yaw + Math.PI,
+        });
+      }
     }
   }
+  for (const node of net.nodes) {
+    if (node.signal && style !== 'bars') bodies.push(node);
+  }
 
-  const barMesh = new THREE.InstancedMesh(barGeo, propMaterial(), bars.length);
-  barMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-  barMesh.name = 'stopBars';
-  const barDummy = new THREE.Object3D();
-  bars.forEach((bar, index) => {
-    barDummy.position.set(bar.x, 0.05, bar.z);
-    barDummy.rotation.set(0, bar.yaw, 0);
-    barDummy.updateMatrix();
-    barMesh.setMatrixAt(index, barDummy.matrix);
-  });
-  barMesh.instanceMatrix.needsUpdate = true;
-  scene.add(barMesh);
+  const dummy = new THREE.Object3D();
+  /** Writes `list` into `mesh`'s instance matrices, positioning by `place`. */
+  const layOut = (mesh, list, place) => {
+    list.forEach((item, index) => {
+      place(item);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(index, dummy.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    scene.add(mesh);
+    return mesh;
+  };
+
+  // The painted look. White-baked so the per-frame `instanceColor` is the whole of what is seen.
+  let barMesh = null;
+  if (style === 'bars') {
+    const barGeo = bakeColor(new THREE.PlaneGeometry(0.7, 3.6), new THREE.Color(1, 1, 1));
+    barGeo.rotateX(-Math.PI / 2);
+    barMesh = new THREE.InstancedMesh(barGeo, propMaterial(), Math.max(1, bars.length));
+    barMesh.name = 'stopBars';
+    barMesh.count = bars.length;
+    layOut(barMesh, bars, (bar) => {
+      dummy.position.set(bar.x, 0.05, bar.z);
+      dummy.rotation.set(0, bar.yaw, 0);
+    });
+  }
+
+  // The hanging look. Three meshes rather than one because the lenses are tinted per instance
+  // every frame and the casing is not — an InstancedMesh carries exactly one tint per instance,
+  // which is the same constraint that splits a car's body from its brake pods.
+  let lampMesh = null;
+  if (style !== 'bars') {
+    const bodyMesh = new THREE.InstancedMesh(
+      signalBodyGeometry(), propMaterial(), Math.max(1, bodies.length),
+    );
+    bodyMesh.name = 'signalBodies';
+    bodyMesh.count = bodies.length;
+    bodyMesh.castShadow = true;
+    // The casing is square, so aiming it at any one of its approaches aims it at all four on a
+    // grid. `faces` is in node order, so the first face of this node is the first one that names
+    // it — a junction with no signalised inbound lane cannot reach here, since it would have no
+    // `node.signal` either.
+    layOut(bodyMesh, bodies, (node) => {
+      dummy.position.set(node.x, HEAD_Y, node.z);
+      dummy.rotation.set(0, faces.find((f) => f.node === node)?.yaw ?? 0, 0);
+    });
+
+    const faceMesh = new THREE.InstancedMesh(
+      signalFaceGeometry(), propMaterial(), Math.max(1, faces.length),
+    );
+    faceMesh.name = 'signalFaces';
+    faceMesh.count = faces.length;
+    faceMesh.castShadow = true;
+    layOut(faceMesh, faces, (face) => {
+      dummy.position.set(face.node.x, HEAD_Y, face.node.z);
+      dummy.rotation.set(0, face.yaw, 0);
+    });
+
+    lampMesh = new THREE.InstancedMesh(
+      signalLampGeometry(), unlitMaterial({ vertexColors: true }),
+      Math.max(1, faces.length * LAMPS_PER_FACE),
+    );
+    lampMesh.name = 'signalLamps';
+    lampMesh.count = faces.length * LAMPS_PER_FACE;
+    // Unlit and unfogged, on util/geo.js's rule: what a lamp *says* is entirely its hue, and a
+    // fogged lamp across town would report a colour between its own and the sky's — i.e. report
+    // the wrong signal. Same argument as the fare markers, which is why it is the same material.
+    const lamps = faces.flatMap((face) => LAMP_Y.map((y) => ({ face, y })));
+    layOut(lampMesh, lamps, ({ face, y }) => {
+      dummy.position.set(face.node.x, HEAD_Y + y, face.node.z);
+      dummy.rotation.set(0, face.yaw, 0);
+    });
+
+    const signMesh = new THREE.InstancedMesh(
+      stopSignGeometry(), propMaterial(), Math.max(1, signs.length),
+    );
+    signMesh.name = 'stopSigns';
+    signMesh.count = signs.length;
+    signMesh.castShadow = true;
+    signMesh.receiveShadow = true;
+    layOut(signMesh, signs, (sign) => {
+      dummy.position.set(sign.x, 0, sign.z);
+      dummy.rotation.set(0, sign.yaw, 0);
+    });
+
+    // Everything lit by `propMaterial()` has to be in the AO prepass or it samples the occlusion
+    // of whatever stands behind it — see the occluder rule in docs/rendering.md. The lamps are
+    // deliberately absent: they are `unlitMaterial`, which the prepass filters out anyway.
+    signage.push(bodyMesh, faceMesh, signMesh);
+  }
 
   // `distance` is the honest throughput measure. Counting how many cars are moving at one
   // instant is far too noisy to tune signal timing against — it swings with whatever the
@@ -3176,16 +3303,47 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     truckTurnLeftMesh.instanceMatrix.needsUpdate = true;
     truckTurnRightMesh.instanceMatrix.needsUpdate = true;
 
-    // --- Stop bar colours, one per approach.
-    for (let index = 0; index < bars.length; index++) {
-      const bar = bars[index];
-      const sig = displaySignal(bar.lane, t);
-      headColor.set(sig.open
-        ? PALETTE.lightGreen
-        : sig.yellow ? PALETTE.lightYellow : PALETTE.lightRed);
-      barMesh.setColorAt(index, headColor);
+    paintSignals(t);
+  }
+
+  /**
+   * The lit state of every signal in the city, one approach at a time.
+   *
+   * `displaySignal` rather than `approachSignal`: the boosting taxi's priority hold is skipped, so
+   * the heads keep running their real cycle while Loco Mode barges through. Wired to the hold they
+   * flipped green a beat before the taxi arrived, and the mode read as the city politely opening up
+   * rather than as running every red in the grid. The police corridor is deliberately *not*
+   * excepted — emergency preemption really does turn the lights.
+   */
+  function paintSignals(t) {
+    if (barMesh) {
+      for (let index = 0; index < bars.length; index++) {
+        const sig = displaySignal(bars[index].lane, t);
+        headColor.set(sig.open
+          ? PALETTE.lightGreen
+          : sig.yellow ? PALETTE.lightYellow : PALETTE.lightRed);
+        barMesh.setColorAt(index, headColor);
+      }
+      if (barMesh.instanceColor) barMesh.instanceColor.needsUpdate = true;
+      return;
     }
-    if (barMesh.instanceColor) barMesh.instanceColor.needsUpdate = true;
+    if (!lampMesh) return;
+
+    // Three lenses per face, and exactly one of them carries the signal's colour — the other two
+    // are `lightOff`. That is the whole difference from the painted bar, which had one element
+    // and therefore had to *change colour* to say anything: a lamp says it by which of three
+    // fixed positions is lit, which is a shape rather than a hue and survives being 5px.
+    for (let index = 0; index < faces.length; index++) {
+      const sig = displaySignal(faces[index].lane, t);
+      const base = index * LAMPS_PER_FACE;
+      headColor.set(sig.open || sig.yellow ? PALETTE.lightOff : PALETTE.lightRed);
+      lampMesh.setColorAt(base, headColor);
+      headColor.set(sig.yellow ? PALETTE.lightYellow : PALETTE.lightOff);
+      lampMesh.setColorAt(base + 1, headColor);
+      headColor.set(sig.open ? PALETTE.lightGreen : PALETTE.lightOff);
+      lampMesh.setColorAt(base + 2, headColor);
+    }
+    if (lampMesh.instanceColor) lampMesh.instanceColor.needsUpdate = true;
   }
 
   /** Fixed-step warm-up so screenshots show settled traffic, deterministically. */
@@ -3193,9 +3351,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     for (let elapsed = 0; elapsed < seconds; elapsed += step) update(step);
   }
 
+  // Once up front, so a frame drawn before the first `update` — shot mode's, and `__taxi.redraw()`
+  // — shows a running signal rather than three white lenses. It also gets `instanceColor` allocated
+  // before the material first compiles, which saves a program rebuild on frame two.
+  paintSignals(0);
+
   return {
     cars, taxi, taxiGroup, setTaxiOccupied, setTaxiHighlight, setCarCount, mesh,
-    wheelMesh, barMesh, update, warmup,
+    // `signage` is the street furniture main.js has to enrol in the AO prepass; `barMesh` is null
+    // unless `?signals=bars` put the painted look back.
+    wheelMesh, barMesh, signage, update, warmup,
     wreckShell, stats,
     lightPhase, displayPhase,
     // The instanced cars, index-aligned with `mesh`, and how `wheelMesh` is indexed off them

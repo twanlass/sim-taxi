@@ -96,7 +96,9 @@ into a gap (`RING_YIELD = 24` units of clear road).
 not cosmetic. A junction the ring never touches can still end up with nothing to arbitrate — a
 closure can leave an interior junction with only a straight-through — and the grid, deciding from
 `(i, j)` alone, kept cycling a light there and held cars for a phase nobody could be in. Rare: one
-junction in 40 seeds. It has no stop bars now, because there is nothing to stop for.
+junction in 40 seeds. It carries no signal furniture now, because there is nothing to stop for —
+and the visible half of that difference used to be *nothing at all*. It is a stop sign now: see
+[What a junction shows](#what-a-junction-shows).
 
 > Watch out: `phaseAt` returns **null** for an unsignalised node, where `lightPhase` returned an
 > axis with `remaining: Infinity`. Any port that swaps one for the other while keeping `ringAxisAt`
@@ -132,8 +134,71 @@ Checked in this order, first match wins:
 A siren outranks the ring deliberately: otherwise a corridor crossing the ring would have a hole
 in the middle of the green path it exists to create.
 
-`displayPhase(i, j, t)` is the same resolution with step 1 dropped — it's what the stop bars are
+`displayPhase(i, j, t)` is the same resolution with step 1 dropped — it's what the signal heads are
 drawn from, so the boosting taxi's hold never shows up on a lamp. See [Boost](#boost-crazy-taxi-mode).
+
+## What a junction shows
+
+The geometry is in `src/geometry/signage.js`; it is placed and lit at the bottom of
+`createTraffic`, beside the traffic meshes, because the thing that colours it every frame is the
+same `displaySignal` the sim asks about.
+
+**A signalised junction gets one four-faced head hanging over its middle.** One face per approach,
+each aimed back at the driver it is for, three lenses per face with exactly one lit.
+
+**An unsignalised junction gets a stop sign on every approach that has to yield** — and nothing on
+the street that has priority, which is what makes it a two-way stop rather than an all-way one. On
+the shipped layout that is a side street meeting the ring road: the sim has always held those cars
+for `RING_YIELD` units of clear road, and a stop sign is what that behaviour has looked like from
+outside all along. It just had nothing drawn for it.
+
+### Why the painted bars went
+
+Before this, each signalised approach carried a **stop bar**: 0.7 × 3.6 units of road paint at the
+hold line, coloured red / amber / green from the same query. It was legible and it was far too
+loud. Four bars per junction, 144 across a city, and nothing else in the game paints the *ground*
+in signal colours — so at play zoom the road surface carried more chroma than the cars driving on
+it, and a red bar three blocks away competed with a fare marker for the same glance. It was also
+saying the same thing four times: opposite approaches share a street, so a four-way junction only
+ever has two answers.
+
+The head says it once, in the place a driver looks for it, and confines the colour to three lenses
+of about 5px each instead of spreading it over 2.5 square units of tarmac per approach. The cost is
+real and worth stating: a bar was readable across the whole map and a lens is not. **`?signals=bars`
+puts the old look back**, unchanged, so the two can be compared in a browser rather than from
+memory.
+
+### Two faces are visible, and that is exactly enough
+
+The camera never rotates, so of a four-way head's four faces the player sees the +X-facing and
++Z-facing pair and never the other two. Those two belong to approaches on **different streets**, and
+a street is the unit a phase is built from — so the visible pair always reports both phases of the
+junction. The hidden pair is the opposite approach of each, which by construction says the same
+thing.
+
+That is why the faces are aimed per *approach* rather than per axis, and why `tools/probe.mjs`
+asserts each face looks back down an approach **of its own junction**: on a four-way, aiming a face
+at the wrong one is invisible from this camera, because the face you would then be reading is the
+opposite approach and agrees. It diverges at a three-way, and a closure can leave one anywhere.
+
+### Nothing hangs it
+
+No mast arm, no span wire, no pole. The head floats. A wire across a junction is several more
+meshes and a lot more visual noise per junction than the head itself, which is the opposite of
+what this change is for — so it is a deliberate first pass rather than an oversight.
+
+The one number worth writing down is the parallax. This is an orthographic camera, so a world
+height *h* displaces its object **up-screen by 0.838 h** and nothing else — `(0, 1, 0)` dotted with
+the screen-up basis, which for `VIEW_DIR` (1, 0.92, 1) comes out at 0.838. `HEAD_BOTTOM` is 3.6,
+putting the head centre 5.05 up and therefore 4.2 units up-screen of the junction it belongs to,
+against a junction box 8 units across. At that offset it reads as hanging *over* that junction;
+much higher and it starts reading as belonging to the block behind it. The clearance underneath is
+set by what has to pass beneath — a box truck's cargo box tops out around 2.6.
+
+What it costs: a head sits in front of anything on the two up-screen approaches, including the
+taxi while it is crossing. That is inherent to an overhead signal under this camera rather than a
+tuning problem — lowering the head moves it *onto* the junction, raising it moves it onto the block
+behind — and it is the main thing to look at before this look is kept.
 
 ## Where a car is
 
@@ -737,8 +802,8 @@ against the **13.1** it needs to stop from 17 u/s — which is the residual. `to
 exactly that car and asserts it brakes rather than freezes; it fails at 8.68 u/s stationary on the
 code before this.
 
-**The lamps don't show the hold.** Stop bars are coloured from `displayPhase`, which is
-`lightPhase` with the priority branch skipped, so the heads keep running their real cycle while the
+**The lamps don't show the hold.** The signal heads are coloured from `displayPhase`, which is
+`lightPhase` with the priority branch skipped, so they keep running their real cycle while the
 taxi barges through. Wired to `lightPhase` they flipped green a beat before the taxi arrived, and
 Loco Mode read as the city politely opening up rather than as running every red in the grid — the
 opposite of the point. The yielding still happens, it just happens *underneath*: cross traffic
