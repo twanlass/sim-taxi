@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, jitterVertices, propMaterial, stampEntry } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
-import { KERB_H, PARK_EDGE } from './ground.js';
+import { KERB_H, PARK_EDGE, PARK_WALK, roundedRectShape } from './ground.js';
 
 /**
  * Park tree — same construction as the terrain prototype's broadleaf, scaled for a city block.
@@ -60,6 +60,191 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6 } = {}) {
   return parts;
 }
 
+// --- Park furniture ---------------------------------------------------------
+//
+// A bench, in world units rather than at the figures' scale. The people in this game are a
+// deliberate lie — a rider is 3.3 units tall next to a 3.4-unit car, because a person at true
+// scale is two pixels at play zoom (geometry/person.js) — but everything they are not is built
+// honestly, and a bench sized off a rider would be four units of park furniture as long as a taxi.
+// So it is sized off the things around it instead: 1.9 long against a 5-unit tree and 0.66 deep
+// against the 1.0-unit walk it stands on, which leaves a third of a unit of paving either side.
+export const BENCH_LEN = 1.9;
+const BENCH_SEAT_Y = 0.44;
+const BENCH_BACK_Z = -0.30;
+const BENCH_END_X = BENCH_LEN / 2 - 0.09;
+
+/**
+ * One bench, built lying along local X with its back at −Z, then turned to `yaw` and set down at
+ * `(x, z)` on a surface at `y`. Facing is the whole point of a bench: one turned the wrong way
+ * round is a bench looking into a hedge, so callers pass the direction the seat looks in.
+ */
+function benchParts(x, z, y, yaw, rng) {
+  const parts = [];
+  const slat = jitterColor(PALETTE.benchSlat, rng, { l: 0.04 });
+  const frame = jitterColor(PALETTE.pole, rng, { l: 0.03 });
+
+  const box = (w, h, d, ox, oy, oz, col) => {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    geo.translate(ox, oy, oz);
+    parts.push(bakeColor(geo, col));
+  };
+
+  // Two seat slats with daylight between them, and two more in the back. A single solid seat
+  // reads as a low wall at any zoom the bench is legible at; the gap is what says "bench".
+  box(BENCH_LEN, 0.07, 0.28, 0, BENCH_SEAT_Y, -0.17, slat);
+  box(BENCH_LEN, 0.07, 0.28, 0, BENCH_SEAT_Y, 0.17, slat);
+  box(BENCH_LEN, 0.20, 0.07, 0, BENCH_SEAT_Y + 0.24, BENCH_BACK_Z, slat);
+  box(BENCH_LEN, 0.20, 0.07, 0, BENCH_SEAT_Y + 0.50, BENCH_BACK_Z, slat);
+
+  // End frames, and the posts the back is bolted to.
+  for (const side of [-1, 1]) {
+    box(0.09, BENCH_SEAT_Y, 0.62, side * BENCH_END_X, BENCH_SEAT_Y / 2, 0, frame);
+    box(0.09, 0.62, 0.08, side * BENCH_END_X, BENCH_SEAT_Y + 0.31, BENCH_BACK_Z, frame);
+  }
+
+  for (const part of parts) {
+    part.rotateY(yaw);
+    part.translate(x, y, z);
+  }
+  return parts;
+}
+
+/**
+ * The statue: a figure on a stepped plinth, standing on a square of paving.
+ *
+ * The paving is part of the statue rather than part of the ground mesh, and that is a dependency
+ * decision rather than a rendering one — `city/ground.js` is built before anything has decided
+ * where the statue goes, and a plaza that has to be planned in one file and drawn in another is
+ * two things to keep in step. It is laid 0.01 above the grass, the same clearance the grass itself
+ * has over the kerb it sits on.
+ *
+ * The figure is hand-built rather than taken from `createPerson`: that one is a rig — a Group of
+ * separately-pivoting limbs with materials of their own, so a running cycle can move them — and
+ * what is needed here is geometry that merges into the city's one props mesh and never moves
+ * again. It keeps the rig's proportions and one raised arm, which is all the silhouette needs.
+ */
+function statueParts(x, z, y, rng) {
+  const parts = [];
+  const stone = jitterColor(PALETTE.statueStone, rng, { l: 0.02 });
+  const plinth = jitterColor(PALETTE.statuePlinth, rng, { l: 0.02 });
+
+  const box = (w, h, d, ox, oy, oz, col, roll = 0) => {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    if (roll) geo.rotateZ(roll);
+    geo.translate(x + ox, y + oy, z + oz);
+    parts.push(bakeColor(geo, col));
+  };
+
+  // The plaza. Rounded to the same vocabulary every other paved surface in the city is cut to.
+  const pad = new THREE.ShapeGeometry(roundedRectShape(STATUE_PLAZA, STATUE_PLAZA, 0.9), 8);
+  pad.rotateX(-Math.PI / 2);
+  pad.translate(x, y + 0.01, z);
+  parts.push(bakeColor(pad, jitterColor(PALETTE.sidewalk, rng, { l: 0.02 })));
+
+  // Base, die, cap — a plinth is three boxes or it is a crate with a person on it.
+  box(1.50, 0.26, 1.50, 0, 0.14, 0, plinth);
+  box(1.05, 1.05, 1.05, 0, 0.79, 0, plinth);
+  box(1.25, 0.14, 1.25, 0, 1.38, 0, plinth);
+
+  // The figure, from the plinth's cap up: legs, torso, head, and an arm thrown up. Whoever they
+  // were, they are pleased about it.
+  box(0.46, 0.78, 0.30, 0, 1.84, 0, stone);
+  box(0.58, 0.66, 0.36, 0, 2.56, 0, stone);
+  box(0.32, 0.32, 0.32, 0, 3.05, 0, stone);
+  box(0.13, 0.68, 0.14, 0.40, 2.86, 0, stone, -0.45);
+  // The other arm, at rest against the body, so the raised one reads as a gesture rather than as
+  // the only limb the figure has.
+  box(0.13, 0.60, 0.14, -0.34, 2.54, 0, stone, 0.10);
+
+  return parts;
+}
+
+// The paved square under the statue. 3.6 units holds the 1.5-unit plinth with a pace of paving
+// round it, and stays comfortably inside the 9.7 of lawn a pocket park has to offer.
+export const STATUE_PLAZA = 3.6;
+
+/**
+ * Where the benches and the statue go, decided before any of it is built.
+ *
+ * Split out and exported because the placement is the part with rules in it — a bench belongs on
+ * the walk facing the lawn, and there is **exactly one statue in a city** — and rules are worth
+ * asserting over a sweep of seeds rather than looking at on one. tools/probe.mjs plans cities this
+ * never built and checks every bench landed on paving.
+ *
+ * @param areas  the park plots, biggest first is not assumed — each `{ bounds, district }`
+ */
+export function planParkFurniture(rng, areas) {
+  const benches = [];
+
+  // The centreline of the walk: a bench sits on the paving, not half on the grass.
+  const walkMid = PARK_EDGE - PARK_WALK / 2;
+
+  for (const area of areas) {
+    const { x0, x1, z0, z1 } = area.bounds;
+
+    // Bench slots are spread evenly along each side rather than dropped at random points on it.
+    // Random positions on a 32-unit district side put two benches back to back about as often as
+    // they put them anywhere useful, and a park is a designed thing — the one place in this city
+    // where evenly spaced furniture is more truthful than scattered furniture.
+    const slots = [];
+    const run = (len, place) => {
+      const usable = len - STATUE_PLAZA;                       // keep the ends clear of the corners
+      const n = Math.max(1, Math.round(usable / BENCH_PITCH));
+      for (let k = 0; k < n; k++) {
+        const t = (k + 0.5) / n;
+        slots.push(place(len / 2 - usable / 2 + usable * t));
+      }
+    };
+    const w = x1 - x0;
+    const d = z1 - z0;
+    // Each side's benches look *into* the park: south edge faces +Z, north faces −Z, and so on.
+    run(w, (s) => ({ x: x0 + s, z: z0 + walkMid, yaw: 0 }));
+    run(w, (s) => ({ x: x0 + s, z: z1 - walkMid, yaw: Math.PI }));
+    run(d, (s) => ({ x: x0 + walkMid, z: z0 + s, yaw: Math.PI / 2 }));
+    run(d, (s) => ({ x: x1 - walkMid, z: z0 + s, yaw: -Math.PI / 2 }));
+
+    // Some of the slots, not all of them: a bench on every one rings the park in furniture and
+    // turns the walk into a waiting room. Two or three on a pocket park (4 slots), five or six
+    // round a district (10) — one bench per 15 units of frontage at the top end.
+    const want = Math.min(slots.length, Math.round(slots.length * 0.45) + rng.int(0, 1));
+    for (let n = 0; n < want; n++) benches.push({ ...slots.splice(rng.int(0, slots.length - 1), 1)[0], area });
+  }
+
+  // **Exactly one statue in a city**, the same shape of decision as the courtyard block and the
+  // helipad, and taken here for the same reason: rolled per park it came out two or three times
+  // on most seeds, and the third statue in a five-block city is not a landmark, it is a municipal
+  // habit. Districts are preferred because a district's centre is the road that used to run
+  // between its two blocks — so the statue stands in the middle of the closed street, which is
+  // the one spot in a park that was never anything else.
+  const plots = areas.filter((a) => a.district);
+  const pool = plots.length ? plots : areas;
+  const statue = pool.length ? { ...centreOf(rng.pick(pool)) } : null;
+
+  return { benches, statue };
+}
+
+// How much walk a bench gets to itself before the next slot starts. A bench is 1.9 long, so this
+// is a bench and about three of its own lengths of empty paving — spacing measured off a district
+// side (32 units, 5 slots) rather than off a pocket park, since that is where two benches sharing
+// a sightline would show.
+const BENCH_PITCH = 7.2;
+
+const centreOf = (area) => ({
+  x: (area.bounds.x0 + area.bounds.x1) / 2,
+  z: (area.bounds.z0 + area.bounds.z1) / 2,
+});
+
+/** The park plots of a city: the merged districts, then whatever lone pocket parks are left. */
+export function parkPlots(blocks) {
+  const plots = (blocks.districts ?? []).map((d) => ({ bounds: d.bounds, district: true }));
+  for (const block of blocks) {
+    if (block.type !== 'park') continue;
+    if (block.districtId !== null && block.districtId !== undefined) continue;
+    plots.push({ bounds: block.bounds, district: false });
+  }
+  return plots;
+}
+
 export function createProps(rng, blocks) {
   const parts = [];
 
@@ -80,25 +265,47 @@ export function createProps(rng, blocks) {
   // this was a bare 1.8 while the green ran to the kerb, which is a trunk on the paving now.
   const TREE_MARGIN = PARK_EDGE + 0.6;
 
-  // Districts are planted as one area so trees fall across the old road line too — nothing
-  // gives away a merged park faster than a treeless stripe down the middle of it.
-  for (const district of blocks.districts ?? []) {
-    const { x0, z0, x1, z1 } = district.bounds;
-    const count = rng.int(11, 16);
-    for (let i = 0; i < count; i++) {
-      plant(rng.range(x0 + TREE_MARGIN, x1 - TREE_MARGIN), rng.range(z0 + TREE_MARGIN, z1 - TREE_MARGIN));
-    }
+  // The furniture is placed before the planting, because the planting has to keep out of its way:
+  // a tree growing through the statue is the one arrangement a park cannot have.
+  const plots = parkPlots(blocks);
+  const { benches, statue } = planParkFurniture(rng, plots);
+
+  const SURFACE_Y = KERB_H + 0.01;
+  for (const bench of benches) {
+    const built = benchParts(bench.x, bench.z, SURFACE_Y, bench.yaw, rng);
+    for (const part of built) stampEntry(part, bench.x, bench.z, hash01(bench.x, bench.z));
+    parts.push(...built);
+  }
+  if (statue) {
+    const built = statueParts(statue.x, statue.z, SURFACE_Y, rng);
+    for (const part of built) stampEntry(part, statue.x, statue.z, hash01(statue.x, statue.z));
+    parts.push(...built);
   }
 
-  for (const block of blocks) {
-    if (block.districtId !== null && block.districtId !== undefined) continue;
-    const { x0, z0, x1, z1 } = block.bounds;
+  // The plaza's own square, plus a pace: a trunk right on the paving's edge leans its crown over
+  // the figure, and the whole point of standing a statue in a clearing is that it is in a clearing.
+  const CLEAR = STATUE_PLAZA / 2 + 0.7;
+  const clearOfStatue = (x, z) => !statue
+    || Math.abs(x - statue.x) > CLEAR || Math.abs(z - statue.z) > CLEAR;
 
-    if (block.type === 'park') {
-      const count = rng.int(5, 9);
-      for (let i = 0; i < count; i++) {
-        plant(rng.range(x0 + TREE_MARGIN, x1 - TREE_MARGIN), rng.range(z0 + TREE_MARGIN, z1 - TREE_MARGIN));
+  // Districts are planted as one area so trees fall across the old road line too — nothing
+  // gives away a merged park faster than a treeless stripe down the middle of it.
+  for (const plot of plots) {
+    const { x0, z0, x1, z1 } = plot.bounds;
+    const count = plot.district ? rng.int(11, 16) : rng.int(5, 9);
+    for (let i = 0; i < count; i++) {
+      // Rejection rather than a reshaped sampling region: the clearing is a square hole in the
+      // middle of the plot, and a bounded retry says that in one line. A tree that cannot find a
+      // spot in four goes in anyway — a park one tree short of its count is worth less than the
+      // guarantee that this loop always ends.
+      let x = 0;
+      let z = 0;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        x = rng.range(x0 + TREE_MARGIN, x1 - TREE_MARGIN);
+        z = rng.range(z0 + TREE_MARGIN, z1 - TREE_MARGIN);
+        if (clearOfStatue(x, z)) break;
       }
+      if (clearOfStatue(x, z)) plant(x, z);
     }
   }
 

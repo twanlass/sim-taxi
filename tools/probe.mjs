@@ -15,7 +15,7 @@ import { createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, PARK_EDGE } from '.
 import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
 } from '../src/city/buildings.js';
-import { createProps } from '../src/city/props.js';
+import { createProps, parkPlots, planParkFurniture, BENCH_LEN, STATUE_PLAZA } from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, BOOST_CRUISE, SPAWN_CLEARANCE } from '../src/sim/traffic.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
@@ -248,6 +248,101 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
   check('a park is ringed by pavement, not grass to the kerb line', areas.length > 0
     && worstGrass < 1e-4 && thinnestWalk > 0.5,
     `${areas.length} parks · grass inset off by ${worstGrass.toExponential(1)} · walk ${thinnestWalk.toFixed(2)} wide`);
+}
+
+// --- Park furniture ---------------------------------------------------------
+//
+// Benches stand on the walk and there is exactly one statue in a city. Both are placement rules
+// rather than shapes, so they are swept over seeds rather than looked at on this one: a bench half
+// on the grass and a city with three statues in it are each perfectly plausible on the seed you
+// happen to be looking at and wrong on the next one.
+{
+  let offTheWalk = 0;            // benches with any corner off the paving
+  let facingOut = 0;             // benches with their back to the park
+  let overlapping = 0;           // benches sharing a stretch of walk
+  let statues = 0;
+  let statuesOnGrass = 0;        // ...standing where a plaza fits inside the lawn
+  let cities = 0;
+
+  const SEEDS = 40;
+  for (let s = 0; s < SEEDS; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 37));
+    const plots = parkPlots(cityLayout);
+    const plan = planParkFurniture(makeRng(seed + s * 37 + 33), plots);
+    if (!plots.length) continue;
+    cities += 1;
+    if (plan.statue) statues += 1;
+
+    for (const bench of plan.benches) {
+      const { x0, x1, z0, z1 } = bench.area.bounds;
+      // The bench's own footprint, turned by its yaw: half a length along the seat, and the back
+      // slat to the front edge across it.
+      const cos = Math.cos(bench.yaw);
+      const sin = Math.sin(bench.yaw);
+      let nearest = Infinity;
+      for (const ex of [-BENCH_LEN / 2, BENCH_LEN / 2]) {
+        for (const ez of [-0.34, 0.31]) {
+          const x = bench.x + ex * cos + ez * sin;
+          const z = bench.z - ex * sin + ez * cos;
+          nearest = Math.min(nearest, x - x0, x1 - x, z - z0, z1 - z);
+        }
+      }
+      // Between the kerb's own lip and the grass: every corner on paving.
+      if (nearest < 0.15 || nearest > PARK_EDGE) offTheWalk += 1;
+
+      // A bench looks into the park. The seat faces local +Z, which yaw turns into the world.
+      const look = { x: sin, z: cos };
+      const inward = { x: (x0 + x1) / 2 - bench.x, z: (z0 + z1) / 2 - bench.z };
+      if (look.x * inward.x + look.z * inward.z <= 0) facingOut += 1;
+    }
+
+    for (let a = 0; a < plan.benches.length; a++) {
+      for (let b = a + 1; b < plan.benches.length; b++) {
+        const gap = Math.hypot(plan.benches[a].x - plan.benches[b].x,
+          plan.benches[a].z - plan.benches[b].z);
+        if (gap < BENCH_LEN) overlapping += 1;
+      }
+    }
+
+    if (plan.statue) {
+      // The plaza has to land on lawn, not hanging over the walk: the tightest park is a pocket
+      // one, 12 across, which leaves 9.7 of grass for a 3.6-unit square.
+      const plot = plots.find((p) => Math.abs((p.bounds.x0 + p.bounds.x1) / 2 - plan.statue.x) < 1e-6
+        && Math.abs((p.bounds.z0 + p.bounds.z1) / 2 - plan.statue.z) < 1e-6);
+      const room = plot ? Math.min(plot.bounds.x1 - plot.bounds.x0, plot.bounds.z1 - plot.bounds.z0) : 0;
+      if (room / 2 - PARK_EDGE < STATUE_PLAZA / 2) statuesOnGrass += 1;
+    }
+  }
+
+  // Same trap as the building sweep further down: `createLayout` installs the network it bakes,
+  // so a sweep leaves the probe's own city replaced by the last one it built.
+  createLayout(makeRng(seed));
+
+  check('every park bench stands on the walk', offTheWalk === 0, `${offTheWalk} off the paving`);
+  check('and looks into the park rather than out of it', facingOut === 0, `${facingOut} facing out`);
+  check('no two benches share a stretch of walk', overlapping === 0, `${overlapping} pairs closer than a bench`);
+  check('exactly one statue in a city', statues === cities, `${statues} across ${cities} cities`);
+  check('and it has lawn enough for its plaza', statuesOnGrass === 0,
+    `${statuesOnGrass} plazas hanging over the walk`);
+
+  // The clearing is the other half of that: the trees are planted after the statue is placed and
+  // have to keep out of its square. Read off the merged props mesh rather than off the plan —
+  // every part carries its own object's ground anchor for the entrance animation (`stampEntry`),
+  // so "what stands here" is a question the mesh itself can answer.
+  const ownPlan = planParkFurniture(makeRng(seed + 33), parkPlots(layout));
+  const entry = props.geometry.attributes.aEntry;
+  let inTheClearing = 0;
+  if (ownPlan.statue) {
+    const clear = STATUE_PLAZA / 2 + 0.7;
+    for (let i = 0; i < entry.count; i++) {
+      const ax = entry.getX(i);
+      const az = entry.getY(i);          // the anchor's z rides in the attribute's y
+      if (Math.abs(ax - ownPlan.statue.x) > clear || Math.abs(az - ownPlan.statue.z) > clear) continue;
+      if (ax !== ownPlan.statue.x || az !== ownPlan.statue.z) inTheClearing += 1;
+    }
+  }
+  check('nothing is planted in the statue\'s clearing', !!ownPlan.statue && inTheClearing === 0,
+    ownPlan.statue ? `${inTheClearing} vertices of something else inside it` : 'no statue');
 }
 
 // --- Façades ----------------------------------------------------------------

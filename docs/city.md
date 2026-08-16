@@ -96,6 +96,32 @@ both would have been left standing on it. The probe measures the inset off the m
 trusting the constant, and checks the winding of the ring while it is there — a hole is triangulated
 by earcut, not laid out in rows.
 
+### Benches, and one statue
+
+The walk is also what the benches stand on. `planParkFurniture()` in `props.js` spreads slots
+evenly along each side of a plot — random points on a 32-unit district side put two benches back to
+back about as often as they put them anywhere useful, and a park is the one place in this city where
+evenly spaced furniture is more truthful than scattered furniture — then takes about half of them,
+which comes out at two or three round a pocket park and five or six round a district. Every bench
+faces **into** the park.
+
+**Exactly one statue in a city**, the same shape of decision as the courtyard block and the helipad
+and taken for the same reason: rolled per park it came out two or three times on most seeds, and the
+third statue in a five-block city is a municipal habit rather than a landmark. It prefers a district,
+because a district's centre is *the road that used to run between its two blocks* — the one spot in a
+park that was never anything else. It brings its own square of paving with it (`city/ground.js` is
+built before anything has decided where the statue goes, so a plaza planned in one file and drawn in
+another would be two things to keep in step), and the trees are planted afterwards and keep out of
+its clearing.
+
+The figure is hand-built from boxes rather than taken from `geometry/person.js`: that one is a rig,
+a Group of separately-pivoting limbs with materials of their own, and what a merged props mesh needs
+is geometry that never moves again.
+
+The placement rules are swept over seeds in `tools/probe.mjs` rather than looked at on one — a bench
+half on the grass and a city with three statues in it are both perfectly plausible on the seed you
+happen to be looking at.
+
 The districts and the lone pocket parks are also the only thing in the city with any wildlife in it:
 `game/birds.js` reads the same bounds `city/props.js` plants trees inside, and puts a flock down on
 one of them. **Two flocks, in two different parks** — every seed produces between two and five green
@@ -120,7 +146,7 @@ never gets to spend time meshing a broken city.
 |---|---|---|
 | `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
-| `props.js` | trees, street furniture | Merged per material via `bakeColor`, so hundreds of props cost one draw call. |
+| `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
 
 ### What a building is made of
 
