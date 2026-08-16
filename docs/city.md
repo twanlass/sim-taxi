@@ -65,9 +65,9 @@ all read one decision rather than each rolling their own dice and disagreeing.
 **Density falls off from the centre.** That's what produces a downtown instead of a uniform mat of
 identical towers, and it makes parks more likely out in the cheap suburbs.
 
-**Arterials.** Two roads per axis are marked as arterials and handed to `configureSignals()`. They
-take a larger green share, which gives the map a fast/slow grain worth learning. See
-[traffic.md](traffic.md#arterials).
+**Arterials.** One road per axis is marked as an arterial and handed to `configureSignals()`. It
+carries no lights at all where it crosses a lesser street, which gives the map a fast/slow grain
+worth learning. See [traffic.md](traffic.md#arterials).
 
 ## Park districts close roads
 
@@ -102,7 +102,7 @@ never gets to spend time meshing a broken city.
 
 | File | Produces | Notes |
 |---|---|---|
-| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
+| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal, and an arterial junction has none. Side streets get a dashed white centre line between junctions; an arterial gets a solid double yellow that runs through them. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, street furniture | Merged per material via `bakeColor`, so hundreds of props cost one draw call. |
 

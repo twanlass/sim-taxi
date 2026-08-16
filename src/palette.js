@@ -29,6 +29,14 @@ export const PALETTE = {
   asphalt: '#636972',
   asphaltEdge: '#6B717A',
   laneMark: '#D6D2C4',
+  // The double line down an arterial. Yellow because that is what a main road is painted with, and
+  // this is the one place the reserved-yellow rule (see carBodyGhost) can be spent: the taxi's own
+  // yellow is a *moving object* and this is a mark on the ground, which is the reading the eye
+  // makes long before hue. Still kept clear of it where it counts — measured where getHSL measures,
+  // taxiBody is l 0.47 and routeLine l 0.59, this is l 0.36. A brighter road paint (#E8B93C, l 0.43)
+  // sat inside the taxi's own band and turned every arterial into a route band nobody had drawn.
+  // Dark enough to read as paint, and still 2.4x the asphalt's own lightness at 1.4px wide.
+  laneMarkArterial: '#D9A82B',
   crosswalk: '#DAD7CB',
   sidewalk: '#9E9C94',
   kerb: '#8A887F',

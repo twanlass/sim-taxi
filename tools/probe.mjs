@@ -79,7 +79,7 @@ import {
 import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, DIR, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath, nearestOnPath, HEAD_GAP } from '../src/game/routeline.js';
 import { findRoute, findRouteVia, MAX_VIA_DETOUR, allIntersections } from '../src/game/route.js';
@@ -7355,24 +7355,69 @@ let chopperOrder; // likewise
   {
     const ends = [closed[0].edge.a, closed[0].edge.b].map((id) => net.nodeById.get(id));
     const junctions = [...net.nodeById.values()].map((n) => ({ i: n.gi, j: n.gj }));
-    const origin = { i: ends[0].gi, j: ends[0].gj, d: net.dirOfLane(closed[0]) };
+
+    // Every junction to every junction, and count the routes that actually *drive* the closed
+    // street. Asked from one origin it is a coin toss whether the discount can show: the zone
+    // lands wherever the taxi happens to be, and from a junction on the closed street itself
+    // every route that could use it already does — half of them at full price, the other half
+    // pointing the wrong way down a road with no legal U-turn. That read as "the discount never
+    // reaches the router" for a discount working perfectly well. Across the whole map there is
+    // always something for it to pull.
+    const pair = (a, b) => [`${a.i},${a.j}`, `${b.i},${b.j}`].sort().join('|');
+    const closedPair = pair(
+      { i: ends[0].gi, j: ends[0].gj }, { i: ends[1].gi, j: ends[1].gj },
+    );
+    const drives = (origin, route) => {
+      if (!route) return false;
+      let at = { i: origin.i, j: origin.j };
+      for (const d of route) {
+        const next = nextIntersection(d, at.i, at.j);
+        if (!next) return false;
+        if (pair(at, next) === closedPair) return true;
+        at = next;
+      }
+      return false;
+    };
+
+    const survey = () => {
+      let used = 0;
+      let legs = 0;
+      const routes = [];
+      for (const from of junctions) {
+        const origin = { i: from.i, j: from.j, d: DIR.PX };
+        for (const t of junctions) {
+          const route = planRoute(origin, t);
+          routes.push(route);
+          if (!route) continue;
+          legs += route.length;
+          if (drives(origin, route)) used += 1;
+        }
+      }
+      return { used, legs, routes };
+    };
 
     setRoadworkLanes([]);
-    const plain = junctions.map((t) => planRoute(origin, t));
+    const plain = survey();
     setRoadworkLanes(roadwork.closedLaneIds);
-    const cheap = junctions.map((t) => planRoute(origin, t));
+    const cheap = survey();
 
-    const same = (p, q) => (p === null || q === null
-      ? p === q : p.length === q.length && p.every((d, k) => d === q[k]));
-    const changed = plain.filter((p, k) => !same(p, cheap[k])).length;
     check('pricing the closed street low actually reaches the router',
-      changed > 0, `${changed} of ${junctions.length} routes rerouted`);
+      cheap.used > plain.used, `${plain.used} routes drove it at full price, ${cheap.used} at 0.45`);
 
     // ...and does not turn into a detour finder. The weights in route.js are tie-breakers by
     // design — 0.45 is worth about half a block, so nothing should gain more than one leg.
-    const worst = Math.max(...plain.map((p, k) => (p && cheap[k] ? cheap[k].length - p.length : 0)));
+    const worst = Math.max(...plain.routes.map(
+      (p, k) => (p && cheap.routes[k] ? cheap.routes[k].length - p.length : 0),
+    ));
     check('and does not drag routes across town to use it',
       worst <= 1, `worst route grew by ${worst} legs`);
+
+    // The same thing in aggregate, which is the number the vignette actually promises: a cheap
+    // lane shortens as many routes as it bends, so total distance planned across the city barely
+    // moves even as three times as many routes go through the zone.
+    check('and costs the city nothing in total distance',
+      Math.abs(cheap.legs - plain.legs) <= plain.legs * 0.01,
+      `${plain.legs} legs at full price, ${cheap.legs} at 0.45`);
 
     // A fare's drop-off can be aimed at the zone. The hint is one-shot and silently declined when
     // neither end is free, so the failure mode is "nothing happened" — worth pinning both ways.

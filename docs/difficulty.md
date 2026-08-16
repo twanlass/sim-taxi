@@ -42,7 +42,7 @@ be incoherent, and it would mean the player could earn time by dithering. It als
 rider always holds the longest clock, so the board reads oldest-first — which is the order it wants
 to be served in.
 
-`estimateSeconds(route, fromDir)` in `route.js` is the conversion: `blocks × 3.28 + turns × 1.30`.
+`estimateSeconds(route, fromDir)` in `route.js` is the conversion: `blocks × 2.95 + turns × 1.05`.
 Both constants are **fitted, not derived** — `tools/eta.mjs` least-squares them against real
 arrivals and `npm run check` runs it before the soak, because a drifted estimator makes every clock
 in the game wrong in the same direction and nothing else would notice.

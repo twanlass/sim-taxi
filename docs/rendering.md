@@ -1082,8 +1082,14 @@ into whatever its neighbours claimed.
 was how the trench ended up sitting at exactly `MARK_Y`, coplanar with every lane dash it crossed:
 
 ```
-road slab 0  ·  lane paint MARK_Y 0.02  ·  TRENCH_Y 0.024  ·  route band 0.03  ·  WORKS_Y 0.035  ·  cars ROAD_Y 0.04
+road slab 0  ·  lane paint MARK_Y 0.02  ·  arterial line along Z 0.022  ·  TRENCH_Y 0.024
+             ·  route band 0.03  ·  WORKS_Y 0.035  ·  cars ROAD_Y 0.04
 ```
+
+The 0.002 in the middle of that is the one lift that is not about draw order. The two arterials'
+double yellow lines run unbroken through every junction, so where the two of them cross, four
+0.16 × 0.16 squares of coplanar paint would z-fight; lifting the one running along Z settles it.
+A trench never meets one — roadworks only ever close a side street.
 
 A solid prop therefore draws over the route band and under a car; the painted hole draws over the
 lane dashes but still lets the band run across it. Props with a flat *downward* face — a cone's

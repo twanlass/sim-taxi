@@ -84,8 +84,29 @@ coordination. Variety comes from splits and offsets, not from different cycle le
 
 ### Arterials
 
-Two roads per axis take a **64% green share** where they meet a side street, giving the map a
-fast/slow grain. `layout.js` picks them and hands them to the network's bake.
+One road per axis is a main thoroughfare, and **carries no lights at all**. Every junction an
+arterial runs through is unsignalised, exactly like a ring junction: the arterial is the priority
+street, and the side street crossing it yields into a gap. `layout.js` picks the two lines and
+hands them to the network's bake.
+
+They took a **64% green share** before this, which is the tuning most of the numbers on this page
+were measured under. The share was the small version of the same idea and it bought less than it
+looks: a 64/36 split still stops the main road for a third of every cycle, and the platoon that
+the offsets spent so much effort assembling was broken up again at each junction. Taking the
+lights out entirely is worth **+1.7s off the mean trip** (`tools/eta.mjs`: 16.4s → 14.7s over 582
+trips) and moved the estimator's own constants with it — see the note above `SEC_PER_BLOCK` in
+`route.js`, which had to be refitted or every fare clock in the game would have been 12% generous.
+
+Two junctions keep a light despite an arterial arm, and both for the ring's reason — there is no
+single street to favour:
+
+- **Where the two arterials cross.** One per city, the same case as a ring corner.
+- **Where a park closure has left an arterial as a stub.** Priority belongs to a street traffic
+  can actually arrive on; a dead end has none to give the right of way to.
+
+Since nothing stops at an arterial junction, nothing there is painted as if it did: no stop bars
+(they come off `node.signal`, so that is automatic) and no crosswalks over the side street either
+— see `ground.js`, which had only been skipping the crossing *over* the arterial.
 
 ### A signal-free ring road
 
@@ -1138,8 +1159,8 @@ since there is nothing on it to queue behind.
 
 Placement (`roadwork.js`) refuses a segment unless all of:
 
-- it is a **side** street — closing an arterial fights the 64% green share and the platoon offsets
-  the city is timed around, and the ring is the road everything else escapes onto;
+- it is a **side** street — an arterial is the one road with no lights to hold traffic back, and
+  the ring is the road everything else escapes onto;
 - every approach at both end junctions keeps at least one open onward lane. This is asked exactly,
   by walking `lane.onward`, rather than by a corner heuristic: what strands a car is not the shape
   of the junction but a single inbound lane whose every exit is closed, and U-turns are illegal;

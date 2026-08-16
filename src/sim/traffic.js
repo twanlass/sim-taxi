@@ -118,7 +118,6 @@ const SIGNAL = {
   // The calm comes from spreading the offsets, not from slowing the cycle down.
   cycle: 16,
   yellow: 1.6,
-  arterialShare: 0.64,          // green share for an arterial where it meets a side street
   arterialX: new Set(),         // j values: roads running along X
   arterialZ: new Set(),         // i values: roads running along Z
   dirX: new Map(),              // j -> +1 / -1, the coordinated direction of travel
@@ -135,12 +134,13 @@ export const signalCycle = () => SIGNAL.cycle;
  * Road hierarchy of the edge you get by leaving (i, j) in direction d.
  *
  * 'ring'     — outermost road, unsignalised except at the four corners
- * 'arterial' — one of the two main streets: 64% green share, offsets timed for the wave
+ * 'arterial' — a main street: unsignalised wherever it crosses a lesser road
  * 'side'     — everything else
  *
- * `withWave` matters only for arterials: an arterial's offsets are computed with a
- * coordinated travel direction; traversing it that way meets consecutive greens, the other
- * way meets consecutive reds. For a side street the concept doesn't apply.
+ * `withWave` is the arterial's coordinated direction of travel, kept because it still orients the
+ * chain the surviving signals measure their offsets along. It no longer says anything about the
+ * drive: an arterial meets no lights in either direction now, so there is no wave to run with or
+ * against. For a side street the concept never applied.
  */
 export function edgeClass(i, j, d) {
   const axisIsX = isXAxis(d);

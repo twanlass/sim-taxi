@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import {
-  GRID, PITCH, ROAD_W, HALF_ROAD, SPAN, HALF_SPAN, lineCoord,
+  GRID, PITCH, ROAD_W, HALF_ROAD, SPAN, HALF_SPAN, DIR, lineCoord,
   isUnsignalised, isSegmentClosed,
 } from './grid.js';
 
@@ -227,16 +227,58 @@ export function createGround(rng, blocks) {
   const DASH = 1.6;
   const GAP = 1.4;
   const markColor = color('laneMark');
+  const arterialColor = color('laneMarkArterial');
   const arterialX = blocks.arterials?.x ?? new Set();
   const arterialZ = blocks.arterials?.z ?? new Set();
 
-  // A main street reads as one at a glance: solid double centre line rather than dashes.
-  const doubleLine = (axis, c, from, to) => {
-    for (const off of [-0.45, 0.45]) {
-      if (axis === 'x') parts.push(paint(to - from, 0.16, (from + to) / 2, c + off, markColor));
-      else parts.push(paint(0.16, to - from, c + off, (from + to) / 2, markColor));
+  // A main street reads as one at a glance: a solid double yellow rather than dashes.
+  //
+  // Unbroken from one end of the city to the other, junctions included — which is not how a real
+  // road is painted, and is exactly what this road is. An arterial carries no lights (see
+  // `bakeSignals` in city/roadnet.js): there is nothing to stop for at the crossings, so a line
+  // that stopped at each one would be drawing a hesitation the traffic model doesn't have. It is
+  // also the only mark in the city that survives a junction, which is what makes a thoroughfare
+  // legible at a glance from this camera — you can follow it across the map without tracing it.
+  const LINE_W = 0.16;
+  const LINE_OFFSET = 0.45;   // each line of the pair, from the road's centre
+
+  const doubleLine = (axis, c, from, to, y) => {
+    for (const off of [-LINE_OFFSET, LINE_OFFSET]) {
+      if (axis === 'x') parts.push(paint(to - from, LINE_W, (from + to) / 2, c + off, arterialColor, y));
+      else parts.push(paint(LINE_W, to - from, c + off, (from + to) / 2, arterialColor, y));
     }
   };
+
+  /**
+   * The arterial at grid line `line`, painted in one quad per unbroken stretch.
+   *
+   * The stretches are what a park district leaves behind: a closed segment is a road that is not
+   * there, and the line has to end at the junction before it rather than run under the park — the
+   * platform would hide the paint, but only until a district's bounds move.
+   */
+  const solidArterial = (axis, line, y) => {
+    const closedAt = (k) => (axis === 'x'
+      ? isSegmentClosed(k, line, DIR.PX)
+      : isSegmentClosed(line, k, DIR.PZ));
+
+    let start = null;
+    for (let k = 0; k <= GRID; k++) {
+      const open = k < GRID && !closedAt(k);
+      if (open && start === null) start = k;
+      if (!open && start !== null) {
+        doubleLine(axis, lineCoord(line), lineCoord(start), lineCoord(k), y);
+        start = null;
+      }
+    }
+  };
+
+  // The two arterials cross once, and two coplanar quads at the same height z-fight. Lifting the
+  // one running along Z by a hair settles it. 0.002 is ~20 steps of a 24-bit depth buffer over
+  // this camera's 1–1400 range (camera.js), and 0.015px of on-screen shift at play zoom — clear
+  // of the fight by a wide margin, invisible by an equally wide one. It also stays under
+  // `TRENCH_Y` (0.024), the next thing up the carriageway stack; see docs/rendering.md.
+  for (const line of arterialX) solidArterial('x', line, MARK_Y);
+  for (const line of arterialZ) solidArterial('z', line, MARK_Y + 0.002);
 
   for (let i = 0; i <= GRID; i++) {
     const c = lineCoord(i);
@@ -247,9 +289,6 @@ export function createGround(rng, blocks) {
 
       // Index i names two roads: the one running along Z at x = c, and the one running along X
       // at z = c. Each is independently an arterial or not.
-      if (arterialZ.has(i)) doubleLine('z', c, from, to);
-      if (arterialX.has(i)) doubleLine('x', c, from, to);
-
       for (let s = from + GAP; s + DASH < to; s += DASH + GAP) {
         if (!arterialZ.has(i)) parts.push(paint(0.18, DASH, c, s + DASH / 2, markColor));
         if (!arterialX.has(i)) parts.push(paint(DASH, 0.18, s + DASH / 2, c, markColor));
@@ -260,9 +299,16 @@ export function createGround(rng, blocks) {
   // --- Crosswalks.
   //
   // Only where there is a signal to stop traffic for the person crossing. That rules out the ring
-  // junctions, which are yield-controlled and carry no lights, and it rules out crossing an
-  // arterial — a main road doesn't get halted for a pedestrian. Painting them everywhere implied
-  // a right of way the simulation never grants.
+  // junctions, which are yield-controlled and carry no lights, and it rules out every junction an
+  // arterial runs through, which are now the same thing: nothing stops there either, in *either*
+  // direction, so the crossing that used to be painted over the side street would have implied a
+  // right of way the simulation never grants — the same reason no crossing was ever painted over
+  // the arterial itself.
+  //
+  // The grid decides this rather than `node.signal`, and disagrees with the bake in exactly one
+  // rare case: a park closure can leave an arterial as a stub, which keeps its light and loses its
+  // crossings here. Erring toward not painting one is the safe direction — the mark claims a
+  // priority, and its absence claims nothing.
   const BARS = 4;
   const BAR_W = 0.72;
   const BAR_LEN = 1.5;
@@ -270,22 +316,17 @@ export function createGround(rng, blocks) {
 
   for (let i = 0; i <= GRID; i++) {
     for (let j = 0; j <= GRID; j++) {
-      if (isUnsignalised(i, j)) continue;
+      if (isUnsignalised(i, j) || arterialX.has(j) || arterialZ.has(i)) continue;
 
       const cx = lineCoord(i);
       const cz = lineCoord(j);
       const offset = HALF_ROAD + BAR_LEN / 2 + 0.15;
 
-      // A crossing laid west or east of the junction is walked *across* the road running along X;
-      // one laid north or south is walked across the road running along Z.
-      const acrossX = !arterialX.has(j);
-      const acrossZ = !arterialZ.has(i);
-
       // No crossing onto a road that no longer exists.
-      const west = acrossX && i > 0 && !isSegmentClosed(i, j, 2);
-      const east = acrossX && i < GRID && !isSegmentClosed(i, j, 0);
-      const south = acrossZ && j > 0 && !isSegmentClosed(i, j, 3);
-      const north = acrossZ && j < GRID && !isSegmentClosed(i, j, 1);
+      const west = i > 0 && !isSegmentClosed(i, j, 2);
+      const east = i < GRID && !isSegmentClosed(i, j, 0);
+      const south = j > 0 && !isSegmentClosed(i, j, 3);
+      const north = j < GRID && !isSegmentClosed(i, j, 1);
 
       for (let b = 0; b < BARS; b++) {
         // Spread the bars across the road width, centred on the centreline.

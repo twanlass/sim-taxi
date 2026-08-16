@@ -17,8 +17,8 @@
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import {
-  GRID, PITCH, LANE, HALF_ROAD, lineCoord, legalExits, entryPoint, exitPoint, turnControl,
-  laneOffsetCoord, isXAxis, dirSign, nextIntersection,
+  GRID, PITCH, LANE, HALF_ROAD, DIR, lineCoord, legalExits, entryPoint, exitPoint, turnControl,
+  laneOffsetCoord, isXAxis, dirSign, nextIntersection, isSegmentClosed,
 } from '../src/city/grid.js';
 // Only constants and the pre-port road-class helper. The signal model this tool validates is
 // frozen below rather than imported, so that pointing traffic.js at the network cannot turn the
@@ -71,12 +71,12 @@ let degenerate = 0;
 // Kept verbatim so the ported router can be differenced against it rather than against a
 // description of it. Deleted once traffic.js drives lanes and there is no `(i, j, d)` left to
 // plan in.
-const REF_COST = { ring: 0.90, arterialWith: 0.95, arterialAgainst: 1.00, side: 1.00 };
+const REF_COST = { ring: 0.90, arterial: 0.95, side: 1.00 };
 
 function refCost(i, j, d) {
   const edge = edgeClass(i, j, d);
   if (edge.kind === 'ring') return REF_COST.ring;
-  if (edge.kind === 'arterial') return edge.withWave ? REF_COST.arterialWith : REF_COST.arterialAgainst;
+  if (edge.kind === 'arterial') return REF_COST.arterial;
   return REF_COST.side;
 }
 
@@ -133,7 +133,7 @@ function refRoute(from, target) {
 // The constants are written out rather than imported for the same reason. `signalConstantsAgree`
 // below is what keeps them honest — if the shipped numbers are retuned, this copy fails loudly
 // instead of silently validating the wrong city.
-const REF_SIGNAL = { cycle: 16, yellow: 1.6, arterialShare: 0.64, cruise: 8.5 };
+const REF_SIGNAL = { cycle: 16, yellow: 1.6, cruise: 8.5 };
 
 /** `ringAxisAt`, frozen. 'x' or 'z' if the junction sits on the ring, null if interior. */
 function refRingAxisAt(i, j) {
@@ -145,34 +145,47 @@ function refRingAxisAt(i, j) {
   return null;
 }
 
+/**
+ * Which axis owns this junction outright, or null if it has to be arbitrated by a light.
+ *
+ * Two ways to own one, and the ring is checked first because it is checked first in the bake: the
+ * outermost roads, and a main street *running through* — an arterial reduced to a stub by a park
+ * closure has no through traffic to give the right of way to, so those junctions keep their light.
+ * `isSegmentClosed` already answers "off the map" as closed, which is what makes the second test
+ * decline the boundary junctions the first one has already claimed.
+ */
+function refPriorityAxis(layout, i, j) {
+  const ring = refRingAxisAt(i, j);
+  if (ring) return ring;
+
+  const through = [];
+  if (layout.arterials.x.has(j)
+      && !isSegmentClosed(i, j, DIR.PX) && !isSegmentClosed(i, j, DIR.NX)) through.push('x');
+  if (layout.arterials.z.has(i)
+      && !isSegmentClosed(i, j, DIR.PZ) && !isSegmentClosed(i, j, DIR.NZ)) through.push('z');
+  return through.length === 1 ? through[0] : null;
+}
+
 /** `lightPhase(i, j, t, true)`, frozen — no corridor, no boost hold, as the tool always called it. */
 function refLightPhase(layout, i, j, t) {
-  const ring = refRingAxisAt(i, j);
-  if (ring) return { axis: ring, yellow: false, remaining: Infinity };
+  const priority = refPriorityAxis(layout, i, j);
+  if (priority) return { axis: priority, yellow: false, remaining: Infinity };
 
-  const { cycle, yellow, arterialShare, cruise } = REF_SIGNAL;
-  const xArterial = layout.arterials.x.has(j);
-  const zArterial = layout.arterials.z.has(i);
+  const { cycle, yellow, cruise } = REF_SIGNAL;
 
-  let xShare = 0.5;
-  if (xArterial && !zArterial) xShare = arterialShare;
-  else if (zArterial && !xArterial) xShare = 1 - arterialShare;
-
+  // An even split, always. The junctions that still carry a light are the ones with no street to
+  // favour — a ring corner, the one crossing where both arterials meet — so the 64/36 the shipped
+  // bake used to hand an arterial has nowhere left to apply.
   const totalGreen = cycle - 2 * yellow;
-  const greenX = totalGreen * xShare;
+  const greenX = totalGreen / 2;
   const greenZ = totalGreen - greenX;
 
-  const alongX = xArterial || !zArterial;
+  // And they all coordinate along X, for the same reason: the bake takes the first street by axis,
+  // which on this grid is the one running along X, and a junction with no X arm at all has one
+  // street and no signal.
   const step = PITCH / cruise;
-
-  let offset;
-  if (alongX) {
-    const blocks = (layout.arterials.dirX.get(j) ?? 1) > 0 ? i : GRID - i;
-    offset = -blocks * step;
-  } else {
-    const blocks = (layout.arterials.dirZ.get(i) ?? 1) > 0 ? j : GRID - j;
-    offset = greenX + yellow - blocks * step;
-  }
+  const blocks = (layout.arterials.dirX.get(j) ?? 1) > 0 ? i : GRID - i;
+  const offset = -blocks * step;
 
   const local = (((t + offset) % cycle) + cycle) % cycle;
   if (local < greenX) return { axis: 'x', yellow: false, remaining: greenX - local };
@@ -202,7 +215,6 @@ for (let s = 0; s < SEEDS; s++) {
   // The frozen oracle is only an oracle while its constants are the shipped ones.
   check(`${tag} frozen signal constants agree`,
     REF_SIGNAL.cycle === SIGNAL_DEFAULTS.cycle && REF_SIGNAL.yellow === SIGNAL_DEFAULTS.yellow
-    && REF_SIGNAL.arterialShare === SIGNAL_DEFAULTS.arterialShare
     && REF_SIGNAL.cruise === SIGNAL_DEFAULTS.cruise,
     `${JSON.stringify(REF_SIGNAL)} vs ${JSON.stringify(SIGNAL_DEFAULTS)}`);
 
@@ -319,7 +331,7 @@ for (let s = 0; s < SEEDS; s++) {
     for (let i = 0; i <= GRID; i++) {
       for (let j = 0; j <= GRID; j++) {
         const node = net.nodeByGrid(i, j);
-        const gridSays = refRingAxisAt(i, j) !== null;
+        const gridSays = refPriorityAxis(layout, i, j) !== null;
         const netSays = node.signal === null;
         if (gridSays !== netSays) {
           // One difference is intended. Park closures can leave an interior junction with nothing
@@ -334,9 +346,10 @@ for (let s = 0; s < SEEDS; s++) {
           mismatches += 1;
           if (!example) example = `(${i},${j}) grid ${gridSays} net ${netSays}`;
         } else if (gridSays) {
-          // And the priority street must be the ring's axis, not the cross street's.
+          // And the priority street must be the one that owns the junction — the ring's axis or
+          // the arterial's — not the cross street's.
           const axis = node.streets[node.priorityStreet]?.axis ?? 0;
-          const want = refRingAxisAt(i, j);
+          const want = refPriorityAxis(layout, i, j);
           const got = axis < 0.1 ? 'x' : 'z';
           if (want && want !== got) {
             mismatches += 1;
@@ -627,8 +640,8 @@ for (let s = 0; s < SEEDS; s++) {
 const passed = results.filter(Boolean).length;
 for (const line of failures.slice(0, 12)) console.log(`  FAIL ${line}`);
 if (offsetDriftNodes) {
-  console.log(`  note: ${offsetDriftNodes} junction(s) across ${SEEDS} seeds sit on an arterial`
-    + ' cut by a park closure, where the network measures the green wave from the surviving'
+  console.log(`  note: ${offsetDriftNodes} junction(s) across ${SEEDS} seeds sit on a coordinated`
+    + ' street cut by a park closure, where the network measures the green wave from the surviving'
     + ' chain rather than the map edge');
 }
 if (degenerate) {
