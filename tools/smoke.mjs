@@ -120,6 +120,37 @@ try {
 
   check('taxi exists', (await evaluate('Boolean(window.__taxi.traffic.taxi)')));
 
+  // --- The opening vignette has to land before anything below has something to tap.
+  //
+  // A run opens on a cut scene now — camera onto the garage door, door up, taxi out, camera back
+  // (see gameplay.md#the-opening-vignette) — and the fare board is held empty for the whole of it,
+  // deliberately. So this is both a wait and the one end-to-end assertion the vignette can only get
+  // in a real page: that the sequence actually finishes and hands the taxi back to the traffic
+  // model, rather than parking the run in a garage forever.
+  //
+  // Polled on the sequence's own phase rather than slept. Under the software renderer the
+  // vignette's clock advances at a fraction of wallclock — a couple of seconds on a GPU is a minute
+  // here — so any fixed wait is either far too long or a flake.
+  const vignetteDeadline = Date.now() + 180000;
+  let openingPhase = 'wait';
+  while (Date.now() < vignetteDeadline) {
+    openingPhase = await evaluate(
+      'window.__taxi.opening() ? window.__taxi.opening().phase() : "done"');
+    if (openingPhase === 'done') break;
+    await sleep(500);
+  }
+  check('the opening vignette runs and lands', openingPhase === 'done', `phase ${openingPhase}`);
+  check('...and hands the taxi back to the traffic model',
+    (await evaluate('window.__taxi.traffic.taxi.staged')) === false
+    && (await evaluate('Boolean(window.__taxi.traffic.taxi.lane)')));
+  // The board is seeded by the first `fares.update`, which the vignette was holding — so a rider
+  // appearing at all is the evidence that hold was released rather than left on.
+  const boardDeadline = Date.now() + 20000;
+  while (Date.now() < boardDeadline
+    && !(await evaluate('window.__taxi.fares.state.fares.length > 0'))) await sleep(300);
+  check('...and the fare board opens behind it',
+    await evaluate('window.__taxi.fares.state.fares.length > 0'));
+
   // --- Tap the taxi: it should select.
   // Synthetic DOM click rather than CDP's Input domain. Input.dispatchMouseEvent is accepted in
   // this headless configuration but never synthesises a DOM click — the page observes nothing at
@@ -941,14 +972,26 @@ try {
       await sleep(600);
       check('tapping dismisses it', await iosEval("document.getElementById('home-tip').hidden"));
 
-      // ...and the fare loop starts, which means the hold was released rather than just hidden.
-      let spawned = false;
-      const spawnDeadline = Date.now() + 20000;
-      while (Date.now() < spawnDeadline) {
-        if (await iosEval('window.__taxi.fares.waitingAll().length > 0')) { spawned = true; break; }
+      // ...and the run starts, which means the hold was released rather than just hidden.
+      //
+      // What comes off that hold first is the **opening vignette**, not the fare board: `isBlocked`
+      // chains the three openers, so the board is not seeded until the taxi is out of its garage,
+      // which is a minute of wallclock under a software renderer. The vignette leaving `wait` is
+      // the same evidence a spawn used to be and it arrives immediately — with the spawn still
+      // accepted, for a seed that happens to host no depot at all.
+      let started = false;
+      const startDeadline = Date.now() + 20000;
+      while (Date.now() < startDeadline) {
+        const phase = await iosEval(
+          'window.__taxi.opening() ? window.__taxi.opening().phase() : "none"');
+        if ((phase !== 'wait' && phase !== 'none')
+          || await iosEval('window.__taxi.fares.waitingAll().length > 0')) {
+          started = true;
+          break;
+        }
         await sleep(400);
       }
-      check('the run starts once it is dismissed', spawned);
+      check('the run starts once it is dismissed', started);
 
       // It comes back on the next load: nothing is remembered, because the thing it asks for is the
       // thing that switches it off. Dismissing it must not have persisted anything.
@@ -996,6 +1039,62 @@ try {
     // Leave nothing behind: the offline check below reloads this same page, and a table seeded by
     // the smoke test is not something a later run should find sitting there.
     await evaluate('window.__taxi.scores.clear()');
+  }
+
+  // --- A Loco Mode tuning survives a reload, and only under `?debug`.
+  //
+  // `tools/probe.mjs` drives `game/locostash.js` against a fake store, so the storage behaviour is
+  // covered. What only a browser can prove is the half that lives in main.js: that a stash written
+  // on one load is applied on the next, and — the one that matters — that it is *not* applied
+  // without `?debug`. A wreck ends the run and Retry is a page reload, so this is the path a
+  // tuning session actually takes, and the gate is what keeps a 170 u/s taxi out of an ordinary
+  // run whose score goes on the table.
+  {
+    const boot = async (query) => {
+      await client.send('Page.navigate', { url: `${baseUrl}${query}` });
+      const deadline = Date.now() + 20000;
+      while (Date.now() < deadline) {
+        if (await evaluate('Boolean(window.__taxi?.loco)').catch(() => false)) return true;
+        await sleep(300);
+      }
+      return false;
+    };
+
+    const up = await boot('?debug');
+    // A tuning nothing else would produce, so a "restored" reading cannot be the defaults in
+    // disguise. Written through the same handle the panel's sliders use.
+    if (up) {
+      await evaluate(`(() => {
+        window.__taxi.loco.set({ overdriveSpeed: 3.9, accel: 41 });
+        window.__taxi.loco.save();
+      })()`);
+    }
+    check('a Loco tuning lands in real localStorage', up
+      && (await evaluate('JSON.parse(localStorage.getItem("simtaxi.loco.v1")).overdriveSpeed')) === 3.9,
+      up ? 'stashed' : 'page never came back');
+
+    const back = await boot('?debug');
+    const restored = back ? await evaluate('window.__taxi.loco.get()') : null;
+    check('and is applied on the next load under ?debug',
+      restored?.overdriveSpeed === 3.9 && restored?.accel === 41,
+      JSON.stringify(restored));
+
+    const plain = await boot('');
+    const shipped = plain ? await evaluate('window.__taxi.loco.get()') : null;
+    const defaults = plain ? await evaluate('window.__taxi.loco.defaults') : null;
+    check('but never without it — an ordinary run is the shipped game',
+      JSON.stringify(shipped) === JSON.stringify(defaults),
+      JSON.stringify(shipped));
+    // The stash is still there; a load without ?debug must not have cleared it either, or the
+    // gate would be "forget on sight" rather than "ignore".
+    check('and the stash is left intact for the next debug session',
+      (await evaluate('JSON.parse(localStorage.getItem("simtaxi.loco.v1")).overdriveSpeed')) === 3.9,
+      'kept');
+
+    // Leave nothing behind, and leave the page where the checks below expect it: freshly booted
+    // on the plain URL, same as the score check above left it.
+    await evaluate('localStorage.removeItem("simtaxi.loco.v1")');
+    await boot('');
   }
 
   // --- The spacebar holds Loco Mode.

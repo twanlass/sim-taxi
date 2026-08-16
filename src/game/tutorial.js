@@ -5,13 +5,13 @@ import { mirrorSceneLights } from './avatarlights.js';
 import { VIEW_DIR } from './camera.js';
 import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 
-// The opening tutorial. Two beats, because there are only two things a new player cannot work out
-// by looking:
+// The opening tutorial. Two things a new player cannot work out by looking:
 //
-//   1. Which of the hundred cars down there is *theirs*. The bubble is spoken by the taxi — its
-//      avatar is the car itself, turning — and the camera rides over to it while the line types.
-//      Showing the car saying it does the job that a sentence naming it would not.
-//   2. That a rider is a thing you tap. The camera pans to the first one on the kerb and the same
+//   1. Which of the hundred cars down there is *theirs*. **This beat is currently switched off** —
+//      see `TAXI_BEAT` below. The opening vignette answers it by showing the player's own garage
+//      door open and their own car drive out of it, which is a better answer than a sentence, and
+//      it gets the run to its first instruction a beat sooner.
+//   2. That a rider is a thing you tap. The camera pans to the first one on the kerb and the
 //      bubble says so, pointed at a figure that is now in the middle of the frame.
 //
 // Everything else in the game — the drop-off dispatching itself, the timer ring, Loco Mode — either
@@ -19,16 +19,28 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 //
 // It runs at the top of **every** run. Remembering it across loads was tried — a `localStorage`
 // flag, on the grounds that play-again is a `location.reload()` and a lesson learned once should
-// not be charged for on every retry — and taken back out: the opening is two taps long, the clocks
-// are held through it, and it is the only thing in the game that frames the taxi and says which car
-// is yours. A player back after a week gets that for free rather than hunting for their car.
+// not be charged for on every retry — and taken back out: the opening is a tap long, the clocks
+// are held through it, and between it and the vignette it is the whole of how a player is shown
+// which car is theirs. Someone back after a week gets that for free rather than hunting for it.
 //
 // The fare clocks are held while this runs (main.js calls `fares.setPaused`), so the tutorial never
 // spends the clock the player is about to need. That matters more than it did when every rider got
 // a flat sixty seconds: a clock is budgeted from the driving its own trip costs now
 // (see difficulty.md), so what a lesson would eat is margin that was calculated for driving.
-// Nothing auto-advances: both beats wait for a tap, because a tutorial on a timer is one the slower
-// reader loses.
+// Nothing auto-advances: every gated beat waits for a tap, because a tutorial on a timer is one the
+// slower reader loses.
+
+// Whether the first beat runs at all. **Off**, and the opening vignette is why: the one thing a new
+// player cannot work out by looking is which of the hundred cars down there is theirs, and a bubble
+// saying so was the cheapest way to answer it — until the run started by showing the player's own
+// garage door open and their own car drive out of it. That answers it better than a sentence can,
+// so the bubble is now the second time they are told, and the run gets to its first instruction a
+// beat sooner. See docs/gameplay.md#the-opening-vignette.
+//
+// A flag rather than a deletion: the beat is intact behind it (`openOnTaxi`, `LINES.taxi`, the
+// 'taxi' step in both step sets), because the vignette is a prototype and this is the thing that
+// has to come back if it goes.
+const TAXI_BEAT = false;
 
 // Every line, in the order it is spoken. Kept together so the whole script is one thing to read.
 const LINES = {
@@ -531,12 +543,23 @@ export function createTutorial({
   const onTap = () => { if (!shouldIgnoreTap() && !isBlocked()) bubble.tap(); };
   window.addEventListener('click', onTap);
 
-  /** Lights down, first line up. Held for OPENING_HOLD so the run does not open mid-sentence. */
+  /**
+   * Lights down, first line up.
+   *
+   * **Currently switched off** — see `TAXI_BEAT` above. Kept whole rather than deleted, because
+   * what turns it back on is one flag and the argument for it may well come back.
+   */
   function openOnTaxi() {
     state.step = 'taxi';
     updateSpotlight();                    // aim it before it fades up, or it blooms from the centre
     document.body.classList.add('spotlight-on');
     bubble.show(LINES.taxi);
+  }
+
+  /** Straight to the second beat: no line, just the pan setting off for the rider. */
+  function openOnRider() {
+    state.step = 'toRider';
+    wait = 0;
   }
 
   // The clocks are held and the chips are hidden from frame one, even though nothing is on screen
@@ -568,7 +591,7 @@ export function createTutorial({
       wait -= dt;
       // The camera is already easing onto the taxi through this — it is the one thing that should
       // be under way before the bubble speaks, so the car is framed by the time it does.
-      if (wait <= 0) openOnTaxi();
+      if (wait <= 0) (TAXI_BEAT ? openOnTaxi : openOnRider)();
       return;
     }
 

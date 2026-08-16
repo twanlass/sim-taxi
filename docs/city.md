@@ -69,6 +69,48 @@ identical towers, and it makes parks more likely out in the cheap suburbs.
 carries no lights at all where it crosses a lesser street, which gives the map a fast/slow grain
 worth learning. See [traffic.md](traffic.md#arterials).
 
+## The depot block
+
+`city/garage.js`. One block per city is `type: 'garage'` instead of `'built'`, which takes it out
+of the tower generator's hands (`createBuildings` only walks `'built'` blocks) and leaves it for the
+taxi's own depot: a single-storey shed at the back of the block with a roller door on the street, a
+3-unit asphalt forecourt, and a dropped kerb the taxi comes off in
+[the opening vignette](gameplay.md#the-opening-vignette).
+
+**A whole block, not a lot.** The depot needs a forecourt to pull out of, and the generated city
+only leaves 0.85 units of pavement between a façade and the kerb — a car pulling out of a door that
+close is over the lip before it has straightened up. Reserving a footprint *inside* a block also
+does not work, because `splitLot` divides the block afterwards and will happily put a tower on the
+sliver left over.
+
+**Chosen at the end of `createLayout`**, after every other draw in that function. That is what makes
+it free: nothing in layout.js reads `rng` after it, and every generator downstream runs its own
+offset stream — so adding the depot moved no park, no arterial and no building. `blocks.garageBlock`
+is the answer, and it may be **null**: a city with nowhere to put one opens without the vignette
+rather than not opening.
+
+### The site filter is a sightline
+
+The three constraints on which block it lands on are all about being *seen*. Two are obvious — the
+block must be built rather than park, and the road its door faces must exist (a park district closes
+the road between its two blocks). The third is the interesting one.
+
+The door always faces **+X**. The camera never rotates, so only two of a building's four faces are
+ever visible, and of those two, +X is the one whose sightline to the camera leaves the block over
+the *road*. The door also sits near the block's **−Z** end, and that is what buys it: the line to
+the camera gains a unit of z for every unit of x, so a door 4.5 units from the −Z edge crosses the
+block's far edge after 7.5 units of x — inside the 8-unit road. The block straight across the street
+can therefore never occlude it.
+
+What can is the **diagonal** block, and only if it is tall: the line reaches that block's façade
+16.35 units out, by which point it is 15.4 units up, against `buildTower`'s 16-unit ceiling. So the
+filter is a height one, and height here comes from centrality — `5 + centrality * 11` clears the
+line whenever centrality is under 0.945, and `occlusionClear` demands 0.75.
+
+That is the arithmetic; `tools/probe.mjs` does not trust it. It fires nine real rays through the
+real merged city, across ten seeds, and asserts every one of them reaches the camera. Getting this
+wrong is a run that opens with a two-second close-up of a wall.
+
 ## Park districts close roads
 
 A park district is **two adjacent blocks plus the road that used to separate them**, merged into
@@ -79,6 +121,59 @@ the same repeating grid, just greener. Closing the segment is what actually brea
 
 The closure is real, not cosmetic. `setClosedSegments()` removes the segment from `legalExits`, so
 traffic routes around it and the router plans around it for free.
+
+**Which blocks are green is registered the same way** — `setParkBlocks()` beside the closures, read
+back through `isParkBlock(bi, bj)`. A park is a fact about the ground that anything placing a marker
+on a kerb has to be able to ask about without holding the layout array: the courier board is the
+caller, and it keeps both ends of a package off the grass
+([gameplay.md](gameplay.md#the-package-courier)). Registered as blocks rather than as junctions,
+because a junction has four corners and a marker only ever uses one of them — which one is
+`cornerFor`'s business, in `game/fares.js`.
+
+### A park has a frontage
+
+A park is a block on a street, so it presents the same pavement to the street that a built block
+does: `ground.js` lays a **1.0-unit walk** around the inside of the kerb and cuts the lawn out of
+it (one `ShapeGeometry` with a hole, rather than grass laid over paving — two coplanar opaque
+surfaces cost the overlap twice). Without it, a park was the one block in the city with no frontage
+at all: the 0.15 of kerb a block's platform leaves showing is about a pixel at play zoom, so against
+grass the edge vanished and the green read as a rug dropped on the asphalt.
+
+`PARK_EDGE` — the kerb plus that walk — is where the green starts, and it is **exported because two
+other systems stand things on the grass**: `props.js` plants trunks clear of it and `birds.js` keeps
+the flock off the paving. Both derived their margin from the bare 0.15 before the walk existed, so
+both would have been left standing on it. The probe measures the inset off the mesh rather than
+trusting the constant, and checks the winding of the ring while it is there — a hole is triangulated
+by earcut, not laid out in rows.
+
+### Benches, and one statue
+
+The walk is also what the benches are placed against — **on the lawn, a step inside the paving**
+rather than on it. A bench on the walk's centreline is where a bench in the street goes, but a
+park's walk is a thing you go *round* the park on, and furniture parked in the middle of it reads
+as an obstacle rather than as somewhere to sit. `planParkFurniture()` in `props.js` spreads slots
+evenly along each side of a plot — random points on a 32-unit district side put two benches back to
+back about as often as they put them anywhere useful, and a park is the one place in this city where
+evenly spaced furniture is more truthful than scattered furniture — then takes about half of them,
+which comes out at two or three round a pocket park and five or six round a district. Every bench
+faces **into** the park.
+
+**Exactly one statue in a city**, the same shape of decision as the courtyard block and the helipad
+and taken for the same reason: rolled per park it came out two or three times on most seeds, and the
+third statue in a five-block city is a municipal habit rather than a landmark. It prefers a district,
+because a district's centre is *the road that used to run between its two blocks* — the one spot in a
+park that was never anything else. It brings its own square of paving with it (`city/ground.js` is
+built before anything has decided where the statue goes, so a plaza planned in one file and drawn in
+another would be two things to keep in step), and the trees are planted afterwards and keep out of
+its clearing.
+
+The figure is hand-built from boxes rather than taken from `geometry/person.js`: that one is a rig,
+a Group of separately-pivoting limbs with materials of their own, and what a merged props mesh needs
+is geometry that never moves again.
+
+The placement rules are swept over seeds in `tools/probe.mjs` rather than looked at on one — a bench
+half on the grass and a city with three statues in it are both perfectly plausible on the seed you
+happen to be looking at.
 
 The districts and the lone pocket parks are also the only thing in the city with any wildlife in it:
 `game/birds.js` reads the same bounds `city/props.js` plants trees inside, and puts a flock down on
@@ -102,9 +197,9 @@ never gets to spend time meshing a broken city.
 
 | File | Produces | Notes |
 |---|---|---|
-| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal, and an arterial junction has none. Side streets get a dashed white centre line between junctions; an arterial gets a solid yellow one that runs through them, broken only at a closure and at the single crossing with the other arterial. |
+| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal, and an arterial junction has none. Side streets get a dashed white centre line between junctions; an arterial gets a solid yellow one that runs through them, broken only at a closure and at the single crossing with the other arterial. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
-| `props.js` | trees, street furniture | Merged per material via `bakeColor`, so hundreds of props cost one draw call. |
+| `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
 
 ### What a building is made of
 

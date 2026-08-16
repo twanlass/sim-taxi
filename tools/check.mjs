@@ -15,7 +15,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/faremarker.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/pathdrag.js',
   '../src/game/dust.js', '../src/game/blast.js', '../src/game/flyover.js', '../src/game/birds.js',
-  '../src/game/cityentry.js',
+  '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/game/chopper.js',
   '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',
@@ -27,7 +27,8 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
   '../src/geometry/parcel.js', '../src/geometry/parcelpad.js', '../src/game/parcels.js',
   '../src/game/cargochip.js',
-  '../src/game/tutorial.js', '../src/game/highscores.js', '../src/lab/labroad.js'];
+  '../src/game/tutorial.js', '../src/game/highscores.js', '../src/game/locostash.js',
+  '../src/lab/labroad.js'];
 
 const TOOLS = [
   // Runs first: it is the control on every later step. If the road network stops describing the

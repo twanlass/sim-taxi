@@ -60,11 +60,16 @@ import {
  *   - 1.0s out and closer, everything is lit at full opacity. That is the report this came from:
  *     the outline does arrive, it just arrives once the taxi is already committed.
  *
- * At 42 the same 150 crashes give **0 of 17 unoutlined at 1.5s** (mean alpha 0.41 → 0.55) and 3 of
- * 19 at 2.0s (0.34 → 0.42). The fully-lit distance — RADIUS − FADE_BAND = 36, which is the figure
- * the warning is really measured at — is 1.9s at Loco Mode's 18.7 u/s and 1.6s at the top of the
- * overdrive band, against the old 1.3s / 1.05s. The band still costs warning; that is the price of
- * the band, but it now costs it from a figure that had some to spare. Past 42 the returns go flat:
+ * At 42 the same 150 crashes gave **0 of 17 unoutlined at 1.5s** (mean alpha 0.41 → 0.55) and 3 of
+ * 19 at 2.0s (0.34 → 0.42), measured when Loco cruise was 18.7 u/s.
+ *
+ * **It is 46 now, because the speed it is a warning against went up.** This radius is a *time*
+ * written down as a distance, so when the boost ceiling moved to 22.1 the same 42 units quietly
+ * became 1.63s of fully-lit warning instead of 1.9 — under the 1.8s floor `tools/probe.mjs` holds
+ * it to, which is what caught it. 46 puts the fully-lit distance (RADIUS − FADE_BAND = 40) back at
+ * 1.81s. Anything that raises Loco Mode's speed has to come back here, and the ceiling on doing so
+ * is `SPAWN_CLEARANCE` (50) — at 46 there are 4 units left, so the next raise needs that to move
+ * first. Past 42 the returns go flat:
  * 46 buys about one more of those three and starts putting pressure back on the cap.
  *
  * The old note here said 40 would put "half a dozen more cars in range" and make MAX_GHOSTS the
@@ -82,7 +87,7 @@ import {
  * centre says. A per-class radius would be a second number to keep in step with PITCH for barely
  * a tenth of a second of warning, on the one vehicle whose size already makes it easiest to see.
  */
-export const GHOST_RADIUS = 42;
+export const GHOST_RADIUS = 46;
 
 /**
  * The hard cap, shared across cars and trucks. Set deliberately *above* the 6.1 vehicles that
@@ -109,6 +114,17 @@ export const GHOST_RADIUS = 42;
  * change moved traffic around. Raising the cap never paints more than the vehicles genuinely
  * within the radius, which is the set the feature wants drawn; the spare slots cost a matrix each
  * and draw nothing.
+ *
+ * **Re-swept when the radius went to 46, and it did not move.** Same method, same 24 seeds × 60s
+ * of boosting: peak 16, binding 0.01% at a cap of 15 and 0.00% from 16 up. So 18 stands.
+ *
+ * The reasoning that said it *would* move is worth keeping, because it is the obvious one and it
+ * is wrong: a radius holds vehicles by area, so 42 → 46 is 1.2× the ground and ought to be 1.2×
+ * the cars. It isn't, because the city holds 22 vehicles in total at the top of the density ramp
+ * and they are strung along a road network rather than sprinkled on a plane — the taxi's
+ * neighbourhood saturates a long way below anything the geometry implies. **Scaling this on paper
+ * would have raised the cap for nothing.** Which is the same lesson as the sweep above, from the
+ * other side: measure it.
  *
  * One cap over both classes rather than one each: the cap exists to bound how much of the frame
  * this may paint, and that ceiling is about the player's screen, not about which buffer a vehicle
@@ -404,8 +420,10 @@ export function createCarGhosts(scene, traffic) {
     // Not gated on `taxi.boost`. The collision test is only armed while boosting, but the whole
     // point of a warning is to inform the decision to press the button, not just to accompany it —
     // a player who never sees the hidden car until they're already committed gets no benefit from
-    // the outline. `crashed` still cuts it: a wrecked taxi has nothing left to warn.
-    const want = !taxi.crashed ? 1 : 0;
+    // the outline. `crashed` still cuts it: a wrecked taxi has nothing left to warn — and so does
+    // `staged`, where the taxi is shut in its garage during the opening vignette and every ghost
+    // in range is a car it could not reach and the player is not being asked to look at.
+    const want = !taxi.crashed && !taxi.staged ? 1 : 0;
     const step = dt / GHOST_FADE;
     state.strength += Math.sign(want - state.strength)
       * Math.min(Math.abs(want - state.strength), step);

@@ -1,6 +1,8 @@
 import { ROUTE_BLENDS } from './routeline.js';
 import { HAZE_TOP, setHazeTop, hazeColor, hazeTuning } from './scene.js';
 import * as difficulty from './difficulty.js';
+import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
+import { PITCH, LANE } from '../city/grid.js';
 
 // A small tweak panel behind a gear button.
 //
@@ -59,6 +61,20 @@ export function createDebugPanel({
   // The city-entrance animation's levers — `{ tuning, tune, replay }` over game/cityentry.js.
   // Defaulted for the same reason as `scores`.
   cityEntry = { tuning: () => ({ wave: 0, jitter: 0, grow: 0, overshoot: 0, dust: 0 }), tune: () => {}, replay: () => {} },
+  // Loco Mode's speed ramp — `{ get, set, reset, ramp, defaults }` over sim/traffic.js, pushed in
+  // by main.js. Defaulted like the two above so the `npm run check` boot pass builds the panel
+  // against nothing; the section then draws a flat curve and moves a tuning nobody is reading.
+  loco = {
+    defaults: {
+      kick: 1, speed: 1, accel: 1, overdriveSpeed: 1, overdriveAccel: 1, brake: 1,
+      sway: 0.4, swayWave: 18, chop: 0.12, chopWave: 9.5, fade: 7,
+    },
+    get: () => ({ ...loco.defaults }), set: () => {}, reset: () => {},
+    ramp: () => [{ s: 0, t: 0, v: 0 }], save: () => false,
+  },
+  // Whether the Loco sliders opened on a tuning restored from a previous session, rather than on
+  // the shipped defaults. Only affects what the line under the Reset button says.
+  locoRestored = false,
 }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
@@ -299,6 +315,238 @@ export function createDebugPanel({
     });
   }
 
+  // --- Loco Mode --------------------------------------------------------------
+  // The speed ramp, live. Every knob here is read by sim/traffic.js on the frame after it moves,
+  // so the way to use this section is with the boost button held down: drag, feel, drag again.
+  //
+  // The curve above the sliders is drawn from `loco.ramp()` — the sim module's own integrator over
+  // the same tuning the physics reads — rather than from a formula written out again here. A
+  // preview with its own copy of the maths is a preview that can be wrong, and it would be wrong
+  // in the direction that matters: it would go on looking right after somebody changed the sim.
+  heading('Loco Mode');
+
+  const PREVIEW_W = 230, PREVIEW_H = 76;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svgEl = (name, attrs) => {
+    const node = document.createElementNS(svgNS, name);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    return node;
+  };
+
+  const preview = svgEl('svg', {
+    class: 'dbg-ramp', viewBox: `0 0 ${PREVIEW_W} ${PREVIEW_H}`, 'aria-hidden': 'true',
+  });
+  const cruiseLine = svgEl('line', { class: 'dbg-ramp-ref' });
+  const capLine = svgEl('line', { class: 'dbg-ramp-ref' });
+  const heldPath = svgEl('path', { class: 'dbg-ramp-curve' });
+  const coastPath = svgEl('path', { class: 'dbg-ramp-curve coast' });
+  preview.append(cruiseLine, capLine, heldPath, coastPath);
+  panel.append(preview);
+
+  const rampNote = document.createElement('p');
+  rampNote.className = 'dbg-note';
+  panel.append(rampNote);
+
+  const mph = (v) => Math.round(v * MPH_PER_UNIT);
+  /** A speed, in both units — the panel's whole vocabulary for "how fast is that". */
+  const speedText = (v) => `${v.toFixed(2)} u/s · ${mph(v)} mph`;
+  /** The speed the weave's wavelengths turn into a frequency against — itself a slider. */
+  const boostCruiseOf = () => SPEED * loco.get().speed;
+
+  /** Redraw the curve and the line under it from whatever the tuning currently is. */
+  function paintRamp() {
+    const tuning = loco.get();
+    const samples = loco.ramp();
+    const top = SPEED * tuning.overdriveSpeed;
+    const cap = SPEED * tuning.speed;
+    const extent = Math.max(1, samples[samples.length - 1].s);
+    const ceiling = Math.max(top, SPEED) * 1.08;
+    const x = (s) => (s / extent) * PREVIEW_W;
+    const y = (v) => PREVIEW_H - (v / ceiling) * (PREVIEW_H - 2) - 1;
+
+    for (const [line, v] of [[cruiseLine, SPEED], [capLine, cap]]) {
+      line.setAttribute('x1', 0); line.setAttribute('x2', PREVIEW_W);
+      line.setAttribute('y1', y(v)); line.setAttribute('y2', y(v));
+    }
+
+    const releaseAt = samples.findIndex((p) => p.release);
+    const cut = releaseAt === -1 ? samples.length : releaseAt + 1;
+    const d = (rows) => rows
+      .map((p, i) => `${i ? 'L' : 'M'}${x(p.s).toFixed(1)},${y(p.v).toFixed(1)}`).join('');
+    heldPath.setAttribute('d', d(samples.slice(0, cut)));
+    coastPath.setAttribute('d', releaseAt === -1 ? '' : d(samples.slice(releaseAt)));
+
+    // What the curve costs, which is the reading the shape alone can't give: the top end is only
+    // ever worth what the road it needs is worth, and the city's blocks are 20 units apart.
+    const reached = samples.find((p) => p.v >= top - 1e-3);
+    rampNote.textContent = reached
+      ? `top ${speedText(top)} after ${reached.s.toFixed(0)}u `
+        + `· ${(reached.s / PITCH).toFixed(1)} blocks of clear straight`
+      : `never reaches ${speedText(top)} — band accel too low`;
+  }
+
+  /** Everything in the Loco block that has to follow a change anywhere else in it. */
+  function repaintLoco() {
+    paintRamp();
+    showWeaveRoom();
+  }
+
+  const locoLevers = [];
+
+  // What the tuning is doing about surviving a reload. A wreck ends the run and Retry is a page
+  // reload, so without this the sliders go back to shipped at exactly the moment somebody is most
+  // likely to be mid-experiment — you crank the ceiling, crash *because* you cranked it, and start
+  // again. The line reports rather than promises: storage can be refused (Safari private mode
+  // throws on the write while reporting a healthy object), and a panel that claims a save that
+  // didn't happen is worse than one that says nothing.
+  const stashNote = document.createElement('p');
+  stashNote.className = 'dbg-note';
+
+  const atDefaults = () => Object.keys(loco.defaults)
+    .every((key) => loco.get()[key] === loco.defaults[key]);
+
+  let stashSaved = true;
+
+  function showStash(restored = false) {
+    if (atDefaults()) {
+      stashNote.textContent = restored ? 'restored · shipped values' : 'shipped values';
+    } else if (stashSaved) {
+      stashNote.textContent = restored
+        ? 'restored from your last session · survives a reload'
+        : 'saved · survives a reload';
+    } else {
+      stashNote.textContent = 'not saved — storage unavailable';
+    }
+  }
+
+  const saveLoco = () => {
+    stashSaved = loco.save();
+    showStash();
+  };
+
+  /** One knob: applies live on input, repaints the curve, and reports what it just bought. */
+  function locoLever(label, key, min, max, step, show) {
+    const el = slider(min, max, step, loco.get()[key]);
+    const value = row(panel, label, el);
+    // Read back from the tuning rather than off the slider: `setLocoTuning` clamps the overdrive
+    // ceiling up to the boost cap, so the value that landed is not always the one that was
+    // dragged, and a readout showing the drag rather than the result is a lie about the sim.
+    const sync = () => {
+      const landed = loco.get()[key];
+      el.value = String(landed);
+      value.textContent = show(landed);
+    };
+    el.addEventListener('input', () => {
+      loco.set({ [key]: Number(el.value) });
+      sync();
+      repaintLoco();
+    });
+    // Stashed on release rather than on every input. A drag fires `input` per pixel, and
+    // `localStorage.setItem` is synchronous — writing the whole tuning a hundred times across one
+    // slider drag is the kind of thing that makes a tuning panel feel worse the more it does.
+    el.addEventListener('change', saveLoco);
+    sync();
+    locoLevers.push(sync);
+  }
+
+  // The ranges go far past anything shippable on purpose — the question these sliders exist to
+  // answer is "how does *much* faster feel", and a slider that stops at 1.5x the shipped value
+  // cannot answer it. The tops are where the game stops being a game rather than where it stops
+  // being tuned: 20x cruise is 170 u/s, which crosses the whole 100-unit city in 0.6s.
+  //
+  // Two things genuinely break up there, and both are the game telling the truth rather than a bug
+  // to fix. **Collisions start to tunnel** past ~135 u/s, where one frame at 60fps covers more
+  // than the 2.31-unit collision envelope and the taxi passes through cars instead of hitting
+  // them. And **`LOOKAHEAD` is 32 units**, so above about 26 u/s the taxi is already travelling
+  // faster than it can see far enough ahead to brake for — which is most of what "significantly
+  // faster" actually feels like from the driving seat.
+  //
+  // The step stays fine enough to land on the shipped value with the arrow keys, which is what
+  // makes a range this wide usable at the bottom of it as well as the top.
+  locoLever('Kick', 'kick', 1, 10, 0.05, (v) => `${v.toFixed(2)}x · ${speedText(SPEED * v)}`);
+  locoLever('Boost top', 'speed', 1.2, 12, 0.1, (v) => speedText(SPEED * v));
+  // Raised with the ceilings rather than for its own sake: a ceiling a car cannot climb to is not
+  // a ceiling, and at the shipped 24 u/s² a 100 u/s boost top would take 200 units — ten blocks —
+  // to reach, so uncapping the speed alone would buy a number that never appears on the road.
+  locoLever('Punch', 'accel', 4, 300, 1, (v) => `${v.toFixed(0)} u/s²`);
+  locoLever('Overdrive', 'overdriveSpeed', 1.2, 20, 0.1, (v) => speedText(SPEED * v));
+  locoLever('Band accel', 'overdriveAccel', 0.2, 150, 0.5, (v) => `${v.toFixed(1)} u/s²`);
+  // Not the taxi's alone — there is one brake in the sim and it is what every car stops on. It is
+  // here because it owns the coast-down after the button is let go, which is the last phase of
+  // the curve above; the readout says so rather than leaving it to be discovered. Its top went up
+  // with the rest: shedding 170 u/s at the shipped 11 u/s² is fifteen seconds of coasting, which
+  // is longer than the run-up that earned it.
+  locoLever('Brake', 'brake', 3, 80, 0.5, (v) => `${v.toFixed(1)} u/s² · all traffic`);
+
+  // --- Loco weave -------------------------------------------------------------
+  // The wander inside the lane — the "he is driving like a maniac" tell. Two waves whose periods
+  // deliberately do not divide, so the car never settles into a metronome; `sway` is the long one
+  // and `chop` the short one laid over it to break the rhythm.
+  //
+  // These reach the police cruiser as well. It drives the taxi's Loco Mode on purpose — one
+  // definition of maniac, shared out of sim/traffic.js — so the sliders move both cars, and the
+  // room readout below says which car is about to run out of lane.
+  heading('Loco weave');
+
+  const weaveNote = document.createElement('p');
+  weaveNote.className = 'dbg-note';
+
+  /**
+   * How far the weave may throw the car before it stops being a weave.
+   *
+   * Derived, not typed in: the lane centre sits `LANE` from the road centreline and the same from
+   * the kerb, and half a car body is `CAR_W / 2`. What's left is the play either side. The two
+   * waves can peak together, so the number to compare against is their sum — 0.52 of 1.15 shipped,
+   * which is the "half the room" the tuning block in traffic.js talks about.
+   */
+  const WEAVE_ROOM = LANE - CAR_W / 2;
+
+  function showWeaveRoom() {
+    const { sway, chop } = loco.get();
+    const peak = sway + chop;
+    const pct = Math.round((peak / WEAVE_ROOM) * 100);
+    if (peak === 0) {
+      weaveNote.textContent = 'weave off — the taxi holds its lane centre';
+      return;
+    }
+    weaveNote.textContent = peak > WEAVE_ROOM
+      ? `peak ${peak.toFixed(2)}u of ${WEAVE_ROOM.toFixed(2)}u — over the lane, expect kerbs and oncoming`
+      : `peak ${peak.toFixed(2)}u of ${WEAVE_ROOM.toFixed(2)}u room · ${pct}% of the lane`;
+  }
+  panel.append(weaveNote);
+
+  // Zero is a real setting on both amplitudes — it is how you watch the mode with the wander
+  // switched off — so the readout says so rather than leaving `0.00u` to be interpreted.
+  locoLever('Sway', 'sway', 0, 2, 0.01,
+    (v) => (v === 0 ? 'off · no long wave' : `${v.toFixed(2)}u · the long wave`));
+  locoLever('Sway length', 'swayWave', 3, 60, 0.5,
+    (v) => `${v.toFixed(1)}u · ${(boostCruiseOf() / v).toFixed(2)} Hz at boost`);
+  locoLever('Chop', 'chop', 0, 1, 0.01,
+    (v) => (v === 0 ? 'off · no short wave' : `${v.toFixed(2)}u · laid over the sway`));
+  locoLever('Chop length', 'chopWave', 2, 40, 0.5,
+    (v) => `${v.toFixed(1)}u · ${(boostCruiseOf() / v).toFixed(2)} Hz at boost`);
+  // Distance, not time, like the weave itself — so letting go at a red doesn't drift the parked
+  // car straight. Shared with the cruiser's own fade-in.
+  locoLever('Fade', 'fade', 0.5, 40, 0.5, (v) => `${v.toFixed(1)}u to full · both cars`);
+
+  const resetLoco = document.createElement('button');
+  resetLoco.type = 'button';
+  resetLoco.className = 'dbg-wide';
+  resetLoco.textContent = 'Reset Loco Mode';
+  resetLoco.addEventListener('click', () => {
+    loco.reset();
+    for (const sync of locoLevers) sync();
+    repaintLoco();
+    // Clears the stash too — `loco.save()` forgets rather than writes once the tuning is back to
+    // shipped, so Reset survives a reload exactly as surely as a tweak does. A reset that came
+    // back undone on the next crash would be the worst of both.
+    saveLoco();
+  });
+  panel.append(resetLoco, stashNote);
+
+  repaintLoco();
+  showStash(locoRestored);
+
   // --- City entrance ----------------------------------------------------------
   // The opening rise-out-of-the-ground animation (game/cityentry.js). All five are live — the
   // shader levers are uniforms — but the animation is over by the time this panel can be opened,
@@ -439,6 +687,11 @@ export function createDebugPanel({
     // The keys map onto game/cityentry.js's constants: wave → WAVE, grow → ENTRY_DUR,
     // jitter → JITTER, overshoot → OVERSHOOT; dust is the multiplier on the burst power.
     cityEntrance: cityEntry.tuning(),
+    // The keys map onto sim/traffic.js's: kick → BOOST_KICK, speed → BOOST_SPEED,
+    // accel → BOOST_ACCEL, overdriveSpeed/overdriveAccel → OVERDRIVE_*, brake → BRAKE. Read from
+    // the tuning rather than the sliders, so a clamped overdrive ceiling exports as what the sim
+    // is actually running.
+    locoMode: loco.get(),
   });
 
   const output = document.createElement('textarea');

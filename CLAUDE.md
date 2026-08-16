@@ -21,7 +21,7 @@ about to change.
 | [docs/architecture.md](docs/architecture.md) | Module map, frame loop, seeding, `window.__taxi` test hook |
 | [docs/city.md](docs/city.md) | Coordinates, direction encoding, layout, park districts |
 | [docs/traffic.md](docs/traffic.md) | Signals, arterials, ring road, car physics, boost, police corridor, the bust chase |
-| [docs/gameplay.md](docs/gameplay.md) | Fare loop, routing, picking, timer ring, economy |
+| [docs/gameplay.md](docs/gameplay.md) | Opening vignette, fare loop, routing, picking, timer ring, economy |
 | [docs/difficulty.md](docs/difficulty.md) | The ramp: budgeted clocks, board size, shifts, the sweeps behind the numbers |
 | [docs/rendering.md](docs/rendering.md) | Low-poly technique, camera, lighting, day/night, effects |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
@@ -59,6 +59,21 @@ doesn't reshuffle every other one.
 **Comments carry the "why".** Many record a measurement or a failed first attempt. If you change
 behaviour a comment describes, update the comment — and if you measure something, write the number
 down.
+
+## Reporting back
+
+When a change is done, close out with three short parts — scannable in a few seconds, not a wall
+of prose. Skip this shape for pure Q&A or exploratory discussion; it's for "I made a change" replies.
+
+**TL;DR** — what changed, in two sentences max.
+
+**Testing** — one or two sentences on how to check it by hand in the running game (open it, click/
+tap through the specific thing that changed). This is in addition to `npm run check`, which you
+still run yourself before reporting — don't just restate that it passed.
+
+**Notes** — a short bulleted list, only when there's something worth flagging: things left undone,
+tradeoffs taken, edge cases not handled, anything that conflicts with existing behaviour or a doc.
+Omit the whole section if there's nothing to note.
 
 ## Traps that have bitten before
 
@@ -184,6 +199,27 @@ down.
   `pointerdown`. The only ordering that holds regardless of construction order is a capture
   listener on an **ancestor** — which is why the route-band drag listens on `window`. Getting this
   wrong throws nothing; the map just slides out from under a gesture meant for something else.
+- **The drawn taxi is not `CAR_LEN` long.** `createTaxiMesh` puts `TAXI_SCALE = 1.18` on the group,
+  so the body on screen is 4.01 units where the simulation's constant says 3.4 — and every sim
+  number (following distance, the collision envelope, `MIN_GAP`) is in the 3.4 space, which is why
+  the discrepancy never surfaces there. It surfaces the moment anything *places* the taxi against
+  scenery: parking it in the garage by half of `CAR_LEN` put its nose a third of a unit through a
+  shut door. The drawn half-length is already exported as `TAXI_TAILPIPE_BACK`.
+- **A face pointing at the camera is not the same as a face the camera can see.** The view is a
+  fixed diagonal, so the sightline off any surface climbs 0.92 of a unit for every unit it travels
+  in *both* x and z — which means it leaves the block it started on diagonally and can end up
+  behind a tower two blocks away that nothing about the local geometry mentions. The garage door
+  faces +X and is still only visible because it sits near its block's −Z edge: that buys it 7.5
+  units of x before the line crosses the block's far edge, which keeps the crossing inside the
+  8-unit road. Work the ray out (`occlusionClear` in `city/garage.js` shows it) — and then fire a
+  real `Raycaster` through the real merged city in the probe, because the arithmetic is about what
+  the *generator* is going to build there, not about what it built this time.
+- **The fare board is seeded by the first `fares.update`, not at construction.** `shouldRefill`
+  fills an empty board immediately, so "the clocks are paused" (`setPaused`) is not the same claim
+  as "no rider has appeared" — pausing holds the countdown and spawns a rider anyway. Anything that
+  wants the board to stay empty has to skip the `update` call, the way the Home Screen tip and the
+  opening vignette both do. Left running through the vignette, a two-metre crystal turned up on the
+  kerb the camera was pointed at.
 - **`createLayout()` is not a pure function.** It closes segments and installs the road network it
   just baked as *the* city network, so calling it a second time — a probe sweeping seeds, a tool
   building a comparison city — silently replaces the city everything else is measuring against.

@@ -6,7 +6,11 @@ import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
-import { createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber, BOOST_CRUISE } from './sim/traffic.js';
+import { createGarage } from './city/garage.js';
+import {
+  createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber,
+  boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
+} from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
@@ -27,6 +31,7 @@ import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { showRunEnd } from './game/runend.js';
 import { recordRun, lastName, clearScores, loadScores } from './game/highscores.js';
+import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from './game/locostash.js';
 import {
   TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK,
 } from './geometry/taxi.js';
@@ -36,6 +41,7 @@ import { createRiderFinder } from './game/riderfinder.js';
 import { createTaxiFinder } from './game/taxifinder.js';
 import { createCargoChip } from './game/cargochip.js';
 import { createTutorial } from './game/tutorial.js';
+import { createOpening } from './game/opening.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createSirenGlow } from './game/sirenglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
@@ -185,6 +191,16 @@ scene.add(markOccluder(city.mesh));
 const propsMesh = createProps(makeRng(seed + 33), layout);
 scene.add(markOccluder(propsMesh));
 
+// The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
+// subject of the opening vignette below. `null` on a city with nowhere to put one, which is a
+// state the whole chain below handles rather than one to guard against here: no depot, no
+// vignette, and the run opens the way it always did. See city/garage.js.
+const garage = layout.garageBlock ? createGarage(layout.garageBlock, makeRng(seed + 99)) : null;
+if (garage) {
+  scene.add(garage.group);
+  garage.meshes.forEach(markOccluder);
+}
+
 // Density is on the difficulty curve, so the run opens at its bottom and the instanced meshes are
 // sized for its top — an InstancedMesh cannot be resized once built. An explicit `?cars=N` beats
 // the curve at both ends, the way `?seed=` beats a random city: a pinned density is a pinned
@@ -291,7 +307,7 @@ const BOOST_FOLLOW_SMOOTHING = 3.2;
 const followAim = (car) => ({
   x: Math.cos(car.yaw),
   z: -Math.sin(car.yaw),
-  gain: Math.min(car.v / BOOST_CRUISE, 1),
+  gain: Math.min(car.v / boostCruise(), 1),
   speed: car.v,
 });
 
@@ -300,6 +316,11 @@ let cameraTakenOver = false;
 // the handover below is the one thing that has to reach it, and a swipe cannot arrive before the
 // module has finished evaluating.
 let tutorial = null;
+// The opening vignette, built at the very bottom of this file: it has to be constructed *after*
+// the traffic warm-up, because the first thing it does is take the taxi off the road and park it
+// in the garage, and the warm-up would drive it straight back out. Null in shot mode and on a
+// city with no depot. See game/opening.js.
+let opening = null;
 const releaseCameraToPlayer = () => {
   cameraTakenOver = true;
   // A swipe during the tutorial takes the framing off it too. It keeps talking — the lesson is
@@ -322,8 +343,10 @@ const dust = createDust(scene, camera, makeRng(seed + 77));
 // below, next to the markers — a frozen frame of half-grown city is never the screenshot anybody
 // asked for.
 const cityEntry = createCityEntry({
-  meshes: [city.mesh, propsMesh],
-  sites: city.entrySites,
+  // The garage rises with everything else, shell and shutter alike — both are stamped with the one
+  // anchor, so it comes up as a building rather than as a building and a door.
+  meshes: garage ? [city.mesh, propsMesh, ...garage.meshes] : [city.mesh, propsMesh],
+  sites: garage ? [...city.entrySites, garage.entrySite] : city.entrySites,
   dust,
   // The spawn point for now — the wave is re-aimed at the taxi's *post-warmup* position at the
   // bottom of this file, which is where the player actually first sees the car.
@@ -909,6 +932,9 @@ const sirenGlow = createSirenGlow({ camera, viewport });
 // talks, and it costs nothing to sit through. Remembering it across loads was tried (a
 // `localStorage` flag) and taken back out — see docs/gameplay.md.
 const wantsTutorial = new URLSearchParams(window.location.search).get('tutorial') !== 'off';
+// The same escape hatch for the beat before it — see the opening vignette at the bottom of this
+// file, and `?vignette=off` there for why it is a *settle* rather than a skip.
+const wantsVignette = new URLSearchParams(window.location.search).get('vignette') !== 'off';
 const revealHud = () => document.body.classList.add('hud-ready');
 
 // Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
@@ -951,7 +977,11 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // same way: the spotlight dimming a city that is still building itself would upstage the build,
   // and the first bubble should land as the thing that happens *after* the last building does.
   // The 250ms beat between the two is the tutorial's own OPENING_HOLD.
-  isBlocked: () => Boolean(homeTip?.state.holding) || cityEntry.running(),
+  // ...and the opening vignette holds it after that, so the three queue: the city builds itself,
+  // the taxi comes out of its garage, and only then does anything start talking. Each is a claim
+  // about the same few seconds and any two of them at once is neither.
+  isBlocked: () => Boolean(homeTip?.state.holding) || cityEntry.running()
+    || Boolean(opening?.running()),
   // The same guard the picker uses: the click a mouse synthesises at the end of a drag must not
   // count as an answer to the bubble the player was dragging past.
   shouldIgnoreTap: () => Boolean(pan?.didPan() || pathDrag?.didDrag()),
@@ -1584,7 +1614,14 @@ const homeTip = shot ? null : createHomeScreenTip(document.getElementById('home-
 // would be visible through the gradient — but the *fare loop* has to wait, or a rider appears
 // behind the overlay with a 60-second deadline already running and a player who reads the screen
 // slowly loses a run they never started. One shared empty list rather than a fresh one per frame.
+//
+// The opening vignette takes the same hold, for a closely related reason. The board is *seeded* by
+// the first `update` — `shouldRefill` fills an empty board immediately — so leaving the fare loop
+// running through the vignette stood a rider and a two-metre crystal on a kerb while the camera
+// was down at the garage door, and on the seed this was first watched on, that kerb was the one
+// the door faces. The board belongs to the run, and the run starts when the taxi is on the road.
 const NO_FARE_EVENTS = [];
+const fareLoopHeld = () => Boolean(homeTip?.state.holding) || Boolean(opening?.running());
 
 // The ⏸ at the top of the HUD. Unlike the two holds above it this one stops the *whole* frame (see
 // the early return in `frame()`), because a pause the player asked for has to give back a city in
@@ -1681,6 +1718,11 @@ function frame() {
   // and returns immediately once it is at the mark, and the cooldown range is two numbers.
   applyWorldPressure();
 
+  // Before `traffic.update`, because the vignette *is* the taxi's physics while it runs: it writes
+  // the car's position, heading and speed by hand, and the render pass inside `traffic.update`
+  // reads them on the same frame. See game/opening.js for the staging split.
+  opening?.update(dt);
+
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
   // After traffic has settled positions for the frame — that's what the overlap check reads, and
@@ -1721,8 +1763,14 @@ function frame() {
   // on every viewport — a desktop player has the whole city in frame and still cannot tell which
   // car is theirs, which is the entire reason the first bubble exists. It frames from here rather
   // than from its own update() so this list stays the one place the camera is decided.
+  // The opening vignette outranks all of it, and on every viewport: it is a cut scene, and nothing
+  // else can be claiming the framing three seconds into a run anyway. It hands back by letting
+  // `holdsCamera` go false with the camera already sitting on `restFraming()` below, so there is
+  // no gap for the follow-cam to snap across.
   const boosting = boost.isActive();
-  if (endSpot) {
+  if (opening?.holdsCamera()) {
+    opening.frameCamera(dt);
+  } else if (endSpot) {
     controller.focusOn(endSpot.x, endSpot.z, endZoom, dt, aspect());
   } else if (boosting && !fares.state.gameOver && isNarrow()) {
     controller.followXZ(traffic.taxi.x, traffic.taxi.z, dt, BOOST_FOLLOW_SMOOTHING, aspect(),
@@ -1745,7 +1793,7 @@ function frame() {
   // More than one thing can land in a frame now — delivering the last fare clears the board and
   // spawns the next one in the same tick — so this is a list rather than a single event.
   for (const { type, fare } of
-    (homeTip?.state.holding ? NO_FARE_EVENTS : fares.update(dt, traffic.taxi))) {
+    (fareLoopHeld() ? NO_FARE_EVENTS : fares.update(dt, traffic.taxi))) {
     if (type === 'pickup') {
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
@@ -1809,7 +1857,7 @@ function frame() {
   // on `pendingTarget`'s identity so a detour's collection leaves the fare's route alone.
   // See game/parcels.js.
   for (const { type, parcel, at } of
-    (parcels && !homeTip?.state.holding
+    (parcels && !fareLoopHeld()
       ? parcels.update(dt, traffic.taxi, {
         fareSpots: fares.occupiedSpots(),
         delivered: fares.state.delivered,
@@ -1923,6 +1971,48 @@ function frame() {
   // so this is the frame that just went to the screen rather than the one before it.
   diag.update(wallDt);
 }
+
+// The gear button sits top-right at small widths and started overlapping the streak counter
+// there — most players never open it anyway, so it's opt-in now: `?debug` or `?settings` in the
+// URL, either present with no value needed.
+const debugParams = new URLSearchParams(window.location.search);
+const wantsDebugPanel = debugParams.has('debug') || debugParams.has('settings');
+
+// The Loco Mode ramp. Pushed into the panel rather than imported by it for the same reason the
+// difficulty knobs are pushed into `sim/` — the sim owns these numbers, and the panel is one more
+// thing allowed to move them, alongside `traffic.taxi.boost` and `setCarCount`.
+//
+// Hoisted out of the panel's arguments so `window.__taxi.loco` can hand out the same handle. The
+// panel's sliders are bounded and this is not: `setLocoTuning` takes any finite positive number,
+// so `__taxi.loco.set({ overdriveSpeed: 60 })` from the console is the way past the top of a
+// slider. There is nothing to protect — a silly number makes a silly game, which is the point.
+const loco = {
+  get: locoTuning, set: setLocoTuning, reset: resetLocoTuning, ramp: locoRamp,
+  defaults: LOCO_DEFAULTS,
+  /**
+   * Persist the current tuning, or forget it once it is back to shipped — so "Reset" survives a
+   * reload as surely as a tweak does. Returns whether the stash now matches what is on screen,
+   * which is false only when storage refused the write. See game/locostash.js.
+   */
+  save: () => {
+    const tuning = locoTuning();
+    const tweaked = Object.keys(LOCO_DEFAULTS).some((key) => tuning[key] !== LOCO_DEFAULTS[key]);
+    if (!tweaked) return clearLocoTuning();
+    return saveLocoTuning(tuning);
+  },
+};
+
+/**
+ * Restore a stashed tuning — **only under `?debug`**, and before the warmup below, so the ten sim
+ * seconds it drives run on the same numbers the rest of the page will.
+ *
+ * The gate is the whole point rather than a precaution. Without the panel on screen nothing says
+ * the game is not the game, so a stash left over from a tuning session would make an ordinary run
+ * silently unlike everyone else's — and put its score on the table. Shot mode is out for the same
+ * reason from the other end: a screenshot has to be of the shipped build.
+ */
+const stashedLoco = !shot && wantsDebugPanel ? loadLocoTuning() : null;
+if (stashedLoco) loco.set(stashedLoco);
 
 if (shot) {
   document.body.classList.add('shot-mode');
@@ -2229,23 +2319,58 @@ if (shot) {
   // The city's own entrance is an animation that opens at zero too — unsettled, every screenshot
   // is an empty street grid.
   cityEntry.settle();
+  // Shot mode never stages the taxi, so there is no vignette to land — but the garage still has to
+  // be in the state a run is actually played in, which is shut, the car long gone and the door
+  // come down behind it.
+  garage?.setDoor(0);
   renderFrame();
   document.body.dataset.shotReady = 'true';
 } else {
   traffic.warmup(10);
+  // The opening vignette, and it is built here rather than up with everything else for one
+  // reason: constructing it parks the taxi inside the garage, and the warm-up above would have
+  // driven it back out. See game/opening.js.
+  if (garage) {
+    opening = createOpening({
+      site: garage.site,
+      setDoor: garage.setDoor,
+      taxi: traffic.taxi,
+      taxiGroup: traffic.taxiGroup,
+      cars: traffic.cars,
+      controller,
+      aspect,
+      playZoom: PLAY_ZOOM,
+      // Where the camera is left. The same decision the priority list makes every other frame:
+      // the whole city on a desktop, the car on a phone — where the opening follow-cam is about
+      // to pick the framing up. Read per frame, because the taxi is moving while it is read.
+      restFraming: () => (isNarrow()
+        ? { x: traffic.taxi.x, z: traffic.taxi.z }
+        : { x: 0, z: 0 }),
+      // The city's own entrance goes first. Both are held behind the Home Screen tip on iOS in a
+      // tab, which parks the whole run until it is dismissed.
+      isBlocked: () => Boolean(homeTip?.state.holding) || cityEntry.running(),
+      // Off the kerb. The same pool and the same call the boost trail uses, at about half a
+      // barricade's power — two wheels coming off a 0.35-unit lip, not a car landing off a ramp.
+      onDrop: () => dust.burst(traffic.taxi.x, traffic.taxi.z, traffic.taxi.yaw, 7, 0.5),
+    });
+    // `?vignette=off`, the same escape hatch `?tutorial=off` is: the opening is seven seconds
+    // long and nobody iterating on the fare loop wants it on every reload. The module is
+    // still constructed and then *landed* rather than not built at all, so the skip goes through
+    // the same handover the real sequence does — a skip that reached the game by a different route
+    // would be a second opening to keep working.
+    if (!wantsVignette) opening.settle();
+  }
   // Re-aim the entrance wave at the taxi *after* the warmup: it was created with the spawn
   // point, and ten sim-seconds of warmup drive the taxi a couple of blocks from there — so the
   // wave was visibly emanating from a spot the player's car had already left. Costs nothing:
-  // the entrance clock hasn't taken its first tick yet.
+  // the entrance clock hasn't taken its first tick yet. With a garage in the city the taxi is
+  // already parked inside it by now, so the city builds itself outward from the depot — which is
+  // exactly where the camera is about to go.
   cityEntry.replay(traffic.taxi);
   frame();
 }
 
-// The gear button sits top-right at small widths and started overlapping the streak counter
-// there — most players never open it anyway, so it's opt-in now: `?debug` or `?settings` in the
-// URL, either present with no value needed.
-const wantsDebugPanel = new URLSearchParams(window.location.search);
-if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) {
+if (!shot && wantsDebugPanel) {
   createDebugPanel({
     sun,
     hemi,
@@ -2265,6 +2390,9 @@ if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) 
       tune: cityEntry.tune,
       replay: () => cityEntry.replay(traffic.taxi),
     },
+    loco,
+    /** True when the sliders opened on a tuning restored from a previous session. */
+    locoRestored: Boolean(stashedLoco),
   });
 }
 
@@ -2272,6 +2400,11 @@ window.__taxi = {
   traffic,
   daylight,
   boost,
+  /**
+   * Loco Mode's speed ramp — `get`, `set`, `reset`, `ramp`, `defaults`. The ⚙️ panel's sliders
+   * drive the same handle, so this is where you go for a value past the end of one of them.
+   */
+  loco,
   tutorial,
   carGhosts,
   skids,
@@ -2294,6 +2427,14 @@ window.__taxi = {
   taxiFinder,
   flyover,
   chopper,
+  /**
+   * The taxi's depot and the vignette that comes out of it, or null on a city with nowhere to put
+   * one (and, for `opening`, in shot mode). `garage.setDoor(0..1)` scrubs the shutter by hand and
+   * `opening.phase()` names where the sequence has got to — which is how `tools/smoke.mjs` watches
+   * it without guessing at wallclock.
+   */
+  garage,
+  opening: () => opening,
   /** The opening rise-out-of-the-ground animation. `cityEntry.replay()` reruns it on demand. */
   cityEntry,
   // Every flock in the city, in build order — `flocks[0]` is the one shot 18 frames.

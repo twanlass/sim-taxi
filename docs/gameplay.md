@@ -1,16 +1,146 @@
 # Gameplay
 
+## The opening vignette
+
+`src/game/opening.js`, over the depot in [city/garage.js](city.md#the-depot-block). A run does not
+start with the taxi already in traffic. The camera comes down onto a garage door, the door rolls up,
+the player's car drives out of it, bumps down the kerb into the street, and the camera pulls back
+out to the game.
+
+**PROTOTYPE.** It works end to end and the numbers below are the ones it shipped with, but three
+things are hard-coded that a finished version would probably decide per city — see
+[the depot block](city.md#the-depot-block) for why each is the way it is: the door always faces
+**+X**, the depot always takes a **whole block**, and the exit is always a **right turn** into the
+near lane.
+
+### The beats
+
+| Phase | What happens | Length |
+|---|---|---|
+| `wait` | The city's own [entrance wave](rendering.md) is still running. The taxi is already in the garage by now, so the wave spreads out from the depot — the building the camera is about to go to | until the wave lands |
+| `approach` | `focusOn` eases target and zoom together onto the door, from the play framing at zoom 52 down to **15** | ~1.4s, capped at 1.9 |
+| `settle` | A beat on the shut door, so arriving and the door moving read as two events | 0.12s |
+| `door` | The curtain winds up on an ease-*out* — a roller door leaves fast under its counterweight and creeps the last few inches | 0.95s |
+| `reveal` | The car sitting in a lit doorway. This is the shot | 0.35s |
+| `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. The zoom starts widening as the nose clears the door, so the pull-back is already under way; the **shutter starts coming back down** the moment the car reaches the kerb | ~2.7s |
+| `release` | `focusOn` back to whatever framing the run would have had — the city's centre on a desktop, the taxi on a phone, where the opening follow-cam picks it up | ~1.3s, capped at 2.0 |
+
+The door comes down over 1.4s, slower than it went up — that is what a roller door does, leaving
+under its counterweight and returning under a motor, and it is scenery by then rather than the
+subject. It runs on its own clock rather than the phase's, so it keeps closing through `release`
+after `roll` has stopped being called, and `finish` lands it shut. **Shut is the resting state** a
+run is played in: the car is out and the depot closed up behind it, which is what shot mode sets too.
+
+Both eased legs normally retire on **arrival** rather than on their cap, and the caps sit just past
+where that happens: they are a backstop against a resize or a device dropping frames, not the thing
+that sets the pace. The approach's rate came up from 1.7 to 2.4 for the same reason the `settle`
+beat came down from 0.3 — the tail of an exponential is the part nobody is watching, and at 1.7 the
+last third of a second was the frame creeping the final 2% of a zoom with the door sitting there
+shut.
+
+Then the tutorial starts. The three openers **queue on one guard**: the city builds itself, the taxi
+comes out of its garage, and only then does anything start talking. `isBlocked` in `main.js` chains
+them, and the fare loop is held for the whole of it — see [the board waits](#the-board-waits) below.
+
+### Where the taxi parks
+
+Its nose sits `NOSE_BEHIND` = 0.25 units back from the shut curtain, and the number that matters is
+what that is measured from: **`TAXI_TAILPIPE_BACK`, half the *drawn* car**. The taxi group wears
+`TAXI_SCALE` = 1.18, so the body on screen is 4.01 units long where `CAR_LEN` says 3.4 — and parking
+it by half of `CAR_LEN` put the nose a third of a unit *through* the closed door, as a yellow
+rectangle stamped across the middle of the shutter. The bay is sized off the same number: 5.2 deep,
+which is the car plus the recess plus somewhere for the back bumper. The probe asserts both ends.
+
+The back half of the body is hidden behind the +Z jamb at this camera, and no width of opening
+changes that — the sightline gains a unit of z for every unit of x, so it walks out of the doorway
+before it clears the bay. That is the shot rather than a limitation of it: a nose in a lit doorway.
+
+### The taxi is out of the traffic model for the whole of it
+
+It has to be. A garage is not anywhere on the road network, and a car parked inside one cannot be
+expressed as a lane coordinate. `stageCar` in `sim/traffic.js` is that split, and the split is the
+interesting part: a staged car is skipped by **every simulation loop** — nothing queues behind it,
+yields to it or reserves a junction against it, exactly as for a crashed one — but it is **still in
+the render pass**. Only where its `x/z/yaw` come from changes.
+
+Which means the drive-out gets the car's own suspension for free. The nose dip coming off the kerb
+is not animated: it is one impulse into the pitch spring that was already there (ζ ≈ 0.4, so one
+shove gives a dip, a rebound and a settle), and a second, smaller one as the rear axle follows. The
+speed bob, the brake lights and the indicator all keep working the same way — the indicator through
+`stageSignal`, because a staged car has no committed turn to read a hand off.
+
+`stageCar` is mostly a list of things it *clears*. Every lane-relative offset the render pass
+applies on top of a position — the weave, the overtake, the siren panic, the pull-over — is eased in
+the physics loop, which a staged car skips, so anything left standing would be frozen into the
+vignette. A taxi that spent the warm-up near the police siren sat in its garage permanently shoved a
+unit sideways until that list existed.
+
+### The exit is one continuous curve
+
+Straight down the driveway, then a quarter circle onto the lane. The fillet's radius is not a choice
+— it has to be tangent to the driveway at the kerb lip and tangent to the lane where it lands, which
+fixes it at the gap between the kerb and the near lane's centre, `HALF_ROAD - LANE` = **2**. That
+happens to be the radius every right turn in this city already uses (`turnControl` in `grid.js`), so
+the manoeuvre reads as one of them.
+
+`releaseCar` then hands the taxi back to the traffic model with its speed intact, on the lane the
+arc landed on, five and a half units short of the junction. The probe asserts that the arc's
+end point and the point `placeCar` puts the car at are the same to within 1e-9 — they are computed
+by completely different arithmetic, and a millimetre between them is a car twitching sideways on the
+handover.
+
+**It waits for a gap.** The taxi holds at the top of the dropped kerb until the lane it is joining
+is clear — a box on that lane rather than a radius around the merge point, because the opposing
+lane's centre is only 4 units away and a radius wide enough to see a car coming up behind also sees
+every car going the other way. It gives up waiting after 5 seconds: a run that will not start is
+worse than a near miss.
+
+### The board waits
+
+`fares.update` is not called while the vignette runs, on the same hold the "Add to Home Screen"
+screen takes. The fare board is *seeded* by that first call — `shouldRefill` fills an empty board
+immediately — so leaving the loop running stood a rider and a two-metre crystal on a kerb while the
+camera was down at the garage door, and on the seed this was first watched on, that kerb was the one
+the door faces. The board belongs to the run, and the run starts when the taxi is on the road.
+
+The [taxi's ghost outline](rendering.md#taxi-ghost-outline--geometryghostoutlinejs) is switched off
+for the same span, and it is the sharper version of the same point: that outline exists to find the
+car behind a building, and for these few seconds the car is *in* one — so it drew a yellow blob
+across the door the whole vignette was building up to. Where the car is, is what the camera is for.
+
+### Where it sits in the camera's priority list
+
+At the **top**, above even [the closing shot](rendering.md#the-closing-shot), and on every viewport
+rather than narrow ones only. It is a cut scene: nothing else can be claiming the framing three
+seconds into a run, and a player swiping through one should not be able to steer it off its subject.
+It hands back by letting `holdsCamera()` go false with the camera already sitting on the framing the
+next claimant wants, so there is no gap for the follow-cam to snap across.
+
+Shot mode never stages the taxi at all — the module is not constructed there — and `main.js` just
+shuts the door beside `cityEntry.settle()`, which is the state a run is actually played in.
+
+**`?vignette=off`** skips it, the same escape hatch `?tutorial=off` is: seven seconds is a long
+time to sit through on every reload while iterating on something else. It is a *settle* rather than a
+skip — the module is built and then landed — so the fast path goes through the same handover the
+real sequence does. A skip that reached the game any other way would be a second opening to keep
+working.
+
 ## The opening tutorial
 
 `src/game/tutorial.js`, with its markup and styling in `index.html` under `#coach`. A white speech
 bubble in the bottom centre with the player's own taxi turning beside the text, tail on top pointing
 up at whatever it is talking about, and the line typing itself out. **Three beats, and that is all
-of it:**
+of it** — though the first one is currently switched off:
 
-1. **"Let's pick up some rides and earn some cash."** The camera follows the taxi while it types and
-   a spotlight picks it out of a darkened city. The one thing a new player cannot work out by
-   looking is which of the hundred cars down there is theirs — so the car itself says it, and both
-   the camera and the light land on it.
+1. ~~**"Let's pick up some rides and earn some cash."**~~ The camera follows the taxi while it types
+   and a spotlight picks it out of a darkened city. **Off** — `TAXI_BEAT` in `tutorial.js`. The one
+   thing a new player cannot work out by looking is which of the hundred cars down there is theirs,
+   and this was the cheapest way to answer it until
+   [the opening vignette](#the-opening-vignette) started the run by showing them their own garage
+   door open and their own car drive out of it. That is a better answer than a sentence, and skipping
+   the bubble gets the run to its first *instruction* a beat sooner. The beat is intact behind the
+   flag — the line, `openOnTaxi`, and the `'taxi'` step in both step sets — because the vignette is
+   a prototype and this is what has to come back if it goes.
 2. **"Tap rider to start."** The spotlight moves to the waiting fare as the camera sets off for
    them, so the light is already on the rider and the pan carries the player to it; the bubble comes
    back once the camera has arrived. Tapping the rider answers it directly.
@@ -19,11 +149,11 @@ of it:**
    the pill and the pill pulsing under it. Skipped entirely if the player has already fired Loco
    Mode.
 
-The city's own entrance comes first: the whole tutorial is held frozen (via its `isBlocked` hook —
-the same one the "Add to Home Screen" screen uses) while the buildings rise out of the ground
-around the taxi ([the entrance animation](rendering.md#the-city-entrance--gamecityentryjs)), then
-`OPENING_HOLD` — now just a 250ms breath — separates the last building settling from the lights
-coming down. The hold used to be a full second of static city, because a run that opens
+The city's own entrance and then the vignette come first: the whole tutorial is held frozen (via its
+`isBlocked` hook — the same one the "Add to Home Screen" screen uses) while the buildings rise out of
+the ground ([the entrance animation](rendering.md#the-city-entrance--gamecityentryjs)) and the taxi
+comes out of its garage, then `OPENING_HOLD` — now just a 250ms breath — separates the camera landing
+from the lights coming down. The hold used to be a full second of static city, because a run that opens
 mid-sentence gives the player nothing to attach the sentence to; three-plus seconds of the city
 building itself does that job better than the second of idling traffic did. The clocks are already
 held through all of it, so it costs nothing. The camera is already easing onto the taxi during it —
@@ -1312,6 +1442,20 @@ square against a disc is read at a glance.
   package's indefinite wait guaranteed a later fare would eventually land on one. Blocks as well as
   junctions, since `cornerFor` flips its corner inward at `i === 0` and two intersections a whole block
   apart can still share a slab.
+- **Never on a park.** A pad is a delivery address, and a park block has none — no door, no kerb cut,
+  the box sitting among the trees — which on a [district](city.md#park-districts-close-roads) reads
+  worse still,
+  because a district is built *over* the road that used to reach one of its corners, so the pad stands
+  beside a street the router knows is gone. Both ends are filtered, through `onParkBlock` in `fares.js`
+  rather than a test written here: which block a corner pin ends up on is `cornerFor`'s −X−Z flip, and
+  that flip has one owner. It is the only **hard** condition in the draw — every other one is about how
+  good the errand is, and a bad draw there is a worse job; this one is not a job at all — so an unlucky
+  city offers no box that frame and tries again on the next, which costs a layer with no clock nothing.
+  The supply it spends is small: the leanest of 200 city seeds still leaves 24 of 36 junctions standing
+  on pavement, and `tools/probe.mjs` asserts both that floor and the rule itself. The rule's check
+  samples 80 fresh boards on one city rather than counting the run's own spawns — one board slot means
+  a 420s run sees a handful of packages against a map that is a sixth green, so the run alone passes by
+  not looking (measured: 0/2 in the run, 17/160 across the boards, with the filter deleted).
 - **Packages land off the route the taxi is already driving**, at spawn. A box on a road the car was
   going to take anyway is collected for free and asks nothing. It is a spawn-time bias only — the
   next fare re-plans everything, and a package ending up on the new route is the "free money" case,
@@ -1628,7 +1772,7 @@ the holds were rare enough to cost the mode its feel without protecting it.
 tank runs dry — the taxi is still exposed to everything Loco Mode was: it can still crash into
 traffic, still gets caught if a cop is in bust range, still forces the next light. What it loses
 immediately is the speed — the cap drops back to cruise the moment the hold ends, and ordinary
-braking (the same constant every other stop uses) hauls it down from 18.7 to 8.5 in under a
+braking (the same constant every other stop uses) hauls it down from 22.1 to 8.5 in under a
 second, nose dipping hard the whole way. So letting go a beat too late doesn't buy safety; it buys
 a car that's still committed to whatever's in front of it while visibly losing the ability to
 dodge. Re-pressing mid-cooldown cancels it and snaps straight back to full send. See

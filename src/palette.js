@@ -102,6 +102,31 @@ export const PALETTE = {
   // every piece of rooftop ironwork, same argument as `birdBill`.
   rooftopIron: '#43484F',
 
+  // --- The taxi garage --------------------------------------------------------
+  // The one building the player owns, and the only one the tower generator doesn't draw. Its
+  // envelope stays *outside* BUILDING_COLORS on purpose: a depot is a shed among offices, and
+  // giving it a family of its own is what stops it reading as one more block of flats with a hole
+  // in the front.
+  garageWall: '#8C8D8A',
+  // Parapet cap, door frame, shutter drum. One dark for every piece of the building's ironwork,
+  // the same argument as `rooftopIron` above.
+  garageTrim: '#5E6167',
+  // The shutter curtain. Pale, because the whole read of a roller door is the horizontal line
+  // between one slat and the next — on a dark curtain those lines are shadow on shadow.
+  garageDoor: '#B9BCC0',
+  // Its bottom rail: the leading edge, and the one part of the door the eye tracks while it opens.
+  garageDoorRail: '#4E5257',
+  // Everything lining the bay. Dark enough that the taxi inside is the light thing in the hole,
+  // which is the entire point of the reveal.
+  garageBay: '#3B3E44',
+  // The strip light on the bay ceiling. Unlit (see `unlitMaterial`) — it *is* a light source, and
+  // a pale box standing in its own shadow reads as grey paint.
+  garageLight: '#FFE7B8',
+  // The fascia band over the door, and a deliberate exception to "yellow is reserved for the taxi"
+  // below. It is reserved for the taxi; this is the taxi's building, and a band 0.45 units tall on
+  // a vertical face four units up is not mistakable for a car on the road.
+  garageSign: '#F5C130',
+
   // Yellow is reserved for the taxi. An amber car used to sit in this list and was genuinely
   // mistakable for the player's vehicle at play zoom, where both are a few pixels of warm colour.
   carBody: ['#C9503F', '#2F8F94', '#4E7FC0', '#E4E1DA', '#3F8A63', '#8A6BB0', '#D9D2C3', '#455160'],
@@ -320,6 +345,24 @@ export const PALETTE = {
 
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
+
+  // Park furniture. A bench's slats are timber and stand within a couple of units of a trunk, so
+  // the one colour they must clearly not be is `trunk` (#6B4E35) — a bench painted the wood of the
+  // tree beside it reads as a fallen branch. This is the same hue two steps lighter and a shade
+  // less red, which is also what keeps it off `plywood` (#B98A54): that one is a bare board
+  // propped against a barricade and this one is finished furniture. The frame reuses `pole` — it
+  // is the same painted metal every other piece of street furniture in the city stands on.
+  benchSlat: '#A2733F',
+
+  // The statue. Pale limestone for the figure and a greyer stone under it, and the split matters
+  // more than either colour: the figure is the thing to see from across the map, so it takes the
+  // lightest value in the park — 20 points above the plinth, which is itself darker than the
+  // `sidewalk` (#9E9C94) the plaza around it is paved in, so a statue never dissolves into its own
+  // base or its own paving. Deliberately *not* a verdigris bronze, however classical: the obvious
+  // patina green (~#7A8B6E) lands a few points off `park` (#6F9A5A) and a figure standing on grass
+  // in the colour of grass is a figure nobody sees.
+  statueStone: '#C9C3B4',
+  statuePlinth: '#8E8A80',
 
   // Roadworks. The warm end of the wheel is already spoken for twice over — the taxi owns yellow
   // outright and the urgency scale owns the ambers below it. Measured where `getHSL` measures,

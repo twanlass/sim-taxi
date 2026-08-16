@@ -122,7 +122,8 @@ Mode top that is **52 → 68 world units of road ahead**, about three quarters o
 
 `followXZ` takes an `aim` — `{ x, z, gain, speed }`, a ground heading and a strength — and
 `followAim()` in `main.js` builds it from the taxi's yaw and speed. `gain` is the speed against the
-Loco Mode cruise ceiling (`BOOST_CRUISE`, 18.7 u/s), which is what lets one number serve both
+Loco Mode cruise ceiling (`boostCruise()`, 22.1 u/s by default — a function rather than a
+constant since the ⚙️ panel can move it), which is what lets one number serve both
 follows: full offset at the boost top, about 45% of it at ordinary cruise, and **dead centre at a
 standstill**, where there is no "ahead" to look down and the player is reading the junction they are
 sitting in. A caller that says nothing — the tutorial, whose first bubble is *pointing* at the car —
@@ -860,10 +861,13 @@ still merge behind the car — a puff swells to `END_SIZE` 2.3 against a 1.65 tr
 keeps a single (wider) wake and the close shot gains two sources.
 
 > **The pool had to grow for it: 140 → 200.** The trail spends a slot *per wheel* every 0.47 units
-> travelled, so at the overdrive top of 22.95 u/s it lays ~98 puffs a second and holds ~103 alive
-> across `LIFE`. Against 140 that left 37 for everything else, and a barricade smash costs 26 with
-> another 14 for its landing — the trail would have recycled the burst's own puffs out from under
-> it, which is the exact failure the earlier 90 → 140 jump was made to fix. The probe's
+> travelled, so at the overdrive top it lays a puff per wheel per 0.47 units — ~98 a second and
+> ~103 alive across `LIFE` when that top was 22.95. At the current 34 u/s top it is **~145 a second
+> and ~152 alive**, which leaves 48 of the 200 for everything else against a barricade smash's 26
+> plus 14 for its landing. That still fits, but the headroom is now 8 rather than 60: the next
+> raise to the ceiling wants this pool checked before anything else. Against the old 140 the trail
+> would have recycled the burst's own puffs out from under it, which is the exact failure the
+> earlier 90 → 140 jump was made to fix. The probe's
 > ring-buffer check laps the pool off `mesh.count` rather than a typed 140 for the same reason.
 
 > Per-puff alpha needs a custom `aAlpha` instanced attribute plus a three-line `onBeforeCompile`
@@ -1638,10 +1642,13 @@ partners that were hidden 1.5s before impact wore **no outline at all**, and the
 alpha; at 2.0s it was 6 of 19. At 42 the same 150 crashes give 0 of 17 unoutlined at 1.5s, mean
 alpha 0.55.
 
-The figure that matters is the *fully lit* one, `GHOST_RADIUS - FADE_BAND` = 36 — a ghost inside the
-fade band is nearly transparent, which is not a warning — and that is 1.9s at 18.7 u/s against the
-old 1.3s. `tools/probe.mjs` asserts it in seconds rather than as a bare 42, because the bare number
-is the half that went stale.
+The figure that matters is the *fully lit* one, `GHOST_RADIUS - FADE_BAND` = 40 — a ghost inside the
+fade band is nearly transparent, which is not a warning — and that is 1.81s at the boost cruise of
+22.1 u/s. `tools/probe.mjs` asserts it in seconds rather than as a bare number, and that is exactly
+what caught the radius when Loco Mode's ceiling went up: at 42 the same warning had quietly shrunk
+to 1.63s, under the 1.8s floor. **The radius is a time; when the speed it warns against moves, it
+moves.** 42 → 46, and `MAX_GHOSTS` 12 → 16 with it, since a radius holds vehicles by area and 1.2×
+the radius squared put a peak of 13 in range against a cap of 12.
 
 The old note here warned that a wider radius would put half a dozen more cars in range and turn the
 skyline into a wireframe. Both halves were wrong, and the correction is worth keeping because the
@@ -1660,7 +1667,7 @@ probe drives fifteen seconds of boosting and asserts the cap never binds, so the
 drift apart again silently.
 
 **The horizon has a ceiling: `SPAWN_CLEARANCE`.** A mid-run arrival appears at least 50 units from
-the taxi ([why](traffic.md)), so 42 sits under it with 8 units — 0.43s at `BOOST_CRUISE` — to spare.
+the taxi ([why](traffic.md)), so 42 sits under it with 8 units — 0.43s at `boostCruise()` — to spare.
 If the radius ever reached the clearance, a car would materialise *already wearing an outline*: a
 ghost blinking into existence beside the taxi with no vehicle having driven into view, which is
 indistinguishable from the bug this module exists to prevent. `tools/probe.mjs` asserts the two stay
@@ -2348,7 +2355,8 @@ that it returns after a reload, under an emulated iPhone.
 the streak counter now lives, and it's a tool almost no player needs to see. Split by cost:
 
 - **Live** — day cycle on/off, day length, time of day, sun colour/strength, ambient fill, fare
-  clock, route blend, occlusion strength
+  clock, route blend, occlusion strength, the city-entrance levers, and the
+  [Loco Mode ramp](traffic.md#the-ramp-is-live-tuning)
 - **Restart to apply** — car count (writes a URL parameter and reloads)
 
 Pretending a rebuild-only value is live would just show a slider that silently does nothing.
@@ -2356,3 +2364,8 @@ Pretending a rebuild-only value is live would just show a slider that silently d
 Touching any lighting control stops the day cycle, rather than letting the next frame overwrite the
 change. **Copy settings JSON** exports the live values (not the slider positions, so manual
 overrides are captured) for pasting back as new defaults.
+
+Nothing here persists across a reload **except** the Loco Mode tuning, which is stashed in
+`localStorage` and restored on the next `?debug` load — see
+[traffic.md](traffic.md#the-tuning-survives-a-crash) for why that one is worth keeping and why the
+gate matters.

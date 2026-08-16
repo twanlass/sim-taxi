@@ -53,7 +53,8 @@ function curbBox(w, h, d, x, y, z, col, radius = CURB_RADIUS) {
 
 // The sidewalk surface sits 0.15 in from the kerb's own edge (see the `- 0.3` below), so its
 // corners are rounded to a slightly tighter radius to stay concentric with the kerb beneath it.
-const PAVE_RADIUS = CURB_RADIUS - 0.15;
+const PAVE_INSET = 0.15;
+const PAVE_RADIUS = CURB_RADIUS - PAVE_INSET;
 
 /** The flat sidewalk surface on top of a kerb block, rounded to match its corners. */
 function roundedPaint(w, d, x, z, col, y) {
@@ -61,6 +62,55 @@ function roundedPaint(w, d, x, z, col, y) {
   geo.rotateX(-Math.PI / 2);
   geo.translate(x, y, z);
   return bakeColor(geo, col);
+}
+
+// --- The walk round a park -------------------------------------------------
+//
+// A park's green does not run to the street. Every built block presents a pale sidewalk to the
+// road, and a park laid as bare grass to the kerb line was the one block in the city with no
+// frontage at all: the 0.15 of kerb the block's own platform leaves showing is ~1px at play zoom
+// (1 world unit ≈ 7.7px), so against grass the edge simply vanished and the green read as a rug
+// dropped on the asphalt rather than as a block with a kerb like its neighbours.
+//
+// 1.0 unit ≈ 8px at play zoom, which is a band you can see. It is also a shade wider than the 0.7
+// a built block shows between its kerb and its building line (`INSET` 0.85 in buildings.js): a
+// park's frontage has no wall standing on it to widen it, so matched exactly it read as a hairline.
+const PARK_WALK = 1.0;
+
+// How far the grass sits inside the block's own bounds — the kerb's 0.15 plus the walk. Exported
+// because the flock walks on the grass and the trees are planted in it, and both used to derive
+// their margin from the bare 0.15.
+export const PARK_EDGE = PAVE_INSET + PARK_WALK;
+
+// The lawn's own corner radius. Not the walk's radius minus the band: offsetting a rounded
+// rectangle inward by more than its corner radius can't stay concentric, so the width of the band
+// at the diagonal is whatever the two radii and the corner offset make it. Measured across the
+// candidates — 0.9 → 0.70 units at the corner, 1.4 → 0.91, 1.6 → 0.99 — and 1.4 is the roundest
+// lawn that still reads as a lawn while holding the band within a tenth of its 1.0 on the straights.
+const GRASS_RADIUS = 1.4;
+
+/**
+ * A park's ground: the paved walk and the grass inside it, as two flat surfaces at one height.
+ *
+ * The walk is the sidewalk shape with the lawn **cut out of it** rather than the lawn laid on top:
+ * two coplanar opaque surfaces would need separating in y and would pay for the overlap twice, and
+ * every block in the city is one merged mesh precisely so that none of it costs more than it must.
+ */
+function parkSurface(w, d, x, z, walkCol, grassCol, y) {
+  const walk = roundedRectShape(w, d, PAVE_RADIUS);
+  walk.holes.push(roundedRectShape(w - PARK_WALK * 2, d - PARK_WALK * 2, GRASS_RADIUS));
+
+  const paved = new THREE.ShapeGeometry(walk, CURB_SEGMENTS);
+  paved.rotateX(-Math.PI / 2);
+  paved.translate(x, y, z);
+
+  const grass = new THREE.ShapeGeometry(
+    roundedRectShape(w - PARK_WALK * 2, d - PARK_WALK * 2, GRASS_RADIUS), CURB_SEGMENTS,
+  );
+  grass.rotateX(-Math.PI / 2);
+  grass.translate(x, y, z);
+
+  return [bakeColor(paved, walkCol), bakeColor(grass, grassCol)];
 }
 
 const SLAB = SPAN + ROAD_W * 3;
@@ -207,7 +257,12 @@ export function createGround(rng, blocks) {
     const w = x1 - x0;
     const d = z1 - z0;
     parts.push(curbBox(w, KERB_H, d, cx, 0, cz, jitterColor(PALETTE.kerb, rng, { l: 0.02 })));
-    parts.push(roundedPaint(w - 0.3, d - 0.3, cx, cz, jitterColor(PALETTE.park, rng, { l: 0.03 }), KERB_H + 0.01));
+    parts.push(...parkSurface(
+      w - PAVE_INSET * 2, d - PAVE_INSET * 2, cx, cz,
+      jitterColor(PALETTE.sidewalk, rng, { l: 0.03 }),
+      jitterColor(PALETTE.park, rng, { l: 0.03 }),
+      KERB_H + 0.01,
+    ));
   }
 
   // --- Block platforms: raised kerb + sidewalk surface, or grass for parks.
@@ -219,8 +274,19 @@ export function createGround(rng, blocks) {
 
     parts.push(curbBox(w, KERB_H, d, cx, 0, cz, jitterColor(PALETTE.kerb, rng, { l: 0.02 })));
 
-    const surface = block.type === 'park' ? PALETTE.park : PALETTE.sidewalk;
-    parts.push(roundedPaint(w - 0.3, d - 0.3, cx, cz, jitterColor(surface, rng, { l: 0.03 }), KERB_H + 0.01));
+    // A pocket park gets the same walk round it as a district, for the same reason: it is a block
+    // on a street, and the thing that says so is the pavement it presents to the street.
+    if (block.type === 'park') {
+      parts.push(...parkSurface(
+        w - PAVE_INSET * 2, d - PAVE_INSET * 2, cx, cz,
+        jitterColor(PALETTE.sidewalk, rng, { l: 0.03 }),
+        jitterColor(PALETTE.park, rng, { l: 0.03 }),
+        KERB_H + 0.01,
+      ));
+    } else {
+      parts.push(roundedPaint(w - PAVE_INSET * 2, d - PAVE_INSET * 2, cx, cz,
+        jitterColor(PALETTE.sidewalk, rng, { l: 0.03 }), KERB_H + 0.01));
+    }
   }
 
   // --- Dashed centre lines, one run per gap between intersections.
