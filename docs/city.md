@@ -123,35 +123,45 @@ That lane centre is 3.33 across, which is 4.71 along the view diagonal; even a s
 tree with a 0.9 crown reaches about 5.7, so it passed in front of cars over there for roughly half
 of every block. Shortening it further just made it a shrub on a stick.
 
-A flower bed tops out **0.39 above the island**, 0.74 above the road, which casts 1.1 of occlusion
+A flower bed tops out **0.54 above the island**, 0.89 above the road, which casts 1.4 of occlusion
 against the 4.71 it would have to reach to touch the far lane. The question stops being "how often
 does this hide a car" and simply goes away. It also suits the strip better: a median is a planter,
 not a verge, and bedding is what a city puts in one.
 
-**A single flower is not a thing this game can draw.** At play zoom 1 world unit is 7.7px, so a
-bloom is two pixels and a stem is nothing at all. What has to read is the *bed* — a 0.9–1.2 unit
-patch of colour against the island's grass — so `flowerBedParts` spends its geometry on a foliage
-mound wide enough to see and packs blooms over it, rather than on stems nobody resolves. Sixteen to
-twenty-four of them per bed, which at radius 0.10 covers more than the mound's own plan area: the
-green survives as the gaps between blooms, and anything sparser reads as a shrub with a few dots on
-it.
+**A single flower is not a thing this game can draw.** At play zoom 1 world unit is 7.7px, so even
+a scaled-up bloom is three or four pixels and a stem is nothing at all. What has to read is the
+*bed* — a 1.1–1.6 unit patch of colour against the island's grass — so `flowerBedParts` spends its
+geometry on a foliage mound wide enough to see and packs blooms over it, rather than on stems
+nobody resolves. Twenty to thirty of them per bed, which at radius 0.16 comes to **twice the
+mound's own plan area**: they pile over each other and the green survives only where the mound
+shows past them.
 
-Three or four beds an island, spaced rather than scattered, for the same reason the park benches
-are ([above](#benches-and-one-statue)) — but close enough at a 1.4 pitch that neighbours overlap.
-That is the point. A planted central reservation is a continuous drift of colour, and overlapping
-mounds give it that without a second kind of geometry.
+It took three passes to get there and the direction was the same each time. The first was two beds
+an island of 7–11 blooms at radius 0.10, and at play zoom that is a shrub with dots on it. Density
+and size are what this reads by; the mound is only the thing holding them up.
+
+Four to six beds an island, spaced rather than scattered, for the same reason the park benches are
+([above](#benches-and-one-statue)) — but at a 1.0 pitch against beds 1.1–1.6 across, so every one
+of them overlaps its neighbours. That is the point. The "bed" stops being a discrete object and the
+island reads as planted end to end, which is what a central reservation looks like; overlapping
+mounds get it with no second kind of geometry, and the wasted interior faces are a one-off merge
+cost rather than a per-frame one.
 
 A bloom is an **octahedron**, not the icosahedron the mound uses: 8 triangles against 20, and at
-two pixels the two are indistinguishable. The city carries ~720 of them, so the choice is worth
-10,000 triangles and a third of the props mesh's build time (measured: 111ms → 99ms, 20.6k → 11.7k
-triangles for the whole mesh).
+three pixels the two are indistinguishable. The city carries ~1,300 of them, so the choice is most
+of the props mesh — measured at this density, 118ms and 16.4k triangles against 166ms and 31.8k.
 
 `planMedianBeds` is split out and exported the way `planParkFurniture` is: placement is the part
 with a rule in it, and the rule — no bed may overhang its island's kerb into the carriageway — is
 invisible once the props are merged into one mesh. The probe sweeps it over seeds, because the bed
-that would escape is specifically the widest one on the narrowest island, and it budgets for
-`jitterVertices` throwing a mound's corners 14% past its nominal radius. That is 0.09 at the top of
-the size range, which is most of the 0.15 of kerb an island leaves showing.
+that would escape is specifically the widest one on the narrowest island.
+
+**Two different things can be a bed's outermost point, and which one wins changes with its size.**
+The mound reaches `radius · 1.14` once `jitterVertices` has thrown its corners about; the rim
+blooms reach `0.82 · radius + BLOOM_R`. The mound is wider on a big bed and the blooms are wider on
+a small one — scaling the flowers up put them 0.016 past it at the bottom of the size range — so a
+footprint taken from the mound alone lets a small bed's flowers hang over the kerb, which is the
+exact thing the bound exists to prevent. `footprint` is the max of the two.
 
 ### The bloom palette is the free space on the wheel
 
