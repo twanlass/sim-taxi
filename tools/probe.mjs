@@ -11,11 +11,11 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
-import { createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE } from '../src/city/ground.js';
+import { createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, PARK_EDGE } from '../src/city/ground.js';
 import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
 } from '../src/city/buildings.js';
-import { createProps } from '../src/city/props.js';
+import { createProps, parkPlots, planParkFurniture, BENCH_LEN, STATUE_PLAZA } from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
@@ -219,6 +219,204 @@ const onGrass = (city, i, j) => {
   createLayout(makeRng(seed));
   check('every city has corners for a courier job to stand on', leanest >= 16,
     `leanest ${leanest}/${(GRID + 1) ** 2} on seed ${leanestSeed}`);
+}
+
+// --- The walk round a park --------------------------------------------------
+//
+// A park presents the same pavement to the street that a built block does, and the green starts
+// `PARK_EDGE` inside the block's own bounds. Two things worth asserting rather than looking at.
+//
+// The **inset** is the one two other systems read: `city/props.js` plants trunks clear of the walk
+// and `game/birds.js` keeps the flock off it, both deriving their margin from `PARK_EDGE`. A walk
+// widened here without them noticing is a tree growing out of the paving.
+//
+// The **winding** is the standing trap: the walk is a `ShapeGeometry` with the lawn cut out of it
+// as a hole, and a hole is triangulated by earcut rather than laid out in rows like a plain
+// rounded rectangle. `computeVertexNormals` would launder a reversed triangle into whatever its
+// neighbours say, so the normal is computed from the winding — the roadworks ramp and the courier
+// pad both shipped this way round.
+{
+  const surfaceY = KERB_H + 0.01;
+  const pos = ground.geometry.attributes.position;
+  const col = ground.geometry.attributes.color;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const n = new THREE.Vector3();
+
+  let facingDown = 0;
+  let surfaceTris = 0;
+  for (let t = 0; t < pos.count; t += 3) {
+    a.fromBufferAttribute(pos, t);
+    b.fromBufferAttribute(pos, t + 1);
+    c.fromBufferAttribute(pos, t + 2);
+    if (Math.abs(a.y - surfaceY) > 1e-4 || Math.abs(b.y - surfaceY) > 1e-4
+      || Math.abs(c.y - surfaceY) > 1e-4) continue;
+    n.crossVectors(b.clone().sub(a), c.clone().sub(a));
+    // Earcut leaves a handful of zero-area triangles at the corners of a holed shape. They draw
+    // nothing and have no normal to have got wrong; what must not appear is one facing the dirt.
+    if (n.lengthSq() < 1e-12) continue;
+    surfaceTris += 1;
+    if (n.normalize().y < 0.999) facingDown += 1;
+  }
+  check('every block surface faces the sky', facingDown === 0 && surfaceTris > 0,
+    `${facingDown} of ${surfaceTris} wound the wrong way`);
+
+  // Where the green actually starts, measured off the mesh: the extent of the park-coloured
+  // vertices on a park block against the block's own bounds.
+  const areas = [
+    ...(layout.districts ?? []).map((d) => d.bounds),
+    ...layout.filter((bl) => bl.type === 'park' && (bl.districtId ?? null) === null)
+      .map((bl) => bl.bounds),
+  ];
+  let worstGrass = 0;      // how far the grass inset strays from PARK_EDGE
+  let thinnestWalk = Infinity;
+  for (const area of areas) {
+    let grass = Infinity;
+    let paved = Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+      if (Math.abs(pos.getY(i) - surfaceY) > 1e-4) continue;
+      if (x < area.x0 || x > area.x1 || z < area.z0 || z > area.z1) continue;
+      const inset = Math.min(x - area.x0, area.x1 - x, z - area.z0, area.z1 - z);
+      // Grass is the only green in the palette's block surfaces; paving is a neutral grey.
+      if (col.getY(i) > col.getX(i) && col.getY(i) > col.getZ(i)) grass = Math.min(grass, inset);
+      else paved = Math.min(paved, inset);
+    }
+    worstGrass = Math.max(worstGrass, Math.abs(grass - PARK_EDGE));
+    thinnestWalk = Math.min(thinnestWalk, grass - paved);
+  }
+  check('a park is ringed by pavement, not grass to the kerb line', areas.length > 0
+    && worstGrass < 1e-4 && thinnestWalk > 0.5,
+    `${areas.length} parks · grass inset off by ${worstGrass.toExponential(1)} · walk ${thinnestWalk.toFixed(2)} wide`);
+}
+
+// --- Park furniture ---------------------------------------------------------
+//
+// Benches stand on the lawn a step off the walk, and there is exactly one statue in a city. Both
+// are placement rules
+// rather than shapes, so they are swept over seeds rather than looked at on this one: a bench half
+// on the grass and a city with three statues in it are each perfectly plausible on the seed you
+// happen to be looking at and wrong on the next one.
+{
+  let offTheGrass = 0;           // benches with any corner over the paving
+  let adrift = 0;                // ...or wandered away from the walk into the middle of the lawn
+  let facingOut = 0;             // benches with their back to the park
+  let overlapping = 0;           // benches sharing a stretch of walk
+  let statues = 0;
+  let statuesOnGrass = 0;        // ...standing where a plaza fits inside the lawn
+  let cities = 0;
+
+  const SEEDS = 40;
+  for (let s = 0; s < SEEDS; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 37));
+    const plots = parkPlots(cityLayout);
+    const plan = planParkFurniture(makeRng(seed + s * 37 + 33), plots);
+    if (!plots.length) continue;
+    cities += 1;
+    if (plan.statue) statues += 1;
+
+    for (const bench of plan.benches) {
+      const { x0, x1, z0, z1 } = bench.area.bounds;
+      // The bench's own footprint, turned by its yaw: half a length along the seat, and the back
+      // slat to the front edge across it.
+      const cos = Math.cos(bench.yaw);
+      const sin = Math.sin(bench.yaw);
+      let nearest = Infinity;
+      for (const ex of [-BENCH_LEN / 2, BENCH_LEN / 2]) {
+        for (const ez of [-0.34, 0.31]) {
+          const x = bench.x + ex * cos + ez * sin;
+          const z = bench.z - ex * sin + ez * cos;
+          nearest = Math.min(nearest, x - x0, x1 - x, z - z0, z1 - z);
+        }
+      }
+      // A bench stands on the lawn just inside the walk: every corner past `PARK_EDGE`, and none
+      // of them more than a bench's own depth beyond it. The far bound is the half that would
+      // otherwise go unnoticed — a bench adrift in the middle of a park still passes "on grass".
+      if (nearest < PARK_EDGE) offTheGrass += 1;
+      if (nearest > PARK_EDGE + 1.0) adrift += 1;
+
+      // A bench looks into the park. The seat faces local +Z, which yaw turns into the world.
+      const look = { x: sin, z: cos };
+      const inward = { x: (x0 + x1) / 2 - bench.x, z: (z0 + z1) / 2 - bench.z };
+      if (look.x * inward.x + look.z * inward.z <= 0) facingOut += 1;
+    }
+
+    for (let a = 0; a < plan.benches.length; a++) {
+      for (let b = a + 1; b < plan.benches.length; b++) {
+        const gap = Math.hypot(plan.benches[a].x - plan.benches[b].x,
+          plan.benches[a].z - plan.benches[b].z);
+        if (gap < BENCH_LEN) overlapping += 1;
+      }
+    }
+
+    if (plan.statue) {
+      // The plaza has to land on lawn, not hanging over the walk: the tightest park is a pocket
+      // one, 12 across, which leaves 9.7 of grass for a 3.6-unit square.
+      const plot = plots.find((p) => Math.abs((p.bounds.x0 + p.bounds.x1) / 2 - plan.statue.x) < 1e-6
+        && Math.abs((p.bounds.z0 + p.bounds.z1) / 2 - plan.statue.z) < 1e-6);
+      const room = plot ? Math.min(plot.bounds.x1 - plot.bounds.x0, plot.bounds.z1 - plot.bounds.z0) : 0;
+      if (room / 2 - PARK_EDGE < STATUE_PLAZA / 2) statuesOnGrass += 1;
+    }
+  }
+
+  // Same trap as the building sweep further down: `createLayout` installs the network it bakes,
+  // so a sweep leaves the probe's own city replaced by the last one it built.
+  createLayout(makeRng(seed));
+
+  check('every park bench stands on the grass, just off the walk',
+    offTheGrass === 0 && adrift === 0, `${offTheGrass} on the paving, ${adrift} adrift on the lawn`);
+  check('and looks into the park rather than out of it', facingOut === 0, `${facingOut} facing out`);
+  check('no two benches share a stretch of walk', overlapping === 0, `${overlapping} pairs closer than a bench`);
+  check('exactly one statue in a city', statues === cities, `${statues} across ${cities} cities`);
+  check('and it has lawn enough for its plaza', statuesOnGrass === 0,
+    `${statuesOnGrass} plazas hanging over the walk`);
+
+  // The clearing is the other half of that: the trees are planted after the statue is placed and
+  // have to keep out of its square. Read off the merged props mesh rather than off the plan —
+  // every part carries its own object's ground anchor for the entrance animation (`stampEntry`),
+  // so "what stands here" is a question the mesh itself can answer.
+  const ownPlan = planParkFurniture(makeRng(seed + 33), parkPlots(layout));
+  const entry = props.geometry.attributes.aEntry;
+  // An anchor comes back out of a Float32Array, so "is this the statue's own geometry" is a
+  // comparison against a rounded copy of the number that went in. It matched by luck at the
+  // statue — 40 and 10 survive float32 exactly — and not at all at a bench on a 0.55 offset,
+  // where every part of the bench then counted as something planted inside itself.
+  const isAt = (ax, az, p) => Math.abs(ax - p.x) < 1e-4 && Math.abs(az - p.z) < 1e-4;
+  let inTheClearing = 0;
+  if (ownPlan.statue) {
+    const clear = STATUE_PLAZA / 2 + 0.7;
+    for (let i = 0; i < entry.count; i++) {
+      const ax = entry.getX(i);
+      const az = entry.getY(i);          // the anchor's z rides in the attribute's y
+      if (Math.abs(ax - ownPlan.statue.x) > clear || Math.abs(az - ownPlan.statue.z) > clear) continue;
+      if (!isAt(ax, az, ownPlan.statue)) inTheClearing += 1;
+    }
+  }
+  check('nothing is planted in the statue\'s clearing', !!ownPlan.statue && inTheClearing === 0,
+    ownPlan.statue ? `${inTheClearing} vertices of something else inside it` : 'no statue');
+
+  // Benches share the lawn with the trees now rather than standing on the paving beside it, so the
+  // planting has to miss them too. Same read, in each bench's own frame: an anchor inside a bench's
+  // footprint that isn't that bench's own is a trunk coming up through the seat.
+  let throughASeat = 0;
+  for (const bench of ownPlan.benches) {
+    const cos = Math.cos(bench.yaw);
+    const sin = Math.sin(bench.yaw);
+    for (let i = 0; i < entry.count; i++) {
+      const ax = entry.getX(i);
+      const az = entry.getY(i);
+      if (isAt(ax, az, bench)) continue;
+      const dx = ax - bench.x;
+      const dz = az - bench.z;
+      if (Math.abs(dx * cos - dz * sin) < BENCH_LEN / 2 && Math.abs(dx * sin + dz * cos) < 0.34) {
+        throughASeat += 1;
+      }
+    }
+  }
+  check('and nothing stands in a bench', throughASeat === 0,
+    `${throughASeat} vertices anchored inside one across ${ownPlan.benches.length} benches`);
 }
 
 // --- Façades ----------------------------------------------------------------
