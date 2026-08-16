@@ -60,6 +60,21 @@ doesn't reshuffle every other one.
 behaviour a comment describes, update the comment — and if you measure something, write the number
 down.
 
+## Reporting back
+
+When a change is done, close out with three short parts — scannable in a few seconds, not a wall
+of prose. Skip this shape for pure Q&A or exploratory discussion; it's for "I made a change" replies.
+
+**TL;DR** — what changed, in two sentences max.
+
+**Testing** — one or two sentences on how to check it by hand in the running game (open it, click/
+tap through the specific thing that changed). This is in addition to `npm run check`, which you
+still run yourself before reporting — don't just restate that it passed.
+
+**Notes** — a short bulleted list, only when there's something worth flagging: things left undone,
+tradeoffs taken, edge cases not handled, anything that conflicts with existing behaviour or a doc.
+Omit the whole section if there's nothing to note.
+
 ## Traps that have bitten before
 
 - **Don't name a file `beacon.js`** (or an element `#banner`, or anything `leaderboard`). Ad
