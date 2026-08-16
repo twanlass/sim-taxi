@@ -402,6 +402,15 @@ it lives in `#hud`, the first element in the body — and the
 [taxi finder](rendering.md#getting-back-to-the-taxi) a 44px one beside the rider row, so the rule has
 several things enforcing it now.
 
+**It waits out the opening vignette before it touches anything**, and that wait doubles as the one
+end-to-end assertion [the vignette](gameplay.md#the-opening-vignette) can only get in a page: the
+sequence has to finish and hand the taxi back to the traffic model, rather than parking the run in a
+garage forever. It is polled on the sequence's own `phase()` rather than slept — under the software
+renderer the vignette's clock advances at a fraction of wallclock, so a couple of seconds on a GPU
+is a minute here and any fixed wait is either far too long or a flake. Everything below it needs the
+wait anyway: the fare board is held empty for the whole vignette, so there is nothing to tap until
+it lands.
+
 **The camera checks emulate a phone.** Drag-to-pan, both follow-cams and the rider peek are all
 gated under `NARROW_VIEWPORT = 768`, and the tool launches a 900px window — so the drag check was
 asserting a feature that is deliberately switched off there. That half of the run now flips to a

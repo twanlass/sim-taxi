@@ -15,7 +15,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/faremarker.js', '../src/geometry/person.js', '../src/game/routeline.js',
   '../src/game/pathdrag.js',
   '../src/game/dust.js', '../src/game/blast.js', '../src/game/flyover.js', '../src/game/birds.js',
-  '../src/game/cityentry.js',
+  '../src/game/cityentry.js', '../src/city/garage.js', '../src/game/opening.js',
   '../src/game/chopper.js',
   '../src/game/flames.js', '../src/game/daylight.js', '../src/game/riderfinder.js',
   '../src/game/taxifinder.js',

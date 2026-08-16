@@ -9,7 +9,7 @@ behind it that aren't obvious from the code.
 | [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts, ground/buildings/props | `src/city/` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
-| [gameplay.md](gameplay.md) | The opening tutorial, the fare loop, routing, dragging the route, the package courier, picking, the travelling clock, economy, crazy-taxi mode, pause | `src/game/` |
+| [gameplay.md](gameplay.md) | The opening vignette, the opening tutorial, the fare loop, routing, dragging the route, the package courier, picking, the travelling clock, economy, crazy-taxi mode, pause | `src/game/` |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, effects | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
@@ -17,7 +17,12 @@ behind it that aren't obvious from the code.
 
 ## The 60-second version
 
-Every run opens with three speech bubbles from the taxi — "this car is you", "tap that rider", and a
+A run opens on the taxi's **garage**: the camera comes down onto a roller door, the door goes up, the
+car drives out and bumps down the kerb into traffic, and the camera pulls back to the game. One block
+of every city is the depot rather than a block of towers. See
+[the opening vignette](gameplay.md#the-opening-vignette).
+
+After that, three speech bubbles from the taxi — "this car is you", "tap that rider", and a
 nod at the boost pill a couple of seconds after the first drop-off — and that is the whole tutorial;
 see [the opening tutorial](gameplay.md#the-opening-tutorial).
 

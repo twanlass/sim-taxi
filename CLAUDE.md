@@ -21,7 +21,7 @@ about to change.
 | [docs/architecture.md](docs/architecture.md) | Module map, frame loop, seeding, `window.__taxi` test hook |
 | [docs/city.md](docs/city.md) | Coordinates, direction encoding, layout, park districts |
 | [docs/traffic.md](docs/traffic.md) | Signals, arterials, ring road, car physics, boost, police corridor, the bust chase |
-| [docs/gameplay.md](docs/gameplay.md) | Fare loop, routing, picking, timer ring, economy |
+| [docs/gameplay.md](docs/gameplay.md) | Opening vignette, fare loop, routing, picking, timer ring, economy |
 | [docs/difficulty.md](docs/difficulty.md) | The ramp: budgeted clocks, board size, shifts, the sweeps behind the numbers |
 | [docs/rendering.md](docs/rendering.md) | Low-poly technique, camera, lighting, day/night, effects |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
@@ -184,6 +184,21 @@ down.
   `pointerdown`. The only ordering that holds regardless of construction order is a capture
   listener on an **ancestor** — which is why the route-band drag listens on `window`. Getting this
   wrong throws nothing; the map just slides out from under a gesture meant for something else.
+- **A face pointing at the camera is not the same as a face the camera can see.** The view is a
+  fixed diagonal, so the sightline off any surface climbs 0.92 of a unit for every unit it travels
+  in *both* x and z — which means it leaves the block it started on diagonally and can end up
+  behind a tower two blocks away that nothing about the local geometry mentions. The garage door
+  faces +X and is still only visible because it sits near its block's −Z edge: that buys it 7.5
+  units of x before the line crosses the block's far edge, which keeps the crossing inside the
+  8-unit road. Work the ray out (`occlusionClear` in `city/garage.js` shows it) — and then fire a
+  real `Raycaster` through the real merged city in the probe, because the arithmetic is about what
+  the *generator* is going to build there, not about what it built this time.
+- **The fare board is seeded by the first `fares.update`, not at construction.** `shouldRefill`
+  fills an empty board immediately, so "the clocks are paused" (`setPaused`) is not the same claim
+  as "no rider has appeared" — pausing holds the countdown and spawns a rider anyway. Anything that
+  wants the board to stay empty has to skip the `update` call, the way the Home Screen tip and the
+  opening vignette both do. Left running through the vignette, a two-metre crystal turned up on the
+  kerb the camera was pointed at.
 - **`createLayout()` is not a pure function.** It closes segments and installs the road network it
   just baked as *the* city network, so calling it a second time — a probe sweeping seeds, a tool
   building a comparison city — silently replaces the city everything else is measuring against.

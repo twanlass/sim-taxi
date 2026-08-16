@@ -16,6 +16,8 @@ import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
 } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
+import { createGarage, garageSite } from '../src/city/garage.js';
+import { exitPath } from '../src/game/opening.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, BOOST_CRUISE, SPAWN_CLEARANCE } from '../src/sim/traffic.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
@@ -7507,6 +7509,145 @@ let chopperOrder; // likewise
   // Leave the sim as it was found: `closedLanes` is module state in traffic.js, and anything below
   // this point would inherit a city with a street shut in it.
   setClosedLanes([]);
+}
+
+// --- The taxi's garage, and the vignette that comes out of it --------------------------------
+//
+// Three separate claims, and the third is the one that could not be made any other way than here.
+//
+//   1. The depot really does take its block out of the tower generator's hands.
+//   2. The exit path and the traffic model agree, to the bit, about where the taxi lands.
+//   3. **The camera can see the door.** `chooseGarageBlock` filters on a sightline argument worked
+//      out on paper (see `occlusionClear`); this fires a real ray through the real merged city and
+//      finds out. Getting it wrong is a run that opens on a two-second close-up of a wall.
+{
+  const site = garageSite(layout.garageBlock);
+  const bounds = layout.garageBlock.bounds;
+
+  check('the city puts a depot somewhere', Boolean(layout.garageBlock),
+    layout.garageBlock ? `block (${site.bi}, ${site.bj})` : 'none');
+  check('and the tower generator leaves that block alone', (() => {
+    const p = buildings.mesh.geometry.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getX(i) > bounds.x0 && p.getX(i) < bounds.x1
+        && p.getZ(i) > bounds.z0 && p.getZ(i) < bounds.z1) return false;
+    }
+    return true;
+  })());
+
+  const garage = createGarage(layout.garageBlock, makeRng(seed + 99));
+  const head = KERB_H + site.doorH;
+
+  // The bay is a hole, not a dark patch painted on a wall. Tested as a box strictly inside the
+  // opening, clear of every lining panel: a solid mass would have vertices in it.
+  check('the bay is genuinely hollow', (() => {
+    const p = garage.shell.geometry.attributes.position;
+    const inside = (x, y, z) => x > site.frontX - 4.4 && x < site.curtainX - 0.2
+      && y > KERB_H + 0.2 && y < head - 0.2
+      && z > site.doorZ - site.doorW / 2 + 0.2 && z < site.doorZ + site.doorW / 2 - 0.2;
+    for (let i = 0; i < p.count; i++) {
+      if (inside(p.getX(i), p.getY(i), p.getZ(i))) return false;
+    }
+    return true;
+  })());
+
+  // The curtain winds *away*, rather than sliding up out of the opening and standing above the
+  // building. Every vertex has to end up on the lintel plane and none above it.
+  const curtainY = () => {
+    const p = garage.curtain.geometry.attributes.position;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = 0; i < p.count; i++) { lo = Math.min(lo, p.getY(i)); hi = Math.max(hi, p.getY(i)); }
+    return { lo, hi };
+  };
+  garage.setDoor(0);
+  const shut = curtainY();
+  check('shut, the curtain fills the opening',
+    Math.abs(shut.lo - KERB_H) < 0.03 && Math.abs(shut.hi - head) < 0.06,
+    `${shut.lo.toFixed(3)} → ${shut.hi.toFixed(3)} against ${KERB_H} → ${head.toFixed(2)}`);
+  garage.setDoor(1);
+  const open = curtainY();
+  check('open, the whole curtain has collapsed onto the lintel and none of it is above it',
+    Math.abs(open.hi - head) < 1e-9 && open.hi - open.lo < 1e-9,
+    `${open.lo.toFixed(4)} → ${open.hi.toFixed(4)}`);
+  // Scrubbable rather than accumulating: the same fraction has to give the same door however it
+  // was reached, or a replay lands somewhere else than the first run did.
+  garage.setDoor(0.4);
+  const half = curtainY();
+  garage.setDoor(1);
+  garage.setDoor(0.4);
+  const halfAgain = curtainY();
+  check('and the door is a function of its open fraction, not an accumulating offset',
+    Math.abs(half.lo - halfAgain.lo) < 1e-12 && Math.abs(half.hi - halfAgain.hi) < 1e-12);
+
+  // --- The exit path.
+  const path = exitPath(site);
+  const endTangent = path.tangentAt(path.total);
+  const joinBefore = path.tangentAt(path.run.length - 1e-6);
+  const joinAfter = path.tangentAt(path.run.length + 1e-6);
+  check('the fillet meets the driveway with no kink',
+    Math.hypot(joinBefore.x - joinAfter.x, joinBefore.z - joinAfter.z) < 1e-3,
+    `${joinBefore.x.toFixed(4)},${joinBefore.z.toFixed(4)} → ${joinAfter.x.toFixed(4)},${joinAfter.z.toFixed(4)}`);
+  check('and lands pointing straight down the lane',
+    Math.abs(endTangent.x) < 1e-9 && Math.abs(endTangent.z - 1) < 1e-9);
+
+  // The one that matters: two completely different pieces of arithmetic — the fillet's own
+  // geometry, and `placeCar` counting back from a junction along a baked lane — have to agree
+  // about where the taxi is. A few millimetres here is a car twitching sideways on the handover.
+  const end = path.at(path.total);
+  const stand = traffic.cars.find((c) => !c.isTaxi);
+  const was = { lane: stand.lane, s: stand.s, state: stand.state, turn: stand.turn };
+  placeCar(stand, site.merge.d, site.merge.i, site.merge.j, site.merge.back);
+  const landed = stand.lane.path.at(stand.s);
+  check('the arc lands exactly where the traffic model picks the taxi up',
+    Math.hypot(landed.x - end.x, landed.z - end.z) < 1e-9,
+    `arc ${end.x.toFixed(3)},${end.z.toFixed(3)} vs lane ${landed.x.toFixed(3)},${landed.z.toFixed(3)}`);
+  check('...with a whole car-length of lane left before the junction',
+    stand.lane.length - stand.s > CAR_LEN,
+    `${(stand.lane.length - stand.s).toFixed(2)} units`);
+  Object.assign(stand, was);
+
+  // --- Can the camera see the door?
+  //
+  // Nine points across the opening, each fired along VIEW_DIR through the real merged city — the
+  // buildings and the props, not the depot itself, whose own +Z jamb is *meant* to hide the back
+  // half of the bay. Swept over seeds, because the answer is a property of whatever got built next
+  // door rather than of the depot.
+  const sightline = (city, cityProps, s) => {
+    const caster = new THREE.Raycaster();
+    caster.far = 600;
+    for (let u = -0.4; u <= 0.41; u += 0.4) {
+      for (let v = 0.1; v <= 0.91; v += 0.4) {
+        const from = new THREE.Vector3(
+          s.curtainX, KERB_H + v * s.doorH, s.doorZ + u * s.doorW,
+        ).addScaledVector(VIEW_DIR, 0.5);
+        caster.set(from, VIEW_DIR);
+        if (caster.intersectObjects([city, cityProps], false).length) return false;
+      }
+    }
+    return true;
+  };
+  check('nothing stands between the camera and this door',
+    sightline(buildings.mesh, props, site));
+
+  let sited = 0;
+  let clear = 0;
+  const SEEDS = 10;
+  for (let n = 0; n < SEEDS; n++) {
+    const s = seed + n * 977;
+    const sweepLayout = createLayout(makeRng(s));
+    if (!sweepLayout.garageBlock) continue;
+    sited += 1;
+    const sweepCity = createBuildings(makeRng(s + 22), sweepLayout);
+    const sweepProps = createProps(makeRng(s + 33), sweepLayout);
+    if (sightline(sweepCity.mesh, sweepProps, garageSite(sweepLayout.garageBlock))) clear += 1;
+  }
+  check(`every seed hosts a depot`, sited === SEEDS, `${sited}/${SEEDS}`);
+  check('and the door is unobstructed on every one of them', clear === sited, `${clear}/${sited}`);
+
+  // `createLayout` installs the network it bakes as *the* city network (see CLAUDE.md), so the
+  // sweep above has replaced the city everything below this point measures against. Put it back.
+  createLayout(makeRng(seed));
 }
 
 // --- Taxi roof sign -----------------------------------------------------------

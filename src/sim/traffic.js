@@ -1306,6 +1306,25 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // every loop below skips a crashed car, so it leaves the lane grid for good and its shell
       // is handed to the wreck effects while the run-end banner comes up.
       crashed: false,
+      // Held out of the traffic model while something else drives this car by hand — the opening
+      // vignette, where the taxi is inside its garage and off the road network entirely (see
+      // game/opening.js). Every loop that skips a crashed car skips a staged one for the same
+      // reason: it is not in traffic, so nothing may queue behind it, yield to it, or reserve a
+      // junction against it.
+      //
+      // The **render** pass is the exception, and that is the whole difference from `crashed`. A
+      // staged car still composes a transform — it just takes `x/z/yaw` from whoever is staging it
+      // rather than from a lane. Everything hung off that transform (the speed bob, the pitch
+      // spring, the landing bounce, the brake lights) therefore keeps working, which is where the
+      // vignette's suspension jostle comes from.
+      staged: false,
+      // Extra ride height, in world units, while a staged car is up on the pavement. Ramped down
+      // to zero as it comes off the dropped kerb. Ignored entirely for a car in traffic — nothing
+      // in the sim ever leaves the road.
+      kerbLift: 0,
+      // Which indicator a staged car is running: 'left', 'right' or null. Ignored for a car in
+      // traffic, which reads the hand off the turn it has committed to.
+      stageSignal: null,
       // Frantic reaction to a nearby police siren. Eased toward panicTargetFor() each frame and
       // applied at render as an outward shove, a yaw wobble, and a mild speed dip.
       panic: 0,
@@ -1354,6 +1373,72 @@ export function placeCar(car, d, i, j, back) {
   car.turnT = 0;
   syncGrid(car);
   car.dOut = car.d;
+  return true;
+}
+
+/**
+ * Take `car` out of traffic and hand its position to whoever is staging it.
+ *
+ * The opening vignette is the only caller: the taxi starts inside its garage, which is not
+ * anywhere on the road network, so for those few seconds the car has to be driven by hand. See
+ * `staged` on the car factory above for the split — out of every simulation loop, still in the
+ * render pass, so it keeps its suspension.
+ *
+ * What this actually does is *clear* things. Every lane-relative offset the render pass applies on
+ * top of a car's position — the weave, the overtake, the siren panic, the pull-over — is eased
+ * toward its target in the physics loop, which a staged car skips. Left alone they would be frozen
+ * into the vignette at whatever value the warm-up left them at, and a taxi that spent the warm-up
+ * near the police siren would sit in its garage permanently shoved a unit to the left.
+ */
+export function stageCar(car, x, z, yaw) {
+  car.staged = true;
+  car.x = x;
+  car.z = z;
+  car.yaw = yaw;
+  car.v = 0;
+  car.prevV = 0;
+  car.speedFactor = 0;
+  car.state = 'drive';
+  car.turn = null;
+  car.turnT = 0;
+  car.route = [];
+  car.parked = false;
+  car.lateral = 0;
+  car.steer = 0;
+  car.pass = 0;
+  car.passing = false;
+  car.passTarget = null;
+  car.passOffset = 0;
+  car.passSlope = 0;
+  car.passBank = 0;
+  car.panic = 0;
+  car.pullover = 0;
+  car.pulloverSlope = 0;
+  car.brakeLevel = 0;
+  car.turnLeftLevel = 0;
+  car.turnRightLevel = 0;
+  car.pitch = 0;
+  car.pitchV = 0;
+  car.wheelAngle = 0;
+  // Both differencers the render pass keeps, primed so the first staged frame reports no step.
+  // `prevTravelled` feeds the steering ease and `prevSteerYaw` the wheel angle — a stale pair
+  // there slams the front wheels lock to lock on the frame the car is staged.
+  car.prevTravelled = car.travelled;
+  car.prevSteerYaw = yaw;
+  car.kerbLift = 0;
+  car.stageSignal = null;
+}
+
+/**
+ * Put a staged car back into traffic, on the lane approaching (i, j) travelling `d`. Returns false
+ * — and leaves the car staged — if there is no such lane, so a caller can hold rather than drop a
+ * car onto nothing.
+ */
+export function releaseCar(car, d, i, j, back) {
+  if (!placeCar(car, d, i, j, back)) return false;
+  car.staged = false;
+  car.kerbLift = 0;
+  car.stageSignal = null;
   return true;
 }
 
@@ -1957,7 +2042,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // the ring-vs-cross branches below check `priorityCovers` and route the boosting taxi through
     // `canProceed`, which then yields the crossing ring traffic to the taxi's axis. A crashed
     // taxi is off the lane grid: releasing its priority hold lets signals run.
-    const taxiActive = !taxi.crashed;
+    // ...and a staged one is off it too — it is standing in its garage, off the road network
+    // entirely — so it must claim no junction either.
+    const taxiActive = !taxi.crashed && !taxi.staged;
     const taxiTurningLeft = taxi.route?.length > 0 && taxi.route[0] === leftOf(taxi.d);
     setPriorityJunction(taxiActive && taxi.boost
       ? {
@@ -2025,7 +2112,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // the bookkeeping like anyone else. That cuts both ways and both matter: it sees the car it
       // is closing on, and traffic behind it sees it when the car in front makes it brake — an
       // ambient car rear-ending the taxi ended the run through no fault of the player.
-      if (car.crashed) continue;
+      //
+      // A *staged* car is skipped on the crashed car's terms: it is off the network, so a queue
+      // must not form behind the lane position it happens to still be holding.
+      if (car.crashed || car.staged) continue;
 
       let lane = car.lane;
       let laneS = car.s;
@@ -2449,7 +2539,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     stats.waiting = 0;
 
     for (const car of cars) {
-      if (car.crashed) continue;
+      // Staged alongside crashed: whoever is driving this car by hand owns its position, and the
+      // physics below would drag it straight back onto a lane.
+      if (car.crashed || car.staged) continue;
 
       // Ease panic toward its target on every car every frame, so it decays smoothly whether the
       // car is driving, turning, or otherwise skipped by the physics branch below.
@@ -2914,7 +3006,13 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // collapsed the instance itself. Composing a transform here would resurrect it.
       if (car.crashed) continue;
 
-      if (car.state === 'drive') {
+      // A staged car keeps the transform it was handed. This is the one loop that does *not* skip
+      // it — everything below the position derivation is suspension, and a car being driven by
+      // hand should still bob, dip its nose under braking and bounce off a kerb. Only where its
+      // `x/z/yaw` come from changes: from whoever is staging it rather than from a lane.
+      if (car.staged) {
+        // Nothing here — the position derivation is the whole of what is skipped.
+      } else if (car.state === 'drive') {
         const p = car.lane.path.at(car.s);
         car.x = p.x;
         car.z = p.z;
@@ -3092,11 +3190,17 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // `state === 'turn'` — the arc across the junction, which is the one window a real driver's
       // indicator would still be ticking in. No easing here, unlike the brake level above — a
       // signal is meant to read as a single blinker flashing, so the level jumps straight to target.
-      const turning = car.state === 'turn' && car.turn && car.turn.hand !== 'straight';
+      //
+      // A staged car has no committed turn to read — it is off the network — so it names the hand
+      // itself through `stageSignal`. That is how the taxi indicates right on its way out of the
+      // garage in the opening vignette.
+      const hand = car.staged
+        ? car.stageSignal
+        : (car.state === 'turn' && car.turn && car.turn.hand !== 'straight' ? car.turn.hand : null);
       const cyclePos = (((stats.time + car.phase) * TURN_SIGNAL_HZ) % 1 + 1) % 1;
-      const wantsBlink = turning && cyclePos < TURN_SIGNAL_DUTY;
-      car.turnLeftLevel = wantsBlink && car.turn.hand === 'left' ? 1 : 0;
-      car.turnRightLevel = wantsBlink && car.turn.hand === 'right' ? 1 : 0;
+      const wantsBlink = hand !== null && cyclePos < TURN_SIGNAL_DUTY;
+      car.turnLeftLevel = wantsBlink && hand === 'left' ? 1 : 0;
+      car.turnRightLevel = wantsBlink && hand === 'right' ? 1 : 0;
 
       const pitchScale = car.isTruck ? TRUCK_PITCH_SCALE : 1;
       const targetPitch = Math.max(-0.13, Math.min(0.13, accel * 0.014 * pitchScale));
@@ -3151,8 +3255,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
       if (car.isTaxi) {
         // `mount` is always 0 here — pulloverTargetFor skips the taxi — but it costs nothing to keep
-        // the two position lines saying the same thing.
-        taxiGroup.position.set(car.x, ROAD_Y + bob + lift + airY + mount, car.z);
+        // the two position lines saying the same thing. `kerbLift` is the opening vignette's, and
+        // is 0 for every frame of an ordinary run: it is how a staged taxi stands on the pavement
+        // outside its garage and then comes down the dropped kerb onto the road.
+        taxiGroup.position.set(car.x, ROAD_Y + bob + lift + airY + mount + car.kerbLift, car.z);
         // 'YXZ' — not the default — for the same reason the ambient euler below says so. See the
         // note there: with the default order the roll is applied about the *world* X axis, which
         // only doubles as the car's own axis when it happens to be driving east.

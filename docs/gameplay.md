@@ -1,5 +1,104 @@
 # Gameplay
 
+## The opening vignette
+
+`src/game/opening.js`, over the depot in [city/garage.js](city.md#the-depot-block). A run does not
+start with the taxi already in traffic. The camera comes down onto a garage door, the door rolls up,
+the player's car drives out of it, bumps down the kerb into the street, and the camera pulls back
+out to the game.
+
+**PROTOTYPE.** It works end to end and the numbers below are the ones it shipped with, but three
+things are hard-coded that a finished version would probably decide per city — see
+[the depot block](city.md#the-depot-block) for why each is the way it is: the door always faces
+**+X**, the depot always takes a **whole block**, and the exit is always a **right turn** into the
+near lane.
+
+### The beats
+
+| Phase | What happens | Length |
+|---|---|---|
+| `wait` | The city's own [entrance wave](rendering.md) is still running. The taxi is already in the garage by now, so the wave spreads out from the depot — the building the camera is about to go to | until the wave lands |
+| `approach` | `focusOn` eases target and zoom together onto the door, from the play framing at zoom 52 down to **15** | ≤ 2.6s |
+| `settle` | A beat on the shut door, so arriving and the door moving read as two events | 0.3s |
+| `door` | The curtain winds up on an ease-*out* — a roller door leaves fast under its counterweight and creeps the last few inches | 1.15s |
+| `reveal` | The car sitting in a lit doorway. This is the shot | 0.45s |
+| `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. The zoom starts widening as the nose clears the door, so the pull-back is already under way | ~2.5s |
+| `release` | `focusOn` back to whatever framing the run would have had — the city's centre on a desktop, the taxi on a phone, where the opening follow-cam picks it up | ≤ 2.2s |
+
+Then the tutorial starts. The three openers **queue on one guard**: the city builds itself, the taxi
+comes out of its garage, and only then does anything start talking. `isBlocked` in `main.js` chains
+them, and the fare loop is held for the whole of it — see [the board waits](#the-board-waits) below.
+
+### The taxi is out of the traffic model for the whole of it
+
+It has to be. A garage is not anywhere on the road network, and a car parked inside one cannot be
+expressed as a lane coordinate. `stageCar` in `sim/traffic.js` is that split, and the split is the
+interesting part: a staged car is skipped by **every simulation loop** — nothing queues behind it,
+yields to it or reserves a junction against it, exactly as for a crashed one — but it is **still in
+the render pass**. Only where its `x/z/yaw` come from changes.
+
+Which means the drive-out gets the car's own suspension for free. The nose dip coming off the kerb
+is not animated: it is one impulse into the pitch spring that was already there (ζ ≈ 0.4, so one
+shove gives a dip, a rebound and a settle), and a second, smaller one as the rear axle follows. The
+speed bob, the brake lights and the indicator all keep working the same way — the indicator through
+`stageSignal`, because a staged car has no committed turn to read a hand off.
+
+`stageCar` is mostly a list of things it *clears*. Every lane-relative offset the render pass
+applies on top of a position — the weave, the overtake, the siren panic, the pull-over — is eased in
+the physics loop, which a staged car skips, so anything left standing would be frozen into the
+vignette. A taxi that spent the warm-up near the police siren sat in its garage permanently shoved a
+unit sideways until that list existed.
+
+### The exit is one continuous curve
+
+Straight down the driveway, then a quarter circle onto the lane. The fillet's radius is not a choice
+— it has to be tangent to the driveway at the kerb lip and tangent to the lane where it lands, which
+fixes it at the gap between the kerb and the near lane's centre, `HALF_ROAD - LANE` = **2**. That
+happens to be the radius every right turn in this city already uses (`turnControl` in `grid.js`), so
+the manoeuvre reads as one of them.
+
+`releaseCar` then hands the taxi back to the traffic model with its speed intact, on the lane the
+arc landed on, five and a half units short of the junction. The probe asserts that the arc's
+end point and the point `placeCar` puts the car at are the same to within 1e-9 — they are computed
+by completely different arithmetic, and a millimetre between them is a car twitching sideways on the
+handover.
+
+**It waits for a gap.** The taxi holds at the top of the dropped kerb until the lane it is joining
+is clear — a box on that lane rather than a radius around the merge point, because the opposing
+lane's centre is only 4 units away and a radius wide enough to see a car coming up behind also sees
+every car going the other way. It gives up waiting after 5 seconds: a run that will not start is
+worse than a near miss.
+
+### The board waits
+
+`fares.update` is not called while the vignette runs, on the same hold the "Add to Home Screen"
+screen takes. The fare board is *seeded* by that first call — `shouldRefill` fills an empty board
+immediately — so leaving the loop running stood a rider and a two-metre crystal on a kerb while the
+camera was down at the garage door, and on the seed this was first watched on, that kerb was the one
+the door faces. The board belongs to the run, and the run starts when the taxi is on the road.
+
+The [taxi's ghost outline](rendering.md#taxi-ghost-outline--geometryghostoutlinejs) is switched off
+for the same span, and it is the sharper version of the same point: that outline exists to find the
+car behind a building, and for these few seconds the car is *in* one — so it drew a yellow blob
+across the door the whole vignette was building up to. Where the car is, is what the camera is for.
+
+### Where it sits in the camera's priority list
+
+At the **top**, above even [the closing shot](rendering.md#the-closing-shot), and on every viewport
+rather than narrow ones only. It is a cut scene: nothing else can be claiming the framing three
+seconds into a run, and a player swiping through one should not be able to steer it off its subject.
+It hands back by letting `holdsCamera()` go false with the camera already sitting on the framing the
+next claimant wants, so there is no gap for the follow-cam to snap across.
+
+Shot mode never stages the taxi at all — the module is not constructed there — and `main.js` just
+puts the door up beside `cityEntry.settle()`, which is the state a run is actually played in.
+
+**`?vignette=off`** skips it, the same escape hatch `?tutorial=off` is: seven seconds is a long
+time to sit through on every reload while iterating on something else. It is a *settle* rather than a
+skip — the module is built and then landed — so the fast path goes through the same handover the
+real sequence does. A skip that reached the game any other way would be a second opening to keep
+working.
+
 ## The opening tutorial
 
 `src/game/tutorial.js`, with its markup and styling in `index.html` under `#coach`. A white speech
