@@ -2274,8 +2274,9 @@ if (shot) {
   // is an empty street grid.
   cityEntry.settle();
   // Shot mode never stages the taxi, so there is no vignette to land — but the garage still has to
-  // be in the state a run is actually played in, which is with its door up and the car long gone.
-  garage?.setDoor(1);
+  // be in the state a run is actually played in, which is shut, the car long gone and the door
+  // come down behind it.
+  garage?.setDoor(0);
   renderFrame();
   document.body.dataset.shotReady = 'true';
 } else {

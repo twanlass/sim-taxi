@@ -17,7 +17,7 @@ import {
 } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
-import { exitPath } from '../src/game/opening.js';
+import { createOpening, exitPath } from '../src/game/opening.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, BOOST_CRUISE, SPAWN_CLEARANCE } from '../src/sim/traffic.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
@@ -7618,6 +7618,41 @@ let chopperOrder; // likewise
     stand.lane.length - stand.s > CAR_LEN,
     `${(stand.lane.length - stand.s).toFixed(2)} units`);
   Object.assign(stand, was);
+
+  // --- Staging, and the state the depot is left in.
+  //
+  // `settle()` is the `?vignette=off` path, and it has to land in exactly the world the played-out
+  // sequence does — that is the whole reason the skip goes through the same handover rather than
+  // around it. Both halves are checkable with no browser: a camera controller is a frustum and two
+  // vectors, and `stageCar`/`releaseCar` are pure state.
+  {
+    const controller = createCityCamera(1.6, { zoom: PLAY_ZOOM });
+    const opening = createOpening({
+      site,
+      setDoor: garage.setDoor,
+      taxi: traffic.taxi,
+      taxiGroup: traffic.taxiGroup,
+      cars: traffic.cars,
+      controller,
+      aspect: () => 1.6,
+      playZoom: PLAY_ZOOM,
+      restFraming: () => ({ x: 0, z: 0 }),
+    });
+    const shutOnOpen = curtainY();
+    check('building the vignette parks the taxi in the bay with the door shut',
+      traffic.taxi.staged && Math.abs(traffic.taxi.x - parked.x) < 1e-9
+      && Math.abs(shutOnOpen.hi - head) < 0.06);
+    opening.settle();
+    const shutAgain = curtainY();
+    check('...and settling it puts the car back on the merge lane',
+      !traffic.taxi.staged && traffic.taxi.kerbLift === 0
+      && Math.hypot(traffic.taxi.lane.path.at(traffic.taxi.s).x - end.x,
+        traffic.taxi.lane.path.at(traffic.taxi.s).z - end.z) < 1e-9);
+    // Shut, not open: the resting state of a depot in a live run is a car gone and a door down.
+    check('...with the door shut behind it',
+      Math.abs(shutAgain.hi - head) < 0.06 && shutAgain.hi - shutAgain.lo > site.doorH - 0.1,
+      `${shutAgain.lo.toFixed(2)} → ${shutAgain.hi.toFixed(2)}`);
+  }
 
   // --- Can the camera see the door?
   //

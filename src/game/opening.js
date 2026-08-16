@@ -55,6 +55,12 @@ const ZOOM_EPSILON = 1.0;
 // separates them, and any more is dead air with the whole run queued behind it.
 const SETTLE = 0.12;
 const DOOR_TIME = 0.95;
+// And the door shutting again behind the car, which starts the moment the taxi reaches the kerb and
+// commits to the turn. Slower than the way up, because that is what a roller door does — it leaves
+// under its counterweight and comes back down under a motor — and because this one is scenery
+// rather than the subject: the camera is pulling out and following the car, and the door closing
+// somewhere behind it is a thing noticed rather than watched.
+const DOOR_CLOSE_TIME = 1.4;
 // And a beat on the open door with the car sitting in it. This is the shot the whole vignette is
 // for; much under a third of a second and the reveal is over before it lands.
 const REVEAL = 0.35;
@@ -166,6 +172,7 @@ export function createOpening({
   let s = 0;                  // arc length along the exit path
   let dropped = false;        // has the nose gone over the lip yet
   let landed = false;
+  let closing = 0;            // 0 = still up, 1 = shut again behind the car
   let released = false;       // is the taxi back in the traffic model
 
   const parked = path.at(0);
@@ -245,6 +252,14 @@ export function createOpening({
       onDrop();
     }
 
+    // The door comes down behind it, starting on the frame the taxi reaches the kerb and commits
+    // to the turn. It carries on through `release` — `roll` stops being called there — which is why
+    // `finish` lands it at 0 rather than leaving it wherever it got to.
+    if (s > path.run.length) {
+      closing = Math.min(1, closing + dt / DOOR_CLOSE_TIME);
+      setDoor(1 - closing);
+    }
+
     return s >= path.total;
   }
 
@@ -282,6 +297,13 @@ export function createOpening({
       handOff();
       phase = 'release';
       clock = 0;
+    }
+    // The shutter keeps coming down through the pull-back, on its own clock rather than the phase's
+    // — `roll` is no longer being called, and a door that froze half way the instant the car
+    // reached the lane would be the one thing in the shot that stopped for no reason.
+    if (phase === 'release' && closing < 1) {
+      closing = Math.min(1, closing + dt / DOOR_CLOSE_TIME);
+      setDoor(1 - closing);
     }
     if (phase === 'release' && (clock >= RELEASE_MAX || arrived(restFraming(), playZoom))) {
       finish();
@@ -326,12 +348,15 @@ export function createOpening({
     if (phase === 'done') return;
     phase = 'done';
     handOff();
+    // Shut, not open. The car is out and the door came down behind it — that is the state a run is
+    // actually played in, and the same one shot mode puts the depot in.
+    closing = 1;
     // `releaseCar` can only fail if the lane it wants is not in the network, which the site filter
     // already rules out — but a staged taxi is a car that never drives, so the run would be over
     // before it started. Unstage it anyway: it still holds the lane position the warm-up left it
     // on, so the worst case is the car appearing somewhere else rather than a dead game.
     if (!released) taxi.staged = false;
-    setDoor(1);
+    setDoor(0);
     taxi.stageSignal = null;
     setGhostOutlines(taxiGroup, true);
   }
@@ -348,7 +373,7 @@ export function createOpening({
     s = path.total;
     taxi.kerbLift = 0;
     taxi.v = MERGE_V;
-    finish();
+    finish();          // which shuts the door: the car is out, so the depot is shut up behind it
   }
 
   return { update, frameCamera, holdsCamera, settle, running: () => phase !== 'done',

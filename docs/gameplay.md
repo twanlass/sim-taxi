@@ -22,8 +22,14 @@ near lane.
 | `settle` | A beat on the shut door, so arriving and the door moving read as two events | 0.12s |
 | `door` | The curtain winds up on an ease-*out* — a roller door leaves fast under its counterweight and creeps the last few inches | 0.95s |
 | `reveal` | The car sitting in a lit doorway. This is the shot | 0.35s |
-| `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. The zoom starts widening as the nose clears the door, so the pull-back is already under way | ~2.7s |
+| `roll` | Out of the bay, across the forecourt, down the kerb, right into the lane. The zoom starts widening as the nose clears the door, so the pull-back is already under way; the **shutter starts coming back down** the moment the car reaches the kerb | ~2.7s |
 | `release` | `focusOn` back to whatever framing the run would have had — the city's centre on a desktop, the taxi on a phone, where the opening follow-cam picks it up | ~1.3s, capped at 2.0 |
+
+The door comes down over 1.4s, slower than it went up — that is what a roller door does, leaving
+under its counterweight and returning under a motor, and it is scenery by then rather than the
+subject. It runs on its own clock rather than the phase's, so it keeps closing through `release`
+after `roll` has stopped being called, and `finish` lands it shut. **Shut is the resting state** a
+run is played in: the car is out and the depot closed up behind it, which is what shot mode sets too.
 
 Both eased legs normally retire on **arrival** rather than on their cap, and the caps sit just past
 where that happens: they are a backstop against a resize or a device dropping frames, not the thing
@@ -111,7 +117,7 @@ It hands back by letting `holdsCamera()` go false with the camera already sittin
 next claimant wants, so there is no gap for the follow-cam to snap across.
 
 Shot mode never stages the taxi at all — the module is not constructed there — and `main.js` just
-puts the door up beside `cityEntry.settle()`, which is the state a run is actually played in.
+shuts the door beside `cityEntry.settle()`, which is the state a run is actually played in.
 
 **`?vignette=off`** skips it, the same escape hatch `?tutorial=off` is: seven seconds is a long
 time to sit through on every reload while iterating on something else. It is a *settle* rather than a
@@ -124,12 +130,17 @@ working.
 `src/game/tutorial.js`, with its markup and styling in `index.html` under `#coach`. A white speech
 bubble in the bottom centre with the player's own taxi turning beside the text, tail on top pointing
 up at whatever it is talking about, and the line typing itself out. **Three beats, and that is all
-of it:**
+of it** — though the first one is currently switched off:
 
-1. **"Let's pick up some rides and earn some cash."** The camera follows the taxi while it types and
-   a spotlight picks it out of a darkened city. The one thing a new player cannot work out by
-   looking is which of the hundred cars down there is theirs — so the car itself says it, and both
-   the camera and the light land on it.
+1. ~~**"Let's pick up some rides and earn some cash."**~~ The camera follows the taxi while it types
+   and a spotlight picks it out of a darkened city. **Off** — `TAXI_BEAT` in `tutorial.js`. The one
+   thing a new player cannot work out by looking is which of the hundred cars down there is theirs,
+   and this was the cheapest way to answer it until
+   [the opening vignette](#the-opening-vignette) started the run by showing them their own garage
+   door open and their own car drive out of it. That is a better answer than a sentence, and skipping
+   the bubble gets the run to its first *instruction* a beat sooner. The beat is intact behind the
+   flag — the line, `openOnTaxi`, and the `'taxi'` step in both step sets — because the vignette is
+   a prototype and this is what has to come back if it goes.
 2. **"Tap rider to start."** The spotlight moves to the waiting fare as the camera sets off for
    them, so the light is already on the rider and the pan carries the player to it; the bubble comes
    back once the camera has arrived. Tapping the rider answers it directly.
@@ -138,11 +149,11 @@ of it:**
    the pill and the pill pulsing under it. Skipped entirely if the player has already fired Loco
    Mode.
 
-The city's own entrance comes first: the whole tutorial is held frozen (via its `isBlocked` hook —
-the same one the "Add to Home Screen" screen uses) while the buildings rise out of the ground
-around the taxi ([the entrance animation](rendering.md#the-city-entrance--gamecityentryjs)), then
-`OPENING_HOLD` — now just a 250ms breath — separates the last building settling from the lights
-coming down. The hold used to be a full second of static city, because a run that opens
+The city's own entrance and then the vignette come first: the whole tutorial is held frozen (via its
+`isBlocked` hook — the same one the "Add to Home Screen" screen uses) while the buildings rise out of
+the ground ([the entrance animation](rendering.md#the-city-entrance--gamecityentryjs)) and the taxi
+comes out of its garage, then `OPENING_HOLD` — now just a 250ms breath — separates the camera landing
+from the lights coming down. The hold used to be a full second of static city, because a run that opens
 mid-sentence gives the player nothing to attach the sentence to; three-plus seconds of the city
 building itself does that job better than the second of idling traffic did. The clocks are already
 held through all of it, so it costs nothing. The camera is already easing onto the taxi during it —
