@@ -79,8 +79,9 @@ import {
 import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, HALF_ROAD, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
+import { HEAD_Y, LAMPS_PER_FACE } from '../src/geometry/signage.js';
 import { routePath, nearestOnPath, HEAD_GAP } from '../src/game/routeline.js';
 import { findRoute, findRouteVia, MAX_VIA_DETOUR, allIntersections } from '../src/game/route.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
@@ -511,6 +512,164 @@ const inIntersection = turning.every((p) => distToLine(p.x) <= ROAD_W && distToL
 check('turning cars are inside intersections', inIntersection, `${turning.length} turning`);
 
 check('no rear-end overlaps', stats.minGap > 3.2, `min gap ${stats.minGap.toFixed(2)}`);
+
+// --- Junction signage -------------------------------------------------------
+// The overhead signal heads and the stop signs that replaced the painted stop bars — see
+// geometry/signage.js. All of it is render-only, so every assertion in this file above and below
+// would stay green with the whole lot drawn in the wrong place, in the road, or aimed at the wrong
+// driver.
+//
+// Read back off the InstancedMeshes rather than off the arrays that built them, and matched to
+// lanes by geometry rather than by replaying the placement loop: an assertion that recomputes the
+// arithmetic it is checking only tests that the arithmetic is deterministic.
+//
+// Built into a scene of its own, with one vehicle. The signals have to be driven through a whole
+// cycle to check the lamps, and stepping the city `traffic` 16 seconds further on here would move
+// every car out from under the assertions that follow.
+{
+  const signScene = new THREE.Scene();
+  const signTraffic = createTraffic(makeRng(seed + 44), signScene, 1);
+  const net = cityNetwork();
+  const named = (name) => signScene.getObjectByName(name);
+  const bodies = named('signalBodies');
+  const faces = named('signalFaces');
+  const lamps = named('signalLamps');
+  const signs = named('stopSigns');
+
+  check('the hanging heads are the default look', signTraffic.barMesh === null
+    && !!bodies && !!faces && !!lamps && !!signs, '?signals=bars puts the painted bars back');
+
+  // What the network says should exist. A junction with a light gets one head, and one face per
+  // approach; a junction without one gets a stop sign on every approach that is *not* on its
+  // priority street — a two-way stop, with nothing at all on the street that has priority.
+  const lit = net.nodes.filter((n) => n.signal);
+  const litLanes = lit.flatMap((n) => n.inbound.filter((l) => !l.degenerate));
+  const dark = net.nodes.filter((n) => !n.signal);
+  const darkLanes = dark.flatMap((n) => n.inbound.filter((l) => !l.degenerate));
+  const yielding = dark.flatMap((n) => n.inbound
+    .filter((l) => !l.degenerate && l.phase !== n.priorityStreet));
+
+  check('one head over every signalised junction', bodies.count === lit.length,
+    `${bodies.count} heads / ${lit.length} lit junctions`);
+  check('one face down every signalised approach', faces.count === litLanes.length,
+    `${faces.count} faces / ${litLanes.length} approaches`);
+  check('three lenses on every face', lamps.count === litLanes.length * LAMPS_PER_FACE,
+    `${lamps.count} lenses`);
+  check('a stop sign on every approach that has to yield', signs.count === yielding.length,
+    `${signs.count} signs / ${yielding.length} yielding approaches`);
+  // Not a rewording of the line above: it is what says the stop is a *two-way* one. The priority
+  // street through an unsignalised junction never stops, and a sign facing it would be the sim
+  // and the scenery disagreeing about who has right of way.
+  check('and none facing the street with priority', yielding.length < darkLanes.length,
+    `${darkLanes.length - yielding.length} approaches left unsigned`);
+
+  /** An instance's world position and its local +X — the direction a face or a plate looks. */
+  const instance = (mesh, index) => {
+    const m = new THREE.Matrix4();
+    mesh.getMatrixAt(index, m);
+    const at = new THREE.Vector3().setFromMatrixPosition(m);
+    const look = new THREE.Vector3(1, 0, 0).applyMatrix4(m).sub(at).normalize();
+    return { at, look };
+  };
+
+  /** Where an approach's stop line is, and the unit heading through it. Mirrors BAR_SETBACK. */
+  const lineOf = (lane) => {
+    const at = Math.max(0, lane.length - 2.05);
+    const p = lane.path.at(at);
+    const t = lane.path.tangentAt(at);
+    const len = Math.hypot(t.x, t.z) || 1;
+    return { x: p.x, z: p.z, tx: t.x / len, tz: t.z / len };
+  };
+
+  // The head hangs over the middle of its junction, at the one height, and does not lean.
+  let strayHead = 0;
+  let wrongHeight = 0;
+  for (let i = 0; i < bodies.count; i++) {
+    const { at } = instance(bodies, i);
+    if (!lit.some((n) => Math.hypot(n.x - at.x, n.z - at.z) < 1e-6)) strayHead++;
+    if (Math.abs(at.y - HEAD_Y) > 1e-6) wrongHeight++;
+  }
+  check('every head hangs over a junction centre', strayHead === 0, `${strayHead} stray`);
+  check('and every one at the same height', wrongHeight === 0,
+    `${wrongHeight} off ${HEAD_Y.toFixed(2)}`);
+
+  // A face has to look back at the driver it is for, and be one of *its own* junction's
+  // approaches. Aimed anywhere else it is a light showing the right phase to nobody — and on a
+  // four-way that error is invisible from this camera, because the face you would then read
+  // belongs to the opposite approach, which shares a street and says the same thing. It diverges
+  // at a three-way, and a closure can leave one anywhere.
+  let misaimedFace = 0;
+  for (let i = 0; i < faces.count; i++) {
+    const { at, look } = instance(faces, i);
+    const node = lit.find((n) => Math.hypot(n.x - at.x, n.z - at.z) < 1e-6);
+    const served = node?.inbound.filter((l) => !l.degenerate).map(lineOf) ?? [];
+    if (!served.some((l) => l.tx * look.x + l.tz * look.z < -0.999)) misaimedFace++;
+  }
+  check('every face looks back down an approach of its own junction', misaimedFace === 0,
+    `${misaimedFace} misaimed`);
+
+  // Stop signs: at the stop line, on the driver's own kerb, facing them. The kerb one is the
+  // assertion that earns its place — right-hand traffic puts the plate `forward x up` of the lane,
+  // and the mirror image of that lands it 0.45 units the *far* side of the road centreline, in the
+  // oncoming lane. On a screenshot that is a stop sign standing on a perfectly ordinary pavement.
+  let inTheRoad = 0;
+  let onTheWrongKerb = 0;
+  let misaimedSign = 0;
+  let adrift = 0;
+  for (let i = 0; i < signs.count; i++) {
+    const { at, look } = instance(signs, i);
+    if (distToLine(at.x) <= HALF_ROAD && distToLine(at.z) <= HALF_ROAD) inTheRoad++;
+    let line = null;
+    let best = Infinity;
+    for (const lane of yielding) {
+      const l = lineOf(lane);
+      const d = Math.hypot(l.x - at.x, l.z - at.z);
+      if (d < best) { best = d; line = l; }
+    }
+    if (best > 3) adrift++;
+    if (line.tx * look.x + line.tz * look.z > -0.999) misaimedSign++;
+    if ((at.x - line.x) * -line.tz + (at.z - line.z) * line.tx <= 0) onTheWrongKerb++;
+  }
+  check('no stop sign stands in the carriageway', inTheRoad === 0, `${inTheRoad} in the road`);
+  check('every stop sign is on the driver own right', onTheWrongKerb === 0,
+    `${onTheWrongKerb} on the far kerb`);
+  check('and at its own stop line', adrift === 0, `${adrift} adrift`);
+  check('and facing the traffic it stops', misaimedSign === 0, `${misaimedSign} misaimed`);
+
+  // The lamps, driven through a whole signal cycle. Exactly one lens lit per face on every frame,
+  // each colour in its own slot. All three dark is a junction showing nothing; two lit is a
+  // junction showing a contradiction — and a screenshot only ever tests the one frame it caught.
+  const OFF = new THREE.Color(PALETTE.lightOff);
+  const SLOT = [PALETTE.lightRed, PALETTE.lightYellow, PALETTE.lightGreen]
+    .map((c) => new THREE.Color(c));
+  let notExactlyOne = 0;
+  let wrongSlot = 0;
+  const seen = new Set();
+  const lens = new THREE.Color();
+  // `Color.equals` is exact and an instanceColor buffer is Float32Array, so a colour written and
+  // read back is never bit-identical to the double it started as. Compare within a hair instead.
+  const same = (a, b) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b) < 1e-6;
+  for (let frame = 0; frame < 990; frame++) {           // 16.5s at 60fps — one cycle and change
+    signTraffic.update(1 / 60);
+    if (frame % 11) continue;
+    for (let f = 0; f < faces.count; f++) {
+      let onCount = 0;
+      for (let k = 0; k < LAMPS_PER_FACE; k++) {
+        lamps.getColorAt(f * LAMPS_PER_FACE + k, lens);
+        if (same(lens, OFF)) continue;
+        onCount++;
+        if (same(lens, SLOT[k])) seen.add(k);
+        else wrongSlot++;
+      }
+      if (onCount !== 1) notExactlyOne++;
+    }
+  }
+  check('exactly one lens is lit on every face, every frame', notExactlyOne === 0,
+    `${notExactlyOne} faces showing none or several`);
+  check('and each colour is in its own slot', wrongSlot === 0, `${wrongSlot} in the wrong place`);
+  check('and a cycle uses all three', seen.size === LAMPS_PER_FACE,
+    `${[...seen].sort().join(',')}`);
+}
 
 // --- Pairwise proximity, the check that actually catches visual overlap.
 let worst = Infinity;

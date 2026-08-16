@@ -365,6 +365,22 @@ export function getPixelRatioCap(fallback = getSafeMode() ? 1 : 2) {
 }
 
 /**
+ * How a junction shows its signal, via `?signals=heads` (the default) or `?signals=bars`.
+ *
+ * `heads` hangs a four-faced light over the middle of each signalised junction and stands a stop
+ * sign where a junction has no light; `bars` is the painted road markings that came before it.
+ * Kept as a flag rather than deleted outright because the two looks are a judgement call about
+ * legibility, and the only useful way to make that call is to load the same city twice.
+ *
+ * A flag rather than a setting for the same reason `?ao=` is: it decides which meshes get built,
+ * so `geometry/signage.js` is told before `createTraffic` runs and never after.
+ */
+export function getSignalStyle() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('signals') === 'bars' ? 'bars' : 'heads';
+}
+
+/**
  * The on-screen renderer readout, via `?diag`. What it says and why each line is in it are in
  * `game/diag.js`.
  */

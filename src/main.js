@@ -41,6 +41,7 @@ import { createSirenGlow } from './game/sirenglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
 import { setAmbientOcclusion } from './util/geo.js';
+import { setSignalStyle } from './geometry/signage.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createPause } from './game/pause.js';
@@ -48,7 +49,7 @@ import { findRoute, findRouteVia, planOrigin } from './game/route.js';
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getSignalStyle } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -135,6 +136,9 @@ document.body.appendChild(renderer.domElement);
 // like-for-like cost comparison on a real device.
 const aoEnabled = budget.ao;
 setAmbientOcclusion(aoEnabled);
+// Same rule, same reason: `?signals=` picks which street furniture gets *meshed* at a junction, so
+// the choice has to land before `createTraffic` builds any of it. See `geometry/signage.js`.
+setSignalStyle(getSignalStyle());
 const ao = createAmbientOcclusion(renderer, { enabled: aoEnabled });
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
@@ -233,6 +237,10 @@ markOccluder(traffic.truckMesh);
 markOccluder(traffic.truckWheelMesh);
 markOccluder(traffic.truckBoxMesh);
 markOccluder(traffic.taxiGroup);
+// The overhead signal heads and the stop signs. They are `propMaterial()`, so the occluder rule
+// applies unconditionally: left out of the prepass, a head hanging in front of a tower would wear
+// that tower's contact crease. The lamps themselves are `unlitMaterial` and are not in the list.
+for (const mesh of traffic.signage) markOccluder(mesh);
 markOccluder(police.group);
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.

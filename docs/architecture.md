@@ -56,6 +56,7 @@ src/
   geometry/             one-off models, all procedural
     taxi.js  wheels.js  diamond.js  targetring.js  marker.js  person.js  riderdiamond.js
     plane.js bird.js helicopter.js
+    signage.js          the overhead signal head and the stop sign — what a junction shows
 
   util/
     rng.js              seeded RNG (mulberry32) + value noise

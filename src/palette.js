@@ -310,6 +310,26 @@ export const PALETTE = {
   lightOff: '#333940',
   pole: '#4C5158',
 
+  // Street furniture at a junction — see geometry/signage.js.
+  //
+  // The signal head's casing. Darker than `pole` and a shade cooler, because unlike a lamp post it
+  // is a *background*: three lenses sit on it, one of them lit, and the two that are not are
+  // `lightOff` (#333940). The casing has to separate from those without competing with the lit one,
+  // which is 21 points of luma between casing and dark lens against 100-odd from casing to any of
+  // the three signal colours. It also hangs against the sky rather than standing on the road, and
+  // the sky is the palest thing in the frame — a mid grey here would read as a hole punched in it.
+  signalBody: '#414852',
+  // A stop sign's red is deliberately *not* `lightRed` (#E24B3C). A signal red is a lamp — it is
+  // emitting, so it is light and slightly orange; a sign is paint in full sun, and painting the
+  // plate in lamp red made the two read as the same object at play zoom, which is the one thing
+  // this pair must never do. This is a stop deeper and a stop cooler, which is also what the real
+  // spec asks for.
+  stopSign: '#C0392B',
+  // The plate's border. Off-white rather than pure white, which belongs to the waiting rider — at
+  // 9.5px the border is about a pixel of edge, and a pixel of true white anywhere on this board is
+  // a fare.
+  signWhite: '#E8E4DA',
+
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
 
