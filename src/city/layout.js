@@ -1,4 +1,6 @@
-import { GRID, blockBounds, HALF_SPAN, segmentKey, setClosedSegments } from './grid.js';
+import {
+  GRID, blockBounds, HALF_SPAN, segmentKey, setClosedSegments, setParkBlocks,
+} from './grid.js';
 import { roadNetFromGrid, setCityNetwork } from './roadnet.js';
 import { configureSignals } from '../sim/traffic.js';
 
@@ -99,6 +101,11 @@ export function createLayout(rng) {
       });
     }
   }
+
+  // Install the green blocks the same way the closures above were installed. A park is a fact about
+  // the ground that anything placing a marker on a kerb has to be able to ask about without holding
+  // this array — see `isParkBlock`.
+  setParkBlocks(blocks.filter((block) => block.type === 'park'));
 
   blocks.districts = districts;
   // Handed to the ground mesh so the arterials are actually visible: a main street the player

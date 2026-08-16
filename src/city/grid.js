@@ -151,6 +151,33 @@ export function isSegmentClosed(i, j, d) {
   return closedSegments.has(segmentKey(i, j, next.i, next.j));
 }
 
+// --- Park blocks ------------------------------------------------------------
+//
+// Which blocks `city/layout.js` turned green, registered here for the same reason the closed
+// segments are: the decision is the layout's, but the systems that have to *respect* it are the
+// ones that place things on a kerb, and those have no business importing the layout to ask. A
+// corner marker is the case — a courier pad on grass is a pad on a block with no address.
+//
+// Registered as the blocks themselves rather than as intersections: an intersection has four
+// corners and only ever uses one of them (`cornerFor` in game/fares.js picks the -X-Z kerb), so
+// which junctions this rules out is a question for whoever owns that flip, not for this list.
+
+const parkBlocks = new Set();
+
+export function setParkBlocks(cells) {
+  parkBlocks.clear();
+  for (const { bi, bj } of cells) parkBlocks.add(`${bi},${bj}`);
+}
+
+/**
+ * True if block (bi, bj) is green.
+ *
+ * Empty until a layout has been built, so a headless tool that never called `createLayout` gets
+ * "no parks" rather than a throw — the same way `isSegmentClosed` answers before any closure has
+ * been registered.
+ */
+export const isParkBlock = (bi, bj) => parkBlocks.has(`${bi},${bj}`);
+
 /** Directions a car may leave (i, j) on — no U-turn, no leaving the map, no closed roads. */
 export function legalExits(dIn, i, j) {
   const out = [];
