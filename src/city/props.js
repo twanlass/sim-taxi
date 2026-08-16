@@ -27,12 +27,25 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6 } = {}) {
   const r = height * 0.32;
   const base = KERB_H + trunkH + r * 0.75;
 
+  // Per-tree canopy tint, wider than the per-blob jitter below so the variation reads
+  // tree-to-tree while the blobs of one crown stay siblings. Hashed from the trunk position
+  // rather than drawn, same reason as the entry stamp (util/geo.js hash01): spending a draw
+  // here would reshuffle every tree planted after this one.
+  const canopy = new THREE.Color(PALETTE.foliage);
+  const hsl = { h: 0, s: 0, l: 0 };
+  canopy.getHSL(hsl);
+  canopy.setHSL(
+    (hsl.h + (hash01(x, z) - 0.5) * 0.07 + 1) % 1,
+    THREE.MathUtils.clamp(hsl.s + (hash01(z, x) - 0.5) * 0.14, 0, 1),
+    THREE.MathUtils.clamp(hsl.l + (hash01(x + z, x - z) - 0.5) * 0.10, 0.05, 0.95),
+  );
+
   const blob = (radius, ox, oy, oz, detail) => {
     const geo = new THREE.IcosahedronGeometry(radius, detail);
     jitterVertices(geo, rng, radius * 0.1);
     geo.scale(1.05, 0.9, 1.05);
     geo.translate(x + ox, base + oy, z + oz);
-    parts.push(bakeColor(geo, jitterColor(PALETTE.foliage, rng, { h: 0.02, l: 0.07 })));
+    parts.push(bakeColor(geo, jitterColor(canopy, rng, { h: 0.02, l: 0.07 })));
   };
 
   blob(r, 0, 0, 0, 1);
