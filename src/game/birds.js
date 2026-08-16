@@ -149,6 +149,42 @@ export function bodyQuaternion(roll, yaw, pitch, out) {
   return out.setFromEuler(POSE_EULER.set(roll, yaw, pitch, BODY_EULER_ORDER));
 }
 
+// --- Plumage ---------------------------------------------------------------------
+// The morphs of a feral flock, as multipliers over the baked vertex colours (see the note beside
+// `tints` in createBirds). Weights are cumulative rolls in `birdTint`: about half the flock keeps
+// the classic grey, and the rest split between pale, blue-grey and green-sheen birds — the mix a
+// real pigeon flock wears, and enough of the grey majority that the coloured birds read as
+// variation rather than as a different species.
+//
+// The pale morph lifts the whole bird: the body (#6E7688, luma 118) comes out at 177–206 —
+// clearly lighter than the grass at 134 where the base bird is darker than it — and the head patch
+// clips toward white, which is fine on a top surface that was already the bird's one highlight.
+// It stops short of a pure-white scalar because the base keeps its slight blue lean under any grey
+// multiplier, and that lean is what separates a pale bird from the unclaimed-passenger marker's
+// true white.
+//
+// The two hue morphs bend the base's own blue-grey rather than painting a colour on: channel
+// ratios stay within ±16%, so the result is greyed the way iridescence at a distance is, and
+// nowhere near the saturation the urgency scale owns. Measured against the base body: the blue
+// morph lands near rgb(93, 115, 158) and the green near rgb(97, 127, 125) — a teal lean, kept off
+// the park's yellow-green (#6F9A5A) so a green bird still separates from the lawn under it.
+const PALE_LIFT = [1.5, 1.75];
+const BLUE_TINT = [0.85, 0.97, 1.16];
+const GREEN_TINT = [0.88, 1.08, 0.92];
+
+/** One bird's plumage: a colour multiplier shared by its body and both wings. */
+export function birdTint(rng) {
+  const roll = rng.next();
+  if (roll < 0.2) return new THREE.Color().setScalar(rng.range(PALE_LIFT[0], PALE_LIFT[1]));
+  // The hue morphs keep the grey jitter's light/dark spread on top of the hue, narrowed a touch —
+  // a dark bird is fine, a dark *and* strongly tinted one starts to read as painted.
+  const shade = rng.range(0.9, 1.08);
+  if (roll < 0.36) return new THREE.Color(...BLUE_TINT).multiplyScalar(shade);
+  if (roll < 0.5) return new THREE.Color(...GREEN_TINT).multiplyScalar(shade);
+  // The common bird: the pure grey jitter the whole flock used to draw from.
+  return new THREE.Color().setScalar(rng.range(0.86, 1.12));
+}
+
 /** Every green area a flock could live in: the merged districts first, then the pocket parks. */
 export function parkAreas(layout) {
   const areas = [];
@@ -225,17 +261,22 @@ export function createBirds(scene, rng, layout, { avoid = () => [] } = {}) {
   });
   const meshes = [body, ...wings];
 
-  // Per-bird variety, the way the rest of the project does it: a small jitter around the base
-  // rather than a free colour choice. A pure grey multiplier on top of the baked vertex colours,
-  // so every part of a bird — flank, head, bill — moves together and one bird is simply a
-  // lighter or darker version of the same bird. Drawn once and shared by all three meshes, or a
-  // bird would wear one shade on its body and another on each wing.
+  // Per-bird variety: a multiplier on top of the baked vertex colours, so every part of a bird —
+  // flank, head, bill — moves together and one bird is a recoloured version of the same bird.
+  // Drawn once and shared by all three meshes, or a bird would wear one shade on its body and
+  // another on each wing.
+  //
+  // This started as a pure grey jitter; the flock now mixes in feral-pigeon morphs — some birds
+  // near-white, some blue-grey, some with a green sheen. The hues stay muted and greyed on
+  // purpose: the palette note on `birdBody` explains why a bird must never be a saturated pixel
+  // of colour (that is the description of a fare marker), and the pale morph stops short of pure
+  // white because white *is* the unclaimed-passenger marker. See `birdTint`.
   //
   // `instanceColor` is RGB only, which is exactly what this needs. Per-instance *alpha* would want
   // a custom attribute and an `onBeforeCompile` patch — and the fades are flock-wide anyway, so
   // one opacity on the shared material covers them.
   const tints = [];
-  for (let i = 0; i < count; i++) tints.push(new THREE.Color().setScalar(rng.range(0.86, 1.12)));
+  for (let i = 0; i < count; i++) tints.push(birdTint(rng));
 
   for (const mesh of meshes) {
     // A moving InstancedMesh must not be frustum-culled. Three computes its bounding sphere once,

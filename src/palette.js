@@ -176,10 +176,13 @@ export const PALETTE = {
   // signal red at this size reads as a brake light on a car parked on a roof.
   heliBeacon: '#FF2E2E',
 
-  // The park flock — see geometry/bird.js. Deliberately the *only* thing in the game with no
-  // chroma at all: a bird is a couple of pixels of moving colour, which is exactly the description
-  // of a fare marker, and the one way to guarantee the eye never reads a takeoff as something it
-  // has to act on is to give it nothing to read. It still has to separate from two backgrounds it
+  // The park flock — see geometry/bird.js. These bases are kept near-neutral on purpose: a bird
+  // is a couple of pixels of moving colour, which is exactly the description of a fare marker,
+  // and the way to keep the eye from reading a takeoff as something it has to act on is to give
+  // it almost nothing to read. (Per-bird pigeon morphs — pale, blue-grey, green-sheen — exist,
+  // but as muted instance-tint *multipliers* over these, in `birdTint` in game/birds.js; the hue
+  // budget and the marker argument for keeping them greyed are documented there.) The bases
+  // still have to separate from two backgrounds a bird
   // is guaranteed to sit on — the park (#6F9A5A) and the sky (#8CC4E8 → #DCEDF7) — and both are
   // lighter than these, so a dark bird reads against the grass it walks on and against the sky it
   // leaves in. `birdWing` is a stop darker than the body so a spread wing separates from the flank
