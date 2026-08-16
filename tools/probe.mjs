@@ -11,11 +11,16 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
-import { createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, PARK_EDGE } from '../src/city/ground.js';
+import {
+  createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
+} from '../src/city/ground.js';
 import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
 } from '../src/city/buildings.js';
-import { createProps, parkPlots, planParkFurniture, BENCH_LEN, STATUE_PLAZA } from '../src/city/props.js';
+import {
+  createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
+  BENCH_LEN, STATUE_PLAZA,
+} from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
@@ -83,7 +88,7 @@ import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import {
-  halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns,
+  halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns, MEDIAN_W,
 } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath, nearestOnPath, HEAD_GAP } from '../src/game/routeline.js';
@@ -367,6 +372,84 @@ const onGrass = (city, i, j) => {
   // Same trap as the building sweep further down: `createLayout` installs the network it bakes,
   // so a sweep leaves the probe's own city replaced by the last one it built.
   createLayout(makeRng(seed));
+
+// --- Flower beds on the medians ----------------------------------------------
+//
+// The island is a stadium — a 2.4-wide capsule down the centre of an arterial — and what has to
+// hold is that no bed hangs over its kerb into the carriageway. That is invisible once the props
+// are merged into one mesh, which is why `planMedianBeds` is a separate function to begin with.
+//
+// Swept over seeds rather than looked at on one: the lateral draw is bounded by the bed's own
+// radius, so it is exactly the widest bed on the narrowest island that would be the one to escape,
+// and that pairing does not come up on every city.
+{
+  // Measured off the ground mesh's own inset, and cross-checked against the number the planner
+  // bounds itself by — a bed kept inside a margin props.js invented would prove nothing.
+  const grassEdge = MEDIAN_W / 2 - MEDIAN_EDGE;
+  let escaped = 0;
+  let tightest = Infinity;
+  let beds = 0;
+  let bare = 0;
+
+  for (let city = 0; city < 12; city++) {
+    createLayout(makeRng(seed + city * 53));
+    const runs = medianRuns();
+    for (const bed of planMedianBeds(makeRng(seed + city * 53 + 5), runs)) {
+      beds += 1;
+      // Distance to the island's own centre segment — the capsule's spine, which runs between the
+      // two cap centres. A stadium is precisely "everywhere within R of that segment", so one
+      // measurement covers the straight sides and both rounded ends.
+      const run = runs.find((r) => bed.x >= r.x0 - 1 && bed.x <= r.x1 + 1
+        && bed.z >= r.z0 - 1 && bed.z <= r.z1 + 1);
+      if (!run) { escaped += 1; continue; }
+      const along = run.axis === 'x' ? bed.x : bed.z;
+      const across = run.axis === 'x' ? bed.z : bed.x;
+      const spine = run.axis === 'x' ? (run.z0 + run.z1) / 2 : (run.x0 + run.x1) / 2;
+      const capped = Math.min(run.to - MEDIAN_W / 2, Math.max(run.from + MEDIAN_W / 2, along));
+      const room = grassEdge - (Math.hypot(along - capped, across - spine) + bed.footprint);
+      tightest = Math.min(tightest, room);
+      if (room < 0) escaped += 1;
+    }
+    if (runs.length && !planMedianBeds(makeRng(seed + city * 53 + 5), runs).length) bare += 1;
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+
+  check('the planner bounds itself by the grass the ground mesh actually lays',
+    Math.abs(MEDIAN_BED_ROOM - grassEdge) < 1e-9,
+    `props ${MEDIAN_BED_ROOM.toFixed(4)} vs ground ${grassEdge.toFixed(4)}`);
+  check('every flower bed stands on its median, clear of the kerb',
+    escaped === 0 && beds > 0,
+    `${escaped} of ${beds} over the edge, tightest ${tightest.toFixed(3)} to spare`);
+  check('and no median is left bare', bare === 0, `${bare} islands with nothing on them`);
+}
+
+// The blooms are the one place this game paints a saturated colour on something the player must
+// *not* act on, so they get the clearance argument the roadworks orange gets. The urgency ramp,
+// the taxi and the VIP purple can all be on the board at once; a dab of pink on a median must not
+// read as any of them at 8 pixels.
+{
+  const hueOf = (hex) => {
+    const hsl = { h: 0, s: 0, l: 0 };
+    new THREE.Color(hex).getHSL(hsl);
+    return hsl;
+  };
+  const spoken = [...PALETTE.urgency, PALETTE.taxiBody, PALETTE.vip, PALETTE.parcel,
+    PALETTE.routeLine].map(hueOf);
+
+  let nearest = 360;
+  let loudest = 0;
+  for (const hex of PALETTE.bloom) {
+    const bloom = hueOf(hex);
+    loudest = Math.max(loudest, bloom.s);
+    for (const other of spoken) {
+      const raw = Math.abs(bloom.h - other.h) * 360;
+      nearest = Math.min(nearest, raw > 180 ? 360 - raw : raw);
+    }
+  }
+  check('a flower bed cannot be mistaken for anything the player acts on',
+    nearest > 20 && loudest < 0.75,
+    `nearest game hue ${nearest.toFixed(0)}°, loudest bloom ${loudest.toFixed(2)} saturated`);
+}
 
   check('every park bench stands on the grass, just off the walk',
     offTheGrass === 0 && adrift === 0, `${offTheGrass} on the paving, ${adrift} adrift on the lawn`);

@@ -313,6 +313,21 @@ export const PALETTE = {
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
 
+  // Flower beds on the arterials' medians — see `flowerBedParts` in city/props.js.
+  //
+  // Three tints of one pink rather than a mixed bunch, and the reason is that almost every warm
+  // hue in this game already means something. Measured where `getHSL` measures (linear-sRGB, not
+  // what a colour picker shows for the same hex), the urgency ramp runs 1°–126°, the taxi sits at
+  // 34° and the VIP purple at 260°, which leaves the magenta arc between the purple and the red as
+  // the one wide gap on the wheel. These land at 321–331°: **30° clear of the nearest game colour
+  // at their closest**, and asserted in tools/probe.mjs the same way the roadworks orange is.
+  //
+  // They are also deliberately *unsaturated* next to anything that means something — 0.45–0.59
+  // against the 0.86–1.00 of every marker on the board. That is the same rule the buildings follow:
+  // scenery gets its variety from value, and chroma is reserved for things the player has to act
+  // on. Varying the three by lightness rather than by hue keeps a bed reading as one species.
+  bloom: ['#D97BB0', '#B3609C', '#E2A3CB'],
+
   // Park furniture. A bench's slats are timber and stand within a couple of units of a trunk, so
   // the one colour they must clearly not be is `trunk` (#6B4E35) — a bench painted the wood of the
   // tree beside it reads as a fallen branch. This is the same hue two steps lighter and a shade

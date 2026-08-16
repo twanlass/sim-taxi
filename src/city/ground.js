@@ -114,6 +114,11 @@ function parkSurface(w, d, x, z, walkCol, grassCol, y) {
   return [bakeColor(paved, walkCol), bakeColor(grass, grassCol)];
 }
 
+// How much of the median island's kerb shows around its grass — the same 0.15 every block platform
+// leaves. Exported for the same reason `PARK_EDGE` is: `props.js` stands flower beds on that grass
+// and has to know where it stops, and a margin copied by hand is a margin that drifts.
+export const MEDIAN_EDGE = PAVE_INSET;
+
 const SLAB = SPAN + ROAD_W * 3;
 
 // Rounded corners, so the city reads as an island rather than a sheet cut out with scissors.
@@ -295,7 +300,7 @@ export function createGround(rng, blocks) {
   // What the extra third of an arterial's width buys. A kerbed island down the middle of every
   // main street, between junctions but not through them — built exactly like a block platform,
   // because that is what it is: a raised kerb with something green on top. `grid.js` owns where
-  // the runs are, so the trees `props.js` plants stand on the same rectangles.
+  // the runs are, so the flower beds `props.js` plants stand on the same rectangles.
   //
   // Stadium ends rather than square corners. At 2.4 across and eight or nine long, a square-ended
   // planter reads as a kerbstone dropped in the road; the cap is what makes it a traffic island.

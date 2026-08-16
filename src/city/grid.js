@@ -239,7 +239,7 @@ export function isSegmentClosed(i, j, d) {
 // --- The planted median -----------------------------------------------------
 //
 // What the extra third of an arterial's width is *for*. Between two junctions the centre strip is
-// a kerbed island with grass and a couple of small trees on it; at a junction it stops, because
+// a kerbed island with grass and two or three flower beds on it; at a junction it stops, because
 // that is where the turning movements cross and where the double-line paint takes over.
 //
 // Sized off what has to stay clear rather than off the 2.67 the widening opens up. A car in its

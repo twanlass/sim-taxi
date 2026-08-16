@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, jitterVertices, propMaterial, stampEntry } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
-import { KERB_H, PARK_EDGE, roundedRectShape } from './ground.js';
+import { KERB_H, MEDIAN_EDGE, PARK_EDGE, roundedRectShape } from './ground.js';
 import { MEDIAN_W, medianRuns } from './grid.js';
 
 /**
@@ -59,6 +59,131 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6 } = {}) {
   }
 
   return parts;
+}
+
+// --- Flower beds --------------------------------------------------------------
+//
+// What grows on an arterial's median. Trees were tried there first and the camera is why they are
+// not: it looks down at 33°, so anything of height h hides the ground within 1.54h behind it, and
+// what sits behind a median is the far carriageway of the road the player is most likely to be
+// driving down. That lane centre is 3.33 across — 4.71 along the view diagonal — which even a
+// stunted 2.9-unit tree reaches past. A bed tops out at 0.36 above the island and casts 0.55 of
+// occlusion, so the question stops being "how often does this hide a car" and simply goes away.
+//
+// It also suits the strip better. A median is a planter, not a verge, and a row of bedding is what
+// a city puts in one.
+
+/** Bed proportions. Flat and wide: it is read from above, and only ever from above. */
+const BED_SQUASH = 0.42;         // dome height as a fraction of its radius
+const BLOOM_R = 0.13;
+// How far `jitterVertices` can throw a mound's corners past its nominal radius. Placement has to
+// budget for it: at 0.62 of radius that is 0.09 of extra reach, which is most of the 0.15 of kerb
+// an island leaves showing — a bed placed on its nominal radius alone spills into the road.
+const BED_SPREAD = 0.14;
+
+/**
+ * One bed: a low foliage mound with blooms sitting in it.
+ *
+ * **A single flower is not a thing this game can draw.** At play zoom 1 world unit is 7.7px, so a
+ * bloom is under two pixels and a stem is nothing at all. What has to read is the *bed* — a
+ * 1.0–1.3 unit patch, 8–10px of colour against the median's grass — so the geometry spends itself
+ * on a mound wide enough to see and dots the blooms over it, rather than on stems nobody resolves.
+ */
+export function flowerBedParts(x, z, rng, { radius, bloom }) {
+  const parts = [];
+
+  // The foliage under the flowers, in the same green the trees wear rather than the grass's own —
+  // a mound in `park` would be a bump in the lawn instead of something planted in it.
+  //
+  // Centred **on** the island's surface rather than above it, so the bottom half is buried and what
+  // shows is a dome of height `radius · BED_SQUASH`. Half a sphere of geometry goes to waste and
+  // that is the cheaper mistake: a squashed ball resting on the grass has a visible underside seam
+  // at this camera angle, and nudging it down by hand is one more number to keep in step with the
+  // bloom heights below.
+  const mound = new THREE.IcosahedronGeometry(radius, 0);
+  jitterVertices(mound, rng, radius * BED_SPREAD);
+  mound.scale(1, BED_SQUASH, 1);
+  mound.translate(x, KERB_H, z);
+  parts.push(bakeColor(mound, jitterColor(PALETTE.foliage, rng, { l: 0.05 })));
+
+  // Blooms sitting *on* that dome. Its surface height falls off as `sqrt(1 - (d/r)²)`, and getting
+  // this wrong is invisible in the code and total on screen: the first version placed them at the
+  // dome's *centre* height, which is below its own surface everywhere, so every bloom in the city
+  // was inside the mound and the beds rendered as plain green lumps.
+  //
+  // `sqrt` on the radial draw spreads them by *area* — without it a uniform draw crowds them into
+  // the middle and leaves the rim, which is the part that gives the bed its size, bare.
+  const count = rng.int(7, 11);
+  for (let n = 0; n < count; n++) {
+    const angle = rng.range(0, Math.PI * 2);
+    const reach = radius * Math.sqrt(rng.next()) * 0.78;
+    const r = BLOOM_R * rng.range(0.85, 1.2);
+    const dome = radius * BED_SQUASH * Math.sqrt(1 - (reach / radius) ** 2);
+
+    const head = new THREE.IcosahedronGeometry(r, 0);
+    head.scale(1, 0.62, 1);
+    head.translate(
+      x + Math.cos(angle) * reach,
+      KERB_H + dome + r * 0.45,
+      z + Math.sin(angle) * reach,
+    );
+    parts.push(bakeColor(head, jitterColor(bloom, rng, { h: 0.015, l: 0.06 })));
+  }
+
+  return parts;
+}
+
+// Where the grass on an island stops. Derived off the ground mesh's own inset, not copied.
+const BED_ROOM = MEDIAN_W / 2 - MEDIAN_EDGE;
+const BED_R_LOW = 0.44;
+const BED_R_HIGH = 0.62;
+// Beds are spaced along the island rather than scattered, for the reason the park benches are:
+// at two or three per run a pair of random draws puts them at the same end about as often as it
+// spaces them. ~2 units apart comes out at three beds on an 8.4-unit island and two on a 7.07.
+const BED_PITCH = 2.0;
+// Clear of the island's stadium caps, so a bed's own circle is measured against the straight part.
+const BED_END_GAP = MEDIAN_W / 2 + 0.1;
+/** Where the grass on an island stops — see `BED_ROOM` above. Exported for the probe. */
+export const MEDIAN_BED_ROOM = BED_ROOM;
+
+/**
+ * Where the beds go on every median in the city.
+ *
+ * Split out and exported for the same reason `planParkFurniture` is: placement is the part with a
+ * rule in it, and `tools/probe.mjs` asserts the rule — no bed may overhang its island's kerb into
+ * the carriageway, which is a thing you cannot see in a merged mesh.
+ */
+export function planMedianBeds(rng, runs) {
+  const beds = [];
+
+  for (const run of runs) {
+    const usable = (run.to - run.from) - BED_END_GAP * 2;
+    if (usable <= 0) continue;
+
+    const count = Math.max(2, Math.round(usable / BED_PITCH));
+    const centre = run.axis === 'x' ? (run.z0 + run.z1) / 2 : (run.x0 + run.x1) / 2;
+
+    for (let n = 0; n < count; n++) {
+      const radius = rng.range(BED_R_LOW, BED_R_HIGH);
+      // What the bed actually occupies, jitter included — the number placement is bounded by, and
+      // the one the probe measures against.
+      const footprint = radius * (1 + BED_SPREAD);
+      const even = run.from + BED_END_GAP + usable * ((n + 0.5) / count);
+      const along = THREE.MathUtils.clamp(even + rng.range(-0.25, 0.25),
+        run.from + BED_END_GAP, run.to - BED_END_GAP);
+      // A bed narrower than the strip may sit a little off the centreline, which stops a row of
+      // them reading as a dotted line painted down the middle. Bounded by its own radius, so the
+      // widest bed simply gets no room to wander.
+      const across = centre + rng.range(-1, 1) * Math.max(0, BED_ROOM - footprint);
+      const bloom = rng.pick(PALETTE.bloom);
+
+      beds.push(run.axis === 'x'
+        ? { x: along, z: across, radius, footprint, bloom }
+        : { x: across, z: along, radius, footprint, bloom });
+    }
+  }
+
+  return beds;
 }
 
 // --- Park furniture ---------------------------------------------------------
@@ -338,37 +463,14 @@ export function createProps(rng, blocks) {
 
   // --- The arterials' medians -------------------------------------------------
   //
-  // Small trees down the middle of every main street. Planted last so the park draws above keep
+  // Flower beds down the middle of every main street. Planted last so the park draws above keep
   // the stream they have always had — a seed's parks look the same as they did before medians
-  // existed.
-  //
-  // **Short, and not many.** The camera looks down at 33°, so anything of height h hides the
-  // ground within 1.54h behind it, and what is behind a median is the far carriageway of the road
-  // the player is most likely to be driving. The lane centre is 3.33 across, which is 4.71 along
-  // the view diagonal; a 2.9-unit tree with a 0.9 crown reaches about 5.7, so it *does* pass in
-  // front of a car over there. That is unavoidable at this camera angle — the only lever is how
-  // often. Hence one or two per run rather than a row, and the tall end of the range capped well
-  // under the 3.4 a pavement tree starts at: two crowns cover about 45% of an 8.4-unit island, so
-  // a car in the far lane is behind a trunk for well under half of each block.
-  const MEDIAN_TREE = { low: 2.1, high: 2.9 };
-  // Off the stadium cap, so a crown never overhangs the end of its own island into the junction.
-  const MEDIAN_TREE_MARGIN = MEDIAN_W / 2 + 1.0;
-
-  for (const run of medianRuns()) {
-    const along = run.to - run.from;
-    const usable = along - MEDIAN_TREE_MARGIN * 2;
-    if (usable <= 0) continue;
-
-    const count = rng.int(1, 2);
-    for (let n = 0; n < count; n++) {
-      // Spread evenly and then jittered, rather than sampled: at one or two per island a pair of
-      // random draws puts both trees at the same end about as often as it spaces them.
-      const t = (n + 0.5) / count;
-      const s = run.from + MEDIAN_TREE_MARGIN + usable * t + rng.range(-0.35, 0.35);
-      const c = run.axis === 'x' ? (run.z0 + run.z1) / 2 : (run.x0 + run.x1) / 2;
-      if (run.axis === 'x') plant(s, c + rng.range(-0.15, 0.15), MEDIAN_TREE);
-      else plant(c + rng.range(-0.15, 0.15), s, MEDIAN_TREE);
-    }
+  // existed. See `flowerBedParts` for why these are beds and not trees.
+  for (const bed of planMedianBeds(rng, medianRuns())) {
+    const built = flowerBedParts(bed.x, bed.z, rng, bed);
+    const rand = hash01(bed.x, bed.z);
+    for (const part of built) stampEntry(part, bed.x, bed.z, rand);
+    parts.push(...built);
   }
 
   const merged = mergeGeometries(parts, false);

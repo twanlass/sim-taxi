@@ -114,17 +114,38 @@ asserts that nothing but a passing taxi is ever over one.
 The ends are **stadium caps**, not square corners. At 2.4 across and eight long, a square-ended
 planter reads as a kerbstone dropped in the road.
 
-### The trees are short on purpose
+### Flowers, not trees
 
-The camera looks down at 33°, so anything of height h hides the ground within `1.54h` behind it —
-and what is behind a median is the far carriageway of the road the player is most likely to be
-driving down. That lane centre is 3.33 across, which is 4.71 along the view diagonal; a 2.9-unit
-tree with a 0.9 crown reaches about 5.7, so it **does** pass in front of a car over there.
+Trees were the first thing planted there and the camera is why they are not there now. It looks
+down at 33°, so anything of height h hides the ground within `1.54h` behind it — and what sits
+behind a median is the far carriageway of the road the player is most likely to be driving down.
+That lane centre is 3.33 across, which is 4.71 along the view diagonal; even a stunted 2.9-unit
+tree with a 0.9 crown reaches about 5.7, so it passed in front of cars over there for roughly half
+of every block. Shortening it further just made it a shrub on a stick.
 
-That is unavoidable at this camera angle. The only lever is how often, so median trees are drawn
-from 2.1–2.9 (against the 3.4–5.6 a pavement tree gets) and there are one or two per run rather than
-a row: two crowns cover about 45% of an 8.4-unit island, so a car in the far lane is behind a trunk
-for well under half of each block.
+A flower bed tops out **0.36 above the island** and casts 0.55 of occlusion, so the question stops
+being "how often does this hide a car" and simply goes away. It also suits the strip better: a
+median is a planter, not a verge, and bedding is what a city puts in one.
+
+**A single flower is not a thing this game can draw.** At play zoom 1 world unit is 7.7px, so a
+bloom is under two pixels and a stem is nothing at all. What has to read is the *bed* — a 1.0–1.3
+unit patch, 8–10px of colour against the island's grass — so `flowerBedParts` spends its geometry
+on a foliage mound wide enough to see and dots blooms over it, rather than on stems nobody
+resolves. Two or three beds an island, spaced rather than scattered, for the same reason the park
+benches are ([above](#benches-and-one-statue)).
+
+`planMedianBeds` is split out and exported the way `planParkFurniture` is: placement is the part
+with a rule in it, and the rule — no bed may overhang its island's kerb into the carriageway — is
+invisible once the props are merged into one mesh. The probe sweeps it over seeds, because the bed
+that would escape is specifically the widest one on the narrowest island, and it budgets for
+`jitterVertices` throwing a mound's corners 14% past its nominal radius. That is 0.09 at the top of
+the size range, which is most of the 0.15 of kerb an island leaves showing.
+
+The blooms are three tints of one pink. Almost every warm hue in this game already means something
+— the urgency ramp runs 1°–126°, the taxi sits at 34°, the VIP purple at 260° — which leaves the
+magenta arc between the purple and the red as the one wide gap on the wheel. They land at 321–331°,
+30° clear of the nearest, and are deliberately half as saturated as anything the player has to act
+on. Both properties are asserted in `tools/probe.mjs`, the same way the roadworks orange is.
 
 ## Layout: what a block *is*
 
