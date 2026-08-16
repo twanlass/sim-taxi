@@ -181,6 +181,46 @@ check('layout covers every block', layout.length === GRID * GRID, `${layout.leng
 check('some blocks are parks', layout.some((b) => b.type === 'park'),
   `${layout.filter((b) => b.type === 'park').length} parks`);
 
+/**
+ * Whether the corner pin at intersection (i, j) would stand on grass.
+ *
+ * Deliberately *not* `fares.onParkBlock`: this takes the world point `cornerFor` actually returns
+ * and tests it against the park blocks' own bounds, so it checks where a pad ends up rather than
+ * restating the index arithmetic that put it there. `cornerFor` flips its corner inward at the two
+ * origin-edge lines, which is exactly the case a re-derived (i − 1, j − 1) gets wrong.
+ */
+const onGrass = (city, i, j) => {
+  const { x, z } = cornerFor(i, j);
+  return city.some((b) => b.type === 'park'
+    && x >= b.bounds.x0 && x <= b.bounds.x1 && z >= b.bounds.z0 && z <= b.bounds.z1);
+};
+
+// A courier job may never stand on a park (game/parcels.js), and that is a *hard* filter — an
+// unlucky city offers no box rather than a box on the grass. So the supply it draws from has to be
+// checked, because the failure mode is silence: a city green enough to exhaust the non-park corners
+// simply never spawns a package, with nothing logged. Swept over seeds rather than asserted on this
+// one, since it is the generator's tail that would bite.
+//
+// Measured floor over 200 seeds is written into the message rather than into the threshold: the
+// board needs two corners three blocks apart and the check wants to fail long before that.
+{
+  let leanest = Infinity;
+  let leanestSeed = 0;
+  for (let s = 0; s < 200; s++) {
+    const city = createLayout(makeRng(s));
+    let free = 0;
+    for (let i = 0; i <= GRID; i++) {
+      for (let j = 0; j <= GRID; j++) if (!onGrass(city, i, j)) free += 1;
+    }
+    if (free < leanest) { leanest = free; leanestSeed = s; }
+  }
+  // `createLayout` installs the network it bakes — put the probe's own city back. See the note at
+  // the buildings sweep below, and the one at the foot of city/layout.js.
+  createLayout(makeRng(seed));
+  check('every city has corners for a courier job to stand on', leanest >= 16,
+    `leanest ${leanest}/${(GRID + 1) ** 2} on seed ${leanestSeed}`);
+}
+
 // --- Façades ----------------------------------------------------------------
 //
 // Windows, shopfronts and doors are hand-wound quads rather than PlaneGeometry — a mid-rise
@@ -1324,6 +1364,7 @@ check('no two cars occupy the same space', worst > 1.6,
   let landedOnRoute = 0;
   let bothCarried = 0;
   let dropPadShownEarly = 0;
+  let onPark = 0;
   let prevSpawnAt = -Infinity;
   let minGap = Infinity;
   let maxGap = 0;
@@ -1357,6 +1398,12 @@ check('no two cars occupy the same space', worst > 1.6,
       if (parcels.state.parcels.length > MAX_PARCELS) overCap += 1;
       if (blockDistance(parcel.pickup, parcel.dropoff) < 3) tooShort += 1;
       if (onSameBlock(parcel.pickup, parcel.dropoff)) sameBlock += 1;
+      // Neither end on grass. A park block has no address to deliver to, and a district has built
+      // over the road that used to reach one of its corners — so a pad there is a job pointing at a
+      // street the router knows is gone.
+      for (const end of [parcel.pickup, parcel.dropoff]) {
+        if (onGrass(layout, end.i, end.j)) onPark += 1;
+      }
       // A box may never share a corner with a live fare: two jobs in one place is two jobs the
       // player cannot tell apart at play zoom.
       for (const spot of fares.occupiedSpots()) {
@@ -1407,6 +1454,29 @@ check('no two cars occupy the same space', worst > 1.6,
     elapsed += 1 / 60;
   }
 
+  // **The park rule needs more spawns than a run produces.** One board slot means a run of this
+  // length sees a handful of packages, and only about a sixth of the map is green — so the count
+  // above would sit at zero for a city whose filter had been deleted, which is a check that passes by
+  // not looking. A fresh board per seed on the *same* city gives the draw enough goes at the grass to
+  // be an assertion: the taxi is left parked where the run left it, so the only thing varying is which
+  // pair of corners the draw came up with.
+  let sampled = 0;
+  let sampledOnPark = 0;
+  const BOARDS = 80;
+  for (let s = 0; s < BOARDS; s++) {
+    const boardScene = new THREE.Scene();
+    const board = createParcelSystem(makeRng(seed + 900 + s * 7), boardScene);
+    // `delivered` past the tutorial gate and `nextSpawnAt` still at −Infinity, so the first frame
+    // spawns rather than waiting out a drawn gap.
+    for (const { type, parcel } of board.update(1 / 60, pTraffic.taxi, { delivered: 99 })) {
+      if (type !== 'spawned') continue;
+      sampled += 1;
+      for (const end of [parcel.pickup, parcel.dropoff]) {
+        if (onGrass(layout, end.i, end.j)) sampledOnPark += 1;
+      }
+    }
+  }
+
   // One spawn, not two. **The floor moved down with the cap, deliberately.** At two slots the board
   // refilled on its own and a run of this length always saw several; at one, a box that goes
   // uncollected holds the board until somebody drives through it, so every spawn after the first is a
@@ -1423,6 +1493,8 @@ check('no two cars occupy the same space', worst > 1.6,
     `${tooShort} too short, ${sameBlock} on one block`);
   check('a package never spawns on a fare\'s corner', clashedWithFare === 0,
     `${clashedWithFare} clashes at spawn`);
+  check('neither end of a package stands on a park', onPark === 0 && sampledOnPark === 0,
+    `${onPark}/${spawns * 2} in the run, ${sampledOnPark}/${sampled * 2} over ${BOARDS} fresh boards`);
   // The other direction, and the one that was actually broken: a fare must not spawn on a package's
   // corner either. Frames, not events — the two boards move independently, so the only honest way to
   // state it is that no frame of the run ever has both on one slab.
