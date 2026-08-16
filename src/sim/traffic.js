@@ -67,7 +67,6 @@ const SWERVE_PHASE2 = 1.7;    // offset so the two waves don't start out in step
 // Units of road over which the weave fades in and out with the boost. Paced by distance, like
 // the weave itself, so releasing the button at a red doesn't drift the parked car straight.
 const SWERVE_FADE = 7;
-export const LOCO_WEAVE_FADE = SWERVE_FADE;
 
 /**
  * The Loco Mode weave, as a function of distance driven straight (`u`, world units). Returns the
@@ -79,13 +78,21 @@ export const LOCO_WEAVE_FADE = SWERVE_FADE;
  * kind of maniac and the room budget above only has to be reasoned about once.
  */
 export function locoWeave(u) {
-  const k1 = (Math.PI * 2) / SWERVE_WAVE;
-  const k2 = (Math.PI * 2) / SWERVE_WAVE2;
+  const k1 = (Math.PI * 2) / loco.swayWave;
+  const k2 = (Math.PI * 2) / loco.chopWave;
   return {
-    lateral: SWERVE_AMP * Math.sin(k1 * u) + SWERVE_AMP2 * Math.sin(k2 * u + SWERVE_PHASE2),
-    slope: SWERVE_AMP * k1 * Math.cos(k1 * u) + SWERVE_AMP2 * k2 * Math.cos(k2 * u + SWERVE_PHASE2),
+    lateral: loco.sway * Math.sin(k1 * u) + loco.chop * Math.sin(k2 * u + SWERVE_PHASE2),
+    slope: loco.sway * k1 * Math.cos(k1 * u) + loco.chop * k2 * Math.cos(k2 * u + SWERVE_PHASE2),
   };
 }
+
+/**
+ * Units of road the weave fades in and out over. A function, not the constant it replaced: the
+ * police car imported `LOCO_WEAVE_FADE` and divided by it, which is precisely the captured-copy
+ * failure the tuning object exists to avoid — the slider would have moved the taxi's fade and left
+ * the cruiser on the shipped 7 with nothing to show for it.
+ */
+export const locoWeaveFade = () => loco.fade;
 
 // Wheelie profile for the Loco Mode kickoff — see the pitch-composition block below where the
 // shape is applied. Peak is about 17°: enough to read as the nose jumping off the line, short of
@@ -861,10 +868,10 @@ const ACCEL = 6;              // units/s^2 pulling away
 // Boost tuning. The first pass only raised the speed *cap*, which barely registered: at 6 u/s^2 a
 // car needs 24 units to reach 17 u/s, and junctions are 20 apart, so it never actually got there.
 // Punch comes from the acceleration, not the ceiling.
-const BOOST_SPEED = 2.2;      // multiplier on top speed
+const BOOST_SPEED = 2.6;      // multiplier on top speed — 22.1 u/s, 65mph
 const BOOST_ACCEL = 24;       // reaches full boost speed in well under a block
 const BOOST_KICK = 1.25;      // instant surge on activation, so the press has a feel
-const BRAKE = 11;             // units/s^2 shedding speed; ~3.3 units to stop from cruise
+const BRAKE = 17.5;           // units/s^2 shedding speed; ~2.1 units to stop from cruise
 const CORNER_SPEED = SPEED * 0.7;
 
 /**
@@ -900,21 +907,194 @@ const cruiseCapFor = (car) => (car.isTruck ? TRUCK_SPEED : SPEED)
 //
 // 2.7 rather than something rounder because sim/police.js chases at 26 and has to stay faster than
 // the quarry on its best day; 22.95 leaves the cruiser 3 u/s to close with.
-const OVERDRIVE_SPEED = 2.7;  // multiplier on top speed — 22.95 u/s, 67mph
-const OVERDRIVE_ACCEL = 2.2;  // units/s^2 through the band — 40 units of straight to use it all
+const OVERDRIVE_SPEED = 4.0;  // multiplier on top speed — 34 u/s, 99mph
+const OVERDRIVE_ACCEL = 4.7;  // units/s^2 through the band — 71 units of straight to use it all
+
+/**
+ * The scale every speed readout in the project is quoted in. "18.7 units per second" says nothing
+ * about how fast a car looks, and two copies of the conversion is how the lab's readout and the
+ * tweak panel's would come to disagree.
+ *
+ * **A literal, and it has to be.** This is a fixed scale between the sim's unit and a real one, so
+ * it cannot be derived from any ceiling — not from `overdriveTop()`, which the panel moves, and
+ * not from `OVERDRIVE_SPEED` either, which is what it was written as first. Both make the top
+ * read 67mph *whatever it is set to*, which is the one number a speed readout exists to tell you:
+ * raising the ceiling to 34 u/s silently rescaled every mph in the game back down, and the panel
+ * went on cheerfully reporting 67.
+ *
+ * 2.9194 is 67 / 22.95 — the original overdrive top, which is where the anchor came from and is
+ * now just history rather than a live dependency.
+ */
+export const MPH_PER_UNIT = 67 / 22.95;
+
+/**
+ * The Loco Mode ramp, as live tuning rather than six frozen constants — the ⚙️ panel's Loco
+ * section drives this, so the shape of the mode can be felt from the driving seat instead of
+ * being edited, rebuilt and re-driven. The constants above are still where the numbers *live*;
+ * this is the copy of them the panel is allowed to move.
+ *
+ * Read through `loco.*` at every use site rather than captured into a local at module load: a
+ * captured copy is a slider that appears to work and changes nothing until the page is reloaded,
+ * which is the one failure mode a tuning panel must not have. That is also why `BOOST_CRUISE` is
+ * no longer a const — it is `boostCruise()`, derived on the call.
+ *
+ * `brake` is here despite belonging to *every* car rather than to the boosting taxi: it owns the
+ * coast-down after the button is let go, which is a phase of the ramp, and there is no separate
+ * taxi brake to expose. The panel labels it as global. It is also what `LOOKAHEAD` (32) is derived
+ * against, so a much softer brake — or a much higher overdrive top — can outrun the horizon the
+ * following rule can see. A tuning panel is allowed to drive off the end of a derivation; that is
+ * simply where the rear-ends come from when it does.
+ */
+export const LOCO_DEFAULTS = Object.freeze({
+  kick: BOOST_KICK,
+  speed: BOOST_SPEED,
+  accel: BOOST_ACCEL,
+  overdriveSpeed: OVERDRIVE_SPEED,
+  overdriveAccel: OVERDRIVE_ACCEL,
+  brake: BRAKE,
+  // The weave — the wander inside the lane that reads as "he is driving like a maniac". Two waves
+  // whose periods deliberately do not divide, so they never settle into a metronome; see the
+  // SWERVE_* block at the top of this file for the room budget they were sized against. Live for
+  // the same reason the speeds are: how much wander is *too much* is a judgement about a moving
+  // car, and it cannot be made from the numbers.
+  //
+  // These reach the police car too. It drives the taxi's Loco Mode on purpose — one definition of
+  // maniac, shared out of here — so the sliders move both, and the panel says so.
+  sway: SWERVE_AMP,
+  swayWave: SWERVE_WAVE,
+  chop: SWERVE_AMP2,
+  chopWave: SWERVE_WAVE2,
+  fade: SWERVE_FADE,
+});
+const loco = { ...LOCO_DEFAULTS };
+
+/** The live tuning, copied out — callers get a snapshot, never the object the sim reads. */
+export const locoTuning = () => ({ ...loco });
+
+/**
+ * Knobs that may legitimately be **zero**, which for everything else means "no opinion".
+ *
+ * Only the two weave amplitudes, and that is the whole point of them: zero is how you turn the
+ * wander off and watch the mode without it. Every other knob is a divisor or a multiplier that
+ * makes no sense at zero — a wavelength of 0 is a division by zero inside `locoWeave`, a `fade` of
+ * 0 is `ds / 0` and puts a `NaN` into the envelope, and a top speed or brake of 0 is a taxi that
+ * cannot move or cannot stop.
+ *
+ * Split out rather than handled with a per-key minimum, because the distinction is not about
+ * ranges: it is that for these two, zero is a *value a person means*, and for the rest it is the
+ * absence of one.
+ */
+const ZEROABLE = new Set(['sway', 'chop']);
+
+/**
+ * Move one or more knobs. Anything non-finite is ignored rather than allowed to poison the sim (a
+ * `NaN` in `car.v` is unrecoverable and silent), as is anything negative, and anything at zero
+ * except the two knobs above — see `ZEROABLE` for why those two are different.
+ *
+ * The one ordering that has to hold is enforced here: an overdrive ceiling *below* the boost cap is
+ * not a slower mode, it is a mode with no band at all — `boostAccel` never reaches its taper and
+ * the whole ramp runs on `accel` to a ceiling the panel isn't showing. Clamped rather than refused,
+ * so dragging either slider past the other still does something legible.
+ */
+export function setLocoTuning(patch = {}) {
+  for (const key of Object.keys(LOCO_DEFAULTS)) {
+    const value = Number(patch[key]);
+    if (!Number.isFinite(value)) continue;
+    if (value > 0 || (value === 0 && ZEROABLE.has(key))) loco[key] = value;
+  }
+  loco.overdriveSpeed = Math.max(loco.overdriveSpeed, loco.speed);
+  return locoTuning();
+}
+
+/** Back to shipped. The panel's Reset, and how a tool undoes a scenario's overrides. */
+export const resetLocoTuning = () => setLocoTuning(LOCO_DEFAULTS);
 
 // The speed the camera's follow lead reads as "flat out" — 18.7 u/s. The *boost* ceiling rather
 // than the overdrive one on purpose: as the block above says, the band past it takes 40 units of
 // unbroken straight to reach, so scaling the framing by the overdrive top would open the frame
 // fully only on the rare long run and leave it short through the ordinary boosted corner-to-corner.
-export const BOOST_CRUISE = SPEED * BOOST_SPEED;
+export const boostCruise = () => SPEED * loco.speed;
+
+/** The mode's ceiling — what a clear straightaway is worth, and nothing else reaches. */
+export const overdriveTop = () => SPEED * loco.overdriveSpeed;
+
+/**
+ * What every car actually sheds speed at. `BRAKE` above stays the shipped number the comments
+ * throughout this file quote; this is the one the physics reads, so the panel can move it.
+ */
+const brake = () => loco.brake;
+
+/**
+ * The top of the scatter lerp: a car fleeing the boosting taxi is pushed toward the taxi's own
+ * punch, because a ceiling a car cannot climb to is not a ceiling (see the two `accel` sites).
+ * Deliberately the same number as the boost punch rather than a copy of it — the flee is sized
+ * against what it is fleeing, so raising the punch in the panel raises the scatter with it.
+ */
+const scatterAccel = () => loco.accel;
 
 /**
  * Acceleration available to a car at full boost, which is not one number: full punch up to the
- * BOOST_SPEED ceiling, then the overdrive taper. See the tuning block above for where 2.2 and the
+ * boost ceiling, then the overdrive taper. See the tuning block above for where 2.2 and the
  * 40 units of run-up it implies come from.
  */
-const boostAccel = (v) => (v < SPEED * BOOST_SPEED ? BOOST_ACCEL : OVERDRIVE_ACCEL);
+const boostAccel = (v) => (v < boostCruise() ? loco.accel : loco.overdriveAccel);
+
+/**
+ * The ramp on a clear straight road, sampled — the ideal curve, which is exactly what the ⚙️
+ * panel's preview draws and what docs/traffic.md's numbers describe. Nothing in the sim calls it:
+ * it lives here so that the curve on screen and the physics the sim will actually run come from
+ * one set of numbers, instead of a chart drifting away from the thing it claims to be a chart of.
+ *
+ * The press is at distance 0 from cruise, the release at `holdFor` units. Everything the city does
+ * to the ramp — a leader inside LOOKAHEAD, a red the mode isn't holding, a corner — is absent by
+ * construction; this is the ceiling those things spend, not a prediction of any real run.
+ */
+export function locoRamp({ holdFor = null, dt = 0.002 } = {}) {
+  const top = overdriveTop();
+  const kicked = Math.max(SPEED, SPEED * loco.kick);
+  // Bail-outs, not tuning. A band acceleration near zero never reaches the top and a brake near
+  // zero never comes back down from it, and the panel has to draw *something* rather than hang
+  // inside a slider's own input event. MAX_S/MAX_T give up on the climb and coast home, which
+  // still draws the honest curve; MAX_STEPS is the backstop under both.
+  const MAX_S = 900, MAX_T = 60, MAX_STEPS = 60000;
+
+  /**
+   * One pass. `stride` null means "measure only" — the first pass finds how far the whole
+   * manoeuvre runs so the second can sample it at a constant fraction of its own length, which
+   * is what keeps the punch's shape at any acceleration without returning ten thousand points
+   * for a slow one.
+   */
+  const run = (stride, hold) => {
+    const out = stride ? [{ s: 0, t: 0, v: SPEED }, { s: 0, t: 0, v: kicked }] : null;
+    let v = kicked, s = 0, t = 0, released = false, next = stride;
+    let climbed = null;                       // distance at which the top was first reached
+    for (let step = 0; step < MAX_STEPS; step += 1) {
+      if (climbed === null && v >= top - 1e-4) climbed = s;
+      const holdTo = hold ?? (climbed === null ? Infinity : climbed + Math.max(6, climbed * 0.12));
+      if (!released && (s >= holdTo || s > MAX_S || t > MAX_T)) {
+        released = true;
+        if (out) out.push({ s, t, v, release: true });
+      }
+      if (released && v <= SPEED + 1e-6) break;
+      v = released
+        ? Math.max(SPEED, v - loco.brake * dt)
+        : Math.min(top, v + boostAccel(v) * dt);
+      s += v * dt;
+      t += dt;
+      if (out && s >= next) { out.push({ s, t, v }); next += stride; }
+    }
+    // A tail of cruise, so the curve visibly lands rather than stopping at the moment it arrives.
+    const tail = Math.max(4, s * 0.06);
+    if (out) {
+      out.push({ s, t, v, settled: true });
+      out.push({ s: s + tail, t: t + tail / SPEED, v: SPEED });
+      return out;
+    }
+    return s + tail;
+  };
+
+  return run((holdFor === null ? run(null, null) : run(null, holdFor)) / 400, holdFor);
+}
 
 // Vehicles previously rode at KERB_H + 0.05, floating 0.4 above the tarmac — invisible without
 // wheels, glaring with them. They now sit just clear of the road markings.
@@ -1135,21 +1315,29 @@ function syncGrid(car) {
 /**
  * How far ahead a car can be constrained by a leader, in world units.
  *
- * Not a tuning knob — it is derived. A car brakes toward `sqrt(2 * BRAKE * allowed)`, so a leader
- * stops mattering once that exceeds the car's top speed: at the overdrive top (22.95 u/s) that is
- * 23.9 units of clear road, plus BOOST_GAP, so 28.4. Beyond it the leader is invisible to the
- * physics whether or not it is visible to the bookkeeping. It was 26, derived the same way against
- * the 18.7 ceiling that used to be the top — that horizon is 2.4 units short of what a taxi in
- * overdrive needs, and a leader appearing inside its own stopping distance is a rear-end rather
- * than a lift. 32 leaves margin and is exactly two lanes plus the junction between them
- * (12 + 8 + 12). Ambient traffic is unaffected: at cruise a leader stops constraining beyond 3.3
- * units of clear road, so the extra reach only ever finds cars that were already invisible to it.
+ * Not a tuning knob — it is derived, and it has been re-derived twice now because the thing it is
+ * derived *from* moved. A car brakes toward `sqrt(2 * BRAKE * allowed)`, so a leader stops
+ * mattering once that exceeds the car's top speed: at the overdrive top (34 u/s) against BRAKE
+ * 17.5 that is 33.0 units of clear road, plus BOOST_GAP, so 37.5. Beyond it the leader is
+ * invisible to the physics whether or not it is visible to the bookkeeping.
+ *
+ * The history is the point. It was 26 against the 18.7 ceiling, then 32 when the overdrive band
+ * arrived and made the top 22.95, and 40 now the top is 34. Each time the horizon was left behind
+ * for a while, and each time the symptom was the same: a leader appearing inside the taxi's own
+ * stopping distance, which is a rear-end rather than a lift. **Anything that raises the ceiling or
+ * softens the brake has to come back here**, including a session with the ⚙️ panel — which is why
+ * the panel's own notes say so rather than leaving it to be discovered at 90mph.
+ *
+ * 40 leaves margin and is exactly two lanes plus the two junctions around them (12 + 8 + 12 + 8),
+ * the same "land it on the road's own geometry" argument 32 was picked on. Ambient traffic is
+ * unaffected: at cruise a leader stops constraining beyond 2.1 units of clear road, so the extra
+ * reach only ever finds cars that were already invisible to it.
  *
  * The old model never needed this: `laneKey` was one *infinite* lane spanning the city, so a car
  * saw every leader in its row for free — including, as it happens, cars three blocks away it was
  * about to turn away from. Per-edge lanes end that, so the distance has to be walked.
  */
-const LOOKAHEAD = 32;
+const LOOKAHEAD = 40;
 
 /**
  * Draw `count` more cars onto the network, appending to `into`.
@@ -2056,7 +2244,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       : null);
 
     if (taxiActive && taxi.boost && !taxi.wasBoosting) {
-      taxi.v = Math.max(taxi.v, SPEED * BOOST_KICK);
+      taxi.v = Math.max(taxi.v, SPEED * loco.kick);
     }
     taxi.wasBoosting = taxi.boost;
 
@@ -2074,7 +2262,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const ds = taxi.v * dt;
         taxi.swervePhase += ds;
         const delta = (taxi.boost ? 1 : 0) - taxi.swerve;
-        taxi.swerve += Math.sign(delta) * Math.min(Math.abs(delta), ds / SWERVE_FADE);
+        taxi.swerve += Math.sign(delta) * Math.min(Math.abs(delta), ds / loco.fade);
       }
 
       const wave = locoWeave(taxi.swervePhase);
@@ -2634,14 +2822,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           const gap = car.boost ? BOOST_GAP : followGap(car, leader);
           const room = Math.max(0, ahead - gap);
           allowed = Math.min(allowed, room);
-          leadCap = (leader?.v ?? 0) + Math.sqrt(2 * BRAKE * room);
+          leadCap = (leader?.v ?? 0) + Math.sqrt(2 * brake() * room);
         }
 
         // The rest of the entry test, on the same terms as the signal: read on approach so the
         // car brakes for it. Only worth asking once the line is inside braking range — outside it
         // `allowed = distToLine` is a ceiling above the speed the car is already doing, so the
         // answer cannot change anything and the scan is pure cost.
-        if (distToLine <= (car.v * car.v) / (2 * BRAKE) + 2 && entryRefused(car)) {
+        if (distToLine <= (car.v * car.v) / (2 * brake()) + 2 && entryRefused(car)) {
           allowed = Math.min(allowed, Math.max(0, distToLine));
           stopRoom = Math.min(stopRoom, Math.max(0, distToLine));
         }
@@ -2664,16 +2852,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // The ceiling at full boost is the *overdrive* top, not the BOOST_SPEED one — but the
         // acceleration tapers above BOOST_SPEED, so the band past 18.7 is only ever reached by a
         // car that has had 40 units of straight road and a clear `allowed` to spend it on.
-        const topSpeed = fullPower ? SPEED * OVERDRIVE_SPEED : cruiseCap;
+        const topSpeed = fullPower ? overdriveTop() : cruiseCap;
         const accel = fullPower
           ? boostAccel(car.v)
-          : ACCEL + (BOOST_ACCEL - ACCEL) * car.scatter;
+          : ACCEL + (scatterAccel() - ACCEL) * car.scatter;
         const desired = Math.min(
-          topSpeed, leadCap, Math.sqrt(2 * BRAKE * Math.max(0, stopRoom)),
+          topSpeed, leadCap, Math.sqrt(2 * brake() * Math.max(0, stopRoom)),
         );
         car.v = desired > car.v
           ? Math.min(desired, car.v + accel * dt)
-          : Math.max(desired, car.v - BRAKE * dt);
+          : Math.max(desired, car.v - brake() * dt);
 
         let step = Math.min(car.v * dt, Math.max(0, allowed));
         // Braking only asymptotes toward the line; snap the last sliver so arrival happens. Keyed
@@ -2833,7 +3021,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             // arrived at fast, and a one-frame refusal must not cost the whole tank of speed. From
             // the overdrive top that is ~1.9s to a standstill, and a single refused frame costs
             // 0.18 u/s.
-            car.v = Math.max(0, car.v - BRAKE * dt);
+            car.v = Math.max(0, car.v - brake() * dt);
             car.speedFactor = car.v / SPEED;
             stats.waiting += 1;
             continue;
@@ -2901,12 +3089,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // back — a 17 ↔ 8.5 sawtooth with a period of exactly one block. That is what the taxi
         // behind it was faithfully braking for, and it is what "the taxi stutters on the approach"
         // turned out to be: the taxi was steady, the car in front was not.
-        const cruise = fullPower ? SPEED * BOOST_SPEED : cruiseCapFor(car);
+        const cruise = fullPower ? boostCruise() : cruiseCapFor(car);
         // Going straight on is part of the straightaway, so it keeps the overdrive band and keeps
         // building through it; a junction crossed in a straight line is 8 units of the 40 the band
         // needs. Only a real turn is capped at `cruise`, which is what makes a corner cost the top
         // end rather than merely interrupt it.
-        const straightTop = fullPower ? SPEED * OVERDRIVE_SPEED : cruise;
+        const straightTop = fullPower ? overdriveTop() : cruise;
         // Crazy mode doesn't lift for left-turns or straights — it goes round them at full pelt,
         // and the lean plus the rubber on the road sell it instead of a speed drop. Right turns
         // are the exception: with right-hand traffic they cut across the near corner (chord ≈
@@ -2950,16 +3138,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const leadGap = lead === undefined ? undefined : leaderDist.get(car);
         if (leadGap !== undefined) {
           const room = Math.max(0, leadGap - (car.boost ? BOOST_GAP : followGap(car, lead)));
-          target = Math.min(target, lead.v + Math.sqrt(2 * BRAKE * room));
+          target = Math.min(target, lead.v + Math.sqrt(2 * brake() * room));
         }
 
         // Same acceleration as the drive branch, scatter push included: a ceiling a car cannot
         // climb to is not a ceiling. At plain ACCEL a fleeing car needs 24 units to reach
         // SCATTER_SPEED and a junction is 8, so without this the cruise cap above would raise the
         // roof and the car would still cross at the speed it entered.
-        const accel = fullPower ? boostAccel(car.v) : ACCEL + (BOOST_ACCEL - ACCEL) * car.scatter;
+        const accel = fullPower ? boostAccel(car.v) : ACCEL + (scatterAccel() - ACCEL) * car.scatter;
         car.v = car.v > target
-          ? Math.max(target, car.v - BRAKE * dt)
+          ? Math.max(target, car.v - brake() * dt)
           : Math.min(target, car.v + accel * dt);
         car.turnT += (car.v * dt) / car.turnLen;
         car.travelled += car.v * dt;

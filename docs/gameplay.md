@@ -1436,6 +1436,20 @@ square against a disc is read at a glance.
   package's indefinite wait guaranteed a later fare would eventually land on one. Blocks as well as
   junctions, since `cornerFor` flips its corner inward at `i === 0` and two intersections a whole block
   apart can still share a slab.
+- **Never on a park.** A pad is a delivery address, and a park block has none — no door, no kerb cut,
+  the box sitting among the trees — which on a [district](city.md#park-districts-close-roads) reads
+  worse still,
+  because a district is built *over* the road that used to reach one of its corners, so the pad stands
+  beside a street the router knows is gone. Both ends are filtered, through `onParkBlock` in `fares.js`
+  rather than a test written here: which block a corner pin ends up on is `cornerFor`'s −X−Z flip, and
+  that flip has one owner. It is the only **hard** condition in the draw — every other one is about how
+  good the errand is, and a bad draw there is a worse job; this one is not a job at all — so an unlucky
+  city offers no box that frame and tries again on the next, which costs a layer with no clock nothing.
+  The supply it spends is small: the leanest of 200 city seeds still leaves 24 of 36 junctions standing
+  on pavement, and `tools/probe.mjs` asserts both that floor and the rule itself. The rule's check
+  samples 80 fresh boards on one city rather than counting the run's own spawns — one board slot means
+  a 420s run sees a handful of packages against a map that is a sixth green, so the run alone passes by
+  not looking (measured: 0/2 in the run, 17/160 across the boards, with the filter deleted).
 - **Packages land off the route the taxi is already driving**, at spawn. A box on a road the car was
   going to take anyway is collected for free and asks nothing. It is a spawn-time bias only — the
   next fare re-plans everything, and a package ending up on the new route is the "free money" case,
@@ -1752,7 +1766,7 @@ the holds were rare enough to cost the mode its feel without protecting it.
 tank runs dry — the taxi is still exposed to everything Loco Mode was: it can still crash into
 traffic, still gets caught if a cop is in bust range, still forces the next light. What it loses
 immediately is the speed — the cap drops back to cruise the moment the hold ends, and ordinary
-braking (the same constant every other stop uses) hauls it down from 18.7 to 8.5 in under a
+braking (the same constant every other stop uses) hauls it down from 22.1 to 8.5 in under a
 second, nose dipping hard the whole way. So letting go a beat too late doesn't buy safety; it buys
 a car that's still committed to whatever's in front of it while visibly losing the ability to
 dodge. Re-pressing mid-cooldown cancels it and snaps straight back to full send. See

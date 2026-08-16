@@ -338,6 +338,24 @@ export const PALETTE = {
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
 
+  // Park furniture. A bench's slats are timber and stand within a couple of units of a trunk, so
+  // the one colour they must clearly not be is `trunk` (#6B4E35) — a bench painted the wood of the
+  // tree beside it reads as a fallen branch. This is the same hue two steps lighter and a shade
+  // less red, which is also what keeps it off `plywood` (#B98A54): that one is a bare board
+  // propped against a barricade and this one is finished furniture. The frame reuses `pole` — it
+  // is the same painted metal every other piece of street furniture in the city stands on.
+  benchSlat: '#A2733F',
+
+  // The statue. Pale limestone for the figure and a greyer stone under it, and the split matters
+  // more than either colour: the figure is the thing to see from across the map, so it takes the
+  // lightest value in the park — 20 points above the plinth, which is itself darker than the
+  // `sidewalk` (#9E9C94) the plaza around it is paved in, so a statue never dissolves into its own
+  // base or its own paving. Deliberately *not* a verdigris bronze, however classical: the obvious
+  // patina green (~#7A8B6E) lands a few points off `park` (#6F9A5A) and a figure standing on grass
+  // in the colour of grass is a figure nobody sees.
+  statueStone: '#C9C3B4',
+  statuePlinth: '#8E8A80',
+
   // Roadworks. The warm end of the wheel is already spoken for twice over — the taxi owns yellow
   // outright and the urgency scale owns the ambers below it. Measured where `getHSL` measures,
   // which is the working colour space (linear-sRGB) rather than the one a colour picker shows for

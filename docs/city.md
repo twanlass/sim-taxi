@@ -122,6 +122,59 @@ the same repeating grid, just greener. Closing the segment is what actually brea
 The closure is real, not cosmetic. `setClosedSegments()` removes the segment from `legalExits`, so
 traffic routes around it and the router plans around it for free.
 
+**Which blocks are green is registered the same way** — `setParkBlocks()` beside the closures, read
+back through `isParkBlock(bi, bj)`. A park is a fact about the ground that anything placing a marker
+on a kerb has to be able to ask about without holding the layout array: the courier board is the
+caller, and it keeps both ends of a package off the grass
+([gameplay.md](gameplay.md#the-package-courier)). Registered as blocks rather than as junctions,
+because a junction has four corners and a marker only ever uses one of them — which one is
+`cornerFor`'s business, in `game/fares.js`.
+
+### A park has a frontage
+
+A park is a block on a street, so it presents the same pavement to the street that a built block
+does: `ground.js` lays a **1.0-unit walk** around the inside of the kerb and cuts the lawn out of
+it (one `ShapeGeometry` with a hole, rather than grass laid over paving — two coplanar opaque
+surfaces cost the overlap twice). Without it, a park was the one block in the city with no frontage
+at all: the 0.15 of kerb a block's platform leaves showing is about a pixel at play zoom, so against
+grass the edge vanished and the green read as a rug dropped on the asphalt.
+
+`PARK_EDGE` — the kerb plus that walk — is where the green starts, and it is **exported because two
+other systems stand things on the grass**: `props.js` plants trunks clear of it and `birds.js` keeps
+the flock off the paving. Both derived their margin from the bare 0.15 before the walk existed, so
+both would have been left standing on it. The probe measures the inset off the mesh rather than
+trusting the constant, and checks the winding of the ring while it is there — a hole is triangulated
+by earcut, not laid out in rows.
+
+### Benches, and one statue
+
+The walk is also what the benches are placed against — **on the lawn, a step inside the paving**
+rather than on it. A bench on the walk's centreline is where a bench in the street goes, but a
+park's walk is a thing you go *round* the park on, and furniture parked in the middle of it reads
+as an obstacle rather than as somewhere to sit. `planParkFurniture()` in `props.js` spreads slots
+evenly along each side of a plot — random points on a 32-unit district side put two benches back to
+back about as often as they put them anywhere useful, and a park is the one place in this city where
+evenly spaced furniture is more truthful than scattered furniture — then takes about half of them,
+which comes out at two or three round a pocket park and five or six round a district. Every bench
+faces **into** the park.
+
+**Exactly one statue in a city**, the same shape of decision as the courtyard block and the helipad
+and taken for the same reason: rolled per park it came out two or three times on most seeds, and the
+third statue in a five-block city is a municipal habit rather than a landmark. It prefers a district,
+because a district's centre is *the road that used to run between its two blocks* — the one spot in a
+park that was never anything else. It brings its own square of paving with it (`city/ground.js` is
+built before anything has decided where the statue goes, so a plaza planned in one file and drawn in
+another would be two things to keep in step), and the trees are planted afterwards and keep out of
+its clearing.
+
+The figure is hand-built from boxes rather than taken from `geometry/person.js`: that one is a rig,
+a Group of separately-pivoting limbs with materials of their own, and what a merged props mesh needs
+is geometry that never moves again.
+
+The placement rules are swept over seeds in `tools/probe.mjs` rather than looked at on one — a bench
+half on the grass and a city with three statues in it are both perfectly plausible on the seed you
+happen to be looking at.
+
 The districts and the lone pocket parks are also the only thing in the city with any wildlife in it:
 `game/birds.js` reads the same bounds `city/props.js` plants trees inside, and puts a flock down on
 one of them. **Two flocks, in two different parks** — every seed produces between two and five green
@@ -144,9 +197,9 @@ never gets to spend time meshing a broken city.
 
 | File | Produces | Notes |
 |---|---|---|
-| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
+| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
-| `props.js` | trees, street furniture | Merged per material via `bakeColor`, so hundreds of props cost one draw call. |
+| `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
 
 ### What a building is made of
 

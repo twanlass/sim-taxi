@@ -1,4 +1,4 @@
-import { GRID, HALF_ROAD, lineCoord } from '../city/grid.js';
+import { GRID, HALF_ROAD, isParkBlock, lineCoord } from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
 import { createPerson } from '../geometry/person.js';
@@ -225,6 +225,24 @@ export const onSameBlock = (a, b) => {
   const ba = blockFor(a.i, a.j);
   const bb = blockFor(b.i, b.j);
   return ba.bi === bb.bi && ba.bj === bb.bj;
+};
+
+/**
+ * Whether an intersection's corner pin would stand on a park.
+ *
+ * Exported for `game/parcels.js`, which uses it to keep a courier job off the grass, and written
+ * here rather than there for the same reason `onSameBlock` is: which block a pin ends up on is
+ * `cornerFor`'s -X-Z flip, and that flip has exactly one owner. A caller re-deriving it would get
+ * the four junctions round a park right and the aliased edge ones wrong.
+ *
+ * A pad on a park is a delivery address on a block that has none — no door, no kerb cut, the box
+ * sitting among the trees — and on a district it is worse, because a district builds *over* the
+ * road that used to run between its two blocks, so the pad stands beside a street the router
+ * knows is not there.
+ */
+export const onParkBlock = (spot) => {
+  const { bi, bj } = blockFor(spot.i, spot.j);
+  return isParkBlock(bi, bj);
 };
 
 /**
