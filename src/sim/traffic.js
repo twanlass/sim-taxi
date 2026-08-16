@@ -1303,6 +1303,31 @@ const LOOKAHEAD = 32;
  *                     stream it always has. main.js is the one caller that opts in, with
  *                     TRUCK_CHANCE.
  */
+/**
+ * How far from the taxi a mid-run arrival has to appear, in world units.
+ *
+ * Half the map's 100-unit span. The honest position: on a desktop the whole city is in frame at
+ * once, so there is no such thing as spawning off-camera and this cannot pretend otherwise — what
+ * it can do is put the new car where the player is not looking, which is anywhere but the junction
+ * they are driving through. On a narrow viewport, where the camera actually follows the taxi, the
+ * same distance does keep it out of shot.
+ *
+ * **It is also the ceiling on `GHOST_RADIUS`, and that is the half worth knowing.** The boost-mode
+ * outlines (game/carghosts.js) trace every vehicle inside their radius; if that radius ever reached
+ * this clearance, a car would materialise *already wearing an outline* — a ghost blinking into
+ * existence next to the taxi with no vehicle having driven into view. That is indistinguishable
+ * from the outline bug it exists to prevent, so `tools/probe.mjs` asserts the two stay apart.
+ * Measured on the current pair (50 against a radius of 42): no spawn has ever landed inside the
+ * radius, the nearest measured 52.6 units out — but the margin is 8 units, which is 0.43s at Loco
+ * Mode's 18.7 u/s. Raise the radius and this has to move first.
+ *
+ * What the clearance does *not* buy: about a quarter of spawn points are hidden behind a building
+ * at the moment they are used, and the nearest measured arrival reached the ghost radius 0.7s after
+ * appearing. A car that did not exist a second ago cannot be warned about by any horizon; that is a
+ * property of growing the traffic mid-run, not of the outlines.
+ */
+export const SPAWN_CLEARANCE = 50;
+
 function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
   const net = cityNetwork();
   const cars = into;
@@ -1734,15 +1759,6 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   };
   ambient.forEach(paint);
   trucks.forEach(paintTruck);
-
-  // How far from the taxi a mid-run arrival has to appear.
-  //
-  // Half the map's 100-unit span. The honest position: on a desktop the whole city is in frame at
-  // once, so there is no such thing as spawning off-camera and this cannot pretend otherwise —
-  // what it can do is put the new car where the player is not looking, which is anywhere but the
-  // junction they are driving through. On a narrow viewport, where the camera actually follows the
-  // taxi, the same distance does keep it out of shot.
-  const SPAWN_CLEARANCE = 50;
 
   /**
    * Grow the ambient traffic toward `n` total vehicles, taxi included.

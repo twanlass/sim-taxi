@@ -631,6 +631,11 @@ Two things genuinely break up there, and both are the game telling the truth rat
 - **`LOOKAHEAD` is 32 units**, so above about 26 u/s the taxi is already moving faster than it can
   see far enough ahead to brake for. That is most of what "significantly faster" feels like from
   the driving seat.
+- **The boost ghosts stop being a warning.** `GHOST_RADIUS` (42) is a distance, and what it is
+  worth is that distance over the boost cruise speed — 2.2s at the shipped 18.7 u/s, 0.4s at the
+  slider's 102. The 8-unit margin to `SPAWN_CLEARANCE` goes the same way. Neither is a bug in the
+  outlines; a horizon fixed in *units* buys less time the faster you go, which is the honest
+  behaviour of every horizon in the file.
 
 Nothing else does. Across the whole range — and past it — `car.v`, `car.x` and `car.z` stay finite
 and the taxi stays on the network, because `step` is clamped to `allowed` however fast the car

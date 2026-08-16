@@ -75,6 +75,30 @@ const CHIP_VIEW = new THREE.Vector3(-VIEW_DIR.x, VIEW_DIR.y, VIEW_DIR.z);
 const CENTRE_Y = PARCEL_CENTRE_Y;
 const FIT = 1.15;
 
+// --- Riding along -----------------------------------------------------------------------------
+//
+// A slow turn and a shallow bob, for as long as the box is aboard.
+//
+// It used to land square and sit dead still, on the argument that the kerb box's spin *means*
+// something — it is the box's substitute for the rider's waving arm, "this is a thing to pick up"
+// (geometry/parcel.js) — and that repeating it on a readout would be asking for a second pickup.
+// That reads as a static icon rather than as cargo, which is the one thing this chip is not: it is
+// the same live mesh as the box on the road, in its own lit context, and standing it perfectly
+// still is the pose that makes it look like a sprite.
+//
+// The distinction the stillness was protecting is kept in the **rate** instead. The kerb box turns
+// at 0.55 rad/s (a turn every 11.4s) and bobs 0.07 on a 3.9s period; this one takes 20s to come
+// round and bobs less than half as far. Slower than the thing that is calling you is legible as
+// "this is not calling you" — and a package cannot be selected in the first place (game/parcels.js),
+// so there is no gesture for the misreading to cost.
+//
+// The bob is in world units against a frustum half-height of FIT, so 0.03 is ~0.5px of travel at the
+// chip's 42px — which is the point. Anything you can measure by eye at this size is a jitter. The
+// headroom is 0.13 (FIT less the box's 1.02 screen half-height), so the box cannot bob out of frame.
+const SPIN_MS = 20000;
+const BOB_MS = 4600;
+const BOB = 0.03;
+
 // --- Coming in from the city ------------------------------------------------------------------
 //
 // The second half of a pickup. `game/parcels.js` lifts the collected box out of the world — up, away
@@ -123,12 +147,10 @@ export function createCargoChip({ sun, hemi }) {
   const scene = new THREE.Scene();
   const syncLights = mirrorSceneLights(scene, sun, hemi);
 
-  // At rest once it has landed, and it stays there. The kerb box turns because a slow spin is the
-  // universal "this is a thing to pick up" (geometry/parcel.js) — it is the box's substitute for the
-  // rider's waving arm. This one has already been picked up: it is cargo, riding along, and it should
-  // sit as still in the corner as it did on the deck. A spinning readout would be asking for a second
-  // pickup. The one exception is the flight in, which *inherits* the spin it arrived with and eases it
-  // to square — see `flyIn`.
+  // Turning and bobbing gently for as long as it is aboard — see SPIN_MS above for the rate and why
+  // it is the slow one. The flight in rides on top of that: it *inherits* the spin the world copy
+  // was turning at and eases the excess away, leaving the box on the idle turn rather than stopping
+  // it dead — see `flyIn`.
   const parcel = createParcel({ pickable: null });
   scene.add(parcel.group);
 
@@ -137,6 +159,10 @@ export function createCargoChip({ sun, hemi }) {
   camera.lookAt(0, CENTRE_Y, 0);
 
   let carrying = false;
+  // When this load came aboard, which is the phase the idle turn and bob are measured from — so a box
+  // opens square and level however long the page has been up, and two runs put the same picture in the
+  // corner at the same point in a pickup.
+  let carryAt = 0;
   // The flight in: the yaw it started at and when, or null once the box has settled. Read by `render`,
   // which is the only thing that can turn it into a pose.
   let spin = null;
@@ -158,11 +184,13 @@ export function createCargoChip({ sun, hemi }) {
     setCarrying(on) {
       if (on === carrying) return;
       carrying = on;
+      carryAt = performance.now();
       if (!on) {
         spin = null;
         flight?.cancel();
         flight = null;
         parcel.group.rotation.y = 0;
+        parcel.group.position.y = 0;
         el.classList.remove('is-flying');
       }
       el.classList.toggle('is-on', on);
@@ -183,6 +211,7 @@ export function createCargoChip({ sun, hemi }) {
     flyIn({ x, y, yaw = 0 }) {
       if (carrying) return;
       carrying = true;
+      carryAt = performance.now();
       el.setAttribute('aria-hidden', 'false');
       flight?.cancel();
       flight = null;
@@ -232,33 +261,52 @@ export function createCargoChip({ sun, hemi }) {
       //
       // Folded to the nearest quarter turn, so the box never turns more than 45° on the way in. A
       // square box a quarter turn from square is *the same picture* — the footprint is square by
-      // design (geometry/parcel.js) precisely so its spin never changes its width — so "settle it
-      // square" has four right answers and this takes the near one. Landing the raw angle instead
-      // means up to half a turn crammed into the slide, which is many times the speed the box was
-      // actually rotating at and reads as a flourish rather than as the same spin running down.
+      // design (geometry/parcel.js) precisely so its spin never changes its width — so "hand it over
+      // to the idle turn" has four right answers and this takes the near one. Landing the raw angle
+      // instead means up to half a turn crammed into the slide, which is many times the speed the box
+      // was actually rotating at and reads as a flourish rather than as the same spin running down.
+      //
+      // What it eases to is now the *idle* pose rather than dead square — `render` adds this residual
+      // on top of the slow turn — so the last frame of the arrival and the first frame of riding along
+      // are the same pose at the same speed. The fold ignores the ~12° the idle turn covers during a
+      // 460ms flight, which is well inside the 45° it is choosing between.
       const QUARTER = Math.PI / 2;
       const settled = -yaw - Math.round(-yaw / QUARTER) * QUARTER;
       spin = { from: settled, at: performance.now() };
       flight.onfinish = () => {
         el.classList.remove('is-flying');
         spin = null;
-        parcel.group.rotation.y = 0;
       };
     },
 
     /**
-     * Draw. The box is still and the frustum is fixed once it has landed, but the lights are re-synced
-     * every frame regardless, because the ⚙️ panel's day/night cycle is live and a chip stranded at the
-     * hour it was built would be the one object on screen lit by a different afternoon. Cheap: two
-     * colour copies and a 42px draw.
+     * Draw. Wall time, not sim time: this is a HUD element and it goes on turning through a pause the
+     * same way the CSS on the rest of the HUD does. The lights are re-synced every frame too, because
+     * the ⚙️ panel's day/night cycle is live and a chip stranded at the hour it was built would be the
+     * one object on screen lit by a different afternoon. Cheap: two colour copies and a 42px draw.
      */
     render() {
       if (!carrying) return;
+      const now = performance.now();
+
+      // The idle pose. `prefers-reduced-motion` parks it square and level — checked per frame rather
+      // than once at construction, so a preference changed mid-run takes effect on the next draw, and
+      // so the box does not stop mid-turn at whatever angle it happened to be at.
+      if (reducedMotion?.matches) {
+        parcel.group.rotation.y = 0;
+        parcel.group.position.y = 0;
+      } else {
+        const t = now - carryAt;
+        parcel.group.rotation.y = (t / SPIN_MS) * Math.PI * 2;
+        parcel.group.position.y = Math.sin((t / BOB_MS) * Math.PI * 2) * BOB;
+      }
+
       if (spin) {
-        // A cubic ease-out over the flight's own duration, so the turn slows to a stop as the travel
-        // does rather than finishing early and leaving the box riding in dead still.
-        const t = Math.min(1, (performance.now() - spin.at) / FLY_MS);
-        parcel.group.rotation.y = spin.from * (1 - t) ** 3;
+        // The arrival's excess turn, *added* to the idle pose: a cubic ease-out over the flight's own
+        // duration, so the extra speed bleeds off as the travel does rather than finishing early and
+        // leaving the box riding in at a different rate from the one it lands on.
+        const t = Math.min(1, (now - spin.at) / FLY_MS);
+        parcel.group.rotation.y += spin.from * (1 - t) ** 3;
       }
       syncLights();
       renderer.render(scene, camera);

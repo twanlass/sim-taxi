@@ -14,9 +14,10 @@ import {
 // matters is the one moment the player cannot see it. The taxi's own outline says where the player
 // is; this says what they are about to drive into.
 //
-// Why only the nearest few: outlining all two dozen ambient cars turns the skyline into a
-// wireframe and says nothing more than "this city has traffic". A capped radius says "these ones,
-// now", which is the only thing worth interrupting the view for.
+// Why only the nearest dozen: not to keep the screen clean — a rim paints nothing at all on a
+// vehicle standing in the open (see GHOST_RADIUS) — but because tracing every car in the city is
+// fill and stencil traffic spent on vehicles too far away to be the player's problem. The radius
+// is a warning horizon, and the cap is a rail under it, not a filter.
 //
 // **Box trucks wear it too**, which they did not at first. A truck lives in its own instance space
 // (sim/traffic.js keeps `trucks` out of `ambient` because an InstancedMesh draws one geometry for
@@ -36,29 +37,60 @@ import {
 // lands.
 
 /**
- * How near a car has to be to earn a ghost, in world units — 1.5 × PITCH, so it covers the
- * junction the taxi is committed to plus the one behind it, and stops short of the junction after
- * next. At Loco Mode's 18.7 u/s a car crossing that next junction appears about 1.6s before the
- * taxi reaches it, which is still enough time to lift off the button — 1.3s at the top of the
- * overdrive band, which is the price of the band and not a reason to widen the radius: a straight
- * run of two blocks is also the case where the warning has least to say.
+ * How near a car has to be to earn a ghost, in world units — 2.1 × PITCH, so it reaches past the
+ * junction the taxi is committed to and covers the one after it.
  *
- * Not SCATTER_RANGE's 40, tempting as reuse is: at 40 about half a dozen more cars fall in range
- * and MAX_GHOSTS would be doing all the filtering, which would make the radius a fiction. This is
- * the first number to turn down if the effect ever reads busy.
+ * **This was 1.5 × PITCH — 30 — and 30 is a braking distance, not a warning.** The number the
+ * player actually needs is a *time*: long enough to read a hidden car and lift off the button
+ * before the junction, not long enough to watch the crash arrive. The old radius did not buy it.
+ * Measured by driving 150 boost crashes headlessly, taking the vehicle the taxi went on to hit,
+ * and asking what its outline was doing on the frames before the impact — with occlusion resolved
+ * against the city's own building and tree geometry, not guessed:
+ *
+ *   - 1.5s out — 17 of the 123 crash partners still on the road were hidden behind something, and
+ *     **4 of those 17 wore no outline at all**, the rest averaging 0.41 alpha. They were sitting
+ *     at 29-30 units, right on the old line, so the effect had least to say at the exact moment
+ *     the player could still act on it.
+ *   - 2.0s out — 19 hidden, 6 of them unoutlined, mean alpha 0.34.
+ *   - 1.0s out and closer, everything is lit at full opacity. That is the report this came from:
+ *     the outline does arrive, it just arrives once the taxi is already committed.
+ *
+ * At 42 the same 150 crashes give **0 of 17 unoutlined at 1.5s** (mean alpha 0.41 → 0.55) and 3 of
+ * 19 at 2.0s (0.34 → 0.42). The fully-lit distance — RADIUS − FADE_BAND = 36, which is the figure
+ * the warning is really measured at — is 1.9s at Loco Mode's 18.7 u/s and 1.6s at the top of the
+ * overdrive band, against the old 1.3s / 1.05s. The band still costs warning; that is the price of
+ * the band, but it now costs it from a figure that had some to spare. Past 42 the returns go flat:
+ * 46 buys about one more of those three and starts putting pressure back on the cap.
+ *
+ * The old note here said 40 would put "half a dozen more cars in range" and make MAX_GHOSTS the
+ * real filter. Both halves were wrong, and it is worth writing down why, because the same argument
+ * will come back: 30 holds **3.4** vehicles on a frame, not the 6.5 that note assumed, and 42
+ * holds 6.1 — so the cap only bit at all because it was set just above a number that was already
+ * too low (it is 12 now; see below). And "busy" is the wrong worry entirely. A rim only rasterises
+ * where something in the depth buffer is *in front of* it, so a vehicle standing in the open costs
+ * fill and paints **nothing**. What the player sees is only the hidden ones, and there are barely
+ * more of those: measured against the city's own buildings and trees, 0.77 hidden vehicles per
+ * frame at 30 against 1.28 at 42 — half an extra outline on screen, for two thirds more warning.
  *
  * Measured from vehicle centre for both classes, deliberately unchanged for the longer truck: half
  * a truck is 2.8 against a car's 1.7, so its tail crosses the line about a unit later than its
  * centre says. A per-class radius would be a second number to keep in step with PITCH for barely
  * a tenth of a second of warning, on the one vehicle whose size already makes it easiest to see.
  */
-export const GHOST_RADIUS = 30;
+export const GHOST_RADIUS = 42;
 
 /**
- * The hard cap, shared across cars and trucks. Set deliberately *above* the ~6.5 vehicles that
+ * The hard cap, shared across cars and trucks. Set deliberately *above* the 6.1 vehicles that
  * radius holds on average, so it acts as a rail against a clump — a queue at a red — rather than
- * as the real filter. Eviction always drops the farthest vehicle, which the distance fade has
- * already made the faintest, so the cap can only ever remove something that was near-transparent.
+ * as the real filter.
+ *
+ * It was 8 against a radius of 30, which was already only a rail by luck; at 42 it would have
+ * become the filter, and the thing it evicted would have been the vehicle that mattered. Eviction
+ * drops the farthest, and *farthest* is not *safest* — the whole point of the widened radius is
+ * the car two junctions out. Measured: at radius 42 with a cap of 8, a genuinely hidden vehicle
+ * was dropped by the cap on 5.5% of frames; at 12 that is 0.0%, and stays there out to a radius
+ * of 46. The cost of the four extra slots is four matrices per pool, drawing nothing until they
+ * are claimed.
  *
  * One cap over both classes rather than one each: the cap exists to bound how much of the frame
  * this may paint, and that ceiling is about the player's screen, not about which buffer a vehicle
@@ -66,7 +98,7 @@ export const GHOST_RADIUS = 30;
  * carrying three trucks and five cars is legal at 1/12 and a pool that ran out of slots would drop
  * the nearest vehicle on a technicality; the spare slots cost a matrix each and draw nothing.
  */
-export const MAX_GHOSTS = 8;
+export const MAX_GHOSTS = 12;
 
 /** Seconds to fade the whole set in or out with the boost. */
 const GHOST_FADE = 0.35;
@@ -74,8 +106,14 @@ const GHOST_FADE = 0.35;
 /**
  * The outer band of the radius, in world units, over which a single ghost fades in. This is what
  * makes a plain-radius rule feel deliberate instead of binary — and what hides the cap's eviction.
+ *
+ * Stays 6 units as the radius grew, rather than scaling with it: what it is hiding is a pop, and a
+ * pop is hidden by *time*, not by a fraction of the radius. 6 units is a third of a second at Loco
+ * Mode's 18.7 u/s either way. Widening it in step with the radius would only have pushed the
+ * fully-lit distance — the figure the warning is actually measured at, RADIUS − FADE_BAND — back
+ * out again, which is the number GHOST_RADIUS was raised to move.
  */
-const FADE_BAND = 6;
+export const FADE_BAND = 6;
 
 /**
  * Peak opacity, against the taxi's 0.85. Deliberately well under: with both on screen the player's
