@@ -38,7 +38,6 @@ import {
 export const SIGNAL_DEFAULTS = {
   cycle: 16,
   yellow: 1.6,
-  arterialShare: 0.64,
   cruise: 8.5,
 };
 
@@ -470,10 +469,13 @@ function buildChains(nodes, nodeById, edges) {
 /**
  * Phase plan per node: which turns move together, for how long, and when the cycle starts.
  *
- * One phase per street, in street order, each followed by a yellow. The green split gives an
- * arterial the larger share where it crosses a lesser road — the same 64/36 the city was tuned
- * around — and the offset shifts the whole plan earlier by the platoon's travel time from the top
+ * One phase per street, in street order, each an equal share of the green, each followed by a
+ * yellow — and the offset shifts the whole plan earlier by the platoon's travel time from the top
  * of the coordinated street, which is what makes the wave travel with the traffic.
+ *
+ * The splits used to be uneven: an arterial took 64% of the green where it crossed a lesser road.
+ * It no longer needs one, because it no longer stops at all — see the arterial branch below — and
+ * the junctions that still carry a light are the ones with no street to favour.
  */
 function bakeSignals(nodes, turns, laneById, chains, signal) {
   const turnsByNode = new Map();
@@ -535,20 +537,31 @@ function bakeSignals(nodes, turns, laneById, chains, signal) {
       continue;
     }
 
-    const arterials = streets.filter((s) => s.klass === 'arterial');
-    const totalGreen = signal.cycle - streets.length * signal.yellow;
-
-    let shares;
-    if (streets.length === 2 && arterials.length === 1) {
-      shares = streets.map((s) => (s.klass === 'arterial' ? signal.arterialShare : 1 - signal.arterialShare));
-    } else {
-      shares = streets.map(() => 1 / streets.length);
+    // An arterial is a thoroughfare, so it is signal-free for exactly the reason the ring is:
+    // there is one street to favour, and a main road that stops every block is not a main road.
+    // Cross traffic yields into a gap instead, the same `RING_YIELD` rule ambient traffic already
+    // uses to join the ring.
+    //
+    // Only a street the arterial actually *runs through* takes priority. A park closure can leave
+    // an arterial as a single stub arm at a junction, and handing the right of way to a dead end
+    // would hold the through road for traffic that cannot arrive; those junctions keep a light.
+    // Where two arterials cross — one per city, since `layout.js` draws one line per axis — there
+    // is no single street to favour either, so that one keeps a light too, like a ring corner.
+    const arterials = streets.filter((s) => s.klass === 'arterial' && s.arms.length > 1);
+    if (arterials.length === 1) {
+      node.signal = null;
+      node.priorityStreet = arterials[0].index;
+      continue;
     }
-    const greens = shares.map((share) => totalGreen * share);
 
-    // Coordinate along the arterial if exactly one street is one; otherwise along the first,
-    // which on a grid of side streets means they all coordinate along X.
-    const coord = arterials.length === 1 ? arterials[0] : streets[0];
+    const totalGreen = signal.cycle - streets.length * signal.yellow;
+    const greens = streets.map(() => totalGreen / streets.length);
+
+    // Coordinate along the first street, which on this grid is always the one running along X:
+    // streets are sorted by axis, and a junction with no X arm at all has one street and no
+    // signal. (This used to prefer an arterial where there was one. There no longer is: every
+    // junction an arterial passes through returned above.)
+    const coord = streets[0];
     let ahead = 0;
     for (let k = 0; k < coord.index; k++) ahead += greens[k] + signal.yellow;
 

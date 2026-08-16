@@ -83,13 +83,13 @@ import {
 import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, HALF_ROAD, LANE, PITCH, lineCoord, GRID, DIR, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, isSegmentClosed } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath, nearestOnPath, HEAD_GAP } from '../src/game/routeline.js';
 import { findRoute, findRouteVia, MAX_VIA_DETOUR, allIntersections } from '../src/game/route.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
 import { nearestJunction, nextIntersection } from '../src/city/grid.js';
-import { PALETTE, BUILDING_COLORS } from '../src/palette.js';
+import { PALETTE, BUILDING_COLORS, color } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
 import { createBlast } from '../src/game/blast.js';
 import {
@@ -177,6 +177,85 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
   // Translucent asphalt over a road would show sky through the tarmac the ring road drives on.
   check('the fade never reaches back over the city', inside > -FLOAT32,
     `${inside.toExponential(1)} units inside`);
+}
+
+// --- The arterial's centre line -------------------------------------------
+//
+// The one mark in the city that crosses a junction, which is the whole reason it is worth
+// asserting: it is drawn as a handful of long quads spanning several blocks rather than
+// per-block like every dash, so an off-by-one in where a run starts or stops paints yellow
+// across a road that has none — and a screenshot of a 5x5 city cannot tell a line that stops at
+// the right junction from one that stops at the next.
+// Asked of the *paint*, not of the vertices: a run that stops correctly still leaves two corners
+// exactly on the junction boundary, so counting vertices in a box cannot tell "stops here" from
+// "runs through". Each triangle's footprint can, and the merged ground is non-indexed, so a
+// triangle is three consecutive positions.
+{
+  const paintY = 0.02;                       // MARK_Y in ground.js
+  const want = color('laneMarkArterial');
+  const pos = ground.geometry.attributes.position;
+  const col = ground.geometry.attributes.color;
+
+  const lines = {
+    x: [...layout.arterials.x].map(lineCoord),   // roads running along X, at these z
+    z: [...layout.arterials.z].map(lineCoord),   // roads running along Z, at these x
+  };
+  const near = (v, list, tol) => list.some((c) => Math.abs(v - c) <= tol);
+  const junctions = [...Array(GRID + 1).keys()].map(lineCoord);
+
+  const boxes = [];
+  let stray = 0;
+  for (let t = 0; t < pos.count; t += 3) {
+    const yellow = [0, 1, 2].every((k) => Math.abs(col.getX(t + k) - want.r) < 1e-6
+      && Math.abs(col.getY(t + k) - want.g) < 1e-6 && Math.abs(col.getZ(t + k) - want.b) < 1e-6
+      && Math.abs(pos.getY(t + k) - paintY) < 1e-6);
+    if (!yellow) continue;
+
+    const xs = [0, 1, 2].map((k) => pos.getX(t + k));
+    const zs = [0, 1, 2].map((k) => pos.getZ(t + k));
+    const box = {
+      x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs),
+    };
+    boxes.push(box);
+    // The short side of the quad is the line's own width, so the *centre* of a triangle covering
+    // any of it is within half a width of the road it belongs to.
+    const cx = (box.x0 + box.x1) / 2;
+    const cz = (box.z0 + box.z1) / 2;
+    if (!near(cz, lines.x, 0.2) && !near(cx, lines.z, 0.2)) stray += 1;
+  }
+
+  // Does any painted triangle cover this point?
+  const painted = (x, z) => boxes.some((b) => x > b.x0 && x < b.x1 && z > b.z0 && z < b.z1);
+
+  // Junctions the line has to survive: every interior one an arterial passes through, less the
+  // crossing (bare by design) and less anywhere a park closure ends the run — a closed segment
+  // stops the line at the junction *centre*, which this same coverage test reads as uncovered.
+  const crossings = [];
+  const mustCover = [];
+  for (let k = 1; k < GRID; k++) {
+    for (const i of layout.arterials.z) {           // road running along Z at x-line i
+      if (layout.arterials.x.has(k)) { crossings.push({ x: lineCoord(i), z: lineCoord(k) }); continue; }
+      if (isSegmentClosed(i, k, DIR.PZ) || isSegmentClosed(i, k, DIR.NZ)) continue;
+      mustCover.push({ x: lineCoord(i), z: lineCoord(k) });
+    }
+    for (const j of layout.arterials.x) {           // road running along X at z-line j
+      if (layout.arterials.z.has(k)) continue;      // already counted as the crossing above
+      if (isSegmentClosed(k, j, DIR.PX) || isSegmentClosed(k, j, DIR.NX)) continue;
+      mustCover.push({ x: lineCoord(k), z: lineCoord(j) });
+    }
+  }
+
+  check('the arterial centre line stays on the arterials', stray === 0,
+    `${stray} triangles adrift`);
+  // Two solid lines meeting at right angles paint an X across the box — see the note in ground.js.
+  check('and leaves the crossing of the two arterials bare',
+    crossings.length > 0 && crossings.every((p) => !painted(p.x, p.z)),
+    `${crossings.filter((p) => painted(p.x, p.z)).length} of ${crossings.length} crossings painted`);
+  // The other half of the same claim: one line through the city, not a row of short ones.
+  const missed = mustCover.filter((p) => !painted(p.x, p.z));
+  check('and runs through every side-street junction it meets',
+    mustCover.length > 0 && missed.length === 0,
+    `${mustCover.length - missed.length} of ${mustCover.length} covered`);
 }
 
 check('layout covers every block', layout.length === GRID * GRID, `${layout.length} blocks`);
@@ -701,13 +780,30 @@ check('all cars spawned', traffic.cars.length === 24, `${traffic.cars.length}`);
 // latent flake the whole time: across five seeds somebody is stopped on 87–92% of frames, so the
 // single-frame form was a coin with a 1-in-10 tails, and it finally landed tails when an unrelated
 // change shifted the run by a frame.
+//
+// The pairwise proximity below is accumulated here for the same reason, and it is the same bug
+// twice: read off the final frame it asked "did two cars overlap *at this instant*", which is a
+// coin toss over a run in which they overlapped on 1,018 frames out of 7,200. It passed anyway, on
+// main and on every branch, right up until an unrelated change shifted the sampled frame onto one
+// of them — and what it then reported, correctly, was a defect that had been there all along.
+// Every frame, or it is not a check.
 let stoppedFrames = 0;
 let simFrames = 0;
+let worst = Infinity;
+let worstPair = null;
 time('sim 120s', () => {
   for (let f = 0; f < 120 * 60; f++) {
     traffic.update(1 / 60);
     simFrames += 1;
     if (traffic.stats.waiting > 0) stoppedFrames += 1;
+
+    const live = traffic.cars;
+    for (let a = 0; a < live.length; a++) {
+      for (let b = a + 1; b < live.length; b++) {
+        const d = Math.hypot(live[a].x - live[b].x, live[a].z - live[b].z);
+        if (d < worst) { worst = d; worstPair = [live[a].state, live[b].state, f]; }
+      }
+    }
   }
 });
 
@@ -715,8 +811,12 @@ const { stats } = traffic;
 check('no car entered an intersection on red', stats.violations === 0, `${stats.violations} violations`);
 check('traffic is flowing', stats.moving > traffic.cars.length * 0.35,
   `${stats.moving} moving / ${stats.waiting} waiting`);
-// Measured 87–92% across five city seeds. The bar is well under that because what would mean
-// something is signals having stopped *nobody* — a queue that never forms — not a few points of
+// Measured 61–77% across five city seeds. It was 87–92%, and two rounds of taking lights out of
+// the city — the ring's four corners, then every junction an arterial runs through — dropped it to
+// 47–59%, under the bar. What put it back is not a light: it is cars now *yielding to the box*
+// (`boxConflict` in traffic.js), which is waiting of a kind this counter cannot tell from waiting
+// at a red. Worth knowing when reading it — the bar stays well under the measurement for the
+// original reason, which is that what would mean something is a queue never forming at all, not
 // seed-to-seed drift in how busy the junctions happen to be.
 check('signals actually stop people', stoppedFrames > simFrames * 0.5,
   `someone stopped on ${((stoppedFrames / simFrames) * 100).toFixed(0)}% of frames`);
@@ -755,16 +855,13 @@ check('turning cars are inside intersections', inIntersection, `${turning.length
 check('no rear-end overlaps', stats.minGap > 3.2, `min gap ${stats.minGap.toFixed(2)}`);
 
 // --- Pairwise proximity, the check that actually catches visual overlap.
-let worst = Infinity;
-let worstPair = null;
-for (let a = 0; a < positions.length; a++) {
-  for (let b = a + 1; b < positions.length; b++) {
-    const d = Math.hypot(positions[a].x - positions[b].x, positions[a].z - positions[b].z);
-    if (d < worst) { worst = d; worstPair = [positions[a], positions[b]]; }
-  }
-}
+//
+// Accumulated across all 7,200 frames above, not read off the last one. What it is guarding is
+// `boxConflict` (sim/traffic.js): before that existed, two cars whose paths cross inside a junction
+// could both be in there at once and drive through each other, closing to 0.11 units on cars 3.4
+// long. With it, the closest any two come over five seeds is 2.32–2.88.
 check('no two cars occupy the same space', worst > 1.6,
-  `closest pair ${worst.toFixed(2)} (${worstPair?.[0].state}/${worstPair?.[1].state})`);
+  `closest pair ${worst.toFixed(2)} (${worstPair?.[0]}/${worstPair?.[1]} at frame ${worstPair?.[2]})`);
 
 // --- Front-wheel steering ---------------------------------------------------
 // Render-only state, so every other assertion in this file would stay green if it broke
@@ -7957,24 +8054,69 @@ let chopperOrder; // likewise
   {
     const ends = [closed[0].edge.a, closed[0].edge.b].map((id) => net.nodeById.get(id));
     const junctions = [...net.nodeById.values()].map((n) => ({ i: n.gi, j: n.gj }));
-    const origin = { i: ends[0].gi, j: ends[0].gj, d: net.dirOfLane(closed[0]) };
+
+    // Every junction to every junction, and count the routes that actually *drive* the closed
+    // street. Asked from one origin it is a coin toss whether the discount can show: the zone
+    // lands wherever the taxi happens to be, and from a junction on the closed street itself
+    // every route that could use it already does — half of them at full price, the other half
+    // pointing the wrong way down a road with no legal U-turn. That read as "the discount never
+    // reaches the router" for a discount working perfectly well. Across the whole map there is
+    // always something for it to pull.
+    const pair = (a, b) => [`${a.i},${a.j}`, `${b.i},${b.j}`].sort().join('|');
+    const closedPair = pair(
+      { i: ends[0].gi, j: ends[0].gj }, { i: ends[1].gi, j: ends[1].gj },
+    );
+    const drives = (origin, route) => {
+      if (!route) return false;
+      let at = { i: origin.i, j: origin.j };
+      for (const d of route) {
+        const next = nextIntersection(d, at.i, at.j);
+        if (!next) return false;
+        if (pair(at, next) === closedPair) return true;
+        at = next;
+      }
+      return false;
+    };
+
+    const survey = () => {
+      let used = 0;
+      let legs = 0;
+      const routes = [];
+      for (const from of junctions) {
+        const origin = { i: from.i, j: from.j, d: DIR.PX };
+        for (const t of junctions) {
+          const route = planRoute(origin, t);
+          routes.push(route);
+          if (!route) continue;
+          legs += route.length;
+          if (drives(origin, route)) used += 1;
+        }
+      }
+      return { used, legs, routes };
+    };
 
     setRoadworkLanes([]);
-    const plain = junctions.map((t) => planRoute(origin, t));
+    const plain = survey();
     setRoadworkLanes(roadwork.closedLaneIds);
-    const cheap = junctions.map((t) => planRoute(origin, t));
+    const cheap = survey();
 
-    const same = (p, q) => (p === null || q === null
-      ? p === q : p.length === q.length && p.every((d, k) => d === q[k]));
-    const changed = plain.filter((p, k) => !same(p, cheap[k])).length;
     check('pricing the closed street low actually reaches the router',
-      changed > 0, `${changed} of ${junctions.length} routes rerouted`);
+      cheap.used > plain.used, `${plain.used} routes drove it at full price, ${cheap.used} at 0.45`);
 
     // ...and does not turn into a detour finder. The weights in route.js are tie-breakers by
     // design — 0.45 is worth about half a block, so nothing should gain more than one leg.
-    const worst = Math.max(...plain.map((p, k) => (p && cheap[k] ? cheap[k].length - p.length : 0)));
+    const worst = Math.max(...plain.routes.map(
+      (p, k) => (p && cheap.routes[k] ? cheap.routes[k].length - p.length : 0),
+    ));
     check('and does not drag routes across town to use it',
       worst <= 1, `worst route grew by ${worst} legs`);
+
+    // The same thing in aggregate, which is the number the vignette actually promises: a cheap
+    // lane shortens as many routes as it bends, so total distance planned across the city barely
+    // moves even as three times as many routes go through the zone.
+    check('and costs the city nothing in total distance',
+      Math.abs(cheap.legs - plain.legs) <= plain.legs * 0.01,
+      `${plain.legs} legs at full price, ${cheap.legs} at 0.45`);
 
     // A fare's drop-off can be aimed at the zone. The hint is one-shot and silently declined when
     // neither end is free, so the failure mode is "nothing happened" — worth pinning both ways.

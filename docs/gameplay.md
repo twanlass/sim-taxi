@@ -477,8 +477,8 @@ budget = queue ahead + drive to the pickup + drive to the drop-off + reaction al
 limit  = clamp(budget × slack(deliveries), 20s, 240s)
 ```
 
-`estimateSeconds` in `route.js` does the conversion at 3.28 s/block and 1.30 s/turn, fitted against
-581 real trips. The whole design, what it replaced and how the numbers were chosen is in
+`estimateSeconds` in `route.js` does the conversion at 2.95 s/block and 1.05 s/turn, fitted against
+582 real trips. The whole design, what it replaced and how the numbers were chosen is in
 [difficulty.md](difficulty.md).
 
 Two consequences worth knowing here:
@@ -640,24 +640,30 @@ that only works while the city is a grid, and it comes out when the sim drives l
 
 ### Road-hierarchy weights
 
-Edges are not equal cost. The signal model was tuned around a coordinated green wave on two
-arterials per axis (64% green share, offsets running with the wave direction) and an
-unsignalised ring around the outside. A fewest-blocks router fights that coordination — it will
-happily plan a route straight up a side street when the arterial parallel to it exists.
+Edges are not equal cost. Two classes of road never stop: the ring around the outside, and the
+arterials, which carry no lights at any junction they run through. A fewest-blocks router fights
+that — it will happily plan a route straight up a side street when the arterial parallel to it
+exists.
 
 Current weights, per block traversed:
 
 | Class | Weight |
 |---|---|
 | Ring (outermost roads) | 0.90 |
-| Arterial, with the coordinated direction | 0.95 |
-| Arterial, against the coordinated direction | 1.00 |
+| Arterial | 0.95 |
 | Side street | 1.00 |
+
+The arterial was split 0.95 / 1.00 by direction while it ran a green wave, which helped travelling
+with the wave and cancelled itself travelling against it. With no lights on it the direction stops
+mattering, and the one number re-swept to the same 0.95 it started at — arrived at from the other
+side. It is deliberately *not* as cheap as the ring: over 720 trips a row, 0.90 costs 0.19s a trip
+and 0.85 costs 0.53s, because past the knee the router starts dragging trips onto the main road
+far enough to give the saving back.
 
 Kept close to 1.0 on purpose: the router is a **tie-breaker between paths of the same length**,
 not a detour finder. Aggressive weights (ring 0.55, arterial 0.70) were tried and dropped
 stopped-time further, but added enough distance to erase the gain. Measured across 240 fares vs
-unit weights: trip time **−3.9%**, time-stopped-at-signals **−13.7%**, average path length
+unit weights: trip time **−3.2%**, time-stopped-at-signals **−20.7%**, average path length
 essentially unchanged. Sweep via `tools/router-sweep.mjs`.
 
 ### Dragging the route

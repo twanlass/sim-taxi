@@ -25,7 +25,7 @@ const STOPPED_V = 0.4;
 function costFor(w) {
   return (lane) => {
     if (lane.klass === 'ring') return w.ring;
-    if (lane.klass === 'arterial') return lane.withWave ? w.artWith : w.artAgainst;
+    if (lane.klass === 'arterial') return w.arterial;
     return w.side;
   };
 }
@@ -93,14 +93,23 @@ function evaluate(label, cost) {
   return { meanTrip, meanStop };
 }
 
-const UNIFORM = { ring: 1.0, artWith: 1.0, artAgainst: 1.0, side: 1.0 };
-const SHIPPED = { ring: 0.90, artWith: 0.95, artAgainst: 1.00, side: 1.00 };
+const UNIFORM = { ring: 1.0, arterial: 1.0, side: 1.0 };
+const SHIPPED = { ring: 0.90, arterial: 0.95, side: 1.00 };
+// The arterial's weight either side of the shipped one. It used to be split by direction, back
+// when an arterial ran a green wave and had reds to meet; with no lights on it at all there is
+// one number to pick, and these are the neighbours it was picked against.
+const NEIGHBOURS = [
+  { ring: 0.90, arterial: 1.00, side: 1.00 },
+  { ring: 0.90, arterial: 0.90, side: 1.00 },
+  { ring: 0.90, arterial: 0.85, side: 1.00 },
+];
 
 console.log(`# ${RUNS} fares × ${SEEDS} seeds = ${RUNS * SEEDS} trips per variant\n`);
 console.log('label                                                 trip    stop  share  blocks');
 console.log('-'.repeat(112));
 const base = evaluate('baseline (uniform weights = fewest blocks)', costFor(UNIFORM));
-const now = evaluate('shipped (ring 0.90 / with 0.95)', costFor(SHIPPED));
+const now = evaluate('shipped (ring 0.90 / arterial 0.95)', costFor(SHIPPED));
+for (const w of NEIGHBOURS) evaluate(`         (ring ${w.ring} / arterial ${w.arterial})`, costFor(w));
 console.log(`\ndelta shipped vs baseline: trip ${(now.meanTrip - base.meanTrip).toFixed(2)}s `
   + `(${(((now.meanTrip - base.meanTrip) / base.meanTrip) * 100).toFixed(1)}%), `
   + `stop ${(now.meanStop - base.meanStop).toFixed(2)}s `

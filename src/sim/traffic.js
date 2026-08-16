@@ -125,7 +125,6 @@ const SIGNAL = {
   // The calm comes from spreading the offsets, not from slowing the cycle down.
   cycle: 16,
   yellow: 1.6,
-  arterialShare: 0.64,          // green share for an arterial where it meets a side street
   arterialX: new Set(),         // j values: roads running along X
   arterialZ: new Set(),         // i values: roads running along Z
   dirX: new Map(),              // j -> +1 / -1, the coordinated direction of travel
@@ -142,12 +141,13 @@ export const signalCycle = () => SIGNAL.cycle;
  * Road hierarchy of the edge you get by leaving (i, j) in direction d.
  *
  * 'ring'     — outermost road, unsignalised end to end, corners included
- * 'arterial' — one of the two main streets: 64% green share, offsets timed for the wave
+ * 'arterial' — a main street: unsignalised wherever it crosses a lesser road
  * 'side'     — everything else
  *
- * `withWave` matters only for arterials: an arterial's offsets are computed with a
- * coordinated travel direction; traversing it that way meets consecutive greens, the other
- * way meets consecutive reds. For a side street the concept doesn't apply.
+ * `withWave` is the arterial's coordinated direction of travel, kept because it still orients the
+ * chain the surviving signals measure their offsets along. It no longer says anything about the
+ * drive: an arterial meets no lights in either direction now, so there is no wave to run with or
+ * against. For a side street the concept never applied.
  */
 export function edgeClass(i, j, d) {
   const axisIsX = isXAxis(d);
@@ -2454,11 +2454,42 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     };
 
     /**
+     * Is something already inside the box on a path this turn crosses or merges into?
+     *
+     * The network works out at bake which movements through a junction cross each other or land in
+     * the same lane (`buildConflicts` in city/roadnet.js), and until now nothing read it — the note
+     * there says "nothing uses them for phasing yet", and phasing turned out not to be what wanted
+     * them. A signal arbitrates *streets*, a whole phase at a time; it says nothing about two cars
+     * being in the box at once, and an unsignalised junction has no phase to say it with at all.
+     * Everything else here guards an approach or a landing: `leftYieldBlocked` watches one oncoming
+     * lane, `exitLaneFull` watches the lane a car lands in, `ringGapClear` watches the priority
+     * street from *outside*. Nothing watched the middle.
+     *
+     * Measured over five seeds of a two-minute run before this existed: 1,018 frames with two cars
+     * within 1.6 units of each other inside one junction — 731 of them merging into the same lane,
+     * and 1,011 of the 1,018 pairs ones `conflicts` had already named. The data was there; the
+     * check was missing.
+     *
+     * **Deadlock-free by construction.** A claim is only ever held by a car *inside* the junction,
+     * and a car inside is on its way out; a car waiting at a line holds nothing, so no two cars can
+     * end up waiting on each other. The one exception — a car stranded mid-turn with nowhere to
+     * land — is `heldAt`'s, and it refuses the whole junction rather than one path through it.
+     *
+     * Read live off `cars` rather than from an index built at the top of the frame, which is what
+     * makes two cars arriving on the same frame resolve rather than both entering: the first to
+     * commit sets its `car.turn`, and the second sees it.
+     */
+    const boxConflict = (car, turn) => cars.some((other) => other !== car
+      && other.state === 'turn' && other.turn
+      && other.turn.node === turn.node
+      && turn.conflicts.includes(other.turn.id));
+
+    /**
      * Loco Mode's premise is that **nothing stops the taxi**. The signal already yields to it —
-     * that is the priority hold — but three things could still bring it to a dead halt at a line
-     * it supposedly owned: a car stranded mid-turn in the box, a full exit lane, and an oncoming
-     * car on a left. Those are the ambient rules for sharing a junction politely, and a car being
-     * driven like this is not sharing it.
+     * that is the priority hold — but four things could still bring it to a dead halt at a line
+     * it supposedly owned: a car stranded mid-turn in the box, a full exit lane, an oncoming
+     * car on a left, and now a movement already crossing the box. Those are the ambient rules for
+     * sharing a junction politely, and a car being driven like this is not sharing it.
      *
      * So it barges through, and the consequence is the point: `sim/collisions.js` is armed for
      * exactly as long as this is true, so entering a junction that has something in it is a
@@ -2499,13 +2530,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       const routed = car.route?.length ? exitToward(net, car.lane, car.route[0]) : null;
       if (routed) {
         if (routed.hand === 'left' && leftYieldBlocked(car)) return true;
+        if (boxConflict(car, routed)) return true;
         return exitLaneFull(car, net.laneById.get(routed.outLane));
       }
       // A junction with no legal exit at all holds forever, so `every` over an empty list
       // answering "refused" is the right answer rather than an edge case to special-case.
-      return car.lane.exits.every((id) => exitLaneFull(
-        car, net.laneById.get(net.turnById.get(id).outLane),
-      ));
+      return car.lane.exits.every((id) => {
+        const turn = net.turnById.get(id);
+        return boxConflict(car, turn) || exitLaneFull(car, net.laneById.get(turn.outLane));
+      });
     };
 
     // --- Passing: the boosting taxi goes round, on the wrong side of the road.
@@ -3003,6 +3036,13 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
               if (chosen && exitLaneFull(car, net.laneById.get(chosen.outLane))) chosen = null;
             }
           }
+
+          // And the box itself, asked last and asked of both branches above — a right-on-red
+          // merges into the near lane, which is the commonest conflict of the lot. This is the
+          // gate that has to be here rather than only on the approach: `entryRefused` is asked
+          // while the car can still stop for the answer, but what a car may drive into is decided
+          // at the moment it enters, and the box can fill in the frames between the two.
+          if (chosen && !bargesThrough(car) && boxConflict(car, chosen)) chosen = null;
 
           if (!chosen) {
             // Held at the line after all — the routed turn was never taken, so the route must not

@@ -71,13 +71,21 @@ parallel. One rule covers a right turn, a left, a straight-through, and a sweep 
 
 Arms that oppose each other pair into a **street**; each street becomes a phase, in bearing order.
 On a four-way that is exactly the X phase and the Z phase `lightPhase` hard-codes. On a three-way
-the stem gets a phase of its own. The 64% arterial green share and the platoon offset survive
-unchanged — the offset is now *walked* along a chain of edges rather than read off an index, which
-is the same number on a grid and a defined one anywhere else.
+the stem gets a phase of its own. Streets that carry a phase now split the green evenly — an
+arterial's old 64% share went when its lights did — and the platoon offset survives unchanged,
+except that it is now *walked* along a chain of edges rather than read off an index, which is the
+same number on a grid and a defined one anywhere else.
 
 Turn **conflicts** (do two movements' paths cross? do they merge into the same lane?) are computed
-once at bake. Nothing uses them for phasing yet — streets are enough for the shapes so far — but
-they are what a genuinely irregular junction will need.
+once at bake. Two things read them, and neither is the phase generator — streets are enough for the
+shapes so far:
+
+- `bakeSignals` drops the light where *nothing* at a junction conflicts (the ring's corners — see
+  [traffic.md](traffic.md#the-corners-and-why-they-are-not-a-special-case)).
+- the sim refuses entry to a box where a **conflicting movement is already running**
+  (`boxConflict`, [traffic.md](traffic.md#nobody-drives-through-the-box)). That is the one that had
+  been missing: signals arbitrate a street at a time and say nothing about who is inside the
+  junction right now.
 
 ### Blocks are faces, not cells
 

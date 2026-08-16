@@ -84,8 +84,29 @@ coordination. Variety comes from splits and offsets, not from different cycle le
 
 ### Arterials
 
-Two roads per axis take a **64% green share** where they meet a side street, giving the map a
-fast/slow grain. `layout.js` picks them and hands them to the network's bake.
+One road per axis is a main thoroughfare, and **carries no lights at all**. Every junction an
+arterial runs through is unsignalised, exactly like a ring junction: the arterial is the priority
+street, and the side street crossing it yields into a gap. `layout.js` picks the two lines and
+hands them to the network's bake.
+
+They took a **64% green share** before this, which is the tuning most of the numbers on this page
+were measured under. The share was the small version of the same idea and it bought less than it
+looks: a 64/36 split still stops the main road for a third of every cycle, and the platoon that
+the offsets spent so much effort assembling was broken up again at each junction. Taking the
+lights out entirely is worth **+1.7s off the mean trip** (`tools/eta.mjs`: 16.4s → 14.7s over 582
+trips) and moved the estimator's own constants with it — see the note above `SEC_PER_BLOCK` in
+`route.js`, which had to be refitted or every fare clock in the game would have been 12% generous.
+
+Two junctions keep a light despite an arterial arm, and both for the ring's reason — there is no
+single street to favour:
+
+- **Where the two arterials cross.** One per city, the same case as a ring corner.
+- **Where a park closure has left an arterial as a stub.** Priority belongs to a street traffic
+  can actually arrive on; a dead end has none to give the right of way to.
+
+Since nothing stops at an arterial junction, nothing there is painted as if it did: no stop bars
+(they come off `node.signal`, so that is automatic) and no crosswalks over the side street either
+— see `ground.js`, which had only been skipping the crossing *over* the arterial.
 
 ### A signal-free ring road
 
@@ -132,6 +153,40 @@ that does not exist.
 
 Yielding is asked per **street** (`streetIsClear`) rather than per axis pair. `[0, 2]` / `[1, 3]`
 was the last place the sim assumed a junction is two axes with two approaches each.
+
+### Nobody drives through the box
+
+Every rule above guards an *approach* or a *landing*. `leftYieldBlocked` watches one oncoming lane,
+`exitLaneFull` watches the lane a car lands in, `ringGapClear` watches the priority street from
+outside, and a signal arbitrates a whole street at a time. Nothing watched the middle — so two cars
+whose paths cross inside the junction could both be in there at once, and drive through each other.
+
+They did. Over five seeds of a two-minute run: **1,018 frames** with two cars within 1.6 units of
+each other inside one junction, worst approach **0.11 units** — centres, on cars 3.4 long. 731 of
+those pairs were merging into the same lane. And **1,011 of the 1,018** were pairs `buildConflicts`
+had already named at bake: the data was there the whole time, unread. It was not a new problem
+either — the same run on the build before the ring corners and the arterials lost their lights
+gives 161–262 frames a seed, worst 0.20.
+
+`boxConflict` is the missing check: a car may not enter on a movement that conflicts with one
+already running in that box. It is asked twice, for the reason the other refusals are — once on the
+approach through `entryRefused`, so a car eases off rather than arriving at cruise and slamming to a
+halt, and once at the hold line on the turn actually chosen, because what a car may drive into is
+decided at the moment it enters and the box can fill in the frames between.
+
+**Deadlock-free by construction.** A claim is only held by a car *inside* the junction, and a car
+inside is on its way out; a car waiting at a line holds nothing, so no two cars can wait on each
+other. The one exception is a car stranded mid-turn with nowhere to land, and that is `heldAt`'s —
+it refuses the whole junction rather than one path through it. Two cars arriving on the same frame
+resolve because the predicate reads `car.turn` live: the first to commit is visible to the second.
+
+Loco Mode is exempt, like it is from the other three. `bargesThrough` is what arms
+`sim/collisions.js` — entering an occupied junction is meant to be a *wreck*, not a wait.
+
+Measured after, over the same five seeds: closest any two cars come is **2.32–2.88 units**, no pair
+under 1.6 at all, in either state. It costs about 1% of throughput (`tools/signals.mjs` 7.71 →
+7.61) and shows up in the probe's `signals actually stop people` counter, which cannot tell yielding
+to a box from waiting at a red.
 
 ### Results
 
@@ -1285,8 +1340,8 @@ since there is nothing on it to queue behind.
 
 Placement (`roadwork.js`) refuses a segment unless all of:
 
-- it is a **side** street — closing an arterial fights the 64% green share and the platoon offsets
-  the city is timed around, and the ring is the road everything else escapes onto;
+- it is a **side** street — an arterial is the one road with no lights to hold traffic back, and
+  the ring is the road everything else escapes onto;
 - every approach at both end junctions keeps at least one open onward lane. This is asked exactly,
   by walking `lane.onward`, rather than by a corner heuristic: what strands a car is not the shape
   of the junction but a single inbound lane whose every exit is closed, and U-turns are illegal;

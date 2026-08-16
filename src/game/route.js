@@ -17,11 +17,11 @@ import { cityNetwork, gridNodeId } from '../city/roadnet.js';
  * enough that a plain rescan-the-open-set Dijkstra still beats any structured heap.
  *
  * Weights encode the road hierarchy. A fewest-blocks router (unit weights) fights the signal
- * coordination the city was tuned for: arterials run a green wave with a 64% share for their
- * axis, and the outermost roads are unsignalised. Slightly preferring those roads produces
+ * coordination the city was tuned for: the outermost roads are unsignalised, and so is every
+ * junction an arterial runs through. Slightly preferring those roads produces
  * routes with less time spent at reds and — because the weights sit close to 1.0 — no
- * meaningful detouring. Measured across 240 fares vs unit-weight BFS: trip time -3.9%,
- * time-stopped -13.7%, average path length essentially unchanged (see tools/router-sweep.mjs).
+ * meaningful detouring. Measured across 720 fares vs unit-weight BFS: trip time -3.2%,
+ * time-stopped -20.7%, average path length essentially unchanged (see tools/router-sweep.mjs).
  *
  * The weights are ratios of expected trip-time-per-block, not raw seconds. Keeping side street
  * at 1.0 and only nudging the preferred classes below it means the router is a tie-breaker on
@@ -31,8 +31,22 @@ import { cityNetwork, gridNodeId } from '../city/roadnet.js';
  */
 const EDGE_COST = {
   ring: 0.90,
-  arterialWith: 0.95,
-  arterialAgainst: 1.00,      // 64% green helps, but reversed offsets cancel most of the wave
+  // One number, not the old 0.95 / 1.00 pair. That split priced a green wave that helped in the
+  // coordinated direction and cancelled itself in the other; an arterial carries no lights at all
+  // now, so both directions are the same drive.
+  //
+  // Re-swept at 720 trips a row (`node tools/router-sweep.mjs 60 12`), against a uniform-weight
+  // baseline of 14.71s / 2.54s stopped:
+  //
+  //     arterial   1.00    0.95    0.90    0.85
+  //     trip      14.84s  14.24s  14.43s  14.77s
+  //     stopped    2.55s   2.01s   2.10s   2.25s
+  //
+  // It has a knee, and it is not "as cheap as the ring" — 0.90 and below start dragging trips onto
+  // the main road far enough to give the time back, and the row at 1.00 (ring preference only, no
+  // arterial preference at all) is worse than uniform. Same number as before the lights came off,
+  // arrived at from the other side.
+  arterial: 0.95,
   side: 1.00,
   roadwork: 0.45,             // see below — measured, and not purely a claim about driving time
 };
@@ -53,8 +67,8 @@ export function setRoadworkLanes(ids) {
 
 /**
  * Cost of driving one lane. Reads the class off the lane rather than recomputing it from `(i, j,
- * d)`: the network already worked out what kind of road this is and which way its green wave
- * runs, and an editor-drawn arterial has no line index to look either up by.
+ * d)`: the network already worked out what kind of road this is, and an editor-drawn arterial has
+ * no line index to look it up by.
  */
 export function laneCost(lane) {
   // Checked before the class, because a closed street is a side street and would otherwise take the
@@ -80,9 +94,7 @@ export function laneCost(lane) {
   // this discount cannot pull a route that was never heading that way.
   if (roadworkLanes.has(lane.id)) return EDGE_COST.roadwork;
   if (lane.klass === 'ring') return EDGE_COST.ring;
-  if (lane.klass === 'arterial') {
-    return lane.withWave ? EDGE_COST.arterialWith : EDGE_COST.arterialAgainst;
-  }
+  if (lane.klass === 'arterial') return EDGE_COST.arterial;
   return EDGE_COST.side;
 }
 
@@ -249,19 +261,23 @@ export function planOrigin(car) {
 // is taken at CORNER_SPEED (5.95, 70% of cruise) and its Bezier is longer than the 8-unit straight
 // through the junction — a left is 15.4 against a straight's 11.4.
 //
-// Fitted by least squares over 581 trips across 6 cities (`node tools/eta.mjs 100 6`): mean trip
-// 4.20 blocks, 1.92 turns, 16.4s. Against that data the pair below scores MAE 4.35s and bias
-// -0.14s — near enough unbiased, which is the property that matters, because a biased estimator
+// Fitted by least squares over 582 trips across 6 cities (`node tools/eta.mjs 100 6`): mean trip
+// 4.20 blocks, 2.04 turns, 14.4s. Against that data the pair below scores MAE 3.26s and bias
+// +0.10s — near enough unbiased, which is the property that matters, because a biased estimator
 // tilts every clock in the game the same way.
 //
-// **The 4.35s is not estimator slop, it is the city.** The same route driven twice differs by
+// They were 3.28 / 1.30, fitted against a city where an arterial still stopped at every red. Taking
+// the lights off the arterials took 1.7s off the mean trip and the old pair went +1.78s biased —
+// every clock in the game quietly 12% generous, which is exactly the failure this tool exists to
+// catch. Deliveries per run showed it before the fit did: median 11 -> 17 on the soak.
+//
+// **The 3.3s is not estimator slop, it is the city.** The same route driven twice differs by
 // about that much depending on which signal phase the taxi meets and what it queues behind;
-// worst observed miss was 26s on a 49.5s trip. No function of (blocks, turns) can do better than
-// that variance, which is precisely why the deadline is `budget * slack(d)` and not `budget`:
-// slack is what pays for the traffic you happen to get, and shrinking it is what makes the game
-// harder.
-export const SEC_PER_BLOCK = 3.28;
-export const SEC_PER_TURN = 1.30;
+// worst observed miss was 23s. No function of (blocks, turns) can do better than that variance,
+// which is precisely why the deadline is `budget * slack(d)` and not `budget`: slack is what pays
+// for the traffic you happen to get, and shrinking it is what makes the game harder.
+export const SEC_PER_BLOCK = 2.95;
+export const SEC_PER_TURN = 1.05;
 
 /**
  * How many of a route's steps change direction — the turns, as opposed to going straight through.
