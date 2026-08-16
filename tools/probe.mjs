@@ -538,13 +538,30 @@ check('all cars spawned', traffic.cars.length === 24, `${traffic.cars.length}`);
 // latent flake the whole time: across five seeds somebody is stopped on 87–92% of frames, so the
 // single-frame form was a coin with a 1-in-10 tails, and it finally landed tails when an unrelated
 // change shifted the run by a frame.
+//
+// The pairwise proximity below is accumulated here for the same reason, and it is the same bug
+// twice: read off the final frame it asked "did two cars overlap *at this instant*", which is a
+// coin toss over a run in which they overlapped on 1,018 frames out of 7,200. It passed anyway, on
+// main and on every branch, right up until an unrelated change shifted the sampled frame onto one
+// of them — and what it then reported, correctly, was a defect that had been there all along.
+// Every frame, or it is not a check.
 let stoppedFrames = 0;
 let simFrames = 0;
+let worst = Infinity;
+let worstPair = null;
 time('sim 120s', () => {
   for (let f = 0; f < 120 * 60; f++) {
     traffic.update(1 / 60);
     simFrames += 1;
     if (traffic.stats.waiting > 0) stoppedFrames += 1;
+
+    const live = traffic.cars;
+    for (let a = 0; a < live.length; a++) {
+      for (let b = a + 1; b < live.length; b++) {
+        const d = Math.hypot(live[a].x - live[b].x, live[a].z - live[b].z);
+        if (d < worst) { worst = d; worstPair = [live[a].state, live[b].state, f]; }
+      }
+    }
   }
 });
 
@@ -552,14 +569,14 @@ const { stats } = traffic;
 check('no car entered an intersection on red', stats.violations === 0, `${stats.violations} violations`);
 check('traffic is flowing', stats.moving > traffic.cars.length * 0.35,
   `${stats.moving} moving / ${stats.waiting} waiting`);
-// Measured 47–59% across five city seeds, peak queue 4–7 cars. It was 87–92% when the bar was set
-// at 0.5, and two changes took the difference out on purpose: the ring's four corners stopped
-// being signalised at all, and then every junction an arterial runs through did too. The bar
-// stays well under the measurement for the original reason — what would mean something is signals
-// having stopped *nobody*, a queue that never forms, not seed-to-seed drift in how busy the
-// junctions happen to be. Re-measure it after anything that takes lights out of the city; the
-// last one grazed 0.5 and the number is only worth what its margin is.
-check('signals actually stop people', stoppedFrames > simFrames * 0.3,
+// Measured 61–77% across five city seeds. It was 87–92%, and two rounds of taking lights out of
+// the city — the ring's four corners, then every junction an arterial runs through — dropped it to
+// 47–59%, under the bar. What put it back is not a light: it is cars now *yielding to the box*
+// (`boxConflict` in traffic.js), which is waiting of a kind this counter cannot tell from waiting
+// at a red. Worth knowing when reading it — the bar stays well under the measurement for the
+// original reason, which is that what would mean something is a queue never forming at all, not
+// seed-to-seed drift in how busy the junctions happen to be.
+check('signals actually stop people', stoppedFrames > simFrames * 0.5,
   `someone stopped on ${((stoppedFrames / simFrames) * 100).toFixed(0)}% of frames`);
 
 // --- Positional invariants.
@@ -596,16 +613,13 @@ check('turning cars are inside intersections', inIntersection, `${turning.length
 check('no rear-end overlaps', stats.minGap > 3.2, `min gap ${stats.minGap.toFixed(2)}`);
 
 // --- Pairwise proximity, the check that actually catches visual overlap.
-let worst = Infinity;
-let worstPair = null;
-for (let a = 0; a < positions.length; a++) {
-  for (let b = a + 1; b < positions.length; b++) {
-    const d = Math.hypot(positions[a].x - positions[b].x, positions[a].z - positions[b].z);
-    if (d < worst) { worst = d; worstPair = [positions[a], positions[b]]; }
-  }
-}
+//
+// Accumulated across all 7,200 frames above, not read off the last one. What it is guarding is
+// `boxConflict` (sim/traffic.js): before that existed, two cars whose paths cross inside a junction
+// could both be in there at once and drive through each other, closing to 0.11 units on cars 3.4
+// long. With it, the closest any two come over five seeds is 2.32–2.88.
 check('no two cars occupy the same space', worst > 1.6,
-  `closest pair ${worst.toFixed(2)} (${worstPair?.[0].state}/${worstPair?.[1].state})`);
+  `closest pair ${worst.toFixed(2)} (${worstPair?.[0]}/${worstPair?.[1]} at frame ${worstPair?.[2]})`);
 
 // --- Front-wheel steering ---------------------------------------------------
 // Render-only state, so every other assertion in this file would stay green if it broke

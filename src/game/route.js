@@ -262,8 +262,8 @@ export function planOrigin(car) {
 // through the junction — a left is 15.4 against a straight's 11.4.
 //
 // Fitted by least squares over 582 trips across 6 cities (`node tools/eta.mjs 100 6`): mean trip
-// 4.21 blocks, 2.04 turns, 14.7s. Against that data the pair below scores MAE 3.39s and bias
-// -0.09s — near enough unbiased, which is the property that matters, because a biased estimator
+// 4.20 blocks, 2.04 turns, 14.4s. Against that data the pair below scores MAE 3.26s and bias
+// +0.10s — near enough unbiased, which is the property that matters, because a biased estimator
 // tilts every clock in the game the same way.
 //
 // They were 3.28 / 1.30, fitted against a city where an arterial still stopped at every red. Taking
@@ -271,9 +271,9 @@ export function planOrigin(car) {
 // every clock in the game quietly 12% generous, which is exactly the failure this tool exists to
 // catch. Deliveries per run showed it before the fit did: median 11 -> 17 on the soak.
 //
-// **The 3.4s is not estimator slop, it is the city.** The same route driven twice differs by
+// **The 3.3s is not estimator slop, it is the city.** The same route driven twice differs by
 // about that much depending on which signal phase the taxi meets and what it queues behind;
-// worst observed miss was 22s. No function of (blocks, turns) can do better than that variance,
+// worst observed miss was 23s. No function of (blocks, turns) can do better than that variance,
 // which is precisely why the deadline is `budget * slack(d)` and not `budget`: slack is what pays
 // for the traffic you happen to get, and shrinking it is what makes the game harder.
 export const SEC_PER_BLOCK = 2.95;
