@@ -114,8 +114,8 @@ to the nearer end of its block: up to `HALF_ROAD` out, and the readout is what t
 The numbers behind all of this are in [traffic.md](traffic.md#overtaking); the lab is where you find
 out whether they feel right.
 
-- **The run-up.** `BOOST_ACCEL` to 18.7 u/s, then `OVERDRIVE_ACCEL` grinding out the last 4.25 over
-  40 units of straight. The readout shows both, in mph.
+- **The run-up.** `BOOST_ACCEL` to 22.1 u/s, then `OVERDRIVE_ACCEL` grinding out the last 11.9 over
+  71 units of straight. The readout shows both, in mph.
 - **Scatter.** The car in front floors it to 2.0× cruise with the taxi behind it. It no longer keeps
   the taxi out of `PASS_TRIGGER` — that was the wall-following bug — but it is still the reason the
   approach takes the road it does, and it is much easier to watch here than in traffic.
