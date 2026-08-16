@@ -102,7 +102,7 @@ never gets to spend time meshing a broken city.
 
 | File | Produces | Notes |
 |---|---|---|
-| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal, and an arterial junction has none. Side streets get a dashed white centre line between junctions; an arterial gets a solid double yellow that runs through them. |
+| `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops, crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal, and an arterial junction has none. Side streets get a dashed white centre line between junctions; an arterial gets a solid yellow one that runs through them, broken only at a closure and at the single crossing with the other arterial. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, street furniture | Merged per material via `bakeColor`, so hundreds of props cost one draw call. |
 

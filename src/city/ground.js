@@ -231,54 +231,57 @@ export function createGround(rng, blocks) {
   const arterialX = blocks.arterials?.x ?? new Set();
   const arterialZ = blocks.arterials?.z ?? new Set();
 
-  // A main street reads as one at a glance: a solid double yellow rather than dashes.
+  // A main street reads as one at a glance: one solid yellow line, twice the width of a dash,
+  // rather than a row of them.
   //
-  // Unbroken from one end of the city to the other, junctions included — which is not how a real
-  // road is painted, and is exactly what this road is. An arterial carries no lights (see
-  // `bakeSignals` in city/roadnet.js): there is nothing to stop for at the crossings, so a line
-  // that stopped at each one would be drawing a hesitation the traffic model doesn't have. It is
-  // also the only mark in the city that survives a junction, which is what makes a thoroughfare
-  // legible at a glance from this camera — you can follow it across the map without tracing it.
-  const LINE_W = 0.16;
-  const LINE_OFFSET = 0.45;   // each line of the pair, from the road's centre
+  // It runs *through* the side-street junctions, which is not how a real road is painted and is
+  // exactly what this road is. An arterial carries no lights (see `bakeSignals` in
+  // city/roadnet.js): there is nothing to stop for at those crossings, so a line that broke at
+  // each one would be drawing a hesitation the traffic model doesn't have. It is the only mark in
+  // the city that survives a junction, and that is what makes a thoroughfare followable across the
+  // map from this camera without tracing it.
+  const LINE_W = 0.34;
 
-  const doubleLine = (axis, c, from, to, y) => {
-    for (const off of [-LINE_OFFSET, LINE_OFFSET]) {
-      if (axis === 'x') parts.push(paint(to - from, LINE_W, (from + to) / 2, c + off, arterialColor, y));
-      else parts.push(paint(LINE_W, to - from, c + off, (from + to) / 2, arterialColor, y));
-    }
+  const centreLine = (axis, c, from, to) => {
+    if (to <= from) return;
+    if (axis === 'x') parts.push(paint(to - from, LINE_W, (from + to) / 2, c, arterialColor));
+    else parts.push(paint(LINE_W, to - from, c, (from + to) / 2, arterialColor));
   };
 
   /**
    * The arterial at grid line `line`, painted in one quad per unbroken stretch.
    *
-   * The stretches are what a park district leaves behind: a closed segment is a road that is not
-   * there, and the line has to end at the junction before it rather than run under the park — the
-   * platform would hide the paint, but only until a district's bounds move.
+   * Two things end a stretch. A **closure** — a park district builds over the road, so the line
+   * stops at the junction before it rather than running under the park; the platform would hide
+   * the paint, but only until a district's bounds move. And the **crossing** with the other
+   * arterial, where the line stops a half-road short and picks up on the far side: two solid lines
+   * meeting at right angles paint an X across the box, which reads as a marking that means
+   * something rather than as two roads passing through each other. Leaving the box bare is also
+   * what a real junction of two painted roads looks like.
    */
-  const solidArterial = (axis, line, y) => {
+  const solidArterial = (axis, line, crossings) => {
     const closedAt = (k) => (axis === 'x'
       ? isSegmentClosed(k, line, DIR.PX)
       : isSegmentClosed(line, k, DIR.PZ));
 
-    let start = null;
+    let from = null;
+    const flush = (to) => {
+      if (from !== null) centreLine(axis, lineCoord(line), from, to);
+      from = null;
+    };
+
     for (let k = 0; k <= GRID; k++) {
-      const open = k < GRID && !closedAt(k);
-      if (open && start === null) start = k;
-      if (!open && start !== null) {
-        doubleLine(axis, lineCoord(line), lineCoord(start), lineCoord(k), y);
-        start = null;
-      }
+      const c = lineCoord(k);
+      if (crossings.has(k)) flush(c - HALF_ROAD);
+
+      // No segment past the last junction, and none across a closure: either way the run ends here.
+      if (k === GRID || closedAt(k)) { flush(c); continue; }
+      if (from === null) from = crossings.has(k) ? c + HALF_ROAD : c;
     }
   };
 
-  // The two arterials cross once, and two coplanar quads at the same height z-fight. Lifting the
-  // one running along Z by a hair settles it. 0.002 is ~20 steps of a 24-bit depth buffer over
-  // this camera's 1–1400 range (camera.js), and 0.015px of on-screen shift at play zoom — clear
-  // of the fight by a wide margin, invisible by an equally wide one. It also stays under
-  // `TRENCH_Y` (0.024), the next thing up the carriageway stack; see docs/rendering.md.
-  for (const line of arterialX) solidArterial('x', line, MARK_Y);
-  for (const line of arterialZ) solidArterial('z', line, MARK_Y + 0.002);
+  for (const line of arterialX) solidArterial('x', line, arterialZ);
+  for (const line of arterialZ) solidArterial('z', line, arterialX);
 
   for (let i = 0; i <= GRID; i++) {
     const c = lineCoord(i);

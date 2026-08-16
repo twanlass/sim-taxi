@@ -79,13 +79,13 @@ import {
 import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, DIR, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { HALF_SPAN, ROAD_W, HALF_ROAD, LANE, PITCH, lineCoord, GRID, DIR, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, isSegmentClosed } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath, nearestOnPath, HEAD_GAP } from '../src/game/routeline.js';
 import { findRoute, findRouteVia, MAX_VIA_DETOUR, allIntersections } from '../src/game/route.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
 import { nearestJunction, nextIntersection } from '../src/city/grid.js';
-import { PALETTE, BUILDING_COLORS } from '../src/palette.js';
+import { PALETTE, BUILDING_COLORS, color } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
 import { createBlast } from '../src/game/blast.js';
 import {
@@ -173,6 +173,85 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
   // Translucent asphalt over a road would show sky through the tarmac the ring road drives on.
   check('the fade never reaches back over the city', inside > -FLOAT32,
     `${inside.toExponential(1)} units inside`);
+}
+
+// --- The arterial's centre line -------------------------------------------
+//
+// The one mark in the city that crosses a junction, which is the whole reason it is worth
+// asserting: it is drawn as a handful of long quads spanning several blocks rather than
+// per-block like every dash, so an off-by-one in where a run starts or stops paints yellow
+// across a road that has none — and a screenshot of a 5x5 city cannot tell a line that stops at
+// the right junction from one that stops at the next.
+// Asked of the *paint*, not of the vertices: a run that stops correctly still leaves two corners
+// exactly on the junction boundary, so counting vertices in a box cannot tell "stops here" from
+// "runs through". Each triangle's footprint can, and the merged ground is non-indexed, so a
+// triangle is three consecutive positions.
+{
+  const paintY = 0.02;                       // MARK_Y in ground.js
+  const want = color('laneMarkArterial');
+  const pos = ground.geometry.attributes.position;
+  const col = ground.geometry.attributes.color;
+
+  const lines = {
+    x: [...layout.arterials.x].map(lineCoord),   // roads running along X, at these z
+    z: [...layout.arterials.z].map(lineCoord),   // roads running along Z, at these x
+  };
+  const near = (v, list, tol) => list.some((c) => Math.abs(v - c) <= tol);
+  const junctions = [...Array(GRID + 1).keys()].map(lineCoord);
+
+  const boxes = [];
+  let stray = 0;
+  for (let t = 0; t < pos.count; t += 3) {
+    const yellow = [0, 1, 2].every((k) => Math.abs(col.getX(t + k) - want.r) < 1e-6
+      && Math.abs(col.getY(t + k) - want.g) < 1e-6 && Math.abs(col.getZ(t + k) - want.b) < 1e-6
+      && Math.abs(pos.getY(t + k) - paintY) < 1e-6);
+    if (!yellow) continue;
+
+    const xs = [0, 1, 2].map((k) => pos.getX(t + k));
+    const zs = [0, 1, 2].map((k) => pos.getZ(t + k));
+    const box = {
+      x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs),
+    };
+    boxes.push(box);
+    // The short side of the quad is the line's own width, so the *centre* of a triangle covering
+    // any of it is within half a width of the road it belongs to.
+    const cx = (box.x0 + box.x1) / 2;
+    const cz = (box.z0 + box.z1) / 2;
+    if (!near(cz, lines.x, 0.2) && !near(cx, lines.z, 0.2)) stray += 1;
+  }
+
+  // Does any painted triangle cover this point?
+  const painted = (x, z) => boxes.some((b) => x > b.x0 && x < b.x1 && z > b.z0 && z < b.z1);
+
+  // Junctions the line has to survive: every interior one an arterial passes through, less the
+  // crossing (bare by design) and less anywhere a park closure ends the run — a closed segment
+  // stops the line at the junction *centre*, which this same coverage test reads as uncovered.
+  const crossings = [];
+  const mustCover = [];
+  for (let k = 1; k < GRID; k++) {
+    for (const i of layout.arterials.z) {           // road running along Z at x-line i
+      if (layout.arterials.x.has(k)) { crossings.push({ x: lineCoord(i), z: lineCoord(k) }); continue; }
+      if (isSegmentClosed(i, k, DIR.PZ) || isSegmentClosed(i, k, DIR.NZ)) continue;
+      mustCover.push({ x: lineCoord(i), z: lineCoord(k) });
+    }
+    for (const j of layout.arterials.x) {           // road running along X at z-line j
+      if (layout.arterials.z.has(k)) continue;      // already counted as the crossing above
+      if (isSegmentClosed(k, j, DIR.PX) || isSegmentClosed(k, j, DIR.NX)) continue;
+      mustCover.push({ x: lineCoord(k), z: lineCoord(j) });
+    }
+  }
+
+  check('the arterial centre line stays on the arterials', stray === 0,
+    `${stray} triangles adrift`);
+  // Two solid lines meeting at right angles paint an X across the box — see the note in ground.js.
+  check('and leaves the crossing of the two arterials bare',
+    crossings.length > 0 && crossings.every((p) => !painted(p.x, p.z)),
+    `${crossings.filter((p) => painted(p.x, p.z)).length} of ${crossings.length} crossings painted`);
+  // The other half of the same claim: one line through the city, not a row of short ones.
+  const missed = mustCover.filter((p) => !painted(p.x, p.z));
+  check('and runs through every side-street junction it meets',
+    mustCover.length > 0 && missed.length === 0,
+    `${mustCover.length - missed.length} of ${mustCover.length} covered`);
 }
 
 check('layout covers every block', layout.length === GRID * GRID, `${layout.length} blocks`);
