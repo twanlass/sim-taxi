@@ -67,7 +67,6 @@ const SWERVE_PHASE2 = 1.7;    // offset so the two waves don't start out in step
 // Units of road over which the weave fades in and out with the boost. Paced by distance, like
 // the weave itself, so releasing the button at a red doesn't drift the parked car straight.
 const SWERVE_FADE = 7;
-export const LOCO_WEAVE_FADE = SWERVE_FADE;
 
 /**
  * The Loco Mode weave, as a function of distance driven straight (`u`, world units). Returns the
@@ -79,13 +78,21 @@ export const LOCO_WEAVE_FADE = SWERVE_FADE;
  * kind of maniac and the room budget above only has to be reasoned about once.
  */
 export function locoWeave(u) {
-  const k1 = (Math.PI * 2) / SWERVE_WAVE;
-  const k2 = (Math.PI * 2) / SWERVE_WAVE2;
+  const k1 = (Math.PI * 2) / loco.swayWave;
+  const k2 = (Math.PI * 2) / loco.chopWave;
   return {
-    lateral: SWERVE_AMP * Math.sin(k1 * u) + SWERVE_AMP2 * Math.sin(k2 * u + SWERVE_PHASE2),
-    slope: SWERVE_AMP * k1 * Math.cos(k1 * u) + SWERVE_AMP2 * k2 * Math.cos(k2 * u + SWERVE_PHASE2),
+    lateral: loco.sway * Math.sin(k1 * u) + loco.chop * Math.sin(k2 * u + SWERVE_PHASE2),
+    slope: loco.sway * k1 * Math.cos(k1 * u) + loco.chop * k2 * Math.cos(k2 * u + SWERVE_PHASE2),
   };
 }
+
+/**
+ * Units of road the weave fades in and out over. A function, not the constant it replaced: the
+ * police car imported `LOCO_WEAVE_FADE` and divided by it, which is precisely the captured-copy
+ * failure the tuning object exists to avoid — the slider would have moved the taxi's fade and left
+ * the cruiser on the shipped 7 with nothing to show for it.
+ */
+export const locoWeaveFade = () => loco.fade;
 
 // Wheelie profile for the Loco Mode kickoff — see the pitch-composition block below where the
 // shape is applied. Peak is about 17°: enough to read as the nose jumping off the line, short of
@@ -861,10 +868,10 @@ const ACCEL = 6;              // units/s^2 pulling away
 // Boost tuning. The first pass only raised the speed *cap*, which barely registered: at 6 u/s^2 a
 // car needs 24 units to reach 17 u/s, and junctions are 20 apart, so it never actually got there.
 // Punch comes from the acceleration, not the ceiling.
-const BOOST_SPEED = 2.2;      // multiplier on top speed
+const BOOST_SPEED = 2.6;      // multiplier on top speed — 22.1 u/s, 65mph
 const BOOST_ACCEL = 24;       // reaches full boost speed in well under a block
 const BOOST_KICK = 1.25;      // instant surge on activation, so the press has a feel
-const BRAKE = 11;             // units/s^2 shedding speed; ~3.3 units to stop from cruise
+const BRAKE = 17.5;           // units/s^2 shedding speed; ~2.1 units to stop from cruise
 const CORNER_SPEED = SPEED * 0.7;
 
 /**
@@ -900,20 +907,25 @@ const cruiseCapFor = (car) => (car.isTruck ? TRUCK_SPEED : SPEED)
 //
 // 2.7 rather than something rounder because sim/police.js chases at 26 and has to stay faster than
 // the quarry on its best day; 22.95 leaves the cruiser 3 u/s to close with.
-const OVERDRIVE_SPEED = 2.7;  // multiplier on top speed — 22.95 u/s, 67mph
-const OVERDRIVE_ACCEL = 2.2;  // units/s^2 through the band — 40 units of straight to use it all
+const OVERDRIVE_SPEED = 4.0;  // multiplier on top speed — 34 u/s, 99mph
+const OVERDRIVE_ACCEL = 4.7;  // units/s^2 through the band — 71 units of straight to use it all
 
 /**
- * The scale every speed readout in the project is quoted in: the shipped overdrive top, 22.95
- * u/s, is 67mph. "18.7 units per second" says nothing about how fast a car looks, and two copies
- * of the conversion is how the lab's readout and the tweak panel's would come to disagree.
+ * The scale every speed readout in the project is quoted in. "18.7 units per second" says nothing
+ * about how fast a car looks, and two copies of the conversion is how the lab's readout and the
+ * tweak panel's would come to disagree.
  *
- * Anchored to the *shipped* top rather than to `overdriveTop()`, and it has to be: it is a fixed
- * scale between the sim's unit and a real one, so moving the ceiling in the panel must move the
- * mph reading with it. A conversion derived from the live tuning would pin the top at 67mph
- * whatever it was set to, which is the one number the panel exists to change.
+ * **A literal, and it has to be.** This is a fixed scale between the sim's unit and a real one, so
+ * it cannot be derived from any ceiling — not from `overdriveTop()`, which the panel moves, and
+ * not from `OVERDRIVE_SPEED` either, which is what it was written as first. Both make the top
+ * read 67mph *whatever it is set to*, which is the one number a speed readout exists to tell you:
+ * raising the ceiling to 34 u/s silently rescaled every mph in the game back down, and the panel
+ * went on cheerfully reporting 67.
+ *
+ * 2.9194 is 67 / 22.95 — the original overdrive top, which is where the anchor came from and is
+ * now just history rather than a live dependency.
  */
-export const MPH_PER_UNIT = 67 / (SPEED * OVERDRIVE_SPEED);
+export const MPH_PER_UNIT = 67 / 22.95;
 
 /**
  * The Loco Mode ramp, as live tuning rather than six frozen constants — the ⚙️ panel's Loco
@@ -940,6 +952,19 @@ export const LOCO_DEFAULTS = Object.freeze({
   overdriveSpeed: OVERDRIVE_SPEED,
   overdriveAccel: OVERDRIVE_ACCEL,
   brake: BRAKE,
+  // The weave — the wander inside the lane that reads as "he is driving like a maniac". Two waves
+  // whose periods deliberately do not divide, so they never settle into a metronome; see the
+  // SWERVE_* block at the top of this file for the room budget they were sized against. Live for
+  // the same reason the speeds are: how much wander is *too much* is a judgement about a moving
+  // car, and it cannot be made from the numbers.
+  //
+  // These reach the police car too. It drives the taxi's Loco Mode on purpose — one definition of
+  // maniac, shared out of here — so the sliders move both, and the panel says so.
+  sway: SWERVE_AMP,
+  swayWave: SWERVE_WAVE,
+  chop: SWERVE_AMP2,
+  chopWave: SWERVE_WAVE2,
+  fade: SWERVE_FADE,
 });
 const loco = { ...LOCO_DEFAULTS };
 
@@ -1272,21 +1297,29 @@ function syncGrid(car) {
 /**
  * How far ahead a car can be constrained by a leader, in world units.
  *
- * Not a tuning knob — it is derived. A car brakes toward `sqrt(2 * BRAKE * allowed)`, so a leader
- * stops mattering once that exceeds the car's top speed: at the overdrive top (22.95 u/s) that is
- * 23.9 units of clear road, plus BOOST_GAP, so 28.4. Beyond it the leader is invisible to the
- * physics whether or not it is visible to the bookkeeping. It was 26, derived the same way against
- * the 18.7 ceiling that used to be the top — that horizon is 2.4 units short of what a taxi in
- * overdrive needs, and a leader appearing inside its own stopping distance is a rear-end rather
- * than a lift. 32 leaves margin and is exactly two lanes plus the junction between them
- * (12 + 8 + 12). Ambient traffic is unaffected: at cruise a leader stops constraining beyond 3.3
- * units of clear road, so the extra reach only ever finds cars that were already invisible to it.
+ * Not a tuning knob — it is derived, and it has been re-derived twice now because the thing it is
+ * derived *from* moved. A car brakes toward `sqrt(2 * BRAKE * allowed)`, so a leader stops
+ * mattering once that exceeds the car's top speed: at the overdrive top (34 u/s) against BRAKE
+ * 17.5 that is 33.0 units of clear road, plus BOOST_GAP, so 37.5. Beyond it the leader is
+ * invisible to the physics whether or not it is visible to the bookkeeping.
+ *
+ * The history is the point. It was 26 against the 18.7 ceiling, then 32 when the overdrive band
+ * arrived and made the top 22.95, and 40 now the top is 34. Each time the horizon was left behind
+ * for a while, and each time the symptom was the same: a leader appearing inside the taxi's own
+ * stopping distance, which is a rear-end rather than a lift. **Anything that raises the ceiling or
+ * softens the brake has to come back here**, including a session with the ⚙️ panel — which is why
+ * the panel's own notes say so rather than leaving it to be discovered at 90mph.
+ *
+ * 40 leaves margin and is exactly two lanes plus the two junctions around them (12 + 8 + 12 + 8),
+ * the same "land it on the road's own geometry" argument 32 was picked on. Ambient traffic is
+ * unaffected: at cruise a leader stops constraining beyond 2.1 units of clear road, so the extra
+ * reach only ever finds cars that were already invisible to it.
  *
  * The old model never needed this: `laneKey` was one *infinite* lane spanning the city, so a car
  * saw every leader in its row for free — including, as it happens, cars three blocks away it was
  * about to turn away from. Per-edge lanes end that, so the distance has to be walked.
  */
-const LOOKAHEAD = 32;
+const LOOKAHEAD = 40;
 
 /**
  * Draw `count` more cars onto the network, appending to `into`.
@@ -2114,7 +2147,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const ds = taxi.v * dt;
         taxi.swervePhase += ds;
         const delta = (taxi.boost ? 1 : 0) - taxi.swerve;
-        taxi.swerve += Math.sign(delta) * Math.min(Math.abs(delta), ds / SWERVE_FADE);
+        taxi.swerve += Math.sign(delta) * Math.min(Math.abs(delta), ds / loco.fade);
       }
 
       const wave = locoWeave(taxi.swervePhase);

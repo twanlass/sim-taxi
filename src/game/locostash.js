@@ -25,7 +25,8 @@
 const KEY = 'simtaxi.loco.v1';
 
 /** The knobs a stash may carry. Anything else in the payload is dropped on the way in. */
-const KEYS = ['kick', 'speed', 'accel', 'overdriveSpeed', 'overdriveAccel', 'brake'];
+const KEYS = ['kick', 'speed', 'accel', 'overdriveSpeed', 'overdriveAccel', 'brake',
+  'sway', 'swayWave', 'chop', 'chopWave', 'fade'];
 
 /**
  * Read lazily and behind a try: `globalThis.localStorage` *itself* throws when storage is blocked,

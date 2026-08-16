@@ -9,7 +9,7 @@ import {
 import { cityNetwork } from '../city/roadnet.js';
 import {
   setPriorityCorridor, setPolicePresence, locoWeave, locoWheelie, isLaneClosed, sirenLaneAhead,
-  LOCO_WEAVE_FADE, WHEELIE_DUR, ROAD_Y,
+  locoWeaveFade, WHEELIE_DUR, ROAD_Y,
   wheelAnchors, wheelGeometries, wheelGeometry, steerToward, CHASSIS_LIFT,
 } from './traffic.js';
 
@@ -52,15 +52,26 @@ const DODGE_EASE = 3.5;         // per second; ~0.3s to commit, so the swerve re
 // hunts the taxi down a junction at a time — see the routing notes on turnAt() below.
 //
 // It drives the *taxi's* Loco Mode: the same weave (locoWeave, shared out of traffic.js), a top
-// speed above the boosting taxi's best day — 22.95 at the top of its overdrive band, and that only
+// speed above the boosting taxi's best day — 34 at the top of its overdrive band, and that only
 // on a straightaway — so the gap actually closes, and a hard U-turn when the
 // quarry is behind it. The priority corridor follows each leg, which is not a courtesy — the
 // cruiser has no collision response at all, so an un-yielded *cross* car is still a car it drives
-// straight through at 26 units/s. The corridor is what stops there being one. Traffic in its own
+// straight through at 37 units/s. The corridor is what stops there being one. Traffic in its own
 // lane is handled the other way, by the pull-over above.
-const CHASE_SPEED = 26;
-const CHASE_ACCEL = 30;         // reaches chase speed in ~0.25s from corridor cruise
-const CHASE_BRAKE = 30;
+//
+// **This number is not free — it is `OVERDRIVE_SPEED` plus 3.** A chase where the quarry is faster
+// than the cruiser is not a hard chase, it is a chase that cannot end, and nothing on screen says
+// so: the siren just follows you forever. It was 26 against a 22.95 top; the top went to 34, so
+// this went to 37 to keep the same 3 u/s of closing speed. Raising the taxi's ceiling again means
+// coming back here, and `tools/probe.mjs` asserts the ordering so that it fails rather than
+// quietly turning the bust into an escort.
+export const CHASE_SPEED = 37;
+// Scaled with CHASE_SPEED (both x37/26), which is not optional: left at 30 the cruiser took
+// half again as long to wind up and could not shed 37 into its arrival, so it sailed past the
+// taxi and settled 9.4 units off instead of the 5.5 it aims for — the bust reads as the police
+// car overshooting and sulking back.
+const CHASE_ACCEL = 43;         // reaches chase speed in ~0.25s from corridor cruise
+const CHASE_BRAKE = 43;
 const CHASE_ARRIVE = 5.5;       // pulls up this far off the taxi and holds there
 // How far off the road centreline the quarry can be and still count as "on this road": the road
 // is 8 wide, and a taxi stopped at a kerb or slewed across a lane is still on it.
@@ -631,7 +642,7 @@ export function createPolice(rng, scene, cars = []) {
     if (state.uturn === null) {
       const ds = state.v * dt;
       state.swervePhase += ds;
-      state.swerve = Math.min(1, state.swerve + ds / LOCO_WEAVE_FADE);
+      state.swerve = Math.min(1, state.swerve + ds / locoWeaveFade());
     }
 
     // Ease the drawn car toward the rail: this is what arcs the square corners, and it damps the

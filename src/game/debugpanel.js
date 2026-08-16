@@ -1,8 +1,8 @@
 import { ROUTE_BLENDS } from './routeline.js';
 import { HAZE_TOP, setHazeTop, hazeColor, hazeTuning } from './scene.js';
 import * as difficulty from './difficulty.js';
-import { SPEED, MPH_PER_UNIT } from '../sim/traffic.js';
-import { PITCH } from '../city/grid.js';
+import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
+import { PITCH, LANE } from '../city/grid.js';
 
 // A small tweak panel behind a gear button.
 //
@@ -65,7 +65,10 @@ export function createDebugPanel({
   // by main.js. Defaulted like the two above so the `npm run check` boot pass builds the panel
   // against nothing; the section then draws a flat curve and moves a tuning nobody is reading.
   loco = {
-    defaults: { kick: 1, speed: 1, accel: 1, overdriveSpeed: 1, overdriveAccel: 1, brake: 1 },
+    defaults: {
+      kick: 1, speed: 1, accel: 1, overdriveSpeed: 1, overdriveAccel: 1, brake: 1,
+      sway: 0.4, swayWave: 18, chop: 0.12, chopWave: 9.5, fade: 7,
+    },
     get: () => ({ ...loco.defaults }), set: () => {}, reset: () => {},
     ramp: () => [{ s: 0, t: 0, v: 0 }], save: () => false,
   },
@@ -347,6 +350,8 @@ export function createDebugPanel({
   const mph = (v) => Math.round(v * MPH_PER_UNIT);
   /** A speed, in both units — the panel's whole vocabulary for "how fast is that". */
   const speedText = (v) => `${v.toFixed(2)} u/s · ${mph(v)} mph`;
+  /** The speed the weave's wavelengths turn into a frequency against — itself a slider. */
+  const boostCruiseOf = () => SPEED * loco.get().speed;
 
   /** Redraw the curve and the line under it from whatever the tuning currently is. */
   function paintRamp() {
@@ -378,6 +383,12 @@ export function createDebugPanel({
       ? `top ${speedText(top)} after ${reached.s.toFixed(0)}u `
         + `· ${(reached.s / PITCH).toFixed(1)} blocks of clear straight`
       : `never reaches ${speedText(top)} — band accel too low`;
+  }
+
+  /** Everything in the Loco block that has to follow a change anywhere else in it. */
+  function repaintLoco() {
+    paintRamp();
+    showWeaveRoom();
   }
 
   const locoLevers = [];
@@ -428,7 +439,7 @@ export function createDebugPanel({
     el.addEventListener('input', () => {
       loco.set({ [key]: Number(el.value) });
       sync();
-      paintRamp();
+      repaintLoco();
     });
     // Stashed on release rather than on every input. A drag fires `input` per pixel, and
     // `localStorage.setItem` is synchronous — writing the whole tuning a hundred times across one
@@ -467,6 +478,49 @@ export function createDebugPanel({
   // is longer than the run-up that earned it.
   locoLever('Brake', 'brake', 3, 80, 0.5, (v) => `${v.toFixed(1)} u/s² · all traffic`);
 
+  // --- Loco weave -------------------------------------------------------------
+  // The wander inside the lane — the "he is driving like a maniac" tell. Two waves whose periods
+  // deliberately do not divide, so the car never settles into a metronome; `sway` is the long one
+  // and `chop` the short one laid over it to break the rhythm.
+  //
+  // These reach the police cruiser as well. It drives the taxi's Loco Mode on purpose — one
+  // definition of maniac, shared out of sim/traffic.js — so the sliders move both cars, and the
+  // room readout below says which car is about to run out of lane.
+  heading('Loco weave');
+
+  const weaveNote = document.createElement('p');
+  weaveNote.className = 'dbg-note';
+
+  /**
+   * How far the weave may throw the car before it stops being a weave.
+   *
+   * Derived, not typed in: the lane centre sits `LANE` from the road centreline and the same from
+   * the kerb, and half a car body is `CAR_W / 2`. What's left is the play either side. The two
+   * waves can peak together, so the number to compare against is their sum — 0.52 of 1.15 shipped,
+   * which is the "half the room" the tuning block in traffic.js talks about.
+   */
+  const WEAVE_ROOM = LANE - CAR_W / 2;
+
+  function showWeaveRoom() {
+    const { sway, chop } = loco.get();
+    const peak = sway + chop;
+    const pct = Math.round((peak / WEAVE_ROOM) * 100);
+    weaveNote.textContent = peak > WEAVE_ROOM
+      ? `peak ${peak.toFixed(2)}u of ${WEAVE_ROOM.toFixed(2)}u — over the lane, expect kerbs and oncoming`
+      : `peak ${peak.toFixed(2)}u of ${WEAVE_ROOM.toFixed(2)}u room · ${pct}% of the lane`;
+  }
+  panel.append(weaveNote);
+
+  locoLever('Sway', 'sway', 0, 2, 0.01, (v) => `${v.toFixed(2)}u · the long wave`);
+  locoLever('Sway length', 'swayWave', 3, 60, 0.5,
+    (v) => `${v.toFixed(1)}u · ${(boostCruiseOf() / v).toFixed(2)} Hz at boost`);
+  locoLever('Chop', 'chop', 0, 1, 0.01, (v) => `${v.toFixed(2)}u · laid over the sway`);
+  locoLever('Chop length', 'chopWave', 2, 40, 0.5,
+    (v) => `${v.toFixed(1)}u · ${(boostCruiseOf() / v).toFixed(2)} Hz at boost`);
+  // Distance, not time, like the weave itself — so letting go at a red doesn't drift the parked
+  // car straight. Shared with the cruiser's own fade-in.
+  locoLever('Fade', 'fade', 0.5, 40, 0.5, (v) => `${v.toFixed(1)}u to full · both cars`);
+
   const resetLoco = document.createElement('button');
   resetLoco.type = 'button';
   resetLoco.className = 'dbg-wide';
@@ -474,7 +528,7 @@ export function createDebugPanel({
   resetLoco.addEventListener('click', () => {
     loco.reset();
     for (const sync of locoLevers) sync();
-    paintRamp();
+    repaintLoco();
     // Clears the stash too — `loco.save()` forgets rather than writes once the tuning is back to
     // shipped, so Reset survives a reload exactly as surely as a tweak does. A reset that came
     // back undone on the next crash would be the worst of both.
@@ -482,7 +536,7 @@ export function createDebugPanel({
   });
   panel.append(resetLoco, stashNote);
 
-  paintRamp();
+  repaintLoco();
   showStash(locoRestored);
 
   // --- City entrance ----------------------------------------------------------

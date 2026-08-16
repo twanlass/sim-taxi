@@ -17,14 +17,14 @@ import {
 } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
-  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT } from '../src/sim/traffic.js';
+  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, laneCost } from '../src/game/route.js';
 import { createCollisions } from '../src/sim/collisions.js';
-import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET, sirenOn } from '../src/sim/police.js';
+import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET, sirenOn, CHASE_SPEED } from '../src/sim/police.js';
 import {
   edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM,
 } from '../src/game/sirenglow.js';
@@ -4521,10 +4521,16 @@ check('the taxi is an ordinary car in the traffic array',
     `furthest off a centreline ${worstOffRoad.toFixed(2)}`);
   check('a quarry behind the cruiser makes it swing round', uturns >= 1, `${uturns} U-turns`);
   // Both numbers are the caps in police.js showing through: the drawn step is bounded at
-  // CHASE_SPEED * 1.2 (0.52 units at 60fps), and easing the nose at YAW_EASE spreads the rail's
-  // instant 90° corner over ~0.35s — 13.3°/frame at the sharpest, measured across eight seeds.
-  // Unbounded, the corner snap put them at 0.83 units and 79° in a single frame.
-  check('the chase never teleports', worstStep < 0.55, `biggest step ${worstStep.toFixed(3)} units`);
+  // CHASE_SPEED * 1.2 per frame, and easing the nose at YAW_EASE spreads the rail's instant 90°
+  // corner over ~0.35s — 13.3°/frame at the sharpest, measured across eight seeds. Unbounded, the
+  // corner snap put them at 0.83 units and 79° in a single frame.
+  //
+  // Derived from CHASE_SPEED rather than written out, because that constant is pinned to the taxi's
+  // overdrive ceiling and has now moved twice with it — a hardcoded 0.55 here just goes red for the
+  // wrong reason the next time the ceiling does.
+  const stepCap = (CHASE_SPEED * 1.2) / 60 + 0.03;
+  check('the chase never teleports', worstStep < stepCap,
+    `biggest step ${worstStep.toFixed(3)} units of ${stepCap.toFixed(2)}`);
   check('the nose never snaps round', worstYawRate < 0.28,
     `fastest yaw ${(worstYawRate * 180 / Math.PI).toFixed(1)}°/frame`);
 
@@ -5100,7 +5106,7 @@ check('the taxi is an ordinary car in the traffic array',
   const LEAD_FRACTION = 0.3;      // camera.js's, restated so a change there fails here
   const ASPECT = 390 / 844;       // an iPhone in portrait — the viewport the follows run on
   const ZOOM = 52;
-  const BOOST_TOP = SPEED * 2.2;  // what `gain` is measured against; see boostCruise()
+  const BOOST_TOP = boostCruise();  // what `gain` is measured against
   const STEP = 1 / 60;
 
   // The taxi is pinned at the origin and the world is slid under it. followXZ clamps its target to
@@ -5245,13 +5251,14 @@ check('the taxi is an ordinary car in the traffic array',
   oTraffic.warmup(5);
   oTaxi.boost = true;
 
-  const BOOST_TOP = SPEED * 2.2;       // what holding the button is worth on its own
-  const OVERDRIVE_TOP = SPEED * 2.7;   // the ceiling, at the far end of a straightaway
+  const BOOST_TOP = boostCruise();      // what holding the button is worth on its own
+  const OVERDRIVE_TOP = overdriveTop(); // the ceiling, at the far end of a straightaway
 
   let top = 0;
   let straight = 0;               // distance driven since the last real turn
   let runToNearTop = Infinity;    // shortest straightaway that ever got within 1 u/s of the top
   let runToBoostTop = Infinity;   // ...and the shortest that reached the button's own ceiling
+  let inBand = 0, bandRun = 0;    // road spent climbing the band, and the longest such climb
 
   for (let step = 0; step < 60 * 300; step++) {
     oTraffic.update(1 / 60);
@@ -5262,15 +5269,29 @@ check('the taxi is an ordinary car in the traffic array',
     top = Math.max(top, oTaxi.v);
     if (oTaxi.v > OVERDRIVE_TOP - 1) runToNearTop = Math.min(runToNearTop, straight);
     if (oTaxi.v > BOOST_TOP) runToBoostTop = Math.min(runToBoostTop, straight);
+    // Road covered while inside the band itself — the climb the taper charges for, independent of
+    // where the last corner was. Reset whenever the car drops back under the cap.
+    if (oTaxi.v > BOOST_TOP && oTaxi.v < OVERDRIVE_TOP - 1) inBand += oTaxi.v * (1 / 60);
+    else if (oTaxi.v <= BOOST_TOP) inBand = 0;
+    else bandRun = Math.max(bandRun, inBand);
   }
 
   check('Loco Mode reaches its overdrive ceiling', top > OVERDRIVE_TOP - 0.01,
     `${top.toFixed(2)} of ${OVERDRIVE_TOP.toFixed(2)} units/s`);
   check('and never goes past it', top <= OVERDRIVE_TOP + 1e-6, `${top.toFixed(3)} units/s`);
-  // 28.7 units is what the physics says, starting from the 18.9 a corner exit leaves behind.
-  // Anything much under that means the taper is gone and the top end has become free.
-  check('the top end takes a straightaway to reach', runToNearTop > 25,
-    `${runToNearTop.toFixed(1)} units of straight road`);
+  // **This used to be measured from the last corner, and can no longer be.** The old tuning shed
+  // the whole band inside any turn — 4.25 u/s at BRAKE 11 is 0.39s against a right arc's ~0.35s —
+  // so "distance since the last real turn" and "distance spent climbing the band" were the same
+  // number. At the shipped ceiling of 34 with the turn clamp at 22.1, shedding takes 0.68s: a left
+  // (~0.70s) still costs the band and a right (~0.35s) does not, so the taxi can now leave a right
+  // turn already at the top and the old check reads a straightaway of nearly zero.
+  //
+  // What survives, and is the thing that check was actually defending, is that the band has to be
+  // *climbed*: measure the road covered between the boost cap and the top instead. 71 units is what
+  // the physics says — (34² − 22.1²) / (2 · 4.7). Anything much under it means the taper is gone
+  // and the top end has become free.
+  check('the top end still has to be climbed', bandRun > 55,
+    `${bandRun.toFixed(1)} units between the cap and the top`);
   // The other half of the deal: the mode itself still lands instantly. Its own ceiling is back
   // within a couple of units of a corner exit, which is where the go-go-go feel lives.
   check('boost speed itself is still instant', runToBoostTop < 5,
@@ -5294,27 +5315,37 @@ check('the taxi is an ordinary car in the traffic array',
 // back — it reads back fine — so it is caught by driving the sim past the shipped ceiling.
 {
   check('the Loco defaults are the shipped constants',
-    LOCO_DEFAULTS.kick === 1.25 && LOCO_DEFAULTS.speed === 2.2 && LOCO_DEFAULTS.accel === 24
-    && LOCO_DEFAULTS.overdriveSpeed === 2.7 && LOCO_DEFAULTS.overdriveAccel === 2.2
-    && LOCO_DEFAULTS.brake === 11,
+    LOCO_DEFAULTS.kick === 1.25 && LOCO_DEFAULTS.speed === 2.6 && LOCO_DEFAULTS.accel === 24
+    && LOCO_DEFAULTS.overdriveSpeed === 4.0 && LOCO_DEFAULTS.overdriveAccel === 4.7
+    && LOCO_DEFAULTS.brake === 17.5,
     JSON.stringify(LOCO_DEFAULTS));
   check('and the derived ceilings match the docs',
-    Math.abs(boostCruise() - 18.7) < 1e-9 && Math.abs(overdriveTop() - 22.95) < 1e-9,
+    Math.abs(boostCruise() - 22.1) < 1e-9 && Math.abs(overdriveTop() - 34) < 1e-9,
     `${boostCruise().toFixed(2)} / ${overdriveTop().toFixed(2)} u/s`);
-  check('22.95 u/s reads as 67mph', Math.round(overdriveTop() * MPH_PER_UNIT) === 67,
-    `${(overdriveTop() * MPH_PER_UNIT).toFixed(1)} mph`);
+  // The *scale*, not the ceiling. MPH_PER_UNIT is a fixed conversion between the sim's unit and a
+  // real one, so it is asserted at the speed it was anchored on — 22.95 u/s is 67mph whatever the
+  // ceiling is doing. Written as `overdriveTop() * MPH_PER_UNIT === 67` first, which passed for
+  // exactly as long as the ceiling stayed at 22.95 and then hid the readout rescaling under it.
+  check('the mph scale is anchored, not derived from the ceiling',
+    Math.round(22.95 * MPH_PER_UNIT) === 67 && Math.round(overdriveTop() * MPH_PER_UNIT) === 99,
+    `22.95 → 67mph, top ${overdriveTop()} → ${Math.round(overdriveTop() * MPH_PER_UNIT)}mph`);
+  // The cruiser has to out-run the quarry on its best day or the bust can never land, and nothing
+  // on screen says so — the siren just follows you forever. See CHASE_SPEED in sim/police.js.
+  check('the police cruiser still out-runs the overdrive top',
+    CHASE_SPEED > overdriveTop(),
+    `${CHASE_SPEED} against ${overdriveTop()} u/s, ${(CHASE_SPEED - overdriveTop()).toFixed(1)} to close with`);
 
   // The panel's preview is drawn from locoRamp(), so if it disagrees with the physics the picture
   // on screen is of a mode the game does not have. Checked against the closed form rather than
-  // against a recorded number: the punch covers (18.7² − 10.625²) / (2·24) = 4.93 units from the
-  // kick, and the band (22.95² − 18.7²) / (2·2.2) = 40.2 more.
+  // against a recorded number: the punch covers (22.1² − 10.625²) / (2·24) = 7.82 units from the
+  // kick, and the band (34² − 22.1²) / (2·4.7) = 71.0 more.
   const ramp = locoRamp();
   const reached = (v) => ramp.find((p) => p.v >= v - 1e-3)?.s ?? Infinity;
   const toCap = reached(boostCruise());
   const toTop = reached(overdriveTop());
-  check('the ramp preview agrees with the punch', Math.abs(toCap - 4.93) < 0.6,
+  check('the ramp preview agrees with the punch', Math.abs(toCap - 7.82) < 0.7,
     `${toCap.toFixed(2)} units to ${boostCruise().toFixed(1)} u/s`);
-  check('and with the 40 units the band costs', Math.abs(toTop - toCap - 40.2) < 1.2,
+  check('and with the 71 units the band costs', Math.abs(toTop - toCap - 71.0) < 2,
     `${(toTop - toCap).toFixed(1)} units of band`);
   check('the ramp lets go and lands back at cruise',
     ramp.some((p) => p.release) && Math.abs(ramp[ramp.length - 1].v - SPEED) < 1e-6,
@@ -5346,18 +5377,95 @@ check('the taxi is an ordinary car in the traffic array',
     for (let i = 0; i < 60 * 300; i++) { t2.update(1 / 60); peak = Math.max(peak, t2.taxi.v); }
     return peak;
   };
-  setLocoTuning({ overdriveSpeed: 3.6, overdriveAccel: 8 });
+  setLocoTuning({ overdriveSpeed: 5.5, overdriveAccel: 14 });
   const raised = drive();
   check('raising the ceiling in the tuning raises the sim', raised > overdriveTop() - 0.5,
     `${raised.toFixed(2)} of ${overdriveTop().toFixed(2)} u/s`);
-  check('and it is the tuning doing it, not the old constant', raised > 22.95 + 1,
-    `${raised.toFixed(2)} u/s against a shipped ceiling of 22.95`);
+  check('and it is the tuning doing it, not the old constant', raised > 34 + 1,
+    `${raised.toFixed(2)} u/s against a shipped ceiling of 34`);
+
+  // --- and the weave, which is the other half of the mode ---------------------
+  //
+  // The wander inside the lane. Same discipline as the speeds above and the same failure to guard
+  // against — but with a second reader: `sim/police.js` drives the taxi's Loco Mode, and it used
+  // to import the fade as a *constant* and divide by it. That is the captured-copy bug in its
+  // purest form, so the fade is asserted through the cruiser rather than through the taxi.
+  check('the weave defaults are the shipped constants',
+    LOCO_DEFAULTS.sway === 0.40 && LOCO_DEFAULTS.swayWave === 18
+    && LOCO_DEFAULTS.chop === 0.12 && LOCO_DEFAULTS.chopWave === 9.5
+    && LOCO_DEFAULTS.fade === 7,
+    `${LOCO_DEFAULTS.sway} + ${LOCO_DEFAULTS.chop} over ${LOCO_DEFAULTS.swayWave}/${LOCO_DEFAULTS.chopWave}`);
+
+  // The room budget the tuning block in traffic.js is written against: lane centre to kerb, less
+  // half a body. Asserted rather than restated, because "half the room" is the claim that makes
+  // the shipped pair safe and it is the first thing a re-tune would quietly break.
+  const weaveRoom = LANE - CAR_W / 2;
+  check('and the shipped pair peaks at about half the lane it has',
+    LOCO_DEFAULTS.sway + LOCO_DEFAULTS.chop < weaveRoom * 0.55,
+    `${(LOCO_DEFAULTS.sway + LOCO_DEFAULTS.chop).toFixed(2)} of ${weaveRoom.toFixed(2)} units`);
+
+  // The periods must not divide, or the two waves lock into a metronome and the whole point of
+  // having two of them goes. 18 / 9.5 is 1.895.
+  check('the two wavelengths do not divide',
+    Math.abs((LOCO_DEFAULTS.swayWave / LOCO_DEFAULTS.chopWave) % 1) > 0.15,
+    `${(LOCO_DEFAULTS.swayWave / LOCO_DEFAULTS.chopWave).toFixed(3)}`);
+
+  // The shape itself, at the shipped tuning: peaks inside the room, and a slope that is a real
+  // steering angle rather than a jerk.
+  {
+    let peak = 0, slopePeak = 0;
+    for (let u = 0; u < 200; u += 0.05) {
+      const w = locoWeave(u);
+      peak = Math.max(peak, Math.abs(w.lateral));
+      slopePeak = Math.max(slopePeak, Math.abs(w.slope));
+    }
+    check('the weave stays inside the lane it was sized for', peak < weaveRoom,
+      `${peak.toFixed(3)} of ${weaveRoom.toFixed(2)} units`);
+    // Against `STEER_MAX` (0.6 rad, ~34°, about where a real front wheel stops) rather than a
+    // number picked to fit: the claim is that the weave asks for a steering angle the car can
+    // actually give, and half the lock is comfortably inside that. Measured 0.217 rad, 12.3°.
+    check('and its steering angle is one the front wheels can give',
+      slopePeak < STEER_MAX / 2,
+      `${(Math.atan(slopePeak) * 180 / Math.PI).toFixed(1)}° of a ${(Math.atan(STEER_MAX) * 180 / Math.PI).toFixed(0)}° lock`);
+  }
+
+  // Live, not captured: turning the sway up has to change what `locoWeave` returns, and it is the
+  // same function the cruiser calls.
+  setLocoTuning({ sway: 1.0, chop: 0.02 });
+  {
+    let peak = 0;
+    for (let u = 0; u < 200; u += 0.05) peak = Math.max(peak, Math.abs(locoWeave(u).lateral));
+    check('raising the sway raises the weave', peak > 0.95 && peak < 1.05,
+      `${peak.toFixed(3)} units`);
+  }
+  setLocoTuning({ swayWave: 40 });
+  {
+    // A longer wavelength means a gentler slope for the same amplitude — the readable consequence,
+    // and the one a wavelength that quietly stayed at 18 would not produce.
+    let slopePeak = 0;
+    for (let u = 0; u < 200; u += 0.05) slopePeak = Math.max(slopePeak, Math.abs(locoWeave(u).slope));
+    check('and stretching the wavelength flattens the steering',
+      slopePeak < 2 * Math.PI / 40 * 1.05 + 0.02,
+      `${slopePeak.toFixed(4)} rad/unit`);
+  }
+  resetLocoTuning();
+
+  // The fade, through the police car — the one reader that held its own copy.
+  {
+    const before = locoWeaveFade();
+    setLocoTuning({ fade: 21 });
+    check('the weave fade is live rather than a captured constant',
+      locoWeaveFade() === 21 && before === 7, `${before} -> ${locoWeaveFade()}`);
+    resetLocoTuning();
+    check('and it comes back', locoWeaveFade() === 7, `${locoWeaveFade()}`);
+  }
 
   // Everything after this point in the file drives the shipped game. Leaving the tuning moved
   // would quietly re-tune every later check in a way that is very hard to trace back to here.
   resetLocoTuning();
   check('and the tuning is back to shipped for the rest of the suite',
-    overdriveTop() === SPEED * 2.7, `${overdriveTop().toFixed(2)} u/s`);
+    overdriveTop() === SPEED * 4.0 && locoWeave(4.5).lateral > 0,
+    `${overdriveTop().toFixed(2)} u/s`);
 }
 
 // --- The Loco tuning stash --------------------------------------------------

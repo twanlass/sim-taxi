@@ -55,11 +55,16 @@ import {
  *   - 1.0s out and closer, everything is lit at full opacity. That is the report this came from:
  *     the outline does arrive, it just arrives once the taxi is already committed.
  *
- * At 42 the same 150 crashes give **0 of 17 unoutlined at 1.5s** (mean alpha 0.41 → 0.55) and 3 of
- * 19 at 2.0s (0.34 → 0.42). The fully-lit distance — RADIUS − FADE_BAND = 36, which is the figure
- * the warning is really measured at — is 1.9s at Loco Mode's 18.7 u/s and 1.6s at the top of the
- * overdrive band, against the old 1.3s / 1.05s. The band still costs warning; that is the price of
- * the band, but it now costs it from a figure that had some to spare. Past 42 the returns go flat:
+ * At 42 the same 150 crashes gave **0 of 17 unoutlined at 1.5s** (mean alpha 0.41 → 0.55) and 3 of
+ * 19 at 2.0s (0.34 → 0.42), measured when Loco cruise was 18.7 u/s.
+ *
+ * **It is 46 now, because the speed it is a warning against went up.** This radius is a *time*
+ * written down as a distance, so when the boost ceiling moved to 22.1 the same 42 units quietly
+ * became 1.63s of fully-lit warning instead of 1.9 — under the 1.8s floor `tools/probe.mjs` holds
+ * it to, which is what caught it. 46 puts the fully-lit distance (RADIUS − FADE_BAND = 40) back at
+ * 1.81s. Anything that raises Loco Mode's speed has to come back here, and the ceiling on doing so
+ * is `SPAWN_CLEARANCE` (50) — at 46 there are 4 units left, so the next raise needs that to move
+ * first. Past 42 the returns go flat:
  * 46 buys about one more of those three and starts putting pressure back on the cap.
  *
  * The old note here said 40 would put "half a dozen more cars in range" and make MAX_GHOSTS the
@@ -77,7 +82,7 @@ import {
  * centre says. A per-class radius would be a second number to keep in step with PITCH for barely
  * a tenth of a second of warning, on the one vehicle whose size already makes it easiest to see.
  */
-export const GHOST_RADIUS = 42;
+export const GHOST_RADIUS = 46;
 
 /**
  * The hard cap, shared across cars and trucks. Set deliberately *above* the 6.1 vehicles that
@@ -88,9 +93,14 @@ export const GHOST_RADIUS = 42;
  * become the filter, and the thing it evicted would have been the vehicle that mattered. Eviction
  * drops the farthest, and *farthest* is not *safest* — the whole point of the widened radius is
  * the car two junctions out. Measured: at radius 42 with a cap of 8, a genuinely hidden vehicle
- * was dropped by the cap on 5.5% of frames; at 12 that is 0.0%, and stays there out to a radius
- * of 46. The cost of the four extra slots is four matrices per pool, drawing nothing until they
- * are claimed.
+ * was dropped by the cap on 5.5% of frames; at 12 that is 0.0%, and stayed there out to a radius
+ * of 46. The cost of the extra slots is a matrix per pool each, drawing nothing until claimed.
+ *
+ * **16 now, because the radius reached 46 and the note above called it**: "46 … starts putting
+ * pressure back on the cap". It does. A radius holds vehicles by area, so 42 → 46 is 1.2× of
+ * everything — the 6.1 average becomes 7.3 — and `tools/probe.mjs` caught the cap biting at a peak
+ * of 13 in range over fifteen seconds of boosting. 16 restores the same ~2× headroom over the
+ * average that 12 had, which is what keeps this a rail against a clump rather than the filter.
  *
  * One cap over both classes rather than one each: the cap exists to bound how much of the frame
  * this may paint, and that ceiling is about the player's screen, not about which buffer a vehicle
@@ -98,7 +108,7 @@ export const GHOST_RADIUS = 42;
  * carrying three trucks and five cars is legal at 1/12 and a pool that ran out of slots would drop
  * the nearest vehicle on a technicality; the spare slots cost a matrix each and draw nothing.
  */
-export const MAX_GHOSTS = 12;
+export const MAX_GHOSTS = 16;
 
 /** Seconds to fade the whole set in or out with the boost. */
 const GHOST_FADE = 0.35;

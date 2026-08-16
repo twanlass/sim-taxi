@@ -169,12 +169,14 @@ ahead(lane, s, range)   // vehicles ahead, carrying straight on through junction
 the straight-through chain, and a car that turned off left the row and stopped being seen.
 
 `LOOKAHEAD = 32` is derived, not tuned. A car brakes toward `sqrt(2 · BRAKE · allowed)`, so a
-leader stops mattering once that exceeds the car's top speed: at the overdrive top (22.95 u/s) that
-is 23.9 units of clear road, plus `BOOST_GAP`, so 28.4. Beyond that the leader cannot affect the
-physics whether or not the bookkeeping can see it. 32 leaves margin and is exactly two lanes plus
-the junction between them (12 + 8 + 12).
+leader stops mattering once that exceeds the car's top speed: at the overdrive top (34 u/s) against
+`BRAKE` 17.5 that is 33.0 units of clear road, plus `BOOST_GAP`, so 37.5. Beyond that the leader
+cannot affect the physics whether or not the bookkeeping can see it. 40 leaves margin and is
+exactly two lanes plus the two junctions around them (12 + 8 + 12 + 8).
 
-It was 26, derived the same way against the 18.7 that used to be the top speed. The
+It has now been re-derived twice, and the history is the point: 26 against the 18.7 ceiling, 32 when
+the overdrive band made the top 22.95, and 40 now the top is 34. **Anything that raises the ceiling
+or softens the brake has to come back here** — including a session with the ⚙️ panel. The
 [overdrive band](#overdrive-only-on-a-straightaway) moved the ceiling and the horizon had to move
 with it — 26 is 2.4 units short of a taxi in overdrive's own stopping distance, and a leader that
 appears inside that is a rear-end rather than a lift. Ambient traffic never noticed either number:
@@ -534,36 +536,41 @@ for ~9% of boosted frames.
 ### Overdrive: only on a straightaway
 
 ```js
-OVERDRIVE_SPEED = 2.7   // multiplier on top speed — 22.95 u/s, 67mph
-OVERDRIVE_ACCEL = 2.2   // units/s² through the band — 40 units of straight to use it all
+OVERDRIVE_SPEED = 4.0   // multiplier on top speed — 34 u/s, 99mph
+OVERDRIVE_ACCEL = 4.7   // units/s² through the band — 71 units of straight to use it all
 ```
 
-The mode's ceiling is 22.95 u/s, but holding the button is not what buys it. `BOOST_ACCEL` runs out
-at `SPEED · BOOST_SPEED` = 18.7, and the last 4.25 u/s arrive at `OVERDRIVE_ACCEL` instead:
+The mode's ceiling is 34 u/s, but holding the button is not what buys it. `BOOST_ACCEL` runs out
+at `SPEED · BOOST_SPEED` = 22.1, and the last 11.9 u/s arrive at `OVERDRIVE_ACCEL` instead:
 
 ```js
-const boostAccel = (v) => (v < SPEED * BOOST_SPEED ? BOOST_ACCEL : OVERDRIVE_ACCEL);
+const boostAccel = (v) => (v < boostCruise() ? loco.accel : loco.overdriveAccel);
 ```
 
-`(22.95² − 18.7²) / (2 · 2.2)` is **40 units of unbroken straight road** — two blocks on the nose,
+`(34² − 22.1²) / (2 · 4.7)` is **71 units of unbroken straight road** — three and a half blocks,
 `PITCH` being 20. So the top end sits at the far end of a straightaway and nothing else reaches it:
-a leader inside `LOOKAHEAD`, a red the mode isn't holding, or a corner all cost it, and a corner
-costs it outright — the turn branch clamps a real turn to `cruise` and `BRAKE` is 11, so a left
-sheds the whole band in 0.4s.
+a leader inside `LOOKAHEAD`, or a red the mode isn't holding, both cost it.
 
-Going straight on through a junction *keeps* it, and has to. 40 units of run-up crosses one
-junction and starts on a second, so capping the straight-through at `BOOST_SPEED` — which is what
-the corner rule did before `straightTop` — would have made the band unreachable rather than merely
-hard to reach.
+**A corner no longer costs it outright, and that is a change worth knowing.** The turn branch still
+clamps a real turn to `cruise` (22.1), but shedding 34 → 22.1 at `BRAKE` 17.5 takes 0.68s against a
+left arc's ~0.70s and a right's ~0.35s — so a left still takes the band and a right does not. Under
+the old 22.95 ceiling the drop was 4.25 u/s in 0.39s and *every* corner took it. The taxi can now
+come out of a right-hander still at the top.
+
+Going straight on through a junction *keeps* it, and has to. 71 units of run-up crosses three
+junctions, so capping the straight-through at `BOOST_SPEED` — which is what the corner rule did
+before `straightTop` — would have made the band unreachable rather than merely hard to reach.
 
 This is the deliberate inverse of the note above about `BOOST_ACCEL`: punch comes from the
 acceleration, so a band that is supposed to be earned gets its acceleration taken away rather than
-its ceiling capped. The two halves are measured separately in `tools/probe.mjs` — the mode's own
-18.7 is back within 0.3 units of a corner exit, and the top end has never been seen inside 28 units
-of straight road.
+its ceiling capped. `tools/probe.mjs` measures the two halves separately — the mode's own 22.1 is
+back within a couple of units of a corner exit, and the band still costs 55+ units of climbing
+between the cap and the top. That second check used to measure "distance since the last corner",
+which stopped meaning anything the moment a right turn stopped resetting the speed.
 
-2.7 rather than something rounder because [the bust chase](#the-bust-chase) runs at 26 and has to
-stay faster than the quarry on its best day; 22.95 leaves the cruiser 3 u/s to close with.
+4.0 rather than something rounder because [the bust chase](#the-bust-chase) has to stay faster than
+the quarry on its best day; the cruiser runs at 37, which leaves it 3 u/s to close with. Those two
+numbers move together — raise this one and the chase becomes an escort.
 
 ### The ramp is live tuning
 
@@ -631,11 +638,12 @@ Two things genuinely break up there, and both are the game telling the truth rat
 - **`LOOKAHEAD` is 32 units**, so above about 26 u/s the taxi is already moving faster than it can
   see far enough ahead to brake for. That is most of what "significantly faster" feels like from
   the driving seat.
-- **The boost ghosts stop being a warning.** `GHOST_RADIUS` (42) is a distance, and what it is
-  worth is that distance over the boost cruise speed — 2.2s at the shipped 18.7 u/s, 0.4s at the
-  slider's 102. The 8-unit margin to `SPAWN_CLEARANCE` goes the same way. Neither is a bug in the
-  outlines; a horizon fixed in *units* buys less time the faster you go, which is the honest
-  behaviour of every horizon in the file.
+- **The boost ghosts stop being a warning.** `GHOST_RADIUS` (46) is a distance, and what it is
+  worth is that distance over the boost cruise speed — 1.8s of fully-lit warning at the shipped
+  22.1 u/s, 0.4s at the slider's 102. The 4-unit margin to `SPAWN_CLEARANCE` goes the same way.
+  Neither is a bug in the outlines; a horizon fixed in *units* buys less time the faster you go,
+  which is the honest behaviour of every horizon in the file. It is also why the radius went 42 → 46
+  when the boost cap went 18.7 → 22.1: `tools/probe.mjs` holds the warning to 1.8s and caught it.
 
 Nothing else does. Across the whole range — and past it — `car.v`, `car.x` and `car.z` stay finite
 and the taxi stays on the network, because `step` is clamped to `allowed` however fast the car
@@ -872,7 +880,7 @@ cooldown. What *doesn't* survive it is speed: `taxi.boostEasing` is true only du
 and `fullPower = car.boost && !car.boostEasing` in `traffic.js` is what the topSpeed/accel formulas
 actually key off, so the cap drops back to cruise the instant the hold ends. The car doesn't snap
 to cruise, though — `BRAKE` (11 u/s²) is still the only thing that sheds speed, same as any other
-stop, and from 18.7 down to 8.5 that takes ~0.93s: the coast-down was already sitting there once
+stop, and from 22.1 down to 8.5 that takes ~0.78s: the coast-down was already sitting there once
 the speed cap and the hazard flag stopped being the same boolean. It's also where the nose-dip
 comes from — the pitch spring downstream reads the deceleration straight off `car.v`, no separate
 animation needed. A re-press mid-cooldown cancels it outright and returns to `'active'`.
@@ -1040,7 +1048,7 @@ mid-junction at all. Both are in, since the second one covers a leader that reac
 in the manoeuvre. Together: 32% → 19% of passes wrecked, and **no same-way collisions at all**.
 
 **Not into oncoming traffic already in sight.** `PASS_SIGHT` (35 units) is the exposure — the
-manoeuvre plus the tuck-in, ~1.2s, against a closing speed of 18.7 + 8.5 = 27.2 u/s. Asked only at
+manoeuvre plus the tuck-in, ~1.2s, against a closing speed of 22.1 + 8.5 = 30.6 u/s. Asked only at
 the moment of pulling out: a car that emerges into the oncoming lane *during* the pass still costs
 the run, and that is the risk worth keeping, because it is the one the player could not have read.
 Being thrown into a car that was in plain sight the whole time is not — without this the taxi
@@ -1093,8 +1101,10 @@ and 5 completions instead of 8. It also makes releasing the button a real abort,
 comes straight back and drops the taxi in behind.
 
 **Scatter, which was expected to be the blocker, turned out not to be.** A car fleeing at
-`SCATTER_SPEED` (2.0× cruise, 17 u/s) against the taxi's 18.7 closes at 1.7 u/s, which is no pass
-at all — so suppressing the flee while passing looked obviously necessary. It measures as an exact
+`SCATTER_SPEED` (2.0× cruise, 17 u/s) against the taxi's boost cap closed at 1.7 u/s when that cap
+was 18.7 — no pass at all — so suppressing the flee while passing looked obviously necessary. (At
+the current 22.1 it closes at 5.1, so the premise is weaker than it was and the conclusion below is
+stronger.) It measures as an exact
 no-op at both ends of the density ramp: same passes, same completions, ground speed 19.14 *with* it
 against 19.19 without. `PASS_TRIGGER` is why. A car still only 10 units ahead is by construction one
 scatter has already failed to move, because one it moved would have opened the gap past the trigger
