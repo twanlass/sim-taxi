@@ -17,8 +17,8 @@
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import {
-  GRID, PITCH, LANE, HALF_ROAD, lineCoord, legalExits, entryPoint, exitPoint, turnControl,
-  laneOffsetCoord, isXAxis, dirSign, nextIntersection,
+  GRID, PITCH, LANE, HALF_ROAD, DIR, lineCoord, legalExits, entryPoint, exitPoint, turnControl,
+  laneOffsetCoord, isXAxis, dirSign, nextIntersection, isSegmentClosed,
 } from '../src/city/grid.js';
 // Only constants and the pre-port road-class helper. The signal model this tool validates is
 // frozen below rather than imported, so that pointing traffic.js at the network cannot turn the
@@ -145,7 +145,37 @@ function refRingAxisAt(i, j) {
   return null;
 }
 
-/** `lightPhase(i, j, t, true)`, frozen — no corridor, no boost hold, as the tool always called it. */
+/**
+ * Which street owns an unsignalised junction, frozen — 'x' / 'z' for the axis that never stops,
+ * null where a light arbitrates instead.
+ *
+ * The ring, plus an arterial that carries *through*. "Through" is the part with teeth: an arterial
+ * a park closure cut in half terminates here, so it has no through movement to be given the
+ * junction for and keeps its light. Computed from the layout and the closures directly, which is
+ * what keeps this an independent answer rather than a reading of `node.streets`.
+ */
+function refPriorityAxis(layout, i, j) {
+  const ring = refRingAxisAt(i, j);
+  if (ring) return ring;
+
+  // `isSegmentClosed` reports the map edge as closed too, so this needs no separate bounds guard.
+  const xThrough = layout.arterials.x.has(j)
+    && !isSegmentClosed(i, j, DIR.PX) && !isSegmentClosed(i, j, DIR.NX);
+  const zThrough = layout.arterials.z.has(i)
+    && !isSegmentClosed(i, j, DIR.PZ) && !isSegmentClosed(i, j, DIR.NZ);
+  // Neither: an ordinary crossing. Both: the one junction where the two arterials meet, and there
+  // is no single street to hand it to — same shape as a ring corner, same answer.
+  if (xThrough === zThrough) return null;
+  return xThrough ? 'x' : 'z';
+}
+
+/**
+ * `lightPhase(i, j, t, true)`, frozen — no corridor, no boost hold, as the tool always called it.
+ *
+ * Only meaningful at a junction that has a light. It still models the arterial's 64% green share,
+ * which now applies solely to a stub left by a closure; `refPriorityAxis` above decides which
+ * junctions this is worth asking about, and the phase comparison only walks those.
+ */
 function refLightPhase(layout, i, j, t) {
   const ring = refRingAxisAt(i, j);
   if (ring) return { axis: ring, yellow: false, remaining: Infinity };
@@ -319,7 +349,7 @@ for (let s = 0; s < SEEDS; s++) {
     for (let i = 0; i <= GRID; i++) {
       for (let j = 0; j <= GRID; j++) {
         const node = net.nodeByGrid(i, j);
-        const gridSays = refRingAxisAt(i, j) !== null;
+        const gridSays = refPriorityAxis(layout, i, j) !== null;
         const netSays = node.signal === null;
         if (gridSays !== netSays) {
           // One difference is intended. Park closures can leave an interior junction with nothing
@@ -334,9 +364,10 @@ for (let s = 0; s < SEEDS; s++) {
           mismatches += 1;
           if (!example) example = `(${i},${j}) grid ${gridSays} net ${netSays}`;
         } else if (gridSays) {
-          // And the priority street must be the ring's axis, not the cross street's.
+          // And the priority street must be the one that owns the junction — the ring's axis, or
+          // the arterial's — not the cross street's.
           const axis = node.streets[node.priorityStreet]?.axis ?? 0;
-          const want = refRingAxisAt(i, j);
+          const want = refPriorityAxis(layout, i, j);
           const got = axis < 0.1 ? 'x' : 'z';
           if (want && want !== got) {
             mismatches += 1;

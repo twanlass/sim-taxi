@@ -16,12 +16,12 @@ import { cityNetwork, gridNodeId } from '../city/roadnet.js';
  * whatever the geometry says they are. At 5x5 that's 120 lanes against the old 144 states — small
  * enough that a plain rescan-the-open-set Dijkstra still beats any structured heap.
  *
- * Weights encode the road hierarchy. A fewest-blocks router (unit weights) fights the signal
- * coordination the city was tuned for: arterials run a green wave with a 64% share for their
- * axis, and the outermost roads are unsignalised. Slightly preferring those roads produces
- * routes with less time spent at reds and — because the weights sit close to 1.0 — no
- * meaningful detouring. Measured across 240 fares vs unit-weight BFS: trip time -3.9%,
- * time-stopped -13.7%, average path length essentially unchanged (see tools/router-sweep.mjs).
+ * Weights encode the road hierarchy. A fewest-blocks router (unit weights) fights it: the ring and
+ * the arterials are the roads without traffic lights on them, so a route that ignores them spends
+ * its time at reds it never had to meet. Slightly preferring them produces routes with less time
+ * stopped and — because the weights sit close to 1.0 — no meaningful detouring. Measured across
+ * 240 fares vs unit-weight BFS: trip time -3.9%, time-stopped -13.7%, average path length
+ * essentially unchanged (see tools/router-sweep.mjs).
  *
  * The weights are ratios of expected trip-time-per-block, not raw seconds. Keeping side street
  * at 1.0 and only nudging the preferred classes below it means the router is a tie-breaker on
@@ -31,8 +31,13 @@ import { cityNetwork, gridNodeId } from '../city/roadnet.js';
  */
 const EDGE_COST = {
   ring: 0.90,
+  // The same road driven two ways. With the arterials unsignalised there are no offsets left to
+  // run with or against, so this split is a preference rather than a timing claim — the coordinated
+  // direction is simply the one the road was drawn for. Collapsing it buys nothing: over 150 trips
+  // x 6 seeds (tools/router-sweep.mjs), 14.36s a trip as shipped against 14.43s for a symmetric
+  // 0.95 and 14.84s for 0.90 both ways, all inside the spread.
   arterialWith: 0.95,
-  arterialAgainst: 1.00,      // 64% green helps, but reversed offsets cancel most of the wave
+  arterialAgainst: 1.00,
   side: 1.00,
   roadwork: 0.45,             // see below — measured, and not purely a claim about driving time
 };
@@ -236,11 +241,11 @@ export function planOrigin(car) {
 //
 // The router costs a route in dimensionless weights; the fare system needs *seconds*, because a
 // rider's deadline is now budgeted from the work their trip actually costs rather than being one
-// flat number for everybody. These two constants are that conversion.
+// flat number for everybody. These three constants are that conversion.
 //
 // The floor is arithmetic: a block is PITCH = 20 units and cruise is SPEED = 8.5 u/s, so a block
 // at full speed is 2.353s. Nothing drives a whole trip at full speed — signals, cornering and
-// queueing behind ambient traffic all take their cut — so both constants are *fitted* against
+// queueing behind ambient traffic all take their cut — so all three are *fitted* against
 // measured trips by `tools/eta.mjs` rather than derived. Re-run it after any change to the signal
 // model, the router weights or the car physics; a stale estimator makes every fare clock wrong in
 // the same direction, which reads as the game being unfair rather than as a broken constant.
@@ -249,19 +254,44 @@ export function planOrigin(car) {
 // is taken at CORNER_SPEED (5.95, 70% of cruise) and its Bezier is longer than the 8-unit straight
 // through the junction — a left is 15.4 against a straight's 11.4.
 //
-// Fitted by least squares over 581 trips across 6 cities (`node tools/eta.mjs 100 6`): mean trip
-// 4.20 blocks, 1.92 turns, 16.4s. Against that data the pair below scores MAE 4.35s and bias
-// -0.14s — near enough unbiased, which is the property that matters, because a biased estimator
-// tilts every clock in the game the same way.
+// **A light is charged separately too, and that one is new.** It was not needed while every
+// interior junction had a signal: "lights crossed" was then just "blocks, give or take one", so a
+// per-block charge already carried the waiting and a third term would have been collinear noise.
+// De-signalising the arterials broke that. Two four-block routes across the same city can now
+// cross four lights or none, and a model that cannot see the difference has to split them —
+// charging the arterial route for waits it never does and the side-street route for fewer than it
+// does. That does not show up as a worse average; it shows up in the *tail*, which is exactly
+// where a fare clock is felt. Measured with `node tools/difficulty-sweep.mjs 21 shipped`, p10
+// fares survived at 1.5s/3s/4s reaction: 2/9/7 before the arterials changed, 1/1/0 on a two-term
+// refit — under the tuning's own p10 target of 3 at every reaction — and 5/6/7 with this term in.
+// Medians barely moved across all three (12/14/12, 12/13/11, 13/13/12), which is the tell: this is
+// a tail fix, and a median is exactly what cannot see it.
 //
-// **The 4.35s is not estimator slop, it is the city.** The same route driven twice differs by
+// Fitted by least squares over 582 trips across 6 cities (`node tools/eta.mjs 100 6`): mean trip
+// 4.19 blocks, 1.92 turns, 1.47 lights, 14.6s. Against that data the three below score MAE 2.96s
+// and bias -0.02s — near enough unbiased, which is the property that matters, because a biased
+// estimator tilts every clock in the game the same way.
+//
+// **The 2.96s is not estimator slop, it is the city.** The same route driven twice differs by
 // about that much depending on which signal phase the taxi meets and what it queues behind;
-// worst observed miss was 26s on a 49.5s trip. No function of (blocks, turns) can do better than
-// that variance, which is precisely why the deadline is `budget * slack(d)` and not `budget`:
-// slack is what pays for the traffic you happen to get, and shrinking it is what makes the game
-// harder.
-export const SEC_PER_BLOCK = 3.28;
-export const SEC_PER_TURN = 1.30;
+// worst observed miss was 16.6s on a 38.9s trip. No function of (blocks, turns, lights) can do
+// better than that variance, which is precisely why the deadline is `budget * slack(d)` and not
+// `budget`: slack is what pays for the traffic you happen to get, and shrinking it is what makes
+// the game harder.
+//
+// The whole set moved when the arterials lost their lights. On the same sample shape:
+//
+//   3.28 / 1.30 / —        MAE 4.35s   before, when every junction had a signal
+//   3.03 / 0.93 / —        MAE 3.32s   same two terms, refitted to the faster city
+//   2.41 / 0.64 / 2.25     MAE 2.96s   <- shipped
+//
+// The mean trip went 16.4s → 14.6s, which is the point of that change; the part worth writing down
+// is that the *error* fell with it. A signal is where a trip time picks up its variance — which
+// phase you meet is luck no estimator can see — so taking lights off the main roads makes the city
+// not just quicker but more predictable.
+export const SEC_PER_BLOCK = 2.41;
+export const SEC_PER_TURN = 0.64;
+export const SEC_PER_LIGHT = 2.25;
 
 /**
  * How many of a route's steps change direction — the turns, as opposed to going straight through.
@@ -280,9 +310,34 @@ export function countTurns(route, fromDir) {
   return turns;
 }
 
-/** Estimated seconds to drive `route`, having arrived on heading `fromDir`. */
-export const estimateSeconds = (route, fromDir) =>
-  route.length * SEC_PER_BLOCK + countTurns(route, fromDir) * SEC_PER_TURN;
+/**
+ * How many junctions along the route carry a light.
+ *
+ * The origin junction and every one after it up to — but not including — the destination, which
+ * is exactly the set the car has to get *through*. Read off the network rather than counted as
+ * "blocks minus one", because that is the whole point: since the arterials lost their signals the
+ * two are no longer the same number, and which roads a route uses is now most of what decides how
+ * long it takes.
+ */
+export function countLights(route, from) {
+  const net = cityNetwork();
+  let node = net.nodeByGrid(from.i, from.j);
+  let lights = 0;
+  for (const d of route) {
+    if (!node) break;
+    if (node.signal) lights += 1;
+    const lane = net.laneOutByGrid(d, node.gi, node.gj);
+    if (!lane) break;
+    node = net.nodeById.get(lane.to);
+  }
+  return lights;
+}
+
+/** Estimated seconds to drive `route`, having arrived at `from` — `{i, j, d}`. */
+export const estimateSeconds = (route, from) =>
+  route.length * SEC_PER_BLOCK
+  + countTurns(route, from.d) * SEC_PER_TURN
+  + countLights(route, from) * SEC_PER_LIGHT;
 
 /**
  * Estimated seconds to drive from `from` through every stop in order, or null if any leg is
@@ -302,7 +357,7 @@ export function chainSeconds(from, stops) {
   for (const stop of stops) {
     const route = findRoute(at, stop);
     if (route === null) return null;
-    total += estimateSeconds(route, at.d);
+    total += estimateSeconds(route, at);
     at = { i: stop.i, j: stop.j, d: route.length ? route[route.length - 1] : at.d };
   }
   return total;

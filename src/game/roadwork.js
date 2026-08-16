@@ -207,8 +207,10 @@ export function createRoadwork(rng, scene, camera = null) {
   }
 
   function eligible(edge, taxi, cars, busy) {
-    // Side streets only. Closing an arterial fights the 64% green share and the platoon offsets the
-    // whole city is timed around; the ring is the road everything else escapes onto.
+    // Side streets only. An arterial is the road with no lights on it and the ring is the road
+    // everything else escapes onto, so closing either takes away the one path that was always
+    // open — and an arterial's junctions hand their right of way to it, which a closure would
+    // leave pointing at a road that stops.
     if (edge.klass !== 'side') return false;
     if (edge.lanes.length !== 2) return false;
     if (edge.lanes.some((l) => l.degenerate)) return false;

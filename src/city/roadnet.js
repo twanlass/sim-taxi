@@ -498,6 +498,7 @@ function bakeSignals(nodes, turns, laneById, chains, signal) {
     }
 
     const ringStreets = streets.filter((s) => s.klass === 'ring');
+    const arterials = streets.filter((s) => s.klass === 'arterial');
 
     // Nothing to arbitrate: a two-arm pass-through, or a dead end.
     if (streets.length <= 1) {
@@ -514,9 +515,32 @@ function bakeSignals(nodes, turns, laneById, chains, signal) {
       continue;
     }
 
-    const arterials = streets.filter((s) => s.klass === 'arterial');
+    // And so is an arterial, for the same reason and by the same mechanism. A 64% green share
+    // still stopped the main road for 36% of every cycle at every junction on it, which is a
+    // fast *lane* rather than a fast *path* — the wave only pays off if you enter it in phase, and
+    // the offsets run one way, so half the traffic met a red at every block. No light at all is
+    // the stronger statement the road hierarchy was always making: the arterial carries on
+    // through, everything crossing it or turning onto it yields into a gap (`PRIORITY_YIELD` in
+    // traffic.js, the same rule the ring has always used).
+    //
+    // Both arms have to be here. An arterial a park closure cut in half *terminates* at this
+    // junction, so there is no through movement to give the road to and the cross street would be
+    // yielding to traffic that has to turn anyway — that one keeps its light, and keeps the
+    // arterial share below. Which is also why the test is on the arterials that carry *through*
+    // rather than on all of them: where a through arterial meets a stub of the other one, the
+    // through road still owns the junction. Only the crossing where both run intact has no single
+    // street to hand it to, and that one keeps its light — the same shape as a ring corner.
+    const arterialsThrough = arterials.filter((s) => s.arms.length === 2);
+    if (arterialsThrough.length === 1) {
+      node.signal = null;
+      node.priorityStreet = arterialsThrough[0].index;
+      continue;
+    }
+
     const totalGreen = signal.cycle - streets.length * signal.yellow;
 
+    // Only a *terminating* arterial reaches this now — one that carries through took the junction
+    // outright above. It is still the more important road, so it still gets the larger share.
     let shares;
     if (streets.length === 2 && arterials.length === 1) {
       shares = streets.map((s) => (s.klass === 'arterial' ? signal.arterialShare : 1 - signal.arterialShare));
@@ -561,9 +585,9 @@ function bakeSignals(nodes, turns, laneById, chains, signal) {
 /**
  * Which phase a junction is showing at time t.
  *
- * Returns null for an unsignalised node — the ring, and anything with nothing to arbitrate — so
- * callers distinguish "no light here" from "the light is red", which the old `axis`-shaped return
- * could only do by convention.
+ * Returns null for an unsignalised node — the ring, an arterial carrying through, and anything
+ * with nothing to arbitrate — so callers distinguish "no light here" from "the light is red",
+ * which the old `axis`-shaped return could only do by convention.
  */
 export function phaseAt(node, t, signal = SIGNAL_DEFAULTS) {
   if (!node?.signal) return null;
@@ -601,9 +625,10 @@ export function laneSignal(lane, t, nodeById, signal = SIGNAL_DEFAULTS) {
   const node = nodeById.get(lane.to);
 
   if (!node.signal) {
-    // No light here. The priority street runs and everything else yields on a gap — and a junction
-    // the network de-signalised because nothing conflicts has exactly one street, which *is* the
-    // priority street, so its traffic is never held for a phase nobody can be in.
+    // No light here. The priority street — the ring, or the arterial carrying through — runs, and
+    // everything else yields on a gap. A junction the network de-signalised because nothing
+    // conflicts has exactly one street, which *is* the priority street, so its traffic is never
+    // held for a phase nobody can be in.
     return {
       signalised: false,
       open: lane.phase === node.priorityStreet,

@@ -135,12 +135,15 @@ export const signalCycle = () => SIGNAL.cycle;
  * Road hierarchy of the edge you get by leaving (i, j) in direction d.
  *
  * 'ring'     — outermost road, unsignalised except at the four corners
- * 'arterial' — one of the two main streets: 64% green share, offsets timed for the wave
+ * 'arterial' — one of the two main streets: unsignalised wherever it carries through, so cross
+ *              traffic stops for *it*. Only a stub left by a park closure still carries a light,
+ *              and that one keeps the 64% green share.
  * 'side'     — everything else
  *
- * `withWave` matters only for arterials: an arterial's offsets are computed with a
- * coordinated travel direction; traversing it that way meets consecutive greens, the other
- * way meets consecutive reds. For a side street the concept doesn't apply.
+ * `withWave` is the arterial's coordinated travel direction. It no longer buys a green wave —
+ * there are no greens left on an arterial to coordinate — but it is still the direction the road
+ * was drawn for, and the router keeps a mild preference for it. For a side street the concept
+ * doesn't apply.
  */
 export function edgeClass(i, j, d) {
   const axisIsX = isXAxis(d);
@@ -156,8 +159,15 @@ export function edgeClass(i, j, d) {
   return { kind: 'side', withWave: false };
 }
 
-/** How much clear road a joining car needs before pulling out in front of ring traffic. */
-const RING_YIELD = 24;
+/**
+ * How much clear road a joining car needs before pulling out in front of traffic that never stops.
+ *
+ * The ring's rule, now that the ring is not the only road with the right of way: an arterial
+ * carrying through a junction takes it unsignalised too, so crossing it or turning onto it is the
+ * same question with the same answer. A lane is 12 units, so 24 reads as "both approaches of the
+ * priority street are empty" — which is what it has always meant on the ring.
+ */
+const PRIORITY_YIELD = 24;
 
 /**
  * Clearance a car needs before turning right on a red.
@@ -1708,18 +1718,29 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const barGeo = bakeColor(new THREE.PlaneGeometry(0.7, 3.6), new THREE.Color(1, 1, 1));
   barGeo.rotateX(-Math.PI / 2);
 
-  // One bar per signalised approach. `node.inbound` *is* "traffic can arrive this way" — a lane
-  // exists only where a road does — so the map-edge and closed-segment guards the grid loop needed
-  // are not ported, they are simply gone. A junction the network left unsignalised has no bars,
-  // which is the visible half of that difference.
+  // One bar per approach that has to stop for something. `node.inbound` *is* "traffic can arrive
+  // this way" — a lane exists only where a road does — so the map-edge and closed-segment guards
+  // the grid loop needed are not ported, they are simply gone.
+  //
+  // Two kinds, and the difference is the whole read of a junction from the driver's seat:
+  //
+  // - **Signalised**: every approach gets one, recoloured every frame from `displaySignal`.
+  // - **Unsignalised**: the priority street — the ring, or an arterial carrying through — gets
+  //   *no* bar, because there is nothing there to stop for, and every approach that has to yield
+  //   to it gets a plain white one that never changes. Without it the arterial's cross streets
+  //   were being asked to stop at a line that wasn't painted; with it, a junction with no lamps in
+  //   it and a bar across only two of its four approaches says which road owns the place. A
+  //   junction the network de-signalised because nothing conflicts has only the priority street,
+  //   so it still gets no bars at all.
   const bars = [];
   for (const node of net.nodes) {
-    if (!node.signal) continue;
     for (const lane of node.inbound) {
       if (lane.degenerate) continue;
+      const yields = !node.signal;
+      if (yields && lane.phase === node.priorityStreet) continue;
       const at = Math.max(0, lane.length - BAR_SETBACK);
       const point = lane.path.at(at);
-      bars.push({ lane, x: point.x, z: point.z, yaw: yawOf(lane.path.tangentAt(at)) });
+      bars.push({ lane, yields, x: point.x, z: point.z, yaw: yawOf(lane.path.tangentAt(at)) });
     }
   }
 
@@ -1933,10 +1954,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     return streetIsClear(car, sig.street, RIGHT_ON_RED_YIELD, approaching);
   }
 
-  /** The ring never stops, so a car joining it has to find a real gap. */
-  function ringGapClear(car, approaching) {
+  /**
+   * The priority street never stops, so a car crossing it or joining it has to find a real gap.
+   *
+   * `node.priorityStreet` is whichever street the network handed the junction to — the ring at a
+   * ring junction, the arterial where one carries through. Reading it off the node rather than
+   * naming the ring is what makes one rule cover both.
+   */
+  function priorityGapClear(car, approaching) {
     const node = net.nodeById.get(car.lane.to);
-    return streetIsClear(car, node.priorityStreet, RING_YIELD, approaching);
+    return streetIsClear(car, node.priorityStreet, PRIORITY_YIELD, approaching);
   }
 
   function update(dt) {
@@ -2587,19 +2614,22 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // never fired and the car drove off the map forever.
         if (distToLine - step <= 0) {
           // About to reach the stop line — decide whether to enter the intersection.
-          // A corridor or a boosting-taxi priority hold temporarily signalises the ring, so the
-          // siren's or the taxi's green path is unbroken.
+          // A corridor or a boosting-taxi priority hold temporarily signalises a junction that
+          // has no light — the ring, an arterial — so the siren's or the taxi's green path is
+          // unbroken.
           // Re-read on arrival. `signalised` is the branch, not `ringAxisAt`: a junction the
-          // network left without a light — the ring, or one a closure reduced to a straight-through
-          // — is yield-controlled, and asking `ringAxisAt` instead would hold cars at a junction
-          // that has no phase for them to wait for.
+          // network left without a light — the ring, an arterial carrying through, or one a
+          // closure reduced to a straight-through — is yield-controlled, and asking `ringAxisAt`
+          // instead would hold cars at a junction that has no phase for them to wait for. That is
+          // no longer a rare shape: `ringAxisAt` is blind to every arterial junction in the city.
           const arrive = approachSignal(car, t);
 
           let green;
           let viaRightOnRed = false;
           if (!arrive.signalised) {
-            // No signal here. The priority street runs; anyone joining waits for a real gap.
-            green = arrive.open || ringGapClear(car, approaching);
+            // No signal here. The priority street runs; anyone crossing it or joining it waits
+            // for a real gap.
+            green = arrive.open || priorityGapClear(car, approaching);
           } else {
             const held = heldAt.has(`${car.i},${car.j}`) && !bargesThrough(car);
             green = (arrive.open || taxiClearsYellow(car, arrive, distToLine)) && !held;
@@ -3177,12 +3207,20 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     truckTurnRightMesh.instanceMatrix.needsUpdate = true;
 
     // --- Stop bar colours, one per approach.
+    //
+    // A yield line is road paint, not a lamp: it says "stop here" permanently, so it is written
+    // the same white as the lane markings and never asks the signal anything. Only the signalised
+    // bars cost a `displaySignal` call per frame.
     for (let index = 0; index < bars.length; index++) {
       const bar = bars[index];
-      const sig = displaySignal(bar.lane, t);
-      headColor.set(sig.open
-        ? PALETTE.lightGreen
-        : sig.yellow ? PALETTE.lightYellow : PALETTE.lightRed);
+      if (bar.yields) {
+        headColor.set(PALETTE.laneMark);
+      } else {
+        const sig = displaySignal(bar.lane, t);
+        headColor.set(sig.open
+          ? PALETTE.lightGreen
+          : sig.yellow ? PALETTE.lightYellow : PALETTE.lightRed);
+      }
       barMesh.setColorAt(index, headColor);
     }
     if (barMesh.instanceColor) barMesh.instanceColor.needsUpdate = true;

@@ -42,10 +42,36 @@ be incoherent, and it would mean the player could earn time by dithering. It als
 rider always holds the longest clock, so the board reads oldest-first — which is the order it wants
 to be served in.
 
-`estimateSeconds(route, fromDir)` in `route.js` is the conversion: `blocks × 3.28 + turns × 1.30`.
-Both constants are **fitted, not derived** — `tools/eta.mjs` least-squares them against real
-arrivals and `npm run check` runs it before the soak, because a drifted estimator makes every clock
-in the game wrong in the same direction and nothing else would notice.
+#### The trip-time estimator
+
+`estimateSeconds(route, from)` in `route.js` is the conversion:
+
+```
+blocks × 2.41  +  turns × 0.64  +  signalised junctions crossed × 2.25
+```
+
+All three are **fitted, not derived** — `tools/eta.mjs` least-squares them against real arrivals
+and `npm run check` runs it before the soak, because a drifted estimator makes every clock in the
+game wrong in the same direction and nothing else would notice.
+
+**The third term is why the arterials could lose their lights without the game getting easier.**
+While every interior junction had a signal, "lights crossed" was "blocks, give or take one", so a
+per-block charge already carried the waiting and a third term would have been collinear noise. Once
+the main roads stopped stopping, two four-block routes across the same city could cross four lights
+or none, and a two-term model has to split the difference — over-charging the arterial route and
+under-charging the side-street one. That does not show as a worse average. It shows in the **tail**,
+which is exactly where a fare clock is felt. Per-seed p10 fares survived, at 1.5s / 3s / 4s reaction
+over 21 cities (`node tools/difficulty-sweep.mjs 21 shipped`):
+
+| estimator | p10 | median |
+|---|---|---|
+| `3.28 / 1.30`, before the arterials changed | 2 / 9 / 7 | 12 / 14 / 12 |
+| `3.03 / 0.93`, the same two terms refitted | **1 / 1 / 0** | 12 / 13 / 11 |
+| `2.41 / 0.64 / 2.25` | 5 / 6 / 7 | 13 / 13 / 12 |
+
+The medians barely move across all three, which is the tell: a median cannot see a tail, and the
+middle row is a build where one run in ten dies during the tutorial — the one failure the curve is
+tuned to never have.
 
 `chainSeconds` walks a list of stops carrying the heading forward rather than guessing it: the last
 step of one leg's route *is* the direction the car arrives on, and `legalExits` forbids U-turns, so
