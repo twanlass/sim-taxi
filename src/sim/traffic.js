@@ -134,7 +134,7 @@ export const signalCycle = () => SIGNAL.cycle;
 /**
  * Road hierarchy of the edge you get by leaving (i, j) in direction d.
  *
- * 'ring'     — outermost road, unsignalised except at the four corners
+ * 'ring'     — outermost road, unsignalised end to end, corners included
  * 'arterial' — one of the two main streets: 64% green share, offsets timed for the wave
  * 'side'     — everything else
  *

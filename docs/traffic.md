@@ -89,8 +89,8 @@ fast/slow grain. `layout.js` picks them and hands them to the network's bake.
 
 ### A signal-free ring road
 
-The outermost roads carry no lights except at the four corners. Traffic joining from inside yields
-into a gap (`RING_YIELD = 24` units of clear road).
+The outermost roads carry no lights **anywhere, corners included**. Traffic joining from inside
+yields into a gap (`RING_YIELD = 24` units of clear road).
 
 "Unsignalised" is now `node.signal === null` rather than `ringAxisAt(i, j)`, and the difference is
 not cosmetic. A junction the ring never touches can still end up with nothing to arbitrate — a
@@ -102,6 +102,33 @@ junction in 40 seeds. It has no stop bars now, because there is nothing to stop 
 > axis with `remaining: Infinity`. Any port that swaps one for the other while keeping `ringAxisAt`
 > as the unsignalised test dereferences null at exactly those junctions — the grid says signalised,
 > the network says no signal. The two have to move together.
+
+#### The corners, and why they are not a special case
+
+The four corners used to be the ring's exception: lights, stop bars and crosswalks, on the grounds
+that "the ring meets itself and there is no single street to favour". That reasoning asked the
+wrong question. A corner has **two arms**, meeting at a right angle, so every car through one is
+turning — but the movement off one arm is a right and the movement off the other is a left, they
+land in different lanes, and under right-hand traffic they sweep opposite sides of the bend without
+ever crossing. `buildConflicts` says so directly: both turns come back with an empty `conflicts`.
+
+So `bakeSignals` drops the signal wherever **no two movements conflict**, which subsumes the old
+`streets.length <= 1` test (a straight-through conflicts with nothing either) and catches the
+corners for the honest reason rather than by naming them. A closure that bends an interior junction
+the same way gets the same treatment for free.
+
+Dropping the light is only half of it. Those nodes are also marked **`uncontrolled`**, and
+`laneSignal` reports every approach `open`. Without that they would fall to the ordinary
+unsignalised rule — one priority street, everyone else yielding into a 24-unit gap — which on a
+ring carrying continuous traffic means cars stopping at a bend for traffic that is turning *away*
+from them. Nothing conflicts, so nobody yields.
+
+The visible half is the paint: no stop bars (they follow `node.signal`) and no crosswalks (they
+follow `isUnsignalised` in `grid.js`, which now covers the corners via `isRingCorner`).
+
+Measured over a 300s run of 24 cars: throughput **7.19 → 7.61** units/s per car, time stationary
+**15% → 10%** (`tools/signals.mjs`). The corner lights were holding ring traffic for cross traffic
+that does not exist.
 
 Yielding is asked per **street** (`streetIsClear`) rather than per axis pair. `[0, 2]` / `[1, 3]`
 was the last place the sim assumed a junction is two axes with two approaches each.
@@ -126,7 +153,7 @@ Checked in this order, first match wins:
 
 1. `priorityJunction` — the boosting taxi's next junction
 2. `corridorCovers(i, j)` — an emergency corridor is running through this junction
-3. `ringAxisAt(i, j)` — unsignalised ring road
+3. `node.signal === null` — the ring, its corners, or anything with nothing to arbitrate
 4. the normal phase for this junction
 
 A siren outranks the ring deliberately: otherwise a corridor crossing the ring would have a hole
