@@ -14,6 +14,11 @@ import {
 // matters is the one moment the player cannot see it. The taxi's own outline says where the player
 // is; this says what they are about to drive into.
 //
+// It runs whether or not the taxi is currently boosting — see update()'s `want`. A warning that
+// only appeared once the collision test was already armed would only ever confirm a decision
+// already made; showing it beforehand is what lets the player see the hidden car and choose not to
+// press the button at all.
+//
 // Why only the nearest dozen: not to keep the screen clean — a rim paints nothing at all on a
 // vehicle standing in the open (see GHOST_RADIUS) — but because tracing every car in the city is
 // fill and stencil traffic spent on vehicles too far away to be the player's problem. The radius
@@ -88,19 +93,32 @@ export const GHOST_RADIUS = 42;
  * become the filter, and the thing it evicted would have been the vehicle that mattered. Eviction
  * drops the farthest, and *farthest* is not *safest* — the whole point of the widened radius is
  * the car two junctions out. Measured: at radius 42 with a cap of 8, a genuinely hidden vehicle
- * was dropped by the cap on 5.5% of frames; at 12 that is 0.0%, and stays there out to a radius
- * of 46. The cost of the four extra slots is four matrices per pool, drawing nothing until they
- * are claimed.
+ * was dropped by the cap on 5.5% of frames.
+ *
+ * **12 was then read off too small a sample and was quietly binding all along.** The figure came
+ * from one 15-second window on one seed, which is the same window `tools/probe.mjs` asserts it in
+ * — so the check agreed with the constant because both were looking at the same handful of
+ * frames. Swept properly (24 city seeds × 60s of boosting, 86,400 frames) the count in range runs:
+ *
+ *     cap          10      11      12      13      14      15      16
+ *     binds on   10.0%   5.1%   1.92%   0.59%   0.09%   0.01%   0.00%
+ *
+ * So a cap of 12 was evicting the farthest vehicle — the one the radius exists to show — on
+ * roughly one boosting frame in fifty. Peak observed is 16, and 18 clears it with two slots spare;
+ * it also clears the peak of 17 measured before the ring's corners lost their signals, since that
+ * change moved traffic around. Raising the cap never paints more than the vehicles genuinely
+ * within the radius, which is the set the feature wants drawn; the spare slots cost a matrix each
+ * and draw nothing.
  *
  * One cap over both classes rather than one each: the cap exists to bound how much of the frame
  * this may paint, and that ceiling is about the player's screen, not about which buffer a vehicle
  * happens to be drawn from. Each *pool* is nevertheless sized for the full cap, since a lane
- * carrying three trucks and five cars is legal at 1/12 and a pool that ran out of slots would drop
+ * carrying three trucks and five cars is legal at 1/18 and a pool that ran out of slots would drop
  * the nearest vehicle on a technicality; the spare slots cost a matrix each and draw nothing.
  */
-export const MAX_GHOSTS = 12;
+export const MAX_GHOSTS = 18;
 
-/** Seconds to fade the whole set in or out with the boost. */
+/** Seconds to fade the whole set in at run start, or out when the taxi crashes. */
 const GHOST_FADE = 0.35;
 
 /**
@@ -383,10 +401,11 @@ export function createCarGhosts(scene, traffic) {
    * at the top of overdrive), which reads as the outline being broken rather than as lag.
    */
   function update(dt) {
-    // `taxi.boost` stays true through BOOST_COOLDOWN, which is right: the collision test is armed
-    // through the tail too, so the warning should outlast the button. `crashed` is belt-and-braces
-    // — collisions.js clears `boost` on impact — but it costs one condition and says the intent.
-    const want = (taxi.boost && !taxi.crashed) ? 1 : 0;
+    // Not gated on `taxi.boost`. The collision test is only armed while boosting, but the whole
+    // point of a warning is to inform the decision to press the button, not just to accompany it —
+    // a player who never sees the hidden car until they're already committed gets no benefit from
+    // the outline. `crashed` still cuts it: a wrecked taxi has nothing left to warn.
+    const want = !taxi.crashed ? 1 : 0;
     const step = dt / GHOST_FADE;
     state.strength += Math.sign(want - state.strength)
       * Math.min(Math.abs(want - state.strength), step);

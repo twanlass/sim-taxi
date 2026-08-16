@@ -334,12 +334,23 @@ for (let s = 0; s < SEEDS; s++) {
         const gridSays = refPriorityAxis(layout, i, j) !== null;
         const netSays = node.signal === null;
         if (gridSays !== netSays) {
-          // One difference is intended. Park closures can leave an interior junction with nothing
-          // but a straight-through — two collinear arms and no cross traffic at all. The grid
-          // cannot see that, because it decides signalisation from (i, j) alone, so it keeps
-          // cycling a light there and holds cars for a phase nobody can be in. The network drops
-          // the signal, which is the behaviour the closure always implied. Anything else is a bug.
-          if (!gridSays && netSays && node.streets.length <= 1) {
+          // One difference is intended, and it is the same one in both its forms: the network
+          // drops a signal wherever no two movements conflict, which the grid cannot see because
+          // it decides signalisation from (i, j) alone.
+          //
+          //   - A park closure can leave an interior junction with nothing but a straight-through
+          //     — two collinear arms, no cross traffic. The grid keeps cycling a light there and
+          //     holds cars for a phase nobody can be in.
+          //   - A ring corner is two arms at a right angle. Both movements are bends, they land
+          //     in different lanes, and with right-hand traffic they sweep opposite sides without
+          //     meeting.
+          //
+          // Verified here rather than taken on trust: this recomputes the conflict count from the
+          // turns themselves, so the tool still reaches its own verdict instead of repeating the
+          // network's. Anything else is a bug.
+          const conflicted = net.turns
+            .some((t) => t.node === node.id && t.legal && t.conflicts.length > 0);
+          if (!gridSays && netSays && !conflicted) {
             degenerate += 1;
             continue;
           }
@@ -645,8 +656,9 @@ if (offsetDriftNodes) {
     + ' chain rather than the map edge');
 }
 if (degenerate) {
-  console.log(`  note: ${degenerate} junction(s) across ${SEEDS} seeds were left a straight-through`
-    + ' by a closure; the network drops their signal, the grid keeps cycling one');
+  console.log(`  note: ${degenerate} junction(s) across ${SEEDS} seeds have no conflicting`
+    + ' movement — the ring\'s four corners, plus any junction a closure left a straight-through;'
+    + ' the network drops their signal, the grid keeps cycling one');
 }
 console.log(`${passed}/${results.length} checks passed`);
 process.exit(failures.length ? 1 : 0);

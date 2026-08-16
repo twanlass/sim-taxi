@@ -353,4 +353,4 @@ export function createGround(rng, blocks) {
   return mesh;
 }
 
-export { KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE };
+export { KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, roundedRectShape };

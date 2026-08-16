@@ -73,6 +73,9 @@ export function bakeNetwork(spec, config = {}) {
 
   const nodes = spec.nodes.map((n) => ({
     kind: 'junction', radius: HALF_ROAD, ...n, arms: [], streets: [], signal: null,
+    // No light *and* no yielding — see `bakeSignals`. Declared here so every node carries the
+    // field rather than having it appear only on the junctions that earned it.
+    uncontrolled: false,
   }));
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
@@ -501,15 +504,33 @@ function bakeSignals(nodes, turns, laneById, chains, signal) {
 
     const ringStreets = streets.filter((s) => s.klass === 'ring');
 
-    // Nothing to arbitrate: a two-arm pass-through, or a dead end.
-    if (streets.length <= 1) {
+    // Nothing to arbitrate, so nothing to control: no two movements through here cross. A
+    // two-arm pass-through and a dead end are the obvious cases, and the ring's four **corners**
+    // are the one that isn't. A corner has two arms meeting at a right angle, so every car
+    // through it is turning — but the turn off one arm is a right and the turn off the other is a
+    // left, they land in different lanes, and with right-hand traffic they sweep opposite sides
+    // of the bend without ever meeting. `buildConflicts` says so directly (both turns come back
+    // with an empty `conflicts`), which is why this asks it rather than special-casing (i, j):
+    // a closure that leaves an interior junction bent the same way gets the same answer for the
+    // same reason.
+    //
+    // Keyed on conflicts rather than on `streets.length <= 1`, which this subsumes — a single
+    // street is two collinear arms, and a straight-through conflicts with nothing either.
+    //
+    // `uncontrolled` is the half that matters at a corner. Unsignalised alone would leave one
+    // street with priority and the other yielding into a `RING_YIELD` gap, which on a ring
+    // carrying continuous traffic means cars stopping at a bend for cars that are turning away
+    // from them. Nothing conflicts, so nobody yields: every approach simply runs.
+    if (!nodeTurns.some((turn) => turn.conflicts.length > 0)) {
       node.signal = null;
+      node.uncontrolled = true;
       node.priorityStreet = 0;
       continue;
     }
 
-    // The ring is deliberately signal-free — traffic on it never stops, and only the corners,
-    // where the ring meets itself and there is no single street to favour, carry lights.
+    // The ring is deliberately signal-free — traffic on it never stops, and traffic joining from
+    // a cross street yields into a gap. The corners never reach here: they are two ring streets
+    // with nothing between them to arbitrate, and the branch above has already claimed them.
     if (ringStreets.length === 1) {
       node.signal = null;
       node.priorityStreet = ringStreets[0].index;
@@ -614,12 +635,14 @@ export function laneSignal(lane, t, nodeById, signal = SIGNAL_DEFAULTS) {
   const node = nodeById.get(lane.to);
 
   if (!node.signal) {
-    // No light here. The priority street runs and everything else yields on a gap — and a junction
-    // the network de-signalised because nothing conflicts has exactly one street, which *is* the
-    // priority street, so its traffic is never held for a phase nobody can be in.
+    // No light here. The priority street runs and everything else yields on a gap — except at an
+    // `uncontrolled` junction, where no two movements cross at all and so every street runs. That
+    // second case used to be covered by "nothing conflicts means exactly one street, which *is*
+    // the priority street"; a ring corner is two streets that still conflict over nothing, so the
+    // flag now carries what the arithmetic used to imply.
     return {
       signalised: false,
-      open: lane.phase === node.priorityStreet,
+      open: node.uncontrolled || lane.phase === node.priorityStreet,
       yellow: false,
       remaining: Infinity,
       street: node.priorityStreet,
