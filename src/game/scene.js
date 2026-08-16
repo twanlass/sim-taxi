@@ -134,25 +134,34 @@ export function hazeRange(top = HAZE_TOP, zoom = PLAY_ZOOM) {
 // Measured on the same 0.22 mix: asphalt goes from 19 points of spread to 36 and flips *cool*,
 // which is the whole effect — the back of the city is now a different colour from the front, not
 // just a lighter one.
-const HAZE_SKY_H = 0.35;
-const HAZE_SATURATION = 1.4;
+export const HAZE_SKY_H = 0.35;
+export const HAZE_SATURATION = 1.4;
+
+/**
+ * The two colour knobs as live state rather than constants, because both of them are judgements
+ * about a whole frame and neither can be made from the numbers. Seeded from the constants above,
+ * moved only by the ⚙️ panel. `hazeColor()` reads this on every call — which is once per keyframe
+ * change — so a tweak takes effect on the next frame and survives a running day cycle instead of
+ * being overwritten by it.
+ */
+export const hazeTuning = { skyH: HAZE_SKY_H, saturation: HAZE_SATURATION };
 
 const hazeHSL = { h: 0, s: 0, l: 0 };
 
 /**
- * The haze colour for a sky: the dome's own gradient sampled at `HAZE_SKY_H`, with its saturation
- * lifted. Writes into `out` and returns it.
+ * The haze colour for a sky: the dome's own gradient sampled at `hazeTuning.skyH`, with its
+ * saturation lifted. Writes into `out` and returns it.
  *
  * Called by `game/daylight.js` on every keyframe change, so the haze can never drift away from the
  * sky the way a tint tuned once at golden hour would.
  */
 export function hazeColor(top, bottom, out = new THREE.Color()) {
-  out.copy(bottom).lerp(top, Math.pow(HAZE_SKY_H, SKY_EXPONENT));
+  out.copy(bottom).lerp(top, Math.pow(hazeTuning.skyH, SKY_EXPONENT));
   out.getHSL(hazeHSL);
-  return out.setHSL(hazeHSL.h, Math.min(1, hazeHSL.s * HAZE_SATURATION), hazeHSL.l);
+  return out.setHSL(hazeHSL.h, Math.min(1, hazeHSL.s * hazeTuning.saturation), hazeHSL.l);
 }
 
-/** Retune the haze in place — the ⚙️ panel's slider, and nothing else. */
+/** Retune the haze's strength in place — the ⚙️ panel, and nothing else. */
 export function setHazeTop(fog, top) {
   const { near, far } = hazeRange(top);
   fog.near = near;

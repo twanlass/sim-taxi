@@ -1,5 +1,5 @@
 import { ROUTE_BLENDS } from './routeline.js';
-import { HAZE_TOP, setHazeTop } from './scene.js';
+import { HAZE_TOP, setHazeTop, hazeColor, hazeTuning } from './scene.js';
 import * as difficulty from './difficulty.js';
 
 // A small tweak panel behind a gear button.
@@ -134,6 +134,11 @@ export function createDebugPanel({
     fillValue.textContent = hemi.intensity.toFixed(2);
   });
 
+  // Filled in by the haze section below. A stub rather than a direct call because that section is
+  // built after this one, so naming its `const` here would be a temporal dead zone waiting for
+  // whoever next reorders the panel.
+  let syncHazeReadout = () => {};
+
   /** Pull the controls back into line with the live lights. */
   function refresh() {
     const { hour } = daylight.state;
@@ -144,6 +149,9 @@ export function createDebugPanel({
     sunPowerValue.textContent = sun.intensity.toFixed(2);
     fill.value = String(hemi.intensity);
     fillValue.textContent = hemi.intensity.toFixed(2);
+    // The haze colour is a function of the sky, so it moves under the cycle without anything here
+    // touching it — the readout is what needs telling.
+    syncHazeReadout();
   }
 
   // Only runs while the panel is open — a closed panel has nothing to keep up to date.
@@ -219,22 +227,77 @@ export function createDebugPanel({
     showOcclusion();
   });
 
-  // Atmospheric perspective — how much haze the top of the frame carries (game/scene.js). Two
-  // planes on a fog object, so unlike the AO lookup above there is nothing to recompile and this
-  // can be a plain slider. Live because the whole judgement is a comparison: the only way to know
-  // whether the back of the city has separated from the front is to watch the front stay put while
-  // the back moves.
+  // --- Haze -------------------------------------------------------------------
+  // Atmospheric perspective (game/scene.js). All three are live and none of them needs a
+  // recompile — two planes and a colour on a fog object — and all three want to be live, because
+  // every one of them is a judgement about a whole frame that cannot be made from the numbers. The
+  // only way to know whether the back of the city has separated from the front is to watch the
+  // front stay put while the back moves.
+  heading('Haze');
+
+  /**
+   * Rebuild the fog colour from whatever the sky is showing *now*.
+   *
+   * Off the dome's live uniforms rather than through `daylight.apply()`, which would be the obvious
+   * way and is wrong: apply() rewrites the sun's colour and intensity too, so tweaking the haze
+   * would silently throw away a sun the player had picked by hand two rows up. This touches the one
+   * thing the sliders are for.
+   */
+  const restyleHaze = () => {
+    if (!fog) return;
+    hazeColor(sky.uniforms.topColor.value, sky.uniforms.bottomColor.value, fog.color);
+  };
+
   const haze = slider(0, 0.5, 0.01, HAZE_TOP);
   haze.disabled = !fog;
-  const hazeValue = row(panel, 'Haze', haze);
+  const hazeValue = row(panel, 'Strength', haze);
   const showHaze = () => {
-    hazeValue.textContent = fog ? Number(haze.value).toFixed(2) : 'no fog';
+    hazeValue.textContent = fog ? `${Number(haze.value).toFixed(2)} at the frame's top edge` : 'no fog';
   };
   showHaze();
   haze.addEventListener('input', () => {
     if (fog) setHazeTop(fog, Number(haze.value));
     showHaze();
   });
+
+  // How far up the dome's gradient the colour is sampled. 0 is the horizon — a near-white at most
+  // hours, which is what made the far city read as grey — and 1 is the sky directly overhead, which
+  // is the wrong colour at dusk. See the note on `hazeColor`.
+  const hazeSky = slider(0, 1, 0.01, hazeTuning.skyH);
+  hazeSky.disabled = !fog;
+  const hazeSkyValue = row(panel, 'Sky sample', hazeSky);
+
+  // Hue is never touched, so this only moves how strongly the haze states whatever colour the sky
+  // is at that hour. Past ~2 the parked afternoon starts reading as coloured smoke.
+  const hazeSat = slider(1, 2.5, 0.05, hazeTuning.saturation);
+  hazeSat.disabled = !fog;
+  const hazeSatValue = row(panel, 'Chroma', hazeSat);
+
+  // The colour that falls out, as a hex — this is the number that goes into `PALETTE.fog` if a
+  // tweak is worth keeping, and the one thing about the haze the sliders themselves can't show.
+  const hazeSwatch = document.createElement('input');
+  hazeSwatch.type = 'color';
+  hazeSwatch.disabled = true;                 // a readout, not an input: the colour is derived
+  const hazeHex = row(panel, 'Haze colour', hazeSwatch);
+
+  const showHazeColour = () => {
+    hazeSkyValue.textContent = `${Number(hazeSky.value).toFixed(2)} up the dome`;
+    hazeSatValue.textContent = `${Number(hazeSat.value).toFixed(2)}x`;
+    if (!fog) { hazeHex.textContent = 'no fog'; return; }
+    const hex = `#${fog.color.getHexString().toUpperCase()}`;
+    hazeSwatch.value = hex;
+    hazeHex.textContent = hex;
+  };
+  showHazeColour();
+  syncHazeReadout = showHazeColour;
+
+  for (const [el, key] of [[hazeSky, 'skyH'], [hazeSat, 'saturation']]) {
+    el.addEventListener('input', () => {
+      hazeTuning[key] = Number(el.value);
+      restyleHaze();
+      showHazeColour();
+    });
+  }
 
   // --- City entrance ----------------------------------------------------------
   // The opening rise-out-of-the-ground animation (game/cityentry.js). All five are live — the
@@ -359,7 +422,13 @@ export function createDebugPanel({
       ambientIntensity: Number(hemi.intensity.toFixed(2)),
       skyTop: `#${sky.uniforms.topColor.value.getHexString()}`,
       skyBottom: `#${sky.uniforms.bottomColor.value.getHexString()}`,
-      haze: Number(haze.value),
+      haze: {
+        top: Number(haze.value),
+        skyH: hazeTuning.skyH,
+        saturation: hazeTuning.saturation,
+        // Derived from the three above — paste into PALETTE.fog if the parked look moved.
+        color: fog ? `#${fog.color.getHexString()}` : null,
+      },
     },
     game: {
       fareSeconds: fares.getSeconds(),

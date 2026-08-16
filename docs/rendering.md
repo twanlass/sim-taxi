@@ -470,8 +470,30 @@ horizon is itself near-neutral, and staying *warm* at dusk. Getting the band wro
 flat wash over everything or nothing at all, and both look like "the fog didn't work" in a
 screenshot; getting the colour wrong looks like the game going black-and-white in the distance.
 
-The ⚙️ panel has the strength live (**Haze**) — two planes on a fog object, so unlike the AO lookup
-there is nothing to recompile and it can be a plain slider.
+### Tuning it
+
+The ⚙️ panel (`?debug`) has a **Haze** section with all three knobs live — two planes and a colour on
+a fog object, so unlike the AO lookup there is nothing to recompile and they can be plain sliders.
+All three want to be live: every one is a judgement about a whole frame that can't be made from the
+numbers, and the only way to know whether the back of the city has separated from the front is to
+watch the front stay put while the back moves.
+
+| Control | Writes | Range |
+|---|---|---|
+| **Strength** | `HAZE_TOP` via `setHazeTop()` | 0 – 0.5, default 0.22 |
+| **Sky sample** | `hazeTuning.skyH` | 0 (horizon) – 1 (overhead), default 0.35 |
+| **Chroma** | `hazeTuning.saturation` | 1 – 2.5, default 1.4 |
+| **Haze colour** | *readout* | the derived hex, for pasting into `PALETTE.fog` |
+
+The two colour knobs live on the exported `hazeTuning` object rather than as constants, which is
+what lets `hazeColor()` pick them up on its next call — so a tweak survives a running day cycle
+instead of being overwritten by it. The panel rebuilds the colour off the dome's **live uniforms**
+rather than calling `daylight.apply()`: apply() rewrites the sun's colour and intensity too, so
+tuning the haze would silently discard a sun picked by hand two rows up. The readout is refreshed
+from `refresh()` so it keeps up while the cycle drives the sky underneath it.
+
+At **Sky sample 1, Chroma 1** the colour comes out as `skyTop` exactly — the arithmetic stated in
+one line, and what the probe pins the whole derivation against.
 
 ## Ambient occlusion — `game/ssao.js`
 

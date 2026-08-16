@@ -73,7 +73,9 @@ import {
   createCityCamera, attachDragPan, frameLead,
   VIEW_DIR, RIGHT, UP, DISTANCE, PLAY_ZOOM, DEPTH_PER_SCREEN_UNIT,
 } from '../src/game/camera.js';
-import { createScene, HAZE_TOP, hazeRange, hazeColor } from '../src/game/scene.js';
+import {
+  createScene, HAZE_TOP, hazeRange, hazeColor, hazeTuning, HAZE_SKY_H, HAZE_SATURATION,
+} from '../src/game/scene.js';
 import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
@@ -5807,6 +5809,30 @@ check('the taxi is an ordinary car in the traffic array',
       duskWarm, 'warm at 18:36');
     check('a night haze is dark rather than a pale wash over a dark city',
       darkest < 0.12, `darkest lightness ${darkest.toFixed(3)}`);
+    // The two colour knobs have to stay *live* state, not constants folded back into hazeColor():
+    // the ⚙️ panel writes this object and nothing else, so a refactor that inlines the numbers
+    // again would leave three sliders that move and do nothing.
+    {
+      // Back to the parked hour: the loop above left the sky at 23:00, and the skyTop identity
+      // below is stated about the palette's own colours.
+      daylight.apply(16.4);
+      const sky = { top: dayWorld.sky.uniforms.topColor.value, bottom: dayWorld.sky.uniforms.bottomColor.value };
+      const before = hazeColor(sky.top, sky.bottom).getHexString();
+      hazeTuning.skyH = 1;
+      hazeTuning.saturation = 1;
+      const tweaked = hazeColor(sky.top, sky.bottom).getHexString();
+      hazeTuning.skyH = HAZE_SKY_H;
+      hazeTuning.saturation = HAZE_SATURATION;
+      const restored = hazeColor(sky.top, sky.bottom).getHexString();
+      check('the haze colour reads its tuning live, so the panel sliders reach it',
+        tweaked !== before && restored === before,
+        `${before} → ${tweaked} → ${restored}`);
+      // At the top of the dome with no lift, the answer is the sky's top colour exactly — which is
+      // the arithmetic stated in one line, and how the panel's own readback was confirmed.
+      check('and degenerates to the sky itself at skyH 1, saturation 1',
+        `#${tweaked.toUpperCase()}` === PALETTE.skyTop, `${tweaked} against ${PALETTE.skyTop}`);
+    }
+
     check('the parked palette entry is the haze it stands in for',
       `#${createScene({ shadowMapSize: 0 }).fog.color.getHexString().toUpperCase()}` === PALETTE.fog,
       `${PALETTE.fog}, against a horizon of ${PALETTE.skyBottom}`);
