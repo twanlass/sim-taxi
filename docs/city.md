@@ -69,6 +69,48 @@ identical towers, and it makes parks more likely out in the cheap suburbs.
 take a larger green share, which gives the map a fast/slow grain worth learning. See
 [traffic.md](traffic.md#arterials).
 
+## The depot block
+
+`city/garage.js`. One block per city is `type: 'garage'` instead of `'built'`, which takes it out
+of the tower generator's hands (`createBuildings` only walks `'built'` blocks) and leaves it for the
+taxi's own depot: a single-storey shed at the back of the block with a roller door on the street, a
+3-unit asphalt forecourt, and a dropped kerb the taxi comes off in
+[the opening vignette](gameplay.md#the-opening-vignette).
+
+**A whole block, not a lot.** The depot needs a forecourt to pull out of, and the generated city
+only leaves 0.85 units of pavement between a façade and the kerb — a car pulling out of a door that
+close is over the lip before it has straightened up. Reserving a footprint *inside* a block also
+does not work, because `splitLot` divides the block afterwards and will happily put a tower on the
+sliver left over.
+
+**Chosen at the end of `createLayout`**, after every other draw in that function. That is what makes
+it free: nothing in layout.js reads `rng` after it, and every generator downstream runs its own
+offset stream — so adding the depot moved no park, no arterial and no building. `blocks.garageBlock`
+is the answer, and it may be **null**: a city with nowhere to put one opens without the vignette
+rather than not opening.
+
+### The site filter is a sightline
+
+The three constraints on which block it lands on are all about being *seen*. Two are obvious — the
+block must be built rather than park, and the road its door faces must exist (a park district closes
+the road between its two blocks). The third is the interesting one.
+
+The door always faces **+X**. The camera never rotates, so only two of a building's four faces are
+ever visible, and of those two, +X is the one whose sightline to the camera leaves the block over
+the *road*. The door also sits near the block's **−Z** end, and that is what buys it: the line to
+the camera gains a unit of z for every unit of x, so a door 4.5 units from the −Z edge crosses the
+block's far edge after 7.5 units of x — inside the 8-unit road. The block straight across the street
+can therefore never occlude it.
+
+What can is the **diagonal** block, and only if it is tall: the line reaches that block's façade
+16.35 units out, by which point it is 15.4 units up, against `buildTower`'s 16-unit ceiling. So the
+filter is a height one, and height here comes from centrality — `5 + centrality * 11` clears the
+line whenever centrality is under 0.945, and `occlusionClear` demands 0.75.
+
+That is the arithmetic; `tools/probe.mjs` does not trust it. It fires nine real rays through the
+real merged city, across ten seeds, and asserts every one of them reaches the camera. Getting this
+wrong is a run that opens with a two-second close-up of a wall.
+
 ## Park districts close roads
 
 A park district is **two adjacent blocks plus the road that used to separate them**, merged into

@@ -420,8 +420,10 @@ export function createCarGhosts(scene, traffic) {
     // Not gated on `taxi.boost`. The collision test is only armed while boosting, but the whole
     // point of a warning is to inform the decision to press the button, not just to accompany it —
     // a player who never sees the hidden car until they're already committed gets no benefit from
-    // the outline. `crashed` still cuts it: a wrecked taxi has nothing left to warn.
-    const want = !taxi.crashed ? 1 : 0;
+    // the outline. `crashed` still cuts it: a wrecked taxi has nothing left to warn — and so does
+    // `staged`, where the taxi is shut in its garage during the opening vignette and every ghost
+    // in range is a car it could not reach and the player is not being asked to look at.
+    const want = !taxi.crashed && !taxi.staged ? 1 : 0;
     const step = dt / GHOST_FADE;
     state.strength += Math.sign(want - state.strength)
       * Math.min(Math.abs(want - state.strength), step);

@@ -187,3 +187,17 @@ export function addGhostOutline(mesh, { rim = RIM } = {}) {
 
   return { mask, rim: rimMesh };
 }
+
+/**
+ * Show or hide every ghost outline hanging off `root`, wherever in the hierarchy it landed.
+ *
+ * The taxi wears seven of these — shell, four wheels, roof sign, lights — added at whatever depth
+ * each part sits at, so this is a traverse rather than a list. The opening vignette is the caller:
+ * the taxi spends that shot *inside a building*, which is the one occluder the outline is not
+ * meant to see through. "Where is my car" is answered by the camera being pointed at the door.
+ */
+export function setGhostOutlines(root, visible) {
+  root.traverse((child) => {
+    if (child.name === 'ghostMask' || child.name === 'ghostRim') child.visible = visible;
+  });
+}

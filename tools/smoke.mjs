@@ -120,6 +120,37 @@ try {
 
   check('taxi exists', (await evaluate('Boolean(window.__taxi.traffic.taxi)')));
 
+  // --- The opening vignette has to land before anything below has something to tap.
+  //
+  // A run opens on a cut scene now — camera onto the garage door, door up, taxi out, camera back
+  // (see gameplay.md#the-opening-vignette) — and the fare board is held empty for the whole of it,
+  // deliberately. So this is both a wait and the one end-to-end assertion the vignette can only get
+  // in a real page: that the sequence actually finishes and hands the taxi back to the traffic
+  // model, rather than parking the run in a garage forever.
+  //
+  // Polled on the sequence's own phase rather than slept. Under the software renderer the
+  // vignette's clock advances at a fraction of wallclock — a couple of seconds on a GPU is a minute
+  // here — so any fixed wait is either far too long or a flake.
+  const vignetteDeadline = Date.now() + 180000;
+  let openingPhase = 'wait';
+  while (Date.now() < vignetteDeadline) {
+    openingPhase = await evaluate(
+      'window.__taxi.opening() ? window.__taxi.opening().phase() : "done"');
+    if (openingPhase === 'done') break;
+    await sleep(500);
+  }
+  check('the opening vignette runs and lands', openingPhase === 'done', `phase ${openingPhase}`);
+  check('...and hands the taxi back to the traffic model',
+    (await evaluate('window.__taxi.traffic.taxi.staged')) === false
+    && (await evaluate('Boolean(window.__taxi.traffic.taxi.lane)')));
+  // The board is seeded by the first `fares.update`, which the vignette was holding — so a rider
+  // appearing at all is the evidence that hold was released rather than left on.
+  const boardDeadline = Date.now() + 20000;
+  while (Date.now() < boardDeadline
+    && !(await evaluate('window.__taxi.fares.state.fares.length > 0'))) await sleep(300);
+  check('...and the fare board opens behind it',
+    await evaluate('window.__taxi.fares.state.fares.length > 0'));
+
   // --- Tap the taxi: it should select.
   // Synthetic DOM click rather than CDP's Input domain. Input.dispatchMouseEvent is accepted in
   // this headless configuration but never synthesises a DOM click — the page observes nothing at
@@ -941,14 +972,26 @@ try {
       await sleep(600);
       check('tapping dismisses it', await iosEval("document.getElementById('home-tip').hidden"));
 
-      // ...and the fare loop starts, which means the hold was released rather than just hidden.
-      let spawned = false;
-      const spawnDeadline = Date.now() + 20000;
-      while (Date.now() < spawnDeadline) {
-        if (await iosEval('window.__taxi.fares.waitingAll().length > 0')) { spawned = true; break; }
+      // ...and the run starts, which means the hold was released rather than just hidden.
+      //
+      // What comes off that hold first is the **opening vignette**, not the fare board: `isBlocked`
+      // chains the three openers, so the board is not seeded until the taxi is out of its garage,
+      // which is a minute of wallclock under a software renderer. The vignette leaving `wait` is
+      // the same evidence a spawn used to be and it arrives immediately — with the spawn still
+      // accepted, for a seed that happens to host no depot at all.
+      let started = false;
+      const startDeadline = Date.now() + 20000;
+      while (Date.now() < startDeadline) {
+        const phase = await iosEval(
+          'window.__taxi.opening() ? window.__taxi.opening().phase() : "none"');
+        if ((phase !== 'wait' && phase !== 'none')
+          || await iosEval('window.__taxi.fares.waitingAll().length > 0')) {
+          started = true;
+          break;
+        }
         await sleep(400);
       }
-      check('the run starts once it is dismissed', spawned);
+      check('the run starts once it is dismissed', started);
 
       // It comes back on the next load: nothing is remembered, because the thing it asks for is the
       // thing that switches it off. Dismissing it must not have persisted anything.
