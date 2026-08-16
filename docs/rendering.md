@@ -395,11 +395,49 @@ nearest pixel — the flat whitening the old note was afraid of, arrived at hone
 hard zero, and smoothstep's ease-in spends most of the ramp on the far half of the frame, so the
 near half stays untouched and the haze gathers behind it.
 
-**The colour is the horizon**, driven from `daylight.js`'s own keyframes: `fog.color` follows
-`skyBottom` at every hour, because what the far edge of the city fades into is the sky it is standing
-in front of. A tint of its own would be a pale blue wash over a midnight city — lighting the back of
-the board *brighter* than the front, which is the cue running backwards. `PALETTE.fog` is the parked
-16:24 value, and is what a scene built without a daylight module keeps.
+### The colour — `hazeColor()`
+
+Derived from the sky on every keyframe change, never carried as a tint of its own: a haze that is a
+*function* of the sky cannot drift away from it, and one picked at golden hour and left alone is a
+pale blue wash over a midnight city — lighting the back of the board *brighter* than the front,
+which is the cue running backwards.
+
+**It is not the horizon**, which is what this shipped as first and what got reported as "reads as
+pure grey". `skyBottom` is #DCEDF7, a near-white — 27 points of spread between its highest and lowest
+channel, deliberately so ("going paler, not white"). Mixed 0.22 into `concrete`, the commonest façade
+in the city, that lands on #C0C1BC: **5 points of spread**, which is neutral grey. A haze with no
+chroma of its own can only take chroma *away*. That is a value wash, and a value wash is half of
+atmospheric perspective with the recognisable half missing.
+
+Two steps, both about getting chroma back:
+
+- **Sample the dome above the skyline.** `HAZE_SKY_H = 0.35` reads the sky dome's own gradient — the
+  same `pow(h, SKY_EXPONENT)` curve the shader runs, which is why that exponent is exported — rather
+  than taking its bottom colour flat. The horizon band is the *least* chromatic part of any sky,
+  being where multiple scattering has washed the blue back out, and a column of air seen from 400
+  units up a 33° diagonal is not that band. 0.35 rather than higher because of dusk: at 18:36 the
+  dome runs orange at the bottom to deep blue at the top, and sampling at 0.5 lands on a #A87 mauve.
+  The sunset haze has to be the sunset's own colour.
+- **Give the chroma back.** Saturation ×1.4 in the working space with the hue untouched, so every
+  hour keeps its own colour and only the strength of it moves. HSL→RGB cannot leave the cube for any
+  saturation ≤ 1, so this can't clip a channel or bend a hue.
+
+| | 06:30 | 09:00 | 16:24 | 18:36 | 00:00 |
+|---|---|---|---|---|---|
+| horizon | `#F0B080` | `#CFE0EA` | `#DCEDF7` | `#F09A60` | `#16202E` |
+| haze | `#BE8E87` | `#99C5E6` | `#AEDCF9` | `#C17059` | `#08192B` |
+
+Measured on a rendered shot, as mean blue-minus-red per band — the near/far *difference* is what
+atmospheric perspective actually is, and raw chroma is the wrong metric because a warm city mixed
+toward blue passes through neutral on the way:
+
+| | no haze | horizon haze | this |
+|---|---|---|---|
+| far band | −18.8 | −12.5 | **−6.7** |
+| near band | −17.9 | −17.4 | −16.8 |
+| separation | −1.0 | +4.8 | **+10.1** |
+
+`PALETTE.fog` is the parked 16:24 answer, and what a scene built without a daylight module keeps.
 
 ### Unlit means unfogged
 
@@ -427,8 +465,10 @@ The rest of the probe's coverage is the placement, re-derived from a real frustu
 back off the fog object: the bottom edge of the play frame at exactly zero and the top at exactly
 `HAZE_TOP`, both unchanged by a pan to the map edge; no corner of the city hazier than the frame edge
 it was tuned against; a wreck close-up spanning less haze than the play frame; and the colour
-tracking the horizon across all eight keyframes. Getting the band wrong gives you either a flat wash
-over everything or nothing at all, and both look like "the fog didn't work" in a screenshot.
+the colour built hue-for-hue from the sky at every keyframe, carrying real chroma wherever the
+horizon is itself near-neutral, and staying *warm* at dusk. Getting the band wrong gives you either a
+flat wash over everything or nothing at all, and both look like "the fog didn't work" in a
+screenshot; getting the colour wrong looks like the game going black-and-white in the distance.
 
 The ⚙️ panel has the strength live (**Haze**) — two planes on a fog object, so unlike the AO lookup
 there is nothing to recompile and it can be a plain slider.

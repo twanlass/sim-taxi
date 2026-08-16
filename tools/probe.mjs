@@ -73,7 +73,7 @@ import {
   createCityCamera, attachDragPan, frameLead,
   VIEW_DIR, RIGHT, UP, DISTANCE, PLAY_ZOOM, DEPTH_PER_SCREEN_UNIT,
 } from '../src/game/camera.js';
-import { createScene, HAZE_TOP, hazeRange } from '../src/game/scene.js';
+import { createScene, HAZE_TOP, hazeRange, hazeColor } from '../src/game/scene.js';
 import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
@@ -5748,30 +5748,68 @@ check('the taxi is an ordinary car in the traffic array',
   check('asking for no haze pushes the ramp past anything drawn',
     hazeRange(0).far > 1e5, `${hazeRange(0).far.toExponential(1)}`);
 
-  // The colour has to follow the sky or the whole thing inverts after dark: a pale blue haze over a
-  // midnight city lights the back of the board *brighter* than the front. Driven off the horizon,
-  // which is the sky the far edge of the city is actually standing in front of.
+  // --- The colour.
+  //
+  // Two failure modes, and the haze shipped with the second one. It has to **follow the sky**, or
+  // the whole effect inverts after dark — a pale blue wash over a midnight city lights the back of
+  // the board brighter than the front. And it has to **carry chroma**, or it is a value wash: the
+  // horizon this originally used is a near-white, and a near-white can only take colour away, which
+  // is what made the far city read as black-and-white rather than as distant. Both are checked
+  // across the keyframes rather than at the parked hour, since dusk is where they pull apart.
   {
     const dayWorld = createScene({ shadowMapSize: 0 });
     const daylight = createDaylight(dayWorld);
-    let worstDrift = 0;
+    // Channel spread in the *displayed* colour, which is where "reads as grey" is decided.
+    const spread = (c) => {
+      const ch = c.getHexString().match(/../g).map((h) => parseInt(h, 16));
+      return Math.max(...ch) - Math.min(...ch);
+    };
+    const hsl = { h: 0, s: 0, l: 0 };
+    let worstHueDrift = 0;
+    let leastChroma = 255;
+    let worstChromaRatio = Infinity;
     let darkest = 1;
+    let duskWarm = true;
     for (const hour of [0, 5, 6.5, 9, 13, 16.4, 18.6, 20, 23]) {
       daylight.apply(hour);
-      const horizon = dayWorld.sky.uniforms.bottomColor.value;
-      worstDrift = Math.max(worstDrift,
-        Math.abs(dayWorld.fog.color.r - horizon.r),
-        Math.abs(dayWorld.fog.color.g - horizon.g),
-        Math.abs(dayWorld.fog.color.b - horizon.b));
-      darkest = Math.min(darkest, dayWorld.fog.color.getHSL({ h: 0, s: 0, l: 0 }).l);
+      const fog = dayWorld.fog.color;
+      const sky = hazeColor(
+        dayWorld.sky.uniforms.topColor.value, dayWorld.sky.uniforms.bottomColor.value,
+      );
+      // Hue against the sky sample the colour is built from: saturation moves, hue must not, or an
+      // orange dusk would come out blue.
+      fog.getHSL(hsl);
+      const fogHue = hsl.h;
+      sky.getHSL(hsl);
+      const wrap = Math.abs(fogHue - hsl.h);
+      worstHueDrift = Math.max(worstHueDrift, Math.min(wrap, 1 - wrap));
+      leastChroma = Math.min(leastChroma, spread(fog));
+      // The ratio is only asked of the hours whose horizon is *itself* near-neutral, which is
+      // where the grey came from. A dawn horizon is already 112 points of orange and sampling the
+      // dome above it necessarily spends some of that — nothing is wrong there, and demanding a
+      // gain at every hour is what made a first version of this check red.
+      const horizonChroma = spread(dayWorld.sky.uniforms.bottomColor.value);
+      if (horizonChroma < 40) {
+        worstChromaRatio = Math.min(worstChromaRatio, spread(fog) / Math.max(1, horizonChroma));
+      }
+      darkest = Math.min(darkest, (fog.getHSL(hsl), hsl.l));
+      // 18:36 is the one hour where sampling the dome any higher would swap the sunset for the deep
+      // blue above it. The haze at dusk is the sunset's own colour or it is wrong.
+      if (hour === 18.6) duskWarm = fog.r > fog.b;
     }
-    check('the haze is the horizon colour at every hour of the day',
-      worstDrift < 1e-9, `worst channel drift ${worstDrift.toExponential(1)}`);
+    check('the haze is built from the sky, hue for hue, at every hour of the day',
+      worstHueDrift < 1e-9, `worst hue drift ${worstHueDrift.toExponential(1)}`);
+    check('and carries real chroma rather than washing the far city grey',
+      leastChroma > 30 && worstChromaRatio > 1.25,
+      `least spread ${leastChroma} of 255; `
+      + `${worstChromaRatio.toFixed(2)}x the horizon wherever the horizon is itself near-neutral`);
+    check('a dusk haze is the dusk, not the blue above it',
+      duskWarm, 'warm at 18:36');
     check('a night haze is dark rather than a pale wash over a dark city',
       darkest < 0.12, `darkest lightness ${darkest.toFixed(3)}`);
-    check('the parked palette entry agrees with the horizon it stands in for',
-      `#${createScene({ shadowMapSize: 0 }).fog.color.getHexString().toUpperCase()}` === PALETTE.skyBottom,
-      `${PALETTE.fog} against skyBottom ${PALETTE.skyBottom}`);
+    check('the parked palette entry is the haze it stands in for',
+      `#${createScene({ shadowMapSize: 0 }).fog.color.getHexString().toUpperCase()}` === PALETTE.fog,
+      `${PALETTE.fog}, against a horizon of ${PALETTE.skyBottom}`);
   }
 
   // --- Unlit means unfogged.

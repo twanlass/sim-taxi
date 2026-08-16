@@ -3,6 +3,9 @@ import { PALETTE } from '../palette.js';
 import { SPAN } from '../city/grid.js';
 import { DISTANCE, PLAY_ZOOM, DEPTH_PER_SCREEN_UNIT } from './camera.js';
 
+/** The dome's gradient curve. Exported because the haze reads the same gradient — see hazeColor. */
+export const SKY_EXPONENT = 0.7;
+
 function createSky() {
   const geometry = new THREE.SphereGeometry(900, 24, 12);
   const material = new THREE.ShaderMaterial({
@@ -11,7 +14,7 @@ function createSky() {
     uniforms: {
       topColor: { value: new THREE.Color(PALETTE.skyTop) },
       bottomColor: { value: new THREE.Color(PALETTE.skyBottom) },
-      exponent: { value: 0.7 },
+      exponent: { value: SKY_EXPONENT },
     },
     vertexShader: /* glsl */ `
       varying vec3 vWorldPosition;
@@ -103,6 +106,52 @@ export function hazeRange(top = HAZE_TOP, zoom = PLAY_ZOOM) {
   return { near, far: near + (2 * half) / unSmoothstep(Math.min(top, 0.999)) };
 }
 
+// --- What colour the haze is ------------------------------------------------------------------
+//
+// **Not the horizon**, which is what this shipped as first and what made the far city read as
+// black-and-white rather than as distance. `skyBottom` is #DCEDF7: a near-white with 27 points of
+// spread between its highest and lowest channel, deliberately so (see palette.js — "going paler,
+// not white"). Mixed 0.22 into `concrete`, the commonest façade in the city, it lands on #C0C1BC —
+// **5 points of spread**, which is neutral grey. A haze with no chroma of its own can only take
+// chroma *away*: it is a value wash, and a value wash is half of atmospheric perspective with the
+// recognisable half missing.
+//
+// So the colour is built in two steps, and both are about getting chroma back:
+//
+//   - **Sample the dome higher than the skyline.** `HAZE_SKY_H` reads the sky dome's own gradient
+//     (the same `pow(h, exponent)` curve the shader runs, hence SKY_EXPONENT being exported) rather
+//     than taking its bottom colour flat. There is a physical argument as well as a visual one: the
+//     horizon band is the *least* chromatic part of any sky — it is where multiple scattering has
+//     washed the blue back out — and a column of air seen from 400 units up a 33° diagonal is not
+//     that band. 0.35 rather than higher because of dusk: at 18:36 the dome runs orange at the
+//     bottom to deep blue at the top, and sampling at 0.5 lands on #A87 mauve — the sunset haze has
+//     to stay the sunset's own colour.
+//   - **Give the chroma back.** Saturation ×1.4 in the working space, hue untouched, so every hour
+//     keeps its own hue and only the strength of it moves: 16:24 goes #DCEDF7 → #AEDCF9 (spread 27
+//     → 75) and 18:36 stays warm at #C17059. HSL→RGB cannot leave the cube for any saturation ≤ 1,
+//     so this cannot clip a channel or bend a hue; the night keyframes just go deeper navy.
+//
+// Measured on the same 0.22 mix: asphalt goes from 19 points of spread to 36 and flips *cool*,
+// which is the whole effect — the back of the city is now a different colour from the front, not
+// just a lighter one.
+const HAZE_SKY_H = 0.35;
+const HAZE_SATURATION = 1.4;
+
+const hazeHSL = { h: 0, s: 0, l: 0 };
+
+/**
+ * The haze colour for a sky: the dome's own gradient sampled at `HAZE_SKY_H`, with its saturation
+ * lifted. Writes into `out` and returns it.
+ *
+ * Called by `game/daylight.js` on every keyframe change, so the haze can never drift away from the
+ * sky the way a tint tuned once at golden hour would.
+ */
+export function hazeColor(top, bottom, out = new THREE.Color()) {
+  out.copy(bottom).lerp(top, Math.pow(HAZE_SKY_H, SKY_EXPONENT));
+  out.getHSL(hazeHSL);
+  return out.setHSL(hazeHSL.h, Math.min(1, hazeHSL.s * HAZE_SATURATION), hazeHSL.l);
+}
+
 /** Retune the haze in place — the ⚙️ panel's slider, and nothing else. */
 export function setHazeTop(fog, top) {
   const { near, far } = hazeRange(top);
@@ -130,11 +179,10 @@ const SUN = {
 export function createScene({ shadowMapSize = 2048 } = {}) {
   const scene = new THREE.Scene();
 
-  // The haze over the back of the frame — see the long note above for why this is a plain linear
-  // fog and where its two planes come from. The colour is the horizon, and `daylight.js` keeps it
-  // there all day: the far edge of the city has to fade into the sky it is standing in front of,
-  // and that sky is `skyBottom` at every hour. `PALETTE.fog` is the parked 16:24 value, which is
-  // what a scene built without a daylight module (the headless tools, a screenshot) gets to keep.
+  // The haze over the back of the frame — see the long notes above for why this is a plain linear
+  // fog, where its two planes come from, and what its colour is made of. `daylight.js` recomputes
+  // that colour through `hazeColor()` on every keyframe change; `PALETTE.fog` is the parked 16:24
+  // answer, and what a scene built without a daylight module (the headless tools) keeps.
   const { near, far } = hazeRange();
   scene.fog = new THREE.Fog(PALETTE.fog, near, far);
 
