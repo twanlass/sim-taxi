@@ -49,7 +49,7 @@ import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
   getDiagnostics, getParcelsPin } from './util/shot.js';
-import { createParcelSystem } from './game/parcels.js';
+import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
 import { createViewport } from './util/viewport.js';
@@ -622,14 +622,19 @@ const selected = true;
  * *replacing* one already part-driven: `routeConsumed` has to be cleared or the turn the car has
  * already committed to eats the first step of the new plan, and `parked` has to be released.
  *
+ * `maxDetour` overrides how much extra route a `via` may cost. Left out it is `MAX_VIA_DETOUR`, the
+ * cap written for a dragged waypoint; the courier tap passes its own, because that cap is about a
+ * finger that slipped and a tap cannot slip (see `TAP_MAX_DETOUR` in game/parcels.js).
+ *
  * The target object's *identity* is what the band's rollout sweep keys off, so a re-plan that
  * keeps the same destination must pass the same object rather than an equal one — otherwise every
  * frame of a drag replays the sweep and the band never finishes drawing itself.
  */
-function routeTo(target, { via = null } = {}) {
+function routeTo(target, { via = null, maxDetour } = {}) {
   const car = traffic.taxi;
   const route = via
-    ? findRouteVia(planOrigin(car), via, target)
+    // `undefined` falls through to `findRouteVia`'s own default rather than reading as "no cap".
+    ? findRouteVia(planOrigin(car), via, target, { maxDetour })
     : findRoute(planOrigin(car), target);
   if (!route) return false;
   car.route = route;
@@ -674,9 +679,14 @@ function dispatchToDropoff(fare) {
  * **Rider aboard: a detour, never a dispatch.** The seat is a commitment and its clock is the one
  * draining, so nothing may re-aim the taxi at a package while somebody is riding. The tap is
  * `findRouteVia` with the waypoint named rather than aimed at: same origin, same destination, same
- * fare still `directed`, same `MAX_VIA_DETOUR` cap, one junction added in the middle. It is exactly
- * what a drag on the route band produces when the finger lands on the box's corner, minus the aiming
- * — which on a phone is the whole difficulty of the gesture and none of the decision.
+ * fare still `directed`, one junction added in the middle. It is exactly what a drag on the route
+ * band produces when the finger lands on the box's corner, minus the aiming — which on a phone is
+ * the whole difficulty of the gesture and none of the decision.
+ *
+ * **It does not inherit the drag's detour cap** (`TAP_MAX_DETOUR`, game/parcels.js). It did at first,
+ * and at `MAX_VIA_DETOUR`'s 6 legs that silently refused 41% of every tap in the game — the measured
+ * median diversion costs exactly 6. A cap on a dragged waypoint is protection against a finger that
+ * slipped; a tap lands on one marker and means it.
  *
  * Two things the detour deliberately does not do:
  *
@@ -686,9 +696,11 @@ function dispatchToDropoff(fare) {
  *   `routeConsumed` is cleared on every re-plan, so a standing diversion means the turn the car has
  *   already committed to never retires from the route and the taxi sits re-deciding the same junction
  *   (measured in `tools/probe.mjs`: $34 earned in seven simulated minutes, nothing delivered).
- * - **It does not check the clock.** A detour under the cap is taken exactly as asked, even when it
- *   costs the rider in the back their fare. That is the trade the layer exists to offer, and it is
- *   the player's to make — the same one the drag has always let them make.
+ * - **It does not check the clock.** The detour is taken exactly as asked, even when it costs the
+ *   rider in the back their fare. That is the trade the layer exists to offer, and it is the
+ *   player's to make — the same one the drag has always let them make. Uncapped, this is the whole
+ *   of what a box costs, which is why it has to be visible: the band redraws through the pad on the
+ *   same frame, before a wheel has turned, and tapping the rider re-plans direct again.
  *
  * **Seat empty: a dispatch.** With nobody in the back there is no committed clock for a detour cap
  * to protect, so the box is allowed to be the destination: the taxi is routed straight at it, and
@@ -703,10 +715,11 @@ function dispatchToDropoff(fare) {
 function divertToParcel(parcel) {
   if (!parcel) return;
   const target = traffic.taxi.pendingTarget;
-  // The dispatch's refusals are the router's only; the detour's add `findRouteVia`'s cap. Either
-  // way `routeTo` leaves the route exactly as it was and the corner flinches — see `acknowledge`.
+  // Both branches refuse only on a leg the router cannot solve, which a shipped city never has —
+  // `main.js` rerolls any seed `findRoute` fails a pair on. When one does, `routeTo` leaves the
+  // route exactly as it was and the corner flinches instead of swelling — see `acknowledge`.
   const taken = target && fares.carrying()
-    ? routeTo(target, { via: parcel.target })
+    ? routeTo(target, { via: parcel.target, maxDetour: TAP_MAX_DETOUR })
     : routeTo(parcel.target);
   parcels?.acknowledge(parcel, taken);
 }
