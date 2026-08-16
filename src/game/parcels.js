@@ -58,20 +58,25 @@ import * as difficulty from './difficulty.js';
 //   - **tap the box**, which is `findRouteVia` again with the waypoint named rather than aimed at.
 //
 // The tap is the newer half and it is a shortcut, not a second mechanic: it plans the identical
-// origin → box → destination route, under the identical `MAX_VIA_DETOUR` cap, and refuses in the
-// identical case. What it removes is the aiming. A drag asks the player to work out *which junction*
-// bends the band through a box that may be half a city from the paint, then hold a finger on a
-// moving car's route while they do it; on a phone that is a two-handed job for a decision — "take
-// this one?" — that is a single yes or no. The tap says "include this" and lets the router find the
-// bend.
+// origin → box → destination route. What it removes is the aiming. A drag asks the player to work out
+// *which junction* bends the band through a box that may be half a city from the paint, then hold a
+// finger on a moving car's route while they do it; on a phone that is a two-handed job for a decision
+// — "take this one?" — that is a single yes or no. The tap says "include this" and lets the router
+// find the bend.
+//
+// **The one thing it does not share with the drag is the detour cap**, and that is a correction
+// rather than a convenience: `MAX_VIA_DETOUR` exists to catch a finger that slipped, and a tap cannot
+// slip. At the drag's value it refused 41% of every tap in the game — see `TAP_MAX_DETOUR` below for
+// the measurement and for why no other value of it works either. So a tapped diversion is refused
+// only by a leg the router genuinely cannot solve, which a shipped city never has.
 //
 // What the tap costs is worth writing down, because it is the thing this trades away: the drag was
 // the *price* of a package, and skill at aiming it was part of what the box was worth. A tap makes
-// collection free and leaves only the routing cost. The cap is what keeps that from being a
-// one-tap payout — over it the tap is refused and the route holds exactly still, which is the same
-// wall a drag hits. The drag is still the only gesture that can say anything the tap cannot: it
-// answers "which way", so it is what you reach for when the road ahead has gone solid, and it can
-// bend through a corner no marker is standing on.
+// collection free and leaves only the routing cost — which, uncapped, is now the *whole* of what a
+// box costs, and it is paid out of the clock of whoever is in the back. That is the trade this layer
+// exists to offer, made explicit rather than rationed by a cap. The drag is still the only gesture
+// that can say anything the tap cannot: it answers "which way", so it is what you reach for when the
+// road ahead has gone solid, and it can bend through a corner no marker is standing on.
 //
 // **With the seat empty, the same tap is a dispatch** (`divertToParcel` in main.js): the taxi is
 // routed straight at the box and the band repaints in this layer's own cyan — no urgency, because a
@@ -179,6 +184,37 @@ export const PARCEL_AFTER_DELIVERY = 20;
  * and if it moves, write the measured survival curve down beside it.
  */
 export const PARCEL_PAY_FACTOR = 1;
+
+/**
+ * The detour cap on a **tapped** courier diversion. Uncapped, and that is the correction.
+ *
+ * It shipped as `MAX_VIA_DETOUR` — the drag's cap — on the reasoning that a tap and a drag ask for the
+ * same bend and should therefore refuse in the same case. The reasoning was wrong, and it was wrong
+ * because the two caps are not doing the same job.
+ *
+ * **The drag's cap catches a sloppy finger.** It exists so that a drag that slipped a block wide, or
+ * landed behind the taxi, is not answered with a lap of the city. A finger on the band is by
+ * construction *near* the route, so the cap almost never binds: the worst waypoint on the whole map
+ * costs 2 extra legs on a corner-to-corner run (see docs/gameplay.md).
+ *
+ * **A tap names a specific corner anywhere on the map, and is never sloppy.** There is exactly one
+ * thing under the finger and the player meant it. Measured over 8 seeds and 649 distinct tap
+ * opportunities in real runs, the extra legs a tapped diversion costs are:
+ *
+ *   min 0 · p25 4 · **median 6** · p75 10 · p90 12 · max 20
+ *
+ * — so at 6 the cap refused **41% of every tap in the game**, silently, on the gesture whose entire
+ * promise is that the route bends to include the box. No cap value fixes that: 8 still refuses 26%,
+ * 10 refuses 11%, and by 16 it refuses 0.6% and exists only to surprise people. Either it caps
+ * meaningfully or it does not exist, and here it must not exist.
+ *
+ * What makes uncapping *safe* is that nothing about a tap is hidden. The band redraws through the box
+ * on the same frame, before a wheel has turned, so the cost is visible at the moment of the decision;
+ * and the undo is a tap on the rider, which re-plans direct. It is also the only setting consistent
+ * with the rule above it — a diversion already may cost the rider in the back their fare, so refusing
+ * a seven-leg one while taking a six-leg one was never protecting anybody.
+ */
+export const TAP_MAX_DETOUR = Infinity;
 
 /**
  * Fewest blocks between a package's two ends.

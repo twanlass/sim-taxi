@@ -1087,27 +1087,61 @@ this game answers "which rider?". This one answers "is the bonus worth the secon
 #### Two gestures ask for the same bend
 
 **Drag the band** through the pad, or **tap the box**. With a rider aboard both plan the identical
-route — origin → box → destination, `findRouteVia`, under the identical `MAX_VIA_DETOUR` cap — and
-both refuse in the identical case. `divertToParcel` in `main.js` is the tap's whole implementation,
-and the thing the detour does *not* do is route the taxi at the package: the destination, the fare,
-and which clock is paying are all untouched, exactly as when a finger pulls the band.
+route — origin → box → destination, `findRouteVia`. `divertToParcel` in `main.js` is the tap's whole
+implementation, and the thing the detour does *not* do is route the taxi at the package: the
+destination, the fare, and which clock is paying are all untouched, exactly as when a finger pulls
+the band.
 
 The tap removes the **aiming**, not the decision. A drag asks the player to work out which junction
 bends the band through a box that may be half a city from the paint, and then to hold a finger on
 the route of a car that is still driving while they do it. On a phone that is a two-handed job in
 service of a single yes-or-no. The tap says *include this* and lets the router find the bend.
 
-What that trades away is worth stating plainly, because it was the original argument for the box
-having no hit box at all: **the drag was the price of a package**, and skill at aiming it was part
-of what a box was worth. A tap makes the collection free and leaves only the routing cost. The
-[detour cap](#what-the-detour-actually-costs) is the whole of what keeps that from being a one-tap
-payout — over it the tap is refused and the route holds exactly still, the same wall the drag hits.
-Whether the layer still plays as a temptation once the aiming is gone is the open question; the
-number to turn if it does not is the cap, not `MAX_PARCELS`.
-
 The drag keeps the half the tap cannot express. It answers *which way*, so it is still what you
 reach for when the road ahead has gone solid, and it can bend a route through a corner no marker is
 standing on.
+
+##### The one thing the tap does not share is the cap
+
+`TAP_MAX_DETOUR` is **uncapped**, and it is the one place the two gestures deliberately part company.
+
+It shipped inheriting [the drag's `MAX_VIA_DETOUR`](#dragging-the-route), on the reasoning that the
+same bend should refuse in the same case. That was wrong, and wrong in a way that only shows up in
+play: it was reported straight away as *"tapping the box did not alter the route"*. It hadn't — the
+cap had refused it.
+
+The two caps are not doing the same job. **The drag's cap catches a finger that slipped.** A finger
+on the band is by construction near the route, so the cap almost never binds — the worst waypoint on
+the whole map costs 2 extra legs on a corner-to-corner run. **A tap names one corner anywhere on the
+map and is never sloppy.** Measured over 8 seeds and 649 distinct tap opportunities in real runs, the
+extra legs a tapped diversion costs:
+
+| min | p25 | median | p75 | p90 | max |
+|---|---|---|---|---|---|
+| 0 | 4 | **6** | 10 | 12 | 20 |
+
+The median tap costs exactly the cap. So at 6 it refused **41% of every tap in the game**, silently,
+on the gesture whose entire promise is that the route bends to include the box. And no value fixes
+it: 8 refuses 26%, 10 refuses 11%, and by 16 it refuses 0.6% and exists only to surprise people.
+Either it caps meaningfully or it does not exist.
+
+What makes uncapping safe is that nothing about a tap is hidden. The band redraws through the box on
+the same frame, before a wheel has turned, so the cost is visible at the moment of the decision — and
+the undo is a tap on the rider, which re-plans direct. It is also the only setting consistent with
+the rule below it: a diversion already may cost the rider in the back their fare, so refusing a
+seven-leg one while taking a six-leg one was never protecting anybody.
+
+`tools/probe.mjs` asserts both halves — that a tapped diversion is always routable, and that the
+drag's cap would still refuse a real share of them, because the day it wouldn't is the day this
+constant should be deleted rather than kept in step.
+
+What all this trades away is worth stating plainly, because it was the original argument for the box
+having no hit box at all: **the drag was the price of a package**, and skill at aiming it was part of
+what a box was worth. A tap makes the collection free and leaves only the routing cost — which,
+uncapped, is now the *whole* of what a box costs, paid out of the clock of whoever is in the back.
+That is the trade this layer exists to offer, made explicit rather than rationed by a cap. Whether it
+still plays as a temptation is the open question; the number to turn if it does not is
+`PARCEL_PAY_FACTOR`, not `MAX_PARCELS`.
 
 Two things the tap deliberately does not do:
 
@@ -1118,14 +1152,16 @@ Two things the tap deliberately does not do:
   diversion means the turn the car has already committed to never retires from the route and the
   taxi sits re-deciding the same junction. Measured, in `tools/probe.mjs`: $34 earned in seven
   simulated minutes and nothing delivered.
-- **It does not check the clock.** A detour under the cap is taken exactly as asked, even when it
-  costs the rider in the back their fare. That is the trade this layer exists to offer, and it is
-  the player's to make — the same one the drag has always let them make.
+- **It does not check the clock.** The detour is taken exactly as asked, even when it costs the
+  rider in the back their fare. That is the trade this layer exists to offer, and it is the player's
+  to make — the same one the drag has always let them make. With no cap either, this is the whole of
+  what a box costs, which is why it has to be visible on the frame of the tap rather than felt three
+  junctions later.
 
 #### The empty-seat tap is a dispatch
 
-With nobody in the back there is no committed clock for the detour cap to protect, so the box is
-allowed to be the destination: the tap routes the taxi straight at it, and the band repaints in the
+With nobody in the back there is no committed clock the drive has to be a detour *from*, so the box
+is allowed to be the destination: the tap routes the taxi straight at it, and the band repaints in the
 courier's own cyan — [the band wears the clock it is spending](#the-route-band-wears-it-too), and a
 package has none to report, so the hue says "errand" and nothing else. The dispatch replaces
 whatever the taxi was driving at, including a waiting rider the player had tapped: the same
@@ -1167,6 +1203,14 @@ It rides the marker's `postGroup` — the kerb corner, with the pad and whatever
 because the pad's own scale is spoken for by its arrival and exit animations and the box's by the
 flight. And `main.js` calls it only once the re-plan has actually been attempted, the same
 discipline `markDirected` keeps, so a refused tap can never be answered as though it had landed.
+
+**The flinch is now nearly unreachable, and that is the point.** With
+[the cap gone](#the-one-thing-the-tap-does-not-share-is-the-cap) the only refusal left is a leg the
+router cannot solve, which a shipped city never has. That is the right way round: the flinch was
+built to make a refusal legible and it could not carry the load it was given — a −12% squash on a
+~10px box is not an answer a player reads, which is exactly why the capped version was reported as
+the tap doing *nothing*. A cue this quiet is a safety net for a case that should not happen, not a
+substitute for the case not happening.
 
 ### What the detour actually costs
 

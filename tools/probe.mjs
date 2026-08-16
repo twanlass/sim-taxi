@@ -32,7 +32,7 @@ import {
 import {
   createParcelSystem, MAX_PARCELS, PARCEL_MIN_DELIVERED, PARCEL_PAY_FACTOR, PARCEL_GAP_MIN,
   PARCEL_GAP_MAX, PARCEL_AFTER_DELIVERY, FLIGHT_MIN_ALPHA,
-  PARCEL_PAD_LIFT, LIFT_TIME,
+  PARCEL_PAD_LIFT, LIFT_TIME, TAP_MAX_DETOUR,
 } from '../src/game/parcels.js';
 import { ringGrowScale, ringShrinkScale } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
@@ -1226,6 +1226,11 @@ check('no two cars occupy the same space', worst > 1.6,
   const DETOUR_BUDGET = 1;
   let viaTaken = 0;
   let viaRefused = 0;
+  // Extra legs a *tapped* diversion would cost at each re-plan, and how many of those the drag's cap
+  // would have thrown away. See the sampling block in `aimFare` and `TAP_MAX_DETOUR` in parcels.js.
+  const tapExtra = [];
+  let tapRefusedByDragCap = 0;
+  let tapUnroutable = 0;
   // **Re-plan only when the plan actually changes.** A drag re-plans every frame the finger is down
   // and that is safe for the second or two a gesture lasts, but holding it for a whole run is not:
   // `routeConsumed` cleared on every tick means the turn the car has already committed to never
@@ -1245,6 +1250,28 @@ check('no two cars occupy the same space', worst > 1.6,
     if (key === plannedFor && job.directed) return;
 
     const from = planOrigin(pTraffic.taxi);
+
+    // **What a tap would cost, sampled beside the drag it replaces.** `divertToParcel` in main.js
+    // plans this exact route when the player taps the box with a rider aboard, and the question
+    // `TAP_MAX_DETOUR` answers is how much extra route that is. Sampled per re-plan rather than per
+    // frame because the answer is a function of (origin, box, destination) and nothing else.
+    //
+    // This is here rather than in a sweep of its own because it has to be measured against the plans
+    // a *player* is actually driving. A sweep over random (origin, box, target) triples answers a
+    // different question — the distribution over the map, not over the game.
+    if (errand && fares.carrying()) {
+      const direct = findRoute(from, job.target);
+      const uncapped = findRouteVia(from, errand.target, job.target, { maxDetour: TAP_MAX_DETOUR });
+      if (!uncapped || !direct) tapUnroutable += 1;
+      else {
+        tapExtra.push(uncapped.length - direct.length);
+        // The same plan under the *drag's* cap. Every one of these is a tap that would have been
+        // refused with no route change and a flinch the player cannot see — which is exactly what
+        // was reported from a real run, and what uncapping fixed.
+        if (!findRouteVia(from, errand.target, job.target)) tapRefusedByDragCap += 1;
+      }
+    }
+
     const bent = errand
       ? findRouteVia(from, errand.target, job.target, { maxDetour: DETOUR_BUDGET })
       : null;
@@ -1437,6 +1464,22 @@ check('no two cars occupy the same space', worst > 1.6,
   check('the courier policy was exercised', viaTaken + viaRefused > 0,
     `${viaTaken}/${viaTaken + viaRefused} offers within ${DETOUR_BUDGET} leg, `
     + `${parcels.state.delivered} delivered for $${parcels.state.earned}`);
+
+  // **The tap's own cap, measured on the plans above.** Two claims, and they are different claims.
+  const sorted = [...tapExtra].sort((a, b) => a - b);
+  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+  // One: a tap is answered. `TAP_MAX_DETOUR` is uncapped, so the only refusal left is a leg the
+  // router cannot solve — which a shipped city never has, `main.js` rerolling any seed that does.
+  // This is the check that would have caught the bug: at the drag's cap it goes red on 41% of taps.
+  check('a tapped courier diversion is always routable',
+    tapUnroutable === 0 && sorted.length > 0,
+    `${sorted.length} sampled, ${tapUnroutable} unroutable, median +${median} legs`);
+  // Two: the special case is still earning its keep. If the drag's cap ever stopped refusing these,
+  // `TAP_MAX_DETOUR` would be a constant with nothing to say and should be deleted rather than left
+  // as a second number to keep in step.
+  check("the drag's cap would still refuse a real share of taps", tapRefusedByDragCap > 0,
+    `${tapRefusedByDragCap}/${sorted.length} refused at MAX_VIA_DETOUR = ${MAX_VIA_DETOUR}`
+    + ` — p90 +${sorted[Math.floor(sorted.length * 0.9)] ?? 0} legs`);
 }
 
 // --- A package rides alongside a passenger, and the run ending clears it -------------------------
