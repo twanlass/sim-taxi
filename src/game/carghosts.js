@@ -93,17 +93,30 @@ export const GHOST_RADIUS = 42;
  * become the filter, and the thing it evicted would have been the vehicle that mattered. Eviction
  * drops the farthest, and *farthest* is not *safest* — the whole point of the widened radius is
  * the car two junctions out. Measured: at radius 42 with a cap of 8, a genuinely hidden vehicle
- * was dropped by the cap on 5.5% of frames; at 12 that is 0.0%, and stays there out to a radius
- * of 46. The cost of the four extra slots is four matrices per pool, drawing nothing until they
- * are claimed.
+ * was dropped by the cap on 5.5% of frames.
+ *
+ * **12 was then read off too small a sample and was quietly binding all along.** The figure came
+ * from one 15-second window on one seed, which is the same window `tools/probe.mjs` asserts it in
+ * — so the check agreed with the constant because both were looking at the same handful of
+ * frames. Swept properly (24 city seeds × 60s of boosting, 86,400 frames) the count in range runs:
+ *
+ *     cap          10      11      12      13      14      15      16
+ *     binds on   10.0%   5.1%   1.92%   0.59%   0.09%   0.01%   0.00%
+ *
+ * So a cap of 12 was evicting the farthest vehicle — the one the radius exists to show — on
+ * roughly one boosting frame in fifty. Peak observed is 16, and 18 clears it with two slots spare;
+ * it also clears the peak of 17 measured before the ring's corners lost their signals, since that
+ * change moved traffic around. Raising the cap never paints more than the vehicles genuinely
+ * within the radius, which is the set the feature wants drawn; the spare slots cost a matrix each
+ * and draw nothing.
  *
  * One cap over both classes rather than one each: the cap exists to bound how much of the frame
  * this may paint, and that ceiling is about the player's screen, not about which buffer a vehicle
  * happens to be drawn from. Each *pool* is nevertheless sized for the full cap, since a lane
- * carrying three trucks and five cars is legal at 1/12 and a pool that ran out of slots would drop
+ * carrying three trucks and five cars is legal at 1/18 and a pool that ran out of slots would drop
  * the nearest vehicle on a technicality; the spare slots cost a matrix each and draw nothing.
  */
-export const MAX_GHOSTS = 12;
+export const MAX_GHOSTS = 18;
 
 /** Seconds to fade the whole set in at run start, or out when the taxi crashes. */
 const GHOST_FADE = 0.35;

@@ -2368,9 +2368,21 @@ check('no two cars occupy the same space', worst > 1.6,
   const net = cityNetwork();
   const signalled = (i, j) => net.nodeByGrid(i, j).signal !== null;
   const ringCorners = [[0, 0], [0, GRID], [GRID, 0], [GRID, GRID]];
-  check('ring corners keep their signals', ringCorners.every(([i, j]) => signalled(i, j)));
+  // The whole ring is light-free, corners included. A corner has two arms meeting at a right
+  // angle, so both movements through it are bends that sweep opposite sides and never cross —
+  // `buildConflicts` returns nothing for either, and `bakeSignals` drops the signal on that
+  // basis. Asserted alongside `uncontrolled`, because dropping the light is only half of it: a
+  // corner left with a priority street would have one arm yielding into a 24-unit gap for traffic
+  // that is turning away from it, which is a stop at a bend for no reason.
+  check('ring corners carry no signal', ringCorners.every(([i, j]) => !signalled(i, j)));
+  check('and nobody yields at one either',
+    ringCorners.every(([i, j]) => net.nodeByGrid(i, j).uncontrolled
+      && net.nodeByGrid(i, j).inbound.every((lane) => net.laneSignal(lane, 0).open)));
   check('the rest of the ring has none',
     !signalled(1, 0) && !signalled(0, 1) && signalled(1, 1));
+  // An interior junction is untouched — the corners are dropped for having no conflicts, not for
+  // sitting on the ring, and a normal four-way is full of them.
+  check('an interior junction still arbitrates', !net.nodeByGrid(2, 2).uncontrolled);
 
   const perCar = rTraffic.stats.distance / rTraffic.stats.time / rTraffic.cars.length;
   check('traffic moves better than the old fixed-phase grid', perCar > 4.14,
@@ -3642,10 +3654,16 @@ check('the taxi is an ordinary car in the traffic array',
     submitted(kTraffic.truckMesh);       // ...and that first frame is what would latch the sphere
     let kInShot = 0;
     let kDropped = 0;
+    // Every frame, not every fifteenth. One truck wandering a 5×5 city shares the phone-sized
+    // frame with the taxi for anywhere between 2% and 33% of a minute depending on the seed, so at
+    // a 15-frame stride the *precondition* — enough samples to be worth asserting on — is the part
+    // that fails, and it fails on a lean draw while the invariant underneath it is perfectly
+    // healthy. Measured over 8 seeds: the stride left 5 to 78 usable samples and three of those
+    // seeds fell under the 20 this needs; sampling every frame gives 73 to 1183, and tests the
+    // culling on fifteen times as many frames for a couple of seconds of probe time.
     for (let step = 0; step < 60 * 60; step++) {
       kTraffic.update(1 / 60);
       kCam.followXZ(kTraffic.taxi.x, kTraffic.taxi.z, 1 / 60, 3.2, kAspect);
-      if (step % 15) continue;
       const onScreen = kTraffic.trucks.some((t) => {
         kPoint.set(t.x, 1.5, t.z).project(kCam.camera);
         return Math.abs(kPoint.x) < 0.95 && Math.abs(kPoint.y) < 0.95;
@@ -6872,6 +6890,13 @@ let chopperOrder; // likewise
   for (let s = 0; s < 200; s++) leanestCity = Math.min(leanestCity, parkAreas(createLayout(makeRng(s))).length);
   check('every city has a park for each flock', leanestCity >= 2,
     `${leanestCity} green areas in the barest of 200 city seeds`);
+
+  // Put the probe's own city back — same trap as the building sweep above, and it had already
+  // sprung here. This sweep left seed 199's town installed, so every block below it was measuring
+  // a city it never chose: the roadworks vignette closed whichever street *that* city offered and
+  // then asked whether discounting it reroutes anything, which on seed 199 it does not. The check
+  // passed only because the street it happened to land on was one where it did.
+  createLayout(makeRng(seed));
 
   let shared = 0;                     // frames with both flocks claiming the same green
   let bothOnTheDeck = 0;              // frames neither is flying, i.e. when it would be seen
