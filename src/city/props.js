@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, jitterVertices, propMaterial, stampEntry } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
-import { KERB_H, PARK_EDGE, PARK_WALK, roundedRectShape } from './ground.js';
+import { KERB_H, PARK_EDGE, roundedRectShape } from './ground.js';
 
 /**
  * Park tree — same construction as the terrain prototype's broadleaf, scaled for a city block.
@@ -66,8 +66,8 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6 } = {}) {
 // deliberate lie — a rider is 3.3 units tall next to a 3.4-unit car, because a person at true
 // scale is two pixels at play zoom (geometry/person.js) — but everything they are not is built
 // honestly, and a bench sized off a rider would be four units of park furniture as long as a taxi.
-// So it is sized off the things around it instead: 1.9 long against a 5-unit tree and 0.66 deep
-// against the 1.0-unit walk it stands on, which leaves a third of a unit of paving either side.
+// So it is sized off the things around it instead: 1.9 long against a 5-unit tree, and 0.645 deep
+// against the 1.0-unit walk it sits beside — see `benchSet` for where on the lawn that puts it.
 export const BENCH_LEN = 1.9;
 const BENCH_SEAT_Y = 0.44;
 const BENCH_BACK_Z = -0.30;
@@ -176,8 +176,15 @@ export const STATUE_PLAZA = 3.6;
 export function planParkFurniture(rng, areas) {
   const benches = [];
 
-  // The centreline of the walk: a bench sits on the paving, not half on the grass.
-  const walkMid = PARK_EDGE - PARK_WALK / 2;
+  // How far in from the block's own edge a bench sits. It stands **on the grass, just off the
+  // walk**, rather than on the paving: benches were laid on the walk's centreline first, which is
+  // where a bench in the street goes, but a park's walk is a thing you go round the park on and
+  // furniture parked in the middle of it reads as an obstacle rather than as somewhere to sit.
+  //
+  // `PARK_EDGE` is where the grass starts and the bench is 0.645 deep, so this leaves 0.22 of lawn
+  // behind the backrest and puts the front legs 0.86 in — off the paving with daylight to spare,
+  // still close enough to the walk to be a thing you sit down on while walking past it.
+  const benchSet = PARK_EDGE + 0.55;
 
   for (const area of areas) {
     const { x0, x1, z0, z1 } = area.bounds;
@@ -198,10 +205,10 @@ export function planParkFurniture(rng, areas) {
     const w = x1 - x0;
     const d = z1 - z0;
     // Each side's benches look *into* the park: south edge faces +Z, north faces −Z, and so on.
-    run(w, (s) => ({ x: x0 + s, z: z0 + walkMid, yaw: 0 }));
-    run(w, (s) => ({ x: x0 + s, z: z1 - walkMid, yaw: Math.PI }));
-    run(d, (s) => ({ x: x0 + walkMid, z: z0 + s, yaw: Math.PI / 2 }));
-    run(d, (s) => ({ x: x1 - walkMid, z: z0 + s, yaw: -Math.PI / 2 }));
+    run(w, (s) => ({ x: x0 + s, z: z0 + benchSet, yaw: 0 }));
+    run(w, (s) => ({ x: x0 + s, z: z1 - benchSet, yaw: Math.PI }));
+    run(d, (s) => ({ x: x0 + benchSet, z: z0 + s, yaw: Math.PI / 2 }));
+    run(d, (s) => ({ x: x1 - benchSet, z: z0 + s, yaw: -Math.PI / 2 }));
 
     // Some of the slots, not all of them: a bench on every one rings the park in furniture and
     // turns the walk into a waiting room. Two or three on a pocket park (4 slots), five or six
@@ -288,24 +295,43 @@ export function createProps(rng, blocks) {
   const clearOfStatue = (x, z) => !statue
     || Math.abs(x - statue.x) > CLEAR || Math.abs(z - statue.z) > CLEAR;
 
+  // And clear of the benches, which now stand on the grass the trees are planted in rather than on
+  // the walk beside it — so the two genuinely compete for ground. The test is in each bench's own
+  // frame rather than a radius, because a bench is 1.9 by 0.65 and a circle big enough to cover its
+  // ends clears half the lawn behind it. Only the **trunk** has to miss: a crown leaning over a
+  // bench is shade, which is what a bench under a tree is for.
+  const BENCH_CLEAR_X = BENCH_LEN / 2 + 0.4;
+  const BENCH_CLEAR_Z = 0.34 + 0.4;
+  const clearOfBenches = (x, z) => benches.every((bench) => {
+    const cos = Math.cos(bench.yaw);
+    const sin = Math.sin(bench.yaw);
+    const dx = x - bench.x;
+    const dz = z - bench.z;
+    return Math.abs(dx * cos - dz * sin) > BENCH_CLEAR_X
+      || Math.abs(dx * sin + dz * cos) > BENCH_CLEAR_Z;
+  });
+
+  const clearOfFurniture = (x, z) => clearOfStatue(x, z) && clearOfBenches(x, z);
+
   // Districts are planted as one area so trees fall across the old road line too — nothing
   // gives away a merged park faster than a treeless stripe down the middle of it.
   for (const plot of plots) {
     const { x0, z0, x1, z1 } = plot.bounds;
     const count = plot.district ? rng.int(11, 16) : rng.int(5, 9);
     for (let i = 0; i < count; i++) {
-      // Rejection rather than a reshaped sampling region: the clearing is a square hole in the
-      // middle of the plot, and a bounded retry says that in one line. A tree that cannot find a
-      // spot in four goes in anyway — a park one tree short of its count is worth less than the
-      // guarantee that this loop always ends.
+      // Rejection rather than a reshaped sampling region: what the planting has to miss is a
+      // square hole in the middle of the plot and a handful of boxes round its edge, and a bounded
+      // retry says that in one line where a sampling region would have to be built out of both.
+      // A tree that cannot find a spot in six is dropped rather than forced — a park one tree
+      // short of its count is cheaper than a trunk through a bench, and either way this loop ends.
       let x = 0;
       let z = 0;
-      for (let attempt = 0; attempt < 4; attempt++) {
+      for (let attempt = 0; attempt < 6; attempt++) {
         x = rng.range(x0 + TREE_MARGIN, x1 - TREE_MARGIN);
         z = rng.range(z0 + TREE_MARGIN, z1 - TREE_MARGIN);
-        if (clearOfStatue(x, z)) break;
+        if (clearOfFurniture(x, z)) break;
       }
-      if (clearOfStatue(x, z)) plant(x, z);
+      if (clearOfFurniture(x, z)) plant(x, z);
     }
   }
 

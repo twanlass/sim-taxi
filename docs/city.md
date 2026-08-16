@@ -98,7 +98,10 @@ by earcut, not laid out in rows.
 
 ### Benches, and one statue
 
-The walk is also what the benches stand on. `planParkFurniture()` in `props.js` spreads slots
+The walk is also what the benches are placed against — **on the lawn, a step inside the paving**
+rather than on it. A bench on the walk's centreline is where a bench in the street goes, but a
+park's walk is a thing you go *round* the park on, and furniture parked in the middle of it reads
+as an obstacle rather than as somewhere to sit. `planParkFurniture()` in `props.js` spreads slots
 evenly along each side of a plot — random points on a 32-unit district side put two benches back to
 back about as often as they put them anywhere useful, and a park is the one place in this city where
 evenly spaced furniture is more truthful than scattered furniture — then takes about half of them,

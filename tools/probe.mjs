@@ -252,12 +252,14 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
 
 // --- Park furniture ---------------------------------------------------------
 //
-// Benches stand on the walk and there is exactly one statue in a city. Both are placement rules
+// Benches stand on the lawn a step off the walk, and there is exactly one statue in a city. Both
+// are placement rules
 // rather than shapes, so they are swept over seeds rather than looked at on this one: a bench half
 // on the grass and a city with three statues in it are each perfectly plausible on the seed you
 // happen to be looking at and wrong on the next one.
 {
-  let offTheWalk = 0;            // benches with any corner off the paving
+  let offTheGrass = 0;           // benches with any corner over the paving
+  let adrift = 0;                // ...or wandered away from the walk into the middle of the lawn
   let facingOut = 0;             // benches with their back to the park
   let overlapping = 0;           // benches sharing a stretch of walk
   let statues = 0;
@@ -287,8 +289,11 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
           nearest = Math.min(nearest, x - x0, x1 - x, z - z0, z1 - z);
         }
       }
-      // Between the kerb's own lip and the grass: every corner on paving.
-      if (nearest < 0.15 || nearest > PARK_EDGE) offTheWalk += 1;
+      // A bench stands on the lawn just inside the walk: every corner past `PARK_EDGE`, and none
+      // of them more than a bench's own depth beyond it. The far bound is the half that would
+      // otherwise go unnoticed — a bench adrift in the middle of a park still passes "on grass".
+      if (nearest < PARK_EDGE) offTheGrass += 1;
+      if (nearest > PARK_EDGE + 1.0) adrift += 1;
 
       // A bench looks into the park. The seat faces local +Z, which yaw turns into the world.
       const look = { x: sin, z: cos };
@@ -318,7 +323,8 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
   // so a sweep leaves the probe's own city replaced by the last one it built.
   createLayout(makeRng(seed));
 
-  check('every park bench stands on the walk', offTheWalk === 0, `${offTheWalk} off the paving`);
+  check('every park bench stands on the grass, just off the walk',
+    offTheGrass === 0 && adrift === 0, `${offTheGrass} on the paving, ${adrift} adrift on the lawn`);
   check('and looks into the park rather than out of it', facingOut === 0, `${facingOut} facing out`);
   check('no two benches share a stretch of walk', overlapping === 0, `${overlapping} pairs closer than a bench`);
   check('exactly one statue in a city', statues === cities, `${statues} across ${cities} cities`);
@@ -331,6 +337,11 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
   // so "what stands here" is a question the mesh itself can answer.
   const ownPlan = planParkFurniture(makeRng(seed + 33), parkPlots(layout));
   const entry = props.geometry.attributes.aEntry;
+  // An anchor comes back out of a Float32Array, so "is this the statue's own geometry" is a
+  // comparison against a rounded copy of the number that went in. It matched by luck at the
+  // statue — 40 and 10 survive float32 exactly — and not at all at a bench on a 0.55 offset,
+  // where every part of the bench then counted as something planted inside itself.
+  const isAt = (ax, az, p) => Math.abs(ax - p.x) < 1e-4 && Math.abs(az - p.z) < 1e-4;
   let inTheClearing = 0;
   if (ownPlan.statue) {
     const clear = STATUE_PLAZA / 2 + 0.7;
@@ -338,11 +349,32 @@ check('some blocks are parks', layout.some((b) => b.type === 'park'),
       const ax = entry.getX(i);
       const az = entry.getY(i);          // the anchor's z rides in the attribute's y
       if (Math.abs(ax - ownPlan.statue.x) > clear || Math.abs(az - ownPlan.statue.z) > clear) continue;
-      if (ax !== ownPlan.statue.x || az !== ownPlan.statue.z) inTheClearing += 1;
+      if (!isAt(ax, az, ownPlan.statue)) inTheClearing += 1;
     }
   }
   check('nothing is planted in the statue\'s clearing', !!ownPlan.statue && inTheClearing === 0,
     ownPlan.statue ? `${inTheClearing} vertices of something else inside it` : 'no statue');
+
+  // Benches share the lawn with the trees now rather than standing on the paving beside it, so the
+  // planting has to miss them too. Same read, in each bench's own frame: an anchor inside a bench's
+  // footprint that isn't that bench's own is a trunk coming up through the seat.
+  let throughASeat = 0;
+  for (const bench of ownPlan.benches) {
+    const cos = Math.cos(bench.yaw);
+    const sin = Math.sin(bench.yaw);
+    for (let i = 0; i < entry.count; i++) {
+      const ax = entry.getX(i);
+      const az = entry.getY(i);
+      if (isAt(ax, az, bench)) continue;
+      const dx = ax - bench.x;
+      const dz = az - bench.z;
+      if (Math.abs(dx * cos - dz * sin) < BENCH_LEN / 2 && Math.abs(dx * sin + dz * cos) < 0.34) {
+        throughASeat += 1;
+      }
+    }
+  }
+  check('and nothing stands in a bench', throughASeat === 0,
+    `${throughASeat} vertices anchored inside one across ${ownPlan.benches.length} benches`);
 }
 
 // --- Façades ----------------------------------------------------------------

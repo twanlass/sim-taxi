@@ -75,7 +75,7 @@ function roundedPaint(w, d, x, z, col, y) {
 // 1.0 unit ≈ 8px at play zoom, which is a band you can see. It is also a shade wider than the 0.7
 // a built block shows between its kerb and its building line (`INSET` 0.85 in buildings.js): a
 // park's frontage has no wall standing on it to widen it, so matched exactly it read as a hairline.
-export const PARK_WALK = 1.0;
+const PARK_WALK = 1.0;
 
 // How far the grass sits inside the block's own bounds — the kerb's 0.15 plus the walk. Exported
 // because the flock walks on the grass and the trees are planted in it, and both used to derive
