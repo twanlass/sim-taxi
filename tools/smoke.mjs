@@ -998,6 +998,62 @@ try {
     await evaluate('window.__taxi.scores.clear()');
   }
 
+  // --- A Loco Mode tuning survives a reload, and only under `?debug`.
+  //
+  // `tools/probe.mjs` drives `game/locostash.js` against a fake store, so the storage behaviour is
+  // covered. What only a browser can prove is the half that lives in main.js: that a stash written
+  // on one load is applied on the next, and — the one that matters — that it is *not* applied
+  // without `?debug`. A wreck ends the run and Retry is a page reload, so this is the path a
+  // tuning session actually takes, and the gate is what keeps a 170 u/s taxi out of an ordinary
+  // run whose score goes on the table.
+  {
+    const boot = async (query) => {
+      await client.send('Page.navigate', { url: `${baseUrl}${query}` });
+      const deadline = Date.now() + 20000;
+      while (Date.now() < deadline) {
+        if (await evaluate('Boolean(window.__taxi?.loco)').catch(() => false)) return true;
+        await sleep(300);
+      }
+      return false;
+    };
+
+    const up = await boot('?debug');
+    // A tuning nothing else would produce, so a "restored" reading cannot be the defaults in
+    // disguise. Written through the same handle the panel's sliders use.
+    if (up) {
+      await evaluate(`(() => {
+        window.__taxi.loco.set({ overdriveSpeed: 3.9, accel: 41 });
+        window.__taxi.loco.save();
+      })()`);
+    }
+    check('a Loco tuning lands in real localStorage', up
+      && (await evaluate('JSON.parse(localStorage.getItem("simtaxi.loco.v1")).overdriveSpeed')) === 3.9,
+      up ? 'stashed' : 'page never came back');
+
+    const back = await boot('?debug');
+    const restored = back ? await evaluate('window.__taxi.loco.get()') : null;
+    check('and is applied on the next load under ?debug',
+      restored?.overdriveSpeed === 3.9 && restored?.accel === 41,
+      JSON.stringify(restored));
+
+    const plain = await boot('');
+    const shipped = plain ? await evaluate('window.__taxi.loco.get()') : null;
+    const defaults = plain ? await evaluate('window.__taxi.loco.defaults') : null;
+    check('but never without it — an ordinary run is the shipped game',
+      JSON.stringify(shipped) === JSON.stringify(defaults),
+      JSON.stringify(shipped));
+    // The stash is still there; a load without ?debug must not have cleared it either, or the
+    // gate would be "forget on sight" rather than "ignore".
+    check('and the stash is left intact for the next debug session',
+      (await evaluate('JSON.parse(localStorage.getItem("simtaxi.loco.v1")).overdriveSpeed')) === 3.9,
+      'kept');
+
+    // Leave nothing behind, and leave the page where the checks below expect it: freshly booted
+    // on the plain URL, same as the score check above left it.
+    await evaluate('localStorage.removeItem("simtaxi.loco.v1")');
+    await boot('');
+  }
+
   // --- The spacebar holds Loco Mode.
   //
   // Here rather than in the node suite because the whole feature is key plumbing: `boost.press()`

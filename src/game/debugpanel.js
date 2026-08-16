@@ -63,8 +63,11 @@ export function createDebugPanel({
   loco = {
     defaults: { kick: 1, speed: 1, accel: 1, overdriveSpeed: 1, overdriveAccel: 1, brake: 1 },
     get: () => ({ ...loco.defaults }), set: () => {}, reset: () => {},
-    ramp: () => [{ s: 0, t: 0, v: 0 }],
+    ramp: () => [{ s: 0, t: 0, v: 0 }], save: () => false,
   },
+  // Whether the Loco sliders opened on a tuning restored from a previous session, rather than on
+  // the shipped defaults. Only affects what the line under the Reset button says.
+  locoRestored = false,
 }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
@@ -295,6 +298,37 @@ export function createDebugPanel({
 
   const locoLevers = [];
 
+  // What the tuning is doing about surviving a reload. A wreck ends the run and Retry is a page
+  // reload, so without this the sliders go back to shipped at exactly the moment somebody is most
+  // likely to be mid-experiment — you crank the ceiling, crash *because* you cranked it, and start
+  // again. The line reports rather than promises: storage can be refused (Safari private mode
+  // throws on the write while reporting a healthy object), and a panel that claims a save that
+  // didn't happen is worse than one that says nothing.
+  const stashNote = document.createElement('p');
+  stashNote.className = 'dbg-note';
+
+  const atDefaults = () => Object.keys(loco.defaults)
+    .every((key) => loco.get()[key] === loco.defaults[key]);
+
+  let stashSaved = true;
+
+  function showStash(restored = false) {
+    if (atDefaults()) {
+      stashNote.textContent = restored ? 'restored · shipped values' : 'shipped values';
+    } else if (stashSaved) {
+      stashNote.textContent = restored
+        ? 'restored from your last session · survives a reload'
+        : 'saved · survives a reload';
+    } else {
+      stashNote.textContent = 'not saved — storage unavailable';
+    }
+  }
+
+  const saveLoco = () => {
+    stashSaved = loco.save();
+    showStash();
+  };
+
   /** One knob: applies live on input, repaints the curve, and reports what it just bought. */
   function locoLever(label, key, min, max, step, show) {
     const el = slider(min, max, step, loco.get()[key]);
@@ -312,6 +346,10 @@ export function createDebugPanel({
       sync();
       paintRamp();
     });
+    // Stashed on release rather than on every input. A drag fires `input` per pixel, and
+    // `localStorage.setItem` is synchronous — writing the whole tuning a hundred times across one
+    // slider drag is the kind of thing that makes a tuning panel feel worse the more it does.
+    el.addEventListener('change', saveLoco);
     sync();
     locoLevers.push(sync);
   }
@@ -353,10 +391,15 @@ export function createDebugPanel({
     loco.reset();
     for (const sync of locoLevers) sync();
     paintRamp();
+    // Clears the stash too — `loco.save()` forgets rather than writes once the tuning is back to
+    // shipped, so Reset survives a reload exactly as surely as a tweak does. A reset that came
+    // back undone on the next crash would be the worst of both.
+    saveLoco();
   });
-  panel.append(resetLoco);
+  panel.append(resetLoco, stashNote);
 
   paintRamp();
+  showStash(locoRestored);
 
   // --- City entrance ----------------------------------------------------------
   // The opening rise-out-of-the-ground animation (game/cityentry.js). All five are live — the

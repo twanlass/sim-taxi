@@ -2190,3 +2190,8 @@ Pretending a rebuild-only value is live would just show a slider that silently d
 Touching any lighting control stops the day cycle, rather than letting the next frame overwrite the
 change. **Copy settings JSON** exports the live values (not the slider positions, so manual
 overrides are captured) for pasting back as new defaults.
+
+Nothing here persists across a reload **except** the Loco Mode tuning, which is stashed in
+`localStorage` and restored on the next `?debug` load — see
+[traffic.md](traffic.md#the-tuning-survives-a-crash) for why that one is worth keeping and why the
+gate matters.

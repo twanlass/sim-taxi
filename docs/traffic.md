@@ -645,6 +645,36 @@ thinks it is going.
 `__taxi.loco.set({ overdriveSpeed: 60 })` is 510 u/s. `setLocoTuning` takes any finite positive
 number and there is nothing to protect — a silly number makes a silly game, which is the point.
 
+#### The tuning survives a crash
+
+`game/locostash.js` keeps it in `localStorage`. A wreck ends the run and Retry is
+`location.reload()`, which is precisely the moment a tuning session gets interrupted: you crank the
+ceiling, crash *because* you cranked it, and the sliders are back to shipped. Two of those is about
+as much re-dragging as anyone will do.
+
+Written on slider **release** rather than on input — a drag fires `input` per pixel and
+`setItem` is synchronous. Reset clears the stash rather than writing the defaults into it, so a
+reset survives a reload as surely as a tweak does. The line under the Reset button reports what
+storage actually did (`saved`, `restored from your last session`, or `not saved — storage
+unavailable`) rather than promising it: Safari's private mode throws on the *write* while reporting
+a healthy store, and a panel that claims a save that didn't happen is worse than one that says
+nothing.
+
+**It is only ever restored under `?debug`.** That gate lives in `main.js` and it is the whole
+reason the stash is safe to have. Without the panel on screen nothing tells you the game is not the
+game, so a leftover tuning would make an ordinary run silently unlike everyone else's — and put its
+score on the table. Shot mode is excluded from the other end, since a screenshot has to be of the
+shipped build. A load without `?debug` *ignores* the stash rather than clearing it, so the next
+debug session still has it.
+
+The restore runs before `traffic.warmup(10)`, so the ten sim-seconds of warmup drive on the same
+numbers the rest of the page will.
+
+`tools/probe.mjs` drives the stash against a fake store — the corrupt payload, the store that
+throws on read, the one that throws on write. `tools/smoke.mjs` covers the half only a browser can
+prove: that a stash written on one load is applied on the next, that it is *not* applied without
+`?debug`, and that an ordinary load leaves it intact.
+
 **It stays in its lane and weaves inside it.** The first version slid a full `LANE` out onto the
 road centreline to overtake, and that is what made the mode a lottery: on the centreline the taxi
 sits 2 units from a same-direction leader and 2 from oncoming traffic, while the collision envelope

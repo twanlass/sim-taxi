@@ -18,6 +18,7 @@ import {
 import { createProps } from '../src/city/props.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT } from '../src/sim/traffic.js';
+import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
@@ -5306,6 +5307,70 @@ check('the taxi is an ordinary car in the traffic array',
   resetLocoTuning();
   check('and the tuning is back to shipped for the rest of the suite',
     overdriveTop() === SPEED * 2.7, `${overdriveTop().toFixed(2)} u/s`);
+}
+
+// --- The Loco tuning stash --------------------------------------------------
+//
+// A wreck ends the run and Retry is a page reload, so a tuning that doesn't persist is one you
+// re-drag every couple of crashes. `game/locostash.js` keeps it in `localStorage`, and the store
+// is injectable precisely so the cases a browser never reaches can be driven here: a store that
+// throws on the property access, one that throws on the write, and a payload that has been outside
+// the program since it was written.
+//
+// The gate that actually matters — restore only under `?debug` — lives in main.js and is asserted
+// by `tools/smoke.mjs`, since it is a fact about how the page boots rather than about the module.
+{
+  const fake = (over = {}) => {
+    const map = new Map();
+    return {
+      getItem: (k) => map.get(k) ?? null,
+      setItem: (k, v) => map.set(k, String(v)),
+      removeItem: (k) => map.delete(k),
+      ...over,
+    };
+  };
+
+  const store = fake();
+  const tuning = { kick: 2.5, speed: 4, accel: 90, overdriveSpeed: 6, overdriveAccel: 30, brake: 40 };
+  check('a tuning round-trips through the stash',
+    saveLocoTuning(tuning, store)
+    && JSON.stringify(loadLocoTuning(store)) === JSON.stringify(tuning),
+    JSON.stringify(loadLocoTuning(store)));
+
+  // The panel writes whole tunings, but the console can write one knob, and an old version of the
+  // game could have written keys this one has never heard of.
+  const partial = fake();
+  saveLocoTuning({ speed: 3, nonsense: 7, brake: 'fast', kick: -1, accel: Infinity }, partial);
+  check('the stash keeps only knobs that exist, with usable numbers',
+    JSON.stringify(loadLocoTuning(partial)) === JSON.stringify({ speed: 3 }),
+    JSON.stringify(loadLocoTuning(partial)));
+
+  check('a tuning with nothing usable in it is not written at all',
+    saveLocoTuning({ speed: NaN }, fake()) === false, 'refused');
+
+  const corrupt = fake();
+  corrupt.setItem('simtaxi.loco.v1', '{"speed":');
+  check('a half-written payload reads as no stash', loadLocoTuning(corrupt) === null, 'null');
+
+  const notObject = fake();
+  notObject.setItem('simtaxi.loco.v1', '42');
+  check('and so does a payload that is not an object', loadLocoTuning(notObject) === null, 'null');
+
+  // Safari's private mode throws on the *write* while reporting a perfectly good object; blocked
+  // third-party storage throws on the read. Neither may take the game down — the panel says
+  // "not saved" and carries on.
+  const deadRead = fake({ getItem: () => { throw new Error('SecurityError'); } });
+  check('a store that throws on read degrades to no stash',
+    loadLocoTuning(deadRead) === null, 'null');
+  const deadWrite = fake({ setItem: () => { throw new Error('QuotaExceededError'); } });
+  check('a store that throws on write reports the failure rather than throwing',
+    saveLocoTuning(tuning, deadWrite) === false, 'false');
+  check('and a store that throws on clear does the same',
+    clearLocoTuning(fake({ removeItem: () => { throw new Error('nope'); } })) === false, 'false');
+
+  clearLocoTuning(store);
+  check('clearing the stash forgets it', loadLocoTuning(store) === null, 'null');
+  check('a missing store is simply no stash', loadLocoTuning(null) === null, 'null');
 }
 
 // --- The Loco Mode meter ----------------------------------------------------
