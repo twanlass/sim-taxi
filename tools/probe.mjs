@@ -16,7 +16,7 @@ import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
 } from '../src/city/buildings.js';
 import { createProps } from '../src/city/props.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W } from '../src/sim/traffic.js';
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, BOOST_CRUISE, SPAWN_CLEARANCE } from '../src/sim/traffic.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
@@ -66,7 +66,7 @@ import {
   GHOST_MASK_ORDER, GHOST_RIM_ORDER, CAR_GHOST_MASK_ORDER, CAR_GHOST_RIM_ORDER,
 } from '../src/geometry/ghostoutline.js';
 import {
-  createCarGhosts, GHOST_RADIUS, MAX_GHOSTS, GHOST_OPACITY,
+  createCarGhosts, GHOST_RADIUS, MAX_GHOSTS, GHOST_OPACITY, FADE_BAND,
 } from '../src/game/carghosts.js';
 import { createCityCamera, attachDragPan, frameLead, VIEW_DIR } from '../src/game/camera.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
@@ -5728,6 +5728,46 @@ check('the taxi is an ordinary car in the traffic array',
 
   check('car ghosts fade up while boosting', ghosts.state.strength === 1 && ghosts.state.active > 0,
     `${ghosts.state.active} cars ghosted`);
+
+  // The radius is a *warning time* written down as a distance, and the figure that matters is the
+  // fully-lit one: a ghost inside FADE_BAND of the edge is nearly transparent, which is not a
+  // warning. Asserted against boost speed rather than left as a bare 42, because the bare number
+  // is what quietly went stale last time — at 30 a car hidden behind a tower lit up 1.3s out at
+  // Loco cruise and 1.05s in overdrive, which is after the player has committed to the junction.
+  // The failure was reported as "cars behind buildings sometimes have no outline"; they had none
+  // because they were 30-odd units away and the horizon stopped there.
+  const litSeconds = (GHOST_RADIUS - FADE_BAND) / BOOST_CRUISE;
+  check('the ghost horizon is a reaction window, not a braking distance', litSeconds >= 1.8,
+    `${litSeconds.toFixed(2)}s at full opacity, ${(GHOST_RADIUS / BOOST_CRUISE).toFixed(2)}s to the edge`);
+
+  // The cap must stay a rail. Eviction drops the *farthest* vehicle, and farthest is not safest —
+  // the car two junctions out is exactly what the widened radius is there to show — so the moment
+  // the cap starts binding it is silently undoing the horizon above. At radius 42 with the old cap
+  // of 8 a genuinely hidden vehicle was dropped on 5.5% of frames; this is what would catch the
+  // radius growing again without it.
+  let peakInRange = 0;
+  for (let f = 0; f < 900; f++) {
+    runFrames(1);
+    let n = 0;
+    for (const car of [...gTraffic.ambient, ...gTraffic.trucks]) {
+      if (car.crashed) continue;
+      if (Math.hypot(car.x - gTraffic.taxi.x, car.z - gTraffic.taxi.z) <= GHOST_RADIUS) n++;
+    }
+    if (n > peakInRange) peakInRange = n;
+  }
+  check('the cap never becomes the filter', peakInRange <= MAX_GHOSTS,
+    `peak ${peakInRange} vehicles in range over 15s of boosting, cap ${MAX_GHOSTS}`);
+
+  // The horizon has a ceiling, and it is the spawn clearance. A mid-run arrival appears at least
+  // SPAWN_CLEARANCE from the taxi; if the ghost radius ever reached that, a car would materialise
+  // already wearing an outline — a ghost blinking into existence beside the taxi, with no vehicle
+  // having driven into view — which is indistinguishable from the outline bug this whole module
+  // exists to prevent. Measured on the current pair: no spawn lands inside the radius, the nearest
+  // 52.6 units out, and the margin is 8 units (0.43s at BOOST_CRUISE). Raising one means raising
+  // the other first.
+  check('a car can never spawn inside the ghost horizon', GHOST_RADIUS < SPAWN_CLEARANCE,
+    `radius ${GHOST_RADIUS} under a spawn clearance of ${SPAWN_CLEARANCE},`
+    + ` ${((SPAWN_CLEARANCE - GHOST_RADIUS) / BOOST_CRUISE).toFixed(2)}s of margin`);
 
   // Nearest-first, radius-limited, capped — recomputed by brute force and compared. This is what
   // catches a selection that quietly degrades into "whichever cars the loop reached first".
