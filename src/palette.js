@@ -19,9 +19,8 @@ export const PALETTE = {
   // computes this and what keeps it in step with the sky all day. Deliberately **not** `skyBottom`,
   // which is where it started: that near-white has 27 points of spread between its channels, and a
   // haze with no chroma of its own can only take chroma away — the far city came out grey rather
-  // than distant. This is the same sky sampled above the skyline with its saturation given back:
-  // 75 points of spread, the same hue.
-  fog: '#AEDCF9',
+  // than distant. This is `skyTop` at full saturation: the same hue, 181 points of spread.
+  fog: '#4AC6FF',
 
   sun: '#FFDEBB',
   hemiSky: '#F0C79B',

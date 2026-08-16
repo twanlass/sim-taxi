@@ -381,13 +381,14 @@ Two things fall out of the fixed camera and make this better behaved than fog us
   zoom, whatever the player has panned to. Anchoring `near` there means the near edge of the picture
   is clear on every viewport and at any pan, and the haze can never creep forward onto the taxi.
 
-`HAZE_TOP = 0.22` is the mix at the **top of the play frame**, and `hazeRange()` derives the two
-planes from it by inverting smoothstep — `far` comes out at 847, which is a ramp length rather than
-a distance anything is drawn at. Tuned against the city rather than by eye in a close-up: the top of
-the frame is at depth 480 and the far corner of the map at 465, so the frame edge is very nearly the
-haziest thing there can ever be (the corners measure 0.172). On asphalt 0.22 is #636972 → #7E8690 —
-a value shift that reads as distance rather than as a colour change. Past about 0.3 the back of the
-city starts reading as *weather*.
+`HAZE_TOP = 0.17` is the mix at the **top of the play frame**, and `hazeRange()` derives the two
+planes from it by inverting smoothstep — `far` is a ramp length rather than a distance anything is
+drawn at. Tuned against the city rather than by eye in a close-up: the top of the frame is at depth
+480 and the far corner of the map at 465, so the frame edge is very nearly the haziest thing there
+can ever be (the corners measure 0.132, 0.78 of it). It came down from 0.22 when the colour stopped
+being a near-white, and the two trade against each other for exactly that reason: a wash with no
+chroma has to be laid on thickly before it says anything, while a fully saturated sky blue says it
+at less. Past about 0.3 the back of the city starts reading as *weather*.
 
 **Linear, not `FogExp2`.** Exponential fog is a distance from the eye and this eye is 400 units from
 everything: any density strong enough to read across the city also puts a few percent of wash on the
@@ -404,38 +405,51 @@ which is the cue running backwards.
 
 **It is not the horizon**, which is what this shipped as first and what got reported as "reads as
 pure grey". `skyBottom` is #DCEDF7, a near-white — 27 points of spread between its highest and lowest
-channel, deliberately so ("going paler, not white"). Mixed 0.22 into `concrete`, the commonest façade
+channel, deliberately so ("going paler, not white"). Mixed at the 0.22 the haze then carried, into
+`concrete`, the commonest façade
 in the city, that lands on #C0C1BC: **5 points of spread**, which is neutral grey. A haze with no
 chroma of its own can only take chroma *away*. That is a value wash, and a value wash is half of
 atmospheric perspective with the recognisable half missing.
 
 Two steps, both about getting chroma back:
 
-- **Sample the dome above the skyline.** `HAZE_SKY_H = 0.35` reads the sky dome's own gradient — the
-  same `pow(h, SKY_EXPONENT)` curve the shader runs, which is why that exponent is exported — rather
-  than taking its bottom colour flat. The horizon band is the *least* chromatic part of any sky,
-  being where multiple scattering has washed the blue back out, and a column of air seen from 400
-  units up a 33° diagonal is not that band. 0.35 rather than higher because of dusk: at 18:36 the
-  dome runs orange at the bottom to deep blue at the top, and sampling at 0.5 lands on a #A87 mauve.
-  The sunset haze has to be the sunset's own colour.
-- **Give the chroma back.** Saturation ×1.4 in the working space with the hue untouched, so every
-  hour keeps its own colour and only the strength of it moves. HSL→RGB cannot leave the cube for any
-  saturation ≤ 1, so this can't clip a channel or bend a hue.
+- **Sample the dome high.** `HAZE_SKY_H = 1.0` reads the sky dome's own gradient — the same
+  `pow(h, SKY_EXPONENT)` curve the shader runs, which is why that exponent is exported — instead of
+  taking its bottom colour flat. The horizon band is the *least* chromatic part of any sky, being
+  where multiple scattering has washed the blue back out, and a column of air seen from 400 units up
+  a 33° diagonal is not that band. At 1.0 the sample is the **zenith** exactly: `pow(1, exponent)` is
+  1, the lerp is a no-op, and the haze is `skyTop`.
+- **Give the chroma back.** Saturation lifted in the working space with the hue untouched, so a
+  change here can only restate the sky's own colour more strongly. HSL→RGB cannot leave the cube for
+  any saturation ≤ 1, so this can't clip a channel or bend a hue.
+
+**×2.5 is past the clamp, deliberately.** `skyTop` measures 0.585 saturation at the parked hour where
+`getHSL` measures, so anything from ×1.71 up pins to fully saturated — 1.8, 2.0 and 2.5 all give the
+same `#4AC6FF`. The effective rule is "take the sky's top colour to full saturation", and the number
+is a ceiling rather than a multiplier: to see it move you have to come *down* past 1.7, not up.
 
 | | 06:30 | 09:00 | 16:24 | 18:36 | 00:00 |
 |---|---|---|---|---|---|
 | horizon | `#F0B080` | `#CFE0EA` | `#DCEDF7` | `#F09A60` | `#16202E` |
-| haze | `#BE8E87` | `#99C5E6` | `#AEDCF9` | `#C17059` | `#08192B` |
+| haze | `#0069AA` | `#009EE0` | `#4AC6FF` | `#004788` | `#001024` |
+
+**The trade-off, stated plainly: at `skyH` 1.0 the haze no longer tracks a sunset.** At 18:36 the dome
+runs orange at the bottom and deep blue at the top, so the zenith sample gives `#004788` — the far
+city goes blue while the horizon behind it is still orange, which inverts what air actually does at
+dusk. It is accepted because **the shipped look is 16:24 with the cycle off**, where the zenith
+sample is the whole point: it is what takes the haze from a grey wash to `#4AC6FF`. Anyone turning
+the cycle on who wants dusk back has one slider to move — Sky sample down to ~0.35 restores a warm
+`#D05600` there, at the parked hour's expense. The probe pins both halves of that.
 
 Measured on a rendered shot, as mean blue-minus-red per band — the near/far *difference* is what
 atmospheric perspective actually is, and raw chroma is the wrong metric because a warm city mixed
 toward blue passes through neutral on the way:
 
-| | no haze | horizon haze | this |
-|---|---|---|---|
-| far band | −18.8 | −12.5 | **−6.7** |
-| near band | −17.9 | −17.4 | −16.8 |
-| separation | −1.0 | +4.8 | **+10.1** |
+| | no haze | horizon haze | zenith @ 0.22 | shipped @ 0.17 |
+|---|---|---|---|---|
+| far band | −18.8 | −12.5 | −6.7 | **+0.3** |
+| near band | −17.9 | −17.4 | −16.8 | −16.3 |
+| separation | −1.0 | +4.8 | +10.1 | **+16.6** |
 
 `PALETTE.fog` is the parked 16:24 answer, and what a scene built without a daylight module keeps.
 
@@ -480,9 +494,9 @@ watch the front stay put while the back moves.
 
 | Control | Writes | Range |
 |---|---|---|
-| **Strength** | `HAZE_TOP` via `setHazeTop()` | 0 – 0.5, default 0.22 |
-| **Sky sample** | `hazeTuning.skyH` | 0 (horizon) – 1 (overhead), default 0.35 |
-| **Chroma** | `hazeTuning.saturation` | 1 – 2.5, default 1.4 |
+| **Strength** | `HAZE_TOP` via `setHazeTop()` | 0 – 0.5, default 0.17 |
+| **Sky sample** | `hazeTuning.skyH` | 0 (horizon) – 1 (overhead), default 1.0 |
+| **Chroma** | `hazeTuning.saturation` | 1 – 2.5, default 2.5 (past the clamp) |
 | **Haze colour** | *readout* | the derived hex, for pasting into `PALETTE.fog` |
 
 The two colour knobs live on the exported `hazeTuning` object rather than as constants, which is

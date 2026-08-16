@@ -78,11 +78,14 @@ function createSky() {
  *
  * Tuned against the city rather than by eye on a close-up: at play zoom the top of the frame sits at
  * depth 480 and the far corner of the map at 465, so this is very nearly the most haze anything in
- * the city can ever be wearing. On asphalt it is #636972 → #7E8690 — a value shift you read as
- * distance and not as a colour change. Past about 0.3 the back of the city starts reading as
- * *weather* rather than as air, which is a different game.
+ * the city can ever be wearing.
+ *
+ * It came down from 0.22 when the colour stopped being a near-white (see below). The two trade
+ * against each other and that is the whole reason: a wash with no chroma has to be laid on thickly
+ * before it says anything, while a fully saturated sky blue says it at less. Past about 0.3 the back
+ * of the city reads as *weather* rather than as air, which is a different game.
  */
-export const HAZE_TOP = 0.22;
+export const HAZE_TOP = 0.17;
 
 /** Inverse of `smoothstep(0, 1, t)`, which is the curve three's linear fog mixes on. */
 const unSmoothstep = (y) => 0.5 - Math.sin(Math.asin(1 - 2 * y) / 3);
@@ -111,31 +114,44 @@ export function hazeRange(top = HAZE_TOP, zoom = PLAY_ZOOM) {
 // **Not the horizon**, which is what this shipped as first and what made the far city read as
 // black-and-white rather than as distance. `skyBottom` is #DCEDF7: a near-white with 27 points of
 // spread between its highest and lowest channel, deliberately so (see palette.js — "going paler,
-// not white"). Mixed 0.22 into `concrete`, the commonest façade in the city, it lands on #C0C1BC —
+// not white"). Mixed at the 0.22 the haze then carried into `concrete`, the commonest façade in the
+// city, it lands on #C0C1BC —
 // **5 points of spread**, which is neutral grey. A haze with no chroma of its own can only take
 // chroma *away*: it is a value wash, and a value wash is half of atmospheric perspective with the
 // recognisable half missing.
 //
 // So the colour is built in two steps, and both are about getting chroma back:
 //
-//   - **Sample the dome higher than the skyline.** `HAZE_SKY_H` reads the sky dome's own gradient
-//     (the same `pow(h, exponent)` curve the shader runs, hence SKY_EXPONENT being exported) rather
-//     than taking its bottom colour flat. There is a physical argument as well as a visual one: the
-//     horizon band is the *least* chromatic part of any sky — it is where multiple scattering has
-//     washed the blue back out — and a column of air seen from 400 units up a 33° diagonal is not
-//     that band. 0.35 rather than higher because of dusk: at 18:36 the dome runs orange at the
-//     bottom to deep blue at the top, and sampling at 0.5 lands on #A87 mauve — the sunset haze has
-//     to stay the sunset's own colour.
-//   - **Give the chroma back.** Saturation ×1.4 in the working space, hue untouched, so every hour
-//     keeps its own hue and only the strength of it moves: 16:24 goes #DCEDF7 → #AEDCF9 (spread 27
-//     → 75) and 18:36 stays warm at #C17059. HSL→RGB cannot leave the cube for any saturation ≤ 1,
-//     so this cannot clip a channel or bend a hue; the night keyframes just go deeper navy.
+//   - **Sample the dome high.** `HAZE_SKY_H` reads the sky dome's own gradient — the same
+//     `pow(h, exponent)` curve the shader runs, hence SKY_EXPONENT being exported — instead of
+//     taking its bottom colour flat. There is a physical argument as well as a visual one: the
+//     horizon band is the *least* chromatic part of any sky, being where multiple scattering has
+//     washed the blue back out, and a column of air seen from 400 units up a 33° diagonal is not
+//     that band. At **1.0** the sample is the zenith exactly, `pow(1, exponent)` being 1, so the
+//     lerp is a no-op and the haze is simply `skyTop` — see the trade-off below.
+//   - **Give the chroma back.** Saturation lifted in the working space with the **hue untouched**,
+//     so a change here can only ever restate the sky's own colour more strongly. HSL→RGB cannot
+//     leave the cube for any saturation ≤ 1, so this can't clip a channel or bend a hue.
 //
-// Measured on the same 0.22 mix: asphalt goes from 19 points of spread to 36 and flips *cool*,
-// which is the whole effect — the back of the city is now a different colour from the front, not
-// just a lighter one.
-export const HAZE_SKY_H = 0.35;
-export const HAZE_SATURATION = 1.4;
+// **×2.5 is past the clamp, and deliberately.** `skyTop` at the parked hour measures 0.585
+// saturation where getHSL measures, so anything from ×1.71 up pins to fully saturated and 1.8, 2.0
+// and 2.5 all give the same #4AC6FF. The effective rule is therefore "take the sky's top colour to
+// full saturation", and the number is a ceiling rather than a multiplier. Worth knowing before
+// nudging it: to see this move at all you have to come *down* past 1.7, not up.
+//
+// **The trade-off, stated plainly: at skyH 1.0 the haze no longer tracks a sunset.** The dome runs
+// orange at the bottom and deep blue at the top at 18:36, so sampling the zenith gives #004788 —
+// the far city goes blue while the horizon behind it is still orange. That is a real inversion of
+// what air does at dusk, and it is accepted because **the shipped look is 16:24 with the cycle
+// off** (game/daylight.js), where the zenith sample is the whole point: it is what takes the haze
+// from a grey wash to #4AC6FF. Anyone who turns the cycle on and wants dusk back has one slider to
+// move — Sky sample down to ~0.35 restores a warm #C17059 there, at the cost of the parked hour.
+//
+// Measured at the shipped 0.17: asphalt #636972 → #5F7F97, which is 56 points of blue-over-red
+// against the bare road's 15, and concrete lands cool for the first time. The back of the city is
+// now a different *colour* from the front, not just a lighter one.
+export const HAZE_SKY_H = 1.0;
+export const HAZE_SATURATION = 2.5;
 
 /**
  * The two colour knobs as live state rather than constants, because both of them are judgements

@@ -5724,9 +5724,13 @@ check('the taxi is an ordinary car in the traffic array',
   for (const x of [-HALF_SPAN, HALF_SPAN]) {
     for (const z of [-HALF_SPAN, HALF_SPAN]) worst = Math.max(worst, hazeAt(home, world.fog, x, 0, z));
   }
+  // Both bounds stated *relative to HAZE_TOP*, which is the point: the corner has to sit inside the
+  // band the constant is declared about, and it has to be a real fraction of it rather than a
+  // rounding error. An absolute floor here went red the first time the strength was retuned, which
+  // is a check reporting its own staleness rather than a fact about the city.
   check('no corner of the city is hazier than the frame edge it was tuned against',
-    worst > 0.15 && worst <= HAZE_TOP,
-    `worst corner ${worst.toFixed(3)} against ${HAZE_TOP}`);
+    worst > HAZE_TOP * 0.6 && worst <= HAZE_TOP,
+    `worst corner ${worst.toFixed(3)}, ${(worst / HAZE_TOP).toFixed(2)} of the frame edge's ${HAZE_TOP}`);
 
   // The wreck close-up (zoom 26) and the far end of the wheel. A frame that spans less depth gets
   // less haze across it, which is what a shorter column of air should do — and the ramp must not
@@ -5795,8 +5799,6 @@ check('the taxi is an ordinary car in the traffic array',
         worstChromaRatio = Math.min(worstChromaRatio, spread(fog) / Math.max(1, horizonChroma));
       }
       darkest = Math.min(darkest, (fog.getHSL(hsl), hsl.l));
-      // 18:36 is the one hour where sampling the dome any higher would swap the sunset for the deep
-      // blue above it. The haze at dusk is the sunset's own colour or it is wrong.
       if (hour === 18.6) duskWarm = fog.r > fog.b;
     }
     check('the haze is built from the sky, hue for hue, at every hour of the day',
@@ -5805,8 +5807,24 @@ check('the taxi is an ordinary car in the traffic array',
       leastChroma > 30 && worstChromaRatio > 1.25,
       `least spread ${leastChroma} of 255; `
       + `${worstChromaRatio.toFixed(2)}x the horizon wherever the horizon is itself near-neutral`);
-    check('a dusk haze is the dusk, not the blue above it',
-      duskWarm, 'warm at 18:36');
+    // **The dusk trade-off, pinned rather than asserted away.** At the shipped `skyH` of 1.0 the
+    // sample is the zenith, and at 18:36 the dome runs orange at the bottom to deep blue at the
+    // top — so the haze there is blue while the horizon behind it is still orange, which is an
+    // inversion of what air does at dusk. It is accepted because the shipped look is 16:24 with
+    // the cycle off, where the zenith sample is the whole point. What this checks is that the
+    // escape hatch is real and is one slider away: Sky sample down to 0.35 has to bring the warmth
+    // back. If a future tuning makes dusk warm by default this goes red — correctly, because the
+    // note above it would then be describing a game that no longer exists.
+    daylight.apply(18.6);
+    const duskZenith = dayWorld.fog.color.clone();
+    hazeTuning.skyH = 0.35;
+    const duskLower = hazeColor(
+      dayWorld.sky.uniforms.topColor.value, dayWorld.sky.uniforms.bottomColor.value,
+    );
+    hazeTuning.skyH = HAZE_SKY_H;
+    check('the zenith sample costs the sunset its warmth, and Sky sample buys it back',
+      !duskWarm && duskZenith.b > duskZenith.r && duskLower.r > duskLower.b,
+      `zenith #${duskZenith.getHexString()} cool, 0.35 #${duskLower.getHexString()} warm`);
     check('a night haze is dark rather than a pale wash over a dark city',
       darkest < 0.12, `darkest lightness ${darkest.toFixed(3)}`);
     // The two colour knobs have to stay *live* state, not constants folded back into hazeColor():
