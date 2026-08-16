@@ -5450,6 +5450,44 @@ check('the taxi is an ordinary car in the traffic array',
   }
   resetLocoTuning();
 
+  // **Zero is a setting, not a refusal.** The amplitude sliders reach 0 because switching the
+  // wander off is how you look at the mode without it — but `setLocoTuning` treated every
+  // non-positive number as "no opinion", so dragging either to zero was silently ignored and the
+  // taxi went on weaving. The two knobs where zero means something are the two amplitudes; a
+  // wavelength of zero divides by zero inside `locoWeave`, and a `fade` of zero puts a NaN in the
+  // envelope, so those still refuse it.
+  setLocoTuning({ sway: 0, chop: 0 });
+  {
+    let peak = 0;
+    for (let u = 0; u < 200; u += 0.05) peak = Math.max(peak, Math.abs(locoWeave(u).lateral));
+    check('the weave can be switched off', locoTuning().sway === 0 && peak === 0,
+      `sway ${locoTuning().sway}, peak ${peak}`);
+  }
+  resetLocoTuning();
+  setLocoTuning({ swayWave: 0, chopWave: 0, fade: 0, speed: 0, brake: 0 });
+  check('but a zero divisor is still refused',
+    locoTuning().swayWave === 18 && locoTuning().chopWave === 9.5 && locoTuning().fade === 7
+    && locoTuning().speed === 2.6 && locoTuning().brake === 17.5,
+    `${locoTuning().swayWave}/${locoTuning().chopWave}, fade ${locoTuning().fade}`);
+  setLocoTuning({ sway: -1 });
+  check('and so is a negative amplitude', locoTuning().sway === LOCO_DEFAULTS.sway,
+    `${locoTuning().sway}`);
+  resetLocoTuning();
+
+  // The stash has to agree, or the wander comes back on the next reload and nothing says why.
+  {
+    const map = new Map();
+    const store = {
+      getItem: (k) => map.get(k) ?? null,
+      setItem: (k, v) => map.set(k, String(v)),
+      removeItem: (k) => map.delete(k),
+    };
+    saveLocoTuning({ ...LOCO_DEFAULTS, sway: 0, chop: 0 }, store);
+    const back = loadLocoTuning(store);
+    check('a switched-off weave survives the stash', back.sway === 0 && back.chop === 0,
+      `sway ${back.sway}, chop ${back.chop}`);
+  }
+
   // The fade, through the police car — the one reader that held its own copy.
   {
     const before = locoWeaveFade();

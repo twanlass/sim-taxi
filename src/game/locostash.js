@@ -29,6 +29,15 @@ const KEYS = ['kick', 'speed', 'accel', 'overdriveSpeed', 'overdriveAccel', 'bra
   'sway', 'swayWave', 'chop', 'chopWave', 'fade'];
 
 /**
+ * Knobs a stash may carry at **zero** — the two weave amplitudes, where zero means "off" rather
+ * than "unset". Kept in step with `ZEROABLE` in sim/traffic.js by hand, and the reason it is worth
+ * the duplication is what happens when the two disagree: the panel accepts the zero, the taxi
+ * stops weaving, and then a reload quietly puts the wander back because the stash dropped it on
+ * the way in. `tools/probe.mjs` asserts the round trip so that cannot happen silently.
+ */
+const ZEROABLE = new Set(['sway', 'chop']);
+
+/**
  * Read lazily and behind a try: `globalThis.localStorage` *itself* throws when storage is blocked,
  * so this cannot be a module-level constant. In node it is simply absent, which is what lets this
  * module import cleanly in `npm run check`.
@@ -42,9 +51,11 @@ function defaultStore() {
  * usable. Everything here has been outside the program — a hand-edited `localStorage`, a
  * half-written value from a tab that was killed mid-write, an older version of this game.
  *
- * A non-finite or non-positive number is dropped rather than clamped. `setLocoTuning` ignores
- * those too, so clamping here would only be a second opinion about the same value; dropping keeps
- * the two agreeing that a bad number means "no opinion", and the knob keeps its shipped default.
+ * A non-finite or negative number is dropped rather than clamped, and so is a zero except on the
+ * two knobs where zero is a real setting. `setLocoTuning` applies exactly the same rule, so
+ * clamping here would only be a second opinion about the same value; dropping keeps the two
+ * agreeing that a bad number means "no opinion", and the knob keeps its shipped default.
+ *
  * There is deliberately no upper bound: the sliders have one and this is what the console's
  * `__taxi.loco.set` writes through, so a stash is allowed to hold a number no slider can reach.
  */
@@ -53,7 +64,8 @@ function sanitise(raw) {
   const out = {};
   for (const key of KEYS) {
     const value = Number(raw[key]);
-    if (Number.isFinite(value) && value > 0) out[key] = value;
+    if (!Number.isFinite(value)) continue;
+    if (value > 0 || (value === 0 && ZEROABLE.has(key))) out[key] = value;
   }
   return Object.keys(out).length ? out : null;
 }

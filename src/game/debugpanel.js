@@ -505,16 +505,24 @@ export function createDebugPanel({
     const { sway, chop } = loco.get();
     const peak = sway + chop;
     const pct = Math.round((peak / WEAVE_ROOM) * 100);
+    if (peak === 0) {
+      weaveNote.textContent = 'weave off — the taxi holds its lane centre';
+      return;
+    }
     weaveNote.textContent = peak > WEAVE_ROOM
       ? `peak ${peak.toFixed(2)}u of ${WEAVE_ROOM.toFixed(2)}u — over the lane, expect kerbs and oncoming`
       : `peak ${peak.toFixed(2)}u of ${WEAVE_ROOM.toFixed(2)}u room · ${pct}% of the lane`;
   }
   panel.append(weaveNote);
 
-  locoLever('Sway', 'sway', 0, 2, 0.01, (v) => `${v.toFixed(2)}u · the long wave`);
+  // Zero is a real setting on both amplitudes — it is how you watch the mode with the wander
+  // switched off — so the readout says so rather than leaving `0.00u` to be interpreted.
+  locoLever('Sway', 'sway', 0, 2, 0.01,
+    (v) => (v === 0 ? 'off · no long wave' : `${v.toFixed(2)}u · the long wave`));
   locoLever('Sway length', 'swayWave', 3, 60, 0.5,
     (v) => `${v.toFixed(1)}u · ${(boostCruiseOf() / v).toFixed(2)} Hz at boost`);
-  locoLever('Chop', 'chop', 0, 1, 0.01, (v) => `${v.toFixed(2)}u · laid over the sway`);
+  locoLever('Chop', 'chop', 0, 1, 0.01,
+    (v) => (v === 0 ? 'off · no short wave' : `${v.toFixed(2)}u · laid over the sway`));
   locoLever('Chop length', 'chopWave', 2, 40, 0.5,
     (v) => `${v.toFixed(1)}u · ${(boostCruiseOf() / v).toFixed(2)} Hz at boost`);
   // Distance, not time, like the weave itself — so letting go at a red doesn't drift the parked

@@ -972,17 +972,35 @@ const loco = { ...LOCO_DEFAULTS };
 export const locoTuning = () => ({ ...loco });
 
 /**
- * Move one or more knobs. Anything non-finite or non-positive is ignored rather than allowed to
- * poison the sim (a `NaN` in `car.v` is unrecoverable and silent), and the one ordering that has
- * to hold is enforced here: an overdrive ceiling *below* the boost cap is not a slower mode, it is
- * a mode with no band at all — `boostAccel` never reaches its taper and the whole ramp runs on
- * `accel` to a ceiling the panel isn't showing. Clamped rather than refused, so dragging either
- * slider past the other still does something legible.
+ * Knobs that may legitimately be **zero**, which for everything else means "no opinion".
+ *
+ * Only the two weave amplitudes, and that is the whole point of them: zero is how you turn the
+ * wander off and watch the mode without it. Every other knob is a divisor or a multiplier that
+ * makes no sense at zero — a wavelength of 0 is a division by zero inside `locoWeave`, a `fade` of
+ * 0 is `ds / 0` and puts a `NaN` into the envelope, and a top speed or brake of 0 is a taxi that
+ * cannot move or cannot stop.
+ *
+ * Split out rather than handled with a per-key minimum, because the distinction is not about
+ * ranges: it is that for these two, zero is a *value a person means*, and for the rest it is the
+ * absence of one.
+ */
+const ZEROABLE = new Set(['sway', 'chop']);
+
+/**
+ * Move one or more knobs. Anything non-finite is ignored rather than allowed to poison the sim (a
+ * `NaN` in `car.v` is unrecoverable and silent), as is anything negative, and anything at zero
+ * except the two knobs above — see `ZEROABLE` for why those two are different.
+ *
+ * The one ordering that has to hold is enforced here: an overdrive ceiling *below* the boost cap is
+ * not a slower mode, it is a mode with no band at all — `boostAccel` never reaches its taper and
+ * the whole ramp runs on `accel` to a ceiling the panel isn't showing. Clamped rather than refused,
+ * so dragging either slider past the other still does something legible.
  */
 export function setLocoTuning(patch = {}) {
   for (const key of Object.keys(LOCO_DEFAULTS)) {
     const value = Number(patch[key]);
-    if (Number.isFinite(value) && value > 0) loco[key] = value;
+    if (!Number.isFinite(value)) continue;
+    if (value > 0 || (value === 0 && ZEROABLE.has(key))) loco[key] = value;
   }
   loco.overdriveSpeed = Math.max(loco.overdriveSpeed, loco.speed);
   return locoTuning();
