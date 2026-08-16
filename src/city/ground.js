@@ -257,10 +257,15 @@ export function createGround(rng, blocks) {
 
   // --- Crosswalks.
   //
-  // Only where there is a signal to stop traffic for the person crossing. That rules out the ring
-  // junctions, which are yield-controlled and carry no lights, and it rules out crossing an
-  // arterial — a main road doesn't get halted for a pedestrian. Painting them everywhere implied
-  // a right of way the simulation never grants.
+  // Only where something stops traffic for the person crossing. That rules out the ring junctions,
+  // and it rules out crossing an arterial — a main road doesn't get halted for a pedestrian, and
+  // since it lost its lights it is not halted at all. Painting them everywhere implied a right of
+  // way the simulation never grants.
+  //
+  // A crossing *over the side street* at an arterial junction stays, and stays honest: that
+  // approach now holds at a painted yield line (see the stop bars in traffic.js) rather than at a
+  // red, but it does still hold, and the line is set back behind the crosswalk exactly as a stop
+  // line is.
   const BARS = 4;
   const BAR_W = 0.72;
   const BAR_LEN = 1.5;

@@ -71,9 +71,15 @@ parallel. One rule covers a right turn, a left, a straight-through, and a sweep 
 
 Arms that oppose each other pair into a **street**; each street becomes a phase, in bearing order.
 On a four-way that is exactly the X phase and the Z phase `lightPhase` hard-codes. On a three-way
-the stem gets a phase of its own. The 64% arterial green share and the platoon offset survive
-unchanged — the offset is now *walked* along a chain of edges rather than read off an index, which
-is the same number on a grid and a defined one anywhere else.
+the stem gets a phase of its own. The platoon offset survives unchanged — it is now *walked* along
+a chain of edges rather than read off an index, which is the same number on a grid and a defined
+one anywhere else.
+
+A street can also take the junction **outright**, with no phase plan at all: `node.signal` is null
+and `node.priorityStreet` names the one that runs. The ring does this, and so does an arterial
+wherever it carries through — see [traffic.md](traffic.md#arterials-the-fast-path). Both fall out
+of the same two lines of `bakeSignals`, which is the point of a phase being a *street*: "this road
+does not stop" is a property of the geometry, not a special case bolted onto a grid index.
 
 Turn **conflicts** (do two movements' paths cross? do they merge into the same lane?) are computed
 once at bake. Nothing uses them for phasing yet — streets are enough for the shapes so far — but

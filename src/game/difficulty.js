@@ -36,7 +36,7 @@ const TUNING = {
   //
   // It cannot go below 1.0 — a deadline shorter than the driving it pays for is unwinnable by
   // construction, and `tools/probe.mjs` asserts that across the whole curve. The floor sits above
-  // 1.0 anyway, because `estimateSeconds` has a measured MAE of 4.35s against real trips (see
+  // 1.0 anyway, because `estimateSeconds` has a measured MAE of 3.32s against real trips (see
   // route.js) and slack is what pays for the traffic you happen to get.
   //
   // **Slack is the fraction of the clock left at the drop-off**, near enough to read off directly:
@@ -56,7 +56,7 @@ const TUNING = {
   //
   // 1.7 → 1.05 is the last row where nobody dies during the tutorial. Below it the tail starts
   // eating first-fare runs, which is the one failure a score-attack cannot have. The floor is not
-  // 1.0 even at the end of the ramp because `estimateSeconds` has a measured MAE of 4.35s against
+  // 1.0 even at the end of the ramp because `estimateSeconds` has a measured MAE of 3.32s against
   // real trips (see route.js) — at 1.0 the traffic you happen to get decides the fare, not you.
   //
   // 2.0 → 1.15 was measured at a median of 15/13 when it shipped and re-measured at 20/15 here:

@@ -82,21 +82,51 @@ block-time (2.353s).
 Cycle length stays common across the city on purpose — a shared cycle is the *precondition* for
 coordination. Variety comes from splits and offsets, not from different cycle lengths.
 
-### Arterials
+### Arterials: the fast path
 
-Two roads per axis take a **64% green share** where they meet a side street, giving the map a
-fast/slow grain. `layout.js` picks them and hands them to the network's bake.
+One road per axis is an **arterial**, picked in `layout.js` and handed to the network's bake. It
+carries **no lights at all** where it crosses a lesser street. Cross traffic stops for *it*, yields
+into a gap, and pulls out when there is one — the ring's rule (below), applied to the main roads.
+
+It used to take a **64% green share** instead. That is a fast *lane*, not a fast *path*: the road
+still stopped for 36% of every cycle at every junction on it, and the green wave that was supposed
+to pay that back only pays a platoon travelling the coordinated direction, which is half the
+traffic. Taking the lights off is the stronger version of the statement the road hierarchy was
+already making — and it is not a new mechanism, it is `node.priorityStreet` pointed at a second
+kind of road.
+
+Three shapes keep their light, all for the same reason — there is no single through movement to
+hand the junction to:
+
+- Where the two arterials **cross** each other. Same shape as a ring corner.
+- Where a park closure has cut the arterial in half, so it *terminates* at the junction. That one
+  keeps the 64% share as well, which is now the only place `arterialShare` is used.
+- Where the arterial meets the **ring**, which outranks it.
+
+The 64% share still exists because a stub of arterial is still the more important road; it simply
+stopped being the mechanism that makes an arterial worth driving.
 
 ### A signal-free ring road
 
 The outermost roads carry no lights except at the four corners. Traffic joining from inside yields
-into a gap (`RING_YIELD = 24` units of clear road).
+into a gap (`PRIORITY_YIELD = 24` units of clear road — a lane is 12, so it reads as "both
+approaches of the priority street are empty"). That constant and `priorityGapClear` were named for
+the ring and are now shared with the arterials; both read `node.priorityStreet` rather than naming
+a road class, which is what lets one rule cover both.
 
 "Unsignalised" is now `node.signal === null` rather than `ringAxisAt(i, j)`, and the difference is
 not cosmetic. A junction the ring never touches can still end up with nothing to arbitrate — a
 closure can leave an interior junction with only a straight-through — and the grid, deciding from
-`(i, j)` alone, kept cycling a light there and held cars for a phase nobody could be in. Rare: one
-junction in 40 seeds. It has no stop bars now, because there is nothing to stop for.
+`(i, j)` alone, kept cycling a light there and held cars for a phase nobody could be in. That used
+to be rare, one junction in 40 seeds; with the arterials unsignalised, `ringAxisAt` is now wrong
+about roughly six junctions in every city. A junction with nothing to arbitrate has no stop bars,
+because there is nothing to stop for.
+
+**Where there *is* something to stop for, the line is painted.** An unsignalised junction gets a
+plain white bar across every approach that has to yield, and none across the priority street — so a
+junction with no lamps in it and a bar on only two of its four approaches says, at a glance, which
+road owns the place. Signalised bars keep being recoloured from `displaySignal` every frame; a
+yield line is road paint and never changes.
 
 > Watch out: `phaseAt` returns **null** for an unsignalised node, where `lightPhase` returned an
 > axis with `remaining: Infinity`. Any port that swaps one for the other while keeping `ringAxisAt`
@@ -120,17 +150,48 @@ A sweep of cycle length against throughput came back **monotonic** — 14s gave 
 — so an early attempt at a "calmer" city with a 28s cycle made it materially worse. The calm comes
 from spreading the offsets, not from slowing the cycle. Cycle is now **16s** with **1.6s** yellow.
 
+#### And again, taking the arterials' lights away
+
+`node tools/signals.mjs`, plus `node tools/eta.mjs 100 6` for the trip times:
+
+| | 64% share | no lights |
+|---|---|---|
+| distinct signal timings | 12 / 36 | 8 / 36 |
+| junctions flipping together | 6 / 36 | **4 / 36** |
+| signalised junctions a platoon meets | 43 | **25** |
+| ...of which green on arrival | 55.8% | **60.0%** |
+| ambient throughput, `?cars=24` | 7.19 | 7.19 units/s per car |
+| **routed** trip time, 582 trips × 6 cities | 16.4s | **14.6s** |
+| estimator error on those trips | MAE 4.35s | **MAE 2.96s** |
+
+**Ambient throughput does not move, and that is the result rather than a disappointment.** Six of
+36 junctions changed, and an ambient car turns at random — it spends most of its life on side
+streets whichever way the main roads work. What moved is the trip of a car that is *routed*, which
+is the taxi and nothing else: 11% faster, because a route can choose the arterial and now gets
+something for choosing it. A fast path is a thing you can take, not a citywide speed-up.
+
+The error falling with the time is the second half of it. A signal is where a trip picks up its
+variance — which phase you happen to meet is luck no estimator can model — so pulling lights off
+the main roads makes the city measurably more *predictable* as well as quicker. That is what pays
+for the fare clocks: see [difficulty.md](difficulty.md#the-trip-time-estimator).
+
 ### `lightPhase(i, j, t)` resolution order
 
 Checked in this order, first match wins:
 
 1. `priorityJunction` — the boosting taxi's next junction
 2. `corridorCovers(i, j)` — an emergency corridor is running through this junction
-3. `ringAxisAt(i, j)` — unsignalised ring road
+3. `node.signal === null` — no light here: the ring, an arterial carrying through, or a junction
+   with nothing to arbitrate. The priority street runs.
 4. the normal phase for this junction
 
 A siren outranks the ring deliberately: otherwise a corridor crossing the ring would have a hole
-in the middle of the green path it exists to create.
+in the middle of the green path it exists to create. It outranks an arterial for the same reason,
+and gets it for free — both are the same step.
+
+Step 3 is asked of the network, never of `ringAxisAt`. The grid helper is a statement about the
+map edge and has never known what an arterial is; the two answers used to differ at about one
+junction in 40 seeds and now differ at six per city.
 
 `displayPhase(i, j, t)` is the same resolution with step 1 dropped — it's what the stop bars are
 drawn from, so the boosting taxi's hold never shows up on a lamp. See [Boost](#boost-crazy-taxi-mode).
@@ -1124,8 +1185,7 @@ cost — the same two things that decide every other route in the game.
 
 **What this does to fare clocks is smaller than it looks.** A fare's budget comes from
 `chainSeconds`, which does now plan over the discounted weights — but `estimateSeconds` prices a
-route by `route.length * SEC_PER_BLOCK + turns * SEC_PER_TURN`, in blocks and turns, never in lane
-cost. So the discount cannot make a given route cheaper to the clock; it can only change *which*
+route in blocks, turns and signalised junctions crossed, never in lane cost. So the discount cannot make a given route cheaper to the clock; it can only change *which*
 route is picked, and only by the length difference between the two. `probe.mjs` bounds that at one
 leg either way, and across a sweep the mean planned route moves 4.23 → 4.17 legs — slightly
 shorter, because a cheap lane straightens as many trips as it bends.
@@ -1138,8 +1198,8 @@ since there is nothing on it to queue behind.
 
 Placement (`roadwork.js`) refuses a segment unless all of:
 
-- it is a **side** street — closing an arterial fights the 64% green share and the platoon offsets
-  the city is timed around, and the ring is the road everything else escapes onto;
+- it is a **side** street — an arterial is the road with no lights on it and the ring is the road
+  everything else escapes onto, so closing either takes away the one path that was always open;
 - every approach at both end junctions keeps at least one open onward lane. This is asked exactly,
   by walking `lane.onward`, rather than by a corner heuristic: what strands a car is not the shape
   of the junction but a single inbound lane whose every exit is closed, and U-turns are illegal;

@@ -347,9 +347,9 @@ budget = queue ahead + drive to the pickup + drive to the drop-off + reaction al
 limit  = clamp(budget × slack(deliveries), 20s, 240s)
 ```
 
-`estimateSeconds` in `route.js` does the conversion at 3.28 s/block and 1.30 s/turn, fitted against
-581 real trips. The whole design, what it replaced and how the numbers were chosen is in
-[difficulty.md](difficulty.md).
+`estimateSeconds` in `route.js` does the conversion at 2.41 s/block, 0.64 s/turn and 2.25 s per
+signalised junction crossed, fitted against 582 real trips. The whole design, what it replaced and
+how the numbers were chosen is in [difficulty.md](difficulty.md#the-trip-time-estimator).
 
 Two consequences worth knowing here:
 
@@ -510,10 +510,10 @@ that only works while the city is a grid, and it comes out when the sim drives l
 
 ### Road-hierarchy weights
 
-Edges are not equal cost. The signal model was tuned around a coordinated green wave on two
-arterials per axis (64% green share, offsets running with the wave direction) and an
-unsignalised ring around the outside. A fewest-blocks router fights that coordination — it will
-happily plan a route straight up a side street when the arterial parallel to it exists.
+Edges are not equal cost. The main roads are the ones without traffic lights on them — the ring
+around the outside, and one arterial per axis through the middle — so a fewest-blocks router fights
+the road hierarchy: it will happily plan a route straight up a side street when the arterial
+parallel to it exists.
 
 Current weights, per block traversed:
 
@@ -523,6 +523,13 @@ Current weights, per block traversed:
 | Arterial, with the coordinated direction | 0.95 |
 | Arterial, against the coordinated direction | 1.00 |
 | Side street | 1.00 |
+
+The two arterial rows are the same road driven two ways, and the split is now a preference rather
+than a claim about signal timing: with no lights on an arterial there are no offsets left to run
+with or against. Collapsing them was measured and buys nothing — over 150 trips × 6 seeds, shipped
+came out at 14.36s a trip against 14.43s for a symmetric 0.95 and 14.84s for 0.90 either way, all
+inside the noise — so the coordinated direction keeps its nudge because it is still the direction
+the road was drawn for.
 
 Kept close to 1.0 on purpose: the router is a **tie-breaker between paths of the same length**,
 not a detour finder. Aggressive weights (ring 0.55, arterial 0.70) were tried and dropped
