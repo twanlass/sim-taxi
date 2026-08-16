@@ -80,6 +80,14 @@ the same repeating grid, just greener. Closing the segment is what actually brea
 The closure is real, not cosmetic. `setClosedSegments()` removes the segment from `legalExits`, so
 traffic routes around it and the router plans around it for free.
 
+**Which blocks are green is registered the same way** — `setParkBlocks()` beside the closures, read
+back through `isParkBlock(bi, bj)`. A park is a fact about the ground that anything placing a marker
+on a kerb has to be able to ask about without holding the layout array: the courier board is the
+caller, and it keeps both ends of a package off the grass
+([gameplay.md](gameplay.md#the-package-courier)). Registered as blocks rather than as junctions,
+because a junction has four corners and a marker only ever uses one of them — which one is
+`cornerFor`'s business, in `game/fares.js`.
+
 ### A park has a frontage
 
 A park is a block on a street, so it presents the same pavement to the street that a built block
