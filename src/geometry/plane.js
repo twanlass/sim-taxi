@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor } from '../util/geo.js';
+import { bakeColor, unlitMaterial } from '../util/geo.js';
 import { color } from '../palette.js';
 
 // A little high-wing single — a Cessna, in the sense that everything about the silhouette that
@@ -205,7 +205,7 @@ export function createPlaneMesh() {
   // faint disc behind it is what says propeller. It does not turn — a disc has nothing to turn.
   const disc = new THREE.Mesh(
     new THREE.CircleGeometry(PROP_R, 16),
-    new THREE.MeshBasicMaterial({
+    unlitMaterial({
       color: '#FFFFFF',
       transparent: true,
       opacity: DISC_ALPHA,
@@ -229,7 +229,7 @@ export function createPlaneMesh() {
 
   const trails = new THREE.Mesh(
     trailGeometry,
-    new THREE.MeshBasicMaterial({
+    unlitMaterial({
       vertexColors: true,
       transparent: true,
       depthWrite: false,

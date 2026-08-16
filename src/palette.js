@@ -15,7 +15,12 @@ export const PALETTE = {
   // sky actually comes from: createDaylight() applies its keyframe over these on construction.
   skyTop: '#8CC4E8',
   skyBottom: '#DCEDF7',
-  fog: '#DCEDF7',
+  // The distance haze at the parked hour — see `hazeColor()` in game/scene.js, which is what
+  // computes this and what keeps it in step with the sky all day. Deliberately **not** `skyBottom`,
+  // which is where it started: that near-white has 27 points of spread between its channels, and a
+  // haze with no chroma of its own can only take chroma away — the far city came out grey rather
+  // than distant. This is `skyTop` at full saturation: the same hue, 181 points of spread.
+  fog: '#4AC6FF',
 
   sun: '#FFDEBB',
   hemiSky: '#F0C79B',

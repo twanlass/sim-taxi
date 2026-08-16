@@ -196,3 +196,24 @@ export function propMaterial() {
   if (aoEnabled) patchAmbientOcclusion(material);
   return material;
 }
+
+/**
+ * The other half of that pair: the recipe for everything **unlit** — every game marker, every
+ * effect drawn as flat colour, and the handful of lamps and rotor discs that a light source has no
+ * say over.
+ *
+ * All it does is turn the haze off (`game/scene.js`), and the rule it carries is **anything that
+ * doesn't take the sun doesn't take the air either**. It is the same argument that made these
+ * materials unlit in the first place. A fare's disc is painted in that fare's clock and a ring at
+ * the back of the board is the one the player is furthest from and most needs to read; a wreck is
+ * meant to look identical at midnight and at golden hour. Both of those survive the day/night cycle
+ * precisely *because* nothing in the lighting reaches them — and fog is lighting. Distance-fogged,
+ * a marker across town would report a colour between its own and the sky's, which for a marker
+ * whose entire content is its hue means reporting the wrong time remaining.
+ *
+ * So: if it is `MeshBasicMaterial`, it comes through here. `tools/probe.mjs` scans the source for
+ * the ones that don't — the exemption is an invisible raycast box, which draws nothing to fog.
+ */
+export function unlitMaterial(params = {}) {
+  return new THREE.MeshBasicMaterial({ fog: false, ...params });
+}

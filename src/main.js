@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
 import { createScene } from './game/scene.js';
-import { createCityCamera, attachDragPan, VIEW_DIR } from './game/camera.js';
+import { createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
@@ -141,7 +141,7 @@ const ao = createAmbientOcclusion(renderer, { enabled: aoEnabled });
 // scene that submitted nothing from a scene that drew and came out black. See `game/diag.js`.
 const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: budget });
 
-const { scene, sun, hemi, sky } = createScene({ shadowMapSize: budget.shadowMapSize });
+const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
 
 // A GPU that takes the context away gets the budget turned down rather than the player getting a
 // black screen for the rest of the run — see `game/recovery.js` for the two steps and why the
@@ -165,7 +165,7 @@ function renderFrame() {
 // The clock that drives the sky. Parked at golden hour for now — the cycle works, but the night
 // end of it needs more tuning before it earns its place, so it's off until the ⚙️ panel turns it
 // on. Screenshots keep it frozen regardless: a rendered shot has to be reproducible.
-const daylight = createDaylight({ sun, hemi, sky });
+const daylight = createDaylight({ sun, hemi, sky, fog });
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
 
@@ -243,7 +243,7 @@ for (const slot of fares.slots) markOccluder(slot.passenger.group);
 // sized by height, so a phone cuts off both sides of the map and panning stops being optional.
 const aspect = () => viewport.width() / viewport.height();
 const controller = createCityCamera(aspect(), {
-  zoom: shot?.zoom ?? 52,
+  zoom: shot?.zoom ?? PLAY_ZOOM,
   target: shot?.target ?? [0, 0],
 });
 const { camera } = controller;
@@ -2237,6 +2237,7 @@ if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) 
     sun,
     hemi,
     sky,
+    fog,
     daylight,
     carCount: getCarCount(),
     fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds, isPinned: isFareClockPinned },

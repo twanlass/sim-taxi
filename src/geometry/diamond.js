@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { unlitMaterial } from '../util/geo.js';
 
 // The crystal a fare's clock is drawn as, over the rider and then over the taxi that collects
 // them. game/faremarker.js is what gives it a life; this is just the model.
@@ -343,7 +344,7 @@ export const DIAMOND_RIM_ORDER = 9;
 export function outlineHull(geometry, scale) {
   const mesh = new THREE.Mesh(
     geometry,
-    new THREE.MeshBasicMaterial({
+    unlitMaterial({
       color: BLACK,
       side: THREE.BackSide,
       transparent: true,
@@ -368,6 +369,13 @@ export function createDiamond(colorHex) {
     emissive: color.clone(),
     emissiveIntensity: EMISSIVE,
     flatShading: true,
+    // The one **lit** thing in the game that still refuses the haze (`game/scene.js`), and it is
+    // the same exception the emissive above is: this crystal's whole content is its hue, because
+    // the hue is how much of the fare's clock is left. It already carries a light of its own so a
+    // night city can't take that reading away; a marker at the back of the board mixing its urgency
+    // colour with the sky would give the same wrong answer by daylight. The rider it floats over is
+    // hazed like every other figure on a kerb — a person is scenery, the clock is not.
+    fog: false,
     // Per-fragment alpha: solid liquid, thin glass. `depthWrite` stays *on*, against the usual
     // habit for transparent materials — it is what hides the outline hull's far faces inside the
     // silhouette, and see the header for why the alternative is a black void.
