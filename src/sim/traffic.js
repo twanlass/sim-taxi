@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
-import { KERB_H } from '../city/ground.js';
+import { KERB_H, roundedRectShape } from '../city/ground.js';
 import {
   WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries,
 } from '../geometry/wheels.js';
@@ -1702,10 +1702,20 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // Placed just outside the crosswalk, so a car holding at the line sits behind the bar rather
   // than on top of it.
   // Measured back from where the lane ends, which is the junction boundary. The old form measured
-  // from the junction *centre* and subtracted HALF_ROAD to get here.
-  const BAR_SETBACK = 2.05;
+  // from the junction *centre* and subtracted HALF_ROAD to get here. Nudged out from 2.05: at that
+  // setback the bar's near edge landed inside a hair of the crosswalk's outer edge (5.65 from the
+  // junction centre, per traffic.md) and the two read as touching.
+  const BAR_SETBACK = 2.4;
 
-  const barGeo = bakeColor(new THREE.PlaneGeometry(0.7, 3.6), new THREE.Color(1, 1, 1));
+  // A long pill rather than a plain rectangle: fully round the fore-aft edges by setting the
+  // corner radius to half the bar's own thickness, so the straight run only ever happens along the
+  // length. 0.63 is 0.7 cut 10% for a slimmer strip.
+  const BAR_W = 0.63;
+  const BAR_LEN = 3.6;
+  const barGeo = bakeColor(
+    new THREE.ShapeGeometry(roundedRectShape(BAR_W, BAR_LEN, BAR_W / 2), 12),
+    new THREE.Color(1, 1, 1),
+  );
   barGeo.rotateX(-Math.PI / 2);
 
   // One bar per signalised approach. `node.inbound` *is* "traffic can arrive this way" — a lane
