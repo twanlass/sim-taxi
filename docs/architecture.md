@@ -36,7 +36,7 @@ src/
     boostmeter.js       how the Punch It pill reads while it refills — overfill, glow, leading edge
     energybits.js       the sparks a drop-off throws from the taxi into the Punch It pill
     camera.js           fixed 3/4 orthographic camera
-    scene.js            scene, sun, hemisphere fill, sky shader
+    scene.js            scene, sun, hemisphere fill, sky shader, distance haze
     daylight.js         hour → lighting curve, and the clock that can drive it
     debugpanel.js       the ⚙️ tweak panel
     skidmarks.js        rubber ring buffer

@@ -1167,6 +1167,10 @@
         margin: 0 0 8px; font-size: 10.5px; line-height: 1.4; opacity: 0.6;
         font-variant-numeric: tabular-nums;
       }
+      /* A note that reports on the button above it — the Loco stash line under "Reset Loco Mode".
+         `.dbg-wide` carries its own top margin and `.dbg-note` has none, so without this the two
+         sit flush and the line reads as part of the button rather than about it. */
+      .dbg-wide + .dbg-note { margin-top: 6px; }
       .dbg-actions { display: flex; gap: 6px; margin-top: 10px; }
       .dbg-wide {
         width: 100%; margin-top: 10px; padding: 7px 4px; border: 0; border-radius: 8px;

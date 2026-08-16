@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColor, propMaterial, BODY_EULER_ORDER } from '../util/geo.js';
+import { bakeColor, propMaterial, unlitMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import {
   DIR, GRID, HALF_SPAN, LANE, PITCH, dirSign, isXAxis, legalExits, lineCoord,
@@ -221,7 +221,7 @@ function lightBar(group) {
   const make = (hex, z) => {
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.55, 0.26, 0.5),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(hex) }),
+      unlitMaterial({ color: new THREE.Color(hex) }),
     );
     mesh.position.set(-0.2, 1.9 + CHASSIS_LIFT, z);
     group.add(mesh);

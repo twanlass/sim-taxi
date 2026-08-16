@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { SPAN } from '../city/grid.js';
+import { hazeColor } from './scene.js';
 
 // The sky over one day, as a set of keyframes the clock and the tweak panel both read.
 //
@@ -56,7 +57,17 @@ function sample(hour) {
   };
 }
 
-export function createDaylight({ sun, hemi, sky }, startHour = 16.4) {
+/**
+ * @param fog  the scene's haze, or null. Its colour is derived from the same two keyframe colours
+ *             the dome is drawn from, through `hazeColor()` — the sky sampled a little above the
+ *             skyline, with its chroma restored. See the long note on that function for why it is
+ *             not simply `bottom`.
+ *
+ *             Derived rather than carried as a keyframe field of its own, and that is the load-
+ *             bearing part: a haze that is a *function* of the sky cannot drift away from it. A
+ *             tint picked at golden hour and left alone is a pale blue wash over a midnight city.
+ */
+export function createDaylight({ sun, hemi, sky, fog = null }, startHour = 16.4) {
   const state = { hour: startHour, cycling: true, dayLength: DAY_SECONDS };
 
   function apply(hour = state.hour) {
@@ -80,6 +91,7 @@ export function createDaylight({ sun, hemi, sky }, startHour = 16.4) {
     hemi.intensity = look.fill;
     sky.uniforms.topColor.value.copy(look.top);
     sky.uniforms.bottomColor.value.copy(look.bottom);
+    if (fog) hazeColor(look.top, look.bottom, fog.color);
 
     return look;
   }

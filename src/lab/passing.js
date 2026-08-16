@@ -107,8 +107,8 @@ document.body.appendChild(renderer.domElement);
 setAmbientOcclusion(budget.ao);
 const ao = createAmbientOcclusion(renderer, { enabled: budget.ao });
 
-const { scene, sun, hemi, sky } = createScene({ shadowMapSize: budget.shadowMapSize });
-const daylight = createDaylight({ sun, hemi, sky });
+const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
+const daylight = createDaylight({ sun, hemi, sky, fog });
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
 

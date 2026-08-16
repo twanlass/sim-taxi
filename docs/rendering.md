@@ -341,14 +341,174 @@ because it is now paint on a lane and has to shrink with the road when you zoom 
 
 ## Lighting
 
-`src/game/scene.js` returns `{ scene, sun, hemi, sky }`:
+`src/game/scene.js` returns `{ scene, sun, hemi, sky, fog }`:
 
 - **`sun`** — a directional light with shadows (`PCFSoftShadowMap`)
 - **`hemi`** — a hemisphere light for ambient fill
 - **`sky`** — the *material* of a sky dome, whose `topColor` / `bottomColor` uniforms are the only
   handle on sky colour
+- **`fog`** — the haze, [below](#atmospheric-perspective)
 
 The default is golden hour: 16:24, sun 28.5° up, `#FFDEBB` at 3.55 intensity.
+
+## Atmospheric perspective
+
+A soft haze over the back of the frame, so a block at the top of the screen sits behind some air and
+the one under the taxi doesn't. Without it every façade is drawn at identical contrast however far
+off it is — which is the one cue this projection cannot get any other way, since parallel lines stay
+parallel and a distant block stays the same *size*, so nothing in the drawing says "further".
+
+It is three's ordinary `THREE.Fog`, and **the note that used to sit in `scene.js` saying an
+orthographic camera couldn't have one was wrong.** Worth spelling out, because the mistake is easy
+to make twice:
+
+> The claim was that a camera sitting a fixed 400 units back whitens the whole city uniformly. What
+> is actually true is that fog placed *from zero* does. View-space depth here is
+> `DISTANCE - (p - target)·VIEW_DIR`, which runs 335 at the near corner of the map to 465 at the far
+> one — a perfectly good gradient. Over that band `Fog(near = 0, far = 1000)` varies by a few
+> percent end to end and reads as a flat wash, which is exactly what got measured and then written
+> down as a property of the projection. Put the near/far band **around the standoff** instead and
+> the ramp lands on the picture.
+
+Two things fall out of the fixed camera and make this better behaved than fog usually is:
+
+- **The gradient is vertical, exactly.** `RIGHT · VIEW_DIR` is zero — `(1,0,-1)·(1,0.92,1)` before
+  either is normalised — so moving across the screen changes nothing about how far away a point is.
+  Depth over the ground plane is a function of **screen height alone**, at
+  `DEPTH_PER_SCREEN_UNIT` = 1.537 units of depth per unit of frame height (`camera.js`). The haze
+  bands the picture rather than pooling around wherever the camera is aimed.
+- **The frame carries its own depth band.** The camera and its target move together, so the bottom
+  edge of the screen is always at depth `DISTANCE - zoom * DEPTH_PER_SCREEN_UNIT` — 320 at play
+  zoom, whatever the player has panned to. Anchoring `near` there means the near edge of the picture
+  is clear on every viewport and at any pan, and the haze can never creep forward onto the taxi.
+
+`HAZE_TOP = 0.17` is the mix at the **top of the play frame**, and `hazeRange()` derives the two
+planes from it by inverting smoothstep — `far` is a ramp length rather than a distance anything is
+drawn at. Tuned against the city rather than by eye in a close-up: the top of the frame is at depth
+480 and the far corner of the map at 465, so the frame edge is very nearly the haziest thing there
+can ever be (the corners measure 0.132, 0.78 of it). It came down from 0.22 when the colour stopped
+being a near-white, and the two trade against each other for exactly that reason: a wash with no
+chroma has to be laid on thickly before it says anything, while a fully saturated sky blue says it
+at less. Past about 0.3 the back of the city starts reading as *weather*.
+
+**Linear, not `FogExp2`.** Exponential fog is a distance from the eye and this eye is 400 units from
+everything: any density strong enough to read across the city also puts a few percent of wash on the
+nearest pixel — the flat whitening the old note was afraid of, arrived at honestly. Linear fog has a
+hard zero, and smoothstep's ease-in spends most of the ramp on the far half of the frame, so the
+near half stays untouched and the haze gathers behind it.
+
+### The colour — `hazeColor()`
+
+Derived from the sky on every keyframe change, never carried as a tint of its own: a haze that is a
+*function* of the sky cannot drift away from it, and one picked at golden hour and left alone is a
+pale blue wash over a midnight city — lighting the back of the board *brighter* than the front,
+which is the cue running backwards.
+
+**It is not the horizon**, which is what this shipped as first and what got reported as "reads as
+pure grey". `skyBottom` is #DCEDF7, a near-white — 27 points of spread between its highest and lowest
+channel, deliberately so ("going paler, not white"). Mixed at the 0.22 the haze then carried, into
+`concrete`, the commonest façade
+in the city, that lands on #C0C1BC: **5 points of spread**, which is neutral grey. A haze with no
+chroma of its own can only take chroma *away*. That is a value wash, and a value wash is half of
+atmospheric perspective with the recognisable half missing.
+
+Two steps, both about getting chroma back:
+
+- **Sample the dome high.** `HAZE_SKY_H = 1.0` reads the sky dome's own gradient — the same
+  `pow(h, SKY_EXPONENT)` curve the shader runs, which is why that exponent is exported — instead of
+  taking its bottom colour flat. The horizon band is the *least* chromatic part of any sky, being
+  where multiple scattering has washed the blue back out, and a column of air seen from 400 units up
+  a 33° diagonal is not that band. At 1.0 the sample is the **zenith** exactly: `pow(1, exponent)` is
+  1, the lerp is a no-op, and the haze is `skyTop`.
+- **Give the chroma back.** Saturation lifted in the working space with the hue untouched, so a
+  change here can only restate the sky's own colour more strongly. HSL→RGB cannot leave the cube for
+  any saturation ≤ 1, so this can't clip a channel or bend a hue.
+
+**×2.5 is past the clamp, deliberately.** `skyTop` measures 0.585 saturation at the parked hour where
+`getHSL` measures, so anything from ×1.71 up pins to fully saturated — 1.8, 2.0 and 2.5 all give the
+same `#4AC6FF`. The effective rule is "take the sky's top colour to full saturation", and the number
+is a ceiling rather than a multiplier: to see it move you have to come *down* past 1.7, not up.
+
+| | 06:30 | 09:00 | 16:24 | 18:36 | 00:00 |
+|---|---|---|---|---|---|
+| horizon | `#F0B080` | `#CFE0EA` | `#DCEDF7` | `#F09A60` | `#16202E` |
+| haze | `#0069AA` | `#009EE0` | `#4AC6FF` | `#004788` | `#001024` |
+
+**The trade-off, stated plainly: at `skyH` 1.0 the haze no longer tracks a sunset.** At 18:36 the dome
+runs orange at the bottom and deep blue at the top, so the zenith sample gives `#004788` — the far
+city goes blue while the horizon behind it is still orange, which inverts what air actually does at
+dusk. It is accepted because **the shipped look is 16:24 with the cycle off**, where the zenith
+sample is the whole point: it is what takes the haze from a grey wash to `#4AC6FF`. Anyone turning
+the cycle on who wants dusk back has one slider to move — Sky sample down to ~0.35 restores a warm
+`#D05600` there, at the parked hour's expense. The probe pins both halves of that.
+
+Measured on a rendered shot, as mean blue-minus-red per band — the near/far *difference* is what
+atmospheric perspective actually is, and raw chroma is the wrong metric because a warm city mixed
+toward blue passes through neutral on the way:
+
+| | no haze | horizon haze | zenith @ 0.22 | shipped @ 0.17 |
+|---|---|---|---|---|
+| far band | −18.8 | −12.5 | −6.7 | **+0.3** |
+| near band | −17.9 | −17.4 | −16.8 | −16.3 |
+| separation | −1.0 | +4.8 | +10.1 | **+16.6** |
+
+`PALETTE.fog` is the parked 16:24 answer, and what a scene built without a daylight module keeps.
+
+### Unlit means unfogged
+
+`propMaterial()` and `unlitMaterial()` (`util/geo.js`) are a pair, and the second one exists for
+this: **anything that doesn't take the sun doesn't take the air either.** Every game marker, every
+flat-colour effect, and the handful of lamps and rotor discs a light source has no say over.
+
+It is the same argument that made those materials unlit in the first place. A fare's disc is painted
+in that fare's clock, and a ring at the back of the board is the one the player is furthest from and
+most needs to read; a wreck is meant to look identical at midnight and at golden hour. Both survive
+the day/night cycle *because* nothing in the lighting reaches them — and fog is lighting. Hazed, a
+marker across town would report a colour between its own and the sky's, which for a marker whose
+whole content is its hue means reporting the wrong time remaining.
+
+The **crystal is the one lit exception**: it is Lambert, it already carries an emissive so a dark
+city can't take its hue away, and it sets `fog: false` for the same reason. The rider it floats over
+is hazed like every other figure on a kerb — a person is scenery, the clock is not.
+
+`tools/probe.mjs` asserts both halves: the disc, the pad, the crystal and the sky dome all refuse the
+haze while `propMaterial()` takes it, and a **source scan** fails on any bare
+`new THREE.MeshBasicMaterial` under `src/` that didn't come through the helper. The one exemption is
+an invisible raycast box, which draws nothing there is anything to fog.
+
+The rest of the probe's coverage is the placement, re-derived from a real frustum rather than read
+back off the fog object: the bottom edge of the play frame at exactly zero and the top at exactly
+`HAZE_TOP`, both unchanged by a pan to the map edge; no corner of the city hazier than the frame edge
+it was tuned against; a wreck close-up spanning less haze than the play frame; and the colour
+the colour built hue-for-hue from the sky at every keyframe, carrying real chroma wherever the
+horizon is itself near-neutral, and staying *warm* at dusk. Getting the band wrong gives you either a
+flat wash over everything or nothing at all, and both look like "the fog didn't work" in a
+screenshot; getting the colour wrong looks like the game going black-and-white in the distance.
+
+### Tuning it
+
+The ⚙️ panel (`?debug`) has a **Haze** section with all three knobs live — two planes and a colour on
+a fog object, so unlike the AO lookup there is nothing to recompile and they can be plain sliders.
+All three want to be live: every one is a judgement about a whole frame that can't be made from the
+numbers, and the only way to know whether the back of the city has separated from the front is to
+watch the front stay put while the back moves.
+
+| Control | Writes | Range |
+|---|---|---|
+| **Strength** | `HAZE_TOP` via `setHazeTop()` | 0 – 0.5, default 0.17 |
+| **Sky sample** | `hazeTuning.skyH` | 0 (horizon) – 1 (overhead), default 1.0 |
+| **Chroma** | `hazeTuning.saturation` | 1 – 2.5, default 2.5 (past the clamp) |
+| **Haze colour** | *readout* | the derived hex, for pasting into `PALETTE.fog` |
+
+The two colour knobs live on the exported `hazeTuning` object rather than as constants, which is
+what lets `hazeColor()` pick them up on its next call — so a tweak survives a running day cycle
+instead of being overwritten by it. The panel rebuilds the colour off the dome's **live uniforms**
+rather than calling `daylight.apply()`: apply() rewrites the sun's colour and intensity too, so
+tuning the haze would silently discard a sun picked by hand two rows up. The readout is refreshed
+from `refresh()` so it keeps up while the cycle drives the sky underneath it.
+
+At **Sky sample 1, Chroma 1** the colour comes out as `skyTop` exactly — the arithmetic stated in
+one line, and what the probe pins the whole derivation against.
 
 ## Ambient occlusion — `game/ssao.js`
 
@@ -625,10 +785,12 @@ asphalt stepping outward from the slab's own outline, alpha 1 → 0 — so the c
 sky rather than being cut out of it. At play zoom that is about 22% of the frame height, which is
 what makes it read as a gradient instead of as a slightly blurry edge.
 
-It is the depth cue this projection can't get from fog. Three's fog is a function of view-space
-depth and the camera is orthographic, a fixed 400 units back from the whole scene, so distance fog
-whitens the entire city uniformly rather than fading its far edge — the reason `scene.js` has none.
-Keyed on distance from the *middle of the map* instead of from the camera, the same idea works.
+It is an *edge* cue rather than a depth cue, and the two now sit on top of each other: the skirt is
+keyed on distance from the middle of the map, so it fades the last 16 units of ground wherever they
+are on screen, while [the haze](#atmospheric-perspective) is keyed on distance from the camera and
+fades the whole back of the frame. The skirt hides where the island stops; the haze says how far
+away it is. This paragraph used to claim distance fog couldn't do the second job here — see that
+section for why that was wrong.
 
 **The skirt is added outside the slab, never eaten out of it.** Fading inward would mean shrinking
 the solid part, and there is only 2.2 units of clearance at the corners before the arc bites into the

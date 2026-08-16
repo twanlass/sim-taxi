@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { unlitMaterial } from '../util/geo.js';
 
 // Rubber left on the road when the taxi throws it around a corner in crazy mode.
 //
@@ -29,7 +30,7 @@ export function createSkidMarks(scene) {
 
   const mesh = new THREE.Mesh(
     geometry,
-    new THREE.MeshBasicMaterial({
+    unlitMaterial({
       vertexColors: true,
       transparent: true,
       depthWrite: false,

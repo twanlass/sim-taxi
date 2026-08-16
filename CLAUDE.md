@@ -189,6 +189,14 @@ down.
   building a comparison city — silently replaces the city everything else is measuring against.
   Eight traffic and routing checks went red for a change that only touched buildings. Rebuild the
   layout you meant to keep afterwards.
+- **Distance fog under this orthographic camera is not uniform — fog placed *from zero* is.** The
+  city sits at view-space depth 400 ± 65, so a `Fog(near = 0, far = 1000)` varies by a few percent
+  across the whole map and reads as a flat wash. That got measured once and written down as "an
+  ortho camera can't have distance fog", which is wrong and cost the scene its only depth cue for a
+  long time. The band has to be placed **around the 400-unit standoff** (`hazeRange()` in
+  `scene.js`). The same arithmetic is why it must be linear rather than `FogExp2`: an exponential is
+  a distance from the eye, and this eye is 400 units from everything, so any density that reads at
+  the back also washes the nearest pixel.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

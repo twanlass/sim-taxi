@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { color } from '../palette.js';
+import { unlitMaterial } from '../util/geo.js';
 
 // A ghost outline: the silhouette of a mesh, traced as a rim and drawn ONLY on pixels where the
 // mesh is hidden behind other geometry. The taxi wears one so it can never disappear behind a
@@ -121,7 +122,7 @@ export function inflatedGeometry(geometry, rim) {
  * rather than a copy of it that can drift out of step.
  */
 export function ghostMaskMaterial() {
-  return new THREE.MeshBasicMaterial({
+  return unlitMaterial({
     colorWrite: false,
     depthWrite: false,
     depthTest: false,          // the footprint is stamped whether the mesh is visible or not
@@ -144,7 +145,7 @@ export function ghostMaskMaterial() {
  *                  alpha per instance instead — see carghosts.js.
  */
 export function ghostRimMaterial({ tint = color('taxiGhost'), opacity = 0.85 } = {}) {
-  return new THREE.MeshBasicMaterial({
+  return unlitMaterial({
     color: tint,
     side: THREE.BackSide,
     transparent: true,
