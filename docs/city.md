@@ -123,16 +123,28 @@ That lane centre is 3.33 across, which is 4.71 along the view diagonal; even a s
 tree with a 0.9 crown reaches about 5.7, so it passed in front of cars over there for roughly half
 of every block. Shortening it further just made it a shrub on a stick.
 
-A flower bed tops out **0.36 above the island** and casts 0.55 of occlusion, so the question stops
-being "how often does this hide a car" and simply goes away. It also suits the strip better: a
-median is a planter, not a verge, and bedding is what a city puts in one.
+A flower bed tops out **0.39 above the island**, 0.74 above the road, which casts 1.1 of occlusion
+against the 4.71 it would have to reach to touch the far lane. The question stops being "how often
+does this hide a car" and simply goes away. It also suits the strip better: a median is a planter,
+not a verge, and bedding is what a city puts in one.
 
 **A single flower is not a thing this game can draw.** At play zoom 1 world unit is 7.7px, so a
-bloom is under two pixels and a stem is nothing at all. What has to read is the *bed* — a 1.0–1.3
-unit patch, 8–10px of colour against the island's grass — so `flowerBedParts` spends its geometry
-on a foliage mound wide enough to see and dots blooms over it, rather than on stems nobody
-resolves. Two or three beds an island, spaced rather than scattered, for the same reason the park
-benches are ([above](#benches-and-one-statue)).
+bloom is two pixels and a stem is nothing at all. What has to read is the *bed* — a 0.9–1.2 unit
+patch of colour against the island's grass — so `flowerBedParts` spends its geometry on a foliage
+mound wide enough to see and packs blooms over it, rather than on stems nobody resolves. Sixteen to
+twenty-four of them per bed, which at radius 0.10 covers more than the mound's own plan area: the
+green survives as the gaps between blooms, and anything sparser reads as a shrub with a few dots on
+it.
+
+Three or four beds an island, spaced rather than scattered, for the same reason the park benches
+are ([above](#benches-and-one-statue)) — but close enough at a 1.4 pitch that neighbours overlap.
+That is the point. A planted central reservation is a continuous drift of colour, and overlapping
+mounds give it that without a second kind of geometry.
+
+A bloom is an **octahedron**, not the icosahedron the mound uses: 8 triangles against 20, and at
+two pixels the two are indistinguishable. The city carries ~720 of them, so the choice is worth
+10,000 triangles and a third of the props mesh's build time (measured: 111ms → 99ms, 20.6k → 11.7k
+triangles for the whole mesh).
 
 `planMedianBeds` is split out and exported the way `planParkFurniture` is: placement is the part
 with a rule in it, and the rule — no bed may overhang its island's kerb into the carriageway — is
@@ -141,11 +153,24 @@ that would escape is specifically the widest one on the narrowest island, and it
 `jitterVertices` throwing a mound's corners 14% past its nominal radius. That is 0.09 at the top of
 the size range, which is most of the 0.15 of kerb an island leaves showing.
 
-The blooms are three tints of one pink. Almost every warm hue in this game already means something
-— the urgency ramp runs 1°–126°, the taxi sits at 34°, the VIP purple at 260° — which leaves the
-magenta arc between the purple and the red as the one wide gap on the wheel. They land at 321–331°,
-30° clear of the nearest, and are deliberately half as saturated as anything the player has to act
-on. Both properties are asserted in `tools/probe.mjs`, the same way the roadworks orange is.
+### The bloom palette is the free space on the wheel
+
+Blooms are drawn per *flower*, not per bed, so one bed carries four or five colours. A bed used to
+be one species, which is the tidier thing for a city to plant and the duller thing to look at: at
+this size the whole payload of a flower bed is that it is many colours at once, and a monochrome
+one is a coloured lump.
+
+Which colours is not a taste question here. Measured where `getHSL` measures, the urgency ramp runs
+1° → 126°, the taxi sits at 34°, the route yellow at 46°, the courier cyan at 192° and the VIP
+purple at 260°. Requiring 20° of clearance either side leaves exactly four windows — 71–106°,
+146–172°, 212–240° and 280–341° — and the first two are unusable for a different reason: they are
+greens, and a green flower on a green mound on green grass is a flower nobody sees.
+
+So the planting lives in the other two: blue at 223–230°, then violet, magenta and pink from 287°
+round to 331°. Nearest approach to anything the player acts on is **27°**, and the loudest bloom is
+0.66 saturated against the 0.86–1.00 of every marker on the board. `tools/probe.mjs` asserts both,
+the same way it asserts the roadworks orange. That the range comes out cool and slightly wild is a
+consequence of the constraint rather than a choice, and it happens to suit municipal bedding.
 
 ## Layout: what a block *is*
 

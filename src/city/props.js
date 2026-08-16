@@ -75,7 +75,7 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6 } = {}) {
 
 /** Bed proportions. Flat and wide: it is read from above, and only ever from above. */
 const BED_SQUASH = 0.42;         // dome height as a fraction of its radius
-const BLOOM_R = 0.13;
+const BLOOM_R = 0.10;
 // How far `jitterVertices` can throw a mound's corners past its nominal radius. Placement has to
 // budget for it: at 0.62 of radius that is 0.09 of extra reach, which is most of the 0.15 of kerb
 // an island leaves showing — a bed placed on its nominal radius alone spills into the road.
@@ -89,7 +89,7 @@ const BED_SPREAD = 0.14;
  * 1.0–1.3 unit patch, 8–10px of colour against the median's grass — so the geometry spends itself
  * on a mound wide enough to see and dots the blooms over it, rather than on stems nobody resolves.
  */
-export function flowerBedParts(x, z, rng, { radius, bloom }) {
+export function flowerBedParts(x, z, rng, { radius }) {
   const parts = [];
 
   // The foliage under the flowers, in the same green the trees wear rather than the grass's own —
@@ -113,20 +113,31 @@ export function flowerBedParts(x, z, rng, { radius, bloom }) {
   //
   // `sqrt` on the radial draw spreads them by *area* — without it a uniform draw crowds them into
   // the middle and leaves the rim, which is the part that gives the bed its size, bare.
-  const count = rng.int(7, 11);
+  // Densely enough that the blooms, not the mound, are what the bed *is*: at 16–24 heads of
+  // radius 0.10 over a disc of ~0.45, they cover more than the disc's own area and the green
+  // survives only as the gaps between them. Sparser reads as a shrub with a few dots on it.
+  const count = rng.int(16, 24);
   for (let n = 0; n < count; n++) {
     const angle = rng.range(0, Math.PI * 2);
-    const reach = radius * Math.sqrt(rng.next()) * 0.78;
+    const reach = radius * Math.sqrt(rng.next()) * 0.82;
     const r = BLOOM_R * rng.range(0.85, 1.2);
     const dome = radius * BED_SQUASH * Math.sqrt(1 - (reach / radius) ** 2);
 
-    const head = new THREE.IcosahedronGeometry(r, 0);
+    // An octahedron, not the icosahedron the mound uses: 8 triangles against 20, and at the two or
+    // three pixels a bloom occupies the two are indistinguishable. The city carries ~720 of these,
+    // so the choice is worth 10k triangles and a third of the props mesh's build time.
+    const head = new THREE.OctahedronGeometry(r, 0);
     head.scale(1, 0.62, 1);
     head.translate(
       x + Math.cos(angle) * reach,
       KERB_H + dome + r * 0.45,
       z + Math.sin(angle) * reach,
     );
+    // Drawn per bloom rather than per bed. A bed used to be one species, which is the tidier
+    // thing for a city to plant and the duller thing to look at — at this size the whole payload
+    // of a flower bed is that it is *many colours at once*, and a monochrome one is a coloured
+    // lump. Seven to draw from and twenty draws puts four or five in every bed.
+    const bloom = rng.pick(PALETTE.bloom);
     parts.push(bakeColor(head, jitterColor(bloom, rng, { h: 0.015, l: 0.06 })));
   }
 
@@ -137,10 +148,12 @@ export function flowerBedParts(x, z, rng, { radius, bloom }) {
 const BED_ROOM = MEDIAN_W / 2 - MEDIAN_EDGE;
 const BED_R_LOW = 0.44;
 const BED_R_HIGH = 0.62;
-// Beds are spaced along the island rather than scattered, for the reason the park benches are:
-// at two or three per run a pair of random draws puts them at the same end about as often as it
-// spaces them. ~2 units apart comes out at three beds on an 8.4-unit island and two on a 7.07.
-const BED_PITCH = 2.0;
+// Beds are spaced along the island rather than scattered, for the reason the park benches are: a
+// pair of random draws puts them at the same end about as often as it spaces them. ~1.4 units apart
+// comes out at four beds on an 8.4-unit island and three on a 7.07 — close enough that neighbours
+// overlap, which is the point. A median planted with bedding is a continuous drift of colour, not
+// three tidy dots, and overlapping mounds are what give it that without a second kind of geometry.
+const BED_PITCH = 1.4;
 // Clear of the island's stadium caps, so a bed's own circle is measured against the straight part.
 const BED_END_GAP = MEDIAN_W / 2 + 0.1;
 /** Where the grass on an island stops — see `BED_ROOM` above. Exported for the probe. */
@@ -166,7 +179,8 @@ export function planMedianBeds(rng, runs) {
     for (let n = 0; n < count; n++) {
       const radius = rng.range(BED_R_LOW, BED_R_HIGH);
       // What the bed actually occupies, jitter included — the number placement is bounded by, and
-      // the one the probe measures against.
+      // the one the probe measures against. The blooms sit inside it: the furthest reaches
+      // `0.82 · radius + BLOOM_R`, which at every size in the range is inside the mound itself.
       const footprint = radius * (1 + BED_SPREAD);
       const even = run.from + BED_END_GAP + usable * ((n + 0.5) / count);
       const along = THREE.MathUtils.clamp(even + rng.range(-0.25, 0.25),
@@ -175,11 +189,10 @@ export function planMedianBeds(rng, runs) {
       // them reading as a dotted line painted down the middle. Bounded by its own radius, so the
       // widest bed simply gets no room to wander.
       const across = centre + rng.range(-1, 1) * Math.max(0, BED_ROOM - footprint);
-      const bloom = rng.pick(PALETTE.bloom);
 
       beds.push(run.axis === 'x'
-        ? { x: along, z: across, radius, footprint, bloom }
-        : { x: across, z: along, radius, footprint, bloom });
+        ? { x: along, z: across, radius, footprint }
+        : { x: across, z: along, radius, footprint });
     }
   }
 
