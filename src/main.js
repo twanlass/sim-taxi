@@ -6,7 +6,10 @@ import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
-import { createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber, BOOST_CRUISE } from './sim/traffic.js';
+import {
+  createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber,
+  boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
+} from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
@@ -27,6 +30,7 @@ import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { showRunEnd } from './game/runend.js';
 import { recordRun, lastName, clearScores, loadScores } from './game/highscores.js';
+import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from './game/locostash.js';
 import {
   TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK,
 } from './geometry/taxi.js';
@@ -291,7 +295,7 @@ const BOOST_FOLLOW_SMOOTHING = 3.2;
 const followAim = (car) => ({
   x: Math.cos(car.yaw),
   z: -Math.sin(car.yaw),
-  gain: Math.min(car.v / BOOST_CRUISE, 1),
+  gain: Math.min(car.v / boostCruise(), 1),
   speed: car.v,
 });
 
@@ -1924,6 +1928,48 @@ function frame() {
   diag.update(wallDt);
 }
 
+// The gear button sits top-right at small widths and started overlapping the streak counter
+// there — most players never open it anyway, so it's opt-in now: `?debug` or `?settings` in the
+// URL, either present with no value needed.
+const debugParams = new URLSearchParams(window.location.search);
+const wantsDebugPanel = debugParams.has('debug') || debugParams.has('settings');
+
+// The Loco Mode ramp. Pushed into the panel rather than imported by it for the same reason the
+// difficulty knobs are pushed into `sim/` — the sim owns these numbers, and the panel is one more
+// thing allowed to move them, alongside `traffic.taxi.boost` and `setCarCount`.
+//
+// Hoisted out of the panel's arguments so `window.__taxi.loco` can hand out the same handle. The
+// panel's sliders are bounded and this is not: `setLocoTuning` takes any finite positive number,
+// so `__taxi.loco.set({ overdriveSpeed: 60 })` from the console is the way past the top of a
+// slider. There is nothing to protect — a silly number makes a silly game, which is the point.
+const loco = {
+  get: locoTuning, set: setLocoTuning, reset: resetLocoTuning, ramp: locoRamp,
+  defaults: LOCO_DEFAULTS,
+  /**
+   * Persist the current tuning, or forget it once it is back to shipped — so "Reset" survives a
+   * reload as surely as a tweak does. Returns whether the stash now matches what is on screen,
+   * which is false only when storage refused the write. See game/locostash.js.
+   */
+  save: () => {
+    const tuning = locoTuning();
+    const tweaked = Object.keys(LOCO_DEFAULTS).some((key) => tuning[key] !== LOCO_DEFAULTS[key]);
+    if (!tweaked) return clearLocoTuning();
+    return saveLocoTuning(tuning);
+  },
+};
+
+/**
+ * Restore a stashed tuning — **only under `?debug`**, and before the warmup below, so the ten sim
+ * seconds it drives run on the same numbers the rest of the page will.
+ *
+ * The gate is the whole point rather than a precaution. Without the panel on screen nothing says
+ * the game is not the game, so a stash left over from a tuning session would make an ordinary run
+ * silently unlike everyone else's — and put its score on the table. Shot mode is out for the same
+ * reason from the other end: a screenshot has to be of the shipped build.
+ */
+const stashedLoco = !shot && wantsDebugPanel ? loadLocoTuning() : null;
+if (stashedLoco) loco.set(stashedLoco);
+
 if (shot) {
   document.body.classList.add('shot-mode');
   traffic.warmup(shot.warmup ?? 12);
@@ -2241,11 +2287,7 @@ if (shot) {
   frame();
 }
 
-// The gear button sits top-right at small widths and started overlapping the streak counter
-// there — most players never open it anyway, so it's opt-in now: `?debug` or `?settings` in the
-// URL, either present with no value needed.
-const wantsDebugPanel = new URLSearchParams(window.location.search);
-if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) {
+if (!shot && wantsDebugPanel) {
   createDebugPanel({
     sun,
     hemi,
@@ -2265,6 +2307,9 @@ if (!shot && (wantsDebugPanel.has('debug') || wantsDebugPanel.has('settings'))) 
       tune: cityEntry.tune,
       replay: () => cityEntry.replay(traffic.taxi),
     },
+    loco,
+    /** True when the sliders opened on a tuning restored from a previous session. */
+    locoRestored: Boolean(stashedLoco),
   });
 }
 
@@ -2272,6 +2317,11 @@ window.__taxi = {
   traffic,
   daylight,
   boost,
+  /**
+   * Loco Mode's speed ramp — `get`, `set`, `reset`, `ramp`, `defaults`. The ⚙️ panel's sliders
+   * drive the same handle, so this is where you go for a value past the end of one of them.
+   */
+  loco,
   tutorial,
   carGhosts,
   skids,

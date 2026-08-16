@@ -27,7 +27,8 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
   '../src/geometry/parcel.js', '../src/geometry/parcelpad.js', '../src/game/parcels.js',
   '../src/game/cargochip.js',
-  '../src/game/tutorial.js', '../src/game/highscores.js', '../src/lab/labroad.js'];
+  '../src/game/tutorial.js', '../src/game/highscores.js', '../src/game/locostash.js',
+  '../src/lab/labroad.js'];
 
 const TOOLS = [
   // Runs first: it is the control on every later step. If the road network stops describing the

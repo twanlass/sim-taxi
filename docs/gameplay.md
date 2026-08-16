@@ -1622,7 +1622,7 @@ the holds were rare enough to cost the mode its feel without protecting it.
 tank runs dry — the taxi is still exposed to everything Loco Mode was: it can still crash into
 traffic, still gets caught if a cop is in bust range, still forces the next light. What it loses
 immediately is the speed — the cap drops back to cruise the moment the hold ends, and ordinary
-braking (the same constant every other stop uses) hauls it down from 18.7 to 8.5 in under a
+braking (the same constant every other stop uses) hauls it down from 22.1 to 8.5 in under a
 second, nose dipping hard the whole way. So letting go a beat too late doesn't buy safety; it buys
 a car that's still committed to whatever's in front of it while visibly losing the ability to
 dodge. Re-pressing mid-cooldown cancels it and snaps straight back to full send. See
