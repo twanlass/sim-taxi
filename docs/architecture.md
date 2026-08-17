@@ -57,7 +57,7 @@ src/
 
   geometry/             one-off models, all procedural
     taxi.js  wheels.js  diamond.js  targetring.js  marker.js  person.js  riderdiamond.js
-    plane.js bird.js helicopter.js
+    plane.js bird.js helicopter.js cursebubble.js
 
   util/
     rng.js              seeded RNG (mulberry32) + value noise

@@ -1837,14 +1837,19 @@ function frame() {
       traffic.taxi.v = 0;
       boost.release();
     } else if (type === 'vip-missed') {
-      // The one fare whose clock running out isn't a run-ending event — see fares.js. If it was
-      // riding, the taxi is holding an empty seat with nowhere left to drive; free it up exactly
-      // as a delivery would, minus the payout.
-      if (fare.stage === 'riding') {
+      // The one fare whose clock running out isn't a run-ending event — see fares.js. The rider is
+      // getting out and running off on their own (fares.js `beginBail`); what is left here is the
+      // taxi, which is either holding an empty seat or still driving at a kerb nobody is standing
+      // on any more. Free it up exactly as a delivery would, minus the payout.
+      //
+      // `directed` covers the second case: a VIP whose clock ran out while the taxi was on its way
+      // to collect them leaves a live route and a `pendingTarget` aimed at a corner with nothing on
+      // it, which is the same stale drive the courier's own arrivals retire below.
+      if (fare.stage === 'riding' || fare.directed) {
         traffic.taxi.route = [];
         traffic.taxi.pendingTarget = null;
-        traffic.setTaxiOccupied(false);
       }
+      if (fare.stage === 'riding') traffic.setTaxiOccupied(false);
     }
   }
 
