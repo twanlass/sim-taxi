@@ -411,6 +411,15 @@ is a minute here and any fixed wait is either far too long or a flake. Everythin
 wait anyway: the fare board is held empty for the whole vignette, so there is nothing to tap until
 it lands.
 
+**The skip gets a page of its own**, for the one reason a check ever should: the claims are mutually
+exclusive. The wait above needs a vignette that runs all the way to its end and
+[tap-to-skip](gameplay.md#tap-to-skip) needs one that doesn't, so a second target boots the game
+again and taps it mid-sequence. Every part of that is browser — a `pointerdown` on the canvas, a
+black div that has to be on top of the HUD *and* taking the taps (`elementFromPoint`, not the
+`hidden` flag: only the first one can tell a cover from a cover that is painting under something),
+and a fade that has to take itself back down. What the black is hiding — the handover and the camera
+snap — is arithmetic, and `tools/probe.mjs` has it.
+
 **The camera checks emulate a phone.** Drag-to-pan, both follow-cams and the rider peek are all
 gated under `NARROW_VIEWPORT = 768`, and the tool launches a 900px window — so the drag check was
 asserting a feature that is deliberately switched off there. That half of the run now flips to a

@@ -108,6 +108,42 @@ for the same span, and it is the sharper version of the same point: that outline
 car behind a building, and for these few seconds the car is *in* one — so it drew a yellow blob
 across the door the whole vignette was building up to. Where the car is, is what the camera is for.
 
+### Tap to skip
+
+**A tap anywhere on the city cuts to black, lands the vignette behind it, and fades back up on the
+run.** No button and no "skip" label: the opening is seven seconds at the top of a run the player
+has already chosen to start, so an affordance costs more screen than the thing it escapes — and a
+tap is what every other beat of the opening already answers to.
+
+The black is the feature, not decoration. `opening.skip()` is `settle()` plus one thing settling has
+no reason to do: it **snaps** the camera to `restFraming()` at play zoom, from fifteen units off a
+garage door. Done in plain sight that is either a jump cut across a third of the map or a second of
+easing — the wait the player just asked to be let out of. Under the black it costs one invisible
+frame, which is what a cut is for. `game/wipe.js` owns the cover: 160ms out, a 90ms hold, 300ms
+back. The hold is what makes it read as a cut rather than a stutter, and the fade in is slower than
+the fade out because going to black answers the press while coming back *is* the game arriving.
+
+Three things about the tap:
+
+- **Only while the vignette owns the camera** (`holdsCamera()`), which is false during `wait` — the
+  city's own entrance still building itself. Skipping a sequence that has not started reads as the
+  tap having broken something.
+- **Only a tap on the canvas.** The ⏸ is live through all of this (it is not part of the HUD's
+  entrance), so a bare `window` listener would skip the opening *and* pause the game on one press.
+- **`pointerdown`, not `click`,** because a skip has to land on the press. Nothing else is tappable
+  while the vignette runs — the board is held empty, the HUD has not arrived, there is no route band
+  — so there is no gesture for this one to steal.
+
+Both holds the vignette takes — [the fare board](#the-board-waits) and the tutorial — are extended
+to the wipe rather than to the vignette alone, and that is the whole reason `covering()` is public:
+the sequence stops running a beat *before* the player can see anything, and a bubble that started
+typing under the black would have spent half its line by the time the screen came back.
+
+`tools/probe.mjs` asserts the half that is arithmetic — the handover lands where `settle`'s does and
+the camera ends exactly on the play framing — and `tools/smoke.mjs` asserts the half that is a page:
+that a `pointerdown` on the canvas puts a black div on top of everything, that the run is on the
+road behind it, and that the black takes itself down again afterwards.
+
 ### Where it sits in the camera's priority list
 
 At the **top**, above even [the closing shot](rendering.md#the-closing-shot), and on every viewport
@@ -123,7 +159,9 @@ shuts the door beside `cityEntry.settle()`, which is the state a run is actually
 time to sit through on every reload while iterating on something else. It is a *settle* rather than a
 skip — the module is built and then landed — so the fast path goes through the same handover the
 real sequence does. A skip that reached the game any other way would be a second opening to keep
-working.
+working. [The player's own skip](#tap-to-skip) goes through the same `settle`, which is what that
+handover being one path is for; all it adds is the camera, because it is the one skip that lands
+with the shot somewhere it cannot be left.
 
 ## The opening tutorial
 

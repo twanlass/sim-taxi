@@ -294,6 +294,20 @@
         transform: translate(-50%, -50%);
       }
 
+      /* The cut to black a skipped opening happens behind — see src/game/wipe.js. Nothing is ever
+         drawn on it: it exists so the vignette can be landed, and the camera thrown across the map
+         to the framing the run plays at, on a frame nobody can see.
+
+         Above every overlay that can be up while it runs (the coach bubble at 22, the pause veil at
+         23, the ⏸ itself at 24) and below the two that are gates of their own: the Home Screen
+         screen at 26, which holds the vignette in `wait` and so cannot coexist with a skip, and the
+         run-end blackout at 30. Opacity lives here rather than in the animation's fill, so a
+         cancelled or finished wipe lands on a transparent element rather than a black one. */
+      #wipe {
+        position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 28;
+        background: #000; opacity: 0; pointer-events: none;
+      }
+
       /* A full-screen black mask, not a modal over the city. The dim-and-card version kept the
          frozen city legible behind a panel, and the panel's edges were the loudest thing on the
          screen — a hard blackout puts the run's numbers on nothing at all, which is what makes
@@ -1275,6 +1289,7 @@
       </button>
     </div>
     <div id="home-tip" hidden></div>
+    <div id="wipe" aria-hidden="true" hidden></div>
     <div id="run-end" hidden></div>
 
     <div id="diag" hidden></div>

@@ -42,6 +42,7 @@ import { createTaxiFinder } from './game/taxifinder.js';
 import { createCargoChip } from './game/cargochip.js';
 import { createTutorial } from './game/tutorial.js';
 import { createOpening } from './game/opening.js';
+import { createWipe } from './game/wipe.js';
 import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createSirenGlow } from './game/sirenglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
@@ -935,6 +936,12 @@ const wantsTutorial = new URLSearchParams(window.location.search).get('tutorial'
 // The same escape hatch for the beat before it — see the opening vignette at the bottom of this
 // file, and `?vignette=off` there for why it is a *settle* rather than a skip.
 const wantsVignette = new URLSearchParams(window.location.search).get('vignette') !== 'off';
+// The cut to black the player's own skip happens behind — a tap during the vignette, wired at the
+// bottom of this file where the vignette itself is built. Declared here because the tutorial's
+// `isBlocked` below has to see it: the skip hands the run over on a frame nobody can see, and a
+// bubble that started typing under the black would have spent half its line by the time the screen
+// came back. Null in shot mode, which has no vignette to skip. See game/wipe.js.
+const wipe = shot ? null : createWipe(document.getElementById('wipe'));
 const revealHud = () => document.body.classList.add('hud-ready');
 
 // Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
@@ -980,8 +987,11 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // ...and the opening vignette holds it after that, so the three queue: the city builds itself,
   // the taxi comes out of its garage, and only then does anything start talking. Each is a claim
   // about the same few seconds and any two of them at once is neither.
+  // ...and the wipe holds it across a *skipped* vignette, which is the one case where the sequence
+  // stops running while the player still cannot see anything: the hold has to last until the black
+  // starts lifting rather than until the vignette ends.
   isBlocked: () => Boolean(homeTip?.state.holding) || cityEntry.running()
-    || Boolean(opening?.running()),
+    || Boolean(opening?.running()) || Boolean(wipe?.covering()),
   // The same guard the picker uses: the click a mouse synthesises at the end of a drag must not
   // count as an answer to the bubble the player was dragging past.
   shouldIgnoreTap: () => Boolean(pan?.didPan() || pathDrag?.didDrag()),
@@ -1620,8 +1630,14 @@ const homeTip = shot ? null : createHomeScreenTip(document.getElementById('home-
 // running through the vignette stood a rider and a two-metre crystal on a kerb while the camera
 // was down at the garage door, and on the seed this was first watched on, that kerb was the one
 // the door faces. The board belongs to the run, and the run starts when the taxi is on the road.
+//
+// A skipped vignette (the `wipe` above) carries the hold the last few frames to the same rule read
+// literally: the taxi is on the road from the moment the skip lands, but the screen is still black
+// for a beat after that, and a board seeded under it opens the run with a rider whose entrance the
+// player never saw.
 const NO_FARE_EVENTS = [];
-const fareLoopHeld = () => Boolean(homeTip?.state.holding) || Boolean(opening?.running());
+const fareLoopHeld = () => Boolean(homeTip?.state.holding) || Boolean(opening?.running())
+  || Boolean(wipe?.covering());
 
 // The ⏸ at the top of the HUD. Unlike the two holds above it this one stops the *whole* frame (see
 // the early return in `frame()`), because a pause the player asked for has to give back a city in
@@ -2364,6 +2380,35 @@ if (shot) {
     // the same handover the real sequence does — a skip that reached the game by a different route
     // would be a second opening to keep working.
     if (!wantsVignette) opening.settle();
+
+    // **Tap anywhere to skip it.** No button and no "skip" label: the vignette is seven seconds at
+    // the top of a run the player has already chosen to start, so the affordance costs more screen
+    // than the thing it escapes — and a tap is what every other beat of the opening already answers
+    // to (the tutorial's bubbles, the Home Screen screen, the run-end tally).
+    //
+    // Three things it is careful about:
+    //   - **Only while the vignette owns the camera.** `holdsCamera()` is false in `wait`, which is
+    //     the city's own entrance still building itself: a tap there belongs to the city rising, and
+    //     skipping a sequence that has not started reads as the tap having broken something.
+    //   - **Only a tap on the city.** The ⏸ is live through all of this (it is not part of the HUD's
+    //     entrance), and a `window` listener would otherwise skip the opening *and* pause the game
+    //     on the same press. Every other pointer target on the page is a control with its own job.
+    //   - **`pointerdown`, not `click`.** A skip has to land on the press or it reads as laggy on
+    //     the one gesture whose whole promise is getting out of a wait. Nothing here is tappable
+    //     while the vignette runs — the board is held empty, the HUD has not arrived and there is no
+    //     route band — so there is no gesture for this one to steal.
+    const skipVignette = (event) => {
+      if (!opening?.running()) {
+        window.removeEventListener('pointerdown', skipVignette);
+        return;
+      }
+      if (!opening.holdsCamera() || event.target !== renderer.domElement) return;
+      // Behind the black, always: `opening.skip()` throws the camera across the map, and doing that
+      // in plain sight is a worse thing to watch than the vignette was. See game/wipe.js.
+      if (wipe) wipe.cut(() => opening.skip()); else opening.skip();
+      window.removeEventListener('pointerdown', skipVignette);
+    };
+    if (wantsVignette) window.addEventListener('pointerdown', skipVignette);
   }
   // Re-aim the entrance wave at the taxi *after* the warmup: it was created with the spawn
   // point, and ten sim-seconds of warmup drive the taxi a couple of blocks from there — so the

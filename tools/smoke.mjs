@@ -151,6 +151,95 @@ try {
   check('...and the fare board opens behind it',
     await evaluate('window.__taxi.fares.state.fares.length > 0'));
 
+  // --- ...and the tap that gets out of it.
+  //
+  // A second page, because the two claims are mutually exclusive: the one above needs a vignette
+  // that runs all the way to its end, and this one needs one that doesn't. It is here rather than
+  // in the node suite because every part of it is browser — a `pointerdown` on the canvas, a black
+  // div that has to be on top of everything and taking the taps, and a fade that has to take itself
+  // back down afterwards. `probe.mjs` covers the other half (the handover and the camera snap the
+  // black is hiding); none of the wiring that reaches them exists outside a page.
+  {
+    const skip = await fetchJson(`/json/new?${encodeURIComponent('about:blank')}`, 'PUT');
+    const skipClient = connect(skip.webSocketDebuggerUrl);
+    await skipClient.ready;
+    await skipClient.send('Runtime.enable');
+    await skipClient.send('Page.enable');
+    await skipClient.send('Page.navigate', { url: baseUrl });
+
+    const skipEval = async (expression) => {
+      const { result } = await skipClient.send('Runtime.evaluate', {
+        expression, returnByValue: true,
+      });
+      return result.value;
+    };
+
+    // Wait for the sequence to be genuinely under way rather than merely built: the skip is armed
+    // on `holdsCamera()`, so a tap during `wait` — the city's own entrance still rising — is
+    // deliberately not one. Same polling argument as above; under a software renderer the phases
+    // advance at a fraction of wallclock. "none" is a city with no depot, which the probe's sweep
+    // says does not happen, and which would leave nothing here to skip.
+    let phase = 'boot';
+    const armedDeadline = Date.now() + 180000;
+    while (Date.now() < armedDeadline) {
+      phase = await skipEval('window.__taxi'
+        + ' ? (window.__taxi.opening() ? window.__taxi.opening().phase() : "none") : "boot"');
+      if (phase !== 'boot' && phase !== 'wait') break;
+      await sleep(300);
+    }
+    const armed = phase !== 'boot' && phase !== 'wait' && phase !== 'none' && phase !== 'done';
+    check('a second page reaches the vignette with it still running', armed, `phase ${phase}`);
+
+    if (armed) {
+      // Read back in the same evaluate as the tap, not on the next poll: the fade to black is
+      // 160ms and the whole cut is under half a second, so anything asked afterwards is a race.
+      // `elementFromPoint` is the load-bearing half — it says the black is genuinely on top of the
+      // HUD *and* taking the taps, which a `hidden` flag alone does not.
+      const cut = JSON.parse(await skipEval(`(() => {
+        document.querySelector('body > canvas')
+          .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+        const wipe = document.getElementById('wipe');
+        return JSON.stringify({
+          up: !wipe.hidden,
+          onTop: document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.id ?? '',
+        });
+      })()`));
+      check('a tap during it cuts to black', cut.up && cut.onTop === 'wipe',
+        `wipe ${cut.up ? 'up' : 'down'}, top element "${cut.onTop}"`);
+
+      // And behind that black, the same landing the vignette would have reached on its own — plus
+      // the framing, which is the whole of what the skip has to do that settling doesn't.
+      let landed = false;
+      const landDeadline = Date.now() + 20000;
+      while (Date.now() < landDeadline) {
+        if (await skipEval('window.__taxi.opening().phase() === "done"')) { landed = true; break; }
+        await sleep(200);
+      }
+      check('...and the run is on the road behind it', landed
+        && (await skipEval('window.__taxi.traffic.taxi.staged')) === false
+        && (await skipEval('Boolean(window.__taxi.traffic.taxi.lane)')));
+      check('...at the zoom the game plays at',
+        Math.abs((await skipEval('window.__taxi.camera.state.zoom')) - 52) < 0.5,
+        `zoom ${await skipEval('window.__taxi.camera.state.zoom')}`);
+
+      // The fade back in has to end with the element gone. A black sheet left over the city is the
+      // one failure of this feature that would be total, and it is invisible to every check above.
+      let lifted = false;
+      const liftDeadline = Date.now() + 10000;
+      while (Date.now() < liftDeadline) {
+        if (await skipEval("document.getElementById('wipe').hidden")) { lifted = true; break; }
+        await sleep(200);
+      }
+      check('...and the black lifts off it', lifted);
+      check('...leaving the city taking the taps again',
+        (await skipEval(
+          "document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.tagName ?? ''")) === 'CANVAS');
+    }
+
+    skipClient.close();
+    await fetch(`http://127.0.0.1:${PORT}/json/close/${skip.id}`).catch(() => {});
+  }
+
   // --- Tap the taxi: it should select.
   // Synthetic DOM click rather than CDP's Input domain. Input.dispatchMouseEvent is accepted in
   // this headless configuration but never synthesises a DOM click — the page observes nothing at
