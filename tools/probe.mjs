@@ -2895,6 +2895,7 @@ check('no two cars occupy the same space', worst > 1.6,
     let peak = 0;          // the slip angle at its widest, signed
     let slideFrames = 0;
     let lock = 0;          // the front wheels' rendered angle on that same frame, signed
+    let lean = 0;          // and the body roll on it, signed the same way
     let kerbClear = Infinity;
     let laneOff = 0;       // how far the body centre strayed from the lane centre
     let earlyPeak = 0;     // the widest the tail got over the first 5 units out of the corner
@@ -2938,6 +2939,10 @@ check('no two cars occupy the same space', worst > 1.6,
         for (const part of traffic.taxiGroup.children) {
           if (Math.abs(part.rotation.y) > Math.abs(lock)) lock = part.rotation.y;
         }
+        // 'YXZ' — x is the roll. Read on the same frame and only out on the straight, where the
+        // corner's own lean has already returned to zero and a lone taxi has nothing else rolling
+        // it, so what is left is the fish tail's contribution by itself.
+        lean = traffic.taxiGroup.rotation.x;
       }
       if (taxi.state !== 'drive') continue;
 
@@ -2961,14 +2966,14 @@ check('no two cars occupy the same space', worst > 1.6,
         }
       }
     }
-    return { took, peak, slideFrames, lock, kerbClear, laneOff, earlyPeak, latePeak, lateFrames, corners };
+    return { took, peak, slideFrames, lock, lean, kerbClear, laneOff, earlyPeak, latePeak, lateFrames, corners };
   };
 
   const fish = runCorner({ hand: 'right', boosting: true });
   const fishStraight = runCorner({ hand: 'straight', boosting: true });
   const fishCalm = runCorner({ hand: 'right', boosting: false });
 
-  // 8.6° measured, against the 8.42 the first lobe of locoFishtail() is worth on its own — the
+  // 16.3° measured, against the 16.0 the first lobe of locoFishtail() is worth on its own — the
   // extra is the tail still swinging as the taxi picks up speed out of the arc.
   const deg = (r) => `${((Math.abs(r) * 180) / Math.PI).toFixed(1)}\u00b0`;
   check('Loco Mode throws its tail out of a corner',
@@ -2982,25 +2987,35 @@ check('no two cars occupy the same space', worst > 1.6,
   check('and not out of a corner taken with the button up',
     fishCalm.took === 'right' && fishCalm.slideFrames === 0,
     `${fishCalm.slideFrames} sliding frames off the boost`);
-  // Measured: 8.6° over the first five units against 3.7° over the rest, a ratio of 0.43. Rigged
-  // never to decay it comes back at 0.97, so the 0.6 has clear air either side of it. The frame
-  // count is half the check and not a statistic — see the note in the loop.
+  // Measured: 16.3° over the first five units against 7.5° over the rest, a ratio of 0.46. Rigged
+  // never to decay it comes back at 0.98 (21.5° then 21.1°), so the 0.6 has clear air either
+  // side of it. The frame count is half the check and not a statistic — see the note in the loop.
   check('and it catches it before the next junction',
     fish.latePeak < fish.earlyPeak * 0.6 && fish.lateFrames > 5,
     `${deg(fish.earlyPeak)} then ${deg(fish.latePeak)} over ${fish.lateFrames} frames`);
   // The wheels come off the *path*, so they point the other way from the body — the opposite lock
-  // that reads as a driver catching a slide rather than spinning. Measured: 6.1° of rendered lock
-  // against 8.6° of slip, and it is the sign that is the assertion. Reading it off the rig rather
+  // that reads as a driver catching a slide rather than spinning. Measured: 18.4° of rendered lock
+  // against 16.3° of slip, and it is the sign that is the assertion. Reading it off the rig rather
   // than off `car.wheelAngle` is deliberate: the correction is deliberately *not* written into
   // that field (see the note by setTaxiSteer), so the model value cannot show it.
   check('and takes opposite lock while it does',
     fish.lock !== 0 && Math.sign(fish.lock) === -Math.sign(fish.peak),
     `${deg(fish.lock)} of lock at sign ${Math.sign(fish.lock)}, ${deg(fish.peak)} of slip at sign ${Math.sign(fish.peak)}`);
+  // The lean is one-for-one with the slip by construction, so the magnitude here is arithmetic and
+  // the *sign* is the assertion — it is the half that can silently invert, and an inward lean out
+  // of a corner reads as a motorbike, which is the same note the corner lean above it carries. A
+  // lone taxi on the straight has nothing else rolling it, so this is the fish tail's own.
+  check('and leans the way the tail is thrown',
+    Math.abs(fish.lean - fish.peak) < 1e-9 && Math.abs(fish.lean) > 0.2,
+    `${deg(fish.lean)} of lean at sign ${Math.sign(fish.lean)}, slip at sign ${Math.sign(fish.peak)}`);
+
   // Where the room went. The weave is faded out under the tail rather than splitting the budget
   // with it, so the *centre* stays inside the same 0.6 the check above holds it to — measured
-  // 0.40 through the corner exit against 0.33 with the tail switched off. What the tail actually
-  // spends is body sweep: the back corner reaches 0.67 from the kerb against 0.78 without it, and
-  // both are wider of the kerb than the same taxi weaving down an ordinary straight (0.47).
+  // 0.46 through the corner exit against 0.33 with the tail switched off. What the tail actually
+  // spends is body sweep: the back corner reaches 0.51 from the kerb against 0.78 without it, and
+  // both are wider of the kerb than the same taxi weaving down an ordinary straight (0.47). The
+  // floor is 0.4 rather than something tighter so that the amplitude has somewhere to move without
+  // this needing to be re-derived; 26° of slip is where it bites.
   check('and the tail stays off the kerb while it is out',
     fish.kerbClear > 0.4 && fish.laneOff < 0.6 && fish.corners > 0,
     `body corner within ${fish.kerbClear.toFixed(2)} of the kerb, centre ${fish.laneOff.toFixed(2)} off the lane`);

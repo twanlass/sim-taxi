@@ -1171,11 +1171,14 @@ export function steerToward(angle, yaw, prevYaw, ds, wheelbase = WHEELBASE) {
 // kerb with the lane centre 2 away, and the weave's two waves already spend 0.52 of that. Rather
 // than split the budget, the weave is faded out under the fish tail and back in as it dies (see
 // the `1 - env` in the taxi block), so what the corner exit costs is the tail's own sweep: the
-// back corner of the body swings `CAR_LEN/2 · sin` past the centre, 0.25 units at the first lobe.
-// Netted against the weave's fade that measured out as 0.11 of extra reach toward the kerb — the
-// body corner comes within 0.67 of it against 0.78 with the tail switched off, and 0.47 is what
-// the same taxi manages weaving down an ordinary straight.
-const FISHTAIL_YAW = 0.20;    // radians the wave is scaled by; the first lobe peaks at 8.4°
+// back corner of the body swings `CAR_LEN/2 · sin` past the centre, 0.48 units at the first lobe.
+// Netted against the weave's fade that measures out as 0.27 of extra reach toward the kerb — the
+// body corner comes within 0.51 of it against 0.78 with the tail switched off, and 0.47 is what
+// the same taxi manages weaving down an ordinary straight, which is the number that says this is
+// not the widest thing on the road. Amplitude is what spends that: sweeping it, the clearance goes
+// 0.67 / 0.61 / 0.56 / 0.51 at 8.6 / 11.2 / 13.8 / 16.3° of slip, and 0.32 at 26°, which is where
+// the probe's own floor of 0.4 starts calling it.
+const FISHTAIL_YAW = 0.38;    // radians the wave is scaled by; the first lobe peaks at 16°
 const FISHTAIL_WAVE = 8;      // units of road per full wag
 const FISHTAIL_LEN = 14;      // units of road it decays over
 // Swung about the **front axle** rather than about the body centre, which is the whole difference
@@ -1193,6 +1196,16 @@ const FISHTAIL_RUBBER = 9;
 // a car parked diagonally across its own lane, which reads as a bug. 6 u/s straightens one out
 // inside 2.3s if the taxi is stopped dead by the car in front on the way out of the corner.
 const FISHTAIL_UNWIND = 6;
+// How far the body leans per radian of slip: one for one, so the lean *is* how far the tail is
+// out, read off the side of the car. It lands at 16° against the 35.7° a corner taken at this
+// speed already leans, which is the scale this game draws weight transfer at — the first pass had
+// no lean at all and 8.6° of slip on a car that leans 35.7° through the corner before it is what
+// made the whole thing read as subtle.
+//
+// Not speed-scaled, unlike the corner lean and the lane change either side of it in the roll
+// block. Those are things any car does at any speed; this one only ever happens at the boost top,
+// so a `v / SPEED` factor here is a variable that never varies.
+const FISHTAIL_ROLL = 1.0;
 
 /**
  * The fish tail as a function of distance driven since the corner was left (`u`, world units).
@@ -3365,7 +3378,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       //
       // The fish tail rides in here as well, but as a *consequence* rather than as an offset of
       // its own: swinging the body about its front axle moves the centre — which is what x/z name
-      // — by `pivot · slip` the other way. Small, 0.15 units at the first lobe against the weave's
+      // — by `pivot · slip` the other way. Small, 0.29 units at the first lobe against the weave's
       // 0.52, and it has to be here rather than folded in with the yaw below because the basis is
       // the unsteered heading.
       const lateral = car.lateral + car.passOffset - FISHTAIL_PIVOT * car.slideYaw;
@@ -3459,6 +3472,17 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }
       }
+
+      // And the fish tail leans, on the same side and for the same reason: the corner's lean is a
+      // `sin` that has just returned to zero at the exit, and this picks it straight back up as
+      // the tail comes round — the body still loaded up, then transferring across as the tail wags
+      // back the other way. One radian of lean per radian of slip, so the lean *is* how far the
+      // tail is out, read off the side of the car rather than off its heading.
+      //
+      // Sign falls out of that and needs no `turnDir` of its own: out of a right-hander the slip
+      // is negative (the body rotating further into the turn), which is the same sign the corner's
+      // outward lean already had.
+      if (car.slideYaw) roll += FISHTAIL_ROLL * car.slideYaw;
 
       // And the lane change leans too — but the *other way* from the corner above it, and that is a
       // deliberate call rather than a sign slip, so it is worth pinning down before someone
