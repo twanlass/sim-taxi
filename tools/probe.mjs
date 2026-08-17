@@ -36,8 +36,12 @@ import {
   edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM,
 } from '../src/game/sirenglow.js';
 import {
-  createFareSystem, cornerFor, blockDistance, priceFor, MAX_FARES, ARRIVE_RADIUS, onSameBlock,
+  createFareSystem, cornerFor, intersectionCentre, blockDistance, priceFor, MAX_FARES,
+  ARRIVE_RADIUS, onSameBlock, CURSE_LIFT,
 } from '../src/game/fares.js';
+import {
+  createCurseBubble, BILLBOARD, SCREEN_PER_WORLD_Y, TAIL_DROP,
+} from '../src/geometry/cursebubble.js';
 import {
   createParcelSystem, MAX_PARCELS, PARCEL_MIN_DELIVERED, PARCEL_PAY_FACTOR, PARCEL_GAP_MIN,
   PARCEL_GAP_MAX, PARCEL_AFTER_DELIVERY, FLIGHT_MIN_ALPHA,
@@ -53,7 +57,7 @@ import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
 } from '../src/geometry/diamond.js';
-import { HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
+import { createPerson, HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER, POP_TIME } from '../src/game/selectpop.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
 import {
@@ -3900,6 +3904,195 @@ check('the taxi is an ordinary car in the traffic array',
     spot ? `${spot.x.toFixed(1)},${spot.z.toFixed(1)}` : 'no failSpot');
   check('the rider who gave up is left standing for the shot',
     kerbFare.slot.passenger.group.visible);
+}
+
+// --- A VIP walking out ------------------------------------------------------
+//
+// The third thing a clock hitting zero can do, and the only one that leaves the run running: a VIP
+// gets out and goes (see `beginBail` in game/fares.js). The failure modes are all quiet ones — a
+// rider left standing in the middle of the road forever, a bubble that outlives them, a slot that
+// never comes back to the spawner, or the whole thing skipped so the fare simply blinks out — so
+// every stage of it is asserted rather than the event alone.
+{
+  const bScene = new THREE.Scene();
+  const bTraffic = createTraffic(makeRng(seed + 44), bScene, CARS_DEFAULT);
+  const bFares = createFareSystem(makeRng(seed + 55), bScene);
+  const bTaxi = bTraffic.taxi;
+  bTraffic.warmup(3);
+
+  const routeTo = (target) => {
+    const r = findRoute(planOrigin(bTaxi), target);
+    if (!r) return false;
+    bTaxi.route = r; bTaxi.routeConsumed = false; bTaxi.parked = false;
+    return true;
+  };
+
+  // Same staging as the timeout above: drive a real rider to a real pickup, then make them the VIP.
+  // A fare assembled by hand would not have a slot, a marker or an animation state to check.
+  let riding = null;
+  let elapsed = 0;
+  while (elapsed < 200 && !bFares.state.gameOver && !riding) {
+    bTraffic.update(1 / 60);
+    for (const { type, fare } of bFares.update(1 / 60, bTaxi)) {
+      if (type === 'pickup') { bTaxi.route = []; riding = fare; }
+    }
+    elapsed += 1 / 60;
+    const next = bFares.waiting();
+    if (next && !next.directed && routeTo(next.target)) bFares.markDirected(next);
+  }
+  check('a rider is aboard before the bail is staged', Boolean(riding));
+
+  riding.vip = true;
+  bFares.state.vipStreak = 4;
+  const { slot } = riding;
+  const from = { x: bTaxi.x, z: bTaxi.z };
+  riding.timeLeft = 1 / 120;
+  const missed = bFares.update(1 / 60, bTaxi).find((e) => e.type === 'vip-missed');
+
+  check('a VIP\'s clock running out does not end the run',
+    Boolean(missed) && !bFares.state.gameOver);
+  check('and takes the streak with it', bFares.state.vipStreak === 0,
+    `streak ${bFares.state.vipStreak}`);
+  check('the missed VIP leaves the board at once', !bFares.state.fares.includes(riding));
+  // The clock is the one thing that goes immediately: it is what ran out.
+  check('their crystal goes with the fare', !slot.marker.group.visible);
+  check('but the rider is still on screen, swearing',
+    slot.passenger.group.visible && slot.curse.isShowing());
+
+  // A third of the way through: out of the cab and running. Two separate claims — the figure has
+  // left the car, and the bubble is still over their head rather than parked where they jumped.
+  for (let k = 0; k < 45; k++) bFares.update(1 / 60, bTaxi);
+  const at = slot.passenger.standing.group.position;
+  const ran = Math.hypot(at.x, at.z);
+  const bubble = slot.curse.group.position;
+  check('the missed VIP runs off away from the taxi', ran > 1,
+    `${ran.toFixed(1)} units from where they got out`);
+  check('and their outburst travels with them',
+    Math.hypot(bubble.x - at.x, bubble.z - at.z) < 1e-6 && bubble.y > 4,
+    `bubble ${bubble.x.toFixed(1)},${bubble.z.toFixed(1)} vs rider ${at.x.toFixed(1)},${at.z.toFixed(1)}`);
+  // The pin root holds the world spot they jumped out at, so the figure's own local offset is the
+  // whole of how far they have run — and it has to be heading for a pavement, not into the block
+  // the taxi is already in.
+  const kerb = cornerFor(bTaxi.i, bTaxi.j);
+  check('they head for the nearest kerb rather than any old direction',
+    (at.x * (kerb.x - from.x) + at.z * (kerb.z - from.z)) > 0,
+    `ran ${at.x.toFixed(1)},${at.z.toFixed(1)}`);
+
+  // ...and it ends. A slot pinned by an animation that never retires is a fare the board can never
+  // spawn again, which is invisible until the board quietly runs one rider short for a whole run.
+  for (let k = 0; k < 180; k++) bFares.update(1 / 60, bTaxi);
+  check('the bail finishes and hands the slot back',
+    !slot.passenger.group.visible && !slot.curse.isShowing()
+    && !bFares.pickables().some((p) => p === slot.passenger.group));
+
+  // The kerbside half of the same event, which runs the other placement branch: nobody ever
+  // collected them, so they walk off their own corner rather than out of a car.
+  const cScene = new THREE.Scene();
+  const cTraffic = createTraffic(makeRng(seed + 44), cScene, CARS_DEFAULT);
+  const cFares = createFareSystem(makeRng(seed + 55), cScene);
+  cTraffic.warmup(3);
+  cFares.update(1 / 60, cTraffic.taxi);
+  const giving = cFares.state.fares[0];
+  giving.vip = true;
+  giving.timeLeft = 1 / 120;
+  const kerbMiss = cFares.update(1 / 60, cTraffic.taxi).find((e) => e.type === 'vip-missed');
+  for (let k = 0; k < 45; k++) cFares.update(1 / 60, cTraffic.taxi);
+
+  const stood = giving.slot.passenger.standing.group.position;
+  const centre = intersectionCentre(giving.pickup.i, giving.pickup.j);
+  const corner = cornerFor(giving.pickup.i, giving.pickup.j);
+  const outward = { x: corner.x - centre.x, z: corner.z - centre.z };
+  check('a VIP nobody collected walks off the kerb too',
+    Boolean(kerbMiss) && !cFares.state.gameOver
+    && giving.slot.passenger.group.visible && giving.slot.curse.isShowing());
+  // Along one axis and away from the crossing road — never the diagonal between them. A corner pin
+  // stands half a unit inside its block and buildings begin 0.85 in, so a diagonal storm-off ends
+  // inside a shopfront: the rider is simply gone, behind a wall, for the whole animation. Both
+  // halves are asserted because either one alone passes on the bug — the diagonal moves outward
+  // too, and a run along an axis toward the junction stays on one axis.
+  const along = Math.abs(stood.x) > Math.abs(stood.z) ? 'x' : 'z';
+  check('and walks along their own pavement rather than into the block',
+    Math.abs(along === 'x' ? stood.z : stood.x) < 1e-6
+    && (stood.x * outward.x + stood.z * outward.z) > 0,
+    `${stood.x.toFixed(2)},${stood.z.toFixed(2)} from a kerb at ${outward.x.toFixed(1)},${outward.z.toFixed(1)}`);
+}
+
+// --- The outburst bubble ----------------------------------------------------
+//
+// Hand-written triangles, in a plane, aimed at the camera by a constant — three things that fail
+// silently. A reversed winding is invisible in the geometry and renders as a hole; a billboard a
+// few degrees off is invisible in a screenshot and obvious in a dot product.
+{
+  const bubble = createCurseBubble();
+  // Every mesh, not just the first: the rim, the paper and the ink are three separate hand-wound
+  // buffers and only one of them is a fan. `ShapeGeometry`'s indexed layout is what made the
+  // courier pad's version of this check pass against a shape that was fine — these are all
+  // non-indexed, so position order *is* triangle order, and that is asserted rather than assumed.
+  let indexed = 0;
+  let backwards = 0;
+  let triangles = 0;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  for (const mesh of bubble.group.children) {
+    if (mesh.geometry.index) { indexed += 1; continue; }
+    const pos = mesh.geometry.attributes.position;
+    for (let t = 0; t < pos.count; t += 3) {
+      a.fromBufferAttribute(pos, t);
+      b.fromBufferAttribute(pos, t + 1);
+      c.fromBufferAttribute(pos, t + 2);
+      normal.crossVectors(b.sub(a), c.sub(a));
+      triangles += 1;
+      if (normal.z <= 0) backwards += 1;
+    }
+  }
+  check('every face of the outburst bubble points at the viewer',
+    indexed === 0 && backwards === 0 && triangles > 40,
+    `${triangles} triangles, ${backwards} wound away, ${indexed} indexed`);
+
+  // The bubble is authored in the screen plane, so the constant that turns it has to map local +Z
+  // onto the view direction and local +X onto screen right — the same two vectors the camera is
+  // actually built from.
+  const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(BILLBOARD);
+  const across = new THREE.Vector3(1, 0, 0).applyQuaternion(BILLBOARD);
+  check('and the whole bubble faces the camera it was drawn for',
+    facing.dot(VIEW_DIR) > 0.9999 && across.dot(RIGHT) > 0.9999,
+    `view ${facing.dot(VIEW_DIR).toFixed(4)}, right ${across.dot(RIGHT).toFixed(4)}`);
+  // Which is what lets `CURSE_LIFT` be a plain world-Y offset: straight up in the world is straight
+  // up on the screen under this camera, so the tail stays pointed at the rider's head.
+  const up = new THREE.Vector3(0, 1, 0);
+  check('a world-Y lift moves it straight up the screen',
+    Math.abs(up.dot(RIGHT)) < 1e-9 && Math.abs(up.dot(new THREE.Vector3(0, 1, 0)
+      .applyQuaternion(BILLBOARD)) - SCREEN_PER_WORLD_Y) < 1e-6,
+    `screen per world Y ${SCREEN_PER_WORLD_Y.toFixed(3)}`);
+
+  // Where it floats. The lift is in world units, the bubble is drawn in screen ones, and the tail
+  // has to clear the head of a figure measured in the first — three modules and two spaces for one
+  // relationship, which is precisely why it is asserted rather than eyeballed. The first lift was
+  // chosen in world units without the conversion and hung the tail's point level with the rider's
+  // chest. The head is read off the built figure rather than from a copied constant.
+  const figure = createPerson();
+  figure.rest();
+  const head = new THREE.Box3().setFromObject(figure.group).max.y;
+  const tip = CURSE_LIFT * SCREEN_PER_WORLD_Y - TAIL_DROP;
+  check('the outburst\'s tail points at the rider\'s head rather than through it',
+    tip > head * SCREEN_PER_WORLD_Y && tip < head * SCREEN_PER_WORLD_Y + 1.5,
+    `tail tip ${tip.toFixed(2)} against a head at ${(head * SCREEN_PER_WORLD_Y).toFixed(2)}`);
+
+  // It opens from nothing and it has to be gone by the end, or a slot's next rider inherits a
+  // shout. Both ends are read off the object rather than off the constants that shape it.
+  bubble.show();
+  bubble.update(0);
+  const opening = bubble.group.scale.x;
+  bubble.update(0.5);
+  const held = bubble.group.scale.x;
+  const ink = bubble.group.children[bubble.group.children.length - 1];
+  const inkOpen = ink.material.opacity;
+  bubble.update(1);
+  check('the outburst swells in and fades out',
+    opening < 0.05 && held > 0.9 && inkOpen > 0.99 && ink.material.opacity < 0.01,
+    `scale ${opening.toFixed(2)} → ${held.toFixed(2)}, ink ${inkOpen.toFixed(2)} → ${ink.material.opacity.toFixed(2)}`);
 }
 
 // --- Taxi-vs-car collisions ------------------------------------------------

@@ -479,6 +479,62 @@ try {
       narrow ? 'no waiting rider on screen to tap' : 'viewport is not narrow');
   }
 
+  // --- A VIP's chip keeps its clock to itself. See game/riderfinder.js.
+  //
+  // Browser-only twice over: the ring is a CSS conic gradient on a DOM node, and what is being
+  // asserted is that it does *not* move — which is a claim about a value the node is holding, not
+  // about anything the fare system knows. The rest of a VIP's surfaces have never spoken the
+  // urgency scale (the crystal, its disc, the drop-off ring); this chip was the one that still
+  // reported how long you had, and not knowing is the whole of what makes a purple diamond a
+  // gamble rather than a sum.
+  //
+  // The fare is promoted to a VIP in place rather than waited for: `VIP_COOLDOWN` alone is 55
+  // seconds of a software-rendered sim, and the chip reads `fare.vip` every frame, so a rider who
+  // becomes one is exactly the state under test.
+  //
+  // Polled for a rider rather than run against the board as it stands: by this point the taxi has
+  // been dispatched at whoever was waiting and the loop is somewhere between a pickup and the next
+  // spawn. Promoting the rider and reading the chip happen a frame apart, so a rider collected in
+  // between simply costs an attempt.
+  if (narrow) {
+    let shown = null;
+    for (let attempt = 0; attempt < 24 && shown === null; attempt++) {
+      const promoted = JSON.parse(await evaluate(`(() => {
+        const fare = window.__taxi.fares.state.fares.find((f) => f.stage === 'waiting');
+        if (!fare || !${CHIP}) return JSON.stringify({ none: true });
+        // A fifth of the clock left: an ordinary rider's ring would be a fifth of a turn and red.
+        fare.vip = true;
+        fare.timeLeft = fare.limit * 0.2;
+        return JSON.stringify({ ok: true });
+      })()`));
+      if (promoted.none) { await sleep(500); continue; }
+      // Two frames, so `riderfinder.update` has certainly run against the flag.
+      await sleep(400);
+      shown = JSON.parse(await evaluate(`(() => {
+        const el = ${CHIP};
+        if (!el) return JSON.stringify({ gone: true });
+        return JSON.stringify({
+          pct: el.style.getPropertyValue('--pct'),
+          color: el.style.getPropertyValue('--ring-color'),
+        });
+      })()`));
+      if (shown.gone) shown = null;
+    }
+    if (shown === null) {
+      check('a VIP\'s chip shows no countdown', false, 'no rider stayed on the kerb long enough');
+    } else {
+      // Read as numbers rather than as a string: the ring colour arrives through
+      // `THREE.Color.getStyle()`, which is a colour-space conversion and free to land a channel a
+      // digit off. What is being asserted is "still purple, still full", not a spelling.
+      const rgb = (shown.color.match(/\d+/g) ?? []).map(Number);
+      const purple = rgb.length === 3
+        && Math.abs(rgb[0] - 166) < 3 && Math.abs(rgb[1] - 77) < 3 && Math.abs(rgb[2] - 255) < 3;
+      check('a VIP\'s chip shows no countdown',
+        parseFloat(shown.pct) > 99.9 && purple,
+        `ring ${shown.pct} ${shown.color}`);
+    }
+  }
+
   // --- The courier box in the HUD, while a package is aboard. See src/game/cargochip.js.
   //
   // Here rather than in the node suite because the whole thing is browser-only: a WebGL context

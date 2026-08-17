@@ -56,9 +56,9 @@ src/
     pause.js            the HUD's ⏸ and the screen behind it; stops the frame loop dead
 
   geometry/             one-off models, all procedural
-    carbody.js  the bodywork every vehicle is cut from — chamfers, greenhouse, wheel arches
+    carbody.js  the bodywork every vehicle is cut from — rolled edges, greenhouse, wheel arches
     taxi.js  wheels.js  lights.js  diamond.js  targetring.js  marker.js  person.js
-    riderdiamond.js  plane.js  bird.js  helicopter.js
+    riderdiamond.js  plane.js  bird.js  helicopter.js  cursebubble.js
 
   util/
     rng.js              seeded RNG (mulberry32) + value noise

@@ -112,7 +112,13 @@ export function createRiderFinder({ onSelect, sun, hemi }) {
       chip.setFare(fare);
       chip.wave(elapsed);
 
-      const fraction = Math.max(0, Math.min(1, fare.timeLeft / fare.limit));
+      // A VIP's ring never drains. The crystal out on the map has always opted out of the urgency
+      // scale (see faremarker.js) and the chip was the one surface still telling you how long one
+      // had left — which is the whole thing a VIP is not supposed to tell you. You know it is worth
+      // three fares and you do not know how long you have: that unknown is what makes taking one a
+      // gamble rather than an arithmetic problem. A full purple ring, held at 100%, so the chip
+      // reads as *marked* rather than as a clock that happens to be stuck.
+      const fraction = fare.vip ? 1 : Math.max(0, Math.min(1, fare.timeLeft / fare.limit));
       chip.button.style.setProperty('--pct', `${(fraction * 100).toFixed(1)}%`);
       // Through the same `fareColor` every marker out on the map reads from, VIP exception and
       // all — the chip has to agree with them about which rider this is and how much time it has.

@@ -2,6 +2,7 @@ import { GRID, halfRoadX, halfRoadZ, isParkBlock, lineCoord } from '../city/grid
 import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
 import { createPerson } from '../geometry/person.js';
+import { createCurseBubble } from '../geometry/cursebubble.js';
 import { createFareMarker } from './faremarker.js';
 import { urgencyLevel, URGENCY_SEGMENTS, fareColor } from './urgency.js';
 import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_RIDER } from './selectpop.js';
@@ -91,24 +92,46 @@ export const MAX_FARES = 4;
 // A rare, cash-rich rider layered on top of the ordinary board: a fixed-purple diamond (see
 // faremarker.js) instead of the usual urgency scale, a clock cut down from the ordinary budget,
 // and — the one rule that makes it pure upside — missing one never ends the run. It only costs
-// the bonus.
+// the bonus, and the rider storms out of the cab (see `beginBail`) rather than taking the game
+// down with them.
 //
-// The payout is the ordinary distance price times the player's current *VIP streak*: how many
-// VIPs have been delivered back to back. Stamped at spawn like every other price on the board
-// (see spawnFare) — the diamond's fixed purple should say what this one is worth the moment it
-// appears, not leave it to be found out on delivery. The streak is what makes stacking VIPs worth
-// the risk, and missing one resets it to zero: the whole tension is that one late drop-off gives
-// it all back.
+// The payout is the ordinary distance price times VIP_PAYOUT, and then again by the player's
+// current *VIP streak*: how many VIPs have been delivered back to back. Stamped at spawn like
+// every other price on the board (see spawnFare) — the diamond's fixed purple should say what
+// this one is worth the moment it appears, not leave it to be found out on delivery. The streak
+// is what makes stacking VIPs worth the risk, and missing one resets it to zero: the whole
+// tension is that one late drop-off gives it all back.
+//
+// **The base multiplier is not a rounding.** Before it existed the first VIP of a streak was
+// worth `streak + 1` = exactly one ordinary fare, so the rarest, tightest rider on the board paid
+// the same as the one standing next to them and the risk bought nothing until the *second* one
+// landed. Three ordinary fares is the number that makes a detour worth taking on sight, and the
+// streak still does the rest of the work: 3×, 4×, 5× as they stack.
 const VIP_MIN_DELIVERED = 1;      // never on the tutorial fare — nothing to distinguish it against yet
 const VIP_COOLDOWN = 55;          // seconds between opportunities, so a VIP stays a rare event
 const VIP_CHANCE = 0.16;          // chance a qualifying spawn actually becomes one
+const VIP_PAYOUT = 3;
 
 // The clock is a fraction of the run's own slack rather than a flat number, so a VIP tightens
 // along the same ramp as everything else — just harder. Never below VIP_MIN_SLACK: `tools/
 // probe.mjs` asserts every fare's clock covers its own work, and a VIP is meant to be urgent, not
-// unwinnable.
-const VIP_SLACK_FACTOR = 0.7;
-const VIP_MIN_SLACK = 1.05;
+// unwinnable. `Math.ceil` rather than `Math.round` for the same reason — a rounded second is the
+// difference between "tight" and "impossible" at this end of the scale, and only one of those is
+// being asked for.
+//
+// **What actually shortened a VIP's clock was the queue, not this factor** — see `budgetFor`. A VIP
+// used to be budgeted as though it would be served *after* every rider already on the kerb, which
+// paid for a whole board of other people's trips: measured over 20 runs of a player that drops
+// everything for the purple diamond, a VIP arrived with a mean of **63.9 seconds still unspent**. It
+// was not a hard fare, it was a free one wearing a clock. Budgeted to be served next, that same
+// player lands 86% of them with 8.8s in hand — a fare you have to actually drive.
+//
+// The other half of the same measurement is what the choice now costs. A player who instead serves
+// the kerb in urgency order — `tools/autoplay.mjs`'s perfect player, which is what the soak reports
+// — used to land 55% of the VIPs that appeared and now lands 20% of them. Nothing about that player
+// changed; the clock did. Leaving a VIP in the queue is now how you lose one.
+const VIP_SLACK_FACTOR = 0.8;
+const VIP_MIN_SLACK = 1.15;
 const VIP_CLOCK_FLOOR = 10;
 
 // Cadence and placement of every fare beyond the first.
@@ -183,6 +206,36 @@ const BOARD_SECONDS = 0.9;
 // because the animation carries an extra beat — a fade after the run — so a departing rider is
 // on-screen while the earnings pop is still travelling to the counter.
 const EXIT_SECONDS = 1.4;
+
+// And how long a VIP whose clock ran out is visible for on their way off — the jump out of the
+// cab, the run, the fade and the outburst bubble over all of it (geometry/cursebubble.js).
+//
+// Longer than a delivered rider's exit, and it is carrying more: a delivery is confirmed by a
+// payout flying to the counter, and this is the only notice the player gets that a fare — and the
+// streak behind it — has just gone. Under about two seconds the bubble is gone before an eye that
+// was on the road can travel to it. It is not longer still because the rider is running through
+// live traffic while it plays.
+const BAIL_SECONDS = 2.2;
+
+// How far they get. Eight units is a bit under half a block: far enough to read as *leaving*, near
+// enough that the fade still happens somewhere the player was already looking.
+const BAIL_RUN = 8;
+
+// Where the bubble floats, in world Y above the rider's own feet.
+//
+// The lift is in world units and the bubble is authored in screen ones, so this is the one place
+// the two meet — and the conversion is the whole of why the number is not simply "head height plus
+// a bit". 8.9 world units of Y is 8.9 × SCREEN_PER_WORLD_Y = 7.5 screen units up; the tail hangs
+// `TAIL_DROP` = 4.5 of those back down; the figure's own 3.24-unit head tops out at 2.7 screen
+// units. So the point lands about a third of a unit clear of the hair, which is where a speech
+// bubble's tail belongs. At 7.6 — the first guess, made in world units and never converted — the
+// tail ended level with the rider's chest, and `tools/probe.mjs` now asserts the clearance across
+// all three modules rather than leaving it to a screenshot.
+//
+// Straight up in world Y is also straight up on *screen* — a +Y offset has no component along the
+// camera's RIGHT — so the tail stays pointed at the rider wherever they are on the map. See
+// geometry/cursebubble.js.
+export const CURSE_LIFT = 8.9;
 
 const NO_EVENTS = Object.freeze([]);
 
@@ -264,6 +317,14 @@ function createSlot(scene, index) {
   const passenger = createPassengerPin(createPerson);
   const destination = createDestinationPin();
 
+  // What this slot's rider says on the way out if they are a VIP and their clock ran out. Parented
+  // to the pin's own `postGroup` rather than to the scene: it then inherits the kerb-corner
+  // placement for free, and hiding the passenger group takes it with them — while staying clear of
+  // the figure's own group, which yaws and shrinks through the animation and would drag a
+  // camera-facing bubble round with it.
+  const curse = createCurseBubble();
+  passenger.postGroup.add(curse.group);
+
   // One clock for the whole fare, in one body: the diamond waits over the rider's head and flies to
   // the taxi when they get in. It does not restart at the hand-off, and neither does the marker.
   //
@@ -284,7 +345,7 @@ function createSlot(scene, index) {
   scene.add(passenger.group);
   scene.add(destination.group);
 
-  return { index, passenger, destination, marker };
+  return { index, passenger, destination, marker, curse };
 }
 
 /**
@@ -552,10 +613,19 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     return rng.chance(VIP_CHANCE);
   }
 
-  /** A VIP's clock: tight, but still guaranteed to cover the driving it pays for. */
+  /**
+   * A VIP's clock: tight, but still guaranteed to cover the driving it pays for.
+   *
+   * The reaction allowance is the *same* one every other fare is charged (`difficulty`'s own, read
+   * live so the ⚙️ panel keeps moving both together): the seconds it takes to notice a rider and
+   * tap them are not what makes a VIP hard, and charging them twice over would make the tightest
+   * fare on the board the one that punishes looking at it. What is cut is the slack around the
+   * driving, and the queue the driving is measured over — see `budgetFor`.
+   */
   function vipLimitFor(work) {
     const slackMul = Math.max(VIP_MIN_SLACK, difficulty.slack(state.delivered) * VIP_SLACK_FACTOR);
-    return Math.max(VIP_CLOCK_FLOOR, Math.round(work * slackMul));
+    const reaction = difficulty.getTuning().reactionAllowance;
+    return Math.max(VIP_CLOCK_FLOOR, Math.ceil((work + reaction) * slackMul));
   }
 
   function budgetFor(taxiCar, pickup, dropoff, vip = false) {
@@ -568,10 +638,21 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // them to the player, and the only order one taxi can work in.
     // `limit > 0` skips the rider currently being budgeted: `spawnFare` pushes them onto the
     // board before their trip is decided, and a fare cannot queue behind itself.
-    const ahead = state.fares
-      .filter((f) => f.stage === 'waiting' && f.limit > 0)
-      .sort((a, b) => urgencyOf(a) - urgencyOf(b));
-    for (const f of ahead) stops.push(f.pickup, f.dropoff);
+    //
+    // **A VIP is budgeted to be served next, and nobody else is.** The queue below is what makes an
+    // ordinary board an ordering puzzle rather than a lottery — every rider's clock pays for the
+    // riders ahead of them, so serving in the right order works. A VIP does not get that: its clock
+    // covers the commitment the player cannot escape (the rider aboard) and its own trip, and
+    // nothing else. That is the whole choice the fare is meant to pose — the purple diamond is worth
+    // three fares and is asking you to jump the queue for it, which is only a decision if the queue
+    // is what it costs. Budgeted behind the kerb it was a free bonus with a long clock — see the
+    // seconds measured at the drop-off up by VIP_SLACK_FACTOR.
+    if (!vip) {
+      const ahead = state.fares
+        .filter((f) => f.stage === 'waiting' && f.limit > 0)
+        .sort((a, b) => urgencyOf(a) - urgencyOf(b));
+      for (const f of ahead) stops.push(f.pickup, f.dropoff);
+    }
     stops.push(pickup, dropoff);
 
     // `main.js` rerolls any city where `findRoute` fails a pair, so null is the unreachable case
@@ -652,10 +733,11 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // a fact about the trip settled when the trip is, so a rider who appeared during Rush Hour is
     // worth Rush Hour money whenever they happen to get delivered.
     //
-    // A VIP's own multiplier stacks on top: the current streak plus one, for the delivery that
-    // would extend it. Stamped now rather than read at delivery, same as everything else priced
-    // here — the marker's fixed purple has to say what this trip is worth the moment it appears.
-    fare.vipMultiplier = vip ? state.vipStreak + 1 : 1;
+    // A VIP's own multiplier stacks on top: three fares flat, plus one for every VIP already
+    // delivered back to back — so 3×, then 4×, then 5×, and back to 3× the moment one is missed.
+    // Stamped now rather than read at delivery, same as everything else priced here — the marker's
+    // fixed purple has to say what this trip is worth the moment it appears.
+    fare.vipMultiplier = vip ? VIP_PAYOUT + state.vipStreak : 1;
     fare.value = Math.round(priceFor(spot, fare.dropoff)
       * difficulty.payoutMultiplier(state.delivered)
       * fare.vipMultiplier);
@@ -791,28 +873,106 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // The clock stops here: the marker has ridden all the way in on the taxi, and the figure it
     // is about to hand back to the pavement has no deadline left.
     slot.marker.hide();
+    const kerb = cornerFor(target.i, target.j);
     exits.push({
       slot,
-      target,
+      bail: false,
       // Captured now rather than looked up each frame — the taxi is about to drive off, and the
       // rider needs to land where the drop-off happened, not where the taxi currently is.
-      exitFrom: { x: taxiCar.x, z: taxiCar.z },
+      // `exit()` runs *from* the taxi *to* the pin's own origin, so the offset points at the car.
+      run: { dx: taxiCar.x - kerb.x, dz: taxiCar.z - kerb.z },
       elapsed: 0,
     });
+  }
+
+  /**
+   * The other way a rider leaves: a VIP whose clock ran out, getting out and going.
+   *
+   * The one timeout that does not end the run (see `update`), and until this existed the only thing
+   * it did on screen was stop: the diamond vanished, the payout never arrived, and a player who had
+   * been watching the road learned about it from a streak counter. Now the rider bails — out of the
+   * cab mid-street if they were aboard, off the kerb if they never got picked up — swears about it
+   * (geometry/cursebubble.js) and runs off.
+   *
+   * It reuses the delivered rider's `exits` list, and for the same reason that list exists: the fare
+   * is already out of `state.fares` and out of the puzzle, and what is left is an animation holding
+   * onto a slot until it finishes. A spawn cannot land on the slot underneath it.
+   *
+   * Where they run to is the one thing the two cases decide differently, and both answers are "the
+   * pavement, and then along it". **Neither may be a diagonal**, which is what the first version of
+   * this ran: eight units out along the line from the junction centre through the rider's own corner
+   * is 5.7 units into the block on each axis, and buildings start 0.85 in — so the storm-off ended
+   * with the rider standing inside a shopfront. A kerb corner is half a unit *into* the block on both
+   * axes, so the only directions with pavement all the way along them are the two axes themselves.
+   */
+  function beginBail(fare, taxiCar) {
+    const { slot } = fare;
+    let run;
+    if (fare.stage === 'riding') {
+      // Out of the car, wherever the car happens to be. The pin root carries the world position
+      // itself — there is no junction to hang it off — and `postGroup` goes back to the origin so
+      // the figure stands on the road rather than a kerb's worth above it.
+      slot.passenger.group.position.set(taxiCar.x, 0.12, taxiCar.z);
+      slot.passenger.postGroup.position.set(0, 0, 0);
+      slot.passenger.postGroup.scale.setScalar(1);
+      slot.passenger.group.visible = true;
+      // Straight at the kerb corner of whatever junction the taxi is at, and no further than it:
+      // that corner is the one point nearby that is guaranteed to be pavement, and overshooting it
+      // is the diagonal mistake above by another route. From mid-junction it is a ~6.4-unit dash.
+      const kerb = cornerFor(taxiCar.i, taxiCar.j);
+      const dx = kerb.x - taxiCar.x;
+      const dz = kerb.z - taxiCar.z;
+      // The fallback is only reachable if the taxi is standing exactly on the corner, which the
+      // road's own width rules out — a car is in the carriageway by definition.
+      const len = Math.hypot(dx, dz) || 1;
+      const reach = Math.min(BAIL_RUN, len);
+      run = { dx: dx / len * reach, dz: dz / len * reach };
+    } else {
+      // They are already on the pavement, so they simply walk off along it, away from the crossing
+      // road. `cornerFor`'s offset from the junction centre gives which way that is on each axis;
+      // taking *one* of them keeps the rider at their own kerb's fixed distance from the road they
+      // are walking beside, which is what a pavement is.
+      //
+      // Which axis is arbitrary and deliberately not random: both are the same 20-unit block edge,
+      // and a bail has to render the same way twice for a screenshot. Alternating on the junction's
+      // own parity means two riders lost on neighbouring corners do not leave in lockstep.
+      const centre = intersectionCentre(fare.pickup.i, fare.pickup.j);
+      const corner = cornerFor(fare.pickup.i, fare.pickup.j);
+      run = (fare.pickup.i + fare.pickup.j) % 2 === 0
+        ? { dx: Math.sign(corner.x - centre.x) * BAIL_RUN, dz: 0 }
+        : { dx: 0, dz: Math.sign(corner.z - centre.z) * BAIL_RUN };
+    }
+
+    slot.passenger.standing?.rest?.();
+    slot.destination.group.visible = false;
+    // The clock is what just ran out, so it goes now rather than riding out the animation.
+    slot.marker.hide();
+    slot.curse.show();
+    exits.push({ slot, bail: true, run, elapsed: 0 });
   }
 
   function updateExits(dt) {
     for (let i = exits.length - 1; i >= 0; i--) {
       const e = exits[i];
       e.elapsed += dt;
-      const t = Math.min(1, e.elapsed / EXIT_SECONDS);
-      const kerb = cornerFor(e.target.i, e.target.j);
-      const dx = e.exitFrom.x - kerb.x;
-      const dz = e.exitFrom.z - kerb.z;
-      e.slot.passenger.standing?.exit?.(t, dx, dz);
+      const t = Math.min(1, e.elapsed / (e.bail ? BAIL_SECONDS : EXIT_SECONDS));
+      const { standing } = e.slot.passenger;
+      if (e.bail) {
+        standing?.bail?.(t, e.run.dx, e.run.dz);
+        // The bubble rides above wherever the figure has got to. `standing.group` and the bubble
+        // are siblings under `postGroup`, so the figure's own local position is already the offset
+        // the bubble wants — no world-space round trip, and it keeps working when the whole pin is
+        // parked out on a kerb corner.
+        const at = standing?.group.position;
+        if (at) e.slot.curse.group.position.set(at.x, CURSE_LIFT, at.z);
+        e.slot.curse.update(t);
+      } else {
+        standing?.exit?.(t, e.run.dx, e.run.dz);
+      }
       if (t >= 1) {
         e.slot.passenger.group.visible = false;
-        e.slot.passenger.standing?.rest?.();
+        e.slot.curse.hide();
+        standing?.rest?.();
         exits.splice(i, 1);
       }
     }
@@ -977,11 +1137,18 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
 
       if (fare.timeLeft <= 0) {
         // The one place a fare's clock running out does not end the run. A VIP is pure upside —
-        // missing one costs the bonus and the streak, never the game — so it just clears off the
-        // board like a delivery would, and the rest of the frame carries on.
+        // missing one costs the bonus and the streak, never the game — so the board carries on
+        // without them and the rest of the frame runs as usual.
+        //
+        // They do not simply vanish, though. The fare comes off the board here, in the same breath
+        // the streak is lost, and the *rider* is handed to `beginBail`: out of the cab, a mouthful
+        // about it, and gone. Splicing by hand rather than through `clear` because `clear` hides
+        // the figure, which is the one thing that has to stay on screen.
         if (fare.vip) {
           state.vipStreak = 0;
-          clear(fare);
+          const missed = state.fares.indexOf(fare);
+          if (missed !== -1) state.fares.splice(missed, 1);
+          beginBail(fare, taxiCar);
           emit('vip-missed', fare);
           continue;
         }
