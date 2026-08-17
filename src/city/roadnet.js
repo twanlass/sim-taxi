@@ -21,6 +21,7 @@
 
 import {
   GRID, LANE, HALF_ROAD, DIR, lineCoord, isSegmentClosed, isXAxis, dirSign,
+  halfRoadX, halfRoadZ, laneOffX, laneOffZ,
 } from './grid.js';
 import {
   lineCurve, arcFromBulge, bezierCurve, rayIntersect, bearingOf, wrapAngle,
@@ -62,17 +63,22 @@ const EPS = 1e-9;
 // --- Building the network ---------------------------------------------------
 
 /**
- * @param spec {{ nodes: [{id, x, z, kind?, radius?}], edges: [{id, a, b, bulge?, klass?, wave?}] }}
+ * @param spec {{ nodes: [{id, x, z, kind?, radius?}],
+ *                edges: [{id, a, b, bulge?, klass?, wave?, halfWidth?, laneOffset?}] }}
  *   `klass` is 'ring' | 'arterial' | 'side'; `wave` is +1 / -1 / 0, the coordinated direction of
  *   travel for the green wave, expressed as a→b or b→a. `oneway` is 0 for a normal two-way
- *   road, or +1 / -1 to carry traffic only a→b or only b→a.
+ *   road, or +1 / -1 to carry traffic only a→b or only b→a. `halfWidth` and `laneOffset` are how
+ *   wide the carriageway is and how far its lanes sit from the centreline; they default to an
+ *   ordinary street and differ on a divided arterial, whose lanes are pushed apart to open a
+ *   median (see `grid.js`). A node's `radius` is derived per-arm from the roads that cross it
+ *   unless the spec names one, in which case the authored value wins on every arm.
  * @param config overrides for SIGNAL_DEFAULTS
  */
 export function bakeNetwork(spec, config = {}) {
   const signal = { ...SIGNAL_DEFAULTS, ...config };
 
   const nodes = spec.nodes.map((n) => ({
-    kind: 'junction', radius: HALF_ROAD, ...n, arms: [], streets: [], signal: null,
+    kind: 'junction', ...n, authoredRadius: n.radius, arms: [], streets: [], signal: null,
     // No light *and* no yielding — see `bakeSignals`. Declared here so every node carries the
     // field rather than having it appear only on the junctions that earned it.
     uncontrolled: false,
@@ -85,7 +91,7 @@ export function bakeNetwork(spec, config = {}) {
     if (!a || !b) throw new Error(`edge ${e.id} references a missing node`);
     const curve = arcFromBulge({ x: a.x, z: a.z }, { x: b.x, z: b.z }, e.bulge ?? 0);
     return {
-      klass: 'side', wave: 0, bulge: 0, oneway: 0,
+      klass: 'side', wave: 0, bulge: 0, oneway: 0, halfWidth: HALF_ROAD, laneOffset: LANE,
       ...e, curve, length: curve.length, lanes: [],
     };
   });
@@ -133,7 +139,43 @@ function buildArms(nodes, nodeById, edges) {
   }
   for (const node of nodes) {
     node.arms.sort((p, q) => p.bearing - q.bearing);
-    node.arms.forEach((arm, index) => { arm.index = index; });
+
+    // How far the junction reaches along each arm.
+    //
+    // Not that arm's own half-width — how far along it you have to go to clear the carriageways
+    // that *cross* it. A car stops at the near kerb line of the road it is about to cross, so a
+    // divided arterial holds every side street that meets it further back while itself entering
+    // those junctions no earlier than before.
+    //
+    // Two things this must not do. It must not count the arm **opposite** — that is the same road
+    // carrying on through, and taking its half-width would make a wide road hold itself back at
+    // its own junctions (measured: every entry and exit point on an arterial off by 1.33). And it
+    // must not assume the crossing is perpendicular: a road meeting at angle θ presents a strip
+    // `halfWidth / |sin θ|` long down this arm, which is the perpendicular case at θ = 90° and
+    // the reason a diagonal junction is a longer box than a square one. On a city of uniform
+    // 8-unit streets every arm comes out at HALF_ROAD, exactly the old scalar radius — which is
+    // what `tools/roadnet.mjs` asserts against the grid.
+    const COLLINEAR = 0.2;   // |sin θ| below this is a road carrying on, not one crossing
+    node.arms.forEach((arm, index) => {
+      arm.index = index;
+      if (node.authoredRadius !== undefined) { arm.radius = node.authoredRadius; return; }
+      let reach = 0;
+      for (const other of node.arms) {
+        if (other === arm) continue;
+        const sin = Math.abs(Math.sin(other.bearing - arm.bearing));
+        if (sin < COLLINEAR) continue;
+        reach = Math.max(reach, other.edge.halfWidth / sin);
+      }
+      // A dead end, or a node where a road merely changes class: nothing crosses, so the junction
+      // reaches its own kerb line and no further.
+      arm.radius = reach || arm.edge.halfWidth;
+    });
+
+    // A scalar for anything that wants one number for the junction. Kept as the *largest* arm
+    // reach so a caller asking "am I clear of this junction?" is never told yes too early.
+    node.radius = node.arms.length
+      ? Math.max(...node.arms.map((arm) => arm.radius))
+      : (node.authoredRadius ?? HALF_ROAD);
   }
 }
 
@@ -192,15 +234,20 @@ function buildLanes(nodes, nodeById, edges) {
       const centre = forward
         ? edge.curve
         : edge.curve.trim(edge.curve.length, 0);
-      // A two-way road's lanes sit `LANE` either side of the centreline; a one-way road has only
-      // one lane and it runs *down* the centreline. Offsetting it anyway would push a
-      // roundabout's circulating lane off its own island by two metres.
-      const full = edge.oneway ? centre : centre.offset(LANE);
+      // A two-way road's lanes sit `edge.laneOffset` either side of the centreline — `LANE` on an
+      // ordinary street, further out on a divided arterial, where the gap between them is the
+      // median. A one-way road has only one lane and it runs *down* the centreline; offsetting it
+      // anyway would push a roundabout's circulating lane off its own island by two metres.
+      const full = edge.oneway ? centre : centre.offset(edge.laneOffset);
 
       const tFrom = centre.tangentAt(0);
       const tTo = centre.tangentAt(centre.length);
-      const s0 = planeCrossing(full, from, tFrom, from.radius);
-      const s1 = planeCrossing(full, to, { x: -tTo.x, z: -tTo.z }, to.radius);
+      // Per-arm, not per-node: at a junction of a wide road and a narrow one the two reach
+      // different distances, and it is the arm this lane runs down that says which.
+      const armFrom = from.arms.find((arm) => arm.edge === edge);
+      const armTo = to.arms.find((arm) => arm.edge === edge);
+      const s0 = planeCrossing(full, from, tFrom, armFrom.radius);
+      const s1 = planeCrossing(full, to, { x: -tTo.x, z: -tTo.z }, armTo.radius);
 
       const lane = {
         id: `${edge.id}:${forward ? 'f' : 'r'}`,
@@ -685,6 +732,18 @@ export function canProceed(turn, t, nodeById, signal = SIGNAL_DEFAULTS) {
  * behaviour, now falling out of the model instead of being special-cased.
  */
 function buildBlocks(nodes, edges) {
+  /**
+   * How far to pull one side of a face in: the half-width of the road it runs down.
+   *
+   * Each vertex carries the width of the road leading *away* from it, stamped during the
+   * traversal below, because that is the one place the edge behind a side is known for certain.
+   * Deriving it afterwards from the geometry does not work: a merged face side has a node sitting
+   * mid-way along it, so "nearest centreline to the midpoint" lands exactly on the junction where
+   * the crossing road is also at distance zero, and the tie goes to whichever edge was created
+   * first. That mis-inset one district face per seed by 1.33 units.
+   */
+  const insetAt = (a) => a.halfWidth ?? HALF_ROAD;
+
   // Half-edge traversal. Arriving at a node, the next half-edge of the face is the arm just
   // *before* the one we came in on, going round by bearing — the standard "next edge clockwise"
   // walk, which visits every face exactly once.
@@ -704,12 +763,17 @@ function buildBlocks(nodes, edges) {
         visited.add(key(e.id, f));
         const arrive = f ? e.b : e.a;
         const node = nodes.find((n) => n.id === arrive);
-        poly.push({ x: node.x, z: node.z });
 
         const arm = armOf(node, e);
         const prev = node.arms[(arm.index + node.arms.length - 1) % node.arms.length];
         const nextEdge = prev.edge;
         const nextForward = nextEdge.a === node.id;
+        // The side *leaving* this vertex is `nextEdge`, so the vertex carries that road's width.
+        // Stamped here and read back by `insetAt` — `simplifyRing` may drop this vertex when a
+        // closure leaves it collinear, and the side it merges into belongs to the same straight
+        // road, so the surviving tag is still the right one.
+        poly.push({ x: node.x, z: node.z, halfWidth: nextEdge.halfWidth });
+
         if (visited.has(key(nextEdge.id, nextForward))) break;
         e = nextEdge;
         f = nextForward;
@@ -730,7 +794,7 @@ function buildBlocks(nodes, edges) {
   const blocks = [];
   faces.forEach((poly, index) => {
     if (index === outer) return;
-    const inset = insetPolygon(poly, HALF_ROAD);
+    const inset = insetPolygon(poly, insetAt);
     if (!inset) return;              // a sliver between two roads: nothing buildable on it
     blocks.push({
       id: `block:${blocks.length}`,
@@ -802,6 +866,10 @@ export function roadNetFromGrid(layout, config = {}) {
     edges.push({
       id: `${gridNodeId(i, j)}-${gridNodeId(ni, nj)}`,
       a: gridNodeId(i, j), b: gridNodeId(ni, nj), klass, wave,
+      // Read off the grid rather than derived from `klass` here: `grid.js` owns which lines are
+      // wide, and the ground mesh and the block footprints are reading the same two functions.
+      halfWidth: axis === 'x' ? halfRoadX(line) : halfRoadZ(line),
+      laneOffset: axis === 'x' ? laneOffX(line) : laneOffZ(line),
     });
   };
 

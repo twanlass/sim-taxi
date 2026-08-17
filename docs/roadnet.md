@@ -61,6 +61,23 @@ puts a car `HALF_ROAD` along the axis while it sits `LANE` off the centreline, w
 the node centre, not 4. A circular boundary would have moved every entry and exit point in the city
 by half a metre.
 
+**And the radius is per-arm, derived rather than authored.** How far you must go down an arm to be
+inside the junction is how far it takes to clear the carriageways that *cross* it — so a divided
+arterial (`edge.halfWidth`, [city.md](city.md#divided-arterials-and-the-planted-median)) holds every
+side street that meets it 5.33 back while entering those same junctions no earlier than before. Two
+things the derivation must not do, both of which bit:
+
+- **Don't count the arm opposite.** That is the same road carrying on through, and taking its
+  half-width makes a wide road hold *itself* back at its own junctions — every entry and exit point
+  on an arterial off by 1.33.
+- **Don't assume the crossing is perpendicular.** A road meeting at angle θ presents a strip
+  `halfWidth / |sin θ|` long down this arm. That is the perpendicular case at 90°, and it is why a
+  diagonal junction is a longer box than a square one.
+
+On a city of uniform 8-unit streets every arm comes out at `HALF_ROAD`, which is exactly the old
+scalar radius — asserted, not assumed. A node may still name a `radius` in the spec, and an
+authored one wins on every arm.
+
 ### Turn arcs are one rule now
 
 The control point of a turn is where the two lane tangents cross. `turnControl` had a special case
@@ -102,6 +119,14 @@ Two things fall out for free:
 `insetPolygon` returns null for a face narrower than the roads around it, because a sliver between
 two roads genuinely has nothing buildable on it.
 
+The inset is **per side**, since the roads round a face are no longer all the same width. Each
+vertex is stamped during the traversal with the width of the road leading away from it, because
+that is the one place the edge behind a side is known for certain. Deriving it back out of the
+geometry afterwards does not work: a merged face side has a node sitting mid-way along it, so
+"nearest centreline to the midpoint" lands exactly on a junction where the crossing road is also at
+distance zero, and the tie goes to whichever edge happened to be created first — one district face
+per seed inset by 4 instead of 5.33.
+
 ## Curves
 
 `curves.js` has exactly two kinds, because straight lines and circular arcs are closed under the
@@ -123,9 +148,10 @@ a bearing delta everywhere else. Two traps, both of which bit:
 
 ### A one-way road's lane is its centreline
 
-A two-way road's lanes sit `LANE` either side of the centreline. A one-way road has one lane and it
-runs *down* the middle. Offsetting it anyway pushed a roundabout's circulating lane two metres off
-its own island.
+A two-way road's lanes sit `edge.laneOffset` either side of the centreline — `LANE` on an ordinary
+street, further out on a divided arterial, where the gap between them is the median. A one-way road
+has one lane and it runs *down* the middle. Offsetting it anyway pushed a roundabout's circulating
+lane two metres off its own island.
 
 ## Equivalence with the grid is the safety net
 

@@ -12,7 +12,7 @@ import {
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
   GRID, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
-  ringAxisAt, isUnsignalised, lineCoord,
+  ringAxisAt, isUnsignalised, lineCoord, laneOffsetFor,
 } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 
@@ -424,7 +424,15 @@ const SCATTER_STRAIGHT_W = 0.04;  // what the "carry straight on" turn weight co
 // an 8-unit junction), so a pass **cannot** finish inside one lane: it always spans a junction.
 // That is why it is offered only where the route carries straight on, and why the offer
 // disappears — and the taxi tucks back in — the moment the next junction is a turn.
-const PASS_LATERAL = 2 * LANE;   // 4 units: our lane centre to the oncoming lane centre
+// 4 units on an ordinary street: our lane centre to the oncoming lane centre. It is **read off the
+// road** rather than used as a constant (`passLateralOn` below), because a divided arterial holds
+// its two carriageways 6.67 apart and a 4-unit swing would leave the taxi parked on the median —
+// side by side with the car it was passing, which is the exact failure the centreline overtake was
+// abandoned for. `PASS_FADE` scales with it for the same reason, so the crab angle at the midpoint
+// stays where it was tuned instead of steepening to 45° on the widest roads.
+const PASS_LATERAL = 2 * LANE;
+/** How far across, and how much road it takes, for a pass on the road this car is currently on. */
+const passLateralOn = (car) => 2 * laneOffsetFor(car.d, car.i, car.j);
 /**
  * Units of road for the full lane change.
  *
@@ -500,7 +508,7 @@ export const laysPassRubber = (car) => Boolean(car.boost)
  *
  * Half a lane, because that is where the body stops overlapping the lane it came out of.
  */
-const seesLeader = (car) => !car.passing && car.passOffset < LANE;
+const seesLeader = (car) => !car.passing && car.passOffset < laneOffsetFor(car.d, car.i, car.j);
 // Where the taxi pulls out, and the number the whole manoeuvre is sized by. Closing to a body
 // length past the leader is (PASS_TRIGGER + 5) units of relative displacement, and at the ~10 u/s
 // a boosting taxi gains on cruising traffic that is 1.83 units of road for every unit of it. At
@@ -2556,6 +2564,17 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     if (taxiActive) {
       const gap = leaderDist.get(taxi);
       const locoHeld = taxi.boost && !taxi.boostEasing;
+      // Sized against the road under the taxi, not against a constant — see `PASS_LATERAL`. The
+      // fade scales with the swing so the peak crab angle is the same 31° on a 6.67-unit lane
+      // change as on a 4-unit one; the manoeuvre just takes proportionally more road (~51 units
+      // on a divided arterial against ~32 on a side street), which the boost speed and the
+      // straight-on gate below already give it.
+      const passLateral = passLateralOn(taxi);
+      const passFade = PASS_FADE * (passLateral / PASS_LATERAL);
+      // And so does the sight line, for the same reason: exposure is the length of the manoeuvre,
+      // and a pass across a divided arterial spends 60% longer out in the oncoming lane. Derived
+      // rather than swept — the 35 it scales from is the knee of a sweep on 8-unit streets.
+      const passSight = PASS_SIGHT * (passLateral / PASS_LATERAL);
       // A pass needs somewhere to go and somewhere to finish: an oncoming lane to borrow, and a
       // route that carries straight on rather than turning out of the manoeuvre half way through.
       // `route[0]` advances as each junction is consumed, so this goes false by itself on the far
@@ -2619,14 +2638,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         for (const other of cars) {
           if (other === taxi || other.crashed || other.d !== facing) continue;
           const along = isXAxis(taxi.d) ? (other.x - taxi.x) * sign : (other.z - taxi.z) * sign;
-          if (along < 0 || along > PASS_SIGHT) continue;
+          if (along < 0 || along > passSight) continue;
           // On this road rather than a parallel one. Measured against the far lane's centre plus
-          // a body, *not* HALF_ROAD: opposing lane centres are exactly 2·LANE apart, which is
-          // exactly HALF_ROAD, so a bound of HALF_ROAD sits precisely on the car being looked
-          // for and the weave alone was enough to push it out of sight. The next road over is
-          // PITCH (20) away, so there is a lot of daylight before this catches the wrong car.
+          // a body, *not* the road's half-width: on an ordinary street the opposing lane centres
+          // are 2·LANE apart, which is exactly HALF_ROAD, so a bound of HALF_ROAD sat precisely
+          // on the car being looked for and the weave alone was enough to push it out of sight.
+          // The next road over is PITCH (20) away, so there is a lot of daylight before this
+          // catches the wrong car — on a divided arterial too, where `passLateral` is 6.67.
           const side = Math.abs(isXAxis(taxi.d) ? other.z - taxi.z : other.x - taxi.x);
-          if (side <= PASS_LATERAL + CAR_W) return false;
+          if (side <= passLateral + CAR_W) return false;
         }
         return true;
       };
@@ -2674,7 +2694,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       const crossingStraight = taxi.state === 'turn' && taxi.turn?.hand === 'straight';
       const ds = (taxi.state === 'drive' || crossingStraight) ? taxi.v * dt : 0;
       const delta = (taxi.passing ? 1 : 0) - taxi.pass;
-      const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / PASS_FADE);
+      const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / passFade);
       taxi.pass += step;
 
       // `pass` stays the linear 0..1 *progress* through the change — it is what every gate, test
@@ -2691,8 +2711,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // from the actual step rather than assuming the constant is what keeps the last, clamped
       // frame of a change honest instead of reporting a full-speed slope for a sliver of movement.
       const rate = ds > 0.0001 ? step / ds : 0;
-      taxi.passOffset = passEase(taxi.pass) * PASS_LATERAL;
-      taxi.passSlope = passEaseSlope(taxi.pass) * PASS_LATERAL * rate;
+      taxi.passOffset = passEase(taxi.pass) * passLateral;
+      taxi.passSlope = passEaseSlope(taxi.pass) * passLateral * rate;
 
       // Body roll, from the curvature of that same offset. `passEase`'s second derivative is
       // `6 − 12t`, so this is +1 at the start of a change and −1 at the end whichever way the ramp

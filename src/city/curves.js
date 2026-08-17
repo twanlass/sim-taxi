@@ -303,14 +303,21 @@ export function simplifyRing(poly, tol = 1e-9) {
   return out;
 }
 
+/**
+ * @param d how far to pull each side in. A number applies to the whole ring; a function
+ *   `(a, b) => number` is asked per side, which is what lets a face bounded by roads of different
+ *   widths inset by the right amount on each of them. Taken as a callback rather than as an array
+ *   because `simplifyRing` below drops vertices, and a parallel array would silently fall out of
+ *   step with the ring it indexes.
+ */
 export function insetPolygon(input, d) {
   const poly = simplifyRing(input);
   if (poly.length < 3) return null;
-  const ccw = signedArea2(poly) > 0;
+  const distFor = typeof d === 'function' ? d : () => d;
   // Walking a counter-clockwise ring keeps the interior on your right, so `rightNormal` already
   // points inward and the offset is +d. It is -d for a clockwise ring, which is why this reads
   // the winding rather than assuming one: face traversal hands back both.
-  const inward = ccw ? d : -d;
+  const sense = signedArea2(poly) > 0 ? 1 : -1;
   const lines = [];
 
   for (let n = 0; n < poly.length; n++) {
@@ -318,6 +325,7 @@ export function insetPolygon(input, d) {
     const b = poly[(n + 1) % poly.length];
     const len = dist(a, b);
     if (len < EPS) continue;
+    const inward = sense * distFor(a, b);
     const u = { x: (b.x - a.x) / len, z: (b.z - a.z) / len };
     const nrm = rightNormal(u.x, u.z);
     lines.push({ p: { x: a.x + nrm.x * inward, z: a.z + nrm.z * inward }, u });

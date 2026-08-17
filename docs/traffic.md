@@ -106,7 +106,21 @@ single street to favour:
 
 Since nothing stops at an arterial junction, nothing there is painted as if it did: no stop bars
 (they come off `node.signal`, so that is automatic) and no crosswalks over the side street either
-— see `ground.js`, which had only been skipping the crossing *over* the arterial.
+— see `ground.js`, which had only been skipping the crossing *over* the arterial. The junction is
+also where the median stops and the paint takes over, which is a separate story
+([city.md](city.md#the-island)) but the same junction.
+
+They are also **a third wider than a side street, and divided** — 10.67 kerb to kerb against 8,
+with the whole of the extra width going into the middle as a median. See
+[city.md](city.md#divided-arterials-and-the-planted-median) for the geometry and why it is measured
+from the kerb rather than from the centreline; the two things it changes in here are the junction
+box and the overtake.
+
+The junction box is the **crossing** road's half-width, not this road's. A side street meeting an
+arterial holds its cars 5.33 back instead of 4, while the arterial enters that same junction no
+earlier than it used to — which is what a wide road crossing a narrow one actually looks like, and
+falls out of `junctionReach` in grid.js and the per-arm radius in roadnet.js without either side
+knowing about the other.
 
 ### A signal-free ring road
 
@@ -1063,6 +1077,25 @@ manoeuvre in the game that breaks traction without turning a corner, and it was 
 nothing on the road. `main.js` and the lab both stamp while `|passSlope| > PASS_RUBBER_SLOPE`, which
 brackets the two lane *changes* and stops while the taxi is simply driving along in the borrowed
 lane — not a moment anything is sliding.
+
+#### On a divided arterial it is a wider swing
+
+`PASS_LATERAL` is read off the road, not taken as `2 · LANE`. An arterial's carriageways are 6.67
+apart rather than 4, and a 4-unit swing there would park the taxi **on the median**, side by side
+with the car it was passing — the exact failure the old centreline overtake was abandoned for.
+
+`PASS_FADE` and `PASS_SIGHT` scale with it. The fade keeps the peak crab angle at the 31° it was
+tuned to instead of steepening to 45°; the sight line keeps the same margin over an exposure that
+is 60% longer. The manoeuvre comes out at roughly **51 units of road against 32**, so a pass on a
+main street spans two junctions rather than one — the straight-on gate already re-asks per lane, so
+it tucks back in by itself if the route turns.
+
+**The taxi drives over the median.** Props are not in the collision set, so this is a visual, not a
+physical, event: a boosting taxi crossing a main street's planted strip goes through the grass and
+the trees rather than over them. That is a deliberate trade — suppressing passes on the arterials
+would take the manoeuvre away from exactly the roads worth boosting down. Nothing else may touch
+one, and `tools/probe.mjs` asserts it (`nothing but a passing taxi drives on a median`), which is
+what keeps the police dodge and every lane offset honest.
 
 #### It has to be clear before it comes back
 

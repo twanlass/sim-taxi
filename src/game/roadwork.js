@@ -9,7 +9,9 @@ import {
   coneGeometry, barricadeParts, spoilParts, mergeAll, splinterGeometry,
   CONE_REST_Y, SPLINTER_REST_Y,
 } from '../geometry/roadworks.js';
-import { launchHop, setClosedLanes, policeRoad } from '../sim/traffic.js';
+import {
+  launchHop, setClosedLanes, policeRoad, STOP_SETBACK, HOP_LEN,
+} from '../sim/traffic.js';
 import { setRoadworkLanes } from './route.js';
 
 // A street closed for roadworks: a striped trestle across each end, a scatter of cones, a heap of
@@ -61,6 +63,11 @@ const PLACE_CLEARANCE = 45;
 // -1.5 — the toe sat in the middle of a live intersection, which is the other half of why the thing
 // read as a plate lying near the corner rather than as a ramp up to a barricade.
 export const BARRIER_S = 2.1;
+
+// Road the taxi must still have under it after the hop, before the hold line — see `eligible`.
+// The same 0.75 the probe asserts the chain against, named here because it is now a *placement*
+// constraint rather than only a fact about three constants.
+const LAND_SLACK = 0.75;
 const CONES = 12;
 const WORKERS = 2;
 
@@ -212,6 +219,18 @@ export function createRoadwork(rng, scene, camera = null) {
     if (edge.klass !== 'side') return false;
     if (edge.lanes.length !== 2) return false;
     if (edge.lanes.some((l) => l.degenerate)) return false;
+    // And long enough for the stunt to land on. The taxi launches at BARRIER_S and comes down
+    // HOP_LEN later, against a hold line STOP_SETBACK back from the lane's end — three constants
+    // that have to keep closing, and `tools/probe.mjs` asserts the sum with 0.75 to spare.
+    //
+    // It used to be free: every lane in a city of 8-unit streets is the same length, and that
+    // length fit. Dividing the arterials took 1.33 off both ends of every lane that meets one,
+    // which is **39% of side-street lanes** (688 sampled over 12 seeds) — and on those the taxi
+    // lands past the point where it picks its next turn. Asked here rather than solved by shaving
+    // HOP_LEN, because the hop is a feel constant and this is a *site* that is too short for it.
+    if (edge.lanes.some((l) => l.length - STOP_SETBACK <= BARRIER_S + HOP_LEN + LAND_SLACK)) {
+      return false;
+    }
 
     const net = cityNetwork();
     const ids = new Set(edge.lanes.map((l) => l.id));

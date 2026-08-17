@@ -29,14 +29,6 @@ export const PALETTE = {
   asphalt: '#636972',
   asphaltEdge: '#6B717A',
   laneMark: '#D6D2C4',
-  // The centre line down an arterial. Yellow because that is what a main road is painted with, and
-  // this is the one place the reserved-yellow rule (see carBodyGhost) can be spent: the taxi's own
-  // yellow is a *moving object* and this is a mark on the ground, which is the reading the eye
-  // makes long before hue. Still kept clear of it where it counts — measured where getHSL measures,
-  // taxiBody is l 0.47 and routeLine l 0.59, this is l 0.36. A brighter road paint (#E8B93C, l 0.43)
-  // sat inside the taxi's own band and turned every arterial into a route band nobody had drawn.
-  // Dark enough to read as paint, and still 2.4x the asphalt's own lightness at ~2.6px wide.
-  laneMarkArterial: '#D9A82B',
   crosswalk: '#DAD7CB',
   sidewalk: '#9E9C94',
   kerb: '#8A887F',
@@ -345,6 +337,34 @@ export const PALETTE = {
 
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
+
+  // Flower beds on the arterials' medians — see `flowerBedParts` in city/props.js. Blooms are drawn
+  // from this per *flower*, not per bed, so one bed carries four or five of them.
+  //
+  // **The set is the whole free space on the wheel, and it is smaller than it looks.** Measured
+  // where `getHSL` measures (linear-sRGB, not what a colour picker shows for the same hex), the
+  // urgency ramp runs 1° → 126°, the taxi sits at 34°, the route yellow at 46°, the courier cyan at
+  // 192° and the VIP purple at 260°. Requiring 20° of clearance either side leaves exactly four
+  // windows: 71–106°, 146–172°, 212–240° and 280–341°.
+  //
+  // The first two are unusable for a different reason — they are greens, and a green flower on a
+  // green mound on green grass is a flower nobody sees. So the planting lives in the other two:
+  // blue at 223–230°, then violet, magenta and pink from 287° round to 331°. Nearest approach to
+  // anything the player acts on is 27°, and the loudest of them is 0.66 saturated against the
+  // 0.86–1.00 of every marker on the board. Both are asserted in tools/probe.mjs, the same way the
+  // roadworks orange is.
+  //
+  // That the range comes out cool and slightly wild is a consequence of the constraint rather than
+  // a choice, and it happens to suit municipal bedding — cornflower, lavender, phlox, cosmos.
+  bloom: [
+    '#9DB6E8',   // pale blue   223°
+    '#6E86D6',   // cornflower  230°
+    '#B968C9',   // orchid      287°
+    '#9E5490',   // plum        315°
+    '#BE5C9C',   // magenta     327°
+    '#D97BB0',   // rose        331°
+    '#E2A3CB',   // pale pink   325°
+  ],
 
   // Park furniture. A bench's slats are timber and stand within a couple of units of a trunk, so
   // the one colour they must clearly not be is `trunk` (#6B4E35) — a bench painted the wood of the
