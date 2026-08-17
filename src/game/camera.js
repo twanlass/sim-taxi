@@ -56,6 +56,43 @@ const GLIDE_EPSILON = 0.05;
 // this reads as the camera arriving and immediately changing its mind.
 const PEEK_HOLD = 0.9;
 
+// --- Loco Mode's push-in ----------------------------------------------------
+// The frame tightens by a few percent while Loco Mode is held. An orthographic camera has no field
+// of view to widen, so the whole of "the lens reacts" here is the frustum: everything on screen
+// grows by 1 / LOCO_PUNCH and the city crowds in, which is the ortho equivalent of the push-in a
+// perspective rig would get for free.
+//
+// Deliberately small. The push-in costs look-ahead — the follow's lead is a *fraction of the frame*
+// (see LEAD_FRACTION), so a tighter frame buys fewer world units of road ahead by exactly the same
+// 7%, and Loco Mode is the one mode that spends its whole life needing them. Measured at the boost
+// top on a portrait phone: **124 world units of road ahead become 115**, against the GHOST_RADIUS
+// of 46 at which a hidden car lights its outline (game/carghosts.js). Enough tightening to feel,
+// nowhere near enough to push a warning off the frame it is warning about.
+export const LOCO_PUNCH = 0.93;
+
+// How long the button has to stay down before the frame answers it. **A tap must not move the
+// camera.** Releasing mid-spend is a designed input — a short tap costs a short slice of fuel — so
+// the pill gets jabbed constantly, and a camera keyed on the press popped the frame on every one of
+// them. Keyed on the hold instead, a tap is over before this elapses and the frame never moves.
+//
+// 0.3s is past any jab and under any deliberate hold: the press that *means* Loco Mode is the one
+// the player is still leaning on when the taxi starts pulling.
+export const LOCO_PUNCH_HOLD = 0.3;
+
+// In quicker than it comes back out, and both slow enough to read as the frame breathing rather
+// than cutting. The push-in is 63% there in 0.45s, so it lands under the wheelie and the flame; the
+// way out rides the release, which is the second the taxi is coasting its speed cap back down
+// anyway (BOOST_COOLDOWN in game/boost.js) — a frame that snapped open would arrive before the car
+// had finished slowing.
+const PUNCH_IN_RATE = 2.2;
+const PUNCH_OUT_RATE = 1.3;
+// Below this the ease is finished: snapped to the target so a resting frame is bit-for-bit the
+// plain one — an exponential never actually arrives, and a frustum left 0.01% tight for the rest of
+// the run is a repaint every frame forever — and so `punchZoom` stops repainting. The snap itself
+// has to be invisible, which is what sets the size: 5e-4 of the push-in is 0.026 world units at
+// PLAY_ZOOM, a twentieth of a pixel on a phone, and it lands about 2.5s into either direction.
+const PUNCH_EPSILON = 5e-4;
+
 // Smootherstep. Zero *velocity* and zero *acceleration* at both ends, where plain smoothstep only
 // zeroes velocity — with a move this short the kink at the start of a smoothstep is still visible
 // as a flick, and the whole point of the pan is that the eye can ride it all the way across.
@@ -170,12 +207,24 @@ export function aimAtHeight(x, y, z) {
 export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 1400);
   const state = {
-    zoom,                       // half-height of the view frustum, in world units
+    zoom,                       // the *base* half-height of the view frustum, in world units
     target: new THREE.Vector3(target[0], 0, target[1]),
     // Current shake magnitude, in world units. Non-zero means apply() jitters camera.position by
     // ±this on each axis before lookAt. Decayed each frame from main.js via updateShake().
     shake: 0,
+    // Loco Mode's push-in, as a multiplier on the base zoom: 1 at rest, LOCO_PUNCH held down.
+    // Kept separate from `zoom` rather than folded into it because the two are owned by different
+    // things — `zoom` is where the camera is standing (a wreck pulls it in, a shot pins it) and this
+    // is a transient on top. Folding them would make releasing the button a guess at what the base
+    // had drifted to in the meantime.
+    punch: 1,
   };
+
+  // The half-height the frustum is actually built from. Everything that converts between world
+  // units and the frame — the projection, the lead's half-frame, world-units-per-pixel out in
+  // main.js — has to come through here rather than read `state.zoom`, or it measures a frame the
+  // renderer isn't drawing.
+  const viewZoom = () => state.zoom * state.punch;
 
   // In-flight glide, or null when idle. Held here rather than on `state` because nothing outside
   // reads it — the getters below are the whole interface.
@@ -197,7 +246,7 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
    * and the speed itself, which pays back the follow's own trail (see above).
    */
   function stepLead(aim, dt, smoothing, aspectRatio) {
-    const halfH = state.zoom;
+    const halfH = viewZoom();
     const want = aim
       ? frameLead(aim.x, aim.z, aim.gain ?? 1, halfH * aspectRatio, halfH)
       : { x: 0, z: 0 };
@@ -248,7 +297,7 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
   }
 
   function apply(aspectRatio) {
-    const halfH = state.zoom;
+    const halfH = viewZoom();
     const halfW = halfH * aspectRatio;
     camera.left = -halfW;
     camera.right = halfW;
@@ -272,6 +321,31 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
     state,
     resize: (aspectRatio) => apply(aspectRatio),
     update: (aspectRatio) => apply(aspectRatio),
+    /**
+     * The frustum half-height being drawn — the base zoom with Loco Mode's push-in already in it.
+     * Anything sizing itself against the frame reads this rather than `state.zoom`: the two differ
+     * by up to 7% for as long as the button is down, and that is exactly when the taxi is moving
+     * fastest and a marker sized off the wrong one drifts furthest from what it is marking.
+     */
+    viewZoom,
+    /**
+     * Ease the push-in toward `on` and repaint if it moved. Returns true on the frames it did, and
+     * is a no-op once settled — so main.js can call it unconditionally, next to `updateShake`,
+     * which it is the same shape as and for the same reason: it changes the picture without owning
+     * where the camera is *pointed*, so it composes with whichever claim owns the target that frame
+     * instead of joining the priority list.
+     */
+    punchZoom(on, dt, aspectRatio) {
+      const want = on ? LOCO_PUNCH : 1;
+      if (Math.abs(want - state.punch) < PUNCH_EPSILON) {
+        state.punch = want;
+        return false;
+      }
+      const rate = on ? PUNCH_IN_RATE : PUNCH_OUT_RATE;
+      state.punch += (want - state.punch) * (1 - Math.exp(-dt * rate));
+      apply(aspectRatio);
+      return true;
+    },
     /**
      * Kick a new shake, in world units of amplitude. Takes the max of the existing shake and the
      * new value so a bigger impact can override a still-decaying smaller one, but a tiny
@@ -526,10 +600,11 @@ export function attachDragPan(controller, domElement, getAspect, isEnabled = () 
     if (!panned) onPan();
     panned = true;
     // World units per pixel falls straight out of the orthographic frustum: its height is
-    // exactly 2 * zoom, whatever the aspect ratio. Vertical isn't drag-the-map: swipe up pans
+    // exactly 2 * the drawn zoom, whatever the aspect ratio — the *drawn* one, so a drag during
+    // Loco Mode's push-in still travels with the finger. Vertical isn't drag-the-map: swipe up pans
     // the camera up (revealing what's above), swipe down pans it down — on a phone this reads
     // as "scroll to see more" rather than shoving the ground around.
-    const scale = (controller.state.zoom * 2) / domElement.clientHeight;
+    const scale = (controller.viewZoom() * 2) / domElement.clientHeight;
     panBy(-dx * scale, dy * scale);
   });
 

@@ -85,6 +85,7 @@ import {
 import {
   createCityCamera, attachDragPan, frameLead,
   VIEW_DIR, RIGHT, UP, DISTANCE, PLAY_ZOOM, DEPTH_PER_SCREEN_UNIT,
+  LOCO_PUNCH, LOCO_PUNCH_HOLD,
 } from '../src/game/camera.js';
 import {
   createScene, HAZE_TOP, hazeRange, hazeColor, hazeTuning, HAZE_SKY_H, HAZE_SATURATION,
@@ -5882,6 +5883,149 @@ check('the taxi is an ordinary car in the traffic array',
     const without = Math.hypot(cam.leadOffset().x, cam.leadOffset().z);
     check('a follow with no aim gives the lead back', withLead > 1 && without < 0.01,
       `${withLead.toFixed(1)} units of lead, ${without.toFixed(3)} after`);
+  }
+}
+
+// --- Loco Mode's push-in ----------------------------------------------------
+// The frame tightens by LOCO_PUNCH while the pill is *held*. Two halves, and the awkward one is the
+// half that has to do nothing: releasing mid-spend is a designed input, so the pill gets tapped
+// constantly, and a push-in keyed on the press popped the frame on every jab. Nothing about either
+// half shows up in a still — a push-in that fires on taps looks exactly like one that doesn't, one
+// frame at a time — so the gesture is driven here instead, at 60fps against a real frustum.
+//
+// main.js owns the rule that turns the button into the boolean; it is restated in `punchWanted`
+// below rather than imported, so a change to either side has to be made in both.
+{
+  const ASPECT = 390 / 844;         // the portrait phone the push-in runs on
+  const ZOOM = 52;
+  const STEP = 1 / 60;
+  const HEADING = (3 * Math.PI) / 4;
+
+  // main.js's latch: earning the push-in takes a hold every time, and once earned it survives the
+  // momentum tail so feathering the pill doesn't breathe the frame in and out.
+  const rig = () => {
+    const cam = createCityCamera(ASPECT, { zoom: ZOOM });
+    const boost = createBoost(BOOST_DURATION, 1, BOOST_COOLDOWN);
+    let punched = false;
+    return {
+      cam,
+      boost,
+      // One frame of everything: the clock, the rule, the ease. Returns the drawn half-height.
+      step(dt = STEP) {
+        boost.update(dt);
+        punched = (boost.isActive() && boost.heldSeconds() >= LOCO_PUNCH_HOLD)
+          || (punched && boost.isEngaged());
+        cam.punchZoom(punched, dt, ASPECT);
+        return cam.viewZoom();
+      },
+    };
+  };
+
+  // A jab. 0.18s is a brisk tap — well past a frame, well short of a hold — and it must leave the
+  // frustum untouched, not merely nearly untouched: this is the case that reads as the camera
+  // twitching every time the player feathers the throttle.
+  {
+    const r = rig();
+    r.boost.press();
+    let worst = 0;
+    for (let i = 0; i < Math.round(0.18 / STEP); i += 1) worst = Math.max(worst, ZOOM - r.step());
+    r.boost.release();
+    for (let i = 0; i < 120; i += 1) worst = Math.max(worst, ZOOM - r.step());
+    check('a tap on Loco Mode never moves the frame', worst === 0,
+      `worst ${worst.toFixed(4)} units of push-in over a 0.18s tap`);
+  }
+
+  // A hold. The frame has to actually arrive at the constant — an ease that stalls part-way is the
+  // other silent failure, and it looks like a smaller push-in rather than like a bug.
+  {
+    const r = rig();
+    r.boost.press();
+    let biggestStep = 0;
+    let prev = ZOOM;
+    for (let i = 0; i < Math.round(3 / STEP); i += 1) {
+      const now = r.step();
+      biggestStep = Math.max(biggestStep, (prev - now) / ZOOM);
+      prev = now;
+    }
+    check('a hold pushes the frame in to LOCO_PUNCH',
+      Math.abs(r.cam.state.punch - LOCO_PUNCH) < 1e-3,
+      `punch ${r.cam.state.punch.toFixed(4)} against ${LOCO_PUNCH}`);
+    // The whole reason the hold gate exists is that the frame must never *pop*. The steepest single
+    // frame of the ease is the tell: at 60fps this is 0.26% of the frame, about a fifth of a
+    // percent of city sliding per frame, which is under the threshold anything reads as a cut.
+    check('the push-in never lands in one frame', biggestStep < 0.005,
+      `steepest frame moves ${(biggestStep * 100).toFixed(3)}% of the frame`);
+
+    // ...and letting go gives it all back, exactly, rather than leaving the city a fraction of a
+    // percent large for the rest of the run.
+    r.boost.release();
+    for (let i = 0; i < Math.round(6 / STEP); i += 1) r.step();
+    check('releasing opens the frame back up', r.cam.state.punch === 1 && r.cam.viewZoom() === ZOOM,
+      `punch ${r.cam.state.punch}, zoom ${r.cam.viewZoom()}`);
+  }
+
+  // Feathering: let go and grab it again inside the momentum window. The taxi is still at full tilt
+  // through that second (BOOST_COOLDOWN), so the frame has no business travelling anywhere. Held
+  // long enough for the ease to settle first, so "still" can be asserted exactly rather than
+  // against a push-in that is legitimately still arriving.
+  {
+    const r = rig();
+    r.boost.press();
+    for (let i = 0; i < Math.round(4 / STEP); i += 1) r.step();
+    const held = r.cam.viewZoom();
+    r.boost.release();
+    for (let i = 0; i < Math.round(BOOST_COOLDOWN * 0.5 / STEP); i += 1) r.step();
+    r.boost.press();
+    let drift = 0;
+    for (let i = 0; i < Math.round(1 / STEP); i += 1) drift = Math.max(drift, Math.abs(r.step() - held));
+    check('feathering the pill holds the frame still', drift === 0,
+      `${drift.toFixed(4)} units of drift across a re-press`);
+  }
+
+  // The push-in is a change to the frame, not to the framing. `LEAD_FRACTION` is stated as a
+  // fraction of a *half-frame*, so the taxi has to sit in exactly the same place in the picture
+  // pushed in as it does at rest — the city gets bigger around it and nothing slides. Measured by
+  // projecting the taxi through the real frustum, as the lead checks above do.
+  {
+    const seat = (punch) => {
+      const cam = createCityCamera(ASPECT, { zoom: ZOOM });
+      const dir = { x: Math.cos(HEADING), z: -Math.sin(HEADING) };
+      const speed = boostCruise();
+      for (let i = 0; i < 8 * 60; i += 1) {
+        cam.state.punch = punch;
+        cam.state.target.x -= dir.x * speed * STEP;
+        cam.state.target.z -= dir.z * speed * STEP;
+        cam.followXZ(0, 0, STEP, 3.2, ASPECT, { ...dir, gain: 1, speed });
+      }
+      cam.camera.updateMatrixWorld(true);
+      const p = new THREE.Vector3(0, 0, 0).project(cam.camera);
+      // How far down the heading the frame edge is, in world units — what the push-in actually
+      // spends, since the mode exists to cover ground.
+      const inside = (d) => {
+        const q = new THREE.Vector3(dir.x * d, 0, dir.z * d).project(cam.camera);
+        return Math.abs(q.x) <= 1 && Math.abs(q.y) <= 1;
+      };
+      let lo = 0;
+      let hi = 400;
+      for (let i = 0; i < 60; i += 1) {
+        const mid = (lo + hi) / 2;
+        if (inside(mid)) lo = mid; else hi = mid;
+      }
+      return { r: Math.hypot(p.x, p.y), ahead: lo };
+    };
+    const rest = seat(1);
+    const pushed = seat(LOCO_PUNCH);
+    check('the push-in moves the frame, not the taxi in it',
+      Math.abs(rest.r - pushed.r) < 1e-3,
+      `${(rest.r * 100).toFixed(1)}% of a half-frame at rest, ${(pushed.r * 100).toFixed(1)}% pushed in`);
+    // What it costs, written down: the road ahead shrinks by exactly the push-in, and has to stay
+    // clear of GHOST_RADIUS — the distance at which a car hidden behind a building lights its
+    // outline. A push-in deep enough to bring the frame edge inside that would be showing the
+    // player a warning about something off screen, which is the one way this could cost a run.
+    check('the road ahead only loses the push-in, and keeps the traffic warning inside the frame',
+      Math.abs(pushed.ahead / rest.ahead - LOCO_PUNCH) < 1e-3 && pushed.ahead > GHOST_RADIUS,
+      `${rest.ahead.toFixed(0)} -> ${pushed.ahead.toFixed(0)} units of road ahead, `
+      + `warning at ${GHOST_RADIUS}`);
   }
 }
 

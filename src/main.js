@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
 import { createScene } from './game/scene.js';
-import { createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM } from './game/camera.js';
+import {
+  createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD,
+} from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
@@ -289,6 +291,14 @@ const isNarrow = () => viewport.width() < NARROW_VIEWPORT;
 // no way to stop it.
 const START_FOLLOW_SMOOTHING = 1.5;
 const BOOST_FOLLOW_SMOOTHING = 3.2;
+
+// Is the frame currently pushed in for Loco Mode (see LOCO_PUNCH in game/camera.js)? Latched rather
+// than recomputed from the button every frame, because it has to survive the release: `isEngaged()`
+// is the hold *plus* the momentum tail, so feathering the pill — letting go and grabbing it again
+// inside the second the taxi is still at full tilt — holds the frame where it is instead of
+// breathing it out and back in under the player. Earning it still takes a hold, every time: the
+// latch can only stay on through the tail, never switch on during one.
+let locoPunched = false;
 
 /**
  * What both follows aim past the taxi at — the heading it is travelling, and how much of the lead
@@ -898,8 +908,9 @@ const taxiFinder = createTaxiFinder({
   // installed iOS app, and would report a car in that strip as off-screen when it is on it.
   frame: viewport,
   // Orthographic, so world-units-per-pixel falls straight out of the frustum height: the vertical
-  // world span is exactly 2 * zoom. Read per frame, since a wreck pulls the zoom in under it.
-  pixelsPerUnit: () => viewport.height() / (2 * controller.state.zoom),
+  // world span is exactly 2 * the drawn zoom. Read per frame, since a wreck pulls the zoom in under
+  // it and Loco Mode's push-in rides on top of that — `viewZoom()` is both.
+  pixelsPerUnit: () => viewport.height() / (2 * controller.viewZoom()),
   onTap: panToTaxi,
 });
 // The courier load, pictured in the HUD's own corner while a package is aboard — see
@@ -950,9 +961,9 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   lights: { sun, hemi },
   project: projectToScreen,
   // Orthographic, so world-units-per-pixel falls straight out of the frustum height: the vertical
-  // world span is exactly 2 * zoom. This is what keeps the spotlight the same size on every
-  // viewport, and correct if a wreck ever pulls the zoom in under it.
-  pixelsPerUnit: () => viewport.height() / (2 * controller.state.zoom),
+  // world span is exactly 2 * the drawn zoom. This is what keeps the spotlight the same size on
+  // every viewport, and correct when a wreck pulls the zoom in under it or Loco Mode pushes in.
+  pixelsPerUnit: () => viewport.height() / (2 * controller.viewZoom()),
   // The third beat points at a control rather than at something in the city, so its spotlight is
   // measured off the pill's own box. Declared after this call; `function` hoisting covers it.
   boostAnchor: boostScreenPos,
@@ -1789,6 +1800,27 @@ function frame() {
     // caring about. A no-op when nothing is panning, which is every frame on a desktop.
     controller.updateGlide(dt, aspect());
   }
+
+  // The frame tightens a few percent while Loco Mode is *held* — the ortho stand-in for a lens
+  // pushing in, see LOCO_PUNCH in game/camera.js. It sits outside the priority list above rather
+  // than in it: the list decides where the camera points and this decides how tight it is, so it
+  // composes with whichever claim won the frame instead of competing for it.
+  //
+  // Keyed on the hold and not on the press. A tap is a designed input here (it spends a short slice
+  // of fuel) and the pill gets jabbed constantly, so a push-in that answered every press would pop
+  // the frame on all of them — LOCO_PUNCH_HOLD is the line between the two gestures.
+  locoPunched = (boost.isActive() && boost.heldSeconds() >= LOCO_PUNCH_HOLD)
+    || (locoPunched && boost.isEngaged());
+  // Narrow-only, like the follows, and for a sharper reason than theirs: the desktop framing is
+  // *sideways*-tight, not vertically tight. Measured across 12 seeds, the city reaches 92.5% of the
+  // half-frame across a 4:3 desktop at PLAY_ZOOM (only 77% of it up-screen), so a 7% push-in puts
+  // its edge flush at 99.5% and anything squarer than 4:3 crops the map outright — with drag-to-pan
+  // switched off up there, permanently. And it gives way to the two claims that set the zoom
+  // themselves, the opening vignette and the end-of-run focus; neither can be up while the player
+  // is holding the pill, but both would fight it if they were.
+  const punchAllowed = isNarrow() && !fares.state.gameOver && !endSpot
+    && !opening?.holdsCamera();
+  controller.punchZoom(locoPunched && punchAllowed, dt, aspect());
 
   // More than one thing can land in a frame now — delivering the last fare clears the board and
   // spawns the next one in the same tick — so this is a list rather than a single event.

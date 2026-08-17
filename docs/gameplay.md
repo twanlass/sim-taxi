@@ -1651,6 +1651,13 @@ Both ways out of a boost — letting go, and running the tank dry — pass throu
 rather than the instant the fuel runs out. See
 [traffic.md](traffic.md#boost-crazy-taxi-mode) for what stays armed through it.
 
+**A tap and a hold are two different inputs, and only one of them moves the camera.** `heldSeconds()`
+on the boost clock times the current press, and past `LOCO_PUNCH_HOLD` (0.3s) the frame pushes in a
+few percent for as long as it lasts — see
+[rendering.md](rendering.md#loco-modes-push-in). Anything else keyed on the press has the same
+question to answer: taps are frequent here by design, so a jab must be allowed to spend its slice of
+fuel without the view reacting to it.
+
 That is a deliberate replacement for the old economy, which handed back 15% per drop-off but also
 fast-recharged from empty in 15s and trickled a partial tank back up at a fifth of that rate. Under
 those rules waiting was a valid way to get boost back, so the meter said nothing about how the run
