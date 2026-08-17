@@ -397,17 +397,44 @@ that one primitive produces all four shapes a `BoxGeometry` cannot hold:
 
 | | How |
 |---|---|
-| **Chamfer** | inset the top ring. The cut edge catches a different value from the roof and from the flank either side of it, which at this camera is the only thing that says an edge is an edge rather than a colour change |
-| **Tuck** | inset the bottom ring, so the sill draws in under the waist instead of dropping to the road as a slab |
+| **Rolled edge** | walk several rings around a quarter-arc. The facets catch different values from the roof and from the flank either side of them, which at this camera is the only thing that says an edge is an edge rather than a colour change |
+| **Tuck** | the same roll upside down, so the sill draws in under the waist instead of dropping to the road as a slab |
 | **Trapezoid greenhouse** | narrow the roof ring — the tumblehome that stops a cabin reading as a shoebox parked on a shoebox |
 | **Lean-back** | walk the ring's *centre* aft as it rises. That rakes the windscreen hard and the backlight gently, and the asymmetry is the whole silhouette: rake both ends equally and the car has no front |
+
+**`ROLL_STEPS` is a smoothness knob, not a shape.** At one step a roll is exactly the two endpoints
+of its arc — the single 45° chamfer these started as — so turning it down cannot change the car, and
+`tools/probe.mjs` asserts that reduction rather than leaving it as a claim. It ships at 3.
+
+The step count and the radius only pay off **together**, which is why the roofline's radius widened
+from 0.10 to 0.14 in the same change. Three facets across a 0.10 edge are 0.05 apiece, and
+subdividing something already under a pixel buys nothing but aliasing as the car turns — the same
+arithmetic that keeps the chequer at six cells rather than twelve. At 0.14 the whole roll is about
+1.5px at play zoom and 4px at the wreck camera's, and a facet is 0.073: half a pixel at play zoom,
+where it averages into a soft edge, and 4px in the `?shot=6` close-up, where it reads as an actual
+roll. A fourth step lands at 0.055 and buys a difference nothing in the game is framed closely
+enough to show.
+
+Two edges keep a single facet on purpose, and for the same reason: **the bumpers** (0.30 tall, 0.07
+chamfers — three facets would be 0.02 apiece, a fifth of a pixel at play zoom and still under one at
+the closest camera in the game) and any part that small. Two go the other way with a wider radius:
+**the greenhouse** rolls at 0.09 because it is a third of the body's width and 0.14 would have eaten
+most of the flat panel between its sides, and **a truck's cargo box** at 0.18 because that roof is
+twice the area and further from the eye, where 0.14 read as a line rather than as an edge coming
+off.
+
+`SHOULDER` is *derived* as `DECK - CHAMFER` rather than typed, so widening the roll cannot quietly
+slide the belt line out from under the liveries riding in it.
 
 A ring is a rectangle rather than an arbitrary polygon, which keeps every face a planar quad — a
 twisted one shows the diagonal seam between its two triangles, the same trap the curtain-wall bands
 in [rendering.md](rendering.md) are cut into segments to dodge.
 
 Winding is **asserted, not eyeballed** (`tools/probe.mjs`): every face of a lofted body has to point
-away from the solid's own centre, for every triangle rather than the first. `bakeColor` runs
+away from the solid's own centre, for every triangle rather than the first — and every step of a
+roll has to both climb and close, since a run that stops climbing hands `loftBox` two rings at the
+same height and `computeVertexNormals` a zero-area face, which comes back as a NaN normal and lights
+as a black facet rather than as an error. `bakeColor` runs
 `computeVertexNormals`, which launders a reversed triangle into whatever its neighbours claim — so a
 face wound backwards doesn't vanish, it lights as if the sun were behind it, three steps from its
 cause. The roadworks ramp shipped exactly that way once.

@@ -57,7 +57,7 @@ import { HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER, POP_TIME } from '../src/game/selectpop.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
 import {
-  carBodyParts, loftBox, bodySegments, BELT, BODY_TOP, ARCH_CLEARANCE,
+  carBodyParts, loftBox, topRoll, bottomRoll, bodySegments, BELT, BODY_TOP, ARCH_CLEARANCE,
 } from '../src/geometry/carbody.js';
 import { isCarOffScreen, CAR_RADIUS } from '../src/game/taxifinder.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
@@ -6252,6 +6252,10 @@ check('the taxi is an ordinary car in the traffic array',
       { y: 0.7, hx: 1.7, hz: 0.85 }, { y: 0.8, hx: 1.58, hz: 0.75 }],
     leanback: [{ y: 0, hx: 0.85, hz: 0.73, cx: -0.2 }, { y: 0.27, hx: 0.78, hz: 0.72, cx: -0.24 },
       { y: 0.6, hx: 0.58, hz: 0.6, cx: -0.34 }],
+    // A body's real profile: a tuck rolled at the sill and a roofline rolled at the deck, which
+    // between them are most of the triangles on a car and every one of the extra ones the roll adds.
+    rolled: [...bottomRoll(0.38, 1.7, 0.85, 0, 0.09),
+      { y: 0.8, hx: 1.7, hz: 0.85 }, ...topRoll(1.18, 1.7, 0.85, 0, 0.14)],
   };
   let inwardTotal = 0;
   let facesTotal = 0;
@@ -6274,6 +6278,41 @@ check('the taxi is an ordinary car in the traffic array',
   check('the greenhouse rakes back hard at the front and gently at the back',
     windscreen > 3 * backlight && backlight > 0 && roof.hz < sill.hz,
     `windscreen ${windscreen.toFixed(2)} vs backlight ${backlight.toFixed(2)}, tumblehome ${(sill.hz - roof.hz).toFixed(2)}`);
+
+  // The roll itself, at every step count the helper is used at plus the extremes. Two properties,
+  // and both of them are failure modes rather than taste: a run that stops climbing hands
+  // `loftBox` two rings at the same height, so `computeVertexNormals` gets a zero-area face and
+  // returns a NaN normal — which lights as a black facet, not as an error — and a run whose rings
+  // stop shrinking is an edge that flares back out instead of coming off.
+  let rollBreaks = 0;
+  let rollRuns = 0;
+  for (const steps of [1, 2, 3, 4, 8]) {
+    for (const run of [topRoll(1.18, 1.7, 0.85, 0, 0.14, steps),
+      bottomRoll(0.38, 1.7, 0.85, 0, 0.09, steps)]) {
+      rollRuns += 1;
+      if (run.length !== steps + 1) rollBreaks += 1;
+      for (let i = 1; i < run.length; i++) {
+        const climbs = run[i].y - run[i - 1].y > 1e-9;
+        const shrinks = run[i].hz < run[i - 1].hz && run[i].hx < run[i - 1].hx;
+        // A top roll shrinks as it climbs; a bottom roll grows as it climbs. Either way the two
+        // move together — a ring that changed one without the other is a twist, not a fillet.
+        if (!climbs || !(shrinks || (run[i].hz > run[i - 1].hz && run[i].hx > run[i - 1].hx))) {
+          rollBreaks += 1;
+        }
+      }
+    }
+  }
+  check('a rolled edge climbs and closes on every step, at every step count',
+    rollBreaks === 0 && rollRuns === 10, `${rollBreaks} broken steps over ${rollRuns} runs`);
+
+  // And the property that makes the step count a smoothness knob rather than a different shape: at
+  // one step the roll *is* the 45° chamfer it generalises, so turning it down cannot change the car.
+  const onestep = topRoll(1.18, 1.7, 0.85, 0, 0.14, 1);
+  check('one step is exactly the chamfer the roll replaced',
+    onestep.length === 2
+    && Math.abs(onestep[0].y - (1.18 - 0.14)) < 1e-9 && Math.abs(onestep[0].hz - 0.85) < 1e-9
+    && Math.abs(onestep[1].y - 1.18) < 1e-9 && Math.abs(onestep[1].hz - (0.85 - 0.14)) < 1e-9,
+    'the arc reduces to its two endpoints');
 
   // The wheel arch, against the wheel it is cut for. The crown of the tyre has to finish *inside*
   // the wing — cut the opening any higher and you see daylight over the wheel — and the tread has to

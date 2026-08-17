@@ -16,10 +16,10 @@ import { CHASSIS_LIFT, WHEEL_R, wheelAnchors } from './wheels.js';
 // `loftBox` takes a stack of rectangular rings and skins them. That single primitive is what
 // produces all four of the shapes below, none of which a `BoxGeometry` can hold:
 //
-//   - a **chamfer**, by insetting the top ring — the cut edge catches a different value from the
-//     roof and the flank either side of it, which at this camera is the only thing that says an
-//     edge is an edge rather than a colour change;
-//   - a **tuck**, by insetting the bottom ring, so the sill draws in under the waist instead of
+//   - a **rolled edge**, by walking several rings around a quarter-arc — the facets catch different
+//     values from the roof and from the flank either side of them, which at this camera is the only
+//     thing that says an edge is an edge rather than a colour change;
+//   - a **tuck**, the same roll upside down, so the sill draws in under the waist instead of
 //     dropping to the road as a slab;
 //   - a **trapezoid greenhouse**, by narrowing the roof ring — the tumblehome that stops a cabin
 //     reading as a shoebox parked on a shoebox;
@@ -44,20 +44,52 @@ import { CHASSIS_LIFT, WHEEL_R, wheelAnchors } from './wheels.js';
 // only full-width section left is the rocker; a truck, three times the wheelbase, keeps a nose and
 // a tail section as well. One rule covers both, and re-proportioning a vehicle moves its arches.
 
-/** How far a top edge is cut back, in world units — the chamfer's own width. */
-const CHAMFER = 0.10;
-/** How far the sill draws in under the waist. */
+/**
+ * Radius of the roll along the roofline, in world units — how far the edge is taken off in both
+ * directions at once.
+ *
+ * Widened from the 0.10 the single-facet chamfer used, because the two changes only pay off
+ * together: three facets across a 0.10 edge are 0.05 apiece, and subdividing something already
+ * under a pixel buys nothing but aliasing as the car turns — the same arithmetic that keeps the
+ * chequer at six cells rather than twelve. At 0.14 the whole roll is about 1.5px at play zoom and
+ * 4px at the wreck camera's, which is where there is something to be smooth *at*.
+ *
+ * `SHOULDER` is derived from it below rather than typed, so the belt line the liveries ride in
+ * cannot drift out from under them when this moves.
+ */
+const CHAMFER = 0.14;
+/** Radius of the roll under the sill, where the flank tucks in toward the underbody. */
 const TUCK = 0.09;
+
+/**
+ * Rings per rolled edge. **1 is exactly the 45° chamfer this replaced** — the arc's two endpoints
+ * and nothing between — so this is a pure smoothness knob rather than a different shape.
+ *
+ * 3 rather than more. The roll is a quarter-arc of radius `CHAMFER`, so its length is 0.22 and a
+ * facet at three steps is 0.073: about half a pixel at play zoom, 1.3px at the wreck camera, 4px in
+ * the `?shot=6` close-up. At play zoom that averages into a soft edge, which is what "smoother"
+ * means at a size where the whole edge is a pixel and a half; at the close zooms it reads as an
+ * actual roll. A fourth step lands at 0.055 and buys a difference nothing in the game is framed
+ * closely enough to show.
+ *
+ * Costs 2 extra ring gaps per rolled edge — 16 triangles a panel, about 80 on a whole car against a
+ * 12,600-triangle city, and the fleet is instanced so it is paid once.
+ */
+const ROLL_STEPS = 3;
+
+/** Radius of the roll along the greenhouse's own roofline — see the note where it is used. */
+const CABIN_ROLL = 0.09;
 /** How far the flank is cut back at an axle. Half the tread (0.26) sits in the opening. */
 const ARCH_DEPTH = 0.30;
 
-// The four stations every body is built between, in the same design space every vehicle y is
-// written in — the number the part was drawn at, plus CHASSIS_LIFT (see geometry/wheels.js).
-const FLOOR = 0.38;      // underside of the bodywork
-const WAIST = 0.47;      // where the tuck meets full width
-const ARCH_TOP = 0.80;   // top of the wheel opening
-const SHOULDER = 1.04;   // where the roof chamfer starts
-const DECK = 1.18;       // top of the bodywork
+// The stations every body is built between, in the same design space every vehicle y is written in
+// — the number the part was drawn at, plus CHASSIS_LIFT (see geometry/wheels.js). Three are typed
+// and one is derived: `SHOULDER` is wherever the roofline's roll begins, so widening the roll takes
+// the belt line's ceiling with it rather than leaving a livery band overlapping a rolled edge.
+const FLOOR = 0.38;               // underside of the bodywork
+const ARCH_TOP = 0.80;            // top of the wheel opening
+const DECK = 1.18;                // top of the bodywork
+const SHOULDER = DECK - CHAMFER;  // where the roof edge starts rolling over
 
 /**
  * The top of the wheel sits at `2 * WHEEL_R - CHASSIS_LIFT` = 0.96 in this space, which is
@@ -142,6 +174,41 @@ export function stampGloss(geometry, value) {
   return geometry;
 }
 
+/**
+ * The rings of a **rolled edge** — a quarter-arc of radius `r` walked in `steps`, so a corner comes
+ * off as a run of narrow facets rather than as one 45° cut.
+ *
+ * `topRoll(y, ...)` finishes at height `y` with the ring drawn in by `r`; `bottomRoll(y, ...)`
+ * starts at height `y` drawn in by `r` and reaches full size `r` above it. Both hand back the whole
+ * run including the ring the roll begins at, so a caller concatenates them into a profile without
+ * repeating a ring — and both walk `hx` and `hz` together, which is what rounds the *corner* where
+ * two rolled edges meet rather than leaving a spike between two rolled sides.
+ *
+ * At `steps = 1` each returns exactly two rings, the arc's endpoints, which is the single chamfer
+ * these generalise. Every step strictly raises the height and strictly shrinks the ring, so no two
+ * consecutive rings can coincide — a degenerate quad would hand `computeVertexNormals` a zero-area
+ * face and a NaN normal, which lights as a black facet. `tools/probe.mjs` asserts both monotonies.
+ */
+export function topRoll(y, hx, hz, cx, r, steps = ROLL_STEPS) {
+  const rings = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * (Math.PI / 2);
+    const inset = r * (1 - Math.cos(t));
+    rings.push({ y: y - r + r * Math.sin(t), hx: hx - inset, hz: hz - inset, cx });
+  }
+  return rings;
+}
+
+export function bottomRoll(y, hx, hz, cx, r, steps = ROLL_STEPS) {
+  const rings = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * (Math.PI / 2);
+    const inset = r * (1 - Math.sin(t));
+    rings.push({ y: y + r * (1 - Math.cos(t)), hx: hx - inset, hz: hz - inset, cx });
+  }
+  return rings;
+}
+
 /** `loftBox` + `bakeColor` + `stampGloss`, which is how every part below is made. */
 function panel(rings, tint, gloss = 0) {
   return stampGloss(bakeColor(loftBox(rings), tint), gloss);
@@ -176,6 +243,11 @@ export function bodySegments(len, width) {
  * A bumper, wrapping one end of the car. Sits a shade proud of the flank so its outer face and the
  * body's can never be coplanar — the same fix `LIGHT_PROUD` (geometry/lights.js) applies to a light
  * pod, for the same z-fighting reason.
+ *
+ * Its own edges keep a **single** facet each rather than the rolls the body carries. The whole part
+ * is 0.30 tall and its chamfers are 0.07: three facets across one measures 0.02 apiece, which is a
+ * fifth of a pixel at play zoom and still under one at the closest camera in the game. There is
+ * nothing there to be smooth at.
  *
  * It is deliberately *shallow* fore-aft and does not reach past the light pods. A wheel of this
  * size on a car this short leaves about 4cm of front overhang, so anything deeper simply intersects
@@ -218,8 +290,7 @@ export function carBodyParts({ len, width, paint, trim, cabin }) {
   // construction that survives `instanceColor`, since a baked grey times the car's tint is that car
   // in shadow, and a baked black times anything is still black.
   parts.push(panel([
-    { y: FLOOR, hx: hl - 0.06, hz: inner - 0.05 },
-    { y: WAIST, hx: hl, hz: inner },
+    ...bottomRoll(FLOOR, hl, inner, 0, TUCK),
     { y: ARCH_TOP, hx: hl, hz: inner },
   ], well));
 
@@ -229,19 +300,17 @@ export function carBodyParts({ len, width, paint, trim, cabin }) {
     const cx = (from + to) / 2;
     const hx = (to - from) / 2;
     parts.push(panel([
-      { y: FLOOR, hx, hz: hw - TUCK, cx },
-      { y: WAIST, hx, hz: hw, cx },
+      ...bottomRoll(FLOOR, hx, hw, cx, TUCK),
       { y: ARCH_TOP, hx, hz: hw, cx },
     ], paint));
   }
 
-  // The shoulder — full width over the whole car, so the arches get their eyebrow — with the roof
-  // edge chamfered off. Overlapping solids rather than a watertight hull: everything here is opaque
-  // and the depth buffer sorts it out, where mitring the joins would cost geometry nobody can see.
+  // The shoulder — full width over the whole car, so the arches get their eyebrow — with the roofline
+  // rolled over. Overlapping solids rather than a watertight hull: everything here is opaque and the
+  // depth buffer sorts it out, where mitring the joins would cost geometry nobody can see.
   parts.push(panel([
     { y: ARCH_TOP, hx: hl, hz: hw },
-    { y: SHOULDER, hx: hl, hz: hw },
-    { y: DECK, hx: hl - 0.12, hz: hw - CHAMFER },
+    ...topRoll(DECK, hl, hw, 0, CHAMFER),
   ], paint));
 
   if (trim) for (const sx of [-1, 1]) parts.push(bumper(hl, hw, sx, trim));
@@ -251,10 +320,14 @@ export function carBodyParts({ len, width, paint, trim, cabin }) {
     const chw = (width * cabin.widthOf) / 2;
     const sill = DECK - 0.03;                       // buried in the deck, never flush with it
     const mid = sill + (cabin.top - sill) * 0.45;
+    // The roofline rolls over like the body's, at a tighter radius: the greenhouse is a third of the
+    // body's width and the same 0.14 would have eaten most of the flat panel between its two sides.
+    // The roll starts where the taper used to end, so the cabin's height and its lean-back are
+    // untouched — what changes is that the top edge is `ROLL_STEPS` facets instead of a corner.
     parts.push(panel([
       { y: sill, hx: chl, hz: chw, cx: cabin.x },
       { y: mid, hx: chl * 0.92, hz: chw * 0.985, cx: cabin.x - 0.04 },
-      { y: cabin.top, hx: chl * 0.68, hz: chw * 0.82, cx: cabin.x - 0.14 },
+      ...topRoll(cabin.top, chl * 0.68, chw * 0.82, cabin.x - 0.14, CABIN_ROLL),
     ], cabin.color, cabin.gloss ?? 1));
   }
 
@@ -269,7 +342,7 @@ export function carBodyParts({ len, width, paint, trim, cabin }) {
  * Exported because both liveries in the game sit in it and neither may guess at it: the flank below
  * `ARCH_TOP` is *missing* over each arch, so a stripe painted at the old waist height floated in
  * mid-air across both wheel openings. `{ y, height }` is the middle of the band and how tall a
- * stripe may be without touching the arch under it or the chamfer over it.
+ * stripe may be without touching the arch under it or the roofline's roll over it.
  */
 export const BELT = {
   y: (ARCH_TOP + SHOULDER) / 2 + CHASSIS_LIFT,

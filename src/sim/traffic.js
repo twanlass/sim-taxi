@@ -9,7 +9,7 @@ import {
 import {
   brakeLightGeometry, turnSignalGeometry, brakeLightMaterial, turnSignalMaterial,
 } from '../geometry/lights.js';
-import { carBodyParts, loftBox, stampGloss } from '../geometry/carbody.js';
+import { carBodyParts, loftBox, topRoll, stampGloss } from '../geometry/carbody.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
   GRID, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
@@ -1217,7 +1217,7 @@ function truckCabGeometry() {
   parts.push(stampGloss(bakeColor(loftBox([
     { y: TRUCK_CAB_Y - 0.55, hx: cabHalf, hz: (TRUCK_W * 0.84) / 2, cx: TRUCK_CAB_X },
     { y: cabTop - 0.34, hx: cabHalf * 0.94, hz: (TRUCK_W * 0.84) / 2, cx: TRUCK_CAB_X - 0.05 },
-    { y: cabTop, hx: cabHalf * 0.74, hz: (TRUCK_W * 0.78) / 2, cx: TRUCK_CAB_X - 0.12 },
+    ...topRoll(cabTop, cabHalf * 0.74, (TRUCK_W * 0.78) / 2, TRUCK_CAB_X - 0.12, 0.1),
   ]), color('carGlass')), 1));
 
   parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W).map((wheel) => stampGloss(wheel, 0)));
@@ -1240,13 +1240,14 @@ function truckCabGeometry() {
 function truckBoxGeometry() {
   const base = TRUCK_BASE_Y + 0.4;
   const half = TRUCK_BOX_LEN / 2;
-  // Chamfered along the top, like every other roofline in the fleet — it is a big pale slab at the
-  // back of the tallest vehicle on the road, and a hard 90° edge on it was the one place in the
-  // city where two lit faces met with nothing between them.
+  // Rolled along the top, like every other roofline in the fleet — it is a big pale slab at the back
+  // of the tallest vehicle on the road, and a hard 90° edge on it was the one place in the city
+  // where two lit faces met with nothing between them. A wider radius than a car's roofline gets:
+  // this roof is a metre and a half further from the camera's eye than any of them and twice the
+  // area, so the same 0.14 read as a line rather than as an edge coming off.
   return stampGloss(bakeColor(loftBox([
     { y: base, hx: half, hz: TRUCK_W / 2, cx: TRUCK_BOX_X },
-    { y: base + 1.86, hx: half, hz: TRUCK_W / 2, cx: TRUCK_BOX_X },
-    { y: base + 2.0, hx: half - 0.10, hz: TRUCK_W / 2 - 0.10, cx: TRUCK_BOX_X },
+    ...topRoll(base + 2.0, half, TRUCK_W / 2, TRUCK_BOX_X, 0.18),
   ]), color('truckBox')), 0);
 }
 
