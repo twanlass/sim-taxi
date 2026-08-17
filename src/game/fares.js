@@ -905,7 +905,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
    * with the rider standing inside a shopfront. A kerb corner is half a unit *into* the block on both
    * axes, so the only directions with pavement all the way along them are the two axes themselves.
    */
-  function beginBail(fare, taxiCar) {
+  function beginBail(fare, taxiCar, { keepDestination = false } = {}) {
     const { slot } = fare;
     let run;
     if (fare.stage === 'riding') {
@@ -944,7 +944,11 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     }
 
     slot.passenger.standing?.rest?.();
-    slot.destination.group.visible = false;
+    // The ring at the far end of the trip goes with the fare — there is nothing being driven at any
+    // more. `keepDestination` is the run-ending timeout only: that shot holds on the rider getting
+    // out, and if the trip died within sight of the corner it was owed, the ring standing beside
+    // them is the other half of what happened.
+    if (!keepDestination) slot.destination.group.visible = false;
     // The clock is what just ran out, so it goes now rather than riding out the animation.
     slot.marker.hide();
     slot.curse.show();
@@ -1032,7 +1036,15 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
    * (delivering the last fare frees the board and spawns the next in the same frame).
    */
   function update(dt, taxiCar) {
-    if (state.gameOver) return NO_EVENTS;
+    // The run is over: no board, no clocks, no spawns. The one thing that carries on is an exit
+    // already in flight, and there is exactly one way to have one here — the rider whose clock just
+    // ended the run, storming out of the cab across the camera's pull-in (see the timeout branch
+    // below). Everything else is retired at the moment the run ends, by `crash` or by that branch,
+    // so this ticks an empty list on a wreck and on a bust.
+    if (state.gameOver) {
+      updateExits(dt);
+      return NO_EVENTS;
+    }
 
     let events = null;
     const emit = (type, fare) => { (events ??= []).push({ type, fare }); };
@@ -1154,26 +1166,49 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
         }
         state.gameOver = true;
         state.failReason = "Patience wasn't your fare's strong suit.";
-        // The point the camera pulls into for the closing beat: the corner this clock was counting
-        // down to — the drop-off for a rider aboard, the kerb they were standing on for one who gave
-        // up waiting, since `target` is already whichever end of the trip was still owed. The
-        // *pavement* corner rather than the junction centre, because that is where the pin and its
-        // ring actually stand (see `place`); aiming at the centre puts the subject of the shot a
-        // couple of units off frame centre at the zoom main.js pulls to.
-        state.failSpot = cornerFor(fare.target.i, fare.target.j);
-        // Everything else on the board goes, exactly as a wreck clears it — but *this* fare's pin
-        // stays up. The camera is about to spend two seconds on it, and hiding it first would leave
-        // that shot pointed at an empty junction: the whole thing the beat has to say is "here is
-        // the corner you didn't reach". It still leaves `state.fares` on the line below, so nothing
-        // keeps ticking a clock that has already run out.
+        // The point the camera pulls into for the closing beat: **wherever this rider gets out**,
+        // because the closing beat is now them getting out (`beginBail` below).
+        //
+        // For a rider who gave up on the kerb that is the corner the clock was counting down to,
+        // which is what this always was — the *pavement* corner rather than the junction centre,
+        // because that is where the pin and its ring actually stand (see `place`); aiming at the
+        // centre puts the subject of the shot a couple of units off frame centre at the zoom
+        // main.js pulls to.
+        //
+        // For a rider aboard it is the taxi, and that is the change: it used to be the drop-off at
+        // the far end of the trip — "here is the corner you didn't reach" — with the ring standing
+        // in an empty shot. The corner is not the thing that happens any more. The rider throwing
+        // the door open in the middle of the road is, and a shot pointed a block away from it shows
+        // a frozen taxi with nobody in it. The ring is still left standing (see `keepDestination`),
+        // so when the clock runs out within sight of it — the usual way it goes, a trip that was
+        // nearly made — both are in frame.
+        state.failSpot = fare.stage === 'riding'
+          ? { x: taxiCar.x, z: taxiCar.z }
+          : cornerFor(fare.target.i, fare.target.j);
+        // Everything else on the board goes, exactly as a wreck clears it — but *this* fare's rider
+        // stays. It still leaves `state.fares` on the line below, so nothing keeps ticking a clock
+        // that has already run out.
         for (const other of [...state.fares]) { if (other !== fare) clear(other); }
         const expired = state.fares.indexOf(fare);
         if (expired !== -1) state.fares.splice(expired, 1);
+        // Any *other* rider mid-animation freezes with the rest of the world under the banner, the
+        // same way `crash` retires them. Cleared before the bail below is pushed, or it would go
+        // with them.
         for (const e of exits) {
           e.slot.passenger.group.visible = false;
           e.slot.passenger.standing?.rest?.();
         }
         exits.length = 0;
+        // And the rider this clock belonged to walks out on you, on exactly the animation a missed
+        // VIP gets — out of the cab (or off the kerb), the outburst overhead, gone. Same event from
+        // the rider's side: their clock ran out and they are done with this cab. The only thing the
+        // ending changes is that the camera is already coming in on it and the run does not carry
+        // on afterwards, which is why the drop-off ring is left standing rather than hidden.
+        //
+        // `updateExits` keeps running past `gameOver` for this (see the top of `update`), and
+        // TIMEOUT_BANNER_DELAY in main.js is sized so the whole BAIL_SECONDS of it lands before the
+        // retry screen covers it.
+        beginBail(fare, taxiCar, { keepDestination: true });
         emit('failed', fare);
         return events;
       }

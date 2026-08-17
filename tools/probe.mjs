@@ -3822,11 +3822,13 @@ check('the taxi is an ordinary car in the traffic array',
 }
 
 // --- Running out of time ends the run on its own beat ----------------------
-// The third ending has nothing happening to the taxi to look at, so main.js points the closing
-// camera at `state.failSpot` — the corner the clock was counting down to — and holds the retry
-// screen while it gets there. Two halves, both of which fail silently: a null `failSpot` drops the
-// shot back onto the taxi, and a pin cleared with the rest of the board leaves it framing an empty
-// junction. Neither shows up in any other number here.
+// The third ending has nothing happening to the taxi to look at, so the rider is the event: they
+// get out where they are, swear about it and go, on the same `beginBail` a missed VIP gets, while
+// main.js points the closing camera at `state.failSpot` and holds the retry screen for it. Every
+// half of that fails silently. A null `failSpot` drops the shot back onto the taxi; a rider left
+// standing where the bail should have started is a frozen pin and no event at all; and the bail
+// itself runs *after* `gameOver` is set, which is the one place in this module where an early
+// return would freeze it on its first frame with nothing else changing.
 {
   const tScene = new THREE.Scene();
   const tTraffic = createTraffic(makeRng(seed + 44), tScene, CARS_DEFAULT);
@@ -3843,8 +3845,8 @@ check('the taxi is an ordinary car in the traffic array',
   };
 
   // Drive the opening fare all the way to a pickup first, so the clock that expires belongs to a
-  // rider *aboard* — the case the beat exists for, where the corner in the shot is the drop-off at
-  // the far end of the trip rather than the kerb the taxi is standing next to.
+  // rider *aboard* — the case the beat exists for, where the rider throws the door open in the
+  // middle of the road rather than walking off a kerb they never left.
   let riding = null;
   let elapsed = 0;
   while (elapsed < 200 && !tFares.state.gameOver && !riding) {
@@ -3863,22 +3865,46 @@ check('the taxi is an ordinary car in the traffic array',
   // The opening fare is never a VIP, but pin it: a VIP's clock running out is the one timeout that
   // doesn't end the run, and this block would then be asserting nothing.
   riding.vip = false;
-  const dropoff = { i: riding.target.i, j: riding.target.j };
   riding.timeLeft = 1 / 120;                   // one more tick takes it under zero
+  const gotOutAt = { x: tTaxi.x, z: tTaxi.z };
   const failed = tFares.update(1 / 60, tTaxi).find((e) => e.type === 'failed');
 
   check('a missed drop-off ends the run', Boolean(failed) && tFares.state.gameOver,
     `gameOver ${tFares.state.gameOver}`);
 
-  const aim = cornerFor(dropoff.i, dropoff.j);
   const spot = tFares.state.failSpot;
-  check('the closing camera is aimed at the drop-off that was missed',
-    Boolean(spot) && Math.hypot(spot.x - aim.x, spot.z - aim.z) < 1e-6,
-    spot ? `${spot.x.toFixed(1)},${spot.z.toFixed(1)} vs ${aim.x.toFixed(1)},${aim.z.toFixed(1)}`
+  check('the closing camera is aimed at the rider getting out of the cab',
+    Boolean(spot) && Math.hypot(spot.x - gotOutAt.x, spot.z - gotOutAt.z) < 1e-6,
+    spot ? `${spot.x.toFixed(1)},${spot.z.toFixed(1)} vs taxi ${gotOutAt.x.toFixed(1)},${gotOutAt.z.toFixed(1)}`
       : 'no failSpot');
+  check('the rider is out of the taxi and swearing about it',
+    riding.slot.passenger.group.visible && riding.slot.curse.isShowing());
+  // The clock over the roof is what ran out, so it goes; the ring at the far end stays. Between them
+  // that is the whole of what the shot has to say — this is where they got out, and that is where
+  // they were owed.
+  check('their crystal goes with the run', !riding.slot.marker.group.visible);
   check('the missed drop-off ring is left standing for the shot',
     riding.slot.destination.group.visible);
   check('the expired fare still stops ticking', !tFares.state.fares.includes(riding));
+
+  // ...and the bail animates on past `gameOver`. The whole point of the beat is that it moves while
+  // the camera comes in, and `update`'s early return is exactly the shape that would leave it on
+  // frame one — visible, in place, with every check above still green.
+  for (let k = 0; k < 45; k++) tFares.update(1 / 60, tTaxi);
+  const ran = riding.slot.passenger.standing.group.position;
+  check('the bail keeps running after the run has ended', Math.hypot(ran.x, ran.z) > 1,
+    `${Math.hypot(ran.x, ran.z).toFixed(1)} units from the cab`);
+  check('and the outburst is over them, not where they jumped',
+    Math.hypot(riding.slot.curse.group.position.x - ran.x,
+      riding.slot.curse.group.position.z - ran.z) < 1e-6);
+
+  // It also has to be *over* before the retry screen is (TIMEOUT_BANNER_DELAY in main.js, sized off
+  // BAIL_SECONDS through the slow-mo ramp). Ticking out the rest of the 2.2s here is what makes that
+  // arithmetic checkable at all: if the bail ever grows, this goes red rather than the banner
+  // quietly sliding over a rider still running.
+  for (let k = 0; k < 90; k++) tFares.update(1 / 60, tTaxi);
+  check('and finished inside its own 2.2 seconds',
+    !riding.slot.passenger.group.visible && !riding.slot.curse.isShowing());
 }
 
 {
@@ -3900,8 +3926,17 @@ check('the taxi is an ordinary car in the traffic array',
     kFares.state.gameOver && Boolean(spot)
       && Math.hypot(spot.x - corner.x, spot.z - corner.z) < 1e-6,
     spot ? `${spot.x.toFixed(1)},${spot.z.toFixed(1)}` : 'no failSpot');
-  check('the rider who gave up is left standing for the shot',
-    kerbFare.slot.passenger.group.visible);
+  check('the rider who gave up storms off that corner rather than standing on it',
+    kerbFare.slot.passenger.group.visible && kerbFare.slot.curse.isShowing());
+  // Along the pavement, which for this branch is one axis or the other — never the diagonal into
+  // the block, the mistake `beginBail` documents. Asserted here as well as on the VIP path because
+  // the two reach it by different calls now.
+  for (let k = 0; k < 45; k++) kFares.update(1 / 60, kTraffic.taxi);
+  const walked = kerbFare.slot.passenger.standing.group.position;
+  check('and does it down one of the two pavements, in shot',
+    Math.hypot(walked.x, walked.z) > 1
+    && (Math.abs(walked.x) < 1e-6 || Math.abs(walked.z) < 1e-6),
+    `${walked.x.toFixed(1)},${walked.z.toFixed(1)}`);
 }
 
 // --- A VIP walking out ------------------------------------------------------

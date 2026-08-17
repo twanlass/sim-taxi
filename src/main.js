@@ -481,16 +481,24 @@ const BUST_SLOW_MO_MIN = 0.42;
 
 // And the third ending gets the same beat on its own dial again. A fare's clock running out has
 // nothing happening *to the taxi* to look at — nothing hit it and nothing pulled it over — so the
-// subject of the shot is the place the run failed instead: the drop-off ring the rider never
-// reached, or the kerb corner they gave up waiting on. `fares.state.failSpot` is that corner, and
-// the fare system leaves its pin standing rather than clearing it with the rest of the board.
+// subject of the shot is the rider instead: they get out where they are, swear about it and go
+// (`beginBail` in game/fares.js, the same animation a missed VIP has always had). The camera comes
+// in on wherever that happens — the taxi for a rider aboard, their own kerb corner for one who gave
+// up waiting — which is what `fares.state.failSpot` names.
 //
 // Shallower slow-mo than a wreck and a wider stop on the zoom, for the same reason in both cases:
 // there is no blast to stretch out and no cruiser on its way in, so what the beat is doing is
 // holding a look at a junction rather than replaying an event. At wreck depth the city around the
 // marker crawls with nothing to justify it, and at wreck zoom the marker fills the frame and the
 // junction it stands on — half of what makes it a place — is cropped away.
-const TIMEOUT_BANNER_DELAY = 2400;
+//
+// **The delay is sized off that animation, in the sim's time rather than its own.** It is wallclock
+// and the bail is 2.2 seconds of BAIL_SECONDS, which the slow-mo stretches: the ramp spends its
+// first SLOW_MO_DURATION = 2100ms at an average scale of (0.4 + 1) / 2, so 1.47s of sim time goes by
+// in it, and the remaining 0.73s runs at 1.0. 2200ms of sim is therefore ~2830ms on the clock, and
+// 3000 clears it with a beat to spare. It was 2400 while the shot was a standing pin, which nothing
+// but the zoom was moving — at that number the retry screen now slides over a rider still running.
+const TIMEOUT_BANNER_DELAY = 3000;
 const TIMEOUT_ZOOM = 30;
 const TIMEOUT_SLOW_MO_MIN = 0.4;
 
@@ -1868,14 +1876,14 @@ function frame() {
       traffic.setTaxiOccupied(false);
     } else if (type === 'failed') {
       // The run ended on a clock rather than on an impact — see the TIMEOUT_* block. The camera
-      // takes the corner the fare was counting down to (`failSpot`, left standing by fares.js), the
-      // sim drops into a shallow slow-mo, and the retry screen waits for both.
+      // takes wherever the rider is getting out (`failSpot`, set by fares.js as it hands them to
+      // the bail), the sim drops into a shallow slow-mo, and the retry screen waits for both.
       //
       // The taxi stops for it, the same way it does for a bust and for the same reason: the run is
-      // over, and a car still driving a route to a fare that no longer exists — through the very
-      // ring the shot is holding on — argues with the ending being shown. `crashed` is the flag
-      // every loop in traffic.js already skips, so it does the whole job. Boost goes with it, or a
-      // held pill would keep burning fuel behind the banner.
+      // over, and a car still driving a route to a fare that no longer exists — out from under the
+      // rider climbing out of it — argues with the ending being shown. `crashed` is the flag every
+      // loop in traffic.js already skips, so it does the whole job. Boost goes with it, or a held
+      // pill would keep burning fuel behind the banner.
       endSpot = fares.state.failSpot ?? { x: traffic.taxi.x, z: traffic.taxi.z };
       endZoom = TIMEOUT_ZOOM;
       crashBannerAt = performance.now() + TIMEOUT_BANNER_DELAY;
@@ -1884,6 +1892,9 @@ function frame() {
       traffic.taxi.crashed = true;
       traffic.taxi.v = 0;
       boost.release();
+      // The seat is empty from this frame on — they are getting out of it in shot — so the roof
+      // sign goes back to vacant rather than holding "occupied" over a cab nobody is in.
+      traffic.setTaxiOccupied(false);
     } else if (type === 'vip-missed') {
       // The one fare whose clock running out isn't a run-ending event — see fares.js. The rider is
       // getting out and running off on their own (fares.js `beginBail`); what is left here is the
