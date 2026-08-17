@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT } from './wheels.js';
+import { carBodyParts, stampGloss, BELT, BODY_TOP } from './carbody.js';
 import {
   brakeLightGeometry, turnSignalGeometry, brakeLightMaterial, turnSignalMaterial,
 } from './lights.js';
@@ -34,7 +35,7 @@ export const TAXI_TAILPIPE_HEIGHT = 0.42 + CHASSIS_LIFT;
  * the deck. Nothing rides here any more — see `setHighlight` below for where the load went — but the
  * height is still the point on the car a package is handled at.
  */
-export const TAXI_DECK_Y = (1.18 + CHASSIS_LIFT) * TAXI_SCALE;
+export const TAXI_DECK_Y = BODY_TOP * TAXI_SCALE;
 
 /**
  * Where the rear tyres meet the road, in world units off the taxi's own origin: the axle sits
@@ -54,24 +55,25 @@ export function createTaxiMesh() {
   const group = new THREE.Group();
   group.name = 'taxi';
 
-  const parts = [];
-
-  // Proportions match the ambient cars so the taxi reads as the same class of vehicle.
-  const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
-  body.translate(0, 0.78 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(body, color('taxiBody')));
-
-  const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, 0.6, CAR_W * 0.86);
-  cabin.translate(-0.2, 1.45 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(cabin, color('carGlass')));
-
-
+  // Proportions match the ambient cars so the taxi reads as the same class of vehicle — which is
+  // now a stronger claim than it used to be: both come out of the same `carBodyParts`, so the
+  // chamfers, the raked greenhouse and the wheel arches are the *same* bodywork in a different
+  // colour rather than two files that have to be kept in step by hand.
+  const parts = carBodyParts({
+    len: CAR_LEN,
+    width: CAR_W,
+    paint: color('taxiBody'),
+    trim: color('taxiTrim'),
+    cabin: {
+      color: color('carGlass'), lengthOf: 0.5, widthOf: 0.86, x: -0.2, top: 1.75,
+    },
+  });
 
   // Chequer stripe along each flank — the one piece of livery that says "taxi" from the side, the
   // way the roof sign says it from above.
   //
   // Six cells rather than a real two-row chequerboard, and that is a zoom decision, not a stylistic
-  // one. The band is 0.22 tall, which through TAXI_SCALE is ~2px at play zoom (1 unit ≈ 7.7px), so
+  // one. The band is 0.20 tall, which through TAXI_SCALE is ~2px at play zoom (1 unit ≈ 7.7px), so
   // splitting it into two rows would ask for a 1px row and get mush. One row of alternating cells
   // reads as chequer at this size; a chequerboard reads as a grey smear.
   //
@@ -79,32 +81,37 @@ export function createTaxiMesh() {
   // the car on the road wear the same livery. At CAR_LEN * 0.82 that puts a cell at ~0.55 world
   // units ≈ 4px — the finest pitch that survives. Twelve cells (square ones, matching the band's
   // own height) measure ~2px each and alias into a flicker as the car turns.
+  //
+  // It rides in `BELT` rather than at a height of its own. The flank is no longer a flat wall for
+  // its whole length — there is an arch opening at each axle — and the old waistline ran straight
+  // across both of them, so half of every stripe hung in mid-air over a wheel well. The belt is the
+  // one band that is solid bodywork end to end.
   const STRIPE_CELLS = 6;
   const stripeLen = CAR_LEN * 0.82;
   const cellLen = stripeLen / STRIPE_CELLS;
   for (const side of [-1, 1]) {
     for (let i = 0; i < STRIPE_CELLS; i++) {
-      const cell = new THREE.BoxGeometry(cellLen, 0.22, 0.06);
+      const cell = new THREE.BoxGeometry(cellLen, BELT.height, 0.06);
       cell.translate(
         -stripeLen / 2 + (i + 0.5) * cellLen,
-        0.82 + CHASSIS_LIFT,
+        BELT.y,
         side * (CAR_W / 2 + 0.02),
       );
       // Both colours painted, rather than letting the light cells fall through to the body: the
       // body is `taxiBody` yellow, and a yellow-and-black band is a hazard stripe, not a taxi. The
       // white is `taxiSign`, the off-white the roof sign already lights up in — the car's existing
       // white, so the livery stays a two-colour car rather than gaining a third.
-      parts.push(bakeColor(cell, color(i % 2 === 0 ? 'taxiTrim' : 'taxiSign')));
+      parts.push(stampGloss(bakeColor(cell, color(i % 2 === 0 ? 'taxiTrim' : 'taxiSign')), 0));
     }
   }
 
   // Rear wheels only — the fronts steer, so they hang off the group as their own meshes below.
-  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
+  parts.push(...wheelGeometries(CAR_LEN, CAR_W).map((wheel) => stampGloss(wheel, 0)));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
 
-  const shell = new THREE.Mesh(merged, propMaterial());
+  const shell = new THREE.Mesh(merged, propMaterial({ sheen: true }));
   shell.castShadow = true;
   // Marks this subtree as the taxi for the picker, which raycasts recursively.
   shell.userData.pickable = 'taxi';
@@ -179,6 +186,40 @@ export function createTaxiMesh() {
   // stopped being a hand-off *into a mesh*: the box no longer has to arrive somewhere on this car, so it
   // can travel from the kerb to the readout in one unbroken move.
 
+  // Whip antenna on the rear deck, with a ball on the end of it.
+  //
+  // The ball is the whole point and the rod is scaffolding: at play zoom the rod is under a pixel
+  // across, so what actually reads is a small pale dot travelling a little above the roofline. It is
+  // `taxiSign` off-white rather than a colour of its own — a novelty ball wants to be red, and a red
+  // one adds a third colour to a car whose livery is deliberately two, on the one object the player
+  // is tracking against a street full of coloured traffic.
+  //
+  // Its own mesh, not merged into the shell, for two reasons that happen to agree. It sways (below),
+  // which the shell cannot; and the ghost outline inflates a part's whole bounding box, so an
+  // antenna inside the shell would have dragged the taxi's rim 0.3 units higher than the roof sign —
+  // past the envelope `game/taxifinder.js` and `game/tutorial.js` frame the car against. Its own
+  // mesh gets its own small rim, the way the roof sign already does.
+  const ANTENNA_H = 0.62;
+  const BALL_R = 0.155;
+  const antenna = new THREE.Group();
+  antenna.position.set(-1.32, BODY_TOP, 0);
+  const rod = new THREE.BoxGeometry(0.07, ANTENNA_H, 0.07);
+  rod.translate(0, ANTENNA_H / 2, 0);
+  const ball = new THREE.IcosahedronGeometry(BALL_R, 0);
+  ball.translate(0, ANTENNA_H + BALL_R * 0.55, 0);
+  const whipParts = [
+    stampGloss(bakeColor(rod, color('taxiTrim')), 0),
+    stampGloss(bakeColor(ball, color('taxiSign')), 0),
+  ];
+  const whip = new THREE.Mesh(mergeGeometries(whipParts, false), propMaterial());
+  whipParts.forEach((p) => p.dispose());
+  whip.castShadow = true;
+  whip.userData.pickable = 'taxi';
+  antenna.add(whip);
+  // A rim as thin as the light pods'. The default 0.3 on a 0.07 rod is a mast, not an outline.
+  addGhostOutline(whip, { rim: 0.06 });
+  group.add(antenna);
+
   // Brake lights and turn signals — same geometry and materials sim/traffic.js builds its
   // InstancedMeshes from (see geometry/lights.js), just as ordinary Meshes here since the taxi is
   // one car, not a fleet. "On"/"off" is the mesh's own scale, same as an ambient car's instance —
@@ -214,9 +255,10 @@ export function createTaxiMesh() {
    *
    * A white emissive lift rather than a tint, for the reason every other highlight here is one: hue on
    * this car means the taxi, and a flash may not repaint it. Every opaque part takes the lift together
-   * — shell, both steered wheels and the roof sign — because a car whose body lit while its wheels
-   * stayed dark reads as the paint changing rather than as the car reacting. (It was five parts while
-   * a box rode the deck. The box is in the HUD now; the flourish is unchanged in what it means.)
+   * — shell, both steered wheels, the roof sign and the antenna — because a car whose body lit while
+   * its wheels stayed dark reads as the paint changing rather than as the car reacting. (It was five
+   * parts while a box rode the deck. The box is in the HUD now; the flourish is unchanged in what it
+   * means, and the antenna arrived under the same rule rather than as an exception to it.)
    *
    * 0.32 rather than the rider figure's measured 0.3: the taxi's yellow is already the brightest thing
    * on the road, so it has less headroom before the chequer stripe washes into the body, and the lift
@@ -229,10 +271,48 @@ export function createTaxiMesh() {
    * above is actually protecting.
    */
   const HIGHLIGHT = 0.32;
-  const litParts = [shell, sign, ...steered];
+  const litParts = [shell, sign, whip, ...steered];
   const setHighlight = (amount) => {
     const lift = HIGHLIGHT * amount;
     for (const part of litParts) part.material.emissive.setScalar(lift);
+  };
+
+  /**
+   * Let the antenna catch up with the car, once per frame.
+   *
+   * A rod bolted rigidly to the roof is a rod; what makes it read as a whip is that it arrives late
+   * and overshoots. So it is a spring rather than an ease: `1 - exp(-dt * rate)` can only ever
+   * approach its target, and the antenna's whole charm is the half-swing *past* it coming out of a
+   * corner. Damping ratio 0.63 — one clear overshoot and a small second one, which is about what a
+   * real whip does and stops well short of a wobble that draws the eye off the road.
+   *
+   * Two inputs, both already computed for the body by `sim/traffic.js`:
+   *
+   * - **`roll`**, the corner lean, which the antenna simply exaggerates. It is a child of the taxi
+   *   group, so the body's own lean is underneath this and the two add — the tip swings about two
+   *   and a half times the roof does.
+   * - **`speed01`**, against the Loco Mode cruise ceiling, which rakes it back. Airflow, and the one
+   *   part of the car that can show it.
+   *
+   * `dt` is clamped, because the spring is integrated with plain Euler and a tab that has been in
+   * the background for a second would hand it a step that diverges rather than settles.
+   */
+  const ANTENNA_WHIP = 1.6;        // how much harder than the body the tip leans in a corner
+  const ANTENNA_DRAG = 0.30;       // radians raked back at the Loco Mode top
+  const ANTENNA_STIFFNESS = 46;
+  const ANTENNA_DAMPING = 8.5;
+  const sway = { x: 0, xv: 0, z: 0, zv: 0 };
+  const setAntenna = (dt, roll, speed01) => {
+    const step = Math.min(dt, 1 / 30);
+    const targetX = roll * ANTENNA_WHIP;
+    const targetZ = Math.max(0, Math.min(1, speed01)) * ANTENNA_DRAG;
+    sway.xv += ((targetX - sway.x) * ANTENNA_STIFFNESS - sway.xv * ANTENNA_DAMPING) * step;
+    sway.zv += ((targetZ - sway.z) * ANTENNA_STIFFNESS - sway.zv * ANTENNA_DAMPING) * step;
+    sway.x += sway.xv * step;
+    sway.z += sway.zv * step;
+    // Positive x tips the tip toward the car's right — the same sense as the body's own roll, which
+    // it is nested inside. Positive z tips it toward -x, which is aft: the nose is +x.
+    antenna.rotation.set(sway.x, 0, sway.z);
   };
 
   /** Front-wheel lock, in radians. Both wheels take the same angle — at this zoom the Ackermann
@@ -252,5 +332,5 @@ export function createTaxiMesh() {
     turnRightLight.scale.setScalar(turnRightLevel);
   };
 
-  return { group, sign, setOccupied, setHighlight, setSteer, setLights };
+  return { group, sign, antenna, setOccupied, setHighlight, setSteer, setLights, setAntenna };
 }

@@ -97,7 +97,10 @@ Omit the whole section if there's nothing to note.
 - **An `onBeforeCompile` patch needs `customProgramCacheKey`.** Three builds the cache key from the
   material's parameters *before* the patch runs, so a patched material collides with every unpatched
   one sharing those parameters and gets handed whichever program compiled first. The diamond's fill
-  drew with a building's shader and went missing with nothing logged.
+  drew with a building's shader and went missing with nothing logged. **A second patch on the same
+  material has to chain rather than replace,** and the key has to name both: there is one
+  `onBeforeCompile` slot, so `propMaterial({ sheen: true })` assigning its own would have silently
+  dropped every car's AO lookup — which looks exactly like AO that simply isn't very strong.
 - **Hand-written triangles need their winding asserted, not eyeballed.** The roadworks ramp shipped
   wound clockwise throughout: its slope normals came out at `y = −0.98` and its underside's at
   `+1.00`, so the only face the camera saw was the bottom — a flat quad lying on the road, which

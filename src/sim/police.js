@@ -8,6 +8,7 @@ import {
   isSegmentClosed, nextIntersection, opposite,
 } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
+import { carBodyParts, stampGloss, BELT } from '../geometry/carbody.js';
 import {
   setPriorityCorridor, setPolicePresence, locoWeave, locoWheelie, isLaneClosed, sirenLaneAhead,
   locoWeaveFade, WHEELIE_DUR, ROAD_Y,
@@ -191,22 +192,31 @@ const CAR_W = 1.8;
 const WHEELBASE = CAR_LEN * 0.6;
 
 function policeGeometry() {
-  const parts = [];
+  // Same bodywork as every other vehicle on the road — chamfers, wheel arches and a raked
+  // greenhouse out of `geometry/carbody.js`, in the cruiser's own two colours. It matters more here
+  // than anywhere: the cruiser only ever appears alongside ambient traffic, and a car built to the
+  // old two-box recipe parked next to the new fleet reads as a bug rather than as a police car.
+  //
+  // Its roof is bodywork rather than glass — a white cap is what says *police* at this size — so it
+  // carries no gloss and the mesh needs no sheen material.
+  const parts = carBodyParts({
+    len: CAR_LEN,
+    width: CAR_W,
+    paint: color('policeBody'),
+    trim: new THREE.Color(0.16, 0.16, 0.18),
+    cabin: {
+      color: color('policeRoof'), lengthOf: 0.53, widthOf: 0.89, x: -0.2, top: 1.77, gloss: 0,
+    },
+  });
 
-  const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
-  body.translate(0, 0.78 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(body, color('policeBody')));
-
-  const roof = new THREE.BoxGeometry(1.9, 0.62, 1.6);
-  roof.translate(-0.2, 1.46 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(roof, color('policeRoof')));
-
-  const stripe = new THREE.BoxGeometry(3.62, 0.3, 1.82);
-  stripe.translate(0, 0.62 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(stripe, color('policeRoof')));
+  // The livery band, in the one belt the flank is solid bodywork end to end — the old waistline ran
+  // straight across both wheel openings, which are now holes. Same band the taxi's chequer rides in.
+  const stripe = new THREE.BoxGeometry(CAR_LEN + 0.02, BELT.height, CAR_W + 0.04);
+  stripe.translate(0, BELT.y, 0);
+  parts.push(stampGloss(bakeColor(stripe, color('policeRoof')), 0));
 
   // Rear pair only; the fronts steer, so they hang off the group as their own meshes.
-  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
+  parts.push(...wheelGeometries(CAR_LEN, CAR_W).map((wheel) => stampGloss(wheel, 0)));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());

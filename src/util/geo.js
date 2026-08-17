@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PALETTE } from '../palette.js';
 
 /**
  * The Euler order every body in the game poses with, and it is not the default.
@@ -190,10 +191,116 @@ uniform vec2 uAOTexel;`)
   };
 }
 
-/** The shared material for every merged prop mesh. */
-export function propMaterial() {
+/**
+ * A reflection crossing a car's glass as it drives — `propMaterial({ sheen: true })`.
+ *
+ * The same trick the buildings' windows run (see docs/rendering.md), turned inside out. A façade
+ * never moves, so its highlight can be baked into the vertex colours once and read as glass forever
+ * on a camera that never moves either. A car does nothing but move, and a highlight baked into its
+ * glass travels with it — which is precisely the thing that says *paint* rather than *glass*: a
+ * reflection is the one feature of a surface that is supposed to stay behind while the surface
+ * slides out from under it.
+ *
+ * So the streak is a property of the **city**, not of the car. `vSheen` carries each vertex's world
+ * position; the band is a function of that position alone, sampled per fragment. A car crossing a
+ * junction drives through the field and its roof lights up and goes out again; a car standing at a
+ * red holds whatever it stopped in; two cars nose to tail catch it a beat apart. Nothing is being
+ * reflected and nothing is animated — there is no clock in here at all, which is also why a frozen
+ * screenshot renders the same frame twice.
+ *
+ * Three details worth keeping:
+ *
+ * - **Per fragment, not per vertex.** The vertex shader is where this wanted to live: it is a
+ *   handful of instructions on a car's dozen corners, and `vColor` is already interpolated. But a
+ *   greenhouse is quads and a quad is two triangles, so a weight that varies across *both* axes of
+ *   one shows the diagonal seam between them — the trap the curtain-wall bands are cut into
+ *   segments to dodge. A cabin roof is one quad and there is nothing to cut it into.
+ * - **Two wavelengths, neither a multiple of the other.** One band alone is a metronome: every car
+ *   on a street glints at the same interval and the effect reads as a flashing light rather than as
+ *   a sky. The second, much longer band crosses the first diagonally and gates it, so a street's
+ *   worth of traffic catches it unevenly.
+ * - **It multiplies into the diffuse term rather than the emissive**, so glass that catches the sky
+ *   at golden hour goes quiet at midnight along with the sky it is catching.
+ *
+ * `aGloss` is the mask, tagged per vertex by `stampGloss` in geometry/carbody.js. Zero everywhere
+ * but the greenhouse, and absent entirely on geometry that has no glass — WebGL hands the shader a
+ * constant 0 for an attribute the buffer doesn't carry, so an untagged mesh simply opts out.
+ */
+const SHEEN_DIR = 'vec2(0.62, 0.78)';       // the band's own axis across the city
+const SHEEN_FREQ = 0.34;                    // ~18 world units between bands, about a block
+const SHEEN_GATE_DIR = 'vec2(-0.78, 0.62)'; // the long cross-band that breaks up the rhythm
+const SHEEN_GATE_FREQ = 0.11;
+const SHEEN_AMBIENT = 0.08;                 // the flat sky wash glass carries everywhere
+const SHEEN_PEAK = 0.52;                    // and the most a band can add on top of it
+
+function patchGlassSheen(material) {
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uSheenColor = { value: new THREE.Color(PALETTE.windowSky) };
+
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+attribute float aGloss;
+varying vec3 vSheen;`)
+      // After `<project_vertex>`, so both `transformed` and `objectNormal` exist. The world matrix
+      // is composed by hand rather than taken from `<worldpos_vertex>`: three only defines that
+      // varying under a set of flags this material may or may not have (shadows can be switched
+      // off from the URL), and an instanced car needs `instanceMatrix` folded in besides.
+      .replace('#include <project_vertex>', `#include <project_vertex>
+{
+	mat4 sheenModel = modelMatrix;
+	#ifdef USE_INSTANCING
+		sheenModel = sheenModel * instanceMatrix;
+	#endif
+	vec3 sheenWorld = (sheenModel * vec4(transformed, 1.0)).xyz;
+	vec3 sheenNormal = normalize(mat3(sheenModel) * objectNormal);
+	// A pane facing the sky catches the most of it; the two faces this camera can see catch some.
+	// Without the second term a car's flanks stayed dead while its roof lit, and the greenhouse
+	// read as a lid rather than as glass wrapped round the cabin.
+	float sky = max(0.0, sheenNormal.y);
+	float toward = max(0.0, dot(sheenNormal, vec3(0.7071, 0.0, 0.7071)));
+	vSheen = vec3(sheenWorld.xz, aGloss * (0.30 + 0.70 * max(sky, 0.75 * toward)));
+}`);
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+uniform vec3 uSheenColor;
+varying vec3 vSheen;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+{
+	float band = sin(dot(vSheen.xy, ${SHEEN_DIR}) * ${SHEEN_FREQ.toFixed(3)}) * 0.5 + 0.5;
+	float gate = sin(dot(vSheen.xy, ${SHEEN_GATE_DIR}) * ${SHEEN_GATE_FREQ.toFixed(3)}) * 0.5 + 0.5;
+	// Cubed: a raw sine spends half its length above the midpoint, which is a wash rather than a
+	// streak. This leaves most of the field dark and the highlight narrow.
+	float sheen = vSheen.z * (${SHEEN_AMBIENT.toFixed(3)}
+		+ ${SHEEN_PEAK.toFixed(3)} * pow(band, 3.0) * (0.35 + 0.65 * gate));
+	diffuseColor.rgb = mix(diffuseColor.rgb, uSheenColor, sheen);
+}`);
+  };
+}
+
+/**
+ * The shared material for every merged prop mesh.
+ *
+ * `sheen` adds the moving glass reflection above, and is for the vehicles. Both patches compose:
+ * they touch different hooks, and the cache key is built from whichever are actually installed —
+ * three builds that key from the material's *parameters*, before `onBeforeCompile` runs, so any
+ * two patched flat-shaded Lamberts collide unless they say otherwise. This city is nothing but
+ * flat-shaded Lambert.
+ */
+export function propMaterial({ sheen = false } = {}) {
   const material = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-  if (aoEnabled) patchAmbientOcclusion(material);
+  const patches = [];
+  if (aoEnabled) patches.push(['ssao', patchAmbientOcclusion]);
+  if (sheen) patches.push(['sheen', patchGlassSheen]);
+  if (patches.length === 0) return material;
+
+  // One `onBeforeCompile` per material, so a second patch has to chain rather than replace — which
+  // is what the first attempt did, silently, leaving every car's AO lookup uninstalled.
+  const compilers = patches.map(([, patch]) => { patch(material); return material.onBeforeCompile; });
+  material.onBeforeCompile = (shader, renderer) => {
+    for (const compile of compilers) compile(shader, renderer);
+  };
+  material.customProgramCacheKey = () => `prop-${patches.map(([key]) => key).join('-')}`;
   return material;
 }
 

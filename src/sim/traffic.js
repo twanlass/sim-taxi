@@ -9,6 +9,7 @@ import {
 import {
   brakeLightGeometry, turnSignalGeometry, brakeLightMaterial, turnSignalMaterial,
 } from '../geometry/lights.js';
+import { carBodyParts, loftBox, topRoll, stampGloss } from '../geometry/carbody.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
   GRID, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
@@ -1151,21 +1152,21 @@ export function steerToward(angle, yaw, prevYaw, ds, wheelbase = WHEELBASE) {
     Math.atan((wheelbase * dYaw) / ds) * STEER_GAIN));
   return angle + (target - angle) * Math.min(1, ds / STEER_EASE);
 }
+// Bodywork is left white so the per-instance colour tints it; the glass is dark enough that the
+// same multiply leaves it dark whatever colour the car is. `geometry/carbody.js` owns the shape —
+// the chamfers, the raked greenhouse, the wheel arches — and the taxi and the cruiser are cut from
+// exactly the same call, which is what makes "the taxi reads as the same class of vehicle" a fact
+// about the code rather than about four files being edited together.
 function carGeometry() {
-  // Body is left white so the per-instance colour tints it; the glass is dark enough that the
-  // same multiply leaves it dark whatever colour the car is.
-  const parts = [];
+  const parts = carBodyParts({
+    len: CAR_LEN,
+    width: CAR_W,
+    paint: new THREE.Color(1, 1, 1),
+    trim: new THREE.Color(0.16, 0.16, 0.18),
+    cabin: { color: color('carGlass'), lengthOf: 0.5, widthOf: 0.86, x: -0.2, top: 1.75 },
+  });
 
-  // Body sits clear of the wheels so they actually show below the sill.
-  const body = new THREE.BoxGeometry(CAR_LEN, 0.8, CAR_W);
-  body.translate(0, 0.78 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(body, new THREE.Color(1, 1, 1)));
-
-  const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, 0.6, CAR_W * 0.86);
-  cabin.translate(-0.2, 1.45 + CHASSIS_LIFT, 0);
-  parts.push(bakeColor(cabin, color('carGlass')));
-
-  parts.push(...wheelGeometries(CAR_LEN, CAR_W));
+  parts.push(...wheelGeometries(CAR_LEN, CAR_W).map((wheel) => stampGloss(wheel, 0)));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -1195,23 +1196,31 @@ const TRUCK_BOX_X = -(TRUCK_LEN / 2) + TRUCK_BOX_LEN / 2 + 0.15; // 0.15 tail ga
  * separate mesh: see truckBoxGeometry().
  */
 function truckCabGeometry() {
-  const parts = [];
-  const white = new THREE.Color(1, 1, 1);
-  const cabDark = color('carGlass');
+  // The chassis is an ordinary car's bodywork at truck proportions — same chamfers, same arches,
+  // and (being three times the wheelbase of a car this wheel size) an actual nose and tail section
+  // where a car has only its rocker panel. See `bodySegments` in geometry/carbody.js.
+  const parts = carBodyParts({
+    len: TRUCK_LEN,
+    width: TRUCK_W,
+    paint: new THREE.Color(1, 1, 1),
+    trim: new THREE.Color(0.16, 0.16, 0.18),
+    cabin: null,
+  });
 
-  const chassis = new THREE.BoxGeometry(TRUCK_LEN, 0.8, TRUCK_W);
-  chassis.translate(0, TRUCK_BASE_Y, 0);
-  parts.push(bakeColor(chassis, white));
+  // The cab rides on top of it, and it is the cab rather than the chassis that is the truck's
+  // greenhouse: leaned back and drawn in at the roof exactly like a car's, and tagged as glass so
+  // the same reflection crosses it. The separate windscreen panel that used to be tacked on the
+  // front face is gone — it was a flush plate in the cab's own colour, and the rake now does the
+  // job it was standing in for.
+  const cabHalf = TRUCK_CAB_LEN / 2;
+  const cabTop = TRUCK_CAB_Y + 0.55;
+  parts.push(stampGloss(bakeColor(loftBox([
+    { y: TRUCK_CAB_Y - 0.55, hx: cabHalf, hz: (TRUCK_W * 0.84) / 2, cx: TRUCK_CAB_X },
+    { y: cabTop - 0.34, hx: cabHalf * 0.94, hz: (TRUCK_W * 0.84) / 2, cx: TRUCK_CAB_X - 0.05 },
+    ...topRoll(cabTop, cabHalf * 0.74, (TRUCK_W * 0.78) / 2, TRUCK_CAB_X - 0.12, 0.1),
+  ]), color('carGlass')), 1));
 
-  const cab = new THREE.BoxGeometry(TRUCK_CAB_LEN, 1.1, TRUCK_W * 0.84);
-  cab.translate(TRUCK_CAB_X, TRUCK_CAB_Y, 0);
-  parts.push(bakeColor(cab, cabDark));
-
-  const windshield = new THREE.BoxGeometry(0.12, 0.7, TRUCK_W * 0.7);
-  windshield.translate(TRUCK_CAB_X + TRUCK_CAB_LEN / 2 - 0.05, TRUCK_CAB_Y, 0);
-  parts.push(bakeColor(windshield, cabDark));
-
-  parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W));
+  parts.push(...wheelGeometries(TRUCK_LEN, TRUCK_W).map((wheel) => stampGloss(wheel, 0)));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -1229,9 +1238,17 @@ function truckCabGeometry() {
  * and a box that never does are two meshes by construction, not by choice.
  */
 function truckBoxGeometry() {
-  const box = new THREE.BoxGeometry(TRUCK_BOX_LEN, 2.0, TRUCK_W);
-  box.translate(TRUCK_BOX_X, TRUCK_BASE_Y + 0.4 + 1.0, 0);
-  return bakeColor(box, color('truckBox'));
+  const base = TRUCK_BASE_Y + 0.4;
+  const half = TRUCK_BOX_LEN / 2;
+  // Rolled along the top, like every other roofline in the fleet — it is a big pale slab at the back
+  // of the tallest vehicle on the road, and a hard 90° edge on it was the one place in the city
+  // where two lit faces met with nothing between them. A wider radius than a car's roofline gets:
+  // this roof is a metre and a half further from the camera's eye than any of them and twice the
+  // area, so the same 0.14 read as a line rather than as an edge coming off.
+  return stampGloss(bakeColor(loftBox([
+    { y: base, hx: half, hz: TRUCK_W / 2, cx: TRUCK_BOX_X },
+    ...topRoll(base + 2.0, half, TRUCK_W / 2, TRUCK_BOX_X, 0.18),
+  ]), color('truckBox')), 0);
 }
 
 // --- Brake lights and turn signals -----------------------------------------------------------
@@ -1732,6 +1749,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const {
     group: taxiGroup, setOccupied: setTaxiOccupied,
     setHighlight: setTaxiHighlight, setSteer: setTaxiSteer, setLights: setTaxiLights,
+    setAntenna: setTaxiAntenna,
   } = createTaxiMesh();
   scene.add(taxiGroup);
 
@@ -1785,7 +1803,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     return instanced;
   };
 
-  const mesh = neverCull(new THREE.InstancedMesh(carGeometry(), propMaterial(), MAX_AMBIENT));
+  const mesh = neverCull(new THREE.InstancedMesh(
+    carGeometry(), propMaterial({ sheen: true }), MAX_AMBIENT,
+  ));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.castShadow = true;
   mesh.name = 'cars';
@@ -1808,7 +1828,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // car pair above, just built from truckCabGeometry() at TRUCK_LEN/TRUCK_W and painted from the
   // same PALETTE.carBody a car is (see paintTruck below).
   const truckMesh = neverCull(
-    new THREE.InstancedMesh(truckCabGeometry(), propMaterial(), MAX_AMBIENT),
+    new THREE.InstancedMesh(truckCabGeometry(), propMaterial({ sheen: true }), MAX_AMBIENT),
   );
   truckMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   truckMesh.castShadow = true;
@@ -2072,8 +2092,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
     // One material across body and wheels, so the fade takes the whole copy down together.
     // Baked vertex colours multiply by material.color exactly as they did by instanceColor, so
-    // the copy comes out the same car in the same paint.
-    const material = propMaterial();
+    // the copy comes out the same car in the same paint. `sheen` because the copy carries the same
+    // geometry, glass tags and all: a wreck that lost its reflection would announce the swap.
+    const material = propMaterial({ sheen: true });
     material.color.set(PALETTE.carBody[car.colorIndex]);
 
     const shell = new THREE.Group();
@@ -3473,6 +3494,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         taxiGroup.rotation.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER);
         setTaxiSteer(car.wheelAngle);
         setTaxiLights(car.brakeLevel, car.turnLeftLevel, car.turnRightLevel);
+        // The antenna is fed the same two numbers the body was just posed with — the corner lean it
+        // exaggerates, and the speed it rakes back against. Against `boostCruise()` rather than
+        // `SPEED` for the same reason the camera's lead is (docs/rendering.md): one number then
+        // covers both a cruise and a Loco Mode run instead of pinning at ordinary speed.
+        setTaxiAntenna(dt, roll, car.v / boostCruise());
         continue;
       }
 

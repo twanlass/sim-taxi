@@ -56,12 +56,13 @@ src/
     pause.js            the HUD's ⏸ and the screen behind it; stops the frame loop dead
 
   geometry/             one-off models, all procedural
-    taxi.js  wheels.js  diamond.js  targetring.js  marker.js  person.js  riderdiamond.js
-    plane.js bird.js helicopter.js cursebubble.js
+    carbody.js  the bodywork every vehicle is cut from — rolled edges, greenhouse, wheel arches
+    taxi.js  wheels.js  lights.js  diamond.js  targetring.js  marker.js  person.js
+    riderdiamond.js  plane.js  bird.js  helicopter.js  cursebubble.js
 
   util/
     rng.js              seeded RNG (mulberry32) + value noise
-    geo.js              vertex-colour baking, jitter, shared prop material
+    geo.js              vertex-colour baking, jitter, shared prop material, the glass sheen
     shot.js             URL parameter parsing (?seed= ?run= ?cars= ?shot=)
 
 tools/                  headless test + screenshot harness — see docs/testing.md

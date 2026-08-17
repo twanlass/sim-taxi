@@ -45,9 +45,16 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 const SIZE = 44;
 
 // The car's on-screen radius, in world units: measured off the built mesh, whose visible extents
-// are ±2.36 long and ±1.49 wide, so hypot(2.36, 1.49) = 2.79 covers it at every heading. Converted
-// to pixels per frame, since the zoom can move under it (a wreck pulls the camera in).
-const CAR_RADIUS = 2.79;
+// are ±2.36 long and ±1.40 wide, so hypot(2.36, 1.40) = 2.74 covers it at every heading — rounded up
+// to 2.79, which is also what `game/tutorial.js` frames its spinning avatar against. Converted to
+// pixels per frame, since the zoom can move under it (a wreck pulls the camera in).
+//
+// Exported because it is a *measurement*, and the mesh it measures has been re-cut since — chamfers,
+// wheel arches, bumpers and an antenna (geometry/carbody.js). `tools/probe.mjs` re-measures the built
+// taxi against this number rather than trusting the comment, which is what a comment carrying a
+// measurement is worth on its own: the width above moved by 0.09 the day the tread was tucked inside
+// the flank, and nothing would have said so.
+export const CAR_RADIUS = 2.79;
 // Where on the car the off-screen test is taken: the middle of its flank rather than the road
 // under it, so the radius above is measured about the centre of the shape it is standing in for.
 const CAR_CENTRE_Y = 1.0;

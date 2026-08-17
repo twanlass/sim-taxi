@@ -382,6 +382,99 @@ Everything under the clamp keeps its relative size, so a weave still reads as a 
 as full lock. Unwinding is the ease and nothing else — a car is down to 6.8° one unit out of the
 junction and under 3° by three.
 
+### The bodywork
+
+`src/geometry/carbody.js`. One call — `carBodyParts({ len, width, paint, trim, cabin })` — builds
+every vehicle's panels: the ambient fleet and the box trucks here, the taxi in `geometry/taxi.js`,
+the cruiser in `sim/police.js`. It sits outside all three for the reason `geometry/wheels.js` does
+(`traffic.js` and `taxi.js` import each other), and for one more: four files were each building a
+car out of two `BoxGeometry` calls and the same two magic y values, so "the taxi reads as the same
+class of vehicle as the traffic" was a thing somebody had to keep true by hand. It is now a fact
+about the code.
+
+**Everything is a lofted box.** `loftBox` takes a stack of rectangular rings and skins them, and
+that one primitive produces all four shapes a `BoxGeometry` cannot hold:
+
+| | How |
+|---|---|
+| **Rolled edge** | walk several rings around a quarter-arc. The facets catch different values from the roof and from the flank either side of them, which at this camera is the only thing that says an edge is an edge rather than a colour change |
+| **Tuck** | the same roll upside down, so the sill draws in under the waist instead of dropping to the road as a slab |
+| **Trapezoid greenhouse** | narrow the roof ring — the tumblehome that stops a cabin reading as a shoebox parked on a shoebox |
+| **Lean-back** | walk the ring's *centre* aft as it rises. That rakes the windscreen hard and the backlight gently, and the asymmetry is the whole silhouette: rake both ends equally and the car has no front |
+
+**`ROLL_STEPS` is a smoothness knob, not a shape.** At one step a roll is exactly the two endpoints
+of its arc — the single 45° chamfer these started as — so turning it down cannot change the car, and
+`tools/probe.mjs` asserts that reduction rather than leaving it as a claim. It ships at 3.
+
+The step count and the radius only pay off **together**, which is why the roofline's radius widened
+from 0.10 to 0.14 in the same change. Three facets across a 0.10 edge are 0.05 apiece, and
+subdividing something already under a pixel buys nothing but aliasing as the car turns — the same
+arithmetic that keeps the chequer at six cells rather than twelve. At 0.14 the whole roll is about
+1.5px at play zoom and 4px at the wreck camera's, and a facet is 0.073: half a pixel at play zoom,
+where it averages into a soft edge, and 4px in the `?shot=6` close-up, where it reads as an actual
+roll. A fourth step lands at 0.055 and buys a difference nothing in the game is framed closely
+enough to show.
+
+Two edges keep a single facet on purpose, and for the same reason: **the bumpers** (0.30 tall, 0.07
+chamfers — three facets would be 0.02 apiece, a fifth of a pixel at play zoom and still under one at
+the closest camera in the game) and any part that small. Two go the other way with a wider radius:
+**the greenhouse** rolls at 0.09 because it is a third of the body's width and 0.14 would have eaten
+most of the flat panel between its sides, and **a truck's cargo box** at 0.18 because that roof is
+twice the area and further from the eye, where 0.14 read as a line rather than as an edge coming
+off.
+
+`SHOULDER` is *derived* as `DECK - CHAMFER` rather than typed, so widening the roll cannot quietly
+slide the belt line out from under the liveries riding in it.
+
+A ring is a rectangle rather than an arbitrary polygon, which keeps every face a planar quad — a
+twisted one shows the diagonal seam between its two triangles, the same trap the curtain-wall bands
+in [rendering.md](rendering.md) are cut into segments to dodge.
+
+Winding is **asserted, not eyeballed** (`tools/probe.mjs`): every face of a lofted body has to point
+away from the solid's own centre, for every triangle rather than the first — and every step of a
+roll has to both climb and close, since a run that stops climbing hands `loftBox` two rings at the
+same height and `computeVertexNormals` a zero-area face, which comes back as a NaN normal and lights
+as a black facet rather than as an error. `bakeColor` runs
+`computeVertexNormals`, which launders a reversed triangle into whatever its neighbours claim — so a
+face wound backwards doesn't vanish, it lights as if the sun were behind it, three steps from its
+cause. The roadworks ramp shipped exactly that way once.
+
+#### Wheel arches
+
+The lower flank is cut back `ARCH_DEPTH` = 0.30 over the length of the car and filled back out to
+full width only *between* the wheels. What is left is an opening at each axle with the tyre standing
+in it, an eyebrow of full-width bodywork over the top, and a rocker panel in the middle.
+
+The arch stops **below the tyre's crown**, deliberately: at 0.80 in design space against a crown at
+0.96, the top 0.16 of the wheel is up inside the wing the way a real one is, and only what is under
+the eyebrow shows through. Cut it any higher and the wing stops being a wing — you see daylight over
+the tyre.
+
+The full-width sections are **derived from the wheel anchors** rather than typed, which is what lets
+one rule cover a car and a truck. A car's wheels are so big relative to it (0.64 radius on a
+3.4-long body, leaving about 4cm of front overhang) that both arches run clean off the ends and the
+only full-width section left is the rocker; a truck, at three times the wheelbase, keeps a nose and
+a tail section as well. The probe asserts both answers come out of the same line.
+
+Two things follow from the arch and neither is optional:
+
+- **A livery band has to ride in `BELT`.** The flank is *missing* over each opening, so the taxi's
+  chequer and the cruiser's stripe — both painted at the old waistline — hung in mid-air across two
+  holes. `BELT` is the one band that is solid bodywork nose to tail, and it is exported rather than
+  guessed at. `tools/probe.mjs` walks a ray along the flank at that height and fails on any gap.
+- **The well is painted a shade of the car's own paint**, not a flat dark. On the instanced fleet
+  that is the only construction that survives `instanceColor`: a baked grey times the car's tint is
+  that car in shadow, where a baked black times anything is still black.
+
+#### Bumpers
+
+Shallow, and they do not reach past the light pods. A wheel this size on a car this short leaves
+almost no front overhang, so anything deeper simply intersects the front tyre — and anything longer
+pushes the ghost outline's inflated hull past the envelope `game/taxifinder.js` and `game/tutorial.js`
+frame the car against, which is a chip with a clipped bumper in it rather than an error. They stand
+0.02 proud of the flank for the same reason `LIGHT_PROUD` exists: coplanar faces at the same depth
+z-fight.
+
 ### Wheel size and ride height
 
 `src/geometry/wheels.js` owns both, and owns them for every vehicle in the game. It is a module of
@@ -400,11 +493,18 @@ Doubling alone is not enough, and the two failed attempts are the reason `CHASSI
   this camera a wheel shows as a notch in the sill, and its angle goes straight back to being
   unreadable.
 
-So the body rises with the wheel and the tread stays proud. Every y in the vehicle geometry — cars,
-taxi, cruiser, and the app icon in `tools/make-icon.mjs` — is still written as the number it was
-designed at, plus `CHASSIS_LIFT`, which is derived from `WHEEL_R` so the two can't drift apart.
-The result reads as a chunky toy car up close and as an ordinary car at play zoom, which is the
-zoom that matters.
+So the body rises with the wheel. Every y in the vehicle geometry — cars, taxi, cruiser, and the app
+icon in `tools/make-icon.mjs` — is still written as the number it was designed at, plus
+`CHASSIS_LIFT`, which is derived from `WHEEL_R` so the two can't drift apart. The result reads as a
+chunky toy car up close and as an ordinary car at play zoom, which is the zoom that matters.
+
+**`WHEEL_PROUD` is negative now**, and the second bullet above is why that is not a reversal. The
+tread stood 0.11 outside the flank for as long as a car was two boxes, because against a flat wall
+that was the only way to see it. The flank isn't flat any more — [the bodywork](#the-bodywork) cuts
+an arch back 0.30 at each axle — so the wheel is visible *through the opening* instead, and the tuck
+is what makes it read as a wheel sitting in a well rather than one bolted to a slab. Small and
+negative rather than zero: at exactly zero the tread's outer face and the flank are coplanar, and
+two coplanar faces at the same depth z-fight.
 
 The wheels don't **roll**, on purpose. At cruise a 0.32-radius wheel turns 0.44 rad per frame at
 60fps against a facet every 0.79 rad on an 8-sided cylinder — past the half-facet point, so it
@@ -479,17 +579,20 @@ conservative instead of exact: a car's own `isTruck` isn't rolled until after it
 assumes a possible truck on that side of the pairing — a no-op when `truckChance` is 0, which is
 every scripted scenario in `tools/` but the one that exercises trucks on purpose.
 
-The body is three InstancedMeshes rather than the car pair's two: `truckMesh` (chassis, cab and
-windshield, from `truckCabGeometry()`) and `truckWheelMesh` alongside a third, `truckBoxMesh`
+The body is three InstancedMeshes rather than the car pair's two: `truckMesh` (chassis and cab,
+from `truckCabGeometry()`) and `truckWheelMesh` alongside a third, `truckBoxMesh`
 (the cargo box, from `truckBoxGeometry()`), all built at `TRUCK_LEN`/`TRUCK_W`. They have to be
 separate meshes rather than one taller instance of the car body: an InstancedMesh draws one
 geometry for every instance, so a visibly bigger vehicle can't share the car body's buffer no
 matter how rare it is. Only the chassis is painted per-instance — it reads `PALETTE.carBody` at
 the car's own `colorIndex`, exactly like an ordinary car's body, so a truck's livery varies the
-way a car's does. The cab and windshield are baked at the fixed dark `carGlass` colour instead,
-same as a car's own cabin glass: "make the cab black, so it looks like the cars in that sense" was
-the brief, and a car's greenhouse is always dark regardless of its body colour, so the truck's cab
-now reads as the same *kind* of part rather than as more chassis livery. The cargo box goes a step
+way a car's does. The cab is baked at the fixed dark `carGlass` colour instead, same as a car's own
+cabin glass: "make the cab black, so it looks like the cars in that sense" was the brief, and a
+car's greenhouse is always dark regardless of its body colour, so the truck's cab reads as the same
+*kind* of part rather than as more chassis livery. It is treated as one all the way down — leaned
+back and drawn in at the roof like a car's, and tagged as glass so
+[the sheen](rendering.md#the-reflection-crossing-a-cars-glass) crosses it. The flush windscreen panel
+that used to be tacked on the front face is gone with the rake that replaced it. The cargo box goes a step
 further and is never instance-tinted at all — it's baked at the one fixed `PALETTE.truckBox` (a
 plain tan/white) because a real box truck's box is bare aluminium or cardboard regardless of the
 cab pulling it. One InstancedMesh only ever carries one tint per instance, so a part that varies,

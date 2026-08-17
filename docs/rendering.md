@@ -77,6 +77,55 @@ Four details worth keeping:
   patches on a dark one, and takes the scale cue with it. So the punched path carries a ceiling
   (0.52 on brick, 1.0 on the pale envelopes) and the curtain-wall path does not.
 
+### The reflection crossing a car's glass
+
+`propMaterial({ sheen: true })` in `util/geo.js`, masked by the per-vertex `aGloss` that
+`geometry/carbody.js` stamps on a greenhouse. The same trick as the windows above, turned inside
+out — and the inversion is the whole design.
+
+A façade never moves, so its highlight can be baked into the vertex colours once and read as glass
+forever on a camera that never moves either. A car does nothing but move, and a highlight baked into
+*its* glass travels with it — which is exactly the thing that says **paint** rather than **glass**.
+A reflection is the one feature of a surface that is supposed to stay behind while the surface
+slides out from under it.
+
+So the streak is a property of the **city**, not of the car. Each vertex carries its own world
+position into the fragment shader, and the band is a function of that position alone. A car crossing
+a junction drives through the field and its roof lights up and goes out again; a car standing at a
+red holds whatever it stopped in; two cars nose to tail catch it a beat apart. **Nothing is
+animated** — there is no clock in there at all, which is also why a frozen screenshot renders the
+same frame twice. At cruise a car crosses a band about every 3.5 seconds.
+
+Four details carry the rest of it:
+
+- **Per fragment, not per vertex.** The vertex shader is where this wanted to live: it is a handful
+  of instructions on a car's dozen corners and `vColor` is already interpolated. But a greenhouse is
+  quads, a quad is two triangles, and a weight varying across *both* axes of one shows the diagonal
+  seam between them — the trap the curtain-wall bands are cut into `RIBBON_SEGMENTS` to dodge. A
+  cabin roof is one quad and there is nothing to cut it into.
+- **Two wavelengths, neither a multiple of the other.** One band alone is a metronome: every car on
+  a street glints at the same interval and it reads as a flashing light rather than as a sky. The
+  second, much longer band crosses the first diagonally and gates it.
+- **The pane's facing matters as much as its position**, and for the same reason the façades' does:
+  a pane pointing at the sky catches most of it, the two faces this camera can see catch some. Left
+  off, a car's flanks stayed dead while its roof lit and the greenhouse read as a lid rather than as
+  glass wrapped around a cabin.
+- **It multiplies into the diffuse term rather than the emissive**, so glass catching the sky at
+  golden hour goes quiet at midnight along with the sky it is catching. This is scenery, not a
+  marker — see [unlit means unfogged](#unlit-means-unfogged) for where the other rule applies.
+
+The two patches on a vehicle's material have to **compose rather than replace**: AO touches
+`<aomap_fragment>` and this touches `<color_fragment>`, and the cache key is built from whichever
+are actually installed. Chaining it wrong is invisible — an uninstalled AO lookup looks exactly like
+AO that simply isn't very strong — so `tools/probe.mjs` compiles the material against a stub and
+checks both reached the shader, and that all four combinations of the two patches carry distinct
+keys.
+
+`aGloss` is absent entirely from geometry with no glass, which is safe: WebGL hands the shader a
+constant 0 for an attribute the buffer doesn't carry, so an untagged mesh opts itself out. Every
+part merged into *one* vehicle does have to carry it, though — `mergeGeometries` refuses a set whose
+attributes disagree.
+
 ## Camera
 
 `src/game/camera.js`. A fixed 3/4 orthographic camera:
