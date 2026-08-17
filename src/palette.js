@@ -94,6 +94,31 @@ export const PALETTE = {
   // every piece of rooftop ironwork, same argument as `birdBill`.
   rooftopIron: '#43484F',
 
+  // --- The taxi garage --------------------------------------------------------
+  // The one building the player owns, and the only one the tower generator doesn't draw. Its
+  // envelope stays *outside* BUILDING_COLORS on purpose: a depot is a shed among offices, and
+  // giving it a family of its own is what stops it reading as one more block of flats with a hole
+  // in the front.
+  garageWall: '#8C8D8A',
+  // Parapet cap, door frame, shutter drum. One dark for every piece of the building's ironwork,
+  // the same argument as `rooftopIron` above.
+  garageTrim: '#5E6167',
+  // The shutter curtain. Pale, because the whole read of a roller door is the horizontal line
+  // between one slat and the next — on a dark curtain those lines are shadow on shadow.
+  garageDoor: '#B9BCC0',
+  // Its bottom rail: the leading edge, and the one part of the door the eye tracks while it opens.
+  garageDoorRail: '#4E5257',
+  // Everything lining the bay. Dark enough that the taxi inside is the light thing in the hole,
+  // which is the entire point of the reveal.
+  garageBay: '#3B3E44',
+  // The strip light on the bay ceiling. Unlit (see `unlitMaterial`) — it *is* a light source, and
+  // a pale box standing in its own shadow reads as grey paint.
+  garageLight: '#FFE7B8',
+  // The fascia band over the door, and a deliberate exception to "yellow is reserved for the taxi"
+  // below. It is reserved for the taxi; this is the taxi's building, and a band 0.45 units tall on
+  // a vertical face four units up is not mistakable for a car on the road.
+  garageSign: '#F5C130',
+
   // Yellow is reserved for the taxi. An amber car used to sit in this list and was genuinely
   // mistakable for the player's vehicle at play zoom, where both are a few pixels of warm colour.
   carBody: ['#C9503F', '#2F8F94', '#4E7FC0', '#E4E1DA', '#3F8A63', '#8A6BB0', '#D9D2C3', '#455160'],

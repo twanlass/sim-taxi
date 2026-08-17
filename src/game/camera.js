@@ -147,6 +147,26 @@ export function frameLead(dirX, dirZ, gain, halfW, halfH) {
   return { x: ux * dist, z: uz * dist };
 }
 
+/**
+ * The **ground** point to aim at so that `(x, y, z)` lands in the middle of the frame.
+ *
+ * The camera's target is a point on the ground, and the ground is where almost everything this
+ * game frames actually is — a rider on a kerb, a junction, a wreck. A garage door is not: its
+ * middle is two metres up, and a camera aimed at the ground under it puts the subject a third of
+ * the way up the screen. The opening vignette is the one caller.
+ *
+ * The conversion is one number. A world unit of *height* is `sqrt(1 - VIEW_DIR.y²)` of screen-up,
+ * and a ground unit along `UP` is `VIEW_DIR.y` of it, so a point at height `y` sits
+ * `y * sqrt(1 - Vy²) / Vy` further up the screen than the ground beneath it — and that ratio is
+ * `DEPTH_PER_SCREEN_UNIT` exactly, not by coincidence: `-UP·VIEW_DIR` *is* the length of
+ * VIEW_DIR's horizontal part, which is `sqrt(1 - Vy²)`. Pushing the target the same distance along
+ * `UP` puts the subject back in the middle.
+ */
+export function aimAtHeight(x, y, z) {
+  const shift = DEPTH_PER_SCREEN_UNIT * y;
+  return { x: x + UP.x * shift, z: z + UP.z * shift };
+}
+
 export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 1400);
   const state = {

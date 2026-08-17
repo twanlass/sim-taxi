@@ -2,6 +2,7 @@ import {
   GRID, blockBounds, HALF_SPAN, segmentKey, setArterialLines, setClosedSegments, setParkBlocks,
 } from './grid.js';
 import { roadNetFromGrid, setCityNetwork } from './roadnet.js';
+import { chooseGarageBlock } from './garage.js';
 import { configureSignals } from '../sim/traffic.js';
 
 // Decides what each block *is* before anything is built. Ground, buildings and props all read
@@ -118,6 +119,19 @@ export function createLayout(rng) {
   // junction's offset from how far along the wave it sits.
   blocks.arterials = { x: arterialX, z: arterialZ, dirX, dirZ };
   blocks.closedSegments = closed;
+
+  // The taxi's depot, and the block it takes out of the tower generator's hands. Chosen **last**,
+  // after every other draw in this function, so adding it cannot reshuffle a single park or
+  // arterial — the generators downstream all run their own offset stream (see architecture.md), so
+  // a draw here is genuinely free.
+  //
+  // A whole block rather than a lot: the depot needs a forecourt to pull out of, and reserving a
+  // footprint inside a block that `splitLot` is about to divide leaves the building generator a
+  // sliver it will happily put a tower on. `null` is a real answer — a city with nowhere to put
+  // one opens without the vignette rather than not opening. See city/garage.js.
+  const garage = chooseGarageBlock(rng, blocks);
+  if (garage) garage.type = 'garage';
+  blocks.garageBlock = garage ?? null;
 
   // Bake the road network for the city just decided, and install it as *the* network. Everything
   // above — the closures, the arterials, their coordinated directions — is exactly the input it

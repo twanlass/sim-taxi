@@ -15,6 +15,7 @@ src/
     ground.js           roads, kerbs, block surfaces, crosswalks
     buildings.js        one merged mesh of blocky towers
     props.js            trees, street furniture
+    garage.js           the taxi's depot: which block it takes, and the roller door on the front
 
   sim/                  things that move on their own
     traffic.js          signals + car physics + the single routing branch. The largest file.
@@ -48,6 +49,7 @@ src/
     flyover.js          the ambient plane that crosses the city every so often — scenery, nothing more
     chopper.js          the helicopter that lands on the city's rooftop helipad, idles and leaves
     birds.js            the park flocks: walk the grass, startled up by the taxi, come back; two per city
+    opening.js          the opening vignette: camera onto the garage door, door up, taxi out
     runend.js           the run-end blackout: stats counted out, then initials, then the table
     highscores.js       the local top five — localStorage is the whole backend
     homescreen.js       the iOS-only "add it to your Home Screen" screen; parks the run while up
