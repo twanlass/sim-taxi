@@ -11,11 +11,16 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
-import { createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, PARK_EDGE } from '../src/city/ground.js';
+import {
+  createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
+} from '../src/city/ground.js';
 import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
 } from '../src/city/buildings.js';
-import { createProps, parkPlots, planParkFurniture, BENCH_LEN, STATUE_PLAZA } from '../src/city/props.js';
+import {
+  createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
+  BENCH_LEN, STATUE_PLAZA,
+} from '../src/city/props.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
@@ -84,6 +89,9 @@ import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import {
+  halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns, MEDIAN_W,
+} from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath, nearestOnPath, HEAD_GAP } from '../src/game/routeline.js';
 import { findRoute, findRouteVia, MAX_VIA_DETOUR, allIntersections } from '../src/game/route.js';
@@ -367,6 +375,84 @@ const onGrass = (city, i, j) => {
   // so a sweep leaves the probe's own city replaced by the last one it built.
   createLayout(makeRng(seed));
 
+// --- Flower beds on the medians ----------------------------------------------
+//
+// The island is a stadium — a 2.4-wide capsule down the centre of an arterial — and what has to
+// hold is that no bed hangs over its kerb into the carriageway. That is invisible once the props
+// are merged into one mesh, which is why `planMedianBeds` is a separate function to begin with.
+//
+// Swept over seeds rather than looked at on one: the lateral draw is bounded by the bed's own
+// radius, so it is exactly the widest bed on the narrowest island that would be the one to escape,
+// and that pairing does not come up on every city.
+{
+  // Measured off the ground mesh's own inset, and cross-checked against the number the planner
+  // bounds itself by — a bed kept inside a margin props.js invented would prove nothing.
+  const grassEdge = MEDIAN_W / 2 - MEDIAN_EDGE;
+  let escaped = 0;
+  let tightest = Infinity;
+  let beds = 0;
+  let bare = 0;
+
+  for (let city = 0; city < 12; city++) {
+    createLayout(makeRng(seed + city * 53));
+    const runs = medianRuns();
+    for (const bed of planMedianBeds(makeRng(seed + city * 53 + 5), runs)) {
+      beds += 1;
+      // Distance to the island's own centre segment — the capsule's spine, which runs between the
+      // two cap centres. A stadium is precisely "everywhere within R of that segment", so one
+      // measurement covers the straight sides and both rounded ends.
+      const run = runs.find((r) => bed.x >= r.x0 - 1 && bed.x <= r.x1 + 1
+        && bed.z >= r.z0 - 1 && bed.z <= r.z1 + 1);
+      if (!run) { escaped += 1; continue; }
+      const along = run.axis === 'x' ? bed.x : bed.z;
+      const across = run.axis === 'x' ? bed.z : bed.x;
+      const spine = run.axis === 'x' ? (run.z0 + run.z1) / 2 : (run.x0 + run.x1) / 2;
+      const capped = Math.min(run.to - MEDIAN_W / 2, Math.max(run.from + MEDIAN_W / 2, along));
+      const room = grassEdge - (Math.hypot(along - capped, across - spine) + bed.footprint);
+      tightest = Math.min(tightest, room);
+      if (room < 0) escaped += 1;
+    }
+    if (runs.length && !planMedianBeds(makeRng(seed + city * 53 + 5), runs).length) bare += 1;
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+
+  check('the planner bounds itself by the grass the ground mesh actually lays',
+    Math.abs(MEDIAN_BED_ROOM - grassEdge) < 1e-9,
+    `props ${MEDIAN_BED_ROOM.toFixed(4)} vs ground ${grassEdge.toFixed(4)}`);
+  check('every flower bed stands on its median, clear of the kerb',
+    escaped === 0 && beds > 0,
+    `${escaped} of ${beds} over the edge, tightest ${tightest.toFixed(3)} to spare`);
+  check('and no median is left bare', bare === 0, `${bare} islands with nothing on them`);
+}
+
+// The blooms are the one place this game paints a saturated colour on something the player must
+// *not* act on, so they get the clearance argument the roadworks orange gets. The urgency ramp,
+// the taxi and the VIP purple can all be on the board at once; a dab of pink on a median must not
+// read as any of them at 8 pixels.
+{
+  const hueOf = (hex) => {
+    const hsl = { h: 0, s: 0, l: 0 };
+    new THREE.Color(hex).getHSL(hsl);
+    return hsl;
+  };
+  const spoken = [...PALETTE.urgency, PALETTE.taxiBody, PALETTE.vip, PALETTE.parcel,
+    PALETTE.routeLine].map(hueOf);
+
+  let nearest = 360;
+  let loudest = 0;
+  for (const hex of PALETTE.bloom) {
+    const bloom = hueOf(hex);
+    loudest = Math.max(loudest, bloom.s);
+    for (const other of spoken) {
+      const raw = Math.abs(bloom.h - other.h) * 360;
+      nearest = Math.min(nearest, raw > 180 ? 360 - raw : raw);
+    }
+  }
+  check('a flower bed cannot be mistaken for anything the player acts on',
+    nearest > 20 && loudest < 0.75,
+    `nearest game hue ${nearest.toFixed(0)}°, loudest bloom ${loudest.toFixed(2)} saturated`);
+}
+
   check('every park bench stands on the grass, just off the walk',
     offTheGrass === 0 && adrift === 0, `${offTheGrass} on the paving, ${adrift} adrift on the lawn`);
   check('and looks into the park rather than out of it', facingOut === 0, `${facingOut} facing out`);
@@ -531,6 +617,10 @@ const onGrass = (city, i, j) => {
   let cluttered = 0;
   let padsOffMesh = 0;
   let lowestPad = Infinity;
+  const padHeights = [];
+  // The absolute floor. A building is never shorter than 5 units (`buildTower`), so anything at or
+  // near that is the shop the check below exists to keep the pad off.
+  const PAD_FLOOR = 5.5;
   const SEEDS = 24;
   const PAINT = new THREE.Color(PALETTE.laneMark);
 
@@ -561,7 +651,8 @@ const onGrass = (city, i, j) => {
     // rather than against the numbers that produced it.
     if (built.pad) {
       const { x, z, y, r } = built.pad;
-      if (y < 6) lowPads += 1;
+      if (y < PAD_FLOOR) lowPads += 1;
+      padHeights.push(y);
       lowestPad = Math.min(lowestPad, y);
       // Wide enough for the machine's skids (2.5 by 1.24) with paint showing round them. The rotor
       // is *allowed* to overhang — a real pad on a tower of this size does exactly that — but the
@@ -643,8 +734,24 @@ const onGrass = (city, i, j) => {
     `${cluttered} cities whose pad still has roof furniture on it`);
   // It is meant to be *up there*. A pad on a two-storey shop is what picking the roomiest deck
   // instead of the tallest one does, and it reads as a car park with an H on it.
-  check('and it is on a building worth landing on', lowPads === 0,
-    `lowest pad ${lowestPad.toFixed(1)} units, ${lowPads} under 6`);
+  //
+  // Stated as a **median plus a floor** rather than as "no city under 6", which is what it was and
+  // which was always a coin flip on the tail: one city in twenty-four genuinely has no flat deck
+  // above six units, and which seed that is moves under any change to the block footprints. The
+  // arterials being widened moved it — every block facing one lost 1.33 of depth, so the decks left
+  // after a tower's setbacks are narrower and fewer of them clear `PAD_MIN_SIDE`, which drops
+  // `choosePad` into its fallback more often. Measured over four base seeds × 24 cities, the lowest
+  // pad in a sweep went 6.4 → 5.8, 7.3 → 6.8, 7.3 → 6.9, 7.3 → 6.9. Building *heights* did not
+  // move at all — they come off `block.centrality`, not the footprint — and the part count fell
+  // 1.8%.
+  //
+  // So the tail shifted half a unit and the body did not: the median is 8.7–8.8 on every base seed
+  // tried, which is the property the check was really after and one the old form never asserted.
+  const sorted = padHeights.slice().sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+  check('and it is on a building worth landing on', lowPads === 0 && median >= 8,
+    `lowest pad ${lowestPad.toFixed(1)} units (floor ${PAD_FLOOR}), `
+    + `${lowPads} under it, median ${median.toFixed(1)}`);
 }
 
 // --- Pitched roofs ----------------------------------------------------------
@@ -736,21 +843,35 @@ const distToLine = (v) => {
   return best;
 };
 
-// A driving car must sit on a lane centre: offset LANE from a centreline on one axis, and
+/**
+ * Index of the nearest road centreline. Half the positional checks below now have to ask how wide
+ * the road under a point is, and an arterial's width is keyed by its line index — so a bare
+ * distance is no longer enough to say whether a car is where it should be.
+ */
+const lineIndexOf = (v) => Math.min(GRID, Math.max(0, Math.round((v + HALF_SPAN) / PITCH)));
+
+// A driving car must sit on a lane centre: offset from a centreline on one axis by however far
+// that road's lanes sit out — LANE on an ordinary street, further on a divided arterial — and
 // somewhere along a road on the other.
 const offLane = positions.filter((p) => {
   if (p.state !== 'drive') return false;
   const dx = distToLine(p.x);
   const dz = distToLine(p.z);
-  const onXLane = Math.abs(dz - LANE) < 0.05;
-  const onZLane = Math.abs(dx - LANE) < 0.05;
+  const onXLane = Math.abs(dz - laneOffX(lineIndexOf(p.z))) < 0.05;
+  const onZLane = Math.abs(dx - laneOffZ(lineIndexOf(p.x))) < 0.05;
   return !(onXLane || onZLane);
 });
 check('driving cars sit on lane centres', offLane.length === 0, `${offLane.length} off-lane`);
 
 const turning = positions.filter((p) => p.state === 'turn');
-const inIntersection = turning.every((p) => distToLine(p.x) <= ROAD_W && distToLine(p.z) <= ROAD_W);
-check('turning cars are inside intersections', inIntersection, `${turning.length} turning`);
+// Twice the junction box, on each axis independently — a generous bound whose job is to catch a
+// car flung out of the city, not to measure the arc. Per-road since the arterials were widened:
+// the box a car turns inside is the *crossing* road's half-width, which is 5.33 on a main street.
+const turnBound = (p) => 2 * Math.max(halfRoadZ(lineIndexOf(p.x)), halfRoadX(lineIndexOf(p.z)));
+const strayed = turning.filter((p) => Math.max(distToLine(p.x), distToLine(p.z)) > turnBound(p));
+check('turning cars are inside intersections', strayed.length === 0,
+  `${strayed.length} of ${turning.length} turning outside, worst `
+  + `${Math.max(0, ...turning.map((p) => Math.max(distToLine(p.x), distToLine(p.z)))).toFixed(2)}`);
 
 check('no rear-end overlaps', stats.minGap > 3.2, `min gap ${stats.minGap.toFixed(2)}`);
 
@@ -2706,8 +2827,11 @@ check('no two cars occupy the same space', worst > 1.6,
     // Distance from the lane centre, measured off the rendered position — the offset is applied
     // at render, so reading `car.x/car.z` is reading what the player sees. On the travel axis the
     // coordinate runs along the road and says nothing; only the cross-axis one is the lane.
+    // Against the offset of the lane it is *on*, not the global LANE: on a divided arterial the
+    // lane centre sits 3.33 out, and measuring against 2 would report the widening as a weave.
     const cross = isXAxis(wTaxi.d) ? wTaxi.z : wTaxi.x;
-    widest = Math.max(widest, Math.abs(distToLine(cross) - LANE));
+    widest = Math.max(widest,
+      Math.abs(distToLine(cross) - laneOffsetFor(wTaxi.d, wTaxi.i, wTaxi.j)));
   }
   // 0.52 is the two waves' peak sum; the margin covers a frame landing mid-corner-exit. The frame
   // floor is the sample size: at boost speed a junction arrives about every 1.1s, so barely half
@@ -3264,10 +3388,15 @@ check('every intersection is routable from every approach', unroutable === 0,
       const dz = Math.abs(p.z - lineNear(p.z));
       // Inside a junction box the tarmac runs both ways, so being near a centreline on either
       // axis is enough. Out on a straight the band's own half-width has to fit as well: a lane
-      // centre is LANE (2) off the centreline and the band is 1.7 wide, which leaves 0.3 of
-      // asphalt showing at the kerb.
-      const inJunction = dx <= HALF_ROAD && dz <= HALF_ROAD;
-      if (!inJunction && Math.min(dx, dz) + BAND_HALF > HALF_ROAD) offRoad += 1;
+      // centre is 2 units off its own kerb whatever the road's width, and the band is 1.7 wide,
+      // which leaves 0.3 of asphalt showing at the kerb on a side street and on an arterial alike.
+      const hz = halfRoadZ(lineIndexOf(p.x));   // the road running along Z, nearest in x
+      const hx = halfRoadX(lineIndexOf(p.z));   // the road running along X, nearest in z
+      const inJunction = dx <= hz && dz <= hx;
+      // Whichever centreline is nearer is the road the point is on, and it is that road's width
+      // the band has to fit inside.
+      const half = dx <= dz ? hz : hx;
+      if (!inJunction && Math.min(dx, dz) + BAND_HALF > half) offRoad += 1;
       drift = Math.max(drift, distToPath(p, planned));
     }
 
@@ -3279,11 +3408,15 @@ check('every intersection is routable from every approach', unroutable === 0,
       const dirX = Math.abs(b.x - a.x) > Math.abs(b.z - a.z);
       const cross = dirX ? a.z : a.x;
       const alongMid = dirX ? (a.x + b.x) / 2 : (a.z + b.z) / 2;
-      if (Math.abs(alongMid - lineNear(alongMid)) < HALF_ROAD) continue;   // inside a junction box
+      // The junction box along the travel axis is the *crossing* road's half-width, and the lane
+      // offset across it is this road's — two different numbers now that a main street is wider.
+      const box = dirX ? halfRoadZ(lineIndexOf(alongMid)) : halfRoadX(lineIndexOf(alongMid));
+      if (Math.abs(alongMid - lineNear(alongMid)) < box) continue;         // inside a junction box
       if (Math.hypot(b.x - a.x, b.z - a.z) < 1) continue;
       const crossLine = lineNear(cross);
       const sign = dirX ? Math.sign(b.x - a.x) : Math.sign(b.z - a.z);
-      const want = dirX ? sign * LANE : -sign * LANE;
+      const off = dirX ? laneOffX(lineIndexOf(cross)) : laneOffZ(lineIndexOf(cross));
+      const want = dirX ? sign * off : -sign * off;
       straights += 1;
       if (Math.abs((cross - crossLine) - want) > 1e-6) wrongLane += 1;
     }
@@ -4862,14 +4995,26 @@ check('the taxi is an ordinary car in the traffic array',
 // collision model already leaves standing as a hazard the player can read.
 {
   const DT = 1 / 60;
-  // Where a building façade starts: the block begins HALF_ROAD off the centreline and towers are
-  // inset 0.85 into their lot. A car shoved past this is a car parked in a lobby.
-  const FACADE = ROAD_W / 2 + 0.85;
+  // Where a building façade starts: the block begins at the kerb line and towers are inset 0.85
+  // into their lot. A car shoved past this is a car parked in a lobby. The kerb line is per-road
+  // since the arterials were widened, so this is measured as a *margin* to the wall beside the
+  // car rather than as one distance from the centreline compared against one constant.
+  const LOT_INSET = 0.85;
+
+  const medians = medianRuns();
+  /** Is a body of half-width `pad` centred at (x, z) over any planted median? */
+  const overMedian = (x, z, pad) => medians.some((m) => x > m.x0 - pad && x < m.x1 + pad
+    && z > m.z0 - pad && z < m.z1 + pad);
 
   let armedFrames = 0;
   let insideBody = 0;
   let insideDriving = 0;
   let furthestOut = 0;
+  let wallGap = Infinity;
+  // Nothing drives on a planted median. The one sanctioned exception is a boosting taxi mid-pass,
+  // which crosses it by design (see PASS_LATERAL in sim/traffic.js) — everything else meeting one
+  // is a bug in a lane offset or in the police dodge, and both are numbers that get tuned.
+  let onMedian = 0;
   let pulledOver = 0;
   let peakDodge = 0;
   let peakWheel = 0;
@@ -4892,6 +5037,12 @@ check('the taxi is an ordinary car in the traffic array',
 
       const p = pPolice.group.position;
       const axis = pPolice.state.axis;
+      if (overMedian(p.x, p.z, CAR_W / 2)) onMedian += 1;
+      // The taxi is the exception, and only while it is actually out of its lane.
+      const pt = pTraffic.taxi;
+      if (pt && !pt.crashed && pt.passOffset < 0.01 && overMedian(pt.x, pt.z, CAR_W / 2)) {
+        onMedian += 1;
+      }
       for (const car of pTraffic.cars) {
         if (car.crashed || car.isTaxi) continue;
         if (car.pullover > 0.5) pulledOver += 1;
@@ -4906,10 +5057,19 @@ check('the taxi is an ordinary car in the traffic array',
         }
         // How far the pull-over throws a body off the road it is on. Only meaningful for a car
         // running a lane — mid-junction there is no one centreline to measure against.
+        // Flank included for a car running a lane, where the body is square to the road; a car
+        // mid-turn is tested on its centre alone, since a wheel over a kerb inside a junction box
+        // is not what this is looking for.
+        const pad = car.state === 'drive' ? CAR_W / 2 : 0;
+        if (overMedian(car.x, car.z, pad)) onMedian += 1;
+
         if (car.state !== 'drive') continue;
         const line = (isXAxis(car.d) ? car.j : car.i);
+        const half = isXAxis(car.d) ? halfRoadX(line) : halfRoadZ(line);
         const off = Math.abs((isXAxis(car.d) ? car.z : car.x) - lineCoord(line));
-        furthestOut = Math.max(furthestOut, off + CAR_W / 2);
+        const edge = off + CAR_W / 2;
+        furthestOut = Math.max(furthestOut, edge);
+        wallGap = Math.min(wallGap, half + LOT_INSET - edge);
       }
     }
   }
@@ -4941,8 +5101,13 @@ check('the taxi is an ordinary car in the traffic array',
     `${insideBody} frames (${(100 * insideBody / armedFrames).toFixed(2)}% of armed)`);
   // The pull-over and the panic shove take the larger of the two rather than adding, precisely so
   // this holds — summed they reach 5.17 and put a wing through a wall.
-  check('nobody gets shoved into a building', furthestOut < FACADE,
-    `furthest body edge ${furthestOut.toFixed(2)} from the centreline, façades at ${FACADE.toFixed(2)}`);
+  // Vacuously true on a city with no arterials, so the run count is asserted beside it.
+  check('nothing but a passing taxi drives on a median',
+    onMedian === 0 && medians.length > 0,
+    `${onMedian} body-frames over one of ${medians.length} islands`);
+  check('nobody gets shoved into a building', wallGap > 0,
+    `closest body edge came within ${wallGap.toFixed(2)} of a façade, furthest `
+    + `${furthestOut.toFixed(2)} from a centreline`);
 }
 
 // --- The cruiser and a dug-up street ----------------------------------------
