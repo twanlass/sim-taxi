@@ -184,42 +184,52 @@ and a camera that answers all of it slides the map every time you pick a fare. I
 
 ### Loco Mode's push-in
 
-The frame tightens by **`LOCO_PUNCH = 0.84`** while Loco Mode is held, and eases back out on the
+The frame tightens by **`LOCO_PUNCH = 0.76`** while Loco Mode is held, and eases back out on the
 release. An orthographic camera has no field of view to widen, so the whole of "the lens reacts" is
-the frustum: everything on screen grows by 1 / 0.84 and the city crowds in. It is a change to the
+the frustum: everything on screen grows by 1 / 0.76 and the city crowds in. It is a change to the
 frame, not to the framing — the taxi stays at exactly the same place in the picture, because
 [the lead](#leading-the-car) is stated as a fraction of a half-frame and scales with it.
 
 **It answers a hold, never a tap.** Releasing mid-spend is a designed input — a short tap costs a
 short slice of fuel, see [boost.js](../src/game/boost.js) — so the pill gets jabbed constantly, and
 a push-in keyed on the press popped the frame on every one of them. `boost.heldSeconds()` is the
-clock and `LOCO_PUNCH_HOLD = 0.3s` is the line between the two gestures: a jab is over before it
-elapses and the frustum never moves at all. Once earned it survives the [momentum
+clock and `LOCO_PUNCH_HOLD = 0.25s` is the line between the two gestures: a jab is over before it
+elapses and the frustum never moves at all. That threshold is also **dead time between the press and
+the reaction**, which is why it is not larger: it is twice a touchscreen tap (80-120ms is typical,
+200ms a slow one), and under about 0.2s it stops being a gesture test and becomes a race. Once earned it survives the [momentum
 tail](traffic.md#boost-crazy-taxi-mode) (`isEngaged()`), so feathering the pill — letting go and
 grabbing it again inside the second the taxi is still at full tilt — holds the frame still instead
 of breathing it out and back in. Earning it always takes a hold, though: the latch can stay on through a tail,
 never switch on during one.
 
-**In quick, out slower — 5.0 and 2.4.** The rate is half of whether this is visible at all: the eye
-reads the *speed* of a scale change far more readily than its size. At 5.0 the push-in is 63% there
-in 0.2s and effectively done in 0.6s, so the steepest frame moves 1.3% of the picture at 60fps — a
-lunge, and still an order of magnitude off the 16% a cut would be. It lands under the wheelie and
-the flame, which is the beat it belongs to. The way out is half that speed on purpose: it rides the
-release, and a frame that sprang open as fast as it closed would be back at full width with the car
-still doing 30.
+**In hard, out on the car's own clock — 9 and 3.** The rate is half of whether this is visible at
+all: the eye reads the *speed* of a scale change far more readily than its size. At 9 the push-in is
+63% there in 0.11s and done inside 0.35s, so the whole move lands under the wheelie and the flame
+rather than arriving after them.
 
-> **It shipped at 0.93/2.2 first, and 0.93/2.2 was invisible** — 7% spread over 1.4s is 0.05% of the
-> frame per frame, under the threshold anything reads as motion, against a whole city already
-> sliding past under the follow-cam. Verified in a real browser at 390×844 rather than argued about:
-> the push-in was arriving in full and simply could not be seen. Both halves had to move — 16% eased
-> at the old rate is still 0.1% a frame.
+What stops that being a **cut** is that it still spans frames: the steepest frame at 60fps covers
+**14% of the move**, seven or so frames of travel. That fraction — not a percentage of the frame —
+is what `tools/probe.mjs` asserts, because it is the claim that survives the next retune. The way
+out is a third of the speed, and that one is not taste: it has to outlast the momentum window
+(`BOOST_COOLDOWN`, 1s) the taxi spends coasting its speed cap down, so the width comes back as the
+speed does. Any quicker and the frame is full-width with the car still doing 30, which reads as the
+mode ending early.
 
-**What bounds it is look-ahead**, since the lead is a fraction of the frame and shrinks with it: at
-the Loco Mode top on a portrait phone the road ahead goes from **124 world units to 104**, against
-the `GHOST_RADIUS = 46` at which a hidden car
+> **The depth and the rate are one decision, and it took three settings to land.** It opened at
+> 0.93/2.2, which was invisible: 7% spread over 1.4s is 0.05% of the frame per frame, under the
+> threshold anything reads as motion, against a whole city already sliding past under the follow-cam.
+> Verified in a real browser at 390×844 rather than argued about — the push-in was arriving in full
+> and simply could not be seen. 0.84/5 was visible and still read as gentle. Neither number does
+> anything alone: 24% dribbled out over a second is a frame that drifts, and 24% in one frame is a
+> cut.
+
+**What bounds the depth is look-ahead**, since the lead is a fraction of the frame and shrinks with
+it: at the Loco Mode top on a portrait phone the road ahead goes from **124 world units to 94**,
+against the `GHOST_RADIUS = 46` at which a hidden car
 [lights its outline](#nearby-traffic-ghost-outlines--gamecarghostsjs) and the `PITCH` of 20 between
-junctions. Five junctions of warning where there were six, and the outline still arrives with the
-car it is warning about a long way inside the frame.
+junctions. Still twice the warning radius and four junctions of road — but this is the one constant
+here with a **floor** under it rather than a preference: past about 0.6 the frame edge closes on the
+distance the outlines are warning at, and the mode starts hiding what it is about to hit.
 
 `punchZoom` sits **outside the priority list** below rather than in it: it decides how tight the
 frame is, not where it points, so it composes with whichever claim owns the target that frame — the
@@ -229,7 +239,7 @@ end-of-run focus, the two claims that set the zoom themselves.
 **It is narrow-only**, like the follows, and for a sharper reason than theirs: the desktop framing is
 *sideways*-tight, not vertically tight. Measured across 12 seeds, the city reaches **92.5% of the
 half-frame across a 4:3 desktop** at `PLAY_ZOOM` and only 77% of it up-screen — so the push-in would
-carry its edge to 110% and crop the map outright, permanently, since drag-to-pan is off above
+carry its edge to 122% and crop the map outright, permanently, since drag-to-pan is off above
 `NARROW_VIEWPORT`.
 
 `tools/probe.mjs` drives the gesture at 60fps against a real frustum, because neither half has a

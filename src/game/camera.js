@@ -62,42 +62,59 @@ const PEEK_HOLD = 0.9;
 // grows by 1 / LOCO_PUNCH and the city crowds in, which is the ortho equivalent of the push-in a
 // perspective rig would get for free.
 //
-// **It was 0.93 and 0.93 was invisible**, which is worth writing down because the arithmetic that
-// picked it is the arithmetic that hid it. 7% spread over the old 1.4s ease is 0.05% of the frame
-// per frame — under the threshold anything reads as motion at all, and it was competing with a
-// whole city already sliding past under a boosting follow-cam. Verified in a real browser at
-// 390×844 rather than argued about: the push-in was arriving in full and simply could not be seen.
-// The two halves of the fix are this constant and PUNCH_IN_RATE below, and neither works alone —
-// 16% eased at the old rate is still 0.1% a frame.
+// **It opened at 0.93 and 0.93 was invisible**, which is worth writing down because the arithmetic
+// that picked it is the arithmetic that hid it. 7% spread over a 1.4s ease is 0.05% of the frame per
+// frame — under the threshold anything reads as motion at all, and it was competing with a whole
+// city already sliding past under a boosting follow-cam. Verified in a real browser at 390×844
+// rather than argued about: the push-in was arriving in full and simply could not be seen. 0.84 at
+// rate 5 was visible and still read as gentle. This is the third setting and the first that reads
+// as a *lunge*, which is what the mode is for.
 //
-// What bounds it is look-ahead. The follow's lead is a *fraction of the frame* (see LEAD_FRACTION),
-// so a tighter frame buys fewer world units of road ahead by exactly the same 16%. Measured at the
-// boost top on a portrait phone: **124 world units of road ahead become 104**, against the
-// GHOST_RADIUS of 46 at which a hidden car lights its outline (game/carghosts.js) and the PITCH of
-// 20 between junctions. Five junctions of warning, where there were six.
-export const LOCO_PUNCH = 0.84;
+// The depth and PUNCH_IN_RATE below are one decision, not two — 24% dribbled out over a second is
+// back to a frame that drifts, and 24% in a single frame is a cut. Neither number means anything
+// without the other.
+//
+// What bounds the depth is look-ahead. The follow's lead is a *fraction of the frame* (see
+// LEAD_FRACTION), so a tighter frame buys fewer world units of road ahead by exactly the same 24%.
+// Measured at the boost top on a portrait phone: **124 world units of road ahead become 94**,
+// against the GHOST_RADIUS of 46 at which a hidden car lights its outline (game/carghosts.js) and
+// the PITCH of 20 between junctions. Still twice the warning radius and four junctions of road, but
+// this is the constant with a floor under it rather than a preference — past about 0.6 the frame
+// edge closes on the distance the outlines are warning at, and the mode starts hiding what it is
+// about to hit.
+export const LOCO_PUNCH = 0.76;
 
 // How long the button has to stay down before the frame answers it. **A tap must not move the
 // camera.** Releasing mid-spend is a designed input — a short tap costs a short slice of fuel — so
 // the pill gets jabbed constantly, and a camera keyed on the press popped the frame on every one of
 // them. Keyed on the hold instead, a tap is over before this elapses and the frame never moves.
 //
-// 0.3s is past any jab and under any deliberate hold: the press that *means* Loco Mode is the one
-// the player is still leaning on when the taxi starts pulling.
-export const LOCO_PUNCH_HOLD = 0.3;
+// It is also dead time between the press and the reaction, and the reaction got quick enough for
+// that wait to be the slowest part of it — so 0.3 came down to 0.25, which is still twice a
+// touchscreen tap (80-120ms is typical, 200ms is a slow one) and leaves the press that *means* Loco
+// Mode — the one the player is still leaning on as the taxi starts pulling — comfortably past it.
+// Below about 0.2 this stops being a gesture test and starts being a race, and the deeper the
+// push-in gets the more a false trigger costs.
+export const LOCO_PUNCH_HOLD = 0.25;
 
-// In quick, out slower. **The rate is half of whether this is visible at all** — a push-in is a
-// change of scale, and the eye reads the *speed* of one far more readily than its size, which is
-// how the first version managed to arrive in full and still go unnoticed. At 5.0 it is 63% there in
-// 0.2s and effectively done in 0.6s: the steepest frame moves 1.3% of the picture at 60fps, which
-// is a lunge and still an order of magnitude off the ~16% a cut would be. It lands under the
-// wheelie and the flame, which is the beat it belongs to.
+// In hard, out on the car's own clock. **The rate is half of whether this is visible at all** — a
+// push-in is a change of scale, and the eye reads the *speed* of one far more readily than its
+// size, which is how the first version managed to arrive in full and still go unnoticed. At 9 it is
+// 63% there in 0.11s and done inside 0.35s, so the whole move lands under the wheelie and the flame
+// rather than arriving after them, which is the beat it belongs to.
 //
-// The way out is deliberately half that speed. It rides the release, which is the second the taxi
-// is coasting its speed cap back down (BOOST_COOLDOWN in game/boost.js) — a frame that sprang open
-// as fast as it closed would be back at full width with the car still doing 30.
-const PUNCH_IN_RATE = 5.0;
-const PUNCH_OUT_RATE = 2.4;
+// **What stops that being a cut is that it still spans frames.** The steepest frame at 60fps covers
+// 14% of the move — seven or so frames of travel, which the eye tracks as a move rather than a jump
+// — and that fraction is what `tools/probe.mjs` asserts, since it is the claim that survives the
+// next retune. A cut is one frame covering the lot.
+//
+// The way out is a third of that, and it is not a matter of taste: it has to outlast the momentum
+// window (BOOST_COOLDOWN, 1s in game/boost.js) that the taxi spends coasting its speed cap back
+// down. At 3 the frame is ~95% open at the second, so the width comes back as the speed does. Any
+// quicker and the frame is back at full while the car is still doing 30, which reads as the mode
+// ending early.
+const PUNCH_IN_RATE = 9;
+const PUNCH_OUT_RATE = 3;
 // Below this the ease is finished: snapped to the target so a resting frame is bit-for-bit the
 // plain one — an exponential never actually arrives, and a frustum left 0.01% tight for the rest of
 // the run is a repaint every frame forever — and so `punchZoom` stops repainting. The snap itself

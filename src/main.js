@@ -1814,7 +1814,7 @@ function frame() {
   // Narrow-only, like the follows, and for a sharper reason than theirs: the desktop framing is
   // *sideways*-tight, not vertically tight. Measured across 12 seeds, the city reaches 92.5% of the
   // half-frame across a 4:3 desktop at PLAY_ZOOM (only 77% of it up-screen), so the push-in would
-  // carry its edge to 110% and crop the map outright — with drag-to-pan switched off up there,
+  // carry its edge to 122% and crop the map outright — with drag-to-pan switched off up there,
   // permanently. And it gives way to the two claims that set the zoom
   // themselves, the opening vignette and the end-of-run focus; neither can be up while the player
   // is holding the pill, but both would fight it if they were.
