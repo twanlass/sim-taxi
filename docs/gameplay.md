@@ -1277,6 +1277,18 @@ rider who gave up on the kerb walks off *along* it, on one axis, staying at thei
 distance from the road; one who jumped out mid-street runs at the kerb corner of the junction the
 taxi is at and no further than it.
 
+**An ordinary fare's clock running out plays the same thing**, and it is the closing shot of the run.
+The endings a wreck and a bust get are events happening to the taxi; this one had nothing to look at,
+so the camera used to pull in on the corner that was never reached and hold on a pin. It now pulls in
+on the rider walking out on you — the same `beginBail`, from the same call site, with the run ending
+around it — and the retry screen waits for the whole 2.2 seconds of it
+([rendering.md](rendering.md#the-closing-shot) has the timing arithmetic, which is not trivial: the
+delay is wallclock and the bail is in sim time under a slow-mo ramp). Two things differ from a missed
+VIP, both of them because the run is over rather than carrying on: the drop-off ring is left standing
+instead of hidden, so a trip that died within sight of its corner has both in frame; and
+`fares.update` keeps ticking `updateExits` past `gameOver`, which is the only reason the animation
+plays at all.
+
 Rare on purpose — a cooldown (`VIP_COOLDOWN`) plus a per-opportunity chance (`VIP_CHANCE`), checked
 only when the board is about to refill and no other VIP is already on it. Both are tuned against
 the fare soak (`tools/soak.mjs`): frequent enough to be a real event, not so frequent that

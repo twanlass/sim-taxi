@@ -371,23 +371,36 @@ ones, because it is a cut scene rather than a driving aid. Only three numbers di
 |---|---|---|---|---|
 | **Wrecked** | the impact point | 26 | 0.18 | 2600ms |
 | **Busted** | the taxi, so the cruiser swings into a held shot | 26 | 0.42 | until the cop pulls up, 3400–4800ms |
-| **Too Slow** | `fares.state.failSpot` — the corner the expired clock was counting down to | 30 | 0.40 | 2400ms |
+| **Too Slow** | `fares.state.failSpot` — wherever the rider gets out | 30 | 0.40 | 3000ms |
 
 The timeout is the odd one out and it is what the third row is for: nothing happens *to the taxi*, so
-there is no impact to point at. What failed is a **place** — the drop-off ring the rider never
-reached, or the kerb they gave up waiting on — and `fares.js` names it (`state.failSpot`) rather than
-main.js guessing, because `fare.target` is already whichever end of the trip was still owed. It is the
-**pavement corner**, not the junction centre: that is where the pin and its ring actually stand, and
-at this zoom the difference is the subject sitting several units off frame centre.
+there is no impact to point at. What it has instead is the **rider**, who gets out and goes — the
+`beginBail` animation a missed VIP has always had, reused verbatim for the ending
+([gameplay.md](gameplay.md#they-leave-and-they-let-you-know)): out of the cab, `%#&@!!` overhead, a
+fast run and a fade. `fares.js` names where that happens (`state.failSpot`) rather than main.js
+guessing, because it is the same call that starts the bail. A rider aboard gets out at the **taxi**;
+one who gave up waiting walks off their own **pavement corner** — the corner, not the junction
+centre, because that is where the pin and its ring actually stand, and at this zoom the difference is
+the subject sitting several units off frame centre.
 
-Which is also why the fare system **leaves that one pin standing** where a wreck clears the whole
-board — a two-second pull-in onto a junction that has just been emptied is a shot of nothing. The
-rest of the board still goes, and the expired fare still leaves `state.fares`, so nothing keeps
-ticking.
+It used to aim at the *drop-off* for a rider aboard — "here is the corner you didn't reach" — with
+that one pin left standing while the rest of the board cleared. The corner is no longer the event:
+the rider throwing the door open is, and a shot held a block away from it frames a stopped taxi with
+nobody in it. The ring at the far end is still left standing (`keepDestination` on `beginBail`), so
+the usual way this goes — a trip that died within sight of the corner it was owed — has both in
+frame. The rest of the board still goes, and the expired fare still leaves `state.fares`, so nothing
+keeps ticking.
+
+**The banner delay is sized off that animation, in sim time rather than its own.** `BAIL_SECONDS` is
+2.2 and the delay is wallclock, so the slow-mo ramp has to be integrated to compare them: its first
+`SLOW_MO_DURATION` = 2100ms averages a scale of (0.4 + 1) / 2 and spends 1.47s of sim, and the
+remaining 0.73s runs at 1.0 — so the bail is ~2830ms on the clock and 3000 clears it with a beat to
+spare. At the old 2400 the retry screen slid over a rider still running. `fares.update` also keeps
+ticking `updateExits` past `gameOver` for this; without that the bail freezes on its first frame.
 
 The taxi **stops** for it, exactly as it does for a bust (`crashed`, the flag every loop in
 `traffic.js` already skips): the run is over, and a car still driving a route to a fare that no
-longer exists — through the very ring the shot is holding on — argues with the ending being shown.
+longer exists — out from under the rider climbing out of it — argues with the ending being shown.
 
 Shallower slow-mo than a wreck and a wider stop on the zoom, both for the same reason: there is no
 blast to stretch out and nothing on its way in, so the beat is a *held look* rather than a replay. At
