@@ -8577,6 +8577,53 @@ let chopperOrder; // likewise
       `${shutAgain.lo.toFixed(2)} → ${shutAgain.hi.toFixed(2)}`);
   }
 
+  // --- The player's skip: a tap during the sequence, from behind the cut to black in game/wipe.js.
+  //
+  // Same handover as `settle` — that is what the two sharing a path is for — plus the one thing
+  // `settle` has no reason to do. `?vignette=off` lands the module before the shot has gone
+  // anywhere; a tap lands it with the camera fifteen units off a garage door, and a skip that left
+  // it there would end on the close-up it was asked to escape. The snap is only invisible because
+  // it happens under the black, and neither half of that can be seen from here — what *is*
+  // checkable is that the framing ends up exactly where the run plays from.
+  {
+    const controller = createCityCamera(1.6, { zoom: PLAY_ZOOM });
+    const rest = { x: 0, z: 0 };
+    const opening = createOpening({
+      site,
+      setDoor: garage.setDoor,
+      taxi: traffic.taxi,
+      taxiGroup: traffic.taxiGroup,
+      cars: traffic.cars,
+      controller,
+      aspect: () => 1.6,
+      playZoom: PLAY_ZOOM,
+      restFraming: () => rest,
+    });
+    // Two seconds in, which is the door winding up: the sequence is well past `wait`, the shot is
+    // down on the door, and this is the state a tap actually interrupts.
+    for (let i = 0; i < 120; i++) { opening.update(1 / 60); opening.frameCamera(1 / 60); }
+    const onDoor = { zoom: controller.state.zoom, x: controller.state.target.x };
+    check('the vignette has the camera down on the door two seconds in',
+      opening.holdsCamera() && onDoor.zoom < PLAY_ZOOM * 0.5,
+      `phase ${opening.phase()}, zoom ${onDoor.zoom.toFixed(1)}`);
+
+    opening.skip();
+    check('...and a tap skips it onto the merge lane, exactly as settling does',
+      !opening.running() && !traffic.taxi.staged && traffic.taxi.kerbLift === 0
+      && Math.hypot(traffic.taxi.lane.path.at(traffic.taxi.s).x - end.x,
+        traffic.taxi.lane.path.at(traffic.taxi.s).z - end.z) < 1e-9);
+    // Snapped, not left easing: the frame after the skip is the framing the run plays at, so
+    // nothing downstream has a second of zoom to spend getting out of the depot.
+    check('...with the camera put where the run plays from',
+      Math.abs(controller.state.zoom - PLAY_ZOOM) < 1e-9
+      && Math.hypot(controller.state.target.x - rest.x, controller.state.target.z - rest.z) < 1e-9
+      && Math.abs(onDoor.x - rest.x) > 1,
+      `zoom ${onDoor.zoom.toFixed(1)} → ${controller.state.zoom.toFixed(1)}, `
+      + `target x ${onDoor.x.toFixed(1)} → ${controller.state.target.x.toFixed(1)}`);
+    check('...and the camera handed back with it',
+      !opening.holdsCamera());
+  }
+
   // --- Can the camera see the door?
   //
   // Nine points across the opening, each fired along VIEW_DIR through the real merged city — the

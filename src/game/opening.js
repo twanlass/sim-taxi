@@ -20,8 +20,10 @@ import { aimAtHeight } from './camera.js';
 // coming off the kerb is not animated here; it is one impulse into the pitch spring that was
 // already there, and the spring does the rest.
 //
-// The whole sequence is about seven seconds — see the phase table in docs/gameplay.md. Two things
-// it deliberately does *not* do, both because neither would read in that time:
+// The whole sequence is about seven seconds — see the phase table in docs/gameplay.md — and a tap
+// on the city gets out of it: `skip()` below, which main.js runs behind the cut to black in
+// game/wipe.js. Two things it deliberately does *not* do, both because neither would read in that
+// time:
 //   - it does not steer around traffic. It waits for a gap at the kerb (`mergeClear`) and it gives
 //     up waiting after HOLD_MAX, because a run that will not start is worse than a near miss.
 //   - it does not brake for the junction it hands off short of. `releaseCar` puts the taxi on the
@@ -376,6 +378,30 @@ export function createOpening({
     finish();          // which shuts the door: the car is out, so the depot is shut up behind it
   }
 
-  return { update, frameCamera, holdsCamera, settle, running: () => phase !== 'done',
+  /**
+   * The player's skip — a tap during the sequence, from behind a black screen (see game/wipe.js).
+   *
+   * `settle` plus the camera, and the camera is the whole of the difference. `?vignette=off` lands
+   * the module before the shot has moved anywhere, so there is nothing to put back; a tap lands it
+   * from wherever the sequence had got to, which is fifteen units off a garage door. Left alone,
+   * the frame after the skip is a close-up of a shut shutter with the taxi already two blocks away,
+   * and whatever picks the framing up next spends a second easing out of it — the wait the player
+   * just asked to be let out of.
+   *
+   * So the framing is *snapped*, not eased: `focusOn` with a dt large enough to close the ease
+   * exactly, the same 999 the route band settles itself with. It is only legitimate because it
+   * happens under the black — this is a cut, and a cut is allowed to move the camera anywhere.
+   *
+   * `restFraming()` is read *after* the handover, since on a phone it is the taxi's own position
+   * and the settle above is what puts the car on the road.
+   */
+  function skip() {
+    if (phase === 'done') return;
+    settle();
+    const rest = restFraming();
+    controller.focusOn(rest.x, rest.z, playZoom, 999, aspect());
+  }
+
+  return { update, frameCamera, holdsCamera, settle, skip, running: () => phase !== 'done',
     phase: () => phase };
 }
