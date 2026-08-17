@@ -1151,6 +1151,129 @@ export function steerToward(angle, yaw, prevYaw, ds, wheelbase = WHEELBASE) {
     Math.atan((wheelbase * dYaw) / ds) * STEER_GAIN));
   return angle + (target - angle) * Math.min(1, ds / STEER_EASE);
 }
+
+// --- The fish tail out of a corner
+//
+// Loco Mode leaves a junction with the power already back on, and what a car does at that moment
+// is step its tail out and wag it straight again. It is the one part of driving like a maniac the
+// weave cannot say: the weave is a *steering* input — the offset is a function of distance, so its
+// slope is the angle the wheels are turned to and the body stays pointed along its own path. This
+// is the opposite, the car **not** going where it is pointed, which is why it composes as a slip
+// angle and not as another lane-relative offset (see the render pass, and `setTaxiSteer` for the
+// opposite lock that goes with it).
+//
+// Paced by distance, like the weave, the hop and the front-wheel ease: the same gesture has to
+// come out of a corner taken at cruise and one taken at the overdrive top. It runs 14 units, which
+// is 0.75s at boost speed and about a block of road.
+//
+// **The shape is a mass losing its energy, not a wave with a fader on it.** The first pass was a
+// plain sine under a `(1 - t)²` envelope and it read as a mechanical wag, for two reasons that are
+// really the same reason: every lobe was the same *width*, and the second came back at 46% of the
+// first. Nothing about that says the car has weight — a metronome running down is not a car
+// getting hold of itself. Two changes fix it, and both are the physics rather than a tweak:
+//
+//   - **The decay is exponential**, which is what a damped mass actually does, rather than
+//     polynomial. Renormalised so it still reaches exactly zero at the end — the expiry matters
+//     (see the advance in the taxi block), and an exponential never gets there on its own.
+//   - **The period lengthens as the energy goes.** `θ` is `∫ du / (WAVE · (1 + u/STRETCH))`, which
+//     integrates to a log, so the local wavelength grows linearly from WAVE at the corner exit.
+//     The tail therefore *breaks away fast and comes back slow*: the first lobe rises over 1.5
+//     units and takes 2.8 to return, where the old symmetric sine spent 1.7 and 2.3.
+//
+// Together they put the lobes at 16.3° / −4.4° / 0.3° — 100% / 27% / 2% — against the old
+// 100% / 46% / 13%. The second whip is now a wide, shallow settle rather than a second wag.
+//
+// Sized against the room the weave was sized against: half a car body (0.85) sits 1.15 from the
+// kerb with the lane centre 2 away, and the weave's two waves already spend 0.52 of that. Rather
+// than split the budget, the weave is faded out under the fish tail and back in as it dies (see
+// the `1 - env` in the taxi block), so what the corner exit costs is the tail's own sweep: the
+// back corner of the body swings `CAR_LEN/2 · sin` past the centre, 0.48 units at the first lobe.
+// Netted against the weave's fade, the body corner comes within 0.58 of the kerb against 0.78 with
+// the tail switched off, and 0.47 is what the same taxi manages weaving down an ordinary straight,
+// which is the number that says this is not the widest thing on the road. Amplitude is what spends
+// it: sweeping the first lobe, the clearance goes 0.67 / 0.61 / 0.56 / 0.51 at 8.6 / 11.2 / 13.8 /
+// 16.3° under the old symmetric shape, and 0.32 at 26°, which is where the probe's floor of 0.4
+// starts calling it. This shape buys 0.07 of that back at the same first lobe, because what
+// actually reaches for the kerb is the *second* whip and this one is barely half the size.
+const FISHTAIL_YAW = 0.44;    // radians the wave is scaled by; the first lobe peaks at 16.3°
+const FISHTAIL_WAVE = 7;      // units of road in the *first* wag — they get longer from there
+const FISHTAIL_LEN = 14;      // units of road it decays over
+// How hard it is damped, as an e-folding count over that length: 3.4 puts the second whip at 27%
+// of the first. Under 2.5 it reads as the old metronome again and over about 4.5 there is no
+// second whip left to see, only a kick and a stop.
+const FISHTAIL_DAMP = 3.4;
+// Where the last of the envelope is chopped off so it reaches zero rather than approaching it.
+// Derived, never tuned — it is only `exp(-DAMP)`, named because it appears twice.
+const FISHTAIL_FLOOR = Math.exp(-FISHTAIL_DAMP);
+// Units of road over which the wag's period doubles. Smaller is a car that settles more slowly the
+// further it gets from the corner, which is the wrong way round past about 5: the tail ends up
+// swinging so lazily that the third lobe never arrives and the second reads as a drift, not a wag.
+const FISHTAIL_STRETCH = 9;
+// Swung about the **front axle** rather than about the body centre, which is the whole difference
+// between a tail stepping out and a car sliding sideways bodily: the nose holds the line it is
+// driving and the back end is what moves. The body centre is what `car.x/z` name, so the rotation
+// has to be paid for with a lateral offset of `-pivot · slip` — half a wheelbase, since the
+// anchors sit at ±0.3·CAR_LEN either side of centre.
+const FISHTAIL_PIVOT = WHEELBASE / 2;
+// Units of road it still counts as sliding for, for the rubber it lays. Just past the second lobe:
+// the third is a settle, not a slide, and a streak that runs to the last frame of the decay reads
+// as a car that never got hold of itself.
+const FISHTAIL_RUBBER = 9;
+// The one departure from "distance, not a clock", and it is a floor rather than a pace: a frozen
+// weave is a car parked slightly off the lane centre, which is nothing, but a frozen fish tail is
+// a car parked diagonally across its own lane, which reads as a bug. 6 u/s straightens one out
+// inside 2.3s if the taxi is stopped dead by the car in front on the way out of the corner.
+const FISHTAIL_UNWIND = 6;
+// The lean, and it is **a mass on springs rather than a multiple of the slip**. That distinction is
+// the single biggest thing that makes the tail read as weight instead of as animation: a body that
+// leans in the same frame the tail steps out is a rigid diagram, and the whole tell of a real car
+// getting loose is that the body arrives *late* and leaves *later*. Measured on this spring, the
+// lean peaks 183ms after the slip does, crosses back through level 317ms after it, and is still
+// leaning 1.03s in — a quarter of a second after the tail itself has finished.
+//
+// A second-order spring, the same form as the pitch spring further down and for the same reason:
+// what is being modelled is suspension travel, which happens in *seconds*, so this one is on a
+// clock and not on the odometer. K = 35 is 0.94 Hz, which is where a real car's roll mode sits,
+// and ζ = 0.46 leaves it underdamped enough to come back through level rather than creeping to it.
+//
+// The gain is 2.2 rather than 1 because the spring eats most of the input: the slip's first lobe
+// rises in 0.08s and a 0.94 Hz body cannot follow that, so a gain of 1 lands a 10° lean under a
+// 16.3° slip. 2.2 puts the *peak* back at 15.6°, and everything the lag buys is kept.
+//
+// Not speed-scaled, unlike the corner lean and the lane change either side of it in the roll
+// block. Those are things any car does at any speed; this one only ever happens at the boost top,
+// so a `v / SPEED` factor here is a variable that never varies.
+const FISHTAIL_ROLL_GAIN = 2.2;
+const FISHTAIL_ROLL_K = 35;
+const FISHTAIL_ROLL_DAMP = 5.5;
+
+/**
+ * The fish tail as a function of distance driven since the corner was left (`u`, world units).
+ * Returns the slip angle carrying the *wave's* own sign — it alternates, that is the wag — with
+ * the hand of the corner left to the caller, and the envelope it rides on, which is what the weave
+ * is faded against and what decides how far the rubber runs.
+ */
+export function locoFishtail(u) {
+  const t = u / FISHTAIL_LEN;
+  // `!(t >= 0)` rather than `t < 0` so a NaN reads as "not fishtailing" instead of poisoning a
+  // yaw with it. Infinity — the value a car that has never fishtailed carries — fails `t < 1`.
+  if (!(t >= 0) || t >= 1) return { yaw: 0, env: 0 };
+  // Exponential, shifted and rescaled so it is still 1 at the corner and exactly 0 at the end.
+  const env = (Math.exp(-FISHTAIL_DAMP * t) - FISHTAIL_FLOOR) / (1 - FISHTAIL_FLOOR);
+  // The angle, not the distance, is what the wave is a function of — and the angle advances more
+  // slowly the further out the tail gets, which is the wag losing its energy. See the block above.
+  const theta = ((Math.PI * 2) / FISHTAIL_WAVE) * FISHTAIL_STRETCH
+    * Math.log(1 + u / FISHTAIL_STRETCH);
+  return { yaw: FISHTAIL_YAW * env * Math.sin(theta), env };
+}
+
+/**
+ * Whether the tail is still out far enough to be laying rubber. Exported because the effect pools
+ * live on the game side — `main.js` stamps the marks — and this is the one place the length of the
+ * slide is written down.
+ */
+export const isFishtailing = (car) => car.slideDist < FISHTAIL_RUBBER;
+
 function carGeometry() {
   // Body is left white so the per-instance colour tints it; the glass is dark enough that the
   // same multiply leaves it dark whatever colour the car is.
@@ -1474,6 +1597,18 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       prevTravelled: 0,
       swerve: 0,       // 0..1 envelope on the Loco Mode weave, faded in and out with the boost
       swervePhase: 0,  // distance driven straight, the weave's argument — see SWERVE_* above
+      // The fish tail out of a corner — see locoFishtail(). `slideDist` is the distance driven
+      // since the tail was kicked out, Infinity until a boosting taxi first leaves a real turn;
+      // `slideDir` is the hand of that turn (+1 right, −1 left, the same sign the body roll uses);
+      // `slideYaw` is the slip angle the two resolve to, which the render pass, the front wheels
+      // and the rubber all read. Only the taxi ever fishtails — nothing else in traffic boosts.
+      slideDist: Infinity,
+      slideDir: 0,
+      slideYaw: 0,
+      // And the lean it drives, which is a spring rather than a multiple of the slip — see
+      // FISHTAIL_ROLL_GAIN. Its own state, because a spring has to remember where it was.
+      slideRoll: 0,
+      slideRollV: 0,
       // Overtaking. `pass` is 0 in lane and 1 out in the oncoming lane, paced by distance like
       // the weave; `passing` is whether the taxi is currently committed, which is what suppresses
       // the leader brake and the scatter that would otherwise outrun it. Ambient cars never pass.
@@ -1601,6 +1736,11 @@ export function stageCar(car, x, z, yaw) {
   car.parked = false;
   car.lateral = 0;
   car.steer = 0;
+  car.slideDist = Infinity;
+  car.slideDir = 0;
+  car.slideYaw = 0;
+  car.slideRoll = 0;
+  car.slideRollV = 0;
   car.pass = 0;
   car.passing = false;
   car.passTarget = null;
@@ -2273,8 +2413,40 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         taxi.swerve += Math.sign(delta) * Math.min(Math.abs(delta), ds / loco.fade);
       }
 
+      // The fish tail out of the last corner, armed where the turn completed. Two things differ
+      // from the weave above it, and both are because this is a one-shot rather than a state:
+      //
+      // It advances in **every** state. The weave's phase freezes mid-turn so a corner ends on the
+      // offset it started on; this one has to *expire*, and on a 20-unit grid the next junction
+      // arrives well inside the 14-unit decay often enough that freezing it would carry a cocked
+      // tail into the next arc and let it out again on the far side.
+      //
+      // And the pace has a floor under it — see FISHTAIL_UNWIND for why a fish tail, unlike a
+      // weave, must not be allowed to freeze at all.
+      if (taxi.slideDist < FISHTAIL_LEN) {
+        taxi.slideDist += Math.max(taxi.v, FISHTAIL_UNWIND) * dt;
+      }
+      const fish = locoFishtail(taxi.slideDist);
+      // Applied only on the straight: mid-junction the yaw belongs to the Bézier arc, the same
+      // rule the weave's share of the steering follows four lines down.
+      taxi.slideYaw = taxi.state === 'drive' ? -taxi.slideDir * fish.yaw : 0;
+
+      // The lean the slip drives, chasing it rather than tracking it — the body is a mass on
+      // springs and arrives late. Integrated here rather than in the render pass because a spring
+      // needs `dt`, and stepped on **every** frame, including the ones with no slip at all: a
+      // target of zero is how it settles, and skipping those frames would freeze the body at
+      // whatever lean the tail left it at. See FISHTAIL_ROLL_GAIN for the constants and the lag.
+      const rollTarget = FISHTAIL_ROLL_GAIN * taxi.slideYaw;
+      taxi.slideRollV += ((rollTarget - taxi.slideRoll) * FISHTAIL_ROLL_K
+        - taxi.slideRollV * FISHTAIL_ROLL_DAMP) * dt;
+      taxi.slideRoll += taxi.slideRollV * dt;
+
+      // The weave gets out of the way while the tail is out and comes back as it dies, rather
+      // than the two splitting the 1.15 units of play between the lane centre and the kerb. They
+      // are also the same gesture told twice — a wander laid over a slide reads as neither — and
+      // the fade is what makes the corner exit one event.
       const wave = locoWeave(taxi.swervePhase);
-      taxi.lateral = taxi.swerve * wave.lateral;
+      taxi.lateral = taxi.swerve * wave.lateral * (1 - fish.env);
 
       // Point where it is sliding. Without a yaw offset the car crabs — translating sideways
       // across the road while still aimed straight down it — and that is what read as broken
@@ -2283,7 +2455,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // nothing to divide by v here: atan(0.40·k1 + 0.12·k2) ≈ 12° at the peak, against the 13°
       // the old lane change held. Mid-corner the yaw belongs to the arc, so the weave's share of
       // it eases out; the 0.1s ease is only so the wheel straightens instead of snapping.
-      const slope = taxi.state === 'drive' ? taxi.swerve * wave.slope : 0;
+      const slope = taxi.state === 'drive' ? taxi.swerve * wave.slope * (1 - fish.env) : 0;
       taxi.steer += (Math.atan(slope) - taxi.steer) * Math.min(1, dt / 0.1);
     }
 
@@ -3194,6 +3366,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             continue;
           }
 
+          // Out of the corner with the power still down: kick the tail out. Gated on a *real*
+          // turn — `hand === 'straight'` is a car crossing a junction, which is most of the
+          // `state === 'turn'` frames in the city and has nothing to slide out of — and on the
+          // button still being held, so this is a Loco Mode flourish and not something an ambient
+          // car can do. Read before `car.turn` is cleared, two lines down. See locoFishtail().
+          if (car.isTaxi && car.boost && car.turn.hand !== 'straight') {
+            car.slideDist = 0;
+            car.slideDir = car.turn.hand === 'right' ? 1 : -1;
+          }
+
           car.lane = exitLane;
           car.s = 0;                 // the exit point is where the landing lane begins
           car.turn = null;
@@ -3254,7 +3436,13 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // field. Keeping them apart matters: the weave's yaw is eased toward its target every
       // frame, and folding a 4-unit lane change into that eased value would have the ease drag
       // the car back out of the pass.
-      const lateral = car.lateral + car.passOffset;
+      //
+      // The fish tail rides in here as well, but as a *consequence* rather than as an offset of
+      // its own: swinging the body about its front axle moves the centre — which is what x/z name
+      // — by `pivot · slip` the other way. Small, 0.29 units at the first lobe against the weave's
+      // 0.52, and it has to be here rather than folded in with the yaw below because the basis is
+      // the unsteered heading.
+      const lateral = car.lateral + car.passOffset - FISHTAIL_PIVOT * car.slideYaw;
       if (Math.abs(lateral) > 0.001) {
         car.x -= Math.sin(car.yaw) * lateral;
         car.z -= Math.cos(car.yaw) * lateral;
@@ -3281,6 +3469,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       car.prevTravelled = car.travelled;
       car.wheelAngle = steerToward(car.wheelAngle, car.yaw, car.prevSteerYaw, ds);
       car.prevSteerYaw = car.yaw;
+
+      // The fish tail goes on *here*, below the differencer and above the panic wobble, and it is
+      // in that company for the wobble's reason rather than the weave's: the body swinging out
+      // from under the driver is not the driver turning the wheel, so it must not be read back as
+      // a steering angle. `prevSteerYaw` is already banked one line up, so next frame's difference
+      // sees the path and not the slide. The wheels get the correction a driver actually makes
+      // instead — opposite lock, over in `setTaxiSteer`.
+      if (car.slideYaw) car.yaw += car.slideYaw;
 
       // Panic offset: shove kerb-ward and jitter the yaw when the siren is close. The taxi is
       // skipped in panicTargetFor(), so this only ever fires on ambient traffic. Skipped mid-turn
@@ -3337,6 +3533,32 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           roll = -turnDir * lean * Math.sin(Math.PI * Math.min(1, along01));
         }
       }
+
+      // And the fish tail leans, on the same side and for the same reason: the corner's lean is a
+      // `sin` that has just returned to zero at the exit, and this picks it straight back up as
+      // the tail comes round — the body still loaded up, then transferring across as the tail wags
+      // back the other way.
+      //
+      // Read off `slideRoll` rather than off the slip, because it is a spring and it lags: the
+      // lean peaks a fifth of a second after the tail is out and is still leaning a third of a
+      // second after the car has straightened. Sign needs no `turnDir` of its own — out of a
+      // right-hander the slip is negative (the body rotating further into the turn), which is the
+      // sign the corner's outward lean already had, and the spring keeps it.
+      //
+      // Added rather than gated on `state`, unlike the corner lean above: the settle outlasts the
+      // slide, so on a 20-unit grid at boost speed it is still unwinding when the next corner
+      // starts. Measured over eight cities that carry-over is **12.2° to 13.7°** on the frame a
+      // corner is entered, and the spring reaches 18° to 26° of its own out on the straight, where
+      // consecutive corners re-excite it before it has finished — against the 15.5° one fish tail
+      // is worth in isolation.
+      //
+      // That stacks onto the corner lean, and the ceiling is what to watch rather than the sum:
+      // total rendered roll tops out at 40.2° to 41.4° against the 35.7° a corner leans on its
+      // own. It is deliberately not clamped. A body that has not finished with the last corner
+      // when the next one arrives is the right answer — it is the same thing a rally driver is
+      // exploiting — and it is only reachable on a corner-to-corner sequence taken flat out. The
+      // probe holds the ceiling under 45° so it cannot creep up unnoticed.
+      if (car.slideRoll) roll += car.slideRoll;
 
       // And the lane change leans too — but the *other way* from the corner above it, and that is a
       // deliberate call rather than a sign slip, so it is worth pinning down before someone
@@ -3471,7 +3693,18 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // note there: with the default order the roll is applied about the *world* X axis, which
         // only doubles as the car's own axis when it happens to be driving east.
         taxiGroup.rotation.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER);
-        setTaxiSteer(car.wheelAngle);
+        // Opposite lock. The fish tail is the body swinging out from under the driver, so the
+        // wheels stay pointed down the *path* — which is the lock the differencer already worked
+        // out, less the slip angle the body took on top of it. Coming out of a right-hander that
+        // flicks them from right lock through to left in about a fifth of a second, which is the
+        // gesture that says "caught it" rather than "spun".
+        //
+        // Not folded into `car.wheelAngle`, and that is not a style choice: the field is an
+        // accumulator that `steerToward` eases *from*, so a correction written into it would be
+        // dragged into the next frame's ease and never let go of. On the same STEER_GAIN and the
+        // same clamp as every other angle, so a catch reads at full lock the way a corner does.
+        setTaxiSteer(Math.max(-STEER_MAX, Math.min(STEER_MAX,
+          car.wheelAngle - car.slideYaw * STEER_GAIN)));
         setTaxiLights(car.brakeLevel, car.turnLeftLevel, car.turnRightLevel);
         continue;
       }

@@ -24,7 +24,7 @@ import {
 import { createGarage, garageSite } from '../src/city/garage.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
-  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
+  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, locoFishtail } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
@@ -941,6 +941,10 @@ check('no two cars occupy the same space', worst > 1.6,
     `${cockedOnStraight} frames still cocked`);
   check('the front wheels never pass full lock', maxLock <= STEER_MAX + 1e-6,
     `${asDeg(maxLock)} peak`);
+  // The exact equality holds because nothing here is boosting. The one thing that separates the
+  // rendered lock from `car.wheelAngle` is the opposite lock taken against a fish tail, which is
+  // added on the way to the rig and deliberately never written back into the field — see the note
+  // by `setTaxiSteer` in traffic.js, and the fish tail checks further down for the other half.
   check('the taxi\'s own front wheels are steered too',
     taxiLock > 0.2 && Math.abs(rigLock - taxiLock) < 1e-9,
     `rig ${asDeg(rigLock)} vs model ${asDeg(taxiLock)}`);
@@ -2845,6 +2849,263 @@ check('no two cars occupy the same space', worst > 1.6,
     `widest ${widest.toFixed(2)} units off the lane centre over ${straightFrames} frames`);
   check('the boosting taxi actually weaves', widest > 0.25, `widest ${widest.toFixed(2)}`);
   setPriorityJunction(null);
+
+  // --- And out the far side of a corner it throws its tail out.
+  //
+  // The fish tail is the one thing the taxi does that is not a steering input: the body carries a
+  // slip angle the wheels are not asking for, which is what separates it from the weave sitting
+  // right above it. Four things can go quietly wrong with that and each has a check below — it
+  // firing on a straight-through (most `state === 'turn'` frames in the city are cars crossing a
+  // junction, and reading that flag as "is turning" is the oldest trap in this file); it firing
+  // when the button isn't held, which would make every ambient corner a drift; it never letting
+  // go, since a slip angle that fails to decay is a taxi driving permanently crabbed; and it
+  // swinging the body into the kerb it is measured to clear.
+  //
+  // Its own junction search rather than the one the scatter scenarios below share: those need a
+  // legal *left* and a facing approach, and this needs a right — the tighter arc, and the one that
+  // throws the tail toward the road centreline rather than at the pavement.
+  const deg = (r) => `${((Math.abs(r) * 180) / Math.PI).toFixed(1)}\u00b0`;
+  // The shape first, off the pure function, because the two properties that make it read as a car
+  // rather than as a metronome are properties of `locoFishtail` alone and are cheaper to assert
+  // there than to infer from a driven taxi.
+  //
+  // A plain sine under a fader — which is what this was — gives every lobe the same width and
+  // brings the second back at 46% of the first. Both halves of that read as mechanical, and both
+  // are pinned here: the second whip has to be **wider** (the wag slows as the energy goes) and
+  // **much shallower** (it is damped, not faded). Measured 1.5x the width at 27% of the height.
+  const lobeWalk = [];
+  {
+    let sign = 0; let peak = 0; let from = 0;
+    for (let u = 0; u <= 20; u += 0.01) {
+      const y = locoFishtail(u).yaw;
+      const s = Math.sign(y);
+      if (s !== 0 && s !== sign) {
+        if (sign !== 0) lobeWalk.push({ peak, width: u - from });
+        sign = s; peak = y; from = u;
+      }
+      if (Math.abs(y) > Math.abs(peak)) peak = y;
+    }
+  }
+  const [lobe1, lobe2] = lobeWalk;
+  check('the fish tail is a mass losing its energy, not a wave with a fader on it',
+    Boolean(lobe1 && lobe2)
+      && Math.abs(lobe2.peak) < Math.abs(lobe1.peak) * 0.35
+      && lobe2.width > lobe1.width * 1.3,
+    lobe1 && lobe2
+      ? `second whip ${(Math.abs(lobe2.peak) / Math.abs(lobe1.peak) * 100).toFixed(0)}% as deep `
+        + `and ${(lobe2.width / lobe1.width).toFixed(1)}x as wide`
+      : `only ${lobeWalk.length} lobes`);
+  // And it has to end. An exponential does not reach zero on its own, so the envelope is chopped
+  // and rescaled to land on it — if that ever comes undone the tail never retires and the taxi
+  // drives permanently crabbed.
+  check('and it is over by the end of its own length',
+    locoFishtail(14).yaw === 0 && locoFishtail(13.99).env < 0.01 && locoFishtail(1e9).yaw === 0,
+    `env ${locoFishtail(13.99).env.toFixed(4)} at the last unit`);
+
+  let fI = -1; let fJ = -1; let fIn = -1;
+  for (let i = 1; i < GRID && fIn < 0; i++) {
+    for (let j = 1; j < GRID && fIn < 0; j++) {
+      if (ringAxisAt(i, j)) continue;
+      for (const d of [0, 1, 2, 3]) {
+        if (!legalExits(d, i, j).includes(rightOf(d))) continue;
+        if (approachRoom(d, i, j) < 16) continue;
+        fI = i; fJ = j; fIn = d;
+        break;
+      }
+    }
+  }
+
+  /**
+   * Drive one taxi alone through that junction and report what its tail did. Alone on the map so
+   * nothing it could brake for or swerve around can be the reason for any of it.
+   *
+   * Sampling stops at the *second* junction: the decay runs 14 units and a block is 20, so a run
+   * left going would fold the next corner's tail into the numbers for this one.
+   */
+  const runCorner = ({ hand, boosting }) => {
+    const scene = new THREE.Scene();
+    const traffic = createTraffic(makeRng(seed + 167), scene, 1);
+    const taxi = traffic.cars[0];
+    placeCar(taxi, fIn, fI, fJ, 16);
+    taxi.parked = false;
+    // Four legs, not two: the tail decays over 14 units and a lane is 12, so a route that ran out
+    // at the next junction would have the taxi rolling its own dice for the leg this measures.
+    const on = hand === 'straight' ? fIn : rightOf(fIn);
+    taxi.route = [on, on, on, on];
+    taxi.routeConsumed = false;
+
+    let took = null;       // the hand of the first junction it took, which is the one under test
+    let peak = 0;          // the slip angle at its widest, signed
+    let slideFrames = 0;
+    let lock = 0;          // the front wheels' rendered angle on that same frame, signed
+    let peakAt = -1;       // and the frame it happened on, for the lean's lag
+    let lean = 0;          // the body roll at *its* own widest, signed the same way
+    let leanAt = -1;
+    let kerbClear = Infinity;
+    let laneOff = 0;       // how far the body centre strayed from the lane centre
+    let earlyPeak = 0;     // the widest the tail got over the first 5 units out of the corner
+    let latePeak = 0;      // and over everything past that, which is what says it decays
+    let lateFrames = 0;    // how many frames the second half was actually measured over
+    let corners = 0;
+    let doneAt = Infinity;
+    for (let f = 0; f < 60 * 8; f++) {
+      taxi.boost = boosting;
+      traffic.update(1 / 60);
+      if (taxi.state === 'turn') {
+        if (took === null) took = taxi.turn.hand;
+        // One junction and the lane after it is the whole scenario. Stopping at the second
+        // junction is what keeps this off the edge of the map: (1, 1) is a corner of the grid, and
+        // a run left going for three blocks ended up on the ring with the route exhausted, taking
+        // random turns and reporting *those* tails as this one's.
+        else if (doneAt < Infinity) break;
+      } else if (took !== null && doneAt === Infinity) doneAt = taxi.travelled;
+      if (taxi.travelled > doneAt + 12) break;
+
+      // The decay, measured as one half of the burst against the other. A fixed sample point can't
+      // say it: at any single distance out of the corner the wave is somewhere in its own cycle,
+      // and past ~9 units the taxi is inside the next junction, where the slip is held at zero by
+      // design. That is not a hypothetical — the first version of this check sampled 12 to 18
+      // units out and passed, silently, against a build whose tail was rigged never to decay at
+      // all. Comparing the lobes needs no such window: an undecayed tail wags as wide the second
+      // time as the first, whatever the phase.
+      if (taxi.state === 'drive' && doneAt < Infinity) {
+        const out = taxi.travelled - doneAt;
+        if (out <= 5) earlyPeak = Math.max(earlyPeak, Math.abs(taxi.slideYaw));
+        else { lateFrames += 1; latePeak = Math.max(latePeak, Math.abs(taxi.slideYaw)); }
+      }
+
+      if (Math.abs(taxi.slideYaw) > 1e-9) slideFrames += 1;
+      if (Math.abs(taxi.slideYaw) > Math.abs(peak)) {
+        peak = taxi.slideYaw;
+        // The taxi's fronts are meshes on the rig, not instances — the same readback the steering
+        // checks use. Only the wheels are yawed relative to the body, so the widest child is one,
+        // and it is read *signed*: which way it points is the whole assertion.
+        peakAt = f;
+        lock = 0;
+        for (const part of traffic.taxiGroup.children) {
+          if (Math.abs(part.rotation.y) > Math.abs(lock)) lock = part.rotation.y;
+        }
+      }
+      if (taxi.state !== 'drive') continue;
+
+      // The lean, tracked to its *own* peak rather than read at the slip's, since the whole point
+      // of the spring is that the two do not happen on the same frame. 'YXZ' — x is the roll. Only
+      // out on the straight, where the corner's own lean has already returned to zero and a lone
+      // taxi has nothing else rolling it, so what is left is the fish tail's by itself.
+      if (Math.abs(traffic.taxiGroup.rotation.x) > Math.abs(lean)) {
+        lean = traffic.taxiGroup.rotation.x;
+        leanAt = f;
+      }
+
+      // Cross-axis only — along the road the coordinate says nothing — and against the offset of
+      // the lane the taxi is actually on, since an arterial's lane centre sits 3.33 out, not 2.
+      const line = lineCoord(isXAxis(taxi.d) ? taxi.j : taxi.i);
+      const half = isXAxis(taxi.d) ? halfRoadZ(taxi.j) : halfRoadX(taxi.i);
+      const lane = laneOffsetFor(taxi.d, taxi.i, taxi.j);
+      laneOff = Math.max(laneOff, Math.abs(Math.abs((isXAxis(taxi.d) ? taxi.z : taxi.x) - line) - lane));
+      // All four body corners, not the centre: a slip angle moves the centre barely at all and
+      // the back corner a great deal, and the kerb is what the back corner is heading for.
+      const fx = Math.cos(taxi.yaw); const fz = -Math.sin(taxi.yaw);
+      const rx = Math.sin(taxi.yaw); const rz = Math.cos(taxi.yaw);
+      for (const along of [-1, 1]) {
+        for (const across of [-1, 1]) {
+          const cx = taxi.x + fx * along * (CAR_LEN / 2) + rx * across * (CAR_W / 2);
+          const cz = taxi.z + fz * along * (CAR_LEN / 2) + rz * across * (CAR_W / 2);
+          const c = isXAxis(taxi.d) ? cz : cx;
+          kerbClear = Math.min(kerbClear, half - Math.abs(c - line));
+          corners += 1;
+        }
+      }
+    }
+    return { took, peak, peakAt, slideFrames, lock, lean, leanAt, kerbClear, laneOff,
+      earlyPeak, latePeak, lateFrames, corners };
+  };
+
+  // The lean is a spring and springs stack: consecutive corners on a 20-unit grid re-excite it
+  // before it has settled, so it carries into the next corner and adds to that corner's own lean.
+  // Deliberate, and left unclamped (see the roll block in traffic.js), which makes the *ceiling*
+  // the thing worth pinning — a spring that gets a little livelier grows here first and nowhere
+  // else. Measured across eight cities the total sits in a 1.2° band, 40.2° to 41.4°, against the
+  // 35.7° a corner leans on its own; one city is enough to catch a regression that size.
+  {
+    const rScene = new THREE.Scene();
+    const rTraffic = createTraffic(makeRng(seed + 173), rScene, CARS_DEFAULT);
+    rTraffic.warmup(10);
+    let worst = 0;
+    let carried = 0;
+    let wasTurning = false;
+    for (let f = 0; f < 60 * 60 && !rTraffic.taxi.crashed; f++) {
+      rTraffic.taxi.boost = true;
+      rTraffic.update(1 / 60);
+      const turning = rTraffic.taxi.state === 'turn';
+      if (turning && !wasTurning) carried = Math.max(carried, Math.abs(rTraffic.taxi.slideRoll));
+      wasTurning = turning;
+      worst = Math.max(worst, Math.abs(rTraffic.taxiGroup.rotation.x));
+    }
+    check('the lean the fish tail leaves behind stacks onto the next corner, but not without limit',
+      worst < 0.785 && carried > 0.05,
+      `${deg(worst)} of roll at the worst, ${deg(carried)} carried into a corner`);
+  }
+  setPriorityJunction(null);
+
+  const fish = runCorner({ hand: 'right', boosting: true });
+  const fishStraight = runCorner({ hand: 'straight', boosting: true });
+  const fishCalm = runCorner({ hand: 'right', boosting: false });
+
+  // 16.3° measured, against the 16.0 the first lobe of locoFishtail() is worth on its own — the
+  // extra is the tail still swinging as the taxi picks up speed out of the arc.
+  check('Loco Mode throws its tail out of a corner',
+    fIn >= 0 && fish.took === 'right' && Math.abs(fish.peak) > 0.09 && fish.slideFrames > 20,
+    `${deg(fish.peak)} of slip over ${fish.slideFrames} frames`);
+  // A straight-through is `state === 'turn'` too. If this ever goes red the tail is coming out on
+  // every junction the taxi crosses, which is most of them.
+  check('and not out of a junction it merely crossed',
+    fishStraight.took === 'straight' && fishStraight.slideFrames === 0,
+    `${fishStraight.slideFrames} sliding frames on a straight-through`);
+  check('and not out of a corner taken with the button up',
+    fishCalm.took === 'right' && fishCalm.slideFrames === 0,
+    `${fishCalm.slideFrames} sliding frames off the boost`);
+  // Measured: 16.3° over the first five units against 7.5° over the rest, a ratio of 0.46. Rigged
+  // never to decay it comes back at 0.98 (21.5° then 21.1°), so the 0.6 has clear air either
+  // side of it. The frame count is half the check and not a statistic — see the note in the loop.
+  check('and it catches it before the next junction',
+    fish.latePeak < fish.earlyPeak * 0.6 && fish.lateFrames > 5,
+    `${deg(fish.earlyPeak)} then ${deg(fish.latePeak)} over ${fish.lateFrames} frames`);
+  // The wheels come off the *path*, so they point the other way from the body — the opposite lock
+  // that reads as a driver catching a slide rather than spinning. Measured: 15.9° of rendered lock
+  // against 16.3° of slip, and it is the sign that is the assertion. Reading it off the rig rather
+  // than off `car.wheelAngle` is deliberate: the correction is deliberately *not* written into
+  // that field (see the note by setTaxiSteer), so the model value cannot show it.
+  check('and takes opposite lock while it does',
+    fish.lock !== 0 && Math.sign(fish.lock) === -Math.sign(fish.peak),
+    `${deg(fish.lock)} of lock at sign ${Math.sign(fish.lock)}, ${deg(fish.peak)} of slip at sign ${Math.sign(fish.peak)}`);
+  // The lean, and the two things about it that can each go wrong on their own.
+  //
+  // **The sign**, which is the half that inverts silently: an inward lean out of a corner reads as
+  // a motorbike, the same note the corner lean above it carries. A lone taxi on the straight has
+  // nothing else rolling it, so what this reads is the fish tail's own.
+  //
+  // **The lag**, which is the whole reason the lean is a spring and not a multiple of the slip. A
+  // body that leans on the same frame the tail steps out is a rigid diagram; the tell of a real
+  // car getting loose is that the weight arrives late. Measured at 11 frames — 183ms — and the
+  // floor of 6 is there to catch the gain being turned back into a direct multiply, which would
+  // land it at 0. If this ever reads 0 the spring has been short-circuited.
+  check('and leans the way the tail is thrown',
+    Math.sign(fish.lean) === Math.sign(fish.peak) && Math.abs(fish.lean) > 0.2
+      && fish.leanAt - fish.peakAt >= 6,
+    `${deg(fish.lean)} of lean against ${deg(fish.peak)} of slip, `
+    + `${fish.leanAt - fish.peakAt} frames behind it`);
+
+  // Where the room went. The weave is faded out under the tail rather than splitting the budget
+  // with it, so the *centre* stays inside the same 0.6 the check above holds it to — measured
+  // 0.46 through the corner exit against 0.33 with the tail switched off. What the tail actually
+  // spends is body sweep: the back corner reaches 0.51 from the kerb against 0.78 without it, and
+  // both are wider of the kerb than the same taxi weaving down an ordinary straight (0.47). The
+  // floor is 0.4 rather than something tighter so that the amplitude has somewhere to move without
+  // this needing to be re-derived; 26° of slip is where it bites.
+  check('and the tail stays off the kerb while it is out',
+    fish.kerbClear > 0.4 && fish.laneOff < 0.6 && fish.corners > 0,
+    `body corner within ${fish.kerbClear.toFixed(2)} of the kerb, centre ${fish.laneOff.toFixed(2)} off the lane`);
 
   // --- Loco Mode is supposed to be go-go-go, and for a long time it wasn't.
   //
