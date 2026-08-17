@@ -102,9 +102,15 @@ layers.push(...boxFaces(-CAR_LEN / 2, CAR_LEN / 2, BODY_Y0, BODY_Y1, -CAR_W / 2,
 // 2. Checker stripe on the near (+z) side of the body. Six equal cells (3 dark, 3 body-yellow) —
 // enough to read as "chequer" at 180px without moiré. The stripe sits just proud of the body face
 // so it draws cleanly over it.
+//
+// The band is `BELT` in src/geometry/carbody.js, and it moved up 0.11 the day the car grew wheel
+// arches — the flank below it is a hole now, so the old waistline had nothing to be painted on. The
+// icon is a flat redraw and has no arches to fall foul of, but it is a picture *of this car*, and a
+// chequer sitting somewhere else on the home screen than it does on the road is the one difference
+// a player sees both halves of.
 {
   const stripeZ = CAR_W / 2 + 0.005;
-  const stripeY0 = 0.71 + LIFT, stripeY1 = 0.93 + LIFT;
+  const stripeY0 = 0.82 + LIFT, stripeY1 = 1.02 + LIFT;
   const stripeL = CAR_LEN * 0.82;
   const cells = 6;
   const step = stripeL / cells;

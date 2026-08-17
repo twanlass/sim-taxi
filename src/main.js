@@ -2228,6 +2228,12 @@ if (shot) {
     controller.update(aspect());
   }
 
+  // Frame the car itself, for the framings that are looking at the model rather than at the city.
+  if (shot.atTaxi) {
+    controller.state.target.set(traffic.taxi.x, 0, traffic.taxi.z);
+    controller.update(aspect());
+  }
+
   // Frame the drop-off of the fare aboard, on the kerb corner the pin actually stands on rather
   // than the junction centre — same reason as the rider below, the corner building is in the way.
   const aboard = fares.carrying();

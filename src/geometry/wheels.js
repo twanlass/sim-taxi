@@ -20,7 +20,18 @@ import { bakeColor } from '../util/geo.js';
 export const WHEEL_R = 0.64;
 const WHEEL_W = 0.52;              // tread, kept in proportion — a wide disc on a narrow tread
                                    // reads as a bicycle wheel from this camera
-const WHEEL_PROUD = 0.11;          // how far the tread stands out past the flank, as it always did
+// How far the tread stands out past the flank — **negative now**, i.e. tucked just inside it.
+//
+// It was +0.11 for as long as a car was two boxes, and had to be: a wheel flush with a flat flank
+// is occluded from this camera and shows as a notch in the sill, which is the second of the two
+// failed attempts CHASSIS_LIFT exists to record (see below). What changed is that the flank is no
+// longer flat — geometry/carbody.js cuts an arch back 0.30 at each axle — so the wheel is visible
+// *through the opening* rather than by standing outside the bodywork. The tuck is what makes it
+// read as a wheel sitting in a well instead of a wheel bolted to a slab.
+//
+// Small and negative rather than zero: at exactly zero the tread's outer face and the flank are
+// coplanar, and two coplanar faces at the same depth z-fight.
+const WHEEL_PROUD = -0.02;
 const WHEEL_SEGMENTS = 16;         // doubled from 8 — at WHEEL_R's size the 8-gon's facets read as
                                    // flats, 16 reads round
 

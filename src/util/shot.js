@@ -13,7 +13,12 @@ export const SHOTS = [
   { name: 'riding-close', description: 'close on the taxi with its roof sign lit', target: [0, 0], zoom: 24, warmup: 12, select: true, untilPickup: true },
   // Asset-inspection framing: close enough to judge vehicle detail that is a couple of pixels
   // wide at play zoom. Cheaper than guessing whether a change to the model actually landed.
-  { name: 'vehicles', description: 'extreme close-up for vehicle detail', target: [0, 0], zoom: 9, warmup: 12, select: true, untilPickup: true },
+  //
+  // `atTaxi`, because `target` is a *place* and a car is not one. Framed on the middle of the map it
+  // photographed whichever ambient vehicle the run seed happened to park near the origin, which on
+  // most seeds is none — the one shot in the list whose whole job is to contain a vehicle, reliably
+  // containing an empty junction.
+  { name: 'vehicles', description: 'extreme close-up for vehicle detail', target: [0, 0], zoom: 9, warmup: 12, select: true, untilPickup: true, atTaxi: true },
   { name: 'police', description: 'police corridor: its road green, crossings red', target: [0, 0], zoom: 30, warmup: 12, untilPolice: true },
   { name: 'rider', description: 'waiting rider on the kerb', target: [0, 0], zoom: 11, warmup: 12, atPassenger: true },
   // The route band is the one element a short hop tells you nothing about: with the fare two

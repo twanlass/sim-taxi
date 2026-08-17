@@ -23,7 +23,7 @@ import {
 } from '../src/city/props.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, wheelGeometry, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_LEN, TRUCK_W, SPAWN_CLEARANCE,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -56,7 +56,10 @@ import {
 import { HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER, POP_TIME } from '../src/game/selectpop.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
-import { isCarOffScreen } from '../src/game/taxifinder.js';
+import {
+  carBodyParts, loftBox, bodySegments, BELT, BODY_TOP, ARCH_CLEARANCE,
+} from '../src/geometry/carbody.js';
+import { isCarOffScreen, CAR_RADIUS } from '../src/game/taxifinder.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
 import { createHelicopterMesh, HELI_SKID_DROP, MAIN_R } from '../src/geometry/helicopter.js';
@@ -2096,12 +2099,12 @@ check('no two cars occupy the same space', worst > 1.6,
     const moved = dark.map((h, n) => h !== lit[n]);
     const movedTo = lit.filter((_, n) => moved[n]);
     check('the accept flourish lights every body part of the taxi at once',
-      // Shell, roof sign and both steered wheels: four, all to the same value, and all the way back
-      // afterwards. A part left out of setHighlight's list is a car whose body lights while a wheel
-      // stays dark, which reads as the paint changing rather than the car reacting. (It was five while
-      // a parcel rode the rear deck — the load is a chip in the HUD now, and there is nothing on the
-      // car to light.)
-      moved.filter(Boolean).length === 4
+      // Shell, roof sign, antenna and both steered wheels: five, all to the same value, and all the
+      // way back afterwards. A part left out of setHighlight's list is a car whose body lights while a
+      // wheel stays dark, which reads as the paint changing rather than the car reacting. (It was five
+      // while a parcel rode the rear deck too, and four in between — the load is a chip in the HUD now
+      // and there is nothing on the car to light, but the antenna is a body part and takes the lift.)
+      moved.filter(Boolean).length === 5
       && new Set(movedTo).size === 1
       && back.every((h, n) => h === dark[n]),
       `${moved.filter(Boolean).length} parts moved to ${new Set(movedTo).size} value(s), all restored ${back.every((h, n) => h === dark[n])}`);
@@ -6210,6 +6213,180 @@ check('the taxi is an ordinary car in the traffic array',
   check('a drain draws exactly the fuel it has left', drainMismatch === 0, `${drainMismatch} frames off`);
 }
 
+// --- Vehicle bodywork -------------------------------------------------------
+//
+// `geometry/carbody.js` is hand-written triangles, and every one of its failure modes is silent and
+// visual: a reversed winding lights as if the sun were behind it, a wheel arch cut a centimetre too
+// high shows daylight over the tyre, and a livery band painted at the old waistline hangs in mid-air
+// across a hole. All three are arithmetic, so none of them belongs in a screenshot.
+{
+  // Winding, computed **from the winding** rather than from `computeVertexNormals`, which launders a
+  // reversed triangle into whatever its neighbours claim (see CLAUDE.md — the roadworks ramp shipped
+  // wound clockwise throughout and read as z-fighting). Every loft here is convex, so the test is
+  // exact: a face's normal must point away from the solid's own centre, for every triangle, not the
+  // first one.
+  const outwardFaces = (geometry) => {
+    const pos = geometry.attributes.position;
+    const centre = new THREE.Vector3();
+    for (let v = 0; v < pos.count; v++) centre.add(new THREE.Vector3().fromBufferAttribute(pos, v));
+    centre.divideScalar(pos.count);
+    let inward = 0;
+    const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+    for (let t = 0; t < pos.count; t += 3) {
+      a.fromBufferAttribute(pos, t);
+      b.fromBufferAttribute(pos, t + 1);
+      c.fromBufferAttribute(pos, t + 2);
+      const normal = b.clone().sub(a).cross(c.clone().sub(a));
+      const outward = a.clone().add(b).add(c).divideScalar(3).sub(centre);
+      if (normal.dot(outward) <= 1e-9) inward += 1;
+    }
+    return { inward, faces: pos.count / 3 };
+  };
+
+  // A plain box, a chamfered-and-tucked body, and a greenhouse that is narrowed, shortened *and*
+  // walked aft as it rises — the last being the one a hand-written skinner gets wrong, since its
+  // rings no longer share a centre.
+  const profiles = {
+    box: [{ y: 0, hx: 1, hz: 0.5 }, { y: 1, hx: 1, hz: 0.5 }],
+    chamfered: [{ y: 0, hx: 1.6, hz: 0.75 }, { y: 0.1, hx: 1.7, hz: 0.85 },
+      { y: 0.7, hx: 1.7, hz: 0.85 }, { y: 0.8, hx: 1.58, hz: 0.75 }],
+    leanback: [{ y: 0, hx: 0.85, hz: 0.73, cx: -0.2 }, { y: 0.27, hx: 0.78, hz: 0.72, cx: -0.24 },
+      { y: 0.6, hx: 0.58, hz: 0.6, cx: -0.34 }],
+  };
+  let inwardTotal = 0;
+  let facesTotal = 0;
+  for (const rings of Object.values(profiles)) {
+    const { inward, faces } = outwardFaces(loftBox(rings));
+    inwardTotal += inward;
+    facesTotal += faces;
+  }
+  check('every face of a lofted body is wound outward', inwardTotal === 0 && facesTotal > 0,
+    `${inwardTotal} reversed of ${facesTotal} faces`);
+
+  // The lean-back is the silhouette, so it is worth stating as a number rather than leaving to the
+  // profile above: the windscreen has to rake back several times harder than the backlight, or the
+  // car has no front. Measured off the built rings, front edge and rear edge, sill to roof.
+  const cabin = profiles.leanback;
+  const sill = cabin[0];
+  const roof = cabin[cabin.length - 1];
+  const windscreen = (sill.cx + sill.hx) - (roof.cx + roof.hx);
+  const backlight = (roof.cx - roof.hx) - (sill.cx - sill.hx);
+  check('the greenhouse rakes back hard at the front and gently at the back',
+    windscreen > 3 * backlight && backlight > 0 && roof.hz < sill.hz,
+    `windscreen ${windscreen.toFixed(2)} vs backlight ${backlight.toFixed(2)}, tumblehome ${(sill.hz - roof.hz).toFixed(2)}`);
+
+  // The wheel arch, against the wheel it is cut for. The crown of the tyre has to finish *inside*
+  // the wing — cut the opening any higher and you see daylight over the wheel — and the tread has to
+  // finish inside the flank, which is the whole reason WHEEL_PROUD could go negative.
+  const wheelBox = new THREE.Box3().setFromBufferAttribute(wheelGeometry().attributes.position);
+  const treadOut = Math.abs(wheelAnchors(CAR_LEN, CAR_W)[0].z) + wheelBox.max.z;
+  check('the tyre crown finishes inside the wing', ARCH_CLEARANCE > 0.05,
+    `${ARCH_CLEARANCE.toFixed(2)} of tyre up inside the bodywork`);
+  check('and the tread sits inside the flank rather than proud of it',
+    treadOut < CAR_W / 2 && treadOut > CAR_W / 2 - 0.28,
+    `tread at ${treadOut.toFixed(2)} against a flank at ${(CAR_W / 2).toFixed(2)}`);
+
+  // And the arch is a real opening rather than a painted-on shadow — fired as a ray at the flank,
+  // through the merged geometry the fleet actually draws, at two heights over the same axle. The
+  // ambient car's geometry is the one to use: it carries no livery, and its front wheels live on a
+  // separate mesh, so nothing is standing in the well to be hit by mistake.
+  const bodyTraffic = createTraffic(makeRng(seed + 71), new THREE.Scene(), 4);
+  const carMesh = new THREE.Mesh(bodyTraffic.mesh.geometry, new THREE.MeshBasicMaterial());
+  const raycaster = new THREE.Raycaster();
+  const flankAt = (x, y) => {
+    raycaster.set(new THREE.Vector3(x, y, 40), new THREE.Vector3(0, 0, -1));
+    const hit = raycaster.intersectObject(carMesh, false)[0];
+    return hit ? hit.point.z : null;
+  };
+  const hub = wheelAnchors(CAR_LEN, CAR_W).find((anchor) => anchor.front).x;
+  const inArch = flankAt(hub, 0.90);
+  const atBelt = flankAt(hub, BELT.y);
+  check('a ray at the axle lands in the wheel well, not on the flank',
+    inArch !== null && CAR_W / 2 - inArch > 0.25,
+    `flank ${(CAR_W / 2).toFixed(2)}, well wall ${inArch === null ? 'missed' : inArch.toFixed(2)}`);
+
+  // The other half of the same fact, and the one that broke the chequer: the belt is the *only*
+  // band that is solid bodywork from nose to tail. Walked along the whole car rather than sampled at
+  // the axle, because a stripe hanging in mid-air over one wheel is exactly as wrong as over both.
+  let beltGaps = 0;
+  let beltSamples = 0;
+  for (let x = -CAR_LEN / 2 + 0.05; x < CAR_LEN / 2; x += 0.1) {
+    const z = flankAt(x, BELT.y);
+    beltSamples += 1;
+    if (z === null || Math.abs(z - CAR_W / 2) > 1e-3) beltGaps += 1;
+  }
+  check('the belt line is solid bodywork end to end', beltGaps === 0 && beltSamples > 20
+    && atBelt !== null && Math.abs(atBelt - CAR_W / 2) < 1e-3,
+    `${beltGaps} gaps in ${beltSamples} samples across the flank`);
+  check('and a livery band fits in it without touching the arch or the chamfer',
+    BELT.height > 0.15 && BELT.height < 0.4,
+    `${BELT.height.toFixed(2)} of clear flank`);
+
+  // A car's wheels are so big relative to it that both arches run off the ends and only the rocker
+  // panel survives; a truck, at three times the wheelbase, keeps a nose and a tail section as well.
+  // The rule is one line and it is the same line — assert it produces both answers.
+  check('the arches are derived from the wheels rather than typed',
+    bodySegments(CAR_LEN, CAR_W).length === 1 && bodySegments(TRUCK_LEN, TRUCK_W).length === 3,
+    `${bodySegments(CAR_LEN, CAR_W).length} full-width sections on a car, `
+    + `${bodySegments(TRUCK_LEN, TRUCK_W).length} on a truck`);
+
+  // The moving reflection's mask. `stampGloss` has to run after bakeColor (which strips every
+  // attribute it doesn't recognise) and has to reach *every* part (mergeGeometries refuses a set
+  // whose attributes disagree), so the two failures are "no glass anywhere" and "no car at all".
+  const glossed = bodyTraffic.mesh.geometry.attributes.aGloss;
+  const glassVerts = glossed ? Array.from(glossed.array).filter((g) => g > 0).length : 0;
+  check('the fleet\'s glass is tagged for the sheen and its bodywork is not',
+    Boolean(glossed) && glossed.count === bodyTraffic.mesh.geometry.attributes.position.count
+    && glassVerts > 0 && glassVerts < glossed.count * 0.5,
+    `${glassVerts} glass vertices of ${glossed ? glossed.count : 0}`);
+
+  // Both patches on one material have to compose rather than replace. The first attempt chained
+  // wrong and left every car's AO lookup uninstalled — which is invisible, because AO off looks like
+  // AO that simply isn't very strong.
+  setAmbientOcclusion(true);
+  const both = propMaterial({ sheen: true });
+  const aoOnly = propMaterial();
+  setAmbientOcclusion(false);
+  const sheenOnly = propMaterial({ sheen: true });
+  const bare = propMaterial();
+  const keyOf = (m) => (m.customProgramCacheKey ? m.customProgramCacheKey() : '');
+  // Stubs carrying the chunk names three's Lambert shader actually has — a `.replace()` on a chunk
+  // that moved does nothing at all and logs nothing, which is the trap CLAUDE.md names outright.
+  const compiled = (m) => {
+    const shader = {
+      uniforms: {},
+      vertexShader: '#include <common>\nvoid main() {\n\t#include <project_vertex>\n}',
+      fragmentShader: '#include <common>\nvoid main() {\n\t#include <color_fragment>\n'
+        + '\t#include <aomap_fragment>\n}',
+    };
+    m.onBeforeCompile(shader, null);
+    return shader;
+  };
+  const keys = [keyOf(both), keyOf(aoOnly), keyOf(sheenOnly), keyOf(bare)];
+  check('a material carrying both patches cannot collide with one carrying either',
+    new Set(keys).size === 4, keys.join(' / '));
+  const patched = compiled(both);
+  check('...and installs both of them, not the last one to be applied',
+    /tAmbientOcclusion/.test(patched.fragmentShader) && /uSheenColor/.test(patched.fragmentShader)
+    && /aGloss/.test(patched.vertexShader) && Boolean(patched.uniforms.uSheenColor),
+    'the AO lookup and the sheen both reached the shader');
+
+  // The taxi's drawn envelope, against the two places it is framed by hand: the finder chip's
+  // off-screen test and the tutorial avatar's spin. Both are *measurements* written into comments,
+  // and re-cutting the bodywork moved one of them — this is what says so next time.
+  const built = createTaxiMesh().group;
+  built.updateMatrixWorld(true);
+  const drawn = new THREE.Box3();
+  built.traverse((node) => {
+    if (!node.isMesh || node.material.visible === false) return;
+    drawn.union(new THREE.Box3().setFromObject(node));
+  });
+  const spin = Math.hypot(Math.max(-drawn.min.x, drawn.max.x), Math.max(-drawn.min.z, drawn.max.z));
+  check('the drawn taxi still fits the radius the finder chip and the tutorial frame it by',
+    spin <= CAR_RADIUS && spin > CAR_RADIUS - 0.3,
+    `${spin.toFixed(2)} against ${CAR_RADIUS}, ${drawn.max.y.toFixed(2)} tall`);
+}
+
 // --- Ghost outline ----------------------------------------------------------
 //
 // The taxi's occluded-only outline (geometry/ghostoutline.js) is a two-pass stencil trick whose
@@ -6225,16 +6402,17 @@ check('the taxi is an ordinary car in the traffic array',
     if (node.name === 'ghostRim') rims.push(node);
   });
 
-  // Seven parts: shell, roof sign, both steered wheels, and the three light pods (brake, left turn
-  // signal, right turn signal). Every opaque part of the car must be in the mask — a part left out
-  // counts as an occluder of the rim behind it, and the wheels being skipped once painted a yellow
-  // streak along the rocker panel of a fully visible car. The light pods are opaque parts too even
-  // though they are usually scaled to nothing — see geometry/taxi.js's setLights().
+  // Eight parts: shell, roof sign, antenna, both steered wheels, and the three light pods (brake,
+  // left turn signal, right turn signal). Every opaque part of the car must be in the mask — a part
+  // left out counts as an occluder of the rim behind it, and the wheels being skipped once painted a
+  // yellow streak along the rocker panel of a fully visible car. The light pods are opaque parts too
+  // even though they are usually scaled to nothing — see geometry/taxi.js's setLights().
   //
-  // It was eight while a courier parcel rode the rear deck. The load is a chip in the HUD now
-  // (game/cargochip.js) and the car carries nothing, which is one fewer silhouette to mask rather
-  // than one that stopped mattering.
-  check('taxi wears a ghost outline on every opaque part', masks.length === 7 && rims.length === 7,
+  // It was eight once before, while a courier parcel rode the rear deck, then seven when the load
+  // became a chip in the HUD (game/cargochip.js). The antenna is what puts it back — and it wears a
+  // 0.06 rim rather than the shell's 0.3 for the same reason the roof sign does: the default would
+  // be thicker than the part.
+  check('taxi wears a ghost outline on every opaque part', masks.length === 8 && rims.length === 8,
     `${masks.length} masks, ${rims.length} rims`);
 
   const rimsHidden = rims.every((r) => r.material.depthFunc === THREE.GreaterDepth
