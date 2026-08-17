@@ -1813,9 +1813,9 @@ function frame() {
     || (locoPunched && boost.isEngaged());
   // Narrow-only, like the follows, and for a sharper reason than theirs: the desktop framing is
   // *sideways*-tight, not vertically tight. Measured across 12 seeds, the city reaches 92.5% of the
-  // half-frame across a 4:3 desktop at PLAY_ZOOM (only 77% of it up-screen), so a 7% push-in puts
-  // its edge flush at 99.5% and anything squarer than 4:3 crops the map outright — with drag-to-pan
-  // switched off up there, permanently. And it gives way to the two claims that set the zoom
+  // half-frame across a 4:3 desktop at PLAY_ZOOM (only 77% of it up-screen), so the push-in would
+  // carry its edge to 110% and crop the map outright — with drag-to-pan switched off up there,
+  // permanently. And it gives way to the two claims that set the zoom
   // themselves, the opening vignette and the end-of-run focus; neither can be up while the player
   // is holding the pill, but both would fight it if they were.
   const punchAllowed = isNarrow() && !fares.state.gameOver && !endSpot

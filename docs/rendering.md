@@ -184,9 +184,9 @@ and a camera that answers all of it slides the map every time you pick a fare. I
 
 ### Loco Mode's push-in
 
-The frame tightens by **`LOCO_PUNCH = 0.93`** while Loco Mode is held, and eases back out on the
+The frame tightens by **`LOCO_PUNCH = 0.84`** while Loco Mode is held, and eases back out on the
 release. An orthographic camera has no field of view to widen, so the whole of "the lens reacts" is
-the frustum: everything on screen grows by 1 / 0.93 and the city crowds in. It is a change to the
+the frustum: everything on screen grows by 1 / 0.84 and the city crowds in. It is a change to the
 frame, not to the framing — the taxi stays at exactly the same place in the picture, because
 [the lead](#leading-the-car) is stated as a fraction of a half-frame and scales with it.
 
@@ -200,14 +200,26 @@ grabbing it again inside the second the taxi is still at full tilt — holds the
 of breathing it out and back in. Earning it always takes a hold, though: the latch can stay on through a tail,
 never switch on during one.
 
-Both eases are exponential and deliberately unhurried — **in at 2.2, out at 1.3** — so the steepest
-single frame at 60fps moves 0.25% of the frame, well under anything that reads as a cut. The way out
-rides the release, which is the same second the taxi is coasting its speed cap back down.
+**In quick, out slower — 5.0 and 2.4.** The rate is half of whether this is visible at all: the eye
+reads the *speed* of a scale change far more readily than its size. At 5.0 the push-in is 63% there
+in 0.2s and effectively done in 0.6s, so the steepest frame moves 1.3% of the picture at 60fps — a
+lunge, and still an order of magnitude off the 16% a cut would be. It lands under the wheelie and
+the flame, which is the beat it belongs to. The way out is half that speed on purpose: it rides the
+release, and a frame that sprang open as fast as it closed would be back at full width with the car
+still doing 30.
 
-**What it costs is look-ahead**, which is the reason it is 7% and not 20%: at the Loco Mode top on a
-portrait phone the road ahead goes from **124 world units to 115**, against the `GHOST_RADIUS = 46`
-at which a hidden car [lights its outline](#nearby-traffic-ghost-outlines--gamecarghostsjs) — so the
-warning still arrives with the car it is warning about a long way inside the frame.
+> **It shipped at 0.93/2.2 first, and 0.93/2.2 was invisible** — 7% spread over 1.4s is 0.05% of the
+> frame per frame, under the threshold anything reads as motion, against a whole city already
+> sliding past under the follow-cam. Verified in a real browser at 390×844 rather than argued about:
+> the push-in was arriving in full and simply could not be seen. Both halves had to move — 16% eased
+> at the old rate is still 0.1% a frame.
+
+**What bounds it is look-ahead**, since the lead is a fraction of the frame and shrinks with it: at
+the Loco Mode top on a portrait phone the road ahead goes from **124 world units to 104**, against
+the `GHOST_RADIUS = 46` at which a hidden car
+[lights its outline](#nearby-traffic-ghost-outlines--gamecarghostsjs) and the `PITCH` of 20 between
+junctions. Five junctions of warning where there were six, and the outline still arrives with the
+car it is warning about a long way inside the frame.
 
 `punchZoom` sits **outside the priority list** below rather than in it: it decides how tight the
 frame is, not where it points, so it composes with whichever claim owns the target that frame — the
@@ -216,9 +228,9 @@ end-of-run focus, the two claims that set the zoom themselves.
 
 **It is narrow-only**, like the follows, and for a sharper reason than theirs: the desktop framing is
 *sideways*-tight, not vertically tight. Measured across 12 seeds, the city reaches **92.5% of the
-half-frame across a 4:3 desktop** at `PLAY_ZOOM` and only 77% of it up-screen — so the push-in puts
-its edge flush at 99.5%, and anything squarer than 4:3 crops the map outright, permanently, since
-drag-to-pan is off above `NARROW_VIEWPORT`.
+half-frame across a 4:3 desktop** at `PLAY_ZOOM` and only 77% of it up-screen — so the push-in would
+carry its edge to 110% and crop the map outright, permanently, since drag-to-pan is off above
+`NARROW_VIEWPORT`.
 
 `tools/probe.mjs` drives the gesture at 60fps against a real frustum, because neither half has a
 tell in a still: a tap must leave the frustum bit-for-bit untouched, a hold must actually arrive at

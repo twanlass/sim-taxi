@@ -62,13 +62,20 @@ const PEEK_HOLD = 0.9;
 // grows by 1 / LOCO_PUNCH and the city crowds in, which is the ortho equivalent of the push-in a
 // perspective rig would get for free.
 //
-// Deliberately small. The push-in costs look-ahead — the follow's lead is a *fraction of the frame*
-// (see LEAD_FRACTION), so a tighter frame buys fewer world units of road ahead by exactly the same
-// 7%, and Loco Mode is the one mode that spends its whole life needing them. Measured at the boost
-// top on a portrait phone: **124 world units of road ahead become 115**, against the GHOST_RADIUS
-// of 46 at which a hidden car lights its outline (game/carghosts.js). Enough tightening to feel,
-// nowhere near enough to push a warning off the frame it is warning about.
-export const LOCO_PUNCH = 0.93;
+// **It was 0.93 and 0.93 was invisible**, which is worth writing down because the arithmetic that
+// picked it is the arithmetic that hid it. 7% spread over the old 1.4s ease is 0.05% of the frame
+// per frame — under the threshold anything reads as motion at all, and it was competing with a
+// whole city already sliding past under a boosting follow-cam. Verified in a real browser at
+// 390×844 rather than argued about: the push-in was arriving in full and simply could not be seen.
+// The two halves of the fix are this constant and PUNCH_IN_RATE below, and neither works alone —
+// 16% eased at the old rate is still 0.1% a frame.
+//
+// What bounds it is look-ahead. The follow's lead is a *fraction of the frame* (see LEAD_FRACTION),
+// so a tighter frame buys fewer world units of road ahead by exactly the same 16%. Measured at the
+// boost top on a portrait phone: **124 world units of road ahead become 104**, against the
+// GHOST_RADIUS of 46 at which a hidden car lights its outline (game/carghosts.js) and the PITCH of
+// 20 between junctions. Five junctions of warning, where there were six.
+export const LOCO_PUNCH = 0.84;
 
 // How long the button has to stay down before the frame answers it. **A tap must not move the
 // camera.** Releasing mid-spend is a designed input — a short tap costs a short slice of fuel — so
@@ -79,18 +86,23 @@ export const LOCO_PUNCH = 0.93;
 // the player is still leaning on when the taxi starts pulling.
 export const LOCO_PUNCH_HOLD = 0.3;
 
-// In quicker than it comes back out, and both slow enough to read as the frame breathing rather
-// than cutting. The push-in is 63% there in 0.45s, so it lands under the wheelie and the flame; the
-// way out rides the release, which is the second the taxi is coasting its speed cap back down
-// anyway (BOOST_COOLDOWN in game/boost.js) — a frame that snapped open would arrive before the car
-// had finished slowing.
-const PUNCH_IN_RATE = 2.2;
-const PUNCH_OUT_RATE = 1.3;
+// In quick, out slower. **The rate is half of whether this is visible at all** — a push-in is a
+// change of scale, and the eye reads the *speed* of one far more readily than its size, which is
+// how the first version managed to arrive in full and still go unnoticed. At 5.0 it is 63% there in
+// 0.2s and effectively done in 0.6s: the steepest frame moves 1.3% of the picture at 60fps, which
+// is a lunge and still an order of magnitude off the ~16% a cut would be. It lands under the
+// wheelie and the flame, which is the beat it belongs to.
+//
+// The way out is deliberately half that speed. It rides the release, which is the second the taxi
+// is coasting its speed cap back down (BOOST_COOLDOWN in game/boost.js) — a frame that sprang open
+// as fast as it closed would be back at full width with the car still doing 30.
+const PUNCH_IN_RATE = 5.0;
+const PUNCH_OUT_RATE = 2.4;
 // Below this the ease is finished: snapped to the target so a resting frame is bit-for-bit the
 // plain one — an exponential never actually arrives, and a frustum left 0.01% tight for the rest of
 // the run is a repaint every frame forever — and so `punchZoom` stops repainting. The snap itself
 // has to be invisible, which is what sets the size: 5e-4 of the push-in is 0.026 world units at
-// PLAY_ZOOM, a twentieth of a pixel on a phone, and it lands about 2.5s into either direction.
+// PLAY_ZOOM, a twentieth of a pixel on a phone, and it lands about a second into either direction.
 const PUNCH_EPSILON = 5e-4;
 
 // Smootherstep. Zero *velocity* and zero *acceleration* at both ends, where plain smoothstep only

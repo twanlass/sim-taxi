@@ -5950,10 +5950,14 @@ check('the taxi is an ordinary car in the traffic array',
     check('a hold pushes the frame in to LOCO_PUNCH',
       Math.abs(r.cam.state.punch - LOCO_PUNCH) < 1e-3,
       `punch ${r.cam.state.punch.toFixed(4)} against ${LOCO_PUNCH}`);
-    // The whole reason the hold gate exists is that the frame must never *pop*. The steepest single
-    // frame of the ease is the tell: at 60fps this is 0.26% of the frame, about a fifth of a
-    // percent of city sliding per frame, which is under the threshold anything reads as a cut.
-    check('the push-in never lands in one frame', biggestStep < 0.005,
+    // The hold gate exists so the frame never *pops*, and the ease is what keeps it from popping
+    // once the gate opens. The steepest single frame is the tell — 1.3% of the picture at 60fps,
+    // a lunge and still an order of magnitude off the whole 16% a cut would move. The bound is
+    // ~2×, not hairline: it is guarding against a step function, not pinning the rate, which is a
+    // feel constant and expected to move. It has already moved once — 0.93/2.2 was a push-in that
+    // arrived in full and could not be seen, so a bound tight enough to fail on a retune would
+    // have been failing on the fix.
+    check('the push-in never lands in one frame', biggestStep < 0.025,
       `steepest frame moves ${(biggestStep * 100).toFixed(3)}% of the frame`);
 
     // ...and letting go gives it all back, exactly, rather than leaving the city a fraction of a
