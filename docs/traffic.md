@@ -359,7 +359,10 @@ from the turn decision: `atan(WHEELBASE · dψ/ds)` is the Ackermann angle that 
 curvature the car is describing, so one rule covers the junction arc, the Loco Mode weave and the
 straight in between, and nothing has to be kept in step with the turn state machine.
 
-Two things are deliberately outside it. The panic wobble is added *after* the difference is taken —
+Three things are deliberately outside it. The fish tail out of a corner is a *slip* angle rather
+than a steering one — the body swinging out from under the driver — so it goes on after the
+difference is taken, and the wheels get [opposite lock](#the-fish-tail-out-of-a-corner) instead of
+following the body round. The panic wobble is added *after* the difference is taken too —
 it is a shimmy through the body at ~0.9 rad per unit of road, and steering the wheels with it would
 slam them lock to lock several times a second. And the ease is paced by **distance**, like the
 weave and for the same reason: a car held at a red keeps the lock it rolled up to the line with,
@@ -374,6 +377,10 @@ Measured over 240s of traffic, on the raw angle:
 | left turn | 15.0° | 24° |
 | boost weave (p90) | 7° | 11° |
 | straight on through a junction | 0° | 0° |
+| fish tail catch | — | 6.1°, against the body |
+
+The last row has no raw column because it never reaches `car.wheelAngle`: opposite lock is added on
+the way to the rig, for the reason given under [the fish tail](#the-fish-tail-out-of-a-corner).
 
 Right beats left by more than 2:1 because right-hand traffic cuts the near corner while a left
 sweeps the far diagonal — the tighter arc genuinely wants more lock. `STEER_GAIN` of 1.6 is for
@@ -923,6 +930,74 @@ stop, and from 22.1 down to 8.5 that takes ~0.78s: the coast-down was already si
 the speed cap and the hazard flag stopped being the same boolean. It's also where the nose-dip
 comes from — the pitch spring downstream reads the deceleration straight off `car.v`, no separate
 animation needed. A re-press mid-cooldown cancels it outright and returns to `'active'`.
+
+### The fish tail out of a corner
+
+Loco Mode leaves a junction with the power already back on, and what a car does at that moment is
+step its tail out and wag it straight again. `locoFishtail()` in `traffic.js` is that gesture: a
+sine of wavelength 8 units under a `(1 − u/14)²` envelope, armed on the frame a **real** turn
+completes — `hand !== 'straight'`, since most of the city's `state === 'turn'` frames are cars
+crossing a junction — and only while the button is held.
+
+Three lobes land on the road at 0.73 / 0.33 / 0.08 of the amplitude: a kick, a catch and a settle,
+peaking at **8.6° of slip** and over in 0.75s at boost speed. Paced by distance like the weave, the
+hop and the front-wheel ease, so the same gesture comes out of a corner taken at cruise and one
+taken at the overdrive top.
+
+**It is not a steering input, and that is the whole of what distinguishes it from the weave.** The
+weave's offset is a function of distance, so its slope *is* the angle the wheels are turned to and
+the body stays pointed along its own path. This is the opposite — the car not going where it is
+pointed — so it composes differently in three places:
+
+- **It swings about the front axle**, not the body centre, which is the difference between a tail
+  stepping out and a car sliding sideways bodily. `car.x/z` name the centre, so the rotation is
+  paid for with a lateral offset of `−pivot · slip` — 0.15 units at the widest, against the weave's
+  0.52.
+- **It goes on after the front wheels have been read off the path**, in the panic wobble's company
+  rather than the weave's, so the differencer sees the path and not the slide.
+- **The wheels then take opposite lock** — `wheelAngle` less the slip angle, on the same gain and
+  clamp as every other angle. Out of a right-hander that flicks them from right lock through to
+  left in about a fifth of a second, which is the gesture that reads as catching it rather than
+  spinning. It is added on the way to the rig and never written back into `car.wheelAngle`: that
+  field is an accumulator `steerToward` eases *from*, so a correction stored in it would be dragged
+  into the next frame's ease and never let go of.
+
+**The weave fades out under it and back in as it dies**, rather than the two splitting the 1.15
+units of play between the lane centre and the kerb. Half of that is the room budget and half is
+that a wander laid over a slide reads as neither. What it leaves is a corner exit that costs the
+same lane discipline as before — the body centre stays 0.40 off the lane centre against 0.33 with
+the tail switched off, both inside the 0.6 the probe holds the weave to — and spends its room on
+body sweep instead: the back corner comes within 0.67 of the kerb against 0.78 without it, and both
+are further off the kerb than the same taxi weaving down an ordinary straight (0.47).
+
+**It changes no outcome in the sim.** Over 24 cities of a boosting taxi driven until it wrecks,
+mean survival is 5.8868s with the tail and 5.8868s without — bit-identical, because it consumes no
+rng and moves the centre by a seventh of a car's width.
+
+Two departures from the rules the weave follows, both deliberate:
+
+**The phase advances in every state**, where the weave's freezes mid-turn so a corner ends on the
+offset it started on. This one is a one-shot that has to *expire*, and on a 20-unit grid the next
+junction arrives well inside the 14-unit decay often enough that freezing it would carry a cocked
+tail into the next arc and let it out again on the far side. It is only *applied* on the straight —
+mid-junction the yaw belongs to the Bézier.
+
+**The pace has a floor under it** (`FISHTAIL_UNWIND`, 6 u/s), which is the one place in the mode
+that a clock gets a say. A frozen weave is a car parked slightly off the lane centre, which is
+nothing; a frozen fish tail is a car parked diagonally across its own lane, which reads as a bug.
+
+`main.js` keeps the rubber coming while it is out (`isFishtailing`, the kick and the catch but not
+the settle). Without it the streak stopped on the frame the arc completed — which is the frame the
+slide *starts* — and the one manoeuvre in the game with a slip angle in it was the one leaving
+nothing on the road.
+
+`tools/probe.mjs` drives a lone taxi through one right-hander and asserts the tail comes out, that
+it does **not** come out of a junction merely crossed or a corner taken with the button up, that
+the second half of the burst is under 0.6 of the first, that the rendered lock is signed against
+the slip, and that the body corner clears the kerb. The decay check is a ratio between the two
+halves rather than a sample at a fixed distance, and that is a scar: the first version sampled 12
+to 18 units past the corner, which is a window the taxi spends *inside the next junction* with the
+slip held at zero by design, and it passed silently against a build rigged never to decay at all.
 
 ### Overtaking
 

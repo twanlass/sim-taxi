@@ -8,7 +8,7 @@ import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
 import { createGarage } from './city/garage.js';
 import {
-  createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber,
+  createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber, isFishtailing,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
 } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
@@ -1515,7 +1515,14 @@ function layRubber(dt) {
   // driving along in the borrowed lane, which is not a moment anything is sliding.
   const swapping = laysPassRubber(car);
 
-  if (!cornering && !launching && !swapping) { lastSkidAt = car.travelled; return; }
+  // And out the far side of the corner, where the tail is still coming back into line. The
+  // cornering test above stops on the frame the arc completes, which is the frame the slide
+  // *starts* — so without this the streak ended exactly where the car began sliding, and the one
+  // manoeuvre with a slip angle in it was the one leaving nothing behind. `isFishtailing` covers
+  // the kick and the catch and stops short of the settle; see FISHTAIL_RUBBER in traffic.js.
+  const slewing = car.boost && isFishtailing(car);
+
+  if (!cornering && !launching && !swapping && !slewing) { lastSkidAt = car.travelled; return; }
   // Closer than one mark length, so consecutive stamps overlap into a continuous streak.
   if (car.travelled - lastSkidAt < 0.42) return;
   lastSkidAt = car.travelled;
