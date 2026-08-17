@@ -24,6 +24,10 @@ it keeps climbing past double, to 67mph; every corner hands that back. A full ta
 boost, and it never refills on its own: you start with a third and every drop-off earns another
 third. On a keyboard, **hold the spacebar** for the same thing.
 
+**Brake** (to its right) is the other pedal: hold it and the taxi screeches to a stop wherever it
+is, leaving rubber off all four wheels; let go and it goes back to driving itself. Nothing to earn
+and nothing to spend. On a keyboard, **hold B**.
+
 The whole city is always on screen. There is nothing to pan or zoom, so every tap is unambiguous.
 
 ## Test

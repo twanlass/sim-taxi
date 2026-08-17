@@ -3321,6 +3321,156 @@ check('no two cars occupy the same space', worst > 1.6,
   setPriorityJunction(null);
 }
 
+// --- The brake pedal --------------------------------------------------------
+// `taxi.braking`, held from the HUD's brake button. It outranks every other speed rule the taxi
+// has — the boost ceiling included — for exactly as long as it is held, and gives the car straight
+// back to the auto gas the moment it is let go. There is nothing to earn and nothing to spend, so
+// what is worth asserting is all here: that it stops the car, that it stops it *hard*, that it
+// beats the button next to it, and that letting go is a clean hand-back.
+{
+  // A junction with a straight exit and a long approach, so the staged taxi has road in front of
+  // it: the stop itself is about a unit from cruise, and the pull-away needs ~5 more to be back at
+  // cruise, against the ~16 units of clear lane this staging leaves before the signal bites.
+  let bI = -1; let bJ = -1; let bD = -1;
+  outerBrake: for (let i = 1; i < GRID; i++) {
+    for (let j = 1; j < GRID; j++) {
+      if (ringAxisAt(i, j)) continue;
+      for (const d of [0, 1, 2, 3]) {
+        if (!legalExits(d, i, j).includes(d)) continue;
+        if (approachRoom(d, i, j) < 30) continue;
+        bI = i; bJ = j; bD = d;
+        break outerBrake;
+      }
+    }
+  }
+
+  /** One taxi, alone on the road, 18 units back from the junction and already at cruise. */
+  const stage = () => {
+    const bScene = new THREE.Scene();
+    const bTraffic = createTraffic(makeRng(seed + 173), bScene, 1);
+    const car = bTraffic.taxi;
+    placeCar(car, bD, bI, bJ, 18);
+    car.parked = false;
+    car.route = [bD, bD, bD];
+    car.routeConsumed = false;
+    car.v = SPEED;
+    return { bTraffic, car };
+  };
+
+  {
+    const { bTraffic, car } = stage();
+    for (let f = 0; f < 30; f++) bTraffic.update(1 / 60);
+    const cruising = car.v;
+
+    car.braking = true;
+    // The rate, measured over the first frame of the hold rather than inferred from the stopping
+    // distance — a signal or a leader can lower the *target* the car is chasing, but nothing else
+    // in the sim sheds speed faster than `brake()`, so the rate is the part that can only come
+    // from the pedal.
+    const before = car.v;
+    bTraffic.update(1 / 60);
+    const rate = (before - car.v) * 60;
+    check('the brake sheds speed at twice the rate lifting off does',
+      Math.abs(rate - 2 * LOCO_DEFAULTS.brake) < 0.5,
+      `${rate.toFixed(1)} u/s^2 vs brake ${LOCO_DEFAULTS.brake}`);
+
+    const from = car.travelled;
+    let frames = 1;
+    while (car.v > 0 && frames < 600) { bTraffic.update(1 / 60); frames += 1; }
+    const stopped = car.travelled - from;
+    check('and hauls the taxi to a dead stop from cruise inside a car length',
+      car.v === 0 && stopped < CAR_LEN && stopped > 0.2,
+      `${stopped.toFixed(2)} units in ${(frames / 60).toFixed(2)}s from ${cruising.toFixed(1)} u/s`);
+
+    // Held. The auto gas is the game's resting state, so "stopped" has to survive it.
+    const held = car.travelled;
+    for (let f = 0; f < 120; f++) bTraffic.update(1 / 60);
+    check('and holds it there for as long as the pedal is down',
+      car.v === 0 && car.travelled - held < 1e-9,
+      `moved ${(car.travelled - held).toFixed(4)} units over 2s`);
+
+    // Let go: back to driving itself, with nothing to re-arm and nobody to tell. Measured over
+    // half a second of pull-away rather than by waiting for cruise — a staged lane is 12 units
+    // long and the taxi is braking for the next signal well before it gets there, so "did it reach
+    // cruise" is a question about that junction's light and not about the pedal. What the release
+    // owes is that the ordinary throttle takes over at the ordinary ACCEL (6 u/s^2), which is
+    // exactly what this measures.
+    car.braking = false;
+    const away = car.travelled;
+    for (let f = 0; f < 30; f++) bTraffic.update(1 / 60);
+    check('and letting go hands the taxi straight back to the auto gas',
+      car.v > 2.5 && car.travelled > away,
+      `${car.v.toFixed(1)} u/s and ${(car.travelled - away).toFixed(2)} units half a second after the release`);
+  }
+
+  {
+    // The pedal beats the button. Both held at once is a real gesture — two thumbs, or a keyboard
+    // — and main.js drops the boost on a brake press rather than leaving them to fight, but the
+    // sim must not depend on that: whoever ends up holding both gets a stopped car.
+    const { bTraffic, car } = stage();
+    for (let f = 0; f < 60; f++) { car.boost = true; bTraffic.update(1 / 60); }
+    const boosting = car.v;
+    car.braking = true;
+    for (let f = 0; f < 120; f++) { car.boost = true; bTraffic.update(1 / 60); }
+    check('the brake outranks Loco Mode rather than fighting it for the throttle',
+      car.v === 0, `${boosting.toFixed(1)} u/s at full boost -> ${car.v.toFixed(2)} u/s`);
+    setPriorityJunction(null);
+  }
+
+  {
+    // Mid-junction. A pedal that only worked on a lane would ignore the player for the ~0.9s a
+    // crossing takes, which is the moment the brake is most likely to be wanted. Stopping in the
+    // box is a hazard rather than a hold — see the `heldAt` set in traffic.js, which is what keeps
+    // cross traffic from being released through a taxi standing in the middle of it.
+    const bScene = new THREE.Scene();
+    const bTraffic = createTraffic(makeRng(seed + 173), bScene, 2);
+    const [car, cross] = bTraffic.cars;
+    placeCar(car, bD, bI, bJ, 18);
+    car.parked = false;
+    car.route = [bD, bD, bD];
+    car.routeConsumed = false;
+    car.v = SPEED;
+
+    let entered = 0;
+    for (let f = 0; f < 60 * 12 && car.state !== 'turn'; f++) { bTraffic.update(1 / 60); entered = f; }
+    const inTheBox = car.state === 'turn';
+    // Part way across, not on the lip of the exit lane.
+    for (let f = 0; f < 60 && car.turnT < 0.35; f++) bTraffic.update(1 / 60);
+    car.braking = true;
+    const turnAt = car.turnT;
+    for (let f = 0; f < 180; f++) bTraffic.update(1 / 60);
+    check('the brake works inside a junction, not just on a lane',
+      inTheBox && car.v === 0 && car.state === 'turn' && car.turnT < 1,
+      `entered after ${entered} frames, stopped at turnT ${car.turnT.toFixed(2)} (braked at ${turnAt.toFixed(2)})`);
+
+    // And now the reason that is allowed to be a hazard rather than a crash: cross traffic must be
+    // held out of a junction with a car standing in it, exactly as it is for an ambient car
+    // stranded mid-turn. Run long enough to cover a whole signal cycle, so the crossing car gets a
+    // real green to drive through the taxi on if the `heldAt` entry is missing — without it this
+    // check would pass on a red.
+    const roads = cityNetwork();
+    const crossD = leftOf(car.d);
+    const crossLane = roads.laneByGrid(crossD, bI, bJ);
+    let closest = Infinity;
+    let released = 0;      // frames the crossing car spent inside the box the taxi is stopped in
+    if (crossLane) {
+      placeCar(cross, crossD, bI, bJ, Math.min(10, crossLane.length));
+      cross.parked = false;
+      cross.route = [crossD, crossD];
+      cross.routeConsumed = false;
+      for (let f = 0; f < 60 * 30; f++) {
+        bTraffic.update(1 / 60);
+        if (cross.crashed || car.crashed) continue;
+        closest = Math.min(closest, Math.hypot(cross.x - car.x, cross.z - car.z));
+        if (cross.state === 'turn' && cross.i === bI && cross.j === bJ) released += 1;
+      }
+    }
+    check('and cross traffic is held out of a junction the taxi is standing in',
+      !!crossLane && released === 0 && closest > CAR_LEN,
+      `${released} frames in the box, closest approach ${closest.toFixed(2)} units over 30s of cycles`);
+  }
+}
+
 // --- Routing ---------------------------------------------------------------
 // Every (approach state, destination) pair must be solvable. A single unreachable pair would
 // strand the taxi with no way for the player to recover.

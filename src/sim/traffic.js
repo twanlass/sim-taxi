@@ -880,6 +880,13 @@ const BOOST_SPEED = 2.6;      // multiplier on top speed — 22.1 u/s, 65mph
 const BOOST_ACCEL = 24;       // reaches full boost speed in well under a block
 const BOOST_KICK = 1.25;      // instant surge on activation, so the press has a feel
 const BRAKE = 17.5;           // units/s^2 shedding speed; ~2.1 units to stop from cruise
+// The player's brake pedal — `car.braking`, held from the HUD's brake button (main.js). Twice the
+// ordinary rate, which is what makes it read as locking the wheels rather than lifting off: 1.0
+// units to stop from cruise (8.5 u/s), 7.0 from the boost top (22.1) and 16.5 from the overdrive
+// top (34). That last one is the number the feel was picked on — about a second of screech and two
+// car lengths of rubber from flat out, where the ordinary brake would take four times as long to
+// look like anything at all.
+const HARD_BRAKE = 2 * BRAKE;
 const CORNER_SPEED = SPEED * 0.7;
 
 /**
@@ -1031,6 +1038,15 @@ export const overdriveTop = () => SPEED * loco.overdriveSpeed;
  * throughout this file quote; this is the one the physics reads, so the panel can move it.
  */
 const brake = () => loco.brake;
+
+/**
+ * What a car sheds speed at with the brake pedal held — the taxi, and only ever the taxi.
+ *
+ * Never softer than the ordinary brake. `loco.brake` is a live knob and the ⚙️ panel can push it
+ * past HARD_BRAKE, at which point a "hard" brake that stops the car *slower* than simply lifting
+ * off is not a brake; the max is what keeps the pedal monotonic against its own tuning.
+ */
+const hardBrake = () => Math.max(HARD_BRAKE, brake());
 
 /**
  * The top of the scatter lerp: a car fleeing the boosting taxi is pushed toward the taxi's own
@@ -1495,6 +1511,14 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       // "has a route" rather than on an explicit call means every caller — the game, the probe,
       // the auto-play soak — releases it just by giving the car somewhere to go.
       parked: false,
+      // The brake pedal, held by the player from the HUD (main.js writes it, the same way it writes
+      // `boost` — `sim/` may not import from `game/`). Only the taxi ever sets it; an ambient car
+      // brakes by having its speed target lowered, never by being told to stop where it stands.
+      //
+      // Not the same thing as `parked`, which is a *hold at the kerb* the sim eases into off a
+      // positional budget of zero: this overrides the budget entirely and is the only input that can
+      // stop the taxi in the middle of a junction.
+      braking: false,
       isTaxi: false,
       instanceIndex: -1,
       x: 0, z: 0, yaw: dirYaw(d),
@@ -2299,7 +2323,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const heldAt = new Set();
 
     for (const car of cars) {
-      if (car.state === 'turn' && car.turnT >= 0.95) heldAt.add(`${car.i},${car.j}`);
+      if (car.state !== 'turn') continue;
+      // The ordinary case: a car that has run out of arc and is waiting for room to land.
+      // The brake pedal is the other way into the box and out of it — a taxi hauled to a stop
+      // half way across a junction is stranded in exactly the sense this set means, at any `turnT`,
+      // so the junction has to hold for it too. Keyed on the pedal rather than on `v === 0`: the
+      // hold has to be in place while the car is still sliding to its stop, not a frame after it
+      // has finished, because the cross traffic it protects itself from brakes on approach.
+      if (car.turnT >= 0.95 || car.braking) heldAt.add(`${car.i},${car.j}`);
     }
 
     for (const car of cars) {
@@ -2876,12 +2907,17 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const accel = fullPower
           ? boostAccel(car.v)
           : ACCEL + (scatterAccel() - ACCEL) * car.scatter;
-        const desired = Math.min(
+        // The brake pedal outranks every one of them, including the boost ceiling: holding it means
+        // stop, so the target is zero and the car sheds toward it at `hardBrake()` however much road
+        // it has been granted. Nothing else needs to know — with a target of 0 the accelerate branch
+        // below can never fire, so a braking taxi cannot pull away from a green, out of a queue or
+        // into an overtake while the pedal is down.
+        const desired = car.braking ? 0 : Math.min(
           topSpeed, leadCap, Math.sqrt(2 * brake() * Math.max(0, stopRoom)),
         );
         car.v = desired > car.v
           ? Math.min(desired, car.v + accel * dt)
-          : Math.max(desired, car.v - brake() * dt);
+          : Math.max(desired, car.v - (car.braking ? hardBrake() : brake()) * dt);
 
         let step = Math.min(car.v * dt, Math.max(0, allowed));
         // Braking only asymptotes toward the line; snap the last sliver so arrival happens. Keyed
@@ -3160,6 +3196,13 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           const room = Math.max(0, leadGap - (car.boost ? BOOST_GAP : followGap(car, lead)));
           target = Math.min(target, lead.v + Math.sqrt(2 * brake() * room));
         }
+        // The brake pedal, on the same terms as the drive branch. A pedal that only worked on a
+        // lane would ignore the player for up to a second at a time — a junction crossed at cruise
+        // takes 0.9s — and the moment you most want the brake is the moment you are already in the
+        // box. Stopping there is a real hazard rather than a free hold, and the `heldAt` set above
+        // is what keeps cross traffic from being released through a taxi standing in the middle of
+        // it (which is the same protection an ambient car stranded mid-turn already gets).
+        if (car.braking) target = 0;
 
         // Same acceleration as the drive branch, scatter push included: a ceiling a car cannot
         // climb to is not a ceiling. At plain ACCEL a fleeing car needs 24 units to reach
@@ -3167,7 +3210,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // roof and the car would still cross at the speed it entered.
         const accel = fullPower ? boostAccel(car.v) : ACCEL + (scatterAccel() - ACCEL) * car.scatter;
         car.v = car.v > target
-          ? Math.max(target, car.v - brake() * dt)
+          ? Math.max(target, car.v - (car.braking ? hardBrake() : brake()) * dt)
           : Math.min(target, car.v + accel * dt);
         car.turnT += (car.v * dt) / car.turnLen;
         car.travelled += car.v * dt;

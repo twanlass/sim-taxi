@@ -306,9 +306,58 @@ Cars accelerate and brake rather than snapping between speeds:
 ```js
 SPEED  = 8.5    // cruise
 ACCEL  = 6      // units/s² pulling away
-BRAKE  = 11     // units/s² stopping; ~3.3 units from cruise to standstill
+BRAKE  = 17.5   // units/s² stopping; ~2.1 units from cruise to standstill
+HARD_BRAKE = 35 // the player's brake pedal — twice that, and the taxi's alone
 CORNER_SPEED = SPEED * 0.7
 ```
+
+### The brake pedal
+
+`car.braking` is the one input in the sim that can bring the taxi to a dead stop wherever it
+happens to be. Held from the HUD's brake button (or **B**), written onto the car by `main.js` each
+frame the same way `boost` is — `sim/` may not import from `game/`, so both flags are pushed rather
+than pulled.
+
+It is deliberately blunt. Everywhere the drive branch and the turn branch compute a speed target,
+`braking` replaces it with **zero** and swaps `brake()` for `hardBrake()`:
+
+```js
+const desired = car.braking ? 0 : Math.min(topSpeed, leadCap, sqrt(2 · brake() · stopRoom));
+car.v = desired > car.v ? … : max(desired, car.v − (car.braking ? hardBrake() : brake()) · dt);
+```
+
+That single substitution is the whole feature, and it is what makes the pedal outrank everything
+else the taxi could be doing — including Loco Mode, whose ceiling is one of the terms it replaces.
+With a target of zero the accelerate branch can never fire, so a braking taxi cannot pull away from
+a green, out of a queue, or into an overtake while the pedal is down. Letting go restores the
+ordinary target on the next frame; there is nothing to re-arm, which is why "release" and "the taxi
+drives itself again" are the same statement.
+
+`hardBrake()` is `max(HARD_BRAKE, brake())` rather than the constant, because `brake()` is a live
+knob on the ⚙️ panel and a *hard* brake that stops the car slower than lifting off is not a brake.
+At 35 u/s² the stop is 1.0 units from cruise, 7.0 from the boost top and **16.5 from the overdrive
+top** — that last one is the number the feel was picked on: about a second of screech and two car
+lengths of rubber from flat out.
+
+**It works inside a junction, and that needed one more line.** A pedal that only applied on a lane
+would ignore the player for the ~0.9s a crossing takes, which is exactly when the brake is most
+likely to be wanted. But a car stopped in the box is a hazard: cross traffic released into a
+junction drives *through* whatever is standing in it. That case already existed for an ambient car
+stranded mid-turn, and the `heldAt` set is what protects it — so a braking taxi joins that set at
+any `turnT`, not just the ≥ 0.95 an out-of-arc car reaches. Keyed on the pedal rather than on
+`v === 0` so the hold is in place while the taxi is still sliding to its stop, since the traffic it
+is being protected from brakes on approach. Without it, the probe measures a crossing car spending
+81 frames driving through a stopped taxi.
+
+The brake is not `parked`. `parked` is a hold at the kerb the sim eases into off a positional
+budget of zero; this overrides the budget outright, and is the only input that can stop the taxi
+mid-junction.
+
+Everything the brake *looks* like falls out of the physics for free: the nose-dive is the pitch
+spring reading deceleration off `car.v`, and the brake lights come on because `accel < −BRAKE_ACCEL`
+— `BRAKE_ACCEL` (1.5) is well under either braking constant, so they light on the first frame of
+the hold and stay lit through the stop (`BRAKE_STOP_V`). What `main.js` adds is the rubber —
+[four wheels, not two](gameplay.md#the-brake).
 
 **Stop line setback.** `STOP_SETBACK = 3.4`. Cars used to hold with their *centre* on the junction
 boundary, putting the nose 1.7 units inside and squarely across the crosswalk. The outer crosswalk
