@@ -377,7 +377,7 @@ Measured over 240s of traffic, on the raw angle:
 | left turn | 15.0° | 24° |
 | boost weave (p90) | 7° | 11° |
 | straight on through a junction | 0° | 0° |
-| fish tail catch | — | 18.4°, against the body |
+| fish tail catch | — | 15.9°, against the body |
 
 The last row has no raw column because it never reaches `car.wheelAngle`: opposite lock is added on
 the way to the rig, for the reason given under [the fish tail](#the-fish-tail-out-of-a-corner).
@@ -934,20 +934,39 @@ animation needed. A re-press mid-cooldown cancels it outright and returns to `'a
 ### The fish tail out of a corner
 
 Loco Mode leaves a junction with the power already back on, and what a car does at that moment is
-step its tail out and wag it straight again. `locoFishtail()` in `traffic.js` is that gesture: a
-sine of wavelength 8 units under a `(1 − u/14)²` envelope, armed on the frame a **real** turn
-completes — `hand !== 'straight'`, since most of the city's `state === 'turn'` frames are cars
-crossing a junction — and only while the button is held.
+step its tail out and wag it straight again. `locoFishtail()` in `traffic.js` is that gesture,
+armed on the frame a **real** turn completes — `hand !== 'straight'`, since most of the city's
+`state === 'turn'` frames are cars crossing a junction — and only while the button is held.
 
-Three lobes land on the road at 0.73 / 0.33 / 0.08 of the amplitude: a kick, a catch and a settle,
-peaking at **16.3° of slip** with **16.3° of lean** under it, and over in 0.75s at boost speed.
-Paced by distance like the weave, the hop and the front-wheel ease, so the same gesture comes out of
-a corner taken at cruise and one taken at the overdrive top.
+Three lobes land on the road at **16.3° / −4.4° / 0.3°** of slip — a kick, a catch and a settle —
+over 14 units, which is 0.75s at boost speed and about a block of road. Paced by distance like the
+weave, the hop and the front-wheel ease, so the same gesture comes out of a corner taken at cruise
+and one taken at the overdrive top.
 
-It shipped at half that and read as subtle, which is a scale problem rather than a design one: a
-corner taken at this speed already leans the body **35.7°**, so 8.6° of slip with no lean at all
-next to it is a car twitching. The amplitude is the knob and the kerb is what bounds it — see the
-budget below.
+It took three passes to get there, and the two things that were wrong are worth keeping written
+down because neither was a bug.
+
+**It shipped at half the amplitude and read as subtle** — a scale problem rather than a design one.
+A corner taken at this speed already leans the body 35.7°, so 8.6° of slip with no lean at all next
+to it is a car twitching.
+
+**Then it read as a mechanical wag**, which was the shape. It was a plain sine under a `(1 − t)²`
+fader, so every lobe was the same width and the second came back at 46% of the first. A metronome
+running down is not a car getting hold of itself. What replaced it is the physics rather than a
+tweak:
+
+- **The decay is exponential**, which is what a damped mass does, rather than polynomial —
+  renormalised so it still lands exactly on zero, since the expiry is load-bearing and an
+  exponential never gets there on its own.
+- **The period lengthens as the energy goes.** `θ` is `∫ du / (WAVE · (1 + u/STRETCH))`, which
+  integrates to a log, so the local wavelength grows linearly from the corner exit. The tail
+  therefore breaks away fast and comes back slow: the first lobe rises over 1.5 units and takes 2.8
+  to return, where the symmetric sine spent 1.7 and 2.3.
+
+Together those put the second whip at **27% as deep and 1.5× as wide** as the first, against
+46% and 1.0× before. `tools/probe.mjs` asserts both off the pure function — they are the properties
+that make it read as a car rather than as animation, and they are cheaper to check there than to
+infer from a driven taxi.
 
 **It is not a steering input, and that is the whole of what distinguishes it from the weave.** The
 weave's offset is a function of distance, so its slope *is* the angle the wheels are turned to and
@@ -967,13 +986,39 @@ pointed — so it composes differently in three places:
   field is an accumulator `steerToward` eases *from*, so a correction stored in it would be dragged
   into the next frame's ease and never let go of.
 
-**And the body leans with it**, one radian per radian of slip, so the lean *is* how far the tail is
-out read off the side of the car. It picks up exactly where the corner's own lean puts it down —
-that lean is a `sin` which has just returned to zero at the exit — so the body stays loaded up out
-of the corner and then transfers across as the tail wags back. The sign needs no `turnDir` of its
-own and that is the point of phrasing it against the slip: out of a right-hander the slip is
-negative, which is the sign the corner's outward lean already had. It is the one roll in the game
+### The lean is a mass on springs
+
+The body leans with the tail, and *how* it does is the single biggest thing that makes the slide
+read as weight rather than as animation. A body that leans in the same frame the tail steps out is
+a rigid diagram; the tell of a real car getting loose is that the weight arrives **late** and
+leaves **later**. So the lean is not a multiple of the slip — it is a second-order spring chasing
+it, the same form as the pitch spring and on a clock for the same reason (what is being modelled is
+suspension travel, which happens in seconds).
+
+| | |
+|---|---|
+| lean peaks after the slip does | **183ms** (11 frames) |
+| crosses back through level after it | 317ms |
+| still leaning at | 1.03s — a quarter-second after the tail itself is done |
+| K = 35, ζ = 0.46 | 0.94 Hz, where a real car's roll mode sits |
+
+The gain is 2.2 rather than 1 because the spring eats most of the input: the slip's first lobe
+rises in 0.08s and a 0.94 Hz body cannot follow that, so a gain of 1 lands a 10° lean under a 16.3°
+slip. 2.2 puts the peak back at 15.6° and keeps everything the lag buys.
+
+The sign needs no `turnDir` of its own, and that is the point of phrasing it against the slip: out
+of a right-hander the slip is negative, which is the sign the corner's outward lean already had, so
+the spring picks the lean up exactly where the corner puts it down. It is the one roll in the game
 that is **not** speed-scaled, because it only ever happens at the boost top.
+
+**It stacks onto the next corner, and that is left in.** The settle outlasts the slide, so on a
+20-unit grid at boost speed the spring is still unwinding when the next corner starts: measured
+over eight cities, 12.2–13.7° of carry-over on the frame a corner is entered, and 18–26° reached on
+the straight where consecutive corners re-excite it before it has finished — against the 15.5° one
+fish tail is worth in isolation. Total rendered roll therefore tops out at 40.2–41.4° against the
+35.7° a corner leans on its own. Not clamped: a body that has not finished with the last corner
+when the next arrives is the right answer, and it is only reachable on a corner-to-corner sequence
+taken flat out. The probe holds the ceiling under 45° so it cannot creep.
 
 **The weave fades out under it and back in as it dies**, rather than the two splitting the 1.15
 units of play between the lane centre and the kerb. Half of that is the room budget and half is
@@ -990,11 +1035,14 @@ Amplitude is what spends it, and the kerb is the wall. Swept:
 | 8.6° — as it first shipped | 0.67 |
 | 11.2° | 0.61 |
 | 13.8° | 0.56 |
-| **16.3° — shipping** | **0.51** |
+| 16.3° — the symmetric shape | 0.51 |
+| **16.3° — shipping, damped shape** | **0.58** |
 | 26° | 0.32 — under the probe's floor |
 
 For scale, the same taxi weaving down an ordinary straight comes within **0.47** of the kerb, which
-is the number that says the corner exit is still not the widest thing it does on the road.
+is the number that says the corner exit is still not the widest thing it does on the road. The
+damped shape buys 0.07 back at the same first lobe, because what actually reaches for the kerb is
+the *second* whip and that one is now barely half the size.
 
 **It changes no outcome in the sim.** Over 24 cities of a boosting taxi driven until it wrecks,
 mean survival is 5.8868s with the tail and 5.8868s without — bit-identical, because it consumes no
@@ -1022,9 +1070,10 @@ nothing on the road.
 `tools/probe.mjs` drives a lone taxi through one right-hander and asserts the tail comes out, that
 it does **not** come out of a junction merely crossed or a corner taken with the button up, that
 the second half of the burst is under 0.6 of the first, that the rendered lock is signed against
-the slip, that the lean is signed *with* it, and that the body corner clears the kerb. The two sign
-checks are the point of those two: both magnitudes are arithmetic off the slip, and a sign is what
-inverts silently — an inward lean out of a corner reads as a motorbike, the same note the corner
+the slip, that the lean is signed *with* it **and lags it by at least 6 frames**, and that the body
+corner clears the kerb. The lag floor is there to catch the spring being short-circuited back into
+a direct multiply, which lands it at 0 — and the sign checks are there because a sign is what
+inverts silently, an inward lean out of a corner reading as a motorbike, the same note the corner
 lean carries. The decay check is a ratio between the two
 halves rather than a sample at a fixed distance, and that is a scar: the first version sampled 12
 to 18 units past the corner, which is a window the taxi spends *inside the next junction* with the

@@ -24,7 +24,7 @@ import {
 import { createGarage, garageSite } from '../src/city/garage.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
-  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
+  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, locoFishtail } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
@@ -2859,6 +2859,44 @@ check('no two cars occupy the same space', worst > 1.6,
   // Its own junction search rather than the one the scatter scenarios below share: those need a
   // legal *left* and a facing approach, and this needs a right — the tighter arc, and the one that
   // throws the tail toward the road centreline rather than at the pavement.
+  const deg = (r) => `${((Math.abs(r) * 180) / Math.PI).toFixed(1)}\u00b0`;
+  // The shape first, off the pure function, because the two properties that make it read as a car
+  // rather than as a metronome are properties of `locoFishtail` alone and are cheaper to assert
+  // there than to infer from a driven taxi.
+  //
+  // A plain sine under a fader — which is what this was — gives every lobe the same width and
+  // brings the second back at 46% of the first. Both halves of that read as mechanical, and both
+  // are pinned here: the second whip has to be **wider** (the wag slows as the energy goes) and
+  // **much shallower** (it is damped, not faded). Measured 1.5x the width at 27% of the height.
+  const lobeWalk = [];
+  {
+    let sign = 0; let peak = 0; let from = 0;
+    for (let u = 0; u <= 20; u += 0.01) {
+      const y = locoFishtail(u).yaw;
+      const s = Math.sign(y);
+      if (s !== 0 && s !== sign) {
+        if (sign !== 0) lobeWalk.push({ peak, width: u - from });
+        sign = s; peak = y; from = u;
+      }
+      if (Math.abs(y) > Math.abs(peak)) peak = y;
+    }
+  }
+  const [lobe1, lobe2] = lobeWalk;
+  check('the fish tail is a mass losing its energy, not a wave with a fader on it',
+    Boolean(lobe1 && lobe2)
+      && Math.abs(lobe2.peak) < Math.abs(lobe1.peak) * 0.35
+      && lobe2.width > lobe1.width * 1.3,
+    lobe1 && lobe2
+      ? `second whip ${(Math.abs(lobe2.peak) / Math.abs(lobe1.peak) * 100).toFixed(0)}% as deep `
+        + `and ${(lobe2.width / lobe1.width).toFixed(1)}x as wide`
+      : `only ${lobeWalk.length} lobes`);
+  // And it has to end. An exponential does not reach zero on its own, so the envelope is chopped
+  // and rescaled to land on it — if that ever comes undone the tail never retires and the taxi
+  // drives permanently crabbed.
+  check('and it is over by the end of its own length',
+    locoFishtail(14).yaw === 0 && locoFishtail(13.99).env < 0.01 && locoFishtail(1e9).yaw === 0,
+    `env ${locoFishtail(13.99).env.toFixed(4)} at the last unit`);
+
   let fI = -1; let fJ = -1; let fIn = -1;
   for (let i = 1; i < GRID && fIn < 0; i++) {
     for (let j = 1; j < GRID && fIn < 0; j++) {
@@ -2895,7 +2933,9 @@ check('no two cars occupy the same space', worst > 1.6,
     let peak = 0;          // the slip angle at its widest, signed
     let slideFrames = 0;
     let lock = 0;          // the front wheels' rendered angle on that same frame, signed
-    let lean = 0;          // and the body roll on it, signed the same way
+    let peakAt = -1;       // and the frame it happened on, for the lean's lag
+    let lean = 0;          // the body roll at *its* own widest, signed the same way
+    let leanAt = -1;
     let kerbClear = Infinity;
     let laneOff = 0;       // how far the body centre strayed from the lane centre
     let earlyPeak = 0;     // the widest the tail got over the first 5 units out of the corner
@@ -2935,16 +2975,22 @@ check('no two cars occupy the same space', worst > 1.6,
         // The taxi's fronts are meshes on the rig, not instances — the same readback the steering
         // checks use. Only the wheels are yawed relative to the body, so the widest child is one,
         // and it is read *signed*: which way it points is the whole assertion.
+        peakAt = f;
         lock = 0;
         for (const part of traffic.taxiGroup.children) {
           if (Math.abs(part.rotation.y) > Math.abs(lock)) lock = part.rotation.y;
         }
-        // 'YXZ' — x is the roll. Read on the same frame and only out on the straight, where the
-        // corner's own lean has already returned to zero and a lone taxi has nothing else rolling
-        // it, so what is left is the fish tail's contribution by itself.
-        lean = traffic.taxiGroup.rotation.x;
       }
       if (taxi.state !== 'drive') continue;
+
+      // The lean, tracked to its *own* peak rather than read at the slip's, since the whole point
+      // of the spring is that the two do not happen on the same frame. 'YXZ' — x is the roll. Only
+      // out on the straight, where the corner's own lean has already returned to zero and a lone
+      // taxi has nothing else rolling it, so what is left is the fish tail's by itself.
+      if (Math.abs(traffic.taxiGroup.rotation.x) > Math.abs(lean)) {
+        lean = traffic.taxiGroup.rotation.x;
+        leanAt = f;
+      }
 
       // Cross-axis only — along the road the coordinate says nothing — and against the offset of
       // the lane the taxi is actually on, since an arterial's lane centre sits 3.33 out, not 2.
@@ -2966,8 +3012,36 @@ check('no two cars occupy the same space', worst > 1.6,
         }
       }
     }
-    return { took, peak, slideFrames, lock, lean, kerbClear, laneOff, earlyPeak, latePeak, lateFrames, corners };
+    return { took, peak, peakAt, slideFrames, lock, lean, leanAt, kerbClear, laneOff,
+      earlyPeak, latePeak, lateFrames, corners };
   };
+
+  // The lean is a spring and springs stack: consecutive corners on a 20-unit grid re-excite it
+  // before it has settled, so it carries into the next corner and adds to that corner's own lean.
+  // Deliberate, and left unclamped (see the roll block in traffic.js), which makes the *ceiling*
+  // the thing worth pinning — a spring that gets a little livelier grows here first and nowhere
+  // else. Measured across eight cities the total sits in a 1.2° band, 40.2° to 41.4°, against the
+  // 35.7° a corner leans on its own; one city is enough to catch a regression that size.
+  {
+    const rScene = new THREE.Scene();
+    const rTraffic = createTraffic(makeRng(seed + 173), rScene, CARS_DEFAULT);
+    rTraffic.warmup(10);
+    let worst = 0;
+    let carried = 0;
+    let wasTurning = false;
+    for (let f = 0; f < 60 * 60 && !rTraffic.taxi.crashed; f++) {
+      rTraffic.taxi.boost = true;
+      rTraffic.update(1 / 60);
+      const turning = rTraffic.taxi.state === 'turn';
+      if (turning && !wasTurning) carried = Math.max(carried, Math.abs(rTraffic.taxi.slideRoll));
+      wasTurning = turning;
+      worst = Math.max(worst, Math.abs(rTraffic.taxiGroup.rotation.x));
+    }
+    check('the lean the fish tail leaves behind stacks onto the next corner, but not without limit',
+      worst < 0.785 && carried > 0.05,
+      `${deg(worst)} of roll at the worst, ${deg(carried)} carried into a corner`);
+  }
+  setPriorityJunction(null);
 
   const fish = runCorner({ hand: 'right', boosting: true });
   const fishStraight = runCorner({ hand: 'straight', boosting: true });
@@ -2975,7 +3049,6 @@ check('no two cars occupy the same space', worst > 1.6,
 
   // 16.3° measured, against the 16.0 the first lobe of locoFishtail() is worth on its own — the
   // extra is the tail still swinging as the taxi picks up speed out of the arc.
-  const deg = (r) => `${((Math.abs(r) * 180) / Math.PI).toFixed(1)}\u00b0`;
   check('Loco Mode throws its tail out of a corner',
     fIn >= 0 && fish.took === 'right' && Math.abs(fish.peak) > 0.09 && fish.slideFrames > 20,
     `${deg(fish.peak)} of slip over ${fish.slideFrames} frames`);
@@ -2994,20 +3067,29 @@ check('no two cars occupy the same space', worst > 1.6,
     fish.latePeak < fish.earlyPeak * 0.6 && fish.lateFrames > 5,
     `${deg(fish.earlyPeak)} then ${deg(fish.latePeak)} over ${fish.lateFrames} frames`);
   // The wheels come off the *path*, so they point the other way from the body — the opposite lock
-  // that reads as a driver catching a slide rather than spinning. Measured: 18.4° of rendered lock
+  // that reads as a driver catching a slide rather than spinning. Measured: 15.9° of rendered lock
   // against 16.3° of slip, and it is the sign that is the assertion. Reading it off the rig rather
   // than off `car.wheelAngle` is deliberate: the correction is deliberately *not* written into
   // that field (see the note by setTaxiSteer), so the model value cannot show it.
   check('and takes opposite lock while it does',
     fish.lock !== 0 && Math.sign(fish.lock) === -Math.sign(fish.peak),
     `${deg(fish.lock)} of lock at sign ${Math.sign(fish.lock)}, ${deg(fish.peak)} of slip at sign ${Math.sign(fish.peak)}`);
-  // The lean is one-for-one with the slip by construction, so the magnitude here is arithmetic and
-  // the *sign* is the assertion — it is the half that can silently invert, and an inward lean out
-  // of a corner reads as a motorbike, which is the same note the corner lean above it carries. A
-  // lone taxi on the straight has nothing else rolling it, so this is the fish tail's own.
+  // The lean, and the two things about it that can each go wrong on their own.
+  //
+  // **The sign**, which is the half that inverts silently: an inward lean out of a corner reads as
+  // a motorbike, the same note the corner lean above it carries. A lone taxi on the straight has
+  // nothing else rolling it, so what this reads is the fish tail's own.
+  //
+  // **The lag**, which is the whole reason the lean is a spring and not a multiple of the slip. A
+  // body that leans on the same frame the tail steps out is a rigid diagram; the tell of a real
+  // car getting loose is that the weight arrives late. Measured at 11 frames — 183ms — and the
+  // floor of 6 is there to catch the gain being turned back into a direct multiply, which would
+  // land it at 0. If this ever reads 0 the spring has been short-circuited.
   check('and leans the way the tail is thrown',
-    Math.abs(fish.lean - fish.peak) < 1e-9 && Math.abs(fish.lean) > 0.2,
-    `${deg(fish.lean)} of lean at sign ${Math.sign(fish.lean)}, slip at sign ${Math.sign(fish.peak)}`);
+    Math.sign(fish.lean) === Math.sign(fish.peak) && Math.abs(fish.lean) > 0.2
+      && fish.leanAt - fish.peakAt >= 6,
+    `${deg(fish.lean)} of lean against ${deg(fish.peak)} of slip, `
+    + `${fish.leanAt - fish.peakAt} frames behind it`);
 
   // Where the room went. The weave is faded out under the tail rather than splitting the budget
   // with it, so the *centre* stays inside the same 0.6 the check above holds it to — measured
