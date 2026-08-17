@@ -1289,11 +1289,33 @@ try {
     check('space holds Loco Mode', before === 'ready' && held === 'active' && engaged === true,
       `${before} → ${held}, taxi.boost ${engaged}`);
 
+    // ...and the frame pushes in behind it (LOCO_PUNCH in game/camera.js). Checked here rather than
+    // only in the probe because everything that could kill it lives outside the camera module: the
+    // narrow-viewport gate, the hold clock, and the two claims that set the zoom themselves. A dead
+    // gate leaves the module perfect and the effect absent, with nothing failing anywhere. Polled
+    // on *sim* time — the hold has to clear LOCO_PUNCH_HOLD, and this page renders in software.
+    let pushed = 1;
+    for (let attempt = 0; attempt < 40 && pushed > 0.99; attempt++) {
+      await sleep(250);
+      pushed = await evaluate('window.__taxi.camera.state.punch');
+    }
+    check('and the frame pushes in behind the hold', pushed < 0.99,
+      `punch ${pushed.toFixed(3)}`);
+
     await key('keyUp');
     await sleep(200);
     const released = await mode();
     // 'cooldown', not 'ready': releasing passes through the one-second momentum window first.
     check('and releasing it lets go', released !== 'active', `${held} → ${released}`);
+
+    // And gives it back. Same poll, other direction: the way out rides the release rather than
+    // snapping, so this is a wait, not a read.
+    let reopened = pushed;
+    for (let attempt = 0; attempt < 40 && reopened < 1; attempt++) {
+      await sleep(250);
+      reopened = await evaluate('window.__taxi.camera.state.punch');
+    }
+    check('and the frame opens back up on the release', reopened === 1, `punch ${reopened}`);
 
     // Wait out the tail — it is a second of *sim* time, and this page renders in software.
     let settled = released;

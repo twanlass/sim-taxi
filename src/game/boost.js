@@ -45,6 +45,12 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
     held: false,                       // is the button currently pressed?
     pending: 0,                        // fuel queued by top-ups, poured in over ~0.7s so the bar animates
     cooldownLeft: 0,                   // seconds still owed on the post-release momentum window
+    // How long the button has been down *without letting go*, in seconds. Zero whenever it isn't.
+    // The clock exists because a tap and a hold are two different inputs here (see the note at the
+    // top of this file) and one of them — the camera's push-in, see LOCO_PUNCH in game/camera.js —
+    // is only allowed to answer the second. Counted against sim time like everything else in
+    // `update`, so it stops with a paused run rather than banking the length of the pause.
+    heldFor: 0,
   };
 
   // Leaving 'active' for any reason — letting go or running the tank dry — passes through here
@@ -70,8 +76,20 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
     // runs out.
     isEngaged: () => state.mode === 'active' || state.mode === 'cooldown',
 
+    /**
+     * How long the current hold has run, in seconds — 0 the moment the button comes up. A raw
+     * reading rather than a verdict: what counts as "long enough to be a hold" is a feel constant
+     * belonging to whatever is reacting, so it lives there (LOCO_PUNCH_HOLD in game/camera.js).
+     */
+    heldSeconds: () => (state.held ? state.heldFor : 0),
+
     /** Player started holding the button. Idempotent — safe to call every pointerdown. */
     press() {
+      // Only a *fresh* press restarts the clock. press() is idempotent by contract and a re-press
+      // mid-boost is a real gesture (it snaps a cooling car back to full send), so zeroing this
+      // unconditionally would let a player who taps the pill during their own hold knock the
+      // camera back out of its push-in.
+      if (!state.held) state.heldFor = 0;
       state.held = true;
       // A re-press mid-cooldown catches the car before the window closes and snaps it straight
       // back to full send — same transition-into-boost feel (wheelie, flame, kick) as a fresh
@@ -87,6 +105,7 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
     /** Player let go. Idempotent. Starts the cooldown; the fuel that's left stays in the tank. */
     release() {
       state.held = false;
+      state.heldFor = 0;
       if (state.mode === 'active') enterCooldown();
     },
 
@@ -100,6 +119,10 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
     },
 
     update(dt) {
+      // Runs whatever the mode is: a player holding a dead pill when a drop-off pours fuel in rolls
+      // straight into boost (see the 'empty' case below), and that is a hold, not a tap.
+      if (state.held) state.heldFor += dt;
+
       if (state.mode === 'active') {
         state.fuel -= dt;
       } else if (state.mode === 'cooldown') {
