@@ -68,7 +68,7 @@ export const TAIL_DROP = RY + TAIL;
 const SPIKES = 10;
 const NOTCH = 0.82;       // how far in the valleys between the spikes cut
 
-// The purple border, in **world units** rather than as a scale factor, for the reason
+// The dark outline around the fill, in **world units** rather than as a scale factor, for the reason
 // `RIM_OFFSET` gives in geometry/diamond.js: this shape is nearly twice as wide as it is tall, so
 // one multiplier would draw a border half as thick at the top as at the sides.
 const RIM = 0.26;
@@ -76,7 +76,10 @@ const RIM = 0.26;
 // The grawlix. Six glyphs on a 1.02-unit advance — 6.1 units wide inside a 7.4-unit bubble, which
 // leaves the outburst's own spikes clear of the ink.
 const ADVANCE = 1.02;
-const STROKE = 0.2;       // pen width, ~1.5px at play zoom
+// Pen width, ~1.8px at play zoom. It was 0.2 while the glyphs were dark on white paper; light marks
+// on a saturated fill need more body than dark ones on a pale one to read as the same weight, and
+// 1.5px of white on purple came out spidery.
+const STROKE = 0.24;
 const CAP = 0.62;         // half the glyph height
 
 // Depth between the three layers, along the view direction. It only has to beat the depth-test
@@ -277,11 +280,13 @@ export function createCurseBubble() {
     return mesh;
   };
 
-  // Back to front: purple border, paper, ink.
+  // Back to front: the dark outline, the VIP's own purple filling the whole shape, then the grawlix
+  // in white on top of it. The purple is the mass rather than the border — see `curseText` in
+  // palette.js for why that way round.
   const meshes = [
-    layer(RIM_GEO, PALETTE.vip, ORDER),
-    layer(BODY_GEO, PALETTE.curseBubble, ORDER + 1),
-    layer(INK_GEO, PALETTE.curseInk, ORDER + 2),
+    layer(RIM_GEO, PALETTE.curseRim, ORDER),
+    layer(BODY_GEO, PALETTE.vip, ORDER + 1),
+    layer(INK_GEO, PALETTE.curseText, ORDER + 2),
   ];
 
   const setOpacity = (a) => { for (const m of meshes) m.material.opacity = a; };

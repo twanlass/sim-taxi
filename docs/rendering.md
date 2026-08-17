@@ -2236,13 +2236,20 @@ smudge and a five-armed star is a mark. The whole thing is ~57px wide at play zo
 comfortably the largest thing the game ever puts over a rider, and it is meant to be: it is on
 screen for two seconds and it is the only notice a player gets that a fare has just walked.
 
-Three flat layers back to front — a purple border, the paper, then the ink — each `unlitMaterial`,
-`depthWrite: false`, ordered by `renderOrder` above the crystal's own pair. The border is an
-enlarged copy of the same silhouette rather than an inverted hull: a hull is a *volume* trick, and
-on a flat shape the enlarged copy's back faces point away from the camera and draw nothing at all.
-Its offset is in world units per axis, for the reason [the plumbob's rim](#the-plumbob--geometrydiamondjs)
-gives — the bubble is nearly twice as wide as it is tall, so one scale factor would draw a border
-half as thick at the top as at the sides.
+Three flat layers back to front — a dark outline, the VIP's own purple filling the whole shape, then
+the grawlix in white — each `unlitMaterial`, `depthWrite: false`, ordered by `renderOrder` above the
+crystal's own pair. **The purple is the mass, not the border.** It was the border first, and that put
+the identity in 2px of rim while 57px of blank paper carried nothing: the one thing the bubble has to
+say — *that was your VIP* — was the thinnest part of it. Filled, the silhouette itself says it, and
+the marks read white-on-purple, which is the higher-contrast way round at 7px a glyph. The strokes
+grew from 0.2 to 0.24 with the swap, because light marks on a saturated field need more body than
+dark ones on a pale one to read at the same weight.
+
+The outline is an enlarged copy of the same silhouette rather than an inverted hull: a hull is a
+*volume* trick, and on a flat shape the enlarged copy's back faces point away from the camera and
+draw nothing at all. Its offset is in world units per axis, for the reason [the plumbob's
+rim](#the-plumbob--geometrydiamondjs) gives — the bubble is nearly twice as wide as it is tall, so
+one scale factor would draw a border half as thick at the top as at the sides.
 
 **The tail is a rim point, not a triangle stuck on the bottom.** The silhouette is one closed
 polygon of alternating spikes and notches with a single long spike pointing down, and it is drawn as

@@ -246,12 +246,20 @@ export const PALETTE = {
   // game-entity colour here: it has to read against muted buildings from across the board.
   vip: '#A64DFF',
   // What a VIP says on their way out of a cab that didn't get them there in time — the outburst
-  // bubble in geometry/cursebubble.js. Paper and ink; the border is the `vip` purple above, so the
-  // one thing readable at a glance from across the board says *which* rider just walked. Off-white
-  // rather than the passenger's pure white, which is spoken for (see `passenger`) — and warm,
-  // because a cold white bubble at this size reads as a UI panel that has escaped the HUD.
-  curseBubble: '#FBF3E4',
-  curseInk: '#241C2E',
+  // bubble in geometry/cursebubble.js.
+  //
+  // **The bubble is filled with the `vip` purple above, not outlined in it.** A white bubble with a
+  // purple rim put the identity in a 2px border and the mass in a colour that says nothing: at 57px
+  // across, most of what reaches the eye was blank paper, and the thing it had to say — *that was
+  // your VIP* — was the thinnest part of it. Filled, the shape itself carries the identity and the
+  // glyphs read as white-on-purple, which is also the higher-contrast way round at 7px a mark.
+  //
+  // So these two are the *other* two colours: the outline that separates a saturated bubble from a
+  // pale sky or a dark road, and the grawlix inside it. The text is a whisker off pure white, which
+  // belongs to the waiting rider and nothing else (see `passenger`) — at this size the difference is
+  // invisible and the rule stays intact.
+  curseText: '#F6F2FA',
+  curseRim: '#241C2E',
 
   // The package courier — see game/parcels.js.
   //
