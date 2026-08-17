@@ -492,6 +492,10 @@ Two consequences worth knowing here:
   one is that *everyone else's clock keeps draining while you do* — opportunity cost against the
   queue rather than self-harm.
 
+The "queue ahead" term has exactly one exception, and it is the whole of what makes that fare hard:
+a [VIP](#vip-pickups) is budgeted to be served **next**, so its clock pays for the rider aboard and
+its own trip and for nobody standing on a kerb.
+
 `ARRIVE_RADIUS = 9` is how close the taxi's centre must get to the target **junction centre** to
 count as arrived — exported from `fares.js`, and the headless tools import it rather than keeping
 their own copy.
@@ -1073,6 +1077,10 @@ answers to one question, and a band arriving red at an orange disc is the same m
 half the city. It was three surfaces until the [timer ring](#it-used-to-be-a-relay) went, which is
 exactly why the scale was pulled out of the ring into its own module in the first place.
 
+The [VIP](#vip-pickups) is the exception all four make together, and it is now a total one: purple
+at every level, and the two surfaces that carried a *quantity* rather than a hue — the crystal's
+fill and the chip's ring — are both simply held full. A VIP does not say how long you have.
+
 Even quarters rather than the ring's old 0.60 / 0.35 / 0.15 bands: those held the top level through
 the first 40% of the clock and then ran through the other three in a rush. The levels outlived the
 bar they were segments of — `URGENCY_SEGMENTS` is now just how many steps the scale has.
@@ -1157,30 +1165,79 @@ that decision trivial.
 board — their diamond opens on a fixed purple, never drawn from the urgency scale, so "this one is a
 VIP" is never confused with how much time they have left, and every other surface that fare speaks
 through follows it: the ring on the road at the far end of their trip, the route band driving at it,
-and the off-screen pointer. The rider-finder chip agrees too: a VIP's countdown ring wears the same
-purple instead of the ordinary green-to-red scale.
+and the off-screen pointer.
 
-Everything about a VIP is the ordinary fare loop with three numbers turned:
+**And that is the whole of what they will tell you.** A VIP's clock is not shown anywhere: the
+crystal is a solid purple gem that never drains, and the rider-finder chip's ring — the last surface
+that still reported the seconds — is held full and purple as well. You know one is worth three fares
+and you do not know how long you have, which is what makes taking one a gamble instead of a sum. The
+only thing that ever breaks the silence is the panic pulse the marker beats under five seconds, and
+that is an alarm rather than a countdown: it says *now*, not *how long*.
 
-- **A short clock.** Budgeted the same way as everyone else's — from the driving the trip actually
-  costs — but at a fraction of the run's own slack (`VIP_SLACK_FACTOR = 0.7`) rather than the ramp's
-  own. Never below `VIP_MIN_SLACK`, so it stays exactly as winnable as an ordinary fare: `tools/
-  probe.mjs` asserts every fare's clock covers its own work, VIPs included.
-- **A streak multiplier on the payout.** A VIP pays the ordinary distance price times the current
-  shift multiplier, same as anyone — and then again by the player's *VIP streak*: how many VIPs
-  have been delivered back to back, plus one for the delivery in progress. Stamped at spawn like
-  every other price on the board, so the marker's fixed purple says what this one is worth the
-  moment it appears rather than leaving it to be found out on delivery. A miss resets the streak to
-  zero — the whole tension of stacking VIPs is that one late drop-off gives it all back.
+Everything else about a VIP is the ordinary fare loop with four numbers turned:
+
+- **A short clock, and one that assumes you drop everything.** Budgeted the same way as everyone
+  else's — from the driving the trip actually costs, plus the same reaction allowance — but at a
+  fraction of the run's own slack (`VIP_SLACK_FACTOR`, floored at `VIP_MIN_SLACK`), and, far more
+  importantly, **without the kerb queue in the chain**. Every ordinary rider's clock pays for the
+  riders ahead of them, so serving the board in the right order works (see [the fare
+  clock](#the-clock-is-budgeted)). A VIP's does not: it covers the rider already
+  aboard, whom you cannot abandon, its own trip, and nothing else. Jump the queue for it or lose it.
+- **Triple pay, before the streak.** A VIP pays the ordinary distance price times the current shift
+  multiplier, same as anyone — and then again by `VIP_PAYOUT + streak`, where the streak is how many
+  VIPs have been delivered back to back. So the first is worth 3 fares, the next 4, the next 5.
+  (The base multiplier is what makes the first one worth taking at all: before it, `streak + 1` made
+  a fresh VIP worth exactly one ordinary fare.) Stamped at spawn like every other price on the
+  board, so the marker's fixed purple says what this one is worth the moment it appears rather than
+  leaving it to be found out on delivery. A miss resets the streak to zero — the whole tension of
+  stacking VIPs is that one late drop-off gives it all back.
 - **A full tank on delivery**, rather than the ordinary third. `main.js` reads the boost meter's
   current fraction at the moment the delivery's energy bits land and tops up exactly what's missing,
   so a VIP always leaves Loco Mode topped off regardless of what was left in the tank going in.
 
-**Missing one is not a run-ending event.** Every ordinary fare's clock hitting zero ends the run —
-that is the entire tension of the fare loop. A VIP is the one exception: its clock running out just
-clears it off the board the way a delivery would, resets the streak, and the run carries on. It is
-pure upside by construction: taking one on can only make a run better, never worse, which is what
-lets it stay optional without ever being a trap.
+What the numbers are worth, measured over 20 auto-played runs at a 1.5s reaction (the harness in
+`tools/autoplay.mjs`, driven from a scratch copy that counts VIP events):
+
+| | landed | seconds left at the drop-off |
+|---|---|---|
+| Queue-budgeted clock, player serves the kerb in urgency order | 55% | 13.0 |
+| Queue-budgeted clock, player drops everything for the VIP | 78% | **63.9** |
+| Shipped clock, player serves the kerb in urgency order | **20%** | 7.2 |
+| Shipped clock, player drops everything for the VIP | 86% | 8.8 |
+
+The middle row is what was wrong with the old one: a minute of unspent clock is not a hard fare, it
+is a free one wearing a countdown. The bottom two rows are the choice — go now and you land it with
+seconds to spare, leave it in the queue and you lose four out of five.
+
+**Missing one is still not a run-ending event.** Every ordinary fare's clock hitting zero ends the
+run — that is the entire tension of the fare loop. A VIP is the one exception: its clock running out
+takes the fare off the board, resets the streak, and the run carries on. It stays pure upside by
+construction: taking one on can only make a run better, never worse, which is what lets it stay
+optional without ever being a trap even now that it is genuinely hard.
+
+### They leave, and they let you know
+
+What a miss *looks* like is the rider walking out. Until it did, the only evidence was a payout that
+never arrived — the diamond simply stopped, exactly as a delivery does, and the cost (the fare and
+the streak behind it) had to be inferred. So `beginBail` in `fares.js` hands the figure to the same
+`exits` list a delivered rider uses and plays `person.bail`: out of the moving cab if they were
+aboard, off the kerb if nobody ever collected them, then a fast run and a fade. The taxi is released
+on the same frame — an empty seat, or a route to a corner with nobody on it.
+
+Over their head, `geometry/cursebubble.js`: a jagged outburst bubble with `%#&@!!` in it. Every mark
+is geometry — six little stroke-and-dot glyphs merged into one mesh, drawn in the screen plane by
+the constant orientation the fixed camera makes possible ([rendering.md](rendering.md)) — because
+there is no font in this project and a canvas-drawn label would be the one thing on the board that
+is a picture of writing rather than a built object. At play zoom it is about 57px wide and each
+glyph is 7px, which is a grawlix doing exactly its job: it reads as swearing and never as any
+particular swear.
+
+Where they run is the one part with a rule behind it. **Not the diagonal**: a kerb corner sits half
+a unit inside its block and buildings start 0.85 in, so the obvious "away from the junction"
+direction ends with the rider standing inside a shopfront, invisible for the whole animation. A
+rider who gave up on the kerb walks off *along* it, on one axis, staying at their own kerb's fixed
+distance from the road; one who jumped out mid-street runs at the kerb corner of the junction the
+taxi is at and no further than it.
 
 Rare on purpose — a cooldown (`VIP_COOLDOWN`) plus a per-opportunity chance (`VIP_CHANCE`), checked
 only when the board is about to refill and no other VIP is already on it. Both are tuned against

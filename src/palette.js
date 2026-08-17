@@ -245,6 +245,13 @@ export const PALETTE = {
   // one is a VIP" is never confusable with how much time it has left. High-chroma like every other
   // game-entity colour here: it has to read against muted buildings from across the board.
   vip: '#A64DFF',
+  // What a VIP says on their way out of a cab that didn't get them there in time — the outburst
+  // bubble in geometry/cursebubble.js. Paper and ink; the border is the `vip` purple above, so the
+  // one thing readable at a glance from across the board says *which* rider just walked. Off-white
+  // rather than the passenger's pure white, which is spoken for (see `passenger`) — and warm,
+  // because a cold white bubble at this size reads as a UI panel that has escaped the HUD.
+  curseBubble: '#FBF3E4',
+  curseInk: '#241C2E',
 
   // The package courier — see game/parcels.js.
   //

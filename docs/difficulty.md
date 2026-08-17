@@ -77,6 +77,15 @@ by urgency, then the new arrival. Serving in the right order works; serving in t
 not. The puzzle survives as an *ordering* puzzle rather than a lottery, and slack squeezes how far
 from the right order you can stray.
 
+**One rider is deliberately budgeted the old, wrong way, and that is what makes it hard.** A
+[VIP](gameplay.md#vip-pickups) gets the fare aboard and its own trip and nothing else, so its clock
+only holds up if it is served *next*. That is legitimate here for the one reason it was not
+legitimate anywhere else: a VIP's clock running out cannot end the run, so an unmeetable one costs a
+bonus rather than the game. Measured over 20 auto-played runs, the queue-budgeted version arrived
+with a mean of **63.9 seconds unspent** for a player who went straight for it; without the queue that
+is 8.8. The same tuning takes a player who serves the kerb in urgency order from landing 55% of them
+to 20%.
+
 ### The floor and ceiling are guards, not shapers
 
 `clockFloor` 15s, `clockCeiling` 240s. If either is binding on an ordinary fare, the budget is what

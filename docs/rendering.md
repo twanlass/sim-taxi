@@ -2214,6 +2214,45 @@ The crystal and its hull both have `raycast` stubbed out. The rider's marker and
 an oversized invisible hit box that already covers this airspace, so intersecting the crystal would
 only cost work on every tap.
 
+### The outburst bubble — `geometry/cursebubble.js`
+
+What a [VIP](gameplay.md#vip-pickups) says on their way out of a cab that didn't make it: a jagged
+comic bubble with `%#&@!!` in it, riding over the rider for the two seconds of their bail.
+
+**It is drawn in the screen plane, by a constant.** The camera never rotates, so facing it is one
+quaternion built once out of `RIGHT` and `VIEW_DIR` — the same property the flyover's streamers use
+for their roll, and the reason nothing here needs a per-frame `lookAt`. Everything in the module is
+then authored in that plane: local +X is screen right, +Y is screen up, +Z is straight at the
+viewer. It also makes the bubble's position trivial — a pure world-Y offset has no component along
+`RIGHT`, so lifting it in world Y moves it straight up the *screen* and the tail stays pointed at
+the head under it wherever the rider is standing.
+
+**Every mark is geometry.** There is no font in this project and no texture loader, and a
+canvas-drawn label would be the one thing on the board that is a picture of writing rather than a
+built object. So the six glyphs are strokes: a rotated rectangle helper, a square-blob helper for
+the dots, and one annulus for the `@`. The `&` is an asterisk and the `@` a ring with a pip, which
+is how a grawlix is lettered rather than typeset — at ~7px per glyph an ampersand's loops are a
+smudge and a five-armed star is a mark. The whole thing is ~57px wide at play zoom, which is
+comfortably the largest thing the game ever puts over a rider, and it is meant to be: it is on
+screen for two seconds and it is the only notice a player gets that a fare has just walked.
+
+Three flat layers back to front — a purple border, the paper, then the ink — each `unlitMaterial`,
+`depthWrite: false`, ordered by `renderOrder` above the crystal's own pair. The border is an
+enlarged copy of the same silhouette rather than an inverted hull: a hull is a *volume* trick, and
+on a flat shape the enlarged copy's back faces point away from the camera and draw nothing at all.
+Its offset is in world units per axis, for the reason [the plumbob's rim](#the-plumbob--geometrydiamondjs)
+gives — the bubble is nearly twice as wide as it is tall, so one scale factor would draw a border
+half as thick at the top as at the sides.
+
+**The tail is a rim point, not a triangle stuck on the bottom.** The silhouette is one closed
+polygon of alternating spikes and notches with a single long spike pointing down, and it is drawn as
+one fan from the centre — so no two triangles overlap. Two overlapping translucent triangles are
+invisible at full opacity and then paint a bright seam across the shape as it fades out, which is
+exactly when someone is looking at it. Every triangle is hand-wound counter-clockwise seen from +Z
+and `tools/probe.mjs` checks the sign of the normal computed *from that winding*, on every face of
+all three layers — the lesson the [roadworks ramp](#roadworks--gameroadworkjs-geometryroadworksjs)
+paid for, and the one the courier pad's first winding check learned one layer further down.
+
 ### Car motion
 
 Cars get a subtle vertical bounce while driving and **roll into corners** for weight. The roll is

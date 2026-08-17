@@ -284,6 +284,50 @@ export function createPerson({
   }
 
   /**
+   * Bailing: out of the cab (or off the kerb), and gone.
+   *
+   * A VIP whose clock runs out does not get delivered and does not end the run — they leave, which
+   * is the only way the player finds out it happened (see `beginBail` in game/fares.js). `t` is
+   * 0..1 across the whole animation; `dx`/`dz` are where they run *to*, relative to wherever they
+   * were standing when the clock hit zero.
+   *
+   * The hop is `exit`'s, played from the same tuck so a rider leaving a moving taxi looks like a
+   * rider leaving a taxi however they came to be doing it. Everything after it is different on
+   * purpose: no settling at the kerb and no turning back, a quicker cadence than a delivered
+   * rider's, and the run carries on *through* the fade — a delivered fare arrives somewhere, and
+   * this one is only leaving.
+   */
+  function bail(t, dx, dz) {
+    const HOP_END = 0.22;
+    const FADE_FROM = 0.72;
+    group.rotation.y = Math.atan2(dx, dz);
+
+    if (t < HOP_END) {
+      // `exit`'s hop verbatim, minus the slide: they land on the spot rather than short of it,
+      // because the spot is the middle of the road and there is nothing to land beside.
+      const jump = 1 - t / HOP_END;
+      legL.rotation.set(-1.35 * jump, 0, 0);
+      legR.rotation.set(-1.35 * jump, 0, 0);
+      armL.rotation.set(0.6 * jump, 0, 0);
+      armR.rotation.set(0.6 * jump, 0, 0);
+      group.rotation.x = -0.4 * jump;
+      group.position.set(0, Math.sin(jump * Math.PI) * 1.6 + jump * 0.9, 0);
+      group.scale.setScalar(1 - jump * 0.7);
+      setOpacity(1);
+      return;
+    }
+
+    // One straight sprint from there to the end, fading over the last stretch of it rather than
+    // stopping to fade. The stride runs a little past 1 so the last visible frame is still moving.
+    const stride = (t - HOP_END) / (1 - HOP_END) * 1.12;
+    // 26 against the boarding sprint's 22: this is the one run in the game that is a storm-off.
+    const bob = runCycle(t * 26);
+    group.position.set(dx * stride, bob, dz * stride);
+    group.scale.setScalar(1);
+    setOpacity(t < FADE_FROM ? 1 : Math.max(0, 1 - (t - FADE_FROM) / (1 - FADE_FROM)));
+  }
+
+  /**
    * Standing about on a job: a slow weight shift and one arm working.
    *
    * Deliberately low-frequency. A crew that read as *busy* would compete with the traffic for the
@@ -337,5 +381,5 @@ export function createPerson({
 
   rest();
   wave(0);
-  return { group, wave, board, exit, rest, idle, flee, highlight };
+  return { group, wave, board, exit, bail, rest, idle, flee, highlight };
 }
