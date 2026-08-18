@@ -1403,6 +1403,81 @@ try {
     // the HUD from zooming the city on a double tap; a fresh div is the cheapest way to read it.
     check('nothing else on the page double-taps to zoom',
       gestures.unstyled === 'manipulation', `unstyled element ${gestures.unstyled}`);
+
+    // --- The brake, the other half of the bottom row.
+    //
+    // All of it is browser-only wiring: the sim's side (`taxi.braking` stops the car, hard, from
+    // anywhere) is asserted deterministically in the probe, and none of that is reachable if the
+    // key never lands on the flag or the button sits under the pill. Last on this page for the same
+    // reason the Loco key block is late — this stops the taxi in the road, and every check above
+    // wants it driving.
+    const brakeKey = (type) => client.send('Input.dispatchKeyEvent', {
+      type, code: 'KeyB', key: 'b', windowsVirtualKeyCode: 66, nativeVirtualKeyCode: 66,
+    });
+
+    const row = JSON.parse(await evaluate(`(() => {
+      const b = document.getElementById('boost').getBoundingClientRect();
+      const k = document.getElementById('brake').getBoundingClientRect();
+      const hit = document.elementFromPoint(k.x + k.width / 2, k.y + k.height / 2);
+      const cs = getComputedStyle(document.getElementById('brake'));
+      return JSON.stringify({
+        share: k.width / (b.width + k.width), gap: Math.round(k.x - (b.x + b.width)),
+        sameRow: Math.abs(k.bottom - b.bottom) < 1 && Math.abs(k.height - b.height) < 1,
+        hit: hit ? (hit.id || hit.className || hit.tagName) : 'nothing',
+        touchAction: cs.touchAction, userSelect: cs.userSelect,
+      });
+    })()`));
+    // 40% of the two buttons together, give or take the gap between them.
+    check('the brake takes the right 40% of the bottom row',
+      row.sameRow && row.gap > 0 && Math.abs(row.share - 0.4) < 0.03,
+      `${(row.share * 100).toFixed(1)}% of the row, ${row.gap}px gap, same row ${row.sameRow}`);
+    check('a thumb on the brake lands on the brake, not its label',
+      row.hit === 'brake' && row.touchAction === 'none' && row.userSelect === 'none',
+      `hit ${row.hit}, touch-action ${row.touchAction}, user-select ${row.userSelect}`);
+
+    // Press it on a moving car — a taxi sitting at a red would stop trivially and lay no rubber.
+    // Bounded: if it never moves the checks below say so rather than hanging.
+    let rolling = 0;
+    for (let attempt = 0; attempt < 60 && rolling < 4; attempt++) {
+      await sleep(250);
+      rolling = await evaluate('window.__taxi.traffic.taxi.v');
+    }
+    // Live marks in the skid ring buffer, counted off the alpha the fade writes. main.js is
+    // browser-only, so this stamping — four wheels, on the press itself — has no other home: the
+    // probe can assert the physics but never that anything was drawn for it.
+    const liveMarks = `(() => {
+      const c = window.__taxi.skids.mesh.geometry.attributes.color;
+      let live = 0;
+      for (let i = 0; i < c.count; i += 6) if (c.array[i * 4 + 3] > 0) live += 1;
+      return live;
+    })()`;
+    const marksBefore = await evaluate(liveMarks);
+
+    await brakeKey('rawKeyDown');
+    await sleep(200);
+    const pedal = await evaluate('window.__taxi.traffic.taxi.braking');
+    const lit = await evaluate("document.getElementById('brake').classList.contains('is-on')");
+    const marksAfter = await evaluate(liveMarks);
+    check('and lays rubber off all four wheels as it goes',
+      rolling >= 4 && marksAfter - marksBefore >= 4,
+      `${marksAfter - marksBefore} marks stamped at ${rolling.toFixed(1)} u/s`);
+    // Polled on sim time: this page renders in software, and the stop is 16.5 units at the very
+    // worst. Zero, not "slow" — the pedal's whole claim is a dead stop.
+    let speed = 1;
+    for (let attempt = 0; attempt < 40 && speed > 0; attempt++) {
+      await sleep(250);
+      speed = await evaluate('window.__taxi.traffic.taxi.v');
+    }
+    check('holding B screeches the taxi to a halt',
+      pedal === true && lit === true && speed === 0,
+      `braking ${pedal}, button lit ${lit}, taxi at ${speed} u/s`);
+
+    await brakeKey('keyUp');
+    await sleep(200);
+    const lifted = await evaluate('window.__taxi.traffic.taxi.braking');
+    const dark = await evaluate("document.getElementById('brake').classList.contains('is-on')");
+    check('and letting go hands the car back', lifted === false && dark === false,
+      `braking ${lifted}, button lit ${dark}`);
   }
 
   // --- The initials prompt: after a tap, the field still has to be editable.

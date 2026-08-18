@@ -50,6 +50,18 @@ const REAR_ANCHOR = wheelAnchors(CAR_LEN, CAR_W).find((anchor) => !anchor.front)
 export const TAXI_REAR_AXLE_BACK = -REAR_ANCHOR.x * TAXI_SCALE;
 export const TAXI_REAR_TRACK = Math.abs(REAR_ANCHOR.z) * TAXI_SCALE;
 
+/**
+ * The same pair for the front tyres, and they exist for the brake.
+ *
+ * Everything else that marks the road comes off the driven wheels — the launch chirp, the rubber
+ * through a boosted corner, the overtake's two lane changes — so the rear anchors were all anything
+ * needed. Standing on the brake locks all four, and a skid that leaves two streaks reads as the car
+ * still being under power; four is what says the wheels have stopped turning.
+ */
+const FRONT_ANCHOR = wheelAnchors(CAR_LEN, CAR_W).find((anchor) => anchor.front);
+export const TAXI_FRONT_AXLE_FWD = FRONT_ANCHOR.x * TAXI_SCALE;
+export const TAXI_FRONT_TRACK = Math.abs(FRONT_ANCHOR.z) * TAXI_SCALE;
+
 export function createTaxiMesh() {
   const group = new THREE.Group();
   group.name = 'taxi';

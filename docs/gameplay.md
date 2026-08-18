@@ -1754,7 +1754,7 @@ Five things it has to get right:
   anyway, so no wheelie stacks — but a held key firing 30 presses a second through the tutorial
   dismissal and the disabled check is noise the guard costs one line to remove.
 - **It only claims the key when nothing focusable has it.** Space is the browser's own activation
-  key: tabbing to "Play again" and pressing it has to press *that*, so `spaceIsSpokenFor()` bows out
+  key: tabbing to "Play again" and pressing it has to press *that*, so `keyIsSpokenFor()` bows out
   when the target is inside an `input`, `button`, `select`, link or contenteditable. The pill itself
   is the exception, and not an optional one — clicking it once moves focus onto it, and without the
   exemption the hotkey would go dead for the rest of the run: the browser synthesises a `click`,
@@ -1889,6 +1889,59 @@ dodge. Re-pressing mid-cooldown cancels it and snaps straight back to full send.
 The press itself also fires a **wheelie**, a tailpipe **flame burst** and a half-second launch
 streak of rubber — all three gated on `boost.press()` returning true, so they fire on the
 transition into Loco Mode and not on a re-press during a boost that's already running.
+
+## The brake
+
+The **Brake** button, to the right of the Loco Mode pill and sharing the bottom row with it:
+**60% Loco Mode, 40% brake**, of the same 3/4-width band the pill used to have to itself. Hold it
+and the taxi hauls itself to a stop wherever it is; let go and it drives itself again, because
+driving itself is the game's resting state and the brake never took that away — it only outranked
+it while held. The physics is in
+[traffic.md](traffic.md#the-brake-pedal); this is what the player touches.
+
+**It costs nothing and cannot run out.** No meter, no fuel, no cooldown, nothing to earn — which is
+why the button carries no dial. A pill with a fill on it would promise a resource that isn't there.
+It is a prototype control in the honest sense: the only thing it does is stop the car.
+
+**Red, not yellow.** Everything else about it is the pill's — same bottom edge, same 49px height,
+same radius, same black outline, same hold-to-hold contract, the same `touch-action: none` and
+label-in-a-span iOS suppression (see [above](#crazy-taxi-mode)) — so the colour is doing all the
+work of telling the two apart at the edge of vision, where this button is while the player is
+watching the road. Held, it lights (`.is-on`) rather than dimming: it is a brake *light*, and the
+taxi's own lamps are coming on out on the road at the same moment.
+
+Both buttons stay independently `position: fixed` rather than becoming flex children of a row. A
+wrapper would put a new element between `#boost` and the viewport, and that pill is measured
+(the tutorial aims its third bubble at its `getBoundingClientRect`), animated (`translate` on the
+HUD entrance) and pressed through pointer capture. Two `calc()`s against `--ctl-side` / `--ctl-gap`
+/ `--brake-w` cost less than re-testing all of that. The shares are of the *band*, not of the
+screen, so the 60/40 survives any change to the band's own margins.
+
+**Last pedal pressed wins.** Pressing the brake releases Loco Mode and pressing Loco Mode releases
+the brake, so a two-thumbed player never ends up spending fuel against a speed target of zero — the
+tank keeps whatever is left in it. The sim doesn't depend on that arbitration: hold both by any
+means and the brake still wins, because it replaces the target the boost ceiling would have set.
+
+**On a keyboard, hold B.** One key over from the bar, through the same `holdBrake()` / `releaseBrake()`
+the button uses. `keyIsSpokenFor()` — the same guard Space uses, now taking the button it should
+exempt as a parameter — keeps a `b` typed into the initials field from driving the car, and the
+Home Screen tip and the pause both outrank it exactly as they do the spacebar. `blur` drops the
+pedal for the same reason it drops the boost: a keyup that lands on another window never arrives,
+and a brake held by a window with no keyboard is a taxi stopped in the road with nothing on screen
+saying why. A pause drops it too — the veil swallows the release.
+
+**Skid marks, on all four wheels.** Every other thing that marks the road in this game comes off the
+driven wheels: the launch chirp, the rubber through a boosted corner, the overtake's two lane
+changes. A car standing on its brakes has locked the front pair as well, and two streaks read as a
+car still under power, so the brake stamps front and rear — off the anchors the wheels are actually
+built at (`TAXI_FRONT_*` / `TAXI_REAR_*` in `geometry/taxi.js`). Marks are spaced by distance
+travelled like every other trail, so the streak thins as the car slows and **stops exactly where the
+car stopped**, which is the whole picture the effect is drawing. One pair is stamped on the press
+itself, because the 0.42-unit spacing cannot produce anything until the car has moved and the
+streak would otherwise start a stamp late. Below `BRAKE_SKID_V` (2.5 u/s) nothing is laid at all —
+at a walking pace it would be a stain rather than a skid. Dust comes off the tyres on the same
+terms, for the same reason: traction has broken, and a locked wheel throws as much off the road as a
+spinning one.
 
 ## Pause
 

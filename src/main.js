@@ -36,6 +36,7 @@ import { recordRun, lastName, clearScores, loadScores } from './game/highscores.
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from './game/locostash.js';
 import {
   TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK,
+  TAXI_FRONT_AXLE_FWD, TAXI_FRONT_TRACK,
 } from './geometry/taxi.js';
 import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
@@ -1364,6 +1365,10 @@ function holdLocoMode() {
   // suppress the click the gesture would otherwise synthesise — so the hint would outstay its own
   // lesson (on a phone for the pill, on every device for the key, which synthesises nothing).
   tutorial?.dismiss();
+  // The other half of "last pedal pressed wins" — see holdBrake. Without this a player holding the
+  // brake button with one thumb and jabbing the pill with the other would spend fuel on a car the
+  // brake is still pinning to the road.
+  releaseBrake();
   if (boost.press()) {
     kickLocoMode();
   }
@@ -1398,6 +1403,7 @@ function releaseBoost(event) {
   boost.release();
   boostButton.releasePointerCapture?.(event.pointerId);
 }
+
 // (The top-up flash used to live here as a one-shot class the delivery had to remember to fire,
 // which meant back-to-back deliveries needed a reflow to restart the animation. The glow is now
 // driven off `boost.state.pending` in updateBoostButton — it lasts exactly as long as fuel is
@@ -1420,7 +1426,7 @@ boostButton?.addEventListener('lostpointercapture', releaseBoost);
 // pill is what "why isn't this working" looks like — so they are the states that most need this.
 // Nothing is lost by cancelling: the pointer events above are the primary stream and keep firing,
 // and the only defaults being dropped are the synthesised click (nothing listens for one here; see
-// spaceIsSpokenFor below) and focus-on-tap, which on a touchscreen has no keyboard behind it.
+// keyIsSpokenFor below) and focus-on-tap, which on a touchscreen has no keyboard behind it.
 //
 // `passive: false` is spelled out rather than left to the default. Browsers force `passive: true`
 // for `touchstart` on window, document and body, and preventDefault from a passive listener is a
@@ -1436,6 +1442,79 @@ boostButton?.addEventListener('lostpointercapture', releaseBoost);
 boostButton?.addEventListener('touchstart', (event) => {
   if (event.cancelable) event.preventDefault();
 }, { passive: false });
+
+
+// --- Brake ------------------------------------------------------------------
+//
+// The other half of the bottom row, and deliberately the simpler half: no meter, no fuel, no
+// cooldown, nothing to earn and nothing to spend. Hold it and the taxi hauls itself to a stop
+// wherever it is; let go and it drives itself again exactly as it did before, because "drives
+// itself" is the game's resting state and the brake never took that away — it only outranked it
+// for as long as it was held (see `car.braking` in sim/traffic.js).
+//
+// Kept as a plain boolean here rather than a module of its own: `game/boost.js` exists because the
+// tank is a *clock* three different systems read, and there is no equivalent state to own. What is
+// worth testing lives in the sim, where the flag actually does something.
+const brakeButton = document.getElementById('brake');
+let brakeHeld = false;
+
+// How slowly the car can be moving and still lock its wheels into visible rubber. Below a walking
+// pace the streak would be a couple of stamps at a standstill, which reads as a stain rather than
+// as a skid — and the marks stop dead at the point the car stopped, which is the whole picture the
+// brake is drawing.
+const BRAKE_SKID_V = 2.5;
+
+/** The press, from the button or from the B key. */
+function holdBrake() {
+  if (fares.state.gameOver || brakeHeld) return;
+  brakeHeld = true;
+  // Gas and brake are one pedal each and the last one pressed wins. Releasing Loco Mode here rather
+  // than letting the two fight it out means a stab of the brake mid-boost doesn't sit there quietly
+  // burning fuel against a speed target of zero — the tank keeps whatever is left in it.
+  boost.release();
+  brakeButton?.classList.add('is-on');
+  // Standing on the brake at speed breaks traction on the spot, and the distance spacing in
+  // layRubber cannot produce anything until the car has travelled 0.42 of a unit — at which point
+  // the streak starts a stamp late and misses the moment of the press. Same reason the Loco Mode
+  // launch stamps its own first pair.
+  if (traffic.taxi.v > BRAKE_SKID_V) stampAllRubber(traffic.taxi);
+}
+
+/** Idempotent, and every path out of a hold goes through it: the button, the key, blur, a pause. */
+function releaseBrake() {
+  brakeHeld = false;
+  brakeButton?.classList.remove('is-on');
+}
+
+function pressBrake(event) {
+  if (fares.state.gameOver) return;
+  event.preventDefault();
+  // The pedal goes down before the capture is claimed, not after. `setPointerCapture` throws
+  // `NotFoundError` for a pointer id the browser has no active pointer for — which is every
+  // synthesised `PointerEvent`, so a console line, a probe or a test driving this button the way
+  // the tutorial's own dismissal does would take the throw *instead of* braking. Nothing is lost by
+  // the order: capture only redirects the events that follow.
+  holdBrake();
+  brakeButton.setPointerCapture?.(event.pointerId);
+}
+
+function liftBrake(event) {
+  releaseBrake();
+  brakeButton.releasePointerCapture?.(event.pointerId);
+}
+
+brakeButton?.addEventListener('pointerdown', pressBrake);
+brakeButton?.addEventListener('pointerup', liftBrake);
+brakeButton?.addEventListener('pointercancel', liftBrake);
+brakeButton?.addEventListener('lostpointercapture', liftBrake);
+// Same iOS gesture suppression the pill needs, for the same reasons and with the same `cancelable`
+// guard — see the long note under boostButton's `touchstart` above.
+brakeButton?.addEventListener('touchstart', (event) => {
+  if (event.cancelable) event.preventDefault();
+}, { passive: false });
+window.addEventListener('contextmenu', (e) => {
+  if (e.target === brakeButton) e.preventDefault();
+});
 
 // The spacebar is the same hold, for the hand that is already on the keyboard rather than dragging
 // the mouse down to a pill in the corner. Desktop-only by construction rather than by sniffing for
@@ -1454,15 +1533,15 @@ let spaceHeld = false;
 // body) or on the pill itself, where the two mean the same thing anyway. Without the pill exemption
 // a player who clicked the pill once would have moved focus onto it and lost the hotkey: the
 // browser would synthesise a `click`, which nothing here listens for, and the key would go dead.
-function spaceIsSpokenFor(target) {
-  if (!(target instanceof Element) || target === boostButton) return false;
+function keyIsSpokenFor(target, own) {
+  if (!(target instanceof Element) || target === own) return false;
   return Boolean(target.closest('input, textarea, select, button, a[href], [contenteditable]'));
 }
 
 window.addEventListener('keydown', (event) => {
   if (event.code !== 'Space' || event.repeat) return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
-  if (spaceIsSpokenFor(event.target)) return;
+  if (keyIsSpokenFor(event.target, boostButton)) return;
   // The "Add to Home Screen" screen sits above the run and holds it, and dismisses itself on Space.
   // Same guard the tutorial uses (`isBlocked`): the press that clears that screen must not also
   // spend fuel on a taxi that is parked behind it.
@@ -1485,11 +1564,38 @@ window.addEventListener('keyup', (event) => {
   boost.release();
 });
 
+// B is the brake, one key over from the bar and on the same terms as it — including the guard
+// against typing a `b` into the initials field, which is why the spoken-for test takes the button
+// it should exempt rather than naming the pill. A letter key activates nothing on its own, so
+// unlike Space there is no focused-control behaviour to preserve; the test is here so that typing
+// somewhere never also drives the car.
+let brakeKeyHeld = false;
+
+window.addEventListener('keydown', (event) => {
+  if (event.code !== 'KeyB' || event.repeat) return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (keyIsSpokenFor(event.target, brakeButton)) return;
+  if (homeTip?.state.holding || pause?.state.paused) return;
+  event.preventDefault();
+  brakeKeyHeld = true;
+  holdBrake();
+});
+
+window.addEventListener('keyup', (event) => {
+  if (event.code !== 'KeyB' || !brakeKeyHeld) return;
+  brakeKeyHeld = false;
+  releaseBrake();
+});
+
 // Alt-tabbing away or switching apps mid-hold should not leave the boost stuck on — and a keyup
 // that lands on another window never reaches us at all, so this is the only end that hold gets.
+// The brake goes with it: a pedal held by a window that no longer has the keyboard is a taxi
+// stopped in the road with nothing on screen explaining why.
 window.addEventListener('blur', () => {
   spaceHeld = false;
   boost.release();
+  brakeKeyHeld = false;
+  releaseBrake();
 });
 window.addEventListener('contextmenu', (e) => {
   if (e.target === boostButton) e.preventDefault();
@@ -1521,6 +1627,28 @@ function stampRearRubber(car) {
   }
 }
 
+/**
+ * All four, for the brake — everything else in the game marks the road with the driven wheels
+ * alone, and a car standing on its brakes has locked the front pair too. Off the anchors the
+ * wheels are actually built at (geometry/taxi.js), rather than the hand-typed 1.2/1.04 above: a
+ * mark 1.5 long at each axle of a 4-unit car leaves one near-continuous streak per side, which is
+ * what a locked wheel draws.
+ */
+function stampAllRubber(car) {
+  const fx = Math.cos(car.yaw);
+  const fz = -Math.sin(car.yaw);
+  const rx = Math.sin(car.yaw);
+  const rz = Math.cos(car.yaw);
+  stampRearRubber(car);
+  for (const side of [-1, 1]) {
+    skids.add(
+      car.x + fx * TAXI_FRONT_AXLE_FWD + rx * side * TAXI_FRONT_TRACK,
+      car.z + fz * TAXI_FRONT_AXLE_FWD + rz * side * TAXI_FRONT_TRACK,
+      car.yaw,
+    );
+  }
+}
+
 function layRubber(dt) {
   const car = traffic.taxi;
   if (launchSkidT > 0) launchSkidT = Math.max(0, launchSkidT - dt);
@@ -1544,12 +1672,18 @@ function layRubber(dt) {
   // driving along in the borrowed lane, which is not a moment anything is sliding.
   const swapping = laysPassRubber(car);
 
-  if (!cornering && !launching && !swapping) { lastSkidAt = car.travelled; return; }
+  // And the brake, which is the only one of the four that marks the road with all four wheels —
+  // see stampAllRubber. It needs no `boost` term: the pedal is the whole input, and a screech from
+  // cruise is as much a skid as one from the overdrive top, just a shorter one (1.0 unit of rubber
+  // against 16.5 — see HARD_BRAKE in sim/traffic.js).
+  const skidding = car.braking && car.v > BRAKE_SKID_V;
+
+  if (!cornering && !launching && !swapping && !skidding) { lastSkidAt = car.travelled; return; }
   // Closer than one mark length, so consecutive stamps overlap into a continuous streak.
   if (car.travelled - lastSkidAt < 0.42) return;
   lastSkidAt = car.travelled;
 
-  stampRearRubber(car);
+  if (skidding) stampAllRubber(car); else stampRearRubber(car);
 }
 
 // Dust comes off the back of the car whenever it's boosting and actually moving — not only in
@@ -1566,7 +1700,10 @@ function layRubber(dt) {
 let lastDustAt = 0;
 function kickDust() {
   const car = traffic.taxi;
-  if (!car.boost || car.v < 2) { lastDustAt = car.travelled; return; }
+  // The brake joins the boost here for the same reason it lays rubber: the point of both effects is
+  // that traction has broken, and a locked wheel throws exactly as much off the road as a spinning
+  // one does. It stops on its own the moment the car does — this is paced by distance travelled.
+  if ((!car.boost && !car.braking) || car.v < 2) { lastDustAt = car.travelled; return; }
   if (car.travelled - lastDustAt < 0.47) return;
   lastDustAt = car.travelled;
   const fx = Math.cos(car.yaw);
@@ -1671,8 +1808,9 @@ const pause = shot ? null : createPause({
   onChange: (paused) => {
     // A pause with the gas still down would resume into a boost the player is no longer holding —
     // the pill's own pointer never comes back up, because the veil took the release. Same reason
-    // the window's `blur` handler drops it.
-    if (paused) boost.release();
+    // the window's `blur` handler drops it. The brake is dropped with it: the veil swallows that
+    // release too, and resuming onto a pedal nobody is holding is the same bug wearing red.
+    if (paused) { boost.release(); releaseBrake(); }
   },
 });
 
@@ -1719,6 +1857,11 @@ function frame() {
   if (!traffic.taxi.crashed) {
     traffic.taxi.boost = boost.isEngaged();
     traffic.taxi.boostEasing = boost.isCoolingDown();
+    // Written every frame rather than on the press, so the flag cannot be left stuck on by a
+    // pointer that never came back up — a run ending under the player's thumb takes the button off
+    // the screen (`body.game-over #brake`), and a `pointerup` on a removed element is not something
+    // to rely on. Same self-healing shape as the two flags above it.
+    traffic.taxi.braking = brakeHeld && !fares.state.gameOver;
   }
   updateBoostButton(dt);
   skids.update(dt);

@@ -557,17 +557,37 @@
 
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */
-      body.game-over #boost, body.game-over #dbg-toggle, body.game-over #dbg-panel { display: none; }
+      body.game-over #boost, body.game-over #brake,
+      body.game-over #dbg-toggle, body.game-over #dbg-panel { display: none; }
+
+      /* The bottom control row: Loco Mode and the brake, sharing the 3/4-width band the pill used to
+         have to itself, 60/40 with a gap between them.
+         The two buttons stay independently `position: fixed` rather than becoming flex children of a
+         row, because a wrapper would be a new element between them and the viewport — and `#boost`
+         is measured (game/tutorial.js aims its third bubble at `getBoundingClientRect`), animated
+         (`translate` on the HUD entrance), and pressed through pointer capture. Two `calc()`s cost
+         less than re-testing all of that.
+         The shares are of the *band*, not of the screen: 40% of 75% is the 30% below, so the split
+         survives any change to the band's own margins as long as these two numbers do. */
+      :root {
+        --ctl-side: 12.5%;            /* band margin, left and right — also #rider-finder-stack's */
+        --ctl-gap: 8px;
+        --brake-w: 30%;               /* 40% of the 75% band */
+      }
 
       body.shot-mode #hud, body.shot-mode #run-end { display: none; }
 
       #boost {
-        /* 3/4 width, centred on the bottom edge — wide enough that a thumb pressing it no longer
-           covers the whole pill, which is what let the mirror bar above it (see the removed
-           #boost::before) retire; the fill is visible past the thumb on either side now. */
-        position: fixed; bottom: calc(26px + var(--safe-bottom)); left: 12.5%; right: 12.5%; z-index: 20;
+        /* The left 60% of the control row above — 45% of the screen. It was the whole 3/4-width band
+           before the brake arrived, wide enough that a thumb pressing it no longer covers the whole
+           pill, which is what let the mirror bar above it (see the removed #boost::before) retire;
+           the fill is still visible past the thumb on either side at this width. */
+        position: fixed; bottom: calc(26px + var(--safe-bottom)); z-index: 20;
+        left: var(--ctl-side); right: calc(var(--ctl-side) + var(--brake-w) + var(--ctl-gap));
         text-align: center;
-        padding: 14px 26px; border-radius: 999px; cursor: pointer;
+        /* 16px of side padding rather than the 26 this had at full width: "Loco Mode™" is ~100px
+           of 800-weight 17px text, and at 45% of a 320px screen the box is 144px. */
+        padding: 14px 16px; border-radius: 999px; cursor: pointer;
         /* Black outline so the pill holds its shape against pale asphalt and the yellow taxi. */
         border: 2px solid #16120a;
         font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
@@ -672,6 +692,44 @@
          synthesise `:active` off the touch even though the click and pointerdown are suppressed. */
       #boost.is-empty:active { transform: none; }
       body.shot-mode #boost { display: none; }
+
+      /* The brake. The right 40% of the control row, and everything about it that is shared with the
+         pill beside it is shared on purpose: same bottom edge, same 49px height, same 999px radius,
+         same black outline, same hold-to-hold contract. What differs is the one thing that has to —
+         the colour. Loco Mode is the taxi's own yellow and the brake is brake-light red, so the two
+         never have to be read to be told apart at the edge of vision.
+         No dial and no meter: this costs nothing to use and has nothing to run out of, so a pill
+         with a fill on it would promise a resource that isn't there. */
+      #brake {
+        position: fixed; bottom: calc(26px + var(--safe-bottom)); z-index: 20;
+        left: calc(100% - var(--ctl-side) - var(--brake-w)); right: var(--ctl-side);
+        text-align: center;
+        padding: 14px 16px; border-radius: 999px; cursor: pointer;
+        border: 2px solid #16120a;
+        font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        letter-spacing: 0.02em; color: #FFF1EA; white-space: nowrap;
+        background: #D33A2C;
+        /* Every one of these is the pill's, for the reasons written out over there: iOS selection
+           and callout suppression, and `none` rather than `manipulation` so a second finger on the
+           screen can't turn this press into a pinch and fire `pointercancel` at a brake the player
+           is still holding down. */
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+        touch-action: none;
+        transition: background-color 0.12s ease, box-shadow 0.15s ease, transform 0.1s ease;
+      }
+      /* Same reason as .boost-label: with no text node under the thumb, WebKit's magnifier and
+         double-tap zoom have nothing to hit-test onto. */
+      .brake-label { pointer-events: none; }
+      /* Held. Lit rather than dimmed — this is a brake *light*, and the taxi's own lamps are coming
+         on at the same moment out on the road. */
+      #brake.is-on {
+        background: #FF4B36;
+        box-shadow: 0 0 26px rgba(255, 75, 54, 0.8);
+      }
+      /* Last, so it outranks the lit state's transform-free rules — the press dip is the feedback
+         that has to survive whatever else is painting the button. */
+      #brake:active { transform: scale(0.95); }
+      body.shot-mode #brake { display: none; }
 
       /* Rider finder — one chip per waiting fare, in a row above the Loco Mode pill, left-aligned
          to the pill's own left edge so both controls share one visual column in the bottom-centre
@@ -996,20 +1054,21 @@
 
          main.js adds `hud-ready`: the moment the last bubble is dismissed, or immediately when
          there is no tutorial (`?tutorial=off`, shot mode). */
-      #hud, #streak, #pause, #boost, #rider-finder-stack {
+      #hud, #streak, #pause, #boost, #brake, #rider-finder-stack {
         opacity: 0;
         transition: opacity 0.45s ease, translate 0.55s cubic-bezier(0.22, 1, 0.36, 1);
       }
       #hud, #streak, #pause { translate: 0 -160%; }
-      #boost, #rider-finder-stack { translate: 0 200%; }
+      #boost, #brake, #rider-finder-stack { translate: 0 200%; }
       /* Invisible is not un-tappable: a 0-opacity pill still takes the tap that was aimed at the
          rider behind it. (#hud and #streak are already pointer-events: none.) The pause button
          rides in the same group for the same reason it waits at all: there is nothing to pause
          while the tutorial is still holding the clocks. */
-      body:not(.hud-ready) #pause,
-      body:not(.hud-ready) #boost, body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
+      body:not(.hud-ready) #pause, body:not(.hud-ready) #boost,
+      body:not(.hud-ready) #brake, body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
       body.hud-ready #hud, body.hud-ready #streak, body.hud-ready #pause,
-      body.hud-ready #boost, body.hud-ready #rider-finder-stack { opacity: 1; translate: 0 0; }
+      body.hud-ready #boost, body.hud-ready #brake,
+      body.hud-ready #rider-finder-stack { opacity: 1; translate: 0 0; }
       /* Staggered, top corners first then the bottom ones, so four elements arriving at once read
          as a HUD assembling rather than as a single fade. */
       /* The third beat's other half: the pill pulses while the bubble talks about it, so the text
@@ -1033,10 +1092,10 @@
          rest of the same top edge, and staggering a row of three left-to-right would read as the
          HUD dealing itself out rather than arriving. */
       body.hud-ready #streak, body.hud-ready #pause { transition-delay: 0.07s; }
-      body.hud-ready #boost { transition-delay: 0.14s; }
+      body.hud-ready #boost, body.hud-ready #brake { transition-delay: 0.14s; }
       body.hud-ready #rider-finder-stack { transition-delay: 0.21s; }
       @media (prefers-reduced-motion: reduce) {
-        #hud, #streak, #pause, #boost, #rider-finder-stack { translate: none; }
+        #hud, #streak, #pause, #boost, #brake, #rider-finder-stack { translate: none; }
       }
 
       /* --- "Add to Home Screen" screen — see src/game/homescreen.js -------------
@@ -1267,6 +1326,11 @@
          pill, which is already the fuel dial and the tutorial's third target. See main.js. -->
     <button id="boost" type="button" aria-label="Loco Mode" aria-keyshortcuts="Space"
       ><span class="boost-label">Loco Mode&trade;</span></button>
+    <!-- The brake shares the bottom row with the pill above, 40% of it to Loco Mode's 60%. Same
+         hold-to-hold contract, same label-in-a-span trick for iOS (see .boost-label), and the same
+         keyboard affordance one key over. -->
+    <button id="brake" type="button" aria-label="Brake" aria-keyshortcuts="B"
+      ><span class="brake-label">Brake</span></button>
     <div id="rider-finder-stack" role="group" aria-label="Waiting riders"></div>
     <!-- Up only while the taxi is completely off-frame; a tap rides the camera back to it. Empty
          here: the car inside it is the real `createTaxiMesh` in a WebGL context of its own, the

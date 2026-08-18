@@ -70,6 +70,10 @@ overdrive band, and any corner takes that back. A full tank is 15 seconds of boo
 regenerated: you start with a third, each drop-off tops it up by another third, and a delivered
 package pours in half of that.
 
+Next to it, taking the right 40% of the same row, is the **brake**: hold it and the taxi screeches
+to a halt with rubber off all four wheels, let go and it drives itself again. It costs nothing and
+has nothing to run out of. See [the brake](gameplay.md#the-brake).
+
 ## Conventions worth knowing before editing
 
 - **Zero external assets.** Every mesh is generated in code. There is no loader, no texture, no
