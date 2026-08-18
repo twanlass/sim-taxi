@@ -43,6 +43,8 @@
  * otherwise, so laying it out would mean a phone round trip per pixel.
  */
 
+import { isNative } from '../util/platform.js';
+
 // A beat after load, not on it: the city paints, and the screen sinks it rather than replacing it.
 // Shorter than the toast's delay was, because this one is a gate and the run is waiting on it.
 const SHOW_AT = 800;
@@ -56,8 +58,24 @@ function isIOS() {
   return navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1;
 }
 
-/** True when the page was launched from a Home Screen icon rather than opened in a tab. */
+/**
+ * True when the page was launched from a Home Screen icon rather than opened in a tab.
+ *
+ * **The native shell counts as installed, and this is the load-bearing line of the iOS port.**
+ * Neither signal below is set inside a WKWebView: `navigator.standalone` is Safari's own flag and
+ * the `display-mode` media query answers `browser` there. So without this the App Store build would
+ * come up, every single launch, showing a full-screen gate that tells the player to install the
+ * game from Safari's share sheet — an app instructing the user to go get it somewhere else. That is
+ * a Guideline 4.2 rejection on its own, and it would hold the run behind it while doing so.
+ *
+ * Answering `true` rather than deleting the module is deliberate: `isInstalled()` is read by the
+ * caller below *and* by `main.js`, which uses it to decide whether to play the city-entrance
+ * animation. `true` is the path an installed PWA already takes — the tip never constructs,
+ * `state.holding` is never set, and the entrance plays — so every downstream behaviour is already
+ * correct and already exercised on the web. There is nothing new to test.
+ */
 function isInstalled() {
+  if (isNative()) return true;
   if (navigator.standalone === true) return true;
   return window.matchMedia?.('(display-mode: standalone)').matches ?? false;
 }

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Info.plist for the Sim Taxi iOS shell.
+
+  Two entries here are not defaults-with-a-preference but load-bearing decisions, noted where they
+  appear: UIRequiresFullScreen (a resizable window reframes the camera mid-run) and
+  ITSAppUsesNonExemptEncryption (the app makes no network requests at all, so the export-compliance
+  questionnaire has a fixed answer and there is no reason to answer it by hand on every upload).
+
+  There is deliberately no NSAppTransportSecurity block: the game never reaches the network. Nothing
+  in `src/` calls fetch, XHR or WebSocket, and the whole build is served out of the bundle by
+  BundleSchemeHandler. If a future version adds a leaderboard, that is when this needs revisiting.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Sim Taxi</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+
+	<!-- Blocks iPad Split View, Slide Over and Stage Manager. The camera fits the whole city to the
+	     viewport, so a window the user can drag to a third of the screen re-frames the game while a
+	     fare clock is running. Also what lets AppDelegate stay on the single-window lifecycle. -->
+	<key>UIRequiresFullScreen</key>
+	<true/>
+
+	<!-- The game draws edge to edge and the HUD keeps its own clearance from the notch and home
+	     indicator through the `--safe-*` custom properties in index.html. The `false` here is what
+	     makes GameViewController.prefersStatusBarHidden authoritative. -->
+	<key>UIStatusBarHidden</key>
+	<true/>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+
+	<!-- Every orientation is playable: the camera is orthographic and fits the city to whatever
+	     viewport it gets, and `isNarrow()` in src/main.js switches the HUD over on narrow ones.
+	     Upside-down is left off on iPhone only because iOS itself does not rotate to it there. -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+
+	<!-- The app contains no encryption of any kind and makes no network requests, so it is outside
+	     the US export rules this declares against. Stating it here means App Store Connect stops
+	     asking the same question on every single upload — the answer cannot change without the app
+	     gaining a network layer, and that would be a visible change to this file. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+</dict>
+</plist>
