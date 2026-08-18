@@ -63,6 +63,7 @@ import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
 import { createViewport } from './util/viewport.js';
+import { isNative } from './util/platform.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
@@ -73,7 +74,14 @@ import { PALETTE } from './palette.js';
 // worker caching those responses would serve stale code back at the page mid-session. Production
 // (`npm run build` + `preview`, or the real deploy) is a static bundle, which is what the worker
 // is for.
-if (!import.meta.env.DEV && 'serviceWorker' in navigator) {
+//
+// Skipped in the native shell too, and there the reason is sharper than "unnecessary". The .ipa
+// already carries the whole bundle — there is no connection to survive the loss of — so the worker
+// buys nothing, and what it costs is a cache that outlives an App Store update: the shipped files
+// change under it while its `CACHE_NAME` does not, and a cache-first worker keeps serving the old
+// build to a player who has already installed the new one. `public/sw.js` bumps that name by hand
+// on the web, which works because a deploy is one atomic thing we control; an app update is not.
+if (!import.meta.env.DEV && !isNative() && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
 }
 

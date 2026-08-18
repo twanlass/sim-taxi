@@ -63,6 +63,7 @@ decisions behind it.
 - [rendering.md](docs/rendering.md) — low-poly technique, lighting, effects
 - [testing.md](docs/testing.md) — the headless suite
 - [lab.md](docs/lab.md) — the passing lab at `/lab/`, a straight road with no lights
+- [ios.md](docs/ios.md) — the App Store build: the WKWebView shell and its custom URL scheme
 
 ## The idea worth stealing
 
@@ -86,6 +87,14 @@ Static build, deployed on Netlify — see `netlify.toml`.
 
 ```bash
 npm run build        # → dist/
+```
+
+There is also an iOS shell under `ios/` — a WKWebView serving the same bundle over a custom URL
+scheme, which is what gives it a real origin and therefore working `localStorage`. See
+[docs/ios.md](docs/ios.md).
+
+```bash
+npm run build:ios    # → dist/, then ios/SimTaxi/web/
 ```
 
 ## Built with

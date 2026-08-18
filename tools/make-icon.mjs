@@ -196,6 +196,10 @@ ${layers.map((l) => `    <polygon points="${poly(l.pts)}" fill="${l.fill}"/>`).j
 
 const outDir = path.resolve('public');
 await mkdir(outDir, { recursive: true });
+// The App Store icon does not belong in `public/` — it is a build input for Xcode, not a file the
+// web bundle should be shipping a megabyte of. It goes straight into the asset catalogue instead.
+const iosIconDir = path.resolve('ios/SimTaxi/Assets.xcassets/AppIcon.appiconset');
+await mkdir(iosIconDir, { recursive: true });
 const svgPath = path.join(outDir, 'apple-touch-icon.svg');
 await writeFile(svgPath, svg);
 console.log(`wrote ${svgPath}`);
@@ -320,6 +324,16 @@ try {
   // than downscaling one big source — 16 for the tab, 32 for retina and the bookmarks list.
   await rasterize(path.join(outDir, 'favicon-16.png'), 16);
   await rasterize(path.join(outDir, 'favicon-32.png'), 32);
+  // The App Store icon. One file covers every slot since Xcode 14 — a single-size
+  // AppIcon.appiconset, which the toolchain downscales for the home screen, Settings and Spotlight.
+  //
+  // Two Apple rules this artwork already happens to satisfy, so don't "fix" either of them later:
+  // it must be **fully opaque** (App Store Connect rejects any alpha channel outright, and the
+  // screenshot capture below overrides the default transparent background to guarantee this), and
+  // it must have **square corners** — iOS applies its own superellipse mask, so pre-rounding the
+  // artwork shows as a visibly double-rounded icon. The purple border the SVG is drawn with is
+  // sized for exactly that mask to crop into.
+  await rasterize(path.join(iosIconDir, 'AppIcon-1024.png'), 1024);
 } catch (err) {
   console.error(`rasterize failed: ${err.message}`);
   console.error('The SVG was written; you can convert to PNG by other means if needed.');
