@@ -5,7 +5,7 @@ import {
   createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD,
 } from './game/camera.js';
 import { createLayout } from './city/layout.js';
-import { createGround } from './city/ground.js';
+import { createGround, KERB_H } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
 import { createGarage } from './city/garage.js';
@@ -2739,11 +2739,19 @@ window.__taxi = {
     const at = pointAlongPath(path, fraction);
     return projectToScreen(at.x, 0, at.z);
   },
-  /** The pin the player is meant to be driving at — the newest one if two are on the board. */
+  /**
+   * The pin the player is meant to be driving at — the newest one if two are on the board.
+   *
+   * Aimed at the **kerb corner**, which is where the marker is drawn and where the tap target sits
+   * over it (geometry/marker.js). It used to aim at the junction centre, five units up, on the
+   * strength of a hit box 20 units square that covered the junction and the corner alike. That box
+   * is gone: it was picking the wrong marker whenever two were close together, and the aim it
+   * licensed here was the same mistake — a tool tapping a point the player never taps.
+   */
   targetScreenPosition: (fare = fares.focus()) => {
     if (!fare) return null;
-    const c = fares.intersectionCentre(fare.target.i, fare.target.j);
-    return projectToScreen(c.x, 5, c.z);
+    const c = cornerFor(fare.target.i, fare.target.j);
+    return projectToScreen(c.x, KERB_H, c.z);
   },
   /**
    * Where to tap to reach the live end of the courier errand, for `tools/smoke.mjs`.
@@ -2753,14 +2761,13 @@ window.__taxi = {
    * answer is whether a finger on that corner reaches the hit box at all — the same reason the
    * route-band drag is smoke-tested rather than probed.
    *
-   * Aimed at the *junction centre* rather than the pad, matching `targetScreenPosition` above: the
-   * hit box is 20 units square and centred there, so a centre tap is inside it at any camera angle
-   * while the pad's own corner is 4 units out toward one edge.
+   * Aimed at the middle of the pad, matching `targetScreenPosition` above — the tap target is the
+   * marker's own silhouette now, so the only honest aim is the thing the player is looking at.
    */
   parcelScreenPosition: (parcel = parcels?.state.parcels[0]) => {
     if (!parcel) return null;
-    const c = fares.intersectionCentre(parcel.target.i, parcel.target.j);
-    return projectToScreen(c.x, 5, c.z);
+    const c = cornerFor(parcel.target.i, parcel.target.j);
+    return projectToScreen(c.x, KERB_H, c.z);
   },
 };
 

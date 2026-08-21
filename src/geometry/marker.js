@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { URGENCY_SEGMENTS, fareColor, PARCEL_COLOR } from '../game/urgency.js';
-import { createTargetRing, RING_Y } from './targetring.js';
+import { createTargetRing, RING_R, RING_Y } from './targetring.js';
 import { createParcelPad } from './parcelpad.js';
+import { BILLBOARD, VIEW_UP, SCREEN_PER_WORLD_Y } from '../game/camera.js';
+import { CRYSTAL_TOP } from '../game/faremarker.js';
 
 // Pickup and drop-off markers.
 //
@@ -35,21 +37,76 @@ import { createParcelPad } from './parcelpad.js';
 // The off-screen pointer (game/dropoffindicator.js) covers the one thing the head was still worth:
 // a drop-off that has slipped outside the frame.
 
+// --- The tap target ------------------------------------------------------------------------------
+//
+// **A quad in the screen plane, over the kerb corner.** It used to be a 20 x 14.5 x 20 box centred
+// on the *junction*, and both of those were wrong in a way that only showed up with two markers
+// close together: a tap on one rider selected another one entirely.
+//
+// Two separate faults, and it is worth keeping them apart because fixing either alone leaves the
+// bug standing:
+//
+//  - **Centred on the wrong point.** What the player aims at is the figure on the kerb, which
+//    `cornerFor` pushes 4.5 units off the junction on *both* axes — up and to the left on screen.
+//    So the region was already offset from its own marker by 6.4 units of ground, in the direction
+//    of nothing.
+//  - **Height reaches up the screen.** The camera looks down a 33 degree diagonal, so a box 14.5
+//    tall projects its top face 11.1 units of ground up-screen of its base: its silhouette covers
+//    a strip of ground well past the junction it belongs to. The picker takes the *nearest* hit,
+//    and a box down-screen is nearer the camera, so it wins that strip. Measured on a full 3x3 of
+//    markers before the change: a tap dead on a rider's own disc was answered by the marker one
+//    junction down-screen, and the rider's own region did not extend more than about 20px below
+//    their feet.
+//
+// A quad drawn flat against the screen has neither problem. Its coverage is exactly the rectangle
+// you see, `BILLBOARD` keeps it facing a camera that never rotates, and offsetting it along
+// `VIEW_UP` moves it up the frame without moving it a millimetre in depth — so the whole target
+// sits at its own corner's distance and ordering between two of them is never a surprise.
+//
+// **And now nothing overlaps.** One junction along a road is 14.1 screen units *sideways* (and 7.7
+// down); one straight down the screen diagonal is 15.4 *down* and nothing sideways. Every other
+// pair is one of those or further, so a target under 14.1 wide and under 15.4 tall can never share
+// a pixel with another one, whatever junctions the two markers sit on. At 11 wide and 11.1 tall for
+// a rider — 8 for a bare mark — there is room to spare. Ambiguity is gone rather than resolved.
+
+// Half the width, in screen units. The widest thing under a marker is the disc at RING_R, so this
+// is that plus 2 units of margin — about 89px across at play zoom, twice the 44px a fingertip
+// needs. The ceiling is 14.1, where the targets on two junctions along one road would touch.
+const HIT_HALF_W = RING_R + 2;
+
+// How far below the corner the target reaches: the near edge of the disc is RING_R foreshortened to
+// 1.91 screen units, and a unit past that keeps a thumb aimed at the front of the disc on target.
+const HIT_BOTTOM = -3;
+
+// And how far above it, for a marker that is nothing but a mark on the ground. Not derived from the
+// disc: at 1.91 up the target would be 4.9 units tall, under the 5.4 (44px) a fingertip needs, so
+// this is the fingertip's number rather than the geometry's.
+const HIT_TOP_BARE = 5;
+
+// A rider's reaches to the top of their crystal instead — a tap on the diamond has always selected
+// the fare under it, and this is what keeps that true now that the target is the marker's own
+// silhouette rather than a column over the junction. 8.1 screen units.
+const HIT_TOP_CRYSTAL = CRYSTAL_TOP * SCREEN_PER_WORLD_Y;
+
 /**
  * @param buildStanding  factory for whatever stands on the corner (a figure, a parcel), or null
  * @param ringColor      colour for the ground mark, or null for a marker with no mark
  * @param buildRing      the ground-mark factory. Defaults to the fare disc; the courier markers
  *                       pass `createParcelPad` so a package's ends are a rounded square instead —
  *                       shape is what tells a courier job from a fare on this board.
- * @param pickable       the `userData.pickable` kind for the oversized hit box, or **null for no
- *                       hit box at all**. Every marker on the board carries one today — a tap on a
- *                       courier marker bends the current route through it rather than dispatching
- *                       the taxi at it (game/parcels.js), but it is still a tap. The null option
- *                       stays because a marker carrying a hit box nothing answers is a trap laid for
+ * @param hitTop         how far up the screen the tap target reaches, in screen units above the
+ *                       kerb corner. Defaults to the bare mark's reach; the rider passes their
+ *                       crystal's. See the block above.
+ * @param pickable       the `userData.pickable` kind for the tap target, or **null for no target at
+ *                       all**. Every marker on the board carries one today — a tap on a courier
+ *                       marker bends the current route through it rather than dispatching the taxi
+ *                       at it (game/parcels.js), but it is still a tap. The null option stays
+ *                       because a marker carrying a hit box nothing answers is a trap laid for
  *                       whoever next raycasts the scene rather than an explicit target list.
  */
 function marker(kind, {
-  buildStanding = null, ringColor = null, buildRing = createTargetRing, pickable = kind,
+  buildStanding = null, ringColor = null, buildRing = createTargetRing,
+  hitTop = HIT_TOP_BARE, pickable = kind,
 } = {}) {
   const group = new THREE.Group();
   group.name = kind;
@@ -79,35 +136,31 @@ function marker(kind, {
     postGroup.add(standing.group);
   }
 
-  // Oversized invisible hit volume — at play zoom the visible geometry is a few pixels across and
-  // would be miserable to tap.
+  // The invisible tap target — at play zoom the visible geometry is a few pixels across and would be
+  // miserable to tap. On `postGroup` rather than on the root, so it inherits the kerb-corner
+  // placement `place()` gives everything else instead of being left behind at the junction; see the
+  // block above for why that is the whole bug and not a tidy-up.
   //
-  // It has to cover the *junction* and the kerb corner, which are two different places: the box is
-  // centred on the junction, and what stands on it is pushed out to a corner a little over 4 units
-  // away. The first version was 9 units square, so the rider stood right on its edge and half of
-  // every tap aimed at the figure missed. 20 covers the corner with real margin on every side —
-  // about 155px across at play zoom, comfortably past the 44px a fingertip needs — while still
-  // being well inside the 20-unit block pitch, so two adjacent junctions can never both be hit.
-  const HIT = 20;
-  // Tall enough to clear the tallest thing standing over this corner — the fare's crystal, whose
-  // outline tops out a little over 9.5 — and it starts at the ground so a tap on the disc or on a
-  // standing figure lands too.
-  const HIT_H = 14.5;
+  // DoubleSide because a quad that faces the camera exactly is one bad sign away from being culled
+  // out of the raycast, and there is nothing to gain from finding out which way that rounds.
   if (pickable) {
     const hit = new THREE.Mesh(
-      new THREE.BoxGeometry(HIT, HIT_H, HIT),
-      new THREE.MeshBasicMaterial({ visible: false }),
+      new THREE.PlaneGeometry(HIT_HALF_W * 2, hitTop - HIT_BOTTOM),
+      new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }),
     );
-    hit.position.y = HIT_H / 2;
+    hit.quaternion.copy(BILLBOARD);
+    // Straight up the frame. `VIEW_UP` is perpendicular to the view direction, so this is the one
+    // offset that raises the target without changing how far away it is.
+    hit.position.copy(VIEW_UP).multiplyScalar((hitTop + HIT_BOTTOM) / 2);
     hit.userData.pickable = pickable;
-    group.add(hit);
+    postGroup.add(hit);
   }
 
   return { group, ring, postGroup, standing };
 }
 
 export const createPassengerPin = (buildStanding) =>
-  marker('passenger', { buildStanding });
+  marker('passenger', { buildStanding, hitTop: HIT_TOP_CRYSTAL });
 
 /**
  * The drop-off: a disc on the kerb corner, and nothing standing on it.

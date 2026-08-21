@@ -39,24 +39,27 @@ import {
   createFareSystem, cornerFor, intersectionCentre, blockDistance, priceFor, MAX_FARES,
   ARRIVE_RADIUS, onSameBlock, CURSE_LIFT,
 } from '../src/game/fares.js';
-import {
-  createCurseBubble, BILLBOARD, SCREEN_PER_WORLD_Y, TAIL_DROP,
-} from '../src/geometry/cursebubble.js';
+import { createCurseBubble, TAIL_DROP } from '../src/geometry/cursebubble.js';
 import {
   createParcelSystem, MAX_PARCELS, PARCEL_MIN_DELIVERED, PARCEL_PAY_FACTOR, PARCEL_GAP_MIN,
   PARCEL_GAP_MAX, PARCEL_AFTER_DELIVERY, FLIGHT_MIN_ALPHA,
   PARCEL_PAD_LIFT, LIFT_TIME, TAP_MAX_DETOUR,
 } from '../src/game/parcels.js';
-import { createTargetRing, ringGrowScale, ringShrinkScale } from '../src/geometry/targetring.js';
+import {
+  createTargetRing, ringGrowScale, ringShrinkScale, RING_R, RING_Y,
+} from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK } from '../src/geometry/taxi.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
-import { createDestinationPin } from '../src/geometry/marker.js';
+import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
+import { createPicker } from '../src/game/pick.js';
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
+  DIAMOND_HALF_H,
 } from '../src/geometry/diamond.js';
+import { CRYSTAL_TOP } from '../src/game/faremarker.js';
 import { createPerson, HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
 import { POP_SCALE_DIAMOND, POP_SCALE_RIDER, POP_TIME } from '../src/game/selectpop.js';
 import { createTaxiMesh } from '../src/geometry/taxi.js';
@@ -85,7 +88,7 @@ import {
 import {
   createCityCamera, attachDragPan, frameLead,
   VIEW_DIR, RIGHT, UP, DISTANCE, PLAY_ZOOM, DEPTH_PER_SCREEN_UNIT,
-  LOCO_PUNCH, LOCO_PUNCH_HOLD,
+  LOCO_PUNCH, LOCO_PUNCH_HOLD, BILLBOARD, SCREEN_PER_WORLD_Y, VIEW_UP,
 } from '../src/game/camera.js';
 import {
   createScene, HAZE_TOP, hazeRange, hazeColor, hazeTuning, HAZE_SKY_H, HAZE_SATURATION,
@@ -1541,9 +1544,12 @@ check('no two cars occupy the same space', worst > 1.6,
   const box = kParcels.state.parcels[0];
   if (box) {
     const live = () => (box.stage === 'waiting' ? box.slot.pickup : box.slot.dropoff);
-    // What the picker would actually hand back: the hit box itself, not the marker root. `parcelFor`
-    // has to walk up from it, which is the only reason it is a walk rather than a lookup.
-    const hit = live().group.children.find((c) => c.userData?.pickable);
+    // What the picker would actually hand back: the tap target itself, not the marker root.
+    // `parcelFor` has to walk up from it, which is the only reason it is a walk rather than a
+    // lookup — and the walk is why this searches the whole subtree rather than the root's children:
+    // the target hangs off the kerb-corner group now (geometry/marker.js).
+    let hit = null;
+    live().group.traverse((o) => { if (o.userData?.pickable) hit ??= o; });
     check('a tap on the hit box resolves to the package that owns it',
       kParcels.parcelFor(hit) === box);
     check('a tap on something else resolves to nothing',
@@ -2447,13 +2453,144 @@ check('no two cars occupy the same space', worst > 1.6,
     // standing at is asserted against a played run below.
     check('the drop-off ring opens on a full clock, rim and fill and sweep',
       painted === `${opening}/${opening}/${opening}`, painted);
-    // The ring group and nothing else on the corner; the hit box is a child of the root, not of it.
+    // The ring group and nothing else *visible* on the corner. The tap target shares the group —
+    // it has to, that placement is what puts it over the mark (geometry/marker.js) — so it is named
+    // rather than counted out.
+    const onCorner = pin.postGroup.children.filter((c) => c !== pin.ring.group);
     check('the drop-off stands nothing on its corner',
-      pin.standing === null && pin.postGroup.children.length === 1
-      && pin.postGroup.children[0] === pin.ring.group,
+      pin.standing === null && onCorner.length === 1 && onCorner[0].userData.pickable === 'destination',
       `${pin.postGroup.children.length} on the corner`);
   }
   check('no two fares claim the same junction', sharedJunction === 0, `${sharedJunction} frames`);
+
+  // --- Which marker a tap lands on ---------------------------------------------------------------
+  //
+  // Reported from a phone: two riders a junction apart, a tap dead on the yellow one dispatched the
+  // taxi at the green one below it. Both faults were in the tap target — see the block at the top of
+  // geometry/marker.js — and neither is visible in a screenshot, because the target is invisible and
+  // the wrong answer looks exactly like a mis-aimed thumb.
+  //
+  // So it is driven through the real picker, on a real phone-shaped frame, at the pixels a thumb
+  // actually goes to. `createPicker` binds a DOM listener, which is the whole of what it needs from
+  // a browser, so a stand-in element with one handler on it is the real code path.
+  {
+    const W = 390;
+    const H = 844;
+    const pScene = new THREE.Scene();
+    const pCam = createCityCamera(W / H, { zoom: PLAY_ZOOM, target: [0, 0] });
+    // The renderer would do this every frame; nothing here draws, and a camera whose world matrix
+    // has never been composed raycasts straight down -Z from the origin. That mistake passes every
+    // check it is asked, since one ray answers the same for every marker on it.
+    pCam.camera.updateMatrixWorld(true);
+
+    // A rider on each of nine junctions — a 3x3 patch, so every marker has a neighbour along each
+    // road and one straight down the screen diagonal. Placed exactly as `place()` in game/fares.js
+    // does it: root on the junction, corner group out on the kerb.
+    const pins = new Map();
+    for (let i = 1; i <= 3; i++) {
+      for (let j = 1; j <= 3; j++) {
+        const pin = createPassengerPin(createPerson);
+        const centre = intersectionCentre(i, j);
+        const corner = cornerFor(i, j);
+        pin.group.position.set(centre.x, 0.12, centre.z);
+        pin.postGroup.position.set(corner.x - centre.x, KERB_H, corner.z - centre.z);
+        pin.group.userData.junction = `${i},${j}`;
+        pin.group.visible = true;
+        pScene.add(pin.group);
+        pins.set(`${i},${j}`, pin);
+      }
+    }
+    pScene.updateMatrixWorld(true);
+
+    let picked = null;
+    let handler = null;
+    const canvas = {
+      addEventListener: (type, fn) => { if (type === 'click') handler = fn; },
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: W, height: H }),
+    };
+    createPicker(pCam.camera, canvas, () => [...pins.values()].map((p) => p.group), (kind, hit) => {
+      picked = null;
+      for (let node = hit?.object; node; node = node.parent) {
+        if (node.userData?.junction) { picked = node.userData.junction; break; }
+      }
+    });
+    // Where a world point lands on this frame, in CSS pixels — the inverse of the picker's own NDC.
+    const v = new THREE.Vector3();
+    const screenOf = (x, y, z) => {
+      v.set(x, y, z).project(pCam.camera);
+      return { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H };
+    };
+    const tapAt = (px, py) => { picked = null; handler({ clientX: px, clientY: py }); return picked; };
+    const tapOn = (x, y, z) => { const p = screenOf(x, y, z); return tapAt(p.x, p.y); };
+
+    // 1. The thing the player aims at. Three points on every rider, each one a place a thumb
+    //    plausibly lands: the middle of their disc, their own head, and the crystal over it — which
+    //    has always answered for the fare under it and has to keep doing so.
+    const missed = [];
+    for (const [id, pin] of pins) {
+      const c = cornerFor(...id.split(',').map(Number));
+      const aims = [
+        ['disc', c.x, KERB_H + RING_Y, c.z],
+        ['head', c.x, KERB_H + 2.9, c.z],
+        ['crystal', c.x, KERB_H + CRYSTAL_TOP - DIAMOND_HALF_H, c.z],
+      ];
+      for (const [what, ...at] of aims) {
+        const got = tapOn(...at);
+        if (got !== id) missed.push(`${id} ${what} -> ${got}`);
+      }
+      // And the disc's own near edge, which is the part of the mark closest to the thumb coming up
+      // the screen. Before the fix this was the marker below's, on every rider on the board.
+      const edge = screenOf(c.x, KERB_H + RING_Y, c.z);
+      const got = tapAt(edge.x, edge.y + RING_R * 0.545 * (H / (2 * PLAY_ZOOM)));
+      if (got !== id) missed.push(`${id} disc edge -> ${got}`);
+    }
+    check('a tap on a rider selects that rider, not the one down-screen of them',
+      missed.length === 0, missed.slice(0, 4).join(', ') || '9 riders, 4 aims each');
+
+    // 2. No marker may claim a pixel that belongs to another one. Swept rather than argued: the
+    //    separations that make it true — 14.1 screen units sideways to the next junction along a
+    //    road, 15.4 straight down to the one on the diagonal — are the sort of arithmetic that
+    //    stays written down while a constant moves under it.
+    const raycaster = new THREE.Raycaster();
+    const roots = [...pins.values()].map((p) => p.group);
+    const mid = screenOf(...(() => { const c = cornerFor(2, 2); return [c.x, KERB_H, c.z]; })());
+    let contested = 0;
+    let owned = 0;
+    for (let py = mid.y - 160; py <= mid.y + 160; py += 4) {
+      for (let px = mid.x - 160; px <= mid.x + 160; px += 4) {
+        raycaster.setFromCamera(
+          new THREE.Vector2((px / W) * 2 - 1, -(py / H) * 2 + 1), pCam.camera,
+        );
+        const claims = new Set();
+        for (const h of raycaster.intersectObjects(roots, true)) {
+          for (let node = h.object; node; node = node.parent) {
+            if (node.userData?.junction) { claims.add(node.userData.junction); break; }
+          }
+        }
+        if (claims.size > 1) contested += 1;
+        if (claims.size === 1) owned += 1;
+      }
+    }
+    check('and no two markers on the board can claim the same pixel',
+      contested === 0 && owned > 2000, `${contested} contested, ${owned} owned`);
+
+    // 3. The size of the thing, in the units it was designed in. A target that is correct and 20px
+    //    across is a different bug wearing the same face, and the only place the answer exists is
+    //    on the built mesh.
+    const perUnit = H / (2 * PLAY_ZOOM);
+    const target = pins.get('2,2').postGroup.children.find((c) => c.userData?.pickable);
+    const { width, height } = target.geometry.parameters;
+    check('a rider\'s tap target is comfortably past a fingertip',
+      width * perUnit >= 44 && height * perUnit >= 44,
+      `${(width * perUnit).toFixed(0)} x ${(height * perUnit).toFixed(0)} px`);
+    // Flat against the screen, so what it covers is what you see. A target with any depth to it is
+    // the original bug: its far end projects up the frame and over the marker behind it.
+    const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(target.quaternion);
+    check('and it lies in the screen plane, over the kerb corner rather than the junction',
+      facing.dot(VIEW_DIR) > 0.9999 && Math.abs(target.position.dot(RIGHT)) < 1e-9
+      && Math.abs(target.position.dot(VIEW_DIR)) < 1e-9,
+      `facing ${facing.dot(VIEW_DIR).toFixed(4)}`);
+  }
 
   // --- The rider's diamond changes colour as the clock drains.
   //
