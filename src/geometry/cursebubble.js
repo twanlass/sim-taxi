@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { unlitMaterial } from '../util/geo.js';
-import { RIGHT, VIEW_DIR } from '../game/camera.js';
+import { BILLBOARD } from '../game/camera.js';
 import { PALETTE } from '../palette.js';
 
 // The outburst a VIP leaves behind when their clock runs out: a jagged comic bubble with a grawlix
@@ -24,27 +24,10 @@ import { PALETTE } from '../palette.js';
 // `geometry/plane.js` uses for its streamers. Everything below is authored in that plane: local +X
 // is screen right, +Y is screen up, +Z is straight at the viewer.
 
-// Screen up, in world space: the camera's own Y axis, since its Z is `VIEW_DIR` and its X is
-// `RIGHT`. Mostly world +Y (0.85 of it), tilted back along the view diagonal.
-const SCREEN_UP = new THREE.Vector3().crossVectors(VIEW_DIR, RIGHT).normalize();
-
-/**
- * The orientation that puts the local XY plane flat against the screen.
- *
- * Exported so `tools/probe.mjs` can check it against the camera rather than against a copy of this
- * arithmetic — a billboard that is a few degrees off is invisible in a screenshot and obvious in a
- * dot product.
- */
-export const BILLBOARD = new THREE.Quaternion().setFromRotationMatrix(
-  new THREE.Matrix4().makeBasis(RIGHT, SCREEN_UP, VIEW_DIR),
-);
-
-// How much of a world-Y offset survives as screen height — `SCREEN_UP.y`. Anything positioning this
-// bubble relative to the head under it is working in screen units and lifting in world ones, and
-// this is the conversion between them. It is also why a straight world-Y lift keeps the tail
-// pointing exactly at the rider: +Y has no component along `RIGHT`, so it moves the bubble straight
-// up the screen and nowhere sideways.
-export const SCREEN_PER_WORLD_Y = SCREEN_UP.y;
+// `BILLBOARD` and `SCREEN_PER_WORLD_Y` are the screen plane itself, and they live in
+// game/camera.js beside the view direction they are derived from — the tap targets on the fare
+// markers are authored in the same plane (geometry/marker.js), and two copies of this basis is one
+// too many.
 
 // The bubble's half-extents in the screen plane, and the tail's reach below it. 7.4 × 4.2 units is
 // about 57 × 32px at play zoom — a little wider than the rider is tall, which is the proportion a
