@@ -821,10 +821,38 @@ actually moved the map is swallowed. This is exactly why `city-lab`'s `attachCam
 (which binds pointerdown to dragging unconditionally) is still unused here; it fought
 tap-to-select.
 
-Every marker carries an oversized invisible hit box, 20 units square — the visible figure is a
-handful of pixels at play zoom, and it stands on a kerb corner four units off the junction the box
-is centred on, so a box merely the size of the junction put the rider on its own edge and lost half
-the taps aimed at it.
+### The tap target
+
+Every marker carries an oversized invisible tap target — the visible figure is a handful of pixels
+at play zoom and would be miserable to hit. It is a **quad drawn flat against the screen**, on the
+kerb corner, covering the marker's own silhouette: 89px wide, and tall enough to reach from the near
+edge of the disc up to the top of the crystal (90px for a rider, 65px for a bare drop-off mark).
+`BILLBOARD` in `game/camera.js` faces it at a camera that never rotates, so it is a constant rather
+than a per-frame billboard.
+
+It used to be a 20 × 14.5 × 20 **box centred on the junction**, and with two markers close together
+that picked the wrong one — reported from a phone as a tap on the yellow rider dispatching the taxi
+at the green one below them. Two faults, and fixing either alone leaves the bug standing:
+
+- **The box was centred on the wrong point.** What the player aims at is the figure on the kerb, and
+  `cornerFor` (in `game/fares.js`) pushes that 4.5 units off the junction on *both* axes — up and
+  to the left on screen. The region was offset from its own marker by 6.4 units of ground.
+- **Height reaches up the screen.** The camera looks down a 33° diagonal, so a box 14.5 tall throws
+  its top face 11.1 units of ground up-screen of its base. Its silhouette covered a strip well past
+  the junction it belonged to, and since [`pick.js`](#picking) takes the *nearest* hit and a box
+  down-screen is nearer the camera, that box won the strip. Measured over a 3 × 3 patch of markers:
+  a tap dead on a rider's own disc was answered by the marker one junction down-screen, and the
+  rider's own region did not reach more than ~20px below their feet.
+
+A quad in the screen plane has neither problem: what it covers is what you see, and offsetting it
+along the camera's own up axis raises it in frame without moving it in depth, so the whole target
+sits at its corner's distance. **Nothing overlaps any more.** One junction along a road is 14.1 screen
+units sideways (and 7.7 down); one straight down the screen diagonal is 15.4 down and nothing
+sideways. Every other pair is one of those or further, so a target under 14.1 wide and under 15.4
+tall can never share a pixel with another — and a rider's is 11 × 11.1, a bare mark's 11 × 8.
+Ambiguity is gone rather than resolved. `tools/probe.mjs` drives the real picker over a 3 × 3 patch on a
+390 × 844 frame and asserts both halves: every aim point on a rider selects that rider, and no pixel
+is contested.
 
 **Which** pin was tapped is the instruction, not just that one was: `fares.fareFor(hit.object)`
 walks up from the hit to the fare that owns it. Tapping a kerbside rider while already carrying one

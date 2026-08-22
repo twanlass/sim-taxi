@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { KERB_H } from '../city/ground.js';
 import { URGENCY_SEGMENTS, fareColor } from './urgency.js';
 import {
-  createDiamond, DIAMOND_HALF_H, bounceOffset, kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
+  createDiamond, DIAMOND_HALF_H, bounceOffset, BOUNCE_HEIGHT,
+  kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
 } from '../geometry/diamond.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
 import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './selectpop.js';
@@ -58,6 +59,17 @@ import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './select
 // The plumbob's point hangs lower under its own origin than the octahedron's did, so this number
 // grew with the shape and the air above a rider's head did not move.
 const LIFT = DIAMOND_HALF_H + 4.7;
+
+/**
+ * How high over its corner the crystal's top point reaches, at the top of its bounce.
+ *
+ * Exported because the crystal is *part of the marker's silhouette* without being part of the
+ * marker: a tap on the diamond has always selected the fare under it, and the tap target that makes
+ * that true is built in geometry/marker.js, which has no other way to know how far up this thing
+ * goes. Derived rather than written down so retuning the shape or the hover moves the tap target
+ * with it — the last two times either number changed, this reach changed with it.
+ */
+export const CRYSTAL_TOP = LIFT + DIAMOND_HALF_H + BOUNCE_HEIGHT;
 
 // The flight from the kerb to the taxi. Inherited from the ring this replaces, which was tuned
 // against BOARD_SECONDS = 0.9 in fares.js so the clock lands on the car a beat *before* the rider

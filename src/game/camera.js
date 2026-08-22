@@ -30,6 +30,31 @@ export const PLAY_ZOOM = 52;
 export const RIGHT = new THREE.Vector3(1, 0, -1).normalize();
 export const UP = new THREE.Vector3(-1, 0, -1).normalize();
 
+// --- The screen plane ---------------------------------------------------------------------------
+//
+// `RIGHT` and `UP` above are the *ground plane's* screen basis — where a thing standing on the road
+// has to move to travel across the frame. These three are the screen plane itself: the camera's own
+// axes, which is what anything drawn *flat against the frame* is authored in.
+//
+// The camera never rotates, so all of it is a constant computed once rather than a per-frame
+// billboard. Used by the comic outburst a VIP leaves behind (geometry/cursebubble.js), and by the
+// tap targets on the fare markers (geometry/marker.js), which are quads in this plane precisely so
+// that the pixels a marker answers to are the pixels it covers.
+
+/** Screen up in world space: the camera's Y axis. Mostly world +Y, tilted back along the diagonal. */
+export const VIEW_UP = new THREE.Vector3().crossVectors(VIEW_DIR, RIGHT).normalize();
+
+/** The orientation that puts a mesh's local XY plane flat against the screen: +X right, +Y up. */
+export const BILLBOARD = new THREE.Quaternion().setFromRotationMatrix(
+  new THREE.Matrix4().makeBasis(RIGHT, VIEW_UP, VIEW_DIR),
+);
+
+// How much of a world-Y offset survives as screen height — `VIEW_UP.y`, 0.838 at this elevation.
+// Anything positioning a screen-plane object relative to something in the world is working in two
+// spaces at once, and this is the conversion between them. It is also why a straight world-Y lift
+// moves a billboard *straight* up the screen: +Y has no component along `RIGHT`.
+export const SCREEN_PER_WORLD_Y = VIEW_UP.y;
+
 // A one-shot pan — a tap on a rider-finder chip — as opposed to the two follow-cams, which chase a
 // car. Different problem, different curve. Exponential smoothing has no ease *in*: it leaves at its
 // highest speed on the very first frame, which is right when you are closing a gap that keeps

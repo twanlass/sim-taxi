@@ -255,6 +255,18 @@ Omit the whole section if there's nothing to note.
   `scene.js`). The same arithmetic is why it must be linear rather than `FogExp2`: an exponential is
   a distance from the eye, and this eye is 400 units from everything, so any density that reads at
   the back also washes the nearest pixel.
+- **A tall hit box under this camera steals taps from the marker *up-screen* of it.** The picker
+  takes the nearest hit, and the view is a fixed 33° diagonal, so a box 14.5 tall throws its top
+  face 11.1 units of ground up-screen of its base — past the junction it belongs to, onto a marker
+  that is further from the camera and therefore loses. The fare markers' 20 × 14.5 × 20 box was also
+  centred on the *junction* while the rider stands 4.5 units off it on both axes, so the region was
+  offset from its own marker as well as reaching over its neighbour: measured over a 3 × 3 of
+  markers, a tap dead on a rider's disc selected the marker one junction down-screen, every time.
+  A tap target wants to be a **quad in the screen plane** (`BILLBOARD` in `game/camera.js`) over the
+  thing it answers for — then what it covers is what you see, and `VIEW_UP` raises it in frame
+  without moving it in depth. And check the *screen* separations before sizing one: neighbouring
+  junctions are 14.1 screen units apart sideways and 15.4 down the diagonal, which is the whole
+  budget.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

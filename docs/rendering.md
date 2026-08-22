@@ -2294,8 +2294,9 @@ car nothing does;
 the taxi's ghost outline says where the car is, but not how long is left.
 
 The crystal and its hull both have `raycast` stubbed out. The rider's marker and the taxi both carry
-an oversized invisible hit box that already covers this airspace, so intersecting the crystal would
-only cost work on every tap.
+an oversized invisible tap target that already covers this airspace — the rider's
+[reaches to the crystal's top point](gameplay.md#the-tap-target) for exactly this reason — so
+intersecting the crystal would only cost work on every tap.
 
 ### The outburst bubble — `geometry/cursebubble.js`
 
@@ -2303,8 +2304,10 @@ What a [VIP](gameplay.md#vip-pickups) says on their way out of a cab that didn't
 comic bubble with `%#&@!!` in it, riding over the rider for the two seconds of their bail.
 
 **It is drawn in the screen plane, by a constant.** The camera never rotates, so facing it is one
-quaternion built once out of `RIGHT` and `VIEW_DIR` — the same property the flyover's streamers use
-for their roll, and the reason nothing here needs a per-frame `lookAt`. Everything in the module is
+quaternion built once out of `RIGHT` and `VIEW_DIR` — `BILLBOARD`, which lives in `game/camera.js`
+beside the view direction it comes from and is shared with the markers' tap targets
+([gameplay.md](gameplay.md#the-tap-target)). Same property the flyover's streamers use for their
+roll, and the reason nothing here needs a per-frame `lookAt`. Everything in the module is
 then authored in that plane: local +X is screen right, +Y is screen up, +Z is straight at the
 viewer. It also makes the bubble's position trivial — a pure world-Y offset has no component along
 `RIGHT`, so lifting it in world Y moves it straight up the *screen* and the tail stays pointed at
