@@ -6074,7 +6074,7 @@ check('the taxi is an ordinary car in the traffic array',
 // So the framing is measured by projecting the taxi through a real frustum, at a real portrait
 // aspect, after driving it far enough for both eases to settle.
 {
-  const LEAD_FRACTION = 0.3;      // camera.js's, restated so a change there fails here
+  const LEAD_FRACTION = 0.4;      // camera.js's, restated so a change there fails here
   const ASPECT = 390 / 844;       // an iPhone in portrait — the viewport the follows run on
   const ZOOM = 52;
   const BOOST_TOP = boostCruise();  // what `gain` is measured against
