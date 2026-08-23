@@ -101,12 +101,12 @@ const PEEK_HOLD = 0.9;
 //
 // What bounds the depth is look-ahead. The follow's lead is a *fraction of the frame* (see
 // LEAD_FRACTION), so a tighter frame buys fewer world units of road ahead by exactly the same 24%.
-// Measured at the boost top on a portrait phone: **124 world units of road ahead become 94**,
+// Measured at the boost top on a portrait phone: **136 world units of road ahead become 103**,
 // against the GHOST_RADIUS of 46 at which a hidden car lights its outline (game/carghosts.js) and
-// the PITCH of 20 between junctions. Still twice the warning radius and four junctions of road, but
-// this is the constant with a floor under it rather than a preference — past about 0.6 the frame
-// edge closes on the distance the outlines are warning at, and the mode starts hiding what it is
-// about to hit.
+// the PITCH of 20 between junctions. Still more than twice the warning radius and five junctions of
+// road, but this is the constant with a floor under it rather than a preference — past about 0.6
+// the frame edge closes on the distance the outlines are warning at, and the mode starts hiding
+// what it is about to hit.
 export const LOCO_PUNCH = 0.76;
 
 // How long the button has to stay down before the frame answers it. **A tap must not move the
@@ -172,7 +172,12 @@ const smootherstep = (k) => k * k * k * (k * (k * 6 - 15) + 10);
 // Multiplied out, the same world lead is worth ~4x more of the frame going one way than the other.
 // Framing on the screen fraction instead puts the car at the same place in the picture whichever
 // way it is pointed, on a phone and on a desktop, and the world distance falls out of that.
-const LEAD_FRACTION = 0.3;      // of the half-frame measured along the heading — see frameLead
+// Was 0.3 — bumped so Loco Mode's push-in reads as covering *more* ground, not just tighter
+// ground: at the boost top it seats the taxi 42.5% of the way to the trailing edge instead of 30%,
+// which is what buys the extra road ahead cited above. Still well clear of the frame — see "the
+// framing seats the taxi" checks in tools/probe.mjs, which fail long before this reaches a value
+// that would throw the car off the back of the picture.
+const LEAD_FRACTION = 0.425;    // of the half-frame measured along the heading — see frameLead
 // How fast the offset itself eases, on top of whatever rate the follow is closing at. Slower than
 // either follow on purpose: the lead swings through 90° at every corner, and at the follow's own
 // rate that lands as a shove sideways at the exact moment the player is reading a new street. At
