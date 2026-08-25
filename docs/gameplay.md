@@ -478,10 +478,44 @@ independently, so a corner of that box can sit up to `2 × radius` blocks out on
 for an ordinary extra, where the point is "reachable", not "exactly this close". The very first
 fare of the run wants a real promise, though — especially now that the taxi itself
 [opens downtown](traffic.md#the-one-routing-branch) rather than at a random corner, where the box
-can span the whole map even at `radius = 3`. `FIRST_FARE_MAX_BLOCKS` in `fares.js` filters that
-one draw by actual Manhattan distance, capped at 3, independent of the difficulty curve — so the
-rider taught in the tutorial is never more than a short drive from where the taxi started, whatever
-`spawnRadiusStart` happens to be tuned to.
+can span the whole map even at `radius = 3`. Three constants in `fares.js` make that promise, all
+of them independent of the difficulty curve, and all of them binding on the run's first fare only:
+
+| Constant | Value | What it promises |
+|---|---|---|
+| `FIRST_FARE_MAX_BLOCKS` | 1 block | Manhattan distance from the taxi to the rider. |
+| `FIRST_FARE_MAX_TRIP_BLOCKS` | 2 blocks | Manhattan distance from that rider to their drop-off — the one time a drop-off is drawn near its own pickup instead of unbiased. |
+| `FIRST_FARE_MIN_CLOCK` | 45s | A floor under the budgeted clock, because the caps above would otherwise issue a short one. |
+
+### Why the first fare is close, and why that alone made it harder
+
+The mechanic the opening has to teach is that a **tap dispatches the taxi and the drop-off
+dispatches itself**, and the only way to learn it is to watch it happen end to end. A three-block
+hunt for the rider followed by an unbiased draw that could land the drop-off in the far corner
+spent the whole first fare — often a minute of driving — before the loop had closed once, and the
+player spent that minute reading a map rather than learning the rule. One block out and one or two
+back is the same lesson in a fraction of the time. The *second* fare is already an ordinary one:
+this is a first-fare exemption, not a gentler opening.
+
+The clock floor is the part that isn't obvious, and it was measured the hard way. **A short trip
+budgets a short clock, and a short clock is the tight one.** The budget is `work × slack` with a
+fixed reaction allowance inside it, so a fare's absolute margin scales with its length: 1.5s of a
+slow player's reaction, or one red light they didn't expect, is a few percent of a fifty-second
+haul and a third of a seventeen-second hop. Shipping the two caps without the floor made the run's
+*first* fare the one that ended it — over 40 soak runs at a 4s reaction, runs ending on 0
+deliveries doubled from 5 to 10, which is [the one failure a score-attack cannot
+have](difficulty.md#what-the-sweep-found).
+
+45s is a shade under the median first-fare clock the old three-block draw issued (47.7s, measured
+over 60 seeds), so a new player gets about the time they used to get to do a fraction of the
+driving. Distance is what the caps shorten; time is not. With the floor in, run length is back at
+parity — median 14 fares against the old 13 at a 1.5s reaction, 11 against 11 at 4s, over 40 runs
+on each of two seed bases.
+
+The one thing that does move is the **first fare's price**: `FARE_BASE + FARE_PER_BLOCK × blocks`
+on a one-or-two-block trip pays $8–11 where the old unbiased draw paid a median of $17. It is one
+fare out of a run, and pricing the tutorial hop as the tutorial hop it is beats special-casing the
+economy's own formula.
 
 **The radius used to be load-bearing and is now a difficulty knob.** Under the old flat clock an
 extra rider *had* to land near the current drop-off: their 60 seconds had to cover the tail of that
@@ -512,8 +546,12 @@ the taxi is already committed to, times the run's current slack:
 
 ```
 budget = queue ahead + drive to the pickup + drive to the drop-off + reaction allowance
-limit  = clamp(budget × slack(deliveries), 20s, 240s)
+limit  = clamp(budget × slack(deliveries), 15s, 240s)
 ```
+
+The run's **first** fare takes a floor of `FIRST_FARE_MIN_CLOCK` on top of that, because the caps
+on its two legs would otherwise budget it a short clock and a short clock is the tight one — see
+[why the first fare is close](#why-the-first-fare-is-close-and-why-that-alone-made-it-harder).
 
 `estimateSeconds` in `route.js` does the conversion at 3.28 s/block and 1.30 s/turn, fitted against
 581 real trips. The whole design, what it replaced and how the numbers were chosen is in
