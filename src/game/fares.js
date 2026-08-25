@@ -157,13 +157,48 @@ const SECOND_FARE_DELAY = 5;         // seconds aboard before the near-the-drop-
 const SECOND_FARE_RANGE = 45;        // world units from the taxi to its drop-off
 const SECOND_FARE_MIN_CLOCK = 18;    // seconds the current fare must still have
 
-// The very first fare of the run gets a hard cap, independent of difficulty.spawnRadius: a
-// tutorial-only guarantee that the rider a brand-new player is asked to find is never more than a
-// short walk from where their taxi opened. Left as its own constant rather than folded into the
-// ramp because it isn't a difficulty knob — it exists once, before the ramp has moved at all, and
-// tightening or loosening the ramp's own start (`spawnRadiusStart`) must not change what the very
-// first rider promises.
-const FIRST_FARE_MAX_BLOCKS = 3;
+// The very first fare of the run gets hard caps on *both* of its legs, independent of
+// difficulty.spawnRadius: a tutorial-only guarantee that the whole loop a brand-new player is
+// asked to run — find the rider, tap them, watch the taxi drive there, watch it carry on to the
+// drop-off, get paid — fits inside the couple of blocks already on screen when the vignette ends.
+//
+// **The point is closing the loop, not making it easy.** The mechanic the player has to learn is
+// that a tap dispatches the taxi and the drop-off dispatches itself, and that is only learned by
+// seeing it happen end to end. A three-block hunt for the rider followed by a draw that could put
+// the drop-off in the far corner spent the whole first fare — often a minute of driving — before
+// the loop had closed once, and the player spent it reading a map instead of learning the rule.
+// One block out and one or two back is the same lesson in a fraction of the time, and the *second*
+// fare is already an ordinary one: this is a first-fare exemption, not a gentler opening.
+//
+// Left as their own constants rather than folded into the ramp because they aren't difficulty
+// knobs — they exist once, before the ramp has moved at all, and tightening or loosening the
+// ramp's own start (`spawnRadiusStart`) must not change what the very first rider promises.
+//
+// Both caps are real Manhattan distances, and the drop-off's is measured from the *pickup* rather
+// than from the taxi — so the whole first job spans at most three blocks of grid end to end (the
+// driving is a little more, since one-ways and lights don't respect Manhattan distance). Neither
+// leg can come out as zero: `pickIntersection` already refuses the taxi's own junction, and the
+// drop-off draw additionally refuses the pickup's own block.
+const FIRST_FARE_MAX_BLOCKS = 1;
+const FIRST_FARE_MAX_TRIP_BLOCKS = 2;
+
+// ...and a floor under the clock those caps produce, because **a short trip budgets a short clock
+// and a short clock is the tight one**. The budget is `work × slack` with a fixed reaction
+// allowance inside it, so a fare's absolute margin scales with its length: 1.5s of a slow player's
+// reaction, or one red light they didn't expect, is a few percent of a fifty-second haul and a
+// third of a seventeen-second hop. Capping both legs of the tutorial fare without this made the
+// run's *first* fare the one that killed it — measured over 40 soak runs at a 4s reaction, runs
+// ending on 0 deliveries doubled from 5 to 10, which is the one failure a score-attack cannot
+// have (see difficulty.md).
+//
+// 45s is a shade under the median first-fare clock the old three-block draw issued (47.7s over 60
+// seeds), so a brand-new player gets about the time they used to get, to do a fraction of the
+// driving. That is the trade the caps are for: the tutorial fare is short in *distance*, which is
+// what makes the loop legible, and not short in *time*, which would only make it harder.
+//
+// It binds on the first fare alone. The second is an ordinary budgeted fare at ordinary length,
+// so nothing here leaks into the ramp.
+const FIRST_FARE_MIN_CLOCK = 45;
 
 // A manual override on the budgeted clock, for the ⚙️ panel and the tools.
 //
@@ -418,14 +453,15 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
    * Pick an intersection that isn't the taxi's next one, and isn't already spoken for.
    *
    * `near` biases the draw to within difficulty.spawnRadius() blocks of another junction — either the
-   * current drop-off or the taxi's own intersection, see `spawnBias`. Drop-offs are always drawn
-   * unbiased: the whole point of showing a trip's length up front is that they differ.
+   * current drop-off or the taxi's own intersection, see `spawnBias`. Drop-offs are drawn unbiased
+   * — the whole point of pricing a trip by its length is that lengths differ — with one exception:
+   * the run's first fare draws its drop-off near its own pickup, so the tutorial trip is a hop.
    *
    * `maxBlocks`, when given, additionally caps the draw to real Manhattan block distance from
    * `near` — the box `radius` builds is per-axis, so its corners sit up to `2 × radius` blocks out
-   * on the diagonal. That slack is fine for an ordinary extra, but the very first fare (see
-   * `spawnFare`) wants a hard cap the box alone can't promise, especially now that the taxi itself
-   * starts downtown, where `radius` can span the whole map.
+   * on the diagonal. That slack is fine for an ordinary extra, but both legs of the very first
+   * fare (see `spawnFare`) want a hard cap the box alone can't promise, especially now that the
+   * taxi itself starts downtown, where `radius` can span the whole map.
    *
    * `avoidBlockOf`, when given, additionally rules out any candidate whose corner pin would land
    * on the same physical block as that intersection's own corner pin (see `blockFor`) — used to
@@ -723,7 +759,18 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // `takeDropoffHint` is the one exception, and it is deliberately narrow: at most one fare per
     // run has its far end aimed at a construction zone, and it falls straight back to the draw
     // below when neither end qualifies.
-    fare.dropoff = takeDropoffHint(taxiCar, spot) ?? pickIntersection(taxiCar, null, null, spot);
+    //
+    // The very first fare of the run is the one exception to the unbiased draw, and it is the
+    // other half of FIRST_FARE_MAX_BLOCKS: its drop-off is drawn near the *pickup* rather than
+    // near the taxi, so the trip the tutorial teaches is a short hop the player can watch all the
+    // way through. Trip lengths only need to differ once there is more than one trip to compare.
+    fare.dropoff = takeDropoffHint(taxiCar, spot)
+      ?? pickIntersection(
+        taxiCar,
+        isFirstEver ? spot : null,
+        isFirstEver ? FIRST_FARE_MAX_TRIP_BLOCKS : null,
+        spot,
+      );
     fare.blocks = blockDistance(spot, fare.dropoff);
     // Priced by the trip's block distance, fixed here because both endpoints are already known. A
     // hidden meter that ticked while driving would punish traffic and reward Loco Mode for the
@@ -747,8 +794,13 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // earliest this number can exist.
     const budget = budgetFor(taxiCar, spot, fare.dropoff, vip);
     fare.work = budget.work;
-    fare.limit = budget.limit;
-    fare.timeLeft = budget.limit;
+    // The tutorial fare's floor, and only its own: see FIRST_FARE_MIN_CLOCK. Skipped when the
+    // clock is pinned from the ⚙️ panel, which means "every rider gets exactly this" and would be
+    // a lie if the first one quietly got more.
+    fare.limit = isFirstEver && !isFareClockPinned()
+      ? Math.max(budget.limit, FIRST_FARE_MIN_CLOCK)
+      : budget.limit;
+    fare.timeLeft = fare.limit;
 
     place(slot.passenger, spot.i, spot.j);
     // Slot reuse: the previous rider on this slot may have left the figure shrunk and tumbled at
