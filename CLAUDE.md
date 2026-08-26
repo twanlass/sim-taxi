@@ -26,6 +26,7 @@ about to change.
 | [docs/rendering.md](docs/rendering.md) | Low-poly technique, camera, lighting, day/night, effects |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
 | [docs/lab.md](docs/lab.md) | The passing lab at `/lab/` — a straight road with no lights, for watching Loco Mode |
+| [docs/ios.md](docs/ios.md) | The App Store build: the WKWebView shell, the custom URL scheme, `window.__native` |
 
 ## Commands
 
@@ -33,6 +34,8 @@ about to change.
 npm run dev        # http://localhost:5173 — and the passing lab at /lab/
 npm run check      # the whole headless suite, ~1.8s — run this before reporting anything
 npm run build      # production bundle into dist/ (two pages: the game and /lab/)
+npm run build:ios  # the same bundle, minus /lab/, copied into the iOS app — see docs/ios.md
+npm run push:ios   # build:ios, then sign and install to a paired iPhone over Wi-Fi (or /push-ios)
 npm run preview    # serve dist/ — rebuild first, it will happily serve a stale one
 ```
 
@@ -272,6 +275,15 @@ Omit the whole section if there's nothing to note.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and
   per-index jitter tears surfaces open.
 - **Effects must be sized against the camera.** At play zoom 1 world unit ≈ 7.7px.
+- **A bundled web app on a `file://` origin fails in four ways, and only one of them is loud.** This
+  is why the iOS shell serves `dist/` through a `WKURLSchemeHandler` on `simtaxi://` rather than
+  calling `loadFileURL` (`ios/SimTaxi/BundleSchemeHandler.swift`). ES modules fail the CORS check, so
+  the game doesn't boot — that one announces itself. The other three don't: root-absolute `/assets/…`
+  paths resolve to the filesystem root, service workers never register, and **`localStorage` throws
+  `SecurityError`** — which `highscores.js` catches *by design*, degrading to an empty table rather
+  than losing a run over a saved score. On `file://` that safety net turns into silent data loss:
+  scores appear to save and every relaunch comes up empty, with nothing logged. Whenever a store is
+  allowed to fail soft, check what an origin change does to it.
 - **Never name a Rollup chunk after anything under `src/`.** `vite.config.js` has two entries now
   (the game and `/lab/`), and a `manualChunks` rule that swept `src/main.js` into a shared chunk
   made every page importing that chunk *boot the game* — `/lab/` came up with the city's road

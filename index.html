@@ -1292,6 +1292,24 @@
            formatting toolbar and highlights the whole log. */
         user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
       }
+      /* In the native shell the same element is a player-facing failure screen rather than a log —
+         see the `report()` note beside the handlers at the bottom of this file. It says one short
+         sentence, so it is centred and set in the game's own face instead of 13px monospace pinned
+         to the top-left corner. The colours are the panel's, unchanged: whatever this is, it is
+         still the thing that went wrong. */
+      html[data-native] #error {
+        display: grid; place-content: center; text-align: center;
+        font: 600 17px/1.5 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+      }
+      /* `hidden` is a UA-stylesheet `display: none`, so **any** author `display` beats it — and the
+         rule above is one, applying from page load rather than from the first error. Without this
+         line the App Store build opens with the empty panel covering the whole game: a flat #2b1b1b
+         screen with the HUD (higher z-index) still drawn on top of it and no text to explain
+         itself, because `report()` never ran to fill it in. The web build never showed this because
+         `#error` carries no `display` of its own there. The `[hidden]` has to sit on a selector at
+         least as specific as the one it is undoing — `#error[hidden]` alone loses to
+         `html[data-native] #error` on the extra type selector. */
+      html[data-native] #error[hidden] { display: none; }
     </style>
   </head>
   <body>
@@ -1364,6 +1382,37 @@
         el.hidden = false;
         return el;
       };
+
+      /* What the panel says, which is not the same question as what it knows.
+
+         On the web this is a developer's panel that happens to live on a player's screen: there is
+         no console on a phone, so the stack goes where it can be read. Inside the App Store build
+         that reasoning inverts. A player who cannot open a console also cannot act on a stack
+         trace, App Review treats one as an unfinished app (Guideline 2.1), and the panel is
+         `inset: 0` — so a single caught error replaces a working game with a wall of text about
+         `vendor-Dru8FmLU.js`.
+
+         So: the capture is identical on both, and only the presentation forks. Everything still
+         accumulates into `window.__errorLog`, which is what Safari Web Inspector attaches to and
+         reads — the native build loses nothing diagnostically, it just stops printing it at the
+         player. `window.__native` is set by the shell's injected user script before this runs; see
+         `src/util/platform.js` for why the flag is a global rather than a build-time constant, and
+         note that this file is a classic script with no `import.meta.env` to check even if it were.
+
+         `data-native` on the root rather than a class, because it is a fact about the host and not
+         a state the game moves in and out of. The CSS above hangs the centred layout off it. */
+      window.__errorLog = '';
+      if (window.__native === true) document.documentElement.dataset.native = '';
+      const report = (detail) => {
+        window.__errorLog += detail;
+        const el = errorPanel();
+        if (window.__native === true) {
+          // Assigned, not appended: a second failure must not stack a second copy of the sentence.
+          el.textContent = 'Something went wrong.\n\nClose the app and open it again.';
+          return;
+        }
+        el.textContent += detail;
+      };
       /* An error the browser refuses to describe did not come from this page.
 
          `Script error.` at `:0:0` with a null `error` is the anonymised form the spec hands a page
@@ -1379,10 +1428,10 @@
       window.__foreignErrors = 0;
       window.addEventListener('error', (e) => {
         if (!e.filename && !e.lineno && !e.error) { window.__foreignErrors += 1; return; }
-        errorPanel().textContent += `${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`;
+        report(`${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}\n\n`);
       });
       window.addEventListener('unhandledrejection', (e) => {
-        errorPanel().textContent += `Unhandled rejection: ${e.reason?.stack ?? e.reason}\n\n`;
+        report(`Unhandled rejection: ${e.reason?.stack ?? e.reason}\n\n`);
       });
 
       /* Three's own reports, put where a phone can show them.
@@ -1421,7 +1470,7 @@
             return;
           }
           if (FATAL_GL.some((prefix) => first.startsWith(prefix))) {
-            errorPanel().textContent += args.map(String).join(' ') + '\n\n';
+            report(args.map(String).join(' ') + '\n\n');
           }
         };
       }

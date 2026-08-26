@@ -12,7 +12,7 @@
  * MeshLambert output baked through WebGL and downscaled.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -196,6 +196,10 @@ ${layers.map((l) => `    <polygon points="${poly(l.pts)}" fill="${l.fill}"/>`).j
 
 const outDir = path.resolve('public');
 await mkdir(outDir, { recursive: true });
+// The App Store icon does not belong in `public/` — it is a build input for Xcode, not a file the
+// web bundle should be shipping a megabyte of. It goes straight into the asset catalogue instead.
+const iosIconDir = path.resolve('ios/SimTaxi/Assets.xcassets/AppIcon.appiconset');
+await mkdir(iosIconDir, { recursive: true });
 const svgPath = path.join(outDir, 'apple-touch-icon.svg');
 await writeFile(svgPath, svg);
 console.log(`wrote ${svgPath}`);
@@ -205,12 +209,17 @@ console.log(`wrote ${svgPath}`);
 // sizes (16/32) — it clamps the viewport to a minimum and captures a blank frame — so we drive
 // it explicitly with Emulation.setDeviceMetricsOverride, same pattern as tools/shoot.mjs.
 
-const CHROME_BIN = [
+// A bare name has to be resolved against PATH, not waved through. The old `!c.startsWith('/')`
+// test accepted `chromium` unconditionally, so on a Mac — which has no `chromium` anywhere — the
+// list never reached the /Applications entry below it. `spawn` then failed with stdio ignored and
+// the only symptom was "chromium never opened its debugging port" 30 seconds later.
+const onPath = (name) => spawnSync('/bin/sh', ['-c', `command -v "$1"`, '_', name]).status === 0;
+const CHROME_BIN = process.env.CHROME ?? [
   '/opt/pw-browsers/chromium',
   '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
   'chromium', 'chromium-browser', 'google-chrome',
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-].find((c) => !c.startsWith('/') || existsSync(c));
+].find((c) => (c.startsWith('/') ? existsSync(c) : onPath(c)));
 if (!CHROME_BIN) throw new Error('no chromium binary found');
 
 const CDP_PORT = 9334;
@@ -320,6 +329,16 @@ try {
   // than downscaling one big source — 16 for the tab, 32 for retina and the bookmarks list.
   await rasterize(path.join(outDir, 'favicon-16.png'), 16);
   await rasterize(path.join(outDir, 'favicon-32.png'), 32);
+  // The App Store icon. One file covers every slot since Xcode 14 — a single-size
+  // AppIcon.appiconset, which the toolchain downscales for the home screen, Settings and Spotlight.
+  //
+  // Two Apple rules this artwork already happens to satisfy, so don't "fix" either of them later:
+  // it must be **fully opaque** (App Store Connect rejects any alpha channel outright, and the
+  // screenshot capture below overrides the default transparent background to guarantee this), and
+  // it must have **square corners** — iOS applies its own superellipse mask, so pre-rounding the
+  // artwork shows as a visibly double-rounded icon. The purple border the SVG is drawn with is
+  // sized for exactly that mask to crop into.
+  await rasterize(path.join(iosIconDir, 'AppIcon-1024.png'), 1024);
 } catch (err) {
   console.error(`rasterize failed: ${err.message}`);
   console.error('The SVG was written; you can convert to PNG by other means if needed.');

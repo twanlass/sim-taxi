@@ -3,3 +3,11 @@ dist
 shots
 .netlify
 .DS_Store
+
+# The iOS shell. `ios/SimTaxi/web/` is the web bundle copied in by `npm run build:ios` — generated,
+# like `dist/`, and tracking it would put the whole build in every commit. The rest is Xcode's
+# per-user state, which is noise in a shared repo.
+ios/SimTaxi/web/
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
+ios/DerivedData/

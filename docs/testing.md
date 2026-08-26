@@ -84,8 +84,26 @@ node tools/lab.mjs                            # the passing lab's road and its o
 node tools/roadwork-pull.mjs                  # how often a run actually meets the construction zone
 node tools/diag.mjs                           # ad-hoc scratch diagnostics
 node tools/smoke.mjs --url http://localhost:4173   # real browser, real DOM
+node tools/native-smoke.mjs --url http://localhost:4173   # the iOS fork, both ways
 ./shots.sh                                    # render the screenshot set
 ```
+
+`native-smoke.mjs` is the regression test for the one behavioural difference between the web build
+and the App Store build — see [ios.md](ios.md). It loads the *same* production bundle twice, once
+with `window.__native = true` injected at document start the way the shell's `WKUserScript` does and
+once without, and asserts each fork in **both** directions. Every difference it covers is invisible
+on the web by design, so nothing else in the suite would notice one regressing; the one that matters
+most is the Add-to-Home-Screen gate, which left unguarded would open the App Store build on a
+full-screen panel telling the player to install the game from Safari — silently, and every launch.
+
+Two things it has to get right, both learned by getting them wrong first. Each probe gets **its own
+Chrome and its own profile**, because a service-worker registration persists per origin and a shared
+profile lets the second probe read back the first one's worker — "not registered" then passes for
+the wrong reason. And **both probes spoof an iPhone UA**, because `game/homescreen.js` asks
+`isIOS()` before `isInstalled()`, so on a desktop UA the gate never constructs either way and the
+most important assertion in the file passes against a completely broken build.
+
+Like `smoke.mjs`, it needs a browser and a served bundle, so it is not in `npm run check`.
 
 `roadwork-pull.mjs` is deliberately **not** in `npm run check`. What it measures is a distribution —
 the share of runs in which the taxi is routed through the closed street — and the honest assertion

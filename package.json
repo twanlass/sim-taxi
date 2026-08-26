@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:ios": "vite build && node tools/ios-sync.mjs",
+    "push:ios": "node tools/ios-push.mjs",
     "preview": "vite preview",
     "check": "node tools/check.mjs"
   },

@@ -63,6 +63,8 @@ import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
 import { createViewport } from './util/viewport.js';
+import { isNative } from './util/platform.js';
+import { tap as haptic } from './util/haptics.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
@@ -73,7 +75,14 @@ import { PALETTE } from './palette.js';
 // worker caching those responses would serve stale code back at the page mid-session. Production
 // (`npm run build` + `preview`, or the real deploy) is a static bundle, which is what the worker
 // is for.
-if (!import.meta.env.DEV && 'serviceWorker' in navigator) {
+//
+// Skipped in the native shell too, and there the reason is sharper than "unnecessary". The .ipa
+// already carries the whole bundle — there is no connection to survive the loss of — so the worker
+// buys nothing, and what it costs is a cache that outlives an App Store update: the shipped files
+// change under it while its `CACHE_NAME` does not, and a cache-first worker keeps serving the old
+// build to a player who has already installed the new one. `public/sw.js` bumps that name by hand
+// on the web, which works because a deploy is one atomic thing we control; an app update is not.
+if (!import.meta.env.DEV && !isNative() && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
 }
 
@@ -764,6 +773,10 @@ function divertToParcel(parcel) {
   const taken = target && fares.carrying()
     ? routeTo(target, { via: parcel.target, maxDetour: TAP_MAX_DETOUR })
     : routeTo(parcel.target);
+  // Keyed on `taken`, not on the tap. A refused detour already answers itself visually — the corner
+  // flinches instead of swelling (see `acknowledge`) — and a confirming buzz on top of a refusal
+  // says the opposite of what the animation does.
+  if (taken) haptic('pick');
   parcels?.acknowledge(parcel, taken);
 }
 
@@ -798,7 +811,11 @@ createPicker(
       return;
     }
 
+    // Same rule as the package tap above: the buzz reports that the taxi is now going somewhere
+    // else, so it is gated on the route actually being taken. The two refusals above this line —
+    // a second rider while carrying, a pin with no fare behind it — return without one.
     if (routeTo(fare.target)) {
+      haptic('pick');
       fares.markDirected(fare);
     }
   },
@@ -1382,6 +1399,10 @@ function kickLocoMode() {
   // Fires only on the transition into Loco Mode, which makes it exactly the right place to record
   // that the player has now used it.
   locoUsed = true;
+  // Above the `crashed` bail deliberately: the press was accepted either way — `boost.press()`
+  // already returned true and the fuel is already committed — so the hand should be told even when
+  // the wrecked car has no wheelie left to answer with.
+  haptic('loco');
   const car = traffic.taxi;
   if (car.crashed) return;
   car.wheelieT = 0;
@@ -1468,6 +1489,12 @@ const BRAKE_SKID_V = 2.5;
 function holdBrake() {
   if (fares.state.gameOver || brakeHeld) return;
   brakeHeld = true;
+  // Below the `brakeHeld` guard, so a hold buzzes once on the way down rather than on every event
+  // that re-asserts it — the button, the B key and `pressBrake`'s pointer capture all land here.
+  // Unconditional on speed, unlike the skid stamp two lines down: the pedal has a detent whether or
+  // not the car was moving fast enough to lock a wheel, and a control that answers only sometimes
+  // reads as a control that is broken.
+  haptic('brake');
   // Gas and brake are one pedal each and the last one pressed wins. Releasing Loco Mode here rather
   // than letting the two fight it out means a stab of the brake mid-boost doesn't sit there quietly
   // burning fuel against a speed target of zero — the tank keeps whatever is left in it.
@@ -2086,6 +2113,11 @@ function frame() {
       // moment they collected something. Nothing appears on the taxi: there is no deck parcel any
       // more, which is what lets the pickup be one journey out of the world rather than two hops.
       flashTaxi();
+      // Beside the flash rather than on `'loaded'` a moment later: this is the frame the box leaves
+      // the pad and the frame the flourish plays, and the two want to be the same beat. `'loaded'`
+      // is the *chip's* cue — the tail of an animation the player is watching finish, not the
+      // moment anything happened.
+      haptic('parcel-in');
     } else if (type === 'loaded') {
       // The lift is nearly done and the box is nearly transparent. `at` is where it had got to, in the
       // world, on *this* frame — `parcels.js` owns that fact; turning it into a pixel is this module's
@@ -2107,6 +2139,10 @@ function frame() {
       // leaving: the corner still holding one while a package is being set down on a pad would read as
       // the taxi carrying a second.
       cargoChip?.setCarrying(false);
+      // On the delivery itself, not on either bonus arriving. The two flights below take about a
+      // second to reach the counter and the pill, and a buzz that waited for them would land on a
+      // frame the player has already stopped associating with the pad they just left.
+      haptic('parcel-out');
       // Cash and fuel, the same two currencies a drop-off pays, and both take the same two-phase
       // flight a fare's does — off the taxi, then to the counter and to the pill — because it is the
       // same kind of event arriving from the same place, and a bonus that landed in either place
@@ -2697,6 +2733,19 @@ window.__taxi = {
    * a silent answer spread over four URL flags.
    */
   scores: { load: loadScores, record: recordRun, clear: clearScores, isRanked: isRankedRun },
+  /**
+   * Fire one haptic by name — `'pick'` or `'loco'`, see `src/util/haptics.js`.
+   *
+   * Here because a haptic is the one thing this game does that **cannot be observed**: no pixel
+   * changes, nothing is logged, and the only witness is a thumb. So the question "is the bridge
+   * alive?" has no answer from the outside, and answering it by playing until the right event
+   * happens conflates a broken bridge with a game that never fired one. `window.__taxi.haptic('loco')`
+   * in Safari Web Inspector, against the app on a real phone, separates the two in one line.
+   *
+   * Note that a phone is genuinely required: there is no Taptic Engine in the Simulator or on any
+   * iPad, and on those the whole path runs correctly and produces nothing.
+   */
+  haptic,
   /**
    * Draw one frame on demand.
    *
