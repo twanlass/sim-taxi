@@ -1301,6 +1301,15 @@
         display: grid; place-content: center; text-align: center;
         font: 600 17px/1.5 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
       }
+      /* `hidden` is a UA-stylesheet `display: none`, so **any** author `display` beats it — and the
+         rule above is one, applying from page load rather than from the first error. Without this
+         line the App Store build opens with the empty panel covering the whole game: a flat #2b1b1b
+         screen with the HUD (higher z-index) still drawn on top of it and no text to explain
+         itself, because `report()` never ran to fill it in. The web build never showed this because
+         `#error` carries no `display` of its own there. The `[hidden]` has to sit on a selector at
+         least as specific as the one it is undoing — `#error[hidden]` alone loses to
+         `html[data-native] #error` on the extra type selector. */
+      html[data-native] #error[hidden] { display: none; }
     </style>
   </head>
   <body>

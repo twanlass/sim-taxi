@@ -12,7 +12,7 @@
  * MeshLambert output baked through WebGL and downscaled.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -209,12 +209,17 @@ console.log(`wrote ${svgPath}`);
 // sizes (16/32) — it clamps the viewport to a minimum and captures a blank frame — so we drive
 // it explicitly with Emulation.setDeviceMetricsOverride, same pattern as tools/shoot.mjs.
 
-const CHROME_BIN = [
+// A bare name has to be resolved against PATH, not waved through. The old `!c.startsWith('/')`
+// test accepted `chromium` unconditionally, so on a Mac — which has no `chromium` anywhere — the
+// list never reached the /Applications entry below it. `spawn` then failed with stdio ignored and
+// the only symptom was "chromium never opened its debugging port" 30 seconds later.
+const onPath = (name) => spawnSync('/bin/sh', ['-c', `command -v "$1"`, '_', name]).status === 0;
+const CHROME_BIN = process.env.CHROME ?? [
   '/opt/pw-browsers/chromium',
   '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
   'chromium', 'chromium-browser', 'google-chrome',
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-].find((c) => !c.startsWith('/') || existsSync(c));
+].find((c) => (c.startsWith('/') ? existsSync(c) : onPath(c)));
 if (!CHROME_BIN) throw new Error('no chromium binary found');
 
 const CDP_PORT = 9334;

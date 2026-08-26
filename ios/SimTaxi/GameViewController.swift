@@ -25,6 +25,11 @@ final class GameViewController: UIViewController {
 
     private var webView: WKWebView!
 
+    /// Held here because `WKUserContentController` is the only other thing retaining it, and that
+    /// is owned by the configuration rather than by us. See `HapticsBridge.swift` for why it is a
+    /// standalone object and not an extension on this class.
+    private let haptics = HapticsBridge()
+
     override func loadView() {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(BundleSchemeHandler(), forURLScheme: Self.scheme)
@@ -50,6 +55,12 @@ final class GameViewController: UIViewController {
             forMainFrameOnly: true
         )
         config.userContentController.addUserScript(flag)
+
+        // **Haptics**, the one capability here that the web build cannot fake: `navigator.vibrate`
+        // has never shipped in Safari, so on the open web this game has no route to the Taptic
+        // Engine at all. `src/util/haptics.js` posts an event name to this handler and no-ops
+        // everywhere else.
+        config.userContentController.add(haptics, name: HapticsBridge.name)
 
         webView = WKWebView(frame: .zero, configuration: config)
 

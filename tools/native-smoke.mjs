@@ -148,6 +148,44 @@ async function probe({ native, port }) {
       // The shell drives this on `applicationWillResignActive` to pause a run when the app stops
       // being frontmost. If the hook moves, backgrounding silently stops pausing.
       pauseHook: await evalJs('typeof window.__taxi?.pause?.setPaused === "function"'),
+      // Haptics reach UIKit through a `WKScriptMessageHandler`, which does not exist in a browser —
+      // so what is checked here is the *gate*, which is the half that can silently go wrong in
+      // either direction. A stub stands in for the handler and records what the page posts to it:
+      // the app build must post the event name it was given, and the web build must not post at
+      // all, because on the open web `window.webkit` belongs to WebKit rather than to this app and
+      // a stray `postMessage` into it is somebody else's message. The device half — whether the
+      // Taptic Engine actually fires — has no witness but a thumb; `window.__taxi.haptic()` in
+      // Safari Web Inspector is the manual counterpart, see src/main.js.
+      // Every event in the vocabulary is fired, not a sample: the list in `util/haptics.js` and the
+      // switch in `HapticsBridge.swift` are two halves of one contract kept in step by hand, and
+      // the only failure this side can catch is a name the *web* half has stopped accepting.
+      hapticPosted: await evalJs(`(() => {
+        const seen = [];
+        window.webkit = { messageHandlers: { haptics: { postMessage: (m) => seen.push(m) } } };
+        for (const e of ['pick', 'brake', 'loco', 'parcel-in', 'parcel-out']) {
+          window.__taxi.haptic(e);
+        }
+        return seen.join(',');
+      })()`),
+      // A name neither half knows must be loud on the way out rather than dropped on the way in:
+      // the web bundle and the Swift shell ship separately, and an unrecognised event that fails
+      // silently here would look exactly like a Taptic Engine that isn't firing.
+      hapticRejectsUnknown: await evalJs(`(() => {
+        try { window.__taxi.haptic('nope'); return false; } catch { return true; }
+      })()`),
+
+      // The panel must be *invisible* until something goes wrong, and `hidden` on its own does not
+      // buy that here: `html[data-native] #error` sets an author `display`, and any author
+      // `display` outranks the UA stylesheet's `[hidden] { display: none }`. So the attribute can
+      // be present and correct while the element paints anyway — which is exactly what shipped:
+      // the App Store build opened on a flat #2b1b1b screen laid over the whole game, with the HUD
+      // still drawn on top of it and no text inside it, because `report()` had never run to fill
+      // it in. Asked of the computed style rather than the attribute, and asked *before* the
+      // synthetic error below, which is the thing that legitimately unhides it.
+      panelIdleHidden: await evalJs(
+        "(() => { const el = document.getElementById('error');"
+        + " return el.hidden === true && getComputedStyle(el).display === 'none'; })()",
+      ),
       // Forced rather than waited for: report a synthetic error and read what the panel decided
       // to say about it.
       panelText: await evalJs(`(() => {
@@ -182,6 +220,16 @@ try {
 
   check('web: add-to-home-screen gate shows', web.gateShown === true);
   check('app: add-to-home-screen gate never shows', app.gateShown === false);
+
+  const HAPTICS = 'pick,brake,loco,parcel-in,parcel-out';
+  check('app: every haptic event reaches the shell, in order',
+    app.hapticPosted === HAPTICS, app.hapticPosted);
+  check('web: haptics stay off the bridge entirely', web.hapticPosted === '', web.hapticPosted);
+  check('both: an unknown haptic event throws rather than vanishing',
+    app.hapticRejectsUnknown === true && web.hapticRejectsUnknown === true);
+
+  check('web: error panel stays out of the way until it has something to say', web.panelIdleHidden === true);
+  check('app: error panel stays out of the way until it has something to say', app.panelIdleHidden === true);
 
   check('web: error panel prints the stack', web.panelText.includes('SYNTHETIC'));
   check('app: error panel hides the stack', !app.panelText.includes('SYNTHETIC'));

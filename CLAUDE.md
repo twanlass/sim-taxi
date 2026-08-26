@@ -35,6 +35,7 @@ npm run dev        # http://localhost:5173 — and the passing lab at /lab/
 npm run check      # the whole headless suite, ~1.8s — run this before reporting anything
 npm run build      # production bundle into dist/ (two pages: the game and /lab/)
 npm run build:ios  # the same bundle, minus /lab/, copied into the iOS app — see docs/ios.md
+npm run push:ios   # build:ios, then sign and install to a paired iPhone over Wi-Fi (or /push-ios)
 npm run preview    # serve dist/ — rebuild first, it will happily serve a stale one
 ```
 
