@@ -40,13 +40,15 @@ import { createVanish } from '../game/vanish.js';
 import { createCarGhosts } from '../game/carghosts.js';
 import { createDaylight, DAY_SECONDS } from '../game/daylight.js';
 import { createAmbientOcclusion, markOccluder } from '../game/ssao.js';
-import { setAmbientOcclusion } from '../util/geo.js';
+import { createCrayon } from '../game/crayon.js';
+import { setAmbientOcclusion, setCrayon } from '../util/geo.js';
 import {
   TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK,
 } from '../geometry/taxi.js';
 import { DIR, dirSign, dirYaw, HALF_ROAD, PITCH } from '../city/grid.js';
 import { PALETTE } from '../palette.js';
-import { getAmbientOcclusion, getMsaa, getPixelRatioCap, getShadowMapSize } from '../util/shot.js';
+import { getAmbientOcclusion, getMsaa, getPixelRatioCap, getShadowMapSize, getCrayon }
+  from '../util/shot.js';
 import {
   labNetwork, createLabGround, labTreeBlocks, labRoadLength, labNodeX, LAB_BLOCKS,
 } from './labroad.js';
@@ -90,6 +92,9 @@ const budget = {
   shadowMapSize: getShadowMapSize(),
   pixelRatioCap: getPixelRatioCap(),
   ao: getAmbientOcclusion(),
+  // `?crayon` reaches the lab too. A pass whose whole subject is a moving silhouette is worth
+  // watching on the one page where the same car goes past the same way every time.
+  crayon: getCrayon(),
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -105,9 +110,12 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 setAmbientOcclusion(budget.ao);
-const ao = createAmbientOcclusion(renderer, { enabled: budget.ao });
+setCrayon(budget.crayon);
+const ao = createAmbientOcclusion(renderer, { enabled: budget.ao, edges: budget.crayon });
+const crayon = createCrayon(renderer, { enabled: budget.crayon });
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
+if (crayon.overlay) scene.add(crayon.overlay);
 const daylight = createDaylight({ sun, hemi, sky, fog });
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
@@ -508,6 +516,7 @@ function kickDust() {
 // --- Frame ------------------------------------------------------------------
 
 function renderFrame() {
+  crayon.prepare();
   ao.render(scene, camera);
   renderer.render(scene, camera);
 }
@@ -588,6 +597,7 @@ function frame() {
   // correct and dull — re-stage instead, so holding the button just runs the scenario again.
   if (!resetAt && taxi.x > ROAD_EAST - RESET_MARGIN) stage();
 
+  crayon.update(dt);
   renderFrame();
 }
 

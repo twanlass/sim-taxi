@@ -427,6 +427,22 @@ export const PALETTE = {
   // *timber* for the taxi launching off it to make sense. Warm and light enough to separate from
   // both the asphalt and the heap standing next to it.
   plywood: '#B98A54',
+
+  // --- Crayon Mode (game/crayon.js, ?crayon) ------------------------------------------------
+  //
+  // Three colours, and each of them is a claim about wax on paper rather than about ink.
+  //
+  // The stroke is a **warm graphite**, not black: a crayon's darkest mark is the paper showing
+  // through a pile of pigment, and it never reaches zero. Pure black lines over this palette read
+  // as vector art — the exact look the pass is trying to get away from. Kept warm so it sits with
+  // the golden-hour light instead of cutting a cold outline through it.
+  crayonLine: '#3A2E28',
+  // The page. A warm off-white the whole frame is lifted toward, which is what turns the sky from
+  // *sky* into *paper someone drew a sky on*.
+  paper: '#F7F0E2',
+  // The fibre in it — where the tooth is deep enough that a stroke skipped. Grey-brown rather than
+  // grey: a neutral speck on a warm page reads as dirt, not as texture.
+  paperFibre: '#B9AC96',
 };
 
 export function color(value) {

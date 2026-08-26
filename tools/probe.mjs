@@ -74,10 +74,14 @@ import {
 import {
   createBirds, bodyQuaternion, parkAreas, SETTLE_MIN, STARTLE_RANGE, SHADOW_CEILING,
 } from '../src/game/birds.js';
-import { propMaterial, setAmbientOcclusion, AO_UNIFORMS, BODY_EULER_ORDER } from '../src/util/geo.js';
+import {
+  propMaterial, setAmbientOcclusion, setCrayon, AO_UNIFORMS, CRAYON_UNIFORMS, BODY_EULER_ORDER,
+} from '../src/util/geo.js';
 import {
   AO_LAYER, markOccluder, unmarkOccluder, occluderList, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
+  EDGE_LOW, EDGE_HIGH,
 } from '../src/game/ssao.js';
+import { bakePaper, PAPER_SIZE, CRAYON_DEFAULTS } from '../src/game/crayon.js';
 import { createCityEntry } from '../src/game/cityentry.js';
 import {
   GHOST_MASK_ORDER, GHOST_RIM_ORDER, CAR_GHOST_MASK_ORDER, CAR_GHOST_RIM_ORDER,
@@ -7106,6 +7110,235 @@ check('the taxi is an ordinary car in the traffic array',
   check('every render goes through the AO pass',
     !/renderer\.render\(scene, camera\)/.test(outsideRenderFrame),
     'main.js renders only via renderFrame()');
+}
+
+// --- Crayon Mode ---------------------------------------------------------------
+//
+// game/crayon.js, the patch it adds to propMaterial(), and the edge channel it takes off the AO
+// pass. Everything here fails silently in the same way the AO block above does — a replace that
+// no longer matches, a cache key that collides, a page that reseeds under a screenshot — with the
+// extra hazard that this pass paints over the entire picture, so "it looks a bit different" is
+// not evidence either way.
+{
+  // The page. Baked on the CPU with no GL call in it, which is the whole reason `bakePaper` is a
+  // function: a screenshot pair taken across a change to the city has to differ by the city, and
+  // that is an assertion node can make.
+  const paperA = bakePaper(64);
+  const paperB = bakePaper(64);
+  check('the paper bakes the same page every time',
+    paperA.length === 64 * 64 * 4 && paperA.every((v, i) => v === paperB[i]),
+    `${paperA.length} bytes, identical across two bakes`);
+
+  // Every channel has to *have* a signal in it. A field that came out flat — a period that
+  // divided wrong, an fbm normalised to nothing — is a texture that multiplies by a constant, and
+  // a constant tooth is no tooth at all.
+  const channels = [0, 1, 2, 3].map((c) => {
+    const values = [];
+    for (let i = c; i < paperA.length; i += 4) values.push(paperA[i]);
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const spread = Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length);
+    return { mean, spread, min: Math.min(...values), max: Math.max(...values) };
+  });
+  check('every paper channel carries a signal, centred and unclipped',
+    channels.every((c) => c.spread > 8 && c.mean > 70 && c.mean < 185
+      && c.max - c.min > 100),
+    channels.map((c) => `${c.mean.toFixed(0)}±${c.spread.toFixed(0)}`).join(' · '));
+
+  // The seam. The tile is sampled in screen space with RepeatWrapping, so a field that does not
+  // close on itself puts a hard edge every PAPER_SIZE pixels — a grid over the whole city, which
+  // is the one thing a paper texture must not have. Measured as the step across the wrap against
+  // the step between ordinary neighbours: the two should be the same size.
+  const size = 64;
+  const stepAcross = (channel) => {
+    let wrap = 0;
+    let inner = 0;
+    for (let y = 0; y < size; y++) {
+      wrap += Math.abs(paperA[(y * size + size - 1) * 4 + channel] - paperA[y * size * 4 + channel]);
+      inner += Math.abs(paperA[(y * size + 1) * 4 + channel] - paperA[y * size * 4 + channel]);
+    }
+    return { wrap: wrap / size, inner: inner / size };
+  };
+  // Channels 0-2 wrap; 3 is the long fibre and is deliberately left open in y, so it is measured
+  // across x only, where it does close.
+  const seams = [0, 1, 2].map(stepAcross);
+  check('the paper tiles without a seam',
+    seams.every((s) => s.wrap <= s.inner * 1.6 + 2),
+    seams.map((s) => `${s.wrap.toFixed(1)} vs ${s.inner.toFixed(1)}`).join(' · '));
+
+  // The patch, run against a stub carrying the chunk names three's Lambert fragment shader
+  // actually has — same trick as the AO block, and the same failure if a chunk moves.
+  const stub = () => ({
+    uniforms: {},
+    vertexShader: '#include <common>\nvoid main() {}',
+    fragmentShader: '#include <common>\nvoid main() {\n\t#include <aomap_fragment>\n'
+      + '\t#include <opaque_fragment>\n\t#include <colorspace_fragment>\n\t#include <fog_fragment>\n}',
+  });
+
+  setAmbientOcclusion(false);
+  setCrayon(true);
+  const crayonMaterial = propMaterial();
+  const crayonShader = stub();
+  crayonMaterial.onBeforeCompile(crayonShader, null);
+
+  check('the crayon patch reaches the Lambert fragment shader',
+    crayonShader.fragmentShader.includes('uniform sampler2D tCrayonPaper')
+    && /texture2D\(\s*tCrayonPaper/.test(crayonShader.fragmentShader)
+    && /uCrayonGrain \*/.test(crayonShader.fragmentShader),
+    'sampler declared and the tooth pressed in');
+
+  // **The seam is the whole design.** By <fog_fragment> three has run the tonemap and the colour
+  // space, so gl_FragColor is in display space — which is where a paint-like multiply belongs and
+  // where "mid-tone" means what an eye means by it — and the haze has *not*, so a stroke at the
+  // back of the city fades into the air exactly as the façade under it does. Hooked one chunk
+  // later, at <dithering_fragment>, the same ink would draw at full strength over a hazed skyline.
+  const crayonAt = crayonShader.fragmentShader.indexOf('uCrayonGrain *');
+  check('the crayon body lands after the colour space and before the haze',
+    crayonAt > crayonShader.fragmentShader.indexOf('#include <colorspace_fragment>')
+    && crayonAt < crayonShader.fragmentShader.indexOf('#include <fog_fragment>'),
+    'strokes are laid in display space and then hazed with everything else');
+
+  // Value only, never chroma. Hue is content in this game — a fare's ring is its clock, yellow is
+  // the player's car, cyan is a parcel — and the palette checks above assert measured hue
+  // separations between them. Quantising rgb channel by channel, or touching saturation, would
+  // walk straight through every one of those guarantees.
+  // Scanned with the comments stripped, or the prose describing the pass fails the check on the
+  // pass. Everything the shader *does* to colour has to be a scalar on `.rgb`.
+  const crayonCode = crayonShader.fragmentShader.replace(/\/\/[^\n]*/g, '');
+  check('the crayon patch moves value and never hue',
+    /gl_FragColor\.rgb \*=/.test(crayonCode) && !/hsv|hsl|saturat/i.test(crayonCode),
+    'rgb scaled by a scalar, so every channel ratio survives');
+
+  // One shared uniform bag, not per-material copies — same contract as AO's, and the same failure
+  // if Object.assign ever handed each shader its own object: the boil would advance for nobody.
+  check('every crayon material reads the one shared uniform bag',
+    crayonShader.uniforms.tCrayonPaper === CRAYON_UNIFORMS.tCrayonPaper
+    && crayonShader.uniforms.uCrayonBoil === CRAYON_UNIFORMS.uCrayonBoil,
+    'same uniform objects, not clones');
+
+  // With AO off the pass still runs for the line, but its strength is pinned to zero and the
+  // occlusion multiply is never compiled in — the fetch is absent rather than multiplied by one.
+  check('crayon alone does not drag the AO multiply in with it',
+    !crayonShader.fragmentShader.includes('reflectedLight.indirectDiffuse *='),
+    '?crayon&ao=off compiles no occlusion term');
+
+  // All four combinations have to key differently. This city is nothing but flat-shaded Lambert,
+  // so two materials sharing a key are handed whichever program compiled first — the trap that
+  // once drew the diamond's fill with a building's shader, and one that a second independent flag
+  // makes twice as easy to fall into.
+  const keyFor = (ao, crayon) => {
+    setAmbientOcclusion(ao);
+    setCrayon(crayon);
+    const material = propMaterial();
+    return typeof material.customProgramCacheKey === 'function'
+      ? material.customProgramCacheKey() : null;
+  };
+  const keys = [keyFor(false, false), keyFor(true, false), keyFor(false, true), keyFor(true, true)];
+  check('all four AO/crayon builds key to different programs',
+    new Set(keys.map((k) => String(k))).size === 4,
+    keys.map((k) => k ?? 'none').join(' · '));
+
+  // And the patched pair still carries the AO term where it always was.
+  const bothShader = stub();
+  setAmbientOcclusion(true);
+  setCrayon(true);
+  propMaterial().onBeforeCompile(bothShader, null);
+  check('AO and crayon compose rather than replacing one another',
+    bothShader.fragmentShader.includes('reflectedLight.indirectDiffuse *=')
+    && /texture2D\(\s*tCrayonPaper/.test(bothShader.fragmentShader),
+    'both bodies present in one program');
+  setCrayon(false);
+  setAmbientOcclusion(false);
+
+  // The edge channel. `g` is free — every fetch it needs was already made for the occlusion — but
+  // it shares a shader with the term every contact shadow in the game is made of, so the thing
+  // worth asserting is that the occlusion expression did not move.
+  const ssaoSource = fs.readFileSync(new URL('../src/game/ssao.js', import.meta.url), 'utf8');
+  // The tap budget, counted out of the shader rather than asserted as a number in a comment. The
+  // line is not free — reusing the occlusion's own rings was free and drew a fifteen-pixel fringe
+  // instead of a line — but it is bounded: one extra opposed pair in each axis, and no more.
+  const callsTo = (name) => (ssaoSource.match(new RegExp(`${name}\\(z0,`, 'g')) || []).length;
+  const tapsIn = (name) => {
+    const body = ssaoSource.slice(ssaoSource.indexOf(`float ${name}(`));
+    return (body.slice(0, body.indexOf('\n}')).match(/viewDepth\(/g) || []).length;
+  };
+  const taps = 1 + callsTo('pair') * tapsIn('pair') + callsTo('edgeAt') * tapsIn('edgeAt');
+  check('the line costs one extra pair per axis and nothing more',
+    callsTo('pair') === 4 && tapsIn('pair') === 2
+    && callsTo('edgeAt') === 2 && tapsIn('edgeAt') === 2 && taps === 13,
+    `${taps} fetches a pixel on a half-res pass: one centre, eight for occlusion, four for ink`);
+  check('the occlusion term still writes red and the line writes green',
+    /1\.0 - uStrength \* either\(tight, broad\),\s*\n\s*smoothstep\(EDGE_LOW, EDGE_HIGH, edge\)/
+      .test(ssaoSource),
+    'util/geo.js reads .r for occlusion and .g for ink');
+
+  // The estimator, mirrored. `abs(a + b)` rather than `max(abs(a), abs(b))` is the whole reason
+  // this can run with no normal buffer: under this camera flat ground recedes by cot(elevation)
+  // per unit of radius, so either tap on its own is large *everywhere* and would ink the open
+  // road solid. The sum is what cancels on any plane however steeply it recedes.
+  const elev = Math.asin(VIEW_DIR.y);
+  const swing = 1 / Math.tan(elev);
+  const edgeOf = (a, b, radius) => Math.abs(a + b) * 0.5 / radius;
+  const flatRoad = edgeOf(swing * RING_BROAD, -swing * RING_BROAD, RING_BROAD);
+  const oneSided = Math.max(Math.abs(swing * RING_BROAD), Math.abs(-swing * RING_BROAD)) / RING_BROAD;
+  check('flat ground cancels its own edge and a one-sided test would not',
+    flatRoad < 1e-9 && oneSided > EDGE_LOW,
+    `laplacian ${flatRoad.toFixed(6)}, one-sided ${oneSided.toFixed(2)} — over the ${EDGE_LOW} floor`);
+
+  // Both bounds, recomputed from the camera and from the features either side of them rather than
+  // trusted — the same discipline the rejection window above is checked with, and for the same
+  // reason: re-angle the camera and this fails here rather than in a screenshot nobody took.
+  const stepOf = (h) => edgeOf(0, h / Math.sin(elev), RING_BROAD);
+  const paint = stepOf(0.05);                 // a stop bar: paint on the road, and not a contact
+  const kerb = stepOf(KERB_H);                // where the pavement meets the tarmac
+  // A 90-degree convex arris — a building's own vertical corner, and the commonest strong edge in
+  // the city. Both neighbours recede from it, one across the ground and one up the wall.
+  const arris = edgeOf(swing * RING_BROAD, RING_BROAD / Math.sin(elev), RING_BROAD);
+  check('the ink ramp runs from over the road paint to under a building corner',
+    EDGE_LOW > paint && kerb > EDGE_LOW && kerb < EDGE_HIGH && arris > EDGE_HIGH,
+    `paint ${paint.toFixed(2)} < ramp ${EDGE_LOW}–${EDGE_HIGH} < arris ${arris.toFixed(2)}`
+      + ` · kerb ${kerb.toFixed(2)} inside it`);
+
+  // The boil. Ten steps a second is the difference between a hand redrawing the frame and
+  // television static; it is a *rate*, so what matters is that it is well under the frame rate and
+  // well over nothing.
+  check('the boil runs slower than the frame and faster than a decal',
+    CRAYON_DEFAULTS.boilHz > 4 && CRAYON_DEFAULTS.boilHz < 20,
+    `${CRAYON_DEFAULTS.boilHz} steps a second against 60 frames`);
+
+  // The page sits under every read-out. The transparent queue sorts by renderOrder and the ladder
+  // is skid marks 2, dust 3, the route band 4, the drag handle 5, flames 6, the fare rings 7-9 —
+  // so a page drawn above any of those is a tint over a clock, and a fare's hue is the time it has
+  // left.
+  const crayonSource = fs.readFileSync(new URL('../src/game/crayon.js', import.meta.url), 'utf8');
+  const order = Number(crayonSource.match(/const PAPER_ORDER = (\d+)/)?.[1]);
+  check('the paper draws under every game read-out',
+    Number.isFinite(order) && order < 2,
+    `renderOrder ${order}, below skid marks at 2`);
+
+  // Screen-space, and sized in CSS pixels rather than device ones. `gl_FragCoord` is in device
+  // pixels, so a tooth stated in texels halves on a DPR-2 phone and stops reading at all — the
+  // same "size effects against the camera" rule one layer further out than usual.
+  check('the tooth and the wobble are sized in CSS pixels',
+    /uCrayonPaperScale\.value\.set\(\s*1 \/ \(PAPER_SIZE \* ratio\)/.test(crayonSource)
+    && /uCrayonPixelRatio\.value = ratio/.test(crayonSource)
+    && PAPER_SIZE >= 128,
+    `a ${PAPER_SIZE}px tile, divided by the pixel ratio`);
+
+  // Shot mode ticks the loop once and freezes, so anything driven off a clock is stuck on its
+  // first frame — which for the boil is exactly right, and only because the step is set at
+  // construction rather than on the first update. An entrance that opens at zero is the trap this
+  // is the other side of.
+  check('a frozen shot renders a settled page',
+    /setStep\(0\);/.test(crayonSource) && /prepare\(\)/.test(crayonSource),
+    'the boil starts on a real step and prepare() runs from renderFrame()');
+
+  // Every render path has to size the page, for the same reason every one has to run the AO pass:
+  // shot mode and __taxi.redraw() both reach a render without ever reaching the frame loop.
+  const crayonMainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  check('every render goes through the crayon prepare',
+    /function renderFrame\(\)[\s\S]*?crayon\.prepare\(\)[\s\S]*?renderer\.render/
+      .test(crayonMainSource),
+    'main.js sizes the page inside renderFrame()');
 }
 
 // --- Atmospheric perspective --------------------------------------------------

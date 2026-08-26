@@ -50,7 +50,8 @@ import { createDropoffIndicator } from './game/dropoffindicator.js';
 import { createSirenGlow } from './game/sirenglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
-import { setAmbientOcclusion } from './util/geo.js';
+import { createCrayon } from './game/crayon.js';
+import { setAmbientOcclusion, setCrayon } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createPause } from './game/pause.js';
@@ -58,7 +59,7 @@ import { findRoute, findRouteVia, planOrigin } from './game/route.js';
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -118,6 +119,7 @@ const budget = {
   shadowMapSize: getShadowMapSize(),
   pixelRatioCap: getPixelRatioCap(),
   ao: getAmbientOcclusion(),
+  crayon: getCrayon(),
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -145,13 +147,26 @@ document.body.appendChild(renderer.domElement);
 // like-for-like cost comparison on a real device.
 const aoEnabled = budget.ao;
 setAmbientOcclusion(aoEnabled);
-const ao = createAmbientOcclusion(renderer, { enabled: aoEnabled });
+// Crayon Mode is the same kind of decision and has to be taken in the same breath: `propMaterial()`
+// bakes both into the shader it builds, so neither can move once a mesh exists. `?crayon`, and see
+// `game/crayon.js` for what the three layers of it are.
+const crayonEnabled = budget.crayon;
+setCrayon(crayonEnabled);
+// `edges` is why the pass takes two flags: the line is traced out of this depth buffer, and
+// Android's `?safe` default would otherwise have turned it off on the platform most likely to be
+// asked for a drawn look.
+const ao = createAmbientOcclusion(renderer, { enabled: aoEnabled, edges: crayonEnabled });
+const crayon = createCrayon(renderer, { enabled: crayonEnabled });
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
 // scene that submitted nothing from a scene that drew and came out black. See `game/diag.js`.
 const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: budget });
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
+
+// The page, over the city and under every read-out — an ordinary object in the main scene at
+// `renderOrder` 1, not a post pass. See `game/crayon.js`; null when the flag is off.
+if (crayon.overlay) scene.add(crayon.overlay);
 
 // A GPU that takes the context away gets the budget turned down rather than the player getting a
 // black screen for the rest of the run — see `game/recovery.js` for the two steps and why the
@@ -168,6 +183,9 @@ attachContextRecovery({ renderer, sun, budget, onNotice: (text) => diag.note(tex
  * its own MSAA, still its own stencil buffer for the ghost outlines.
  */
 function renderFrame() {
+  // Sized here rather than in the frame loop for the same reason the AO prepass is called here:
+  // shot mode and `__taxi.redraw()` both reach a render without ever reaching the loop.
+  crayon.prepare();
   ao.render(scene, camera);
   renderer.render(scene, camera);
 }
@@ -2173,6 +2191,10 @@ function frame() {
   // After the police update above, so the wash is aimed at where the cruiser is this frame rather
   // than trailing it by one.
   sirenGlow.update(police, traffic.taxi);
+  // Undilated: the slow-motion ramp at the end of a run is a statement about the sim, and a
+  // drawing does not slow down because a taxi did. Skipped entirely on a paused frame above, which
+  // is right — a held frame is a held drawing.
+  crayon.update(wallDt);
   renderFrame();
   // After the render, not before: `renderer.info` resets itself at the top of every `render()`,
   // so this is the frame that just went to the screen rather than the one before it.
@@ -2617,6 +2639,7 @@ if (!shot && wantsDebugPanel) {
     fares: { getSeconds: getFareSeconds, setSeconds: setFareSeconds, isPinned: isFareClockPinned },
     routeLine,
     ao,
+    crayon,
     scores: { load: loadScores, clear: clearScores },
     // The entrance levers. The panel's replay re-aims the wave at wherever the taxi is *now* —
     // the point of replaying from the panel is judging the opening, and the opening's wave starts

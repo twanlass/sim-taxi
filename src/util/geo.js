@@ -142,7 +142,30 @@ export const AO_UNIFORMS = {
   uAOTexel: { value: new THREE.Vector2(1, 1) },
 };
 
+/**
+ * The matching bag for Crayon Mode — same contract as `AO_UNIFORMS` above, written by
+ * `game/crayon.js` and read by every material `patchProp` touches.
+ *
+ * `uCrayonPaperScale` turns a `gl_FragCoord` into tile uv and `uCrayonPixelRatio` converts a
+ * distance stated in CSS pixels into the device pixels `gl_FragCoord` is measured in. Both carry
+ * the pixel ratio for the same reason: a tooth or a wobble stated in device pixels halves on a
+ * DPR-2 phone and stops reading at all.
+ */
+export const CRAYON_UNIFORMS = {
+  tCrayonPaper: { value: null },
+  uCrayonPaperScale: { value: new THREE.Vector2(1, 1) },
+  uCrayonBoil: { value: new THREE.Vector2() },
+  uCrayonInk: { value: new THREE.Color() },
+  uCrayonGrain: { value: 0 },
+  uCrayonBlotch: { value: 0 },
+  uCrayonQuantize: { value: 0 },
+  uCrayonLine: { value: 0 },
+  uCrayonWobble: { value: 0 },
+  uCrayonPixelRatio: { value: 1 },
+};
+
 let aoEnabled = false;
+let crayonEnabled = false;
 
 /**
  * Switch screen-space ambient occlusion on for every `propMaterial()` built after this call.
@@ -161,39 +184,144 @@ export function ambientOcclusionEnabled() {
 }
 
 /**
- * Multiply the screen-space AO texture into a Lambert material's indirect term.
+ * Switch Crayon Mode on for every `propMaterial()` built after this call — `?crayon`, and
+ * `main.js` calls it in the same breath as `setAmbientOcclusion`, before any geometry is meshed.
  *
- * **Indirect only.** Occlusion is a statement about how much of the sky reaches a crease, not
+ * Build-time for exactly the reason AO is: with it off, not one material carries the paper fetch.
+ * Everything a player would want to move afterwards is a uniform on the ⚙️ panel instead.
+ */
+export function setCrayon(enabled) {
+  crayonEnabled = enabled;
+}
+
+export function crayonEnabledFlag() {
+  return crayonEnabled;
+}
+
+// The crayon body, spliced in **before `#include <fog_fragment>`** — see `patchProp` for why that
+// seam and not an earlier one.
+//
+// Everything here is keyed off `gl_FragCoord`. That is not a shortcut: `bakeColor()` strips every
+// attribute but position and normal, so there is no uv to reach for — and a drawing wants screen
+// space anyway. The page does not slide when the camera pans, because a page doesn't.
+const CRAYON_FRAGMENT = /* glsl */ `
+	{
+		vec2 cPx = gl_FragCoord.xy;
+		vec2 cUv = cPx * uCrayonPaperScale + uCrayonBoil;
+		// Two fetches. The fine one is the tooth; the coarse one is the same tile read a fifth as
+		// often, and its blue channel — an uncorrelated per-texel draw, smoothed by the sampler at
+		// this scale — is the wander that bends the ink line off straight.
+		vec4 cFine = texture2D(tCrayonPaper, cUv);
+		vec4 cCoarse = texture2D(tCrayonPaper, cUv * 0.19 + 0.37);
+
+		float cLum = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+
+		// The tooth, weighted to the mid-tones by 4*l*(1-l). Wax is patchy where it is thin and
+		// solid where it is piled up, so a flat amplitude both dirties the highlights and lifts
+		// speckle out of the shadows — the two places a drawing has none.
+		float cWeight = 4.0 * cLum * (1.0 - cLum);
+		float cGrain = 1.0
+			+ uCrayonGrain * cWeight * (cFine.r - 0.5) * 2.0
+			+ uCrayonBlotch * (cCoarse.g - 0.5);
+		gl_FragColor.rgb *= cGrain;
+
+		// Quantisation, and it is **luminance only**. Hue is content in this game — a fare's ring
+		// is its clock, yellow is the player's car, cyan is a parcel — and tools/probe.mjs
+		// asserts measured hue separations between them. Scaling rgb to hit a stepped luminance
+		// leaves every one of those ratios exactly where it was.
+		if (uCrayonQuantize > 0.0) {
+			float cSteps = 4.0;
+			float cQ = floor(cLum * cSteps + 0.5) / cSteps;
+			gl_FragColor.rgb *= mix(1.0, cQ / max(cLum, 0.0001), uCrayonQuantize);
+		}
+
+		// The ink. .g of the AO texture is the edge term game/ssao.js takes at one texel —
+		// silhouettes saturate it, creases leave it partial, and a flat receding plane cancels it
+		// exactly. The lookup wanders by up to uCrayonWobble CSS pixels, and the paper breaks the
+		// stroke up so it skips rather than ruling solid.
+		//
+		// Broken by the **coarse** fetch, not the fine one. The tooth is 2px, so modulating the
+		// line with it dithers the stroke pixel by pixel and the whole thing reads as noise along
+		// an edge rather than as a mark. At a fifth of that frequency the skips run eight or ten
+		// pixels, which is a crayon lifting off the page. And the floor is 0.72 rather than 0.5:
+		// under about two thirds the gaps stop being skips and start being a dashed line.
+		if (uCrayonLine > 0.0) {
+			vec2 cWander = vec2(cCoarse.b, cCoarse.a) - 0.5;
+			vec2 cInkUv = (cPx + cWander * uCrayonWobble * uCrayonPixelRatio) * uAOTexel;
+			float cEdge = texture2D(tAmbientOcclusion, cInkUv).g;
+			float cInk = clamp(uCrayonLine * cEdge * mix(0.72, 1.0, cCoarse.r), 0.0, 1.0);
+			gl_FragColor.rgb = mix(gl_FragColor.rgb, uCrayonInk, cInk);
+		}
+	}
+`;
+
+/**
+ * The one patch every lit prop material carries — screen-space AO, Crayon Mode, or both.
+ *
+ * **AO: indirect only.** Occlusion is a statement about how much of the sky reaches a crease, not
  * about whether the sun does — and this game's whole look is one lit face per building at golden
  * hour. Folding AO into the direct term as well greys those faces off and buys nothing the sun's
  * own shadow map isn't already saying.
+ *
+ * **Crayon: after the colour space, before the haze.** By `<fog_fragment>` three has already run
+ * `<opaque_fragment>`, `<tonemapping_fragment>` and `<colorspace_fragment>`, so `gl_FragColor` is
+ * in display space — which is where a paint-like multiply belongs, and where "mid-tone" means what
+ * an eye means by it. And the haze has *not* run, so a stroke at the back of the city fades into
+ * the air exactly as the façade under it does. Hooking `<dithering_fragment>` instead would ink
+ * lines at full strength across a hazed skyline.
  */
-function patchAmbientOcclusion(material) {
+function patchProp(material) {
   // Without this the patch silently does nothing. Three builds the program cache key from the
   // material's *parameters*, before `onBeforeCompile` has touched the source, so a patched
   // flat-shaded Lambert collides with every unpatched one sharing those parameters and
   // `acquireProgram` hands back whichever compiled first. This city is nothing but flat-shaded
   // Lambert — it is the same trap that once drew the diamond's fill with a building's shader.
-  material.customProgramCacheKey = () => 'prop-ssao';
+  //
+  // Composed out of both flags rather than one string, because the two are independent: with
+  // `?crayon&ao=off` a crayoned material and a bare one would otherwise share a key.
+  const key = `prop${aoEnabled ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`;
+  material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, AO_UNIFORMS);
+    if (crayonEnabled) Object.assign(shader.uniforms, CRAYON_UNIFORMS);
+
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
 uniform sampler2D tAmbientOcclusion;
-uniform vec2 uAOTexel;`)
+uniform vec2 uAOTexel;${crayonEnabled ? `
+uniform sampler2D tCrayonPaper;
+uniform vec2 uCrayonPaperScale;
+uniform vec2 uCrayonBoil;
+uniform vec3 uCrayonInk;
+uniform float uCrayonGrain;
+uniform float uCrayonBlotch;
+uniform float uCrayonQuantize;
+uniform float uCrayonLine;
+uniform float uCrayonWobble;
+uniform float uCrayonPixelRatio;` : ''}`);
+
+    if (aoEnabled) {
       // Three's own AO hook is the right seam: `reflectedLight` is complete by then and
       // `outgoingLight` has not been summed yet. Screen space, so the lookup is the fragment's
       // own position on screen — no uv, no second set of attributes.
-      .replace('#include <aomap_fragment>', `#include <aomap_fragment>
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <aomap_fragment>', `#include <aomap_fragment>
 	reflectedLight.indirectDiffuse *= texture2D(tAmbientOcclusion, gl_FragCoord.xy * uAOTexel).r;`);
+    }
+
+    if (crayonEnabled) {
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <fog_fragment>', `${CRAYON_FRAGMENT}
+#include <fog_fragment>`);
+    }
   };
 }
 
 /** The shared material for every merged prop mesh. */
 export function propMaterial() {
   const material = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-  if (aoEnabled) patchAmbientOcclusion(material);
+  if (aoEnabled || crayonEnabled) patchProp(material);
   return material;
 }
 

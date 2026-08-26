@@ -52,6 +52,10 @@ const clockLabel = (hour) => {
 
 export function createDebugPanel({
   sun, hemi, sky, daylight, fares, carCount, routeLine, ao,
+  // Crayon Mode's live uniforms — `{ state, set }` over game/crayon.js. Defaulted like the rest
+  // of the optional systems below so the `npm run check` boot pass can build the panel against
+  // nothing; with the flag off the section says so instead of drawing dead sliders.
+  crayon = { state: { enabled: false }, set: () => {} },
   // The scene's haze (game/scene.js). Defaulted to null for the same reason `scores` is defaulted:
   // the `npm run check` boot pass builds this panel against nothing.
   fog = null,
@@ -242,6 +246,36 @@ export function createDebugPanel({
     ao.setStrength(Number(occlusion.value));
     showOcclusion();
   });
+
+  // --- Crayon Mode ------------------------------------------------------------
+  // `?crayon`. Whether the pass exists at all is a URL flag for the same reason `?ao` is — the
+  // paper fetch is compiled into every prop material before a mesh exists — but every number in
+  // it is a judgement about a whole frame, so every number in it is live. Three of them in
+  // particular cannot be settled any other way: the grain, because the only question is whether
+  // the city still reads at play zoom; the ink, because a car is 26px wide and a line drawn for a
+  // building is a line drawn across a quarter of it; and the boil, because a rate that looks
+  // hand-drawn on a still is television static in motion.
+  if (crayon.state.enabled) {
+    heading('Crayon');
+    const crayonRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
+      const el = slider(min, max, step, crayon.state[key]);
+      const value = row(panel, label, el);
+      value.textContent = format(crayon.state[key]);
+      el.addEventListener('input', () => {
+        const next = Number(el.value);
+        crayon.set(key, next);
+        value.textContent = format(next);
+      });
+    };
+    crayonRow('Paper', 'paper', 0, 0.6, 0.01);
+    crayonRow('Vignette', 'vignette', 0, 0.5, 0.01);
+    crayonRow('Tooth', 'grain', 0, 0.6, 0.01);
+    crayonRow('Fibre', 'blotch', 0, 0.4, 0.01);
+    crayonRow('Ink', 'line', 0, 1, 0.02);
+    crayonRow('Wobble', 'wobble', 0, 4, 0.1, (v) => `${v.toFixed(1)}px`);
+    crayonRow('Steps', 'quantize', 0, 1, 0.05);
+    crayonRow('Boil', 'boilHz', 0, 24, 1, (v) => (v > 0 ? `${v.toFixed(0)}/s` : 'held'));
+  }
 
   // --- Haze -------------------------------------------------------------------
   // Atmospheric perspective (game/scene.js). All three are live and none of them needs a
@@ -683,6 +717,9 @@ export function createDebugPanel({
       cars: Number(cars.value),
       routeBlend: routeLine.blend(),
       ambientOcclusion: ao.state.enabled ? Number(ao.state.strength.toFixed(2)) : false,
+      // The keys map onto CRAYON_DEFAULTS in game/crayon.js. `false` rather than an object with
+      // the flag off, so a pasted export can't quietly promote a look nobody was looking at.
+      crayon: crayon.state.enabled ? { ...crayon.state, enabled: undefined } : false,
     },
     // The keys map onto game/cityentry.js's constants: wave → WAVE, grow → ENTRY_DUR,
     // jitter → JITTER, overshoot → OVERSHOOT; dust is the multiplier on the burst power.

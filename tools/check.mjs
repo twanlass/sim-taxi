@@ -24,7 +24,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/game/vanish.js', '../src/game/runend.js',
   '../src/util/viewport.js',
   '../src/game/energybits.js', '../src/game/carghosts.js', '../src/game/homescreen.js',
-  '../src/game/ssao.js', '../src/game/diag.js', '../src/game/recovery.js', '../src/game/pause.js',
+  '../src/game/ssao.js', '../src/game/crayon.js', '../src/game/diag.js', '../src/game/recovery.js', '../src/game/pause.js',
   '../src/geometry/roadworks.js', '../src/game/roadwork.js',
   '../src/geometry/parcel.js', '../src/geometry/parcelpad.js', '../src/game/parcels.js',
   '../src/game/cargochip.js',

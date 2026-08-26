@@ -73,6 +73,33 @@ export const FALLOFF = 1.15;
 // than trusting these numbers — change the camera's elevation and the window moves.
 export const MAX_DEPTH_DIFF = 2.0;
 
+// Where Crayon Mode's line starts and where it saturates, in units of `abs(a + b) / 2 / radius`
+// — a number a flat plane holds at zero however steeply it recedes, so both bounds are about
+// *departures* from flatness rather than about depth.
+//
+// Where Crayon Mode's line starts and where it saturates, in **world units of departure from
+// flatness across one texel**. A vertical step of `h` world units reads here at about `0.92 * h`,
+// which is the elevation's `1 / (2 sin 33 degrees)`. That one conversion places both ends:
+//
+//   - **0.15 sits between the road paint and the kerb.** A stop bar is 0.05 units of paint (0.05
+//     here) and takes no ink at all, which is right — its edge is not a contact, and inking it
+//     sprinkles the open road. A kerb is 0.35 (0.32), and it does take ink, faintly: the line
+//     where the pavement meets the tarmac is one of the first things anyone draws in a street.
+//   - **0.90 is under everything that should read as a silhouette.** A car's roofline is 1.6 units
+//     (1.47), so it saturates. Against the sky one tap lands on the far plane and the term runs to
+//     hundreds, with nowhere further to go.
+//
+// Because the tap is a texel rather than a world radius, a *smooth* surface's contribution shrinks
+// as the player zooms in — one texel spans less world — while a *step* keeps registering the same.
+// That asymmetry is the whole reason a facet-covered tree canopy stops inking as moss and a
+// building's corner does not.
+//
+// Stated here and interpolated into the shader, so `tools/probe.mjs` asserts the numbers that
+// actually run — and recomputes the features from `VIEW_DIR` rather than trusting these, the way
+// the rejection window above is checked.
+export const EDGE_LOW = 0.15;
+export const EDGE_HIGH = 0.90;
+
 // Below one texel the two taps of a pair land on the same sample and the Laplacian is identically
 // zero; above the ceiling the eight taps spread into a smudge and stop reading as a contact.
 //
@@ -183,6 +210,7 @@ const AO_FRAGMENT = /* glsl */ `
 uniform sampler2D tDepth;
 uniform vec2 uTight;        // uv offset of the tight ring, x and y separately (the frustum is not square)
 uniform vec2 uBroad;
+uniform vec2 uEdge;         // one texel, for the line — the only offset here that is not a world radius
 uniform float uTightWorld;  // the same radii in world units, which is what the thresholds scale off
 uniform float uBroadWorld;
 uniform float uDepthScale;  // far - near: packed depth [0,1] times this is a world distance
@@ -193,6 +221,8 @@ varying vec2 vUv;
 // numbers the shader actually runs.
 const float FALLOFF = ${FALLOFF.toFixed(4)};
 const float MAX_DEPTH_DIFF = ${MAX_DEPTH_DIFF.toFixed(4)};
+const float EDGE_LOW = ${EDGE_LOW.toFixed(4)};
+const float EDGE_HIGH = ${EDGE_HIGH.toFixed(4)};
 
 float viewDepth(vec2 uv) {
   return unpackRGBAToDepth(texture2D(tDepth, uv)) * uDepthScale;
@@ -206,9 +236,46 @@ float pair(float z0, vec2 offset, float radius) {
   return valid * clamp((a + b) * 0.5 / (radius * FALLOFF), 0.0, 1.0);
 }
 
+/**
+ * Crayon Mode's line: the same Laplacian, at one texel.
+ *
+ * **Unsigned, and the sum rather than either tap.** Under this camera flat ground recedes by
+ * cot(elevation) = 1.54 world units per unit of radius, so abs(a) on its own is large everywhere
+ * and a one-sided test inks the open road solid. a + b is what cancels on any plane however
+ * steeply it recedes — the same property the occlusion above is built on — so what survives is
+ * silhouettes (one tap on the far plane, enormous), convex arrises (negative, which the occlusion
+ * clamp throws away and a drawing wants most of all) and creases.
+ *
+ * **And it is left in world units rather than divided by the radius.** That is the difference
+ * between a pen and a smudge. A depth Laplacian at radius R answers over a band 2R wide, so the
+ * occlusion rings — 1.0 and 0.4 *world* units, which is 15px and 6px at the close framing —
+ * traced every silhouette in the city with a fifteen-pixel fringe. Read at one texel instead, the
+ * band is one texel: about two CSS pixels, at every zoom, which is what a drawn line is. The
+ * thresholds then mean a step in world units, so a hard edge inks the same wherever the camera
+ * is and a smooth slope inks nowhere, however close it is looked at.
+ */
+float edgeAt(float z0, vec2 offset) {
+  float a = z0 - viewDepth(vUv + offset);
+  float b = z0 - viewDepth(vUv - offset);
+  return abs(a + b) * 0.5;
+}
+
 /** Probabilistic OR. Saturating rather than additive, so a corner does not read twice as dark. */
 float either(float a, float b) { return a + b - a * b; }
 
+/**
+ * Two answers, sharing one centre tap.
+ *
+ * r is the occlusion this pass has always produced, and its arithmetic below is byte-for-byte
+ * what it was before the second output existed — deliberately, because every contact shadow in
+ * the game is that expression. g is Crayon Mode's line, and nothing read g or b before
+ * this: util/geo.js takes .r.
+ *
+ * The line costs **four extra taps**, not none. Reusing the occlusion's own rings was free and
+ * wrong — see edgeAt — and the honest price of a line that is a line is one more pair in each
+ * axis at the smallest offset the buffer has. Thirteen fetches on a half-res pass rather than
+ * nine, and uEdge is the only offset here stated in *texels* rather than world units.
+ */
 void main() {
   float z0 = viewDepth(vUv);
 
@@ -224,7 +291,17 @@ void main() {
     pair(z0, vec2(d.x, d.y), uBroadWorld),
     pair(z0, vec2(d.x, -d.y), uBroadWorld));
 
-  gl_FragColor = vec4(vec3(1.0 - uStrength * either(tight, broad)), 1.0);
+  // The strongest of the two axes, not their sum: a corner is one edge seen by both, and adding
+  // them draws it twice as heavily as the straight run leading into it.
+  float edge = max(
+    edgeAt(z0, vec2(uEdge.x, 0.0)),
+    edgeAt(z0, vec2(0.0, uEdge.y)));
+
+  gl_FragColor = vec4(
+    1.0 - uStrength * either(tight, broad),
+    smoothstep(EDGE_LOW, EDGE_HIGH, edge),
+    1.0,
+    1.0);
 }
 `;
 
@@ -236,11 +313,22 @@ void main() {
  *                  multiplied by one.
  * @param strength  how far occlusion pulls the indirect term down. 1.0 would take a saturated
  *                  crease to black ambient.
+ * @param edges     run the pass for Crayon Mode's line even with occlusion off.
+ *
+ * The second flag exists because **Android defaults to `?safe`, which sets `?ao=off`** — so on the
+ * platform most likely to be asked for a drawn look, the depth buffer the line is traced out of
+ * would not have been built. One pass with two consumers rather than a second prepass: it is the
+ * same nine fetches and the same depth target either way. With occlusion off the strength uniform
+ * is pinned to 0, so `r` comes out a flat 1.0 and a material that somehow read it is unaffected.
  */
-export function createAmbientOcclusion(renderer, { enabled = true, strength = 0.6 } = {}) {
-  const state = { enabled, strength };
+export function createAmbientOcclusion(
+  renderer, { enabled = true, strength = 0.6, edges = false } = {}) {
+  // `enabled` stays the answer to "is there occlusion", which is what the ⚙️ panel gates its
+  // strength slider on. `active` is the answer to "does the pass run".
+  const active = enabled || edges;
+  const state = { enabled, edges, strength };
 
-  if (!enabled) {
+  if (!active) {
     return {
       state,
       render: () => {},
@@ -274,10 +362,11 @@ export function createAmbientOcclusion(renderer, { enabled = true, strength = 0.
     tDepth: { value: depthTarget.texture },
     uTight: { value: new THREE.Vector2() },
     uBroad: { value: new THREE.Vector2() },
+    uEdge: { value: new THREE.Vector2() },
     uTightWorld: { value: RING_TIGHT },
     uBroadWorld: { value: RING_BROAD },
     uDepthScale: { value: 1 },
-    uStrength: { value: strength },
+    uStrength: { value: enabled ? strength : 0 },
   };
 
   const aoScene = new THREE.Scene();
@@ -354,7 +443,10 @@ export function createAmbientOcclusion(renderer, { enabled = true, strength = 0.
 
     setStrength(value) {
       state.strength = value;
-      uniforms.uStrength.value = value;
+      // Held at zero when occlusion is off and the pass is only here for the line — the panel
+      // disables the slider in that case, but a caller reaching past it shouldn't be able to
+      // switch on a term no material was compiled to read.
+      uniforms.uStrength.value = enabled ? value : 0;
     },
 
     /**
@@ -410,6 +502,10 @@ export function createAmbientOcclusion(renderer, { enabled = true, strength = 0.
 
       ringOffset(camera, RING_TIGHT, uniforms.uTight.value);
       ringOffset(camera, RING_BROAD, uniforms.uBroad.value);
+      // One texel of the *half-res* buffer, which is one device pixel of the frame. Not a world
+      // radius, and not clamped by the two above: this is a pen nib, and a pen does not get wider
+      // because the camera zoomed out.
+      uniforms.uEdge.value.set(1 / width, 1 / height);
       uniforms.uDepthScale.value = camera.far - camera.near;
 
       renderer.setRenderTarget(aoTarget);
