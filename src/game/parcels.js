@@ -8,7 +8,8 @@ import { allIntersections, findRoute } from './route.js';
 import { RIGHT as SCREEN_RIGHT, UP as SCREEN_UP } from './camera.js';
 import { nextIntersection } from '../city/grid.js';
 import {
-  ARRIVE_RADIUS, blockDistance, cornerFor, intersectionCentre, onParkBlock, onSameBlock, priceFor,
+  ARRIVE_RADIUS, blockDistance, cornerFor, cornerSeen, intersectionCentre, onParkBlock, onSameBlock,
+  priceFor,
 } from './fares.js';
 import { popEnvelope } from './selectpop.js';
 import * as difficulty from './difficulty.js';
@@ -487,20 +488,25 @@ export function createParcelSystem(rng, scene) {
    * leaves nothing, the draw falls back to the unrestricted set rather than failing to spawn. A city
    * with an unlucky route is still a city that should offer a package.
    *
-   * Parks are the one condition here that is a **hard** filter rather than a preference, and they are
-   * not on the fallback either. Everything else on this list is about the *job* — how far, whose
+   * Parks and corners the camera cannot see are the two **hard** filters here rather than
+   * preferences, and neither is on the fallback either. Everything else on this list is about the *job* — how far, whose
    * corner, on the plan or off it — and a bad draw of any of those is a worse errand. A pad on grass
    * is not an errand at all: nothing on that block has an address, and a package is the one marker in
    * the game that claims a building rather than a person. So an unlucky city offers no box this frame
    * and tries again on the next one (`spawn` returns null without touching `nextSpawnAt`), which costs
    * a layer with no clock exactly nothing. The supply this rules out is small — a shipped city greens
-   * 4 blocks of district plus a pocket park or two, which is 5 to 9 junctions of 36.
+   * 4 blocks of district plus a pocket park or two, which is 5 to 9 junctions of 36, and the
+   * sightline filter takes a further 1.7 on average.
    */
   function pickIntersection(taxiCar, taken, { avoid = [], minBlocksFrom = null } = {}) {
     const legal = allIntersections().filter((spot) => {
       // Not on top of the car: a box materialising where the taxi already is asks nothing.
       if (spot.i === taxiCar.i && spot.j === taxiCar.j) return false;
       if (onParkBlock(spot)) return false;
+      // A corner with a building standing in front of it, same hard filter and for a harder
+      // reason: a pad is a mark on the ground with nothing above the skyline speaking for it, so a
+      // hidden one is a delivery address the player cannot see at all. See `cornerSeen`.
+      if (!cornerSeen(spot.i, spot.j)) return false;
       if (taken.some((other) => spot.i === other.i && spot.j === other.j)) return false;
       // `onSameBlock`, not `(i, j)` equality: near the map's origin edge two intersections a whole
       // block apart still park their corner pins on the same slab — see fares.js.
