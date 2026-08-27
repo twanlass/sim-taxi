@@ -75,16 +75,21 @@ import {
   createBirds, bodyQuaternion, parkAreas, SETTLE_MIN, STARTLE_RANGE, SHADOW_CEILING,
 } from '../src/game/birds.js';
 import {
-  propMaterial, setAmbientOcclusion, setCrayon, AO_UNIFORMS, CRAYON_UNIFORMS, BODY_EULER_ORDER,
+  propMaterial, setAmbientOcclusion, setCrayon, setCartoon,
+  AO_UNIFORMS, CRAYON_UNIFORMS, CARTOON_UNIFORMS, BODY_EULER_ORDER,
 } from '../src/util/geo.js';
 import {
   AO_LAYER, markOccluder, unmarkOccluder, occluderList, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
   EDGE_LOW, EDGE_HIGH,
 } from '../src/game/ssao.js';
 import { bakePaper, PAPER_SIZE, CRAYON_DEFAULTS } from '../src/game/crayon.js';
+import {
+  outlineRoot, instancedOutline, createCartoon, clampRim, HERO_RIM, TAXI_RIM,
+} from '../src/game/cartoon.js';
+
 import { createCityEntry } from '../src/game/cityentry.js';
 import {
-  GHOST_MASK_ORDER, GHOST_RIM_ORDER, CAR_GHOST_MASK_ORDER, CAR_GHOST_RIM_ORDER,
+  GHOST_MASK_ORDER, GHOST_RIM_ORDER, CAR_GHOST_MASK_ORDER, CAR_GHOST_RIM_ORDER, GHOST_REF,
 } from '../src/geometry/ghostoutline.js';
 import {
   createCarGhosts, GHOST_RADIUS, MAX_GHOSTS, GHOST_OPACITY, FADE_BAND,
@@ -7339,6 +7344,201 @@ check('the taxi is an ordinary car in the traffic array',
     /function renderFrame\(\)[\s\S]*?crayon\.prepare\(\)[\s\S]*?renderer\.render/
       .test(crayonMainSource),
     'main.js sizes the page inside renderFrame()');
+}
+
+// --- Cartoon Mode --------------------------------------------------------------
+//
+// game/cartoon.js, the cel bands and ink it adds to propMaterial(), and the hero hulls. Two of the
+// checks here are the two bugs this actually shipped with and had to be caught by looking:
+// outlining every *part* of a vehicle, and drawing a scale-inflated hull without masking it out of
+// its own silhouette.
+{
+  const stub = () => ({
+    uniforms: {},
+    vertexShader: '#include <common>\nvoid main() {}',
+    fragmentShader: '#include <common>\nvoid main() {\n\t#include <aomap_fragment>\n'
+      + '\t#include <lights_fragment_end>\n\t#include <opaque_fragment>\n'
+      + '\t#include <colorspace_fragment>\n\t#include <fog_fragment>\n}',
+  });
+
+  setAmbientOcclusion(false);
+  setCrayon(false);
+  setCartoon(true);
+  const toonShader = stub();
+  propMaterial().onBeforeCompile(toonShader, null);
+
+  check('the cartoon patch reaches the Lambert fragment shader',
+    toonShader.fragmentShader.includes('uniform float uToonCel')
+    && /uToonSteps/.test(toonShader.fragmentShader)
+    && /texture2D\(tAmbientOcclusion[\s\S]*?\)\.g/.test(toonShader.fragmentShader),
+    'cel bands and the edge lookup both spliced in');
+
+  // The cel bands go where the direct term is *finished* — after lights_fragment_end, which is the
+  // first point the shadow map has been multiplied in. Earlier and the terminator bands the raw
+  // N-dot-L with a soft shadow laid over it, which is the one combination that reads as neither.
+  // The *body*, not the uniform declaration — both names appear up by `<common>` first, and an
+  // indexOf that found the declaration would pass this check against a patch spliced anywhere.
+  const celAt = toonShader.fragmentShader.indexOf('reflectedLight.directDiffuse *= mix(');
+  const inkAt = toonShader.fragmentShader.indexOf('smoothstep(uToonBite');
+  check('the bands land on the finished direct term and the ink lands before the haze',
+    celAt > toonShader.fragmentShader.indexOf('#include <lights_fragment_end>')
+    && celAt < toonShader.fragmentShader.indexOf('#include <opaque_fragment>')
+    && inkAt > toonShader.fragmentShader.indexOf('#include <colorspace_fragment>')
+    && inkAt < toonShader.fragmentShader.indexOf('#include <fog_fragment>'),
+    'shadow included in the banding, ink hazed with the wall it traces');
+
+  // Value only, never hue — the same guarantee the crayon carries, and it matters more here: the
+  // bands are a big move, and a cartoon that shifted chroma would walk straight through the hue
+  // separations palette.js encodes and probe.mjs asserts above.
+  const toonCode = toonShader.fragmentShader.replace(/\/\/[^\n]*/g, '');
+  check('the cel bands move value and never hue',
+    /reflectedLight\.directDiffuse \*= mix\(/.test(toonCode)
+    && !/hsv|hsl|saturat/i.test(toonCode),
+    'the direct term is scaled by a scalar, so every channel ratio survives');
+
+  check('every cartoon material reads the one shared uniform bag',
+    toonShader.uniforms.uToonCel === CARTOON_UNIFORMS.uToonCel
+    && toonShader.uniforms.uToonInkColor === CARTOON_UNIFORMS.uToonInkColor,
+    'same uniform objects, not clones');
+
+  // Eight combinations now, and every one has to key to its own program. This city is nothing but
+  // flat-shaded Lambert, so two builds sharing a key are handed whichever compiled first — and a
+  // third independent flag makes that three times easier to fall into than when it was just AO.
+  const keys = [];
+  for (const ao of [false, true]) {
+    for (const cray of [false, true]) {
+      for (const toon of [false, true]) {
+        setAmbientOcclusion(ao);
+        setCrayon(cray);
+        setCartoon(toon);
+        const material = propMaterial();
+        keys.push(typeof material.customProgramCacheKey === 'function'
+          ? material.customProgramCacheKey() : 'none');
+      }
+    }
+  }
+  check('all eight AO/crayon/cartoon builds key to different programs',
+    new Set(keys.map(String)).size === 8, keys.map(String).join(' · '));
+  setAmbientOcclusion(false);
+  setCrayon(false);
+  setCartoon(false);
+
+  // --- The hero hulls.
+  //
+  // **One hull per vehicle, on its body.** Outlining every part is the obvious thing and it is what
+  // this shipped with: a rim stated in world units is a fraction of a body and a multiple of a trim
+  // strip, and the taxi carries two 3.46 x 0.54 bars down its flanks whose hulls inflate the thin
+  // axes by two thirds. Eight hulls on one taxi rendered as a black brick with yellow showing
+  // through the cracks between them.
+  const toonTaxi = createTaxiMesh();
+  const made = outlineRoot(toonTaxi.group, { rim: TAXI_RIM });
+  const outlineMeshes = [];
+  toonTaxi.group.traverse((o) => {
+    if (o.name === 'toonOutline' || o.name === 'toonOutlineMask') outlineMeshes.push(o);
+  });
+  const shell = made[0]?.hull?.parent ?? null;
+  const lit = [];
+  toonTaxi.group.traverse((o) => {
+    if (o.isMesh && o.material?.isMeshLambertMaterial && !o.name.startsWith('toon')) lit.push(o);
+  });
+  const bulkOf = (mesh) => {
+    mesh.geometry.computeBoundingBox();
+    const size = mesh.geometry.boundingBox.getSize(new THREE.Vector3());
+    return size.x * size.y * size.z;
+  };
+  check('a vehicle gets exactly one outline, on its biggest part',
+    made.length === 1 && outlineMeshes.length === 2 && lit.length > 1
+    && shell && lit.every((m) => bulkOf(m) <= bulkOf(shell)),
+    `${lit.length} lit parts on the taxi, one outlined at ${bulkOf(shell).toFixed(1)} cubic units`);
+
+  // The rim is a scale-inflated copy of a **non-convex** body, so it is not an offset surface: the
+  // hull's cabin ends up standing over the real boot, nearer the camera, and an ordinary depth test
+  // paints it black. The stencil mask is what makes this an outline rather than a repaint, and both
+  // halves of the test are silent when wrong.
+  const rimMaterial = made[0].hull.material;
+  check('the rim is masked out of its own silhouette',
+    rimMaterial.stencilWrite === true
+    && rimMaterial.stencilFunc === THREE.NotEqualStencilFunc
+    && rimMaterial.stencilRef === GHOST_REF
+    && made[0].mask.material.colorWrite === false,
+    'pass 1 stamps the body footprint, pass 2 draws only outside it');
+
+  // ...and it is an *ordinary* depth test, unlike the ghost outline's. The ghost draws only where
+  // something is in front of it, because it is a see-through-walls signal; this is ink on a visible
+  // car and has to be hidden by the tower the car drives behind.
+  check('the ink is occluded by the city, unlike the ghost rim it borrows from',
+    rimMaterial.depthFunc !== THREE.GreaterDepth && rimMaterial.side === THREE.BackSide,
+    'normal depth test, back faces only');
+
+  // The tiers sit below the ghost outline's four. The stencil buffer is never cleared mid-frame, so
+  // this ordering is the contract that keeps the two systems from eating each other.
+  check('the outline resolves before the ghost outline stamps anything',
+    made[0].mask.renderOrder < made[0].hull.renderOrder
+    && made[0].hull.renderOrder < GHOST_MASK_ORDER,
+    `${made[0].mask.renderOrder}/${made[0].hull.renderOrder} below ${GHOST_MASK_ORDER}`);
+
+  // A hull is a bigger copy of a mesh that already casts a shadow. Inheriting it fattens every
+  // shadow in the city by the outline's width and stamps a second one from the mask.
+  check('no outline casts a shadow',
+    outlineMeshes.every((m) => m.castShadow === false),
+    `${outlineMeshes.length} outline meshes, none casting`);
+
+  // **Order matters against markOccluder**, and getting it wrong is invisible in a still: a hull in
+  // the depth prepass stamps a silhouette a rim bigger than the car, so the city's own screen-space
+  // line would trace the outline instead of the vehicle.
+  const occluderTaxi = createTaxiMesh();
+  markOccluder(occluderTaxi.group);
+  const beforeOutline = occluderList().size;
+  outlineRoot(occluderTaxi.group, { rim: TAXI_RIM });
+  check('outlining after markOccluder keeps hulls out of the depth prepass',
+    occluderList().size === beforeOutline,
+    `${beforeOutline} occluders, unchanged by the outline`);
+  unmarkOccluder(occluderTaxi.group);
+
+  // --- The fleet.
+  //
+  // The whole efficiency claim is that the pools share traffic's *own* matrices rather than copying
+  // them. A copy would mean walking every car every frame to duplicate a matrix that already
+  // exists, and one that fell a frame behind shows as ink sliding off the cars.
+  const toonTraffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), 8);
+  const pooled = instancedOutline(toonTraffic.mesh);
+  check('the fleet outline shares traffic own instance matrices',
+    pooled.mask.instanceMatrix === toonTraffic.mesh.instanceMatrix
+    && pooled.hull.instanceMatrix === toonTraffic.mesh.instanceMatrix
+    && pooled.mask.geometry === toonTraffic.mesh.geometry,
+    'no copies: two draw calls and no per-frame matrix work');
+
+  // Both pools, and the source, must agree about culling. Three caches an InstancedMesh's bounding
+  // sphere from the matrices as they stood on the first frame it culled — so a rim that survived a
+  // frame its mask was culled on would draw as a *filled* silhouette rather than an outline.
+  check('mask and rim can never be culled apart',
+    pooled.mask.frustumCulled === false && pooled.hull.frustumCulled === false
+    && toonTraffic.mesh.frustumCulled === false,
+    'culling off on the source and on both pools');
+
+  // `count` is not a property three watches, and traffic moves it at runtime — a truck spawning, or
+  // the panel car slider. Left behind, the hull draws the fleet high-water mark: collapsed matrices
+  // at the world origin, which is a knot of ink under the middle of the city.
+  const toonMode = createCartoon({ enabled: true });
+  const [fleetMask, fleetHull] = toonMode.fleet(toonTraffic.mesh);
+  const bornAt = fleetHull.count;
+  toonTraffic.mesh.count = 3;
+  toonMode.update();
+  check('the fleet outline follows its source count',
+    bornAt === toonTraffic.ambient.length && fleetHull.count === 3 && fleetMask.count === 3,
+    `born at ${bornAt}, both pools follow the source to 3`);
+
+  // And the rim clamp, which is what stops one number describing a body from doubling a small part
+  // it also lands on.
+  check('an outline can never be more than a third of the part it wraps',
+    clampRim(toonTaxi.sign.geometry, TAXI_RIM) < TAXI_RIM
+    && clampRim(toonTraffic.mesh.geometry, HERO_RIM) === HERO_RIM,
+    `sign clamped to ${clampRim(toonTaxi.sign.geometry, TAXI_RIM).toFixed(3)}, a car body left at ${HERO_RIM}`);
+
+  // The two rims are the look, and the ratio between them is what says which car is the player's.
+  check('the taxi is inked more heavily than the traffic it drives through',
+    TAXI_RIM > HERO_RIM && TAXI_RIM / HERO_RIM < 2,
+    `${TAXI_RIM} against ${HERO_RIM}, and 1.18x again through TAXI_SCALE`);
 }
 
 // --- Atmospheric perspective --------------------------------------------------

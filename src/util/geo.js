@@ -164,8 +164,25 @@ export const CRAYON_UNIFORMS = {
   uCrayonPixelRatio: { value: 1 },
 };
 
+/**
+ * And Cartoon Mode's. Same contract again — written by `game/cartoon.js`, read by every material
+ * `patchProp` touches.
+ *
+ * `uToonInkColor` is stored **sRGB-encoded**, because the ink is mixed in after three's
+ * `<colorspace_fragment>` has run. A `THREE.Color` built from a hex string is in the linear
+ * working space; the frame at that point in the shader is not.
+ */
+export const CARTOON_UNIFORMS = {
+  uToonCel: { value: 0 },
+  uToonSteps: { value: 3 },
+  uToonInk: { value: 0 },
+  uToonBite: { value: 0.5 },
+  uToonInkColor: { value: new THREE.Color() },
+};
+
 let aoEnabled = false;
 let crayonEnabled = false;
+let cartoonEnabled = false;
 
 /**
  * Switch screen-space ambient occlusion on for every `propMaterial()` built after this call.
@@ -196,6 +213,21 @@ export function setCrayon(enabled) {
 
 export function crayonEnabledFlag() {
   return crayonEnabled;
+}
+
+/**
+ * Switch Cartoon Mode on for every `propMaterial()` built after this call — `?cartoon`, decided in
+ * `main.js` beside the other two and before any geometry is meshed.
+ *
+ * The hero outlines in `game/cartoon.js` are hulls rather than shader work, but the cel bands and
+ * the city's ink are both compiled in here, so the same build-time rule applies.
+ */
+export function setCartoon(enabled) {
+  cartoonEnabled = enabled;
+}
+
+export function cartoonEnabledFlag() {
+  return cartoonEnabled;
 }
 
 // The crayon body, spliced in **before `#include <fog_fragment>`** — see `patchProp` for why that
@@ -255,6 +287,48 @@ const CRAYON_FRAGMENT = /* glsl */ `
 	}
 `;
 
+// Cartoon Mode's cel bands, spliced in after three's own lights_fragment_end — the first point at
+// which reflectedLight.directDiffuse is final, shadow map included.
+//
+// It is quantised as a **ratio against the albedo**, not as a colour. Dividing the direct term by
+// the surface's own luminance recovers roughly the N dot L times the sun, which is the number a
+// toon ramp is actually about; banding the colour itself would band a dark brick and a pale
+// concrete at different points on their own falloff and put the terminator in a different place on
+// each. Scaling rgb back by a scalar leaves every channel ratio — every hue in palette.js —
+// exactly where it was.
+//
+// Flat shading is what makes this cheap and clean: every facet has one normal, so N dot L is
+// constant across it and a band edge can never crawl over a surface. The one thing that does vary
+// per fragment is the shadow map, so what the bands actually cut into hard steps is PCF's soft
+// penumbra — which is the cartoon look, arrived at for free.
+const CARTOON_LIGHT = /* glsl */ `
+	{
+		float tLum = dot(reflectedLight.directDiffuse, vec3(0.2126, 0.7152, 0.0722));
+		float tAlbedo = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+		float tRatio = tLum / max(tAlbedo, 0.0001);
+		// Band centres rather than band floors, so the lit end keeps its brightness instead of the
+		// whole city stepping down by half a band.
+		float tBand = (floor(tRatio * uToonSteps) + 0.5) / uToonSteps;
+		reflectedLight.directDiffuse *= mix(1.0, tBand / max(tRatio, 0.0001), uToonCel);
+	}
+`;
+
+// And its ink, spliced in before fog_fragment beside the crayon's — same seam, same reasons: the
+// frame is in display space by then, and the haze has not run, so a line at the back of the city
+// sits behind the same air as the wall it traces.
+//
+// The edge arrives already ramped by game/ssao.js, so uToonBite is a *second* threshold on top of
+// that one. It is high (0.42 against the crayon taking everything it can find) because the two
+// looks want opposite things from the same signal: a drawing is a lot of tentative marks, and a
+// cartoon is a few confident ones. There is no tooth and no wander here for the same reason.
+const CARTOON_INK = /* glsl */ `
+	{
+		float tEdge = texture2D(tAmbientOcclusion, gl_FragCoord.xy * uAOTexel).g;
+		float tInk = smoothstep(uToonBite, 1.0, tEdge) * uToonInk;
+		gl_FragColor.rgb = mix(gl_FragColor.rgb, uToonInkColor, tInk);
+	}
+`;
+
 /**
  * The one patch every lit prop material carries — screen-space AO, Crayon Mode, or both.
  *
@@ -279,12 +353,14 @@ function patchProp(material) {
   //
   // Composed out of both flags rather than one string, because the two are independent: with
   // `?crayon&ao=off` a crayoned material and a bare one would otherwise share a key.
-  const key = `prop${aoEnabled ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`;
+  const key = `prop${aoEnabled ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
+    + `${cartoonEnabled ? '-cartoon' : ''}`;
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, AO_UNIFORMS);
     if (crayonEnabled) Object.assign(shader.uniforms, CRAYON_UNIFORMS);
+    if (cartoonEnabled) Object.assign(shader.uniforms, CARTOON_UNIFORMS);
 
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
@@ -299,7 +375,12 @@ uniform float uCrayonBlotch;
 uniform float uCrayonQuantize;
 uniform float uCrayonLine;
 uniform float uCrayonWobble;
-uniform float uCrayonPixelRatio;` : ''}`);
+uniform float uCrayonPixelRatio;` : ''}${cartoonEnabled ? `
+uniform vec3 uToonInkColor;
+uniform float uToonCel;
+uniform float uToonSteps;
+uniform float uToonInk;
+uniform float uToonBite;` : ''}`);
 
     if (aoEnabled) {
       // Three's own AO hook is the right seam: `reflectedLight` is complete by then and
@@ -310,9 +391,20 @@ uniform float uCrayonPixelRatio;` : ''}`);
 	reflectedLight.indirectDiffuse *= texture2D(tAmbientOcclusion, gl_FragCoord.xy * uAOTexel).r;`);
     }
 
-    if (crayonEnabled) {
+    if (cartoonEnabled) {
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <fog_fragment>', `${CRAYON_FRAGMENT}
+        .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+${CARTOON_LIGHT}`);
+    }
+
+    // Both inks share the seam, and they compose in the order the looks would be layered by hand:
+    // the cartoon's hard line first, the crayon's broken one over it. Running both is two inks on
+    // one frame and nobody should want it, but a flag combination that throws is worse than one
+    // that looks odd.
+    const beforeFog = `${cartoonEnabled ? CARTOON_INK : ''}${crayonEnabled ? CRAYON_FRAGMENT : ''}`;
+    if (beforeFog) {
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <fog_fragment>', `${beforeFog}
 #include <fog_fragment>`);
     }
   };
@@ -321,7 +413,7 @@ uniform float uCrayonPixelRatio;` : ''}`);
 /** The shared material for every merged prop mesh. */
 export function propMaterial() {
   const material = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-  if (aoEnabled || crayonEnabled) patchProp(material);
+  if (aoEnabled || crayonEnabled || cartoonEnabled) patchProp(material);
   return material;
 }
 

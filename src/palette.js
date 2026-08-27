@@ -443,6 +443,16 @@ export const PALETTE = {
   // The fibre in it — where the tooth is deep enough that a stroke skipped. Grey-brown rather than
   // grey: a neutral speck on a warm page reads as dirt, not as texture.
   paperFibre: '#B9AC96',
+
+  // --- Cartoon Mode (game/cartoon.js, ?cartoon) ---------------------------------------------
+  //
+  // The ink, for both the hero hulls and the city's screen-space line. **Not black**, and not for
+  // the crayon's reason — a printed cartoon's ink genuinely is black. It is because this city is
+  // lit at golden hour and the haze it sits in is a saturated sky blue: a true #000 outline is the
+  // one thing in the frame with no hue at all, and against warm brick and cool haze it reads as a
+  // hole rather than as a line. Two points of warmth and a lift off zero is enough to stop that
+  // without ever reading as brown.
+  toonInk: '#141110',
 };
 
 export function color(value) {

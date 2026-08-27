@@ -51,7 +51,8 @@ import { createSirenGlow } from './game/sirenglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
 import { createCrayon } from './game/crayon.js';
-import { setAmbientOcclusion, setCrayon } from './util/geo.js';
+import { createCartoon, TAXI_RIM } from './game/cartoon.js';
+import { setAmbientOcclusion, setCrayon, setCartoon } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createPause } from './game/pause.js';
@@ -59,7 +60,7 @@ import { findRoute, findRouteVia, planOrigin } from './game/route.js';
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -120,6 +121,7 @@ const budget = {
   pixelRatioCap: getPixelRatioCap(),
   ao: getAmbientOcclusion(),
   crayon: getCrayon(),
+  cartoon: getCartoon(),
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -152,11 +154,18 @@ setAmbientOcclusion(aoEnabled);
 // `game/crayon.js` for what the three layers of it are.
 const crayonEnabled = budget.crayon;
 setCrayon(crayonEnabled);
+// The other look on offer, and independent of it — see `game/cartoon.js`. Its cel bands compile
+// into the same materials, so it is decided in the same breath and for the same reason.
+const cartoonEnabled = budget.cartoon;
+setCartoon(cartoonEnabled);
 // `edges` is why the pass takes two flags: the line is traced out of this depth buffer, and
 // Android's `?safe` default would otherwise have turned it off on the platform most likely to be
 // asked for a drawn look.
-const ao = createAmbientOcclusion(renderer, { enabled: aoEnabled, edges: crayonEnabled });
+const ao = createAmbientOcclusion(renderer, {
+  enabled: aoEnabled, edges: crayonEnabled || cartoonEnabled,
+});
 const crayon = createCrayon(renderer, { enabled: crayonEnabled });
+const cartoon = createCartoon({ enabled: cartoonEnabled });
 
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
 // scene that submitted nothing from a scene that drew and came out black. See `game/diag.js`.
@@ -276,6 +285,24 @@ markOccluder(police.group);
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
 for (const slot of fares.slots) markOccluder(slot.passenger.group);
+
+// Cartoon Mode's hero outlines, and **after every `markOccluder` above rather than beside them**.
+// A hull is an opaque colour-writing mesh, so `markOccluder` would happily enrol one — and a hull
+// in the depth prepass stamps a silhouette a third of a unit bigger than the car it wraps, which
+// would leave the city's own screen-space line tracing the outline instead of the vehicle.
+//
+// The taxi and the cruiser are per-mesh groups and wear child hulls; the ambient fleet is
+// instanced and gets sibling meshes sharing traffic's own matrices, so the whole fleet costs three
+// draw calls and no per-frame work. Wheels are skipped for the fleet and included on the two hero
+// vehicles, which is the same split `game/carghosts.js` measured: a wheel sits inside the body's
+// hull on every axis but a sliver, and at play zoom a truck is a shape while the taxi is *read*.
+if (cartoonEnabled) {
+  cartoon.outline(traffic.taxiGroup, { rim: TAXI_RIM });
+  cartoon.outline(police.group);
+  for (const source of [traffic.mesh, traffic.truckMesh, traffic.truckBoxMesh]) {
+    scene.add(...cartoon.fleet(source));
+  }
+}
 // One fixed 3/4 framing of the whole city, plus drag-to-pan. The framing is still the default and
 // the game is playable without ever touching it on a desktop — but in portrait the frustum is
 // sized by height, so a phone cuts off both sides of the map and panning stops being optional.
@@ -2195,6 +2222,9 @@ function frame() {
   // drawing does not slow down because a taxi did. Skipped entirely on a paused frame above, which
   // is right — a held frame is a held drawing.
   crayon.update(wallDt);
+  // Three assignments: an instanced hull draws `count` instances and nothing watches that for it,
+  // while traffic moves it when a truck spawns and when the panel's car slider is dragged.
+  cartoon.update();
   renderFrame();
   // After the render, not before: `renderer.info` resets itself at the top of every `render()`,
   // so this is the frame that just went to the screen rather than the one before it.
@@ -2640,6 +2670,7 @@ if (!shot && wantsDebugPanel) {
     routeLine,
     ao,
     crayon,
+    cartoon,
     scores: { load: loadScores, clear: clearScores },
     // The entrance levers. The panel's replay re-aims the wave at wherever the taxi is *now* —
     // the point of replaying from the panel is judging the opening, and the opening's wave starts

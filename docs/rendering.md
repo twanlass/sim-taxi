@@ -915,6 +915,137 @@ Written down because each is a real gap rather than a taste:
   with a direction to it, are the two things that would move this from "drawn on" to "drawn".
 - **Nothing hatches.** Shadow is still shading, not line.
 
+## Cartoon Mode — `game/cartoon.js`
+
+Cel-banded light, ink on every edge in the city, and a **heavier** ink around the things the player
+has to track. `?cartoon`, off by default, independent of `?crayon`, and every uniform in it live on
+the ⚙️ panel.
+
+Two mechanisms, because the two jobs are genuinely different:
+
+| | The world | A hero |
+|---|---|---|
+| **How** | the screen-space edge in `.g` of the AO pass | an inflated back-face hull |
+| **Where it draws** | on the object's own pixels, inward | outside the silhouette, outward |
+| **Catches** | interior creases too — a setback, a kerb, a roof fold | the silhouette only |
+| **Weight** | ~1 CSS pixel, everywhere | `HERO_RIM` 0.22, and the taxi 0.30 |
+
+A screen-space line can only paint where a lit material runs, which is *inside* the thing it is
+outlining. On a car 24px wide at play zoom, a line thick enough to pull it off the road eats a
+fifth of the car and takes the paint that says which car it is. A hull draws outward, and takes its
+thickness per object rather than per screen. So the vehicles get hulls, the city gets the line, and
+**the difference in weight between them is the whole feature** — a hero reads as a hero because its
+outline is half again everything else's.
+
+### The bands
+
+Spliced in after `<lights_fragment_end>`, which is the first point `reflectedLight.directDiffuse`
+is finished — shadow map included. Earlier and the terminator bands a raw N·L with a soft shadow
+laid over the top, which reads as neither cel-shaded nor lit.
+
+It quantises a **ratio against the albedo**, not a colour: dividing the direct term by the
+surface's own luminance recovers roughly the N·L times the sun, which is what a toon ramp is
+actually about. Banding the colour instead would put the terminator at a different place on a dark
+brick than on a pale concrete. Scaling `rgb` back by a scalar leaves every channel ratio — every
+hue in `palette.js` — exactly where it was, which is the same guarantee
+[the crayon's fill](#crayon-mode--gamecrayonjs) carries and for the same reason.
+
+**Flat shading is what makes this clean.** Every facet has one normal, so N·L is constant across it
+and a band edge can never crawl over a surface. The one thing that does vary per fragment is the
+shadow map — so what the bands actually cut into hard steps is PCF's soft penumbra, which is the
+cartoon look arrived at for free.
+
+### The hero outline, and the two ways it was wrong first
+
+Both of these rendered without an error and had to be caught by looking at the screen.
+
+**One hull per vehicle, on its body — not one per part.** Outlining every lit mesh under the taxi is
+the obvious thing and it is wrong twice over. A cartoon outlines an *object*; its interior part
+boundaries are the thin line's job. And a rim stated in world units is a fraction of a body and a
+*multiple* of a trim strip: the taxi carries two 3.46 × 0.54 × 0.54 bars down its flanks, and a hull
+around each inflates the thin axes by two thirds and lays a black bar the whole length of the car on
+both sides. Eight hulls on one taxi rendered as a black brick with yellow showing through the cracks
+between them. So `outlineRoot` takes the biggest solid lit mesh by bounding-box volume and nothing
+else — on the taxi that is the shell at 13.5 cubic units against 1.0 for a bar and 0.85 for a wheel,
+not close. The wheels then sit inside the body's hull on every axis but a sliver under the front
+valance, which [`carghosts.js`](#nearby-traffic-ghost-outlines--gamecarghostsjs) already measured at
+~0.4 units.
+
+**A scale-inflated hull is not an offset surface, and the taxi is not convex.** `inflatedGeometry`
+scales about the bounding-box centre, so the *cabin* grows too — and the hull cabin's rear wall ends
+up standing over the real boot, higher than it, therefore nearer the camera, therefore passing an
+ordinary depth test and painting the boot black. Measured on the shipped taxi: hood and boot both
+went solid, leaving yellow in curved slivers around the wheel arches.
+
+The fix was already in the repo. The rim is masked out of its own silhouette exactly the way
+[the ghost outline](#taxi-ghost-outline--geometryghostoutlinejs) masks its own — pass 1 stamps the
+body's screen footprint into the stencil with `ghostMaskMaterial()`, pass 2 draws the hull with a
+"not that footprint" test — and what survives is the part of the hull sticking out *past* the car.
+Which is what a cartoon outline is.
+
+Two things differ from the ghost's rim, both deliberate:
+
+- **An ordinary depth test.** The ghost draws only where something is in *front* of the hull,
+  because it is a see-through-walls signal. This is ink on a visible car and has to be hidden by the
+  tower the car drives behind.
+- **Fogged, unusually for an unlit material.** `unlitMaterial()` turns the haze off because a
+  marker's hue is its content. An outline is the opposite kind of object — part of the drawing of
+  the city — so it sits behind the same air as the car it wraps. Left unfogged, the back of the
+  board becomes a mass of hard black over hazed pale buildings: the depth cue running backwards.
+
+Its two tiers sit at **9980/9981, below the ghost outline's four**. The stencil buffer is never
+cleared mid-frame, so the ordering is the contract: these stamp and resolve first against nothing
+but their own masks, and the ghost tiers then stamp their own — a superset, since a ghost masks
+every part of a vehicle where this masks only its body — and resolve exactly as they did before.
+
+### The fleet
+
+The ambient traffic is instanced, so its outline is two sibling `InstancedMesh`es per pool that
+**share the source's own `instanceMatrix` object** — not copies. Traffic writes every car's
+transform into it once a frame and three uploads a buffer per attribute rather than per mesh, so the
+whole fleet outlines for two extra draw calls and no per-frame matrix work at all. A copy would mean
+walking every car every frame to duplicate a matrix that already exists, and one that fell a frame
+behind would show as ink sliding off the cars.
+
+Three pools carry one: car bodies, truck cabs, truck boxes. `count` is the one thing that has to be
+synced by hand — three assignments a frame — because three does not watch it and traffic moves it at
+runtime, when a truck spawns and when the ⚙️ car slider is dragged. Left behind, a hull draws the
+fleet's high-water mark: collapsed matrices at the world origin, a knot of ink under the middle of
+the city.
+
+Both pools and the source must also agree about culling. Three caches an `InstancedMesh`'s bounding
+sphere from the matrices as they stood on the first frame it culled it, so a rim that survived a
+frame its mask was culled on would draw as a *filled* silhouette rather than an outline.
+
+### Order against `markOccluder`
+
+**Outline after marking occluders, never before.** A hull is an opaque, colour-writing mesh, so
+`markOccluder` would happily enrol one — and a hull in the depth prepass stamps a silhouette a rim
+bigger than the car, which leaves the city's own screen-space line tracing the *outline* rather than
+the vehicle. `tools/probe.mjs` asserts the occluder list is unchanged by outlining.
+
+### The numbers
+
+`HERO_RIM` is 0.22 and `TAXI_RIM` 0.30, in world units, and the ceiling on both is what a *car* can
+carry rather than what looks bold in isolation. An ambient car is 1.8 units across and about 24px at
+play zoom, so every 0.1 of rim spends 8% of its width: at 0.30 a third of the car is ink and the
+paint that says which car it is has gone. The distance between "outlined" and "blacked out" is two
+tenths of a unit wide.
+
+The taxi's rides the taxi group's own `TAXI_SCALE` of 1.18 on top, landing at 0.35 world units —
+about 2.7px, half again the traffic's, and it is the one object on the board that is *the player*.
+`clampRim` caps any rim at a third of the part's smallest dimension, so one number can describe the
+look without doubling a small part it also lands on.
+
+### What it is not doing yet
+
+- **No rim light and no hatching.** Borderlands' other half is hand-painted ink and hatching in the
+  diffuse art; this has the lines and the bands and none of the drawn texture.
+- **The hull's silhouette is not a uniform offset** of the car's, because bounding-box scaling
+  isn't one — the ink is a little heavier over the cabin than along the flanks.
+- **The bands are subtle at the shipped `steps` of 3**, since golden hour already puts most of a
+  facade in one band. It is a slider for exactly that reason.
+
 ## The renderer budget — `?safe` and friends
 
 Four things on this page cost GPU memory that a plain three.js scene doesn't, and each has a URL
@@ -930,10 +1061,11 @@ the failure it avoids is a black screen rather than a soft one. `?safe=off` rest
 budget there, which is how the narrowing gets done; replace the default with the one flag as soon
 as it is known. Desktop and iOS are untouched, so screenshots and the shot list do not move.
 
-[Crayon Mode](#crayon-mode--gamecrayonjs) is a fifth flag of the same shape (`?crayon`) but not
-part of `?safe`: it is off by default everywhere, and a bare `?crayon` beats safe mode rather than
-deferring to it, because the flag exists to be switched on by hand on the device that is hardest
-on it.
+[Crayon Mode](#crayon-mode--gamecrayonjs) and [Cartoon Mode](#cartoon-mode--gamecartoonjs) are two
+more flags of the same shape (`?crayon`, `?cartoon`) but neither is part of `?safe`: both are off by
+default everywhere, and a bare flag beats safe mode rather than deferring to it, because they exist
+to be switched on by hand on the device that is hardest on them. They are independent of each other
+— two looks being tried, not two halves of one — and switching both on is two inks over one frame.
 
 They live in `util/shot.js` beside `?seed` and `?cars`, and every getter takes its **fallback from
 safe mode rather than from a literal**, evaluated per call — so one flag moves all of them, and a

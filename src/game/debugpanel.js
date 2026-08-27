@@ -56,6 +56,8 @@ export function createDebugPanel({
   // of the optional systems below so the `npm run check` boot pass can build the panel against
   // nothing; with the flag off the section says so instead of drawing dead sliders.
   crayon = { state: { enabled: false }, set: () => {} },
+  // Cartoon Mode's, same shape — `{ state, set }` over game/cartoon.js.
+  cartoon = { state: { enabled: false }, set: () => {} },
   // The scene's haze (game/scene.js). Defaulted to null for the same reason `scores` is defaulted:
   // the `npm run check` boot pass builds this panel against nothing.
   fog = null,
@@ -275,6 +277,30 @@ export function createDebugPanel({
     crayonRow('Wobble', 'wobble', 0, 4, 0.1, (v) => `${v.toFixed(1)}px`);
     crayonRow('Steps', 'quantize', 0, 1, 0.05);
     crayonRow('Boil', 'boilHz', 0, 24, 1, (v) => (v > 0 ? `${v.toFixed(0)}/s` : 'held'));
+  }
+
+  // --- Cartoon Mode -----------------------------------------------------------
+  // `?cartoon`. The hero outlines are hulls built at construction and are not tunable from here —
+  // a rim is baked into an inflated geometry, so moving it means rebuilding one per part. What is
+  // live is everything that rides a uniform, and the two that decide the look are `Bands` and
+  // `Bite`: the first is how much of golden hour's falloff survives the banding, the second is how
+  // selective the city's ink is, which is the whole difference between a cartoon and a drawing.
+  if (cartoon.state.enabled) {
+    heading('Cartoon');
+    const toonRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
+      const el = slider(min, max, step, cartoon.state[key]);
+      const value = row(panel, label, el);
+      value.textContent = format(cartoon.state[key]);
+      el.addEventListener('input', () => {
+        const next = Number(el.value);
+        cartoon.set(key, next);
+        value.textContent = format(next);
+      });
+    };
+    toonRow('Cel', 'cel', 0, 1, 0.05);
+    toonRow('Bands', 'steps', 2, 6, 1, (v) => v.toFixed(0));
+    toonRow('Ink', 'ink', 0, 1, 0.02);
+    toonRow('Bite', 'bite', 0, 0.9, 0.02);
   }
 
   // --- Haze -------------------------------------------------------------------
@@ -720,6 +746,9 @@ export function createDebugPanel({
       // The keys map onto CRAYON_DEFAULTS in game/crayon.js. `false` rather than an object with
       // the flag off, so a pasted export can't quietly promote a look nobody was looking at.
       crayon: crayon.state.enabled ? { ...crayon.state, enabled: undefined } : false,
+      // The keys map onto CARTOON_DEFAULTS in game/cartoon.js. The hull rims are not in here
+      // because they are not live — see the note by the section above.
+      cartoon: cartoon.state.enabled ? { ...cartoon.state, enabled: undefined } : false,
     },
     // The keys map onto game/cityentry.js's constants: wave → WAVE, grow → ENTRY_DUR,
     // jitter → JITTER, overshoot → OVERSHOOT; dust is the multiplier on the burst power.

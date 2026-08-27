@@ -73,12 +73,10 @@ export const FALLOFF = 1.15;
 // than trusting these numbers — change the camera's elevation and the window moves.
 export const MAX_DEPTH_DIFF = 2.0;
 
-// Where Crayon Mode's line starts and where it saturates, in units of `abs(a + b) / 2 / radius`
-// — a number a flat plane holds at zero however steeply it recedes, so both bounds are about
-// *departures* from flatness rather than about depth.
-//
-// Where Crayon Mode's line starts and where it saturates, in **world units of departure from
-// flatness across one texel**. A vertical step of `h` world units reads here at about `0.92 * h`,
+// Where the ink starts and where it saturates, in **world units of departure from flatness across
+// one texel**. Both look modes draw off this one ramp — Crayon Mode breaks it up into a stroke and
+// Cartoon Mode re-thresholds it into a hard line — so it is deliberately generous at the low end
+// and each of them takes what it wants from there. A vertical step of `h` world units reads here at about `0.92 * h`,
 // which is the elevation's `1 / (2 sin 33 degrees)`. That one conversion places both ends:
 //
 //   - **0.15 sits between the road paint and the kerb.** A stop bar is 0.05 units of paint (0.05
@@ -268,7 +266,7 @@ float either(float a, float b) { return a + b - a * b; }
  *
  * r is the occlusion this pass has always produced, and its arithmetic below is byte-for-byte
  * what it was before the second output existed — deliberately, because every contact shadow in
- * the game is that expression. g is Crayon Mode's line, and nothing read g or b before
+ * the game is that expression. g is the ink both look modes draw with, and nothing read g or b before
  * this: util/geo.js takes .r.
  *
  * The line costs **four extra taps**, not none. Reusing the occlusion's own rings was free and
@@ -313,11 +311,11 @@ void main() {
  *                  multiplied by one.
  * @param strength  how far occlusion pulls the indirect term down. 1.0 would take a saturated
  *                  crease to black ambient.
- * @param edges     run the pass for Crayon Mode's line even with occlusion off.
+ * @param edges     run the pass for the ink channel even with occlusion off.
  *
  * The second flag exists because **Android defaults to `?safe`, which sets `?ao=off`** — so on the
- * platform most likely to be asked for a drawn look, the depth buffer the line is traced out of
- * would not have been built. One pass with two consumers rather than a second prepass: it is the
+ * platform most likely to be asked for a stylised look, the depth buffer the line is traced out of
+ * would not have been built. Both `?crayon` and `?cartoon` ask for it. One pass with two consumers rather than a second prepass: it is the
  * same nine fetches and the same depth target either way. With occlusion off the strength uniform
  * is pinned to 0, so `r` comes out a flat 1.0 and a material that somehow read it is unaffected.
  */
