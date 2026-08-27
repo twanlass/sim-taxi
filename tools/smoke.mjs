@@ -77,6 +77,12 @@ const chrome = spawn(CHROME, [
   '--window-size=900,600',
   '--disable-gpu', '--enable-unsafe-swiftshader', '--use-gl=angle', '--use-angle=swiftshader',
   '--no-first-run', '--disable-extensions',
+  // Web Audio, without a hand to start it. A real browser refuses an `AudioContext` outside a user
+  // gesture and hands back one stuck in `'suspended'`, which would make the sound checks below
+  // assert nothing at all — every `play()` returns false on a context that is not running, exactly
+  // as it should. `--mute-audio` keeps the graph and the audio thread and throws away the output,
+  // so this stays a headless test rather than something that startles whoever ran it.
+  '--autoplay-policy=no-user-gesture-required', '--mute-audio',
   ...(process.env.CHROME_FLAGS ? process.env.CHROME_FLAGS.split(' ').filter(Boolean) : []),
   'about:blank',
 ], { stdio: 'ignore' });
@@ -1478,6 +1484,116 @@ try {
     const dark = await evaluate("document.getElementById('brake').classList.contains('is-on')");
     check('and letting go hands the car back', lifted === false && dark === false,
       `braking ${lifted}, button lit ${dark}`);
+  }
+
+  // --- The sound bank, against a real `AudioContext`.
+  //
+  // `tools/sfx.mjs` drives the whole of `game/sfx.js` in node against a fake, which is where the
+  // graph is actually asserted — every voice stopped, every node disconnected, no envelope ramped
+  // exponentially to zero. What a fake cannot do is *be Web Audio*: a real `AudioParam` validates
+  // its arguments, a real engine has its own opinion about which node types and which oscillator
+  // types exist, and a real context can refuse to start. So this is the other half — the bank run
+  // once through the engine that ships, checking that the browser accepts every voice in it.
+  //
+  // Deliberately not an assertion about how it sounds. Headless Chrome renders into a null sink and
+  // there is nothing to listen to; what is being proved is that nothing in the bank throws on the
+  // real thing and that a live context is actually reached.
+  {
+    const NAMES = ['pick', 'spawn', 'pickup', 'dropoff', 'urgency', 'parcel-in', 'parcel-out',
+      'loco', 'brake', 'crash', 'bust', 'fail'];
+    // Paused for the whole block, which is not tidiness: a live run is firing its own sounds the
+    // entire time — a rider spawns, a clock steps down a colour — and the voice count below is a
+    // question about what *this* block scheduled. A pause returns out of `frame()` before anything
+    // updates, so the game goes quiet and stays that way. `sfx.play` is untouched by it.
+    await evaluate("document.getElementById('pause').click()");
+    await sleep(240);
+    await evaluate('window.__taxi.sfx.unlock()');
+    const ctxState = await evaluate('window.__taxi.sfx.state.ctx?.state ?? "none"');
+    check('the browser gives the game a live AudioContext', ctxState === 'running',
+      `context ${ctxState}`);
+
+    const refused = [];
+    let voices = 0;
+    for (const name of NAMES) {
+      // One at a time, with a beat between. The bank caps live voices and rate-limits the tapped
+      // sounds, both of which are working as designed and both of which would drop calls if twelve
+      // sounds fired on one frame — the run would then be measuring the cap rather than the bank.
+      if (await evaluate(`window.__taxi.sfx.play(${JSON.stringify(name)})`) !== true) {
+        refused.push(name);
+      }
+      voices = Math.max(voices, await evaluate('window.__taxi.sfx.state.voices'));
+      await sleep(120);
+    }
+    check('and every sound in the bank plays on it', refused.length === 0,
+      `refused ${refused.join(', ') || 'none'}`);
+    check('...building real voices', voices > 0, `${voices} at the busiest`);
+    // The leak check, which is the whole reason for the pause above: every voice in the bank ends
+    // inside a second, and a graph that does not empty is one where `onended` has stopped
+    // disconnecting anything. In a browser that is invisible until a long run has accumulated a few
+    // thousand orphaned nodes.
+    await sleep(1200);
+    const settled = await evaluate('window.__taxi.sfx.state.voices');
+    check('...and the graph empties itself again', settled === 0, `${settled} left`);
+
+    // The held pair — the Loco Mode roar and the cruiser's wail — are built on the first frame each
+    // is wanted rather than at startup, so they are the two the node suite proves exist and this is
+    // where a real engine gets to refuse them.
+    const held = await evaluate(`(() => {
+      const sfx = window.__taxi.sfx;
+      let threw = null;
+      try {
+        sfx.update(0.016, { locoOn: true, speed: 0.8, sirenAt: 0.9, hunting: true });
+        sfx.update(0.016, { locoOn: false, sirenAt: 0 });
+        sfx.hush();
+      } catch (error) { threw = String(error); }
+      return { threw, wail: sfx.state.wail };
+    })()`);
+    check('the held voices ride against a real context', held.threw === null, held.threw ?? '');
+    check('and the siren sweeps', held.wail > 0, `wail ${held.wail}`);
+
+    // Muting is a preference, so it has to outlive the page — and it has to actually stop the game
+    // building anything, rather than turning a full graph down to zero.
+    const muted = await evaluate(`(() => {
+      const sfx = window.__taxi.sfx;
+      sfx.setMuted(true);
+      const played = sfx.play('crash');
+      const stored = localStorage.getItem('simtaxi.muted.v1');
+      sfx.setMuted(false);
+      return { played, stored, cleared: localStorage.getItem('simtaxi.muted.v1') };
+    })()`);
+    check('muting stops the bank dead', muted.played === false);
+    check('and is remembered across loads', muted.stored === '1' && muted.cleared === '0',
+      `stored ${muted.stored} → ${muted.cleared}`);
+
+    // The toggle on the pause screen — already up, since the block paused to run the bank. It is
+    // the only control for this on a phone, so what matters is that it is a real thumb-sized target
+    // with a label that cannot be picked out instead of it — the same two properties the Loco Mode
+    // pill needed (see .boost-label).
+    const toggle = await evaluate(`(() => {
+      const button = document.querySelector('#pause-veil .pause-sound');
+      if (!button) return { missing: true };
+      const box = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.left + box.width - 14, box.top + box.height / 2);
+      const before = window.__taxi.sfx.isMuted();
+      button.click();
+      const after = window.__taxi.sfx.isMuted();
+      button.click();
+      return {
+        height: Math.round(box.height),
+        hit: hit === button,
+        label: button.querySelector('.pause-sound-label').textContent,
+        flipped: before !== after,
+        restored: window.__taxi.sfx.isMuted() === before,
+      };
+    })()`);
+    check('the pause screen carries a sound toggle', toggle.missing !== true);
+    check('...a thumb-sized one', toggle.height >= 36, `${toggle.height}px tall`);
+    check('...whose own label cannot be tapped instead of it', toggle.hit === true);
+    check('...that flips the sound and says which way it is',
+      toggle.flipped === true && toggle.restored === true && /Sound o/.test(toggle.label ?? ''),
+      `label "${toggle.label}"`);
+    await evaluate("document.querySelector('#pause-veil .pause-resume').click()");
+    await sleep(220);
   }
 
   // --- The initials prompt: after a tap, the field still has to be editable.

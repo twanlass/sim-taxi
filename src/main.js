@@ -65,6 +65,7 @@ import { createDiagnostics } from './game/diag.js';
 import { createViewport } from './util/viewport.js';
 import { isNative } from './util/platform.js';
 import { tap as haptic } from './util/haptics.js';
+import { createSfx, sirenLoudness } from './game/sfx.js';
 import { attachContextRecovery } from './game/recovery.js';
 import { isCityConnected, GRID } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
@@ -461,6 +462,38 @@ roadwork.onPlaced(({ ends }) => { fares.aimNextDropoff(ends); });
 // where a car hidden behind a tower is a crash rather than a surprise. See game/carghosts.js.
 const carGhosts = createCarGhosts(scene, traffic);
 
+// --- Sound -------------------------------------------------------------------
+//
+// Synthesised in `game/sfx.js` — no files, the same rule every mesh in this project follows. This
+// module owns the *wiring* only: which event makes which noise, which is exactly the same division
+// as `util/haptics.js` next door, and for the same reason. Nearly every call below sits beside a
+// `haptic()` that was already there.
+//
+// **Nothing exists until the player touches the screen.** Browsers refuse an `AudioContext` outside
+// a user gesture, so the listeners below are the game's only route to having any sound at all —
+// they are on `window`, they never cancel anything, and `unlock()` is idempotent. They stay
+// registered rather than firing once, because a context can be suspended long after it started: iOS
+// takes one away for a phone call and hands it back suspended, and the next tap is the natural
+// place to notice.
+//
+// Silent in shot mode, and with no store to remember it by: a screenshot is rendered and never
+// played, and a capture run must not leave the next real player muted.
+const sfx = createSfx(shot ? { store: null, muted: true } : {});
+const unlockAudio = () => sfx.unlock();
+window.addEventListener('pointerdown', unlockAudio);
+window.addEventListener('keydown', unlockAudio);
+// iOS has historically wanted a *touch* to start a context and has not always accepted the pointer
+// event standing in for one. Passive because this listener has no opinion about the gesture — it is
+// reading that one happened, not handling it.
+window.addEventListener('touchend', unlockAudio, { passive: true });
+
+// A hidden tab stops getting frames, which stops `sfx.update` — and the two held voices hold
+// whatever gain they were last given. Without this, switching apps mid-chase leaves a siren
+// wailing into a tab nobody is looking at until they come back.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) sfx.hush();
+});
+
 // Collision detection between the taxi and ambient cars. Only fires while boosting — see
 // src/sim/collisions.js. On impact *both* cars are wrecked: each detonates where it stands and
 // each shell shrinks and fades into its own fireball, the camera shakes and pulls into a close-up,
@@ -556,6 +589,11 @@ collisions.onImpact(({ x, z, other }) => {
   vanish.take(traffic.wreckShell(traffic.taxi));
   vanish.take(traffic.wreckShell(other));
 
+  // One bang for the pair, not one per car. The two fireballs are a couple of units apart and
+  // simultaneous, so two copies of this would be one sound at double the level rather than two
+  // sounds — and the bank's crash is already built as three layers of one impact.
+  sfx.play('crash');
+
   endSpot = { x, z };
   endZoom = WRECK_ZOOM;
   crashBannerAt = performance.now() + CRASH_BANNER_DELAY;
@@ -580,6 +618,10 @@ collisions.onImpact(({ x, z, other }) => {
 function bustByPolice() {
   if (fares.state.gameOver || traffic.taxi.crashed) return;
   controller.kickShake(0.9);
+  // Deliberately not the crash: nothing hit the taxi, and a fireball over an intact car reads as a
+  // bug. The cruiser's own siren, said once, at you — while its held wail keeps running behind it,
+  // because the cop is still coming.
+  sfx.play('bust');
   endSpot = { x: traffic.taxi.x, z: traffic.taxi.z };
   endZoom = WRECK_ZOOM;
   bustAt = performance.now();
@@ -776,7 +818,7 @@ function divertToParcel(parcel) {
   // Keyed on `taken`, not on the tap. A refused detour already answers itself visually — the corner
   // flinches instead of swelling (see `acknowledge`) — and a confirming buzz on top of a refusal
   // says the opposite of what the animation does.
-  if (taken) haptic('pick');
+  if (taken) { haptic('pick'); sfx.play('pick'); }
   parcels?.acknowledge(parcel, taken);
 }
 
@@ -816,6 +858,7 @@ createPicker(
     // a second rider while carrying, a pin with no fare behind it — return without one.
     if (routeTo(fare.target)) {
       haptic('pick');
+      sfx.play('pick');
       fares.markDirected(fare);
     }
   },
@@ -1403,6 +1446,7 @@ function kickLocoMode() {
   // already returned true and the fuel is already committed — so the hand should be told even when
   // the wrecked car has no wheelie left to answer with.
   haptic('loco');
+  sfx.play('loco');
   const car = traffic.taxi;
   if (car.crashed) return;
   car.wheelieT = 0;
@@ -1504,7 +1548,15 @@ function holdBrake() {
   // layRubber cannot produce anything until the car has travelled 0.42 of a unit — at which point
   // the streak starts a stamp late and misses the moment of the press. Same reason the Loco Mode
   // launch stamps its own first pair.
-  if (traffic.taxi.v > BRAKE_SKID_V) stampAllRubber(traffic.taxi);
+  //
+  // The screech goes with the rubber rather than with the buzz a few lines up, and the split is the
+  // point: the pedal has a detent whatever the car was doing, so the *hand* is answered
+  // unconditionally — but a screech is the tyres, and tyres at a standstill have nothing to say.
+  // Sounding one anyway is the audio version of the stain the skid stamp refuses to leave.
+  if (traffic.taxi.v > BRAKE_SKID_V) {
+    stampAllRubber(traffic.taxi);
+    sfx.play('brake');
+  }
 }
 
 /** Idempotent, and every path out of a hold goes through it: the button, the key, blur, a pause. */
@@ -1837,8 +1889,59 @@ const pause = shot ? null : createPause({
     // the pill's own pointer never comes back up, because the veil took the release. Same reason
     // the window's `blur` handler drops it. The brake is dropped with it: the veil swallows that
     // release too, and resuming onto a pedal nobody is holding is the same bug wearing red.
-    if (paused) { boost.release(); releaseBrake(); }
+    //
+    // The two held sounds go the same way, and for a version of the same reason one layer over:
+    // what would otherwise ride them down is `sfx.update`, and a paused `frame()` returns before
+    // it. Left alone, a pause taken mid-chase holds a siren at whatever gain it had reached, over
+    // a frozen city, indefinitely.
+    if (paused) { boost.release(); releaseBrake(); sfx.hush(); }
   },
+});
+
+// The sound toggle, and the reason it lives on the pause screen rather than in the HUD: the top
+// edge is already three things wide (cash, ⏸, streak) and a fourth would crowd the one row that
+// has to stay readable at a glance while driving. A player who wants the sound off wants it off
+// *now*, which is one tap away — ⏸ is always there — and a player who does not never has to look
+// at it. Same argument the ⚙️ panel settled the other way, and for the opposite reason: that one
+// is not for players at all.
+const soundButton = document.querySelector('#pause-veil .pause-sound');
+function paintSoundButton() {
+  if (!soundButton) return;
+  const off = sfx.isMuted();
+  soundButton.classList.toggle('is-off', off);
+  soundButton.setAttribute('aria-pressed', String(!off));
+  soundButton.setAttribute('aria-label', off ? 'Sound off' : 'Sound on');
+  soundButton.querySelector('.pause-sound-label').textContent = off ? 'Sound off' : 'Sound on';
+}
+function toggleSound() {
+  sfx.setMuted(!sfx.isMuted());
+  // Unmuting from a control the player just pressed is a gesture, so it is also the moment the
+  // context can be started — a first-ever load that opens the pause screen and turns the sound on
+  // would otherwise stay silent until something else was tapped.
+  if (!sfx.isMuted()) sfx.unlock();
+  paintSoundButton();
+  // The button answering itself, and the reason it is `pick` rather than a sound of its own: the
+  // player has just pressed something and gets back the game's own "that landed", which is the
+  // shortest possible demonstration that the sound is on. Unconditional because it does not need a
+  // condition — `play` is gated on the mute it just set, so the way *off* is silent by definition,
+  // which is the only answer a mute button can honestly give.
+  sfx.play('pick');
+}
+soundButton?.addEventListener('click', toggleSound);
+paintSoundButton();
+
+// M mutes, and it takes `createPause`'s guard rather than the one the Space and B holds use. Those
+// two exempt every focused control, because a key that also drives the car must never fire while
+// the player is tabbing around the run-end screen. This is not a driving control: it is the same
+// kind of thing ⏸ is, it stays live behind the veil where its own button lives, and a keyboard user
+// who has focus on "Resume" should still be able to turn the sound off. So the only thing it
+// refuses is a real text field — which is the initials prompt, where M is a letter.
+window.addEventListener('keydown', (event) => {
+  if (event.code !== 'KeyM' || event.repeat) return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.target instanceof HTMLInputElement) return;
+  event.preventDefault();
+  toggleSound();
 });
 
 const clock = new THREE.Clock();
@@ -2020,17 +2123,32 @@ function frame() {
   // spawns the next one in the same tick — so this is a list rather than a single event.
   for (const { type, fare } of
     (fareLoopHeld() ? NO_FARE_EVENTS : fares.update(dt, traffic.taxi))) {
-    if (type === 'pickup') {
+    if (type === 'spawned') {
+      // A rider has appeared. The only board event with no visual anchor on screen — the crystal
+      // can spawn behind a tower, off the frame edge, or under a finger — so it is the one the
+      // sound is genuinely *carrying* rather than accompanying.
+      sfx.play('spawn');
+    } else if (type === 'urgency') {
+      // ...and the clock stepping down a colour, sounded off `fares.js`'s own step detection so the
+      // tick and the crystal's swell are the same beat rather than two systems agreeing. Pitch
+      // falls with the level: see the bank in game/sfx.js.
+      sfx.play('urgency', { level: fare.level });
+    } else if (type === 'pickup') {
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       // The roof sign lights up while the rider is aboard.
       traffic.setTaxiOccupied(true);
+      sfx.play('pickup');
       // Straight on to where they're going, on the same frame the pin appears — no kerb hold and
       // no confirming tap.
       dispatchToDropoff(fare);
     } else if (type === 'delivered') {
       popEarning(fare.value);
       updateStreak(difficulty.payoutMultiplier(fares.state.delivered));
+      // The payout climbs a semitone per fare landed this run — `state.delivered` already counts
+      // this one. Nothing else tells the player they are having a good run while it is still
+      // happening; see `dropoff` in game/sfx.js.
+      sfx.play('dropoff', { streak: fares.state.delivered });
       // A third of a tank of boost fuel as the ordinary delivery reward — the only way any fuel
       // enters the meter otherwise. A VIP pays out bigger here too: the tank tops all the way to
       // full rather than by a third, on the same delayed pour as everything else so it reads as
@@ -2054,6 +2172,7 @@ function frame() {
       // rider climbing out of it — argues with the ending being shown. `crashed` is the flag every
       // loop in traffic.js already skips, so it does the whole job. Boost goes with it, or a held
       // pill would keep burning fuel behind the banner.
+      sfx.play('fail');
       endSpot = fares.state.failSpot ?? { x: traffic.taxi.x, z: traffic.taxi.z };
       endZoom = TIMEOUT_ZOOM;
       crashBannerAt = performance.now() + TIMEOUT_BANNER_DELAY;
@@ -2079,6 +2198,10 @@ function frame() {
         traffic.taxi.pendingTarget = null;
       }
       if (fare.stage === 'riding') traffic.setTaxiOccupied(false);
+      // The bottom of the countdown rather than the run-end sound: a missed VIP is a clock running
+      // out, and it is the one clock in the game that running out does not end anything. `'fail'`
+      // here would say the run was over on a frame it plainly is not.
+      sfx.play('urgency', { level: 0 });
     }
   }
 
@@ -2118,6 +2241,7 @@ function frame() {
       // is the *chip's* cue — the tail of an animation the player is watching finish, not the
       // moment anything happened.
       haptic('parcel-in');
+      sfx.play('parcel-in');
     } else if (type === 'loaded') {
       // The lift is nearly done and the box is nearly transparent. `at` is where it had got to, in the
       // world, on *this* frame — `parcels.js` owns that fact; turning it into a pixel is this module's
@@ -2143,6 +2267,7 @@ function frame() {
       // second to reach the counter and the pill, and a buzz that waited for them would land on a
       // frame the player has already stopped associating with the pad they just left.
       haptic('parcel-out');
+      sfx.play('parcel-out');
       // Cash and fuel, the same two currencies a drop-off pays, and both take the same two-phase
       // flight a fare's does — off the taxi, then to the counter and to the pill — because it is the
       // same kind of event arriving from the same place, and a bonus that landed in either place
@@ -2209,6 +2334,23 @@ function frame() {
   // After the police update above, so the wash is aimed at where the cruiser is this frame rather
   // than trailing it by one.
   sirenGlow.update(police, traffic.taxi);
+  // The two held voices, ridden here for the same reason and against the same numbers: the wail's
+  // loudness is the cruiser's distance on the curve `sirenglow.js` already owns (see
+  // `sirenLoudness`), and the roar is the taxi's own speed as a fraction of its boosting cruise.
+  //
+  // `dt` rather than a clock of its own, so the siren slows through a wreck's slow-motion with
+  // everything else in the frame. A paused game never reaches this line at all — `frame()` returns
+  // above — which is why the pause hushes both explicitly.
+  sfx.update(dt, {
+    locoOn: boost.isActive(),
+    speed: Math.min(traffic.taxi.v / boostCruise(), 1),
+    sirenAt: sirenLoudness(police.state, Math.hypot(
+      traffic.taxi.x - police.group.position.x,
+      traffic.taxi.z - police.group.position.z,
+    )),
+    // The same escalation the light bar shows — see `sirenOn` in sim/police.js.
+    hunting: Boolean(police.state.chasing || police.state.arrived),
+  });
   renderFrame();
   // After the render, not before: `renderer.info` resets itself at the top of every `render()`,
   // so this is the frame that just went to the screen rather than the one before it.
@@ -2746,6 +2888,17 @@ window.__taxi = {
    * iPad, and on those the whole path runs correctly and produces nothing.
    */
   haptic,
+  /**
+   * The sound layer — `window.__taxi.sfx.play('dropoff')` in a console, and the whole bank is
+   * auditionable without playing the game to each event.
+   *
+   * Here for the same reason `haptic` is next door: the node suite drives `game/sfx.js` against a
+   * fake `AudioContext` (`tools/sfx.mjs`), which asserts everything about the graph and nothing at
+   * all about how it sounds. Tuning a voice means hearing it, and hearing it should not mean
+   * losing a run against a cop first. `sfx.unlock()` runs on any tap, so a click on the city before
+   * reaching for the console is the only setup.
+   */
+  sfx,
   /**
    * Draw one frame on demand.
    *

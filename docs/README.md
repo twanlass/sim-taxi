@@ -12,6 +12,7 @@ behind it that aren't obvious from the code.
 | [gameplay.md](gameplay.md) | The opening vignette, the opening tutorial, the fare loop, routing, dragging the route, the package courier, picking, the travelling clock, economy, crazy-taxi mode, pause | `src/game/` |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, effects | `src/game/scene.js`, `src/geometry/` |
+| [audio.md](audio.md) | The synthesised sound bank, the two held voices, unlocking a context, the mute toggle | `src/game/sfx.js` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 | [lab.md](lab.md) | The passing lab at `/lab/` — one straight road with no lights, for watching Loco Mode overtake | `src/lab/`, `lab/` |
 | [ios.md](ios.md) | The App Store build: the WKWebView shell, why a custom URL scheme rather than `file://`, the native flag | `ios/`, `src/util/platform.js` |
@@ -75,10 +76,18 @@ Next to it, taking the right 40% of the same row, is the **brake**: hold it and 
 to a halt with rubber off all four wheels, let go and it drives itself again. It costs nothing and
 has nothing to run out of. See [the brake](gameplay.md#the-brake).
 
+All of it is **audible, and synthesised** — a bell when a rider appears, a tick that falls in pitch
+each time their clock steps a colour, an arpeggio at the drop-off that climbs a semitone per fare
+landed, an engine under Loco Mode and a siren whose loudness is the cop's distance. Silence is the
+resting state: nothing drones, so the short sounds can carry. `M`, or the toggle on the pause screen,
+turns the lot off. See [audio.md](audio.md).
+
 ## Conventions worth knowing before editing
 
-- **Zero external assets.** Every mesh is generated in code. There is no loader, no texture, no
-  model file. If something needs to look different, it changes in geometry or in `palette.js`.
+- **Zero external assets.** Every mesh is generated in code and every sound is synthesised in it.
+  There is no loader, no texture, no model file and no audio file. If something needs to look
+  different, it changes in geometry or in `palette.js`; if it needs to *sound* different, it changes
+  in `game/sfx.js`. See [audio.md](audio.md).
 - **Seeded generation.** The city is one seed, the run situation is another; see
   [architecture.md](architecture.md#seeding).
 - **Comments carry the "why".** Most non-obvious lines already explain themselves in place —

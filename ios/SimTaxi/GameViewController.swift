@@ -34,12 +34,20 @@ final class GameViewController: UIViewController {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(BundleSchemeHandler(), forURLScheme: Self.scheme)
 
-        // The game is silent today (there is no audio anywhere in `src/`), but these are the two
-        // settings that decide whether it *can* make a sound later, and getting them wrong shows up
-        // as "audio works in Safari, not in the app". Inline playback stops iOS taking media
-        // fullscreen; the empty `mediaTypesRequiringUserActionForPlayback` lifts the gesture
-        // requirement, which a game needs because its sounds are triggered by simulation events
-        // rather than by the tap that happens to precede them.
+        // The two settings that decide whether the game can make a sound at all, and getting either
+        // wrong shows up as "audio works in Safari, not in the app". Inline playback stops iOS
+        // taking media fullscreen; the empty `mediaTypesRequiringUserActionForPlayback` lifts the
+        // gesture requirement, which a game needs because its sounds are triggered by simulation
+        // events rather than by the tap that happens to precede them.
+        //
+        // Note what this does *not* do: it does not start an `AudioContext`. `src/game/sfx.js`
+        // still waits for a gesture before building one, because the web build has to and one
+        // `dist/` ships to both. What lifting the requirement here buys is everything after that —
+        // a fare chime on a frame nobody touched the screen.
+        //
+        // The category the sound plays in is `AppDelegate.configureAudioSession`'s, and it is the
+        // other half of this: without it a WKWebView playing Web Audio interrupts the player's
+        // music.
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
 

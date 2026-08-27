@@ -2034,6 +2034,17 @@ Three details in that early return are load-bearing:
   clamp caps that — it is there to survive a stalled tab, not to license stalling on purpose.
 - **A held boost is dropped** on the way in. The veil takes the pointer release the pill was waiting
   for, so without it the run would resume into a boost nobody is holding.
+- **The two held sounds are hushed**, for the same shape of reason one layer over: the thing that
+  would otherwise ride them down is `sfx.update`, and it is below the return. Left alone, a pause
+  taken mid-chase holds a siren at whatever gain it had reached, over a frozen city, indefinitely.
+  See [audio.md](audio.md).
+
+The veil also carries **the sound toggle**, which is the game's only mute control on a phone. It is
+not in the HUD because that top edge is already three things wide and a fourth would crowd the one
+row that has to stay readable at a glance while driving — and a player who wants the sound off is
+always one tap from ⏸. `M` does the same from a keyboard, and unlike the Space and B holds it stays
+live behind the veil: it is a setting, not a driving control, and a keyboard user with focus on
+"Resume" should still be able to reach it.
 
 Only the Resume pill resumes — a stray tap elsewhere on the veil must not drop the player back into
 traffic — and it resumes on `pointerdown` rather than `click` — the release then lands on the canvas

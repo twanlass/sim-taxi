@@ -29,7 +29,7 @@ const BOOT = ['../src/game/scene.js', '../src/game/debugpanel.js', '../src/geome
   '../src/geometry/parcel.js', '../src/geometry/parcelpad.js', '../src/game/parcels.js',
   '../src/game/cargochip.js',
   '../src/game/tutorial.js', '../src/game/highscores.js', '../src/game/locostash.js',
-  '../src/util/platform.js', '../src/util/haptics.js',
+  '../src/util/platform.js', '../src/util/haptics.js', '../src/game/sfx.js',
   '../src/lab/labroad.js'];
 
 const TOOLS = [
@@ -41,6 +41,10 @@ const TOOLS = [
   // Pure logic against a fake `localStorage`, so it costs nothing and covers the half of the score
   // table a browser on this machine never reaches: a store that throws, and a corrupt payload.
   { name: 'scores',  args: ['tools/scores.mjs'],       pick: /(\d+\/\d+) checks passed/ },
+  // The sound bank against a fake `AudioContext`. Sound is the one system a screenshot cannot
+  // review at all, and the failures that matter here — an envelope that throws, a voice that never
+  // stops, a graph that never empties — are silent in a browser by construction.
+  { name: 'sfx',     args: ['tools/sfx.mjs'],          pick: /(\d+\/\d+) checks passed/ },
   // Every fare's deadline is budgeted from `estimateSeconds`, so its error is a difficulty knob
   // whether or not anyone tuned it. Runs before the soak: if the estimator has drifted, the soak's
   // numbers are measuring the drift.

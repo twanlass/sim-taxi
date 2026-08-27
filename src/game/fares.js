@@ -734,6 +734,10 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
       // of it to `limit` is the slack the fare actually shipped with, and `tools/soak.mjs` reads
       // it to check the ramp is tightening.
       work: 0,
+      // The last urgency level this fare was painted at, held so `update` can tell a *step* from a
+      // repaint — see the `'urgency'` emit there. A fare opens at the top of the scale, which is
+      // what `urgencyLevel(1)` returns, so a spawn is never itself a step.
+      level: URGENCY_SEGMENTS,
       // Arrival only resolves once the player has actually sent the taxi at this fare. Without
       // it, a taxi cruising on random turns wanders into the pin on its own — measured at 11 of
       // 40 seeds — and picks up or delivers a fare the player never directed it to.
@@ -1189,6 +1193,23 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
       const level = urgencyLevel(left);
       marker.setUrgency(level);
       marker.setFill(left);
+      // The colour *stepping* is news; the colour being what it is is not. The crystal already
+      // swells on this frame — that is `setUrgency`'s own doing — and this is the same beat handed
+      // out as an event, which is what lets `main.js` sound the countdown without either of them
+      // owning a second copy of the scale.
+      //
+      // Downward only, and stored rather than recomputed. `timeLeft` only falls today, so an
+      // upward step is unreachable; writing the comparison this way means a future fare that buys
+      // itself time cannot announce a countdown running backwards.
+      //
+      // The bottom of the scale is deliberately not announced. `urgencyLevel` only returns 0 once
+      // the clock is actually out, which is the same frame the branch below ends the run (or bails
+      // a VIP) — so a step to 0 would put a countdown tick underneath the sound of the ending it
+      // caused. Level 1 is the last warning there is, and it is the one worth hearing.
+      if (level < fare.level) {
+        fare.level = level;
+        if (level > 0) emit('urgency', fare);
+      }
       // ...and the ring at the far end of the trip steps with it, so the crystal over the roof and
       // the disc the taxi is driving at are never a level apart.
       if (fare.stage === 'riding') paintDropoff(fare, level);

@@ -328,10 +328,11 @@ Not built yet, roughly in value-for-effort order:
 - **Game Center leaderboards.** The strongest Guideline 4.2 cover there is, and
   `highscores.js`'s injectable store is the seam it slots into. Keep the local top-5 and submit in
   addition.
-- **Audio.** The game is silent — there is no `AudioContext` anywhere in `src/`. Highest value and
-  highest effort. Synthesised Web Audio rather than sample files would hold the zero-external-assets
-  line the project has kept everywhere else; on the native side set `AVAudioSession` to `.ambient`
-  so it does not stop the player's music.
+- ~~**Audio.**~~ Done — see [audio.md](audio.md). Synthesised Web Audio, no sample files, so the
+  zero-external-assets line holds. `AppDelegate.configureAudioSession()` sets `AVAudioSession` to
+  `.ambient` so it mixes with the player's music rather than stopping it, and
+  `GameViewController`'s empty `mediaTypesRequiringUserActionForPlayback` is what lets a sound fire
+  on a frame nobody touched the screen.
 - **App Store submission**: a privacy policy URL (required even though the app collects nothing —
   it makes no network requests at all, so the nutrition label is "Data Not Collected"), age rating,
   and screenshots. `tools/shoot.mjs` can render the required sizes — 6.9" iPhone at 1320×2868, and
