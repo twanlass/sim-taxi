@@ -38,6 +38,7 @@ src/
     energybits.js       the sparks a drop-off throws from the taxi into the Punch It pill
     camera.js           fixed 3/4 orthographic camera
     scene.js            scene, sun, hemisphere fill, sky shader, distance haze
+    sfx.js              every sound in the game, synthesised — no files. See docs/audio.md
     daylight.js         hour → lighting curve, and the clock that can drive it
     debugpanel.js       the ⚙️ tweak panel
     skidmarks.js        rubber ring buffer
@@ -101,7 +102,7 @@ const event = fares.update(dt, traffic.taxi);   // 4. arrival is judged against 
 3. Fares resolve last, against positions that are already final for the frame.
 
 `fares.update` returns the frame's events as `{type, fare}` objects (`'spawned'`, `'pickup'`,
-`'delivered'`, `'failed'`) rather than firing callbacks. The fare system therefore has no reference
+`'delivered'`, `'failed'`, `'vip-missed'`, `'urgency'`) rather than firing callbacks. The fare system therefore has no reference
 to the taxi mesh or the HUD — `main.js` translates the events into all of those. It is
 a list rather than one value because two fares run at once and more than one thing can resolve in
 the same frame.
@@ -182,7 +183,7 @@ isn't caching anything.
 ## Testing hooks
 
 `main.js` exposes `window.__taxi` with `traffic`, `boost`, `skids`, `police`, `fares`, `daylight`,
-`routeTo`, `findRoute`, `isSelected`, `flyover`, `chopper`, `flocks` (every park flock, in build order) and `redraw`. The headless tools in `tools/` drive the game
+`routeTo`, `findRoute`, `isSelected`, `flyover`, `chopper`, `flocks` (every park flock, in build order), `sfx` (audition any sound: `__taxi.sfx.play('dropoff')`) and `redraw`. The headless tools in `tools/` drive the game
 through this instead of through the DOM, which is what makes the whole suite run in about a second.
 
 `redraw()` draws one frame on demand. Shot mode never starts the render loop — it warms the sim,

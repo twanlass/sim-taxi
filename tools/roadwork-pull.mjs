@@ -36,7 +36,7 @@ import { createTraffic, setClosedLanes } from '../src/sim/traffic.js';
 import { createFareSystem } from '../src/game/fares.js';
 import { createRoadwork } from '../src/game/roadwork.js';
 import { findRoute, planOrigin, laneCost, setRoadworkLanes } from '../src/game/route.js';
-import { cityFor } from './autoplay.mjs';
+import { cityFor, BOARD_EVENTS } from './autoplay.mjs';
 
 const WEIGHTS = (process.argv[2] ?? '1.00,0.90,0.62,0.45,0.20').split(',').map(Number);
 const RUNS = Number(process.argv[3] ?? 12);
@@ -108,8 +108,12 @@ function run(runSeed, citySeed, weight, hint) {
 
     for (const { type } of events) if (type === 'delivered') taxi.route = [];
 
+    // A *board* event, not merely any event — same reason as the note in tools/autoplay.mjs, from
+    // which this loop is lifted: the fare loop also reports a clock stepping down a colour now, and
+    // that changes nothing about which job the taxi should be driving at.
+    const moved = events.some(({ type }) => BOARD_EVENTS.has(type));
     const job = nextJob();
-    if (events.length && job && job !== pending && !job.directed) {
+    if (moved && job && job !== pending && !job.directed) {
       pending = job;
       reactIn = job.stage === 'riding' ? 0 : REACTION;
       taxi.route = [];

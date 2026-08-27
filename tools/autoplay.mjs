@@ -29,6 +29,15 @@ import { isCityConnected } from '../src/city/grid.js';
 // emptier city than the one that ships.
 export const CARS = 7;
 
+/**
+ * The fare events that actually move a rider between kerb, cab and pavement — the ones that can
+ * change which job the taxi should be driving at.
+ *
+ * Named as a set rather than tested as "did anything happen" so that an event added upstream for
+ * some other consumer cannot silently rewrite this bot's strategy. See the note at its one use.
+ */
+export const BOARD_EVENTS = new Set(['spawned', 'pickup', 'delivered', 'failed', 'vip-missed']);
+
 const STEP = 1 / 60;
 
 /**
@@ -99,8 +108,18 @@ export function play(runSeed, citySeed, { fares: FARES = 40, reaction: REACTION 
 
     // Re-aim whenever the job changes hands — a pickup swaps the target to a drop-off, a delivery
     // hands the taxi over to whoever was left waiting on the kerb.
+    //
+    // Gated on a *board* event, not on `events.length`. Those were the same thing while every event
+    // the fare loop emitted moved a rider between kerb, cab and pavement; they stopped being the
+    // same thing the moment it also started reporting a clock stepping down a colour, which happens
+    // several times per fare and changes nothing about who is where. Read loosely, that turned this
+    // line into "re-decide a few times a minute" and cost the perfect player a fare off the median
+    // (12 → 11 over nine seeds) — the bot abandoning a rider it was already on its way to, for one
+    // whose clock had just ticked a step lower. A tool that measures difficulty must not have its
+    // strategy quietly rewritten by an unrelated event being added upstream, so the set is named.
+    const moved = events.some(({ type }) => BOARD_EVENTS.has(type));
     const job = nextJob();
-    if (events.length && job && job !== pending && !job.directed) {
+    if (moved && job && job !== pending && !job.directed) {
       pending = job;
       // The drop-off leg costs the player nothing: the game routes the taxi there itself on the
       // pickup frame (main.js:dispatchToDropoff), so the only reaction a run pays for is on the

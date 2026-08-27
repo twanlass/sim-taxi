@@ -24,6 +24,7 @@ about to change.
 | [docs/gameplay.md](docs/gameplay.md) | Opening vignette, fare loop, routing, picking, timer ring, economy |
 | [docs/difficulty.md](docs/difficulty.md) | The ramp: budgeted clocks, board size, shifts, the sweeps behind the numbers |
 | [docs/rendering.md](docs/rendering.md) | Low-poly technique, camera, lighting, day/night, effects |
+| [docs/audio.md](docs/audio.md) | The synthesised sound bank, the roar and the siren, the mute toggle |
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
 | [docs/lab.md](docs/lab.md) | The passing lab at `/lab/` — a straight road with no lights, for watching Loco Mode |
 | [docs/ios.md](docs/ios.md) | The App Store build: the WKWebView shell, the custom URL scheme, `window.__native` |
@@ -270,6 +271,25 @@ Omit the whole section if there's nothing to note.
   without moving it in depth. And check the *screen* separations before sizing one: neighbouring
   junctions are 14.1 screen units apart sideways and 15.4 down the diagonal, which is the whole
   budget.
+- **Every way Web Audio fails is silent, and two of them are one line apart.**
+  `exponentialRampToValueAtTime` **throws on a target of exactly zero** — which is where every
+  percussive envelope wants to end — and `game/sfx.js` wraps each voice in a `try` so a dropped
+  sound never ends a run, so the `RangeError` goes into the void and one sound is simply missing.
+  Hence `SILENT = 0.0001` and an assertion on every ramp of every voice in `tools/sfx.mjs`. The
+  neighbouring trap is the opposite sign: an oscillator with **no `stop()`** runs until the page
+  closes, and one that is never disconnected is never collected — inaudible at zero gain, and a
+  stuck tone plus a few thousand orphaned nodes fifteen minutes into a run. Both are asserted
+  against a *fake* `AudioContext` that records rather than renders, which is the only way to ask
+  those questions at all; `tools/smoke.mjs` then runs the same bank once through the real engine,
+  because a fake cannot validate arguments the way a real `AudioParam` does.
+- **An event added to `fares.update` can rewrite a difficulty measurement.** `tools/autoplay.mjs`
+  re-aimed its perfect player on `events.length`, which meant "did the board change" for exactly as
+  long as every event the fare loop emitted moved a rider between kerb, cab and pavement. Adding
+  `'urgency'` — a clock stepping down a colour, several times per fare, changing nothing about who
+  is where — turned that line into "re-decide a few times a minute" and cost the median a whole fare
+  (12 → 11 over nine seeds), silently, in a tool whose entire output is that number. The set is
+  named as `BOARD_EVENTS` now. Anything reading an event *list* rather than a *type* is making a
+  claim about the whole protocol.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

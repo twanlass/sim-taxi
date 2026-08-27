@@ -272,6 +272,45 @@
       }
       #pause-veil .pause-resume:active { transform: scale(0.95); }
 
+      /* The sound toggle, under the Resume pill and deliberately quieter than it. Resume is the one
+         thing on this screen the player came here to press; this is a setting they may never touch,
+         and giving it the same yellow would make the screen two calls to action instead of one.
+         Ghost outline, white text, half the weight.
+
+         The glyph and its label ride in the same button so the tap target covers both — a 44px row
+         rather than a 20px icon, which is the difference between a control and a dare. */
+      #pause-veil .pause-sound {
+        margin-top: clamp(12px, 2.6vh, 20px); padding: 10px 18px; border-radius: 999px;
+        display: flex; align-items: center; gap: 9px; cursor: pointer;
+        border: 1.5px solid rgba(255, 255, 255, 0.4); background: none; color: #fff;
+        font: 700 14px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+        letter-spacing: 0.02em; white-space: nowrap;
+        touch-action: manipulation;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+        transition: transform 0.1s ease, opacity 0.15s ease, border-color 0.15s ease;
+      }
+      #pause-veil .pause-sound:active { transform: scale(0.95); }
+      /* Muted reads as *turned down*, not as a disabled control: it is still the thing you press to
+         get the sound back, so it keeps its contrast and only loses its confidence. */
+      #pause-veil .pause-sound.is-off { opacity: 0.62; border-color: rgba(255, 255, 255, 0.22); }
+      /* Filled *and* stroked, both in `currentColor`: the cone is a filled polygon and the waves
+         are open arcs, and giving the polygon the same 1.9 stroke is what keeps the two halves the
+         same visual weight — a bare fill next to a 1.9 stroke reads as two icons pasted together. */
+      #pause-veil .pause-sound svg {
+        display: block; width: 19px; height: 19px; flex: none;
+        fill: currentColor; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round;
+      }
+      /* The cone is filled and the waves are stroked, so the two `g`s below have to opt out of the
+         fill they inherit — without this each arc closes across its own ends into a lens. */
+      #pause-veil .pause-sound svg g { fill: none; }
+      /* One button, two states — the same two-glyph trick as ⏸/▶ on the pause button itself. */
+      #pause-veil .pause-sound .glyph-off { display: none; }
+      #pause-veil .pause-sound.is-off .glyph-on { display: none; }
+      #pause-veil .pause-sound.is-off .glyph-off { display: block; }
+      /* The label has no hit-testable text node of its own, so a thumb resting on the word cannot
+         raise iOS's selection magnifier — see the .boost-label note. */
+      #pause-veil .pause-sound-label { pointer-events: none; }
+
       /* Earnings fly off the taxi so the payout is visibly connected to the drop-off; the flight
          itself (rise, then travel to the counter) is driven from JS so it can aim at the counter's
          actual on-screen position, which changes with the viewport. */
@@ -1338,6 +1377,27 @@
     <div id="pause-veil" role="dialog" aria-modal="true" aria-label="Paused" aria-hidden="true" hidden>
       <div class="pause-title">Paused</div>
       <button class="pause-resume" type="button">Resume</button>
+      <!-- The sound toggle. It lives here rather than in the HUD's top row, which is already three
+           things wide — see the comment on `soundButton` in main.js. Both speaker glyphs ship in
+           the one button and CSS shows whichever state is current, exactly as ⏸ does with its two:
+           the emoji versions carry their own colour and change shape per font. The label is a
+           `pointer-events: none` span for the same reason the Loco Mode pill's is — see
+           .boost-label. -->
+      <button class="pause-sound" type="button" aria-label="Sound on" aria-pressed="true"
+        aria-keyshortcuts="M">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <polygon points="3,9 7,9 12,4.5 12,19.5 7,15 3,15" />
+          <g class="glyph-on">
+            <path d="M15.2 9.2a4 4 0 0 1 0 5.6" />
+            <path d="M17.8 6.6a7.6 7.6 0 0 1 0 10.8" />
+          </g>
+          <g class="glyph-off">
+            <path d="M16 9.5 L21 14.5" />
+            <path d="M21 9.5 L16 14.5" />
+          </g>
+        </svg>
+        <span class="pause-sound-label">Sound on</span>
+      </button>
     </div>
 
     <!-- `aria-keyshortcuts` is how the spacebar hold announces itself; nothing is painted on the
