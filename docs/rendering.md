@@ -995,7 +995,7 @@ running boost doesn't re-fire either.
 
 ### Wreck — `game/blast.js`, `game/vanish.js`, plus a smoke collar out of `game/dust.js`
 
-The crash is **one call per car** — `blast.fire(x, z, tint)` — and everything *it* puts on the road
+The crash is **one call per car** — `blast.fire(x, z, tint, yaw, speed)` — and everything *it* puts on the road
 lives in one module: a shockwave ring on the tarmac, a fireball, a scatter of shards in that car's
 paint, and two tyres that bounce out and roll away. Four `InstancedMesh`es, about forty-five live
 instances at the peak of a two-car wreck.
@@ -1042,6 +1042,61 @@ per instance into plates and chunks, tinted with that car's paint so a two-car w
 two colours. They no longer bounce, settle or come to rest — wreckage on the tarmac is a detail for
 a camera that stays, and this one pulls into a close-up and then cuts to the retry screen.
 
+#### Momentum
+
+Everything above is launched out of a **stationary** origin, and a crash is not stationary. The
+first version of all of it was: the shells froze at the impact point, the fireball bloomed out of a
+fixed centre and the shards fanned off a point the taxi had already driven through. Nothing in the
+picture remembered that a car had arrived there at 22 u/s, and the beat read as *car stops, then
+explodes* — which the crash slow-mo makes worse rather than better, since it stretches exactly those
+opening frames out to five times their length.
+
+So `fire()` takes the speed the impact happened at, and each piece of the wreck is carried along the
+heading by its own share of it. The shared arithmetic is in `util/carry.js`: a **closed form** of an
+exponential drag, `origin + velocity × (1 − e^−k·age) / k`, in the same spirit as the puffs' fan and
+the tyre roll. Nothing accumulates, so a slow-motion frame is the same shape as a full-speed one —
+which matters here more than anywhere, given the whole beat is played back at 0.18×.
+
+Two constants are shared. `CARRY_DRAG = 1.7` fixes the reach at `speed / 1.7` — 12.9 units for a
+boost-speed impact, 44% of it spent in the first third of a second, so a wreck slides roughly its
+own length through the fireball's opening frames. `CARRY_CAP = 26` saturates it: Loco Mode tops out
+at 22.1 u/s and overdrive takes it to 34, and at 34 the shards left frame — worse, the two wrecks
+looked like different *events* rather than the same one at different speeds.
+
+What is per-effect is the fraction, and the ordering is about weight rather than taste:
+
+| | keeps | measured drift at 22.1 u/s |
+|---|---|---|
+| Shards | 0.70 | 7.8 units, on top of their own 6–12 of fan |
+| Shells (`vanish`) | 0.62, ×0.8 taxi / ×1.25 struck | ~3.5 units over the 0.34s they take to collapse |
+| Smoke collar (`dust`) | 0.50 | 3.2 units |
+| Fireball | 0.42 | 4.5 units |
+| Shockwave ring | 0.30 | 2.0 units |
+| Tyres | 0.28, on the bearing | 2.5–5.8 units of extra roll |
+
+- **Shards keep the most.** They are bits of the car, and bodywork that separates from a car at
+  22 u/s is still doing 22 u/s a moment later. Much under this and the shower fans out symmetrically
+  around a point the taxi has already left.
+- **The fireball keeps rather less.** Burning fuel is buoyant gas: it goes with the wreck, but the
+  air the bodywork punches through drags it back. At the shards' fraction the flame front outran the
+  wreckage it came out of, which reads as a fireball being *fired* downfield.
+- **The ring keeps least of the three**, because what it wants is to stay under the fireball rather
+  than to travel. At 0.30 the two stay concentric for the 0.45s the ring is alive.
+- **The collar's 0.50 is not out of order** — it is spent against the dust pool's own drag of 3.4
+  rather than `CARRY_DRAG`'s 1.7, so the same fraction buys less than half the ground. It lands a
+  little behind the fireball, which is right for the thing that is meant to be trailing.
+- **The tyres are the odd one out.** Theirs is not a drift at all: see below.
+
+> **The fan is keyed on `t`, the carry on `age`.** Puff lives are rolled over a wide range (×0.6 to
+> ×1.4) to stagger the colour ramp, so a puff keyed on its own fraction-of-life finishes its
+> downfield travel early and hangs back while its longer-lived neighbours go on past it. Keyed that
+> way the fireball **shears** rather than moving. Two terms, two clocks, on purpose.
+
+> **The shards could not simply have the carry added to their velocity.** Their fan is a straight
+> line at constant speed — there is no drag on a shard — so at 0.70 of 22 u/s one would still be
+> gaining ground when its life ran out, 19 units downfield and off the top of the frame. It rides
+> its own drag curve on top of the ballistic arc instead, which is bounded.
+
 #### The tyres
 
 Two per car bounce out of the wreck and roll off down the street. They are the one piece of it that
@@ -1063,10 +1118,18 @@ the vertex attribute, so this is the one pool here that wants `vertexColors` and
   physics packet: nothing accumulates, and a slow-motion frame is the same shape as a full-speed
   one. That matters here more than usual, because a wreck is *seen* in slow motion.
 - **Horizontal travel is closed-form exponential drag**, so the reach is finite and known —
-  `v / TYRE_DRAG`, 11–14 units. It has to outrun the smoke collar, whose own front reaches about 8;
-  a tyre still inside the smoke when it fades never rolled anywhere. And it is spent slowly enough
-  that the tyre is *still moving* when it fades, because one that stops and then disappears is a
-  thing being deleted.
+  `v / TYRE_DRAG`. It has to outrun the smoke collar, whose own front reaches about 8; a tyre still
+  inside the smoke when it fades never rolled anywhere. And it is spent slowly enough that the tyre
+  is *still moving* when it fades, because one that stops and then disappears is a thing being
+  deleted.
+- **The impact's momentum is folded into that launch rather than carried beside it.** This is the
+  one piece of the wreck that does not get a drift vector, and the spin is why: it is read straight
+  off the distance covered, so a carry added alongside would be ground the wheel crossed without
+  turning — the exact "disc being spun and slid" the roll exists to avoid. `TYRE_CARRY` = 0.28 of
+  the taxi's speed is projected onto each tyre's own bearing instead (`cos` of the fan offset, 0.94
+  down to 0.41), so it is simply a harder launch, and the tyres thrown most nearly downfield get
+  most of it — which is also what should happen. Over 400 seeds the furthest tyre is 18.9 units out
+  at 2.5s against 12.4 without it, still inside the 26-unit half-height the camera pulls into.
 - **The spin is the distance covered over the radius** — rolling without slipping, taken from the
   travel rather than picked to look right, which is the difference between a wheel rolling and a
   disc being spun and slid along. It costs nothing: the distance is already in hand.
@@ -1099,7 +1162,7 @@ collar can only ever be *behind* the flame front — which is what lets it start
 tucked against the core, and be pushed clear by its own throw. A collar that starts already clear
 of the fire reads as a second, later event.
 
-Four numbers, and none of them is free:
+Five numbers, and none of them is free:
 
 - **`WRECK_START_SIZE = 1.2`**, against the trail's 0.5. The size curve is tuned for dust coming off
   a tyre, which begins at a point and swells; at the frame the fireball peaks the collar was still
@@ -1112,6 +1175,12 @@ Four numbers, and none of them is free:
 - **The start radius is rolled per puff** (0.55–1.15 × the ring). At one fixed radius the collar is
   a torus, and once the fire inside it goes out a torus reads as a smoke *ring* — a shape with a
   deliberate hole in it — rather than as a cloud around a wreck.
+- **`WRECK_CARRY = 0.5`** is what stops the collar giving the game away. Everything else in the
+  wreck was taught to keep the taxi's momentum and this was the last thing that had not been, so the
+  fire, the shards and both shells slid downfield out of a grey ring left standing on the impact
+  point — which reads *worse* than nothing having moved, because now there is a stationary thing in
+  frame for the moving ones to be measured against. The fraction is high against the fireball's 0.42
+  only because these puffs are spent against this pool's drag of 3.4 rather than `CARRY_DRAG`'s 1.7.
 - **`wreckSmoke` in the palette is set against the road, not against `blastSmoke`.** The fireball is
   unlit, so its smoke stop can be `#4B4B55` and still read; this pool is Lambert and is lying on
   `asphalt` `#636972`. A sensible smoke grey by eye (`#6E6259`) came out at the same value as the
@@ -1123,7 +1192,22 @@ Four numbers, and none of them is free:
 `vanish.js` owns the disappearance: each shell shrinks and fades into its own fireball over 0.34s
 of sim time rather than being switched off. It steps on the frame's already-slowed `dt`, so it
 runs at the same rate as the blast through the crash slow-mo — as does the collar, which is stepped
-by the same `dust.update(dt)` the boost trail is. See
+by the same `dust.update(dt)` the boost trail is.
+
+`take()` also accepts a **drift and a slew** ([above](#momentum)), and this is where the momentum
+reads hardest: the shells are the only recognisable objects in the wreck, and a car that freezes on
+the spot and collapses reads as a car that stopped however much its explosion is moving. The two are
+given deliberately different shares — the taxi keeps 0.8 of the base for having hit something, the
+car it hit 1.25 — and are slewed in opposite directions (about 9° and 28°, spent almost entirely in
+the first third of a second) off which side of the taxi's line it was sitting on. Matched, the pair
+travels as a rigid unit, which reads as a wreck being panned across rather than as one car hitting
+another. The slew is applied by **premultiplying** a world-Y rotation onto the pose the shell was
+caught in, not by writing `rotation.y`: a shell arrives holding a quaternion decomposed out of a
+car's body matrix — corner lean, pitch rock and all — and the Euler that comes back out of that is
+in XYZ order, where `.y` is not the car's yaw.
+
+Both default to nothing, which is what keeps [the passing lab](lab.md) detonating its wrecks on the
+spot: there the useful thing about a wreck is *where it happened*. See
 [traffic.md](traffic.md#the-wreck) for the rest of the staging, and
 [testing.md](testing.md#screenshots) for `?shot=12` and `?shot=17`, which stage a real crash and
 freeze it at the fire and at the smoke respectively.

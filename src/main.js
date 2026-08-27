@@ -26,6 +26,7 @@ import { createCityEntry } from './game/cityentry.js';
 import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createVanish } from './game/vanish.js';
+import { carrySpeed } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createChopper } from './game/chopper.js';
 import { createBirds } from './game/birds.js';
@@ -521,16 +522,44 @@ let slowMoUntil = 0;
 let slowMoMin = SLOW_MO_MIN;
 let bustAt = 0;              // wallclock ms of the bust, while the banner is still waiting on the cop
 
+// What the two shells keep of the taxi's speed as they collapse into the fireballs — the drift and
+// the slew in game/vanish.js, both on util/carry.js's drag.
+//
+// The shells are where the momentum reads hardest, because they are the only recognisable objects
+// in the wreck: a fireball is an abstraction and can be forgiven for standing still, a car cannot.
+// At a boost-speed impact SHELL_CARRY moves each one about 3.5 units over the 0.34s it takes to
+// collapse — roughly its own length — and the crash slow-mo stretches that across nearly two
+// seconds on screen, which is the whole beat.
+//
+// The two are **not** given the same numbers, and that asymmetry is the point of doing it at all:
+// the taxi hit something and loses more of its speed to it, the car it hit is shoved. Give both the
+// same drift and the pair travels as a rigid unit, which is a wreck being panned across rather than
+// one car hitting another.
+const SHELL_CARRY = 0.62;
+const STRUCK_SHOVE = 1.25;      // the shunted car keeps this much more than the base share
+const TAXI_KEEP = 0.8;          // and the taxi this much less, for having hit something
+
+// How hard each one is slewed off its own line, in rad/s on the same decaying curve — so ~9° for
+// the taxi and ~28° for the car it shunted, spent almost entirely in the first third of a second.
+// Signed away from the impact below: a car struck on its left is turned to the right, and the taxi
+// the opposite way, so the two shells open apart instead of both swinging the same way.
+const SHELL_SPIN = 0.6;
+const STRUCK_SPIN = 1.9;
+
 const collisions = createCollisions(traffic.cars, traffic.taxi);
-collisions.onImpact(({ x, z, other }) => {
+collisions.onImpact(({ x, z, speed, other }) => {
   // One detonation per car — a shockwave ring on the tarmac, a fireball and a scatter of shards,
   // all of it inside game/blast.js. It used to be four effects stacked at each point plus a third
   // wave on a setTimeout, tuned as a simulation; the beat reads better as one graphic bang per
   // car, and the two of them a couple of units apart already give it the spread the follow-up
   // flare was there to fake.
   // The taxi's heading goes with it, and both cars get the taxi's: it is what throws the wreckage
-  // downfield, and it is what the tyres roll away along. See `blast.fire`.
-  blast.fire(x, z, PALETTE.taxiBody, traffic.taxi.yaw);
+  // downfield, and it is what the tyres roll away along. So does the speed it arrived at, which is
+  // what carries the whole burst along that heading instead of detonating it on the spot — a wreck
+  // that blooms out of a stationary origin reads as a car stopping and *then* exploding. See
+  // `blast.fire` and util/carry.js.
+  const yaw = traffic.taxi.yaw;
+  blast.fire(x, z, PALETTE.taxiBody, yaw, speed);
   controller.kickShake(2.4);
 
   // The car that was hit detonates at its own centre rather than at the shared impact point. The
@@ -541,7 +570,7 @@ collisions.onImpact(({ x, z, other }) => {
   // It used to spin out, snap back onto a lane and drive away. A boosting taxi arrives at ~19 u/s
   // and the survivor shrugging that off made the player's own wreck look like a rule rather than
   // a crash.
-  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex], traffic.taxi.yaw);
+  blast.fire(other.x, other.z, PALETTE.carBody[other.colorIndex], yaw, speed * STRUCK_SHOVE);
 
   // And a collar of smoke around the pair — the same lit, faceted puffs a barricade throws, tinted
   // grey and opened out into a ring (see `dust.wreckSmoke`). The fireball is unlit flat colour, so
@@ -549,12 +578,34 @@ collisions.onImpact(({ x, z, other }) => {
   // the sun, which is exactly the contrast that makes the fire read as the hot middle of something
   // bigger. One call for both cars, at the point between them: two collars would have packed grey
   // into the seam where the two fireballs meet, which is the middle of the blast.
-  dust.wreckSmoke((x + other.x) / 2, (z + other.z) / 2, traffic.taxi.yaw);
+  dust.wreckSmoke((x + other.x) / 2, (z + other.z) / 2, yaw, speed);
 
   // Both shells collapse into their own fireballs — see game/vanish.js for why they are faded out
   // rather than simply hidden. `wreckShell` also takes each car off the road for good.
-  vanish.take(traffic.wreckShell(traffic.taxi));
-  vanish.take(traffic.wreckShell(other));
+  //
+  // They collapse while still *moving*, along the taxi's heading and at their own share of its
+  // speed — saturated here, because these two calls are the only place the speed is done
+  // arithmetic with by hand; `blast.fire` and `dust.wreckSmoke` both clamp what they are handed.
+  const carry = carrySpeed(speed);
+  const fx = Math.cos(yaw);
+  const fz = -Math.sin(yaw);
+
+  // Which way each shell is slewed comes off which side of the taxi's line the car it hit was
+  // sitting on: the cross product of the heading with the offset between the two centres. A car
+  // clipped on its left is turned to the right and the taxi recoils the other way, so the pair
+  // opens apart — a glance rather than two objects deleted in formation. Cars meeting dead centre
+  // give a cross near zero, and `|| 1` picks a side rather than leaving both shells unturned.
+  const struckSide = Math.sign(fx * (other.z - traffic.taxi.z) - fz * (other.x - traffic.taxi.x)) || 1;
+  vanish.take(traffic.wreckShell(traffic.taxi), {
+    driftX: fx * carry * SHELL_CARRY * TAXI_KEEP,
+    driftZ: fz * carry * SHELL_CARRY * TAXI_KEEP,
+    spin: -struckSide * SHELL_SPIN,
+  });
+  vanish.take(traffic.wreckShell(other), {
+    driftX: fx * carry * SHELL_CARRY * STRUCK_SHOVE,
+    driftZ: fz * carry * SHELL_CARRY * STRUCK_SHOVE,
+    spin: struckSide * STRUCK_SPIN,
+  });
 
   endSpot = { x, z };
   endZoom = WRECK_ZOOM;

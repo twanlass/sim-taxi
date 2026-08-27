@@ -69,6 +69,12 @@ export function createCollisions(cars, taxi) {
 
       const px = (taxi.x + other.x) / 2;
       const pz = (taxi.z + other.z) / 2;
+      // Read before the two lines below zero it. Everything the crash throws downfield is sized
+      // off how fast the taxi arrived — the fireball's drift, the shards, the tyres, both shells
+      // and the smoke collar (see util/carry.js) — and once `taxi.v` is zeroed there is nothing
+      // left in the world to recover it from: the listener runs after the fact and both cars are
+      // out of the sim by then.
+      const speed = taxi.v;
 
       // Both cars are wrecked. `crashed` is what takes a car out of the simulation entirely —
       // every loop in traffic.js skips it — so neither body drives, queues or is queued behind
@@ -84,7 +90,7 @@ export function createCollisions(cars, taxi) {
       other.crashed = true;
       other.v = 0;
 
-      emit({ x: px, z: pz, taxi, other });
+      emit({ x: px, z: pz, speed, taxi, other });
       return;   // one impact per frame is plenty — the taxi is done anyway.
     }
   }

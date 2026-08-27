@@ -4438,7 +4438,14 @@ check('the taxi is an ordinary car in the traffic array',
     for (const car of [event.taxi, event.other]) {
       const shell = cTraffic.wreckShell(car);
       shells.push(shell);
-      cVanish.take(shell);
+      // Mirroring main.js again: each shell collapses while still *moving*, along the taxi's
+      // heading and at its share of the speed the impact came in at. The fractions here are only
+      // representative — what is being checked below is the wiring, not main.js's tuning.
+      cVanish.take(shell, {
+        driftX: Math.cos(event.taxi.yaw) * event.speed * 0.6,
+        driftZ: -Math.sin(event.taxi.yaw) * event.speed * 0.6,
+        spin: 1.2,
+      });
     }
     cFares.crash();
   });
@@ -4461,6 +4468,19 @@ check('the taxi is an ordinary car in the traffic array',
   check('the taxi is wrecked by the impact', cTaxi.crashed);
   check('game over fires with the wreck reason', cFares.state.gameOver
     && /paycheck/i.test(cFares.state.failReason ?? ''), cFares.state.failReason);
+
+  // The impact carries the speed it happened at. `collisions.update` zeroes both cars a line
+  // before it emits, so a listener that went looking for `taxi.v` itself would read 0 and every
+  // piece of the wreck's momentum would quietly come out stationary — which is exactly what the
+  // whole crash looked like before this existed.
+  //
+  // The pair is the check, not the number: a speed still on the event *and* a zero on the car it
+  // came off. The staged impact here fires on the first frame of the boost, so 8-odd u/s rather
+  // than the 22 a real one arrives at — which is fine, since what is being asserted is the
+  // ordering of two lines rather than a magnitude.
+  check('the impact reports the speed it happened at, after zeroing the car',
+    impact.speed > 1 && impact.taxi.v === 0,
+    `${impact?.speed?.toFixed(1)} u/s on the event, ${impact?.taxi?.v} on the taxi`);
 
   const victim = impact?.other;
   check('the car it hit is wrecked too', Boolean(victim?.crashed));
@@ -4497,11 +4517,27 @@ check('the taxi is an ordinary car in the traffic array',
   // One material across the copy's body and wheels; read it off the body mesh.
   const shellMaterial = shells[1].children[0].material;
   const baseScale = shells[1].scale.x;
+  const shellFrom = shells[1].position.clone();
+  const shellPose = shells[1].quaternion.clone();
   cVanish.update(0.17);
   check('a wreck shell shrinks and fades under the explosion',
     shells[1].scale.x < baseScale && shells[1].scale.x > 0
     && shellMaterial.opacity < 1 && shellMaterial.opacity > 0,
     `scale ${shells[1].scale.x.toFixed(2)}, opacity ${shellMaterial.opacity.toFixed(2)}`);
+
+  // And it is still travelling while it does. The shells are the most visible half of the crash's
+  // momentum — a fireball is an abstraction and can be forgiven for standing still, a recognisable
+  // car cannot — so a shell that collapsed on the spot read as the taxi stopping and *then*
+  // exploding however much was moving around it. Downfield along the heading, and slewed off its
+  // own line as it goes.
+  const heading = { x: Math.cos(impact.taxi.yaw), z: -Math.sin(impact.taxi.yaw) };
+  const moved = shells[1].position.clone().sub(shellFrom);
+  check('a wreck shell keeps travelling as it collapses',
+    moved.length() > 0.4
+    && moved.x * heading.x + moved.z * heading.z > moved.length() - 1e-6
+    && shells[1].quaternion.angleTo(shellPose) > 0.05,
+    `${moved.length().toFixed(2)} units on, `
+    + `${(shells[1].quaternion.angleTo(shellPose) * 180 / Math.PI).toFixed(1)}° of slew`);
   cVanish.update(0.4);
   check('a wreck shell ends hidden at zero size',
     !shells[1].visible && shells[1].scale.x === 0 && cVanish.pending() === 0);
@@ -4865,6 +4901,59 @@ check('the taxi is an ordinary car in the traffic array',
     }
   }
   check('no shard falls through the road', lowest >= 0.2 - 1e-6, `lowest y ${lowest.toFixed(3)}`);
+
+  // Momentum. A crash at 22 u/s that blooms out of a stationary origin reads as a car stopping and
+  // *then* exploding — and the crash slow-mo stretches exactly those frames out to five times their
+  // length, so it is the one thing the beat cannot hide. Each of the three drifts along the
+  // heading, by its own fraction of the taxi's speed (util/carry.js), and the ordering between them
+  // is the claim: shards keep the most, then the fireball, then the ring — which is what keeps the
+  // ring under the fire and the fire behind the wreckage rather than the other way about.
+  //
+  // Measured against the *same seed* detonated at rest, so what is being read is the drift and not
+  // the roll of the fan, and along the heading, so a burst that merely got wider does not pass.
+  const BLAST_HEADING = 0.6;
+  const forward = { x: Math.cos(BLAST_HEADING), z: -Math.sin(BLAST_HEADING) };
+  const reachOf = (speed) => {
+    const scene = new THREE.Scene();
+    const b = createBlast(scene, makeRng(seed + 91));
+    b.fire(0, 0, PALETTE.taxiBody, BLAST_HEADING, speed);
+    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    const out = { ring: 0, puff: 0, shard: 0, side: 0 };
+    for (let step = 0; step < 60 * 3; step++) {
+      b.update(1 / 60);
+      for (const [key, mesh] of [['ring', b.ringMesh], ['puff', b.puffMesh], ['shard', b.shardMesh]]) {
+        for (let i = 0; i < mesh.count; i++) {
+          mesh.getMatrixAt(i, m);
+          m.decompose(p, new THREE.Quaternion(), sc);
+          if (sc.x <= 0) continue;
+          out[key] = Math.max(out[key], p.x * forward.x + p.z * forward.z);
+          // Across the heading. The carry must not show up here at all: a drift that leaked
+          // sideways would be a sign vs a rotation error, which is invisible in the reach.
+          out.side = Math.max(out.side, Math.abs(p.x * -forward.z + p.z * forward.x));
+        }
+      }
+    }
+    return out;
+  };
+  const still = reachOf(0);
+  const moving = reachOf(22.1);
+  const drift = {
+    ring: moving.ring - still.ring,
+    puff: moving.puff - still.puff,
+    shard: moving.shard - still.shard,
+  };
+  check('the blast carries downfield, hardest on the heaviest debris',
+    drift.ring > 1.5 && drift.puff > drift.ring && drift.shard > drift.puff && drift.shard < 12,
+    `ring +${drift.ring.toFixed(2)}, fireball +${drift.puff.toFixed(2)}, shards +${drift.shard.toFixed(2)}`);
+  check('none of the carry leaks across the heading',
+    Math.abs(moving.side - still.side) < 1e-6,
+    `${still.side.toFixed(2)} at rest vs ${moving.side.toFixed(2)} moving`);
+  // And a blast fired without a speed is exactly the old one: the lab and the shot tool both rely
+  // on a wreck detonating where it happened.
+  check('a blast with no momentum detonates on the spot', still.ring === 0,
+    `ring reached ${still.ring.toFixed(3)}`);
 }
 
 // --- The tyres that get away -------------------------------------------------
@@ -4877,8 +4966,12 @@ check('the taxi is an ordinary car in the traffic array',
   const tScene = new THREE.Scene();
   const wreck = createBlast(tScene, makeRng(seed + 95));
   const HEADING = 0.6;
-  wreck.fire(0, 0, PALETTE.taxiBody, HEADING);
-  wreck.fire(3, 1.5, PALETTE.carBody[1], HEADING);
+  // At boost speed, because that is the only way a wreck happens: the taxi's momentum is folded
+  // into the tyres' launch (TYRE_CARRY) rather than carried beside it as a drift, and a tyre
+  // thrown at rest would test a flight the game never produces.
+  const IMPACT = 22.1;
+  wreck.fire(0, 0, PALETTE.taxiBody, HEADING, IMPACT);
+  wreck.fire(3, 1.5, PALETTE.carBody[1], HEADING, IMPACT);
 
   check('a wreck throws two tyres per car', wreck.tyreMesh.count >= 4);
 
@@ -4922,11 +5015,39 @@ check('the taxi is an ordinary car in the traffic array',
   // It leaves the wreck, along the heading it was given rather than back up the road the taxi came
   // down, and it stays inside the framing the camera pulls into (WRECK_ZOOM 26 is a half-height of
   // 26 units, and a tyre off the top of that is a tyre nobody saw).
+  //
+  // The ceiling is what sizes TYRE_CARRY, so it is asserted rather than assumed: over 400 seeds the
+  // furthest tyre at 2.5s is 18.9 units out with the impact carry against 12.4 without it. 22 is
+  // that measurement plus a little room for the roll's own spread, and still four units inside the
+  // frame.
   const end = track[track.length - 1];
   const away = (end.x * Math.cos(-HEADING) + end.z * Math.sin(-HEADING)) / Math.hypot(end.x, end.z);
   check('the tyre rolls away downfield and stays in frame',
-    Math.hypot(end.x, end.z) > 4 && Math.hypot(end.x, end.z) < 20 && away > 0.3,
+    Math.hypot(end.x, end.z) > 4 && Math.hypot(end.x, end.z) < 22 && away > 0.3,
     `${Math.hypot(end.x, end.z).toFixed(1)} units out, ${away.toFixed(2)} of it downfield`);
+
+  // The carry is spent on the tyre's own bearing rather than added beside it, which is what keeps
+  // the roll slip-free above — so it can only show up as a *longer* flight along the same line, and
+  // most of it goes to the tyre thrown most nearly downfield. Same seed, same fan, no impact.
+  const restScene = new THREE.Scene();
+  const atRest = createBlast(restScene, makeRng(seed + 95));
+  atRest.fire(0, 0, PALETTE.taxiBody, HEADING);
+  //
+  // Measured from the tyre's *own* launch point rather than from the wreck's centre: `fire` jitters
+  // each origin by up to 0.6, so a bearing taken from (0, 0) is a few degrees off the line the
+  // tyre actually rolled and this check would fail against perfectly good arithmetic.
+  const restAt = new THREE.Vector3();
+  const origin = new THREE.Vector3();
+  atRest.tyreAt(0, 0, origin);
+  atRest.tyreAt(0, 2.5, restAt);
+  const rolled = (p) => Math.hypot(p.x - origin.x, p.z - origin.z);
+  const restBearing = Math.atan2(restAt.z - origin.z, restAt.x - origin.x);
+  wreck.tyreAt(0, 2.5, at);
+  check('the impact throws the tyres further down the same line',
+    rolled(at) > rolled(restAt) + 1.5
+    && Math.abs(Math.atan2(at.z - origin.z, at.x - origin.x) - restBearing) < 1e-6,
+    `${rolled(restAt).toFixed(1)} → ${rolled(at).toFixed(1)} units `
+    + `on bearing ${restBearing.toFixed(3)}`);
 
   // It fades rather than vanishing, and then it goes: an instance left at size is still a draw.
   const liveTyres = () => {
@@ -5010,6 +5131,43 @@ check('the taxi is an ordinary car in the traffic array',
     && Math.max(...livePuffs().map((p) => p.s)) > Math.max(...opening.map((p) => p.s)),
     `median r ${middle.toFixed(2)} → ${spreadMiddle.toFixed(2)}, out to `
     + `${spread[spread.length - 1].toFixed(2)}`);
+
+  // It travels with the rest of the wreck. This one is a check about the *other* effects: the
+  // fireball, the shards and both shells were taught to keep the taxi's momentum and this was the
+  // last thing that had not been, so the crash slid downfield out of a grey ring left standing on
+  // the impact point — which reads worse than nothing having moved, because a stationary thing in
+  // frame is what the moving ones get measured against. Its own centre, so a collar that merely
+  // opened wider does not pass.
+  const cScene = new THREE.Scene();
+  const carried = createDust(cScene, null, makeRng(seed + 91));
+  const CARRY_HEADING = 0.6;
+  carried.wreckSmoke(0, 0, CARRY_HEADING, 22.1);
+  for (let step = 0; step < 40; step++) {
+    carried.update(1 / 60);
+    smoke.update(1 / 60);
+  }
+  // `livePuffs` above reports an unsigned radius, which cannot tell a collar that moved from one
+  // that grew. This is the same walk projected onto the heading, and averaged: the throw is a
+  // symmetric fan, so its mean sits on the collar's own centre and the drift is all that is left.
+  const meanAlong = (d) => {
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+    let sum = 0;
+    let n = 0;
+    for (let i = 0; i < d.mesh.count; i++) {
+      d.mesh.getMatrixAt(i, matrix);
+      matrix.decompose(position, new THREE.Quaternion(), scale);
+      if (scale.x <= 0) continue;
+      sum += position.x * Math.cos(CARRY_HEADING) + position.z * -Math.sin(CARRY_HEADING);
+      n += 1;
+    }
+    return n ? sum / n : 0;
+  };
+  const drifted = meanAlong(carried);
+  check('the wreck collar travels with the wreck',
+    drifted > 2 && drifted < 5 && Math.abs(meanAlong(smoke)) < 0.5,
+    `${drifted.toFixed(2)} units downfield, ${meanAlong(smoke).toFixed(2)} at rest`);
 
   // It outlives the fire, and by enough to still be *visible* — a puff is at 4% opacity by the end
   // of its own life, so "one frame longer than the fireball" would be a check that passes on
