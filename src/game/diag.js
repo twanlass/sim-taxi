@@ -115,6 +115,28 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
   // got the picture back. Caught by a swiftshader box dropping the context under a headless run.
   if (!element) return { update: () => {}, note: () => {} };
 
+  /**
+   * The audio layer in one line, and it exists for the same reason every other line here does: a
+   * failure a desktop cannot see and a phone cannot report.
+   *
+   * "I can't hear anything" has two causes with identical symptoms and opposite fixes. Either the
+   * game never scheduled a sound — no context, a context still suspended because no gesture ever
+   * reached `unlock()`, or the mute — which is a bug in `game/sfx.js` or its wiring. Or the game
+   * scheduled plenty and the *device* swallowed them, which on iOS is very often the ring/silent
+   * switch: Safari and a WKWebView both route Web Audio through an audio session that the hardware
+   * switch silences, so a perfectly working game is inaudible with nothing logged anywhere.
+   *
+   * `played` is what splits them. A number climbing as you drive, with `ctx running` beside it,
+   * means the sound is being made and something after this code is eating it.
+   */
+  function describeAudio(sfx) {
+    if (!sfx) return '';
+    const s = sfx.state;
+    const where = s.dead ? 'DEAD' : (s.ctx ? s.ctx.state : 'none');
+    return `\naudio ${where}${s.muted ? ' · MUTED' : ''}`
+      + ` · played ${s.played} · dropped ${s.dropped} · voices ${s.voices}`;
+  }
+
   const gl = renderer.getContext();
   const { renderer: gpu, vendor } = describeGpu(gl);
   const buffers = describeBuffers(gl);
@@ -195,7 +217,7 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
     return `${centre[0]},${centre[1]},${centre[2]}`;
   }
 
-  function update(dt) {
+  function update(dt, sfx = null) {
     frames += 1;
     sinceFlush += dt;
     if (sinceFlush < 0.5) return;
@@ -223,6 +245,7 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
       // anything. `mid` is the centre pixel of the frame on screen: black here and black on the
       // screen agree, and anything else means the frame was drawn and never presented.
       + ` · mid ${readCentrePixel() ?? '--'}`
+      + describeAudio(sfx)
       + notice;
   }
 

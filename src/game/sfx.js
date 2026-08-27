@@ -178,6 +178,18 @@ export function createSfx({ context = defaultContext, store = defaultStore(), mu
     /** Where the siren's wail is in its sweep, in cycles. Advanced by `update`, never by a clock
      *  of its own — a paused game holds it exactly where it was. */
     wail: 0,
+    /**
+     * How many `play()` calls this run has scheduled, and how many it has refused.
+     *
+     * Counters rather than a log, and they exist for one question that cannot be answered any
+     * other way: **"I can't hear anything"** on a device with no console. A game that has
+     * scheduled forty voices into a running context and is still silent is a device problem — a
+     * ring/silent switch, the volume, a routing to a headset that is not on a head — and a game
+     * that has scheduled none has a bug in here. Those two have identical symptoms and opposite
+     * fixes, and `?diag` reads these to tell them apart (see `game/diag.js`).
+     */
+    played: 0,
+    dropped: 0,
   };
 
   let master = null;      // gain -> compressor -> destination
@@ -630,17 +642,20 @@ export function createSfx({ context = defaultContext, store = defaultStore(), mu
    */
   function play(name, options) {
     if (!SOUND_SET.has(name)) throw new Error(`unknown sound: ${name}`);
-    if (state.muted || state.dead || !state.ctx) return false;
+    if (state.muted || state.dead || !state.ctx) { state.dropped += 1; return false; }
     const ctx = state.ctx;
     // A context the browser suspended behind our back — a tab that lost focus, iOS taking a call —
     // would schedule every voice against a frozen clock and then play the whole pile at once on
     // resume. Dropping them is the only correct answer.
-    if (ctx.state !== 'running') return false;
-    if (state.voices >= MAX_VOICES) return false;
+    if (ctx.state !== 'running') { state.dropped += 1; return false; }
+    if (state.voices >= MAX_VOICES) { state.dropped += 1; return false; }
 
     const now = ctx.currentTime;
     const gap = REPEAT_GAP[name];
-    if (gap !== undefined && now - (state.lastAt[name] ?? -Infinity) < gap) return false;
+    if (gap !== undefined && now - (state.lastAt[name] ?? -Infinity) < gap) {
+      state.dropped += 1;
+      return false;
+    }
     state.lastAt[name] = now;
 
     try {
@@ -649,8 +664,10 @@ export function createSfx({ context = defaultContext, store = defaultStore(), mu
       // mid-envelope and the sound opens with a click. 12ms is under a frame and comfortably over a
       // 128-sample quantum at any sample rate a browser offers.
       BANK[name](now + 0.012, options);
+      state.played += 1;
       return true;
     } catch {
+      state.dropped += 1;
       return false;
     }
   }

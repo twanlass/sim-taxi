@@ -2354,7 +2354,9 @@ function frame() {
   renderFrame();
   // After the render, not before: `renderer.info` resets itself at the top of every `render()`,
   // so this is the frame that just went to the screen rather than the one before it.
-  diag.update(wallDt);
+  // `sfx` handed over on the frame rather than at construction: the panel is built with the
+  // renderer, long before the audio layer exists, and what it wants is this frame's state anyway.
+  diag.update(wallDt, sfx);
 }
 
 // The gear button sits top-right at small widths and started overlapping the streak counter
