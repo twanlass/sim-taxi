@@ -18,13 +18,13 @@ import {
  *      sampling.
  *   2. **A hero's ink is an inverted hull.** A screen-space line can only paint on the pixels of
  *      the thing it is outlining, because that is the only place a lit material runs — so it eats
- *      *inward*. On a car 26px wide at play zoom, a line thick enough to pull it off the road eats
+ *      *inward*. On a car 24px wide at play zoom, a line thick enough to pull it off the road eats
  *      a fifth of the car. An inflated back-face hull draws *outward*, which is what a cartoon
  *      outline actually is, and it takes its thickness per object rather than per screen.
  *
  * So the taxi, the ambient cars, the trucks and the cruiser wear hulls; the city wears the
  * screen-space line; and the difference in weight between them is the whole point — a hero reads
- * as a hero because its outline is twice everything else's.
+ * as a hero because its outline is half again everything else's.
  *
  * `?cartoon`, independent of `?crayon`. Both on at once is two inks over one frame; nothing breaks
  * and nobody should want it.
@@ -50,12 +50,12 @@ export const TAXI_RIM = 0.30;
 
 // The most of a part's own smallest dimension an outline may ever be.
 //
-// One rim across a whole vehicle is wrong the moment the vehicle has small parts on it. The taxi's
-// roof sign is 0.34 units tall, so the hero rim of 0.30 would very nearly *double* it — a black
-// lozenge with a hint of yellow in the middle, which is what `addGhostOutline` already carries a
-// hand-tuned second rim for. Clamping against the part instead means one number describes the look
-// and every part still reads as itself: the sign lands at 0.12, a wheel at 0.14, the shell at the
-// full 0.30.
+// A backstop rather than a working part of the look, now that `outlineRoot` picks one body per
+// vehicle: a body is never small enough for this to bind, and the taxi's shell keeps the full 0.30.
+// It is here because a rim stated in world units is a fraction of a body and a *multiple* of a
+// small part, and the moment anything asks for an outline on something slimmer than a car it would
+// double it rather than trace it — the taxi's roof sign is 0.34 units tall, and this caps it at
+// 0.12. `addGhostOutline` carries a hand-tuned second rim for exactly that case; this derives it.
 const MAX_RIM_FRACTION = 0.35;
 
 /** Ink is paint, never a target: the picker has to see straight through it. */
