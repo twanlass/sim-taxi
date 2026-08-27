@@ -4,6 +4,8 @@ import { createPassengerPin, createDestinationPin } from '../geometry/marker.js'
 import { createPerson } from '../geometry/person.js';
 import { createCurseBubble } from '../geometry/cursebubble.js';
 import { createFareMarker } from './faremarker.js';
+import { sightlineClear } from './sightline.js';
+import { RING_R, RING_Y } from '../geometry/targetring.js';
 import { urgencyLevel, URGENCY_SEGMENTS, fareColor } from './urgency.js';
 import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_RIDER } from './selectpop.js';
 import { chainSeconds, planOrigin } from './route.js';
@@ -343,6 +345,54 @@ export const onParkBlock = (spot) => {
   return isParkBlock(bi, bj);
 };
 
+// How far out from the kerb corner the visibility test samples, and on what pattern. The widest
+// ground mark a corner ever wears is the fare disc at RING_R; the courier pad is a shade smaller.
+// Sampled at half that reach rather than at the rim, because the rim is not the part that has to
+// be visible: the far edge of *every* mark on a kerb corner disappears under its own building's
+// façade — the corner stands 0.35 clear of a wall and the mark is 3.5 across — and a test that
+// counted that would call the whole city hidden.
+const SEEN_REACH = RING_R / 2;
+// Six samples, and the seventh is left out on purpose. The up-screen diagonal — the mark's far
+// corner — is **buried under its own building on 82% of the corners in the city**: the pin stands
+// 0.35 clear of the façade and the mark reaches 1.75 further, so on any block with a building on
+// it that sample is inside the mass. A sample that fails almost everywhere carries no information
+// about the corners that are actually hidden; it would just shift the threshold by one.
+const SEEN_SAMPLES = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]];
+// How many of the six have to reach the camera — and the number was read off a measurement rather
+// than picked. Over 720 corners in 20 cities, scored against a real raycast sweep of the whole
+// mark: every corner with less than 60% of its mark visible scored **0 or 1**, and every corner
+// with more than 85% visible scored **4 or more**. There is a clean gap between the two
+// populations and the threshold sits in it, with a count of margin either way. Three takes 1.7
+// junctions of 36 out of play and drops no corner the camera could see.
+const SEEN_MIN = 3;
+
+/**
+ * Whether the camera can actually see the marker on this intersection's corner.
+ *
+ * Exported for `game/parcels.js` for the same reason `onParkBlock` is: it is a fact about where
+ * `cornerFor` puts a pin, and that placement has one owner. Both boards draw through it, so a
+ * corner a building stands in front of is simply not offered — to a rider, to a drop-off, or to
+ * either end of a courier job.
+ *
+ * The courier is what forced it. A fare hangs a crystal at 9.65 over its rider and paints a band
+ * to its drop-off, so a hidden disc still has something above the skyline speaking for it; a
+ * package's pad is a mark on the ground and nothing else (geometry/marker.js removed its floating
+ * head on purpose), so a pad behind a tower is a delivery with no visible destination. Applied to
+ * both boards rather than the courier alone because a rider the player cannot find is the same
+ * bug wearing a longer clock.
+ *
+ * Answers true for every corner until a city has been installed (`setCityOccluders`), which is the
+ * state every headless tool that never builds one runs in.
+ */
+export function cornerSeen(i, j) {
+  const c = cornerFor(i, j);
+  let seen = 0;
+  for (const [u, v] of SEEN_SAMPLES) {
+    if (sightlineClear(c.x + u * SEEN_REACH, KERB_H + RING_Y, c.z + v * SEEN_REACH)) seen += 1;
+  }
+  return seen >= SEEN_MIN;
+}
+
 /**
  * The meshes one fare needs. Built once per slot and reused for every fare that occupies it —
  * a fare is cheap bookkeeping, but a person, two pins, a shaft and a ring are not something to
@@ -490,9 +540,14 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // invariant is symmetric and can be asserted as one: `cornerFor` flips its corner inward at
     // `i === 0`, so two intersections a whole block apart can still park their markers on one slab.
     const held = reserved();
+    // ...and every corner the camera cannot see (`cornerSeen`). A rider behind a tower is a rider
+    // the player hunts for with a clock draining, and their drop-off ring is the only thing saying
+    // where the trip ends. Unlike the rest of this predicate it is a fact about the *city* rather
+    // than about what is on the board, so it never changes during a run.
     const free = (i, j) => !avoid.some((a) => a.i === i && a.j === j)
       && !held.some((a) => (a.i === i && a.j === j) || onSameBlock({ i, j }, a))
-      && (!avoidBlockOf || !onSameBlock({ i, j }, avoidBlockOf));
+      && (!avoidBlockOf || !onSameBlock({ i, j }, avoidBlockOf))
+      && cornerSeen(i, j);
 
     if (near) {
       const options = [];
@@ -522,6 +577,16 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     for (let i = 0; i <= GRID; i++) {
       for (let j = 0; j <= GRID; j++) if (free(i, j)) return { i, j };
     }
+    // Still nothing: give up the *visibility* rule before the occupancy one. A marker behind a
+    // building is hard to find; two markers on one corner is a tap that answers for the wrong job.
+    // This is the same ordering the courier applies to its own park filter — the rule that only
+    // makes a job worse yields before the rule that makes it ambiguous.
+    for (let i = 0; i <= GRID; i++) {
+      for (let j = 0; j <= GRID; j++) {
+        if (!avoid.some((a) => a.i === i && a.j === j)
+          && !held.some((a) => (a.i === i && a.j === j) || onSameBlock({ i, j }, a))) return { i, j };
+      }
+    }
     // Genuinely nowhere left. Deterministic rather than random so the failure is reproducible.
     return { i: 0, j: 0 };
   }
@@ -547,8 +612,10 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
    * clear it either way. Returns null when there is nothing usable, which puts the caller back on
    * the ordinary unbiased draw.
    *
-   * "Legal" is the same pair of rules `pickIntersection` applies: not already spoken for by another
-   * fare or by the taxi's own next junction, and not on the same physical block as the pickup.
+   * "Legal" is the same set of rules `pickIntersection` applies: not already spoken for by another
+   * fare or by the taxi's own next junction, not on the same physical block as the pickup, and not
+   * on a corner the camera cannot see. A hint is a nudge toward a closed street, and a nudge is
+   * not worth staking a ring somewhere the player has to hunt for it.
    */
   function takeDropoffHint(taxiCar, spot) {
     const hint = dropoffHint;
@@ -567,7 +634,8 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     const onMap = (at) => at.i >= 0 && at.i <= GRID && at.j >= 0 && at.j <= GRID;
     const usable = hint.filter((at) => onMap(at)
       && !avoid.some((a) => a.i === at.i && a.j === at.j)
-      && !onSameBlock(at, spot));
+      && !onSameBlock(at, spot)
+      && cornerSeen(at.i, at.j));
     if (!usable.length) return null;
     // Whichever end is further from the pickup, so the trip runs the length of the closed street
     // rather than clipping its nearer corner.

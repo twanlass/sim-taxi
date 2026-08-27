@@ -270,6 +270,16 @@ Omit the whole section if there's nothing to note.
   without moving it in depth. And check the *screen* separations before sizing one: neighbouring
   junctions are 14.1 screen units apart sideways and 15.4 down the diagonal, which is the whole
   budget.
+- **A mark on the ground can be behind a building, and that is a fact about the *city*.** The view
+  never rotates and the projection is orthographic, so what occludes what does not change when the
+  player pans or zooms — a corner hidden on one frame is hidden for the whole run. Which is what
+  makes it fixable at spawn (`cornerSeen` in `game/fares.js`) rather than per frame, and what makes
+  it worth measuring rather than eyeballing: the corner the courier pad kept disappearing behind was
+  **(0, 0)**, because `cornerFor` flips *both* axes at the origin junction and lands the pin on the
+  one corner of block (0, 0) with its own building between it and the camera. The test behind it
+  (`game/sightline.js`) is a height field and not a raycast for a measured reason — 324 rays through
+  the merged city is 527 ms — and its rasterisation deliberately rounds occluders **up**, so its only
+  possible error is losing a junction rather than hiding a marker.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

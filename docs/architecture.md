@@ -29,6 +29,7 @@ src/
     route.js            Dijkstra over the road network's lanes, road-hierarchy weights
     routeline.js        the route band painted down the taxi's lane
     pick.js             raycast click picking
+    sightline.js        which kerb corners the camera can see, settled once per city
     riderfinder.js      one HUD chip per waiting rider — tap to dispatch, and peek at their corner
     taxifinder.js       the chip that comes up when the taxi is off-frame — tap to ride back to it
     faremarker.js       the fare clock, as a physical object: kerb, flight, taxi

@@ -61,6 +61,7 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getA
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
   getDiagnostics, getParcelsPin } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
+import { setCityOccluders } from './game/sightline.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
 import { createViewport } from './util/viewport.js';
@@ -214,6 +215,14 @@ if (garage) {
   scene.add(garage.group);
   garage.meshes.forEach(markOccluder);
 }
+
+// Which kerb corners this camera can see, settled once now that everything permanent is standing.
+// The board consults it when it places a marker — a rider, a drop-off ring or a courier pad on a
+// corner with a tower in front of it is a job the player cannot find. See game/sightline.js, and
+// `cornerSeen` in game/fares.js. Everything that can stand in front of a mark goes in: the towers,
+// the trees, and the depot. Nothing transient does — a construction zone is 3 units of barrier and
+// comes and goes, and the boards would have to be re-asked every time one moved.
+setCityOccluders(city.mesh, propsMesh, ...(garage?.meshes ?? []));
 
 // Density is on the difficulty curve, so the run opens at its bottom and the instanced meshes are
 // sized for its top — an InstancedMesh cannot be resized once built. An explicit `?cars=N` beats

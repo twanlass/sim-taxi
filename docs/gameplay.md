@@ -439,6 +439,54 @@ holds no reference to the taxi mesh or the HUD. `main.js` translates events into
 that. It is a list because more than one can land together: delivering the last fare clears the
 board, and the refill follows on the next frame.
 
+### Corners the camera cannot see
+
+A marker is staked on the **kerb corner** of its junction, and the camera looks down a fixed
+diagonal — so some corners have a building standing in front of them. Reported from a phone as a
+courier pad that was simply not on the map: the package was aboard, the drop-off was somewhere up
+in the haze, and there was nothing on screen to drive at.
+
+A fare survives that. Its crystal floats at 9.65 and the tallest thing that ever stands in front of
+a kerb corner tops out 5.6 units above it, so a rider always has *something* above the skyline
+speaking for them, and their chip in the HUD's rider finder
+(`game/riderfinder.js`) can dispatch the taxi at them without the map being involved at all.
+A courier pad has none of that: [`marker.js`](../src/geometry/marker.js) took the drop-off's floating
+head away on purpose, and what is left is a mark on the ground.
+
+Two families of corner, and neither is a fluke:
+
+- **The origin junction, (0, 0), in 19 cities out of 20.** `cornerFor` flips its corner inward
+  wherever there is no block on the −X−Z side, and at (0, 0) *both* axes flip — which is the one
+  corner of block (0, 0) that has that block's own building between it and the camera. Every other
+  edge junction flips one axis, and its sightline leaves the block within half a unit.
+- **The downtown junctions**, where the block on the +X+Z side carries a tower. A sightline from a
+  kerb corner reaches that block's near corner 8.5 units later and is 7.8 units up by then, so
+  anything over about 8 tall there covers the mark. Only central blocks build that high.
+
+**The board simply stops using them.** `cornerSeen` (in `game/fares.js`, beside `onParkBlock` and
+for the same reason — where a pin lands is `cornerFor`'s business) is a hard filter on both boards:
+a rider, a drop-off ring and either end of a courier job all have to stand somewhere the camera can
+see. It costs 1.7 junctions of 36 in an average city.
+
+The alternatives were a ghost outline on the pad, or giving the courier a floating head back. Both
+add a thing to read to a board that already carries four fares and a package; the filter adds
+nothing and removes the case.
+
+**Occlusion here is a property of the city, not of the frame.** The view never rotates and the
+projection is orthographic, so panning and zooming cannot change what is behind what — which is why
+the question can be settled once, when the city is built, instead of per frame.
+[`game/sightline.js`](../src/game/sightline.js) rasterises the towers, the trees and the depot into a
+half-unit **height field** and marches the sightline through it. Real rays would be the honest way
+to ask and they are what `tools/probe.mjs` checks this against, but the city is one merged mesh with
+no acceleration structure: the 324 rays a corner sweep needs measured **527 ms**, against 6 ms for
+the field.
+
+The field rounds occluders *up* (each triangle stamps its peak across the cells its bounding box
+covers), which makes its error one-sided — it can call a visible corner hidden, never a hidden one
+visible. The probe asserts exactly that against real rays, plus the other end of it: at a 1-unit
+cell the over-statement was throwing away one perfectly visible corner every six cities, which is
+why the cell is half a unit.
+
 ## Extra fares and prioritisation
 
 The taxi has **one seat**, so any extra fare beyond the one aboard is someone *waiting* — a clock

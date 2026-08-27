@@ -36,7 +36,7 @@ import {
   edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM,
 } from '../src/game/sirenglow.js';
 import {
-  createFareSystem, cornerFor, intersectionCentre, blockDistance, priceFor, MAX_FARES,
+  createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES,
   ARRIVE_RADIUS, onSameBlock, CURSE_LIFT,
 } from '../src/game/fares.js';
 import { createCurseBubble, TAIL_DROP } from '../src/geometry/cursebubble.js';
@@ -54,6 +54,7 @@ import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
 import { createPicker } from '../src/game/pick.js';
+import { setCityOccluders, sightlineClear } from '../src/game/sightline.js';
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
@@ -9295,6 +9296,145 @@ let chopperOrder; // likewise
   // `createLayout` installs the network it bakes as *the* city network (see CLAUDE.md), so the
   // sweep above has replaced the city everything below this point measures against. Put it back.
   createLayout(makeRng(seed));
+}
+
+// --- Which kerb corners the camera can see ------------------------------------
+//
+// The bug: a courier pad behind a building is a delivery with no visible destination. The fix is a
+// filter on the board rather than a new marker (game/sightline.js), and it stands on a height field
+// rather than a raycast because 324 real rays through the merged city cost half a second. So the
+// thing to check here is that the cheap answer and the honest one agree — and they are asked to
+// agree in the direction that matters, which is one-sided: a height field built from triangle
+// bounding boxes rounds occluders *up*, so it may call a visible corner hidden (costing the board a
+// junction) but must never call a hidden one visible (which is the bug).
+//
+// Swept over seeds, because which corners are hidden is a property of what got built, not of the
+// filter.
+{
+  const seenSamples = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]];
+  const caster = new THREE.Raycaster();
+  caster.far = 900;
+  // A real ray from a point on the mark, offset along the sightline the way the garage check does it.
+  const rayClear = (targets, x, y, z) => {
+    caster.set(new THREE.Vector3(x, y, z).addScaledVector(VIEW_DIR, 0.5), VIEW_DIR);
+    return !caster.intersectObjects(targets, false).length;
+  };
+  // How much of the whole mark a real ray finds, on a 5 x 5 over the pad — the ground truth the
+  // filter is scored against. Rays through the merged city are the expensive thing in this file
+  // (1.6ms each, and there is no acceleration structure to fix that), so this is spent only where
+  // it can change an answer: a corner whose six cheap samples ALL came back clear has six proven
+  // sightlines spread across its mark and cannot be one of the hidden ones. Everything else — every
+  // rejection, and every corner that scored anything less than a clean sweep — is measured.
+  const trueVisible = (targets, x, z) => {
+    let seen = 0;
+    for (let u = 0; u < 5; u++) {
+      for (let v = 0; v < 5; v++) {
+        const dx = (u / 4 * 2 - 1) * PAD_R;
+        const dz = (v / 4 * 2 - 1) * PAD_R;
+        if (rayClear(targets, x + dx, KERB_H + RING_Y, z + dz)) seen += 1;
+      }
+    }
+    return seen / 25;
+  };
+
+  let corners = 0;
+  let rejected = 0;
+  let disagreements = 0;
+  let badKept = 0;
+  let goodDropped = 0;
+  let worstKept = 1;
+  let originRejected = 0;
+  let mostRejectedInOneCity = 0;
+  const SEEDS = 4;
+  for (let n = 0; n < SEEDS; n++) {
+    const s = seed + n * 977;
+    const sweepLayout = createLayout(makeRng(s));
+    const sweepCity = createBuildings(makeRng(s + 22), sweepLayout).mesh;
+    const sweepProps = createProps(makeRng(s + 33), sweepLayout);
+    const targets = [sweepCity, sweepProps];
+    setCityOccluders(sweepCity, sweepProps);
+    let rejectedHere = 0;
+    for (let i = 0; i <= GRID; i++) {
+      for (let j = 0; j <= GRID; j++) {
+        corners += 1;
+        const c = cornerFor(i, j);
+        const seen = cornerSeen(i, j);
+        // The one-sided property, sample by sample rather than corner by corner: wherever the
+        // height field says a point is in the clear, a real ray has to reach the camera from it.
+        let clean = 0;
+        for (const [u, v] of seenSamples) {
+          const x = c.x + u * (RING_R / 2);
+          const z = c.z + v * (RING_R / 2);
+          if (!sightlineClear(x, KERB_H + RING_Y, z)) continue;
+          clean += 1;
+          if (!rayClear(targets, x, KERB_H + RING_Y, z)) disagreements += 1;
+        }
+        if (seen && clean === seenSamples.length) continue;    // proven visible, see `trueVisible`
+        const vis = trueVisible(targets, c.x, c.z);
+        if (!seen) {
+          rejected += 1;
+          rejectedHere += 1;
+          if (i === 0 && j === 0) originRejected += 1;
+          if (vis > 0.85) goodDropped += 1;
+        } else {
+          worstKept = Math.min(worstKept, vis);
+          if (vis < 0.6) badKept += 1;
+        }
+      }
+    }
+    mostRejectedInOneCity = Math.max(mostRejectedInOneCity, rejectedHere);
+  }
+
+  check('the height field never calls a hidden point visible',
+    disagreements === 0, `${disagreements} of ${corners * seenSamples.length} samples`);
+  check('no corner the camera cannot see is left on the board',
+    badKept === 0, `${badKept} kept with under 60% of the mark visible`);
+  check('...and the worst corner it does keep still shows most of its mark',
+    worstKept > 0.6, `${(worstKept * 100).toFixed(0)}% visible`);
+  // The other direction, which the cell size buys and nothing else does: a height field coarse
+  // enough to over-state a wall starts throwing away corners that were perfectly visible. At a
+  // 1-unit cell this failed on this very sweep.
+  check('no corner the camera CAN see is thrown away',
+    goodDropped === 0, `${goodDropped} dropped with over 85% visible`);
+  // The failure this was written for: `cornerFor` flips both axes at the origin junction, which is
+  // the one corner of block (0, 0) with that block's own building between it and the camera. It is
+  // hidden in nearly every city, and it was on the board in all of them.
+  check('the origin corner — hidden in nearly every city — is off the board',
+    originRejected >= SEEDS - 1, `${originRejected}/${SEEDS} cities`);
+  // A filter that eats the board is worse than the bug. Two junctions a city on average, and the
+  // worst city in the sweep is the number that would show up as "nowhere to put a fare".
+  check('and the filter costs the board a couple of junctions, not a district',
+    rejected / SEEDS < 4 && mostRejectedInOneCity <= 6,
+    `${(rejected / SEEDS).toFixed(1)} of 36 per city, worst ${mostRejectedInOneCity}`);
+
+  // With the field installed, both boards have to actually honour it — the fare loop through
+  // `free()` and the courier through its own hard filter.
+  const vScene = new THREE.Scene();
+  const vTraffic = createTraffic(makeRng(seed + 44), vScene, CARS_DEFAULT);
+  const vFares = createFareSystem(makeRng(seed + 55), vScene, {
+    reserved: () => vParcels.occupiedSpots(),
+  });
+  const vParcels = createParcelSystem(makeRng(seed + 255), vScene);
+  vTraffic.warmup(5);
+  let placements = 0;
+  let hidden = 0;
+  for (let n = 0; n < 3000; n++) {
+    vTraffic.update(1 / 60);
+    vFares.update(1 / 60, vTraffic.taxi, { delivered: 12 });
+    vParcels.state.nextSpawnAt = Math.min(vParcels.state.nextSpawnAt, vParcels.state.t ?? 0);
+    vParcels.update(1 / 60, vTraffic.taxi, { fareSpots: vFares.occupiedSpots(), delivered: 12 });
+    for (const spot of [...vFares.occupiedSpots(), ...vParcels.occupiedSpots()]) {
+      placements += 1;
+      if (!cornerSeen(spot.i, spot.j)) hidden += 1;
+    }
+  }
+  check('neither board ever stakes a marker on a corner the camera cannot see',
+    hidden === 0 && placements > 100, `${hidden} hidden of ${placements} placements`);
+
+  // `createLayout` installs the network it bakes as *the* city network (see CLAUDE.md), and
+  // `setCityOccluders` is the same shape of module state one layer up. Put both back.
+  createLayout(makeRng(seed));
+  setCityOccluders(buildings.mesh, props);
 }
 
 // --- Taxi roof sign -----------------------------------------------------------
