@@ -2,9 +2,11 @@ import * as THREE from 'three';
 import { color } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
 import { wheelGeometry, WHEEL_R } from '../geometry/wheels.js';
+import { carrySpeed, carryTravel } from '../util/carry.js';
 
-// The crash detonation, whole. One call — `fire(x, z, tint)` — puts a shockwave ring, a fireball
-// and a handful of shards on the road, and a crash makes exactly two of those calls, one per car.
+// The crash detonation, whole. One call — `fire(x, z, tint, yaw, speed)` — puts a shockwave ring, a
+// fireball and a handful of shards on the road, and a crash makes exactly two of those calls, one
+// per car.
 //
 // It replaces a stack of four: sparks.js, smoke.js, debris.js and the `blast()` half of flames.js,
 // each fired twice at two points plus a third wave on a setTimeout. That was ~60 draw calls and
@@ -24,7 +26,9 @@ import { wheelGeometry, WHEEL_R } from '../geometry/wheels.js';
 //   - **Position is a curve, not an integration.** Puffs and rings are `origin + direction × ease(t)`
 //     evaluated from scratch every frame; only the shards carry a ballistic arc, and that one is
 //     closed-form too. Nothing accumulates, so nothing has a drag constant to tune, and a slow-mo
-//     frame is exactly the same shape as a full-speed one.
+//     frame is exactly the same shape as a full-speed one. The wreck's downfield momentum is a
+//     second such curve added on top (see the CARRY block below and util/carry.js) rather than a
+//     velocity any of this is integrated against.
 //
 // Three instanced meshes, ~40 live instances at the peak of a two-car wreck.
 
@@ -78,6 +82,32 @@ const TYRE_BOUNCE = 0.5;      // restitution, per hop
 const TYRE_DRAG = 0.7;        // 1/s on the roll
 const TYRE_HOPS = 5;          // after this many the hop is under 4cm; it is rolling, not bouncing
 const TYRE_FADE = 0.3;        // last fraction of life spent fading out
+
+// Momentum. Every one of the four effects above is launched out of a *stationary* origin, and a
+// crash is not stationary — see util/carry.js for the shape of the drift and why it is a closed
+// form rather than an integration. What is per-effect is how much of the taxi's speed each one
+// keeps, and the ordering is about weight rather than taste:
+//
+//   - **Shards keep the most.** They are bits of the car, and a piece of bodywork that separates
+//     from a car at 22 u/s is still doing 22 u/s a moment later. Anything much under this and the
+//     shower fanned out symmetrically around a point the taxi had already driven through.
+//   - **The fireball keeps rather less.** Burning fuel is buoyant gas: it goes with the wreck, but
+//     it is dragged back by air the bodywork punches through. At the shards' fraction the flame
+//     front outran the wreckage it came out of, which reads as a fireball being *fired* downfield.
+//   - **The ring keeps least of the three.** It is the ground mark of the bang, so what it wants is
+//     to stay under the fireball rather than to travel: at 0.3 the two stay concentric for the
+//     0.45s the ring is alive, which is what a shockwave under a moving wreck looks like from here.
+//   - **The tyres are the odd one out** — theirs is folded into the roll instead, see `fire`.
+//
+// Measured at a boost-speed impact (22.1 u/s), over each effect's own life: the ring drifts 2.0
+// units, the fireball 4.5, and the shards 7.8 on top of their own 6–12 of fan.
+const RING_CARRY = 0.30;
+const PUFF_CARRY = 0.42;
+const SHARD_CARRY = 0.70;
+// Under the other three because it is spent on a *bearing* that is already up to 66° off the
+// heading, and because a tyre has TYRE_DRAG 0.7 rather than CARRY_DRAG 1.7 to spend it against —
+// so 0.28 of the taxi's speed buys the same 2.5–5.8 units of extra ground the fractions above do.
+const TYRE_CARRY = 0.28;
 
 // Shockwave. The one mark that reads instantly at this camera angle: a flat ring on the road
 // projects as an ellipse spreading out from under the wreck, so the blast has a size before the
@@ -213,6 +243,8 @@ export function createBlast(scene, rng) {
     oz: new Float32Array(MAX_PUFFS),
     dx: new Float32Array(MAX_PUFFS),
     dz: new Float32Array(MAX_PUFFS),
+    cx: new Float32Array(MAX_PUFFS),
+    cz: new Float32Array(MAX_PUFFS),
     reach: new Float32Array(MAX_PUFFS),
     rise: new Float32Array(MAX_PUFFS),
     size: new Float32Array(MAX_PUFFS),
@@ -229,6 +261,8 @@ export function createBlast(scene, rng) {
     vx: new Float32Array(MAX_SHARDS),
     vy: new Float32Array(MAX_SHARDS),
     vz: new Float32Array(MAX_SHARDS),
+    cx: new Float32Array(MAX_SHARDS),
+    cz: new Float32Array(MAX_SHARDS),
     wx: new Float32Array(MAX_SHARDS),
     wy: new Float32Array(MAX_SHARDS),
     wz: new Float32Array(MAX_SHARDS),
@@ -240,6 +274,8 @@ export function createBlast(scene, rng) {
     life: new Float32Array(MAX_RINGS),
     ox: new Float32Array(MAX_RINGS),
     oz: new Float32Array(MAX_RINGS),
+    cx: new Float32Array(MAX_RINGS),
+    cz: new Float32Array(MAX_RINGS),
   };
   const tyre = {
     life: new Float32Array(MAX_TYRES),
@@ -274,11 +310,26 @@ export function createBlast(scene, rng) {
    * taxi's — the car it hit is doing 8 u/s to the taxi's ~19 and may not even be pointing the same
    * way. Left out, the tyres fan evenly around the wreck and half of them roll back up the road
    * the taxi came down, which reads as an explosion rather than as a collision.
+   *
+   * `speed` is how fast the taxi was going when it hit, in u/s, and it is what the whole burst is
+   * *carried* along that heading by — see the CARRY fractions above and util/carry.js. Left at 0
+   * the blast detonates on the spot, which is what every caller did before and what the lab still
+   * wants: there the useful thing about a wreck is where it happened.
    */
-  function fire(x, z, tint = null, yaw = 0) {
+  function fire(x, z, tint = null, yaw = 0, speed = 0) {
+    // The heading as a direction in this module's (x, z): `yaw` is a sim heading, so the bearing
+    // is −yaw and forward is (cos, sin) of it. Rolled once and shared by all four effects, which
+    // is the point — a wreck whose parts drifted along four slightly different vectors would come
+    // apart rather than travel.
+    const carry = carrySpeed(speed);
+    const fx = Math.cos(-yaw) * carry;
+    const fz = Math.sin(-yaw) * carry;
+
     ring.life[nextRing] = RING_LIFE;
     ring.ox[nextRing] = x;
     ring.oz[nextRing] = z;
+    ring.cx[nextRing] = fx * RING_CARRY;
+    ring.cz[nextRing] = fz * RING_CARRY;
     nextRing = (nextRing + 1) % MAX_RINGS;
 
     for (let k = 0; k < PUFFS_PER_BLAST; k++) {
@@ -302,6 +353,8 @@ export function createBlast(scene, rng) {
       puff.oz[slot] = z + rng.jitter(0.3);
       puff.dx[slot] = Math.cos(angle);
       puff.dz[slot] = Math.sin(angle);
+      puff.cx[slot] = fx * PUFF_CARRY;
+      puff.cz[slot] = fz * PUFF_CARRY;
       puff.reach[slot] = PUFF_REACH * spread;
       puff.rise[slot] = PUFF_RISE * rng.range(0.6, 1.3);
       puff.size[slot] = PUFF_SIZE * (k === 0 ? 1.35 : rng.range(0.7, 1.15));
@@ -333,6 +386,12 @@ export function createBlast(scene, rng) {
       shard.vx[slot] = Math.cos(angle) * out;
       shard.vy[slot] = rng.range(5, 9.5);
       shard.vz[slot] = Math.sin(angle) * out;
+      // The fan is a straight line at constant speed (no drag on a shard — see updateShards), so
+      // the carry cannot simply be added to it: at 0.7 of 22 u/s a shard would still be gaining
+      // ground when its life ran out, 19 units downfield and well off the top of the frame. It
+      // rides its own drag curve instead, which is bounded.
+      shard.cx[slot] = fx * SHARD_CARRY;
+      shard.cz[slot] = fz * SHARD_CARRY;
       shard.wx[slot] = rng.range(-9, 9);
       shard.wy[slot] = rng.range(-9, 9);
       shard.wz[slot] = rng.range(-9, 9);
@@ -352,7 +411,8 @@ export function createBlast(scene, rng) {
       // two tyres rolling the same way are one tyre drawn twice, and a tyre that leaves along the
       // car's own line spends the whole shot behind the fireball it came out of.
       const side = k % 2 ? 1 : -1;
-      const bearing = -yaw + side * rng.range(0.35, 1.15);
+      const offset = side * rng.range(0.35, 1.15);
+      const bearing = -yaw + offset;
 
       tyre.life[slot] = TYRE_LIFE * rng.range(0.85, 1.1);
       tyre.life0[slot] = tyre.life[slot];
@@ -361,7 +421,16 @@ export function createBlast(scene, rng) {
       tyre.dx[slot] = Math.cos(bearing);
       tyre.dz[slot] = Math.sin(bearing);
       tyre.bearing[slot] = bearing;
-      tyre.roll[slot] = rng.range(7.5, 10);
+      // The one effect whose momentum is *not* a separate drift vector. A tyre's ground track is
+      // already a closed-form drag along its own bearing, and its spin is read straight off that
+      // distance — so a carry added beside it would be distance the wheel covered without turning,
+      // which is the exact "disc being spun and slid" the roll was written to avoid. Projected onto
+      // the bearing instead (`cos offset`, 0.94 down to 0.41 across the fan) it is just a harder
+      // launch: the tyres thrown most nearly downfield get most of it, which is also what should
+      // happen. Measured at a 22.1 u/s impact: 2.5–5.8 units of extra ground, and over 400 seeds
+      // the furthest tyre is 18.9 units out at 2.5s against 12.4 before — still inside the 26-unit
+      // half-height the camera pulls into, which is the constraint that sizes this.
+      tyre.roll[slot] = rng.range(7.5, 10) + carry * TYRE_CARRY * Math.cos(offset);
       tyre.hop[slot] = rng.range(6, 8);
       // A couple of degrees off vertical, fixed for the flight. Bolt upright, four tyres rolling
       // out of a wreck read as machined; this is the wobble of one that is going to fall over
@@ -378,15 +447,22 @@ export function createBlast(scene, rng) {
       if (puff.life[slot] <= 0) continue;
       touched = true;
       puff.life[slot] -= dt;
-      const t = Math.min(1, 1 - Math.max(0, puff.life[slot]) / puff.life0[slot]);
+      const age = puff.life0[slot] - Math.max(0, puff.life[slot]);
+      const t = Math.min(1, age / puff.life0[slot]);
 
       // Punches out and eases to a stop. This is the whole of the motion — the old fireball
       // integrated a velocity against an exponential drag to arrive at the same shape.
+      //
+      // Two terms, and they are different curves on purpose: the fan is keyed on `t`, this puff's
+      // own fraction of its own life, and the carry on `age`, real seconds. A puff rolled a short
+      // life would otherwise finish its downfield travel early and hang back while its longer-lived
+      // neighbours went on past it — the fireball would shear rather than move.
       const ease = 1 - (1 - t) ** 2.2;
+      const drift = carryTravel(age);
       dummy.position.set(
-        puff.ox[slot] + puff.dx[slot] * puff.reach[slot] * ease,
+        puff.ox[slot] + puff.dx[slot] * puff.reach[slot] * ease + puff.cx[slot] * drift,
         puff.oy[slot] + puff.rise[slot] * ease,
-        puff.oz[slot] + puff.dz[slot] * puff.reach[slot] * ease,
+        puff.oz[slot] + puff.dz[slot] * puff.reach[slot] * ease + puff.cz[slot] * drift,
       );
 
       // Pop, hold, collapse. A fireball that only faded left a full-size ghost hanging over the
@@ -433,10 +509,14 @@ export function createBlast(scene, rng) {
 
       // Closed-form ballistics, floored at the tarmac rather than bounced off it. A shard that
       // reaches the floor stays there for the last of its life and shrinks out where it landed.
+      // The carry rides on top, on its own drag curve — so a shard keeps gaining downfield after
+      // its fan has flattened out, and one that has come to rest on the road slides the last of it
+      // off rather than stopping dead.
+      const drift = carryTravel(age);
       dummy.position.set(
-        shard.ox[slot] + shard.vx[slot] * age,
+        shard.ox[slot] + shard.vx[slot] * age + shard.cx[slot] * drift,
         Math.max(SHARD_FLOOR, shard.oy[slot] + shard.vy[slot] * age - 0.5 * SHARD_GRAVITY * age * age),
-        shard.oz[slot] + shard.vz[slot] * age,
+        shard.oz[slot] + shard.vz[slot] * age + shard.cz[slot] * drift,
       );
       dummy.rotation.set(shard.wx[slot] * age, shard.wy[slot] * age, shard.wz[slot] * age);
 
@@ -548,12 +628,18 @@ export function createBlast(scene, rng) {
       if (ring.life[slot] <= 0) continue;
       touched = true;
       ring.life[slot] -= dt;
-      const t = Math.min(1, 1 - Math.max(0, ring.life[slot]) / RING_LIFE);
+      const age = RING_LIFE - Math.max(0, ring.life[slot]);
+      const t = Math.min(1, age / RING_LIFE);
 
       // Snaps out and decelerates hard — the ring is the leading edge of the bang, so all of its
       // travel belongs at the front of its life.
       const spread = RING_START + (RING_END - RING_START) * (1 - (1 - t) ** 2.6);
-      dummy.position.set(ring.ox[slot], RING_Y, ring.oz[slot]);
+      const drift = carryTravel(age);
+      dummy.position.set(
+        ring.ox[slot] + ring.cx[slot] * drift,
+        RING_Y,
+        ring.oz[slot] + ring.cz[slot] * drift,
+      );
       dummy.rotation.set(0, 0, 0);
       dummy.scale.set(spread, 1, spread);
       dummy.updateMatrix();

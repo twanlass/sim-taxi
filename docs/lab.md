@@ -71,7 +71,11 @@ Three departures, all so a scenario can be run twice.
   up front that it never restores anything: a wreck ends the run and Retry reloads the page. The lab
   resets in place a beat later, and leaves the taxi standing where it stopped — in a lab the useful
   thing about a wreck is *where it happened*. The car it hit still gets the full treatment, since
-  that one is re-staged from the pool anyway.
+  that one is re-staged from the pool anyway. For the same reason the lab passes no impact speed to
+  `blast.fire` or `dust.wreckSmoke`, so its wrecks detonate on the spot rather than carrying
+  downfield the way the game's do (see [rendering.md](rendering.md#momentum)) — a blast that slid
+  away from a taxi standing still would separate the one thing this view is for from the mark it
+  left.
 - **The taxi is handed a route.** The overtake is only offered where the taxi's route carries
   straight on through the junction ahead — `room` in `traffic.js` reads `route[0] === car.d`, which
   is what stops the game pulling out on the approach to a corner it is about to take. A lab taxi has

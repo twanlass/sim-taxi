@@ -1246,6 +1246,13 @@ other car's centre. The two are only a couple of units apart, but that is enough
 blast across both bodies instead of stacking it on the seam between them, and each call carries
 that car's paint, so the shards come apart in two colours and what flies is visibly two cars.
 
+**And then it all keeps going.** Both calls also carry the taxi's heading *and the speed it arrived
+at* — as do the smoke collar and the two shells — so nothing in the wreck detonates out of a
+stationary origin. `sim/collisions.js` reads that speed off the taxi one line before it zeroes it
+and puts it on the impact event, because by the time the listener runs there is nothing left in the
+world to recover it from. See [rendering.md](rendering.md#momentum) for what each piece keeps and
+why they are not all given the same share.
+
 **Two tyres per car get away.** They bounce out of the wreck and roll off down the street on the
 taxi's heading, and they are the only recognisable piece of car in the whole effect — see
 [rendering.md](rendering.md#the-tyres).
@@ -1271,6 +1278,15 @@ already-slowed `dt`, so it stretches to nearly two seconds on screen under the c
 which is exactly how long the fireball is at its biggest. The fade leads the collapse (halfway
 through: three-quarters size, a quarter opaque), because matching the two curves left a small,
 solid, brightly lit nugget riding the middle of the fireball to the last frame.
+
+They also collapse while still **moving** — `take()` takes a drift and a slew, on the same decaying
+curve the rest of the wreck's momentum rides. This is where the momentum reads hardest, because a
+shell is the only recognisable object in the picture: a fireball is an abstraction and can be
+forgiven for standing still, a car cannot. The two are given deliberately different numbers — the
+taxi keeps less for having hit something, the car it hit is shoved harder — and are slewed in
+opposite directions, taken from which side of the taxi's line it was sitting on. Matched, the pair
+travels as a rigid unit, which reads as a wreck being panned across rather than as one car hitting
+another.
 
 The taxi has its own group to fade, steered wheels and all. An ambient car is spread across two
 `InstancedMesh`es — the body, plus one instance per steered front wheel — and neither has anywhere

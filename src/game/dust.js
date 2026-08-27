@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { color } from '../palette.js';
+import { carrySpeed } from '../util/carry.js';
 
 // Dust kicked up behind the taxi in crazy mode — and, off the same pool, the wall of it a
 // barricade throws, the collar of smoke that rings a wreck, and the rotor wash a helicopter lifts
@@ -53,11 +54,22 @@ const SQUASH = 0.55;         // flattened, so a puff spreads over the road rathe
 // the fireball peaks the collar was still at 29% of its size, and two dozen small hard-edged lumps
 // ringing a blast read as thrown rubble. Starting at 1.2 they arrive as clouds and still finish at
 // the same size, so nothing about the late frames moves.
+//
+// WRECK_CARRY is the last of the set, and the one that stops the collar giving the game away. The
+// rest of the wreck was taught to keep the taxi's momentum (see util/carry.js and the CARRY
+// fractions in game/blast.js) and this was not, so the fire, the shards and both shells slid
+// downfield out of a grey ring left standing on the impact point — which reads worse than nothing
+// having moved at all, because now there is a stationary thing in frame to measure the moving ones
+// against. The fraction is high against the fireball's 0.42 for one reason: these puffs are spent
+// against this pool's own drag of 3.4, not CARRY_DRAG's 1.7, so the same fraction buys less than
+// half the ground. At 0.5 of a 22.1 u/s impact the collar covers 3.2 units against the fireball's
+// 4.5 — a little behind it, which is right for the thing that is meant to be trailing.
 const WRECK_COUNT = 24;
 const WRECK_POWER = 1.15;
 const WRECK_RING = 3;
 const WRECK_LINGER = 1.5;
 const WRECK_START_SIZE = 1.2;
+const WRECK_CARRY = 0.5;
 
 // Where a puff starts, vertically, when nobody says otherwise: just off the road, which is where
 // all of this happens except the helicopter's. `add` takes a `y` for that one — see game/chopper.js
@@ -214,11 +226,17 @@ export function createDust(scene, camera, rng) {
    * starts each one that far out along its own bearing, so the burst opens as a collar around
    * something rather than as a cloud on top of it, `opts.linger` stretches how long they are
    * given — a barricade throws dust that settles, a wreck leaves smoke that hangs —
-   * `opts.startSize` starts them partway up the size curve rather than at a point, and `opts.y` is
-   * the surface it all comes off, for the one caller whose surface is a roof.
+   * `opts.startSize` starts them partway up the size curve rather than at a point, `opts.y` is
+   * the surface it all comes off, for the one caller whose surface is a roof, and `opts.carry` is
+   * a speed in u/s added to every puff's throw along `yaw` — the momentum of whatever made the
+   * impact, for a burst that happens to something that was moving.
    */
   function burst(x, z, yaw, count = 26, power = 1,
-    { tint = null, ring = 0, linger = 1, startSize = START_SIZE, y = ROAD_Y } = {}) {
+    { tint = null, ring = 0, linger = 1, startSize = START_SIZE, y = ROAD_Y, carry = 0 } = {}) {
+    // `yaw` is a sim heading, so forward is (cos yaw, −sin yaw). Rolled once outside the loop: it
+    // is the same vector for every puff, which is what makes the collar travel as one cloud.
+    const carryX = Math.cos(yaw) * carry;
+    const carryZ = -Math.sin(yaw) * carry;
     for (let n = 0; n < count; n++) {
       // The scatter on the *start* point is tied to the ring when there is one. At the barricade's
       // 1.35 × power it is nearly as wide as the wreck collar's own radius, which scatters half the
@@ -243,8 +261,8 @@ export function createDust(scene, camera, rng) {
       const start = ring > 0 ? ring * rng.range(0.55, 1.15) : 0;
       px[slot] += Math.cos(bearing) * start;
       pz[slot] += Math.sin(bearing) * start;
-      vx[slot] = Math.cos(bearing) * out;
-      vz[slot] = Math.sin(bearing) * out;
+      vx[slot] = Math.cos(bearing) * out + carryX;
+      vz[slot] = Math.sin(bearing) * out + carryZ;
       // Low against the outward throw. Dust off a road impact boils along the ground and lifts
       // late; thrown up as hard as it goes out, it climbs clear of the car and reads as a plume.
       vy[slot] = rng.range(1.6, 3.4) * power;
@@ -265,14 +283,17 @@ export function createDust(scene, camera, rng) {
    * them, and drawn under the fireball (renderOrder 3 against blast.js's 6), so the collar can
    * never wash over the flame front it is meant to be behind.
    *
-   * It outlives the fire by design — see WRECK_LINGER.
+   * It outlives the fire by design — see WRECK_LINGER, and it travels with the rest of the wreck
+   * by design too — see WRECK_CARRY. `speed` is how fast the taxi was going when it hit, in u/s;
+   * left out, the collar stands on the impact point, which is what the passing lab wants.
    */
-  function wreckSmoke(x, z, yaw = 0) {
+  function wreckSmoke(x, z, yaw = 0, speed = 0) {
     burst(x, z, yaw, WRECK_COUNT, WRECK_POWER, {
       tint: color('wreckSmoke'),
       ring: WRECK_RING,
       linger: WRECK_LINGER,
       startSize: WRECK_START_SIZE,
+      carry: carrySpeed(speed) * WRECK_CARRY,
     });
   }
 
