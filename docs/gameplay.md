@@ -2036,6 +2036,61 @@ the brake, so a two-thumbed player never ends up spending fuel against a speed t
 tank keeps whatever is left in it. The sim doesn't depend on that arbitration: hold both by any
 means and the brake still wins, because it replaces the target the boost ceiling would have set.
 
+## The pedal slide
+
+The bottom row is **one control surface, not two buttons**. A thumb that goes down on Loco Mode and
+slides right onto the brake hands the car over as it crosses, with no lift in between, and sliding
+back hands it straight back. On a phone that is the difference between "press the gas, let go, find
+the brake, press the brake" — four beats, two of them spent with the taxi doing neither — and one
+continuous movement of the thumb that is already down there.
+
+Nothing about the pedals changed to allow it. They already arbitrated (above), so a handover
+mid-gesture is the same transition a two-thumbed player was already making; what was missing was a
+gesture that could reach both. `holdLocoMode()` and `holdBrake()` now each report whether the pedal
+actually went down, and "The pedal slide" in `main.js` is the ~60 lines that drive them off one
+pointer.
+
+**Coordinates, not event targets.** A press captures the pointer to the button it started on, so
+for the rest of the gesture every move is delivered *there* whatever is under the finger — which is
+what makes a hold survive a wandering thumb, and what makes hit-testing the event target useless.
+The gesture hit-tests the point against two rectangles instead. They are measured on the press and
+then left alone: both buttons scale while held (the press dip, the pill's top-up flutter), and
+re-measuring per move would let a pedal's own animation move the boundary under a finger that
+never moved.
+
+**Two different thresholds, on purpose.** Claiming a pedal means being *inside* it; dropping one
+means being `PEDAL_SLOP` (28px) *clear* of it. Crossing between the two needs no slop — they are
+8px apart, so a finger leaving one is inside the other within a frame — but coming off the row
+entirely has to let go, and equal thresholds would put a boundary under a resting thumb that a
+pixel of jitter could cross twice a frame. A fresh press of Loco Mode is not a quiet event: it
+fires a wheelie, a flame burst, a launch skid and a haptic tick. The gap between the two answers is
+where a still finger sits. Sliding off the end of the row is therefore also how you let go of a
+pedal without lifting.
+
+**One pointer owns the row.** A second thumb landing on the other pedal takes it over, which is the
+game's own last-pedal-wins rather than a special case, and the first thumb's eventual lift then has
+nothing left to release. An empty tank is the one case where the claim and the press come apart:
+the pill is dead under a thumb that has plainly arrived on it, so the claim moves (the brake beside
+it lets go) and nothing is pressed or painted.
+
+**The press dip stops following `:active`.** The browser pins `:active` to the button the pointer
+went *down* on and leaves it there however far the finger travels, so a slide would light the pill
+the thumb has left and leave the brake it is standing on looking untouched. For the length of a
+gesture `body.pedal-slide` suppresses `:active` on both and an `is-held` class carries the dip on
+whichever pedal is actually down.
+
+**Everything after the press listens on the window.** Capture normally redirects the rest of the
+gesture to the button it started on, and a listener there would be enough — but only while the
+capture holds. It never takes for a synthesised pointer, and it is dropped outright when the
+capturing button leaves the screen, which is exactly what a run ending under the player's thumb
+does (`body.game-over #brake`). A `pointerup` on a hidden element is not something to hang a stuck
+pedal on. A pause and a `blur` drop the gesture too, for the same reason they drop the keyboard's
+holds.
+
+Four checks in `tools/smoke.mjs` drive it with real CDP touches — an untrusted `PointerEvent` has
+no pointer for the browser to capture — stepping along the row rather than jumping, so the moves in
+between are tested against the pedal they land on.
+
 **On a keyboard, hold B.** One key over from the bar, through the same `holdBrake()` / `releaseBrake()`
 the button uses. `keyIsSpokenFor()` — the same guard Space uses, now taking the button it should
 exempt as a parameter — keeps a `b` typed into the initials field from driving the car, and the

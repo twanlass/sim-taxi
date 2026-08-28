@@ -731,6 +731,18 @@
       #brake:active { transform: scale(0.95); }
       body.shot-mode #brake { display: none; }
 
+      /* The pedal slide: one thumb, either pedal. Hold Loco Mode, slide right, and the brake takes
+         over as the finger crosses onto it — see "The pedal slide" in main.js for the gesture. This
+         is the half of it the player sees, and it exists because `:active` is the wrong state to
+         paint with once a press can move: the browser puts `:active` on the button the pointer went
+         *down* on and leaves it there, so a slide would light the pill the thumb has left and leave
+         the brake it is now standing on looking untouched. For the length of a gesture the dip is
+         driven by the class instead, and follows the pedal that is actually down.
+         Both rules are more specific than every `transform` above them, and `.is-held` is second so
+         it wins the tie against the `:active` it has to override on the same element. */
+      body.pedal-slide #boost:active, body.pedal-slide #brake:active { transform: none; }
+      body.pedal-slide #boost.is-held, body.pedal-slide #brake.is-held { transform: scale(0.95); }
+
       /* Rider finder — one chip per waiting fare, in a row above the Loco Mode pill, left-aligned
          to the pill's own left edge so both controls share one visual column in the bottom-centre
          reach zone. Sized to the same 49px height as Loco Mode so the two read as a matched pair;
