@@ -3,6 +3,17 @@ import { HAZE_TOP, setHazeTop, hazeColor, hazeTuning } from './scene.js';
 import * as difficulty from './difficulty.js';
 import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
+import { PLAY_ZOOM } from './camera.js';
+import { setShadowTint, shadowTint } from '../util/geo.js';
+import { MIN_ELEVATION } from './daylight.js';
+
+// Screen pixels to a world unit at play zoom, for the readouts that need one. Derived rather than
+// written down as the 7.7 that appears as prose all over this project: the frustum is sized by
+// *height*, so half a nominal 800px-tall frame spans `PLAY_ZOOM` world units, and re-tuning that
+// constant moves this with it. Approximate by nature — a real device's canvas is whatever it is —
+// which is why every readout using it carries a "u" as well.
+const NOMINAL_FRAME_H = 800;
+const PX_PER_UNIT = (NOMINAL_FRAME_H / 2) / PLAY_ZOOM;
 
 // A small tweak panel behind a gear button.
 //
@@ -44,6 +55,14 @@ const dropdown = (options, value) => {
   return el;
 };
 
+// A colour well. Its `input` fires continuously while the picker is open on every browser that
+// matters, so it scrubs like a slider rather than committing on close.
+const swatch = (value) => {
+  const el = document.createElement('input');
+  Object.assign(el, { type: 'color', value });
+  return el;
+};
+
 const clockLabel = (hour) => {
   const h = Math.floor(hour);
   const m = String(Math.round((hour - h) * 60) % 60).padStart(2, '0');
@@ -52,6 +71,12 @@ const clockLabel = (hour) => {
 
 export function createDebugPanel({
   sun, hemi, sky, daylight, fares, carCount, routeLine, ao,
+  // Crayon Mode's live uniforms — `{ state, set }` over game/crayon.js. Defaulted like the rest
+  // of the optional systems below so the `npm run check` boot pass can build the panel against
+  // nothing; with the flag off the section says so instead of drawing dead sliders.
+  crayon = { state: { enabled: false }, set: () => {} },
+  // Cartoon Mode's, same shape — `{ state, set }` over game/cartoon.js.
+  cartoon = { state: { enabled: false }, set: () => {} },
   // The scene's haze (game/scene.js). Defaulted to null for the same reason `scores` is defaulted:
   // the `npm run check` boot pass builds this panel against nothing.
   fog = null,
@@ -129,6 +154,40 @@ export function createDebugPanel({
     refresh();
   });
 
+  // Where the sun *is*, held apart from what hour it is — see the note on `aim` in daylight.js.
+  // Deliberately outside `takeManualControl()`: pinning the direction is not a fight with the
+  // clock over one value, it is taking a value the clock then has no further opinion about, so a
+  // pinned sun and a running day cycle is a supported combination rather than a contradiction.
+  const pinBox = document.createElement('input');
+  pinBox.type = 'checkbox';
+  pinBox.checked = daylight.aim.pinned;
+  row(panel, 'Pin sun', pinBox);
+  pinBox.addEventListener('change', () => {
+    daylight.setSunPinned(pinBox.checked);
+    refresh();
+  });
+
+  // 0-360 with no clamp: the arc only ever sweeps 10 to 175, and the whole point of the control is
+  // reaching the three quarters of the compass a day in this city never visits.
+  const bearing = slider(0, 360, 1, daylight.azimuth());
+  const bearingValue = row(panel, 'Sun bearing', bearing);
+  bearing.addEventListener('input', () => {
+    // Moving a slider *is* the intent to pin — no ticking a box first to make the control work.
+    daylight.setSunAim({ azimuth: Number(bearing.value) });
+    refresh();
+  });
+
+  // Floored at MIN_ELEVATION for the same reason the arc is, and capped at true overhead. Note
+  // that a low sun throws shadows longer than the shadow camera's own extent (SPAN * 1.05 in
+  // scene.js), so the far end of one can be clipped down here — the arc has always had that at
+  // dawn and dusk, this control just makes it reachable at any hour.
+  const height = slider(MIN_ELEVATION, 90, 1, daylight.elevation());
+  const heightValue = row(panel, 'Sun height', height);
+  height.addEventListener('input', () => {
+    daylight.setSunAim({ elevation: Number(height.value) });
+    refresh();
+  });
+
   const sunColour = document.createElement('input');
   sunColour.type = 'color';
   sunColour.value = `#${sun.color.getHexString()}`;
@@ -146,6 +205,24 @@ export function createDebugPanel({
     sunPowerValue.textContent = sun.intensity.toFixed(2);
   });
 
+  // The fill is a hemisphere light, so its colour is two colours — what the sky pours down and
+  // what the ground bounces back up. One well would only ever tint half the scene: set a single
+  // "ambient colour" red and every upward-facing surface goes red while every underside stays the
+  // colour it was, which reads as the control being broken rather than as a hemisphere.
+  const fillSky = swatch(`#${hemi.color.getHexString()}`);
+  row(panel, 'Fill sky', fillSky);
+  fillSky.addEventListener('input', () => {
+    takeManualControl();
+    hemi.color.set(fillSky.value);
+  });
+
+  const fillGround = swatch(`#${hemi.groundColor.getHexString()}`);
+  row(panel, 'Fill ground', fillGround);
+  fillGround.addEventListener('input', () => {
+    takeManualControl();
+    hemi.groundColor.set(fillGround.value);
+  });
+
   const fill = slider(0, 2, 0.05, hemi.intensity);
   const fillValue = row(panel, 'Ambient fill', fill);
   fill.addEventListener('input', () => {
@@ -153,6 +230,21 @@ export function createDebugPanel({
     hemi.intensity = Number(fill.value);
     fillValue.textContent = hemi.intensity.toFixed(2);
   });
+
+  const tint = shadowTint();
+  const shadowColour = swatch(tint.color);
+  row(panel, 'Shadow colour', shadowColour);
+  shadowColour.addEventListener('input', () => {
+    setShadowTint({ color: shadowColour.value });
+  });
+
+  const shadowAmount = slider(0, 1, 0.01, tint.amount);
+  const shadowAmountValue = row(panel, 'Shadow tint', shadowAmount);
+  shadowAmount.addEventListener('input', () => {
+    setShadowTint({ color: shadowColour.value, amount: Number(shadowAmount.value) });
+    shadowAmountValue.textContent = Number(shadowAmount.value).toFixed(2);
+  });
+  shadowAmountValue.textContent = tint.amount.toFixed(2);
 
   // Filled in by the haze section below. A stub rather than a direct call because that section is
   // built after this one, so naming its `const` here would be a temporal dead zone waiting for
@@ -164,9 +256,16 @@ export function createDebugPanel({
     const { hour } = daylight.state;
     hourInput.value = String(hour);
     hourValue.textContent = `${clockLabel(hour)} · ${daylight.elevation().toFixed(0)}° up`;
+    pinBox.checked = daylight.aim.pinned;
+    bearing.value = String(daylight.azimuth());
+    bearingValue.textContent = `${daylight.azimuth().toFixed(0)}° · shade to ${((daylight.azimuth() + 180) % 360).toFixed(0)}°`;
+    height.value = String(daylight.elevation());
+    heightValue.textContent = `${daylight.elevation().toFixed(0)}° up`;
     sunColour.value = `#${sun.color.getHexString()}`;
     sunPower.value = String(sun.intensity);
     sunPowerValue.textContent = sun.intensity.toFixed(2);
+    fillSky.value = `#${hemi.color.getHexString()}`;
+    fillGround.value = `#${hemi.groundColor.getHexString()}`;
     fill.value = String(hemi.intensity);
     fillValue.textContent = hemi.intensity.toFixed(2);
     // The haze colour is a function of the sky, so it moves under the cycle without anything here
@@ -246,6 +345,82 @@ export function createDebugPanel({
     ao.setStrength(Number(occlusion.value));
     showOcclusion();
   });
+
+  // --- Crayon Mode ------------------------------------------------------------
+  // `?crayon`. Whether the pass exists at all is a URL flag for the same reason `?ao` is — the
+  // paper fetch is compiled into every prop material before a mesh exists — but every number in
+  // it is a judgement about a whole frame, so every number in it is live. Three of them in
+  // particular cannot be settled any other way: the grain, because the only question is whether
+  // the city still reads at play zoom; the ink, because a car is 26px wide and a line drawn for a
+  // building is a line drawn across a quarter of it; and the boil, because a rate that looks
+  // hand-drawn on a still is television static in motion.
+  if (crayon.state.enabled) {
+    heading('Crayon');
+    const crayonRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
+      const el = slider(min, max, step, crayon.state[key]);
+      const value = row(panel, label, el);
+      value.textContent = format(crayon.state[key]);
+      el.addEventListener('input', () => {
+        const next = Number(el.value);
+        crayon.set(key, next);
+        value.textContent = format(next);
+      });
+    };
+    crayonRow('Paper', 'paper', 0, 0.6, 0.01);
+    crayonRow('Vignette', 'vignette', 0, 0.5, 0.01);
+    crayonRow('Tooth', 'grain', 0, 0.6, 0.01);
+    crayonRow('Fibre', 'blotch', 0, 0.4, 0.01);
+    crayonRow('Ink', 'line', 0, 1, 0.02);
+    crayonRow('Wobble', 'wobble', 0, 4, 0.1, (v) => `${v.toFixed(1)}px`);
+    crayonRow('Steps', 'quantize', 0, 1, 0.05);
+    crayonRow('Boil', 'boilHz', 0, 24, 1, (v) => (v > 0 ? `${v.toFixed(0)}/s` : 'held'));
+  }
+
+  // --- Cartoon Mode -----------------------------------------------------------
+  // `?cartoon`, and **every number in it is live** — including the two hull rims, which used to be
+  // baked into an inflated geometry and are now a uniform (see `outlineGeometry` in
+  // game/cartoon.js). That was worth the change on its own: the weight of an outline is the one
+  // thing here nobody can settle from a still. It is a judgement about how hard a car should shout
+  // against a city, and it needs the game running and a hand on the slider.
+  //
+  // The two rims are separate controls rather than one, because the gap between them *is* the
+  // mode: a hero reads as a hero because its ink is heavier than everything else's, and a single
+  // number would collapse the only distinction being made.
+  if (cartoon.state.enabled) {
+    heading('Cartoon');
+    const toonRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
+      const el = slider(min, max, step, cartoon.state[key]);
+      const value = row(panel, label, el);
+      value.textContent = format(cartoon.state[key]);
+      el.addEventListener('input', () => {
+        const next = Number(el.value);
+        cartoon.set(key, next);
+        value.textContent = format(next);
+      });
+    };
+
+    // The outline first: it is what the mode is for, and what anyone opening this panel came to
+    // move. Stated in world units with the pixel count beside it, because a rim is authored in the
+    // world and judged on the screen — at play zoom one unit is about 7.7px.
+    const px = (v) => `${v.toFixed(2)}u · ${(v * PX_PER_UNIT).toFixed(1)}px`;
+    toonRow('Taxi ink', 'taxiRim', 0, 0.6, 0.01, px);
+    toonRow('Traffic ink', 'heroRim', 0, 0.6, 0.01, px);
+    toonRow('Ink opacity', 'inkOpacity', 0.1, 1, 0.05);
+
+    const inkColor = swatch(cartoon.state.inkColor);
+    const inkValue = row(panel, 'Ink', inkColor);
+    inkValue.textContent = cartoon.state.inkColor;
+    inkColor.addEventListener('input', () => {
+      cartoon.set('inkColor', inkColor.value);
+      inkValue.textContent = inkColor.value;
+    });
+
+    // Then the city's own line, and the light behind it.
+    toonRow('City line', 'ink', 0, 1, 0.02);
+    toonRow('Line bite', 'bite', 0, 0.9, 0.02);
+    toonRow('Cel', 'cel', 0, 1, 0.05);
+    toonRow('Bands', 'steps', 2, 6, 1, (v) => v.toFixed(0));
+  }
 
   // --- Haze -------------------------------------------------------------------
   // Atmospheric perspective (game/scene.js). All three are live and none of them needs a
@@ -668,6 +843,18 @@ export function createDebugPanel({
   carsValue.textContent = String(carCount);
   cars.addEventListener('input', () => { carsValue.textContent = cars.value; });
 
+  // The look, and it belongs in this section rather than among the live controls above because it
+  // genuinely cannot be live: both modes are compiled into every prop material *before a mesh
+  // exists* (see `setCrayon`/`setCartoon` in util/geo.js), so switching one means recompiling every
+  // program in the city. What it saves is real all the same — trying the two looks against each
+  // other used to mean hand-editing the address bar, which is exactly the friction that stops a
+  // look from being judged properly.
+  const LOOKS = ['off', 'crayon', 'cartoon', 'both'];
+  const lookNow = (crayon.state.enabled && cartoon.state.enabled) ? 'both'
+    : (crayon.state.enabled && 'crayon') || (cartoon.state.enabled && 'cartoon') || 'off';
+  const look = dropdown(LOOKS, lookNow);
+  row(panel, 'Look', look);
+
   const actions = document.createElement('div');
   actions.className = 'dbg-actions';
 
@@ -677,6 +864,10 @@ export function createDebugPanel({
   restart.addEventListener('click', () => {
     const params = new URLSearchParams(window.location.search);
     params.set('cars', cars.value);
+    // Written as explicit `on`/`off` rather than by deleting the parameter, so a reload out of a
+    // look lands back on the stock renderer instead of on whatever the URL happened to carry.
+    params.set('crayon', look.value === 'crayon' || look.value === 'both' ? 'on' : 'off');
+    params.set('cartoon', look.value === 'cartoon' || look.value === 'both' ? 'on' : 'off');
     params.delete('run');                     // a genuinely fresh situation
     window.location.search = params.toString();
   });
@@ -731,10 +922,22 @@ export function createDebugPanel({
       hour: Number(daylight.state.hour.toFixed(2)),
       cycling: daylight.state.cycling,
       dayLengthSeconds: daylight.state.dayLength,
+      // Where the sun is aimed. `sunElevationDeg` reports the effective angle either way, so with
+      // the pin off these two are the arc's own answer for `hour` and pasting them back changes
+      // nothing — which is the point: an export is a description of the frame, not of the controls.
+      sunPinned: daylight.aim.pinned,
+      sunBearingDeg: Number(daylight.azimuth().toFixed(1)),
       sunElevationDeg: Number(daylight.elevation().toFixed(1)),
       sunColor: `#${sun.color.getHexString()}`,
       sunIntensity: Number(sun.intensity.toFixed(2)),
+      // The fill is a hemisphere light, so it takes two colours — PALETTE.hemiSky and
+      // PALETTE.hemiGround, and the `sky`/`ground` fields of the keyframes in game/daylight.js.
+      fillSky: `#${hemi.color.getHexString()}`,
+      fillGround: `#${hemi.groundColor.getHexString()}`,
       ambientIntensity: Number(hemi.intensity.toFixed(2)),
+      // Maps onto PALETTE.shadowTint and SHADOW_TINT in util/geo.js.
+      shadowColor: shadowTint().color,
+      shadowTint: Number(shadowTint().amount.toFixed(2)),
       skyTop: `#${sky.uniforms.topColor.value.getHexString()}`,
       skyBottom: `#${sky.uniforms.bottomColor.value.getHexString()}`,
       haze: {
@@ -750,6 +953,12 @@ export function createDebugPanel({
       cars: Number(cars.value),
       routeBlend: routeLine.blend(),
       ambientOcclusion: ao.state.enabled ? Number(ao.state.strength.toFixed(2)) : false,
+      // The keys map onto CRAYON_DEFAULTS in game/crayon.js. `false` rather than an object with
+      // the flag off, so a pasted export can't quietly promote a look nobody was looking at.
+      crayon: crayon.state.enabled ? { ...crayon.state, enabled: undefined } : false,
+      // The keys map onto CARTOON_DEFAULTS in game/cartoon.js. The hull rims are not in here
+      // because they are not live — see the note by the section above.
+      cartoon: cartoon.state.enabled ? { ...cartoon.state, enabled: undefined } : false,
     },
     // The keys map onto game/cityentry.js's constants: wave → WAVE, grow → ENTRY_DUR,
     // jitter → JITTER, overshoot → OVERSHOOT; dust is the multiplier on the burst power.

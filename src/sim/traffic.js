@@ -1295,6 +1295,23 @@ const BRAKE_LIGHT_FALL = 4;     // ~0.75s to dark
 const TURN_SIGNAL_HZ = 1.1;
 const TURN_SIGNAL_DUTY = 0.6;
 
+// How long the indicator runs either side of the manoeuvre itself.
+//
+// Both ends used to be pinned to `state === 'turn'`, which is the arc plus its STOP_SETBACK
+// run-up: the lamp came on 3.4 units short of the junction — 0.4s at cruise, under half a blink —
+// and went out on the frame the car landed in the exit lane. That reads as a car flashing *because*
+// it is cornering rather than to say it is about to.
+//
+// SIGNAL_LEAD is measured back from the hold line, so the whole warning is LEAD + STOP_SETBACK =
+// 10.4 units, ~1.2s at cruise and a full blink cycle before the wheel moves at all. The lane is the
+// real cap: an ordinary street's is 12 units end to end, so a car indicates over most of the block
+// it is leaving and never over one it hasn't reached its decision for.
+//
+// SIGNAL_LINGER holds it on past the end of the window, and is longer than one cycle's dark half
+// (0.36s) so there is always a visible flash on the way out.
+export const SIGNAL_LEAD = 7;
+export const SIGNAL_LINGER = 0.7;
+
 /** Coordinate along the travel axis for a point. */
 const along = (d, p) => (isXAxis(d) ? p.x : p.z);
 
@@ -1475,6 +1492,16 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       brakeLevel: 0,
       turnLeftLevel: 0,
       turnRightLevel: 0,
+      // The hand being indicated, how long it has been up, and what is left of the tail past the
+      // end of the manoeuvre. The clock is per-signal rather than off the global one so a blinker
+      // always opens *lit* — over a window this short, coming on dark loses the first flash.
+      signalHand: null,
+      signalT: 0,
+      signalHold: 0,
+      // The turn this car means to take out of `intentLane`, rolled once on the approach so the
+      // indicator can promise it before the line. The commit at the line reads it back.
+      intentLane: null,
+      intentTurn: null,
       boost: false,
       // True only during the taxi's post-release cooldown tail (see BOOST_COOLDOWN in
       // game/boost.js) — `boost` stays true through it so collision/police/red-light rules keep
@@ -1637,6 +1664,11 @@ export function stageCar(car, x, z, yaw) {
   car.brakeLevel = 0;
   car.turnLeftLevel = 0;
   car.turnRightLevel = 0;
+  car.signalHand = null;
+  car.signalT = 0;
+  car.signalHold = 0;
+  car.intentLane = null;
+  car.intentTurn = null;
   car.pitch = 0;
   car.pitchV = 0;
   car.wheelAngle = 0;
@@ -2252,6 +2284,74 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   function ringGapClear(car, approaching) {
     const node = net.nodeById.get(car.lane.to);
     return streetIsClear(car, node.priorityStreet, RING_YIELD, approaching);
+  }
+
+  /**
+   * Roll one of `options` on the straight/right/left weights.
+   *
+   * Split out of the commit at the hold line so the approach can roll the same dice a second
+   * earlier — an indicator that can only come on once the turn is committed is an indicator that
+   * comes on too late to mean anything (see SIGNAL_LEAD).
+   */
+  function rollExit(car, options) {
+    // Weight straight/right/left, then fall back to whatever is legal here. The hand comes off the
+    // turn rather than out of direction arithmetic, which is what lets a three-way — where one
+    // approach can have two distinct lefts — weight them both.
+    const weighted = options.map((turn) => {
+      const kind = turn.hand === 'straight' ? 0 : turn.hand === 'left' ? 2 : 1;
+      // Fleeing the boosting taxi: carrying straight on keeps this car in the taxi's lane for
+      // another whole block, so it barely rolls that option. Still a weight rather than a filter —
+      // at a T-junction straight may be the only legal exit.
+      let w = kind === 0 && car.scatter > 0.5 ? SCATTER_STRAIGHT_W : TURN_WEIGHTS[kind];
+      // A siren about to come through this junction: hold your line and let it past rather than
+      // turn across its nose. Exactly the courtesy the no-left-across-a-pass rule below extends to
+      // the taxi, for exactly the same reason — the sim cannot resolve two cars in one square
+      // metre, and this is a manoeuvre the *cruiser* cannot avoid, since it neither queues nor
+      // brakes for anybody.
+      //
+      // It is also the only part of the reaction that can reach a car mid-junction. The pull-over
+      // offset is released for the length of a real turn (pulloverTargetFor), so a car that commits
+      // to one is back on the lane centre with the cruiser coming through; and an oncoming
+      // left-turner never had the offset at all. Between them that was 115 of the last 188
+      // interpenetrating frames over 67 corridor runs. Not turning is the only fix that does not
+      // bend a car off its own arc.
+      if (kind !== 0 && sirenHoldsTurn(car)) w = SCATTER_STRAIGHT_W;
+      // A road closed for roadworks, for the same reason and with a stronger version of the same
+      // guarantee. With any open exit present `total` is positive, `roll` is strictly greater than
+      // zero, and a zero-weight option can never win the walk below — so this reads as a hard ban.
+      // With *every* exit closed `total` is zero, `roll` is zero, and the first iteration's
+      // `roll -= 0` satisfies `roll <= 0`: the car takes `options[0]` and drives on. That
+      // degenerate case is what makes a weight the right shape here. A filter would empty the list,
+      // and a car with no exit holds at the line forever with the whole lane queued behind it.
+      return { turn, w: closedLanes.has(turn.outLane) ? 0 : w };
+    });
+    const total = weighted.reduce((sum, o) => sum + o.w, 0);
+    let roll = rng.next() * total;
+    for (const option of weighted) {
+      roll -= option.w;
+      if (roll <= 0) return option.turn;
+    }
+    return options[0];
+  }
+
+  /**
+   * The turn this car is going to ask for at the line, known SIGNAL_LEAD units early.
+   *
+   * A routed car answers off its plan every time it is asked: the player can redraw a route
+   * mid-block and the indicator has to follow it there and then. Ambient traffic rolls once per
+   * lane and keeps the answer, which is the whole change — the roll used to happen at the hold
+   * line, so there was nothing to indicate before it. The commit reads this back, so the two
+   * cannot disagree; a closure, a siren, a flee or a veto drops it and re-rolls under the
+   * conditions that hold at the line.
+   */
+  function intentFor(car) {
+    if (car.route?.length) return exitToward(net, car.lane, car.route[0]);
+    if (car.intentLane !== car.lane.id) {
+      car.intentLane = car.lane.id;
+      const turn = rollExit(car, car.lane.exits.map((id) => net.turnById.get(id)));
+      car.intentTurn = turn ? turn.id : null;
+    }
+    return car.intentTurn ? net.turnById.get(car.intentTurn) : null;
   }
 
   function update(dt) {
@@ -2965,9 +3065,31 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
           if (viaRightOnRed) {
             // The only legal move is the right turn. A routed car takes it if its plan agrees;
-            // otherwise it waits for the green like anyone else.
+            // an ambient one takes it unless it is currently indicating a *left*, which it would
+            // then be turning right out of. Everyone else waits for the green like anyone else.
+            //
+            // That last clause is new with the approach indicator and is only about the lamp. The
+            // free right used to go to whoever was at the front of the queue, which is fine as flow
+            // and wrong as driving once the lamp runs SIGNAL_LEAD units early: a car that had been
+            // showing left for a second swung right instead, 39 times in two minutes of a 24-car
+            // city. Refusing only the left-handed ones takes that to zero for a seventh of the cost
+            // — TURN_WEIGHTS rolls left 14% of the time, against the 62% that roll straight and
+            // would otherwise have to give the free right up too.
+            //
+            // Gating on the *whole* intent was measured first and is the version not taken. Over
+            // 40 soak runs (`node tools/soak.mjs 25 4 40`) it delivered a mean of 9.7 fares against
+            // 11.1 for this rule and 10.3 for no rule at all: suppressing two thirds of the city's
+            // right-on-reds queues traffic up in front of the taxi, and a lamp is not worth a fare
+            // in ten. This rule costs nothing measurable on either tool — 7.70 units/s per car on
+            // tools/signals.mjs against 7.73, and a soak mean slightly *above* no rule at all.
+            //
+            // What is left is a car that rolled straight taking the free right with no lamp lit at
+            // all: 80 of them in the same two minutes. That is what every car in the city did
+            // before this change, and what plenty of real ones do.
             const turn = exitToward(net, car.lane, rightOf(car.d));
-            if (turn && (!car.route?.length || car.route[0] === rightOf(car.d))) {
+            const indicatingLeft = !car.route?.length && car.signalHand === 'left';
+            if (turn && !indicatingLeft
+              && (!car.route?.length || car.route[0] === rightOf(car.d))) {
               chosen = turn;
               if (car.route?.length) car.routeConsumed = true;
             }
@@ -2995,45 +3117,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
                 stats.routeDesync += 1;
                 car.route.length = 0;
               }
-              // Weight straight/right/left, then fall back to whatever is legal here. The hand
-              // comes off the turn rather than out of direction arithmetic, which is what lets a
-              // three-way — where one approach can have two distinct lefts — weight them both.
-              const weighted = options.map((turn) => {
-                const kind = turn.hand === 'straight' ? 0 : turn.hand === 'left' ? 2 : 1;
-                // Fleeing the boosting taxi: carrying straight on keeps this car in the taxi's
-                // lane for another whole block, so it barely rolls that option. Still a weight
-                // rather than a filter — at a T-junction straight may be the only legal exit.
-                let w = kind === 0 && car.scatter > 0.5 ? SCATTER_STRAIGHT_W : TURN_WEIGHTS[kind];
-                // A siren about to come through this junction: hold your line and let it past
-                // rather than turn across its nose. Exactly the courtesy the no-left-across-a-pass
-                // rule below extends to the taxi, for exactly the same reason — the sim cannot
-                // resolve two cars in one square metre, and this is a manoeuvre the *cruiser*
-                // cannot avoid, since it neither queues nor brakes for anybody.
-                //
-                // It is also the only part of the reaction that can reach a car mid-junction. The
-                // pull-over offset is released for the length of a real turn (pulloverTargetFor),
-                // so a car that commits to one is back on the lane centre with the cruiser coming
-                // through; and an oncoming left-turner never had the offset at all. Between them
-                // that was 115 of the last 188 interpenetrating frames over 67 corridor runs. Not
-                // turning is the only fix that does not bend a car off its own arc.
-                if (kind !== 0 && sirenHoldsTurn(car)) w = SCATTER_STRAIGHT_W;
-                // A road closed for roadworks, for the same reason and with a stronger version of
-                // the same guarantee. With any open exit present `total` is positive, `roll` is
-                // strictly greater than zero, and a zero-weight option can never win the walk
-                // below — so this reads as a hard ban. With *every* exit closed `total` is zero,
-                // `roll` is zero, and the first iteration's `roll -= 0` satisfies `roll <= 0`:
-                // the car takes `options[0]` and drives on. That degenerate case is what makes a
-                // weight the right shape here. A filter would empty the list, and a car with no
-                // exit holds at the line forever with the whole lane queued behind it.
-                return { turn, w: closedLanes.has(turn.outLane) ? 0 : w };
-              });
-              const total = weighted.reduce((sum, o) => sum + o.w, 0);
-              let roll = rng.next() * total;
-              for (const option of weighted) {
-                roll -= option.w;
-                if (roll <= 0) { chosen = option.turn; break; }
-              }
-              chosen ??= options[0];
+              // The hand the indicator has been promising since SIGNAL_LEAD units back — take
+              // that turn if it is still there, so what the lamp said was true. Skipped while
+              // fleeing or holding for a siren: each of those collapses a whole class of weight
+              // (see `rollExit`) and either can arrive after the intent was rolled, so the roll
+              // has to be re-run under the conditions that actually hold at the line.
+              const intent = car.scatter > 0.5 || sirenHoldsTurn(car) ? null : intentFor(car);
+              chosen = intent && !closedLanes.has(intent.outLane)
+                ? intent
+                : rollExit(car, options);
             }
 
             // A car being overtaken does not turn left across the car overtaking it. Same
@@ -3062,8 +3154,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
           if (!chosen) {
             // Held at the line after all — the routed turn was never taken, so the route must not
-            // advance. It will be reconsidered next frame.
+            // advance. It will be reconsidered next frame, intent included: a veto that stands
+            // would otherwise leave the car indicating a turn it has been refused.
             car.routeConsumed = false;
+            car.intentLane = null;
             car.s = holdS - 0.02; // hold at the line, clear of the crosswalk
             // Pinning `s` stops the car; it does not stop the *car*. Everything downstream reads
             // `v` — the wheels, the body bob, the pitch spring's nose dip, the Loco weave, which
@@ -3435,23 +3529,46 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         * Math.min(1, dt * (brakeTarget > car.brakeLevel ? BRAKE_LIGHT_RISE : BRAKE_LIGHT_FALL));
 
       // Turn signals: on for TURN_SIGNAL_DUTY of every cycle rather than a plain 50/50 square wave
-      // (see the note by TURN_SIGNAL_DUTY). `car.phase` — already the idle bob's per-car offset —
-      // desyncs a queue of blinkers from flashing in lockstep. A real turn is `dOut !== d` (see the
-      // note near the top of this file); `hand` says which way, and both only exist while
-      // `state === 'turn'` — the arc across the junction, which is the one window a real driver's
-      // indicator would still be ticking in. No easing here, unlike the brake level above — a
-      // signal is meant to read as a single blinker flashing, so the level jumps straight to target.
+      // (see the note by TURN_SIGNAL_DUTY). A real turn is `dOut !== d` (see the note near the top
+      // of this file) and `hand` says which way — read off the committed turn while the car is
+      // crossing the junction, and off `intentFor` before that, which is what buys the lamp its
+      // SIGNAL_LEAD units of warning instead of lighting up as the wheel goes over.
       //
       // A staged car has no committed turn to read — it is off the network — so it names the hand
       // itself through `stageSignal`. That is how the taxi indicates right on its way out of the
-      // garage in the opening vignette.
-      const hand = car.staged
-        ? car.stageSignal
-        : (car.state === 'turn' && car.turn && car.turn.hand !== 'straight' ? car.turn.hand : null);
-      const cyclePos = (((stats.time + car.phase) * TURN_SIGNAL_HZ) % 1 + 1) % 1;
-      const wantsBlink = hand !== null && cyclePos < TURN_SIGNAL_DUTY;
-      car.turnLeftLevel = wantsBlink && hand === 'left' ? 1 : 0;
-      car.turnRightLevel = wantsBlink && hand === 'right' ? 1 : 0;
+      // garage in the opening vignette. A parked car names nothing: it is going nowhere, and the
+      // dice `intentFor` would roll for it are for a line it is not driving to.
+      let hand;
+      if (car.staged) {
+        hand = car.stageSignal;
+      } else if (car.state === 'turn') {
+        hand = car.turn && car.turn.hand !== 'straight' ? car.turn.hand : null;
+      } else if (!car.parked && car.lane.length - STOP_SETBACK - car.s <= SIGNAL_LEAD) {
+        const intent = intentFor(car);
+        hand = intent && intent.hand !== 'straight' ? intent.hand : null;
+      } else {
+        hand = null;
+      }
+
+      // The tail, topped up for as long as the hand holds so it only starts running down once the
+      // car has landed in the exit lane. It also covers an intent abandoned at the line — a driver
+      // cancelling a beat late is the same thing to look at.
+      if (hand !== null) car.signalHold = SIGNAL_LINGER;
+      else if (car.signalHold > 0) {
+        car.signalHold = Math.max(0, car.signalHold - dt);
+        hand = car.signalHand;
+      }
+
+      // No easing, unlike the brake level above — a signal is meant to read as a single blinker
+      // flashing, so the level jumps straight to target. The clock restarts on every change of
+      // hand, which opens each window *lit*: over a window this short a dark start costs the first
+      // flash, which is most of what "it signals too late" was. It desyncs a queue as well as
+      // `car.phase` used to, since no two cars reach their decision on the same frame.
+      if (hand !== car.signalHand) { car.signalHand = hand; car.signalT = 0; }
+      const lit = hand !== null && (car.signalT * TURN_SIGNAL_HZ) % 1 < TURN_SIGNAL_DUTY;
+      car.signalT = hand === null ? 0 : car.signalT + dt;
+      car.turnLeftLevel = lit && hand === 'left' ? 1 : 0;
+      car.turnRightLevel = lit && hand === 'right' ? 1 : 0;
 
       const pitchScale = car.isTruck ? TRUCK_PITCH_SCALE : 1;
       const targetPitch = Math.max(-0.13, Math.min(0.13, accel * 0.014 * pitchScale));

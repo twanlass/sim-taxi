@@ -131,7 +131,7 @@ particular, because the default insets by the safe area and would double up on t
   is right on the phone it is running on; a page that posted "8ms at 0.7" would have hard-coded one
   model.
 
-  Five events, in two groups. **The player did something** — these fire under a thumb already on
+  Seven events, in two groups. **The player did something** — these fire under a thumb already on
   the glass, so they are sharp and short, and every one is gated on the input being *accepted*
   (a refused tap or an ignored press stays silent, because a confirming buzz on a refusal says the
   opposite of what the screen is saying):
@@ -139,6 +139,8 @@ particular, because the default insets by the safe area and would double up on t
   | Event | Fires on | Transient |
   |---|---|---|
   | `pick` | a tap that re-aimed the taxi — rider, destination pin, package pin | `.light` |
+  | `grab` | a press taking hold of the route band | `.soft` |
+  | `snap` | the dragged route re-planning through a junction it wasn't using | `.rigid` at 0.55 |
   | `brake` | the brake going down, once per hold | `.rigid` |
   | `loco` | Loco Mode engaging | `.heavy` |
 
@@ -150,20 +152,47 @@ particular, because the default insets by the safe area and would double up on t
   | `parcel-in` | a package collected | `.medium` |
   | `parcel-out` | a package delivered | `UINotificationFeedbackGenerator` `.success` |
 
-  Two of those choices are worth defending. `brake` is `.rigid` rather than something heavier
+  Four of those choices are worth defending. `brake` is `.rigid` rather than something heavier
   because rigid is the hardest, shortest transient UIKit offers and it reads as a *mechanism
   engaging* rather than as an impact — the pedal should feel like it has a detent. And it fires
   regardless of the car's speed, unlike the skid mark it sits beside, because a control that
   answers only sometimes reads as a control that is broken. `parcel-out` is a notification rather
-  than a fourth impact style because a notification plays a short *pattern*, which is what makes it
-  read as a completion; it is also the only one of the five the player earned rather than merely
+  than one more impact style because a notification plays a short *pattern*, which is what makes it
+  read as a completion; it is also the only one of the seven the player earned rather than merely
   caused.
+
+  The route band's pair are the newest, and they exist because that gesture is the one place the
+  interface cannot show the player what it is doing: the flourish announcing a grab — the handle
+  and the band's bloom — lands **under the fingertip that caused it**, on the square centimetre of
+  glass the thumb is covering. `grab` is `.soft`, the most cushioned transient there is, both
+  because taking hold of a band should feel like something with give rather than a mechanism
+  latching and because it has to be told from `pick` by feel alone; a second `.light` would have
+  been the same knock under a different name. `snap` is `brake`'s detent at 0.55 intensity, which
+  is the one place in this file an intensity is set rather than a style: a detent is exactly the
+  right character for a route clicking onto a junction, but this is the only event here that
+  *repeats within one gesture*, and a run of full-strength rigid knocks stops reading as detents
+  and starts reading as a rattle.
+
+  `snap`'s gating is where the design actually is, and it is in the page rather than in Swift —
+  see [`src/game/pathdrag.js`](../src/game/pathdrag.js). It fires once per waypoint rather than
+  once per frame (the drag re-plans every frame, because the taxi keeps driving), and only when the
+  re-plan comes back with a *different* route: the first junction a gesture crosses is usually one
+  the band already ran through, and a buzz there would report a detour that isn't on screen, one
+  frame after the `grab` that already fired.
 
   **A haptic is the one thing this game does that cannot be observed.** No pixel moves, nothing is
   logged, and the only witness is a thumb — so a dead bridge and a game that simply never fired
   look identical. `window.__taxi.haptic('loco')` in Safari Web Inspector separates them in one
   line. And it needs a real phone: there is no Taptic Engine in the Simulator or on any iPad, and
   on those the whole path runs correctly and produces nothing.
+
+  What *can* be observed is when the page decides to fire one, and for `grab`/`snap` that is the
+  whole design rather than a detail. `tools/smoke.mjs` stands a stub bridge up for the length of
+  the route-band drag it already performs and counts what lands in it: one `grab`, and no more
+  than one `snap` for the single waypoint that gesture names. Without the per-waypoint gate the
+  second count is the frame count — around 24 — which on a phone is not a detent but a solid buzz
+  for as long as the finger is down. The stub is torn down again with the gesture, since every
+  check after it is about the web build.
 - **Deferred home-indicator gesture** on the bottom edge. The Loco Mode pill and the brake are both
   *hold* controls at the bottom of the screen, and a resting thumb there is exactly the gesture iOS
   reads as a swipe home.
@@ -318,7 +347,7 @@ On a real device, additionally:
 
 Not built yet, roughly in value-for-effort order:
 
-- **More haptics.** The bridge is in (see above) and carries five events. What is left is the
+- **More haptics.** The bridge is in (see above) and carries seven events. What is left is the
   *fare* loop — a rider's pickup and drop-off — plus the two failures, the bust and a collision.
   The fare pair is the interesting one: it wants to feel like `parcel-in`/`parcel-out` without
   feeling identical to them, since a fare is the main loop and a package is an errand, so they

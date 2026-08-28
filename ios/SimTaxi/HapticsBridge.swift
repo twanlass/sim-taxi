@@ -29,8 +29,9 @@ final class HapticsBridge: NSObject, WKScriptMessageHandler {
     private let medium = UIImpactFeedbackGenerator(style: .medium)
     private let heavy = UIImpactFeedbackGenerator(style: .heavy)
     private let rigid = UIImpactFeedbackGenerator(style: .rigid)
+    private let soft = UIImpactFeedbackGenerator(style: .soft)
 
-    /// A different class, not a fourth impact style, and the difference is the point: a notification
+    /// A different class rather than one more impact style, and the difference is the point: a notification
     /// plays a short *pattern* rather than one knock. That is the right shape for a payoff — it
     /// reads as "that completed" instead of "something hit the car" — and it is the one feedback in
     /// this file the player earned rather than merely caused.
@@ -48,6 +49,26 @@ final class HapticsBridge: NSObject, WKScriptMessageHandler {
             // A tap that was accepted and re-aimed the taxi. Light: it confirms an instruction.
             light.impactOccurred()
             light.prepare()
+        case "grab":
+            // A press taking hold of the route band. `.soft` is the most cushioned transient UIKit
+            // offers, and it is the opposite end of the same axis as `brake` below: this is not a
+            // mechanism engaging, it is something with give yielding under a thumb. It also has to
+            // be told apart from `pick` by feel alone — both answer a finger on the glass — and a
+            // second `.light` would have been the same knock with a different name.
+            soft.impactOccurred()
+            soft.prepare()
+        case "snap":
+            // The dragged route re-planning through a new junction. `.rigid` for the same reason
+            // `brake` is: it reads as a *detent*, which is exactly what the band snapping onto a
+            // junction is — but at reduced intensity, because this one repeats. A drag across the
+            // city fires several of these seconds apart or less, and at full strength a run of
+            // rigid knocks stops reading as detents and starts reading as a rattle. The brake is
+            // one press and keeps the full transient; this is one of many and sits under it.
+            //
+            // The intensity is the native side's call and belongs here rather than in the page for
+            // the same reason the style does — see the note at the top of this file.
+            rigid.impactOccurred(intensity: 0.55)
+            rigid.prepare()
         case "brake":
             // The brake going down. `.rigid` rather than a heavier `.medium`: rigid is the hardest,
             // shortest transient UIKit offers and it is the one that reads as a mechanism engaging

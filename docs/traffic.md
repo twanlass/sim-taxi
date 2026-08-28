@@ -13,6 +13,12 @@ car with a `route` takes the next step from it; everyone else rolls the weighted
 straight/right/left dice. Everything downstream — signals, following distance, left-turn yielding,
 don't-block-the-box — is untouched and applies to the taxi identically.
 
+The roll itself now happens a second **before** the line rather than on it, in `intentFor` — the
+car has to know which way it is going in order to indicate it (see [Indicators](#indicators)). The
+branch is unchanged: the commit at the line reads that intent back, and where it cannot use it (a
+lane closed since, a siren, a car fleeing the boosting taxi, a turn refused by the yield or
+don't-block-the-box tests) it drops it and rolls again under the conditions that actually hold.
+
 That single-branch design is load-bearing: it's why the taxi cannot cheat its way to a
 destination, and why gameplay changes rarely need to touch traffic code. The taxi lives in the
 same `cars` array as ambient traffic and is drawn as its own mesh only so it can be raycast and
@@ -369,7 +375,13 @@ bar sits 5.65 from the junction centre, so the centre has to hold at ~7.35 for t
 
 **Right on red** is allowed with `RIGHT_ON_RED_YIELD = 15` units of clearance — shorter than the
 ring's, because a right turn merges into the near lane rather than crossing it. The landing is
-still governed by the usual don't-block-the-box check.
+still governed by the usual don't-block-the-box check. **A car indicating left does not take it**:
+the free right used to go to whoever was at the front of the queue, which is fine as flow and wrong
+as driving now that the lamp runs a second early — a car that had been showing left swung right
+instead, 39 times in two minutes of a 24-car city. Only the left-handed ones are refused; a car
+whose dice rolled straight still takes the free right, unindicated. Gating it on the whole intent
+was measured and not taken — it suppresses two thirds of the city's right-on-reds and costs a fare
+in ten over a 40-run soak (mean 9.7 against 11.1), which a lamp is not worth.
 
 **The taxi runs yellows** (`taxiClearsYellow`). Ambient traffic still stops on yellow — the streets
 would otherwise turn into a demolition derby — but the player's taxi treats a yellow-on-axis as
@@ -400,6 +412,32 @@ on purpose.
 `rightOf(d)` / `leftOf(d)`. It is what the corner-speed rule, the body roll and the random turn
 weighting all read, and it is defined by the angle rather than by a lookup table, so a three-way
 junction with two distinct lefts off one approach weights them both.
+
+### Indicators
+
+`SIGNAL_LEAD = 7` units before the hold line, `SIGNAL_LINGER = 0.7` seconds after the car lands,
+blinking at `TURN_SIGNAL_HZ = 1.1` on a `TURN_SIGNAL_DUTY = 0.6` duty cycle (skewed toward "on"
+because at this size an even square wave reads as a broken lamp rather than a blinking one).
+
+Both ends used to be pinned to `state === 'turn'`, which is the arc plus its `STOP_SETBACK` run-up:
+the lamp lit 0.4s before the junction and went out on the frame the car landed in the exit lane,
+so it read as a car flashing *because* it was cornering rather than to say it was about to. The
+warning is now `SIGNAL_LEAD + STOP_SETBACK` = 10.4 units, ~1.2s at cruise and over a full blink
+cycle before the wheel moves at all — and longer than that for a car queued at a red, which
+indicates for as long as it waits.
+
+The lane is the real cap on the lead: an ordinary street's is 12 units end to end, so a car
+indicates over most of the block it is leaving and never over one it hasn't reached its decision
+for. The blink clock is per-signal rather than global, so every window opens **lit** — over a
+window this short, coming on dark costs the first flash — and it desyncs a queue as well as the
+old global-clock-plus-`car.phase` did, since no two cars reach their decision on the same frame.
+
+Buying the lead is what moved the dice roll off the hold line (see [The one routing
+branch](#the-one-routing-branch)), and that is the part with teeth: a decision that can still be
+overruled at the line is a lamp that can end up pointing the wrong way. `tools/probe.mjs` measures
+it over two minutes of a 24-car city — ~560 real turns, of which 481 begin under the lamp for the
+hand actually taken, 80 under no lamp at all (the free right at a red, taken by a car whose dice
+had rolled straight) and **none** under the wrong one.
 
 ### Front wheels
 
@@ -1389,6 +1427,16 @@ Placement (`roadwork.js`) refuses a segment unless all of:
 - both lanes are empty of ambient traffic right now, so nothing appears on top of a car;
 - no rider is waiting at either end — a pickup inside a construction site reads as a bug even
   though nothing about it breaks;
+- its lanes are long enough to land the ramp's stunt in — `BARRIER_S + HOP_LEN + STOP_SETBACK` =
+  11.0 units. A side street between two ordinary junctions is 12 units of lane and the chain lands
+  1.0 clear of the hold line; one with an **arterial** at either end is 10.67, because the extra
+  third of the arterial's width comes out of both its neighbours' lanes, and the same chain lands
+  0.33 *past* the line the taxi picks its next turn at. That is 22 of the 56 side lanes on a
+  default city. Behaviour is a little better than the arithmetic — the hop fires off the taxi's
+  nose, about half a car length before `BARRIER_S`, so a measured overdrive run lands at 7.13
+  against a line at 7.27 — but 0.14 of slack is one frame at 22 u/s. `BARRIER_S` and `HOP_LEN`
+  were measured on a 12-unit lane and nothing re-measured them when the arterials were widened;
+  skipping the short lanes keeps the stunt exactly as it is on every site it can appear at;
 - it is at least 45 units from the taxi, the same number and the same honest caveat as
   `SPAWN_CLEARANCE`: on a desktop the whole city is in frame at once, so this cannot pretend to be
   off-camera. A segment currently outside the frustum is *preferred* where one exists.

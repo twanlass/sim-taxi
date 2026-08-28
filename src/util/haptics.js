@@ -41,9 +41,17 @@ import { isNative } from './platform.js';
  * confirming buzz on a refusal says the opposite of what the screen is saying.
  *
  * - `pick`       — a tap that re-aimed the taxi: a rider, a destination pin, a package pin.
+ * - `grab`       — a press that took hold of the route band. `pick`'s twin for the other half of
+ *                  the interface: the tap says *where*, this says *you have the route*. Its own
+ *                  event rather than a second `pick` because it opens a hold rather than closing
+ *                  an instruction, and what follows it is a run of `snap`s it has to read apart from.
+ * - `snap`       — the dragged route re-planning through a new junction. The one event here that
+ *                  repeats within a single gesture, which is most of what decides how it should
+ *                  feel: it is a detent in a run of detents, not an announcement. Fired only when
+ *                  the band it reports actually moved — see `game/pathdrag.js`.
  * - `brake`      — the brake going down. Distinct from `pick` on purpose: it is a pedal, not a
  *                  confirmation, and it wants to feel mechanical rather than polite.
- * - `loco`       — Loco Mode engaging under a hold. The heaviest of the three, partly because the
+ * - `loco`       — Loco Mode engaging under a hold. The heaviest of this group, partly because the
  *                  thing it reports is heavy and partly because it fires against a thumb that is
  *                  already pressed down and holding still, where a light transient is hard to feel.
  *
@@ -51,11 +59,11 @@ import { isNative } from './platform.js';
  * necessarily touching anything, so they carry the weight instead of the timing:
  *
  * - `parcel-in`  — a package collected. Something landed in the car.
- * - `parcel-out` — a package delivered. The payoff, and the only one of the five that is *earned*
+ * - `parcel-out` — a package delivered. The payoff, and the only one of the seven that is *earned*
  *                  rather than merely done — which is why the native side answers it with a
  *                  notification pattern rather than a single knock. See `HapticsBridge.swift`.
  */
-const EVENTS = new Set(['pick', 'brake', 'loco', 'parcel-in', 'parcel-out']);
+const EVENTS = new Set(['pick', 'grab', 'snap', 'brake', 'loco', 'parcel-in', 'parcel-out']);
 
 /**
  * Fire one haptic. Silent everywhere it cannot work, which is most places.

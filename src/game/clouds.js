@@ -319,10 +319,10 @@ const POOL = 28;
 // going to black — the night sky samples at 0.014 and the clouds come out at 0.145, which is a
 // shape you can still make out against it rather than a hole in the stars.
 //
-// Sampled halfway up rather than at the zenith, unlike the haze: the haze wants the most chromatic
-// part of the sky because it has 17% of a wash to say something with, and this wants the *warmth*
-// at the bottom of a sunset sky, because a cloud at dusk is the one thing in the frame that is
-// still catching the sun.
+// Sampled lower down the dome than the haze is (0.45 against its 0.73): the haze wants the most
+// chromatic part of the sky because it has 17% of a wash to say something with, and this wants the
+// *warmth* at the bottom of a sunset sky, because a cloud at dusk is the one thing in the frame
+// that is still catching the sun.
 const CLOUD_SKY_H = 0.45;
 const CLOUD_CHROMA = 0.3;
 const CLOUD_GAMMA = 0.45;

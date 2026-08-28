@@ -11,7 +11,7 @@ behind it that aren't obvious from the code.
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
 | [gameplay.md](gameplay.md) | The opening vignette, the opening tutorial, the fare loop, routing, dragging the route, the package courier, picking, the travelling clock, economy, crazy-taxi mode, pause | `src/game/` |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
-| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, effects | `src/game/scene.js`, `src/geometry/` |
+| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, Crayon and Cartoon Mode, effects | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 | [lab.md](lab.md) | The passing lab at `/lab/` — one straight road with no lights, for watching Loco Mode overtake | `src/lab/`, `lab/` |
 | [ios.md](ios.md) | The App Store build: the WKWebView shell, why a custom URL scheme rather than `file://`, the native flag | `ios/`, `src/util/platform.js` |
@@ -75,10 +75,16 @@ Next to it, taking the right 40% of the same row, is the **brake**: hold it and 
 to a halt with rubber off all four wheels, let go and it drives itself again. It costs nothing and
 has nothing to run out of. See [the brake](gameplay.md#the-brake).
 
+The two are one control surface: **slide** a held thumb from Loco Mode onto the brake and the car
+changes hands as it crosses, with no lift in between. See
+[the pedal slide](gameplay.md#the-pedal-slide).
+
 ## Conventions worth knowing before editing
 
-- **Zero external assets.** Every mesh is generated in code. There is no loader, no texture, no
-  model file. If something needs to look different, it changes in geometry or in `palette.js`.
+- **Zero external assets.** Every mesh is generated in code. There is no loader and no model file.
+  If something needs to look different, it changes in geometry or in `palette.js`. The one texture
+  in the project is [Crayon Mode](rendering.md#crayon-mode--gamecrayonjs)'s paper, which is baked
+  from seeded noise at boot — generated in code like everything else.
 - **Seeded generation.** The city is one seed, the run situation is another; see
   [architecture.md](architecture.md#seeding).
 - **Comments carry the "why".** Most non-obvious lines already explain themselves in place —
