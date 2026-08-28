@@ -322,6 +322,39 @@ never gets to spend time meshing a broken city.
 > A known limitation: districts are pairs of blocks only. Larger ones would close more roads and
 > need a connectivity guarantee stronger than the current all-pairs check.
 
+### A duck pond
+
+**Exactly one a city, and never in the statue's park.** Those are the two things a municipality puts
+in the middle of a green, and standing them in the same one leaves every other park with nothing —
+the same argument that keeps the two flocks off one lawn. `planPond` (`city/pond.js`) takes a plot
+the statue did not, and it is a plain draw rather than the statue's preference for a district: a
+statue wants the one spot in a park that was never anything else, and a pond wants nothing in
+particular.
+
+It is a **shore ring with the water as a hole in it**, both cut from one list of rim points so the
+two can't disagree, and the outline is a circle bent by two low-frequency lobes rather than jittered
+per point — 20 independent radii make a star, and smoothing them costs more code than not making the
+mistake. What that buys is a guarantee rather than a look: the outline never comes in by more than
+the lobes' own amplitudes, so `pond.water` is a radius the water certainly covers and `game/ducks.js`
+can bound its birds by a number instead of re-evaluating the shape. See
+[rendering.md](rendering.md#the-duck-pond--citypondjs-gameducksjs) for the water itself.
+
+**The size floor is the birds, not the water.** A duck is drawn at the flock's own 1.3 units (the
+same deliberate lie every animal in this game is drawn at) and loses a third of that to the
+waterline, so a pond has to be several of them across before it stops being a puddle with three
+birds jammed into it. 2.9 of radius is the floor; the setback that holds it inside the lawn is
+`PARK_EDGE + 1.15`, which clears the bench band with a quarter-unit to spare and — the reason it is
+not more — is what lets a block with an arterial down one side still hold one. At the wider setback
+a quarter of all cities had nowhere to put a pond.
+
+Three things then have to keep out of the water, and they are handled in three different places
+because they arrive at three different times. The **benches** are the setback above, decided before
+either exists. The **trees** are a rejection in `createProps`, at the pond's radius plus a crown's
+own reach — a tree leaning over a bench is shade, and a tree leaning over a pond is a tree growing
+out of it. And the **flock** is handed the pond as a keep-out circle, which is not the same job as
+the other two: a bird has a *path*, and a target pushed to the far shore is a perfectly dry
+destination with a pond in the way of it. `stopAtShore` clips the walk at the water's edge instead.
+
 ## Ground, buildings, props
 
 | File | Produces | Notes |

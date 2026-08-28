@@ -468,6 +468,39 @@ export const PALETTE = {
   boatCabin: '#C4BCAA',
   sail: '#E4DFD2',
 
+  // The duck pond — see city/pond.js. **No longer the only water in the game**, which is how these
+  // three came to be worth re-reading: `sea` above landed on 214° and this on 216°, arrived at
+  // independently and two degrees apart. That is the right answer rather than a coincidence — the
+  // free window between the courier cyan and the VIP purple is narrow and water belongs in it — so
+  // the pair are kept as one family and separated on the two axes that actually differ. The pond is
+  // lighter and calmer than the ocean (0.17 lightness at 0.64 saturation against 0.14 at 0.81),
+  // which is what a hole in a lawn should be next to a bay.
+  //
+  // **Value, not hue, is what separates water from lawn.** The first pass at this was a handsome
+  // #5E88B4, and it is luma 130 against the park's 140 — the same trap `birdBody` documents one
+  // entry up, and worse here because the pond is a 45-pixel *area* rather than a moving speck. A
+  // pond has to read as a hole in the green from across the map, which means going properly dark:
+  // `pondWater` is luma 101 and `pondShallow` 84, both a long way under the grass they sit in.
+  //
+  // Two of them because the water is drawn as a fan with a centre vertex (see `pondParts`), and
+  // what that buys is depth for the price of a vertex colour: the open middle catches the sky and
+  // the shallows round the rim go dark under the bank. One flat blue read as a painted disc.
+  //
+  // Hue is the same 216° in both, which is the free window between the courier cyan at 192° and the
+  // VIP purple at 260° — 24° clear of the nearer one, on the same clearance rule the blooms and the
+  // roadworks orange are held to, and `tools/probe.mjs` asserts it beside them. Saturation stays
+  // under the blooms' own ceiling for the same reason: nothing in a park may read as a thing the
+  // player has to act on.
+  pondWater: '#456A8E',
+  pondShallow: '#3A5876',
+  // The shore. Damp earth rather than stone — a municipal pond is a hole in a lawn with a mown
+  // edge, not a fountain basin. It sits at 34°, which is the taxi's own hue, and is kept apart from
+  // it exactly the way `spoil` (31°) is: at 0.28 saturation against the taxi's 0.80 it is a brown,
+  // and a brown ring 0.4 units wide is not a car. Darker than both the grass it interrupts (128
+  // against 140) and the `sidewalk` a park's walk is paved in (156), so the pond has an edge
+  // against everything it touches.
+  pondBank: '#8C7F6B',
+
   // Flower beds on the arterials' medians — see `flowerBedParts` in city/props.js. Blooms are drawn
   // from this per *flower*, not per bed, so one bed carries four or five of them.
   //

@@ -147,7 +147,16 @@ so a framing centred on the city photographs the one part of the sky they are ne
 why they turn up in the corners of every *other* shot — that is the band doing its job, not a shot
 that needs recomposing.
 
-Shots 25–26 (`coast`, `country`) are the only two aimed **past** the city, at
+Shots 25–26 (`pond`, `pond-far`) are the [duck pond](rendering.md#the-duck-pond--citypondjs-gameducksjs),
+close and at play zoom, and neither stages anything — a pond has no moment, and the ducks are posed
+the instant they are built precisely so a frozen frame has birds sitting on the water rather than a
+default pose. Both aim at the same water, which is the point of having two: the close one asks
+whether it reads as water at all (a shore, a dark middle, birds *in* the surface rather than on it)
+and the far one whether it is a landmark you notice while driving past or a blue smudge on a lawn.
+The close framing is what caught the first two versions — ducks floating half-submerged, and a mix of
+plumage balanced against grass rather than against water.
+
+Shots 27–28 (`coast`, `country`) are the only two aimed **past** the city, at
 [what is outside it](rendering.md#what-is-outside-the-city--citysurroundsjs). Both sit a little
 wider than play zoom, because what each one is asked about is a transition rather than an object —
 does the asphalt's fade hand over to ground that belongs to it, and does that ground then hand over
