@@ -296,6 +296,29 @@ Omit the whole section if there's nothing to note.
   (`game/sightline.js`) is a height field and not a raycast for a measured reason — 324 rays through
   the merged city is 527 ms — and its rasterisation deliberately rounds occluders **up**, so its only
   possible error is losing a junction rather than hiding a marker.
+- **View-space depth is measured from the camera's *target*, and the target moves.** Anything
+  placed by where it lands on screen — the clouds ring the island that way (`game/clouds.js`) —
+  gets its third coordinate for free under an orthographic projection, and "free" lasts exactly
+  until the player drives to a corner: a target at the map's far corner sits 59 units further down
+  the view axis than one in the middle. A cloud drawn *below* the island has to be a long way
+  towards the camera to be up in the air at all (1.54 units of standoff per unit of drop), and the
+  first build put those at 35 units of depth measured from the origin — **behind the camera** by
+  the time the taxi reached the far corner. They vanished, and only from one end of the map.
+- **A straight lane outside a convex keep-out can only ever cover half its perimeter.** The clouds
+  were first flown down straight lines chosen to clear the city, which reads as obviously
+  sufficient and is not: a lane clears the island only if the *whole infinite line* does, and every
+  line that could reach the sky beside the two edges the wind is not parallel to crosses the city on
+  its way. Half the map had weather and half never could — 0.13 clouds in frame on a phone against
+  1.04 on a desktop. Where a thing has to stay outside a shape, the shape is usually the path.
+- **A rim fade on `dot(normal, view)` spends its whole ramp in the last tenth of the radius.** That
+  dot is the *cosine* of the angle off the view axis, and a cosine sits near 1 across most of a
+  sphere's disc and then falls off a cliff: fading linearly on it feathers a 40-pixel cloud lobe over
+  about four pixels, which reads as a slightly blurry edge and not as soft at all. The screen radius
+  is the **sine** of the same angle — `sqrt(1 - d²)` — and fading on that puts the ramp where it can
+  be seen (`geometry/cloud.js`). Two things travel with it: the shape has to be grown to pay for
+  what the fade eats, and a surface *buried inside a neighbour* has to be exempted, or every
+  intersection curve between two lobes draws an arc where one is turning away while the other is
+  still solid.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

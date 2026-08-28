@@ -68,6 +68,10 @@ import { createTaxiMesh } from '../src/geometry/taxi.js';
 import { isCarOffScreen } from '../src/game/taxifinder.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
+import {
+  createClouds, cloudTint, screenOf, silhouetteTop, silhouetteBottom,
+  KEEP_OUT, INNER_KEEP_OUT, INNER_REACH, CITY_REACH, BUILT_REACH, CITY_TOP, ROUND as CLOUD_ROUND,
+} from '../src/game/clouds.js';
 import { createHelicopterMesh, HELI_SKID_DROP, MAIN_R } from '../src/geometry/helicopter.js';
 import { createChopper, CRUISE_ALT as CHOPPER_ALT, ROTOR_FLIGHT } from '../src/game/chopper.js';
 import {
@@ -8886,6 +8890,249 @@ let chopperOrder; // likewise
   check('the propeller does not strobe', PROP_SPIN / 60 < Math.PI / 2,
     `${THREE.MathUtils.radToDeg(PROP_SPIN / 60).toFixed(1)}° per frame at 60fps`);
   planeOrder = flyover.group.rotation.order;
+}
+
+// --- Weather -------------------------------------------------------------------
+// The clouds (game/clouds.js) are placed by where they land **on screen**, so every claim about
+// them is a claim about a projection and none of it can be seen from the world coordinates. Three
+// things have to hold and all three failed at least once while this was being built: a cloud never
+// overlaps the city, a cloud stays in the frustum from every framing the game allows, and there is
+// weather in shot often enough to be worth having at all.
+{
+  // The city's silhouette as a convex polygon, built the same way `clouds.js` builds its chains but
+  // kept whole, so a cloud can be tested against the *outline* rather than against the two halves.
+  // Twice: the island as the player sees it, and the inner city a block inside the ring road, which
+  // is the one the weather may never reach however far in the band is dragged.
+  const hullOf = (points) => {
+    const pts = points.map((k) => [k.sx, k.sy]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const half = (src) => {
+      const out = [];
+      for (const p of src) {
+        while (out.length > 1) {
+          const [ax, ay] = out[out.length - 2];
+          const [bx, by] = out[out.length - 1];
+          if ((bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax) <= 0) out.pop(); else break;
+        }
+        out.push(p);
+      }
+      return out;
+    };
+    const lower = half(pts);
+    const upper = half([...pts].reverse());
+    return lower.slice(0, -1).concat(upper.slice(0, -1));
+  };
+
+  const hull = hullOf(KEEP_OUT);
+  const innerHull = hullOf(INNER_KEEP_OUT);
+
+  /** Signed distance from a point to a hull: positive outside, negative within it. */
+  const distanceTo = (poly, x, y) => {
+    let worst = -Infinity;
+    for (let i = 0; i < poly.length; i++) {
+      const [ax, ay] = poly[i];
+      const [bx, by] = poly[(i + 1) % poly.length];
+      const ex = bx - ax;
+      const ey = by - ay;
+      worst = Math.max(worst, ((x - ax) * ey - (y - ay) * ex) / Math.hypot(ex, ey));
+    }
+    return worst;
+  };
+
+  const clearanceOf = (x, y) => distanceTo(hull, x, y);
+
+  // The two chains have to agree with the hull they were cut from. Rounding a corner *outward* is
+  // free — it only ever buys more sky between the cloud and the city — but rounding one **inward**
+  // eats the clearance, and `ROUND * 0.25` is the deepest the polynomial smooth-min can cut. That
+  // is the number `clouds.js` hands back when it places a cloud, so this is the assertion that the
+  // number it hands back is the right one. Sampled across the hull's own span, since beyond that
+  // the chains deliberately stop tracing the outline and carry on past the map's side.
+  let bite = 0;
+  const span = Math.max(...KEEP_OUT.map((k) => k.sx));
+  for (let sx = -span; sx <= span; sx += 0.5) {
+    bite = Math.max(bite, -clearanceOf(sx, silhouetteTop(sx)), -clearanceOf(sx, silhouetteBottom(sx)));
+  }
+  check('the smoothed silhouette never cuts deeper into the city than it pays back',
+    bite <= CLOUD_ROUND * 0.25 + 1e-9,
+    `deepest bite ${bite.toFixed(2)} against the ${(CLOUD_ROUND * 0.25).toFixed(2)} handed back`);
+
+  const framings = [];
+  for (const aspect of [0.46, 1, 1.78, 2.4]) {
+    for (const target of [[0, 0], [HALF_SPAN, HALF_SPAN], [-HALF_SPAN, HALF_SPAN],
+      [HALF_SPAN, -HALF_SPAN], [-HALF_SPAN, -HALF_SPAN]]) {
+      framings.push(createCityCamera(aspect, { zoom: 52, target }).camera);
+    }
+  }
+
+  let worstClearance = Infinity;
+  let innerClearance = Infinity;
+  let broadside = Infinity;
+  let darkest = 1;
+  let faintest = 1;
+  let strongest = 0;
+  let solid = 0;
+  let seen = 0;
+  let alphaless = 0;
+  let chunked = 0;
+  let outOfOrder = 0;
+  let shadows = 0;
+  let behindCamera = 0;
+  const corner = new THREE.Vector3();
+  const YAXIS = new THREE.Vector3(0, 1, 0);
+  const LOBE_VERTS = 240;      // a detail-1 icosahedron: 80 faces, non-indexed
+
+  for (let s = 0; s < 4; s++) {
+    const skyScene = new THREE.Scene();
+    const clouds = createClouds(skyScene, makeRng(seed + s * 977 + 277));
+
+    for (const cloud of clouds.clouds) {
+      // The long axis lies down the wind, and the wind runs across the frame — so a cloud is a
+      // good deal wider than it is tall *on screen*. This is the check that catches the sign of
+      // the yaw: the other quarter turn aims the model straight into the screen, where it
+      // projects to almost nothing across the frame and reads as a lumpy potato on end.
+      broadside = Math.min(broadside, (2 * cloud.reach) / (cloud.drop + cloud.rise));
+      if (cloud.mesh.castShadow) shadows += 1;
+
+      // Colour is rgb **and** the rim fade, so the darkest-channel walk has to step over the alpha
+      // — which reaches 0 by design, and read as a black cloud the first time this ran.
+      const colours = cloud.mesh.geometry.attributes.color;
+      if (colours.itemSize !== 4) alphaless += 1;
+      for (let v = 0; v < colours.count; v++) {
+        darkest = Math.min(darkest, colours.getX(v), colours.getY(v), colours.getZ(v));
+        const a = colours.getW(v);
+        faintest = Math.min(faintest, a);
+        strongest = Math.max(strongest, a);
+        if (a > 0.999) solid += 1;
+        seen += 1;
+      }
+
+      // Back to front, so the translucent lobes blend in depth order rather than painting over
+      // each other — see the sort in geometry/cloud.js. Every lobe is a detail-1 icosahedron, so
+      // the merged geometry is exactly 240 vertices per lobe and the chunks *are* the lobes.
+      const pos = cloud.mesh.geometry.attributes.position;
+      if (pos.count % LOBE_VERTS) chunked += 1;
+      let previous = -Infinity;
+      for (let lobe = 0; lobe + LOBE_VERTS <= pos.count; lobe += LOBE_VERTS) {
+        let depth = 0;
+        for (let v = lobe; v < lobe + LOBE_VERTS; v++) {
+          corner.set(pos.getX(v), pos.getY(v), pos.getZ(v))
+            .applyAxisAngle(YAXIS, cloud.mesh.rotation.y);
+          depth += corner.dot(VIEW_DIR);
+        }
+        depth /= LOBE_VERTS;
+        // Against a tolerance, because what is sorted is each lobe's **centre** and what is
+        // measured here is the mean of its vertices — and `jitterVertices` moves those about, so
+        // the two disagree by a few hundredths of a unit. Measured worst case on the shipped
+        // jitter: 0.05. Anything that is actually a sorting bug is a whole lobe out of place.
+        if (depth < previous - 0.25) outOfOrder += 1;
+        previous = Math.max(previous, depth);
+      }
+    }
+
+    // Eight minutes of drift each, which is a couple of laps of the run — a cloud crosses the
+    // 400-unit sweep in a little over three.
+    for (let step = 0; step < 60 * 480; step++) {
+      clouds.update(1 / 60);
+      if (step % 13) continue;
+      for (let i = 0; i < clouds.state.count; i++) {
+        const cloud = clouds.clouds[i];
+        if (!cloud.mesh.visible) continue;
+        const p = cloud.mesh.position;
+        const at = screenOf(p.x, p.y, p.z);
+        for (const dx of [-cloud.reach, cloud.reach]) {
+          for (const dy of [-cloud.drop, cloud.rise]) {
+            worstClearance = Math.min(worstClearance, clearanceOf(at.sx + dx, at.sy + dy));
+            innerClearance = Math.min(innerClearance, distanceTo(innerHull, at.sx + dx, at.sy + dy));
+          }
+        }
+        if (step % 601) continue;
+        // And in front of the camera from anywhere the player can drive to. Depth is measured from
+        // the camera's *target*, so a cloud that sits comfortably in frame with the camera at the
+        // middle of the map can be behind it once the target has moved 59 units down the view axis.
+        for (const cam of framings) {
+          if (corner.copy(p).project(cam).z >= 1) behindCamera += 1;
+        }
+      }
+    }
+  }
+
+  // The weather hangs **over the coast**: a cloud's box comes in past the island's edge on purpose
+  // (`OVERLAP`, which the ⚙️ panel can drag), and the box is a long way outside the drawn shape —
+  // the fade has dissolved the lower rim before its bounding box ends — so this is a veil over the
+  // outermost asphalt rather than a lid on it. What is asserted is that it stays a veil.
+  check('the weather comes in over the coast, and no further', worstClearance > -20,
+    `deepest ${(-worstClearance).toFixed(1)} units in past the island's edge`);
+  // And the half of it that is not a preference: whatever the band is set to, nothing in the sky
+  // may reach the city inside the ring road. This is the check that stops "a little closer in" from
+  // becoming weather over the play area one tweak at a time.
+  check('and never over the map itself', innerClearance > 0,
+    `closest approach ${innerClearance.toFixed(1)} units outside the inner city (±${INNER_REACH})`);
+  check('every cloud is drawn broadside to the wind', broadside > 1.3,
+    `narrowest is ${broadside.toFixed(2)}x wider than tall on screen`);
+  check('clouds stay in front of the camera from every framing', behindCamera === 0,
+    `${framings.length} framings, ${behindCamera} clipped`);
+  check('nothing in the sky casts a shadow', shadows === 0,
+    shadows ? `${shadows} clouds throwing a patch over the city` : 'the band would land on the map');
+  // The light is baked (geometry/cloud.js), and the floor under it is what keeps the unlit side of
+  // a cloud reading as cloud rather than as rock.
+  check('a cloud is bright even on its own shaded side', darkest > 0.12,
+    `darkest baked channel ${darkest.toFixed(3)}`);
+  // And the fade, which is the whole of why a low-poly cloud does not read as one: it has to reach
+  // nothing at the silhouette *and* reach solid at the point of each lobe aimed at the camera. Only
+  // a few percent of a lobe's vertices are in that solid cap — the body of a cloud is opaque
+  // because its lobes stack, not because any one of them is — so what is asserted is the range.
+  check('the fade reaches both ends', alphaless === 0 && faintest < 0.02 && strongest > 0.999,
+    `alpha ${faintest.toFixed(3)} at the silhouette to ${strongest.toFixed(3)} at the core, ${(100 * solid / seen).toFixed(1)}% of vertices fully opaque`);
+  check('a cloud\'s lobes are built back to front', chunked === 0 && outOfOrder === 0,
+    `${outOfOrder} lobes out of depth order, ${chunked} clouds not a whole number of lobes`);
+
+  // And the point of all of it: is there any weather in the picture? Measured on the framing that
+  // has the least sky in it by a distance — a portrait phone at play zoom, where the island fills
+  // the frame and what is left is the wedge past its edge.
+  {
+    const skyScene = new THREE.Scene();
+    const clouds = createClouds(skyScene, makeRng(seed + 277));
+    const halfW = 52 * 0.46;
+    let seen = 0;
+    let samples = 0;
+    for (let step = 0; step < 60 * 420; step++) {
+      clouds.update(1 / 60);
+      if (step % 60) continue;
+      const t = step / 60;
+      const view = screenOf(40 * Math.sin(t * 0.11), 0, 40 * Math.sin(t * 0.07 + 1));
+      let inFrame = 0;
+      for (let i = 0; i < clouds.state.count; i++) {
+        const cloud = clouds.clouds[i];
+        if (!cloud.mesh.visible) continue;
+        const p = cloud.mesh.position;
+        const at = screenOf(p.x, p.y, p.z);
+        if (Math.abs(at.sx - view.sx) < halfW + cloud.reach
+          && Math.abs(at.sy - view.sy) < 52 + cloud.rise) inFrame += 1;
+      }
+      samples += 1;
+      if (inFrame) seen += 1;
+    }
+    check('there is weather in shot on a phone', seen / samples > 0.5,
+      `a cloud is in frame ${(100 * seen / samples).toFixed(0)}% of the time at 0.46 aspect`);
+  }
+
+  // The keep-out is two boxes, and the tall one stops at the ring road — the difference is 17
+  // units of sky the clouds get to use. Asserted rather than trusted because it is the one number
+  // in here that comes from somewhere else in the project.
+  check('the keep-out stops where the city does', BUILT_REACH < CITY_REACH && CITY_TOP > 16,
+    `built to ${BUILT_REACH} and ${CITY_TOP} tall, ground out to ${CITY_REACH}`);
+
+  // The clouds are the only unlit thing in the sky, so the tint is the *whole* of what the day
+  // cycle does to them (game/daylight.js). A tint that stopped tracking would leave white clouds
+  // hanging over a midnight city, which nothing else in the suite would notice.
+  const hsl = { h: 0, s: 0, l: 0 };
+  const lightness = (top, bottom) => {
+    cloudTint(new THREE.Color(top), new THREE.Color(bottom)).getHSL(hsl);
+    return hsl.l;
+  };
+  const noon = lightness('#6FA9D4', '#CDE3EE');
+  const midnight = lightness('#0A1320', '#16202E');
+  check('the clouds go out with the light', midnight < noon * 0.4 && midnight > 0.02,
+    `lightness ${noon.toFixed(2)} at noon, ${midnight.toFixed(2)} at midnight`);
 }
 
 // --- The rooftop helicopter ------------------------------------------------------

@@ -1864,6 +1864,184 @@ a bar being rotated.
 Four draw calls while one is up — airframe, blade, prop disc, streamers — and none at all the rest
 of the time. `?shot=13` stages one; see [testing.md](testing.md#screenshots).
 
+### Clouds — `game/clouds.js`, `geometry/cloud.js`
+
+Low-poly cumulus drifting past the city on one wind. Scenery on the same terms as the flyover and
+the flocks — nothing routes around them, nothing collides with them, nothing can be tapped — with
+one rule of their own: **a cloud must never come over the map you drive on.** The camera is fixed
+and looks down a 33° diagonal, so anything in the air is drawn over whatever ground is up-screen of
+it, and a cloud over the middle of the map sits on the taxi.
+
+So they ride the island's coastline, which is also where the sky is. At play zoom the island is
+221 × 120 units on screen against a frame 104 tall: what the player ever sees of the sky is the
+wedge between the map's edge and the corner of the frame, and **91% of it is within 30 units of that
+edge**. A band pushed generously clear of the city is a band nobody ever sees.
+
+They come **in** over that edge rather than standing off it — `OVERLAP`, 20 units of a cloud's
+bounding box sunk below the island's silhouette. The box is a long way outside the drawn shape,
+since the fade has dissolved the lower rim before the box ends, so 20 units of box is about 14 units
+of visible veil: at the map's far corner that reaches the outer half of the ring road and stops.
+The line it stops at is the one thing here that is not a preference — `INNER_KEEP_OUT`, the ground
+out to the ring road's centreline, asserted in the probe. Note what that box is *not*: it is at
+ground level, not skyline height, because at this camera the top of a tall tower on the ring road
+projects to 55.8 against the island's outer edge at 60.2 — any veil over the coast at all is a veil
+over the roofs behind it, and nothing is played on a roof.
+
+#### Authored on the screen, solved in the world
+
+"Over the city" is a fact about the picture, not about the world. A world-Y lift buys 0.838 of a
+unit up the screen (`SCREEN_PER_WORLD_Y`) and nothing else — no parallax, no perspective, nothing
+that moves when the player pans — so a cloud at altitude 60 over the middle of the map is *drawn* 50
+units up-screen of it, on the far edge's skyline.
+
+`RIGHT`, `VIEW_UP` and `VIEW_DIR` ([camera](#camera)) are an orthonormal basis, so a cloud is
+authored as `(sx, sy)` on the frame and `worldAt()` sums the three axes to get the world position
+back. The third coordinate — how far the cloud floats *towards* the camera — is invisible under an
+orthographic projection, and is therefore where the altitude goes: `standoffFor()` solves for
+whatever standoff puts the cloud at the altitude it wants to be flying at.
+
+That axis is not free, though, and this is the bug worth remembering: **view-space depth is measured
+from the camera's target**, which follows the taxi. A cloud drawn *below* the island has to be a
+long way towards the camera to be up in the air at all — the island is 120 units tall on screen and
+getting under it costs 1.54 units of standoff per unit of drop — so the first build put the low ones
+at 35 units of depth with the camera at the origin, which is **behind the camera** by the time the
+player drives to the far corner. They vanished, and only from one end of the map. `STANDOFF_MAX`
+leaves 60 units of depth in hand after the worst pan and the price is paid where nothing can see it:
+a cloud that wanted to fly at 80 and is drawn low ends up at 46 instead.
+
+#### They ride the outline, not a lane
+
+The obvious design — a straight lane, a wind blowing down it, clouds wrapping round — was built
+first and is wrong in a way that only shows up when you measure it. A straight lane clears the city
+only if the *whole line* does, and the set of lines that do covers exactly **half** the map's
+perimeter: with the wind down world +X the lanes hug the two z-facing edges, and every line that
+could reach the sky beside the other two crosses the city on its way. Measured on that build: 0.13
+clouds in frame on a portrait phone against 1.04 on a desktop, with 83% of portrait frames showing
+sky and nothing in it.
+
+So a cloud holds a fixed height **above the city's silhouette** and tracks it as it drifts across.
+The silhouette is the convex hull of the keep-out's projected corners, split into an upper and a
+lower chain (Andrew's monotone chain), evaluated as a smooth-min over the chain's infinite lines and
+clamped past the map's shoulders so a cloud carries straight on past its side rather than following
+the outline down to a point. Every cloud still travels the same way across the screen, which is what
+the straight lane was bought for in the first place.
+
+The keep-out is **two boxes** — the ground out to its fade skirt, and the built city standing on the
+middle of it — because one box costs 17 units of sky: built as a single 20.5-tall box out to the
+skirt it claims a skyline standing on the very edge of the island, where there is nothing but empty
+asphalt, and pushes the whole band up-screen off ground 28 units further out than any building.
+
+`tools/probe.mjs` asserts the lot over eight simulated minutes on each of four seeds: the deepest a
+cloud's screen box comes in past the island's edge, that no cloud's box ever reaches the ground
+inside the ring road, that none is ever behind the camera across twenty framings from portrait phone
+to ultrawide panned into each corner, and that a cloud is in frame 66% of the time on the tightest
+framing the game has.
+
+#### The one unlit thing in the sky
+
+The scene's key is warm over a warm hemisphere fill at both ends, and a white lump under it comes
+back as a **sandstone boulder** — every upward face cream, every downward face the colour of the
+sidewalk, and the cool underside the palette asks for multiplied out of existence. That lighting is
+right for a city at golden hour and wrong for the only white object in the sky, and no base colour
+undoes it: a warm key cannot be cancelled without going past white in the blue channel.
+
+So the material is `unlitMaterial()` and the light is **baked into the vertices** in
+`geometry/cloud.js`, off the same sun direction the scene uses, leaving the colour exactly as
+authored: `cloudLit` white on top, `cloudShade` blue underneath, over an ambient floor of 0.88 so
+the unlit side of a cloud stays one of the brightest things in the sky.
+
+That floor leaves the shading a *scalar*, though, and a scalar can only make a white cloud a darker
+white — which is what made the first soft build read as a paper cut-out. `SUN_WARMTH` is the other
+half of what a light does: the lit surface is lerped halfway toward `PALETTE.sun`'s own hue, scaled
+so its brightest channel is 1 so it shifts the colour without dimming it. The lit face lands on
+#F4EED9 against the underside's #A9C0DA. It has to be that strong because of where the sun is —
+`LIGHT · VIEW_DIR` is 0.98, so the sun sits almost directly behind the camera and *nearly every face
+the player can see is a lit one*. There is no warm side and cool side to be had; the warmth is a
+cast over the whole drawn surface, and the cool comes from the vertical gradient underneath it.
+
+#### Soft, out of hard geometry
+
+Everything else in this game wants its facets — `flatShading` and a hard silhouette are the whole
+look. A cloud is the exception, and it takes three things to get there, all of them baked at build
+time and all of them possible only because **the camera never rotates**.
+
+**Smooth normals.** The shading normal is the direction from the lobe's own centre to the vertex,
+as an ellipsoid so the vertical squash is accounted for, rather than the triangle's winding. The
+light then runs across each face instead of stepping at every edge. Nothing is welded and no
+vertices are shared: the normal is computed, used and thrown away, because the material is unlit and
+the shading it produces is already in the colour. The per-lobe jitter is half the tree canopies' —
+every unit of it is a unit of disagreement between the shading and the shape, which is free on a
+flat-shaded canopy and a mottle here.
+
+**A fade at the edges**, in the alpha of a 4-component vertex colour — the same trick the island's
+own [edge fade](#the-island-edge--citygroundjs) uses, so it needs no shader. This is what actually
+stops a cloud reading as low-poly: the silhouette is the one place a polygon can still be *seen* as
+a polygon, and dissolving it costs nothing but the numbers.
+
+The fade is measured across the lobe's **drawn disc** — `sin` of the angle off the view axis — and
+not off `dot(normal, VIEW_DIR)` directly. That is the difference between a soft cloud and a cloud
+with a slightly blurred edge: the dot product is `cos` of that angle, which stays near 1 across most
+of a disc and then collapses, so fading on it spends the whole ramp in the last tenth of the radius,
+about four pixels at play zoom. The first build did exactly that and still read as an edge.
+
+Two corrections come with it. The lobes are grown 28% (`EDGE_GAIN`), because a fade eats the outside
+of every one of them and a cloud built to the size it should look comes out small and thin. And a
+vertex buried in a *neighbouring* lobe has its alpha put back to 1 (`BURY`): the fade is a statement
+about the outside of a cloud, and applied blindly it fades every lobe against its own neighbours —
+each intersection curve draws an arc, because that is exactly where one lobe's surface is turning
+away from the camera while the next one's is still solid, and the cloud comes back as a row of
+overlapping discs.
+
+**No depth write, and the lobes pre-sorted back to front.** Every lobe is translucent around its
+edge, so one that stamped depth would punch a hole in whatever is drawn behind it — including the
+rest of its own cloud. Blending them in depth order is what makes the overlaps read as one body, and
+sorting per frame is what an engine normally has to do here: this camera never rotates, so the order
+is a property of the model and is settled once, at build time. Per lobe is enough because a lobe is
+convex — its own front faces cannot overlap each other on screen.
+
+About 960 triangles a cloud and five in the sky, against 34k for the city.
+
+What it gives up is the shading turning with the day. The *tint* still does: `cloudTint()` is a
+function of the sky the same way `hazeColor()` is, and `game/daylight.js` drives it on every
+keyframe change — the sky sampled halfway up, most of its chroma taken out, its lightness pulled up
+a gamma curve. That curve is the trick: a cloud is brighter than the sky at every hour, so the parked
+afternoon barely moves (it is already light) while midnight lands at 0.14 lightness against the sky's
+0.04 — a shape you can still make out rather than a hole in the stars. Sampled halfway up rather than
+at the zenith, unlike the haze, because a cloud at dusk is the one thing in the frame still catching
+the sun.
+
+#### The model
+
+A row of jittered icosahedra sitting on a common base plane, merged into one geometry — the tree
+canopy's construction at four times the size, laid along a line rather than clustered on a trunk.
+Each lobe is squashed to 0.8 and its centre put at exactly that height, which lands every lobe's
+underside on `y = 0` whatever its size: one flat base, the way a cartoon cloud is drawn, with the
+top broken up by the lobes themselves.
+
+**How many lobes is derived from the span, not drawn.** At four lobes over a 46-unit span the
+spacing came out at 11.5 against a radius of 7.7 and the cloud arrived as a string of separate
+balls; spacing them at 0.82 radii always closes, and closes hard enough that no single circle
+carries the outline. Puffs ride the shoulders over the middle 60%, lifted by less than the lobe under
+them is tall so they always break its surface.
+
+The long axis lies down the wind, which is **+45°** and not −45°: the project's convention takes +X
+to `(cos, 0, −sin)`, so `RIGHT` — world (1, 0, −1), the direction screen `sx` runs in — is a positive
+quarter turn. The other sign aims the model down (1, 0, 1), the horizontal part of the *view*
+direction: the cloud points straight into the screen, projects to nothing across the frame, and every
+one of them came out as a lumpy potato standing on end. The probe checks each cloud is at least 1.3×
+wider than tall on screen, which is the shape of that mistake.
+
+**Five** up out of a pool of 28, drifting at 0.5-0.9 screen units a second. Both numbers are about
+the frame rather than about the sky: a cloud has no scale of its own, so the eye reads its speed
+against a frame that is 140 units wide on a desktop and 48 on a phone — at the 1.5-2.6 this shipped
+with, a cloud crossed a phone's frame in under half a minute and read as scudding. And ten of them
+put four and a half in frame at a time on a 16:9 desktop once the band came in over the coast, which
+is a sky with weather all over it; five is about two. `?shot=24` frames the band against the
+map's far corner; the ⚙️ panel has the four knobs that decide how it reads — how many, how far in
+over the coast, how deep the band, how fast — plus one for the other reading of the brief, **Over the
+city**, which puts that many of them across the map instead of round it. It is 0 by default: a cloud
+over the play area hides the taxi, which is the whole reason for everything above.
+
 ### The park flock — `game/birds.js`, `geometry/bird.js`
 
 Birds living in the city's parks. They walk about on the grass, pecking and pausing; something puts

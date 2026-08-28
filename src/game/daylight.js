@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SPAN } from '../city/grid.js';
 import { hazeColor } from './scene.js';
+import { cloudTint } from './clouds.js';
 
 // The sky over one day, as a set of keyframes the clock and the tweak panel both read.
 //
@@ -78,8 +79,13 @@ function sample(hour) {
  *             Derived rather than carried as a keyframe field of its own, and that is the load-
  *             bearing part: a haze that is a *function* of the sky cannot drift away from it. A
  *             tint picked at golden hour and left alone is a pale blue wash over a midnight city.
+ *
+ * @param clouds  the weather ringing the island, or null. Same arrangement as the haze and for the
+ *                same reason: the clouds are unlit, so the *only* thing that moves their colour
+ *                over a day is this call. Left out, they stay at the parked afternoon's white and
+ *                glow through the night.
  */
-export function createDaylight({ sun, hemi, sky, fog = null }, startHour = 16.4) {
+export function createDaylight({ sun, hemi, sky, fog = null, clouds = null }, startHour = 16.4) {
   const state = { hour: startHour, cycling: true, dayLength: DAY_SECONDS };
 
   /**
@@ -127,6 +133,7 @@ export function createDaylight({ sun, hemi, sky, fog = null }, startHour = 16.4)
     sky.uniforms.topColor.value.copy(look.top);
     sky.uniforms.bottomColor.value.copy(look.bottom);
     if (fog) hazeColor(look.top, look.bottom, fog.color);
+    if (clouds) clouds.setLight(look.top, look.bottom);
 
     return look;
   }
