@@ -24,6 +24,10 @@ import {
 import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
 import { createDucks } from '../src/game/ducks.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
+import {
+  createSurrounds, slabEdgeDistance, OCCLUSION_REACH, LAND_Y, WATER_Y, BEACH_W,
+  SEA_HALF, LAND_FAR,
+} from '../src/city/surrounds.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
@@ -213,6 +217,209 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
   // Translucent asphalt over a road would show sky through the tarmac the ring road drives on.
   check('the fade never reaches back over the city', inside > -FLOAT32,
     `${inside.toExponential(1)} units inside`);
+}
+
+// --- What is outside the city ---------------------------------------------
+//
+// `city/surrounds.js` is scenery, so almost nothing about it can be got wrong in a way the game
+// notices — which is exactly why it needs asserting here rather than looking at. Four claims, and
+// three of them are about geometry that is hand-wound and therefore capable of being invisible:
+//
+//   1. Every surface faces the way it must. The foam ribbon shipped wound face-down on its first
+//      run, was culled, and photographed as a shoreline with no surf on it — a bug indistinguishable
+//      from having forgotten to build the mesh at all. Normals are computed **from each triangle's
+//      own winding**, not read off an attribute, for the reason the roadworks ramp taught.
+//   2. The waterline stays clear of the asphalt's fade skirt, so no part of the city's translucent
+//      edge is ever laid over the sea.
+//   3. No tree hides any of the city, measured up the screen rather than in a radius.
+//   4. The sea and the land reach past anything this camera can be panned to see.
+{
+  const surrounds = time('surrounds', () => createSurrounds(makeRng(seed + 55)));
+  const named = (name) => surrounds.group.children.find((c) => c.name === name);
+
+  const surroundTris = surrounds.group.children
+    .reduce((n, m) => n + m.geometry.attributes.position.count / 3, 0);
+  console.log(`  triangles: surrounds ${surroundTris}`);
+
+  // --- 1. Winding.
+  //
+  // Walked as raw position triples, which is only legitimate because every one of these meshes is
+  // non-indexed. (`ShapeGeometry` is *not*, which is the trap the courier pad's check fell into —
+  // hence `toNonIndexed()` on the two that come from a Shape.)
+  const faceNormal = (pos, t) => {
+    const a = new THREE.Vector3().fromBufferAttribute(pos, t * 3);
+    const b = new THREE.Vector3().fromBufferAttribute(pos, t * 3 + 1);
+    const c = new THREE.Vector3().fromBufferAttribute(pos, t * 3 + 2);
+    return b.sub(a).cross(c.sub(a)).normalize();
+  };
+
+  // Only the **flat ground** is asked to face up, and the filter is what makes the question
+  // answerable: the land mesh is one merge of its own surfaces and every tree, shrub and boulder
+  // standing on them, so a bare count of downward triangles in it is mostly canopy. A triangle
+  // with all three corners inside the ground's own two-centimetre sandwich is a ground triangle —
+  // which also excludes the shore lip, whose top edge sits on that plane and whose other two
+  // corners are a unit below it. The lip gets its own check, against its own direction.
+  const facingDown = (mesh, plane) => {
+    const geo = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
+    const pos = geo.attributes.position;
+    let bad = 0;
+    let total = 0;
+    for (let t = 0; t < pos.count / 3; t++) {
+      const flat = [0, 1, 2].every((k) => {
+        const y = pos.getY(t * 3 + k);
+        return y > plane - 1e-4 && y < plane + 0.05;
+      });
+      if (!flat) continue;
+      total += 1;
+      if (faceNormal(pos, t).y < 0.9) bad += 1;
+    }
+    return { bad, total };
+  };
+
+  // The sea and the foam sit at their own heights rather than the land's, so they are measured
+  // against those. Every one of the four is hand-wound in world space.
+  for (const [name, plane] of [['surrounds-land', LAND_Y], ['surrounds-verge', LAND_Y + 0.03],
+    ['surrounds-sea', WATER_Y], ['surrounds-foam', WATER_Y + 0.06]]) {
+    const mesh = named(name);
+    const { bad, total } = mesh ? facingDown(mesh, plane) : { bad: 1, total: 0 };
+    check(`${name} lies face up`, !!mesh && bad === 0 && total > 0,
+      mesh ? `${bad} of ${total} ground triangles wound away from the sky` : 'missing');
+  }
+
+  // The lip under the beach is the one vertical surface out here, and the direction it has to face
+  // is *out to sea* — which is the coast's own normal, so the test is against that rather than
+  // against a constant. Its triangles live in the merged land mesh, so it is measured off the
+  // samples the same way it was built.
+  {
+    const bottom = WATER_Y - 0.6;
+    let bad = 0;
+    for (let i = 0; i < surrounds.samples.length - 1; i++) {
+      const a = surrounds.samples[i];
+      const b = surrounds.samples[i + 1];
+      const p1 = new THREE.Vector3(a.x, LAND_Y, a.z);
+      const p2 = new THREE.Vector3(b.x, bottom, b.z);
+      const p3 = new THREE.Vector3(a.x, bottom, a.z);
+      const n = p2.clone().sub(p1).cross(p3.clone().sub(p1)).normalize();
+      if (n.x * a.nx + n.z * a.nz < 0.5) bad += 1;
+    }
+    check('the shore lip faces the water it drops into', bad === 0,
+      `${bad} of ${surrounds.samples.length - 1} panels facing inland`);
+  }
+
+  // --- 2. The waterline against the city's edge.
+  const slabDist = (x, z) => slabEdgeDistance(x, z);
+  let nearestShore = Infinity;
+  let nearestSand = Infinity;
+  for (const p of surrounds.samples) {
+    nearestShore = Math.min(nearestShore, slabDist(p.x, p.z));
+    nearestSand = Math.min(nearestSand, slabDist(p.x - p.nx * BEACH_W, p.z - p.nz * BEACH_W));
+  }
+  // Translucent asphalt over water is the failure this prevents, and the margin is what keeps a
+  // strip of dry ground between the two at the tightest point on the map — see SHORE_BASE.
+  check('the sea never reaches the asphalt fade', nearestShore > EDGE_FADE + 4,
+    `closest water ${nearestShore.toFixed(1)} units out, fade ends at ${EDGE_FADE}`);
+  check('and the beach behind it is still on dry land', nearestSand > EDGE_FADE,
+    `closest sand ${nearestSand.toFixed(1)} units out`);
+
+  // --- 3. Trees, and what they stand in front of.
+  //
+  // Up-screen is world UP = (−1, 0, −1)/√2 and a thing of height h hides `OCCLUSION_REACH * h` of
+  // the ground behind it, so this walks that segment against the city's own outline. A radial
+  // keep-out passes this too — it is simply a much larger one, and the whole point of doing it by
+  // direction is that the seaward foreshore does not need it.
+  {
+    let shading = 0;
+    let onTheFade = 0;
+    let paddling = 0;
+    let closest = Infinity;
+    for (const tree of surrounds.trees) {
+      if (slabDist(tree.x, tree.z) < EDGE_FADE) onTheFade += 1;
+      if (surrounds.coastDistance(tree.x, tree.z) > -BEACH_W) paddling += 1;
+      const reach = OCCLUSION_REACH * tree.height;
+      for (let n = 0; n <= 12; n++) {
+        const t = (n / 12) * reach;
+        const d = slabDist(tree.x + UP.x * t, tree.z + UP.z * t);
+        closest = Math.min(closest, d);
+        if (d < 0) { shading += 1; break; }
+      }
+    }
+    check('every tree stands on dry ground, off the asphalt', onTheFade === 0 && paddling === 0,
+      `${surrounds.trees.length} trees · ${onTheFade} on the fade, ${paddling} in the sea`);
+    check('and none of them stands in front of the city', shading === 0,
+      `nearest sightline comes within ${closest.toFixed(1)} units of the slab`);
+  }
+
+  // --- Boats.
+  {
+    let aground = 0;
+    let touching = 0;
+    for (let i = 0; i < surrounds.boats.length; i++) {
+      const a = surrounds.boats[i];
+      if (surrounds.coastDistance(a.x, a.z) < 20) aground += 1;
+      for (let j = i + 1; j < surrounds.boats.length; j++) {
+        const b = surrounds.boats[j];
+        if (Math.hypot(a.x - b.x, a.z - b.z) < 20) touching += 1;
+      }
+    }
+    check('every boat is moored in open water', surrounds.boats.length >= 6 && aground === 0,
+      `${surrounds.boats.length} boats, ${aground} aground`);
+    check('and no two are moored on top of each other', touching === 0, `${touching} pairs`);
+  }
+
+  // A crest is 1.41 units at full strength and the beach clears the water by only 0.37, so the
+  // swell has to be damped to nothing under the land — otherwise a wave rises through the sand
+  // from below, which is a thing nobody would think to look for and everybody would see.
+  {
+    const AMPLITUDE = 0.75 + 0.42 + 0.24;
+    const sea = named('surrounds-sea');
+    const pos = sea.geometry.attributes.position;
+    const swell = sea.geometry.attributes.aSwell;
+    let highest = -Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      if (surrounds.coastDistance(pos.getX(i), pos.getZ(i)) > 1) continue;
+      highest = Math.max(highest, WATER_Y + swell.getX(i) * AMPLITUDE);
+    }
+    check('no wave can break through the beach from underneath', highest < LAND_Y,
+      `highest crest inshore ${highest.toFixed(3)}, sand at ${LAND_Y}`);
+  }
+
+  // --- 4. Reach. The camera's target is clamped to HALF_SPAN and the frustum reaches
+  // `PLAY_ZOOM / VIEW_DIR.y` of ground up-screen and `PLAY_ZOOM * aspect` across it, so the
+  // furthest ground any player can put on screen is a number rather than a guess. 3.0 is an
+  // ultrawide monitor; the phones this ships to are under 0.5.
+  {
+    const WIDEST = 3;
+    const up = PLAY_ZOOM / VIEW_DIR.y;
+    const across = PLAY_ZOOM * WIDEST;
+    const corner = new THREE.Vector3(HALF_SPAN, 0, HALF_SPAN)
+      .addScaledVector(UP, up).addScaledVector(RIGHT, across);
+    const furthest = Math.max(Math.abs(corner.x), Math.abs(corner.z));
+    check('the sea runs past anything the camera can be panned to', SEA_HALF > furthest,
+      `sea to ${SEA_HALF}, camera reaches ${furthest.toFixed(0)}`);
+    // And the land past the sea, or there is a band of open water beyond the far side of the map
+    // where there should be fields.
+    check('and the land runs past the sea', LAND_FAR > SEA_HALF, `land to ${LAND_FAR}`);
+  }
+
+  // The sea is a field covering a corner of the frame, and the courier's pad is a mark on a kerb.
+  // They are near neighbours on the wheel — see the note in palette.js — so the thing that has to
+  // hold is the *saturation* gap, and the hue gap is measured only to record what it is.
+  {
+    const hsl = { h: 0, s: 0, l: 0 };
+    const read = (hex) => {
+      new THREE.Color(hex).getHSL(hsl);
+      return { h: hsl.h * 360, s: hsl.s, l: hsl.l };
+    };
+    const water = read(PALETTE.sea);
+    const pad = read(PALETTE.parcel);
+    const raw = Math.abs(water.h - pad.h);
+    const gap = raw > 180 ? 360 - raw : raw;
+    // 20° is the flower beds' own bar, and what carries the rest of the argument is value: a
+    // marker is a small bright thing and this is a large dark one.
+    check('the sea reads as water rather than as a courier pad',
+      gap > 20 && water.l < pad.l * 0.6,
+      `${gap.toFixed(0)}° apart, lightness ${water.l.toFixed(2)} against the pad's ${pad.l.toFixed(2)}`);
+  }
 }
 
 check('layout covers every block', layout.length === GRID * GRID, `${layout.length} blocks`);

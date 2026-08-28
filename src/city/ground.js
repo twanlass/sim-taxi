@@ -140,7 +140,12 @@ const SLAB_SEGMENTS = 14;
 const EDGE_FADE = 16;
 const FADE_RINGS = 4;
 
-/** A square with rounded corners, as a Shape — the outline both the slab and its fade are cut from. */
+/**
+ * A square with rounded corners, as a Shape — the outline the slab, its fade and the earth verge
+ * beyond it (`city/surrounds.js`) are all cut from. Exported for that last one: a hand-sampled
+ * ring drifts from Three's own tessellation at the corner arcs, which is exactly where a seam
+ * would show.
+ */
 function slabShape(size, radius) {
   const h = size / 2;
   const shape = new THREE.Shape();
@@ -431,4 +436,4 @@ export function createGround(rng, blocks) {
   return mesh;
 }
 
-export { KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, roundedRectShape };
+export { KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, roundedRectShape, slabShape };

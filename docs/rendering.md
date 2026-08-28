@@ -1285,9 +1285,14 @@ Screenshot mode freezes the cycle: a rendered shot has to be reproducible.
 ## The island edge — `city/ground.js`
 
 The asphalt doesn't end on a line. A **fade skirt** hangs off the slab — `EDGE_FADE = 16` units of
-asphalt stepping outward from the slab's own outline, alpha 1 → 0 — so the city feathers into the
-sky rather than being cut out of it. At play zoom that is about 22% of the frame height, which is
-what makes it read as a gradient instead of as a slightly blurry edge.
+asphalt stepping outward from the slab's own outline, alpha 1 → 0 — so the city feathers into what
+is beyond it rather than being cut out of it. At play zoom that is about 22% of the frame height,
+which is what makes it read as a gradient instead of as a slightly blurry edge.
+
+What it feathers *into* used to be the sky and is now
+[ground](#what-is-outside-the-city--citysurroundsjs) — with a ring of bare earth laid under the
+skirt to make the handover, because translucent grey over green mixes to an olive that read as a
+bruise round the whole map.
 
 It is an *edge* cue rather than a depth cue, and the two now sit on top of each other: the skirt is
 keyed on distance from the middle of the map, so it fades the last 16 units of ground wherever they
@@ -1324,6 +1329,129 @@ exists to remove.
 (float32 attribute storage, not slop in the construction), the ramp reaches alpha 0 exactly
 `EDGE_FADE` out, and no part of the skirt reaches back over the road — translucent asphalt over the
 ring road would show sky through the tarmac.
+
+## What is outside the city — `city/surrounds.js`
+
+Sea off two of the map's borders with boats moored in it, meadow and forest off the other two.
+About **21,000 triangles** in five meshes plus one per boat, no shadows, no AO, and no per-frame
+CPU beyond a uniform write and eight hulls — against ~34,000 for the city itself. Framings 27 and
+28 (`coast`, `country`) are the two shots aimed at it.
+
+### Which two sides is a camera decision
+
+The view never rotates. Screen up is world `(−X, −Z)` and screen right is `(+X, −Z)`, so the map's
+**−X and −Z borders are the two that face up-screen** — into the half of the frame the haze is
+thickest in and the half the player looks across rather than drives through. Water goes there: it
+wants distance, it takes the haze better than anything solid, and boats bobbing in it are scenery
+you glance at rather than something in your way. The `+X` and `+Z` borders come toward the camera
+and end up at the bottom of the frame a few units from the taxi, so they get ground you could
+plausibly drive on.
+
+Nothing out here is tappable, nothing collides, and none of it is marked as an occluder — AO buys
+contact creases on things the player is inches from, and the nearest of these is twenty units past
+the last road.
+
+### The coast
+
+Water is `x < SHORE` or `z < SHORE`: an L round the two up-screen borders with the right angle
+between them rounded off, so the map ends on a headland rather than on a surveyor's peg. It exists
+twice over — as a **polyline** sampled every 3 units for the meshes, and as a **closed-form signed
+distance** for everything that has to ask "is this in the sea": the sea grid, the tree planter, the
+moorings and the probe. Both are wobbled by the same three harmonics of arc length, seeded per
+city, weights summing to 1 so the offset is bounded by `SHORE_WOBBLE` exactly.
+
+**`SHORE_BASE − SHORE_WOBBLE` is the constraint that sets both numbers, and it is measured off the
+fade rather than off the slab.** The skirt reaches `SLAB / 2 + EDGE_FADE` = 78 units down the axes;
+put the waterline inside that and the city's last translucent ring of tarmac is laid over the sea,
+which reads as an oil slick. 85 is the closest the shoreline ever comes, which leaves 2.6 of sand
+and 4.4 of green at the tightest point on the map. `tools/probe.mjs` measures the real thing.
+
+Land, sand and sea are three flat surfaces at three heights, and the step down to the water is
+**0.37 of a unit**, which is a screen measurement rather than a depth: a drop of `h` pushes the
+water it reveals `1.537h` further up-screen, so this hides about four pixels of ground. A first
+pass at 1.2 opened a ten-pixel band of nothing between the sand and the water and the beach read as
+a shelf with the sea sliding under it.
+
+### The sea, and what a wave is worth
+
+One mesh, one draw call, displaced in its **vertex shader** — so the whole sea costs a uniform write
+per frame and nothing else. With `flatShading` the facet normals are screen-space derivatives of
+the *displaced* position, so the water lights itself correctly with no normal maths at all.
+
+It is the one material in the project that **wraps** `propMaterial()`'s patch rather than taking it
+as-is: that patch is entirely on the fragment shader (AO, the shadow tint,
+[Crayon](#crayon-mode--gamecrayonjs) and [Cartoon Mode](#cartoon-mode--gamecartoonjs)) and this adds a vertex one, so it chains onto
+the existing `onBeforeCompile` and suffixes the existing `customProgramCacheKey` instead of
+assigning over either. Building a bare Lambert here — which is what it did first — leaves the one
+surface covering a quarter of the frame as the only thing in the world with no shadow tint, no paper
+under `?crayon` and no ink under `?cartoon`.
+
+**With one exception, and it is about what a cel band is.** A band puts a terminator where a lit
+form turns away from the sun; a sea is a flat plane whose facets vary by a few degrees, so it has no
+terminator to draw and the band finds the half-percent of facets that happen to straddle its
+threshold instead — a scatter of pale triangles floating in the bay. So the sea swaps `uToonCel` for
+a private zero and keeps everything else the patch carries.
+
+**What has to be tuned is the slope, not the height.** What a wave is worth on screen is
+`amp · 2π / len` — how far it tips a facet. The first pass ran a 55-unit swell 0.22 high, which is
+a 1.4° tilt: correct, present, and completely invisible. The three that shipped total 0.29 of slope,
+about 16°, found by taking it to 5× where the sea reads as corrugated foil and coming back down. A
+wave direction is also a *screen* direction — the chop shipped at `(0.66, −0.75)`, which is `RIGHT`
+almost exactly, so its crests ran straight up the frame and beat against the grid as vertical
+banding.
+
+The swell is damped to nothing in the surf (`SWELL_NEAR`/`SWELL_FAR`, carried per vertex in a custom
+attribute rather than recomputed in GLSL, since the shore it is measured from is a wobbled
+polyline). Two reasons that want the same ramp: a crest is 1.41 units and the sand clears the water
+by only 0.37, so a wave would otherwise rise **through the beach from underneath**; and the foam is
+a static ribbon laid on the surface, which floats if the water beneath it moves. It is damped again
+past 150 units, where the grid goes coarse and a 17-unit cell can no longer carry a 17-unit wave.
+
+The grid itself is three bands — 4.4-unit cells over everything the camera can reach, then medium,
+then one jump to the edge — and cells buried more than 12 units inside the land are dropped, since
+the land is opaque and above them.
+
+### Everything else out there
+
+- **The foam** is the asphalt fade's own technique at the waterline: alpha in a 4-component vertex
+  colour, `propMaterial()` unchanged, `depthWrite` off, `renderOrder` −1. Modulated along the shore
+  by two slow harmonics — an even ribbon round the whole coast reads as an *outline*, and the map
+  looked stickered.
+- **The forest** is deliberately not `treeParts` from `city/props.js`, the one place a tree is
+  generated twice in this project. A park tree costs ~130 triangles; there are 250 of these
+  standing 20 to 180 units past the last road, so the crown drops to a bare icosahedron, the trunk
+  loses both caps and half of them become cones. 36 triangles a tree. **Nothing out here casts a
+  shadow**: the sun's shadow camera covers `SPAN · 1.05` = 105 units, so a wood running to 180 would
+  have some trees casting and some not, split on a line across the middle of it.
+- **Clumps, not scatter.** The same tree budget spread evenly photographs as scrub. Most of the wood
+  is 22 tight clusters of a dozen or more, one species each, with a handful of singles to fray the
+  edge.
+- **What a tree may not stand in front of** is a question about the *screen*. A thing of height `h`
+  hides `1.54h` of the ground behind it, and "behind" is world `UP` — so the planter walks that
+  segment against the city's own outline. The first pass used a radius, which clears the city on all
+  four sides and shaved the entire seaward foreshore bald for no reason: on the −X and −Z borders,
+  up-screen points out to sea.
+- **The boats** ride the same wave field the mesh does — the function is written once and the GLSL
+  is generated from it — with heave from the wave height under the hull and trim from its slope,
+  read as a finite difference along the boat's own two axes. `BODY_EULER_ORDER`, for the reason the
+  cars' lean needs it: on the default Euler order a roll is about the *world* X axis and coincides
+  with a hull's long axis only when she happens to be pointing east.
+
+### The four hand-wound surfaces
+
+Land, verge, sea and foam are all assembled as raw triangles in world space, and `tools/probe.mjs`
+checks every one of them against the normal its **own winding** gives — not against an attribute,
+which `computeVertexNormals` would have laundered. This is not a precaution: the foam shipped wound
+face-down on its first run, was culled, and photographed as a shoreline with no surf on it, which
+is indistinguishable from having forgotten to add the mesh. The asphalt fade's ring code was copied
+across unchanged and that was exactly the mistake — that skirt is assembled in Shape space and laid
+down with a `rotateX` that flips the handedness, and this one is assembled in world space where it
+does not.
+
+The land mesh is one merge of its ground surfaces *and* every tree standing on them, so the check
+filters to triangles with all three corners inside the ground's own two-centimetre sandwich. The
+shore lip is the one vertical surface out here and is checked against the coast's own normal
+instead.
 
 ## Effects
 

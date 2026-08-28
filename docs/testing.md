@@ -156,6 +156,14 @@ and the far one whether it is a landmark you notice while driving past or a blue
 The close framing is what caught the first two versions — ducks floating half-submerged, and a mix of
 plumage balanced against grass rather than against water.
 
+Shots 27–28 (`coast`, `country`) are the only two aimed **past** the city, at
+[what is outside it](rendering.md#what-is-outside-the-city--citysurroundsjs). Both sit a little
+wider than play zoom, because what each one is asked about is a transition rather than an object —
+does the asphalt's fade hand over to ground that belongs to it, and does that ground then hand over
+to water. A play-zoom framing of either shows the join and nothing on both sides of it. `coast` is
+aimed at the same far corner the `clouds` framing is, which is convenient rather than a duplication:
+each one photographs what the other one added to that corner.
+
 There were two more, `parcel-aboard` and `parcel-flight`, and both photographed a load that has since
 left the world: a collected box no longer rides on the taxi's rear deck and no longer crosses the road
 to get there — it flies into the HUD, and **shot mode hides the HUD**. There is nothing left for a still

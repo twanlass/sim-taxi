@@ -495,3 +495,16 @@ the 2.2 units above — see [rendering.md](rendering.md#the-island-edge--citygro
 All three use the same technique: generate small geometries, bake colour into vertex attributes
 with `bakeColor()` from `util/geo.js`, then merge into a single non-indexed mesh with
 `flatShading: true`. See [rendering.md](rendering.md).
+
+## Beyond the border — `city/surrounds.js`
+
+The last module in `src/city/` builds nothing the simulation knows about: sea and moored boats off
+the map's −X and −Z borders, meadow and forest off the other two. It lives here because it is
+generated from the **city** seed — what is over the border is a fact about this map, not about this
+shift, so pinning `?seed=` pins the coastline with everything else — and because the one thing it
+has to agree with is `ground.js`'s slab and fade.
+
+The whole of it is written up in
+[rendering.md](rendering.md#what-is-outside-the-city--citysurroundsjs): which two borders get water
+and why that is a camera decision, how the coastline is kept clear of the asphalt's fade, and what
+a wave is worth on screen.
