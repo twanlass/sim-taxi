@@ -49,7 +49,8 @@ import {
   createTargetRing, ringGrowScale, ringShrinkScale, RING_R, RING_Y,
 } from '../src/geometry/targetring.js';
 import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
-import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK } from '../src/geometry/taxi.js';
+import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../src/geometry/taxi.js';
+import { createLocoFlame } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
@@ -4955,6 +4956,155 @@ check('the taxi is an ordinary car in the traffic array',
   // on a wreck detonating where it happened.
   check('a blast with no momentum detonates on the spot', still.ring === 0,
     `ring reached ${still.ring.toFixed(3)}`);
+}
+
+// --- The Loco Mode tailpipe flame -------------------------------------------
+// game/locoflame.js is the plume that burns for the whole hold. Everything about it fails silently:
+// hand-wound triangles that render as a hole, a cutout aimed along the wrong axis (which looks like
+// a flame at exactly one heading and like a fin at the other three), a plume long enough to reach
+// through the road, and an envelope that leaves the thing burning after the button came up.
+{
+  const fScene = new THREE.Scene();
+  const flame = createLocoFlame(fScene);
+  const still = { x: 0, z: 0, yaw: 0, crashed: false };
+  const hold = (car, seconds, on) => {
+    for (let step = 0; step < Math.round(seconds * 60); step++) flame.update(1 / 60, car, on);
+  };
+
+  check('nothing burns until Loco Mode is held', (() => {
+    hold(still, 1, false);
+    return flame.group.visible === false;
+  })());
+
+  // The winding, first, and every triangle of every silhouette rather than the first one — a
+  // reversed strip quad is invisible in the geometry and draws as a notch out of the flame. The
+  // buffers are non-indexed, which is asserted rather than assumed: reading `position` in order
+  // tests triangles that do not exist the moment something makes them indexed (see the courier
+  // pad's version of this check in CLAUDE.md).
+  let triangles = 0;
+  let backwards = 0;
+  let indexed = 0;
+  let offPlane = 0;
+  {
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const normal = new THREE.Vector3();
+    for (const frame of flame.frames) {
+      const geometry = frame.children[0].geometry;
+      if (geometry.index) { indexed += 1; continue; }
+      const pos = geometry.attributes.position;
+      for (let t = 0; t < pos.count; t += 3) {
+        a.fromBufferAttribute(pos, t);
+        b.fromBufferAttribute(pos, t + 1);
+        c.fromBufferAttribute(pos, t + 2);
+        if (a.z !== 0 || b.z !== 0 || c.z !== 0) offPlane += 1;
+        normal.crossVectors(b.sub(a), c.sub(a));
+        triangles += 1;
+        if (normal.z <= 0) backwards += 1;
+      }
+    }
+  }
+  check('every tongue is a flat sheet wound one way',
+    indexed === 0 && backwards === 0 && offPlane === 0 && triangles === flame.frames.length * 19,
+    `${triangles} triangles, ${backwards} wound away, ${offPlane} off the plane, ${indexed} indexed`);
+
+  // The cutout is drawn from both sides *because* the camera sees the back of it on half the
+  // compass — the plane's normal is (−sin yaw, 0, −cos yaw), so its dot with the view direction
+  // flips sign between east and west. A single-sided flame would simply not be there for two of
+  // the four headings, which is not something a check on one heading can catch.
+  const backLit = [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2].filter((yaw) => {
+    const facing = new THREE.Vector3(0, 0, 1).applyEuler(new THREE.Euler(0, yaw + Math.PI, 0));
+    return facing.dot(VIEW_DIR) < 0;
+  });
+  check('the plume is double-sided, because the camera sees its back on half the headings',
+    backLit.length === 2 && flame.materials.every((m) => m.side === THREE.DoubleSide),
+    `${backLit.length} of 4 headings show the back face`);
+
+  // Where it burns, and which way. Local +X is the plume's length and it has to lie along the
+  // car's *backward* direction — the same (−cos yaw, sin yaw) every other effect off this bumper is
+  // written in. Getting this wrong at one heading is a flame out of the bonnet at another.
+  let worstAim = 1;
+  let worstAnchor = 0;
+  let lowest = Infinity;
+  for (const yaw of [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2, 0.7]) {
+    const car = { x: 12, z: -7, yaw, crashed: false };
+    // Two seconds of hold, so the flipbook has been round its whole cycle and the pulse has been
+    // through both of its beats — the reach is a moving number and one frame of it proves nothing.
+    for (let step = 0; step < 120; step++) {
+      flame.update(1 / 60, car, true);
+      flame.group.updateMatrixWorld(true);
+
+      const along = new THREE.Vector3(1, 0, 0)
+        .applyQuaternion(flame.group.getWorldQuaternion(new THREE.Quaternion()));
+      worstAim = Math.min(worstAim, along.dot(new THREE.Vector3(-Math.cos(yaw), 0, Math.sin(yaw))));
+      worstAnchor = Math.max(worstAnchor, flame.group.position.distanceTo(new THREE.Vector3(
+        car.x - Math.cos(yaw) * TAXI_TAILPIPE_BACK,
+        TAXI_TAILPIPE_HEIGHT,
+        car.z + Math.sin(yaw) * TAXI_TAILPIPE_BACK,
+      )));
+
+      // Every vertex actually being drawn, through its own world matrix.
+      const point = new THREE.Vector3();
+      for (const mesh of flame.frames[flame.state.frame].children) {
+        const pos = mesh.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          lowest = Math.min(lowest, point.fromBufferAttribute(pos, i)
+            .applyMatrix4(mesh.matrixWorld).y);
+        }
+      }
+    }
+  }
+  check('the plume comes out of the tailpipe, pointing back down the car\'s own axis',
+    worstAim > 0.9999 && worstAnchor < 1e-9,
+    `aim ${worstAim.toFixed(4)}, anchor off by ${worstAnchor.toExponential(1)}`);
+  // The whole reason this is a cutout standing on the car's axis rather than a screen-plane
+  // billboard: a billboard turned to the projected backward direction points down-screen at two of
+  // the four headings and sinks ~0.87 units through a road only 0.74 below the pipe. This shape
+  // can only ever reach down by its own half-width, and that margin is the number worth keeping.
+  check('and never reaches through the road it is driving on', lowest > 0.05,
+    `lowest ${lowest.toFixed(3)} above the tarmac (HALF_W is what buys this)`);
+
+  // The flicker is a flipbook, so what it must actually do is *change frames* — a cycle that
+  // stalled would leave one hand-shaped pose burning steadily, which is the look this replaced.
+  const seen = new Set();
+  const lengths = new Set();
+  for (let step = 0; step < 60; step++) {
+    flame.update(1 / 60, still, true);
+    seen.add(flame.state.frame);
+    lengths.add(flame.group.scale.x.toFixed(3));
+  }
+  check('the flame flickers rather than burning as one pose',
+    seen.size === flame.frames.length && lengths.size > 40,
+    `${seen.size} silhouettes, ${lengths.size} distinct lengths in a second`);
+
+  // The envelope. Up almost at once — this answers a button press — and out inside the boost's own
+  // one-second cooldown, rather than hanging on the bumper of a car that has stopped boosting.
+  const litAt = (() => {
+    const scene = new THREE.Scene();
+    const fresh = createLocoFlame(scene);
+    for (let step = 0; step < 60; step++) {
+      fresh.update(1 / 60, still, true);
+      if (fresh.group.visible && fresh.state.heat > 0.9) return (step + 1) / 60;
+    }
+    return Infinity;
+  })();
+  hold(still, 1, true);
+  let outAt = Infinity;
+  for (let step = 0; step < 120; step++) {
+    flame.update(1 / 60, still, false);
+    if (!flame.group.visible) { outAt = (step + 1) / 60; break; }
+  }
+  check('it lights on the press and is out before the boost cooldown is',
+    litAt <= 0.1 && outAt < BOOST_COOLDOWN,
+    `lit in ${litAt.toFixed(2)}s, out ${outAt.toFixed(2)}s after release`);
+
+  // A wreck takes it with it. The taxi keeps whatever the player was holding at the moment of
+  // impact — `boost.isActive()` is still true through the crash — so this is the flame's own bail,
+  // the same one `traffic.taxi.boost` gets in main.js.
+  hold(still, 1, true);
+  hold({ ...still, crashed: true }, 1, true);
+  check('a wrecked taxi stops burning', flame.group.visible === false && flame.state.heat === 0);
 }
 
 // --- The tyres that get away -------------------------------------------------

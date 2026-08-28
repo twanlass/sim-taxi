@@ -36,6 +36,7 @@ import { createSkidMarks } from '../game/skidmarks.js';
 import { createDust } from '../game/dust.js';
 import { createBlast } from '../game/blast.js';
 import { createFlames } from '../game/flames.js';
+import { createLocoFlame } from '../game/locoflame.js';
 import { createVanish } from '../game/vanish.js';
 import { createCarGhosts } from '../game/carghosts.js';
 import { createDaylight, DAY_SECONDS } from '../game/daylight.js';
@@ -174,6 +175,9 @@ const skids = createSkidMarks(scene);
 const dust = createDust(scene, camera, makeRng(knobs.seed + 77));
 const blast = createBlast(scene, makeRng(knobs.seed + 88));
 const flames = createFlames(scene, makeRng(knobs.seed + 133));
+// The plume that burns for the whole hold, as against the bark `flames` fires on the press. The
+// lab is the page for watching Loco Mode, so it gets the mode's own effect.
+const locoFlame = createLocoFlame(scene);
 const vanish = createVanish();
 
 // --- Staging ----------------------------------------------------------------
@@ -582,6 +586,9 @@ function frame() {
 
   layRubber(dt);
   kickDust();
+  // After `traffic.update` above, same as in the game: the plume is pinned to the bumper this
+  // frame rather than emitted and left behind.
+  locoFlame.update(dt, taxi, boost.isActive());
   updateReadout();
 
   // Out of road. The east end is a dead end and the sim holds cars at the last line, which is

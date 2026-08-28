@@ -25,6 +25,7 @@ import { createDust } from './game/dust.js';
 import { createCityEntry } from './game/cityentry.js';
 import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
+import { createLocoFlame } from './game/locoflame.js';
 import { createVanish } from './game/vanish.js';
 import { carrySpeed } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
@@ -388,6 +389,10 @@ const cityEntry = createCityEntry({
 // drag the first car's wreckage across to the second the way the old debris pools could.
 const blast = createBlast(scene, makeRng(runSeed + 88));
 const flames = createFlames(scene, makeRng(runSeed + 133));
+// The other half of the tailpipe: `flames` is the bark on the press, this is the plume that burns
+// for as long as the button is held. No seed — the flicker is a flipbook on a clock, and a flame
+// that came out differently on two runs of the same seed would take the screenshots with it.
+const locoFlame = createLocoFlame(scene);
 const vanish = createVanish();
 
 // A light aircraft crossing the city every minute or so. Scenery and nothing else — see
@@ -2252,6 +2257,11 @@ function frame() {
 
   layRubber(dt);
   kickDust();
+  // Down here with the rubber and the dust rather than up with `flames.update`, and for the same
+  // reason both of those are: it is pinned to the car's position this frame, not emitted and left
+  // behind. At the Loco Mode top the taxi covers 0.57 units in a frame, so a plume ticked before
+  // `traffic.update` would sit visibly off the back of the bumper the whole time it burned.
+  locoFlame.update(dt, traffic.taxi, boost.isActive());
   policeRubber();
   updateHud(dt);
   riderFinder.update(dt, fares.waitingAll());
