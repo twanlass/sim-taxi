@@ -974,7 +974,9 @@ a lap later.
 
 ### Loco Mode kickoff — `game/flames.js`, plus a wheelie in `sim/traffic.js`
 
-Two effects on the press that first engages Loco Mode. Fired from `kickLocoMode()` in `main.js`
+Two effects on the press that first engages Loco Mode — as against
+[the plume](#the-tailpipe-plume--gamelocoflamejs) below, which burns for the whole of the hold that
+follows. Fired from `kickLocoMode()` in `main.js`
 only when `boost.press()` returns true — the ready→active transition — so a re-press during a
 running boost doesn't re-fire either.
 
@@ -992,6 +994,64 @@ running boost doesn't re-fire either.
   be swallowed by damping or need a wildly out-of-scale impulse. Lift compensation reuses the
   same `Math.abs(Math.sin(pitch)) * (CAR_LEN / 2)` so the rear stays on the road as the nose
   comes up.
+
+### The tailpipe plume — `game/locoflame.js`
+
+The burst above is the *bark* on the press. This is the flame that burns for as long as the button
+is held, and it is the only thing on screen that says Loco Mode is still on other than the pill
+draining in the corner.
+
+**A flat stylized cutout, not a particle system** — the same argument [the wreck](#wreck--gameblastjs-gamevanishjs)
+makes at length. Three nested tongues of flat unlit colour — `locoFlameOuter` outside,
+`locoFlameMid` under it, `locoFlameCore` at the pipe — and it flickers by cycling **four hand-shaped
+silhouettes at 16fps**, which is a flipbook and reads as drawn fire rather than as a blob being
+scaled. 12 meshes over 4 geometries and 3 materials, all built once at module load; nothing is
+allocated per frame and nothing is integrated. `update(dt, car, on)` is the whole interface, called
+from `main.js` (and from the lab) with `boost.isActive()`.
+
+**It stands in a vertical plane through the car's own long axis**, and that is a measurement rather
+than a preference. A screen-plane billboard was the obvious build — the same `BILLBOARD` constant
+the [outburst bubble](#the-outburst-bubble--geometrycursebubblejs) is authored in — but the plume
+has to point along the car's *backward* direction, which projects into the screen plane at
+(∓0.707, ±0.386) for the four headings. For two of them that is **down-screen**, and a 3-unit plume
+sinks 3 × 0.386 × 0.838 ≈ 0.97 world units through a road only `TAXI_TAILPIPE_HEIGHT` = 0.74 below
+the pipe: half the compass would draw a flame with its tail cut off by the asphalt. A cutout
+standing on the car's axis can only ever reach down by its own half-width. Nor is it ever edge-on,
+which is the failure the vertical plane *could* have had — the roads are axis-aligned and the
+camera's azimuth is the 45° diagonal, so it faces the view at the same 53° on every heading and
+foreshortens by the same 0.808 (3.0 long → 2.4 units on screen, ~19px at play zoom, behind a 31px
+car).
+
+> **It is `DoubleSide`, and that is not laziness.** Turned to the heading, the plane's normal comes
+> out at (−sin yaw, 0, −cos yaw), whose dot with the view direction is −(sin yaw + cos yaw) —
+> positive driving west and north, negative driving east and south. A single-sided cutout would be
+> correct on exactly half the compass and *invisible* on the other half. It is unlit flat colour, so
+> a back face is the same colour as a front one and there is nothing to lose. (This is also why it
+> carries no `flatShading`: that takes its normal from a screen-space derivative and lights a back
+> face as if the sun were behind it.)
+
+Two numbers were set by the road rather than by eye, and both are asserted in `tools/probe.mjs`
+rather than eyeballed:
+
+- **`HALF_W = 0.50`.** The widest point of the tongue is the lowest thing it draws, so half-width ×
+  the ruffle × the fattest beat of the pulse has to clear 0.74. The first try at 0.62 — picked
+  against the car's 2.0 width — cleared the tarmac by **0.002**, which is a coincidence and not a
+  margin. At 0.50 the worst frame of the pulse clears it by **0.095**, measured by the probe off the
+  vertices actually drawn.
+- **The taper exponent, 0.55.** At 0.85 the tongue has spent most of its girth by halfway and the
+  back two-thirds is a spike: rendered, that is a dart stuck in the bumper rather than a flame.
+  0.55 holds the body out to the midpoint and puts the taper in the last third, where a drawn flame
+  has it.
+
+**Ticked after `traffic.update`,** down with the rubber and the dust rather than up with the burst's
+own pool, and for the same reason both of those are: it is pinned to the car's position *this*
+frame rather than emitted and left behind. At the Loco Mode top the taxi covers 0.57 units in a
+frame, so a plume ticked before the sim would ride visibly off the back of the bumper the whole time
+it burned.
+
+Its envelope is 0.05s up and 0.16s down — the attack answers a button press, and the release is out
+well inside `BOOST_COOLDOWN` so the flame never outlasts the mode. A wrecked taxi drops it
+immediately, the same bail `traffic.taxi.boost` gets.
 
 ### Wreck — `game/blast.js`, `game/vanish.js`, plus a smoke collar out of `game/dust.js`
 

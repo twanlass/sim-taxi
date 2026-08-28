@@ -326,6 +326,27 @@ export const PALETTE = {
   // The shockwave on the tarmac. A pale warm yellow rather than white — white on this asphalt
   // reads as a lighting artefact, and the ring belongs to the fireball above it.
   blastRing: '#FFE9A8',
+
+  // The tailpipe flame Loco Mode burns for as long as it is held — see game/locoflame.js. Three
+  // stops read as one nested cutout: the outer tongue, the gold under it, and the near-white at the
+  // pipe itself.
+  //
+  // Its own three rather than a borrow of the crash's, and the difference is which end is hot. A
+  // fireball is a cluster cooling *outward over time*, so `blastCore`→`blastFlame` is a ramp each
+  // puff walks; this is a jet, hottest where it leaves the pipe and coolest at the tip, so the ramp
+  // is a fact about *position* and all three stops are on screen at once. That also lets the core
+  // go whiter than a puff's ever does — a still-burning nozzle against a car, rather than the
+  // hottest instant of something that is on its way to smoke.
+  //
+  // The middle stop is the one that had to be argued with. `taxiBody` is #F5C130 — hue 44°, 80%
+  // saturated — and the first gold here came out at 42° and 82%, which is the taxi's own paint
+  // burning two units behind the taxi's own paint: it read as a lit panel rather than as fire.
+  // Pulling it to 35° puts it in the fireball's neighbourhood (`blastGold` is 36°) and nine degrees
+  // clear of the car. The core is at 46° and looks nothing like either, because at 15% saturation
+  // it is white with a warm cast rather than a yellow.
+  locoFlameOuter: '#FF5D18',
+  locoFlameMid: '#FF9E12',
+  locoFlameCore: '#FFF6D8',
   // The collar of smoke thrown out around a wreck — the construction zone's dust, tinted. It is
   // set against the **road**, not against `blastSmoke` beside it, and that is the whole of why it
   // is this light. The fireball is unlit, so its smoke stop can be a dark #4B4B55 and still read;

@@ -2004,6 +2004,11 @@ The press itself also fires a **wheelie**, a tailpipe **flame burst** and a half
 streak of rubber — all three gated on `boost.press()` returning true, so they fire on the
 transition into Loco Mode and not on a re-press during a boost that's already running.
 
+The **hold** has its own effect, and it is a different object: a flat stylized flame that burns out
+of the tailpipe for exactly as long as the button is down (`game/locoflame.js`, and see
+[rendering.md](rendering.md#the-tailpipe-plume--gamelocoflamejs)). The burst is the bark on the
+press; this is what says the mode is *still on*, which nothing but the draining pill said before.
+
 ## The brake
 
 The **Brake** button, to the right of the Loco Mode pill and sharing the bottom row with it:
