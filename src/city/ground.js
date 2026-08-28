@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import {
-  GRID, PITCH, ROAD_W, SPAN, HALF_SPAN, lineCoord,
+  DIR, GRID, PITCH, ROAD_W, SPAN, HALF_SPAN, LANE_TO_KERB, lineCoord,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
   medianRuns, MEDIAN_W,
 } from './grid.js';
@@ -54,7 +54,11 @@ function curbBox(w, h, d, x, y, z, col, radius = CURB_RADIUS) {
 
 // The sidewalk surface sits 0.15 in from the kerb's own edge (see the `- 0.3` below), so its
 // corners are rounded to a slightly tighter radius to stay concentric with the kerb beneath it.
-const PAVE_INSET = 0.15;
+//
+// Exported for the same reason `PARK_EDGE` and `MEDIAN_EDGE` below are: it is where the *walking*
+// surface starts, and `props.js` now stands a fire hydrant on that band as well as a bench on the
+// grass. A margin copied by hand is a margin that drifts.
+export const PAVE_INSET = 0.15;
 const PAVE_RADIUS = CURB_RADIUS - PAVE_INSET;
 
 /** The flat sidewalk surface on top of a kerb block, rounded to match its corners. */
@@ -118,6 +122,216 @@ function parkSurface(w, d, x, z, walkCol, grassCol, y) {
 // leaves. Exported for the same reason `PARK_EDGE` is: `props.js` stands flower beds on that grass
 // and has to know where it stops, and a margin copied by hand is a margin that drifts.
 export const MEDIAN_EDGE = PAVE_INSET;
+
+// --- Crosswalk bars ---------------------------------------------------------
+// Hoisted out of `createGround` because the road wear below has to keep off them: a manhole cover
+// under a zebra shows through the gaps between its bars, which reads as a hole in the paint.
+const BARS = 4;
+const BAR_W = 0.72;
+const BAR_LEN = 1.5;
+
+// --- Where a road actually starts and stops ---------------------------------
+//
+// One stretch of carriageway between two junction boxes. Both the centre-line paint and the wear
+// below scatter along these, and the arithmetic that finds the ends is the part with the arterials
+// in it: the road running along Z at x = c is bounded in z by the **X** roads at each end of the
+// gap, which is the same number as its own half-width right up until one of them is a main street.
+// One owner for that, rather than two loops that agree today.
+//
+// Closed segments are skipped. A park district builds a platform over the road it took, so paint
+// laid there is under 0.35 of kerb and grass — geometry nobody will ever see.
+function roadSegments() {
+  const runs = [];
+  for (let line = 0; line <= GRID; line++) {
+    for (const axis of ['z', 'x']) {
+      const c = lineCoord(line);
+      for (let k = 0; k < GRID; k++) {
+        // The gap between crossing lines k and k + 1, named by the junction at its low end.
+        const i = axis === 'z' ? line : k;
+        const j = axis === 'z' ? k : line;
+        if (isSegmentClosed(i, j, axis === 'z' ? DIR.PZ : DIR.PX)) continue;
+        runs.push({
+          axis,
+          line,
+          k,
+          c,
+          half: axis === 'z' ? halfRoadZ(line) : halfRoadX(line),
+          arterial: axis === 'z' ? isArterialZ(line) : isArterialX(line),
+          from: lineCoord(k) + (axis === 'z' ? halfRoadX(k) : halfRoadZ(k)),
+          to: lineCoord(k + 1) - (axis === 'z' ? halfRoadX(k + 1) : halfRoadZ(k + 1)),
+        });
+      }
+    }
+  }
+  return runs;
+}
+
+// --- Wear on the road surface -----------------------------------------------
+//
+// A 5×5 grid of streets is 60 stretches of identical grey, and the asphalt is the single largest
+// surface in the frame — bigger than the sky at play zoom. Three marks break it up, and all three
+// are things a real street has rather than noise sprinkled on one:
+//
+//   - **resurfacing**, a stretch repaved at a different time from its neighbours, in a tone a few
+//     points off the road's own. This is the one that does the actual work: it is the only mark
+//     large enough to change what a whole street looks like from across the map.
+//   - **patches**, the irregular scab a dug-up trench leaves. Small, dark or bleached, plausible.
+//   - **manhole covers**, in the lane, which are the only mark with a hard edge and the only one
+//     that reads as an *object* rather than as a stain.
+//
+// The whole layer sits **under the paint**. `MARK_Y` is 0.02 and the lane markings, the crosswalks
+// and the double lines all live there; a patch drawn over a dashed line is a patch nobody has
+// repainted, which is a different and much scruffier city than the one this is.
+//
+// The four heights are 0.004-0.005 apart, which is worth stating because it looks like z-fighting
+// waiting to happen and is not. This camera is orthographic with near 1 and far 1400, so depth is
+// **linear** across the range: a 24-bit buffer resolves 8.3e-5 units, and only the 0.525 of a
+// world-Y offset that survives projection down `VIEW_DIR` counts — so the tightest gap here is
+// still about 25 depth units. (Compare the pavement, which takes 0.01 over its own kerb.)
+const RESURFACE_Y = 0.005;
+const PATCH_Y = 0.010;
+const COVER_RIM_Y = 0.014;
+const COVER_Y = 0.016;
+
+// A manhole cover is drawn about twice life size, and that is deliberate. This city's scale is a
+// 4.5m car drawn 3.4 units long, so 1 unit ≈ 1.3m and a real 0.6m cover is 0.45 units — three
+// pixels at play zoom, which is not an object, it is a smudge. At 1.04 across it is eight pixels
+// and it reads. Sized against the lane rather than against the metre: it takes a quarter of the
+// 4-unit lane it sits in, where a real one takes about a sixth.
+const COVER_R = 0.52;
+// The collar of tar round the cover. 0.16 shows as a bit over a pixel of dark ring, which is what
+// stops the disc reading as a flat blob — an eight-pixel circle needs an edge more than it needs
+// detail inside it.
+const COVER_LIP = 0.16;
+const COVER_SIDES = 12;
+
+// How often a stretch gets each mark. Swept by eye against the whole-city framing (shot 0) rather
+// than tuned per street: what matters is the *count across the map*, since the failure at both ends
+// is legible from up there — too few and the resurfacing reads as three odd rectangles, too many
+// and the grid stops reading as a road network at all. Over 60 stretches these come to roughly 27
+// resurfaced, 25 patches and 13 covers.
+const RESURFACE_CHANCE = 0.45;
+const PATCH_CHANCE = 0.34;
+const PATCH_SECOND = 0.28;
+const COVER_CHANCE = 0.22;
+
+// The outline of a patch: points round an ellipse, each pulled *inward* by its own draw. Inward
+// rather than either way, so the half-extents the plan carries are a genuine bound on the reach
+// and tools/probe.mjs can hold the placement to them — the check that matters is that no patch
+// laps over a kerb or onto a planted median, and it is unanswerable once the mesh is merged.
+const BLOTCH_POINTS = 9;
+const BLOTCH_PULL = 0.66;
+
+/**
+ * Where the road wears: resurfaced stretches, patches, and manhole covers.
+ *
+ * Split out and exported for the reason `planMedianBeds` in props.js is. The placement is the part
+ * with rules in it, every one of those rules is about staying inside a carriageway that is **not
+ * always the same width**, and once these are merged into the ground mesh there is no way left to
+ * ask where any of them went.
+ */
+export function planRoadWear(rng) {
+  const strips = [];
+  const patches = [];
+  const covers = [];
+
+  for (const seg of roadSegments()) {
+    const { axis, line, c, half, arterial, from, to } = seg;
+
+    // The inner edge of a carriageway: the centreline on an ordinary street, the island's kerb on
+    // an arterial. A mark that crosses it on a main street is a mark laid through a flower bed.
+    const inner = arterial ? MEDIAN_W / 2 : 0;
+
+    // Road-local (along, across) to world. `across` is signed off the road's own centreline.
+    const strip = (along, across, lenAlong, lenAcross) => (axis === 'z'
+      ? { axis, line, x: c + across, z: along, w: lenAcross, d: lenAlong }
+      : { axis, line, x: along, z: c + across, w: lenAlong, d: lenAcross });
+    const blotch = (along, across, rAlong, rAcross) => (axis === 'z'
+      ? { axis, line, x: c + across, z: along, rx: rAcross, rz: rAlong }
+      : { axis, line, x: along, z: c + across, rx: rAlong, rz: rAcross });
+
+    // --- Resurfacing. Ends on the junction boxes rather than running through them, because that
+    // is where a paving job actually stops: an intersection is resurfaced with whichever street
+    // the crew was sent to, and the seam it leaves is the thing being drawn.
+    if (rng.chance(RESURFACE_CHANCE)) {
+      // Kerb to kerb, or one carriageway. A main street never gets the full width — the island is
+      // in the way, and half an arterial is 5.33 across, which is a wide enough band on its own.
+      const whole = !arterial && rng.chance(0.45);
+      const width = whole ? half * 2 : half - inner;
+      const across = whole ? 0 : (rng.chance(0.5) ? 1 : -1) * (inner + width / 2);
+      strips.push(strip((from + to) / 2, across, to - from, width));
+    }
+
+    // --- Patches. Longer down the road than across it: a repair follows the trench that caused it.
+    const count = rng.chance(PATCH_CHANCE) ? (rng.chance(PATCH_SECOND) ? 2 : 1) : 0;
+    for (let n = 0; n < count; n++) {
+      const rAlong = rng.range(0.55, 1.35);
+      const rAcross = rng.range(0.35, 0.80);
+      const reach = half - rAcross;
+      if (reach <= inner + rAcross) continue;
+      const across = arterial
+        // One carriageway or the other, never across the island.
+        ? (rng.chance(0.5) ? 1 : -1) * rng.range(inner + rAcross, reach)
+        // An ordinary street has nothing down the middle, so a patch may straddle the centreline.
+        : rng.range(-reach, reach);
+      patches.push(blotch(rng.range(from + rAlong + 0.3, to - rAlong - 0.3), across, rAlong, rAcross));
+    }
+
+    // --- Manhole covers, on the lane centre. Which is 2 units off its own kerb on every road in
+    // the city (`LANE_TO_KERB`), so on an arterial it lands 3.33 from the centreline and the island
+    // — 1.2 out — never comes into it. See the divided-arterial note in grid.js: this is the
+    // constant that survived the widening precisely because it is measured from the kerb.
+    //
+    // Kept clear of the crosswalks at both ends: the bars are painted out to `BAR_LEN + 0.15` past
+    // the junction box, and a cover under one shows through the gaps between them.
+    const end = BAR_LEN + 0.15 + COVER_R + 0.25;
+    if (rng.chance(COVER_CHANCE) && to - from > end * 2) {
+      const lane = (rng.chance(0.5) ? 1 : -1) * (half - LANE_TO_KERB);
+      const along = rng.range(from + end, to - end);
+      covers.push(axis === 'z'
+        ? { axis, line, x: c + lane, z: along, r: COVER_R }
+        : { axis, line, x: along, z: c + lane, r: COVER_R });
+    }
+  }
+
+  return { strips, patches, covers };
+}
+
+/** One patch, as a flat irregular polygon lying on the tarmac. */
+function patchGeometry({ x, z, rx, rz }, rng, col) {
+  const shape = new THREE.Shape();
+  for (let n = 0; n < BLOTCH_POINTS; n++) {
+    const angle = (n / BLOTCH_POINTS) * Math.PI * 2;
+    const pull = rng.range(BLOTCH_PULL, 1);
+    const px = Math.cos(angle) * rx * pull;
+    const py = Math.sin(angle) * rz * pull;
+    if (n === 0) shape.moveTo(px, py);
+    else shape.lineTo(px, py);
+  }
+  // Wound counter-clockwise like every other Shape in this file, so it comes out of the same
+  // rotateX facing +Y rather than into the road.
+  const geo = new THREE.ShapeGeometry(shape, 1);
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(x, PATCH_Y, z);
+  return bakeColor(geo, col);
+}
+
+/** One manhole: the collar, and the cover sitting in it. */
+function manholeParts({ x, z, r }, rng) {
+  const disc = (radius, col, y) => {
+    const geo = new THREE.CircleGeometry(radius, COVER_SIDES);
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(x, y, z);
+    return bakeColor(geo, col);
+  };
+  // Sized per cover, because a row of identical circles down a street reads as a repeat rather
+  // than as ironwork.
+  const size = r * rng.range(0.90, 1.06);
+  return [
+    disc(size, jitterColor(PALETTE.manholeRim, rng, { l: 0.03 }), COVER_RIM_Y),
+    disc(size - COVER_LIP, jitterColor(PALETTE.manhole, rng, { l: 0.04 }), COVER_Y),
+  ];
+}
 
 const SLAB = SPAN + ROAD_W * 3;
 
@@ -337,38 +551,25 @@ export function createGround(rng, blocks) {
     }
   };
 
-  // The two axes are walked separately. The road running along Z at x = c is bounded in z by the
-  // *X* roads at each end of the gap, and the road running along X at z = c by the Z roads — the
-  // same number until an arterial made one of them 5.33.
-  const markRoad = (axis, line) => {
-    const c = lineCoord(line);
-    const arterial = axis === 'z' ? isArterialZ(line) : isArterialX(line);
-
-    for (let k = 0; k < GRID; k++) {
-      const from = lineCoord(k) + (axis === 'z' ? halfRoadX(k) : halfRoadZ(k));
-      const to = lineCoord(k + 1) - (axis === 'z' ? halfRoadX(k + 1) : halfRoadZ(k + 1));
-
-      if (arterial) {
-        const island = islands.get(`${axis}|${line}|${k}`);
-        if (island) {
-          doubleLine(axis, c, from, island.from);
-          doubleLine(axis, c, island.to, to);
-        } else {
-          doubleLine(axis, c, from, to);
-        }
-        continue;
+  // Where the road stops and the junction box starts is `roadSegments`' job, not this loop's — the
+  // two axes measure it against *each other's* half-widths, which is the same number until an
+  // arterial made one of them 5.33.
+  for (const { axis, line, k, c, arterial, from, to } of roadSegments()) {
+    if (arterial) {
+      const island = islands.get(`${axis}|${line}|${k}`);
+      if (island) {
+        doubleLine(axis, c, from, island.from);
+        doubleLine(axis, c, island.to, to);
+      } else {
+        doubleLine(axis, c, from, to);
       }
-
-      for (let s = from + GAP; s + DASH < to; s += DASH + GAP) {
-        if (axis === 'z') parts.push(paint(0.18, DASH, c, s + DASH / 2, markColor));
-        else parts.push(paint(DASH, 0.18, s + DASH / 2, c, markColor));
-      }
+      continue;
     }
-  };
 
-  for (let i = 0; i <= GRID; i++) {
-    markRoad('z', i);
-    markRoad('x', i);
+    for (let s = from + GAP; s + DASH < to; s += DASH + GAP) {
+      if (axis === 'z') parts.push(paint(0.18, DASH, c, s + DASH / 2, markColor));
+      else parts.push(paint(DASH, 0.18, s + DASH / 2, c, markColor));
+    }
   }
 
   // --- Crosswalks.
@@ -377,9 +578,6 @@ export function createGround(rng, blocks) {
   // junctions, which are yield-controlled and carry no lights, and it rules out crossing an
   // arterial — a main road doesn't get halted for a pedestrian. Painting them everywhere implied
   // a right of way the simulation never grants.
-  const BARS = 4;
-  const BAR_W = 0.72;
-  const BAR_LEN = 1.5;
   const crossColor = color('crosswalk');
 
   for (let i = 0; i <= GRID; i++) {
@@ -420,6 +618,32 @@ export function createGround(rng, blocks) {
       }
     }
   }
+
+  // --- Wear on the tarmac.
+  //
+  // Last, after every other draw in this function, so that adding it left a seed's kerbs, its
+  // pavements and its parks exactly where they already were — the same courtesy `props.js` pays
+  // its median beds. See `planRoadWear` for what the three marks are and why they sit where
+  // they do.
+  const wear = planRoadWear(rng);
+
+  // A resurfaced stretch is the road's own colour and a couple of points off it, never a colour of
+  // its own: what is being drawn is one paving job against the next, not asphalt against tar.
+  // The lightness spread is the one number here that had to be measured on screen rather than
+  // picked in the palette: at ±0.028 — which is a visible step on a swatch — the whole layer came
+  // out of the renderer indistinguishable from bare road, because the parked hour's light lands at
+  // a bit over half and takes most of the separation with it. ±0.055 is about eight levels of grey
+  // between one paving job and the next, which is what "slightly different" actually looks like.
+  for (const s of wear.strips) {
+    parts.push(paint(s.w, s.d, s.x, s.z,
+      jitterColor(PALETTE.asphalt, rng, { h: 0.008, s: 0.06, l: 0.055 }), RESURFACE_Y));
+  }
+  // Mostly fresh tar, occasionally a repair old enough to have bleached past the road around it.
+  for (const patch of wear.patches) {
+    const base = rng.chance(0.72) ? PALETTE.asphaltPatch : PALETTE.asphaltScar;
+    parts.push(patchGeometry(patch, rng, jitterColor(base, rng, { l: 0.035 })));
+  }
+  for (const cover of wear.covers) parts.push(...manholeParts(cover, rng));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());

@@ -17,7 +17,7 @@ import { DIR, GRID, HALF_ROAD, LANE, isSegmentClosed, lineCoord } from './grid.j
 // Why +X and not a side chosen per seed: the camera looks down the +X+Z diagonal and never
 // rotates, so only two of a building's four faces are ever visible at all. Of those two, +X is the
 // one whose sightline to the camera leaves the block over the *road* rather than over the
-// neighbouring block — see `occlusionClear` below, which is the whole of the site filter and the
+// neighbouring block — see `plusXFaceSeen` below, which is the whole of the site filter and the
 // only part of this file that is subtle.
 
 // --- The building, in block-local terms -------------------------------------
@@ -41,7 +41,7 @@ const BAY_D = 5.2;
 const RECESS = 0.3;              // the curtain plane, behind the street face
 
 // The door's centre, measured from the block's **−Z** edge rather than from its middle. This is
-// the placement `occlusionClear` depends on: the sightline from the door to the camera runs +X+Z,
+// the placement `plusXFaceSeen` depends on: the sightline from the door to the camera runs +X+Z,
 // so a door near the −Z end of the block has 7.8 units of z to spend before it crosses the block's
 // far edge — and 7.8 units of x buys it, which is inside the 8-unit road. Centre the door and the
 // line leaves over the *next block along* instead, where a tower can stand in front of it.
@@ -64,6 +64,12 @@ export const PAVEMENT_Y = KERB_H + 0.01;
  * door the sightline runs (+1, +0.92, +1) per unit of x — see VIEW_DIR — and the question is
  * whether anything the city is about to build stands in it.
  *
+ * Exported because the fire hydrants (`planHydrants` in city/props.js) ride the **same ray** and
+ * would otherwise carry a second copy of the answer. They stand on the pavement rather than three
+ * units back at a door face, and 8.6 rather than 7.5 from the far end of the block, so both legs
+ * below come out the same or better for them — the binding one is the diagonal block either way,
+ * and the filter is on its height.
+ *
  * Worked through once, from the bottom of the opening — the worst case, being the lowest — with
  * `DOOR_OFF` 4.5 and the door face 3 units back from the kerb:
  *
@@ -80,7 +86,7 @@ export const PAVEMENT_Y = KERB_H + 0.01;
  *
  * A block on the eastern edge has no diagonal neighbour at all, which is why those pass for free.
  */
-function occlusionClear(blocks, bi, bj) {
+export function plusXFaceSeen(blocks, bi, bj) {
   if (bi + 1 > GRID - 1 || bj + 1 > GRID - 1) return true;      // nothing built out there
   const diagonal = blocks.find((b) => b.bi === bi + 1 && b.bj === bj + 1);
   if (!diagonal) return true;
@@ -106,7 +112,7 @@ export function chooseGarageBlock(rng, blocks) {
     // The road the door faces has to exist. A park district closes the road between its two
     // blocks, and a depot whose forecourt opens onto grass has nowhere to drive to.
     && !isSegmentClosed(b.bi + 1, b.bj, DIR.PZ)
-    && occlusionClear(blocks, b.bi, b.bj));
+    && plusXFaceSeen(blocks, b.bi, b.bj));
   if (!candidates.length) return null;
 
   // Prefer somewhere off the outer ring: a depot in a corner puts the player's first fare — biased

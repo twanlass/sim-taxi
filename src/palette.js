@@ -39,6 +39,21 @@ export const PALETTE = {
 
   asphalt: '#636972',
   asphaltEdge: '#6B717A',
+  // Wear on the tarmac — see `planRoadWear` in city/ground.js. A city street is not one tone: it
+  // is a record of every time somebody dug it up, and the two ends of that record are a repair
+  // laid last week and one that has been bleaching since the eighties. Both are placed *around*
+  // `asphalt` rather than away from it — a patch is still asphalt — but not by much: these were
+  // first drawn 10 points of luma either side of the road's 104 and **that is invisible**. The
+  // scene's own light multiplies through at a bit over half at the parked hour, so a separation
+  // that reads as a shade in the palette reads as nothing on screen. 22 points either way is
+  // what actually shows: a patch you notice on the second look rather than a hole in the road.
+  asphaltPatch: '#4C515A',
+  asphaltScar: '#7C8189',
+  // Cast iron, and the collar of tar round it. The cover is the darkest thing on the carriageway
+  // by some way — nothing else on the road is under 90 luma — which is most of what makes a disc
+  // eight pixels across read as a manhole rather than as a smudge.
+  manhole: '#474B53',
+  manholeRim: '#3A3E45',
   laneMark: '#D6D2C4',
   crosswalk: '#DAD7CB',
   sidewalk: '#9E9C94',
@@ -381,6 +396,17 @@ export const PALETTE = {
   turnSignal: '#FF8A1E',
   lightOff: '#333940',
   pole: '#4C5158',
+
+  // The fire hydrants (`hydrantParts` in city/props.js). Safety orange rather than the yellow it
+  // was first drawn in: at nine pixels the only thing telling a hydrant apart from a taxi is its
+  // hue, and `taxiBody` is #F5C130 — a yellow hydrant on a kerb read as a car parked on the
+  // pavement. This is 26° round the wheel from it, which is as far as "bright orange" goes before
+  // it starts trading with `turnSignal` above.
+  //
+  // The bonnet is a shade lighter and yellower rather than a second colour: the cap is two pixels,
+  // so what it has to do is put a highlight on the top of the barrel, not be identifiable.
+  hydrant: '#E4611C',
+  hydrantCap: '#F2952A',
 
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
