@@ -1024,6 +1024,34 @@ frame its mask was culled on would draw as a *filled* silhouette rather than an 
 bigger than the car, which leaves the city's own screen-space line tracing the *outline* rather than
 the vehicle. `tools/probe.mjs` asserts the occluder list is unchanged by outlining.
 
+### The rim is a uniform, not a bake
+
+The inflation lives in the **vertex shader**, not in the geometry: `outlineGeometry` bakes
+`2 · (p − centre) / size` into an `aInflate` attribute and the hull's material offsets by
+`aInflate · uToonRim`, floor-clamped, in `begin_vertex`.
+
+That is exactly what `inflatedGeometry` produces — its per-axis scale about the bounding-box centre
+puts a vertex at `p + (p − centre) · 2r / size`, which is *linear in r*, so one attribute reproduces
+every width. `tools/probe.mjs` asserts the two agree to 1e-7 across three rims, and the change
+landed with a **zero-pixel** difference against the baked build.
+
+It is done that way because a rim baked into vertices is a rim you cannot scrub — moving it means
+rebuilding a geometry per hull while a slider is being dragged. And the weight of an outline is the
+one number here nobody can settle from a still: it is a judgement about how hard a car should shout
+against a city, and it needs the game running and a hand on the slider. Everything in the ⚙️
+panel's Cartoon section is now live, including both rims.
+
+**The direction comes from position, never from normals.** Every mesh here is non-indexed and
+flat-shaded, so a shared corner is several vertices carrying several normals; offsetting along
+those tears the hull open at every hard edge. `aInflate` is a function of position alone, so it
+agrees across a corner — the same argument [`jitterVertices`](#the-low-poly-look) makes one layer
+down, and the probe checks it by looking for duplicated corners that disagree.
+
+The material carries `customProgramCacheKey`, and this is the case the rule exists for: it is a
+plain `MeshBasicMaterial` in a project full of them, so without a key of its own a hull is handed
+whichever unpatched basic compiled first — and then draws at rim zero, invisible, with nothing
+logged.
+
 ### The numbers
 
 `HERO_RIM` is 0.22 and `TAXI_RIM` 0.30, in world units, and the ceiling on both is what a *car* can
@@ -1035,7 +1063,13 @@ tenths of a unit wide.
 The taxi's rides the taxi group's own `TAXI_SCALE` of 1.18 on top, landing at 0.35 world units —
 about 2.7px, half again the traffic's, and it is the one object on the board that is *the player*.
 `clampRim` caps any rim at a third of the part's smallest dimension, so one number can describe the
-look without doubling a small part it also lands on.
+look without doubling a small part it also lands on — and with a live rim that clamp runs **per
+write**, against each part the slider is reaching, rather than once at construction. Dragged past
+what a truck's cargo box can carry, the box stops at its own ceiling and the car bodies keep going.
+
+The two rims are **separate sliders**, and that is the mode rather than a convenience: a hero reads
+as a hero because its ink is heavier than everything else's, so a single number would collapse the
+only distinction being made.
 
 ### What it is not doing yet
 
@@ -2803,9 +2837,19 @@ that it returns after a reload, under an emulated iPhone.
 the streak counter now lives, and it's a tool almost no player needs to see. Split by cost:
 
 - **Live** — day cycle on/off, day length, time of day, sun colour/strength, ambient fill, fare
-  clock, route blend, occlusion strength, the city-entrance levers, and the
-  [Loco Mode ramp](traffic.md#the-ramp-is-live-tuning)
-- **Restart to apply** — car count (writes a URL parameter and reloads)
+  clock, route blend, occlusion strength, the city-entrance levers, the
+  [Loco Mode ramp](traffic.md#the-ramp-is-live-tuning), and — when their flag is on — every number
+  in [Crayon Mode](#crayon-mode--gamecrayonjs) and [Cartoon Mode](#cartoon-mode--gamecartoonjs),
+  the two hull rims included
+- **Restart to apply** — car count, and **which look is on** (off / crayon / cartoon / both), both
+  written as URL parameters before a reload
+
+The look switcher is in the second group and cannot be in the first: both modes are compiled into
+every prop material *before a mesh exists*, so switching one means recompiling every program in the
+city. It is written as an explicit `on`/`off` rather than by deleting the parameter, so a reload out
+of a look lands on the stock renderer instead of on whatever the URL happened to carry. What it buys
+is that trying the two against each other stops meaning hand-editing the address bar — which is
+exactly the friction that stops a look from being judged properly.
 
 Pretending a rebuild-only value is live would just show a slider that silently does nothing.
 

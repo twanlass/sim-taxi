@@ -75,7 +75,7 @@ import {
   createBirds, bodyQuaternion, parkAreas, SETTLE_MIN, STARTLE_RANGE, SHADOW_CEILING,
 } from '../src/game/birds.js';
 import {
-  propMaterial, setAmbientOcclusion, setCrayon, setCartoon,
+  propMaterial, unlitMaterial, setAmbientOcclusion, setCrayon, setCartoon,
   AO_UNIFORMS, CRAYON_UNIFORMS, CARTOON_UNIFORMS, BODY_EULER_ORDER,
 } from '../src/util/geo.js';
 import {
@@ -84,12 +84,14 @@ import {
 } from '../src/game/ssao.js';
 import { bakePaper, PAPER_SIZE, CRAYON_DEFAULTS } from '../src/game/crayon.js';
 import {
-  outlineRoot, instancedOutline, createCartoon, clampRim, HERO_RIM, TAXI_RIM,
+  outlineRoot, instancedOutline, createCartoon, clampRim, outlineGeometry,
+  toonOutlineMaterial, HERO_RIM, TAXI_RIM,
 } from '../src/game/cartoon.js';
 
 import { createCityEntry } from '../src/game/cityentry.js';
 import {
   GHOST_MASK_ORDER, GHOST_RIM_ORDER, CAR_GHOST_MASK_ORDER, CAR_GHOST_RIM_ORDER, GHOST_REF,
+  inflatedGeometry,
 } from '../src/geometry/ghostoutline.js';
 import {
   createCarGhosts, GHOST_RADIUS, MAX_GHOSTS, GHOST_OPACITY, FADE_BAND,
@@ -7539,6 +7541,112 @@ check('the taxi is an ordinary car in the traffic array',
   check('the taxi is inked more heavily than the traffic it drives through',
     TAXI_RIM > HERO_RIM && TAXI_RIM / HERO_RIM < 2,
     `${TAXI_RIM} against ${HERO_RIM}, and 1.18x again through TAXI_SCALE`);
+
+  // --- The live rim.
+  //
+  // The inflation moved out of the geometry and into the vertex shader so the ⚙️ panel can scrub
+  // it. That is a maths change disguised as a plumbing change, so the claim worth pinning is that
+  // it reproduces what it replaced: `position + aInflate * r`, floor-clamped, has to equal
+  // `inflatedGeometry(geometry, r)` for *any* r, not just the one it shipped with.
+  const rimSource = createTaxiMesh();
+  let rimBody = null;
+  rimSource.group.traverse((o) => {
+    if (o.isMesh && o.material?.isMeshLambertMaterial
+      && (!rimBody || bulkOf(o) > bulkOf(rimBody))) rimBody = o;
+  });
+  const shaderGeo = outlineGeometry(rimBody.geometry);
+  const inflate = shaderGeo.attributes.aInflate;
+  const worst = [0.05, TAXI_RIM, 0.6].map((r) => {
+    const baked = inflatedGeometry(rimBody.geometry, r).attributes.position;
+    const base = shaderGeo.attributes.position;
+    let error = 0;
+    for (let v = 0; v < base.count; v += 1) {
+      const x = base.getX(v) + inflate.getX(v) * r;
+      const y = Math.max(base.getY(v) + inflate.getY(v) * r, shaderGeo.userData.floorY);
+      const z = base.getZ(v) + inflate.getZ(v) * r;
+      error = Math.max(error,
+        Math.abs(x - baked.getX(v)), Math.abs(y - baked.getY(v)), Math.abs(z - baked.getZ(v)));
+    }
+    return error;
+  });
+  check('the shader rim reproduces the baked inflation at every width',
+    worst.every((e) => e < 1e-5),
+    `worst vertex error ${Math.max(...worst).toExponential(1)} across 0.05, ${TAXI_RIM} and 0.6`);
+
+  // Offset by *position*, never by normal. Every mesh here is non-indexed and flat-shaded, so a
+  // shared corner is several vertices carrying several normals — offsetting along those tears the
+  // hull open at every hard edge, which is the trap `jitterVertices` records one layer down.
+  const cornerKeys = new Map();
+  const basePos = shaderGeo.attributes.position;
+  let split = 0;
+  for (let v = 0; v < basePos.count; v += 1) {
+    const key = `${basePos.getX(v).toFixed(4)},${basePos.getY(v).toFixed(4)},${basePos.getZ(v).toFixed(4)}`;
+    const dir = `${inflate.getX(v).toFixed(5)},${inflate.getY(v).toFixed(5)},${inflate.getZ(v).toFixed(5)}`;
+    if (cornerKeys.has(key) && cornerKeys.get(key) !== dir) split += 1;
+    cornerKeys.set(key, dir);
+  }
+  check('a shared corner offsets one way, so the hull cannot tear',
+    split === 0 && cornerKeys.size < basePos.count,
+    `${basePos.count - cornerKeys.size} duplicated corners, ${split} disagreeing`);
+
+  // The vertex patch itself, against a stub carrying the chunk names three's shader actually has —
+  // and the cache key, which matters more here than almost anywhere: this is a plain
+  // MeshBasicMaterial in a project full of them, so without a key of its own an outline hull is
+  // handed whichever unpatched basic compiled first and draws at rim zero, invisible, silently.
+  const rimMat = toonOutlineMaterial({ rim: 0.3, floorY: 0.1 });
+  const rimShader = {
+    uniforms: {},
+    vertexShader: '#include <common>\nvoid main() {\n\t#include <begin_vertex>\n}',
+    fragmentShader: '#include <common>\nvoid main() {}',
+  };
+  rimMat.onBeforeCompile(rimShader, null);
+  const plainUnlit = unlitMaterial({});
+  check('the outline vertex patch lands and cannot collide with a plain basic material',
+    rimShader.vertexShader.includes('attribute vec3 aInflate')
+    && /transformed \+= aInflate \* uToonRim/.test(rimShader.vertexShader)
+    && /transformed\.y = max\(/.test(rimShader.vertexShader)
+    && rimMat.customProgramCacheKey() !== (plainUnlit.customProgramCacheKey?.() ?? null),
+    `keyed "${rimMat.customProgramCacheKey()}"`);
+
+  // The taxi and the traffic are scrubbed apart. A single rim would collapse the one distinction
+  // the mode exists to make — a hero reads as a hero because its ink is heavier than everything
+  // else's — so the panel drives two groups and `set` must not cross them.
+  const groups = createCartoon({ enabled: true });
+  const taxiPair = groups.outline(createTaxiMesh().group, { group: 'taxi' })[0];
+  const heroPair = groups.outline(createTaxiMesh().group, { group: 'hero' })[0];
+  groups.set('taxiRim', 0.5);
+  const taxiRimUniform = () => taxiPair.hull.material.userData.toon.uToonRim.value;
+  const heroRimUniform = () => heroPair.hull.material.userData.toon.uToonRim.value;
+  check('the taxi rim and the traffic rim move independently',
+    taxiRimUniform() > heroRimUniform() && heroRimUniform() === HERO_RIM,
+    `taxi ${taxiRimUniform()} against traffic ${heroRimUniform()}`);
+
+  // ...and a rim is clamped against the part it is written onto, not once at construction. A
+  // slider hands one number to a group whose members are different sizes, and MAX_RIM_FRACTION is
+  // a statement about a part: dragged past what the smallest of them can carry, that one stops and
+  // the rest keep going.
+  groups.set('taxiRim', 99);
+  check('a rim can never grow past the part it wraps',
+    taxiRimUniform() === taxiPair.hull.geometry.userData.maxRim
+    && taxiRimUniform() < 99,
+    `capped at ${taxiRimUniform().toFixed(3)} for a body that size`);
+
+  // One ink, two places it is drawn, two colour spaces. Handed over unconverted the screen-space
+  // line comes out far darker than the hulls drawn from the identical value — which is the tell,
+  // and the reason this is asserted rather than eyeballed.
+  groups.set('inkColor', '#804020');
+  const hullInk = taxiPair.hull.material.color;
+  const lineInk = CARTOON_UNIFORMS.uToonInkColor.value;
+  check('the hulls and the city line always draw the same ink',
+    Math.abs(hullInk.r - new THREE.Color('#804020').r) < 1e-6
+    && lineInk.r > hullInk.r
+    && Math.abs(lineInk.r - new THREE.Color('#804020').clone().convertLinearToSRGB().r) < 1e-6,
+    'material colour linear, line uniform re-encoded to sRGB');
+
+  groups.set('inkOpacity', 0.4);
+  check('ink opacity reaches every hull',
+    taxiPair.hull.material.opacity === 0.4 && heroPair.hull.material.opacity === 0.4,
+    'both groups follow one slider');
 }
 
 // --- Atmospheric perspective --------------------------------------------------

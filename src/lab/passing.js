@@ -41,7 +41,7 @@ import { createCarGhosts } from '../game/carghosts.js';
 import { createDaylight, DAY_SECONDS } from '../game/daylight.js';
 import { createAmbientOcclusion, markOccluder } from '../game/ssao.js';
 import { createCrayon } from '../game/crayon.js';
-import { createCartoon, TAXI_RIM } from '../game/cartoon.js';
+import { createCartoon } from '../game/cartoon.js';
 import { setAmbientOcclusion, setCrayon, setCartoon } from '../util/geo.js';
 import {
   TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK,
@@ -154,7 +154,7 @@ markOccluder(traffic.taxiGroup);
 // than the car. The lab is the one page where the same overtake happens the same way every time,
 // which makes it the place to judge whether an outline holds together on a moving silhouette.
 if (budget.cartoon) {
-  cartoon.outline(traffic.taxiGroup, { rim: TAXI_RIM });
+  cartoon.outline(traffic.taxiGroup, { group: 'taxi' });
   scene.add(...cartoon.fleet(traffic.mesh));
 }
 

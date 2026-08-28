@@ -51,7 +51,7 @@ import { createSirenGlow } from './game/sirenglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
 import { createCrayon } from './game/crayon.js';
-import { createCartoon, TAXI_RIM } from './game/cartoon.js';
+import { createCartoon } from './game/cartoon.js';
 import { setAmbientOcclusion, setCrayon, setCartoon } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
@@ -297,7 +297,7 @@ for (const slot of fares.slots) markOccluder(slot.passenger.group);
 // vehicles, which is the same split `game/carghosts.js` measured: a wheel sits inside the body's
 // hull on every axis but a sliver, and at play zoom a truck is a shape while the taxi is *read*.
 if (cartoonEnabled) {
-  cartoon.outline(traffic.taxiGroup, { rim: TAXI_RIM });
+  cartoon.outline(traffic.taxiGroup, { group: 'taxi' });
   cartoon.outline(police.group);
   for (const source of [traffic.mesh, traffic.truckMesh, traffic.truckBoxMesh]) {
     scene.add(...cartoon.fleet(source));
@@ -2695,6 +2695,15 @@ window.__taxi = {
    * drive the same handle, so this is where you go for a value past the end of one of them.
    */
   loco,
+  /**
+   * The two look modes — `{ state, set }` each, the same handles the ⚙️ panel's sliders drive.
+   * Here for the reason `loco` is: this is where you go for a value past the end of a slider, and
+   * where a browser test reaches a look it cannot see from a still. `set(key, value)` takes any key
+   * in `state`; see CRAYON_DEFAULTS and CARTOON_DEFAULTS for what each one means. Both are inert
+   * stubs unless their flag is on.
+   */
+  crayon,
+  cartoon,
   tutorial,
   carGhosts,
   skids,

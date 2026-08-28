@@ -3,6 +3,15 @@ import { HAZE_TOP, setHazeTop, hazeColor, hazeTuning } from './scene.js';
 import * as difficulty from './difficulty.js';
 import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
+import { PLAY_ZOOM } from './camera.js';
+
+// Screen pixels to a world unit at play zoom, for the readouts that need one. Derived rather than
+// written down as the 7.7 that appears as prose all over this project: the frustum is sized by
+// *height*, so half a nominal 800px-tall frame spans `PLAY_ZOOM` world units, and re-tuning that
+// constant moves this with it. Approximate by nature — a real device's canvas is whatever it is —
+// which is why every readout using it carries a "u" as well.
+const NOMINAL_FRAME_H = 800;
+const PX_PER_UNIT = (NOMINAL_FRAME_H / 2) / PLAY_ZOOM;
 
 // A small tweak panel behind a gear button.
 //
@@ -41,6 +50,14 @@ const dropdown = (options, value) => {
     el.append(option);
   }
   el.value = value;
+  return el;
+};
+
+// A colour well. Its `input` fires continuously while the picker is open on every browser that
+// matters, so it scrubs like a slider rather than committing on close.
+const swatch = (value) => {
+  const el = document.createElement('input');
+  Object.assign(el, { type: 'color', value });
   return el;
 };
 
@@ -280,11 +297,15 @@ export function createDebugPanel({
   }
 
   // --- Cartoon Mode -----------------------------------------------------------
-  // `?cartoon`. The hero outlines are hulls built at construction and are not tunable from here —
-  // a rim is baked into an inflated geometry, so moving it means rebuilding one per part. What is
-  // live is everything that rides a uniform, and the two that decide the look are `Bands` and
-  // `Bite`: the first is how much of golden hour's falloff survives the banding, the second is how
-  // selective the city's ink is, which is the whole difference between a cartoon and a drawing.
+  // `?cartoon`, and **every number in it is live** — including the two hull rims, which used to be
+  // baked into an inflated geometry and are now a uniform (see `outlineGeometry` in
+  // game/cartoon.js). That was worth the change on its own: the weight of an outline is the one
+  // thing here nobody can settle from a still. It is a judgement about how hard a car should shout
+  // against a city, and it needs the game running and a hand on the slider.
+  //
+  // The two rims are separate controls rather than one, because the gap between them *is* the
+  // mode: a hero reads as a hero because its ink is heavier than everything else's, and a single
+  // number would collapse the only distinction being made.
   if (cartoon.state.enabled) {
     heading('Cartoon');
     const toonRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
@@ -297,10 +318,28 @@ export function createDebugPanel({
         value.textContent = format(next);
       });
     };
+
+    // The outline first: it is what the mode is for, and what anyone opening this panel came to
+    // move. Stated in world units with the pixel count beside it, because a rim is authored in the
+    // world and judged on the screen — at play zoom one unit is about 7.7px.
+    const px = (v) => `${v.toFixed(2)}u · ${(v * PX_PER_UNIT).toFixed(1)}px`;
+    toonRow('Taxi ink', 'taxiRim', 0, 0.6, 0.01, px);
+    toonRow('Traffic ink', 'heroRim', 0, 0.6, 0.01, px);
+    toonRow('Ink opacity', 'inkOpacity', 0.1, 1, 0.05);
+
+    const inkColor = swatch(cartoon.state.inkColor);
+    const inkValue = row(panel, 'Ink', inkColor);
+    inkValue.textContent = cartoon.state.inkColor;
+    inkColor.addEventListener('input', () => {
+      cartoon.set('inkColor', inkColor.value);
+      inkValue.textContent = inkColor.value;
+    });
+
+    // Then the city's own line, and the light behind it.
+    toonRow('City line', 'ink', 0, 1, 0.02);
+    toonRow('Line bite', 'bite', 0, 0.9, 0.02);
     toonRow('Cel', 'cel', 0, 1, 0.05);
     toonRow('Bands', 'steps', 2, 6, 1, (v) => v.toFixed(0));
-    toonRow('Ink', 'ink', 0, 1, 0.02);
-    toonRow('Bite', 'bite', 0, 0.9, 0.02);
   }
 
   // --- Haze -------------------------------------------------------------------
@@ -661,6 +700,18 @@ export function createDebugPanel({
   carsValue.textContent = String(carCount);
   cars.addEventListener('input', () => { carsValue.textContent = cars.value; });
 
+  // The look, and it belongs in this section rather than among the live controls above because it
+  // genuinely cannot be live: both modes are compiled into every prop material *before a mesh
+  // exists* (see `setCrayon`/`setCartoon` in util/geo.js), so switching one means recompiling every
+  // program in the city. What it saves is real all the same — trying the two looks against each
+  // other used to mean hand-editing the address bar, which is exactly the friction that stops a
+  // look from being judged properly.
+  const LOOKS = ['off', 'crayon', 'cartoon', 'both'];
+  const lookNow = (crayon.state.enabled && cartoon.state.enabled) ? 'both'
+    : (crayon.state.enabled && 'crayon') || (cartoon.state.enabled && 'cartoon') || 'off';
+  const look = dropdown(LOOKS, lookNow);
+  row(panel, 'Look', look);
+
   const actions = document.createElement('div');
   actions.className = 'dbg-actions';
 
@@ -670,6 +721,10 @@ export function createDebugPanel({
   restart.addEventListener('click', () => {
     const params = new URLSearchParams(window.location.search);
     params.set('cars', cars.value);
+    // Written as explicit `on`/`off` rather than by deleting the parameter, so a reload out of a
+    // look lands back on the stock renderer instead of on whatever the URL happened to carry.
+    params.set('crayon', look.value === 'crayon' || look.value === 'both' ? 'on' : 'off');
+    params.set('cartoon', look.value === 'cartoon' || look.value === 'both' ? 'on' : 'off');
     params.delete('run');                     // a genuinely fresh situation
     window.location.search = params.toString();
   });
