@@ -337,10 +337,11 @@ On a real device, additionally:
    tiering at all** — every iPhone gets the full budget. Do not pre-emptively turn it down:
    `recovery.js` has a ladder and `?safe`/`?msaa`/`?shadows`/`?dpr`/`?ao` bisect on-device without a
    rebuild.
-8. **Five simultaneous WebGL contexts** — the main renderer plus the four HUD chips
-   (`game/tutorial.js`, `riderfinder.js`, `taxifinder.js`, `cargochip.js`). iOS is stricter than
-   desktop here and evicts the oldest. This is the most likely thing to bite; the fix if it does is
-   to share one offscreen renderer across the four chips.
+8. **Four simultaneous WebGL contexts** — the main renderer plus the HUD chips
+   (`game/tutorial.js`, `taxifinder.js`, `cargochip.js`; plus one per waiting rider under
+   `?chips=on`, which is off by default now). iOS is stricter than desktop here and evicts the
+   oldest. This is the most likely thing to bite; the fix if it does is to share one offscreen
+   renderer across the chips.
 9. Take a call or pull down a notification mid-fare and confirm the run pauses.
 
 ## Still to do

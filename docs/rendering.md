@@ -248,7 +248,8 @@ the constant, the steepest frame must not read as a pop, and the release must gi
 
 ### The rider peek
 
-A tap on a rider-finder chip takes the camera to that rider — narrow viewports only, same rule as
+A tap on a rider-finder chip (`?chips=on` only now — see [finding the next
+rider](gameplay.md#finding-the-next-rider)) takes the camera to that rider — narrow viewports only, same rule as
 everything else here — **holds them in frame for a beat, and then rides back to the taxi**. It
 **pans rather than cutting**, and it is a different curve from either follow above:
 `controller.glideTo(x, z)` starts a one-shot tween, `updateGlide(dt)` steps it from the frame loop,
@@ -2732,18 +2733,30 @@ someone is aboard — see [gameplay.md](gameplay.md#the-taxis-roof-sign). `?shot
 drop-off on its kerb corner; it was added to catch the untapped state, and it is now the only
 framing that shows the ring close up.
 
-### Off-screen drop-off pointer
+### Off-screen fare pointers
 
-`game/dropoffindicator.js`, styled under `#dropoff-indicator` in `index.html`. An arrow that clamps
-to the viewport edge and rotates to point at the drop-off, shown only while a fare is aboard. It
-wears the ring's colour, which is that rider's clock: the colour is written from JS onto the
+`game/farepointers.js`, styled under `.fare-pointer` in `index.html`. Arrows that clamp to the
+viewport edge and rotate to point at a mark that has slipped off the frame. Each wears the colour of
+the fare it stands in for, which is that rider's clock: the colour is written from JS onto the
 wrapper's `color` and the polygon fills with `currentColor`, so a level change is one style write.
-The value in the stylesheet is only what it opens on before the first pickup.
+The value in the stylesheet is only what one opens on before its first write.
 
-It carries more weight since the head came off. A crystal at rooftop height stayed visible over the
-skyline for a beat after the ring had gone behind a tower; the arrow only covers the *off-frame*
-case, which is the one the map being bigger than the viewport actually creates. It aims at `y = 0.1`
-now — the ring on the road — where it used to aim halfway up the pin's post.
+**Two kinds, one arrow.** The drop-off gets one while a fare is aboard, and *every rider still on a
+kerb* gets one — which is new, and is what replaced the [rider-finder
+chips](gameplay.md#finding-the-next-rider). The drop-off's is drawn a size up (`.is-dropoff`, 34px
+against 28px), because while carrying there can be four arrows on the edge at once and only one of
+them is the trip under way; colour cannot carry that distinction, being already spoken for by the
+clocks.
+
+The drop-off's arrow carries more weight since the head came off. A crystal at rooftop height stayed
+visible over the skyline for a beat after the ring had gone behind a tower; the arrow only covers the
+*off-frame* case, which is the one the map being bigger than the viewport actually creates. It aims
+at `y = 0.1` — the mark on the road — where it used to aim halfway up the pin's post.
+
+The pool grows on demand and is never shrunk: `maxFares` riders plus one drop-off, so it tops out at
+five divs. `tools/smoke.mjs` asserts the bookkeeping — as many arrows up as there are marks outside
+the band, each coloured and each inside the frame — through `__taxi.projectToScreen` and
+`__taxi.cornerFor`, which are the same functions the HUD itself aims with.
 
 The third thing the map outgrowing the frame can lose is the **taxi itself**, and that one gets a
 chip rather than an arrow: a direction is enough when you already know what is over there, and not
@@ -2851,10 +2864,11 @@ gets a fixed phase offset on the bounce so two fares don't pulse in lockstep.
 **It is depth-tested**, unlike both markers it replaced — the meter's plate and the timer ring both
 drew over everything, and an inverted-hull crystal cannot: with the depth test off a crystal
 paints its own back faces over its front ones. So a fare behind a tower is hidden with the tower, on
-the kerb and in the car alike. On the kerb the
-[rider-finder chips](gameplay.md#extra-fares-and-prioritisation) cover it — every waiting rider has
-a chip with their own countdown and a tap that [pans the camera onto them](#the-rider-pan). In the
-car nothing does;
+the kerb and in the car alike. Nothing covers that now: the rider-finder chips used to, with a
+countdown of their own per rider, and they were taken out on purpose — see [finding the next
+rider](gameplay.md#finding-the-next-rider). What is left is the
+[edge arrow](#off-screen-fare-pointers), which says the direction and the clock but not where along
+that direction the rider is standing. In the car nothing does either;
 the taxi's ghost outline says where the car is, but not how long is left.
 
 The crystal and its hull both have `raycast` stubbed out. The rider's marker and the taxi both carry
