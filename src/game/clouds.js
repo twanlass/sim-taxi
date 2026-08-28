@@ -308,8 +308,17 @@ for (const x of [-INNER_REACH, INNER_REACH]) {
 const LIMIT = 200;
 const FADE_BAND = 40;
 
-/** Drift speed, screen units a second. A quarter of ambient traffic — this is weather. */
-const SPEED = [1.5, 2.6];
+/**
+ * Drift speed, in screen units a second.
+ *
+ * A fourteenth of what a car does, and the whole of the reasoning is that a cloud has no scale of
+ * its own: the eye reads its speed against the frame it is crossing, and the frame is 140 units
+ * wide on a desktop and 48 on a phone. At the 1.5-2.6 this shipped with — already a quarter of
+ * ambient traffic — a cloud crossed a phone's frame in under half a minute and read as *scudding*.
+ * At 0.7 it takes two minutes to cross a desktop frame and a little over one to cross a phone's,
+ * which is weather rather than a vehicle.
+ */
+const SPEED = [0.5, 0.9];
 
 /**
  * Cruise altitude. **Nothing about the picture moves when this does** — the placement solves for
@@ -330,8 +339,17 @@ const SPAN = [26, 46];
 const HEIGHT_RATIO = 0.3;
 const YAW_JITTER = 0.22;
 
-/** How many are up at once, and how many exist. See `setCount`. */
-const COUNT = 10;
+/**
+ * How many are up at once, and how many exist. See `setCount`.
+ *
+ * Ten of them put four and a half in frame at a time on a 16:9 desktop once the band came in over
+ * the coast — that overlap raised what is *visible* by half again without adding a single cloud,
+ * since the band moved from the sky nobody looks at to the sky everybody does. Five is about two in
+ * frame there, which is what the sky wants: enough that there is weather, few enough that it is
+ * still sky. It reads thinner on a phone by exactly the ratio of the two frames — 0.8 in view,
+ * against 2.2 — and that is the right way round, since a phone's frame is mostly city.
+ */
+const COUNT = 5;
 const POOL = 28;
 
 // --- What colour the light is ------------------------------------------------------------------

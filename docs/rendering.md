@@ -1933,7 +1933,7 @@ asphalt, and pushes the whole band up-screen off ground 28 units further out tha
 `tools/probe.mjs` asserts the lot over eight simulated minutes on each of four seeds: the deepest a
 cloud's screen box comes in past the island's edge, that no cloud's box ever reaches the ground
 inside the ring road, that none is ever behind the camera across twenty framings from portrait phone
-to ultrawide panned into each corner, and that a cloud is in frame 64% of the time on the tightest
+to ultrawide panned into each corner, and that a cloud is in frame 66% of the time on the tightest
 framing the game has.
 
 #### The one unlit thing in the sky
@@ -1998,7 +1998,7 @@ sorting per frame is what an engine normally has to do here: this camera never r
 is a property of the model and is settled once, at build time. Per lobe is enough because a lobe is
 convex — its own front faces cannot overlap each other on screen.
 
-About 960 triangles a cloud and ten in the sky, against 34k for the city.
+About 960 triangles a cloud and five in the sky, against 34k for the city.
 
 What it gives up is the shading turning with the day. The *tint* still does: `cloudTint()` is a
 function of the sky the same way `hazeColor()` is, and `game/daylight.js` drives it on every
@@ -2030,9 +2030,14 @@ direction: the cloud points straight into the screen, projects to nothing across
 one of them came out as a lumpy potato standing on end. The probe checks each cloud is at least 1.3×
 wider than tall on screen, which is the shape of that mistake.
 
-Ten clouds up out of a pool of 28, about 400 triangles each. `?shot=24` frames the band against the
-map's far corner; the ⚙️ panel has the four knobs that decide how it reads — how many, how far off
-the city, how deep the band, how fast — plus one for the other reading of the brief, **Over the
+**Five** up out of a pool of 28, drifting at 0.5-0.9 screen units a second. Both numbers are about
+the frame rather than about the sky: a cloud has no scale of its own, so the eye reads its speed
+against a frame that is 140 units wide on a desktop and 48 on a phone — at the 1.5-2.6 this shipped
+with, a cloud crossed a phone's frame in under half a minute and read as scudding. And ten of them
+put four and a half in frame at a time on a 16:9 desktop once the band came in over the coast, which
+is a sky with weather all over it; five is about two. `?shot=24` frames the band against the
+map's far corner; the ⚙️ panel has the four knobs that decide how it reads — how many, how far in
+over the coast, how deep the band, how fast — plus one for the other reading of the brief, **Over the
 city**, which puts that many of them across the map instead of round it. It is 0 by default: a cloud
 over the play area hides the taxi, which is the whole reason for everything above.
 
