@@ -432,7 +432,77 @@ because it is now paint on a lane and has to shrink with the road when you zoom 
   handle on sky colour
 - **`fog`** — the haze, [below](#atmospheric-perspective)
 
-The default is golden hour: 16:24, sun 28.5° up, `#FFDEBB` at 3.55 intensity.
+The default is golden hour: 16:24, sun 28.5° up, `#CFBD8C` at 3.55 intensity over a 1.20 fill. The
+sun and the fill are both held down from where they started (`#FFDEBB` at 1.50) to leave the shadow
+tint below something to work against — a bright sun over a bright fill lights the shade almost as
+well as the lit faces, and a tint on it has nothing to bite on.
+
+The ⚙️ panel drives all four live — the sun's colour and strength, and the fill's **two** colours,
+`Fill sky` and `Fill ground`. Two because `hemi` is a hemisphere light and one well would only tint
+the half of the scene facing up; a single "ambient colour" would leave every underside the colour it
+already was, which reads as a broken control. Touching any of them stops the day-cycle clock, which
+would otherwise overwrite the change on the next frame.
+
+### Aiming the sun — `aim` in `game/daylight.js`
+
+The hour drives two separable things — where the sun *is* (`elevationAt`, `azimuthAt`) and what the
+light *looks like* (the keyframe colours) — and one slider for both cannot say "golden hour, but with
+the shadows coming from over there".
+
+`Pin sun` splits them. Pinned, `apply()` takes the direction from `aim` and leaves everything else on
+the clock: the sun's colour and power, the fill, the sky and the haze all keep cycling while the
+shadows stay where they were put. `Sun bearing` runs the full 0–360° — the arc only ever sweeps 10°
+to 175°, and reaching the three quarters of the compass a day in this city never visits is the whole
+point of the control. `Sun height` runs `MIN_ELEVATION` to 90°.
+
+**Pinning deliberately does not stop the day cycle**, unlike every other manual control on the panel.
+Those all fight the clock for one value, so they have to take it away from it (`takeManualControl`);
+this one takes a value the clock then has no further opinion about. A day running its colours through
+a sun that stays put is the point of the pin, not a contradiction to resolve. Both sliders track the
+arc live while unpinned, so they always read where the sun actually is, and moving either one pins it
+— no ticking a box first to make the control do something. Unticking `Pin sun` snaps back to the arc
+at the current hour.
+
+Two bounds worth knowing:
+
+- **`MIN_ELEVATION` (6°) is a floor on the pin as well as on the arc.** Below it the light is under
+  the ground plane and throws its shadows *upward* through everything; at 0° exactly every building's
+  shadow is infinitely long and the map goes solid dark.
+- **A low sun throws shadows longer than the shadow camera's own extent** (`SPAN * 1.05` in
+  `scene.js`), so the far end of one can be clipped. The arc has always had this at dawn and dusk;
+  the pin just makes it reachable at any hour.
+
+### The shadow tint — `SHADOW_UNIFORMS` in `util/geo.js`
+
+`Shadow colour` and `Shadow tint` push everything the sun doesn't reach toward one hue — a cool blue
+against a warm sun by default (`PALETTE.shadowTint`), which is the colour contrast the hemisphere
+fill alone cannot give you: the fill lights shade in the *sun's* family of hues, so sun and shade
+differ only in brightness.
+
+Applied at **0.65** out of the box (`SHADOW_TINT` in `util/geo.js`), not the full push: at 1.0 the
+shade takes the tint's hue outright and the city reads as lit by two coloured lamps, which loses the
+*material* of what is in shadow — a red brick wall and a grey one go the same blue. Two thirds keeps
+each surface's own hue legible underneath while still opening a clear warm/cool split.
+
+Two decisions worth keeping:
+
+- **The shade factor is a ratio between the two light terms, not a shadow-map lookup.** Three only
+  defines `getShadowMask()` for `ShadowMaterial`; pulling that chunk into a Lambert works and costs
+  a second full PCF loop per fragment, on a game that runs on phones. Both halves of the lighting
+  are already in scope at `lights_fragment_end`, and fill-over-total answers the question directly.
+  It is scale-free, so nothing has to be told the sun's current power and it tracks the day cycle on
+  its own — at midnight the sun is at 0 and the whole city reads as shade, which is correct.
+- **It tints unlit faces as well as cast shadows, on purpose.** A cast shadow is not a different
+  kind of dark from a wall the sun is behind; tinting one and not the other reads as a bug rather
+  than as art direction. The knee (0.45) is measured off the parked lighting — sun 3.55 against fill
+  1.50 puts a fully lit face at 0.30 and anything the sun misses at 1.00 — so lit faces stay exactly
+  where they were and only the shade travels.
+
+This is the one patch in `patchProp` that is **not** behind a build-time flag — it is part of the
+shipped look rather than an opt-in mode, so there is nothing to gate. It would not deserve a flag
+either way: it costs a dot product and a mix rather than a texture fetch, and at amount 0 that mix is
+against `1.0` and the frame comes out bit-identical to an unpatched one. Hence `propMaterial()`
+patches unconditionally now, where it used to only patch when AO, Crayon or Cartoon Mode asked.
 
 ## Atmospheric perspective
 

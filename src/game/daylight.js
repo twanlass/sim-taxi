@@ -21,17 +21,29 @@ const KEYS = [
   { hour: 13,   top: '#6FA9D4', bottom: '#CDE3EE', sun: '#FFF4DE', power: 3.85, fill: 1.55, sky: '#D6E8F4', ground: '#84847A' },
   // The parked look — this is the sky the game actually ships with, since the cycle is off by
   // default and createDaylight() applies this keyframe on construction. Light blue rather than the
-  // warm haze the rest of late afternoon has; see the note in palette.js. The sun and fill stay
-  // golden, so only the backdrop changed.
-  { hour: 16.4, top: '#8CC4E8', bottom: '#DCEDF7', sun: '#FFDEBB', power: 3.55, fill: 1.50, sky: '#F0C79B', ground: '#6B5A48' },
+  // warm haze the rest of late afternoon has; see the note in palette.js.
+  //
+  // The sun is a muted khaki rather than the near-white #FFDEBB it used to be, and the fill is down
+  // from 1.50 — the two together take a good deal of light out of the frame, which is what leaves
+  // room for `SHADOW_TINT` (util/geo.js) to be read at all. A bright sun over a bright fill lights
+  // the shade almost as well as the lit faces, and a tint on it has nothing to work against.
+  //
+  // Must be kept in step with `SUN` and `PALETTE.sun` in game/scene.js and palette.js: this
+  // keyframe is applied over them on construction, so a disagreement shows only for one frame.
+  { hour: 16.4, top: '#8CC4E8', bottom: '#DCEDF7', sun: '#CFBD8C', power: 3.55, fill: 1.20, sky: '#F0C79B', ground: '#6B5A48' },
   { hour: 18.6, top: '#35507E', bottom: '#F09A60', sun: '#FF8C46', power: 1.70, fill: 0.88, sky: '#E8A276', ground: '#4E4038' },
   { hour: 20,   top: '#1B2A44', bottom: '#40395A', sun: '#4A4060', power: 0.28, fill: 0.48, sky: '#5A5A7A', ground: '#232630' },
   { hour: 24,   top: '#0A1320', bottom: '#16202E', sun: '#2A3550', power: 0.00, fill: 0.34, sky: '#33506E', ground: '#141C26' },
 ];
 
+/** The floor under any sun angle, the arc's and a hand-aimed one alike. Below this the light is
+ *  under the ground plane and throws its shadows *upward* through everything; at 0 exactly, the
+ *  shadow of every building is infinitely long and the map goes solid dark. */
+export const MIN_ELEVATION = 6;
+
 /** Sun angle above the horizon. Clamped low rather than negative — at night `power` is 0 anyway,
  *  and a light below the ground plane throws shadows upward through everything. */
-const elevationAt = (hour) => Math.max(6, 70 * Math.sin(Math.PI * (hour - 6) / 12));
+const elevationAt = (hour) => Math.max(MIN_ELEVATION, 70 * Math.sin(Math.PI * (hour - 6) / 12));
 
 /** Swings through the day so shadows sweep rather than sitting still. */
 const azimuthAt = (hour) => 10 + THREE.MathUtils.clamp((hour - 6) / 12, 0, 1) * 165;
@@ -70,12 +82,35 @@ function sample(hour) {
 export function createDaylight({ sun, hemi, sky, fog = null }, startHour = 16.4) {
   const state = { hour: startHour, cycling: true, dayLength: DAY_SECONDS };
 
+  /**
+   * Where the sun is *aimed*, held apart from what hour it is.
+   *
+   * The arc and the light's colour are two separable things and the panel wants them separated:
+   * "golden hour, but with the shadows coming from over there" is a normal thing to ask for and
+   * the hour slider cannot express it, because one number drives both.
+   *
+   * So when `pinned`, `apply()` takes the direction from here and leaves everything else — the
+   * sun's colour and power, the fill, the sky, the haze — on the clock. **Pinning deliberately
+   * does not stop the cycle**, unlike every other manual control on the panel: a day running its
+   * colours through a sun that stays put is the whole point of the pin, not a conflict to resolve.
+   * Every other control fights the clock for one value; this one takes a value the clock then has
+   * no further opinion about.
+   *
+   * Seeded from the arc at the opening hour so the sliders open where the sun already is, and
+   * ticking the pin on is a no-op until one of them moves.
+   */
+  const aim = {
+    pinned: false,
+    azimuth: azimuthAt(startHour),
+    elevation: elevationAt(startHour),
+  };
+
   function apply(hour = state.hour) {
     state.hour = ((hour % 24) + 24) % 24;
     const look = sample(state.hour);
 
-    const e = THREE.MathUtils.degToRad(elevationAt(state.hour));
-    const a = THREE.MathUtils.degToRad(azimuthAt(state.hour));
+    const e = THREE.MathUtils.degToRad(aim.pinned ? aim.elevation : elevationAt(state.hour));
+    const a = THREE.MathUtils.degToRad(aim.pinned ? aim.azimuth : azimuthAt(state.hour));
     sun.position.set(
       Math.cos(a) * Math.cos(e) * SUN_RADIUS,
       Math.sin(e) * SUN_RADIUS,
@@ -109,6 +144,23 @@ export function createDaylight({ sun, hemi, sky, fog = null }, startHour = 16.4)
     update,
     setCycling: (on) => { state.cycling = on; },
     setDayLength: (seconds) => { state.dayLength = Math.max(10, seconds); },
-    elevation: () => elevationAt(state.hour),
+
+    aim,
+    /**
+     * Aim the sun by hand. Pins on the first call — moving a slider *is* the intent to pin, so
+     * the panel does not need the player to tick a box before the control does anything.
+     */
+    setSunAim: ({ azimuth = aim.azimuth, elevation = aim.elevation } = {}) => {
+      aim.azimuth = azimuth;
+      aim.elevation = Math.max(MIN_ELEVATION, elevation);
+      aim.pinned = true;
+      apply();
+    },
+    /** Release it back onto the arc, or re-pin it where it currently points. */
+    setSunPinned: (on) => { aim.pinned = on; apply(); },
+
+    /** Where the sun actually is, arc or pin — these are what the panel's readouts report. */
+    elevation: () => (aim.pinned ? aim.elevation : elevationAt(state.hour)),
+    azimuth: () => (aim.pinned ? aim.azimuth : azimuthAt(state.hour)),
   };
 }

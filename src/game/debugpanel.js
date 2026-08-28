@@ -4,6 +4,8 @@ import * as difficulty from './difficulty.js';
 import { SPEED, MPH_PER_UNIT, CAR_W } from '../sim/traffic.js';
 import { PITCH, LANE } from '../city/grid.js';
 import { PLAY_ZOOM } from './camera.js';
+import { setShadowTint, shadowTint } from '../util/geo.js';
+import { MIN_ELEVATION } from './daylight.js';
 
 // Screen pixels to a world unit at play zoom, for the readouts that need one. Derived rather than
 // written down as the 7.7 that appears as prose all over this project: the frustum is sized by
@@ -148,6 +150,40 @@ export function createDebugPanel({
     refresh();
   });
 
+  // Where the sun *is*, held apart from what hour it is — see the note on `aim` in daylight.js.
+  // Deliberately outside `takeManualControl()`: pinning the direction is not a fight with the
+  // clock over one value, it is taking a value the clock then has no further opinion about, so a
+  // pinned sun and a running day cycle is a supported combination rather than a contradiction.
+  const pinBox = document.createElement('input');
+  pinBox.type = 'checkbox';
+  pinBox.checked = daylight.aim.pinned;
+  row(panel, 'Pin sun', pinBox);
+  pinBox.addEventListener('change', () => {
+    daylight.setSunPinned(pinBox.checked);
+    refresh();
+  });
+
+  // 0-360 with no clamp: the arc only ever sweeps 10 to 175, and the whole point of the control is
+  // reaching the three quarters of the compass a day in this city never visits.
+  const bearing = slider(0, 360, 1, daylight.azimuth());
+  const bearingValue = row(panel, 'Sun bearing', bearing);
+  bearing.addEventListener('input', () => {
+    // Moving a slider *is* the intent to pin — no ticking a box first to make the control work.
+    daylight.setSunAim({ azimuth: Number(bearing.value) });
+    refresh();
+  });
+
+  // Floored at MIN_ELEVATION for the same reason the arc is, and capped at true overhead. Note
+  // that a low sun throws shadows longer than the shadow camera's own extent (SPAN * 1.05 in
+  // scene.js), so the far end of one can be clipped down here — the arc has always had that at
+  // dawn and dusk, this control just makes it reachable at any hour.
+  const height = slider(MIN_ELEVATION, 90, 1, daylight.elevation());
+  const heightValue = row(panel, 'Sun height', height);
+  height.addEventListener('input', () => {
+    daylight.setSunAim({ elevation: Number(height.value) });
+    refresh();
+  });
+
   const sunColour = document.createElement('input');
   sunColour.type = 'color';
   sunColour.value = `#${sun.color.getHexString()}`;
@@ -165,6 +201,24 @@ export function createDebugPanel({
     sunPowerValue.textContent = sun.intensity.toFixed(2);
   });
 
+  // The fill is a hemisphere light, so its colour is two colours — what the sky pours down and
+  // what the ground bounces back up. One well would only ever tint half the scene: set a single
+  // "ambient colour" red and every upward-facing surface goes red while every underside stays the
+  // colour it was, which reads as the control being broken rather than as a hemisphere.
+  const fillSky = swatch(`#${hemi.color.getHexString()}`);
+  row(panel, 'Fill sky', fillSky);
+  fillSky.addEventListener('input', () => {
+    takeManualControl();
+    hemi.color.set(fillSky.value);
+  });
+
+  const fillGround = swatch(`#${hemi.groundColor.getHexString()}`);
+  row(panel, 'Fill ground', fillGround);
+  fillGround.addEventListener('input', () => {
+    takeManualControl();
+    hemi.groundColor.set(fillGround.value);
+  });
+
   const fill = slider(0, 2, 0.05, hemi.intensity);
   const fillValue = row(panel, 'Ambient fill', fill);
   fill.addEventListener('input', () => {
@@ -172,6 +226,21 @@ export function createDebugPanel({
     hemi.intensity = Number(fill.value);
     fillValue.textContent = hemi.intensity.toFixed(2);
   });
+
+  const tint = shadowTint();
+  const shadowColour = swatch(tint.color);
+  row(panel, 'Shadow colour', shadowColour);
+  shadowColour.addEventListener('input', () => {
+    setShadowTint({ color: shadowColour.value });
+  });
+
+  const shadowAmount = slider(0, 1, 0.01, tint.amount);
+  const shadowAmountValue = row(panel, 'Shadow tint', shadowAmount);
+  shadowAmount.addEventListener('input', () => {
+    setShadowTint({ color: shadowColour.value, amount: Number(shadowAmount.value) });
+    shadowAmountValue.textContent = Number(shadowAmount.value).toFixed(2);
+  });
+  shadowAmountValue.textContent = tint.amount.toFixed(2);
 
   // Filled in by the haze section below. A stub rather than a direct call because that section is
   // built after this one, so naming its `const` here would be a temporal dead zone waiting for
@@ -183,9 +252,16 @@ export function createDebugPanel({
     const { hour } = daylight.state;
     hourInput.value = String(hour);
     hourValue.textContent = `${clockLabel(hour)} · ${daylight.elevation().toFixed(0)}° up`;
+    pinBox.checked = daylight.aim.pinned;
+    bearing.value = String(daylight.azimuth());
+    bearingValue.textContent = `${daylight.azimuth().toFixed(0)}° · shade to ${((daylight.azimuth() + 180) % 360).toFixed(0)}°`;
+    height.value = String(daylight.elevation());
+    heightValue.textContent = `${daylight.elevation().toFixed(0)}° up`;
     sunColour.value = `#${sun.color.getHexString()}`;
     sunPower.value = String(sun.intensity);
     sunPowerValue.textContent = sun.intensity.toFixed(2);
+    fillSky.value = `#${hemi.color.getHexString()}`;
+    fillGround.value = `#${hemi.groundColor.getHexString()}`;
     fill.value = String(hemi.intensity);
     fillValue.textContent = hemi.intensity.toFixed(2);
     // The haze colour is a function of the sky, so it moves under the cycle without anything here
@@ -779,10 +855,22 @@ export function createDebugPanel({
       hour: Number(daylight.state.hour.toFixed(2)),
       cycling: daylight.state.cycling,
       dayLengthSeconds: daylight.state.dayLength,
+      // Where the sun is aimed. `sunElevationDeg` reports the effective angle either way, so with
+      // the pin off these two are the arc's own answer for `hour` and pasting them back changes
+      // nothing — which is the point: an export is a description of the frame, not of the controls.
+      sunPinned: daylight.aim.pinned,
+      sunBearingDeg: Number(daylight.azimuth().toFixed(1)),
       sunElevationDeg: Number(daylight.elevation().toFixed(1)),
       sunColor: `#${sun.color.getHexString()}`,
       sunIntensity: Number(sun.intensity.toFixed(2)),
+      // The fill is a hemisphere light, so it takes two colours — PALETTE.hemiSky and
+      // PALETTE.hemiGround, and the `sky`/`ground` fields of the keyframes in game/daylight.js.
+      fillSky: `#${hemi.color.getHexString()}`,
+      fillGround: `#${hemi.groundColor.getHexString()}`,
       ambientIntensity: Number(hemi.intensity.toFixed(2)),
+      // Maps onto PALETTE.shadowTint and SHADOW_TINT in util/geo.js.
+      shadowColor: shadowTint().color,
+      shadowTint: Number(shadowTint().amount.toFixed(2)),
       skyTop: `#${sky.uniforms.topColor.value.getHexString()}`,
       skyBottom: `#${sky.uniforms.bottomColor.value.getHexString()}`,
       haze: {

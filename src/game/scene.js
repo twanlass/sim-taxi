@@ -85,7 +85,7 @@ function createSky() {
  * before it says anything, while a fully saturated sky blue says it at less. Past about 0.3 the back
  * of the city reads as *weather* rather than as air, which is a different game.
  */
-export const HAZE_TOP = 0.17;
+export const HAZE_TOP = 0.19;
 
 /** Inverse of `smoothstep(0, 1, t)`, which is the curve three's linear fog mixes on. */
 const unSmoothstep = (y) => 0.5 - Math.sin(Math.asin(1 - 2 * y) / 3);
@@ -139,18 +139,25 @@ export function hazeRange(top = HAZE_TOP, zoom = PLAY_ZOOM) {
 // full saturation", and the number is a ceiling rather than a multiplier. Worth knowing before
 // nudging it: to see this move at all you have to come *down* past 1.7, not up.
 //
-// **The trade-off, stated plainly: at skyH 1.0 the haze no longer tracks a sunset.** The dome runs
-// orange at the bottom and deep blue at the top at 18:36, so sampling the zenith gives #004788 —
-// the far city goes blue while the horizon behind it is still orange. That is a real inversion of
-// what air does at dusk, and it is accepted because **the shipped look is 16:24 with the cycle
-// off** (game/daylight.js), where the zenith sample is the whole point: it is what takes the haze
-// from a grey wash to #4AC6FF. Anyone who turns the cycle on and wants dusk back has one slider to
-// move — Sky sample down to ~0.35 restores a warm #C17059 there, at the cost of the parked hour.
+// **The trade-off, stated plainly: the higher up the dome this samples, the less the haze tracks a
+// sunset.** At 1.0 it does not track one at all: the dome runs orange at the bottom and deep blue
+// at the top at 18:36, so sampling the zenith gives #004788 — the far city goes blue while the
+// horizon behind it is still orange, a real inversion of what air does at dusk. That was accepted
+// for a while because **the shipped look is 16:24 with the cycle off** (game/daylight.js), where a
+// high sample is the whole point: it is what takes the haze from a grey wash to a blue with real
+// chroma in it.
 //
-// Measured at the shipped 0.17: asphalt #636972 → #5F7F97, which is 56 points of blue-over-red
-// against the bare road's 15, and concrete lands cool for the first time. The back of the city is
-// now a different *colour* from the front, not just a lighter one.
-export const HAZE_SKY_H = 1.0;
+// 0.73 is where that sits now — most of the way up, so the parked hour still gets its blue
+// (#77CFFF, against #4AC6FF at the zenith: paler and a little greener, 136 points of blue-over-red
+// rather than 181), while a dusk sample comes off the part of the dome that is at least on its way
+// toward the horizon. Anyone who wants dusk back outright still has one slider to move — Sky sample
+// down to ~0.35 restores a warm #C17059 there, at the cost of the parked hour.
+//
+// The road measurement below wants re-taking: asphalt #636972 → #5F7F97 was read at the old 0.17
+// and the old zenith #4AC6FF, which is 56 points of blue-over-red against the bare road's 15. The
+// claim it was making — that the back of the city is a different *colour* from the front, not just
+// a lighter one — survives the move to a stronger but paler haze; the hex does not.
+export const HAZE_SKY_H = 0.73;
 export const HAZE_SATURATION = 2.5;
 
 /**
@@ -191,7 +198,7 @@ const SUN = {
   azimuth: THREE.MathUtils.degToRad(56),
   radius: SPAN * 1.2,
   intensity: 3.55,
-  fill: 1.5,
+  fill: 1.2,
 };
 
 /**
