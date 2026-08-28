@@ -4,6 +4,7 @@ import { unlitMaterial } from '../util/geo.js';
 import { nearestJunction } from '../city/grid.js';
 import { planOrigin } from './route.js';
 import { routePath, nearestOnPath, HEAD_GAP } from './routeline.js';
+import { tap as haptic } from '../util/haptics.js';
 
 /**
  * Drag the route band to re-route the taxi.
@@ -38,6 +39,29 @@ import { routePath, nearestOnPath, HEAD_GAP } from './routeline.js';
  * - **Release commits what is drawn.** There is no confirm and no revert: the band has been
  *   showing the real route the whole way, and a gesture that undid itself on release would make
  *   every frame of that a lie.
+ *
+ * And on a phone the gesture also answers in the hand. Two haptics, both no-ops on the web (see
+ * `util/haptics.js`), and both gated the way every other one in this game is — on the thing they
+ * report having actually happened:
+ *
+ * - **`grab`** the moment a press takes hold. This is the one piece of feedback the gesture could
+ *   not previously give a thumb, because the thumb is *on top of* the flourish that announces it:
+ *   the handle lands under the fingertip and the band's bloom is centred on the same square
+ *   centimetre of glass the finger is covering. A player who cannot see either has no way to tell
+ *   a grab from a tap that missed the band by four pixels, and the difference is whether the next
+ *   80 pixels of travel re-route the taxi or pan the city.
+ * - **`snap`** every time the route re-plans through a junction it wasn't using. The detour appears
+ *   all at once when the finger crosses a cell boundary — that is the whole point of snapping to a
+ *   junction rather than tracing the finger — so there is a discrete moment to report, and it is
+ *   the moment the player is dragging to find. It is deliberately *not* fired per frame, per
+ *   pointermove, or per cell crossing: only when a re-plan is accepted **and** comes back with a
+ *   different route (`routeSig` below), so a finger sliding across a junction the band already ran
+ *   through stays silent rather than buzzing about a band that did not move.
+ *
+ * There is no rate limit on `snap` and it does not need one. A junction cell is `PITCH` = 20 world
+ * units, ~154px at play zoom, so even a fast flick across the screen crosses ~5 of them; the
+ * re-plans past `MAX_VIA_DETOUR` are refused and silent; and the fire is once per frame at most,
+ * because the decision lives in `update`. Every buzz is one route the player actually caused.
  */
 
 // How close a finger has to land, in world units. The band itself is 1.7 wide, so this is mostly
@@ -209,6 +233,18 @@ export function createPathDrag({
     return raycaster.ray.intersectPlane(ground, hit) ? { x: hit.x, z: hit.z } : null;
   }
 
+  /**
+   * The planned route, as a string to compare against another frame's.
+   *
+   * `car.route` is a list of directions out of each junction, which is all the `snap` haptic needs:
+   * two plans that differ anywhere differ here, and it costs a join rather than a path rebuild.
+   *
+   * Only ever compared across a single `reroute` call within one frame. Across frames it would
+   * shrink on its own as the car consumes legs, which is a change with nothing to do with the
+   * waypoint the player is dragging.
+   */
+  const routeSig = (car) => car.route.join(',');
+
   /** The band as it stands this frame, or null if there isn't one. */
   function currentPath() {
     const car = getCar();
@@ -265,13 +301,18 @@ export function createPathDrag({
     const near = hitTest(event.clientX, event.clientY);
     if (!near) return;
 
-    grab = { x: event.clientX, y: event.clientY, moved: 0, at: near.world, via: null };
+    grab = { x: event.clientX, y: event.clientY, moved: 0, at: near.world, via: null, snapped: false };
     dragged = false;
     clearTimeout(clearDragged);
     routeLine.setGrab(true, near.along);
     handle.grab(near.x, near.z);
     // The press is spoken for. Without this the camera pans out from under the drag on a phone.
     event.stopPropagation();
+    // Last, and after `hitTest`, so it fires only on a press the band actually took — and so that
+    // nothing about the feedback can come between the grab and the propagation stop that makes it
+    // one. A press four pixels off the band falls out above and pans the city in silence, which is
+    // exactly the distinction the buzz exists to draw.
+    haptic('grab');
   }, { capture: true });
 
   window.addEventListener('pointermove', (event) => {
@@ -292,7 +333,13 @@ export function createPathDrag({
     // route is unchanged and only the handle moves. `update` re-plans regardless, since the taxi
     // keeps driving, so this is about not thrashing rather than about correctness.
     const via = nearestJunction(point.x, point.z);
-    if (!grab.via || grab.via.i !== via.i || grab.via.j !== via.j) grab.via = via;
+    if (!grab.via || grab.via.i !== via.i || grab.via.j !== via.j) {
+      grab.via = via;
+      // A fresh waypoint is a fresh haptic decision, taken once in `update` when the re-plan it
+      // asks for either lands or doesn't. Cleared here rather than there because this is the only
+      // place that knows the waypoint is *new*.
+      grab.snapped = false;
+    }
   }, { capture: true });
 
   window.addEventListener('pointerup', letGo, { capture: true });
@@ -318,8 +365,23 @@ export function createPathDrag({
         // what stops a still-held drag from asking for a lap back to a junction already passed.
         if (from.i === grab.via.i && from.j === grab.via.j) grab.via = null;
         // A refusal — an unroutable waypoint, or a detour past the cap — leaves the route exactly
-        // as it was, so the band holds still and the drag simply feels like it hit a wall.
-        else reroute(grab.via);
+        // as it was, so the band holds still and the drag simply feels like it hit a wall. It stays
+        // silent too, and `snapped` is left false so a waypoint the cap refuses now can still buzz
+        // if the car driving on brings it back inside the cap.
+        else {
+          const before = routeSig(car);
+          const taken = reroute(grab.via);
+          // Once per waypoint, not once per frame: `reroute` re-plans on every frame of the drag
+          // because the taxi keeps driving, and all but the first of those return the same band.
+          if (taken && !grab.snapped) {
+            grab.snapped = true;
+            // And only if the band moved. The first waypoint of a gesture is usually a junction
+            // the route already ran through — the finger pressed *on* the band, so the nearest
+            // junction to it tends to be one of its own — and a buzz there would announce a detour
+            // that isn't on screen, immediately after the `grab` that already fired.
+            if (routeSig(car) !== before) haptic('snap');
+          }
+        }
       }
 
       // Both the handle and the bloom ride the *new* band rather than the finger, so the gesture
