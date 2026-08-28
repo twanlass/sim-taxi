@@ -4,7 +4,7 @@ import { bakeColor, bakeColors, hash01, propMaterial, stampEntry } from '../util
 import { BUILDING_COLORS, color, jitterColor } from '../palette.js';
 import { valueNoise2D } from '../util/rng.js';
 import { KERB_H } from './ground.js';
-import { treeParts } from './props.js';
+import { treeParts, treeShape } from './props.js';
 
 const FLOOR_H = 2.6;
 // The ground floor is its own storey height. A shopfront is taller than the flats above it, and
@@ -810,8 +810,8 @@ function buildTower(lot, block, rng, parts, stats) {
 // 5-unit wings and 6 units of opening shows the player nothing at all — the trees inside would be
 // invisible and the whole thing would read as a slightly lumpy box.
 //
-// Three things fix it, and none of them is a cheat — they are all ordinary things for a building
-// to do:
+// Four things fix it, and none of them is a cheat — they are all ordinary things for a building or
+// a tree to do:
 //
 //   - The wings facing the camera (+X and +Z, which are also the two the sun lights) are built
 //     from a **lower** height range than the pair behind them. A perimeter block that steps down
@@ -822,15 +822,32 @@ function buildTower(lot, block, rng, parts, stats) {
 //   - The trees are grown from the tall end of the park's range, sized against the *front* pair.
 //     The tall pair sit past the yard rather than between it and the camera, so they are not what
 //     a crown has to clear.
+//   - The trees carry their crowns **high**, and stand far enough off the wings that no part of a
+//     crown is inside one. Those two are what put a *trunk* in view, and a trunk is what says the
+//     thing is a tree in a yard rather than a shrub on a roof — see `TREE_TRUNK` below and the
+//     planting in `buildCourtyard`.
 const COURT_MIN = 8.2;        // smallest buildable rectangle worth hollowing out
 // Thin wings and low ones at the front, and both numbers come straight off the 1.54h above. At
 // 2.3–3.1 thick with 3.2–4.6 at the front the yard was 4.9 across — 6.9 on the diagonal against
 // 4.9–7.1 of occlusion — and the lawn never showed at all: the trees read as sitting on the roof
-// of a lumpy box rather than as standing in a hole in it. At these it is 5.7 across, 8.1 on the
-// diagonal against 3.9–5.5, so a couple of units of the far corner is always in view.
-const WING_MIN = 2;
-const WING_MAX = 2.7;
-const FRONT_H = [2.6, 3.6];
+// of a lumpy box rather than as standing in a hole in it.
+//
+// At 2.0–2.7 thick it averaged 4.96 across over 24 seeds — 5.7 is the widest a block ever gives,
+// and this comment quoted that as though it were the usual — and what it showed was the crowns and
+// nothing else: **69 of 91 trees showed no bare trunk at all**, and 11 of the 24 cities had not one
+// tree with a trunk in view. At 1.6–2.1, with the front pair capped at 3.1 rather than 3.6, the
+// yard is 5.98 across: 8.5 on the view diagonal against 4.0–4.8 of occlusion.
+const WING_MIN = 1.6;
+const WING_MAX = 2.1;
+const FRONT_H = [2.6, 3.1];   // the floor is the ground storey: GROUND_H plus its cornice
+const TREE_H = [4.4, 6];
+// A courtyard tree is pruned up, and this fraction is the lever the whole thing turns on. What a
+// wing hides is measured from the *crown's underside*, and the parks' broadleaf carries that at
+// 0.37 of its height — below the 2.6–3.1 the wing in front of it stands — so the wider yard on its
+// own only got the average bare trunk to 0.41 of a unit, 23 of 91 trees still showing none. At 0.55
+// it is 0.90 and 15 of 91: six pixels of trunk at play zoom, which is the difference between a tree
+// standing in a hole and a shrub sitting on a roof. Held by `tools/probe.mjs`.
+const TREE_TRUNK = 0.55;
 
 function buildCourtyard(lot, block, rng, parts) {
   const { x0, z0, x1, z1, w, d, cx, cz } = buildableOf(lot);
@@ -866,12 +883,14 @@ function buildCourtyard(lot, block, rng, parts) {
   ];
 
   let tallest = 0;
+  const front = [0, 0];       // the two camera-facing wings, indexed by side: what a tree has to clear
   for (const wing of wings) {
     // Front pair low, back pair full height. See the note above.
-    const front = wing.side === 0 || wing.side === 1;
-    const h = front
+    const facing = wing.side === 0 || wing.side === 1;
+    const h = facing
       ? rng.range(FRONT_H[0], FRONT_H[1])
       : rng.range(5.2, 5.2 + block.centrality * 5);
+    if (facing) front[wing.side] = h;
     tallest = Math.max(tallest, h);
 
     const ww = wing.x1 - wing.x0;
@@ -898,22 +917,53 @@ function buildCourtyard(lot, block, rng, parts) {
   // Street-level glazing and an entrance, on the perimeter as usual. The courtyard is behind it.
   if (streetSides.length) groundFloor(parts, cx, cz, w, d, streetSides, rng);
 
-  // Grown from the tall end so the crowns clear the wings around them.
+  // The planting. A trunk stands off the yard's edge by its own crown's **reach**, so no part of a
+  // canopy is ever inside a wall. The front pair a crown may hang *over* — that is what a tree does
+  // to a low wall — but the back pair are 5.2 units and up and would simply swallow it, and a crown
+  // with a building through it is what the whole massing gets judged on: it reads as a shrub
+  // sprouting out of a roof. Planted at a flat 0.7 off the edge whatever it was carrying, that was
+  // 71 of 91 trees across 24 seeds, 48 of them buried more than half a unit deep.
+  //
+  // A yard too narrow to give a tree that room grows a smaller tree rather than planting one into a
+  // wall, and the floor is knowable rather than hoped for: a block needs `COURT_MIN` to be hollowed
+  // at all, so the yard is never under 8.2 − 2 × 2.1 = 4.0 across, `room` never under 1.6 and the
+  // cap never under 4.8 — above the top of `TREE_H`, so this only ever trims a tall tree in a tight
+  // yard and can't produce a bonsai.
   const trees = rng.int(3, 5);
   const yw = yard.x1 - yard.x0;
   const yd = yard.z1 - yard.z0;
+  const reachPerHeight = treeShape(1, TREE_TRUNK).crownReach;   // off the generator, not restated
+  const room = Math.min(yw, yd) / 2 - 0.4;
+  const planted = [];
   for (let n = 0; n < trees; n++) {
-    parts.push(...treeParts(
-      rng.range(yard.x0 + 0.7, yard.x1 - 0.7),
-      rng.range(yard.z0 + 0.7, yard.z1 - 0.7),
-      rng,
-      // Sized against the *front* wings, which are the only ones that occlude anything — the tall
-      // pair behind sit past the courtyard, not between it and the camera. Grown from the tall
-      // end of the park's range so a crown always clears a 4.6-unit wing; taken from the back
-      // wings' height instead, a downtown courtyard produced one ten-unit tree that filled the
-      // whole yard like a cauliflower.
-      { low: 4.4, high: 6 },
-    ));
+    // Sized against the *front* wings, which are the only ones that occlude anything — the tall
+    // pair behind sit past the courtyard, not between it and the camera. Grown from the tall
+    // end of the park's range so a crown always clears a 3.1-unit wing; taken from the back
+    // wings' height instead, a downtown courtyard produced one ten-unit tree that filled the
+    // whole yard like a cauliflower.
+    //
+    // The height is drawn here rather than inside `treeParts` — the same draw in the same place in
+    // the stream, so the tree is the one this seed would have grown anyway — because the yard has
+    // to know how wide the crown is *before* it can decide where the trunk goes.
+    const height = Math.min(rng.range(TREE_H[0], TREE_H[1]), room / reachPerHeight);
+    const shape = treeShape(height, TREE_TRUNK);
+
+    // Down the yard's **long** axis, one tree to a band, rather than three to five independent
+    // draws over the same rectangle. What is left of the yard once the margin above is taken off
+    // is 1.5 by 2.8 in the shot city, and four crowns 3.5 across drawn anywhere in that are one
+    // crown with four trunks under it — which is exactly what the first build of this rendered.
+    // A band each is what makes it read as a row of trees rather than as one shrub.
+    const alongX = yw > yd;
+    const [loA, hiA] = alongX ? [yard.x0, yard.x1] : [yard.z0, yard.z1];
+    const [loB, hiB] = alongX ? [yard.z0, yard.z1] : [yard.x0, yard.x1];
+    const lo = loA + shape.crownReach;
+    const band = (hiA - shape.crownReach - lo) / trees;
+    const along = rng.range(lo + band * n, lo + band * (n + 1));
+    const across = rng.range(loB + shape.crownReach, hiB - shape.crownReach);
+    const tx = alongX ? along : across;
+    const tz = alongX ? across : along;
+    planted.push({ x: tx, z: tz, ...shape });
+    parts.push(...treeParts(tx, tz, rng, { height, trunk: TREE_TRUNK }));
   }
 
   // One AC unit or two on the tallest wing, reached through the same kit as everything else —
@@ -924,6 +974,11 @@ function buildCourtyard(lot, block, rng, parts) {
       rng.range(wing.x0 + 0.6, wing.x1 - 0.6), KERB_H + tallest + 0.26,
       rng.range(wing.z0 + 0.6, wing.z1 - 0.6), color('rooftop')));
   }
+
+  // Handed back so the yard can be measured rather than eyeballed: how much of each trunk clears
+  // the wing in front of it is the whole reason the numbers above are the numbers they are, and
+  // `tools/probe.mjs` holds it across seeds. See "the yard shows its trunks" there.
+  return { yard, wing: t, front, trees: planted };
 }
 
 export function createBuildings(rng, blocks) {
@@ -964,9 +1019,10 @@ export function createBuildings(rng, blocks) {
   // geometry-neutral: the city a seed builds is the same city with or without it. `entrySites`
   // is the same anchors handed back as a list, for the dust each building kicks up as it lands.
   const entrySites = [];
+  let court = null;
   for (const entry of lots) {
     const from = parts.length;
-    if (entry === yard) buildCourtyard(entry.lot, entry.block, rng, parts);
+    if (entry === yard) court = buildCourtyard(entry.lot, entry.block, rng, parts);
     else buildTower(entry.lot, entry.block, rng, parts, stats);
     if (parts.length === from) continue;      // a lot too narrow to build stamps nothing
     const b = buildableOf(entry.lot);
@@ -1022,7 +1078,7 @@ export function createBuildings(rng, blocks) {
   mesh.receiveShadow = true;
   mesh.name = 'buildings';
   return {
-    mesh, count: parts.length, courtyards, pad, entrySites,
+    mesh, count: parts.length, courtyards, court, pad, entrySites,
     pitched: stats.pitched, helipads: stats.helipads,
   };
 }

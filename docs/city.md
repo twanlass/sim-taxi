@@ -433,12 +433,31 @@ Two things fix it, and both are ordinary things for a building to do:
 - The two wings **facing the camera** (+X and +Z, which are also the two the sun lights) are built
   from a lower range than the pair behind them. A perimeter block that steps down toward its front
   is normal architecture, and the camera never rotates, so "the front" is a fixed pair of sides.
-- The wings are thinner. The yard is now 5.7 across — 8.1 on the diagonal against 3.9–5.5 — so a
-  couple of units of the far corner is always in shot.
+- The wings are thinner. At 2.0–2.7 the yard averaged 4.96 across over 24 seeds; at 1.6–2.1, with
+  the front pair capped at 3.1 rather than 3.6, it is 5.98 — 8.5 on the view diagonal against
+  4.0–4.8 of occlusion, so a couple of units of the far corner is always in shot.
+
+#### The trees have to show a trunk
 
 The trees come from `treeParts()` in `props.js`, the same generator the parks use, and are grown
 from the tall end of its range so a crown always clears a front wing. Sizing them off the *back*
 wings instead produced one ten-unit tree filling a downtown yard like a cauliflower.
+
+Widening the yard is only half of it, though, and the other half is what the massing actually gets
+judged on. Measured across 24 seeds, the version before this one had **69 of its 91 trees showing
+no bare trunk at all** — 11 of the 24 cities had not one — and **71 of the 91 with a wing through
+the crown**, which is what a green blob half sunk into a roof is. Three changes, all of them things
+a real courtyard tree does:
+
+| | |
+|---|---|
+| **A trunk stands off the yard's edge by its own crown's reach** | So no part of a canopy is inside a wall. It may hang *over* a front wing, which is what a tree does to a low wall; the back pair are 5.2 and up and would swallow it. A yard too narrow to give a tree that room grows a **smaller tree** rather than planting one into a wall. |
+| **The crown rides at 0.55 of the height, not the parks' 0.42** | What a wing hides is measured from the crown's *underside*, and at 0.42 that sits at 0.37 of the height — below the 2.6–3.1 the wing in front of it is tall. The wider yard alone got the average bare trunk to 0.41 of a unit; the raised stem takes it to 0.90, which is six pixels at play zoom. |
+| **One tree to a band down the yard's long axis** | What is left of the yard after the margin is ~1.5 × 2.8, and three to five crowns 3.5 across drawn independently in that are one crown with four trunks under it. |
+
+`tools/probe.mjs` holds all of it, and holds it by **casting the rays** rather than by redoing the
+arithmetic above: the sightline maths knows nothing about the tree in front of this one, so it reads
+1.61 where the rays measure 0.90 and calls every hidden tree visible. 2,275 rays is 0.7s.
 
 Wings meet edge to edge rather than crossing, and each one declares how much of each of its four
 sides is actually exposed. Two sides of a short wing are buried inside the long wing beside it and

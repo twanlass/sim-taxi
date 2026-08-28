@@ -6,6 +6,30 @@ import { KERB_H, MEDIAN_EDGE, PARK_EDGE, roundedRectShape } from './ground.js';
 import { MEDIAN_W, medianRuns } from './grid.js';
 
 /**
+ * Where a tree of a given height puts its parts: how much of it is bare trunk, how big the crown
+ * is, how high it rides and how far it hangs out sideways.
+ *
+ * Exported because the courtyard (`city/buildings.js`) has to reason about the tree it is about to
+ * plant *before* it plants it — its whole problem is how much of one clears a wing — and a second
+ * copy of these fractions is one that drifts. `trunk` is the fraction of the height under the
+ * crown: the parks' tree is the broadleaf it always was, and the courtyard grows a leggier one for
+ * a measured reason — see the note over `TREE_TRUNK` in `city/buildings.js`.
+ */
+export function treeShape(height, trunk = 0.42) {
+  const trunkH = height * trunk;
+  const crownR = height * 0.32;
+  return {
+    height,
+    trunkH,
+    crownR,
+    // The crown's centre, and how far it hangs out over the trunk: `blob` scales each lobe to
+    // 1.05 across and 0.9 tall, so neither of these is the radius.
+    crownY: KERB_H + trunkH + crownR * 0.75,
+    crownReach: crownR * 1.05,
+  };
+}
+
+/**
  * Park tree — same construction as the terrain prototype's broadleaf, scaled for a city block.
  *
  * Exported because `city/buildings.js` plants the same tree in a courtyard, and a courtyard tree
@@ -13,21 +37,23 @@ import { MEDIAN_W, medianRuns } from './grid.js';
  * green rising out of a hollow block is the same green as the park two streets over. It takes a
  * height range rather than a scale because the courtyard has a hard floor on it — a tree that
  * doesn't clear the wings around it is a tree nobody ever sees.
+ *
+ * A caller that needs to know what it is getting draws the height itself and passes it in — that
+ * is one draw off the same stream in the same place, so a tree handed its height is the tree it
+ * would have grown anyway.
  */
-export function treeParts(x, z, rng, { low = 3.4, high = 5.6 } = {}) {
+export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.42 } = {}) {
   const parts = [];
-  const height = rng.range(low, high);
-  const trunkH = height * 0.42;
+  const shape = treeShape(height ?? rng.range(low, high), trunk);
+  const { trunkH, crownR: r, crownY: base } = shape;
 
-  const trunk = new THREE.CylinderGeometry(height * 0.035, height * 0.055, trunkH, 6);
-  trunk.translate(x, KERB_H + trunkH / 2, z);
-  parts.push(bakeColor(trunk, jitterColor(PALETTE.trunk, rng, { l: 0.05 })));
+  const trunkGeo = new THREE.CylinderGeometry(shape.height * 0.035, shape.height * 0.055, trunkH, 6);
+  trunkGeo.translate(x, KERB_H + trunkH / 2, z);
+  parts.push(bakeColor(trunkGeo, jitterColor(PALETTE.trunk, rng, { l: 0.05 })));
 
   // Canopy: a main blob plus a couple of smaller ones pushed into it. Overlapping solids read as
   // a fuller crown than a single sphere and hide the seams where they meet.
-  const r = height * 0.32;
-  const base = KERB_H + trunkH + r * 0.75;
-
+  //
   // Per-tree canopy tint, wider than the per-blob jitter below so the variation reads
   // tree-to-tree while the blobs of one crown stay siblings. Hashed from the trunk position
   // rather than drawn, same reason as the entry stamp (util/geo.js hash01): spending a draw
