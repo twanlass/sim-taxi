@@ -19,10 +19,21 @@ export const PALETTE = {
   // computes this and what keeps it in step with the sky all day. Deliberately **not** `skyBottom`,
   // which is where it started: that near-white has 27 points of spread between its channels, and a
   // haze with no chroma of its own can only take chroma away — the far city came out grey rather
-  // than distant. This is `skyTop` at full saturation: the same hue, 181 points of spread.
-  fog: '#4AC6FF',
+  // than distant. This is `skyTop` sampled 0.73 up the dome and pushed back to full saturation:
+  // the same hue, 136 points of spread between red and blue.
+  //
+  // Derived, never picked — `hazeColor(skyTop, skyBottom)` at `HAZE_SKY_H` 0.73 and
+  // `HAZE_SATURATION` 2.5 returns exactly this. Move either of those and this has to be recomputed
+  // from them, not nudged by eye.
+  fog: '#77CFFF',
 
-  sun: '#FFDEBB',
+  sun: '#CFBD8C',
+  // Where the shade goes when the tint is turned up — see `SHADOW_UNIFORMS` in util/geo.js. A cool
+  // blue against a warm sun, which is the oldest trick in the book and the reason the control
+  // exists: the hemisphere fill alone lights shade in the *sun's* family of hues, so the city has
+  // no colour contrast between what the sun reaches and what it doesn't. Applied at `SHADOW_TINT`
+  // (0.65) out of the box, so this is a colour the shipped game shows.
+  shadowTint: '#6E8CC8',
   hemiSky: '#F0C79B',
   hemiGround: '#6B5A48',
 
@@ -326,6 +337,27 @@ export const PALETTE = {
   // The shockwave on the tarmac. A pale warm yellow rather than white — white on this asphalt
   // reads as a lighting artefact, and the ring belongs to the fireball above it.
   blastRing: '#FFE9A8',
+
+  // The tailpipe flame Loco Mode burns for as long as it is held — see game/locoflame.js. Three
+  // stops read as one nested cutout: the outer tongue, the gold under it, and the near-white at the
+  // pipe itself.
+  //
+  // Its own three rather than a borrow of the crash's, and the difference is which end is hot. A
+  // fireball is a cluster cooling *outward over time*, so `blastCore`→`blastFlame` is a ramp each
+  // puff walks; this is a jet, hottest where it leaves the pipe and coolest at the tip, so the ramp
+  // is a fact about *position* and all three stops are on screen at once. That also lets the core
+  // go whiter than a puff's ever does — a still-burning nozzle against a car, rather than the
+  // hottest instant of something that is on its way to smoke.
+  //
+  // The middle stop is the one that had to be argued with. `taxiBody` is #F5C130 — hue 44°, 80%
+  // saturated — and the first gold here came out at 42° and 82%, which is the taxi's own paint
+  // burning two units behind the taxi's own paint: it read as a lit panel rather than as fire.
+  // Pulling it to 35° puts it in the fireball's neighbourhood (`blastGold` is 36°) and nine degrees
+  // clear of the car. The core is at 46° and looks nothing like either, because at 15% saturation
+  // it is white with a warm cast rather than a yellow.
+  locoFlameOuter: '#FF5D18',
+  locoFlameMid: '#FF9E12',
+  locoFlameCore: '#FFF6D8',
   // The collar of smoke thrown out around a wreck — the construction zone's dust, tinted. It is
   // set against the **road**, not against `blastSmoke` beside it, and that is the whole of why it
   // is this light. The fireball is unlit, so its smoke stop can be a dark #4B4B55 and still read;
@@ -493,6 +525,32 @@ export const PALETTE = {
   // *timber* for the taxi launching off it to make sense. Warm and light enough to separate from
   // both the asphalt and the heap standing next to it.
   plywood: '#B98A54',
+
+  // --- Crayon Mode (game/crayon.js, ?crayon) ------------------------------------------------
+  //
+  // Three colours, and each of them is a claim about wax on paper rather than about ink.
+  //
+  // The stroke is a **warm graphite**, not black: a crayon's darkest mark is the paper showing
+  // through a pile of pigment, and it never reaches zero. Pure black lines over this palette read
+  // as vector art — the exact look the pass is trying to get away from. Kept warm so it sits with
+  // the golden-hour light instead of cutting a cold outline through it.
+  crayonLine: '#3A2E28',
+  // The page. A warm off-white the whole frame is lifted toward, which is what turns the sky from
+  // *sky* into *paper someone drew a sky on*.
+  paper: '#F7F0E2',
+  // The fibre in it — where the tooth is deep enough that a stroke skipped. Grey-brown rather than
+  // grey: a neutral speck on a warm page reads as dirt, not as texture.
+  paperFibre: '#B9AC96',
+
+  // --- Cartoon Mode (game/cartoon.js, ?cartoon) ---------------------------------------------
+  //
+  // The ink, for both the hero hulls and the city's screen-space line. **Not black**, and not for
+  // the crayon's reason — a printed cartoon's ink genuinely is black. It is because this city is
+  // lit at golden hour and the haze it sits in is a saturated sky blue: a true #000 outline is the
+  // one thing in the frame with no hue at all, and against warm brick and cool haze it reads as a
+  // hole rather than as a line. Two points of warmth and a lift off zero is enough to stop that
+  // without ever reading as brown.
+  toonInk: '#141110',
 };
 
 export function color(value) {

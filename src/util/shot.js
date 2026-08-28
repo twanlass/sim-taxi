@@ -325,6 +325,47 @@ export function getAmbientOcclusion(fallback = !getSafeMode()) {
 }
 
 /**
+ * Crayon Mode, via `?crayon` / `?crayon=on` (and `?crayon=off` to be explicit).
+ *
+ * Off by default while the look is being judged — it changes the game's whole identity, and the
+ * only way to decide that is to load the same URL twice on a real phone. Promote the fallback to
+ * `!getSafeMode()` when it earns it.
+ *
+ * Like `?ao`, it is a flag rather than a live setting because it is decided *before anything is
+ * meshed*: `util/geo.js` bakes the patch into every material it builds, so switching it at runtime
+ * would mean recompiling every program in the city. The ⚙️ panel tunes its uniforms; it does not
+ * turn it on. And it takes its fallback from safe mode for the same reason everything else here
+ * does — an Android default, and the reload `game/recovery.js` performs after a second context
+ * loss, both have to land without it.
+ */
+export function getCrayon(fallback = false) {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('crayon');
+  if (raw === null) return fallback;
+  // A bare `?crayon` is a request, so it wins over safe mode: the flag exists to be switched on by
+  // hand on the device that is hardest on it.
+  return !isOff(raw);
+}
+
+/**
+ * Cartoon Mode, via `?cartoon` / `?cartoon=on` — cel-banded light and hard ink, with a thicker
+ * outline on the vehicles. Off by default, same as `?crayon`, and independent of it: they are two
+ * separate looks being tried, not two halves of one.
+ *
+ * A flag rather than a setting for the same reason every other look-level switch here is one: the
+ * cel bands are compiled into every prop material before a mesh exists, and the hero outlines are
+ * hulls built at construction. The ⚙️ panel tunes it; it does not turn it on.
+ */
+export function getCartoon(fallback = false) {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('cartoon');
+  if (raw === null) return fallback;
+  // A bare `?cartoon` is a request, and beats safe mode — the flag exists to be switched on by
+  // hand on the device that is hardest on it.
+  return !isOff(raw);
+}
+
+/**
  * Multisampling, via `?msaa=off`.
  *
  * Not the same request as the stencil buffer, even though the two ride in the same back buffer:

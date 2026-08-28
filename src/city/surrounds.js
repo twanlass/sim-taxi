@@ -316,13 +316,34 @@ function seaMesh(coastDistance) {
   geo.computeVertexNormals();
 
   const uniforms = { uTime: { value: 0 } };
-  const material = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+
+  // `propMaterial()`'s recipe **wrapped, not replaced**. It carries AO, the shadow tint, Crayon
+  // Mode and Cartoon Mode, all in one `onBeforeCompile` on the fragment shader; the sea needs every
+  // one of them and adds a displacement to the *vertex* shader, so it chains onto that patch rather
+  // than assigning over it. Building a bare Lambert here instead — which is what this did first —
+  // leaves the one surface covering a quarter of the frame as the only thing in the world with no
+  // ink on it under `?cartoon`, and no paper under `?crayon`.
+  const material = propMaterial();
+  const patchedFragment = material.onBeforeCompile;
   // Three builds the program cache key from the material's *parameters*, before `onBeforeCompile`
-  // runs — so without this the sea shares a program with every other flat-shaded vertex-coloured
-  // Lambert in the city (which is all of them) and gets handed whichever compiled first. Same trap
-  // that once drew the plumbob's fill with a building's shader.
-  material.customProgramCacheKey = () => 'surrounds-sea';
+  // runs — so without a key of its own the sea shares a program with every other flat-shaded
+  // vertex-coloured Lambert in the city (which is all of them) and gets handed whichever compiled
+  // first. Suffixed onto `propMaterial`'s rather than replacing it, so the mode flags baked into
+  // that key still separate the variants. Same trap that once drew the plumbob's fill with a
+  // building's shader.
+  const propKey = material.customProgramCacheKey();
+  material.customProgramCacheKey = () => `${propKey}-sea`;
   material.onBeforeCompile = (shader) => {
+    patchedFragment(shader);
+    // Cel banding off for the water, and only for the water (`?cartoon`). A cel band is a
+    // statement about a lit **form** — it puts a terminator where a surface turns away from the
+    // sun. A sea is a flat plane whose facets vary by a few degrees, so there is no terminator to
+    // draw: what the band finds instead is the half-percent of facets that happen to straddle its
+    // threshold, and that photographs as a scatter of pale triangles floating in the bay. Swapping
+    // the uniform on this one material leaves everything else the patch carries in place — the
+    // cartoon's ink, the crayon's paper, and the shadow tint, which is not a mode at all but part
+    // of the shipped look. See CARTOON_UNIFORMS in util/geo.js: `uToonCel` is a plain mix amount.
+    shader.uniforms.uToonCel = { value: 0 };
     shader.uniforms.uTime = uniforms.uTime;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>

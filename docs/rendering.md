@@ -432,7 +432,77 @@ because it is now paint on a lane and has to shrink with the road when you zoom 
   handle on sky colour
 - **`fog`** — the haze, [below](#atmospheric-perspective)
 
-The default is golden hour: 16:24, sun 28.5° up, `#FFDEBB` at 3.55 intensity.
+The default is golden hour: 16:24, sun 28.5° up, `#CFBD8C` at 3.55 intensity over a 1.20 fill. The
+sun and the fill are both held down from where they started (`#FFDEBB` at 1.50) to leave the shadow
+tint below something to work against — a bright sun over a bright fill lights the shade almost as
+well as the lit faces, and a tint on it has nothing to bite on.
+
+The ⚙️ panel drives all four live — the sun's colour and strength, and the fill's **two** colours,
+`Fill sky` and `Fill ground`. Two because `hemi` is a hemisphere light and one well would only tint
+the half of the scene facing up; a single "ambient colour" would leave every underside the colour it
+already was, which reads as a broken control. Touching any of them stops the day-cycle clock, which
+would otherwise overwrite the change on the next frame.
+
+### Aiming the sun — `aim` in `game/daylight.js`
+
+The hour drives two separable things — where the sun *is* (`elevationAt`, `azimuthAt`) and what the
+light *looks like* (the keyframe colours) — and one slider for both cannot say "golden hour, but with
+the shadows coming from over there".
+
+`Pin sun` splits them. Pinned, `apply()` takes the direction from `aim` and leaves everything else on
+the clock: the sun's colour and power, the fill, the sky and the haze all keep cycling while the
+shadows stay where they were put. `Sun bearing` runs the full 0–360° — the arc only ever sweeps 10°
+to 175°, and reaching the three quarters of the compass a day in this city never visits is the whole
+point of the control. `Sun height` runs `MIN_ELEVATION` to 90°.
+
+**Pinning deliberately does not stop the day cycle**, unlike every other manual control on the panel.
+Those all fight the clock for one value, so they have to take it away from it (`takeManualControl`);
+this one takes a value the clock then has no further opinion about. A day running its colours through
+a sun that stays put is the point of the pin, not a contradiction to resolve. Both sliders track the
+arc live while unpinned, so they always read where the sun actually is, and moving either one pins it
+— no ticking a box first to make the control do something. Unticking `Pin sun` snaps back to the arc
+at the current hour.
+
+Two bounds worth knowing:
+
+- **`MIN_ELEVATION` (6°) is a floor on the pin as well as on the arc.** Below it the light is under
+  the ground plane and throws its shadows *upward* through everything; at 0° exactly every building's
+  shadow is infinitely long and the map goes solid dark.
+- **A low sun throws shadows longer than the shadow camera's own extent** (`SPAN * 1.05` in
+  `scene.js`), so the far end of one can be clipped. The arc has always had this at dawn and dusk;
+  the pin just makes it reachable at any hour.
+
+### The shadow tint — `SHADOW_UNIFORMS` in `util/geo.js`
+
+`Shadow colour` and `Shadow tint` push everything the sun doesn't reach toward one hue — a cool blue
+against a warm sun by default (`PALETTE.shadowTint`), which is the colour contrast the hemisphere
+fill alone cannot give you: the fill lights shade in the *sun's* family of hues, so sun and shade
+differ only in brightness.
+
+Applied at **0.65** out of the box (`SHADOW_TINT` in `util/geo.js`), not the full push: at 1.0 the
+shade takes the tint's hue outright and the city reads as lit by two coloured lamps, which loses the
+*material* of what is in shadow — a red brick wall and a grey one go the same blue. Two thirds keeps
+each surface's own hue legible underneath while still opening a clear warm/cool split.
+
+Two decisions worth keeping:
+
+- **The shade factor is a ratio between the two light terms, not a shadow-map lookup.** Three only
+  defines `getShadowMask()` for `ShadowMaterial`; pulling that chunk into a Lambert works and costs
+  a second full PCF loop per fragment, on a game that runs on phones. Both halves of the lighting
+  are already in scope at `lights_fragment_end`, and fill-over-total answers the question directly.
+  It is scale-free, so nothing has to be told the sun's current power and it tracks the day cycle on
+  its own — at midnight the sun is at 0 and the whole city reads as shade, which is correct.
+- **It tints unlit faces as well as cast shadows, on purpose.** A cast shadow is not a different
+  kind of dark from a wall the sun is behind; tinting one and not the other reads as a bug rather
+  than as art direction. The knee (0.45) is measured off the parked lighting — sun 3.55 against fill
+  1.50 puts a fully lit face at 0.30 and anything the sun misses at 1.00 — so lit faces stay exactly
+  where they were and only the shade travels.
+
+This is the one patch in `patchProp` that is **not** behind a build-time flag — it is part of the
+shipped look rather than an opt-in mode, so there is nothing to gate. It would not deserve a flag
+either way: it costs a dot product and a mix rather than a texture fetch, and at amount 0 that mix is
+against `1.0` and the frame comes out bit-identical to an unpatched one. Hence `propMaterial()`
+patches unconditionally now, where it used to only patch when AO, Crayon or Cartoon Mode asked.
 
 ## Atmospheric perspective
 
@@ -655,7 +725,9 @@ took.
 The main render is **untouched**: still the default framebuffer, so MSAA survives, and still its own
 stencil buffer, so the [ghost outlines](#taxi-ghost-outline--geometryghostoutlinejs) never see a
 render target. Routing the frame through an `EffectComposer` would have cost both, and its
-noise-then-blur output fights hard-edged flat shading anyway.
+noise-then-blur output fights hard-edged flat shading anyway. [Crayon Mode](#crayon-mode--gamecrayonjs)
+was the first thing to genuinely want a full-screen pass and it did not change that answer — it
+reads this pass's spare channel and draws its page as one more object in the scene.
 
 Per frame: a half-res depth prepass (9 draw calls, no colour), one half-res fullscreen pass of 8
 taps — about 2.7M texture fetches at an iPhone 15's DPR-2 buffer — and one texture fetch per lit
@@ -736,6 +808,348 @@ whichever program compiled first. Whether the patch is installed at all is decid
 `setAmbientOcclusion()` *before any geometry is meshed*, which is why `?ao=` is a URL flag and not a
 panel toggle: switching it live would mean recompiling every program in the city.
 
+## Crayon Mode — `game/crayon.js`
+
+A hand-drawn look laid over the whole game: paper tooth in every fill, a soft graphite line down
+every edge the city has, and a ten-a-second wobble so it reads as *drawn* rather than as a filter.
+`?crayon` turns it on; it is off by default while it is being judged, and the ⚙️ panel has every
+number in it live.
+
+Three layers, and they are three different mechanisms:
+
+| Layer | Where it lives | What it costs |
+|---|---|---|
+| **The page** | one quad in the main scene, `renderOrder` 1 | one draw call, two texture fetches a pixel |
+| **The fill** | the patch on `propMaterial()` (`util/geo.js`) | two fetches per lit fragment |
+| **The line** | a second output from the AO pass (`game/ssao.js`), inked by the same patch | four extra taps on a half-res pass, one fetch per lit fragment |
+
+### Still no composer
+
+This is the first thing in the project that genuinely wanted a full-screen post pass, and it still
+does not get one. Both reasons the [AO pass](#what-it-costs-and-what-it-deliberately-does-not)
+gives are unchanged: the frame's MSAA and the stencil buffer the
+[ghost outlines](#taxi-ghost-outline--geometryghostoutlinejs) stamp into both live in the default
+framebuffer, and rendering the city into a target to composite it back costs both. (`samples` and
+`stencilBuffer` on a `WebGLRenderTarget` can buy them back under WebGL2 — at two full-size
+allocations and a resolve, on a budget `game/recovery.js` exists to climb *down* from.)
+
+So the page is **an ordinary object in the scene** whose vertex shader writes clip space directly
+and ignores every matrix — the same trick the AO quad uses, hoisted out of a render target and into
+the transparent queue.
+
+**Its `renderOrder` of 1 is the whole legibility argument.** The queue sorts by that, and the
+existing ladder is skid marks 2, dust 3, the route band 4, the drag handle 5, flames 6, the fare
+rings 7-9. At 1 the paper covers the city and the sky — every opaque object, since the opaque queue
+draws first regardless — and *nothing the player reads a number off*. A fare's ring is a clock and
+its hue is the time remaining; a beige wash over it reports the wrong one.
+
+### The page — one tile, baked in code
+
+`bakePaper()` writes a 256² RGBA8 `DataTexture`, which is the project's first texture. The
+zero-external-assets claim survives — it is generated in code like every mesh — and it is baked
+from `valueNoise2D`/`fbm` in `util/rng.js` at a **fixed seed of its own**: the page does not reseed
+when the city does, so a screenshot pair taken across a change to the buildings differs by the
+buildings.
+
+Four channels, because four things want different frequencies out of one fetch:
+
+| | Content | Read by |
+|---|---|---|
+| `r` | tooth, 2px cells | the fill's grain, and the skip in a stroke |
+| `g` | fibre, 32px blotches | the page, the fill's coarse patchiness |
+| `b` | an uncorrelated per-texel draw | the line's wander |
+| `a` | long fibres, stretched | the page |
+
+Every field is **periodic at the tile size**. `valueNoise2D` grew a `period` argument for it —
+sampled with `RepeatWrapping` in screen space, a field that does not close on itself puts a hard
+seam every 256 pixels across the picture, which reads as a grid over the whole city. `probe.mjs`
+measures the step across the wrap against the step between ordinary neighbours.
+
+**Screen-locked, not world-locked.** The grain stays put when the camera pans, which is the
+"shower door" artefact everywhere else and is the entire point here: the drawing is on paper and
+the paper is the screen. And it is sized in **CSS** pixels — `gl_FragCoord` is in device pixels, so
+a tooth stated in texels halves on a DPR-2 phone and stops reading at all.
+
+### The fill — after the colour space, before the haze
+
+The patch on `propMaterial()` splices its body in ahead of `#include <fog_fragment>`, and that seam
+is a decision rather than a convenience. By then three has run `<opaque_fragment>`,
+`<tonemapping_fragment>` and `<colorspace_fragment>`, so `gl_FragColor` is in display space — where
+a paint-like multiply belongs, and where "mid-tone" means what an eye means by it — and the haze
+has *not*, so a stroke at the back of the city fades into the air exactly as the façade under it
+does. Hooked one chunk later, at `<dithering_fragment>`, the same ink would draw at full strength
+across a hazed skyline.
+
+Everything is keyed off `gl_FragCoord`, which is not a shortcut: `bakeColor()` strips every
+attribute but position and normal, so there is no uv to reach for.
+
+- **The tooth is weighted to the mid-tones** by `4·l·(1−l)`. Wax is patchy where it is thin and
+  solid where it is piled up, so a flat amplitude both dirties the highlights and lifts speckle out
+  of the shadows — the two places a drawing has neither.
+- **Quantisation is luminance only**, and off by default. Hue is content in this game — a ring is a
+  clock, yellow is the player's car, cyan is a parcel — and `probe.mjs` asserts measured hue
+  separations between them, so `rgb` is scaled by a scalar and every channel ratio survives. It is
+  also the one lever here that fights the existing look: this city's lighting idea is one lit face
+  per building, and a hard step across that face flattens the thing the sun is doing.
+
+### The line — a texel, not a radius
+
+The AO pass already had a spare channel: `util/geo.js` reads `.r` and nothing read `.g` or `.b`. So
+the edge rides in `.g` of the same texture, and the same fetch the fill already makes.
+
+**The first version reused the occlusion's own taps and was free, and wrong.** A depth Laplacian at
+radius R answers over a band 2R wide, and the rings are 1.0 and 0.4 *world* units — 7.7px and 3px
+at play zoom, double that at the close framing. Every silhouette in the city came out wearing a
+fifteen-pixel fringe: recognisably an outline, and recognisably not a line. Tree canopies, which
+are jittered icosahedra and therefore all facet, went furry.
+
+The line is its own pair of taps at **one texel** of the half-res buffer, and the honest cost is
+four extra fetches on a pass that was making nine. Two things fall out of that:
+
+- **A pen does not get wider because the camera zoomed out.** The band is one texel — about two CSS
+  pixels — at every zoom.
+- **The threshold means world units of departure from flatness, not a fraction of a radius.** A
+  *step* registers the same however close the camera is; a *smooth slope* registers less as one
+  texel spans less world. That asymmetry is exactly what stops a facet-covered canopy inking as
+  moss while a building's corner still inks.
+
+The estimator is `|a + b| / 2`, unsigned and summed. Either tap on its own is large everywhere —
+flat ground recedes by `cot(elevation)` = 1.54 units per unit of offset — so a one-sided test inks
+the open road solid. The sum cancels on any plane however steeply it recedes, which is the same
+property the occlusion is built on, and what is left is silhouettes (one tap on the far plane), the
+convex arrises the occlusion clamp throws away, and creases.
+
+`EDGE_LOW = 0.15` and `EDGE_HIGH = 0.90` are placed against the features either side of them, and
+`probe.mjs` recomputes all three from `VIEW_DIR` rather than trusting the numbers:
+
+| | Step | Reads | |
+|---|---|---|---|
+| Stop-bar paint | 0.05 | 0.05 | under the floor — its edge is not a contact, and inking it sprinkles the open road |
+| Kerb | 0.35 | 0.32 | faint, and wanted: the pavement's edge is one of the first things anyone draws in a street |
+| Building arris | — | 1.69 | saturated |
+| Car roofline | 1.6 | 1.47 | saturated |
+| Against the sky | — | hundreds | saturated |
+
+The lookup then **wanders** by up to `wobble` CSS pixels, sampled from the page's uncorrelated
+channel at a low screen frequency, so the stroke bends off straight. And it is broken up by the
+**coarse** fetch rather than the fine one: the tooth is 2px, so modulating a line with it dithers
+the stroke pixel by pixel and the whole thing reads as noise along an edge rather than as a mark.
+At a fifth of that frequency the skips run eight or ten pixels, which is a crayon lifting off the
+page.
+
+The ink is a **warm graphite, never black** — a crayon's darkest mark is paper showing through a
+pile of pigment. It is set through `convertLinearToSRGB` because it is mixed in after
+`<colorspace_fragment>` has run, where a `THREE.Color` built from a hex string is not.
+
+### The boil
+
+`floor(t · 10)`, hashed into the noise offsets. **The rate is the whole feature**: at the frame
+rate it is television static, held still it is a decal stuck to the screen, and ten a second is
+about where an eye reads a redrawn line. It takes **undilated** time — the slow-motion ramp at the
+end of a run is a statement about the sim, and a drawing does not slow down because a taxi did —
+and it is skipped on a paused frame, which is right: a held frame is a held drawing.
+
+Shot mode ticks the loop once and freezes, so every screenshot renders step 0. That needs no
+`settle()` only because the step is set at construction rather than on the first update — the same
+trap the [ground discs](#the-fare-marker--gamefaremarkerjs) fell into, avoided by opening on a real
+value instead of zero. `crayon.prepare()` is called from `renderFrame()` rather than the frame
+loop, for the reason the AO pass is: shot mode and `__taxi.redraw()` both reach a render without
+ever reaching the loop.
+
+### What it costs, and where it is switched off
+
+`?crayon` is a URL flag rather than a panel toggle for the same reason `?ao` is: the paper fetch is
+compiled into every prop material before a mesh exists, so switching it live would mean recompiling
+every program in the city. The ⚙️ panel tunes its uniforms; it does not turn it on.
+
+The two flags are **independent**, and that is deliberate: **Android defaults to `?safe`, which
+sets `?ao=off`** — so on the platform most likely to be asked for a drawn look, the depth buffer
+the line is traced out of would not have been built at all. `createAmbientOcclusion` therefore
+takes `edges` as well as `enabled`, and runs the pass for either; with occlusion off the strength
+uniform is pinned to 0 and the occlusion multiply is never compiled into a material. All four
+combinations key to different programs, which `probe.mjs` checks — this city is nothing but
+flat-shaded Lambert, and a second independent flag makes the
+[cache-key trap](#the-diamond--geometrydiamondjs) twice as easy to fall into.
+
+### What it is not doing yet
+
+Written down because each is a real gap rather than a taste:
+
+- **The sky is still sky.** The page is a wash and the dome is behind it, so the top of the frame
+  reads as blue paper rather than as paper with a sky drawn on it. Pushing the wash far enough to
+  fix that takes the city's colour with it — a low-chroma beige laid over everything can only take
+  chroma away, which is the argument [`hazeColor()`](#the-colour--hazecolor) makes about a haze
+  with no hue of its own.
+- **The stroke is soft.** Its source is half-res and its estimator is a one-texel Laplacian, so it
+  is a two-pixel smudge rather than a confident mark. Cross-hatching in the shadows, and a stroke
+  with a direction to it, are the two things that would move this from "drawn on" to "drawn".
+- **Nothing hatches.** Shadow is still shading, not line.
+
+## Cartoon Mode — `game/cartoon.js`
+
+Cel-banded light, ink on every edge in the city, and a **heavier** ink around the things the player
+has to track. `?cartoon`, off by default, independent of `?crayon`, and every uniform in it live on
+the ⚙️ panel.
+
+Two mechanisms, because the two jobs are genuinely different:
+
+| | The world | A hero |
+|---|---|---|
+| **How** | the screen-space edge in `.g` of the AO pass | an inflated back-face hull |
+| **Where it draws** | on the object's own pixels, inward | outside the silhouette, outward |
+| **Catches** | interior creases too — a setback, a kerb, a roof fold | the silhouette only |
+| **Weight** | ~1 CSS pixel, everywhere | `HERO_RIM` 0.22, and the taxi 0.30 |
+
+A screen-space line can only paint where a lit material runs, which is *inside* the thing it is
+outlining. On a car 24px wide at play zoom, a line thick enough to pull it off the road eats a
+fifth of the car and takes the paint that says which car it is. A hull draws outward, and takes its
+thickness per object rather than per screen. So the vehicles get hulls, the city gets the line, and
+**the difference in weight between them is the whole feature** — a hero reads as a hero because its
+outline is half again everything else's.
+
+### The bands
+
+Spliced in after `<lights_fragment_end>`, which is the first point `reflectedLight.directDiffuse`
+is finished — shadow map included. Earlier and the terminator bands a raw N·L with a soft shadow
+laid over the top, which reads as neither cel-shaded nor lit.
+
+It quantises a **ratio against the albedo**, not a colour: dividing the direct term by the
+surface's own luminance recovers roughly the N·L times the sun, which is what a toon ramp is
+actually about. Banding the colour instead would put the terminator at a different place on a dark
+brick than on a pale concrete. Scaling `rgb` back by a scalar leaves every channel ratio — every
+hue in `palette.js` — exactly where it was, which is the same guarantee
+[the crayon's fill](#crayon-mode--gamecrayonjs) carries and for the same reason.
+
+**Flat shading is what makes this clean.** Every facet has one normal, so N·L is constant across it
+and a band edge can never crawl over a surface. The one thing that does vary per fragment is the
+shadow map — so what the bands actually cut into hard steps is PCF's soft penumbra, which is the
+cartoon look arrived at for free.
+
+### The hero outline, and the two ways it was wrong first
+
+Both of these rendered without an error and had to be caught by looking at the screen.
+
+**One hull per vehicle, on its body — not one per part.** Outlining every lit mesh under the taxi is
+the obvious thing and it is wrong twice over. A cartoon outlines an *object*; its interior part
+boundaries are the thin line's job. And a rim stated in world units is a fraction of a body and a
+*multiple* of a trim strip: the taxi carries two 3.46 × 0.54 × 0.54 bars down its flanks, and a hull
+around each inflates the thin axes by two thirds and lays a black bar the whole length of the car on
+both sides. Eight hulls on one taxi rendered as a black brick with yellow showing through the cracks
+between them. So `outlineRoot` takes the biggest solid lit mesh by bounding-box volume and nothing
+else — on the taxi that is the shell at 13.5 cubic units against 1.0 for a bar and 0.85 for a wheel,
+not close. The wheels then sit inside the body's hull on every axis but a sliver under the front
+valance, which [`carghosts.js`](#nearby-traffic-ghost-outlines--gamecarghostsjs) already measured at
+~0.4 units.
+
+**A scale-inflated hull is not an offset surface, and the taxi is not convex.** `inflatedGeometry`
+scales about the bounding-box centre, so the *cabin* grows too — and the hull cabin's rear wall ends
+up standing over the real boot, higher than it, therefore nearer the camera, therefore passing an
+ordinary depth test and painting the boot black. Measured on the shipped taxi: hood and boot both
+went solid, leaving yellow in curved slivers around the wheel arches.
+
+The fix was already in the repo. The rim is masked out of its own silhouette exactly the way
+[the ghost outline](#taxi-ghost-outline--geometryghostoutlinejs) masks its own — pass 1 stamps the
+body's screen footprint into the stencil with `ghostMaskMaterial()`, pass 2 draws the hull with a
+"not that footprint" test — and what survives is the part of the hull sticking out *past* the car.
+Which is what a cartoon outline is.
+
+Two things differ from the ghost's rim, both deliberate:
+
+- **An ordinary depth test.** The ghost draws only where something is in *front* of the hull,
+  because it is a see-through-walls signal. This is ink on a visible car and has to be hidden by the
+  tower the car drives behind.
+- **Fogged, unusually for an unlit material.** `unlitMaterial()` turns the haze off because a
+  marker's hue is its content. An outline is the opposite kind of object — part of the drawing of
+  the city — so it sits behind the same air as the car it wraps. Left unfogged, the back of the
+  board becomes a mass of hard black over hazed pale buildings: the depth cue running backwards.
+
+Its two tiers sit at **9980/9981, below the ghost outline's four**. The stencil buffer is never
+cleared mid-frame, so the ordering is the contract: these stamp and resolve first against nothing
+but their own masks, and the ghost tiers then stamp their own — a superset, since a ghost masks
+every part of a vehicle where this masks only its body — and resolve exactly as they did before.
+
+### The fleet
+
+The ambient traffic is instanced, so its outline is two sibling `InstancedMesh`es per pool that
+**share the source's own `instanceMatrix` object** — not copies. Traffic writes every car's
+transform into it once a frame and three uploads a buffer per attribute rather than per mesh, so the
+whole fleet outlines for two extra draw calls and no per-frame matrix work at all. A copy would mean
+walking every car every frame to duplicate a matrix that already exists, and one that fell a frame
+behind would show as ink sliding off the cars.
+
+Three pools carry one: car bodies, truck cabs, truck boxes. `count` is the one thing that has to be
+synced by hand — three assignments a frame — because three does not watch it and traffic moves it at
+runtime, when a truck spawns and when the ⚙️ car slider is dragged. Left behind, a hull draws the
+fleet's high-water mark: collapsed matrices at the world origin, a knot of ink under the middle of
+the city.
+
+Both pools and the source must also agree about culling. Three caches an `InstancedMesh`'s bounding
+sphere from the matrices as they stood on the first frame it culled it, so a rim that survived a
+frame its mask was culled on would draw as a *filled* silhouette rather than an outline.
+
+### Order against `markOccluder`
+
+**Outline after marking occluders, never before.** A hull is an opaque, colour-writing mesh, so
+`markOccluder` would happily enrol one — and a hull in the depth prepass stamps a silhouette a rim
+bigger than the car, which leaves the city's own screen-space line tracing the *outline* rather than
+the vehicle. `tools/probe.mjs` asserts the occluder list is unchanged by outlining.
+
+### The rim is a uniform, not a bake
+
+The inflation lives in the **vertex shader**, not in the geometry: `outlineGeometry` bakes
+`2 · (p − centre) / size` into an `aInflate` attribute and the hull's material offsets by
+`aInflate · uToonRim`, floor-clamped, in `begin_vertex`.
+
+That is exactly what `inflatedGeometry` produces — its per-axis scale about the bounding-box centre
+puts a vertex at `p + (p − centre) · 2r / size`, which is *linear in r*, so one attribute reproduces
+every width. `tools/probe.mjs` asserts the two agree to 1e-7 across three rims, and the change
+landed with a **zero-pixel** difference against the baked build.
+
+It is done that way because a rim baked into vertices is a rim you cannot scrub — moving it means
+rebuilding a geometry per hull while a slider is being dragged. And the weight of an outline is the
+one number here nobody can settle from a still: it is a judgement about how hard a car should shout
+against a city, and it needs the game running and a hand on the slider. Everything in the ⚙️
+panel's Cartoon section is now live, including both rims.
+
+**The direction comes from position, never from normals.** Every mesh here is non-indexed and
+flat-shaded, so a shared corner is several vertices carrying several normals; offsetting along
+those tears the hull open at every hard edge. `aInflate` is a function of position alone, so it
+agrees across a corner — the same argument [`jitterVertices`](#the-low-poly-look) makes one layer
+down, and the probe checks it by looking for duplicated corners that disagree.
+
+The material carries `customProgramCacheKey`, and this is the case the rule exists for: it is a
+plain `MeshBasicMaterial` in a project full of them, so without a key of its own a hull is handed
+whichever unpatched basic compiled first — and then draws at rim zero, invisible, with nothing
+logged.
+
+### The numbers
+
+`HERO_RIM` is 0.22 and `TAXI_RIM` 0.30, in world units, and the ceiling on both is what a *car* can
+carry rather than what looks bold in isolation. An ambient car is 1.8 units across and about 24px at
+play zoom, so every 0.1 of rim spends 8% of its width: at 0.30 a third of the car is ink and the
+paint that says which car it is has gone. The distance between "outlined" and "blacked out" is two
+tenths of a unit wide.
+
+The taxi's rides the taxi group's own `TAXI_SCALE` of 1.18 on top, landing at 0.35 world units —
+about 2.7px, half again the traffic's, and it is the one object on the board that is *the player*.
+`clampRim` caps any rim at a third of the part's smallest dimension, so one number can describe the
+look without doubling a small part it also lands on — and with a live rim that clamp runs **per
+write**, against each part the slider is reaching, rather than once at construction. Dragged past
+what a truck's cargo box can carry, the box stops at its own ceiling and the car bodies keep going.
+
+The two rims are **separate sliders**, and that is the mode rather than a convenience: a hero reads
+as a hero because its ink is heavier than everything else's, so a single number would collapse the
+only distinction being made.
+
+### What it is not doing yet
+
+- **No rim light and no hatching.** Borderlands' other half is hand-painted ink and hatching in the
+  diffuse art; this has the lines and the bands and none of the drawn texture.
+- **The hull's silhouette is not a uniform offset** of the car's, because bounding-box scaling
+  isn't one — the ink is a little heavier over the cabin than along the flanks.
+- **The bands are subtle at the shipped `steps` of 3**, since golden hour already puts most of a
+  facade in one band. It is a slider for exactly that reason.
+
 ## The renderer budget — `?safe` and friends
 
 Four things on this page cost GPU memory that a plain three.js scene doesn't, and each has a URL
@@ -750,6 +1164,12 @@ wider than the evidence and it costs real quality on Android phones that were fi
 the failure it avoids is a black screen rather than a soft one. `?safe=off` restores the full
 budget there, which is how the narrowing gets done; replace the default with the one flag as soon
 as it is known. Desktop and iOS are untouched, so screenshots and the shot list do not move.
+
+[Crayon Mode](#crayon-mode--gamecrayonjs) and [Cartoon Mode](#cartoon-mode--gamecartoonjs) are two
+more flags of the same shape (`?crayon`, `?cartoon`) but neither is part of `?safe`: both are off by
+default everywhere, and a bare flag beats safe mode rather than deferring to it, because they exist
+to be switched on by hand on the device that is hardest on them. They are independent of each other
+— two looks being tried, not two halves of one — and switching both on is two inks over one frame.
 
 They live in `util/shot.js` beside `?seed` and `?cars`, and every getter takes its **fallback from
 safe mode rather than from a literal**, evaluated per call — so one flag moves all of them, and a
@@ -955,10 +1375,21 @@ a shelf with the sea sliding under it.
 
 One mesh, one draw call, displaced in its **vertex shader** — so the whole sea costs a uniform write
 per frame and nothing else. With `flatShading` the facet normals are screen-space derivatives of
-the *displaced* position, so the water lights itself correctly with no normal maths at all. It is
-the one material in the project outside `propMaterial()`'s recipe, and it carries its own
-`customProgramCacheKey`: this city is nothing but flat-shaded vertex-coloured Lambert, and without
-one it shares a program with all of it.
+the *displaced* position, so the water lights itself correctly with no normal maths at all.
+
+It is the one material in the project that **wraps** `propMaterial()`'s patch rather than taking it
+as-is: that patch is entirely on the fragment shader (AO, the shadow tint,
+[Crayon](#crayon-mode--gamecrayonjs) and [Cartoon Mode](#cartoon-mode--gamecartoonjs)) and this adds a vertex one, so it chains onto
+the existing `onBeforeCompile` and suffixes the existing `customProgramCacheKey` instead of
+assigning over either. Building a bare Lambert here — which is what it did first — leaves the one
+surface covering a quarter of the frame as the only thing in the world with no shadow tint, no paper
+under `?crayon` and no ink under `?cartoon`.
+
+**With one exception, and it is about what a cel band is.** A band puts a terminator where a lit
+form turns away from the sun; a sea is a flat plane whose facets vary by a few degrees, so it has no
+terminator to draw and the band finds the half-percent of facets that happen to straddle its
+threshold instead — a scatter of pale triangles floating in the bay. So the sea swaps `uToonCel` for
+a private zero and keeps everything else the patch carries.
 
 **What has to be tuned is the slope, not the height.** What a wave is worth on screen is
 `amp · 2π / len` — how far it tips a facet. The first pass ran a 55-unit swell 0.22 high, which is
@@ -1091,7 +1522,9 @@ a lap later.
 
 ### Loco Mode kickoff — `game/flames.js`, plus a wheelie in `sim/traffic.js`
 
-Two effects on the press that first engages Loco Mode. Fired from `kickLocoMode()` in `main.js`
+Two effects on the press that first engages Loco Mode — as against
+[the plume](#the-tailpipe-plume--gamelocoflamejs) below, which burns for the whole of the hold that
+follows. Fired from `kickLocoMode()` in `main.js`
 only when `boost.press()` returns true — the ready→active transition — so a re-press during a
 running boost doesn't re-fire either.
 
@@ -1109,6 +1542,64 @@ running boost doesn't re-fire either.
   be swallowed by damping or need a wildly out-of-scale impulse. Lift compensation reuses the
   same `Math.abs(Math.sin(pitch)) * (CAR_LEN / 2)` so the rear stays on the road as the nose
   comes up.
+
+### The tailpipe plume — `game/locoflame.js`
+
+The burst above is the *bark* on the press. This is the flame that burns for as long as the button
+is held, and it is the only thing on screen that says Loco Mode is still on other than the pill
+draining in the corner.
+
+**A flat stylized cutout, not a particle system** — the same argument [the wreck](#wreck--gameblastjs-gamevanishjs)
+makes at length. Three nested tongues of flat unlit colour — `locoFlameOuter` outside,
+`locoFlameMid` under it, `locoFlameCore` at the pipe — and it flickers by cycling **four hand-shaped
+silhouettes at 16fps**, which is a flipbook and reads as drawn fire rather than as a blob being
+scaled. 12 meshes over 4 geometries and 3 materials, all built once at module load; nothing is
+allocated per frame and nothing is integrated. `update(dt, car, on)` is the whole interface, called
+from `main.js` (and from the lab) with `boost.isActive()`.
+
+**It stands in a vertical plane through the car's own long axis**, and that is a measurement rather
+than a preference. A screen-plane billboard was the obvious build — the same `BILLBOARD` constant
+the [outburst bubble](#the-outburst-bubble--geometrycursebubblejs) is authored in — but the plume
+has to point along the car's *backward* direction, which projects into the screen plane at
+(∓0.707, ±0.386) for the four headings. For two of them that is **down-screen**, and a 3-unit plume
+sinks 3 × 0.386 × 0.838 ≈ 0.97 world units through a road only `TAXI_TAILPIPE_HEIGHT` = 0.74 below
+the pipe: half the compass would draw a flame with its tail cut off by the asphalt. A cutout
+standing on the car's axis can only ever reach down by its own half-width. Nor is it ever edge-on,
+which is the failure the vertical plane *could* have had — the roads are axis-aligned and the
+camera's azimuth is the 45° diagonal, so it faces the view at the same 53° on every heading and
+foreshortens by the same 0.808 (3.0 long → 2.4 units on screen, ~19px at play zoom, behind a 31px
+car).
+
+> **It is `DoubleSide`, and that is not laziness.** Turned to the heading, the plane's normal comes
+> out at (−sin yaw, 0, −cos yaw), whose dot with the view direction is −(sin yaw + cos yaw) —
+> positive driving west and north, negative driving east and south. A single-sided cutout would be
+> correct on exactly half the compass and *invisible* on the other half. It is unlit flat colour, so
+> a back face is the same colour as a front one and there is nothing to lose. (This is also why it
+> carries no `flatShading`: that takes its normal from a screen-space derivative and lights a back
+> face as if the sun were behind it.)
+
+Two numbers were set by the road rather than by eye, and both are asserted in `tools/probe.mjs`
+rather than eyeballed:
+
+- **`HALF_W = 0.50`.** The widest point of the tongue is the lowest thing it draws, so half-width ×
+  the ruffle × the fattest beat of the pulse has to clear 0.74. The first try at 0.62 — picked
+  against the car's 2.0 width — cleared the tarmac by **0.002**, which is a coincidence and not a
+  margin. At 0.50 the worst frame of the pulse clears it by **0.095**, measured by the probe off the
+  vertices actually drawn.
+- **The taper exponent, 0.55.** At 0.85 the tongue has spent most of its girth by halfway and the
+  back two-thirds is a spike: rendered, that is a dart stuck in the bumper rather than a flame.
+  0.55 holds the body out to the midpoint and puts the taper in the last third, where a drawn flame
+  has it.
+
+**Ticked after `traffic.update`,** down with the rubber and the dust rather than up with the burst's
+own pool, and for the same reason both of those are: it is pinned to the car's position *this*
+frame rather than emitted and left behind. At the Loco Mode top the taxi covers 0.57 units in a
+frame, so a plume ticked before the sim would ride visibly off the back of the bumper the whole time
+it burned.
+
+Its envelope is 0.05s up and 0.16s down — the attack answers a button press, and the release is out
+well inside `BOOST_COOLDOWN` so the flame never outlasts the mode. A wrecked taxi drops it
+immediately, the same bail `traffic.taxi.boost` gets.
 
 ### Wreck — `game/blast.js`, `game/vanish.js`, plus a smoke collar out of `game/dust.js`
 
@@ -2688,9 +3179,19 @@ that it returns after a reload, under an emulated iPhone.
 the streak counter now lives, and it's a tool almost no player needs to see. Split by cost:
 
 - **Live** — day cycle on/off, day length, time of day, sun colour/strength, ambient fill, fare
-  clock, route blend, occlusion strength, the city-entrance levers, and the
-  [Loco Mode ramp](traffic.md#the-ramp-is-live-tuning)
-- **Restart to apply** — car count (writes a URL parameter and reloads)
+  clock, route blend, occlusion strength, the city-entrance levers, the
+  [Loco Mode ramp](traffic.md#the-ramp-is-live-tuning), and — when their flag is on — every number
+  in [Crayon Mode](#crayon-mode--gamecrayonjs) and [Cartoon Mode](#cartoon-mode--gamecartoonjs),
+  the two hull rims included
+- **Restart to apply** — car count, and **which look is on** (off / crayon / cartoon / both), both
+  written as URL parameters before a reload
+
+The look switcher is in the second group and cannot be in the first: both modes are compiled into
+every prop material *before a mesh exists*, so switching one means recompiling every program in the
+city. It is written as an explicit `on`/`off` rather than by deleting the parameter, so a reload out
+of a look lands on the stock renderer instead of on whatever the URL happened to carry. What it buys
+is that trying the two against each other stops meaning hand-editing the address bar — which is
+exactly the friction that stops a look from being judged properly.
 
 Pretending a rebuild-only value is live would just show a slider that silently does nothing.
 

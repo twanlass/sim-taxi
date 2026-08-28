@@ -44,16 +44,34 @@ function hash2(x, y, seed) {
 
 const smooth = (t) => t * t * (3 - 2 * t);
 
-export function valueNoise2D(x, y, seed) {
+/**
+ * Wrap a lattice coordinate into [0, period) so the field repeats exactly.
+ *
+ * `period = 0` is the default and means "don't", which is every caller but the crayon paper tile
+ * (game/crayon.js). That tile is sampled with `RepeatWrapping` in screen space, so a field that
+ * doesn't close on itself puts a hard seam every 256 pixels across the picture — visible as a grid
+ * over the whole city, which is the one thing a paper texture must not have.
+ */
+function wrap(v, period) {
+  if (!period) return v;
+  return ((v % period) + period) % period;
+}
+
+export function valueNoise2D(x, y, seed, period = 0) {
   const xi = Math.floor(x);
   const yi = Math.floor(y);
   const xf = x - xi;
   const yf = y - yi;
 
-  const a = hash2(xi, yi, seed);
-  const b = hash2(xi + 1, yi, seed);
-  const c = hash2(xi, yi + 1, seed);
-  const d = hash2(xi + 1, yi + 1, seed);
+  const x0 = wrap(xi, period);
+  const y0 = wrap(yi, period);
+  const x1 = wrap(xi + 1, period);
+  const y1 = wrap(yi + 1, period);
+
+  const a = hash2(x0, y0, seed);
+  const b = hash2(x1, y0, seed);
+  const c = hash2(x0, y1, seed);
+  const d = hash2(x1, y1, seed);
 
   const u = smooth(xf);
   const v = smooth(yf);
@@ -61,15 +79,22 @@ export function valueNoise2D(x, y, seed) {
   return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
 }
 
-/** Fractal brownian motion — layered noise, output normalized to roughly [0,1]. */
-export function fbm(x, y, seed, { octaves = 4, lacunarity = 2, gain = 0.5 } = {}) {
+/**
+ * Fractal brownian motion — layered noise, output normalized to roughly [0,1].
+ *
+ * `period` is the lattice period of the *first* octave, in the same units as `x`/`y`; each octave
+ * wraps at its own frequency so the sum repeats at `period` as a whole. Integer periods and an
+ * integer lacunarity keep every octave's period integral, which is what the wrap needs.
+ */
+export function fbm(x, y, seed, { octaves = 4, lacunarity = 2, gain = 0.5, period = 0 } = {}) {
   let amplitude = 1;
   let frequency = 1;
   let sum = 0;
   let norm = 0;
 
   for (let i = 0; i < octaves; i++) {
-    sum += amplitude * valueNoise2D(x * frequency, y * frequency, seed + i * 1013);
+    sum += amplitude * valueNoise2D(
+      x * frequency, y * frequency, seed + i * 1013, period ? period * frequency : 0);
     norm += amplitude;
     amplitude *= gain;
     frequency *= lacunarity;
