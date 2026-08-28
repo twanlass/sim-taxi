@@ -21,6 +21,8 @@ import {
   createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
   BENCH_LEN, STATUE_PLAZA,
 } from '../src/city/props.js';
+import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
+import { createDucks } from '../src/game/ducks.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
@@ -165,7 +167,8 @@ const scene = new THREE.Scene();
 const layout = time('layout', () => createLayout(makeRng(seed)));
 const ground = time('ground', () => createGround(makeRng(seed + 11), layout));
 const buildings = time('buildings', () => createBuildings(makeRng(seed + 22), layout));
-const props = time('props', () => createProps(makeRng(seed + 33), layout));
+const propsBuild = time('props', () => createProps(makeRng(seed + 33), layout));
+const props = propsBuild.mesh;
 const traffic = time('traffic init', () => createTraffic(makeRng(seed + 44), scene, 24));
 
 const tris = (mesh) => mesh.geometry.attributes.position.count / 3;
@@ -530,6 +533,274 @@ const onGrass = (city, i, j) => {
   }
   check('and nothing stands in a bench', throughASeat === 0,
     `${throughASeat} vertices anchored inside one across ${ownPlan.benches.length} benches`);
+}
+
+// --- The duck pond -----------------------------------------------------------
+//
+// Exactly one a city, never in the statue's park, and every bit of it on the lawn. All three are
+// placement rules and none of them is visible once the water is merged into the props mesh, which
+// is why `planPond` is a function of its own — the same split `planParkFurniture` and
+// `planMedianBeds` are held to, and swept over seeds for the same reason: the pond that escapes is
+// the widest one on the narrowest park, and that pairing does not come up on the city you happen to
+// be looking at.
+{
+  let cities = 0;
+  let ponds = 0;
+  let onTheStatuesLawn = 0;
+  let overTheWalk = 0;             // any part of the circle past where the grass starts
+  let inABench = 0;
+  let tightest = Infinity;         // least lawn to spare between a pond's edge and the paving
+  let smallest = Infinity;
+
+  const SEEDS = 40;
+  for (let s = 0; s < SEEDS; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 37));
+    const plots = parkPlots(cityLayout);
+    if (!plots.length) continue;
+    cities += 1;
+
+    // Planned off one stream in the order `createProps` draws them, because that is the only way
+    // to reproduce the pond a seed actually builds: the furniture draws first and the pond takes
+    // what is left of the sequence.
+    const rng = makeRng(seed + s * 37 + 33);
+    const plan = planParkFurniture(rng, plots);
+    const pond = planPond(rng, plots, plan.statue);
+    if (!pond) continue;
+    ponds += 1;
+    smallest = Math.min(smallest, pond.r);
+
+    if (plan.statue && pond.plot === plan.statue.plot) onTheStatuesLawn += 1;
+
+    // The whole circle inside the grass: the outline never exceeds `r`, so the nearest block edge
+    // less the radius is where the water gets closest to the walk round the park.
+    const { x0, x1, z0, z1 } = pond.plot.bounds;
+    const room = Math.min(pond.x - x0, x1 - pond.x, pond.z - z0, z1 - pond.z) - pond.r;
+    tightest = Math.min(tightest, room - PARK_EDGE);
+    if (room < PARK_EDGE) overTheWalk += 1;
+
+    // And clear of the furniture standing on the same lawn. Measured in each bench's own frame
+    // rather than against a radius round its centre: a bench is 1.9 by 0.645 and a circle big
+    // enough to cover its ends reaches a unit out across the lawn behind it, which fails every
+    // bench on the side of the park the pond is nearest without either of them touching.
+    for (const bench of plan.benches) {
+      const cos = Math.cos(bench.yaw);
+      const sin = Math.sin(bench.yaw);
+      const dx = pond.x - bench.x;
+      const dz = pond.z - bench.z;
+      // Distance from the pond's centre to the bench's rectangle: the overshoot past each of its
+      // own half-extents, taken together.
+      const along = Math.max(0, Math.abs(dx * cos - dz * sin) - BENCH_LEN / 2);
+      const across = Math.max(0, Math.abs(dx * sin + dz * cos) - 0.34);
+      if (Math.hypot(along, across) < pond.r) inABench += 1;
+    }
+  }
+  createLayout(makeRng(seed));     // `createLayout` installs its network — put the probe's city back
+
+  check('every city that can hold a pond gets exactly one', ponds === cities,
+    `${ponds} across ${cities} cities, smallest ${smallest.toFixed(2)} in radius`);
+  check('and it is never in the statue\'s park', onTheStatuesLawn === 0,
+    `${onTheStatuesLawn} sharing a lawn with the statue`);
+  check('the water lies entirely on the grass', overTheWalk === 0,
+    `${overTheWalk} over the walk, tightest ${tightest.toFixed(2)} to spare`);
+  check('and no bench stands in it', inABench === 0, `${inABench} benches in the water`);
+}
+
+// The pond's own geometry: two flat surfaces that have to face **up**. The water is a hand-wound
+// fan — wound the other way round it is a pond lit from underneath, and `computeVertexNormals`
+// would launder that into looking deliberate, which is exactly how the roadworks ramp shipped
+// inside out (see CLAUDE.md). So the normal is computed from the winding rather than read off the
+// normal attribute, and for every triangle rather than the first: `ShapeGeometry` is indexed, so
+// walking `attributes.position` in order tests triangles that do not exist.
+{
+  const pondRng = makeRng(seed + 33);
+  const pondPlan = planPond(pondRng, parkPlots(layout), planParkFurniture(makeRng(seed + 33), parkPlots(layout)).statue);
+  let faces = 0;
+  let downward = 0;
+  let offLevel = 0;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const n = new THREE.Vector3();
+
+  if (pondPlan) {
+    for (const part of pondParts(pondPlan, makeRng(seed + 7))) {
+      const pos = part.attributes.position;
+      const index = part.index;
+      const at = (k) => (index ? index.getX(k) : k);
+      const count = index ? index.count : pos.count;
+      for (let i = 0; i < count; i += 3) {
+        a.fromBufferAttribute(pos, at(i));
+        b.fromBufferAttribute(pos, at(i + 1));
+        c.fromBufferAttribute(pos, at(i + 2));
+        const level = Math.abs(a.y - b.y) < 1e-9 && Math.abs(a.y - c.y) < 1e-9;
+        // `sub` writes into the vector it is called on, so the winding is taken last — reading the
+        // corners back after this line reads whatever the cross product left behind.
+        n.copy(b).sub(a).cross(c.sub(a));
+        if (n.lengthSq() < 1e-12) continue;          // a degenerate sliver has no side to be on
+        faces += 1;
+        if (n.normalize().y < 0.999) downward += 1;
+        if (!level) offLevel += 1;
+      }
+    }
+  }
+  check('every face of the pond points at the sky', !!pondPlan && faces > 0 && downward === 0,
+    `${faces - downward}/${faces} facing up`);
+  check('and the water lies level', offLevel === 0, `${offLevel} sloping triangles`);
+}
+
+// Nothing planted in the water, read off the merged mesh rather than off the plan — every part
+// carries its own object's ground anchor for the entrance animation (`stampEntry`), so "what stands
+// here" is a question the props mesh itself can answer. Same read as the statue's clearing above.
+{
+  const furniture = planParkFurniture(makeRng(seed + 33), parkPlots(layout));
+  const rng = makeRng(seed + 33);
+  planParkFurniture(rng, parkPlots(layout));
+  const pond = planPond(rng, parkPlots(layout), furniture.statue);
+  const entry = props.geometry.attributes.aEntry;
+  // The furniture is not planting: a bench half a unit off the water is exactly where the pond's
+  // setback puts one, and it carries an anchor like everything else in this mesh. What is being
+  // counted here is *trees*, so everything the plan already accounts for is struck out first — the
+  // pond's own two pieces, the benches, and the statue.
+  const known = [...furniture.benches, furniture.statue, pond].filter(Boolean);
+  const isAt = (ax, az, p) => Math.abs(ax - p.x) < 1e-4 && Math.abs(az - p.z) < 1e-4;
+  let inTheWater = 0;
+  if (pond) {
+    for (let i = 0; i < entry.count; i++) {
+      const ax = entry.getX(i);
+      const az = entry.getY(i);          // the anchor's z rides in the attribute's y
+      // A crown reaches ~1.8 past its trunk and a tree leaning over water is a tree growing out of
+      // it, so the margin is the one `createProps` plants by rather than the bare radius.
+      if (Math.hypot(ax - pond.x, az - pond.z) > pond.r + 1.8) continue;
+      if (known.some((p) => isAt(ax, az, p))) continue;
+      inTheWater += 1;
+    }
+  }
+  check('nothing is planted in the pond', !!pond && inTheWater === 0,
+    pond ? `${inTheWater} vertices of something else inside it` : 'no pond');
+}
+
+// --- The ducks on it ---------------------------------------------------------
+//
+// Five minutes of paddling. What has to hold is that a duck never leaves the water: the body is
+// held a bird's length inside the radius the water is *guaranteed* to cover, which is what hides
+// its legs under an opaque surface and keeps its tail off the bank. A duck aground is the one way
+// this effect can look broken, and it would look broken for the whole run.
+{
+  const duckScene = new THREE.Scene();
+  const furniture = planParkFurniture(makeRng(seed + 33), parkPlots(layout));
+  const rng = makeRng(seed + 33);
+  planParkFurniture(rng, parkPlots(layout));
+  const pond = planPond(rng, parkPlots(layout), furniture.statue);
+  const flotilla = createDucks(duckScene, makeRng(seed + 299), pond);
+
+  let aground = 0;
+  let stacked = 0;                 // two of them parked in the same place
+  let sunk = 0;                    // ...or riding at a height the water would not hold them at
+  let worst = 0;                   // the furthest any of them got from the middle
+  let dabbles = 0;
+  let travelled = 0;
+  const was = flotilla.ducks.map((d) => ({ x: d.x, z: d.z }));
+
+  for (let step = 0; step < 300 * 60; step++) {
+    flotilla.update(1 / 60);
+    for (let i = 0; i < flotilla.ducks.length; i++) {
+      const duck = flotilla.ducks[i];
+      const out = Math.hypot(duck.x - pond.x, duck.z - pond.z);
+      worst = Math.max(worst, out);
+      if (out > pond.water) aground += 1;
+      if (Math.abs(duck.y - POND_WATER_Y) > 0.12) sunk += 1;
+      if (duck.pitch < -0.5) dabbles += 1;
+      travelled += Math.hypot(duck.x - was[i].x, duck.z - was[i].z);
+      was[i] = { x: duck.x, z: duck.z };
+      // Only while both are sitting: a pair crossing paths is a pond with ducks on it, and a pair
+      // that has *settled* on the same spot reads as one bird.
+      for (let j = i + 1; j < flotilla.ducks.length; j++) {
+        const other = flotilla.ducks[j];
+        if (duck.dwell <= 0 || other.dwell <= 0) continue;
+        if (Math.hypot(duck.x - other.x, duck.z - other.z) < 0.55) stacked += 1;
+      }
+    }
+  }
+
+  check('the pond carries ducks', !!pond && flotilla.ducks.length >= 2,
+    pond ? `${flotilla.ducks.length} on ${(2 * pond.r).toFixed(1)} units of water` : 'no pond');
+  check('and none of them ever paddles onto the bank', aground === 0,
+    `furthest out ${worst.toFixed(2)} of ${pond ? pond.water.toFixed(2) : '?'} of open water`);
+  check('they sit in the surface rather than under it or over it', sunk === 0, `${sunk} frames adrift in y`);
+  check('they get about, and they dabble', travelled > 20 && dabbles > 0,
+    `${travelled.toFixed(0)} units paddled in 5 min, ${(dabbles / 60).toFixed(0)}s spent nose-down`);
+  check('and no two of them settle in the same spot', stacked === 0, `${stacked} frames parked together`);
+}
+
+// The flock walks on the same lawns, and a pigeon crossing the pond would cross it in a straight
+// line at walking pace — the one arrangement the keep-out exists to prevent. Ten minutes of it,
+// with the flock pinned to the pond's own park so the test is actually asked.
+{
+  const walkScene = new THREE.Scene();
+  const furniture = planParkFurniture(makeRng(seed + 33), parkPlots(layout));
+  const rng = makeRng(seed + 33);
+  planParkFurniture(rng, parkPlots(layout));
+  const pond = planPond(rng, parkPlots(layout), furniture.statue);
+  const keep = pond ? { x: pond.x, z: pond.z, r: pond.r + 0.7 } : null;
+  const flock = createBirds(walkScene, makeRng(seed + 199), layout, { keepOut: keep ? [keep] : [] });
+  // The pond's own park, by the bounds `parkAreas` hands out — settled there rather than left to
+  // wander, since a flock that spends the run two parks away proves nothing.
+  const home = parkAreas(layout).find((a) => pond
+    && pond.x > a.x0 && pond.x < a.x1 && pond.z > a.z0 && pond.z < a.z1);
+  if (home) flock.settle(home);
+
+  let wet = 0;
+  let onIt = 0;
+  for (let step = 0; step < 600 * 60; step++) {
+    flock.update(1 / 60);
+    if (flock.state.mode !== 'ground' || flock.state.area !== home) continue;
+    onIt += 1;
+    for (const bird of flock.birds) {
+      if (Math.hypot(bird.x - pond.x, bird.z - pond.z) < pond.r) wet += 1;
+    }
+  }
+  check('a walking bird stops at the water rather than crossing it',
+    !!home && onIt > 0 && wet === 0,
+    home ? `${wet} birds in the pond over ${(onIt / 60).toFixed(0)}s on its lawn` : 'no flock on the pond\'s park');
+}
+
+// The water is a 45-pixel patch of saturated colour sitting in a park, which is the same thing a
+// flower bed is and gets the same clearance argument: the urgency ramp, the taxi, the courier cyan
+// and the VIP purple can all be on the board at once, and none of them may be confusable with a
+// pond. Asserted here beside the blooms rather than trusted to the note in palette.js.
+{
+  const hueOf = (hex) => {
+    const hsl = { h: 0, s: 0, l: 0 };
+    new THREE.Color(hex).getHSL(hsl);
+    return hsl;
+  };
+  const spoken = [...PALETTE.urgency, PALETTE.taxiBody, PALETTE.vip, PALETTE.parcel,
+    PALETTE.routeLine].map(hueOf);
+  // Luma in the space the eye reads, which is where the pond has to separate from the lawn it is
+  // cut into — the trap `birdBody` documents, and worse here because this is an area rather than a
+  // speck. Rec. 709 on the 8-bit channels, the same measure those palette notes are written in.
+  const luma = (hex) => {
+    const c = new THREE.Color(); c.setStyle(hex, THREE.SRGBColorSpace);
+    const ch = hex.replace('#', '').match(/../g).map((h) => parseInt(h, 16));
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+  };
+
+  let nearest = 360;
+  let loudest = 0;
+  for (const hex of [PALETTE.pondWater, PALETTE.pondShallow]) {
+    const water = hueOf(hex);
+    loudest = Math.max(loudest, water.s);
+    for (const other of spoken) {
+      const raw = Math.abs(water.h - other.h) * 360;
+      nearest = Math.min(nearest, raw > 180 ? 360 - raw : raw);
+    }
+  }
+  const contrast = luma(PALETTE.park) - luma(PALETTE.pondWater);
+  check('a pond cannot be mistaken for anything the player acts on',
+    nearest > 20 && loudest < 0.75,
+    `nearest game hue ${nearest.toFixed(0)}°, loudest ${loudest.toFixed(2)} saturated`);
+  check('and it reads as a hole in the lawn rather than a patch of it', contrast > 25,
+    `${contrast.toFixed(0)} luma under the grass`);
 }
 
 // --- Façades ----------------------------------------------------------------
@@ -10346,7 +10617,7 @@ let chopperOrder; // likewise
     if (!sweepLayout.garageBlock) continue;
     sited += 1;
     const sweepCity = createBuildings(makeRng(s + 22), sweepLayout);
-    const sweepProps = createProps(makeRng(s + 33), sweepLayout);
+    const sweepProps = createProps(makeRng(s + 33), sweepLayout).mesh;
     if (sightline(sweepCity.mesh, sweepProps, garageSite(sweepLayout.garageBlock))) clear += 1;
   }
   check(`every seed hosts a depot`, sited === SEEDS, `${sited}/${SEEDS}`);
@@ -10409,7 +10680,7 @@ let chopperOrder; // likewise
     const s = seed + n * 977;
     const sweepLayout = createLayout(makeRng(s));
     const sweepCity = createBuildings(makeRng(s + 22), sweepLayout).mesh;
-    const sweepProps = createProps(makeRng(s + 33), sweepLayout);
+    const sweepProps = createProps(makeRng(s + 33), sweepLayout).mesh;
     const targets = [sweepCity, sweepProps];
     setCityOccluders(sweepCity, sweepProps);
     let rejectedHere = 0;

@@ -2122,6 +2122,50 @@ and the visibility that couldn't be bought there was bought with the extra fifth
 `?shot=18` stages a take-off; `?shot=0` has both flocks at play zoom, which is the framing that
 decides whether any of this worked.
 
+### The duck pond — `city/pond.js`, `game/ducks.js`
+
+One pond, in one park, with two or three birds sitting on it. They paddle from one end to the other,
+sit a while, tip forward to dabble, and never leave — which is the whole difference between these
+and the flock above. That one has a life; this is scenery that moves. Where the pond goes is
+[in city.md](city.md#a-duck-pond); this is what it looks like.
+
+**The water is drawn as a fan about its own centre**, not as a `ShapeGeometry` like every other flat
+surface in the city, and the reason is the one vertex earcut would not give it: the middle. The open
+water is `pondWater` and the rim `pondShallow`, 17 luma darker, so the pond has depth for the price
+of a vertex colour — [a gradient across a flat-shaded triangle](#faux-window-reflections--citybuildingsjs)
+costs nothing but the numbers. One flat blue read as a painted disc. The shore is the other half of
+it: a ring of damp earth cut with the water as a hole in it, the same construction the walk round a
+park uses, which is also what removes the seam — both rims come off one point list, so there is no
+pair of outlines to disagree. Hand-wound geometry means the probe computes the normal *from the
+winding* on every triangle of both pieces, the roadworks-ramp rule.
+
+**Value, not hue, is what makes it read.** The first water was a handsome #5E88B4 and it is luma 130
+against the park's 140 — the same trap the bird bodies document, and worse, because a pond is a
+45-pixel area rather than a moving speck. At 101 it is a hole in the lawn from across the map. The
+hue is 216°, in the window between the courier cyan and the VIP purple, on the clearance rule the
+blooms and the roadworks orange are held to.
+
+**The ducks are the flock's own bird, unscaled**, floating with the waterline a third of the way up
+the torso. The water is opaque, so everything below it is simply hidden — which is what takes the
+legs out of the silhouette, and the legs are the part that says *standing*. That only holds while
+the sightline out of a foot crosses the surface over the pond, and at 33° a submerged 0.31 needs
+0.48 of water beyond it, so a duck is held a bird's half-length plus that off its own shoreline. It
+is also why the pond has a floor on its size: shrinking the birds to fit was tried and reads as a
+different animal standing two seconds away from the full-sized flock.
+
+**More than half of them wear the pale morph**, against a fifth of a flock. Those morphs were
+balanced against the lawn, where the base bird at luma 118 is the dark shape; on 101 of water it is
+the same value as what it is sitting on. `birdTint` takes the pale share as an argument for that
+reason — the ducks are the same birds under different light, not a second palette. It is also what a
+municipal pond actually has on it.
+
+Everything else is the flock's vocabulary at a quarter speed: one `InstancedMesh` with
+`frustumCulled = false`, a Lambert that skips `propMaterial` for [the occluder rule](#the-occluder-rule),
+a bob and a rock on one slow clock per bird, and the peck slowed and deepened into a dabble. They
+are posed the instant they are built, so shot mode — which ticks once and freezes — has birds on the
+water rather than a pond of default poses. `?shot=25` is the pond close up and `?shot=26` the same
+water at play zoom, which is the framing that decides whether it is a landmark or a smudge.
+
 ### The rooftop helicopter — `game/chopper.js`, `geometry/helicopter.js`
 
 A helicopter that visits the city's helipad every couple of minutes: in over the skyline on a curve,
