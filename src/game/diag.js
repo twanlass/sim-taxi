@@ -138,6 +138,7 @@ export function createDiagnostics(renderer, { enabled = false, flags = {} } = {}
     // screenshot of an unknown configuration.
     `flags msaa=${flags.msaa ? 'on' : 'off'} shadows=${flags.shadowMapSize || 'off'}`
       + ` dpr=${flags.pixelRatioCap} ao=${flags.ao ? 'on' : 'off'}`
+      + `${flags.crayon ? ' crayon=on' : ''}${flags.cartoon ? ' cartoon=on' : ''}`
       + `${flags.safe ? ` [safe:${flags.safeSource ?? '?'}]` : ''}`,
   ].join('\n');
 

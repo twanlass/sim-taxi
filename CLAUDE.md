@@ -153,6 +153,12 @@ Omit the whole section if there's nothing to note.
   `grid.js` had to learn that a junction where the crossing road has been **closed** reaches by this
   road's width instead, a case that was invisible while every street was 8 wide because both
   answers were 4.
+- **A backtick inside a GLSL template literal ends the shader, not the sentence.** Every shader in
+  this project is a `/* glsl */ \`...\`` literal, and the house comment style leans hard on
+  `backticks` for identifiers — so writing a normal comment inside one closes the template and the
+  rest of the shader parses as JavaScript. It cost two builds in a row on the crayon pass, and the
+  error it throws (`Unexpected identifier`, pointing at a word in the middle of a comment) names
+  nothing that would lead you to it. Inside a shader literal, identifiers go bare.
 - **`makeRng()` returns an object, not a function.** `rng()` throws `rng is not a function`; the
   members are `next`, `range`, `int`, `gauss`, `pick`, `chance`, `jitter`. Reach for `rng.pick(arr)`.
 - **`rotation.set(roll, yaw, pitch)` on the default Euler order rolls about the *world* X axis.**

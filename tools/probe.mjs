@@ -76,13 +76,24 @@ import {
 import {
   createBirds, bodyQuaternion, parkAreas, SETTLE_MIN, STARTLE_RANGE, SHADOW_CEILING,
 } from '../src/game/birds.js';
-import { propMaterial, setAmbientOcclusion, AO_UNIFORMS, BODY_EULER_ORDER } from '../src/util/geo.js';
+import {
+  propMaterial, unlitMaterial, setAmbientOcclusion, setCrayon, setCartoon,
+  AO_UNIFORMS, CRAYON_UNIFORMS, CARTOON_UNIFORMS, BODY_EULER_ORDER,
+} from '../src/util/geo.js';
 import {
   AO_LAYER, markOccluder, unmarkOccluder, occluderList, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
+  EDGE_LOW, EDGE_HIGH,
 } from '../src/game/ssao.js';
+import { bakePaper, PAPER_SIZE, CRAYON_DEFAULTS } from '../src/game/crayon.js';
+import {
+  outlineRoot, instancedOutline, createCartoon, clampRim, outlineGeometry,
+  toonOutlineMaterial, HERO_RIM, TAXI_RIM,
+} from '../src/game/cartoon.js';
+
 import { createCityEntry } from '../src/game/cityentry.js';
 import {
-  GHOST_MASK_ORDER, GHOST_RIM_ORDER, CAR_GHOST_MASK_ORDER, CAR_GHOST_RIM_ORDER,
+  GHOST_MASK_ORDER, GHOST_RIM_ORDER, CAR_GHOST_MASK_ORDER, CAR_GHOST_RIM_ORDER, GHOST_REF,
+  inflatedGeometry,
 } from '../src/geometry/ghostoutline.js';
 import {
   createCarGhosts, GHOST_RADIUS, MAX_GHOSTS, GHOST_OPACITY, FADE_BAND,
@@ -7516,6 +7527,536 @@ check('the taxi is an ordinary car in the traffic array',
   check('every render goes through the AO pass',
     !/renderer\.render\(scene, camera\)/.test(outsideRenderFrame),
     'main.js renders only via renderFrame()');
+}
+
+// --- Crayon Mode ---------------------------------------------------------------
+//
+// game/crayon.js, the patch it adds to propMaterial(), and the edge channel it takes off the AO
+// pass. Everything here fails silently in the same way the AO block above does — a replace that
+// no longer matches, a cache key that collides, a page that reseeds under a screenshot — with the
+// extra hazard that this pass paints over the entire picture, so "it looks a bit different" is
+// not evidence either way.
+{
+  // The page. Baked on the CPU with no GL call in it, which is the whole reason `bakePaper` is a
+  // function: a screenshot pair taken across a change to the city has to differ by the city, and
+  // that is an assertion node can make.
+  const paperA = bakePaper(64);
+  const paperB = bakePaper(64);
+  check('the paper bakes the same page every time',
+    paperA.length === 64 * 64 * 4 && paperA.every((v, i) => v === paperB[i]),
+    `${paperA.length} bytes, identical across two bakes`);
+
+  // Every channel has to *have* a signal in it. A field that came out flat — a period that
+  // divided wrong, an fbm normalised to nothing — is a texture that multiplies by a constant, and
+  // a constant tooth is no tooth at all.
+  const channels = [0, 1, 2, 3].map((c) => {
+    const values = [];
+    for (let i = c; i < paperA.length; i += 4) values.push(paperA[i]);
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const spread = Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length);
+    return { mean, spread, min: Math.min(...values), max: Math.max(...values) };
+  });
+  check('every paper channel carries a signal, centred and unclipped',
+    channels.every((c) => c.spread > 8 && c.mean > 70 && c.mean < 185
+      && c.max - c.min > 100),
+    channels.map((c) => `${c.mean.toFixed(0)}±${c.spread.toFixed(0)}`).join(' · '));
+
+  // The seam. The tile is sampled in screen space with RepeatWrapping, so a field that does not
+  // close on itself puts a hard edge every PAPER_SIZE pixels — a grid over the whole city, which
+  // is the one thing a paper texture must not have. Measured as the step across the wrap against
+  // the step between ordinary neighbours: the two should be the same size.
+  const size = 64;
+  const stepAcross = (channel) => {
+    let wrap = 0;
+    let inner = 0;
+    for (let y = 0; y < size; y++) {
+      wrap += Math.abs(paperA[(y * size + size - 1) * 4 + channel] - paperA[y * size * 4 + channel]);
+      inner += Math.abs(paperA[(y * size + 1) * 4 + channel] - paperA[y * size * 4 + channel]);
+    }
+    return { wrap: wrap / size, inner: inner / size };
+  };
+  // Channels 0-2 wrap; 3 is the long fibre and is deliberately left open in y, so it is measured
+  // across x only, where it does close.
+  const seams = [0, 1, 2].map(stepAcross);
+  check('the paper tiles without a seam',
+    seams.every((s) => s.wrap <= s.inner * 1.6 + 2),
+    seams.map((s) => `${s.wrap.toFixed(1)} vs ${s.inner.toFixed(1)}`).join(' · '));
+
+  // The patch, run against a stub carrying the chunk names three's Lambert fragment shader
+  // actually has — same trick as the AO block, and the same failure if a chunk moves.
+  const stub = () => ({
+    uniforms: {},
+    vertexShader: '#include <common>\nvoid main() {}',
+    fragmentShader: '#include <common>\nvoid main() {\n\t#include <aomap_fragment>\n'
+      + '\t#include <opaque_fragment>\n\t#include <colorspace_fragment>\n\t#include <fog_fragment>\n}',
+  });
+
+  setAmbientOcclusion(false);
+  setCrayon(true);
+  const crayonMaterial = propMaterial();
+  const crayonShader = stub();
+  crayonMaterial.onBeforeCompile(crayonShader, null);
+
+  check('the crayon patch reaches the Lambert fragment shader',
+    crayonShader.fragmentShader.includes('uniform sampler2D tCrayonPaper')
+    && /texture2D\(\s*tCrayonPaper/.test(crayonShader.fragmentShader)
+    && /uCrayonGrain \*/.test(crayonShader.fragmentShader),
+    'sampler declared and the tooth pressed in');
+
+  // **The seam is the whole design.** By <fog_fragment> three has run the tonemap and the colour
+  // space, so gl_FragColor is in display space — which is where a paint-like multiply belongs and
+  // where "mid-tone" means what an eye means by it — and the haze has *not*, so a stroke at the
+  // back of the city fades into the air exactly as the façade under it does. Hooked one chunk
+  // later, at <dithering_fragment>, the same ink would draw at full strength over a hazed skyline.
+  const crayonAt = crayonShader.fragmentShader.indexOf('uCrayonGrain *');
+  check('the crayon body lands after the colour space and before the haze',
+    crayonAt > crayonShader.fragmentShader.indexOf('#include <colorspace_fragment>')
+    && crayonAt < crayonShader.fragmentShader.indexOf('#include <fog_fragment>'),
+    'strokes are laid in display space and then hazed with everything else');
+
+  // Value only, never chroma. Hue is content in this game — a fare's ring is its clock, yellow is
+  // the player's car, cyan is a parcel — and the palette checks above assert measured hue
+  // separations between them. Quantising rgb channel by channel, or touching saturation, would
+  // walk straight through every one of those guarantees.
+  // Scanned with the comments stripped, or the prose describing the pass fails the check on the
+  // pass. Everything the shader *does* to colour has to be a scalar on `.rgb`.
+  const crayonCode = crayonShader.fragmentShader.replace(/\/\/[^\n]*/g, '');
+  check('the crayon patch moves value and never hue',
+    /gl_FragColor\.rgb \*=/.test(crayonCode) && !/hsv|hsl|saturat/i.test(crayonCode),
+    'rgb scaled by a scalar, so every channel ratio survives');
+
+  // One shared uniform bag, not per-material copies — same contract as AO's, and the same failure
+  // if Object.assign ever handed each shader its own object: the boil would advance for nobody.
+  check('every crayon material reads the one shared uniform bag',
+    crayonShader.uniforms.tCrayonPaper === CRAYON_UNIFORMS.tCrayonPaper
+    && crayonShader.uniforms.uCrayonBoil === CRAYON_UNIFORMS.uCrayonBoil,
+    'same uniform objects, not clones');
+
+  // With AO off the pass still runs for the line, but its strength is pinned to zero and the
+  // occlusion multiply is never compiled in — the fetch is absent rather than multiplied by one.
+  check('crayon alone does not drag the AO multiply in with it',
+    !crayonShader.fragmentShader.includes('reflectedLight.indirectDiffuse *='),
+    '?crayon&ao=off compiles no occlusion term');
+
+  // All four combinations have to key differently. This city is nothing but flat-shaded Lambert,
+  // so two materials sharing a key are handed whichever program compiled first — the trap that
+  // once drew the diamond's fill with a building's shader, and one that a second independent flag
+  // makes twice as easy to fall into.
+  const keyFor = (ao, crayon) => {
+    setAmbientOcclusion(ao);
+    setCrayon(crayon);
+    const material = propMaterial();
+    return typeof material.customProgramCacheKey === 'function'
+      ? material.customProgramCacheKey() : null;
+  };
+  const keys = [keyFor(false, false), keyFor(true, false), keyFor(false, true), keyFor(true, true)];
+  check('all four AO/crayon builds key to different programs',
+    new Set(keys.map((k) => String(k))).size === 4,
+    keys.map((k) => k ?? 'none').join(' · '));
+
+  // And the patched pair still carries the AO term where it always was.
+  const bothShader = stub();
+  setAmbientOcclusion(true);
+  setCrayon(true);
+  propMaterial().onBeforeCompile(bothShader, null);
+  check('AO and crayon compose rather than replacing one another',
+    bothShader.fragmentShader.includes('reflectedLight.indirectDiffuse *=')
+    && /texture2D\(\s*tCrayonPaper/.test(bothShader.fragmentShader),
+    'both bodies present in one program');
+  setCrayon(false);
+  setAmbientOcclusion(false);
+
+  // The edge channel. `g` is free — every fetch it needs was already made for the occlusion — but
+  // it shares a shader with the term every contact shadow in the game is made of, so the thing
+  // worth asserting is that the occlusion expression did not move.
+  const ssaoSource = fs.readFileSync(new URL('../src/game/ssao.js', import.meta.url), 'utf8');
+  // The tap budget, counted out of the shader rather than asserted as a number in a comment. The
+  // line is not free — reusing the occlusion's own rings was free and drew a fifteen-pixel fringe
+  // instead of a line — but it is bounded: one extra opposed pair in each axis, and no more.
+  const callsTo = (name) => (ssaoSource.match(new RegExp(`${name}\\(z0,`, 'g')) || []).length;
+  const tapsIn = (name) => {
+    const body = ssaoSource.slice(ssaoSource.indexOf(`float ${name}(`));
+    return (body.slice(0, body.indexOf('\n}')).match(/viewDepth\(/g) || []).length;
+  };
+  const taps = 1 + callsTo('pair') * tapsIn('pair') + callsTo('edgeAt') * tapsIn('edgeAt');
+  check('the line costs one extra pair per axis and nothing more',
+    callsTo('pair') === 4 && tapsIn('pair') === 2
+    && callsTo('edgeAt') === 2 && tapsIn('edgeAt') === 2 && taps === 13,
+    `${taps} fetches a pixel on a half-res pass: one centre, eight for occlusion, four for ink`);
+  check('the occlusion term still writes red and the line writes green',
+    /1\.0 - uStrength \* either\(tight, broad\),\s*\n\s*smoothstep\(EDGE_LOW, EDGE_HIGH, edge\)/
+      .test(ssaoSource),
+    'util/geo.js reads .r for occlusion and .g for ink');
+
+  // The estimator, mirrored. `abs(a + b)` rather than `max(abs(a), abs(b))` is the whole reason
+  // this can run with no normal buffer: under this camera flat ground recedes by cot(elevation)
+  // per unit of radius, so either tap on its own is large *everywhere* and would ink the open
+  // road solid. The sum is what cancels on any plane however steeply it recedes.
+  const elev = Math.asin(VIEW_DIR.y);
+  const swing = 1 / Math.tan(elev);
+  const edgeOf = (a, b, radius) => Math.abs(a + b) * 0.5 / radius;
+  const flatRoad = edgeOf(swing * RING_BROAD, -swing * RING_BROAD, RING_BROAD);
+  const oneSided = Math.max(Math.abs(swing * RING_BROAD), Math.abs(-swing * RING_BROAD)) / RING_BROAD;
+  check('flat ground cancels its own edge and a one-sided test would not',
+    flatRoad < 1e-9 && oneSided > EDGE_LOW,
+    `laplacian ${flatRoad.toFixed(6)}, one-sided ${oneSided.toFixed(2)} — over the ${EDGE_LOW} floor`);
+
+  // Both bounds, recomputed from the camera and from the features either side of them rather than
+  // trusted — the same discipline the rejection window above is checked with, and for the same
+  // reason: re-angle the camera and this fails here rather than in a screenshot nobody took.
+  const stepOf = (h) => edgeOf(0, h / Math.sin(elev), RING_BROAD);
+  const paint = stepOf(0.05);                 // a stop bar: paint on the road, and not a contact
+  const kerb = stepOf(KERB_H);                // where the pavement meets the tarmac
+  // A 90-degree convex arris — a building's own vertical corner, and the commonest strong edge in
+  // the city. Both neighbours recede from it, one across the ground and one up the wall.
+  const arris = edgeOf(swing * RING_BROAD, RING_BROAD / Math.sin(elev), RING_BROAD);
+  check('the ink ramp runs from over the road paint to under a building corner',
+    EDGE_LOW > paint && kerb > EDGE_LOW && kerb < EDGE_HIGH && arris > EDGE_HIGH,
+    `paint ${paint.toFixed(2)} < ramp ${EDGE_LOW}–${EDGE_HIGH} < arris ${arris.toFixed(2)}`
+      + ` · kerb ${kerb.toFixed(2)} inside it`);
+
+  // The boil. Ten steps a second is the difference between a hand redrawing the frame and
+  // television static; it is a *rate*, so what matters is that it is well under the frame rate and
+  // well over nothing.
+  check('the boil runs slower than the frame and faster than a decal',
+    CRAYON_DEFAULTS.boilHz > 4 && CRAYON_DEFAULTS.boilHz < 20,
+    `${CRAYON_DEFAULTS.boilHz} steps a second against 60 frames`);
+
+  // The page sits under every read-out. The transparent queue sorts by renderOrder and the ladder
+  // is skid marks 2, dust 3, the route band 4, the drag handle 5, flames 6, the fare rings 7-9 —
+  // so a page drawn above any of those is a tint over a clock, and a fare's hue is the time it has
+  // left.
+  const crayonSource = fs.readFileSync(new URL('../src/game/crayon.js', import.meta.url), 'utf8');
+  const order = Number(crayonSource.match(/const PAPER_ORDER = (\d+)/)?.[1]);
+  check('the paper draws under every game read-out',
+    Number.isFinite(order) && order < 2,
+    `renderOrder ${order}, below skid marks at 2`);
+
+  // Screen-space, and sized in CSS pixels rather than device ones. `gl_FragCoord` is in device
+  // pixels, so a tooth stated in texels halves on a DPR-2 phone and stops reading at all — the
+  // same "size effects against the camera" rule one layer further out than usual.
+  check('the tooth and the wobble are sized in CSS pixels',
+    /uCrayonPaperScale\.value\.set\(\s*1 \/ \(PAPER_SIZE \* ratio\)/.test(crayonSource)
+    && /uCrayonPixelRatio\.value = ratio/.test(crayonSource)
+    && PAPER_SIZE >= 128,
+    `a ${PAPER_SIZE}px tile, divided by the pixel ratio`);
+
+  // Shot mode ticks the loop once and freezes, so anything driven off a clock is stuck on its
+  // first frame — which for the boil is exactly right, and only because the step is set at
+  // construction rather than on the first update. An entrance that opens at zero is the trap this
+  // is the other side of.
+  check('a frozen shot renders a settled page',
+    /setStep\(0\);/.test(crayonSource) && /prepare\(\)/.test(crayonSource),
+    'the boil starts on a real step and prepare() runs from renderFrame()');
+
+  // Every render path has to size the page, for the same reason every one has to run the AO pass:
+  // shot mode and __taxi.redraw() both reach a render without ever reaching the frame loop.
+  const crayonMainSource = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  check('every render goes through the crayon prepare',
+    /function renderFrame\(\)[\s\S]*?crayon\.prepare\(\)[\s\S]*?renderer\.render/
+      .test(crayonMainSource),
+    'main.js sizes the page inside renderFrame()');
+}
+
+// --- Cartoon Mode --------------------------------------------------------------
+//
+// game/cartoon.js, the cel bands and ink it adds to propMaterial(), and the hero hulls. Two of the
+// checks here are the two bugs this actually shipped with and had to be caught by looking:
+// outlining every *part* of a vehicle, and drawing a scale-inflated hull without masking it out of
+// its own silhouette.
+{
+  const stub = () => ({
+    uniforms: {},
+    vertexShader: '#include <common>\nvoid main() {}',
+    fragmentShader: '#include <common>\nvoid main() {\n\t#include <aomap_fragment>\n'
+      + '\t#include <lights_fragment_end>\n\t#include <opaque_fragment>\n'
+      + '\t#include <colorspace_fragment>\n\t#include <fog_fragment>\n}',
+  });
+
+  setAmbientOcclusion(false);
+  setCrayon(false);
+  setCartoon(true);
+  const toonShader = stub();
+  propMaterial().onBeforeCompile(toonShader, null);
+
+  check('the cartoon patch reaches the Lambert fragment shader',
+    toonShader.fragmentShader.includes('uniform float uToonCel')
+    && /uToonSteps/.test(toonShader.fragmentShader)
+    && /texture2D\(tAmbientOcclusion[\s\S]*?\)\.g/.test(toonShader.fragmentShader),
+    'cel bands and the edge lookup both spliced in');
+
+  // The cel bands go where the direct term is *finished* — after lights_fragment_end, which is the
+  // first point the shadow map has been multiplied in. Earlier and the terminator bands the raw
+  // N-dot-L with a soft shadow laid over it, which is the one combination that reads as neither.
+  // The *body*, not the uniform declaration — both names appear up by `<common>` first, and an
+  // indexOf that found the declaration would pass this check against a patch spliced anywhere.
+  const celAt = toonShader.fragmentShader.indexOf('reflectedLight.directDiffuse *= mix(');
+  const inkAt = toonShader.fragmentShader.indexOf('smoothstep(uToonBite');
+  check('the bands land on the finished direct term and the ink lands before the haze',
+    celAt > toonShader.fragmentShader.indexOf('#include <lights_fragment_end>')
+    && celAt < toonShader.fragmentShader.indexOf('#include <opaque_fragment>')
+    && inkAt > toonShader.fragmentShader.indexOf('#include <colorspace_fragment>')
+    && inkAt < toonShader.fragmentShader.indexOf('#include <fog_fragment>'),
+    'shadow included in the banding, ink hazed with the wall it traces');
+
+  // Value only, never hue — the same guarantee the crayon carries, and it matters more here: the
+  // bands are a big move, and a cartoon that shifted chroma would walk straight through the hue
+  // separations palette.js encodes and probe.mjs asserts above.
+  const toonCode = toonShader.fragmentShader.replace(/\/\/[^\n]*/g, '');
+  check('the cel bands move value and never hue',
+    /reflectedLight\.directDiffuse \*= mix\(/.test(toonCode)
+    && !/hsv|hsl|saturat/i.test(toonCode),
+    'the direct term is scaled by a scalar, so every channel ratio survives');
+
+  check('every cartoon material reads the one shared uniform bag',
+    toonShader.uniforms.uToonCel === CARTOON_UNIFORMS.uToonCel
+    && toonShader.uniforms.uToonInkColor === CARTOON_UNIFORMS.uToonInkColor,
+    'same uniform objects, not clones');
+
+  // Eight combinations now, and every one has to key to its own program. This city is nothing but
+  // flat-shaded Lambert, so two builds sharing a key are handed whichever compiled first — and a
+  // third independent flag makes that three times easier to fall into than when it was just AO.
+  const keys = [];
+  for (const ao of [false, true]) {
+    for (const cray of [false, true]) {
+      for (const toon of [false, true]) {
+        setAmbientOcclusion(ao);
+        setCrayon(cray);
+        setCartoon(toon);
+        const material = propMaterial();
+        keys.push(typeof material.customProgramCacheKey === 'function'
+          ? material.customProgramCacheKey() : 'none');
+      }
+    }
+  }
+  check('all eight AO/crayon/cartoon builds key to different programs',
+    new Set(keys.map(String)).size === 8, keys.map(String).join(' · '));
+  setAmbientOcclusion(false);
+  setCrayon(false);
+  setCartoon(false);
+
+  // --- The hero hulls.
+  //
+  // **One hull per vehicle, on its body.** Outlining every part is the obvious thing and it is what
+  // this shipped with: a rim stated in world units is a fraction of a body and a multiple of a trim
+  // strip, and the taxi carries two 3.46 x 0.54 bars down its flanks whose hulls inflate the thin
+  // axes by two thirds. Eight hulls on one taxi rendered as a black brick with yellow showing
+  // through the cracks between them.
+  const toonTaxi = createTaxiMesh();
+  const made = outlineRoot(toonTaxi.group, { rim: TAXI_RIM });
+  const outlineMeshes = [];
+  toonTaxi.group.traverse((o) => {
+    if (o.name === 'toonOutline' || o.name === 'toonOutlineMask') outlineMeshes.push(o);
+  });
+  const shell = made[0]?.hull?.parent ?? null;
+  const lit = [];
+  toonTaxi.group.traverse((o) => {
+    if (o.isMesh && o.material?.isMeshLambertMaterial && !o.name.startsWith('toon')) lit.push(o);
+  });
+  const bulkOf = (mesh) => {
+    mesh.geometry.computeBoundingBox();
+    const size = mesh.geometry.boundingBox.getSize(new THREE.Vector3());
+    return size.x * size.y * size.z;
+  };
+  check('a vehicle gets exactly one outline, on its biggest part',
+    made.length === 1 && outlineMeshes.length === 2 && lit.length > 1
+    && shell && lit.every((m) => bulkOf(m) <= bulkOf(shell)),
+    `${lit.length} lit parts on the taxi, one outlined at ${bulkOf(shell).toFixed(1)} cubic units`);
+
+  // The rim is a scale-inflated copy of a **non-convex** body, so it is not an offset surface: the
+  // hull's cabin ends up standing over the real boot, nearer the camera, and an ordinary depth test
+  // paints it black. The stencil mask is what makes this an outline rather than a repaint, and both
+  // halves of the test are silent when wrong.
+  const rimMaterial = made[0].hull.material;
+  check('the rim is masked out of its own silhouette',
+    rimMaterial.stencilWrite === true
+    && rimMaterial.stencilFunc === THREE.NotEqualStencilFunc
+    && rimMaterial.stencilRef === GHOST_REF
+    && made[0].mask.material.colorWrite === false,
+    'pass 1 stamps the body footprint, pass 2 draws only outside it');
+
+  // ...and it is an *ordinary* depth test, unlike the ghost outline's. The ghost draws only where
+  // something is in front of it, because it is a see-through-walls signal; this is ink on a visible
+  // car and has to be hidden by the tower the car drives behind.
+  check('the ink is occluded by the city, unlike the ghost rim it borrows from',
+    rimMaterial.depthFunc !== THREE.GreaterDepth && rimMaterial.side === THREE.BackSide,
+    'normal depth test, back faces only');
+
+  // The tiers sit below the ghost outline's four. The stencil buffer is never cleared mid-frame, so
+  // this ordering is the contract that keeps the two systems from eating each other.
+  check('the outline resolves before the ghost outline stamps anything',
+    made[0].mask.renderOrder < made[0].hull.renderOrder
+    && made[0].hull.renderOrder < GHOST_MASK_ORDER,
+    `${made[0].mask.renderOrder}/${made[0].hull.renderOrder} below ${GHOST_MASK_ORDER}`);
+
+  // A hull is a bigger copy of a mesh that already casts a shadow. Inheriting it fattens every
+  // shadow in the city by the outline's width and stamps a second one from the mask.
+  check('no outline casts a shadow',
+    outlineMeshes.every((m) => m.castShadow === false),
+    `${outlineMeshes.length} outline meshes, none casting`);
+
+  // **Order matters against markOccluder**, and getting it wrong is invisible in a still: a hull in
+  // the depth prepass stamps a silhouette a rim bigger than the car, so the city's own screen-space
+  // line would trace the outline instead of the vehicle.
+  const occluderTaxi = createTaxiMesh();
+  markOccluder(occluderTaxi.group);
+  const beforeOutline = occluderList().size;
+  outlineRoot(occluderTaxi.group, { rim: TAXI_RIM });
+  check('outlining after markOccluder keeps hulls out of the depth prepass',
+    occluderList().size === beforeOutline,
+    `${beforeOutline} occluders, unchanged by the outline`);
+  unmarkOccluder(occluderTaxi.group);
+
+  // --- The fleet.
+  //
+  // The whole efficiency claim is that the pools share traffic's *own* matrices rather than copying
+  // them. A copy would mean walking every car every frame to duplicate a matrix that already
+  // exists, and one that fell a frame behind shows as ink sliding off the cars.
+  const toonTraffic = createTraffic(makeRng(seed + 44), new THREE.Scene(), 8);
+  const pooled = instancedOutline(toonTraffic.mesh);
+  check('the fleet outline shares traffic own instance matrices',
+    pooled.mask.instanceMatrix === toonTraffic.mesh.instanceMatrix
+    && pooled.hull.instanceMatrix === toonTraffic.mesh.instanceMatrix
+    && pooled.mask.geometry === toonTraffic.mesh.geometry,
+    'no copies: two draw calls and no per-frame matrix work');
+
+  // Both pools, and the source, must agree about culling. Three caches an InstancedMesh's bounding
+  // sphere from the matrices as they stood on the first frame it culled — so a rim that survived a
+  // frame its mask was culled on would draw as a *filled* silhouette rather than an outline.
+  check('mask and rim can never be culled apart',
+    pooled.mask.frustumCulled === false && pooled.hull.frustumCulled === false
+    && toonTraffic.mesh.frustumCulled === false,
+    'culling off on the source and on both pools');
+
+  // `count` is not a property three watches, and traffic moves it at runtime — a truck spawning, or
+  // the panel car slider. Left behind, the hull draws the fleet high-water mark: collapsed matrices
+  // at the world origin, which is a knot of ink under the middle of the city.
+  const toonMode = createCartoon({ enabled: true });
+  const [fleetMask, fleetHull] = toonMode.fleet(toonTraffic.mesh);
+  const bornAt = fleetHull.count;
+  toonTraffic.mesh.count = 3;
+  toonMode.update();
+  check('the fleet outline follows its source count',
+    bornAt === toonTraffic.ambient.length && fleetHull.count === 3 && fleetMask.count === 3,
+    `born at ${bornAt}, both pools follow the source to 3`);
+
+  // And the rim clamp, which is what stops one number describing a body from doubling a small part
+  // it also lands on.
+  check('an outline can never be more than a third of the part it wraps',
+    clampRim(toonTaxi.sign.geometry, TAXI_RIM) < TAXI_RIM
+    && clampRim(toonTraffic.mesh.geometry, HERO_RIM) === HERO_RIM,
+    `sign clamped to ${clampRim(toonTaxi.sign.geometry, TAXI_RIM).toFixed(3)}, a car body left at ${HERO_RIM}`);
+
+  // The two rims are the look, and the ratio between them is what says which car is the player's.
+  check('the taxi is inked more heavily than the traffic it drives through',
+    TAXI_RIM > HERO_RIM && TAXI_RIM / HERO_RIM < 2,
+    `${TAXI_RIM} against ${HERO_RIM}, and 1.18x again through TAXI_SCALE`);
+
+  // --- The live rim.
+  //
+  // The inflation moved out of the geometry and into the vertex shader so the ⚙️ panel can scrub
+  // it. That is a maths change disguised as a plumbing change, so the claim worth pinning is that
+  // it reproduces what it replaced: `position + aInflate * r`, floor-clamped, has to equal
+  // `inflatedGeometry(geometry, r)` for *any* r, not just the one it shipped with.
+  const rimSource = createTaxiMesh();
+  let rimBody = null;
+  rimSource.group.traverse((o) => {
+    if (o.isMesh && o.material?.isMeshLambertMaterial
+      && (!rimBody || bulkOf(o) > bulkOf(rimBody))) rimBody = o;
+  });
+  const shaderGeo = outlineGeometry(rimBody.geometry);
+  const inflate = shaderGeo.attributes.aInflate;
+  const worst = [0.05, TAXI_RIM, 0.6].map((r) => {
+    const baked = inflatedGeometry(rimBody.geometry, r).attributes.position;
+    const base = shaderGeo.attributes.position;
+    let error = 0;
+    for (let v = 0; v < base.count; v += 1) {
+      const x = base.getX(v) + inflate.getX(v) * r;
+      const y = Math.max(base.getY(v) + inflate.getY(v) * r, shaderGeo.userData.floorY);
+      const z = base.getZ(v) + inflate.getZ(v) * r;
+      error = Math.max(error,
+        Math.abs(x - baked.getX(v)), Math.abs(y - baked.getY(v)), Math.abs(z - baked.getZ(v)));
+    }
+    return error;
+  });
+  check('the shader rim reproduces the baked inflation at every width',
+    worst.every((e) => e < 1e-5),
+    `worst vertex error ${Math.max(...worst).toExponential(1)} across 0.05, ${TAXI_RIM} and 0.6`);
+
+  // Offset by *position*, never by normal. Every mesh here is non-indexed and flat-shaded, so a
+  // shared corner is several vertices carrying several normals — offsetting along those tears the
+  // hull open at every hard edge, which is the trap `jitterVertices` records one layer down.
+  const cornerKeys = new Map();
+  const basePos = shaderGeo.attributes.position;
+  let split = 0;
+  for (let v = 0; v < basePos.count; v += 1) {
+    const key = `${basePos.getX(v).toFixed(4)},${basePos.getY(v).toFixed(4)},${basePos.getZ(v).toFixed(4)}`;
+    const dir = `${inflate.getX(v).toFixed(5)},${inflate.getY(v).toFixed(5)},${inflate.getZ(v).toFixed(5)}`;
+    if (cornerKeys.has(key) && cornerKeys.get(key) !== dir) split += 1;
+    cornerKeys.set(key, dir);
+  }
+  check('a shared corner offsets one way, so the hull cannot tear',
+    split === 0 && cornerKeys.size < basePos.count,
+    `${basePos.count - cornerKeys.size} duplicated corners, ${split} disagreeing`);
+
+  // The vertex patch itself, against a stub carrying the chunk names three's shader actually has —
+  // and the cache key, which matters more here than almost anywhere: this is a plain
+  // MeshBasicMaterial in a project full of them, so without a key of its own an outline hull is
+  // handed whichever unpatched basic compiled first and draws at rim zero, invisible, silently.
+  const rimMat = toonOutlineMaterial({ rim: 0.3, floorY: 0.1 });
+  const rimShader = {
+    uniforms: {},
+    vertexShader: '#include <common>\nvoid main() {\n\t#include <begin_vertex>\n}',
+    fragmentShader: '#include <common>\nvoid main() {}',
+  };
+  rimMat.onBeforeCompile(rimShader, null);
+  const plainUnlit = unlitMaterial({});
+  check('the outline vertex patch lands and cannot collide with a plain basic material',
+    rimShader.vertexShader.includes('attribute vec3 aInflate')
+    && /transformed \+= aInflate \* uToonRim/.test(rimShader.vertexShader)
+    && /transformed\.y = max\(/.test(rimShader.vertexShader)
+    && rimMat.customProgramCacheKey() !== (plainUnlit.customProgramCacheKey?.() ?? null),
+    `keyed "${rimMat.customProgramCacheKey()}"`);
+
+  // The taxi and the traffic are scrubbed apart. A single rim would collapse the one distinction
+  // the mode exists to make — a hero reads as a hero because its ink is heavier than everything
+  // else's — so the panel drives two groups and `set` must not cross them.
+  const groups = createCartoon({ enabled: true });
+  const taxiPair = groups.outline(createTaxiMesh().group, { group: 'taxi' })[0];
+  const heroPair = groups.outline(createTaxiMesh().group, { group: 'hero' })[0];
+  groups.set('taxiRim', 0.5);
+  const taxiRimUniform = () => taxiPair.hull.material.userData.toon.uToonRim.value;
+  const heroRimUniform = () => heroPair.hull.material.userData.toon.uToonRim.value;
+  check('the taxi rim and the traffic rim move independently',
+    taxiRimUniform() > heroRimUniform() && heroRimUniform() === HERO_RIM,
+    `taxi ${taxiRimUniform()} against traffic ${heroRimUniform()}`);
+
+  // ...and a rim is clamped against the part it is written onto, not once at construction. A
+  // slider hands one number to a group whose members are different sizes, and MAX_RIM_FRACTION is
+  // a statement about a part: dragged past what the smallest of them can carry, that one stops and
+  // the rest keep going.
+  groups.set('taxiRim', 99);
+  check('a rim can never grow past the part it wraps',
+    taxiRimUniform() === taxiPair.hull.geometry.userData.maxRim
+    && taxiRimUniform() < 99,
+    `capped at ${taxiRimUniform().toFixed(3)} for a body that size`);
+
+  // One ink, two places it is drawn, two colour spaces. Handed over unconverted the screen-space
+  // line comes out far darker than the hulls drawn from the identical value — which is the tell,
+  // and the reason this is asserted rather than eyeballed.
+  groups.set('inkColor', '#804020');
+  const hullInk = taxiPair.hull.material.color;
+  const lineInk = CARTOON_UNIFORMS.uToonInkColor.value;
+  check('the hulls and the city line always draw the same ink',
+    Math.abs(hullInk.r - new THREE.Color('#804020').r) < 1e-6
+    && lineInk.r > hullInk.r
+    && Math.abs(lineInk.r - new THREE.Color('#804020').clone().convertLinearToSRGB().r) < 1e-6,
+    'material colour linear, line uniform re-encoded to sRGB');
+
+  groups.set('inkOpacity', 0.4);
+  check('ink opacity reaches every hull',
+    taxiPair.hull.material.opacity === 0.4 && heroPair.hull.material.opacity === 0.4,
+    'both groups follow one slider');
 }
 
 // --- Atmospheric perspective --------------------------------------------------
