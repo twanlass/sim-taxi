@@ -1435,6 +1435,110 @@ try {
       row.hit === 'brake' && row.touchAction === 'none' && row.userSelect === 'none',
       `hit ${row.hit}, touch-action ${row.touchAction}, user-select ${row.userSelect}`);
 
+    // --- One thumb, both pedals: the slide between them.
+    //
+    // The whole feature is a browser gesture and has no other home — the pedals' own arbitration is
+    // covered in the probe, and what only a page can prove is that a finger that never lifts moves
+    // the car from one pedal to the other. Real touches rather than synthesised `PointerEvent`s for
+    // the reason the initials check uses them: the press claims a pointer capture, and an untrusted
+    // event has no pointer for the browser to capture.
+    //
+    // The tank is topped up first and given a second to pour (POUR_RATE is half a tank per second,
+    // see game/boost.js). The key checks above have been spending fuel on this same run, and a
+    // drained pill is `disabled` — which is a legitimate state for it to be in and would fail this
+    // for a reason that has nothing to do with the gesture.
+    {
+      await evaluate('window.__taxi.boost.topUp(0.5)');
+      await sleep(1200);
+      const at = JSON.parse(await evaluate(`(() => {
+        const mid = (id) => {
+          const r = document.getElementById(id).getBoundingClientRect();
+          return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+        };
+        return JSON.stringify({ boost: mid('boost'), brake: mid('brake') });
+      })()`));
+      // One finger, one id, for the length of the gesture. `touchEnd` takes no points.
+      const touch = (type, pt) => client.send('Input.dispatchTouchEvent',
+        { type, touchPoints: pt ? [{ x: pt.x, y: pt.y, id: 3 }] : [] });
+      // Along the row in steps, the way a thumb travels — a single jump to the far pedal would pass
+      // this without the moves in between ever being tested against the pedal they land on.
+      const slideTo = async (from, to) => {
+        for (let step = 1; step <= 6; step++) {
+          await touch('touchMove', {
+            x: Math.round(from.x + (to.x - from.x) * step / 6),
+            y: Math.round(from.y + (to.y - from.y) * step / 6),
+          });
+        }
+      };
+      // Both pedals, the classes that paint them, and the press dip itself — read together so each
+      // check can say which half went wrong. The dip is read as a *computed scale* rather than as
+      // the class that should produce it: the whole point of `is-held` is to outrank the `:active`
+      // the browser has pinned to the button the press started on, and the class can be present
+      // while losing that fight on specificity. Anything but a `matrix()` — including the pill's
+      // top-up flutter, which scales up — reads as 1 and counts as undipped.
+      const pedalState = `(() => {
+        const cls = (id, name) => document.getElementById(id).classList.contains(name);
+        const dip = (id) => {
+          const m = getComputedStyle(document.getElementById(id)).transform.match(/matrix\\(([-\\d.]+)/);
+          return m ? Number(m[1]) : 1;
+        };
+        return JSON.stringify({
+          boost: window.__taxi.boost.state.mode, braking: window.__taxi.traffic.taxi.braking,
+          lit: cls('brake', 'is-on'),
+          held: [cls('boost', 'is-held'), cls('brake', 'is-held')],
+          dip: [dip('boost'), dip('brake')],
+          sliding: document.body.classList.contains('pedal-slide'),
+        });
+      })()`;
+      const read = async () => JSON.parse(await evaluate(pedalState));
+
+      await touch('touchStart', at.boost);
+      await sleep(200);
+      const onPill = await read();
+
+      await slideTo(at.boost, at.brake);
+      await sleep(200);
+      const onBrake = await read();
+      check('a thumb sliding from Loco Mode to the brake hands the car over',
+        onPill.boost === 'active' && !onPill.braking
+        && onBrake.braking && onBrake.boost !== 'active' && onBrake.lit
+        && !onBrake.held[0] && onBrake.held[1],
+        `pill ${onPill.boost}/braking ${onPill.braking}`
+        + ` → brake ${onBrake.boost}/braking ${onBrake.braking}, held ${onBrake.held}`);
+      // And the press dip travels with the thumb. Its own check: the pedals could hand over
+      // perfectly while the pill the thumb has left sits there looking pressed, which is what
+      // `:active` does on its own and what `body.pedal-slide` exists to stop.
+      check('and the press dip travels with it',
+        onBrake.dip[1] < 1 && onBrake.dip[0] >= 1,
+        `pill scaled ${onBrake.dip[0]}, brake scaled ${onBrake.dip[1]}`);
+
+      await slideTo(at.brake, at.boost);
+      await sleep(200);
+      const backOnPill = await read();
+      check('and sliding back hands it to Loco Mode again',
+        backOnPill.boost === 'active' && !backOnPill.braking
+        && backOnPill.held[0] && !backOnPill.held[1]
+        && backOnPill.dip[0] < 1 && backOnPill.dip[1] >= 1,
+        `${backOnPill.boost}, braking ${backOnPill.braking}, held ${backOnPill.held},`
+        + ` scaled ${backOnPill.dip}`);
+
+      // Off the row entirely, which is the thumb's way of letting go of both without lifting. Well
+      // past PEDAL_SLOP: the point of the slop is that a wandering thumb *keeps* the pedal, so a
+      // check placed just outside it would be testing the constant rather than the behaviour.
+      await touch('touchMove', { x: at.boost.x, y: at.boost.y - 160 });
+      await sleep(200);
+      const offRow = await read();
+      check('sliding off the row lets go of both pedals',
+        offRow.boost !== 'active' && !offRow.braking && !offRow.held[0] && !offRow.held[1],
+        `${offRow.boost}, braking ${offRow.braking}, held ${offRow.held}`);
+
+      await touch('touchEnd', null);
+      await sleep(200);
+      const lifted = await read();
+      check('and lifting closes the gesture', !lifted.sliding && !lifted.braking,
+        `sliding ${lifted.sliding}, braking ${lifted.braking}`);
+    }
+
     // Press it on a moving car — a taxi sitting at a red would stop trivially and lay no rubber.
     // Bounded: if it never moves the checks below say so rather than hanging.
     let rolling = 0;

@@ -75,6 +75,10 @@ Next to it, taking the right 40% of the same row, is the **brake**: hold it and 
 to a halt with rubber off all four wheels, let go and it drives itself again. It costs nothing and
 has nothing to run out of. See [the brake](gameplay.md#the-brake).
 
+The two are one control surface: **slide** a held thumb from Loco Mode onto the brake and the car
+changes hands as it crosses, with no lift in between. See
+[the pedal slide](gameplay.md#the-pedal-slide).
+
 ## Conventions worth knowing before editing
 
 - **Zero external assets.** Every mesh is generated in code. There is no loader, no texture, no

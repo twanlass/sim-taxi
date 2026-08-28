@@ -224,6 +224,16 @@ Omit the whole section if there's nothing to note.
   `pointerdown`. The only ordering that holds regardless of construction order is a capture
   listener on an **ancestor** — which is why the route-band drag listens on `window`. Getting this
   wrong throws nothing; the map just slides out from under a gesture meant for something else.
+- **`:active` names the button the press *started* on, not the one the finger is over.** The bottom
+  row is one control surface — a thumb slides from Loco Mode onto the brake without lifting
+  ([gameplay.md](docs/gameplay.md#the-pedal-slide)) — and the browser pins `:active` to the
+  `pointerdown` target for the life of the gesture, so the press dip lit the pill the thumb had left
+  and the brake it was standing on looked untouched. Anywhere a press can *move*, the pressed look
+  has to be a class you set (`is-held`, with `body.pedal-slide` suppressing `:active` on both) and
+  not the pseudo-class. Same shape one layer down: pointer capture means every event for the rest of
+  that gesture lands on the origin element, so the event's target tells you nothing about what is
+  under the finger — hit-test coordinates against rectangles, and measure those rectangles *before*
+  the press, because both buttons scale while held.
 - **The drawn taxi is not `CAR_LEN` long.** `createTaxiMesh` puts `TAXI_SCALE = 1.18` on the group,
   so the body on screen is 4.01 units where the simulation's constant says 3.4 — and every sim
   number (following distance, the collision envelope, `MIN_GAP`) is in the 3.4 space, which is why

@@ -1429,19 +1429,17 @@ function updateBoostButton(dt) {
   boostButton.disabled = mode === 'empty';
 }
 
-// Hold-to-enable, release-to-pause. Pointer events cover both mouse and touch; capturing the
-// pointer on press means dragging off the pill still counts as held, and the matching pointerup
-// fires reliably wherever the finger lifts.
-function pressBoost(event) {
-  if (fares.state.gameOver || boostButton.disabled) return;
-  event.preventDefault();
-  boostButton.setPointerCapture?.(event.pointerId);
-  holdLocoMode();
-}
-
-// The press itself, with no idea what pressed it — the pill and the spacebar both land here.
+// The press itself, with no idea what pressed it — the pill, the spacebar and a thumb sliding onto
+// the pill from the brake all land here. Hold-to-enable, release-to-pause; the pointer plumbing
+// that reaches it lives in "The pedal slide" below, because a press on either half of the bottom
+// row can end up on either pedal.
+//
+// Returns whether the pedal is now down — false only when nothing can press it (the run is over, or
+// the tank is empty and the pill is dead). Not the same question as `boost.press()` a few lines
+// down, which answers the narrower "did this press *start* a boost": a re-press during a boost that
+// is already running has the pedal down and nothing to kick.
 function holdLocoMode() {
-  if (fares.state.gameOver || boostButton?.disabled) return;
+  if (fares.state.gameOver || boostButton?.disabled) return false;
   // Doing the thing the third bubble is asking for answers it. Called explicitly rather than left
   // to the tutorial's window-level tap handler, because the preventDefault in either caller can
   // suppress the click the gesture would otherwise synthesise — so the hint would outstay its own
@@ -1454,6 +1452,7 @@ function holdLocoMode() {
   if (boost.press()) {
     kickLocoMode();
   }
+  return true;
 }
 
 // Fires only on the transition into Loco Mode — not while it's already active — so a re-press
@@ -1485,30 +1484,21 @@ function kickLocoMode() {
   stampRearRubber(car);
   launchSkidT = LAUNCH_SKID_TIME;
 }
-function releaseBoost(event) {
-  boost.release();
-  boostButton.releasePointerCapture?.(event.pointerId);
-}
 
 // (The top-up flash used to live here as a one-shot class the delivery had to remember to fire,
 // which meant back-to-back deliveries needed a reflow to restart the animation. The glow is now
 // driven off `boost.state.pending` in updateBoostButton — it lasts exactly as long as fuel is
 // actually arriving, and a second delivery mid-pour just extends it.)
 
-boostButton?.addEventListener('pointerdown', pressBoost);
-boostButton?.addEventListener('pointerup', releaseBoost);
-boostButton?.addEventListener('pointercancel', releaseBoost);
-boostButton?.addEventListener('lostpointercapture', releaseBoost);
-
 // iOS runs text selection, the magnifier and double-tap zoom off the raw touch stream, and since
 // iOS 15 it does all three on this pill regardless of `-webkit-user-select: none`
-// (webkit.org/b/231161). Cancelling `pointerdown` — which pressBoost already does — does not reach
+// (webkit.org/b/231161). Cancelling `pointerdown` — which pressPedal already does — does not reach
 // them: that suppresses the compatibility *mouse* events, one layer above the gesture recogniser
 // that is actually selecting "Loco Mode™" and zooming the city. Cancelling `touchstart` does, and
 // on iOS it is the only thing that does.
 //
-// Unconditional, unlike pressBoost, which bails on a game over or an empty tank before it reaches
-// its own preventDefault. Those are precisely the states a player jabs at twice in a row — a drained
+// Unconditional, unlike pressPedal, which bails on a game over before it reaches its own
+// preventDefault. Those are precisely the states a player jabs at twice in a row — a drained
 // pill is what "why isn't this working" looks like — so they are the states that most need this.
 // Nothing is lost by cancelling: the pointer events above are the primary stream and keep firing,
 // and the only defaults being dropped are the synthesised click (nothing listens for one here; see
@@ -1550,12 +1540,18 @@ let brakeHeld = false;
 // brake is drawing.
 const BRAKE_SKID_V = 2.5;
 
-/** The press, from the button or from the B key. */
+/**
+ * The press, from the button, the B key, or a thumb sliding onto the brake from the pill beside it.
+ * Returns whether the pedal is now down — false only on a run that is over. Already-held counts as
+ * down: the second press of a two-thumbed player changes nothing, and saying "no" to it would
+ * report the pedal up while the car is stopping.
+ */
 function holdBrake() {
-  if (fares.state.gameOver || brakeHeld) return;
+  if (fares.state.gameOver) return false;
+  if (brakeHeld) return true;
   brakeHeld = true;
   // Below the `brakeHeld` guard, so a hold buzzes once on the way down rather than on every event
-  // that re-asserts it — the button, the B key and `pressBrake`'s pointer capture all land here.
+  // that re-asserts it — the button, the B key and a thumb sliding on from the pill all land here.
   // Unconditional on speed, unlike the skid stamp two lines down: the pedal has a detent whether or
   // not the car was moving fast enough to lock a wheel, and a control that answers only sometimes
   // reads as a control that is broken.
@@ -1570,6 +1566,7 @@ function holdBrake() {
   // the streak starts a stamp late and misses the moment of the press. Same reason the Loco Mode
   // launch stamps its own first pair.
   if (traffic.taxi.v > BRAKE_SKID_V) stampAllRubber(traffic.taxi);
+  return true;
 }
 
 /** Idempotent, and every path out of a hold goes through it: the button, the key, blur, a pause. */
@@ -1578,27 +1575,6 @@ function releaseBrake() {
   brakeButton?.classList.remove('is-on');
 }
 
-function pressBrake(event) {
-  if (fares.state.gameOver) return;
-  event.preventDefault();
-  // The pedal goes down before the capture is claimed, not after. `setPointerCapture` throws
-  // `NotFoundError` for a pointer id the browser has no active pointer for — which is every
-  // synthesised `PointerEvent`, so a console line, a probe or a test driving this button the way
-  // the tutorial's own dismissal does would take the throw *instead of* braking. Nothing is lost by
-  // the order: capture only redirects the events that follow.
-  holdBrake();
-  brakeButton.setPointerCapture?.(event.pointerId);
-}
-
-function liftBrake(event) {
-  releaseBrake();
-  brakeButton.releasePointerCapture?.(event.pointerId);
-}
-
-brakeButton?.addEventListener('pointerdown', pressBrake);
-brakeButton?.addEventListener('pointerup', liftBrake);
-brakeButton?.addEventListener('pointercancel', liftBrake);
-brakeButton?.addEventListener('lostpointercapture', liftBrake);
 // Same iOS gesture suppression the pill needs, for the same reasons and with the same `cancelable`
 // guard — see the long note under boostButton's `touchstart` above.
 brakeButton?.addEventListener('touchstart', (event) => {
@@ -1607,6 +1583,169 @@ brakeButton?.addEventListener('touchstart', (event) => {
 window.addEventListener('contextmenu', (e) => {
   if (e.target === brakeButton) e.preventDefault();
 });
+
+// --- The pedal slide --------------------------------------------------------
+//
+// The bottom row is one control surface, not two buttons that happen to sit beside each other. A
+// thumb that goes down on Loco Mode and slides right onto the brake hands the car over as it
+// crosses, with no lift in between, and sliding back hands it straight back. On a phone that is the
+// difference between "press the gas, let go, find the brake, press the brake" — four beats, two of
+// them spent with the taxi doing neither — and one continuous movement of the one thumb that is
+// already down there.
+//
+// Nothing about the pedals themselves changed to allow it. They already arbitrate: `holdBrake`
+// releases the boost and `holdLocoMode` releases the brake ("last pedal pressed wins", see the note
+// in holdBrake), so a handover mid-gesture is the same transition a two-thumbed player was already
+// making. What was missing was a gesture that could reach both, which is all this section is.
+//
+// It is driven off *coordinates*, never off which element an event lands on. A press captures the
+// pointer to the button it started on, so for the rest of the gesture every move is delivered there
+// whatever is actually under the finger — which is exactly what makes a hold survive a wandering
+// thumb, and exactly what makes hit-testing the event target useless here.
+
+// How far past a pedal's edge the thumb can wander and still be holding it. Crossing *between* the
+// two needs no slop at all — they are 8px apart, so a finger leaving one is inside the other within
+// a frame — but coming off the row entirely has to let go, and those two thresholds have to differ.
+// Equal ones would put a boundary under a resting thumb that a pixel of jitter could cross twice a
+// frame, and a fresh press of Loco Mode is not a quiet event: it fires a wheelie, a flame burst, a
+// launch skid and a haptic tick. So claiming a pedal means being *inside* it and dropping one means
+// being 28px clear of it, and the gap between those two answers is where a still finger sits.
+const PEDAL_SLOP = 28;
+
+// The row, left to right. `hold` reports whether the pedal actually went down; `release` is
+// idempotent, because every path out of a gesture goes through it.
+const pedals = [
+  { el: boostButton, hold: holdLocoMode, release: () => boost.release() },
+  { el: brakeButton, hold: holdBrake, release: releaseBrake },
+].filter((pedal) => pedal.el);
+
+// The pointer that owns the row, and the pedal it has claimed. One pointer at a time on purpose: a
+// second thumb landing on the other pedal takes the row over, which is the game's own "last pedal
+// pressed wins" rather than a special case, and the first thumb's eventual lift then has nothing
+// left to release.
+let pedalPointer = null;
+let pedalOn = null;
+// The button holding the pointer capture, which is the one the press started on and not necessarily
+// the one currently down. Kept so the capture can be handed back from a `pointerup` that arrives
+// somewhere else entirely — see the listeners at the end of this section.
+let pedalCapture = null;
+// Measured on the press and then left alone. The buttons are `position: fixed` and nothing moves
+// them mid-gesture, but both of them *scale* while held — the press dip, and the pill's flutter
+// while a top-up pours in — so re-measuring per move would let a pedal's own animation shift the
+// boundary the finger is being tested against, under a finger that never moved.
+let pedalZones = [];
+
+/** The pedal the point is inside, or null. The two rectangles never overlap. */
+function pedalUnder(x, y) {
+  for (const { pedal, rect } of pedalZones) {
+    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return pedal;
+  }
+  return null;
+}
+
+/** How far the point is from a pedal's rectangle, in CSS px. Zero anywhere inside it. */
+function pedalDistance(pedal, x, y) {
+  const zone = pedalZones.find((z) => z.pedal === pedal);
+  if (!zone) return Infinity;
+  const { rect } = zone;
+  return Math.hypot(
+    Math.max(rect.left - x, 0, x - rect.right),
+    Math.max(rect.top - y, 0, y - rect.bottom),
+  );
+}
+
+/**
+ * Claim one pedal and let go of whatever was claimed before. Idempotent; `null` lets go of both.
+ *
+ * "Claimed" is the finger's business and not the pedal's: an empty tank leaves the pill dead under
+ * a thumb that has plainly arrived on it, and that thumb has still left the brake. So the claim
+ * moves either way and only the *press* is conditional — which is what `hold` reports, and what
+ * decides whether anything is painted as held.
+ */
+function engagePedal(next) {
+  if (next === pedalOn) return;
+  if (pedalOn) {
+    pedalOn.release();
+    pedalOn.el.classList.remove('is-held');
+  }
+  pedalOn = next;
+  // The press dip follows this class for the length of a gesture rather than following `:active`,
+  // which the browser pins to the button the pointer went *down* on and leaves there however far
+  // the finger has since travelled — see the `body.pedal-slide` rules in index.html.
+  if (next?.hold()) next.el.classList.add('is-held');
+}
+
+/** Drop the whole gesture: both pedals up, the capture handed back, nobody owning the row. */
+function dropPedalGesture() {
+  // Guarded rather than called blind: `releasePointerCapture` throws `NotFoundError` for a pointer
+  // the browser no longer considers active, and by the time a run ends under the player's thumb the
+  // button holding the capture has been taken off the screen (`body.game-over #brake`).
+  if (pedalCapture && pedalPointer !== null && pedalCapture.hasPointerCapture?.(pedalPointer)) {
+    pedalCapture.releasePointerCapture(pedalPointer);
+  }
+  pedalCapture = null;
+  pedalPointer = null;
+  engagePedal(null);
+  document.body.classList.remove('pedal-slide');
+}
+
+function pressPedal(event) {
+  if (fares.state.gameOver) return;
+  const pedal = pedals.find((p) => p.el === event.currentTarget);
+  if (!pedal) return;
+  event.preventDefault();
+  // Measured before anything goes down, so the rectangles are the pedals at rest — see pedalZones.
+  pedalZones = pedals.map((p) => ({ pedal: p, rect: p.el.getBoundingClientRect() }));
+  pedalPointer = event.pointerId;
+  // Set for the whole gesture and not just while a pedal is claimed: a thumb parked off the end of
+  // the row is holding nothing, and is still holding the `:active` this press started.
+  document.body.classList.add('pedal-slide');
+  // The pedal goes down before the capture is claimed, not after. `setPointerCapture` throws
+  // `NotFoundError` for a pointer id the browser has no active pointer for — which is every
+  // synthesised `PointerEvent`, so a console line, a probe or a test driving these buttons the way
+  // the tutorial's own dismissal does would take the throw *instead of* the press. Nothing is lost
+  // by the order: capture only redirects the events that follow.
+  engagePedal(pedal);
+  try {
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    pedalCapture = event.currentTarget;
+  } catch {
+    // A synthesised pointer has nothing to capture. The gesture runs perfectly well without one —
+    // the listeners below are on the window precisely so that it can.
+  }
+}
+
+function movePedal(event) {
+  if (event.pointerId !== pedalPointer) return;
+  const inside = pedalUnder(event.clientX, event.clientY);
+  // Inside a pedal, that pedal wins outright — that is the handover. Outside both, the claimed one
+  // keeps the finger until it is clear of the row by PEDAL_SLOP, which covers the 8px between them
+  // and gives a thumb that has slid off the end of the row a way to let go without lifting.
+  if (inside) engagePedal(inside);
+  else if (pedalOn && pedalDistance(pedalOn, event.clientX, event.clientY) > PEDAL_SLOP) {
+    engagePedal(null);
+  }
+}
+
+function liftPedal(event) {
+  if (event.pointerId !== pedalPointer) return;
+  dropPedalGesture();
+}
+
+for (const { el } of pedals) el.addEventListener('pointerdown', pressPedal);
+
+// Everything after the press listens on the *window*, not on the two buttons. Capture normally
+// redirects the rest of the gesture to the button it started on, and a listener there would be
+// enough — but only while the capture holds. It never takes for a synthesised pointer (see
+// pressPedal), and it is dropped outright when the capturing button leaves the screen, which is
+// exactly what a run ending under the player's thumb does (`body.game-over #brake`). A `pointerup`
+// on a hidden element is not something to hang a stuck pedal on. On the window all three arrive
+// either way — retargeted events still bubble — and cost one failed comparison when no gesture is
+// open. Same shape as the route band's listener, and for the same reason: a listener on an ancestor
+// is the only ordering that holds regardless of who registered first.
+window.addEventListener('pointermove', movePedal);
+window.addEventListener('pointerup', liftPedal);
+window.addEventListener('pointercancel', liftPedal);
 
 // The spacebar is the same hold, for the hand that is already on the keyboard rather than dragging
 // the mouse down to a pill in the corner. Desktop-only by construction rather than by sniffing for
@@ -1688,6 +1827,9 @@ window.addEventListener('blur', () => {
   boost.release();
   brakeKeyHeld = false;
   releaseBrake();
+  // And any thumb that was on the row. A pointer whose window has gone away never comes back up
+  // either — and unlike the two keys above, a gesture left open would keep a pedal painted as held.
+  dropPedalGesture();
 });
 window.addEventListener('contextmenu', (e) => {
   if (e.target === boostButton) e.preventDefault();
@@ -1902,7 +2044,9 @@ const pause = shot ? null : createPause({
     // the pill's own pointer never comes back up, because the veil took the release. Same reason
     // the window's `blur` handler drops it. The brake is dropped with it: the veil swallows that
     // release too, and resuming onto a pedal nobody is holding is the same bug wearing red.
-    if (paused) { boost.release(); releaseBrake(); }
+    // `dropPedalGesture` covers a thumb that was on the row when the veil went up; the two explicit
+    // releases beside it are for the keyboard's holds, which it knows nothing about.
+    if (paused) { boost.release(); releaseBrake(); dropPedalGesture(); }
   },
 });
 
