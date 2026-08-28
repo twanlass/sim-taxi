@@ -8,13 +8,17 @@ import { unlitMaterial } from '../util/geo.js';
 import { createCloudGeometry } from '../geometry/cloud.js';
 
 // Weather. A dozen low-poly cumulus drifting past the city on one wind, and the whole of the
-// module's difficulty is in one rule: **a cloud must never come over the city.** The camera is
-// fixed and looks down a 33° diagonal, so anything in the air is drawn over whatever ground is
-// up-screen of it — a cloud over the middle of the map sits on the taxi, and the taxi is the one
-// thing on screen the player is tracking. So they ride the sky just outside the island's edges,
-// which is also the only place there is any sky to ride: at play zoom the island is 221 x 120 on
-// screen against a frame 104 tall, so what the player sees of the sky is the wedge between the
-// map's edge and the corner of the frame, and nothing else.
+// module's difficulty is in one rule: **a cloud must never come over the map you drive on.** The
+// camera is fixed and looks down a 33° diagonal, so anything in the air is drawn over whatever
+// ground is up-screen of it — a cloud over the middle of the map sits on the taxi, and the taxi is
+// the one thing on screen the player is tracking.
+//
+// So they ride the island's own coastline, which is also where the sky is: at play zoom the island
+// is 221 x 120 on screen against a frame 104 tall, so what the player sees of the sky is the wedge
+// between the map's edge and the corner of the frame, and 91% of that wedge is within 30 units of
+// the edge. They come *in* over it by design (see `OVERLAP`) — a cloud whose lower edge veils the
+// outermost ring of asphalt is in the picture rather than beside it — and the line they never cross
+// is the ring road, `INNER_KEEP_OUT` below.
 //
 // It lives in `game/` beside the flyover and the flocks and on the same terms: pure scenery, not
 // routed, not collidable, not tappable, and nothing in the fare loop or the difficulty curve knows
@@ -253,17 +257,42 @@ export function silhouetteBottom(sx) {
 // lane was bought for in the first place.
 
 /**
- * Clearance between the top of the city's silhouette and the bottom of a cloud's own box, before
- * the band spread is added. Small on purpose: 91% of the sky the player can see sits within 30
- * units of the island's edge, so a band pushed generously clear of the city is a band nobody ever
- * sees — the first cut of this spent 6 here and another 34 on the spread, and put the clouds behind
- * the top of the frame rather than in it. 2 units is about 15 pixels at play zoom, over a keep-out
- * that already assumes the tallest skyline the generator can build.
+ * How far the bottom of a cloud's own box is allowed to sink **below** the city's silhouette,
+ * before the band spread pushes it back out.
+ *
+ * It shipped as a *clearance* — 2 units of sky held between the two — and 91% of the sky the player
+ * can see sits within 30 units of the island's edge, so that was already as tight as standing clear
+ * can be. Coming in over the coast is the other side of the same argument: a cloud that overlaps the
+ * outermost ring of asphalt is a cloud in the *picture* rather than beside it, and what makes it
+ * safe is that the box is a long way outside the drawn shape — the fade has dissolved the lower rim
+ * long before its bounding box ends, so 20 units of box is about 14 units of visible veil — which
+ * at the map's far corner reaches the outer half of the ring road and stops.
+ *
+ * The ceiling on it is the **inner keep-out** below, not this number: the weather may hang over the
+ * coast and it may never come over the middle of the map. `tools/probe.mjs` asserts both ends.
  */
-const CLEAR = 2;
+const OVERLAP = 20;
 
 /** How deep the band beyond that is — the spread that stops the clouds reading as a hedge. */
 const BAND = 12;
+
+/**
+ * The part of the city the weather may never reach, whatever the overlap is set to: **the ground
+ * the player drives on**, out to the ring road's own centreline.
+ *
+ * At ground level and not at skyline height, and that is the distinction the whole overlap rests
+ * on. A cloud coming in over the map's far corner covers everything up-screen of its lower edge,
+ * and at this camera the *top of a tall tower* on the ring road projects to almost exactly where
+ * the island's outer edge does — 55.8 against 60.2 — so any veil over the coast at all is a veil
+ * over the roofs behind it. That costs nothing: nothing is played on a roof. Ground is different,
+ * and this is the line it draws.
+ */
+export const INNER_REACH = HALF_SPAN;
+
+export const INNER_KEEP_OUT = [];
+for (const x of [-INNER_REACH, INNER_REACH]) {
+  for (const z of [-INNER_REACH, INNER_REACH]) INNER_KEEP_OUT.push(screenOf(x, 0, z, {}));
+}
 
 /**
  * How far across the frame a cloud travels before it wraps back to the other side, and the fade at
@@ -350,7 +379,7 @@ export function createClouds(scene, rng, { count = COUNT } = {}) {
   // the other way. Off the run seed, like the aeroplane's heading: which way the sky is moving is
   // part of the situation, not part of the map.
   const drift = rng.chance(0.5) ? 1 : -1;
-  const state = { drift, count, clear: CLEAR, band: BAND, speed: 1, over: 0 };
+  const state = { drift, count, overlap: OVERLAP, band: BAND, speed: 1, over: 0 };
 
   const clouds = [];
   for (let i = 0; i < POOL; i++) {
@@ -448,12 +477,12 @@ export function createClouds(scene, rng, { count = COUNT } = {}) {
    *
    * The silhouette is sampled **across the cloud's own width** and the worst of it taken, not just
    * under its middle: the outline is concave over the map's far corner, so a cloud approaching the
-   * apex has more city beside it than under it, and a clearance paid at its centre is a clearance
-   * it has already spent. `ROUND * 0.25` is the deepest the smoothing can cut a corner below the
-   * true outline, handed back here so the rounding can never be paid for out of the gap.
+   * apex has more city beside it than under it, and a gap paid at its centre is a gap it has already
+   * spent. `ROUND * 0.25` is the deepest the smoothing can cut a corner below the true outline,
+   * handed back here so the rounding is never paid for out of the overlap the band is aiming at.
    */
   function height(cloud) {
-    const gap = state.clear + ROUND * 0.25 + cloud.depth * state.band;
+    const gap = ROUND * 0.25 - state.overlap + cloud.depth * state.band;
     if (cloud.side > 0) {
       let top = -Infinity;
       for (let t = -1; t <= 1; t += 0.5) top = Math.max(top, silhouetteTop(cloud.sx + t * cloud.reach));
@@ -508,9 +537,9 @@ export function createClouds(scene, rng, { count = COUNT } = {}) {
     place();
   }
 
-  /** How far off the city the band starts, and how deep it is. Both live, for the ⚙️ panel. */
-  function setBand(clear, band) {
-    state.clear = clear;
+  /** How far into the city the band reaches, and how deep it is. Both live, for the ⚙️ panel. */
+  function setBand(overlap, band) {
+    state.overlap = overlap;
     state.band = band;
     place();
   }

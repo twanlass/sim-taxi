@@ -103,6 +103,32 @@ const LIGHT = new THREE.Vector3(
 const AMBIENT = 0.88;
 
 /**
+ * How far the sunlit side of a cloud goes toward the sun's **own colour**, at full facing.
+ *
+ * The shading above is a scalar, and a scalar can only ever make a white cloud a darker white: it
+ * carries no hue at all, which is why the first soft build read as a paper cut-out. This is the
+ * other half of what a light does — and it has to be *this* strong because of where the sun is:
+ * `LIGHT · VIEW_DIR` is 0.98, so the sun sits almost directly behind the camera and nearly every
+ * face the player can see is a lit one. There is no warm side and cool side to be had; what the
+ * warmth actually does here is put a cast over the whole drawn surface, against the cool underside
+ * the vertical gradient is already painting — and it is a *lerp toward* the sun's hue rather than a multiply
+ * by its colour, so it shifts where the cloud sits on the wheel without dimming it. The lit face
+ * lands on #F4EED9 against the shaded side's #A9C0DA, which is a warm cloud with a cool
+ * underside: the oldest reading in the book, and the one thing that says the light in this scene
+ * and the light on this cloud are the same light.
+ *
+ * `SUN_HUE` is `PALETTE.sun` scaled so its brightest channel is 1, for the same reason — the sun's
+ * value is the scene's business and only its colour is wanted here. It is the *parked* sun rather
+ * than the hour's, since this is baked; the day cycle reaches these through `cloudTint` instead.
+ */
+const SUN_WARMTH = 0.5;
+
+const SUN_HUE = (() => {
+  const c = color('sun');
+  return c.multiplyScalar(1 / Math.max(c.r, c.g, c.b));
+})();
+
+/**
  * Where the fade starts, as a fraction of a lobe's radius **on the screen**.
  *
  * Measured across the drawn disc rather than off `dot(normal, VIEW_DIR)` directly, and that is the
@@ -237,6 +263,7 @@ export function createCloudGeometry(rng, { span = 32, height = 11, yaw = 0 } = {
   // material's opacity, so a per-vertex fade needs no shader of its own.
   const colors = new Float32Array(pos.count * 4);
   const mix = new THREE.Color();
+  const warm = new THREE.Color();
   const normal = new THREE.Vector3();
 
   let at = 0;
@@ -263,9 +290,13 @@ export function createCloudGeometry(rng, { span = 32, height = 11, yaw = 0 } = {
       normal.y /= FLATTEN * FLATTEN;
       normal.normalize();
 
-      const key = AMBIENT + (1 - AMBIENT) * Math.max(0, normal.dot(light));
+      const sunlit = Math.max(0, normal.dot(light));
       const t = (lobePos.getY(i) / height - SHADE_LOW) / (SHADE_HIGH - SHADE_LOW);
-      mix.copy(shade).lerp(lit, smoothstep(THREE.MathUtils.clamp(t, 0, 1))).multiplyScalar(key);
+      mix.copy(shade).lerp(lit, smoothstep(THREE.MathUtils.clamp(t, 0, 1)))
+        .multiplyScalar(AMBIENT + (1 - AMBIENT) * sunlit);
+      // And the sun's colour on top of the sun's brightness, strongest where it is square on.
+      warm.copy(mix).multiply(SUN_HUE);
+      mix.lerp(warm, SUN_WARMTH * sunlit);
 
       colors[at] = mix.r;
       colors[at + 1] = mix.g;

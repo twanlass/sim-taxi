@@ -70,7 +70,7 @@ import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/pl
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
 import {
   createClouds, cloudTint, screenOf, silhouetteTop, silhouetteBottom,
-  KEEP_OUT, CITY_REACH, BUILT_REACH, CITY_TOP, ROUND as CLOUD_ROUND,
+  KEEP_OUT, INNER_KEEP_OUT, INNER_REACH, CITY_REACH, BUILT_REACH, CITY_TOP, ROUND as CLOUD_ROUND,
 } from '../src/game/clouds.js';
 import { createHelicopterMesh, HELI_SKID_DROP, MAIN_R } from '../src/geometry/helicopter.js';
 import { createChopper, CRUISE_ALT as CHOPPER_ALT, ROTOR_FLIGHT } from '../src/game/chopper.js';
@@ -8901,8 +8901,10 @@ let chopperOrder; // likewise
 {
   // The city's silhouette as a convex polygon, built the same way `clouds.js` builds its chains but
   // kept whole, so a cloud can be tested against the *outline* rather than against the two halves.
-  const hull = (() => {
-    const pts = KEEP_OUT.map((k) => [k.sx, k.sy]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  // Twice: the island as the player sees it, and the inner city a block inside the ring road, which
+  // is the one the weather may never reach however far in the band is dragged.
+  const hullOf = (points) => {
+    const pts = points.map((k) => [k.sx, k.sy]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
     const half = (src) => {
       const out = [];
       for (const p of src) {
@@ -8918,20 +8920,25 @@ let chopperOrder; // likewise
     const lower = half(pts);
     const upper = half([...pts].reverse());
     return lower.slice(0, -1).concat(upper.slice(0, -1));
-  })();
+  };
 
-  /** Signed distance from a point to that hull: positive outside, negative in the city. */
-  const clearanceOf = (x, y) => {
+  const hull = hullOf(KEEP_OUT);
+  const innerHull = hullOf(INNER_KEEP_OUT);
+
+  /** Signed distance from a point to a hull: positive outside, negative within it. */
+  const distanceTo = (poly, x, y) => {
     let worst = -Infinity;
-    for (let i = 0; i < hull.length; i++) {
-      const [ax, ay] = hull[i];
-      const [bx, by] = hull[(i + 1) % hull.length];
+    for (let i = 0; i < poly.length; i++) {
+      const [ax, ay] = poly[i];
+      const [bx, by] = poly[(i + 1) % poly.length];
       const ex = bx - ax;
       const ey = by - ay;
       worst = Math.max(worst, ((x - ax) * ey - (y - ay) * ex) / Math.hypot(ex, ey));
     }
     return worst;
   };
+
+  const clearanceOf = (x, y) => distanceTo(hull, x, y);
 
   // The two chains have to agree with the hull they were cut from. Rounding a corner *outward* is
   // free — it only ever buys more sky between the cloud and the city — but rounding one **inward**
@@ -8957,6 +8964,7 @@ let chopperOrder; // likewise
   }
 
   let worstClearance = Infinity;
+  let innerClearance = Infinity;
   let broadside = Infinity;
   let darkest = 1;
   let faintest = 1;
@@ -9033,6 +9041,7 @@ let chopperOrder; // likewise
         for (const dx of [-cloud.reach, cloud.reach]) {
           for (const dy of [-cloud.drop, cloud.rise]) {
             worstClearance = Math.min(worstClearance, clearanceOf(at.sx + dx, at.sy + dy));
+            innerClearance = Math.min(innerClearance, distanceTo(innerHull, at.sx + dx, at.sy + dy));
           }
         }
         if (step % 601) continue;
@@ -9046,8 +9055,17 @@ let chopperOrder; // likewise
     }
   }
 
-  check('no cloud ever comes over the city', worstClearance > 0,
-    `closest approach ${worstClearance.toFixed(2)} units outside the skyline`);
+  // The weather hangs **over the coast**: a cloud's box comes in past the island's edge on purpose
+  // (`OVERLAP`, which the ⚙️ panel can drag), and the box is a long way outside the drawn shape —
+  // the fade has dissolved the lower rim before its bounding box ends — so this is a veil over the
+  // outermost asphalt rather than a lid on it. What is asserted is that it stays a veil.
+  check('the weather comes in over the coast, and no further', worstClearance > -20,
+    `deepest ${(-worstClearance).toFixed(1)} units in past the island's edge`);
+  // And the half of it that is not a preference: whatever the band is set to, nothing in the sky
+  // may reach the city inside the ring road. This is the check that stops "a little closer in" from
+  // becoming weather over the play area one tweak at a time.
+  check('and never over the map itself', innerClearance > 0,
+    `closest approach ${innerClearance.toFixed(1)} units outside the inner city (±${INNER_REACH})`);
   check('every cloud is drawn broadside to the wind', broadside > 1.3,
     `narrowest is ${broadside.toFixed(2)}x wider than tall on screen`);
   check('clouds stay in front of the camera from every framing', behindCamera === 0,

@@ -1867,14 +1867,24 @@ of the time. `?shot=13` stages one; see [testing.md](testing.md#screenshots).
 
 Low-poly cumulus drifting past the city on one wind. Scenery on the same terms as the flyover and
 the flocks — nothing routes around them, nothing collides with them, nothing can be tapped — with
-one rule of their own: **a cloud must never come over the city.** The camera is fixed and looks down
-a 33° diagonal, so anything in the air is drawn over whatever ground is up-screen of it, and a cloud
-over the middle of the map sits on the taxi.
+one rule of their own: **a cloud must never come over the map you drive on.** The camera is fixed
+and looks down a 33° diagonal, so anything in the air is drawn over whatever ground is up-screen of
+it, and a cloud over the middle of the map sits on the taxi.
 
-So they ring the island instead, which is also the only place there is any sky to ring. At play zoom
-the island is 221 × 120 units on screen against a frame 104 tall: what the player ever sees of the
-sky is the wedge between the map's edge and the corner of the frame, and **91% of it is within 30
-units of that edge**. A band pushed generously clear of the city is a band nobody ever sees.
+So they ride the island's coastline, which is also where the sky is. At play zoom the island is
+221 × 120 units on screen against a frame 104 tall: what the player ever sees of the sky is the
+wedge between the map's edge and the corner of the frame, and **91% of it is within 30 units of that
+edge**. A band pushed generously clear of the city is a band nobody ever sees.
+
+They come **in** over that edge rather than standing off it — `OVERLAP`, 20 units of a cloud's
+bounding box sunk below the island's silhouette. The box is a long way outside the drawn shape,
+since the fade has dissolved the lower rim before the box ends, so 20 units of box is about 14 units
+of visible veil: at the map's far corner that reaches the outer half of the ring road and stops.
+The line it stops at is the one thing here that is not a preference — `INNER_KEEP_OUT`, the ground
+out to the ring road's centreline, asserted in the probe. Note what that box is *not*: it is at
+ground level, not skyline height, because at this camera the top of a tall tower on the ring road
+projects to 55.8 against the island's outer edge at 60.2 — any veil over the coast at all is a veil
+over the roofs behind it, and nothing is played on a roof.
 
 #### Authored on the screen, solved in the world
 
@@ -1920,23 +1930,33 @@ middle of it — because one box costs 17 units of sky: built as a single 20.5-t
 skirt it claims a skyline standing on the very edge of the island, where there is nothing but empty
 asphalt, and pushes the whole band up-screen off ground 28 units further out than any building.
 
-`tools/probe.mjs` asserts the lot: no cloud's screen box ever touches the city's hull over eight
-simulated minutes on each of four seeds, none is ever behind the camera across twenty framings from portrait
-phone to ultrawide panned into each corner, and a cloud is in frame 64% of the time on the tightest
+`tools/probe.mjs` asserts the lot over eight simulated minutes on each of four seeds: the deepest a
+cloud's screen box comes in past the island's edge, that no cloud's box ever reaches the ground
+inside the ring road, that none is ever behind the camera across twenty framings from portrait phone
+to ultrawide panned into each corner, and that a cloud is in frame 64% of the time on the tightest
 framing the game has.
 
 #### The one unlit thing in the sky
 
-The scene's key is `#FFDEBB` over a warm hemisphere fill at both ends, and a white lump under it
-comes back as a **sandstone boulder** — every upward face cream, every downward face the colour of
-the sidewalk, and the cool underside the palette asks for multiplied out of existence. That lighting
-is right for a city at golden hour and wrong for the only white object in the sky, and no base colour
+The scene's key is warm over a warm hemisphere fill at both ends, and a white lump under it comes
+back as a **sandstone boulder** — every upward face cream, every downward face the colour of the
+sidewalk, and the cool underside the palette asks for multiplied out of existence. That lighting is
+right for a city at golden hour and wrong for the only white object in the sky, and no base colour
 undoes it: a warm key cannot be cancelled without going past white in the blue channel.
 
 So the material is `unlitMaterial()` and the light is **baked into the vertices** in
 `geometry/cloud.js`, off the same sun direction the scene uses, leaving the colour exactly as
 authored: `cloudLit` white on top, `cloudShade` blue underneath, over an ambient floor of 0.88 so
 the unlit side of a cloud stays one of the brightest things in the sky.
+
+That floor leaves the shading a *scalar*, though, and a scalar can only make a white cloud a darker
+white — which is what made the first soft build read as a paper cut-out. `SUN_WARMTH` is the other
+half of what a light does: the lit surface is lerped halfway toward `PALETTE.sun`'s own hue, scaled
+so its brightest channel is 1 so it shifts the colour without dimming it. The lit face lands on
+#F4EED9 against the underside's #A9C0DA. It has to be that strong because of where the sun is —
+`LIGHT · VIEW_DIR` is 0.98, so the sun sits almost directly behind the camera and *nearly every face
+the player can see is a lit one*. There is no warm side and cool side to be had; the warmth is a
+cast over the whole drawn surface, and the cool comes from the vertical gradient underneath it.
 
 #### Soft, out of hard geometry
 

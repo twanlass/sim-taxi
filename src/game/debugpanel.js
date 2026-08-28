@@ -512,16 +512,19 @@ export function createDebugPanel({
       showAmount();
     });
 
-    // How far off the city's silhouette the band starts, and how deep it is. Measured against where
-    // the sky actually is: 91% of the visible sky sits within 30 units of the island's edge on a
-    // portrait phone, so these two together have a budget of about 30 before the clouds are behind
-    // the top of the frame rather than in it.
-    const distance = slider(0, 30, 0.5, clouds.state.clear);
-    const distanceValue = row(panel, 'Off the city', distance);
+    // How far the band comes in over the city's edge, and how deep it is. Measured against where the
+    // sky actually is: 91% of the visible sky sits within 30 units of the island's edge on a
+    // portrait phone, so the two together have a budget of about 30 before the clouds are behind the
+    // top of the frame rather than in it. Negative overlap holds them off the coast entirely.
+    const distance = slider(-10, 30, 0.5, clouds.state.overlap);
+    const distanceValue = row(panel, 'Over the coast', distance);
     const spread = slider(0, 40, 1, clouds.state.band);
     const spreadValue = row(panel, 'Band depth', spread);
     const showBand = () => {
-      distanceValue.textContent = `${Number(distance.value).toFixed(1)} clear`;
+      const overlap = Number(distance.value);
+      distanceValue.textContent = overlap >= 0
+        ? `${overlap.toFixed(1)} in over the edge`
+        : `${(-overlap).toFixed(1)} clear of it`;
       spreadValue.textContent = `${spread.value} deep`;
     };
     showBand();
