@@ -423,6 +423,14 @@ try {
     const ev = (type, cx, cy) => c.dispatchEvent(new PointerEvent(type, {
       pointerId: 4, isPrimary: true, clientX: cx, clientY: cy, bubbles: true, cancelable: true }));
     c.setPointerCapture = () => {};
+    // Stand the native shell's haptics bridge up for the length of the gesture and record what the
+    // page posts into it. A haptic is the one thing this game does with no witness but a thumb —
+    // this is the only place the *timing* of one can be observed, and timing is the whole design of
+    // the snap event (see game/pathdrag.js). Torn down again below, because everything after this
+    // section is a check about the web build.
+    window.__buzz = [];
+    window.__native = true;
+    window.webkit = { messageHandlers: { haptics: { postMessage: (m) => window.__buzz.push(m) } } };
     ev('pointerdown', pt.x, pt.y);
     const grabbed = window.__taxi.pathDrag.isGrabbing();
     for (let s = 1; s <= 8; s++) ev('pointermove', pt.x + 7 * s, pt.y + 5 * s);
@@ -452,15 +460,38 @@ try {
   // still painted there (routePath runs from the car to the destination whether or not any turns
   // remain) and still grabbable, so a check gated on `legs > 0` went red for a state that is
   // correct, on whichever runs the taxi happened to be one junction out.
-  const midDrag = JSON.parse(await evaluate(`JSON.stringify({
-    grabbing: window.__taxi.pathDrag.isGrabbing(),
-    legs: window.__taxi.traffic.taxi.route.length,
-    target: Boolean(window.__taxi.traffic.taxi.pendingTarget),
-    band: Boolean(window.__taxi.routeScreenPosition()),
-  })`));
+  const midDrag = JSON.parse(await evaluate(`(() => {
+    const buzz = window.__buzz ?? [];
+    // The shell goes away with the gesture. isNative() is read at call time, so leaving the flag
+    // set would have every later haptic in this run posting into a stub — and, worse, would leave
+    // the page claiming to be the App Store build for the checks that follow.
+    delete window.__native;
+    delete window.webkit;
+    return JSON.stringify({
+      grabbing: window.__taxi.pathDrag.isGrabbing(),
+      legs: window.__taxi.traffic.taxi.route.length,
+      target: Boolean(window.__taxi.traffic.taxi.pendingTarget),
+      band: Boolean(window.__taxi.routeScreenPosition()),
+      buzz: buzz.join(','),
+      grabs: buzz.filter((b) => b === 'grab').length,
+      snaps: buzz.filter((b) => b === 'snap').length,
+    });
+  })()`));
   check('the route survives being dragged',
     midDrag.grabbing && midDrag.target && midDrag.band,
     `${midDrag.legs} legs still planned`);
+
+  // The two haptics the gesture owes a thumb, asserted on *counts* rather than on presence, because
+  // presence is the half that cannot go wrong quietly. Both are about the gate, not the buzz.
+  check('taking hold of the band buzzes once', midDrag.grabs === 1,
+    `${midDrag.grabs} grab(s) in [${midDrag.buzz}]`);
+  // Every `pointermove` above is dispatched in one synchronous burst, so the frame loop never sees
+  // more than the *last* waypoint the finger named — while `reroute` runs on every one of the ~24
+  // frames the sleep above covers. One waypoint, therefore at most one snap. Drop the per-waypoint
+  // gate in pathdrag.js and this reads ~24: the route "snapping" continuously into the same shape,
+  // which on a phone is a solid buzz for as long as the finger is down.
+  check('the route snaps at most once per waypoint, not once per frame', midDrag.snaps <= 1,
+    `${midDrag.snaps} snap(s) in [${midDrag.buzz}]`);
 
   await evaluate(`${GAME_CANVAS}.dispatchEvent(new PointerEvent('pointerup', {`
     + ' pointerId: 4, isPrimary: true, bubbles: true, cancelable: true }))');
