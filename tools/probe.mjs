@@ -23,7 +23,7 @@ import {
 } from '../src/city/props.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -2769,14 +2769,24 @@ check('no two cars occupy the same space', worst > 1.6,
   const fares = createFareSystem(makeRng(seed + 55), kScene);
   kTraffic.warmup(5);
   // Held still, so the taxi cannot wander into the rider mid-pop and turn the fare into a ride
-  // halfway through the measurement. The spawner never places a rider on the taxi's own junction,
-  // so a parked taxi is a block away at worst — well outside ARRIVE_RADIUS.
+  // halfway through the measurement.
   kTraffic.taxi.parked = true;
   fares.update(1 / 60, kTraffic.taxi);
 
   const fare = fares.waiting();
   const figure = fare?.slot.passenger.postGroup;
   const crystal = fare?.slot.marker;
+  // ...and then moved out of range outright, rather than trusted to be. `parked` only stops the
+  // car driving itself, and the board is biased to spawn near the taxi (`spawnBias`): a taxi
+  // standing mid-block can be left inside ARRIVE_RADIUS of the corner the rider lands on, which
+  // collects them on the very next update. That takes the figure's half of the pop with it — the
+  // swell only runs while the fare is `waiting` — and reads as the pop having stopped firing.
+  // Nothing calls `kTraffic.update` past this point, so the position sticks.
+  if (fare) {
+    const kAway = intersectionCentre(fare.target.i, fare.target.j);
+    kTraffic.taxi.x = kAway.x + HALF_SPAN;
+    kTraffic.taxi.z = kAway.z + HALF_SPAN;
+  }
   if (!fare) {
     check('a fresh rider is not already popping', false, 'no rider on the kerb');
   } else {
@@ -2873,6 +2883,86 @@ check('no two cars occupy the same space', worst > 1.6,
       crystal.isPopping() && figure.scale.x > 1 + 1e-6,
       `figure ${figure.scale.x.toFixed(3)}`);
   }
+}
+
+// --- The indicator runs either side of the turn -----------------------------------------------
+// The lamp used to be pinned to `state === 'turn'`, which is the arc plus its STOP_SETBACK run-up:
+// it lit 0.4s before the junction and went out on the frame the car landed, so it read as a car
+// flashing *because* it was cornering. It now comes off the car's intent SIGNAL_LEAD units back and
+// runs SIGNAL_LINGER past the landing, which makes two separate things checkable — how much warning
+// the lamp gives, and whether the warning was true. The second is the one with teeth: a turn chosen
+// at the hold line cannot be indicated before it, so buying the warning meant deciding earlier, and
+// a decision that can still be overruled at the line (a closure, a siren, a flee, a refused left,
+// the free right at a red) is a lamp that can end up pointing the wrong way.
+{
+  const gScene = new THREE.Scene();
+  // A full board rather than CARS_DEFAULT: the queues are half of what is being measured — a car
+  // held at a red indicates for as long as it waits — and 24 cars over two minutes is ~560 turns,
+  // which is a population rather than a handful.
+  const gTraffic = createTraffic(makeRng(seed + 44), gScene, 24);
+  gTraffic.warmup(5);
+  const gDt = 1 / 60;
+  let entered = 0;         // real turns begun — a straight-through is not one (see `dOut !== d`)
+  let ownLamp = 0;         // ...under the lamp for the hand actually taken
+  let wrongLamp = 0;       // ...under the lamp for the other one
+  const gLeads = [];       // how long that lamp had been up when the arc began
+  const gTails = [];       // and how long it ran on after the car landed
+  const gTurning = new Map();
+  const gTail = new Map();
+  for (let f = 0; f < 60 * 120; f++) {
+    const gBefore = new Map(gTraffic.cars.map((c) => [c, {
+      state: c.state, hand: c.signalHand, t: c.signalT,
+    }]));
+    gTraffic.update(gDt);
+    for (const car of gTraffic.cars) {
+      const was = gBefore.get(car);
+      if (!was) continue;
+      const tail = gTail.get(car);
+      if (tail) {
+        if (car.signalHand === tail.hand) tail.frames += 1;
+        else { gTails.push(tail.frames * gDt); gTail.delete(car); }
+      }
+      if (car.state === 'turn' && car.turn && car.turn.hand !== 'straight') {
+        gTurning.set(car, car.turn.hand);
+      }
+      if (was.state !== 'turn' && car.state === 'turn' && car.turn
+        && car.turn.hand !== 'straight') {
+        entered += 1;
+        if (was.hand === car.turn.hand) { ownLamp += 1; gLeads.push(was.t); }
+        else if (was.hand !== null) wrongLamp += 1;
+      }
+      if (was.state === 'turn' && car.state === 'drive' && gTurning.has(car)) {
+        gTail.set(car, { hand: gTurning.get(car), frames: 0 });
+        gTurning.delete(car);
+      }
+    }
+  }
+  const gMedian = (a) => a.slice().sort((x, y) => x - y)[a.length >> 1];
+
+  // Two minutes of a 24-car city is ~560 turns, so these are population numbers rather than
+  // anecdotes. The ones without a lamp are the free right at a red taken by a car whose dice had
+  // rolled straight — it turns unindicated, which is what every car did before this change.
+  check('a car turns under its own lamp or none, never the other one',
+    entered > 300 && wrongLamp === 0 && ownLamp / entered > 0.8,
+    `${entered} turns — ${ownLamp} under their own lamp, ${entered - ownLamp - wrongLamp} under `
+    + `none, ${wrongLamp} under the wrong one`);
+
+  // SIGNAL_LEAD / SPEED = 0.82s at cruise, and the median lands on it because most cars meet their
+  // junction at cruise. The long tail is a queue: a car held at a red indicates for as long as it
+  // waits, which is what a queue of blinkers is supposed to look like.
+  check('and it has been indicating for most of a second first',
+    gMedian(gLeads) > (SIGNAL_LEAD / SPEED) * 0.9,
+    `median ${gMedian(gLeads).toFixed(2)}s of lamp before the arc, longest `
+    + `${Math.max(...gLeads).toFixed(2)}s`);
+
+  // Measured to the frame the lamp changes rather than to the frame it goes dark, so a landing
+  // straight into the next junction's indication ends this tail rather than extending it. The
+  // median is a couple of frames under SIGNAL_LINGER because the frame that spends the last of it
+  // is the frame the hand clears.
+  check('and it keeps indicating after it lands',
+    gTails.length > 300 && Math.abs(gMedian(gTails) - SIGNAL_LINGER) < 0.1,
+    `${gTails.length} landings, median ${gMedian(gTails).toFixed(2)}s of lamp after the arc `
+    + `against SIGNAL_LINGER ${SIGNAL_LINGER}`);
 }
 
 // --- Ring road and signal health -------------------------------------------
@@ -4612,6 +4702,17 @@ check('the taxi is an ordinary car in the traffic array',
 
     kTraffic.warmup(10);                 // main.js warms up before its first frame; so does this
     submitted(kTraffic.truckMesh);       // ...and that first frame is what would latch the sphere
+    // Now put the truck on the taxi's own lane, which is both halves of the staging: it is nowhere
+    // near the position the sphere was just latched at, and the camera follows the taxi, so the
+    // frames the two share are guaranteed rather than hoped for. The 2%-to-33% band the note below
+    // records has a **zero** in it — a draw where the pair never meet at all leaves this with no
+    // samples to assert on, and the precondition fails while the invariant underneath is perfectly
+    // healthy. Left to luck it took a reshuffle of the turn dice to find one; it is one line to
+    // stop it being luck.
+    if (kTraffic.trucks[0]) {
+      placeCar(kTraffic.trucks[0], kTraffic.taxi.d, kTraffic.taxi.i, kTraffic.taxi.j,
+        Math.max(0, kTraffic.taxi.s - CAR_LEN * 2));
+    }
     let kInShot = 0;
     let kDropped = 0;
     // Every frame, not every fifteenth. One truck wandering a 5×5 city shares the phone-sized

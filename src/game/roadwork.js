@@ -9,7 +9,7 @@ import {
   coneGeometry, barricadeParts, spoilParts, mergeAll, splinterGeometry,
   CONE_REST_Y, SPLINTER_REST_Y,
 } from '../geometry/roadworks.js';
-import { launchHop, setClosedLanes, policeRoad } from '../sim/traffic.js';
+import { launchHop, setClosedLanes, policeRoad, HOP_LEN, STOP_SETBACK } from '../sim/traffic.js';
 import { setRoadworkLanes } from './route.js';
 
 // A street closed for roadworks: a striped trestle across each end, a scatter of cones, a heap of
@@ -61,6 +61,22 @@ const PLACE_CLEARANCE = 45;
 // -1.5 — the toe sat in the middle of a live intersection, which is the other half of why the thing
 // read as a plate lying near the corner rather than as a ramp up to a barricade.
 export const BARRIER_S = 2.1;
+
+// The run the launch chain needs: the trestle stands at BARRIER_S, the hop covers HOP_LEN from
+// there, and the taxi has to be back on the tarmac before the hold line STOP_SETBACK short of the
+// lane's end — the line where it picks its next turn.
+//
+// It is a *filter on the site* because it does not close on every street. A side street between
+// two ordinary junctions is 12 units of lane and the chain lands 1.0 clear; a side street with an
+// arterial at one end is 10.67 — the extra third of the arterial's width comes out of both its
+// neighbours' lanes — and the same chain lands 0.33 *past* the line. That is 22 of the 56 side
+// lanes on a default city, and it is the arterial trap in CLAUDE.md one more time: BARRIER_S and
+// HOP_LEN were measured on a 12-unit lane and nothing re-measured them when the arterials were
+// widened. Behaviour is a little better than the arithmetic — the hop fires off the taxi's nose,
+// about half a car length before BARRIER_S, so a measured overdrive run lands at 7.13 against a
+// line at 7.27 — but 0.14 of slack is one frame at 22 u/s, and one frame is the whole margin.
+// Skipping the short lanes keeps the stunt exactly as it is on every site it can appear at.
+const RAMP_RUN_NEEDED = BARRIER_S + HOP_LEN + STOP_SETBACK;
 const CONES = 12;
 const WORKERS = 2;
 
@@ -212,6 +228,8 @@ export function createRoadwork(rng, scene, camera = null) {
     if (edge.klass !== 'side') return false;
     if (edge.lanes.length !== 2) return false;
     if (edge.lanes.some((l) => l.degenerate)) return false;
+    // Long enough to land the stunt in — see RAMP_RUN_NEEDED.
+    if (edge.lanes.some((l) => l.length < RAMP_RUN_NEEDED)) return false;
 
     const net = cityNetwork();
     const ids = new Set(edge.lanes.map((l) => l.id));
