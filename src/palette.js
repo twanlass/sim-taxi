@@ -19,10 +19,21 @@ export const PALETTE = {
   // computes this and what keeps it in step with the sky all day. Deliberately **not** `skyBottom`,
   // which is where it started: that near-white has 27 points of spread between its channels, and a
   // haze with no chroma of its own can only take chroma away — the far city came out grey rather
-  // than distant. This is `skyTop` at full saturation: the same hue, 181 points of spread.
-  fog: '#4AC6FF',
+  // than distant. This is `skyTop` sampled 0.73 up the dome and pushed back to full saturation:
+  // the same hue, 136 points of spread between red and blue.
+  //
+  // Derived, never picked — `hazeColor(skyTop, skyBottom)` at `HAZE_SKY_H` 0.73 and
+  // `HAZE_SATURATION` 2.5 returns exactly this. Move either of those and this has to be recomputed
+  // from them, not nudged by eye.
+  fog: '#77CFFF',
 
-  sun: '#FFDEBB',
+  sun: '#CFBD8C',
+  // Where the shade goes when the tint is turned up — see `SHADOW_UNIFORMS` in util/geo.js. A cool
+  // blue against a warm sun, which is the oldest trick in the book and the reason the control
+  // exists: the hemisphere fill alone lights shade in the *sun's* family of hues, so the city has
+  // no colour contrast between what the sun reaches and what it doesn't. Applied at `SHADOW_TINT`
+  // (0.65) out of the box, so this is a colour the shipped game shows.
+  shadowTint: '#6E8CC8',
   hemiSky: '#F0C79B',
   hemiGround: '#6B5A48',
 

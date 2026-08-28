@@ -8216,24 +8216,44 @@ check('the taxi is an ordinary car in the traffic array',
       leastChroma > 30 && worstChromaRatio > 1.25,
       `least spread ${leastChroma} of 255; `
       + `${worstChromaRatio.toFixed(2)}x the horizon wherever the horizon is itself near-neutral`);
-    // **The dusk trade-off, pinned rather than asserted away.** At the shipped `skyH` of 1.0 the
-    // sample is the zenith, and at 18:36 the dome runs orange at the bottom to deep blue at the
-    // top — so the haze there is blue while the horizon behind it is still orange, which is an
-    // inversion of what air does at dusk. It is accepted because the shipped look is 16:24 with
-    // the cycle off, where the zenith sample is the whole point. What this checks is that the
-    // escape hatch is real and is one slider away: Sky sample down to 0.35 has to bring the warmth
-    // back. If a future tuning makes dusk warm by default this goes red — correctly, because the
-    // note above it would then be describing a game that no longer exists.
+    // **The dusk trade-off, pinned rather than asserted away.** At 18:36 the dome runs orange at the
+    // bottom to deep blue at the top, so how much sunset survives in the haze is entirely a
+    // question of how far up `skyH` samples. At the zenith the haze is blue while the horizon
+    // behind it is still orange — an inversion of what air does at dusk — and that was accepted
+    // for a while, because the shipped look is 16:24 with the cycle off where a high sample is the
+    // whole point.
+    //
+    // The shipped 0.73 has walked most of the way back from that without giving up the parked
+    // hour's blue, and it lands almost exactly on the tipping point: **warm by 6 parts in 255**,
+    // which is neutral in the hand rather than a restored sunset. Measured across the slider at
+    // 18:36 — 1.00 #004788 (cool by 62), 0.73 #8a4d84 (warm by 6), 0.60 #a74162 (68),
+    // 0.50 #bb3635 (117), 0.35 #d05600 (161).
+    //
+    // So this pins three things: the inversion is real at the top of the range, the shipped value
+    // is on the knife edge, and the escape hatch to a genuine sunset is still one slider away. Move
+    // `HAZE_SKY_H` more than a hair and it goes red — correctly, because the note above it would
+    // then be describing a game that no longer exists.
     daylight.apply(18.6);
-    const duskZenith = dayWorld.fog.color.clone();
-    hazeTuning.skyH = 0.35;
-    const duskLower = hazeColor(
+    const duskSky = [
       dayWorld.sky.uniforms.topColor.value, dayWorld.sky.uniforms.bottomColor.value,
-    );
-    hazeTuning.skyH = HAZE_SKY_H;
-    check('the zenith sample costs the sunset its warmth, and Sky sample buys it back',
-      !duskWarm && duskZenith.b > duskZenith.r && duskLower.r > duskLower.b,
-      `zenith #${duskZenith.getHexString()} cool, 0.35 #${duskLower.getHexString()} warm`);
+    ];
+    const duskAt = (skyH) => {
+      hazeTuning.skyH = skyH;
+      const sampled = hazeColor(...duskSky);
+      hazeTuning.skyH = HAZE_SKY_H;
+      return sampled;
+    };
+    const duskZenith = duskAt(1);
+    const duskShipped = dayWorld.fog.color.clone();
+    const duskLower = duskAt(0.35);
+    const margin = (c) => Math.round((c.r - c.b) * 255);
+    check('the sky sample sets how much sunset survives, and the shipped one sits on the knife edge',
+      duskZenith.b > duskZenith.r
+        && duskWarm && Math.abs(margin(duskShipped)) < 20
+        && margin(duskLower) > 100,
+      `zenith #${duskZenith.getHexString()} cool by ${-margin(duskZenith)}, `
+      + `shipped #${duskShipped.getHexString()} warm by ${margin(duskShipped)}, `
+      + `0.35 #${duskLower.getHexString()} warm by ${margin(duskLower)}`);
     check('a night haze is dark rather than a pale wash over a dark city',
       darkest < 0.12, `darkest lightness ${darkest.toFixed(3)}`);
     // The two colour knobs have to stay *live* state, not constants folded back into hazeColor():

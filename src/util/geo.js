@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PALETTE } from '../palette.js';
 
 /**
  * The Euler order every body in the game poses with, and it is not the default.
@@ -180,6 +181,68 @@ export const CARTOON_UNIFORMS = {
   uToonInkColor: { value: new THREE.Color() },
 };
 
+/**
+ * The shadow tint — the one lighting control in here that is **not** behind a build-time flag.
+ *
+ * It is part of the shipped look rather than an opt-in mode (`SHADOW_TINT` below), so there is
+ * nothing to gate: `propMaterial()` patches unconditionally. It would not deserve a flag either
+ * way — unlike AO, the crayon and the cartoon it costs no texture fetch, only a dot product and a
+ * mix, and at amount 0 that mix is against 1.0 and the frame comes out bit-identical to an
+ * unpatched one.
+ *
+ * `uShadowColor` is stored **pre-scaled** by `clamp(1 / luminance, 0.5, 3)` — see
+ * `setShadowTint()` for why the clamp is load-bearing.
+ */
+export const SHADOW_UNIFORMS = {
+  uShadowColor: { value: new THREE.Color(1, 1, 1) },
+  uShadowTint: { value: 0 },
+};
+
+/**
+ * How far the shade is pushed toward `PALETTE.shadowTint` in the shipped game.
+ *
+ * 0.65 rather than the full push: at 1.0 the shade takes the tint's hue outright and the city reads
+ * as lit by two coloured lamps, which loses the *material* of what is in shadow — a red brick wall
+ * and a grey one go the same blue. Two thirds keeps each surface's own hue legible underneath while
+ * still opening a clear warm/cool split between what the sun reaches and what it doesn't.
+ */
+export const SHADOW_TINT = 0.65;
+
+const shadowTintState = { color: PALETTE.shadowTint, amount: SHADOW_TINT };
+
+/**
+ * Point the shade at a colour, and say how far to push it.
+ *
+ * The gain is the whole subtlety. The tint is applied as `uShadowColor * indirectLuminance`, so a
+ * colour has to be normalised or a dark pick would double as a brightness cut — and normalising by
+ * luminance alone explodes on a saturated one: pure blue has a luminance of 0.0722, so 1/luma is
+ * 13.8 and the shade comes back as a blue three times brighter than the sunlit faces beside it.
+ * Clamped to 3 it saturates instead of blowing out; clamped at the bottom to 0.5 so a near-white
+ * pick cannot silently darken either.
+ *
+ * @param color   any THREE.Color input — the hex string the panel's colour well produces.
+ * @param amount  0 leaves the frame exactly as it was, 1 is the full push.
+ */
+export function setShadowTint({ color = shadowTintState.color, amount = shadowTintState.amount } = {}) {
+  shadowTintState.color = color;
+  shadowTintState.amount = amount;
+  const picked = new THREE.Color(color);
+  const luma = picked.r * 0.2126 + picked.g * 0.7152 + picked.b * 0.0722;
+  const gain = THREE.MathUtils.clamp(1 / Math.max(luma, 1e-4), 0.5, 3);
+  SHADOW_UNIFORMS.uShadowColor.value.copy(picked).multiplyScalar(gain);
+  SHADOW_UNIFORMS.uShadowTint.value = amount;
+}
+
+/** What the panel opens on. */
+export function shadowTint() {
+  return { ...shadowTintState };
+}
+
+// Seed the uniforms from those defaults. Needed because the bag above is declared with the neutral
+// values — nothing else calls this at boot, so without it the shipped default would be "off" and
+// the panel would open reading 0.65 over a frame that had none of it.
+setShadowTint();
+
 let aoEnabled = false;
 let crayonEnabled = false;
 let cartoonEnabled = false;
@@ -329,6 +392,41 @@ const CARTOON_INK = /* glsl */ `
 	}
 `;
 
+// The shadow tint, spliced in after three's lights_fragment_end — and after the cartoon's bands,
+// so that with Cartoon Mode on the tint steps with the cel rather than smearing across it.
+//
+// **The shade factor is a ratio between the two light terms, not a shadow-map lookup.** Three only
+// defines getShadowMask() for ShadowMaterial; pulling that chunk into a Lambert would work and
+// would cost a second full PCF loop per fragment, on a game that runs on phones. What is already
+// in scope at this seam is both halves of the lighting, and their *ratio* answers the question
+// directly: fill over total is "how much of the light here is sky rather than sun". A cast shadow
+// has no direct term at all and comes out at 1; so does a wall the sun is behind, which is the
+// point — a cast shadow tinted blue beside an untinted dark wall reads as a bug, not as art
+// direction.
+//
+// Scale-free by construction, which is what keeps it honest across the day cycle: both terms fall
+// together at dusk, so nothing has to be told the sun's current power. At midnight the sun is at 0
+// and the whole city reads as shade, which is correct.
+//
+// The knee is measured off the parked 16:24 lighting: sun 3.55 against fill 1.50 puts a fully lit
+// face at 1.50 / (3.55 + 1.50) = 0.30 and anything the sun misses at 1.00. 0.45 sits above the lit
+// end with room to spare, so lit faces stay exactly as they were and only the shade travels.
+const SHADE_KNEE = 0.45;
+
+const SHADOW_LIGHT = /* glsl */ `
+	{
+		vec3 sLuma = vec3(0.2126, 0.7152, 0.0722);
+		float sDirect = dot(reflectedLight.directDiffuse, sLuma);
+		float sIndirect = dot(reflectedLight.indirectDiffuse, sLuma);
+		float sShade = smoothstep(${SHADE_KNEE}, 1.0, sIndirect / max(sDirect + sIndirect, 1e-4));
+		reflectedLight.indirectDiffuse = mix(
+			reflectedLight.indirectDiffuse,
+			uShadowColor * sIndirect,
+			sShade * uShadowTint
+		);
+	}
+`;
+
 /**
  * The one patch every lit prop material carries — screen-space AO, Crayon Mode, or both.
  *
@@ -358,14 +456,16 @@ function patchProp(material) {
   material.customProgramCacheKey = () => key;
 
   material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, AO_UNIFORMS);
+    Object.assign(shader.uniforms, AO_UNIFORMS, SHADOW_UNIFORMS);
     if (crayonEnabled) Object.assign(shader.uniforms, CRAYON_UNIFORMS);
     if (cartoonEnabled) Object.assign(shader.uniforms, CARTOON_UNIFORMS);
 
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
 uniform sampler2D tAmbientOcclusion;
-uniform vec2 uAOTexel;${crayonEnabled ? `
+uniform vec2 uAOTexel;
+uniform vec3 uShadowColor;
+uniform float uShadowTint;${crayonEnabled ? `
 uniform sampler2D tCrayonPaper;
 uniform vec2 uCrayonPaperScale;
 uniform vec2 uCrayonBoil;
@@ -391,11 +491,12 @@ uniform float uToonBite;` : ''}`);
 	reflectedLight.indirectDiffuse *= texture2D(tAmbientOcclusion, gl_FragCoord.xy * uAOTexel).r;`);
     }
 
-    if (cartoonEnabled) {
-      shader.fragmentShader = shader.fragmentShader
-        .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
-${CARTOON_LIGHT}`);
-    }
+    // Both hook the same seam, and the order is the point: the cartoon bands the direct term, then
+    // the tint reads the banded result.
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+${cartoonEnabled ? CARTOON_LIGHT : ''}
+${SHADOW_LIGHT}`);
 
     // Both inks share the seam, and they compose in the order the looks would be layered by hand:
     // the cartoon's hard line first, the crayon's broken one over it. Running both is two inks on
@@ -413,7 +514,9 @@ ${CARTOON_LIGHT}`);
 /** The shared material for every merged prop mesh. */
 export function propMaterial() {
   const material = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-  if (aoEnabled || crayonEnabled || cartoonEnabled) patchProp(material);
+  // Unconditional now: the shadow tint rides in the same patch and is always available. See
+  // SHADOW_UNIFORMS for why it does not need a flag of its own.
+  patchProp(material);
   return material;
 }
 
