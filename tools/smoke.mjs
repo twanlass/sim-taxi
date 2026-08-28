@@ -102,7 +102,11 @@ try {
   await client.send('Emulation.setEmulatedMedia', {
     features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
   });
-  await client.send('Page.navigate', { url: baseUrl });
+  // `?chips=on` because the rider-finder chips are opt-in now — the game ships with edge arrows
+  // for the waiting riders instead (game/farepointers.js), and the chips are kept behind the flag
+  // to compare against. The two chip checks below are the only browser coverage the module has, so
+  // this page turns them back on; the arrows are on either way and are checked here too.
+  await client.send('Page.navigate', { url: `${baseUrl}?chips=on` });
 
   const evaluate = async (expression) => {
     const { result } = await client.send('Runtime.evaluate', { expression, returnByValue: true });
@@ -653,6 +657,61 @@ try {
         parseFloat(shown.pct) > 99.9 && purple,
         `ring ${shown.pct} ${shown.color}`);
     }
+  }
+
+  // --- An off-frame fare gets an edge arrow. See src/game/farepointers.js.
+  //
+  // The chips used to be how a rider off the side of the frame was found; now it is one arrow per
+  // waiting fare, plus the drop-off's while one is aboard, and the whole thing lives in the DOM —
+  // there is no headless surface for it at all. What is asserted is the bookkeeping rather than the
+  // trigonometry (probe.mjs owns no part of this either): exactly as many arrows are up as there
+  // are marks currently outside the band, they carry a colour, and each sits inside the frame it is
+  // supposed to be clamped to.
+  //
+  // Polled, because whether a fare is off-frame at any given instant is a fact about where the taxi
+  // has driven. Every sample compares expected against actual, so a mismatch fails on the spot; the
+  // loop is only there to reach a sample where the expected count is above zero, and the highest
+  // one reached is printed so a vacuous pass is legible.
+  {
+    const EDGE = 36;   // EDGE_MARGIN in game/farepointers.js
+    const sample = () => evaluate(`(() => {
+      const t = window.__taxi;
+      const w = t.viewport.width(), h = t.viewport.height();
+      let off = 0;
+      for (const f of t.fares.state.fares) {
+        if (f.stage !== 'waiting' && f.stage !== 'riding') continue;
+        const c = t.cornerFor(f.target.i, f.target.j);
+        const p = t.projectToScreen(c.x, 0.1, c.z);
+        if (p.x < ${EDGE} || p.x > w - ${EDGE} || p.y < ${EDGE} || p.y > h - ${EDGE}) off++;
+      }
+      // Note `style.color` reads back serialised — a '#3ecf5a' written by the module comes out of
+      // the getter as 'rgb(62, 207, 90)', which is what \`coloured\` below matches against.
+      const up = [...document.querySelectorAll('.fare-pointer')].filter((el) => !el.hidden);
+      return JSON.stringify({
+        off,
+        up: up.length,
+        coloured: up.every((el) => /^rgba?\(/.test(el.style.color || '')),
+        inFrame: up.every((el) => {
+          const r = el.getBoundingClientRect();
+          return r.left >= -1 && r.top >= -1 && r.right <= w + 1 && r.bottom <= h + 1;
+        }),
+      });
+    })()`);
+
+    let worst = null;
+    let best = 0;
+    for (let attempt = 0; attempt < 20 && worst === null; attempt++) {
+      const seen = JSON.parse(await sample());
+      if (seen.off !== seen.up || !seen.coloured || !seen.inFrame) worst = seen;
+      else best = Math.max(best, seen.off);
+      if (best > 0) break;
+      await sleep(250);
+    }
+    check('an off-frame fare gets an edge arrow', worst === null,
+      worst ? `${worst.up} arrow(s) up for ${worst.off} off-frame mark(s)`
+        + `${worst.coloured ? '' : ', uncoloured'}${worst.inFrame ? '' : ', outside the frame'}`
+        : best > 0 ? `${best} arrow(s) matched the marks off the frame`
+          : 'every mark stayed in frame — nothing to point at');
   }
 
   // --- The courier box in the HUD, while a package is aboard. See src/game/cargochip.js.

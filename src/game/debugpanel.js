@@ -100,6 +100,10 @@ export function createDebugPanel({
   // Whether the Loco sliders opened on a tuning restored from a previous session, rather than on
   // the shipped defaults. Only affects what the line under the Reset button says.
   locoRestored = false,
+  // The weather ringing the island — `{ state, setCount, setBand, setSpeed, setOver, POOL }` over
+  // game/clouds.js. Defaulted like `scores` above, so the `npm run check` boot pass builds the
+  // panel against nothing.
+  clouds = null,
 }) {
   const toggle = document.createElement('button');
   toggle.id = 'dbg-toggle';
@@ -487,6 +491,72 @@ export function createDebugPanel({
       hazeTuning[key] = Number(el.value);
       restyleHaze();
       showHazeColour();
+    });
+  }
+
+  // --- Clouds -----------------------------------------------------------------
+  // Every one of these is a judgement about a whole frame and none of them can be made from the
+  // numbers, which is the same argument the haze sliders above are here for — with one extra reason
+  // of its own: what the player sees of the sky depends on the *shape of their window*, and the
+  // band that reads as weather on a desktop is a band a portrait phone never gets to see. So this
+  // section exists to be dragged on the device in question.
+  if (clouds) {
+    heading('Clouds');
+
+    const amount = slider(0, clouds.POOL, 1, clouds.state.count);
+    const amountValue = row(panel, 'Amount', amount);
+    const showAmount = () => { amountValue.textContent = `${clouds.state.count} in the sky`; };
+    showAmount();
+    amount.addEventListener('input', () => {
+      clouds.setCount(Number(amount.value));
+      showAmount();
+    });
+
+    // How far the band comes in over the city's edge, and how deep it is. Measured against where the
+    // sky actually is: 91% of the visible sky sits within 30 units of the island's edge on a
+    // portrait phone, so the two together have a budget of about 30 before the clouds are behind the
+    // top of the frame rather than in it. Negative overlap holds them off the coast entirely.
+    const distance = slider(-10, 30, 0.5, clouds.state.overlap);
+    const distanceValue = row(panel, 'Over the coast', distance);
+    const spread = slider(0, 40, 1, clouds.state.band);
+    const spreadValue = row(panel, 'Band depth', spread);
+    const showBand = () => {
+      const overlap = Number(distance.value);
+      distanceValue.textContent = overlap >= 0
+        ? `${overlap.toFixed(1)} in over the edge`
+        : `${(-overlap).toFixed(1)} clear of it`;
+      spreadValue.textContent = `${spread.value} deep`;
+    };
+    showBand();
+    for (const el of [distance, spread]) {
+      el.addEventListener('input', () => {
+        clouds.setBand(Number(distance.value), Number(spread.value));
+        showBand();
+      });
+    }
+
+    const drift = slider(0, 3, 0.05, clouds.state.speed);
+    const driftValue = row(panel, 'Drift', drift);
+    const showDrift = () => { driftValue.textContent = `${Number(drift.value).toFixed(2)}x`; };
+    showDrift();
+    drift.addEventListener('input', () => {
+      clouds.setSpeed(Number(drift.value));
+      showDrift();
+    });
+
+    // The other reading of the brief, kept as a knob rather than an argument: clouds *over* the
+    // play area. It is off by default because one of them passing over the taxi takes the taxi off
+    // the screen, and the taxi is what the player is steering — but that is a judgement, and this
+    // is the row that lets it be made by looking rather than by arguing.
+    const over = slider(0, clouds.POOL, 1, clouds.state.over);
+    const overValue = row(panel, 'Over the city', over);
+    const showOver = () => {
+      overValue.textContent = clouds.state.over ? `${clouds.state.over} across the map` : 'none — all at the edges';
+    };
+    showOver();
+    over.addEventListener('input', () => {
+      clouds.setOver(Number(over.value));
+      showOver();
     });
   }
 

@@ -141,11 +141,19 @@ read as a *parcel* and does the tape cross survive; at play zoom, is the pad's r
 distinguishable from a fare's disc. That second one is the whole of "shape says what a thing is" and
 is the one claim no assertion can make.
 
-Shots 24–25 (`coast`, `country`) are the only two aimed **past** the city, at
+Shot 24 (`clouds`) frames the map's **far corner** rather than the middle of it, which is the whole
+point of it: the clouds ring the island (see [rendering.md](rendering.md#clouds--gamecloudsjs-geometrycloudjs)),
+so a framing centred on the city photographs the one part of the sky they are never in. It is also
+why they turn up in the corners of every *other* shot — that is the band doing its job, not a shot
+that needs recomposing.
+
+Shots 25–26 (`coast`, `country`) are the only two aimed **past** the city, at
 [what is outside it](rendering.md#what-is-outside-the-city--citysurroundsjs). Both sit a little
 wider than play zoom, because what each one is asked about is a transition rather than an object —
 does the asphalt's fade hand over to ground that belongs to it, and does that ground then hand over
-to water. A play-zoom framing of either shows the join and nothing on both sides of it.
+to water. A play-zoom framing of either shows the join and nothing on both sides of it. `coast` is
+aimed at the same far corner the `clouds` framing is, which is convenient rather than a duplication:
+each one photographs what the other one added to that corner.
 
 There were two more, `parcel-aboard` and `parcel-flight`, and both photographed a load that has since
 left the world: a collected box no longer rides on the taxi's rear deck and no longer crosses the road
@@ -298,8 +306,9 @@ three.js page does not:
 `?safe` is a **playable** configuration rather than a diagnostic one — a device that only works
 this way can still be played this way. Every flag overrides it, so `?safe&msaa=on` bisects upward
 exactly as `?msaa=off` bisects down, and the flags reach the tutorial avatar's renderer, the
-rider-finder chips', the courier cargo chip's and the taxi finder's too: each of those opens a WebGL
-context of its own, and "how many contexts is this page holding" is part of what `?safe` is asking.
+courier cargo chip's, the taxi finder's and the rider-finder chips' under `?chips=on` too: each of
+those opens a WebGL context of its own, and "how many contexts is this page holding" is part of what
+`?safe` is asking.
 
 **Android defaults to it**, as a holding measure — see below. The consequence for bisecting is
 that a bare `?msaa=off` on an Android device tells you nothing, because the other three are
@@ -424,7 +433,10 @@ a click on a chip's canvas bubbles to the chip's button and dispatches the taxi 
 [cargo chip](gameplay.md#the-load-is-carried-into-the-hud) has since put a 42px canvas earlier still —
 it lives in `#hud`, the first element in the body — and the
 [taxi finder](rendering.md#getting-back-to-the-taxi) a 44px one beside the rider row, so the rule has
-several things enforcing it now.
+several things enforcing it now. Note that the chips themselves are only there because **this tool
+loads the page with `?chips=on`** — they are off on an ordinary run now (see [finding the next
+rider](gameplay.md#finding-the-next-rider)), and the flag is what keeps the two checks that cover
+them, and this trap, alive.
 
 **It waits out the opening vignette before it touches anything**, and that wait doubles as the one
 end-to-end assertion [the vignette](gameplay.md#the-opening-vignette) can only get in a page: the

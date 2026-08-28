@@ -247,10 +247,10 @@ which at this contrast is not the same as lit.
 ### The HUD arrives afterwards
 
 The money counter, the [multiplier counter](#the-multiplier-counter), the Loco Mode pill and the
-rider chips all start off their own screen edge and slide in together the moment the last bubble is
-dismissed. A run used to open
-with all four already lit, every one of them reading zero and answering a question nobody had asked
-yet. `main.js` adds `body.hud-ready`; with no tutorial to wait for (`?tutorial=off`, shot mode) they
+brake all start off their own screen edge and slide in together the moment the last bubble is
+dismissed (the [rider chips](#finding-the-next-rider) rode in with them, and still do under
+`?chips=on`). A run used to open with all of them already lit, every one reading zero and answering
+a question nobody had asked yet. `main.js` adds `body.hud-ready`; with no tutorial to wait for (`?tutorial=off`, shot mode) they
 are simply there from the first frame.
 
 The offset is the standalone `translate` property, **not** a transform. Three of those four already
@@ -448,10 +448,11 @@ in the haze, and there was nothing on screen to drive at.
 
 A fare survives that. Its crystal floats at 9.65 and the tallest thing that ever stands in front of
 a kerb corner tops out 5.6 units above it, so a rider always has *something* above the skyline
-speaking for them, and their chip in the HUD's rider finder
-(`game/riderfinder.js`) can dispatch the taxi at them without the map being involved at all.
-A courier pad has none of that: [`marker.js`](../src/geometry/marker.js) took the drop-off's floating
-head away on purpose, and what is left is a mark on the ground.
+speaking for them. It used to have a second thing: a chip in the HUD's rider finder that could
+dispatch the taxi at them without the map being involved at all, which is [exactly why it
+went](#finding-the-next-rider). A courier pad has none of that:
+[`marker.js`](../src/geometry/marker.js) took the drop-off's floating head away on purpose, and what
+is left is a mark on the ground.
 
 Two families of corner, and neither is a fluke:
 
@@ -534,6 +535,33 @@ of them independent of the difficulty curve, and all of them binding on the run'
 | `FIRST_FARE_MAX_BLOCKS` | 1 block | Manhattan distance from the taxi to the rider. |
 | `FIRST_FARE_MAX_TRIP_BLOCKS` | 2 blocks | Manhattan distance from that rider to their drop-off — the one time a drop-off is drawn near its own pickup instead of unbiased. |
 | `FIRST_FARE_MIN_CLOCK` | 45s | A floor under the budgeted clock, because the caps above would otherwise issue a short one. |
+
+### Finding the next rider
+
+**The rider-finder chips are off.** They were a row above the Loco Mode pill, one per waiting fare:
+the real animated figure in a 38px WebGL context, that fare's countdown as a conic-gradient ring
+around it, and a tap that dispatched the taxi straight at them. They are still in the tree
+(`game/riderfinder.js`) and `?chips=on` brings them back to compare against, but nothing builds them
+on an ordinary run.
+
+They worked, and that was the problem. A chip answered all three of the questions the board is
+supposed to ask — *where is the next fare*, *how urgent is it*, and *shall I take it* — on a surface
+that fits in a thumb's reach, so the optimal play was to never look at the city: sort the row by
+colour, tap the reddest ring, repeat. Prioritisation stopped being a judgement about distance,
+traffic and the trip you are already on, and became reading four ring fills.
+
+What stands in for them is an [edge arrow per waiting
+rider](rendering.md#off-screen-fare-pointers) — the same arrow the drop-off has always had, in that
+fare's own colour. It says **which direction** and **how urgent** and deliberately stops there. How
+far away the rider is, what is between you and them, and whether they are worth the drive are back
+to being things you find out by looking at the map and panning to them, and dispatching still means
+tapping the rider or their crystal in the world.
+
+What that costs is real and was accepted rather than solved: an off-screen rider now takes a pan to
+reach, the [rider peek](rendering.md#the-rider-peek) has no trigger left on an ordinary run, and a
+crystal behind a tower has nothing else speaking for it (see [corners the camera cannot
+see](#corners-the-camera-cannot-see)). The [taxi finder](rendering.md#getting-back-to-the-taxi)
+stays — losing your own car is not a decision, it is a lost tool.
 
 ### Why the first fare is close, and why that alone made it harder
 
@@ -989,9 +1017,9 @@ Four things it is careful about:
   the same stretch, because a marker going dim reads as having been switched off rather than as
   having finished.
 
-It fires from `markDirected`, which is where both entry points — a tap on the pin and a tap on a
-[rider-finder chip](#extra-fares-and-prioritisation) — land once the route has actually been
-planned, so a
+It fires from `markDirected`, which is where every entry point — a tap on the pin, and a tap on a
+[rider-finder chip](#finding-the-next-rider) under `?chips=on` — lands once the route has actually
+been planned, so a
 selection that was refused never pops. Waiting fares only: the drop-off is a disc on the road with
 nobody standing on it, and the taxi dispatches itself there. Re-tapping a rider the taxi is already
 on its way to pops again — it acknowledges a gesture rather than reporting a state, and a second tap
@@ -1222,9 +1250,10 @@ range — and three of them no longer crowd a city whose blocks are only ~92px a
 
 Four surfaces show it — the fare's diamond wherever it currently is, the
 [ring on the road](#the-drop-off-is-a-ring-and-it-wears-the-riders-clock) the taxi is being driven
-at, the [route band](#the-route-band-wears-it-too) running between them, and the countdown around
-each rider-finder chip — and they all read from here, through one `fareColor(level, vip)` that also
-owns the VIP exception. A rider showing orange on the map whose chip is yellow in the corner is two
+at, the [route band](#the-route-band-wears-it-too) running between them, and the [edge
+arrow](rendering.md#off-screen-fare-pointers) that stands in for any of them off the frame — and
+they all read from here, through one `fareColor(level, vip)` that also owns the VIP exception. A
+rider showing orange on the map whose arrow is yellow on the edge is two
 answers to one question, and a band arriving red at an orange disc is the same mistake drawn across
 half the city. It was three surfaces until the [timer ring](#it-used-to-be-a-relay) went, which is
 exactly why the scale was pulled out of the ring into its own module in the first place.
@@ -1317,11 +1346,12 @@ that decision trivial.
 board — their diamond opens on a fixed purple, never drawn from the urgency scale, so "this one is a
 VIP" is never confused with how much time they have left, and every other surface that fare speaks
 through follows it: the ring on the road at the far end of their trip, the route band driving at it,
-and the off-screen pointer.
+and the off-screen arrow.
 
 **And that is the whole of what they will tell you.** A VIP's clock is not shown anywhere: the
 crystal is a solid purple gem that never drains, and the rider-finder chip's ring — the last surface
-that still reported the seconds — is held full and purple as well. You know one is worth three fares
+that still reported the seconds, back when the chips were on — was held full and purple as well.
+You know one is worth three fares
 and you do not know how long you have, which is what makes taking one a gamble instead of a sum. The
 only thing that ever breaks the silence is the panic pulse the marker beats under five seconds, and
 that is an alarm rather than a countdown: it says *now*, not *how long*.
@@ -1743,12 +1773,12 @@ unbroken move: with nothing to arrive at on the car, the box has one destination
 
 - **The real mesh, not an icon.** `createParcel` in its own small WebGL context, lit by the city's own
   sun through `mirrorSceneLights` — the same rig as the [tutorial avatar](#the-opening-tutorial) and the
-  [rider-finder chips](#extra-fares-and-prioritisation), so the box in the corner cannot drift out of
+  [rider-finder chips](#finding-the-next-rider), so the box in the corner cannot drift out of
   step when the box on the road is restyled.
 - **Three-quarter view, at the game camera's own elevation, with the azimuth mirrored** so that both
   visible faces are lit ones — see [rendering.md](rendering.md#the-parcel--geometryparceljs) for the
   angle and the framing.
-- **It sits with the money, not with the rider chips.** The bottom-left row is the reach zone and
+- **It sits with the money, not where the rider chips were.** The bottom-left row is the reach zone and
   everything in it is a control; a chip parked at the end of it would be the one that does nothing when
   pressed. That got sharper rather than weaker once [the box on the road became
   tappable](#two-gestures-ask-for-the-same-bend): a second box on the glass that answers nothing is now
@@ -2256,7 +2286,7 @@ time. A WAAPI animation starts on the frame after `animate()`, and the game-over
 where the page hitches — on a stalled boot the numbers ran ~500ms ahead of their own labels, which
 for a list played one row at a time meant a row counting before it had appeared.
 
-The overlay sits at **`z-index: 30`**, above the tweak toggle and rider-finder chips (20). Without
+The overlay sits at **`z-index: 30`**, above the tweak toggle and the rider chips' row (20). Without
 one the blackout painted *under* them and a waiting-rider chip stayed lit in the corner of the
 game-over screen — and a chip still on top also swallows the tap that skips.
 

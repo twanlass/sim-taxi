@@ -32,6 +32,7 @@ import { carrySpeed } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createChopper } from './game/chopper.js';
 import { createBirds } from './game/birds.js';
+import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { showRunEnd } from './game/runend.js';
@@ -49,7 +50,7 @@ import { createCargoChip } from './game/cargochip.js';
 import { createTutorial } from './game/tutorial.js';
 import { createOpening } from './game/opening.js';
 import { createWipe } from './game/wipe.js';
-import { createDropoffIndicator } from './game/dropoffindicator.js';
+import { createFarePointers } from './game/farepointers.js';
 import { createSirenGlow } from './game/sirenglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
@@ -212,10 +213,20 @@ function renderFrame() {
   renderer.render(scene, camera);
 }
 
+// Weather, ringing the island — see game/clouds.js. Scenery on the same terms as the aeroplane and
+// the flocks, and placed by where it lands **on screen** rather than by where it is in the world:
+// the one thing a cloud must never do under this camera is come over the city and sit on the taxi.
+// Run seed, like the flyover: which way the sky is moving today is part of the situation.
+//
+// Built here, out of order with the rest of the scenery, because the clock below tints it: the
+// clouds are the one unlit thing in the sky and `daylight.apply()` is the only thing that moves
+// their colour over a day.
+const clouds = createClouds(scene, makeRng(runSeed + 277));
+
 // The clock that drives the sky. Parked at golden hour for now — the cycle works, but the night
 // end of it needs more tuning before it earns its place, so it's off until the ⚙️ panel turns it
 // on. Screenshots keep it frozen regardless: a rendered shot has to be reproducible.
-const daylight = createDaylight({ sun, hemi, sky, fog });
+const daylight = createDaylight({ sun, hemi, sky, fog, clouds });
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
 
@@ -1043,7 +1054,17 @@ function panToTaxi() {
   });
 }
 
-const riderFinder = createRiderFinder({ onSelect: selectRider, sun, hemi });
+// The rider-finder chips, off by default — `?chips=on` brings them back to compare against.
+//
+// A chip was a portrait of a waiting rider with their own countdown ring and a tap that dispatched
+// the taxi at them, so the whole fare loop could be played off the HUD without ever finding a pin
+// on the map: the board sorted itself into a row and picking the next fare was choosing the
+// reddest ring. Finding the rider *is* the game, so what says "over there, and this urgent" is now
+// an edge arrow per rider (see game/farepointers.js) and nothing says "take this one".
+const wantsRiderChips = new URLSearchParams(window.location.search).get('chips') === 'on';
+const riderFinder = wantsRiderChips
+  ? createRiderFinder({ onSelect: selectRider, sun, hemi })
+  : { update: () => {} };
 // The chip that answers "where did my car go" — up only while the taxi is completely off-frame.
 const taxiFinder = createTaxiFinder({
   sun,
@@ -1062,9 +1083,9 @@ const taxiFinder = createTaxiFinder({
 // game/cargochip.js. Built only when the layer is on, because it opens a WebGL context of its own
 // and a run under `?parcels=0` can never have anything to put in it.
 const cargoChip = parcels ? createCargoChip({ sun, hemi }) : null;
-const dropoffIndicator = createDropoffIndicator({
+const farePointers = createFarePointers({
   camera,
-  // Aim at the kerb corner where the pin actually stands, not the intersection centre — the
+  // Aim at the kerb corner where the mark actually stands, not the intersection centre — a
   // pointer's job is to show where the marker went off-screen, and the marker isn't at the
   // junction.
   pinLocation: cornerFor,
@@ -2173,6 +2194,7 @@ function frame() {
   flyover.update(dt);
   chopper.update(dt);
   surrounds.update(dt);
+  clouds.update(dt);
   // Handed last frame's taxi position, which is all a startle needs — it is a distance test with
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
   // scenery block in one place.
@@ -2470,10 +2492,11 @@ function frame() {
     !fares.state.gameOver && !controller.isGliding() && !tutorial?.holdsCamera());
   // A no-op unless a package is aboard — it draws nothing while the chip is down.
   cargoChip?.render();
-  // The arrow stands in for the ring it points at, so it is painted from the same fare — see
-  // game/dropoffindicator.js.
+  // Every arrow stands in for a mark it points at, so each is painted from its own fare — see
+  // game/farepointers.js. The waiting riders get one too now that the chips are gone, which is
+  // what keeps an off-screen fare findable at all.
   const aboard = fares.carrying();
-  dropoffIndicator.update(aboard, aboard && fares.colorOf(aboard));
+  farePointers.update(aboard, fares.state.gameOver ? [] : fares.waitingAll(), fares.colorOf);
   // After the police update above, so the wash is aimed at where the cruiser is this frame rather
   // than trailing it by one.
   sirenGlow.update(police, traffic.taxi);
@@ -2931,6 +2954,7 @@ if (!shot && wantsDebugPanel) {
     crayon,
     cartoon,
     scores: { load: loadScores, clear: clearScores },
+    clouds,
     // The entrance levers. The panel's replay re-aims the wave at wherever the taxi is *now* —
     // the point of replaying from the panel is judging the opening, and the opening's wave starts
     // at the player's car.
@@ -2985,6 +3009,8 @@ window.__taxi = {
   taxiFinder,
   flyover,
   chopper,
+  /** The weather ringing the island — `clouds.state` is where the band is, `clouds.clouds` the sky. */
+  clouds,
   /**
    * The taxi's depot and the vignette that comes out of it, or null on a city with nowhere to put
    * one (and, for `opening`, in shot mode). `garage.setDoor(0..1)` scrubs the shutter by hand and
@@ -3005,6 +3031,16 @@ window.__taxi = {
   /** The route-band drag, for `tools/smoke.mjs`: `isGrabbing`, `didDrag`, `via`. */
   pathDrag,
   camera: controller,
+  /**
+   * A world point in viewport pixels, the kerb corner a fare's marks stand on, and the frame the
+   * renderer actually draws — for `tools/smoke.mjs`, which uses the three together to work out
+   * which fares are outside the frame and assert that each one has an edge arrow on it (see
+   * game/farepointers.js). The same functions the HUD aims with, so a test cannot disagree with the
+   * game about where a mark is or how big the frame around it is.
+   */
+  projectToScreen,
+  cornerFor,
+  viewport,
   /**
    * The band of paint down the road. Exposed for `tools/smoke.mjs`: the *wiring* that paints it in
    * the fare's clock lives in the frame loop up there, so the node suite can only assert the two
