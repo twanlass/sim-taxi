@@ -39,20 +39,45 @@ export const PALETTE = {
 
   asphalt: '#636972',
   asphaltEdge: '#6B717A',
+  // The main streets are **concrete, not tarmac** — see `arterialPaving` in city/ground.js. The
+  // arterials were already a fact about the city (a coordinated green wave, a planted median, a
+  // third more width) and the only one of those the player could see was the median. Paving them
+  // in a different material says "this road is different" from across the map, before any of the
+  // rest of it has to be worked out.
+  //
+  // Placed in the gap between the tarmac and the kerbs that border it, and that gap is the whole
+  // constraint: `asphalt` is 104 luma and `kerb` is 137, so a concrete pale enough to read as
+  // concrete reads as a road paved in kerbstone. 126 sits 22 above the tarmac and 11 below the
+  // kerb — and unlike the kerb it is **cool**, blue over red where the pavement family is warm,
+  // which is what actually keeps the two apart at the one place they touch.
+  concreteRoad: '#7B7F86',
   // Wear on the tarmac — see `planRoadWear` in city/ground.js. A city street is not one tone: it
   // is a record of every time somebody dug it up, and the two ends of that record are a repair
   // laid last week and one that has been bleaching since the eighties. Both are placed *around*
   // `asphalt` rather than away from it — a patch is still asphalt — but not by much: these were
   // first drawn 10 points of luma either side of the road's 104 and **that is invisible**. The
   // scene's own light multiplies through at a bit over half at the parked hour, so a separation
-  // that reads as a shade in the palette reads as nothing on screen. 22 points either way is
-  // what actually shows: a patch you notice on the second look rather than a hole in the road.
-  asphaltPatch: '#4C515A',
-  asphaltScar: '#7C8189',
-  // Cast iron, and the collar of tar round it. The cover is the darkest thing on the carriageway
-  // by some way — nothing else on the road is under 90 luma — which is most of what makes a disc
-  // eight pixels across read as a manhole rather than as a smudge.
-  manhole: '#474B53',
+  // that reads as a shade in the palette reads as nothing on screen. 22 was the next try and it
+  // read as *almost* nothing; these are ~28 either way, which is where a patch stops blending.
+  asphaltPatch: '#494E57',
+  asphaltScar: '#83888F',
+  // Cast iron, and the collar of tar round it.
+  //
+  // The cover is **warm** where every other thing on the carriageway is cool, and that is the
+  // whole of why it reads as metal. It was a blue-grey dark at 74 luma to begin with, which at
+  // eight pixels is indistinguishable from a shadow or a patch — value alone cannot separate
+  // three dark marks on one dark road. A rust tinge costs nothing and changes what the thing
+  // looks like it is *made of*: 24 points of red over blue, against the tarmac's 15 the other way.
+  //
+  // Lifted ten points at the same time, and that is the half that actually made it read. Warmed
+  // in place at 74 it was still a hole in the road with a brown cast; at 84 against the collar's
+  // 57 it is a lid **sitting in** a dark collar, which is the thing a manhole is. Nothing else on
+  // the carriageway is a light mark ringed by a dark one, so the arrangement identifies it before
+  // its colour does.
+  //
+  // The collar stays cool and stays tar: it is what the cover has to read against, and warming
+  // both would have thrown away the contrast doing the work.
+  manhole: '#5E5246',
   manholeRim: '#3A3E45',
   laneMark: '#D6D2C4',
   crosswalk: '#DAD7CB',

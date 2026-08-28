@@ -13,7 +13,7 @@ import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import {
   createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE, PAVE_INSET,
-  planRoadWear,
+  planRoadWear, arterialPaving,
 } from '../src/city/ground.js';
 import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
@@ -536,6 +536,7 @@ const onGrass = (city, i, j) => {
 
   // A mark drawn over the paint is a street nobody has repainted, which is a scruffier city than
   // this one. The whole layer has to sit under `MARK_Y` — and above the slab, or it is inside it.
+  // Five heights: the concrete arterials, then resurfacing, patches, and a cover's collar and lid.
   const wearY = new Set();
   for (const attr of [ground.geometry.attributes.position]) {
     for (let i = 0; i < attr.count; i++) {
@@ -543,8 +544,104 @@ const onGrass = (city, i, j) => {
       if (y > 1e-9 && y < 0.02 - 1e-9) wearY.add(Number(y.toFixed(4)));
     }
   }
-  check('the wear layer stacks under the road paint and over the slab',
-    wearY.size === 4, `${wearY.size} heights: ${[...wearY].sort((a, b) => a - b).join(', ')}`);
+  const stack = [...wearY].sort((a, b) => a - b);
+  check('the carriageway layer stacks under the road paint and over the slab',
+    stack.length === 5, `${stack.length} heights: ${stack.join(', ')}`);
+  // The tightest gap is what the depth buffer has to resolve. See the note by `RESURFACE_Y`: only
+  // the 0.525 of a world-Y offset that survives projection down VIEW_DIR counts, and this camera's
+  // 1..1400 range quantises to 8.3e-5 units in a 24-bit buffer.
+  const closest = Math.min(...stack.slice(1).map((y, n) => y - stack[n]), 0.02 - stack.at(-1));
+  check('and no two layers are closer than the depth buffer can tell apart',
+    closest * 0.525 > 8.3e-5 * 8,
+    `${closest.toFixed(4)} units apart ≈ ${Math.round(closest * 0.525 / 8.3e-5)} depth units`);
+}
+
+// --- The main streets are concrete -------------------------------------------
+//
+// `arterialPaving` lays a strip down each arterial and takes on one job to do it: the strips must
+// not overlap. Two coplanar quads z-fight, and the alternative — a hair of height between the two
+// axes — would spend one of the gaps in a stack that has five layers under `MARK_Y` already. So
+// the roads running along Z are split around the bands the roads running along X occupy, and that
+// split is exactly the kind of thing that is right on the seed you look at and wrong on the next.
+{
+  let overlapping = 0;
+  let short = 0;            // an arterial not paved from one end of the city to the other
+  let offRoad = 0;          // ...or paved wider than the road it is on
+  let slabs = 0;
+  let cities = 0;
+
+  for (let city = 0; city < 24; city++) {
+    createLayout(makeRng(seed + city * 53));
+    const strips = arterialPaving();
+    cities += 1;
+    slabs += strips.length;
+
+    for (let a = 0; a < strips.length; a++) {
+      for (let b = a + 1; b < strips.length; b++) {
+        const p = strips[a];
+        const q = strips[b];
+        const wide = Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0);
+        const deep = Math.min(p.z1, q.z1) - Math.max(p.z0, q.z0);
+        if (wide > 1e-9 && deep > 1e-9) overlapping += 1;
+      }
+    }
+
+    // Every arterial paved end to end: the union of the slabs covering its band has to run the
+    // full width of the city with no gap in it. Walked as intervals rather than measured by area,
+    // since a gap and an overlap cancel each other out in a total.
+    //
+    // A slab counts toward a road if it spans that road's **full width** across — which is the
+    // part worth getting right, and the part the first version of this check got wrong. Where the
+    // two arterials cross, the stretch of one of them is paved by the *other* one's slab: that is
+    // the whole point of the split, and a walk that only looked at the slabs cut to this road's
+    // own band reported a hole in the middle of every city.
+    const spans = (line, alongX) => {
+      const c = lineCoord(line);
+      const h = alongX ? halfRoadX(line) : halfRoadZ(line);
+      const runs = strips
+        // Containment across, and nothing at all about along — the along-axis intervals are what
+        // the walk below is unioning, so filtering on them is filtering on the answer.
+        .filter((s) => (alongX
+          ? s.z0 <= c - h + 1e-9 && s.z1 >= c + h - 1e-9
+          : s.x0 <= c - h + 1e-9 && s.x1 >= c + h - 1e-9))
+        .map((s) => (alongX ? [s.x0, s.x1] : [s.z0, s.z1]))
+        .sort((p, q) => p[0] - q[0]);
+
+      let reach = lineCoord(0) - (alongX ? halfRoadZ(0) : halfRoadX(0));
+      for (const [lo, hi] of runs) {
+        if (lo > reach + 1e-9) break;
+        reach = Math.max(reach, hi);
+      }
+      const end = lineCoord(GRID) + (alongX ? halfRoadZ(GRID) : halfRoadX(GRID));
+      if (reach < end - 1e-9) short += 1;
+    };
+
+    for (let n = 0; n <= GRID; n++) {
+      if (isArterialX(n)) spans(n, true);
+      if (isArterialZ(n)) spans(n, false);
+    }
+
+    // And every slab is exactly one arterial wide across its short axis — an arterial is 10.67
+    // kerb to kerb, not the 8 an ordinary street is, and a slab cut to `ROAD_W` would leave a
+    // stripe of tarmac showing along both kerbs of every main street.
+    const widths = new Set();
+    for (let n = 0; n <= GRID; n++) {
+      if (isArterialX(n)) widths.add(Number((halfRoadX(n) * 2).toFixed(6)));
+      if (isArterialZ(n)) widths.add(Number((halfRoadZ(n) * 2).toFixed(6)));
+    }
+    for (const slab of strips) {
+      const across = Math.min(slab.x1 - slab.x0, slab.z1 - slab.z0);
+      if (!widths.has(Number(across.toFixed(6)))) offRoad += 1;
+    }
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+
+  check('the concrete never overlaps itself, so nothing z-fights where two main streets cross',
+    overlapping === 0 && slabs > 0, `${overlapping} overlaps over ${slabs} slabs in ${cities} cities`);
+  check('and every arterial is paved from one side of the city to the other',
+    short === 0, `${short} left part tarmac`);
+  check("and paved kerb to kerb, at an arterial's width rather than an ordinary street's",
+    offRoad === 0, `${offRoad} of ${slabs} slabs the wrong width`);
 }
 
 // --- Fire hydrants -----------------------------------------------------------

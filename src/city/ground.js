@@ -166,6 +166,69 @@ function roadSegments() {
   return runs;
 }
 
+// --- The main streets are concrete -------------------------------------------
+//
+// An arterial is already three things the simulation knows and the player mostly cannot see: a
+// coordinated green wave, a planted median, and a third more width. Paving it in a **different
+// material** is what makes the hierarchy legible from across the map — the two main streets read
+// as a pale cross through a dark grid, before anything about signal timing has to be worked out.
+//
+// It also gives the wear below something to sit on. A dark patch on dark tarmac is a subtlety; the
+// same patch on concrete is an asphalt repair in a concrete road, which is what those actually look
+// like and the strongest contrast anywhere on the carriageway.
+const ARTERIAL_Y = 0.004;
+
+/**
+ * Every rectangle of concrete carriageway: a strip down each arterial, kerb to kerb, running the
+ * width of the city.
+ *
+ * **Non-overlapping by construction rather than separated in y.** Two coplanar quads z-fight, and
+ * the obvious fix — a hair of height between the axes — spends one of the six gaps in a stack that
+ * already has to fit four kinds of wear under `MARK_Y`. So the roads running along Z are *split
+ * around* the bands the roads running along X occupy: one extra rectangle per crossing, and no
+ * extra height at all. Exported because that non-overlap is the whole design and is invisible once
+ * the ground is one merged mesh — tools/probe.mjs asserts it.
+ *
+ * The ends are the outer ring road's far kerb, which is where the built city stops. Running out to
+ * the slab's own edge would put a hard concrete line on the apron the fade skirt is there to
+ * dissolve. Closed segments are *not* skipped, and needn't be: a park district's platform covers
+ * the road it took end to end, so the concrete under one is as invisible as the paint already is.
+ */
+export function arterialPaving() {
+  const strips = [];
+
+  // A road running along X is bounded in x by the *Z* roads at each end, and vice versa — the same
+  // number in practice, since the ring road is never an arterial, but written off the road anyway.
+  const from = (axis) => lineCoord(0) - (axis === 'x' ? halfRoadZ(0) : halfRoadX(0));
+  const to = (axis) => lineCoord(GRID) + (axis === 'x' ? halfRoadZ(GRID) : halfRoadX(GRID));
+
+  // The bands the east-west arterials occupy, in z. Laid first and whole; everything else works
+  // around them.
+  const bands = [];
+  for (let j = 0; j <= GRID; j++) {
+    if (!isArterialX(j)) continue;
+    const c = lineCoord(j);
+    const h = halfRoadX(j);
+    bands.push([c - h, c + h]);
+    strips.push({ x0: from('x'), x1: to('x'), z0: c - h, z1: c + h });
+  }
+  bands.sort((a, b) => a[0] - b[0]);
+
+  for (let i = 0; i <= GRID; i++) {
+    if (!isArterialZ(i)) continue;
+    const c = lineCoord(i);
+    const h = halfRoadZ(i);
+    let z = from('z');
+    for (const [b0, b1] of bands) {
+      if (b0 > z) strips.push({ x0: c - h, x1: c + h, z0: z, z1: b0 });
+      z = Math.max(z, b1);
+    }
+    if (to('z') > z) strips.push({ x0: c - h, x1: c + h, z0: z, z1: to('z') });
+  }
+
+  return strips;
+}
+
 // --- Wear on the road surface -----------------------------------------------
 //
 // A 5×5 grid of streets is 60 stretches of identical grey, and the asphalt is the single largest
@@ -183,15 +246,18 @@ function roadSegments() {
 // and the double lines all live there; a patch drawn over a dashed line is a patch nobody has
 // repainted, which is a different and much scruffier city than the one this is.
 //
-// The four heights are 0.004-0.005 apart, which is worth stating because it looks like z-fighting
+// The heights are 0.002-0.004 apart, which is worth stating because it looks like z-fighting
 // waiting to happen and is not. This camera is orthographic with near 1 and far 1400, so depth is
 // **linear** across the range: a 24-bit buffer resolves 8.3e-5 units, and only the 0.525 of a
 // world-Y offset that survives projection down `VIEW_DIR` counts — so the tightest gap here is
-// still about 25 depth units. (Compare the pavement, which takes 0.01 over its own kerb.)
-const RESURFACE_Y = 0.005;
-const PATCH_Y = 0.010;
-const COVER_RIM_Y = 0.014;
-const COVER_Y = 0.016;
+// still about 13 depth units. (Compare the pavement, which takes 0.01 over its own kerb.)
+//
+// Six layers now share the 0.02 under the paint — `ARTERIAL_Y` above is the sixth — which is why
+// the concrete goes to the trouble of not overlapping itself rather than buying another one.
+const RESURFACE_Y = 0.008;
+const PATCH_Y = 0.012;
+const COVER_RIM_Y = 0.015;
+const COVER_Y = 0.017;
 
 // A manhole cover is drawn about twice life size, and that is deliberate. This city's scale is a
 // 4.5m car drawn 3.4 units long, so 1 unit ≈ 1.3m and a real 0.6m cover is 0.45 units — three
@@ -243,12 +309,15 @@ export function planRoadWear(rng) {
     const inner = arterial ? MEDIAN_W / 2 : 0;
 
     // Road-local (along, across) to world. `across` is signed off the road's own centreline.
+    // `arterial` rides along because it decides what the mark is *made of* as well as where it
+    // goes: an arterial is concrete now, and a repair in concrete is a different colour from a
+    // repair in tarmac.
     const strip = (along, across, lenAlong, lenAcross) => (axis === 'z'
-      ? { axis, line, x: c + across, z: along, w: lenAcross, d: lenAlong }
-      : { axis, line, x: along, z: c + across, w: lenAlong, d: lenAcross });
+      ? { axis, line, arterial, x: c + across, z: along, w: lenAcross, d: lenAlong }
+      : { axis, line, arterial, x: along, z: c + across, w: lenAlong, d: lenAcross });
     const blotch = (along, across, rAlong, rAcross) => (axis === 'z'
-      ? { axis, line, x: c + across, z: along, rx: rAcross, rz: rAlong }
-      : { axis, line, x: along, z: c + across, rx: rAlong, rz: rAcross });
+      ? { axis, line, arterial, x: c + across, z: along, rx: rAcross, rz: rAlong }
+      : { axis, line, arterial, x: along, z: c + across, rx: rAlong, rz: rAcross });
 
     // --- Resurfacing. Ends on the junction boxes rather than running through them, because that
     // is where a paving job actually stops: an intersection is resurfaced with whichever street
@@ -289,8 +358,8 @@ export function planRoadWear(rng) {
       const lane = (rng.chance(0.5) ? 1 : -1) * (half - LANE_TO_KERB);
       const along = rng.range(from + end, to - end);
       covers.push(axis === 'z'
-        ? { axis, line, x: c + lane, z: along, r: COVER_R }
-        : { axis, line, x: along, z: c + lane, r: COVER_R });
+        ? { axis, line, arterial, x: c + lane, z: along, r: COVER_R }
+        : { axis, line, arterial, x: along, z: c + lane, r: COVER_R });
     }
   }
 
@@ -329,7 +398,10 @@ function manholeParts({ x, z, r }, rng) {
   const size = r * rng.range(0.90, 1.06);
   return [
     disc(size, jitterColor(PALETTE.manholeRim, rng, { l: 0.03 }), COVER_RIM_Y),
-    disc(size - COVER_LIP, jitterColor(PALETTE.manhole, rng, { l: 0.04 }), COVER_Y),
+    // Hue and saturation jitter as well as lightness, so one cover is rustier than the next rather
+    // than the whole city wearing the same brown.
+    disc(size - COVER_LIP, jitterColor(PALETTE.manhole, rng, { h: 0.02, s: 0.14, l: 0.045 }),
+      COVER_Y),
   ];
 }
 
@@ -619,7 +691,17 @@ export function createGround(rng, blocks) {
     }
   }
 
-  // --- Wear on the tarmac.
+  // --- The main streets, in concrete.
+  //
+  // Laid before the wear, because the wear is laid *on* it: every mark below asks which material
+  // its road is made of before it picks a colour.
+  for (const slab of arterialPaving()) {
+    parts.push(paint(slab.x1 - slab.x0, slab.z1 - slab.z0,
+      (slab.x0 + slab.x1) / 2, (slab.z0 + slab.z1) / 2,
+      jitterColor(PALETTE.concreteRoad, rng, { l: 0.015 }), ARTERIAL_Y));
+  }
+
+  // --- Wear on the carriageway.
   //
   // Last, after every other draw in this function, so that adding it left a seed's kerbs, its
   // pavements and its parks exactly where they already were — the same courtesy `props.js` pays
@@ -636,11 +718,18 @@ export function createGround(rng, blocks) {
   // between one paving job and the next, which is what "slightly different" actually looks like.
   for (const s of wear.strips) {
     parts.push(paint(s.w, s.d, s.x, s.z,
-      jitterColor(PALETTE.asphalt, rng, { h: 0.008, s: 0.06, l: 0.055 }), RESURFACE_Y));
+      jitterColor(s.arterial ? PALETTE.concreteRoad : PALETTE.asphalt, rng,
+        { h: 0.008, s: 0.06, l: 0.055 }), RESURFACE_Y));
   }
-  // Mostly fresh tar, occasionally a repair old enough to have bleached past the road around it.
+  // On tarmac: mostly fresh tar, occasionally a repair old enough to have bleached past the road
+  // around it, and neither of them ever more than a shade off the surface it is cut into.
+  //
+  // On concrete there is no such constraint, because a patch in a concrete road **is asphalt** —
+  // which is both what those actually look like and, at 49 points of luma against the arterial's
+  // 126, the one mark on the whole carriageway that reads without being looked for. The dark end
+  // only: a bleached patch on concrete would be a patch the colour of the road.
   for (const patch of wear.patches) {
-    const base = rng.chance(0.72) ? PALETTE.asphaltPatch : PALETTE.asphaltScar;
+    const base = patch.arterial || rng.chance(0.72) ? PALETTE.asphaltPatch : PALETTE.asphaltScar;
     parts.push(patchGeometry(patch, rng, jitterColor(base, rng, { l: 0.035 })));
   }
   for (const cover of wear.covers) parts.push(...manholeParts(cover, rng));

@@ -77,7 +77,9 @@ numbers measured *across* the middle: the overtake
 ([traffic.md](traffic.md#on-a-divided-arterial-it-is-a-wider-swing)) and the police dodge.
 
 It also gives the map a hierarchy you can read at a glance from a fixed camera, which is what the
-arterials were always for and which a 64% green share alone could never show.
+arterials were always for and which a 64% green share alone could never show. The width and the
+island were the first half of saying so; the second is that a main street is
+[paved in concrete](#the-main-streets-are-concrete) rather than tarmac.
 
 Four functions in `grid.js` carry it, all keyed on the line index:
 
@@ -330,6 +332,25 @@ never gets to spend time meshing a broken city.
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
 | `props.js` | trees, park benches, the statue, the fire hydrants [below](#fire-hydrants) | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
 
+### The main streets are concrete
+
+An arterial is three things the simulation knows and the player mostly cannot see: a coordinated
+green wave, a planted median, and a third more width. `arterialPaving()` in `ground.js` paves them
+in a **different material** — concrete against the side streets' tarmac — which makes the hierarchy
+legible from across the map as a pale cross through a dark grid, before anything about signal timing
+has to be worked out.
+
+The colour is squeezed. `asphalt` is 104 luma and `kerb` is 137, so a concrete pale enough to read
+as concrete reads as a road paved in kerbstone; `concreteRoad` sits at 126, and what actually keeps
+it off the kerbs it touches is that it is **cool** where the whole pavement family is warm.
+
+The one piece of real work is that **the strips must not overlap**. Two coplanar quads z-fight, and
+the obvious fix — a hair of height between the axes — would spend one of the gaps in a stack that
+already has five layers under `MARK_Y`. So the roads running along Z are *split around* the bands
+the roads running along X occupy: one extra rectangle per crossing, no extra height. The strips run
+to the outer ring road's far kerb rather than the slab's edge, since a hard concrete line on the
+apron is exactly what the [edge fade](rendering.md#the-island-edge--citygroundjs) is there to avoid.
+
 ### Wear on the road surface
 
 A 5×5 grid is sixty stretches of identical grey, and the asphalt is the largest surface in the
@@ -364,8 +385,20 @@ on an arterial that lands 3.33 out and the island, 1.2 out, never comes into it.
 **The contrast had to be measured on screen, not picked in the palette.** The patch colours were
 first drawn 10 points of luma either side of the road's 104 and came out of the renderer
 indistinguishable from bare road: the parked hour's light lands at a bit over half and takes most of
-the separation with it. 22 points either way is what actually shows. Same for the resurfacing's
-lightness jitter, which is ±0.055 rather than the ±0.028 it started at.
+the separation with it. 22 was the next try and read as *almost* nothing; ~28 is where a patch stops
+blending. Same for the resurfacing's lightness jitter, which is ±0.055 rather than the ±0.028 it
+started at.
+
+**Each mark is coloured against the material it is cut into.** On tarmac a patch is never more than
+a shade off the road. On concrete it is **asphalt** — which is what a patched concrete road actually
+looks like and, at 49 points of luma against the arterial's 126, the one mark on the carriageway
+that reads without being looked for.
+
+**A manhole cover is warm.** Everything else out there is cool, and at eight pixels value alone
+cannot separate three dark marks on one dark road — a blue-grey cover at 74 luma was a shadow. The
+rust tinge says what it is made of; the ten points of lift say what it is *doing*, because at 84
+against the collar's 57 it reads as a lid sitting in a dark ring, and nothing else on the road is a
+light mark ringed by a dark one.
 
 `roadSegments()` is where "a stretch of carriageway between two junction boxes" is worked out, and
 both the centre-line paint and the wear walk it — the two axes measure the ends against *each
