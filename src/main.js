@@ -6,6 +6,7 @@ import {
 } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
+import { createSurrounds } from './city/surrounds.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
 import { createGarage } from './city/garage.js';
@@ -197,6 +198,13 @@ daylight.setCycling(false);
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
 scene.add(markOccluder(createGround(makeRng(seed + 11), layout)));
+
+// What the island's feathered edge dissolves *into*: sea and moored boats off the two up-screen
+// borders, meadow and forest off the other two. See city/surrounds.js — and note it is not marked
+// as an occluder. AO buys contact creases on things the player is inches from, and the nearest of
+// these is twenty units past the last road.
+const surrounds = createSurrounds(makeRng(seed + 55));
+scene.add(surrounds.group);
 // Held onto for its `pad`: exactly one roof in the city carries a landing circle, and the
 // helicopter below has to be told which one — see `choosePad` in city/buildings.js.
 const city = createBuildings(makeRng(seed + 22), layout);
@@ -1970,6 +1978,7 @@ function frame() {
   vanish.update(dt);
   flyover.update(dt);
   chopper.update(dt);
+  surrounds.update(dt);
   // Handed last frame's taxi position, which is all a startle needs — it is a distance test with
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
   // scenery block in one place.

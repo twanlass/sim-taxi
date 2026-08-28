@@ -11,7 +11,7 @@ behind it that aren't obvious from the code.
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
 | [gameplay.md](gameplay.md) | The opening vignette, the opening tutorial, the fare loop, routing, dragging the route, the package courier, picking, the travelling clock, economy, crazy-taxi mode, pause | `src/game/` |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
-| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, effects | `src/game/scene.js`, `src/geometry/` |
+| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, the sea and country beyond it, effects | `src/game/scene.js`, `src/geometry/`, `src/city/surrounds.js` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 | [lab.md](lab.md) | The passing lab at `/lab/` — one straight road with no lights, for watching Loco Mode overtake | `src/lab/`, `lab/` |
 | [ios.md](ios.md) | The App Store build: the WKWebView shell, why a custom URL scheme rather than `file://`, the native flag | `ios/`, `src/util/platform.js` |
@@ -26,6 +26,12 @@ of every city is the depot rather than a block of towers. See
 After that, three speech bubbles from the taxi — "this car is you", "tap that rider", and a
 nod at the boost pill a couple of seconds after the first drop-off — and that is the whole tutorial;
 see [the opening tutorial](gameplay.md#the-opening-tutorial).
+
+The city is an island, and it now sits in something. The asphalt's feathered edge hands over to
+**open country** on the two borders that come toward the camera — meadow, scrub and clumps of
+forest — and to **sea** on the two that face up-screen, with surf on the beach and a few boats
+bobbing at anchor. None of it is playable; all of it is there so the map stops floating in blue.
+See [what is outside the city](rendering.md#what-is-outside-the-city--citysurroundsjs).
 
 A 5×5 block city on a fixed 3/4 orthographic camera. Ambient cars drive a lane-following traffic
 model with real signals. **The player's taxi is one of those cars** — the only difference is that

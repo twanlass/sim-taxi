@@ -353,6 +353,72 @@ export const PALETTE = {
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
 
+  // --- Outside the city — see `city/surrounds.js` ------------------------------
+  //
+  // The two up-screen borders are water and the two down-screen ones are open country. Every
+  // colour below is a *field* rather than a mark: they cover whole corners of the frame, so they
+  // are chosen a stop or two flatter than anything the player is meant to act on, and none of them
+  // is allowed to get near a marker's saturation. That is the same argument the flower beds are
+  // built on, taken from the other end — a bloom has to dodge the markers on hue because it is
+  // small and loud; an ocean can share a neighbourhood on hue because it is huge and quiet.
+  //
+  // The sea is the one that had to be checked rather than picked. Measured where `getHSL` measures
+  // — linear-sRGB, the working space, not what a colour picker shows for the same hex — it sits at
+  // 214°, which is 22° off the courier's cyan (192°) and clear of the same 20° bar the flower beds
+  // are held to. What actually separates them is **value**: 0.14 lightness against that marker's
+  // 0.34, which is what lets a field cover a corner of the frame in very nearly a marker's hue and
+  // still not be one. A first pass at #4E9DAE landed on 195° at 0.25 — three degrees and nine
+  // points of lightness off a courier pad, over an area ten thousand times larger.
+  sea: '#2C6288',
+  // The shallows. Lighter and greener, laid in by vertex colour over the first 76 units off the
+  // beach, which is the only thing in a flat sheet of water that says where the bottom is.
+  seaShallow: '#4C93B4',
+  // The surf line. Not white: pure white on this water under a golden-hour sun blows out into the
+  // same flat sheet the lane markings already are, which is why `coneBand` isn't white either.
+  foam: '#DCEFF2',
+  sand: '#CBBB92',
+
+  // The verge: bare dry earth in a ring round the city, laid under the asphalt's fade skirt.
+  //
+  // It exists because of what the skirt now fades *into*. Translucent grey over green mixes to a
+  // desaturated olive, and 16 units of it round the whole map read as a smudge — the city looked
+  // like it had a bruise. Warm and light enough to sit between the two, so the sequence outward is
+  // tarmac, then dust, then grass: a road that stops having a kerb before it stops being a road.
+  verge: '#8B8469',
+  // The lip between the sand and the water, which is only ever seen where a bay turns its mouth
+  // toward the camera. Wet sand, so two stops down from the dry beach above it.
+  wetSand: '#9A8A66',
+
+  // Open country. Deliberately *not* `park` (#6F9A5A): a park is mown municipal grass with a kerb
+  // round it and this is what the city hasn't reached yet, so it runs yellower and drier. The pale
+  // one is laid over the base in ragged patches, which is what stops 200 units of green reading as
+  // a billiard table.
+  meadow: '#6C934F',
+  meadowPale: '#7C9C57',
+  meadowDeep: '#5E8547',
+  // The wood. Darker and less yellow than the parks' `foliage` (#4F8F4A) for the same reason the
+  // meadow is lighter than `park`: distance, and the fact that a forest is a mass rather than a
+  // collection of trees. The conifers are darker again and turned toward blue — half the wood is
+  // spruce, and a spruce that shares the broadleaf's green is just a broadleaf shaped like a cone.
+  wildFoliage: '#4A7B42',
+  conifer: '#3B6B48',
+  // Rocks in the scrub. Cool rather than neutral, which is a lighting decision and not a taste
+  // one: the sun is #FFDEBB and the hemisphere fill is #F0C79B, so a grey with nothing in it comes
+  // back off the ground looking pink. Lit, this lands about where `kerb` (#8A887F) does — which is
+  // fine, a boulder in a field being the only grey thing for a hundred units.
+  boulder: '#7C8288',
+
+  // The boats. Chalky by design: see the note at the top of this block, and the one on
+  // `boatParts` in city/surrounds.js. Four hulls, drawn per boat — one working white, one
+  // weathered red lead, one slate and one drab green, which is very nearly the entire vocabulary
+  // of small craft that have been rained on.
+  boatHull: ['#D6D0C1', '#8E5A48', '#3E5E72', '#6E7A6A'],
+  // Deck, mast and rails — one weathered timber for every horizontal surface, the same way
+  // `rooftopIron` is one dark for every piece of ironwork on a roof.
+  boatTrim: '#B7AE9C',
+  boatCabin: '#C4BCAA',
+  sail: '#E4DFD2',
+
   // Flower beds on the arterials' medians — see `flowerBedParts` in city/props.js. Blooms are drawn
   // from this per *flower*, not per bed, so one bed carries four or five of them.
   //

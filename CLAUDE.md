@@ -106,7 +106,12 @@ Omit the whole section if there's nothing to note.
   `+1.00`, so the only face the camera saw was the bottom — a flat quad lying on the road, which
   reads exactly like z-fighting and got reported as such. `flatShading` (below) is why it lit like a
   surface instead of going black. Check the sign of a face normal computed *from the winding*;
-  `computeVertexNormals` launders a reversed triangle into whatever its neighbours say.
+  `computeVertexNormals` launders a reversed triangle into whatever its neighbours say. And
+  **the same ring code has two answers**: `asphaltFade` in `ground.js` is wound in Shape space and
+  laid down with a `rotateX` that flips the handedness, so copying its triangle order into
+  something assembled directly in world space reverses it. That is how the shoreline's foam
+  (`city/surrounds.js`) shipped facing the sea floor — culled, invisible, and indistinguishable
+  from having forgotten to add the mesh.
 - **An animation that opens at zero needs shot mode told to land it.** Shot mode ticks the fare loop
   **once** and then freezes, so anything driven off sim time is stuck on its first frame. Making the
   ground discs grow out of their own centre therefore removed the rider's disc from *every*

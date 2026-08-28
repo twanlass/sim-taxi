@@ -117,6 +117,14 @@ export const SHOTS = [
   // the road to get there — it flies into the HUD (game/cargochip.js), and shot mode hides the HUD.
   // Removed from the **end** of the list rather than blanked in place, which is the one edit the
   // index-addressing rule above allows without renumbering anything that survived.
+  //
+  // What is over the border (city/surrounds.js). Both are aimed *past* the city — the only two
+  // framings in the sweep whose subject is off the map — and both sit at a slightly wider zoom than
+  // play, because the question each answers is about a transition rather than about an object: does
+  // the asphalt's fade hand over to ground that belongs to it, and does the ground then hand over to
+  // water. A play-zoom framing of either shows the join and nothing on both sides of it.
+  { name: 'coast', description: 'the headland: city, foreshore, surf and moored boats', target: [-52, -52], zoom: 58, warmup: 12 },
+  { name: 'country', description: 'the open side: meadow, scrub and the forest past the last road', target: [42, 42], zoom: 58, warmup: 12 },
 ];
 
 export function getActiveShot() {
