@@ -27,10 +27,11 @@ export const PALETTE = {
   // of a cloud and its flanks are lit within a few percent of each other, and the only thing left
   // to say "this is a body and not a cut-out" is the gradient baked into it (geometry/cloud.js).
   //
-  // Neither is pure white, for the reason the roadworks' bands aren't (see `coneBand`): the sun is
-  // warm and strong enough that anything above about #F8 blows out into a flat sheet and takes the
-  // facets with it. The lit colour is a shade *cool* on top of that, which is what keeps it reading
-  // as white against a warm sun rather than as cream.
+  // Neither is pure white, for the reason the roadworks' bands aren't (see `coneBand`): a cloud
+  // sits against the palest thing in the game — the sky at the top of the dome is #8CC4E8 and its
+  // horizon is a near-white — and at #FF the two ends of the gradient stop separating from it and
+  // from each other. The lit colour is a shade *cool* on top of that, which is what keeps it
+  // reading as white rather than as cream.
   //
   // The shade is a proper cool blue, not a grey: it is standing in for the sky the underside is
   // being lit by, and the hemisphere fill it actually gets down there is the ground's warm brown

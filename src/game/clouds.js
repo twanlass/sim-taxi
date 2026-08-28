@@ -355,7 +355,18 @@ export function createClouds(scene, rng, { count = COUNT } = {}) {
   const clouds = [];
   for (let i = 0; i < POOL; i++) {
     const length = rng.range(SPAN[0], SPAN[1]);
-    const geometry = createCloudGeometry(rng, { span: length, height: length * HEIGHT_RATIO });
+    // The yaw is decided *before* the model is built, because the model bakes two view-dependent
+    // things into its vertices — the rim fade and the lobes' draw order — and both need to know
+    // which way the cloud will be facing. It is the one number the two modules have to agree on.
+    //
+    // **+45°, not -45°.** The project's convention is that yaw 0 aims a model down +X and rotation
+    // about Y takes +X to `(cos, 0, -sin)` (`dirYaw` in city/grid.js), so `RIGHT` — world (1, 0, -1),
+    // which is the direction screen `sx` runs in — is a **positive** quarter turn. The other sign
+    // aims the long axis down (1, 0, 1) instead, which is the horizontal part of the *view*
+    // direction: the cloud points straight into the screen, projects to nothing across the frame,
+    // and every one of them came out as a tall lumpy potato standing on end.
+    const yaw = (drift > 0 ? Math.PI / 4 : -3 * Math.PI / 4) + rng.jitter(YAW_JITTER);
+    const geometry = createCloudGeometry(rng, { span: length, height: length * HEIGHT_RATIO, yaw });
     // **Unlit, which is the one place this departs from everything else in the sky.** The scene's
     // key is `#FFDEBB` over a warm hemisphere fill, and a white lump under it comes back as a
     // sandstone boulder — see the long note in geometry/cloud.js, which is where the shading it
@@ -368,18 +379,15 @@ export function createClouds(scene, rng, { count = COUNT } = {}) {
     // `game/daylight.js` drives off the sky the same way it drives the haze.
     const material = unlitMaterial({ vertexColors: true, transparent: true });
     material.color.copy(tint);
+    // **No depth write, and that is the rim fade's other half.** Every lobe is translucent around
+    // its edge, so a lobe that stamped depth would punch a hole in whatever is drawn behind it —
+    // including the rest of its own cloud, whose lobes overlap by design. Blending them in order
+    // instead is what makes the overlaps read as one soft body, and the order is baked into the
+    // geometry at build time (see geometry/cloud.js).
+    material.depthWrite = false;
 
     const mesh = new THREE.Mesh(geometry, material);
-    // Long axis down the wind, give or take, and the jitter is what stops a dozen clouds reading as
-    // one repeated sprite.
-    //
-    // **+45°, not -45°.** The project's convention is that yaw 0 aims a model down +X and rotation
-    // about Y takes +X to `(cos, 0, -sin)` (`dirYaw` in city/grid.js), so `RIGHT` — world (1, 0, -1),
-    // which is the direction screen `sx` runs in — is a **positive** quarter turn. The other sign
-    // aims the long axis down (1, 0, 1) instead, which is the horizontal part of the *view*
-    // direction: the cloud points straight into the screen, projects to nothing across the frame,
-    // and every one of them came out as a tall lumpy potato standing on end.
-    mesh.rotation.y = (drift > 0 ? Math.PI / 4 : -3 * Math.PI / 4) + rng.jitter(YAW_JITTER);
+    mesh.rotation.y = yaw;
     // **Never a shadow caster.** At this sun — 28.5° up — a cloud at cruise throws its shadow some
     // 170 units downsun, which from an edge lane lands over the city and drifts across it. A moving
     // dark patch over the play area is the exact thing the rule at the top of this file exists to
@@ -390,7 +398,7 @@ export function createClouds(scene, rng, { count = COUNT } = {}) {
 
     clouds.push({
       mesh,
-      ...screenBox(geometry, mesh.rotation.y),
+      ...screenBox(geometry, yaw),
       // Which side of the island this one rides, and where in the band beyond it.
       side: i % 2 ? 1 : -1,
       depth: rng.next(),

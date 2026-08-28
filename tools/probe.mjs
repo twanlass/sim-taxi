@@ -8147,9 +8147,18 @@ let chopperOrder; // likewise
   let worstClearance = Infinity;
   let broadside = Infinity;
   let darkest = 1;
+  let faintest = 1;
+  let strongest = 0;
+  let solid = 0;
+  let seen = 0;
+  let alphaless = 0;
+  let chunked = 0;
+  let outOfOrder = 0;
   let shadows = 0;
   let behindCamera = 0;
   const corner = new THREE.Vector3();
+  const YAXIS = new THREE.Vector3(0, 1, 0);
+  const LOBE_VERTS = 240;      // a detail-1 icosahedron: 80 faces, non-indexed
 
   for (let s = 0; s < 4; s++) {
     const skyScene = new THREE.Scene();
@@ -8162,8 +8171,41 @@ let chopperOrder; // likewise
       // projects to almost nothing across the frame and reads as a lumpy potato on end.
       broadside = Math.min(broadside, (2 * cloud.reach) / (cloud.drop + cloud.rise));
       if (cloud.mesh.castShadow) shadows += 1;
-      const colours = cloud.mesh.geometry.attributes.color.array;
-      for (const v of colours) darkest = Math.min(darkest, v);
+
+      // Colour is rgb **and** the rim fade, so the darkest-channel walk has to step over the alpha
+      // — which reaches 0 by design, and read as a black cloud the first time this ran.
+      const colours = cloud.mesh.geometry.attributes.color;
+      if (colours.itemSize !== 4) alphaless += 1;
+      for (let v = 0; v < colours.count; v++) {
+        darkest = Math.min(darkest, colours.getX(v), colours.getY(v), colours.getZ(v));
+        const a = colours.getW(v);
+        faintest = Math.min(faintest, a);
+        strongest = Math.max(strongest, a);
+        if (a > 0.999) solid += 1;
+        seen += 1;
+      }
+
+      // Back to front, so the translucent lobes blend in depth order rather than painting over
+      // each other — see the sort in geometry/cloud.js. Every lobe is a detail-1 icosahedron, so
+      // the merged geometry is exactly 240 vertices per lobe and the chunks *are* the lobes.
+      const pos = cloud.mesh.geometry.attributes.position;
+      if (pos.count % LOBE_VERTS) chunked += 1;
+      let previous = -Infinity;
+      for (let lobe = 0; lobe + LOBE_VERTS <= pos.count; lobe += LOBE_VERTS) {
+        let depth = 0;
+        for (let v = lobe; v < lobe + LOBE_VERTS; v++) {
+          corner.set(pos.getX(v), pos.getY(v), pos.getZ(v))
+            .applyAxisAngle(YAXIS, cloud.mesh.rotation.y);
+          depth += corner.dot(VIEW_DIR);
+        }
+        depth /= LOBE_VERTS;
+        // Against a tolerance, because what is sorted is each lobe's **centre** and what is
+        // measured here is the mean of its vertices — and `jitterVertices` moves those about, so
+        // the two disagree by a few hundredths of a unit. Measured worst case on the shipped
+        // jitter: 0.05. Anything that is actually a sorting bug is a whole lobe out of place.
+        if (depth < previous - 0.25) outOfOrder += 1;
+        previous = Math.max(previous, depth);
+      }
     }
 
     // Eight minutes of drift each, which is a couple of laps of the run — a cloud crosses the
@@ -8200,10 +8242,18 @@ let chopperOrder; // likewise
     `${framings.length} framings, ${behindCamera} clipped`);
   check('nothing in the sky casts a shadow', shadows === 0,
     shadows ? `${shadows} clouds throwing a patch over the city` : 'the band would land on the map');
-  // The face shading is baked (geometry/cloud.js) precisely so an unlit cloud still has facets, and
-  // the floor under it is what keeps the unlit side reading as cloud rather than as rock.
+  // The light is baked (geometry/cloud.js), and the floor under it is what keeps the unlit side of
+  // a cloud reading as cloud rather than as rock.
   check('a cloud is bright even on its own shaded side', darkest > 0.12,
     `darkest baked channel ${darkest.toFixed(3)}`);
+  // And the fade, which is the whole of why a low-poly cloud does not read as one: it has to reach
+  // nothing at the silhouette *and* reach solid at the point of each lobe aimed at the camera. Only
+  // a few percent of a lobe's vertices are in that solid cap — the body of a cloud is opaque
+  // because its lobes stack, not because any one of them is — so what is asserted is the range.
+  check('the fade reaches both ends', alphaless === 0 && faintest < 0.02 && strongest > 0.999,
+    `alpha ${faintest.toFixed(3)} at the silhouette to ${strongest.toFixed(3)} at the core, ${(100 * solid / seen).toFixed(1)}% of vertices fully opaque`);
+  check('a cloud\'s lobes are built back to front', chunked === 0 && outOfOrder === 0,
+    `${outOfOrder} lobes out of depth order, ${chunked} clouds not a whole number of lobes`);
 
   // And the point of all of it: is there any weather in the picture? Measured on the framing that
   // has the least sky in it by a distance — a portrait phone at play zoom, where the island fills

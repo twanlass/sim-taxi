@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bakeColors, jitterVertices } from '../util/geo.js';
+import { jitterVertices } from '../util/geo.js';
 import { color, jitterColor } from '../palette.js';
 import { SUN } from '../game/scene.js';
+import { VIEW_DIR } from '../game/camera.js';
 
 // One cloud: a row of jittered icosahedra sitting on a common base plane, merged into a single
 // geometry. The same construction as a tree canopy in city/props.js — overlapping solids read as
@@ -15,6 +16,27 @@ import { SUN } from '../game/scene.js';
 // **The long axis is local +X**, the same convention every other body in the project uses
 // (`dirYaw` in city/grid.js turns a direction into the yaw that aims a +X model down it), so the
 // field can point a cloud down the wind with a single yaw.
+//
+// --- Soft, out of hard geometry ----------------------------------------------------------------
+//
+// Everything else in this game wants its facets: `flatShading` and a hard silhouette are the whole
+// look. A cloud is the exception — it has no surface, and a cumulus with visible polygons reads as
+// a rock — so this model is the one place in the project that goes the other way, and it does it
+// twice over:
+//
+//   - **Smooth normals.** The shading normal is the direction from the lobe's own centre to the
+//     vertex (as an ellipsoid, so the vertical squash is accounted for) rather than the triangle's
+//     winding, so the light runs *across* each face instead of stepping at every edge. Nothing is
+//     welded and no vertices are shared: the normal is computed, used, and thrown away, because the
+//     material is unlit and the shading it produces is already in the colour.
+//   - **A rim fade.** Alpha falls to zero as the surface turns away from the camera, so the
+//     silhouette — the one place a polygon can still be *seen* as a polygon — dissolves into the
+//     sky instead of ending on an edge. This is what "low poly" actually costs you on a cloud, and
+//     fading it is what buys back the softness without a single extra triangle.
+//
+// Both are baked into the vertex colours at build time, and **both only work because the camera
+// never rotates**: a rim fade is normally a shader computing `dot(normal, viewDir)` per fragment,
+// and here the view direction is a constant this module can import. See `RIM`.
 
 /**
  * How much each lobe is squashed vertically. A sphere of fluff reads as a boulder; a cumulus is
@@ -28,18 +50,23 @@ import { SUN } from '../game/scene.js';
  */
 const FLATTEN = 0.8;
 
-/** Per-lobe vertex jitter, as a fraction of that lobe's radius — matches the tree canopies' 0.1. */
-const LOBE_JITTER = 0.1;
+/**
+ * Per-lobe vertex jitter, as a fraction of that lobe's radius.
+ *
+ * Half what the tree canopies use. A jittered vertex moves off the ellipsoid the smooth normal is
+ * computed against, so every unit of jitter is a unit of disagreement between the shading and the
+ * shape — which on a flat-shaded canopy is free, and here shows up as a mottle. Enough to stop the
+ * lobes reading as billiard balls, not enough to fight the smoothing.
+ */
+const LOBE_JITTER = 0.05;
 
 /**
  * Where the gradient's two colours land, as a fraction of the cloud's height. The lit white is not
- * reached until 0.75 and the shadow bottoms out at 0.15, so the ramp spends itself across the
- * middle of the shape instead of across all of it: a gradient run corner to corner is a *tint*,
- * and what this wants is a lit cap and a cool underside with the change happening somewhere you
- * can point at.
+ * reached until 0.8 and the shadow bottoms out at 0.1, so the ramp spends itself across the whole
+ * body rather than banding in the middle of it.
  */
-const SHADE_LOW = 0.15;
-const SHADE_HIGH = 0.75;
+const SHADE_LOW = 0.1;
+const SHADE_HIGH = 0.8;
 
 // --- The light, baked in ----------------------------------------------------------------------
 //
@@ -52,12 +79,10 @@ const SHADE_HIGH = 0.75;
 // of base colour can undo it: a warm key cannot be cancelled by a base colour without going past
 // white in the blue channel.
 //
-// So the material is unlit (game/clouds.js) and the shading is baked here, per face, off the same
-// sun direction the scene uses. That buys back the thing the switch would otherwise have cost —
-// **an unlit cloud with only a vertical gradient has no facets at all**, and the facets are the
-// whole low-poly read — while leaving the colour exactly as authored. What it gives up is the
-// shading turning with the day; the *tint* still does, through `cloudTint` in game/clouds.js,
-// which is the half of it the eye actually tracks.
+// So the material is unlit (game/clouds.js) and the light is baked here, off the same sun direction
+// the scene uses, leaving the colour exactly as authored. What it gives up is the shading turning
+// with the day; the *tint* still does, through `cloudTint` in game/clouds.js, which is the half of
+// it the eye actually tracks.
 const LIGHT = new THREE.Vector3(
   Math.cos(SUN.azimuth) * Math.cos(SUN.elevation),
   Math.sin(SUN.elevation),
@@ -65,47 +90,96 @@ const LIGHT = new THREE.Vector3(
 ).normalize();
 
 /**
- * How much of a face's brightness is ambient rather than the sun's.
+ * How much of the brightness is ambient rather than the sun's.
  *
  * High, and deliberately: a cloud in its own shadow is still one of the brightest things in the
- * sky, and dropping the unlit side much below this reads as a rock. The remaining third is what
- * separates one facet from the next.
+ * sky, and dropping the unlit side much below this reads as a rock. What is left is a wash across
+ * the body rather than a light with a dark side — which is the whole of what a smooth normal buys,
+ * since the same number over a face normal was drawing hard-edged facets.
  */
-const AMBIENT = 0.68;
+const AMBIENT = 0.88;
+
+/**
+ * Where the fade starts, as a fraction of a lobe's radius **on the screen**.
+ *
+ * Measured across the drawn disc rather than off `dot(normal, VIEW_DIR)` directly, and that is the
+ * difference between a soft cloud and a cloud with a slightly blurred edge. The dot product is
+ * `cos` of the angle off the view axis, which stays near 1 across most of a sphere's disc and then
+ * collapses: fading on it linearly spends the *whole* ramp in the last tenth of the radius — about
+ * four pixels at play zoom — and the first build of this did exactly that and still read as an
+ * edge. `sin` of the same angle is the screen radius, and fading on that puts the ramp where it can
+ * be seen.
+ *
+ * It trades softness against body, and both ends of that are visible: at 0.3 — solid across only
+ * the inner third of the disc — the clouds came out as pale ghosts with every lobe showing through
+ * every other one, because a cloud is opaque by *stacking* translucent lobes and a third of a disc
+ * is not enough to stack with. At 0.52 the solid part carries the body and the outer half of each
+ * lobe is what dissolves. It still costs size — a lobe reads about a quarter smaller than it
+ * measures — which is what `EDGE_GAIN` is for.
+ */
+const FEATHER = 0.38;
+
+/**
+ * How deep inside a *neighbouring* lobe a vertex has to sit, as a fraction of that lobe's radius,
+ * before the fade lets go of it entirely.
+ *
+ * The fade is a statement about the outside of the cloud, and a lobe buried in the middle of one
+ * has no outside. Applied blindly it fades every lobe's rim against its own neighbours, and the
+ * cloud comes back as a row of overlapping *discs*: each intersection curve draws an arc, because
+ * that is exactly where one lobe's surface is turning away from the camera while the next one's is
+ * still solid. Lifting the alpha back to 1 wherever another lobe is standing behind this surface is
+ * what turns the heap into one body — and it is the same test that would let those triangles be
+ * deleted outright, if the count were ever worth the trouble.
+ */
+const BURY = 0.12;
+
+/**
+ * What the lobes are grown by to pay for that. The fade eats the outside of every lobe, so a cloud
+ * built to the size it should *look* comes out small and thin; this puts it back. Applied to the
+ * radii and not to the span, so the lobes overlap harder and the cloud closes up rather than
+ * getting longer.
+ */
+const EDGE_GAIN = 1.28;
 
 const smoothstep = (t) => t * t * (3 - 2 * t);
 
 /**
- * A cloud, as one merged non-indexed geometry with its colour baked per vertex.
+ * A cloud, as one merged non-indexed geometry with colour **and alpha** baked per vertex.
  *
  * `span` is the long axis and `height` the top of the tallest lobe above the base plane — the
  * geometry is built with its base on y = 0 and its middle at x = z = 0, so the field can place it
  * by its underside and turn it about its own centre.
  *
- * The gradient is the lighting that a directional sun cannot give a white lump: at this sun's
- * elevation the top of a cloud is lit and its flanks are lit very nearly as much, so the shape
- * comes back as a flat white blob with facets. Baking the sky's own shadow into the vertices —
- * cool and blue underneath, white on top — is what puts a body back into it, and it costs nothing:
- * `bakeColors` writes a colour per vertex and `vColor` interpolates across a flat-shaded triangle
- * exactly as it would across a smooth one (see util/geo.js).
+ * `yaw` is the rotation the mesh will be given, and it is a *parameter* rather than something to be
+ * applied afterwards because two of the things baked in here are view-dependent: the rim fade needs
+ * the surface's angle to the camera, and the draw order below needs each lobe's depth. Both are
+ * computed in the model's own space, against a light and a view direction turned backwards through
+ * the yaw, which is the same arithmetic and one rotation instead of thousands.
  */
-export function createCloudGeometry(rng, { span = 32, height = 11 } = {}) {
+export function createCloudGeometry(rng, { span = 32, height = 11, yaw = 0 } = {}) {
   // The biggest lobe is the one that sets the height: `height = (1 + FLATTEN) · r` for a lobe
   // whose base is on y = 0, since its centre stands FLATTEN·r up and its cap reaches FLATTEN·r
   // above that.
   const rMax = height / (1 + FLATTEN);
-  const parts = [];
+  const lobes = [];
 
   /** A lobe: radius r, centred `x` along the long axis and `z` across it, base on y = 0. */
   const lobe = (r, x, z, lift = 0) => {
-    // Detail 1 for the lobes that carry the silhouette, 0 for the small ones riding on top — the
-    // split the tree canopies make, for the same reason: a 20-face icosahedron at 7 units across
-    // is a crystal, and at 3 units across it is a puff.
-    const geo = new THREE.IcosahedronGeometry(r, r > rMax * 0.62 ? 1 : 0);
-    jitterVertices(geo, rng, r * LOBE_JITTER);
+    const grown = r * EDGE_GAIN;
+    // Detail 1 throughout, where the flat-shaded build used 0 for the small ones. A 20-face
+    // icosahedron is a crystal, and smoothing its normals only turns it into a crystal with a
+    // gradient painted on: the silhouette is still a decagon, and the silhouette is the half of it
+    // the rim fade cannot fully hide on a lobe this size.
+    const geo = new THREE.IcosahedronGeometry(grown, 1);
+    jitterVertices(geo, rng, grown * LOBE_JITTER);
     geo.scale(1, FLATTEN, 1);
-    geo.translate(x, FLATTEN * r + lift, z);
-    parts.push(geo);
+    // Not needed and not carried: the material is unlit, so three never reads a normal, and every
+    // lobe has to present the same attributes for `mergeGeometries` to accept them.
+    geo.deleteAttribute('normal');
+    geo.deleteAttribute('uv');
+    const centre = new THREE.Vector3(x, FLATTEN * r + lift, z);
+    geo.translate(centre.x, centre.y, centre.z);
+    lobes.push({ geo, centre, radius: grown });
   };
 
   // The main row, spread along the long axis with the fat lobes in the middle. The sine profile is
@@ -117,7 +191,7 @@ export function createCloudGeometry(rng, { span = 32, height = 11 } = {}) {
   // them then decides whether they overlap by luck. At four lobes over a 46-unit span the spacing
   // came out at 11.5 against a radius of 7.7 and the cloud arrived as a *string of separate balls*.
   // This spaces them at 1.15 radii, which always closes.
-  const count = Math.max(3, Math.round(span / (rMax * 1.15)));
+  const count = Math.max(4, Math.round(span / (rMax * 0.82)));
   for (let i = 0; i < count; i++) {
     const t = (i + 0.5) / count;
     const r = rMax * (0.44 + 0.56 * Math.sin(Math.PI * t)) * rng.range(0.86, 1.06);
@@ -128,15 +202,26 @@ export function createCloudGeometry(rng, { span = 32, height = 11 } = {}) {
   // the middle 60% of the span, where the row underneath them is fat enough to carry one, and their
   // lift is deliberately less than the lobe they sit on is tall so they always break its surface
   // rather than floating clear of it — the rule the tree canopy's `reach` follows.
-  for (let n = 0, puffs = Math.max(1, count - 2); n < puffs; n++) {
-    const r = rMax * rng.range(0.34, 0.52);
-    lobe(r, rng.jitter(span * 0.3), rng.jitter(rMax * 0.25), rMax * rng.range(0.4, 0.7));
+  for (let n = 0, puffs = Math.max(2, count - 2); n < puffs; n++) {
+    const r = rMax * rng.range(0.34, 0.58);
+    lobe(r, rng.jitter(span * 0.34), rng.jitter(rMax * 0.3), rMax * rng.range(0.35, 0.75));
   }
 
-  // `mergeGeometries` keeps non-indexed inputs non-indexed, which is what lets the colours below be
-  // written straight against the merged position attribute. Handing `bakeColors` an indexed
-  // geometry would have it un-index first and strand an array of the wrong length.
-  const geometry = mergeGeometries(parts);
+  // The light and the camera, turned backwards through the yaw so both can be used against the
+  // model's own coordinates. `n_world · v` is `(Ry(yaw) · n) · v`, which is `n · (Ry(-yaw) · v)`.
+  const axis = new THREE.Vector3(0, 1, 0);
+  const light = LIGHT.clone().applyAxisAngle(axis, -yaw);
+  const view = VIEW_DIR.clone().applyAxisAngle(axis, -yaw);
+
+  // **Back to front, and it holds for the life of the cloud.** The rim fade makes every lobe
+  // translucent at its edges, so the lobes have to be blended in depth order or a far one paints
+  // over a near one's core — and with `depthWrite` off (game/clouds.js) nothing else is going to
+  // stop it. Sorting per *frame* is what an engine normally has to do here; this camera never
+  // rotates, so the order is a property of the model and is settled once, at build time. Per lobe
+  // is enough because a lobe is convex: its own front faces cannot overlap each other on screen.
+  lobes.sort((a, b) => a.centre.dot(view) - b.centre.dot(view));
+
+  const geometry = mergeGeometries(lobes.map((l) => l.geo));
 
   // Per-cloud tint, on top of the gradient: a sky of identically white clouds reads as a texture
   // rather than as weather. Narrow — this is one hue with a couple of points of lightness in it.
@@ -144,34 +229,58 @@ export function createCloudGeometry(rng, { span = 32, height = 11 } = {}) {
   const shade = jitterColor(color('cloudShade'), rng, { h: 0.004, s: 0.03, l: 0.035 });
 
   const pos = geometry.attributes.position;
-  const colors = new Float32Array(pos.count * 3);
+  // Four components: rgb and the rim fade. The same trick the island's own edge fade uses
+  // (city/ground.js) — three reads an itemSize of 4 as `USE_COLOR_ALPHA` and multiplies it into the
+  // material's opacity, so a per-vertex fade needs no shader of its own.
+  const colors = new Float32Array(pos.count * 4);
   const mix = new THREE.Color();
-  const a = new THREE.Vector3();
-  const b = new THREE.Vector3();
-  const c = new THREE.Vector3();
   const normal = new THREE.Vector3();
 
-  // Walked a triangle at a time, and the normal comes off the **winding** rather than off the
-  // normal attribute: `mergeGeometries` carries the icosahedra's own normals through, but a
-  // geometry this module has scaled and translated is exactly the kind whose stored normals are
-  // one edit away from being stale, and a reversed face here reads as a hole rather than as an
-  // error. Every input is non-indexed, so three positions in a row really are a triangle — which
-  // is not true in general (see the courier pad's winding check in tools/probe.mjs).
-  for (let i = 0; i < pos.count; i += 3) {
-    a.fromBufferAttribute(pos, i);
-    b.fromBufferAttribute(pos, i + 1);
-    c.fromBufferAttribute(pos, i + 2);
-    normal.copy(b).sub(a).cross(c.sub(a)).normalize();
-    const key = AMBIENT + (1 - AMBIENT) * Math.max(0, normal.dot(LIGHT));
+  let at = 0;
+  const inside = new THREE.Vector3();
+  for (const lobe of lobes) {
+    const { geo, centre } = lobe;
+    const lobePos = geo.attributes.position;
+    for (let i = 0; i < lobePos.count; i++) {
+      // How far into its deepest neighbour this vertex sits, as a fraction of that lobe's radius.
+      // Measured in the *sphere's* space — the y undone by FLATTEN — since that is the shape a lobe
+      // was before it was squashed, and the only space its radius means anything in.
+      let buried = 0;
+      for (const other of lobes) {
+        if (other === lobe) continue;
+        inside.set(lobePos.getX(i), lobePos.getY(i), lobePos.getZ(i)).sub(other.centre);
+        inside.y /= FLATTEN;
+        buried = Math.max(buried, 1 - inside.length() / other.radius);
+      }
 
-    for (let v = i; v < i + 3; v++) {
-      const t = (pos.getY(v) / height - SHADE_LOW) / (SHADE_HIGH - SHADE_LOW);
+      normal.set(lobePos.getX(i), lobePos.getY(i), lobePos.getZ(i)).sub(centre);
+      // The ellipsoid's normal, not the sphere's: with the body squashed by FLATTEN the outward
+      // normal at a point is `(x, y / FLATTEN², z)`. Left as `p - centre` the top of every lobe
+      // reports itself as more upright than it is, and the shading rolls off in the wrong place.
+      normal.y /= FLATTEN * FLATTEN;
+      normal.normalize();
+
+      const key = AMBIENT + (1 - AMBIENT) * Math.max(0, normal.dot(light));
+      const t = (lobePos.getY(i) / height - SHADE_LOW) / (SHADE_HIGH - SHADE_LOW);
       mix.copy(shade).lerp(lit, smoothstep(THREE.MathUtils.clamp(t, 0, 1))).multiplyScalar(key);
-      colors[v * 3] = mix.r;
-      colors[v * 3 + 1] = mix.g;
-      colors[v * 3 + 2] = mix.b;
+
+      colors[at] = mix.r;
+      colors[at + 1] = mix.g;
+      colors[at + 2] = mix.b;
+      // Where this vertex lands on the lobe's drawn disc: 0 at the point aimed straight at the
+      // camera, 1 at the silhouette — `sin` of the angle off the view axis, which for a sphere is
+      // exactly the screen radius. Anything facing away is zero outright: those faces are culled,
+      // but `edge` alone cannot tell the near side of a lobe from the far one.
+      const facing = normal.dot(view);
+      const edge = Math.sqrt(Math.max(0, 1 - facing * facing));
+      const fade = facing <= 0
+        ? 0
+        : 1 - smoothstep(THREE.MathUtils.clamp((edge - FEATHER) / (1 - FEATHER), 0, 1));
+      colors[at + 3] = Math.max(fade, smoothstep(THREE.MathUtils.clamp(buried / BURY, 0, 1)));
+      at += 4;
     }
   }
 
-  return bakeColors(geometry, colors);
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 4));
+  return geometry;
 }

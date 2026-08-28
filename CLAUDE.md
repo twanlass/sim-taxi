@@ -294,6 +294,15 @@ Omit the whole section if there's nothing to note.
   line that could reach the sky beside the two edges the wind is not parallel to crosses the city on
   its way. Half the map had weather and half never could — 0.13 clouds in frame on a phone against
   1.04 on a desktop. Where a thing has to stay outside a shape, the shape is usually the path.
+- **A rim fade on `dot(normal, view)` spends its whole ramp in the last tenth of the radius.** That
+  dot is the *cosine* of the angle off the view axis, and a cosine sits near 1 across most of a
+  sphere's disc and then falls off a cliff: fading linearly on it feathers a 40-pixel cloud lobe over
+  about four pixels, which reads as a slightly blurry edge and not as soft at all. The screen radius
+  is the **sine** of the same angle — `sqrt(1 - d²)` — and fading on that puts the ramp where it can
+  be seen (`geometry/cloud.js`). Two things travel with it: the shape has to be grown to pay for
+  what the fade eats, and a surface *buried inside a neighbour* has to be exempted, or every
+  intersection curve between two lobes draws an arc where one is turning away while the other is
+  still solid.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

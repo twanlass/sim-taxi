@@ -1453,12 +1453,52 @@ the sidewalk, and the cool underside the palette asks for multiplied out of exis
 is right for a city at golden hour and wrong for the only white object in the sky, and no base colour
 undoes it: a warm key cannot be cancelled without going past white in the blue channel.
 
-So the material is `unlitMaterial()` and the shading is **baked per face** in `geometry/cloud.js`,
-off the same sun direction the scene uses. That buys back what the switch would otherwise cost — an
-unlit cloud with only a vertical gradient has no facets at all, and the facets are the whole low-poly
-read — while leaving the colour exactly as authored: `cloudLit` white on top, `cloudShade` blue
-underneath, with a two-thirds ambient floor under the face shading so the unlit side stays cloud
-rather than rock.
+So the material is `unlitMaterial()` and the light is **baked into the vertices** in
+`geometry/cloud.js`, off the same sun direction the scene uses, leaving the colour exactly as
+authored: `cloudLit` white on top, `cloudShade` blue underneath, over an ambient floor of 0.88 so
+the unlit side of a cloud stays one of the brightest things in the sky.
+
+#### Soft, out of hard geometry
+
+Everything else in this game wants its facets — `flatShading` and a hard silhouette are the whole
+look. A cloud is the exception, and it takes three things to get there, all of them baked at build
+time and all of them possible only because **the camera never rotates**.
+
+**Smooth normals.** The shading normal is the direction from the lobe's own centre to the vertex,
+as an ellipsoid so the vertical squash is accounted for, rather than the triangle's winding. The
+light then runs across each face instead of stepping at every edge. Nothing is welded and no
+vertices are shared: the normal is computed, used and thrown away, because the material is unlit and
+the shading it produces is already in the colour. The per-lobe jitter is half the tree canopies' —
+every unit of it is a unit of disagreement between the shading and the shape, which is free on a
+flat-shaded canopy and a mottle here.
+
+**A fade at the edges**, in the alpha of a 4-component vertex colour — the same trick the island's
+own [edge fade](#the-island-edge--citygroundjs) uses, so it needs no shader. This is what actually
+stops a cloud reading as low-poly: the silhouette is the one place a polygon can still be *seen* as
+a polygon, and dissolving it costs nothing but the numbers.
+
+The fade is measured across the lobe's **drawn disc** — `sin` of the angle off the view axis — and
+not off `dot(normal, VIEW_DIR)` directly. That is the difference between a soft cloud and a cloud
+with a slightly blurred edge: the dot product is `cos` of that angle, which stays near 1 across most
+of a disc and then collapses, so fading on it spends the whole ramp in the last tenth of the radius,
+about four pixels at play zoom. The first build did exactly that and still read as an edge.
+
+Two corrections come with it. The lobes are grown 28% (`EDGE_GAIN`), because a fade eats the outside
+of every one of them and a cloud built to the size it should look comes out small and thin. And a
+vertex buried in a *neighbouring* lobe has its alpha put back to 1 (`BURY`): the fade is a statement
+about the outside of a cloud, and applied blindly it fades every lobe against its own neighbours —
+each intersection curve draws an arc, because that is exactly where one lobe's surface is turning
+away from the camera while the next one's is still solid, and the cloud comes back as a row of
+overlapping discs.
+
+**No depth write, and the lobes pre-sorted back to front.** Every lobe is translucent around its
+edge, so one that stamped depth would punch a hole in whatever is drawn behind it — including the
+rest of its own cloud. Blending them in depth order is what makes the overlaps read as one body, and
+sorting per frame is what an engine normally has to do here: this camera never rotates, so the order
+is a property of the model and is settled once, at build time. Per lobe is enough because a lobe is
+convex — its own front faces cannot overlap each other on screen.
+
+About 960 triangles a cloud and ten in the sky, against 34k for the city.
 
 What it gives up is the shading turning with the day. The *tint* still does: `cloudTint()` is a
 function of the sky the same way `hazeColor()` is, and `game/daylight.js` drives it on every
@@ -1479,8 +1519,9 @@ top broken up by the lobes themselves.
 
 **How many lobes is derived from the span, not drawn.** At four lobes over a 46-unit span the
 spacing came out at 11.5 against a radius of 7.7 and the cloud arrived as a string of separate
-balls; spacing them at 1.15 radii always closes. Puffs ride the shoulders over the middle 60%, lifted
-by less than the lobe under them is tall so they always break its surface.
+balls; spacing them at 0.82 radii always closes, and closes hard enough that no single circle
+carries the outline. Puffs ride the shoulders over the middle 60%, lifted by less than the lobe under
+them is tall so they always break its surface.
 
 The long axis lies down the wind, which is **+45°** and not −45°: the project's convention takes +X
 to `(cos, 0, −sin)`, so `RIGHT` — world (1, 0, −1), the direction screen `sx` runs in — is a positive
