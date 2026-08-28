@@ -174,15 +174,27 @@ const PALE_LIFT = [1.5, 1.75];
 const BLUE_TINT = [0.85, 0.97, 1.16];
 const GREEN_TINT = [0.88, 1.08, 0.92];
 
-/** One bird's plumage: a colour multiplier shared by its body and both wings. */
-export function birdTint(rng) {
+/** How much of a flock wears the pale morph. The rest of the mix is measured off it — see below. */
+export const PALE_SHARE = 0.2;
+
+/**
+ * One bird's plumage: a colour multiplier shared by its body and both wings.
+ *
+ * @param pale  the share of birds wearing the pale morph. The default is the flock's own mix; the
+ *              ducks (game/ducks.js) ask for far more of it, because their background is not the
+ *              lawn these were balanced against — it is `pondWater`, 40 luma darker, and a
+ *              blue-grey bird on it is a bird nobody sees. The two hue morphs keep their share of
+ *              what is left, so raising this thins the *common grey* rather than reshuffling the
+ *              whole mix.
+ */
+export function birdTint(rng, { pale = PALE_SHARE } = {}) {
   const roll = rng.next();
-  if (roll < 0.2) return new THREE.Color().setScalar(rng.range(PALE_LIFT[0], PALE_LIFT[1]));
+  if (roll < pale) return new THREE.Color().setScalar(rng.range(PALE_LIFT[0], PALE_LIFT[1]));
   // The hue morphs keep the grey jitter's light/dark spread on top of the hue, narrowed a touch —
   // a dark bird is fine, a dark *and* strongly tinted one starts to read as painted.
   const shade = rng.range(0.9, 1.08);
-  if (roll < 0.36) return new THREE.Color(...BLUE_TINT).multiplyScalar(shade);
-  if (roll < 0.5) return new THREE.Color(...GREEN_TINT).multiplyScalar(shade);
+  if (roll < pale + 0.16) return new THREE.Color(...BLUE_TINT).multiplyScalar(shade);
+  if (roll < pale + 0.30) return new THREE.Color(...GREEN_TINT).multiplyScalar(shade);
   // The common bird: the pure grey jitter the whole flock used to draw from.
   return new THREE.Color().setScalar(rng.range(0.86, 1.12));
 }
@@ -207,8 +219,10 @@ export function parkAreas(layout) {
  *               and it is handed our own `state` so a caller holding all of them can drop *this*
  *               one from the list by identity, without the two ends having to agree on an index.
  *               The default makes a lone flock behave exactly as it did before there were two.
+ * @param keepOut  circles on the lawn `{ x, z, r }` a bird may not stand in — the duck pond, which
+ *               a walking pigeon would otherwise cross like any other patch of grass.
  */
-export function createBirds(scene, rng, layout, { avoid = () => [] } = {}) {
+export function createBirds(scene, rng, layout, { avoid = () => [], keepOut = [] } = {}) {
   const group = new THREE.Group();
   group.name = 'birds';
   scene.add(group);
@@ -317,9 +331,41 @@ export function createBirds(scene, rng, layout, { avoid = () => [] } = {}) {
     z0: area.z0 + PARK_INSET, z1: area.z1 - PARK_INSET,
   });
 
+  /**
+   * A point moved to the nearest dry land, if it landed in the water.
+   *
+   * Pushed radially out rather than redrawn, for two reasons: a redraw can land in the same pond
+   * and needs a retry budget, and a bird walking *to the water's edge* and stopping is what a bird
+   * beside a pond does anyway. It cannot push one off the lawn — a pond keeps `POND_SET` from the
+   * block's edge, which is wider than the `PARK_INSET` a bird is already held inside.
+   *
+   * Out to the edge **and a hair past it**, which is not cosmetic. `stopAtShore` below solves a
+   * quadratic for where a walk first crosses the circle, and a bird standing exactly on it makes
+   * that equation's constant term zero: the crossing comes out at t = 0, reads as "behind the start
+   * of the walk", and every target across the water is waved through. Landing a placement 0.05
+   * outside instead is what keeps the two functions from disagreeing about which side of the line a
+   * bird is on — which was worth 700 bird-frames in the pond over ten minutes.
+   */
+  const SHORE_SLACK = 0.05;
+
+  function ashore(p) {
+    for (const keep of keepOut) {
+      const dx = p.x - keep.x;
+      const dz = p.z - keep.z;
+      const d = Math.hypot(dx, dz);
+      if (d >= keep.r + SHORE_SLACK) continue;
+      const out = keep.r + SHORE_SLACK;
+      // Dead centre has no direction to leave by; +X is as good as any and keeps this deterministic.
+      const s = d > 1e-4 ? out / d : 0;
+      p.x = keep.x + (s ? dx * s : out);
+      p.z = keep.z + dz * s;
+    }
+    return p;
+  }
+
   function spotIn(area) {
     const b = inside(area);
-    return { x: rng.range(b.x0, b.x1), z: rng.range(b.z0, b.z1) };
+    return ashore({ x: rng.range(b.x0, b.x1), z: rng.range(b.z0, b.z1) });
   }
 
   /**
@@ -347,10 +393,52 @@ export function createBirds(scene, rng, layout, { avoid = () => [] } = {}) {
     return rng.pick(moved.length ? moved : areas);
   }
 
+  /**
+   * The same job for a *walk* rather than a placement: a target beyond the water is pulled back to
+   * the near shore, so the bird stops at the edge instead of striking out across it.
+   *
+   * Placing the target ashore is not enough on its own, and that is the whole reason this exists.
+   * `WANDER` is 3.6 and a pond is under 3.3 across, so a bird standing at one edge can draw a spot
+   * past the far edge; pushed radially out of the circle that spot lands on the *far* shore, which
+   * is a perfectly dry target with a pond in the way of it. Clipping the segment is what makes the
+   * water an obstacle rather than a forbidden destination.
+   */
+  function stopAtShore(fromX, fromZ, p) {
+    for (const keep of keepOut) {
+      const dx = p.x - fromX;
+      const dz = p.z - fromZ;
+      const a = dx * dx + dz * dz;
+      if (a < 1e-8) continue;
+      const fx = fromX - keep.x;
+      const fz = fromZ - keep.z;
+      const b = 2 * (fx * dx + fz * dz);
+      const c = fx * fx + fz * fz - keep.r * keep.r;
+      if (c <= 0) {                                         // already in the water, which `ashore`
+        p.x = fromX;                                        // is there to prevent — hold position
+        p.z = fromZ;                                        // rather than walk it further in
+        continue;
+      }
+      const disc = b * b - 4 * a * c;
+      if (disc <= 0) continue;                              // the walk misses the water entirely
+      const hit = (-b - Math.sqrt(disc)) / (2 * a);         // where it first crosses the edge
+      if (hit <= 0 || hit >= 1) continue;                   // ...beyond either end of the walk
+      // Stopped a step short of the edge rather than on it, so a bird ends up beside the water
+      // rather than with its feet in it.
+      const stop = Math.max(0, hit - 0.3 / Math.sqrt(a));
+      p.x = fromX + dx * stop;
+      p.z = fromZ + dz * stop;
+    }
+    return p;
+  }
+
   function newTarget(bird) {
     const b = inside(state.area);
-    bird.tx = clamp(bird.x + rng.jitter(WANDER), b.x0, b.x1);
-    bird.tz = clamp(bird.z + rng.jitter(WANDER), b.z0, b.z1);
+    const to = stopAtShore(bird.x, bird.z, {
+      x: clamp(bird.x + rng.jitter(WANDER), b.x0, b.x1),
+      z: clamp(bird.z + rng.jitter(WANDER), b.z0, b.z1),
+    });
+    bird.tx = to.x;
+    bird.tz = to.z;
   }
 
   function centre() {

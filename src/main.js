@@ -31,6 +31,7 @@ import { carrySpeed } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createChopper } from './game/chopper.js';
 import { createBirds } from './game/birds.js';
+import { createDucks } from './game/ducks.js';
 import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
@@ -241,8 +242,11 @@ scene.add(markOccluder(createGround(makeRng(seed + 11), layout)));
 const city = createBuildings(makeRng(seed + 22), layout);
 scene.add(markOccluder(city.mesh));
 // Held onto for the entrance animation below — the trees rise out of the parks the same way the
-// buildings rise out of their lots.
-const propsMesh = createProps(makeRng(seed + 33), layout);
+// buildings rise out of their lots — and for its `pond`: exactly one park in the city has water in
+// it, and the ducks floating on it have to be told which one. Null on a city with no park big
+// enough, which the chain below handles rather than guards against. See city/pond.js.
+const props = createProps(makeRng(seed + 33), layout);
+const propsMesh = props.mesh;
 scene.add(markOccluder(propsMesh));
 
 // The taxi's garage — the block `createLayout` took out of the tower generator's hands, and the
@@ -490,12 +494,23 @@ const chopper = createChopper(scene, makeRng(runSeed + 233), city.pad, {
 // flock's own `state` so it can drop itself out of the list by identity. Built in a loop with
 // `push` rather than `map` because `createBirds` settles the flock before it returns — it calls
 // `avoid` during construction, so the array it closes over has to already exist.
+//
+// The pond is the one thing on a lawn a walking bird cannot be allowed to cross, so both flocks are
+// handed it as a keep-out. A little wider than the water itself: the outline never exceeds the
+// pond's nominal radius, and the rest is a bird's own length, so one stops *beside* the water
+// rather than with its tail over it.
 const flocks = [];
 for (const offset of [199, 211]) {
   flocks.push(createBirds(scene, makeRng(runSeed + offset), layout, {
     avoid: (state) => flocks.filter((f) => f.state !== state).map((f) => f.state.area),
+    keepOut: props.pond ? [{ x: props.pond.x, z: props.pond.z, r: props.pond.r + 0.7 }] : [],
   }));
 }
+
+// And the birds that are already on it. Their own life, and a much smaller one than a flock's: they
+// paddle about, sit, dabble, and never leave. Run seed like the flocks — which park has the water
+// in it is the map, and what the birds on it are doing is the situation. See game/ducks.js.
+const ducks = createDucks(scene, makeRng(runSeed + 299), props.pond);
 
 // A street closed for roadworks, once per run, forty seconds or so in — see game/roadwork.js.
 // Ambient traffic routes around it and the taxi has never heard of it, so the closed street is the
@@ -2190,6 +2205,7 @@ function frame() {
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
   // scenery block in one place.
   for (const flock of flocks) flock.update(dt, traffic.taxi);
+  ducks.update(dt);
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 
@@ -2691,6 +2707,15 @@ if (shot) {
     controller.update(aspect());
   }
 
+  // The pond, framed on the water itself. `pond-far` uses the same aim at play zoom, which is why
+  // this is one flag and not two: the question the far shot asks is whether the thing you can see
+  // close up is still legible in the frame the game is actually played in, and that only means
+  // anything if both are pointed at the same water.
+  if (shot.atPond && ducks.pond) {
+    controller.state.target.set(ducks.pond.x, 0, ducks.pond.z);
+    controller.update(aspect());
+  }
+
   // Stage a take-off and freeze it partway up. Same argument as the flyover and the wreck: the
   // flock is on the grass for most of a run and the departure is over in a couple of seconds, so
   // without this the only way to look at one is to load the game and drive at a park. `birdsAt` is
@@ -3014,6 +3039,8 @@ window.__taxi = {
   cityEntry,
   // Every flock in the city, in build order — `flocks[0]` is the one shot 18 frames.
   flocks,
+  /** The birds on the park pond, and `ducks.pond` the water they are on — null if the city has none. */
+  ducks,
   roadwork,
   pause,
   routeTo,

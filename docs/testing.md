@@ -147,6 +147,15 @@ so a framing centred on the city photographs the one part of the sky they are ne
 why they turn up in the corners of every *other* shot — that is the band doing its job, not a shot
 that needs recomposing.
 
+Shots 25–26 (`pond`, `pond-far`) are the [duck pond](rendering.md#the-duck-pond--citypondjs-gameducksjs),
+close and at play zoom, and neither stages anything — a pond has no moment, and the ducks are posed
+the instant they are built precisely so a frozen frame has birds sitting on the water rather than a
+default pose. Both aim at the same water, which is the point of having two: the close one asks
+whether it reads as water at all (a shore, a dark middle, birds *in* the surface rather than on it)
+and the far one whether it is a landmark you notice while driving past or a blue smudge on a lawn.
+The close framing is what caught the first two versions — ducks floating half-submerged, and a mix of
+plumage balanced against grass rather than against water.
+
 There were two more, `parcel-aboard` and `parcel-flight`, and both photographed a load that has since
 left the world: a collected box no longer rides on the taxi's rear deck and no longer crosses the road
 to get there — it flies into the HUD, and **shot mode hides the HUD**. There is nothing left for a still

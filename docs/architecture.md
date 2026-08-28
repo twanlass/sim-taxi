@@ -15,6 +15,7 @@ src/
     ground.js           roads, kerbs, block surfaces, crosswalks
     buildings.js        one merged mesh of blocky towers
     props.js            trees, street furniture
+    pond.js             the one duck pond: which park it lands in, and the water itself
     garage.js           the taxi's depot: which block it takes, and the roller door on the front
 
   sim/                  things that move on their own
@@ -52,6 +53,7 @@ src/
     flyover.js          the ambient plane that crosses the city every so often — scenery, nothing more
     chopper.js          the helicopter that lands on the city's rooftop helipad, idles and leaves
     birds.js            the park flocks: walk the grass, startled up by the taxi, come back; two per city
+    ducks.js            the birds on the pond: paddle, sit, dabble, never leave
     clouds.js           the weather ringing the island — placed on the screen, never over the city
     opening.js          the opening vignette: camera onto the garage door, door up, taxi out
     runend.js           the run-end blackout: stats counted out, then initials, then the table
