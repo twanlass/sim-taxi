@@ -22,7 +22,7 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 //
 // ## Why it sits with the money and not with the rider chips
 //
-// The bottom-left row is the reach zone: everything in it — the Loco Mode pill, every rider chip —
+// The bottom-left corner is the reach zone: everything in it — the throttle, every rider chip —
 // is a control, and a chip parked at the end of that row would be the one that does nothing when
 // pressed. **A package cannot be selected**; that is the whole of game/parcels.js. Up beside the
 // cash total it is unambiguously a readout, in the corner the run's other state already lives in,

@@ -111,7 +111,7 @@ export const LOCO_PUNCH = 0.76;
 
 // How long the button has to stay down before the frame answers it. **A tap must not move the
 // camera.** Releasing mid-spend is a designed input — a short tap costs a short slice of fuel — so
-// the pill gets jabbed constantly, and a camera keyed on the press popped the frame on every one of
+// the lever gets jabbed constantly, and a camera keyed on the press popped the frame on every one of
 // them. Keyed on the hold instead, a tap is over before this elapses and the frame never moves.
 //
 // It is also dead time between the press and the reaction, and the reaction got quick enough for

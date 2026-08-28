@@ -4,7 +4,7 @@ import { mirrorSceneLights } from './avatarlights.js';
 import { urgencyLevel, fareColor } from './urgency.js';
 import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 
-// A HUD row above the Loco Mode pill, left-aligned to it, so both controls sit under the same
+// A HUD row beside the throttle, on the lever's own baseline, so both controls sit under the same
 // thumb.
 //
 // A waiting rider is a handful of pixels among a hundred buildings, and on a phone the whole city
@@ -14,8 +14,8 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 // on the map. It was a double-tap once, with the first tap only moving the camera; picking a rider
 // is the one thing the chip is for, and making it cost two taps on a clock that is draining was
 // worse than the camera move was worth. Two clocks on the kerb means two chips on screen; the row
-// grows rightward so the first slot stays put next to the Loco Mode pill and extra riders pile
-// on beside it.
+// grows rightward so the first slot stays put next to the throttle and extra riders pile on
+// beside it.
 //
 // One WebGL renderer per chip. MAX_FARES caps the pool at three, so the extra contexts are well
 // under any browser limit. Cheaper alternatives (one renderer, blit to N canvases) exist but the

@@ -193,9 +193,10 @@ particular, because the default insets by the safe area and would double up on t
   second count is the frame count — around 24 — which on a phone is not a detent but a solid buzz
   for as long as the finger is down. The stub is torn down again with the gesture, since every
   check after it is about the web build.
-- **Deferred home-indicator gesture** on the bottom edge. The Loco Mode pill and the brake are both
-  *hold* controls at the bottom of the screen, and a resting thumb there is exactly the gesture iOS
-  reads as a swipe home.
+- **Deferred home-indicator gesture** on the bottom edge. [The throttle](gameplay.md#the-throttle) is
+  a *hold* control at the bottom of the screen — and one the thumb drags up and down, so it spends
+  even longer there — and a resting thumb on that edge is exactly the gesture iOS reads as a swipe
+  home.
 
 ## Build
 

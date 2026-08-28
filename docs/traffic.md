@@ -320,7 +320,7 @@ CORNER_SPEED = SPEED * 0.7
 ### The brake pedal
 
 `car.braking` is the one input in the sim that can bring the taxi to a dead stop wherever it
-happens to be. Held from the HUD's brake button (or **B**), written onto the car by `main.js` each
+happens to be. Held from the bottom of [the throttle](gameplay.md#the-throttle) (or **B**), written onto the car by `main.js` each
 frame the same way `boost` is — `sim/` may not import from `game/`, so both flags are pushed rather
 than pulled.
 
@@ -363,7 +363,7 @@ Everything the brake *looks* like falls out of the physics for free: the nose-di
 spring reading deceleration off `car.v`, and the brake lights come on because `accel < −BRAKE_ACCEL`
 — `BRAKE_ACCEL` (1.5) is well under either braking constant, so they light on the first frame of
 the hold and stay lit through the stop (`BRAKE_STOP_V`). What `main.js` adds is the rubber —
-[four wheels, not two](gameplay.md#the-brake).
+[four wheels, not two](gameplay.md#the-throttle).
 
 **Stop line setback.** `STOP_SETBACK = 3.4`. Cars used to hold with their *centre* on the junction
 boundary, putting the nose 1.7 units inside and squarely across the crosswalk. The outer crosswalk

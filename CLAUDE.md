@@ -179,14 +179,15 @@ Omit the whole section if there's nothing to note.
   The shadow pass culls against the *sun's* frustum, which covers the whole city, so the shadow kept
   drawing at the real position under the missing truck.
 - **`user-select: none` does not stop iOS selecting text, and `touch-action` does not inherit.**
-  Two separate holes that showed up as one bug on the Loco Mode pill: a thumb on it picked out
+  Two separate holes that showed up as one bug on the old Loco Mode pill: a thumb on it picked out
   "Loco Mode™", raised the magnifier and zoomed the city in. iOS 15 stopped honouring
   `-webkit-user-select: none` for the selection and zoom gestures ([webkit.org/b/231161]) — they run
   off the raw touch stream, so the `preventDefault` on `pointerdown` misses them too; that only
   suppresses the compatibility *mouse* events one layer above. What does reach them is
   `preventDefault` on `touchstart` (guarded by `event.cancelable`: Chrome, which already honours
-  `touch-action: none`, dispatches it non-cancelable and warns on every press) plus keeping the label
-  in a `pointer-events: none` span, so the gesture has no text node to hit-test onto. And
+  `touch-action: none`, dispatches it non-cancelable and warns on every press) plus leaving the
+  gesture nothing under the finger to hit-test onto but the control itself — a `pointer-events: none`
+  span around the label then, and the `#throttle > *` rule now. And
   `touch-action` is *not* an inherited property, which is why it sits on `*` and not next to the
   selection properties on `html, body`: set it on the root alone and every control the player
   actually presses computes `auto` again and keeps its own double-tap zoom.
@@ -230,16 +231,16 @@ Omit the whole section if there's nothing to note.
   `pointerdown`. The only ordering that holds regardless of construction order is a capture
   listener on an **ancestor** — which is why the route-band drag listens on `window`. Getting this
   wrong throws nothing; the map just slides out from under a gesture meant for something else.
-- **`:active` names the button the press *started* on, not the one the finger is over.** The bottom
-  row is one control surface — a thumb slides from Loco Mode onto the brake without lifting
-  ([gameplay.md](docs/gameplay.md#the-pedal-slide)) — and the browser pins `:active` to the
-  `pointerdown` target for the life of the gesture, so the press dip lit the pill the thumb had left
-  and the brake it was standing on looked untouched. Anywhere a press can *move*, the pressed look
-  has to be a class you set (`is-held`, with `body.pedal-slide` suppressing `:active` on both) and
-  not the pseudo-class. Same shape one layer down: pointer capture means every event for the rest of
-  that gesture lands on the origin element, so the event's target tells you nothing about what is
-  under the finger — hit-test coordinates against rectangles, and measure those rectangles *before*
-  the press, because both buttons scale while held.
+- **`:active` names the element the press *started* on, not what the finger is over.** The bottom-left
+  control is a lever the thumb drags up and down ([the throttle](docs/gameplay.md#the-throttle)), and
+  the browser pins `:active` to the `pointerdown` target for the life of the gesture. When that was
+  two buttons, the press dip lit the pill the thumb had left and the brake it was standing on looked
+  untouched; it is one element now, and the pseudo-class is still the wrong tool, because `:active`
+  cannot describe a hold the *spacebar* is doing. Anywhere a press can move or arrive from a key, the
+  pressed look has to be a class you set (`is-held`). Same shape one layer down: pointer capture
+  means every event for the rest of that gesture lands on the origin element, so the event's target
+  tells you nothing about what is under the finger — map coordinates against a rectangle, and measure
+  that rectangle *before* the press, because the control scales while a top-up pours into it.
 - **The drawn taxi is not `CAR_LEN` long.** `createTaxiMesh` puts `TAXI_SCALE = 1.18` on the group,
   so the body on screen is 4.01 units where the simulation's constant says 3.4 — and every sim
   number (following distance, the collision envelope, `MIN_GAP`) is in the 3.4 space, which is why

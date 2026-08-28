@@ -19,6 +19,11 @@ npm run dev            # then open http://localhost:5173/lab/
 | `src/lab/labroad.js` | the road, as a network, and the ground under it |
 | `tools/lab.mjs` | the headless checks, in `npm run check` |
 
+The lab keeps a plain hold-to-boost **pill** of its own rather than
+[the game's throttle](gameplay.md#the-throttle). There is no brake to reach for on a straight road
+with no lights, so the second half of that lever would be dead weight — and a rig is allowed a
+simpler control than the game is.
+
 ## The road
 
 Ten blocks at the city's own `PITCH`, so 200 units end to end: twelve-unit lanes with eight-unit

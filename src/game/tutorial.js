@@ -46,7 +46,10 @@ const TAXI_BEAT = false;
 const LINES = {
   taxi: "Let's pick up some rides and earn some cash.",
   rider: 'Tap rider to start.',
-  boost: 'Hold to floor it',
+  // The lever has no label on it, so the line carries the name. It also has to say *which way* —
+  // the one thing a two-ended control needs a sentence for, since a knob sitting in the middle is
+  // equally an invitation to pull it down.
+  boost: 'Push up for Loco Mode\u2122',
 };
 
 // Typing speed. ~38 chars/sec — fast enough that a reader is never waiting on the machine, slow
@@ -354,10 +357,10 @@ function createBubble(root, { sun, hemi }, onDismiss) {
 // general gloom rather than as a light pointed at one thing.
 const POOL_CLEAR = 6;
 const POOL_EDGE = 17;
-// The pool around the Loco Mode pill runs out to this multiple of its clear radius. Wider in
-// proportion than the world one, because it sits in a screen corner: half the falloff is off the
-// edge of the glass, so a ratio that looks right in the middle of the city reads as a hard-edged
-// disc down there.
+// The pool around the throttle runs out to this multiple of its clear radius. Wider in proportion
+// than the world one, because it sits in a screen corner: half the falloff is off the edge of the
+// glass, so a ratio that looks right in the middle of the city reads as a hard-edged disc down
+// there.
 const BUTTON_POOL_FALLOFF = 2.8;
 
 // The steps that own the camera, and the steps that are a bubble waiting to be answered. Everything
@@ -381,8 +384,8 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  * @param lights        {sun, hemi} — the city's own rig, mirrored into the avatar
  * @param project       (x, y, z) => {x, y} — world to viewport pixels, for aiming the spotlight
  * @param pixelsPerUnit () => number — the camera's current scale, for sizing it
- * @param boostAnchor   () => {x, y, r} | null — the Loco Mode pill's centre and radius in viewport
- *                      pixels, for the third beat's spotlight
+ * @param boostAnchor   () => {x, y, r} | null — a point on the throttle and a radius that clears
+ *                      the whole lever, in viewport pixels, for the third beat's spotlight
  * @param waitingFare   () => fare | null — whoever is on the kerb to point at
  * @param fareLocation  (fare) => {x, z} — the kerb corner to centre, not the junction
  * @param isDispatched  () => boolean — has the player sent the taxi at anyone yet
@@ -444,16 +447,16 @@ export function createTutorial({
    * Two kinds of subject. The first two beats point at something in the city, so the pool is
    * anchored in world space and sized in world units. The third points at a *control*, which is a
    * fixed thing on the glass at a size that has nothing to do with the camera — so it is measured
-   * off the pill's own box instead. Sizing that one in world units would grow and shrink the pool
-   * around a button that never moved.
+   * off the lever's own box instead. Sizing that one in world units would grow and shrink the pool
+   * around a control that never moved.
    */
   function updateSpotlight() {
     if (!spotlight) return;
     let at;
     if (state.step === 'boost') {
-      const pill = boostAnchor();
-      if (!pill) return;
-      at = { x: pill.x, y: pill.y, r0: pill.r, r1: pill.r * BUTTON_POOL_FALLOFF };
+      const lever = boostAnchor();
+      if (!lever) return;
+      at = { x: lever.x, y: lever.y, r0: lever.r, r1: lever.r * BUTTON_POOL_FALLOFF };
     } else {
       const world = spotAt ?? { x: taxi.x, z: taxi.z };
       // 1.4 up: the middle of a car's flank and about a rider's chest, so the pool is centred on
@@ -516,16 +519,16 @@ export function createTutorial({
     state.step = 'toBoost';
   }
 
-  /** Third beat: the Loco Mode pill, called out while the player watches the taxi drive itself. */
+  /** Third beat: the throttle, called out while the player watches the taxi drive itself. */
   function showBoostHint() {
     state.step = 'boost';
     linger = BOOST_HINT_LINGER;
-    // Pulses the pill itself, so the bubble is not the only thing saying which control it means.
+    // Pulses the lever itself, so the bubble is not the only thing saying which control it means.
     document.body.classList.add('coach-boost');
     // Sits higher than the first two beats — see #coach.at-boost. The rider chips are live now.
     root.classList.add('at-boost');
     // Same treatment the taxi and the rider got. `state.step` is already 'boost', so this picks up
-    // the pill's box rather than the last world subject — aim before the fade, or it blooms from
+    // the lever's box rather than the last world subject — aim before the fade, or it blooms from
     // wherever the previous beat left it.
     updateSpotlight();
     document.body.classList.add('spotlight-on');

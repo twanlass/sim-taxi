@@ -381,7 +381,7 @@ These are the things that have actually cost time on this project:
 
 ## Test hook
 
-The tools drive the game through `window.__taxi` (`traffic`, `boost`, `skids`, `police`, `fares`,
+The tools drive the game through `window.__taxi` (`traffic`, `boost`, `throttle`, `skids`, `police`, `fares`,
 `daylight`, `pause`, `routeTo`, `findRoute`, `findRouteVia`, `pathDrag`, `isSelected`, `redraw`)
 rather than through the DOM. That's what makes the suite fast.
 

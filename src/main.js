@@ -19,6 +19,7 @@ import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareCloc
 import { createDebugPanel } from './game/debugpanel.js';
 import { createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
+import { createThrottle, THROTTLE_NEUTRAL } from './game/throttle.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust } from './game/dust.js';
@@ -361,7 +362,7 @@ const BOOST_FOLLOW_SMOOTHING = 3.2;
 
 // Is the frame currently pushed in for Loco Mode (see LOCO_PUNCH in game/camera.js)? Latched rather
 // than recomputed from the button every frame, because it has to survive the release: `isEngaged()`
-// is the hold *plus* the momentum tail, so feathering the pill — letting go and grabbing it again
+// is the hold *plus* the momentum tail, so feathering the lever — letting go and pushing it up again
 // inside the second the taxi is still at full tilt — holds the frame where it is instead of
 // breathing it out and back in under the player. Earning it still takes a hold, every time: the
 // latch can only stay on through the tail, never switch on during one.
@@ -1102,7 +1103,7 @@ const wipe = shot ? null : createWipe(document.getElementById('wipe'));
 const revealHud = () => document.body.classList.add('hud-ready');
 
 // Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
-// reads it: a player who has already fired it does not need a bubble pointing at the pill.
+// reads it: a player who has already fired it does not need a bubble pointing at the lever.
 let locoUsed = false;
 tutorial = shot || !wantsTutorial ? null : createTutorial({
   controller,
@@ -1118,7 +1119,7 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // every viewport, and correct when a wreck pulls the zoom in under it or Loco Mode pushes in.
   pixelsPerUnit: () => viewport.height() / (2 * controller.viewZoom()),
   // The third beat points at a control rather than at something in the city, so its spotlight is
-  // measured off the pill's own box. Declared after this call; `function` hoisting covers it.
+  // measured off the lever's own box. Declared after this call; `function` hoisting covers it.
   boostAnchor: boostScreenPos,
   // The one the game means by "the waiting fare" — the shortest clock on the kerb. At this point in
   // a run there is only ever one, but pointing at the same rider the rest of the HUD would is free.
@@ -1160,7 +1161,7 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   },
 });
 
-// The money counter, the streak counter, the Loco Mode pill and the rider chips all start off
+// The money counter, the streak counter, the throttle and the rider chips all start off
 // their own screen edge and slide in together — see the HUD entrance block in index.html. A run
 // used to open with all four already lit, every one of them reading zero and answering a question
 // nobody had asked yet. They arrive when the tutorial stops talking; with no tutorial to wait for
@@ -1197,24 +1198,31 @@ function taxiScreenPos() {
 }
 
 /**
- * Centre of the Punch It pill, and the radius of a circle that clears it. The centre is where a
- * delivery's boost sparks are pulled to; the radius is what the tutorial's third beat sizes its
- * spotlight from. Read fresh on every call rather than cached, because the pill's own fill flutter
- * scales it and a resize moves it.
+ * Where a delivery's boost sparks fly to, and the radius of a circle that clears the whole control.
+ * The point is the middle of the throttle's *fuel gauge* rather than the middle of the lever: the
+ * gauge is the thing the sparks are topping up, and the lever's geometric centre is down on the
+ * rest line with the brake. The radius is what the tutorial's third beat sizes its spotlight from,
+ * and that one does have to cover the whole control.
+ *
+ * Read fresh on every call rather than cached, because the lever's own top-up flutter scales it and
+ * a resize moves it.
  */
 function boostScreenPos() {
-  if (!boostButton) return null;
-  const r = boostButton.getBoundingClientRect();
-  // A hidden pill measures 0×0 — shot mode and the run-end blackout both hide it. Null rather than
-  // a rect at the origin, or a delivery landing next to a crash fires its sparks at the top-left
-  // corner of the screen.
-  if (!r.width) return null;
+  if (!throttleEl || !throttleTrack) return null;
+  const box = throttleEl.getBoundingClientRect();
+  const track = throttleTrack.getBoundingClientRect();
+  // A hidden control measures 0×0 — shot mode and the run-end blackout both hide it. Null rather
+  // than a rect at the origin, or a delivery landing next to a crash fires its sparks at the
+  // top-left corner of the screen.
+  if (!box.width) return null;
   return {
-    x: r.left + r.width / 2,
-    y: r.top + r.height / 2,
-    // Half the pill's diagonal plus a margin, so the clear centre of a pool sitting on it leaves
+    x: track.left + track.width / 2,
+    // Half way up the boost channel: the middle of the amber, wherever the fuel level happens to
+    // be sitting.
+    y: track.top + (THROTTLE_NEUTRAL / 2) * track.height,
+    // Half the control's diagonal plus a margin, so the clear centre of a pool sitting on it leaves
     // some air around the outline rather than cropping it at the border.
-    r: Math.hypot(r.width, r.height) / 2 + 20,
+    r: Math.hypot(box.width, box.height) / 2 + 20,
   };
 }
 
@@ -1457,52 +1465,106 @@ viewport.onChange((w, h) => {
   controller.resize(aspect());
 });
 
-// --- Crazy taxi button ------------------------------------------------------
+// --- The throttle -----------------------------------------------------------
+//
+// One spring-loaded lever where Loco Mode and the brake used to be two buttons on a row. Push it
+// up to floor it, pull it down to stand on the brakes, let go and it springs back to the middle —
+// which is the taxi driving itself, the state the game rests in. See game/throttle.js for the
+// clock and docs/gameplay.md#the-throttle for why it is one control.
+//
+// The split of responsibilities here is the same one the pedals had: `holdLocoMode` and
+// `holdBrake` below are the *sim's* two pedals and know nothing about the lever, the lever knows
+// nothing about the sim, and this file is the ~120 lines that map a finger's y onto one of them.
 
-const boostButton = document.getElementById('boost');
+const throttleEl = document.getElementById('throttle');
+const throttleTrack = throttleEl?.querySelector('.throttle-track');
+
+const throttle = createThrottle();
 
 // A drop-off is the only thing that ever puts fuel in the tank (see game/boost.js), so the pour is
-// the reward animation and it gets three layers: the bar overruns its new mark and eases back, the
-// pill pulses yellow the whole time fuel is arriving, and a blurred bright edge rides the front of
-// the fill. game/boostmeter.js owns the timing of all three; this just hands it the clock and the
-// fuel level and paints what comes back onto three CSS variables.
+// the reward animation and it gets three layers: the gauge overruns its new mark and eases back,
+// the lever pulses yellow the whole time fuel is arriving, and a blurred bright edge rides the
+// front of the fill. game/boostmeter.js owns the timing of all three; this just hands it the clock
+// and the fuel level and paints what comes back onto three CSS variables.
 const boostMeter = createBoostMeter();
 
-function updateBoostButton(dt) {
-  if (!boostButton) return;
+// What the lever is currently asking the car for, latched so the two `hold` calls below fire on the
+// *transition* and not on every pointermove. Both of them are loud — a fresh press of Loco Mode is
+// a wheelie, a flame burst, a launch skid and a haptic tick — and a finger sliding around inside
+// the boost half is one continuous hold, not thirty of them.
+let throttleZone = 'idle';
+
+/**
+ * Put the pedal the lever is asking for down, and take the other one up. Called from the paint
+ * below rather than from the gesture, so it runs on every frame: a run that ends under the
+ * player's thumb has to let go of the car even though no pointer event arrives to say so.
+ */
+function applyThrottle() {
+  // A run that is over has no pedals. Same self-healing shape as `traffic.taxi.braking` in
+  // `frame()` — read per frame rather than latched on an event that may never come.
+  const want = fares.state.gameOver ? 'idle' : throttle.zone();
+  if (want === throttleZone) return;
+  throttleZone = want;
+  // Each of these already releases the other ("last pedal pressed wins", see holdBrake), so the
+  // handover between the two halves of the lever is the transition a two-thumbed player on the old
+  // row was already making. The idle case is the one that is new, and it is the whole point of a
+  // sprung control: letting go is a state, not the absence of one.
+  if (want === 'boost') holdLocoMode();
+  else if (want === 'brake') holdBrake();
+  else { boost.release(); releaseBrake(); }
+}
+
+function updateThrottle(dt) {
+  if (!throttleEl) return;
+  throttle.update(dt);
+  applyThrottle();
+
   const mode = boost.state.mode;
   boostMeter.update(dt, boost.fraction(), boost.state.pending > 0);
 
-  boostButton.classList.toggle('is-active', mode === 'active');
-  boostButton.classList.toggle('is-empty', mode === 'empty');
-  boostButton.classList.toggle('is-filling', boostMeter.state.fill > 0);
-  boostButton.style.setProperty('--pct', `${(boostMeter.state.pct * 100).toFixed(1)}%`);
-  boostButton.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));
-  boostButton.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
-  // Dead until a drop-off pours fuel back in — nothing refills on its own, so a pressable-looking
-  // pill on an empty tank would be a lie.
-  boostButton.disabled = mode === 'empty';
+  throttleEl.classList.toggle('is-active', mode === 'active');
+  throttleEl.classList.toggle('is-empty', mode === 'empty');
+  throttleEl.classList.toggle('is-filling', boostMeter.state.fill > 0);
+  throttleEl.classList.toggle('is-braking', brakeHeld);
+  throttleEl.classList.toggle('is-held', throttle.isHeld());
+  // Unitless 0..1 rather than a percentage: the fuel gauge is a fraction of the boost *half* of the
+  // track, so the CSS multiplies it by --throttle-neutral and needs a bare number to do that with.
+  throttleEl.style.setProperty('--pct', boostMeter.state.pct.toFixed(3));
+  throttleEl.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));
+  throttleEl.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
+  throttleEl.style.setProperty('--knob-frac', throttle.knobFraction().toFixed(4));
+  // The lever is a `role="slider"`, so it owes a value. `aria-valuetext` rather than the raw number
+  // alone: "0.72" says nothing, and the three states this control actually has are the three words.
+  throttleEl.setAttribute('aria-valuenow', throttle.state.pos.toFixed(2));
+  throttleEl.setAttribute('aria-valuetext',
+    throttleZone === 'boost' ? 'Loco Mode' : (throttleZone === 'brake' ? 'Braking' : 'Coasting'));
 }
 
-// The press itself, with no idea what pressed it — the pill, the spacebar and a thumb sliding onto
-// the pill from the brake all land here. Hold-to-enable, release-to-pause; the pointer plumbing
-// that reaches it lives in "The pedal slide" below, because a press on either half of the bottom
-// row can end up on either pedal.
+// --- The two pedals underneath it -------------------------------------------
 //
-// Returns whether the pedal is now down — false only when nothing can press it (the run is over, or
-// the tank is empty and the pill is dead). Not the same question as `boost.press()` a few lines
-// down, which answers the narrower "did this press *start* a boost": a re-press during a boost that
-// is already running has the pedal down and nothing to kick.
+// The press itself, with no idea what pressed it — the lever and the spacebar both land here.
+// Hold-to-enable, release-to-pause.
+//
+// Returns whether the pedal is now down — false only when nothing can press it (the run is over).
+// Not the same question as `boost.press()` a few lines down, which answers the narrower "did this
+// press *start* a boost": a re-press during a boost that is already running has the pedal down and
+// nothing to kick.
+//
+// An empty tank is no longer a reason to say no. The old pill went `disabled` and refused the
+// press outright, which it could afford to do because it was a button and half a dead button is
+// still a button; this control has a brake on its other end and cannot go dead. So a lever held up
+// on an empty tank presses a pedal that does nothing — and that is the better behaviour anyway,
+// because `boost.state.held` stays true and a top-up landing mid-hold rolls straight into boost
+// without the player having to let go and push again.
 function holdLocoMode() {
-  if (fares.state.gameOver || boostButton?.disabled) return false;
+  if (fares.state.gameOver) return false;
   // Doing the thing the third bubble is asking for answers it. Called explicitly rather than left
   // to the tutorial's window-level tap handler, because the preventDefault in either caller can
   // suppress the click the gesture would otherwise synthesise — so the hint would outstay its own
-  // lesson (on a phone for the pill, on every device for the key, which synthesises nothing).
+  // lesson (on a phone for the lever, on every device for the key, which synthesises nothing).
   tutorial?.dismiss();
-  // The other half of "last pedal pressed wins" — see holdBrake. Without this a player holding the
-  // brake button with one thumb and jabbing the pill with the other would spend fuel on a car the
-  // brake is still pinning to the road.
+  // The other half of "last pedal pressed wins" — see holdBrake. The lever cannot ask for both at
+  // once, but the keyboard can: B is a pedal too, and a hand holding both keys has to get one car.
   releaseBrake();
   if (boost.press()) {
     kickLocoMode();
@@ -1534,30 +1596,180 @@ function kickLocoMode() {
     car.yaw,
   );
   // Break traction on the launch as well as in the corners. One pair stamped here so a standing
-  // start (pressing while held at a red) still leaves a patch under the wheels — the distance
-  // spacing in layRubber can't produce anything until the car actually moves.
+  // start (pushing the lever up while held at a red) still leaves a patch under the wheels — the
+  // distance spacing in layRubber can't produce anything until the car actually moves.
   stampRearRubber(car);
   launchSkidT = LAUNCH_SKID_TIME;
 }
 
 // (The top-up flash used to live here as a one-shot class the delivery had to remember to fire,
 // which meant back-to-back deliveries needed a reflow to restart the animation. The glow is now
-// driven off `boost.state.pending` in updateBoostButton — it lasts exactly as long as fuel is
+// driven off `boost.state.pending` in updateThrottle — it lasts exactly as long as fuel is
 // actually arriving, and a second delivery mid-pour just extends it.)
 
-// iOS runs text selection, the magnifier and double-tap zoom off the raw touch stream, and since
-// iOS 15 it does all three on this pill regardless of `-webkit-user-select: none`
-// (webkit.org/b/231161). Cancelling `pointerdown` — which pressPedal already does — does not reach
-// them: that suppresses the compatibility *mouse* events, one layer above the gesture recogniser
-// that is actually selecting "Loco Mode™" and zooming the city. Cancelling `touchstart` does, and
-// on iOS it is the only thing that does.
+// The brake, and deliberately the simpler pedal: no meter, no fuel, no cooldown, nothing to earn
+// and nothing to spend. Hold it and the taxi hauls itself to a stop wherever it is; let go and it
+// drives itself again exactly as it did before, because "drives itself" is the game's resting state
+// and the brake never took that away — it only outranked it for as long as it was held (see
+// `car.braking` in sim/traffic.js).
 //
-// Unconditional, unlike pressPedal, which bails on a game over before it reaches its own
-// preventDefault. Those are precisely the states a player jabs at twice in a row — a drained
-// pill is what "why isn't this working" looks like — so they are the states that most need this.
-// Nothing is lost by cancelling: the pointer events above are the primary stream and keep firing,
-// and the only defaults being dropped are the synthesised click (nothing listens for one here; see
-// keyIsSpokenFor below) and focus-on-tap, which on a touchscreen has no keyboard behind it.
+// Kept as a plain boolean here rather than a module of its own: `game/boost.js` exists because the
+// tank is a *clock* three different systems read, and there is no equivalent state to own. What is
+// worth testing lives in the sim, where the flag actually does something.
+let brakeHeld = false;
+
+// How slowly the car can be moving and still lock its wheels into visible rubber. Below a walking
+// pace the streak would be a couple of stamps at a standstill, which reads as a stain rather than
+// as a skid — and the marks stop dead at the point the car stopped, which is the whole picture the
+// brake is drawing.
+const BRAKE_SKID_V = 2.5;
+
+/**
+ * The press, from the bottom of the lever or from the B key. Returns whether the pedal is now down
+ * — false only on a run that is over. Already-held counts as down: a re-assert changes nothing, and
+ * saying "no" to it would report the pedal up while the car is stopping.
+ */
+function holdBrake() {
+  if (fares.state.gameOver) return false;
+  if (brakeHeld) return true;
+  brakeHeld = true;
+  // Below the `brakeHeld` guard, so a hold buzzes once on the way down rather than on every event
+  // that re-asserts it. Unconditional on speed, unlike the skid stamp two lines down: the pedal has
+  // a detent whether or not the car was moving fast enough to lock a wheel, and a control that
+  // answers only sometimes reads as a control that is broken.
+  haptic('brake');
+  // Gas and brake are one pedal each and the last one pressed wins. Releasing Loco Mode here rather
+  // than letting the two fight it out means a stab of the brake mid-boost doesn't sit there quietly
+  // burning fuel against a speed target of zero — the tank keeps whatever is left in it.
+  boost.release();
+  // Standing on the brake at speed breaks traction on the spot, and the distance spacing in
+  // layRubber cannot produce anything until the car has travelled 0.42 of a unit — at which point
+  // the streak starts a stamp late and misses the moment of the press. Same reason the Loco Mode
+  // launch stamps its own first pair.
+  if (traffic.taxi.v > BRAKE_SKID_V) stampAllRubber(traffic.taxi);
+  return true;
+}
+
+/** Idempotent, and every path out of a hold goes through it: the lever, the key, blur, a pause. */
+function releaseBrake() {
+  brakeHeld = false;
+}
+
+// --- Driving the lever ------------------------------------------------------
+//
+// One input owns it at a time, and the last one to speak takes it: a thumb on the lever outranks a
+// held spacebar and vice versa. That is the same "last pedal pressed wins" the two pedals have
+// always arbitrated by, moved up one level to where the arbitration now has to happen — with one
+// lever there is no longer a second control for the other hand to be holding.
+let throttleSource = null;      // 'pointer' | 'space' | 'brake-key'
+let throttlePointer = null;
+// The element holding the pointer capture. Kept so the capture can be handed back from a
+// `pointerup` that arrives somewhere else entirely — see the window listeners below.
+let throttleCapture = null;
+// The track's box, measured on the press and then left alone. The lever *scales* while a top-up
+// pours in, so re-measuring per move would let the control's own animation shift the mapping under
+// a finger that never moved — the same reason the old pedal row froze its rectangles.
+let throttleRect = null;
+
+/** Where a viewport y sits on the lever: +1 at the top cap, 0 on the rest line, -1 at the bottom. */
+function throttleAt(y) {
+  const r = throttleRect;
+  if (!r || !r.height) return 0;
+  const rest = r.top + THROTTLE_NEUTRAL * r.height;
+  // The two halves are different lengths, so each is normalised against its own travel: half way up
+  // the boost side and half way down the brake side are both 0.5 of a push, which is what the
+  // dead zone and the knob's position both want to be told.
+  const span = (y <= rest ? THROTTLE_NEUTRAL : 1 - THROTTLE_NEUTRAL) * r.height;
+  return Math.max(-1, Math.min(1, (rest - y) / span));
+}
+
+/** Hold the lever at `v` on behalf of `source`, taking it off whoever had it. */
+function holdThrottle(v, source) {
+  throttleSource = source;
+  throttle.hold(v);
+  applyThrottle();
+}
+
+/**
+ * Let go, if `source` is the one holding it — a keyup for a key that lost the lever to a thumb must
+ * not drop the thumb's hold. `null` lets go whatever is holding it.
+ */
+function releaseThrottle(source = null) {
+  if (source && throttleSource !== source) return;
+  throttleSource = null;
+  throttle.release();
+  applyThrottle();
+}
+
+/** Drop the whole gesture: the lever released, the capture handed back, nobody owning it. */
+function dropThrottleGesture() {
+  // Guarded rather than called blind: `releasePointerCapture` throws `NotFoundError` for a pointer
+  // the browser no longer considers active, and by the time a run ends under the player's thumb the
+  // element holding the capture has been taken off the screen (`body.game-over #throttle`).
+  if (throttleCapture && throttlePointer !== null
+      && throttleCapture.hasPointerCapture?.(throttlePointer)) {
+    throttleCapture.releasePointerCapture(throttlePointer);
+  }
+  throttleCapture = null;
+  throttlePointer = null;
+  releaseThrottle('pointer');
+}
+
+throttleEl?.addEventListener('pointerdown', (event) => {
+  if (fares.state.gameOver) return;
+  // Stops the browser turning this into a text selection or a synthesised click on the way past.
+  event.preventDefault();
+  throttleRect = throttleTrack.getBoundingClientRect();
+  throttlePointer = event.pointerId;
+  // The lever moves before the capture is claimed, not after. `setPointerCapture` throws
+  // `NotFoundError` for a pointer id the browser has no active pointer for — which is every
+  // synthesised `PointerEvent`, so a console line, a probe or a test driving this control would
+  // take the throw *instead of* the press. Nothing is lost by the order: capture only redirects the
+  // events that follow.
+  holdThrottle(throttleAt(event.clientY), 'pointer');
+  try {
+    throttleEl.setPointerCapture?.(event.pointerId);
+    throttleCapture = throttleEl;
+  } catch {
+    // A synthesised pointer has nothing to capture. The gesture runs perfectly well without one —
+    // the listeners below are on the window precisely so that it can.
+  }
+});
+
+// Y only: a thumb dragging up a 26px track wanders sideways by more than the track is wide, and a
+// lever that let go because the finger drifted 30px right would be unusable one-handed. The gesture
+// ends when the finger lifts and not before — which is what a spring-loaded lever does anyway.
+//
+// Everything after the press listens on the *window*, not on the control. Capture normally
+// redirects the rest of the gesture to the element it started on, and a listener there would be
+// enough — but only while the capture holds. It never takes for a synthesised pointer (see above),
+// and it is dropped outright when the capturing element leaves the screen, which is exactly what a
+// run ending under the player's thumb does. A `pointerup` on a hidden element is not something to
+// hang a stuck throttle on. On the window all three arrive either way — retargeted events still
+// bubble — and cost one failed comparison when no gesture is open. Same shape as the route band's
+// listener, and for the same reason: a listener on an ancestor is the only ordering that holds
+// regardless of who registered first.
+window.addEventListener('pointermove', (event) => {
+  if (event.pointerId !== throttlePointer) return;
+  holdThrottle(throttleAt(event.clientY), 'pointer');
+});
+const liftThrottle = (event) => {
+  if (event.pointerId !== throttlePointer) return;
+  dropThrottleGesture();
+};
+window.addEventListener('pointerup', liftThrottle);
+window.addEventListener('pointercancel', liftThrottle);
+
+// iOS runs text selection, the magnifier and double-tap zoom off the raw touch stream, and since
+// iOS 15 it does all three regardless of `-webkit-user-select: none` (webkit.org/b/231161).
+// Cancelling `pointerdown` — which the press above already does — does not reach them: that
+// suppresses the compatibility *mouse* events, one layer above the gesture recogniser that is
+// actually selecting and zooming. Cancelling `touchstart` does, and on iOS it is the only thing
+// that does.
+//
+// Unconditional, unlike the press, which bails on a game over before it reaches its own
+// preventDefault. That is precisely the state a player jabs at twice in a row, so it is the state
+// that most needs this.
 //
 // `passive: false` is spelled out rather than left to the default. Browsers force `passive: true`
 // for `touchstart` on window, document and body, and preventDefault from a passive listener is a
@@ -1570,255 +1782,33 @@ function kickLocoMode() {
 // nothing but log "Ignored attempt to cancel a touchstart event" on every single press. WebKit is
 // the engine that still has a gesture to run here — which is the bug — so it is the engine that
 // still marks the event cancelable, and the one this line actually fires on.
-boostButton?.addEventListener('touchstart', (event) => {
-  if (event.cancelable) event.preventDefault();
-}, { passive: false });
-
-
-// --- Brake ------------------------------------------------------------------
-//
-// The other half of the bottom row, and deliberately the simpler half: no meter, no fuel, no
-// cooldown, nothing to earn and nothing to spend. Hold it and the taxi hauls itself to a stop
-// wherever it is; let go and it drives itself again exactly as it did before, because "drives
-// itself" is the game's resting state and the brake never took that away — it only outranked it
-// for as long as it was held (see `car.braking` in sim/traffic.js).
-//
-// Kept as a plain boolean here rather than a module of its own: `game/boost.js` exists because the
-// tank is a *clock* three different systems read, and there is no equivalent state to own. What is
-// worth testing lives in the sim, where the flag actually does something.
-const brakeButton = document.getElementById('brake');
-let brakeHeld = false;
-
-// How slowly the car can be moving and still lock its wheels into visible rubber. Below a walking
-// pace the streak would be a couple of stamps at a standstill, which reads as a stain rather than
-// as a skid — and the marks stop dead at the point the car stopped, which is the whole picture the
-// brake is drawing.
-const BRAKE_SKID_V = 2.5;
-
-/**
- * The press, from the button, the B key, or a thumb sliding onto the brake from the pill beside it.
- * Returns whether the pedal is now down — false only on a run that is over. Already-held counts as
- * down: the second press of a two-thumbed player changes nothing, and saying "no" to it would
- * report the pedal up while the car is stopping.
- */
-function holdBrake() {
-  if (fares.state.gameOver) return false;
-  if (brakeHeld) return true;
-  brakeHeld = true;
-  // Below the `brakeHeld` guard, so a hold buzzes once on the way down rather than on every event
-  // that re-asserts it — the button, the B key and a thumb sliding on from the pill all land here.
-  // Unconditional on speed, unlike the skid stamp two lines down: the pedal has a detent whether or
-  // not the car was moving fast enough to lock a wheel, and a control that answers only sometimes
-  // reads as a control that is broken.
-  haptic('brake');
-  // Gas and brake are one pedal each and the last one pressed wins. Releasing Loco Mode here rather
-  // than letting the two fight it out means a stab of the brake mid-boost doesn't sit there quietly
-  // burning fuel against a speed target of zero — the tank keeps whatever is left in it.
-  boost.release();
-  brakeButton?.classList.add('is-on');
-  // Standing on the brake at speed breaks traction on the spot, and the distance spacing in
-  // layRubber cannot produce anything until the car has travelled 0.42 of a unit — at which point
-  // the streak starts a stamp late and misses the moment of the press. Same reason the Loco Mode
-  // launch stamps its own first pair.
-  if (traffic.taxi.v > BRAKE_SKID_V) stampAllRubber(traffic.taxi);
-  return true;
-}
-
-/** Idempotent, and every path out of a hold goes through it: the button, the key, blur, a pause. */
-function releaseBrake() {
-  brakeHeld = false;
-  brakeButton?.classList.remove('is-on');
-}
-
-// Same iOS gesture suppression the pill needs, for the same reasons and with the same `cancelable`
-// guard — see the long note under boostButton's `touchstart` above.
-brakeButton?.addEventListener('touchstart', (event) => {
+throttleEl?.addEventListener('touchstart', (event) => {
   if (event.cancelable) event.preventDefault();
 }, { passive: false });
 window.addEventListener('contextmenu', (e) => {
-  if (e.target === brakeButton) e.preventDefault();
+  if (throttleEl?.contains(e.target)) e.preventDefault();
 });
 
-// --- The pedal slide --------------------------------------------------------
+// --- The keyboard -----------------------------------------------------------
 //
-// The bottom row is one control surface, not two buttons that happen to sit beside each other. A
-// thumb that goes down on Loco Mode and slides right onto the brake hands the car over as it
-// crosses, with no lift in between, and sliding back hands it straight back. On a phone that is the
-// difference between "press the gas, let go, find the brake, press the brake" — four beats, two of
-// them spent with the taxi doing neither — and one continuous movement of the one thumb that is
-// already down there.
+// Space is still the boost and B is still the brake, for the hand that is already on the keyboard
+// rather than dragging a mouse down to the corner. Both now go through the *lever* rather than
+// straight at a pedal — `holdThrottle(±1)` — so the knob slams to its end stop and springs back on
+// the keyup, and the keyboard and the thumb are one code path with two ways in. Desktop-only by
+// construction rather than by sniffing for a desktop: a phone with no keyboard never fires a
+// keydown, and a phone *with* one has earned it.
 //
-// Nothing about the pedals themselves changed to allow it. They already arbitrate: `holdBrake`
-// releases the boost and `holdLocoMode` releases the brake ("last pedal pressed wins", see the note
-// in holdBrake), so a handover mid-gesture is the same transition a two-thumbed player was already
-// making. What was missing was a gesture that could reach both, which is all this section is.
-//
-// It is driven off *coordinates*, never off which element an event lands on. A press captures the
-// pointer to the button it started on, so for the rest of the gesture every move is delivered there
-// whatever is actually under the finger — which is exactly what makes a hold survive a wandering
-// thumb, and exactly what makes hit-testing the event target useless here.
-
-// How far past a pedal's edge the thumb can wander and still be holding it. Crossing *between* the
-// two needs no slop at all — they are 8px apart, so a finger leaving one is inside the other within
-// a frame — but coming off the row entirely has to let go, and those two thresholds have to differ.
-// Equal ones would put a boundary under a resting thumb that a pixel of jitter could cross twice a
-// frame, and a fresh press of Loco Mode is not a quiet event: it fires a wheelie, a flame burst, a
-// launch skid and a haptic tick. So claiming a pedal means being *inside* it and dropping one means
-// being 28px clear of it, and the gap between those two answers is where a still finger sits.
-const PEDAL_SLOP = 28;
-
-// The row, left to right. `hold` reports whether the pedal actually went down; `release` is
-// idempotent, because every path out of a gesture goes through it.
-const pedals = [
-  { el: boostButton, hold: holdLocoMode, release: () => boost.release() },
-  { el: brakeButton, hold: holdBrake, release: releaseBrake },
-].filter((pedal) => pedal.el);
-
-// The pointer that owns the row, and the pedal it has claimed. One pointer at a time on purpose: a
-// second thumb landing on the other pedal takes the row over, which is the game's own "last pedal
-// pressed wins" rather than a special case, and the first thumb's eventual lift then has nothing
-// left to release.
-let pedalPointer = null;
-let pedalOn = null;
-// The button holding the pointer capture, which is the one the press started on and not necessarily
-// the one currently down. Kept so the capture can be handed back from a `pointerup` that arrives
-// somewhere else entirely — see the listeners at the end of this section.
-let pedalCapture = null;
-// Measured on the press and then left alone. The buttons are `position: fixed` and nothing moves
-// them mid-gesture, but both of them *scale* while held — the press dip, and the pill's flutter
-// while a top-up pours in — so re-measuring per move would let a pedal's own animation shift the
-// boundary the finger is being tested against, under a finger that never moved.
-let pedalZones = [];
-
-/** The pedal the point is inside, or null. The two rectangles never overlap. */
-function pedalUnder(x, y) {
-  for (const { pedal, rect } of pedalZones) {
-    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return pedal;
-  }
-  return null;
-}
-
-/** How far the point is from a pedal's rectangle, in CSS px. Zero anywhere inside it. */
-function pedalDistance(pedal, x, y) {
-  const zone = pedalZones.find((z) => z.pedal === pedal);
-  if (!zone) return Infinity;
-  const { rect } = zone;
-  return Math.hypot(
-    Math.max(rect.left - x, 0, x - rect.right),
-    Math.max(rect.top - y, 0, y - rect.bottom),
-  );
-}
-
-/**
- * Claim one pedal and let go of whatever was claimed before. Idempotent; `null` lets go of both.
- *
- * "Claimed" is the finger's business and not the pedal's: an empty tank leaves the pill dead under
- * a thumb that has plainly arrived on it, and that thumb has still left the brake. So the claim
- * moves either way and only the *press* is conditional — which is what `hold` reports, and what
- * decides whether anything is painted as held.
- */
-function engagePedal(next) {
-  if (next === pedalOn) return;
-  if (pedalOn) {
-    pedalOn.release();
-    pedalOn.el.classList.remove('is-held');
-  }
-  pedalOn = next;
-  // The press dip follows this class for the length of a gesture rather than following `:active`,
-  // which the browser pins to the button the pointer went *down* on and leaves there however far
-  // the finger has since travelled — see the `body.pedal-slide` rules in index.html.
-  if (next?.hold()) next.el.classList.add('is-held');
-}
-
-/** Drop the whole gesture: both pedals up, the capture handed back, nobody owning the row. */
-function dropPedalGesture() {
-  // Guarded rather than called blind: `releasePointerCapture` throws `NotFoundError` for a pointer
-  // the browser no longer considers active, and by the time a run ends under the player's thumb the
-  // button holding the capture has been taken off the screen (`body.game-over #brake`).
-  if (pedalCapture && pedalPointer !== null && pedalCapture.hasPointerCapture?.(pedalPointer)) {
-    pedalCapture.releasePointerCapture(pedalPointer);
-  }
-  pedalCapture = null;
-  pedalPointer = null;
-  engagePedal(null);
-  document.body.classList.remove('pedal-slide');
-}
-
-function pressPedal(event) {
-  if (fares.state.gameOver) return;
-  const pedal = pedals.find((p) => p.el === event.currentTarget);
-  if (!pedal) return;
-  event.preventDefault();
-  // Measured before anything goes down, so the rectangles are the pedals at rest — see pedalZones.
-  pedalZones = pedals.map((p) => ({ pedal: p, rect: p.el.getBoundingClientRect() }));
-  pedalPointer = event.pointerId;
-  // Set for the whole gesture and not just while a pedal is claimed: a thumb parked off the end of
-  // the row is holding nothing, and is still holding the `:active` this press started.
-  document.body.classList.add('pedal-slide');
-  // The pedal goes down before the capture is claimed, not after. `setPointerCapture` throws
-  // `NotFoundError` for a pointer id the browser has no active pointer for — which is every
-  // synthesised `PointerEvent`, so a console line, a probe or a test driving these buttons the way
-  // the tutorial's own dismissal does would take the throw *instead of* the press. Nothing is lost
-  // by the order: capture only redirects the events that follow.
-  engagePedal(pedal);
-  try {
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    pedalCapture = event.currentTarget;
-  } catch {
-    // A synthesised pointer has nothing to capture. The gesture runs perfectly well without one —
-    // the listeners below are on the window precisely so that it can.
-  }
-}
-
-function movePedal(event) {
-  if (event.pointerId !== pedalPointer) return;
-  const inside = pedalUnder(event.clientX, event.clientY);
-  // Inside a pedal, that pedal wins outright — that is the handover. Outside both, the claimed one
-  // keeps the finger until it is clear of the row by PEDAL_SLOP, which covers the 8px between them
-  // and gives a thumb that has slid off the end of the row a way to let go without lifting.
-  if (inside) engagePedal(inside);
-  else if (pedalOn && pedalDistance(pedalOn, event.clientX, event.clientY) > PEDAL_SLOP) {
-    engagePedal(null);
-  }
-}
-
-function liftPedal(event) {
-  if (event.pointerId !== pedalPointer) return;
-  dropPedalGesture();
-}
-
-for (const { el } of pedals) el.addEventListener('pointerdown', pressPedal);
-
-// Everything after the press listens on the *window*, not on the two buttons. Capture normally
-// redirects the rest of the gesture to the button it started on, and a listener there would be
-// enough — but only while the capture holds. It never takes for a synthesised pointer (see
-// pressPedal), and it is dropped outright when the capturing button leaves the screen, which is
-// exactly what a run ending under the player's thumb does (`body.game-over #brake`). A `pointerup`
-// on a hidden element is not something to hang a stuck pedal on. On the window all three arrive
-// either way — retargeted events still bubble — and cost one failed comparison when no gesture is
-// open. Same shape as the route band's listener, and for the same reason: a listener on an ancestor
-// is the only ordering that holds regardless of who registered first.
-window.addEventListener('pointermove', movePedal);
-window.addEventListener('pointerup', liftPedal);
-window.addEventListener('pointercancel', liftPedal);
-
-// The spacebar is the same hold, for the hand that is already on the keyboard rather than dragging
-// the mouse down to a pill in the corner. Desktop-only by construction rather than by sniffing for
-// a desktop: a phone with no keyboard never fires a keydown, and a phone *with* one has earned it.
-//
-// `event.code`, not `event.key`: the physical bar on any layout, and it survives the modifiers a
+// `event.code`, not `event.key`: the physical key on any layout, and it survives the modifiers a
 // `key` of ' ' does not distinguish.
 
 // Whether *this* handler started the hold. A keyup it never saw the keydown for — one typed into
-// the initials field, say — must not cancel a boost the player is holding on the pill.
+// the initials field, say — must not cancel a boost the player is holding on the lever.
 let spaceHeld = false;
 
 // Space is the browser's own activation key for whatever has focus, and taking it away from a
 // focused control is an accessibility regression — tabbing to "Play again" and pressing space has
 // to press *that*. So the hotkey only claims the key when focus is somewhere inert (the canvas, the
-// body) or on the pill itself, where the two mean the same thing anyway. Without the pill exemption
-// a player who clicked the pill once would have moved focus onto it and lost the hotkey: the
-// browser would synthesise a `click`, which nothing here listens for, and the key would go dead.
+// body) or on the lever itself, where the two mean the same thing anyway.
 function keyIsSpokenFor(target, own) {
   if (!(target instanceof Element) || target === own) return false;
   return Boolean(target.closest('input, textarea, select, button, a[href], [contenteditable]'));
@@ -1827,7 +1817,7 @@ function keyIsSpokenFor(target, own) {
 window.addEventListener('keydown', (event) => {
   if (event.code !== 'Space' || event.repeat) return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
-  if (keyIsSpokenFor(event.target, boostButton)) return;
+  if (keyIsSpokenFor(event.target, throttleEl)) return;
   // The "Add to Home Screen" screen sits above the run and holds it, and dismisses itself on Space.
   // Same guard the tutorial uses (`isBlocked`): the press that clears that screen must not also
   // spend fuel on a taxi that is parked behind it.
@@ -1837,22 +1827,20 @@ window.addEventListener('keydown', (event) => {
   // asked for — the mirror image of the release `createPause`'s `onChange` does on the way in. The
   // veil is only escaped by ⏸, Escape, P or a tap, all of which stay live.
   if (pause?.state.paused) return;
-  // Stops the page scrolling under the game, and stops a focused pill turning the keystroke into a
-  // synthesised click on top of the hold this is already starting.
+  // Stops the page scrolling under the game.
   event.preventDefault();
   spaceHeld = true;
-  holdLocoMode();
+  holdThrottle(1, 'space');
 });
 
 window.addEventListener('keyup', (event) => {
   if (event.code !== 'Space' || !spaceHeld) return;
   spaceHeld = false;
-  boost.release();
+  releaseThrottle('space');
 });
 
 // B is the brake, one key over from the bar and on the same terms as it — including the guard
-// against typing a `b` into the initials field, which is why the spoken-for test takes the button
-// it should exempt rather than naming the pill. A letter key activates nothing on its own, so
+// against typing a `b` into the initials field. A letter key activates nothing on its own, so
 // unlike Space there is no focused-control behaviour to preserve; the test is here so that typing
 // somewhere never also drives the car.
 let brakeKeyHeld = false;
@@ -1860,34 +1848,32 @@ let brakeKeyHeld = false;
 window.addEventListener('keydown', (event) => {
   if (event.code !== 'KeyB' || event.repeat) return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
-  if (keyIsSpokenFor(event.target, brakeButton)) return;
+  if (keyIsSpokenFor(event.target, throttleEl)) return;
   if (homeTip?.state.holding || pause?.state.paused) return;
   event.preventDefault();
   brakeKeyHeld = true;
-  holdBrake();
+  holdThrottle(-1, 'brake-key');
 });
 
 window.addEventListener('keyup', (event) => {
   if (event.code !== 'KeyB' || !brakeKeyHeld) return;
   brakeKeyHeld = false;
-  releaseBrake();
+  releaseThrottle('brake-key');
 });
 
-// Alt-tabbing away or switching apps mid-hold should not leave the boost stuck on — and a keyup
-// that lands on another window never reaches us at all, so this is the only end that hold gets.
-// The brake goes with it: a pedal held by a window that no longer has the keyboard is a taxi
-// stopped in the road with nothing on screen explaining why.
+// Alt-tabbing away or switching apps mid-hold should not leave the lever stuck at an end stop — and
+// a keyup that lands on another window never reaches us at all, so this is the only end that hold
+// gets. A pointer whose window has gone away never comes back up either.
+//
+// `reset` rather than `release`: the spring is a picture of a hand letting go, and there is no hand
+// here. Coming back to a tab to watch the knob travel home describes a hold that stopped happening
+// while nobody was looking.
 window.addEventListener('blur', () => {
   spaceHeld = false;
-  boost.release();
   brakeKeyHeld = false;
-  releaseBrake();
-  // And any thumb that was on the row. A pointer whose window has gone away never comes back up
-  // either — and unlike the two keys above, a gesture left open would keep a pedal painted as held.
-  dropPedalGesture();
-});
-window.addEventListener('contextmenu', (e) => {
-  if (e.target === boostButton) e.preventDefault();
+  dropThrottleGesture();
+  throttle.reset();
+  applyThrottle();
 });
 
 // Rubber gets laid from the rear wheels while boosting through a corner or off the line, spaced
@@ -2096,12 +2082,13 @@ const pause = shot ? null : createPause({
   canPause: () => !fares.state.gameOver,
   onChange: (paused) => {
     // A pause with the gas still down would resume into a boost the player is no longer holding —
-    // the pill's own pointer never comes back up, because the veil took the release. Same reason
+    // the lever's own pointer never comes back up, because the veil took the release. Same reason
     // the window's `blur` handler drops it. The brake is dropped with it: the veil swallows that
     // release too, and resuming onto a pedal nobody is holding is the same bug wearing red.
-    // `dropPedalGesture` covers a thumb that was on the row when the veil went up; the two explicit
-    // releases beside it are for the keyboard's holds, which it knows nothing about.
-    if (paused) { boost.release(); releaseBrake(); dropPedalGesture(); }
+    // `dropThrottleGesture` covers a thumb that was on the lever when the veil went up; `reset`
+    // beside it drops a keyboard hold too and puts the knob back in the middle without a spring —
+    // resuming into a lever travelling home describes a hold nobody is doing.
+    if (paused) { boost.release(); releaseBrake(); dropThrottleGesture(); throttle.reset(); }
   },
 });
 
@@ -2150,11 +2137,11 @@ function frame() {
     traffic.taxi.boostEasing = boost.isCoolingDown();
     // Written every frame rather than on the press, so the flag cannot be left stuck on by a
     // pointer that never came back up — a run ending under the player's thumb takes the button off
-    // the screen (`body.game-over #brake`), and a `pointerup` on a removed element is not something
+    // the screen (`body.game-over #throttle`), and a `pointerup` on a removed element is not something
     // to rely on. Same self-healing shape as the two flags above it.
     traffic.taxi.braking = brakeHeld && !fares.state.gameOver;
   }
-  updateBoostButton(dt);
+  updateThrottle(dt);
   skids.update(dt);
   // Before the dust pool ticks, so a building's ground-burst is at age zero on the frame it fires.
   // The "Add to Home Screen" screen (iOS in a tab) *skips* the entrance outright rather than
@@ -2265,7 +2252,7 @@ function frame() {
   // composes with whichever claim won the frame instead of competing for it.
   //
   // Keyed on the hold and not on the press. A tap is a designed input here (it spends a short slice
-  // of fuel) and the pill gets jabbed constantly, so a push-in that answered every press would pop
+  // of fuel) and the lever gets jabbed constantly, so a push-in that answered every press would pop
   // the frame on all of them — LOCO_PUNCH_HOLD is the line between the two gestures.
   locoPunched = (boost.isActive() && boost.heldSeconds() >= LOCO_PUNCH_HOLD)
     || (locoPunched && boost.isEngaged());
@@ -2275,7 +2262,7 @@ function frame() {
   // carry its edge to 122% and crop the map outright — with drag-to-pan switched off up there,
   // permanently. And it gives way to the two claims that set the zoom
   // themselves, the opening vignette and the end-of-run focus; neither can be up while the player
-  // is holding the pill, but both would fight it if they were.
+  // is holding the lever, but both would fight it if they were.
   const punchAllowed = isNarrow() && !fares.state.gameOver && !endSpot
     && !opening?.holdsCamera();
   controller.punchZoom(locoPunched && punchAllowed, dt, aspect());
@@ -2317,7 +2304,7 @@ function frame() {
       // over, and a car still driving a route to a fare that no longer exists — out from under the
       // rider climbing out of it — argues with the ending being shown. `crashed` is the flag every
       // loop in traffic.js already skips, so it does the whole job. Boost goes with it, or a held
-      // pill would keep burning fuel behind the banner.
+      // lever would keep burning fuel behind the banner.
       endSpot = fares.state.failSpot ?? { x: traffic.taxi.x, z: traffic.taxi.z };
       endZoom = TIMEOUT_ZOOM;
       crashBannerAt = performance.now() + TIMEOUT_BANNER_DELAY;
@@ -2404,11 +2391,11 @@ function frame() {
       // the taxi carrying a second.
       cargoChip?.setCarrying(false);
       // On the delivery itself, not on either bonus arriving. The two flights below take about a
-      // second to reach the counter and the pill, and a buzz that waited for them would land on a
+      // second to reach the counter and the gauge, and a buzz that waited for them would land on a
       // frame the player has already stopped associating with the pad they just left.
       haptic('parcel-out');
       // Cash and fuel, the same two currencies a drop-off pays, and both take the same two-phase
-      // flight a fare's does — off the taxi, then to the counter and to the pill — because it is the
+      // flight a fare's does — off the taxi, then to the counter and to the gauge — because it is the
       // same kind of event arriving from the same place, and a bonus that landed in either place
       // with no visible link to the car would read as a side effect. The fuel is deliberately *half*
       // a fare's (see BOOST_PARCEL_REWARD): an errand pays into the tank, but a fare still fills it
@@ -2951,6 +2938,13 @@ window.__taxi = {
   traffic,
   daylight,
   boost,
+  /**
+   * The throttle lever — `state` (`pos`, `input`, `zone`), `hold`, `release`, `zone()`. The smoke
+   * checks drive the real control with real touches rather than this, because the whole feature is
+   * a gesture; this is here to *read* where the lever ended up, which a screenshot cannot say and a
+   * class on the DOM only says in three steps.
+   */
+  throttle,
   /**
    * Loco Mode's speed ramp — `get`, `set`, `reset`, `ramp`, `defaults`. The ⚙️ panel's sliders
    * drive the same handle, so this is where you go for a value past the end of one of them.

@@ -126,6 +126,7 @@ import {
   BOOST_COOLDOWN,
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
+import { createThrottle, THROTTLE_NEUTRAL, THROTTLE_DEADZONE } from '../src/game/throttle.js';
 
 const seed = Number(process.argv[2] ?? 71624);
 const CARS_DEFAULT = 7;    // low-density baseline for the fare-loop checks — keeps timing thresholds stable regardless of runtime default
@@ -3487,6 +3488,112 @@ check('no two cars occupy the same space', worst > 1.6,
     `reached ${(intoTraffic.peak * 2 * LANE).toFixed(2)} units across`);
 
   setPriorityJunction(null);
+}
+
+// --- The throttle lever ------------------------------------------------------
+// The spring-loaded control that replaced the Loco Mode pill and the brake button. All of it is
+// arithmetic on one number, so all of it belongs here rather than in a page: what a page can prove
+// is that a finger reaches it, and tools/smoke.mjs does that.
+{
+  const t = createThrottle();
+  check('the lever rests in the middle, asking for nothing',
+    t.state.pos === 0 && t.zone() === 'idle' && !t.isHeld(), `pos ${t.state.pos} ${t.zone()}`);
+
+  // The dead zone, from both sides. It exists because this control answers a *drag*: the frame in
+  // which a thumb lands on the knob and has not yet moved must not fire a wheelie, a flame burst
+  // and a haptic tick, so a push has to be a push.
+  t.hold(THROTTLE_DEADZONE * 0.9);
+  check('a nudge up the boost side is still idle', t.zone() === 'idle', t.zone());
+  t.hold(-THROTTLE_DEADZONE * 0.9);
+  check('and a nudge down the brake side is too', t.zone() === 'idle', t.zone());
+  t.hold(THROTTLE_DEADZONE + 0.01);
+  check('past it, the boost half engages', t.zone() === 'boost', t.zone());
+  t.hold(-THROTTLE_DEADZONE - 0.01);
+  check('and the brake half engages the same distance the other way',
+    t.zone() === 'brake', t.zone());
+
+  // The two halves cannot both be asking, whatever the input does. This is the arbitration the old
+  // pedal row needed a "last pedal pressed wins" rule for; one lever gets it from having one
+  // position. Swept across the whole travel rather than spot-checked, because the thing being
+  // asserted is that no value of `pos` produces two answers.
+  let both = 0;
+  for (let i = -100; i <= 100; i++) {
+    t.hold(i / 100);
+    const z = t.zone();
+    if (z !== 'boost' && z !== 'brake' && z !== 'idle') both += 1;
+  }
+  check('every position on the lever asks for exactly one thing', both === 0, `${both} bad`);
+
+  // The knob is over the top cap at full boost and over the bottom one at full brake, and the two
+  // are *different distances* because the halves are: 60% of the track above the rest line, 40%
+  // below. Anything that reads the knob's position as symmetric puts it outside the track at one
+  // end and short of it at the other.
+  t.hold(1);
+  check('full boost puts the knob on the top cap',
+    Math.abs(t.knobFraction() - THROTTLE_NEUTRAL) < 1e-9, t.knobFraction().toFixed(4));
+  t.hold(-1);
+  check('full brake puts it on the bottom one',
+    Math.abs(t.knobFraction() + (1 - THROTTLE_NEUTRAL)) < 1e-9, t.knobFraction().toFixed(4));
+  t.hold(2);
+  check('and a finger dragged past the end stop stays on it', t.state.pos === 1, `${t.state.pos}`);
+}
+{
+  // The spring. What matters is not the shape of it but that letting go is *instant* for the car
+  // and gradual only for the picture: `zone` reads the input, so the third of a second the knob
+  // spends travelling home is not a third of a second of boost the player did not ask for.
+  const t = createThrottle();
+  t.hold(1);
+  t.release();
+  check('letting go stops asking for boost on the release frame, not on arrival',
+    t.zone() === 'idle' && t.state.pos === 1, `${t.zone()} at pos ${t.state.pos}`);
+
+  let frames = 0;
+  let lowest = 1;
+  while (t.state.pos !== 0 && frames < 600) {
+    t.update(1 / 60);
+    frames += 1;
+    lowest = Math.min(lowest, t.state.pos);
+  }
+  // Measured, and written down because the damping was picked off exactly these two numbers —
+  // see RETURN_C in game/throttle.js.
+  check('the knob is home in about half a second', frames > 20 && frames < 45,
+    `${frames} frames (${(frames / 60).toFixed(2)}s)`);
+  check('and dips past the middle on the way, but barely',
+    lowest < -0.04 && lowest > -0.14, `overshoot ${lowest.toFixed(3)}`);
+  check('the spring never asks for the brake it swings through',
+    t.zone() === 'idle', t.zone());
+
+  // Frame-rate independence, and it is not a nicety: the integrator is semi-implicit Euler and
+  // `frame()` clamps dt at 0.05, which is ω·dt = 1.03 — past the point it stays stable. Stepped
+  // whole, one slow frame flings the knob to +0.14 and it diverges from there, on exactly the frames
+  // a phone is most likely to drop. RETURN_STEP is what stops that, and this is what says so.
+  const settle = (dt) => {
+    const s = createThrottle();
+    s.hold(1);
+    s.release();
+    let time = 0;
+    let worst = 0;
+    while (s.state.pos !== 0 && time < 5) {
+      s.update(dt);
+      time += dt;
+      worst = Math.max(worst, Math.abs(s.state.pos));
+    }
+    return { time, worst };
+  };
+  const fast = settle(1 / 120);
+  const stalled = settle(0.05);
+  check('a stalled frame does not fling the knob',
+    stalled.worst <= 1.0001, `reached ${stalled.worst.toFixed(3)} of full travel`);
+  check('and the settle is the same at 120Hz and at the dt clamp',
+    Math.abs(fast.time - stalled.time) < 0.06,
+    `${fast.time.toFixed(2)}s vs ${stalled.time.toFixed(2)}s`);
+
+  // A cut, not a release: a pause, a blur, a run ending. There is no hand here, so there is nothing
+  // for a spring to be a picture of.
+  t.hold(-1);
+  t.reset();
+  check('reset lands the lever in the middle with no travel',
+    t.state.pos === 0 && t.zone() === 'idle' && !t.isHeld(), `pos ${t.state.pos} ${t.zone()}`);
 }
 
 // --- Loco Mode momentum cooldown --------------------------------------------

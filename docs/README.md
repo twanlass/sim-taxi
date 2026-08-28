@@ -24,7 +24,7 @@ of every city is the depot rather than a block of towers. See
 [the opening vignette](gameplay.md#the-opening-vignette).
 
 After that, three speech bubbles from the taxi — "this car is you", "tap that rider", and a
-nod at the boost pill a couple of seconds after the first drop-off — and that is the whole tutorial;
+nod at the throttle a couple of seconds after the first drop-off — and that is the whole tutorial;
 see [the opening tutorial](gameplay.md#the-opening-tutorial).
 
 A 5×5 block city on a fixed 3/4 orthographic camera. Ambient cars drive a lane-following traffic
@@ -65,19 +65,19 @@ go through, re-planned live while the car keeps driving. That is the one way to 
 the road ahead without giving up the fare. See
 [dragging the route](gameplay.md#dragging-the-route).
 
-**Loco Mode** (bottom left) is the crazy-taxi button: **hold** for double speed that runs red
-lights, release to pause the meter. Two clear blocks in a row take it past double into the
-overdrive band, and any corner takes that back. A full tank is 15 seconds of boost, earned rather than
+The **throttle** (bottom left) is the whole of driving, on one spring-loaded lever. **Drag the knob
+up and hold** for Loco Mode — double speed that runs red lights, released the moment you let go.
+Two clear blocks in a row take it past double into the overdrive band, and any corner takes that
+back. **Drag it down and hold** for the brake: the taxi screeches to a halt with rubber off all four
+wheels. Let go of either and the knob springs back to the middle, which is the taxi driving itself —
+the state the game rests in.
+
+The lever's upper half doubles as the boost gauge. A full tank is 15 seconds, earned rather than
 regenerated: you start with a third, each drop-off tops it up by another third, and a delivered
-package pours in half of that.
-
-Next to it, taking the right 40% of the same row, is the **brake**: hold it and the taxi screeches
-to a halt with rubber off all four wheels, let go and it drives itself again. It costs nothing and
-has nothing to run out of. See [the brake](gameplay.md#the-brake).
-
-The two are one control surface: **slide** a held thumb from Loco Mode onto the brake and the car
-changes hands as it crosses, with no lift in between. See
-[the pedal slide](gameplay.md#the-pedal-slide).
+package pours in half of that. The lower half has no gauge on it, because the brake costs nothing
+and has nothing to run out of. On a keyboard, **Space** is still the boost and **B** the brake —
+both through the same lever, which slams to its end stop and springs back. See
+[the throttle](gameplay.md#the-throttle).
 
 ## Conventions worth knowing before editing
 
