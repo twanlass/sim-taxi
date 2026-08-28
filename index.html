@@ -837,32 +837,37 @@
       /* Nothing to go back to once the run is over, and a screenshot frames itself. */
       body.shot-mode #taxi-finder, body.game-over #taxi-finder { display: none; }
 
-      /* Off-screen drop-off pointer. An arrow that clamps to the viewport edge and rotates to
-         point at the drop-off ring, so the direction to drive stays readable when the ring has
-         slipped off the frame (portrait, or after panning). It also carries more weight than it
-         used to: the drop-off no longer floats a marker above the rooftops, so this is what says
-         "over there" once the ring is out of frame.
+      /* Off-screen fare pointers. Arrows that clamp to the viewport edge and rotate to point at a
+         fare that has slipped off the frame (portrait, or after panning). Two kinds, same arrow:
+         the drop-off ring while a fare is aboard, and every rider still waiting on a kerb.
 
-         The colour is written from JS (game/dropoffindicator.js) rather than set here: the ring
-         this arrow stands in for is painted in the rider's clock now, and the arrow has to step
-         with it. The value below is only what it opens on before the first fare is aboard. */
-      #dropoff-indicator {
+         The rider arrows replaced the rider-finder chips: a chip answered "where is the next fare,
+         how urgent, and shall I take it" in one tap without the player ever looking at the city,
+         and the arrow deliberately only answers the first two. See src/game/farepointers.js.
+
+         The colour is written from JS rather than set here: each arrow stands in for a mark that is
+         painted in its rider's clock, so it has to step with it. The value below is only what one
+         opens on before its first colour write. */
+      .fare-pointer {
         position: fixed; left: 50%; top: 50%; z-index: 18;
-        width: 34px; height: 34px; pointer-events: none; user-select: none;
+        width: 28px; height: 28px; pointer-events: none; user-select: none;
         transform: translate(-50%, -50%);
         color: #3ECF5A;   /* PALETTE.urgency[4] — a full clock */
       }
-      #dropoff-indicator[hidden] { display: none; }
-      #dropoff-indicator svg { display: block; width: 100%; height: 100%;
+      /* The trip actually under way, drawn a size up: while carrying, several arrows can be on the
+         edge at once and colour is already spoken for by the clocks. */
+      .fare-pointer.is-dropoff { width: 34px; height: 34px; }
+      .fare-pointer[hidden] { display: none; }
+      .fare-pointer svg { display: block; width: 100%; height: 100%;
         filter: drop-shadow(0 2px 4px rgba(10, 20, 30, 0.45)); }
-      /* Outlined to the same weight as the markers in the world, so the arrow reads as the same
+      /* Outlined to the same weight as the markers in the world, so an arrow reads as the same
          graphic vocabulary. `currentColor` is what lets one style write on the wrapper repaint it
          as the fare's clock drains. */
-      #dropoff-indicator polygon {
+      .fare-pointer polygon {
         fill: currentColor;
         stroke: #0a1615; stroke-width: 3; stroke-linejoin: round;
       }
-      body.shot-mode #dropoff-indicator { display: none; }
+      body.shot-mode .fare-pointer, body.game-over .fare-pointer { display: none; }
 
       /* --- the off-screen police warning -------------------------------------
          Red and blue washing in over the frame edge the cruiser is coming from, strobing in step
@@ -1367,11 +1372,10 @@
          same way the rider chips draw the real figure. See src/game/taxifinder.js. -->
     <button id="taxi-finder" type="button" aria-label="Back to the taxi" aria-hidden="true"
       disabled></button>
-    <div id="dropoff-indicator" aria-hidden="true" hidden>
-      <svg viewBox="-16 -16 32 32">
-        <polygon points="13,0 -9,-10 -4,0 -9,10" />
-      </svg>
-    </div>
+    <!-- Empty: one arrow per off-screen fare is built into here on demand, since how many there
+         are is a fact about the board. The arrows are `position: fixed` themselves, so this host
+         needs no layout of its own. See src/game/farepointers.js. -->
+    <div id="fare-pointers" aria-hidden="true"></div>
     <div id="siren-glow" aria-hidden="true" hidden></div>
     <div id="spotlight" aria-hidden="true"></div>
     <div id="coach" hidden>

@@ -292,8 +292,9 @@ three.js page does not:
 `?safe` is a **playable** configuration rather than a diagnostic one — a device that only works
 this way can still be played this way. Every flag overrides it, so `?safe&msaa=on` bisects upward
 exactly as `?msaa=off` bisects down, and the flags reach the tutorial avatar's renderer, the
-rider-finder chips', the courier cargo chip's and the taxi finder's too: each of those opens a WebGL
-context of its own, and "how many contexts is this page holding" is part of what `?safe` is asking.
+courier cargo chip's, the taxi finder's and the rider-finder chips' under `?chips=on` too: each of
+those opens a WebGL context of its own, and "how many contexts is this page holding" is part of what
+`?safe` is asking.
 
 **Android defaults to it**, as a holding measure — see below. The consequence for bisecting is
 that a bare `?msaa=off` on an Android device tells you nothing, because the other three are
@@ -418,7 +419,10 @@ a click on a chip's canvas bubbles to the chip's button and dispatches the taxi 
 [cargo chip](gameplay.md#the-load-is-carried-into-the-hud) has since put a 42px canvas earlier still —
 it lives in `#hud`, the first element in the body — and the
 [taxi finder](rendering.md#getting-back-to-the-taxi) a 44px one beside the rider row, so the rule has
-several things enforcing it now.
+several things enforcing it now. Note that the chips themselves are only there because **this tool
+loads the page with `?chips=on`** — they are off on an ordinary run now (see [finding the next
+rider](gameplay.md#finding-the-next-rider)), and the flag is what keeps the two checks that cover
+them, and this trap, alive.
 
 **It waits out the opening vignette before it touches anything**, and that wait doubles as the one
 end-to-end assertion [the vignette](gameplay.md#the-opening-vignette) can only get in a page: the
