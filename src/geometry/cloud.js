@@ -22,21 +22,24 @@ import { VIEW_DIR } from '../game/camera.js';
 // Everything else in this game wants its facets: `flatShading` and a hard silhouette are the whole
 // look. A cloud is the exception — it has no surface, and a cumulus with visible polygons reads as
 // a rock — so this model is the one place in the project that goes the other way, and it does it
-// twice over:
+// three times over:
 //
 //   - **Smooth normals.** The shading normal is the direction from the lobe's own centre to the
 //     vertex (as an ellipsoid, so the vertical squash is accounted for) rather than the triangle's
 //     winding, so the light runs *across* each face instead of stepping at every edge. Nothing is
 //     welded and no vertices are shared: the normal is computed, used, and thrown away, because the
 //     material is unlit and the shading it produces is already in the colour.
-//   - **A rim fade.** Alpha falls to zero as the surface turns away from the camera, so the
+//   - **An edge fade.** Alpha falls to zero as the surface turns away from the camera, so the
 //     silhouette — the one place a polygon can still be *seen* as a polygon — dissolves into the
 //     sky instead of ending on an edge. This is what "low poly" actually costs you on a cloud, and
-//     fading it is what buys back the softness without a single extra triangle.
+//     fading it is what buys back the softness without a single extra triangle. See `FEATHER`, and
+//     `BURY` for the exemption that keeps the lobes from fading against *each other*.
+//   - **A draw order settled at build time.** Translucent lobes have to be blended back to front,
+//     which is normally a per-frame sort of everything on screen.
 //
-// Both are baked into the vertex colours at build time, and **both only work because the camera
-// never rotates**: a rim fade is normally a shader computing `dot(normal, viewDir)` per fragment,
-// and here the view direction is a constant this module can import. See `RIM`.
+// All three are baked in here, and **all three only work because the camera never rotates**: a fade
+// like this is usually a shader running `dot(normal, viewDir)` per fragment against a view that
+// moves, and here the view direction is a constant this module can import.
 
 /**
  * How much each lobe is squashed vertically. A sphere of fluff reads as a boulder; a cumulus is
@@ -110,12 +113,12 @@ const AMBIENT = 0.88;
  * edge. `sin` of the same angle is the screen radius, and fading on that puts the ramp where it can
  * be seen.
  *
- * It trades softness against body, and both ends of that are visible: at 0.3 — solid across only
- * the inner third of the disc — the clouds came out as pale ghosts with every lobe showing through
- * every other one, because a cloud is opaque by *stacking* translucent lobes and a third of a disc
- * is not enough to stack with. At 0.52 the solid part carries the body and the outer half of each
- * lobe is what dissolves. It still costs size — a lobe reads about a quarter smaller than it
- * measures — which is what `EDGE_GAIN` is for.
+ * It trades softness against body, and both ends of that were visible on the way to 0.38. Alone, at
+ * 0.3, the clouds came out as pale ghosts with every lobe showing through every other one: a cloud
+ * is opaque by *stacking* translucent lobes, and a third of a disc is not enough to stack with. It
+ * took 0.52 to carry the body — until `BURY` below took the interior out of the fade's hands
+ * entirely, which is what let this come back down to a third of the disc solid and two thirds
+ * dissolving. It still costs size, and `EDGE_GAIN` is what pays for that.
  */
 const FEATHER = 0.38;
 
