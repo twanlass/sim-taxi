@@ -50,6 +50,7 @@ src/
     flyover.js          the ambient plane that crosses the city every so often — scenery, nothing more
     chopper.js          the helicopter that lands on the city's rooftop helipad, idles and leaves
     birds.js            the park flocks: walk the grass, startled up by the taxi, come back; two per city
+    clouds.js           the weather ringing the island — placed on the screen, never over the city
     opening.js          the opening vignette: camera onto the garage door, door up, taxi out
     runend.js           the run-end blackout: stats counted out, then initials, then the table
     highscores.js       the local top five — localStorage is the whole backend
@@ -58,7 +59,7 @@ src/
 
   geometry/             one-off models, all procedural
     taxi.js  wheels.js  diamond.js  targetring.js  marker.js  person.js  riderdiamond.js
-    plane.js bird.js helicopter.js cursebubble.js
+    plane.js bird.js helicopter.js cursebubble.js cloud.js
 
   util/
     rng.js              seeded RNG (mulberry32) + value noise
@@ -183,7 +184,7 @@ isn't caching anything.
 ## Testing hooks
 
 `main.js` exposes `window.__taxi` with `traffic`, `boost`, `skids`, `police`, `fares`, `daylight`,
-`routeTo`, `findRoute`, `isSelected`, `flyover`, `chopper`, `flocks` (every park flock, in build order) and `redraw`. The headless tools in `tools/` drive the game
+`routeTo`, `findRoute`, `isSelected`, `flyover`, `chopper`, `flocks` (every park flock, in build order), `clouds` and `redraw`. The headless tools in `tools/` drive the game
 through this instead of through the DOM, which is what makes the whole suite run in about a second.
 
 `redraw()` draws one frame on demand. Shot mode never starts the render loop — it warms the sim,

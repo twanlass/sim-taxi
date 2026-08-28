@@ -22,6 +22,22 @@ export const PALETTE = {
   // than distant. This is `skyTop` at full saturation: the same hue, 181 points of spread.
   fog: '#4AC6FF',
 
+  // The clouds ringing the island — see game/clouds.js. Two colours rather than one because a
+  // white lump under a directional sun comes back as a white lump: at 28.5° of elevation the top
+  // of a cloud and its flanks are lit within a few percent of each other, and the only thing left
+  // to say "this is a body and not a cut-out" is the gradient baked into it (geometry/cloud.js).
+  //
+  // Neither is pure white, for the reason the roadworks' bands aren't (see `coneBand`): the sun is
+  // warm and strong enough that anything above about #F8 blows out into a flat sheet and takes the
+  // facets with it. The lit colour is a shade *cool* on top of that, which is what keeps it reading
+  // as white against a warm sun rather than as cream.
+  //
+  // The shade is a proper cool blue, not a grey: it is standing in for the sky the underside is
+  // being lit by, and the hemisphere fill it actually gets down there is the ground's warm brown
+  // (`hemiGround`). Left grey, the underside of every cloud came out the colour of the sidewalk.
+  cloudLit: '#F4F8FC',
+  cloudShade: '#A9C0DA',
+
   sun: '#FFDEBB',
   hemiSky: '#F0C79B',
   hemiGround: '#6B5A48',

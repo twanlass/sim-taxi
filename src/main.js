@@ -30,6 +30,7 @@ import { carrySpeed } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createChopper } from './game/chopper.js';
 import { createBirds } from './game/birds.js';
+import { createClouds } from './game/clouds.js';
 import { createCarGhosts } from './game/carghosts.js';
 import { createRoadwork } from './game/roadwork.js';
 import { showRunEnd } from './game/runend.js';
@@ -183,10 +184,20 @@ function renderFrame() {
   renderer.render(scene, camera);
 }
 
+// Weather, ringing the island — see game/clouds.js. Scenery on the same terms as the aeroplane and
+// the flocks, and placed by where it lands **on screen** rather than by where it is in the world:
+// the one thing a cloud must never do under this camera is come over the city and sit on the taxi.
+// Run seed, like the flyover: which way the sky is moving today is part of the situation.
+//
+// Built here, out of order with the rest of the scenery, because the clock below tints it: the
+// clouds are the one unlit thing in the sky and `daylight.apply()` is the only thing that moves
+// their colour over a day.
+const clouds = createClouds(scene, makeRng(runSeed + 277));
+
 // The clock that drives the sky. Parked at golden hour for now — the cycle works, but the night
 // end of it needs more tuning before it earns its place, so it's off until the ⚙️ panel turns it
 // on. Screenshots keep it frozen regardless: a rendered shot has to be reproducible.
-const daylight = createDaylight({ sun, hemi, sky, fog });
+const daylight = createDaylight({ sun, hemi, sky, fog, clouds });
 daylight.setDayLength(DAY_SECONDS);
 daylight.setCycling(false);
 
@@ -1970,6 +1981,7 @@ function frame() {
   vanish.update(dt);
   flyover.update(dt);
   chopper.update(dt);
+  clouds.update(dt);
   // Handed last frame's taxi position, which is all a startle needs — it is a distance test with
   // eight units of slack, and running it here rather than after `traffic.update` keeps the whole
   // scenery block in one place.
@@ -2714,6 +2726,7 @@ if (!shot && wantsDebugPanel) {
     routeLine,
     ao,
     scores: { load: loadScores, clear: clearScores },
+    clouds,
     // The entrance levers. The panel's replay re-aims the wave at wherever the taxi is *now* —
     // the point of replaying from the panel is judging the opening, and the opening's wave starts
     // at the player's car.
@@ -2759,6 +2772,8 @@ window.__taxi = {
   taxiFinder,
   flyover,
   chopper,
+  /** The weather ringing the island — `clouds.state` is where the band is, `clouds.clouds` the sky. */
+  clouds,
   /**
    * The taxi's depot and the vignette that comes out of it, or null on a city with nowhere to put
    * one (and, for `opening`, in shot mode). `garage.setDoor(0..1)` scrubs the shutter by hand and

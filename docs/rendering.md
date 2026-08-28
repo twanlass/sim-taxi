@@ -1383,6 +1383,118 @@ a bar being rotated.
 Four draw calls while one is up — airframe, blade, prop disc, streamers — and none at all the rest
 of the time. `?shot=13` stages one; see [testing.md](testing.md#screenshots).
 
+### Clouds — `game/clouds.js`, `geometry/cloud.js`
+
+Low-poly cumulus drifting past the city on one wind. Scenery on the same terms as the flyover and
+the flocks — nothing routes around them, nothing collides with them, nothing can be tapped — with
+one rule of their own: **a cloud must never come over the city.** The camera is fixed and looks down
+a 33° diagonal, so anything in the air is drawn over whatever ground is up-screen of it, and a cloud
+over the middle of the map sits on the taxi.
+
+So they ring the island instead, which is also the only place there is any sky to ring. At play zoom
+the island is 221 × 120 units on screen against a frame 104 tall: what the player ever sees of the
+sky is the wedge between the map's edge and the corner of the frame, and **91% of it is within 30
+units of that edge**. A band pushed generously clear of the city is a band nobody ever sees.
+
+#### Authored on the screen, solved in the world
+
+"Over the city" is a fact about the picture, not about the world. A world-Y lift buys 0.838 of a
+unit up the screen (`SCREEN_PER_WORLD_Y`) and nothing else — no parallax, no perspective, nothing
+that moves when the player pans — so a cloud at altitude 60 over the middle of the map is *drawn* 50
+units up-screen of it, on the far edge's skyline.
+
+`RIGHT`, `VIEW_UP` and `VIEW_DIR` ([camera](#camera)) are an orthonormal basis, so a cloud is
+authored as `(sx, sy)` on the frame and `worldAt()` sums the three axes to get the world position
+back. The third coordinate — how far the cloud floats *towards* the camera — is invisible under an
+orthographic projection, and is therefore where the altitude goes: `standoffFor()` solves for
+whatever standoff puts the cloud at the altitude it wants to be flying at.
+
+That axis is not free, though, and this is the bug worth remembering: **view-space depth is measured
+from the camera's target**, which follows the taxi. A cloud drawn *below* the island has to be a
+long way towards the camera to be up in the air at all — the island is 120 units tall on screen and
+getting under it costs 1.54 units of standoff per unit of drop — so the first build put the low ones
+at 35 units of depth with the camera at the origin, which is **behind the camera** by the time the
+player drives to the far corner. They vanished, and only from one end of the map. `STANDOFF_MAX`
+leaves 60 units of depth in hand after the worst pan and the price is paid where nothing can see it:
+a cloud that wanted to fly at 80 and is drawn low ends up at 46 instead.
+
+#### They ride the outline, not a lane
+
+The obvious design — a straight lane, a wind blowing down it, clouds wrapping round — was built
+first and is wrong in a way that only shows up when you measure it. A straight lane clears the city
+only if the *whole line* does, and the set of lines that do covers exactly **half** the map's
+perimeter: with the wind down world +X the lanes hug the two z-facing edges, and every line that
+could reach the sky beside the other two crosses the city on its way. Measured on that build: 0.13
+clouds in frame on a portrait phone against 1.04 on a desktop, with 83% of portrait frames showing
+sky and nothing in it.
+
+So a cloud holds a fixed height **above the city's silhouette** and tracks it as it drifts across.
+The silhouette is the convex hull of the keep-out's projected corners, split into an upper and a
+lower chain (Andrew's monotone chain), evaluated as a smooth-min over the chain's infinite lines and
+clamped past the map's shoulders so a cloud carries straight on past its side rather than following
+the outline down to a point. Every cloud still travels the same way across the screen, which is what
+the straight lane was bought for in the first place.
+
+The keep-out is **two boxes** — the ground out to its fade skirt, and the built city standing on the
+middle of it — because one box costs 17 units of sky: built as a single 20.5-tall box out to the
+skirt it claims a skyline standing on the very edge of the island, where there is nothing but empty
+asphalt, and pushes the whole band up-screen off ground 28 units further out than any building.
+
+`tools/probe.mjs` asserts the lot: no cloud's screen box ever touches the city's hull over eight
+simulated minutes on each of four seeds, none is ever behind the camera across twenty framings from portrait
+phone to ultrawide panned into each corner, and a cloud is in frame 64% of the time on the tightest
+framing the game has.
+
+#### The one unlit thing in the sky
+
+The scene's key is `#FFDEBB` over a warm hemisphere fill at both ends, and a white lump under it
+comes back as a **sandstone boulder** — every upward face cream, every downward face the colour of
+the sidewalk, and the cool underside the palette asks for multiplied out of existence. That lighting
+is right for a city at golden hour and wrong for the only white object in the sky, and no base colour
+undoes it: a warm key cannot be cancelled without going past white in the blue channel.
+
+So the material is `unlitMaterial()` and the shading is **baked per face** in `geometry/cloud.js`,
+off the same sun direction the scene uses. That buys back what the switch would otherwise cost — an
+unlit cloud with only a vertical gradient has no facets at all, and the facets are the whole low-poly
+read — while leaving the colour exactly as authored: `cloudLit` white on top, `cloudShade` blue
+underneath, with a two-thirds ambient floor under the face shading so the unlit side stays cloud
+rather than rock.
+
+What it gives up is the shading turning with the day. The *tint* still does: `cloudTint()` is a
+function of the sky the same way `hazeColor()` is, and `game/daylight.js` drives it on every
+keyframe change — the sky sampled halfway up, most of its chroma taken out, its lightness pulled up
+a gamma curve. That curve is the trick: a cloud is brighter than the sky at every hour, so the parked
+afternoon barely moves (it is already light) while midnight lands at 0.14 lightness against the sky's
+0.04 — a shape you can still make out rather than a hole in the stars. Sampled halfway up rather than
+at the zenith, unlike the haze, because a cloud at dusk is the one thing in the frame still catching
+the sun.
+
+#### The model
+
+A row of jittered icosahedra sitting on a common base plane, merged into one geometry — the tree
+canopy's construction at four times the size, laid along a line rather than clustered on a trunk.
+Each lobe is squashed to 0.8 and its centre put at exactly that height, which lands every lobe's
+underside on `y = 0` whatever its size: one flat base, the way a cartoon cloud is drawn, with the
+top broken up by the lobes themselves.
+
+**How many lobes is derived from the span, not drawn.** At four lobes over a 46-unit span the
+spacing came out at 11.5 against a radius of 7.7 and the cloud arrived as a string of separate
+balls; spacing them at 1.15 radii always closes. Puffs ride the shoulders over the middle 60%, lifted
+by less than the lobe under them is tall so they always break its surface.
+
+The long axis lies down the wind, which is **+45°** and not −45°: the project's convention takes +X
+to `(cos, 0, −sin)`, so `RIGHT` — world (1, 0, −1), the direction screen `sx` runs in — is a positive
+quarter turn. The other sign aims the model down (1, 0, 1), the horizontal part of the *view*
+direction: the cloud points straight into the screen, projects to nothing across the frame, and every
+one of them came out as a lumpy potato standing on end. The probe checks each cloud is at least 1.3×
+wider than tall on screen, which is the shape of that mistake.
+
+Ten clouds up out of a pool of 28, about 400 triangles each. `?shot=24` frames the band against the
+map's far corner; the ⚙️ panel has the four knobs that decide how it reads — how many, how far off
+the city, how deep the band, how fast — plus one for the other reading of the brief, **Over the
+city**, which puts that many of them across the map instead of round it. It is 0 by default: a cloud
+over the play area hides the taxi, which is the whole reason for everything above.
+
 ### The park flock — `game/birds.js`, `geometry/bird.js`
 
 Birds living in the city's parks. They walk about on the grass, pecking and pausing; something puts
