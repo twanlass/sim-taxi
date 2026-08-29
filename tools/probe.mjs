@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import {
-  createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
+  createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
 } from '../src/city/ground.js';
 import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
@@ -77,7 +77,8 @@ import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/pl
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
 import {
   createClouds, cloudTint, screenOf, silhouetteTop, silhouetteBottom,
-  KEEP_OUT, INNER_KEEP_OUT, INNER_REACH, CITY_REACH, BUILT_REACH, CITY_TOP, ROUND as CLOUD_ROUND,
+  KEEP_OUT, INNER_KEEP_OUT, INNER_REACH_X, INNER_REACH_Z,
+  CITY_REACH_X, CITY_REACH_Z, BUILT_REACH_X, BUILT_REACH_Z, CITY_TOP, ROUND as CLOUD_ROUND,
 } from '../src/game/clouds.js';
 import { createHelicopterMesh, HELI_SKID_DROP, MAIN_R } from '../src/geometry/helicopter.js';
 import { createChopper, CRUISE_ALT as CHOPPER_ALT, ROTOR_FLIGHT } from '../src/game/chopper.js';
@@ -120,7 +121,7 @@ import {
 import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import {
   halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns, MEDIAN_W,
 } from '../src/city/grid.js';
@@ -191,9 +192,10 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
 {
   const fade = ground.children.find((c) => c.name === 'asphalt-fade');
   // Signed distance to the rounded-square outline: 0 on the edge, positive outside.
-  const inset = SLAB / 2 - SLAB_RADIUS;
+  const insetX = SLAB_X / 2 - SLAB_RADIUS;
+  const insetZ = SLAB_Z / 2 - SLAB_RADIUS;
   const edgeDist = (x, z) => Math.hypot(
-    Math.max(Math.abs(x) - inset, 0), Math.max(Math.abs(z) - inset, 0),
+    Math.max(Math.abs(x) - insetX, 0), Math.max(Math.abs(z) - insetZ, 0),
   ) - SLAB_RADIUS;
 
   const pos = fade?.geometry.attributes.position;
@@ -223,7 +225,7 @@ console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mes
     `${inside.toExponential(1)} units inside`);
 }
 
-check('layout covers every block', layout.length === GRID * GRID, `${layout.length} blocks`);
+check('layout covers every block', layout.length === GRID_I * GRID_J, `${layout.length} blocks`);
 check('some blocks are parks', layout.some((b) => b.type === 'park'),
   `${layout.filter((b) => b.type === 'park').length} parks`);
 
@@ -255,8 +257,8 @@ const onGrass = (city, i, j) => {
   for (let s = 0; s < 200; s++) {
     const city = createLayout(makeRng(s));
     let free = 0;
-    for (let i = 0; i <= GRID; i++) {
-      for (let j = 0; j <= GRID; j++) if (!onGrass(city, i, j)) free += 1;
+    for (let i = 0; i <= GRID_I; i++) {
+      for (let j = 0; j <= GRID_J; j++) if (!onGrass(city, i, j)) free += 1;
     }
     if (free < leanest) { leanest = free; leanestSeed = s; }
   }
@@ -264,7 +266,7 @@ const onGrass = (city, i, j) => {
   // the buildings sweep below, and the one at the foot of city/layout.js.
   createLayout(makeRng(seed));
   check('every city has corners for a courier job to stand on', leanest >= 16,
-    `leanest ${leanest}/${(GRID + 1) ** 2} on seed ${leanestSeed}`);
+    `leanest ${leanest}/${(GRID_I + 1) * (GRID_J + 1)} on seed ${leanestSeed}`);
 }
 
 // --- The walk round a park --------------------------------------------------
@@ -1207,16 +1209,28 @@ check('signals actually stop people', stoppedFrames > simFrames * 0.5,
 
 // --- Positional invariants.
 const positions = traffic.cars.map((c) => ({ x: c.x, z: c.z, state: c.state }));
-// The outermost road centrelines sit exactly at ±HALF_SPAN, so a car in the far lane is
-// legitimately LANE units beyond that. The original bound here was simply too tight.
-const limit = HALF_SPAN + LANE + 1;
-const inBounds = positions.every((p) => Math.abs(p.x) <= limit && Math.abs(p.z) <= limit);
+// The outermost road centrelines sit exactly at ±HALF_SPAN_X / ±HALF_SPAN_Z, so a car in the far
+// lane is legitimately LANE units beyond that. The original bound here was simply too tight.
+const limitX = HALF_SPAN_X + LANE + 1;
+const limitZ = HALF_SPAN_Z + LANE + 1;
+const inBounds = positions.every((p) => Math.abs(p.x) <= limitX && Math.abs(p.z) <= limitZ);
 check('every car is inside the city', inBounds);
 
-/** Distance from a coordinate to the nearest road centreline. */
-const distToLine = (v) => {
+// Distance from a coordinate to the nearest road centreline, and the index of that centreline.
+//
+// **Four functions, not two.** An `x` is measured against the roads running along Z (indexed by
+// `i`) and a `z` against those running along X (indexed by `j`), and the two axes carry neither
+// the same count nor the same origin now that the city has a river row on one of them. One
+// function taking a bare coordinate cannot tell which it was handed, and the answer it guesses is
+// wrong by half a block on the axis it guessed against.
+const distToLineX = (x) => {
   let best = Infinity;
-  for (let i = 0; i <= GRID; i++) best = Math.min(best, Math.abs(v - lineCoord(i)));
+  for (let i = 0; i <= GRID_I; i++) best = Math.min(best, Math.abs(x - lineX(i)));
+  return best;
+};
+const distToLineZ = (z) => {
+  let best = Infinity;
+  for (let j = 0; j <= GRID_J; j++) best = Math.min(best, Math.abs(z - lineZ(j)));
   return best;
 };
 
@@ -1225,17 +1239,18 @@ const distToLine = (v) => {
  * the road under a point is, and an arterial's width is keyed by its line index — so a bare
  * distance is no longer enough to say whether a car is where it should be.
  */
-const lineIndexOf = (v) => Math.min(GRID, Math.max(0, Math.round((v + HALF_SPAN) / PITCH)));
+const lineIndexX = (x) => Math.min(GRID_I, Math.max(0, Math.round((x + HALF_SPAN_X) / PITCH)));
+const lineIndexZ = (z) => Math.min(GRID_J, Math.max(0, Math.round((z + HALF_SPAN_Z) / PITCH)));
 
 // A driving car must sit on a lane centre: offset from a centreline on one axis by however far
 // that road's lanes sit out — LANE on an ordinary street, further on a divided arterial — and
 // somewhere along a road on the other.
 const offLane = positions.filter((p) => {
   if (p.state !== 'drive') return false;
-  const dx = distToLine(p.x);
-  const dz = distToLine(p.z);
-  const onXLane = Math.abs(dz - laneOffX(lineIndexOf(p.z))) < 0.05;
-  const onZLane = Math.abs(dx - laneOffZ(lineIndexOf(p.x))) < 0.05;
+  const dx = distToLineX(p.x);
+  const dz = distToLineZ(p.z);
+  const onXLane = Math.abs(dz - laneOffX(lineIndexZ(p.z))) < 0.05;
+  const onZLane = Math.abs(dx - laneOffZ(lineIndexX(p.x))) < 0.05;
   return !(onXLane || onZLane);
 });
 check('driving cars sit on lane centres', offLane.length === 0, `${offLane.length} off-lane`);
@@ -1244,11 +1259,11 @@ const turning = positions.filter((p) => p.state === 'turn');
 // Twice the junction box, on each axis independently — a generous bound whose job is to catch a
 // car flung out of the city, not to measure the arc. Per-road since the arterials were widened:
 // the box a car turns inside is the *crossing* road's half-width, which is 5.33 on a main street.
-const turnBound = (p) => 2 * Math.max(halfRoadZ(lineIndexOf(p.x)), halfRoadX(lineIndexOf(p.z)));
-const strayed = turning.filter((p) => Math.max(distToLine(p.x), distToLine(p.z)) > turnBound(p));
+const turnBound = (p) => 2 * Math.max(halfRoadZ(lineIndexX(p.x)), halfRoadX(lineIndexZ(p.z)));
+const strayed = turning.filter((p) => Math.max(distToLineX(p.x), distToLineZ(p.z)) > turnBound(p));
 check('turning cars are inside intersections', strayed.length === 0,
   `${strayed.length} of ${turning.length} turning outside, worst `
-  + `${Math.max(0, ...turning.map((p) => Math.max(distToLine(p.x), distToLine(p.z)))).toFixed(2)}`);
+  + `${Math.max(0, ...turning.map((p) => Math.max(distToLineX(p.x), distToLineZ(p.z)))).toFixed(2)}`);
 
 check('no rear-end overlaps', stats.minGap > 3.2, `min gap ${stats.minGap.toFixed(2)}`);
 
@@ -1367,7 +1382,10 @@ check('no two cars occupy the same space', worst > 1.6,
 
     if (c && step % 30 === 0) {
       const t = pTraffic.stats.time;
-      for (let k = 0; k <= GRID; k++) {
+      // `k` walks the junctions the corridor passes, which are indexed on the *other* axis from
+      // the one the line is named by: an x-running corridor sits on a j line and passes i
+      // junctions.
+      for (let k = 0; k <= (c.axis === 'x' ? GRID_I : GRID_J); k++) {
         const i = c.axis === 'x' ? k : c.line;
         const j = c.axis === 'x' ? c.line : k;
         const phase = lightPhase(i, j, t);
@@ -1375,8 +1393,9 @@ check('no two cars occupy the same space', worst > 1.6,
         if (phase.axis !== c.axis || phase.yellow) corridorBad += 1;
 
         // A junction one road over must be unaffected.
-        const offI = c.axis === 'x' ? i : (c.line + 1) % (GRID + 1);
-        const offJ = c.axis === 'x' ? (c.line + 1) % (GRID + 1) : j;
+        const offLine = (c.line + 1) % ((c.axis === 'x' ? GRID_J : GRID_I) + 1);
+        const offI = c.axis === 'x' ? i : offLine;
+        const offJ = c.axis === 'x' ? offLine : j;
         if (lightPhase(offI, offJ, t).axis === c.axis && lightPhase(offI, offJ, t) === phase) crossBad += 1;
       }
     }
@@ -3152,8 +3171,8 @@ check('no two cars occupy the same space', worst > 1.6,
   // Nothing calls `kTraffic.update` past this point, so the position sticks.
   if (fare) {
     const kAway = intersectionCentre(fare.target.i, fare.target.j);
-    kTraffic.taxi.x = kAway.x + HALF_SPAN;
-    kTraffic.taxi.z = kAway.z + HALF_SPAN;
+    kTraffic.taxi.x = kAway.x + HALF_SPAN_X;
+    kTraffic.taxi.z = kAway.z + HALF_SPAN_Z;
   }
   if (!fare) {
     check('a fresh rider is not already popping', false, 'no rider on the kerb');
@@ -3363,7 +3382,7 @@ check('no two cars occupy the same space', worst > 1.6,
   // be testing a function no car consults.
   const net = cityNetwork();
   const signalled = (i, j) => net.nodeByGrid(i, j).signal !== null;
-  const ringCorners = [[0, 0], [0, GRID], [GRID, 0], [GRID, GRID]];
+  const ringCorners = [[0, 0], [0, GRID_J], [GRID_I, 0], [GRID_I, GRID_J]];
   // The whole ring is light-free, corners included. A corner has two arms meeting at a right
   // angle, so both movements through it are bends that sweep opposite sides and never cross —
   // `buildConflicts` returns nothing for either, and `bakeSignals` drops the signal on that
@@ -3430,9 +3449,9 @@ check('no two cars occupy the same space', worst > 1.6,
     // coordinate runs along the road and says nothing; only the cross-axis one is the lane.
     // Against the offset of the lane it is *on*, not the global LANE: on a divided arterial the
     // lane centre sits 3.33 out, and measuring against 2 would report the widening as a weave.
-    const cross = isXAxis(wTaxi.d) ? wTaxi.z : wTaxi.x;
+    const crossDist = isXAxis(wTaxi.d) ? distToLineZ(wTaxi.z) : distToLineX(wTaxi.x);
     widest = Math.max(widest,
-      Math.abs(distToLine(cross) - laneOffsetFor(wTaxi.d, wTaxi.i, wTaxi.j)));
+      Math.abs(crossDist - laneOffsetFor(wTaxi.d, wTaxi.i, wTaxi.j)));
   }
   // 0.52 is the two waves' peak sum; the margin covers a frame landing mid-corner-exit. The frame
   // floor is the sample size: at boost speed a junction arrives about every 1.1s, so barely half
@@ -3462,8 +3481,8 @@ check('no two cars occupy the same space', worst > 1.6,
   let jI = -1;
   let jJ = -1;
   let dIn = -1;
-  outer: for (let i = 1; i < GRID && dIn < 0; i++) {
-    for (let j = 1; j < GRID && dIn < 0; j++) {
+  outer: for (let i = 1; i < GRID_I && dIn < 0; i++) {
+    for (let j = 1; j < GRID_J && dIn < 0; j++) {
       if (ringAxisAt(i, j)) continue;
       for (const d of [0, 1, 2, 3]) {
         if (!legalExits(d, i, j).includes(leftOf(d))) continue;
@@ -3729,8 +3748,8 @@ check('no two cars occupy the same space', worst > 1.6,
   // whole lane is the safe place to be; the centreline is somewhere to pass *through*. Asserted
   // here as clearance from the car being overtaken, which is the direct form of it.
   let pI = -1; let pJ = -1; let pD = -1;
-  outerPass: for (let i = 1; i < GRID; i++) {
-    for (let j = 1; j < GRID; j++) {
+  outerPass: for (let i = 1; i < GRID_I; i++) {
+    for (let j = 1; j < GRID_J; j++) {
       if (ringAxisAt(i, j)) continue;
       for (const d of [0, 1, 2, 3]) {
         // Straight on out of this junction, and straight on out of the next, so the pass has road.
@@ -3928,8 +3947,8 @@ check('no two cars occupy the same space', worst > 1.6,
   // it: the stop itself is about a unit from cruise, and the pull-away needs ~5 more to be back at
   // cruise, against the ~16 units of clear lane this staging leaves before the signal bites.
   let bI = -1; let bJ = -1; let bD = -1;
-  outerBrake: for (let i = 1; i < GRID; i++) {
-    for (let j = 1; j < GRID; j++) {
+  outerBrake: for (let i = 1; i < GRID_I; i++) {
+    for (let j = 1; j < GRID_J; j++) {
       if (ringAxisAt(i, j)) continue;
       for (const d of [0, 1, 2, 3]) {
         if (!legalExits(d, i, j).includes(d)) continue;
@@ -4097,14 +4116,15 @@ check('every intersection is routable from every approach', unroutable === 0,
   const rTaxi = rTraffic2.taxi;
 
   // Somewhere far enough away to cross the map and take several turns.
-  const dest = { i: rTaxi.i > GRID / 2 ? 0 : GRID, j: rTaxi.j > GRID / 2 ? 0 : GRID };
+  const dest = { i: rTaxi.i > GRID_I / 2 ? 0 : GRID_I, j: rTaxi.j > GRID_J / 2 ? 0 : GRID_J };
   rTaxi.route = findRoute(planOrigin(rTaxi), dest);
   rTaxi.routeConsumed = false;
 
   const HALF_ROAD = ROAD_W / 2;
   const BAND_HALF = ((ROAD_W / 2) * 0.85) / 2;
-  /** Coordinate of the road centreline nearest v, on either axis. */
-  const lineNear = (v) => lineCoord(Math.round((v + HALF_SPAN) / PITCH));
+  /** Coordinate of the road centreline nearest a point, one function per axis. */
+  const lineNearX = (x) => lineX(Math.round((x + HALF_SPAN_X) / PITCH));
+  const lineNearZ = (z) => lineZ(Math.round((z + HALF_SPAN_Z) / PITCH));
 
   // Distance from a point to a polyline, so "the new path lies on the old one" is one number.
   const distToPath = (p, path) => {
@@ -4135,14 +4155,14 @@ check('every intersection is routable from every approach', unroutable === 0,
     frames += 1;
 
     for (const p of path) {
-      const dx = Math.abs(p.x - lineNear(p.x));
-      const dz = Math.abs(p.z - lineNear(p.z));
+      const dx = Math.abs(p.x - lineNearX(p.x));
+      const dz = Math.abs(p.z - lineNearZ(p.z));
       // Inside a junction box the tarmac runs both ways, so being near a centreline on either
       // axis is enough. Out on a straight the band's own half-width has to fit as well: a lane
       // centre is 2 units off its own kerb whatever the road's width, and the band is 1.7 wide,
       // which leaves 0.3 of asphalt showing at the kerb on a side street and on an arterial alike.
-      const hz = halfRoadZ(lineIndexOf(p.x));   // the road running along Z, nearest in x
-      const hx = halfRoadX(lineIndexOf(p.z));   // the road running along X, nearest in z
+      const hz = halfRoadZ(lineIndexX(p.x));   // the road running along Z, nearest in x
+      const hx = halfRoadX(lineIndexZ(p.z));   // the road running along X, nearest in z
       const inJunction = dx <= hz && dz <= hx;
       // Whichever centreline is nearer is the road the point is on, and it is that road's width
       // the band has to fit inside.
@@ -4161,18 +4181,21 @@ check('every intersection is routable from every approach', unroutable === 0,
       const alongMid = dirX ? (a.x + b.x) / 2 : (a.z + b.z) / 2;
       // The junction box along the travel axis is the *crossing* road's half-width, and the lane
       // offset across it is this road's — two different numbers now that a main street is wider.
-      const box = dirX ? halfRoadZ(lineIndexOf(alongMid)) : halfRoadX(lineIndexOf(alongMid));
-      if (Math.abs(alongMid - lineNear(alongMid)) < box) continue;         // inside a junction box
+      // `alongMid` runs along the segment and `cross` across it, so a segment running along X has
+      // an x for the first and a z for the second — and the two want opposite axis helpers.
+      const box = dirX ? halfRoadZ(lineIndexX(alongMid)) : halfRoadX(lineIndexZ(alongMid));
+      const alongLine = dirX ? lineNearX(alongMid) : lineNearZ(alongMid);
+      if (Math.abs(alongMid - alongLine) < box) continue;                  // inside a junction box
       if (Math.hypot(b.x - a.x, b.z - a.z) < 1) continue;
-      const crossLine = lineNear(cross);
+      const crossLine = dirX ? lineNearZ(cross) : lineNearX(cross);
       const sign = dirX ? Math.sign(b.x - a.x) : Math.sign(b.z - a.z);
-      const off = dirX ? laneOffX(lineIndexOf(cross)) : laneOffZ(lineIndexOf(cross));
+      const off = dirX ? laneOffX(lineIndexZ(cross)) : laneOffZ(lineIndexX(cross));
       const want = dirX ? sign * off : -sign * off;
       straights += 1;
       if (Math.abs((cross - crossLine) - want) > 1e-6) wrongLane += 1;
     }
 
-    if (!rTaxi.route.length && Math.hypot(rTaxi.x - lineCoord(dest.i), rTaxi.z - lineCoord(dest.j)) < 8) break;
+    if (!rTaxi.route.length && Math.hypot(rTaxi.x - lineX(dest.i), rTaxi.z - lineZ(dest.j)) < 8) break;
   }
 
   check('the route band stays on the road', offRoad === 0, `${offRoad} points off tarmac`);
@@ -4197,7 +4220,7 @@ check('every intersection is routable from every approach', unroutable === 0,
   const dTaxi = dTraffic.taxi;
   dTraffic.warmup(4);
 
-  const dest = { i: dTaxi.i > GRID / 2 ? 0 : GRID, j: dTaxi.j > GRID / 2 ? 0 : GRID };
+  const dest = { i: dTaxi.i > GRID_I / 2 ? 0 : GRID_I, j: dTaxi.j > GRID_J / 2 ? 0 : GRID_J };
   const origin = planOrigin(dTaxi);
   const direct = findRoute(origin, dest);
   dTaxi.route = [...direct];
@@ -4262,8 +4285,8 @@ check('every intersection is routable from every approach', unroutable === 0,
   let disagreed = 0;
   let probed = 0;
   let rejected = 0;
-  for (let x = -HALF_SPAN; x <= HALF_SPAN; x += PITCH / 4) {
-    for (let z = -HALF_SPAN; z <= HALF_SPAN; z += PITCH / 4) {
+  for (let x = -HALF_SPAN_X; x <= HALF_SPAN_X; x += PITCH / 4) {
+    for (let z = -HALF_SPAN_Z; z <= HALF_SPAN_Z; z += PITCH / 4) {
       const near = nearestOnPath(band, x, z);
       const ref = bruteForce(x, z);
       probed += 1;
@@ -4354,12 +4377,12 @@ check('every intersection is routable from every approach', unroutable === 0,
   let snapWrong = 0;
   for (const p of allIntersections()) {
     for (const [dx, dz] of [[0, 0], [9, 0], [-9, 0], [0, 9], [0, -9], [6, 6]]) {
-      const snapped = nearestJunction(lineCoord(p.i) + dx, lineCoord(p.j) + dz);
-      const want = { i: Math.min(GRID, Math.max(0, p.i)), j: Math.min(GRID, Math.max(0, p.j)) };
+      const snapped = nearestJunction(lineX(p.i) + dx, lineZ(p.j) + dz);
+      const want = { i: Math.min(GRID_I, Math.max(0, p.i)), j: Math.min(GRID_J, Math.max(0, p.j)) };
       // Off the edge of the map the snap clamps, which is the point: a drag past the ring road
       // pins to the ring rather than stopping answering.
-      const clamped = lineCoord(p.i) + dx < -HALF_SPAN || lineCoord(p.i) + dx > HALF_SPAN
-        || lineCoord(p.j) + dz < -HALF_SPAN || lineCoord(p.j) + dz > HALF_SPAN;
+      const clamped = lineX(p.i) + dx < -HALF_SPAN_X || lineX(p.i) + dx > HALF_SPAN_X
+        || lineZ(p.j) + dz < -HALF_SPAN_Z || lineZ(p.j) + dz > HALF_SPAN_Z;
       if (!clamped && (snapped.i !== want.i || snapped.j !== want.j)) snapWrong += 1;
     }
   }
@@ -4381,7 +4404,7 @@ check('every intersection is routable from every approach', unroutable === 0,
   const candidates = [];
   for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     const cand = { i: mid.i + di, j: mid.j + dj };
-    if (cand.i < 0 || cand.i > GRID || cand.j < 0 || cand.j > GRID) continue;
+    if (cand.i < 0 || cand.i > GRID_I || cand.j < 0 || cand.j > GRID_J) continue;
     if (passesThrough(direct, cand)) continue;          // already on the plan; not a detour
     const route = findRouteVia(planOrigin(dTaxi), cand, dest);
     if (route) candidates.push({ via: cand, extra: route.length - direct.length });
@@ -4403,8 +4426,8 @@ check('every intersection is routable from every approach', unroutable === 0,
     };
 
     const plannedLegs = findRouteVia(planOrigin(dTaxi), via, dest).length;
-    const viaCentre = { x: lineCoord(via.i), z: lineCoord(via.j) };
-    const destCentre = { x: lineCoord(dest.i), z: lineCoord(dest.j) };
+    const viaCentre = { x: lineX(via.i), z: lineZ(via.j) };
+    const destCentre = { x: lineX(dest.i), z: lineZ(dest.j) };
 
     // Three seconds of finger down, re-planning on every one of the 180 frames.
     let held = via;
@@ -5157,8 +5180,8 @@ check('the taxi is an ordinary car in the traffic array',
   // on two unrelated lanes instead of nose-to-tail on one.
   let gI = -1; let gJ = -1; let gD = -1;
   const gNet = cityNetwork();
-  outerGap: for (let i = 1; i < GRID; i++) {
-    for (let j = 1; j < GRID; j++) {
+  outerGap: for (let i = 1; i < GRID_I; i++) {
+    for (let j = 1; j < GRID_J; j++) {
       for (const d of [0, 1, 2, 3]) {
         const lane = gNet.laneByGrid(d, i, j);
         if (!lane || lane.degenerate || lane.length < 11.5) continue;
@@ -5247,8 +5270,8 @@ check('the taxi is an ordinary car in the traffic array',
   // branch" any car can use and not just the taxi (docs/traffic.md), so the turn direction isn't
   // left to the weighted dice.
   let rI = -1; let rJ = -1; let rD = -1;
-  outerRight: for (let i = 1; i < GRID; i++) {
-    for (let j = 1; j < GRID; j++) {
+  outerRight: for (let i = 1; i < GRID_I; i++) {
+    for (let j = 1; j < GRID_J; j++) {
       for (const d of [0, 1, 2, 3]) {
         if (!legalExits(d, i, j).includes(rightOf(d))) continue;
         const lane = gNet.laneByGrid(d, i, j);
@@ -5924,7 +5947,7 @@ check('the taxi is an ordinary car in the traffic array',
   let runs = 0;
   let wasActive = false;
   // Seconds of *visible* light bar before the bust arms, taken per run and kept at its worst.
-  // FADE_BAND (18) out to the arming line (HALF_SPAN − BUST_ARM_INSET) is 38 units at SPEED = 19,
+  // FADE_BAND (18) out to the arming line (the rail's half-span − BUST_ARM_INSET) is 38 units at SPEED = 19,
   // so this should land near 2s.
   let telegraph = 0;
   let telegraphTaken = false;
@@ -5952,7 +5975,7 @@ check('the taxi is an ordinary car in the traffic array',
     armedFrames += 1;
     if (p.fade < 1) armedWhileFading += 1;
     if (!lit) armedWithLampsDark += 1;
-    if (Math.abs(p.s) > HALF_SPAN - BUST_ARM_INSET) ringExposed += 1;
+    if (Math.abs(p.s) > (p.axis === 'x' ? HALF_SPAN_X : HALF_SPAN_Z) - BUST_ARM_INSET) ringExposed += 1;
   }
 
   check('the police car runs corridors for the arming test', runs >= 5, `${runs} runs`);
@@ -6030,7 +6053,7 @@ check('the taxi is an ordinary car in the traffic array',
   const gPolice = createPolice(makeRng(seed + 66), gScene);
   const gCam = createCityCamera(W / H, { zoom: 46 });
   gCam.update(W / H);
-  const taxiAt = { x: lineCoord(2), z: lineCoord(2) };     // parked mid-map, so the camera is still
+  const taxiAt = { x: lineX(2), z: lineZ(2) };             // parked mid-map, so the camera is still
   const projected = new THREE.Vector3();
 
   let washedUnlit = 0;
@@ -6119,10 +6142,8 @@ check('the taxi is an ordinary car in the traffic array',
   const offRoad = (x, z) => {
     let dx = Infinity;
     let dz = Infinity;
-    for (let k = 0; k <= GRID; k++) {
-      dx = Math.min(dx, Math.abs(x - lineCoord(k)));
-      dz = Math.min(dz, Math.abs(z - lineCoord(k)));
-    }
+    for (let i = 0; i <= GRID_I; i++) dx = Math.min(dx, Math.abs(x - lineX(i)));
+    for (let j = 0; j <= GRID_J; j++) dz = Math.min(dz, Math.abs(z - lineZ(j)));
     return Math.min(dx, dz);
   };
 
@@ -6172,10 +6193,13 @@ check('the taxi is an ordinary car in the traffic array',
 
     // Place the quarry relative to the cruiser's own heading. Sideways steps go toward the middle
     // of the map so the target road exists whichever line the run happened to pick.
-    const inward = cPolice.state.line <= GRID / 2 ? 1 : -1;
+    // `state.line` names a j while the rail runs along X and an i while it runs along Z, so
+    // "toward the middle" is measured against that axis's own count.
+    const lineTop = cPolice.state.axis === 'x' ? GRID_J : GRID_I;
+    const inward = cPolice.state.line <= lineTop / 2 ? 1 : -1;
     const alongCoord = cPolice.state.s + cPolice.state.dir * kase.along;
     const crossLine = cPolice.state.line + kase.across * inward;
-    const crossCoord = lineCoord(crossLine) + LANE;
+    const crossCoord = (cPolice.state.axis === 'x' ? lineZ(crossLine) : lineX(crossLine)) + LANE;
     const quarry = cPolice.state.axis === 'x'
       ? { x: alongCoord, z: crossCoord }
       : { x: crossCoord, z: alongCoord };
@@ -6359,7 +6383,9 @@ check('the taxi is an ordinary car in the traffic array',
         if (car.state !== 'drive') continue;
         const line = (isXAxis(car.d) ? car.j : car.i);
         const half = isXAxis(car.d) ? halfRoadX(line) : halfRoadZ(line);
-        const off = Math.abs((isXAxis(car.d) ? car.z : car.x) - lineCoord(line));
+        const off = isXAxis(car.d)
+          ? Math.abs(car.z - lineZ(line))
+          : Math.abs(car.x - lineX(line));
         const edge = off + CAR_W / 2;
         furthestOut = Math.max(furthestOut, edge);
         wallGap = Math.min(wallGap, half + LOT_INSET - edge);
@@ -6580,11 +6606,11 @@ check('the taxi is an ordinary car in the traffic array',
     return n * STEP;   // over by up to a frame, since the last step is clamped to the duration
   };
   // 75 units at 150 u/s = 0.5s, clear of both clamps. Laid out across the middle of the map
-  // rather than out from the origin, since glideTo clamps its destination to HALF_SPAN = 50.
+  // rather than out from the origin, since glideTo clamps its destination to the map's half-span.
   const mid = durationOf([-40, 0], [35, 0]);
   // Corner to corner: 141 units, well past the 112 the 0.75s ceiling buys — and the longest pan
-  // the map can ask for, since glideTo clamps its destination to HALF_SPAN.
-  const far = durationOf([-HALF_SPAN, -HALF_SPAN], [HALF_SPAN, HALF_SPAN]);
+  // the map can ask for, since glideTo clamps its destination to the map's half-span.
+  const far = durationOf([-HALF_SPAN_X, -HALF_SPAN_Z], [HALF_SPAN_X, HALF_SPAN_Z]);
   check('pan duration scales with distance', mid >= 0.5 && mid <= 0.5 + 2 * STEP,
     `${mid.toFixed(3)}s for 75 units`);
   check('pan duration is capped', far >= 0.75 && far <= 0.75 + 2 * STEP,
@@ -6593,10 +6619,10 @@ check('the taxi is an ordinary car in the traffic array',
   // The target is clamped like every other camera move, so a pan can't push the map off screen.
   cam.cancelGlide();
   cam.state.target.set(0, 0, 0);
-  cam.glideTo(HALF_SPAN * 3, 0);
+  cam.glideTo(HALF_SPAN_X * 3, 0);
   while (cam.updateGlide(STEP, 1.5)) { /* run it out */ }
   check('a rider pan clamps to the map like a drag does',
-    Math.abs(cam.state.target.x - HALF_SPAN) < 1e-9, `landed at x=${cam.state.target.x.toFixed(2)}`);
+    Math.abs(cam.state.target.x - HALF_SPAN_X) < 1e-9, `landed at x=${cam.state.target.x.toFixed(2)}`);
 
   // A finger on the map wins immediately. A tween still writing the target every frame would drag
   // the city back out from under the drag that interrupted it.
@@ -6858,7 +6884,7 @@ check('the taxi is an ordinary car in the traffic array',
   const STEP = 1 / 60;
 
   // The taxi is pinned at the origin and the world is slid under it. followXZ clamps its target to
-  // ±HALF_SPAN, which is the city edge and correctly eats the lead when you drive at it — but that
+  // the map's half-span, which is the city edge and correctly eats the lead when you drive at it — but that
   // is 50 units, and a boosting taxi crosses it in under three seconds, so a straight-line run would
   // measure the clamp rather than the framing.
   const settle = (yaw, speed, smoothing, seconds = 8) => {
@@ -8471,7 +8497,7 @@ check('the taxi is an ordinary car in the traffic array',
   // map. The camera and its target move together, so the depth of the bottom edge of the screen is
   // a constant — a player who has panned to the corner still gets a clear foreground, and the haze
   // can never creep forward onto the taxi.
-  cam.state.target.set(HALF_SPAN, 0, -HALF_SPAN);
+  cam.state.target.set(HALF_SPAN_X, 0, -HALF_SPAN_Z);
   cam.update(0.5);
   const pannedBottom = frameEdge(cam, -1);
   const pannedTop = frameEdge(cam, +1);
@@ -8486,8 +8512,8 @@ check('the taxi is an ordinary car in the traffic array',
   const home = createCityCamera(0.5, { zoom: PLAY_ZOOM });
   home.update(0.5);
   let worst = 0;
-  for (const x of [-HALF_SPAN, HALF_SPAN]) {
-    for (const z of [-HALF_SPAN, HALF_SPAN]) worst = Math.max(worst, hazeAt(home, world.fog, x, 0, z));
+  for (const x of [-HALF_SPAN_X, HALF_SPAN_X]) {
+    for (const z of [-HALF_SPAN_Z, HALF_SPAN_Z]) worst = Math.max(worst, hazeAt(home, world.fog, x, 0, z));
   }
   // Both bounds stated *relative to HAZE_TOP*, which is the point: the corner has to sit inside the
   // band the constant is declared about, and it has to be a real fraction of it rather than a
@@ -8970,8 +8996,8 @@ check('the taxi is an ordinary car in the traffic array',
   // draw left it — the expectation below is brute-forced from final positions either way.
   let kI = -1;
   let kJ = -1;
-  for (let i = 1; i < GRID && kI < 0; i++) {
-    for (let j = 1; j < GRID && kI < 0; j++) {
+  for (let i = 1; i < GRID_I && kI < 0; i++) {
+    for (let j = 1; j < GRID_J && kI < 0; j++) {
       if (ringAxisAt(i, j)) continue;
       // All four approaches, with room to stage on: the trucks come in from the other three.
       if ([0, 1, 2, 3].every((d) => approachRoom(d, i, j) >= 8)) { kI = i; kJ = j; }
@@ -9196,7 +9222,7 @@ let chopperOrder; // likewise
     airborne++;
     minY = Math.min(minY, flyover.group.position.y);
     const p = flyover.group.position;
-    if (Math.max(Math.abs(p.x), Math.abs(p.z)) < HALF_SPAN && flyover.state.fade < 1) hiddenOverCity++;
+    if (Math.abs(p.x) < HALF_SPAN_X && Math.abs(p.z) < HALF_SPAN_Z && flyover.state.fade < 1) hiddenOverCity++;
   }
 
   check('the flyover comes round every so often, not constantly',
@@ -9217,8 +9243,8 @@ let chopperOrder; // likewise
   // than compared against a hand-derived reach.
   const framings = [];
   for (const aspect of [0.46, 1, 1.78, 2.4]) {
-    for (const target of [[0, 0], [HALF_SPAN, HALF_SPAN], [-HALF_SPAN, HALF_SPAN],
-      [HALF_SPAN, -HALF_SPAN], [-HALF_SPAN, -HALF_SPAN]]) {
+    for (const target of [[0, 0], [HALF_SPAN_X, HALF_SPAN_Z], [-HALF_SPAN_X, HALF_SPAN_Z],
+      [HALF_SPAN_X, -HALF_SPAN_Z], [-HALF_SPAN_X, -HALF_SPAN_Z]]) {
       framings.push(createCityCamera(aspect, { zoom: 52, target }).camera);
     }
   }
@@ -9309,8 +9335,8 @@ let chopperOrder; // likewise
 
   const framings = [];
   for (const aspect of [0.46, 1, 1.78, 2.4]) {
-    for (const target of [[0, 0], [HALF_SPAN, HALF_SPAN], [-HALF_SPAN, HALF_SPAN],
-      [HALF_SPAN, -HALF_SPAN], [-HALF_SPAN, -HALF_SPAN]]) {
+    for (const target of [[0, 0], [HALF_SPAN_X, HALF_SPAN_Z], [-HALF_SPAN_X, HALF_SPAN_Z],
+      [HALF_SPAN_X, -HALF_SPAN_Z], [-HALF_SPAN_X, -HALF_SPAN_Z]]) {
       framings.push(createCityCamera(aspect, { zoom: 52, target }).camera);
     }
   }
@@ -9417,7 +9443,8 @@ let chopperOrder; // likewise
   // may reach the city inside the ring road. This is the check that stops "a little closer in" from
   // becoming weather over the play area one tweak at a time.
   check('and never over the map itself', innerClearance > 0,
-    `closest approach ${innerClearance.toFixed(1)} units outside the inner city (±${INNER_REACH})`);
+    `closest approach ${innerClearance.toFixed(1)} units outside the inner city`
+    + ` (±${INNER_REACH_X} by ±${INNER_REACH_Z})`);
   check('every cloud is drawn broadside to the wind', broadside > 1.3,
     `narrowest is ${broadside.toFixed(2)}x wider than tall on screen`);
   check('clouds stay in front of the camera from every framing', behindCamera === 0,
@@ -9470,8 +9497,10 @@ let chopperOrder; // likewise
   // The keep-out is two boxes, and the tall one stops at the ring road — the difference is 17
   // units of sky the clouds get to use. Asserted rather than trusted because it is the one number
   // in here that comes from somewhere else in the project.
-  check('the keep-out stops where the city does', BUILT_REACH < CITY_REACH && CITY_TOP > 16,
-    `built to ${BUILT_REACH} and ${CITY_TOP} tall, ground out to ${CITY_REACH}`);
+  check('the keep-out stops where the city does',
+    BUILT_REACH_X < CITY_REACH_X && BUILT_REACH_Z < CITY_REACH_Z && CITY_TOP > 16,
+    `built to ${BUILT_REACH_X}x${BUILT_REACH_Z} and ${CITY_TOP} tall,`
+    + ` ground out to ${CITY_REACH_X}x${CITY_REACH_Z}`);
 
   // The clouds are the only unlit thing in the sky, so the tint is the *whole* of what the day
   // cycle does to them (game/daylight.js). A tint that stopped tracking would leave white clouds
@@ -9601,7 +9630,7 @@ let chopperOrder; // likewise
     if (st.mode === 'idle') { if (jitter > 1e-9) twitchyOnDeck++; }
     else if (st.y - pad.y > 4 && jitter > 0.02) restless++;
     if (Math.abs(st.roll) > 0.1 && st.fade > 0.99
-      && Math.max(Math.abs(st.x), Math.abs(st.z)) < HALF_SPAN) bankedOverCity++;
+      && Math.abs(st.x) < HALF_SPAN_X && Math.abs(st.z) < HALF_SPAN_Z) bankedOverCity++;
 
     // Clearance, skipping the pad's own tower — the roof directly under it is the point of the
     // exercise. Measured to the *rotor* radius, since that is the widest part of the machine.
@@ -10418,7 +10447,7 @@ let chopperOrder; // likewise
     // A band of junctions rather than a parity set: every edge joins an even corner to an odd
     // one, so `(i + j) % 2` excludes the whole city and the check passes by placing nothing.
     const busy = [];
-    for (let i = 0; i <= GRID; i++) busy.push({ i, j: 2 }, { i, j: 3 });
+    for (let i = 0; i <= GRID_I; i++) busy.push({ i, j: 2 }, { i, j: 3 });
     let touched = 0;
     let tries = 0;
     for (let n = 0; n < 8; n++) {
@@ -11167,8 +11196,8 @@ let chopperOrder; // likewise
     // Somewhere to be when the tap lands. Four corners of the map and the joint's own doorstep, so
     // the last trip is planned from a car that is already on the lane it has to come back down.
     const jobs = [
-      { i: 0, j: 0 }, { i: GRID, j: GRID }, { i: 0, j: GRID },
-      { i: site.approach.i, j: site.approach.j }, { i: GRID, j: 0 },
+      { i: 0, j: 0 }, { i: GRID_I, j: GRID_J }, { i: 0, j: GRID_J },
+      { i: site.approach.i, j: site.approach.j }, { i: GRID_I, j: 0 },
     ];
 
     let refused = 0;
@@ -11348,8 +11377,8 @@ let chopperOrder; // likewise
     const targets = [sweepCity, sweepProps];
     setCityOccluders(sweepCity, sweepProps);
     let rejectedHere = 0;
-    for (let i = 0; i <= GRID; i++) {
-      for (let j = 0; j <= GRID; j++) {
+    for (let i = 0; i <= GRID_I; i++) {
+      for (let j = 0; j <= GRID_J; j++) {
         corners += 1;
         const c = cornerFor(i, j);
         const seen = cornerSeen(i, j);

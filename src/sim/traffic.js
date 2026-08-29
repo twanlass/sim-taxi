@@ -11,8 +11,8 @@ import {
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
-  GRID, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
-  ringAxisAt, isUnsignalised, lineCoord, laneOffsetFor,
+  GRID_I, GRID_J, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
+  ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor,
 } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 
@@ -152,7 +152,9 @@ export const signalCycle = () => SIGNAL.cycle;
 export function edgeClass(i, j, d) {
   const axisIsX = isXAxis(d);
   const line = axisIsX ? j : i;
-  const onOuter = line === 0 || line === GRID;
+  // The ring is the outermost line on this road's *own* axis: an x-running road is on it at
+  // j = 0 or GRID_J, a z-running one at i = 0 or GRID_I.
+  const onOuter = line === 0 || line === (axisIsX ? GRID_J : GRID_I);
   if (onOuter) return { kind: 'ring', withWave: true };
 
   const arterialSet = axisIsX ? SIGNAL.arterialX : SIGNAL.arterialZ;
@@ -609,7 +611,7 @@ function sirenHoldsTurn(car) {
   // The junction this car is arriving at, in the siren's own coordinate, and how far the siren
   // still has to run to reach it. Negative means the cruiser is already past and there is
   // nothing left to wait for.
-  const box = lineCoord(carAxis === 'x' ? car.i : car.j);
+  const box = carAxis === 'x' ? lineX(car.i) : lineZ(car.j);
   const togo = policePresence.dir * (box - policePresence.s);
   return togo > 0 && togo < SIREN_BOX_LOOK;
 }
@@ -1428,13 +1430,17 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
 
   for (let n = 0; n < attempts && cars.length < want; n++) {
     const d = rng.int(0, 3);
-    const line = rng.int(0, GRID);   // the road the car drives along
-    const seg = rng.int(0, GRID - 1); // which gap between intersections
+    // A car driving along X sits on a *j* line and steps between *i* junctions; one driving along
+    // Z is the other way round. Both draws happen either way and in this order, so the random
+    // stream is byte-for-byte what it was — every seeded measurement in the suite depends on that.
+    const alongX = isXAxis(d);
+    const line = rng.int(0, alongX ? GRID_J : GRID_I);   // the road the car drives along
+    const seg = rng.int(0, (alongX ? GRID_I : GRID_J) - 1); // which gap between intersections
 
     // Target intersection is whichever end of the segment the car is heading for.
     const targetIndex = dirSign(d) > 0 ? seg + 1 : seg;
-    const i = isXAxis(d) ? targetIndex : line;
-    const j = isXAxis(d) ? line : targetIndex;
+    const i = alongX ? targetIndex : line;
+    const j = alongX ? line : targetIndex;
 
     // No lane means no road: that stretch was built over by a park district. Checked before any
     // further draw, exactly where the old `isSegmentClosed` guard sat, so a seed still produces
@@ -1756,7 +1762,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // simply drawn as its own mesh instead of an instance, so it can be raycast and highlighted.
   //
   // Which one is the taxi is now a pick, not always index 0: whichever of this draw's cars is
-  // heading for an intersection closest to the middle of the grid (GRID=5 has no single centre, so
+  // heading for an intersection closest to the middle of the grid (an odd count has no single
+  // centre, so
   // "closest" naturally lands in the 2×2 block at (2,2)-(3,3) — downtown, per layout.js's own
   // density falloff). A run used to open with the taxi anywhere on the map, including a corner,
   // which put the tutorial's first fare (biased to spawn near the taxi — see fares.js
@@ -1773,7 +1780,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   let taxiIndex = 0;
   let centreDist = Infinity;
   for (let k = 0; k < cars.length; k++) {
-    const dist = Math.abs(cars[k].i - GRID / 2) + Math.abs(cars[k].j - GRID / 2);
+    const dist = Math.abs(cars[k].i - GRID_I / 2) + Math.abs(cars[k].j - GRID_J / 2);
     if (dist < centreDist) { centreDist = dist; taxiIndex = k; }
   }
   if (taxiIndex !== 0) [cars[0], cars[taxiIndex]] = [cars[taxiIndex], cars[0]];

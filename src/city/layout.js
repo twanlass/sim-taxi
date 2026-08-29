@@ -1,5 +1,6 @@
 import {
-  GRID, blockBounds, HALF_SPAN, segmentKey, setArterialLines, setClosedSegments, setParkBlocks,
+  GRID_I, GRID_J, blockBounds, HALF_SPAN_X, HALF_SPAN_Z, segmentKey,
+  setArterialLines, setClosedSegments, setParkBlocks,
 } from './grid.js';
 import { roadNetFromGrid, setCityNetwork } from './roadnet.js';
 import { chooseGarageBlock } from './garage.js';
@@ -49,8 +50,8 @@ export function createLayout(rng) {
   for (let n = 0; n < DISTRICT_COUNT; n++) {
     for (let attempt = 0; attempt < 60; attempt++) {
       const horizontal = rng.chance(0.5);
-      const bi = rng.int(0, horizontal ? GRID - 2 : GRID - 1);
-      const bj = rng.int(0, horizontal ? GRID - 1 : GRID - 2);
+      const bi = rng.int(0, horizontal ? GRID_I - 2 : GRID_I - 1);
+      const bj = rng.int(0, horizontal ? GRID_J - 1 : GRID_J - 2);
       const a = [bi, bj];
       const b = horizontal ? [bi + 1, bj] : [bi, bj + 1];
       if (parkCells.has(`${a[0]},${a[1]}`) || parkCells.has(`${b[0]},${b[1]}`)) continue;
@@ -83,10 +84,13 @@ export function createLayout(rng) {
 
   const blocks = [];
 
-  for (let bi = 0; bi < GRID; bi++) {
-    for (let bj = 0; bj < GRID; bj++) {
+  for (let bi = 0; bi < GRID_I; bi++) {
+    for (let bj = 0; bj < GRID_J; bj++) {
       const { cx, cz } = blockBounds(bi, bj);
-      const distance = Math.hypot(cx, cz) / (HALF_SPAN * Math.SQRT2);
+      // Normalised by the map's own half-diagonal, which stopped being `HALF_SPAN * SQRT2` when
+      // the two axes came apart. Taken per axis rather than off the longer one: centrality is
+      // "how far in from the edge is this", and the edge is nearer on the short axis.
+      const distance = Math.hypot(cx / HALF_SPAN_X, cz / HALF_SPAN_Z) / Math.SQRT2;
 
       // 1 at the core, ~0 at the corners.
       const centrality = Math.max(0, 1 - distance * 1.55);

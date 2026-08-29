@@ -5,7 +5,7 @@ import { color, jitterColor } from '../palette.js';
 import { arcCurve, lineCurve } from './curves.js';
 import { KERB_H } from './ground.js';
 import {
-  DIR, GRID, LANE_TO_KERB, isSegmentClosed, junctionReach, lineCoord,
+  DIR, GRID_I, GRID_J, LANE_TO_KERB, isSegmentClosed, junctionReach, lineX, lineZ,
 } from './grid.js';
 
 // The city's one burger joint: a single-storey roadside restaurant with a drive-through lane
@@ -281,7 +281,8 @@ export function chooseBurgerBlock(rng, blocks) {
   // centrality 0.98.
   //
   // Each filter falls back to the pool it narrows rather than to nothing.
-  const inner = candidates.filter((b) => b.bi > 0 && b.bi < GRID - 1 && b.bj > 0 && b.bj < GRID - 1);
+  const inner = candidates.filter((b) => b.bi > 0 && b.bi < GRID_I - 1
+    && b.bj > 0 && b.bj < GRID_J - 1);
   const pool = inner.length ? inner : candidates;
   const quiet = pool.filter((b) => b.centrality <= 0.6);
   return rng.pick(quiet.length ? quiet : pool);
@@ -407,7 +408,7 @@ export function burgerSite(block) {
       // `placeCar` counts back from the junction box. The lane the car lands on ends one crossing
       // road's reach short of the junction centre — `junctionReach` and not a hard-coded
       // half-road, because that crossing road can be an arterial and an arterial is a third wider.
-      back: (lineCoord(block.bj + 1) - junctionReach(DIR.PZ, block.bi + 1, block.bj + 1)) - turnZ,
+      back: (lineZ(block.bj + 1) - junctionReach(DIR.PZ, block.bi + 1, block.bj + 1)) - turnZ,
     },
     // The review framing's subject: the middle of the lane, at a car's roofline.
     focus: { x: laneX, y: KERB_H + 1.4, z: (kerbZ + turnZ) / 2 },

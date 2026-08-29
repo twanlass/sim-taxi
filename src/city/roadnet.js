@@ -20,7 +20,7 @@
 // that porting traffic, routing and meshing onto this model is a change with a control.
 
 import {
-  GRID, LANE, HALF_ROAD, DIR, lineCoord, isSegmentClosed, isXAxis, dirSign,
+  GRID_I, GRID_J, LANE, HALF_ROAD, DIR, lineX, lineZ, isSegmentClosed, isXAxis, dirSign,
   halfRoadX, halfRoadZ, laneOffX, laneOffZ,
 } from './grid.js';
 import {
@@ -832,9 +832,9 @@ export function roadNetFromGrid(layout, config = {}) {
   const dirZ = layout?.arterials?.dirZ ?? new Map();
 
   const nodes = [];
-  for (let i = 0; i <= GRID; i++) {
-    for (let j = 0; j <= GRID; j++) {
-      nodes.push({ id: gridNodeId(i, j), x: lineCoord(i), z: lineCoord(j), gi: i, gj: j });
+  for (let i = 0; i <= GRID_I; i++) {
+    for (let j = 0; j <= GRID_J; j++) {
+      nodes.push({ id: gridNodeId(i, j), x: lineX(i), z: lineZ(j), gi: i, gj: j });
     }
   }
 
@@ -843,7 +843,10 @@ export function roadNetFromGrid(layout, config = {}) {
     // A road built over by a park district genuinely is not there — same authority as before.
     if (isSegmentClosed(i, j, axis === 'x' ? 0 : 1)) return;
 
-    const outer = line === 0 || line === GRID;
+    // The ring is the outermost line *on this road's own axis*: an x-running road at line j is on
+    // the ring when j is 0 or GRID_J, and a z-running one when i is 0 or GRID_I. One `GRID` read
+    // for both was right only while the two counts agreed.
+    const outer = line === 0 || line === (axis === 'x' ? GRID_J : GRID_I);
     const arterial = axis === 'x' ? arterialX.has(line) : arterialZ.has(line);
     const klass = outer ? 'ring' : arterial ? 'arterial' : 'side';
     // Edges are always created in the +X / +Z direction, so a coordinated direction of +1 is
@@ -860,10 +863,10 @@ export function roadNetFromGrid(layout, config = {}) {
     });
   };
 
-  for (let i = 0; i <= GRID; i++) {
-    for (let j = 0; j <= GRID; j++) {
-      if (i < GRID) addEdge(i, j, i + 1, j, 'x', j);   // road running along X, at line j
-      if (j < GRID) addEdge(i, j, i, j + 1, 'z', i);   // road running along Z, at line i
+  for (let i = 0; i <= GRID_I; i++) {
+    for (let j = 0; j <= GRID_J; j++) {
+      if (i < GRID_I) addEdge(i, j, i + 1, j, 'x', j);   // road running along X, at line j
+      if (j < GRID_J) addEdge(i, j, i, j + 1, 'z', i);   // road running along Z, at line i
     }
   }
 

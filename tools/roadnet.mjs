@@ -17,7 +17,7 @@
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import {
-  GRID, PITCH, LANE, HALF_ROAD, lineCoord, legalExits, entryPoint, exitPoint, turnControl,
+  GRID_I, GRID_J, PITCH, LANE, HALF_ROAD, lineX, lineZ, legalExits, entryPoint, exitPoint, turnControl,
   laneOffsetCoord, isXAxis, dirSign, nextIntersection, junctionReach,
   HALF_ARTERIAL, LANE_TO_KERB,
 } from '../src/city/grid.js';
@@ -138,8 +138,8 @@ const REF_SIGNAL = { cycle: 16, yellow: 1.6, arterialShare: 0.64, cruise: 8.5 };
 
 /** `ringAxisAt`, frozen. 'x' or 'z' if the junction sits on the ring, null if interior. */
 function refRingAxisAt(i, j) {
-  const onX = j === 0 || j === GRID;
-  const onZ = i === 0 || i === GRID;
+  const onX = j === 0 || j === GRID_J;
+  const onZ = i === 0 || i === GRID_I;
   if (onX && onZ) return null;
   if (onX) return 'x';
   if (onZ) return 'z';
@@ -168,10 +168,10 @@ function refLightPhase(layout, i, j, t) {
 
   let offset;
   if (alongX) {
-    const blocks = (layout.arterials.dirX.get(j) ?? 1) > 0 ? i : GRID - i;
+    const blocks = (layout.arterials.dirX.get(j) ?? 1) > 0 ? i : GRID_I - i;
     offset = -blocks * step;
   } else {
-    const blocks = (layout.arterials.dirZ.get(i) ?? 1) > 0 ? j : GRID - j;
+    const blocks = (layout.arterials.dirZ.get(i) ?? 1) > 0 ? j : GRID_J - j;
     offset = greenX + yellow - blocks * step;
   }
 
@@ -185,8 +185,8 @@ function refLightPhase(layout, i, j, t) {
 }
 
 const everyIntersection = [];
-for (let i = 0; i <= GRID; i++) {
-  for (let j = 0; j <= GRID; j++) everyIntersection.push({ i, j });
+for (let i = 0; i <= GRID_I; i++) {
+  for (let j = 0; j <= GRID_J; j++) everyIntersection.push({ i, j });
 }
 
 for (let s = 0; s < SEEDS; s++) {
@@ -210,13 +210,14 @@ for (let s = 0; s < SEEDS; s++) {
   // --- Nodes ----------------------------------------------------------------
   {
     const samples = [];
-    for (let i = 0; i <= GRID; i++) {
-      for (let j = 0; j <= GRID; j++) {
+    for (let i = 0; i <= GRID_I; i++) {
+      for (let j = 0; j <= GRID_J; j++) {
         const node = net.nodeByGrid(i, j);
-        samples.push([apart(node, { x: lineCoord(i), z: lineCoord(j) }), `(${i},${j})`]);
+        samples.push([apart(node, { x: lineX(i), z: lineZ(j) }), `(${i},${j})`]);
       }
     }
-    check(`${tag} node count`, net.nodes.length === (GRID + 1) ** 2, `${net.nodes.length}`);
+    check(`${tag} node count`, net.nodes.length === (GRID_I + 1) * (GRID_J + 1),
+      `${net.nodes.length}`);
     worst(`${tag} node positions`, samples);
   }
 
@@ -228,8 +229,8 @@ for (let s = 0; s < SEEDS; s++) {
   {
     let mismatches = 0;
     let example = '';
-    for (let i = 0; i <= GRID; i++) {
-      for (let j = 0; j <= GRID; j++) {
+    for (let i = 0; i <= GRID_I; i++) {
+      for (let j = 0; j <= GRID_J; j++) {
         for (let dIn = 0; dIn < 4; dIn++) {
           const inLane = net.laneByGrid(dIn, i, j);
           const expect = new Set(legalExits(dIn, i, j).map(String));
@@ -269,8 +270,8 @@ for (let s = 0; s < SEEDS; s++) {
     const entries = [];
     const exits = [];
 
-    for (let i = 0; i <= GRID; i++) {
-      for (let j = 0; j <= GRID; j++) {
+    for (let i = 0; i <= GRID_I; i++) {
+      for (let j = 0; j <= GRID_J; j++) {
         for (let d = 0; d < 4; d++) {
           const lane = net.laneByGrid(d, i, j);
           if (!lane) continue;
@@ -291,8 +292,8 @@ for (let s = 0; s < SEEDS; s++) {
   // --- Turn geometry --------------------------------------------------------
   {
     const controls = [];
-    for (let i = 0; i <= GRID; i++) {
-      for (let j = 0; j <= GRID; j++) {
+    for (let i = 0; i <= GRID_I; i++) {
+      for (let j = 0; j <= GRID_J; j++) {
         for (let dIn = 0; dIn < 4; dIn++) {
           const inLane = net.laneByGrid(dIn, i, j);
           if (!inLane) continue;
@@ -317,8 +318,8 @@ for (let s = 0; s < SEEDS; s++) {
   {
     let mismatches = 0;
     let example = '';
-    for (let i = 0; i <= GRID; i++) {
-      for (let j = 0; j <= GRID; j++) {
+    for (let i = 0; i <= GRID_I; i++) {
+      for (let j = 0; j <= GRID_J; j++) {
         const node = net.nodeByGrid(i, j);
         const gridSays = refRingAxisAt(i, j) !== null;
         const netSays = node.signal === null;
@@ -367,13 +368,18 @@ for (let s = 0; s < SEEDS; s++) {
   // compares the axis moving and whether it is yellow, for every signalised junction.
   {
     const axisOf = (node, index) => (node.streets[index].axis < 0.1 ? 'x' : 'z');
-    const FULL_SPAN = GRID * PITCH;   // a street that still runs the whole map
+    // A street that still runs the whole map — and how long that is depends on which way it runs,
+    // now that the two axes carry different numbers of blocks. Which street is the coordinated one
+    // is the same test `refLightPhase` makes above.
+    const fullSpanAt = (i, j) => (
+      (layout.arterials.x.has(j) || !layout.arterials.z.has(i)) ? GRID_I : GRID_J
+    ) * PITCH;
     let unexplained = 0;
     let example = '';
     let drifted = 0;
 
-    for (let i = 0; i <= GRID; i++) {
-      for (let j = 0; j <= GRID; j++) {
+    for (let i = 0; i <= GRID_I; i++) {
+      for (let j = 0; j <= GRID_J; j++) {
         const node = net.nodeByGrid(i, j);
         if (!node.signal) continue;
 
@@ -401,7 +407,7 @@ for (let s = 0; s < SEEDS; s++) {
         // the whole line, while the network measures it along the chain that still exists, which
         // is the more defensible of the two: a wave cannot propagate across a road that isn't
         // there. Anything drifting *without* that explanation is a bug in the phase bake.
-        const truncated = node.signal.wave.chainTotal < FULL_SPAN - TOL;
+        const truncated = node.signal.wave.chainTotal < fullSpanAt(i, j) - TOL;
         if (truncated) {
           drifted += 1;
         } else {
@@ -455,8 +461,8 @@ for (let s = 0; s < SEEDS; s++) {
     // deep for everything crossing it, so a lane is 12 units long between two ordinary streets
     // and 10.67 where one end meets a main road.
     const spans = [];
-    for (let i = 0; i <= GRID; i++) {
-      for (let j = 0; j <= GRID; j++) {
+    for (let i = 0; i <= GRID_I; i++) {
+      for (let j = 0; j <= GRID_J; j++) {
         for (let d = 0; d < 4; d++) {
           const lane = net.laneByGrid(d, i, j);
           if (!lane) continue;

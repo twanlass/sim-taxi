@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HALF_SPAN } from '../city/grid.js';
+import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
 
 // Classic 3/4 sim camera: a fixed orthographic view looking down a diagonal. Orthographic rather
 // than perspective is what makes it read as a city *sim* — parallel lines stay parallel, so
@@ -330,8 +330,8 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
   function armGlide(toX, toZ, { track = null, hold = 0, next = null, onArrive = null } = {}) {
     const fromX = state.target.x;
     const fromZ = state.target.z;
-    const clampedX = THREE.MathUtils.clamp(toX, -HALF_SPAN, HALF_SPAN);
-    const clampedZ = THREE.MathUtils.clamp(toZ, -HALF_SPAN, HALF_SPAN);
+    const clampedX = THREE.MathUtils.clamp(toX, -HALF_SPAN_X, HALF_SPAN_X);
+    const clampedZ = THREE.MathUtils.clamp(toZ, -HALF_SPAN_Z, HALF_SPAN_Z);
     const dist = Math.hypot(clampedX - fromX, clampedZ - fromZ);
     glide = {
       fromX, fromZ, toX: clampedX, toZ: clampedZ, t: 0,
@@ -442,8 +442,8 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
       const t = 1 - Math.exp(-dt * smoothing);
       state.target.x += (x + lead.x - state.target.x) * t;
       state.target.z += (z + lead.z - state.target.z) * t;
-      state.target.x = THREE.MathUtils.clamp(state.target.x, -HALF_SPAN, HALF_SPAN);
-      state.target.z = THREE.MathUtils.clamp(state.target.z, -HALF_SPAN, HALF_SPAN);
+      state.target.x = THREE.MathUtils.clamp(state.target.x, -HALF_SPAN_X, HALF_SPAN_X);
+      state.target.z = THREE.MathUtils.clamp(state.target.z, -HALF_SPAN_Z, HALF_SPAN_Z);
       apply(aspectRatio);
     },
     /**
@@ -542,8 +542,8 @@ export function createCityCamera(aspect, { zoom = 46, target = [0, 0] } = {}) {
         // against where the target is *now*. See peekAt.
         if (glide.track) {
           const to = glide.track();
-          glide.toX = THREE.MathUtils.clamp(to.x, -HALF_SPAN, HALF_SPAN);
-          glide.toZ = THREE.MathUtils.clamp(to.z, -HALF_SPAN, HALF_SPAN);
+          glide.toX = THREE.MathUtils.clamp(to.x, -HALF_SPAN_X, HALF_SPAN_X);
+          glide.toZ = THREE.MathUtils.clamp(to.z, -HALF_SPAN_Z, HALF_SPAN_Z);
         }
         const e = smootherstep(glide.t / glide.dur);
         state.target.x = glide.fromX + (glide.toX - glide.fromX) * e;
@@ -581,7 +581,10 @@ const PAN_SLOP = 8;
 
 // Panning stops with a corner of the city centred. Further than that and the whole map can be
 // pushed off screen, which on a phone is unrecoverable without a landmark to steer back by.
-const PAN_LIMIT = HALF_SPAN;
+// Per axis, because the map is no longer square: one number here lets the camera pan off the
+// short side and stops it short of the long one.
+const PAN_LIMIT_X = HALF_SPAN_X;
+const PAN_LIMIT_Z = HALF_SPAN_Z;
 
 /**
  * Drag to pan, tap to pick.
@@ -613,8 +616,8 @@ export function attachDragPan(controller, domElement, getAspect, isEnabled = () 
     controller.cancelGlide();
     const target = controller.state.target;
     target.addScaledVector(RIGHT, right).addScaledVector(UP, up);
-    target.x = THREE.MathUtils.clamp(target.x, -PAN_LIMIT, PAN_LIMIT);
-    target.z = THREE.MathUtils.clamp(target.z, -PAN_LIMIT, PAN_LIMIT);
+    target.x = THREE.MathUtils.clamp(target.x, -PAN_LIMIT_X, PAN_LIMIT_X);
+    target.z = THREE.MathUtils.clamp(target.z, -PAN_LIMIT_Z, PAN_LIMIT_Z);
     controller.update(getAspect());
   }
 

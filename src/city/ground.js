@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color, jitterColor } from '../palette.js';
 import {
-  GRID, PITCH, ROAD_W, SPAN, HALF_SPAN, lineCoord,
+  GRID_I, GRID_J, ROAD_W, SPAN_X, SPAN_Z, lineX, lineZ,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
   medianRuns, MEDIAN_W,
 } from './grid.js';
@@ -119,7 +119,12 @@ function parkSurface(w, d, x, z, walkCol, grassCol, y) {
 // and has to know where it stops, and a margin copied by hand is a margin that drifts.
 export const MEDIAN_EDGE = PAVE_INSET;
 
-const SLAB = SPAN + ROAD_W * 3;
+// The island is a **rectangle**, not a square: the two axes carry different numbers of blocks
+// since the city grew a row for the river. Same margin off the outer roads on both, which is what
+// keeps the apron reading as one border rather than two.
+const SLAB_MARGIN = ROAD_W * 3;
+export const SLAB_X = SPAN_X + SLAB_MARGIN;
+export const SLAB_Z = SPAN_Z + SLAB_MARGIN;
 
 // Rounded corners, so the city reads as an island rather than a sheet cut out with scissors.
 //
@@ -140,27 +145,32 @@ const SLAB_SEGMENTS = 14;
 const EDGE_FADE = 16;
 const FADE_RINGS = 4;
 
-/** A square with rounded corners, as a Shape — the outline both the slab and its fade are cut from. */
-function slabShape(size, radius) {
-  const h = size / 2;
+/**
+ * A rectangle with rounded corners, as a Shape — the outline both the slab and its fade are cut
+ * from. Shape-space y maps to world **−z** under the `rotateX(-π/2)` every flat surface here is
+ * laid with, and the outline is symmetric in both axes, so `d` can be passed straight in.
+ */
+function slabShape(w, d, radius) {
+  const hw = w / 2;
+  const hd = d / 2;
   const shape = new THREE.Shape();
 
-  shape.moveTo(-h + radius, -h);
-  shape.lineTo(h - radius, -h);
-  shape.absarc(h - radius, -h + radius, radius, -Math.PI / 2, 0, false);
-  shape.lineTo(h, h - radius);
-  shape.absarc(h - radius, h - radius, radius, 0, Math.PI / 2, false);
-  shape.lineTo(-h + radius, h);
-  shape.absarc(-h + radius, h - radius, radius, Math.PI / 2, Math.PI, false);
-  shape.lineTo(-h, -h + radius);
-  shape.absarc(-h + radius, -h + radius, radius, Math.PI, Math.PI * 1.5, false);
+  shape.moveTo(-hw + radius, -hd);
+  shape.lineTo(hw - radius, -hd);
+  shape.absarc(hw - radius, -hd + radius, radius, -Math.PI / 2, 0, false);
+  shape.lineTo(hw, hd - radius);
+  shape.absarc(hw - radius, hd - radius, radius, 0, Math.PI / 2, false);
+  shape.lineTo(-hw + radius, hd);
+  shape.absarc(-hw + radius, hd - radius, radius, Math.PI / 2, Math.PI, false);
+  shape.lineTo(-hw, -hd + radius);
+  shape.absarc(-hw + radius, -hd + radius, radius, Math.PI, Math.PI * 1.5, false);
 
   return shape;
 }
 
 /** That shape, lying flat on the ground plane. */
-function roundedSlab(size, radius) {
-  const geo = new THREE.ShapeGeometry(slabShape(size, radius), SLAB_SEGMENTS);
+function roundedSlab(w, d, radius) {
+  const geo = new THREE.ShapeGeometry(slabShape(w, d, radius), SLAB_SEGMENTS);
   geo.rotateX(-Math.PI / 2);
   return geo;
 }
@@ -178,8 +188,8 @@ function roundedSlab(size, radius) {
  * both come from `extractPoints` on the same Shape, so there is no seam to leak sky through at
  * the corner arcs — where a hand-sampled ring would drift from Three's own tessellation.
  */
-function asphaltFade(size, radius) {
-  const outline = slabShape(size, radius).extractPoints(SLAB_SEGMENTS).shape;
+function asphaltFade(w, d, radius) {
+  const outline = slabShape(w, d, radius).extractPoints(SLAB_SEGMENTS).shape;
   // The path closes on its start point, which would otherwise give the wrap-around a zero-width quad.
   if (outline[outline.length - 1].distanceTo(outline[0]) < 1e-9) outline.pop();
 
@@ -187,10 +197,11 @@ function asphaltFade(size, radius) {
   // corner arcs are centred on, and the direction back out to it is the edge normal along a
   // straight and the arc's own radius around a corner. (The two are never equal — every outline
   // point sits exactly `radius` from that box — so there is no zero-length case to guard.)
-  const inset = size / 2 - radius;
+  const insetX = w / 2 - radius;
+  const insetY = d / 2 - radius;
   const normals = outline.map((p) => new THREE.Vector2(
-    p.x - THREE.MathUtils.clamp(p.x, -inset, inset),
-    p.y - THREE.MathUtils.clamp(p.y, -inset, inset),
+    p.x - THREE.MathUtils.clamp(p.x, -insetX, insetX),
+    p.y - THREE.MathUtils.clamp(p.y, -insetY, insetY),
   ).divideScalar(radius));
 
   // Smoothstep, not linear. A linear ramp leaves a kink in the falloff exactly where it meets the
@@ -254,7 +265,7 @@ export function createGround(rng, blocks) {
   // it is a gradient over the whole frame rather than an edge fade: at the map's corners it is
   // 0.17 of the way to the sky, which is a long way short of hiding an apron.) The edge itself is
   // feathered rather than cut: see `asphaltFade`.
-  parts.push(bakeColor(roundedSlab(SLAB, SLAB_RADIUS), color('asphalt')));
+  parts.push(bakeColor(roundedSlab(SLAB_X, SLAB_Z, SLAB_RADIUS), color('asphalt')));
 
   // --- Park districts first: a single platform spanning both blocks and the road that used to
   // run between them, so the green reads as one continuous mass.
@@ -341,12 +352,17 @@ export function createGround(rng, blocks) {
   // *X* roads at each end of the gap, and the road running along X at z = c by the Z roads — the
   // same number until an arterial made one of them 5.33.
   const markRoad = (axis, line) => {
-    const c = lineCoord(line);
+    // A road running along Z sits at an *x* of `lineX(line)` and its gaps are indexed by j; one
+    // running along X sits at a *z* and its gaps are indexed by i. Both halves of that were one
+    // expression while the axes shared a count and an origin.
+    const c = axis === 'z' ? lineX(line) : lineZ(line);
     const arterial = axis === 'z' ? isArterialZ(line) : isArterialX(line);
+    const along = axis === 'z' ? lineZ : lineX;
+    const gaps = axis === 'z' ? GRID_J : GRID_I;
 
-    for (let k = 0; k < GRID; k++) {
-      const from = lineCoord(k) + (axis === 'z' ? halfRoadX(k) : halfRoadZ(k));
-      const to = lineCoord(k + 1) - (axis === 'z' ? halfRoadX(k + 1) : halfRoadZ(k + 1));
+    for (let k = 0; k < gaps; k++) {
+      const from = along(k) + (axis === 'z' ? halfRoadX(k) : halfRoadZ(k));
+      const to = along(k + 1) - (axis === 'z' ? halfRoadX(k + 1) : halfRoadZ(k + 1));
 
       if (arterial) {
         const island = islands.get(`${axis}|${line}|${k}`);
@@ -366,10 +382,8 @@ export function createGround(rng, blocks) {
     }
   };
 
-  for (let i = 0; i <= GRID; i++) {
-    markRoad('z', i);
-    markRoad('x', i);
-  }
+  for (let i = 0; i <= GRID_I; i++) markRoad('z', i);
+  for (let j = 0; j <= GRID_J; j++) markRoad('x', j);
 
   // --- Crosswalks.
   //
@@ -382,12 +396,12 @@ export function createGround(rng, blocks) {
   const BAR_LEN = 1.5;
   const crossColor = color('crosswalk');
 
-  for (let i = 0; i <= GRID; i++) {
-    for (let j = 0; j <= GRID; j++) {
+  for (let i = 0; i <= GRID_I; i++) {
+    for (let j = 0; j <= GRID_J; j++) {
       if (isUnsignalised(i, j)) continue;
 
-      const cx = lineCoord(i);
-      const cz = lineCoord(j);
+      const cx = lineX(i);
+      const cz = lineZ(j);
       // Clear of the junction box on the axis it is laid off, which is the *crossing* road's
       // half-width — so a crossing beside a divided arterial is set back the extra 1.33 rather
       // than being painted inside the box.
@@ -401,9 +415,9 @@ export function createGround(rng, blocks) {
 
       // No crossing onto a road that no longer exists.
       const west = acrossX && i > 0 && !isSegmentClosed(i, j, 2);
-      const east = acrossX && i < GRID && !isSegmentClosed(i, j, 0);
+      const east = acrossX && i < GRID_I && !isSegmentClosed(i, j, 0);
       const south = acrossZ && j > 0 && !isSegmentClosed(i, j, 3);
-      const north = acrossZ && j < GRID && !isSegmentClosed(i, j, 1);
+      const north = acrossZ && j < GRID_J && !isSegmentClosed(i, j, 1);
 
       for (let b = 0; b < BARS; b++) {
         // Spread the bars across the width of the road being *crossed*, centred on its centreline.
@@ -427,8 +441,8 @@ export function createGround(rng, blocks) {
   const mesh = new THREE.Mesh(merged, propMaterial());
   mesh.receiveShadow = true;
   mesh.name = 'ground';
-  mesh.add(asphaltFade(SLAB, SLAB_RADIUS));
+  mesh.add(asphaltFade(SLAB_X, SLAB_Z, SLAB_RADIUS));
   return mesh;
 }
 
-export { KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, roundedRectShape };
+export { KERB_H, SLAB_RADIUS, EDGE_FADE, roundedRectShape };

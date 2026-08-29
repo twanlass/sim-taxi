@@ -597,7 +597,7 @@ function frame() {
   if (wreckSpot) {
     controller.focusOn(wreckSpot.x, wreckSpot.z, WRECK_ZOOM, dt, aspect());
   } else {
-    // The camera's own ease rather than `followXZ`, which clamps the target to ±HALF_SPAN — that
+    // The camera's own ease rather than `followXZ`, which clamps the target to the map — that
     // is the *city's* bound, and this road is twice as long as the city is wide, so the clamp
     // would leave the taxi driving off the right of frame halfway down it.
     const lead = taxi.v * CAMERA_LEAD;

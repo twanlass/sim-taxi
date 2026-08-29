@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
-import { SPAN } from '../city/grid.js';
+import { MAX_SPAN } from '../city/grid.js';
 import { DISTANCE, PLAY_ZOOM, DEPTH_PER_SCREEN_UNIT } from './camera.js';
 
 /** The dome's gradient curve. Exported because the haze reads the same gradient — see hazeColor. */
@@ -196,7 +196,7 @@ export function setHazeTop(fog, top) {
 export const SUN = {
   elevation: THREE.MathUtils.degToRad(28.5),   // ~16:24
   azimuth: THREE.MathUtils.degToRad(56),
-  radius: SPAN * 1.2,
+  radius: MAX_SPAN * 1.2,
   intensity: 3.55,
   fill: 1.2,
 };
@@ -243,7 +243,7 @@ export function createScene({ shadowMapSize = 2048 } = {}) {
   // The shadow frustum has to cover the entire city; there's no player to centre it on.
   // A low sun throws shadows far longer than the city is wide, so the shadow frustum has to
   // cover well past the buildings casting them.
-  const extent = SPAN * 1.05;
+  const extent = MAX_SPAN * 1.05;
   // Still set when shadows are off: `castShadow` is what decides whether the map is allocated at
   // all, and leaving the size configured means the debug panel can turn them back on live.
   sun.shadow.mapSize.set(Math.max(256, shadowMapSize), Math.max(256, shadowMapSize));
@@ -252,7 +252,7 @@ export function createScene({ shadowMapSize = 2048 } = {}) {
   sun.shadow.camera.top = extent;
   sun.shadow.camera.bottom = -extent;
   sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = SPAN * 3;
+  sun.shadow.camera.far = MAX_SPAN * 3;
   sun.shadow.bias = -0.0006;
   sun.shadow.normalBias = 0.06;
   scene.add(sun);

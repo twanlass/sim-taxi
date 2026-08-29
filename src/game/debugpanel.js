@@ -178,7 +178,7 @@ export function createDebugPanel({
   });
 
   // Floored at MIN_ELEVATION for the same reason the arc is, and capped at true overhead. Note
-  // that a low sun throws shadows longer than the shadow camera's own extent (SPAN * 1.05 in
+  // that a low sun throws shadows longer than the shadow camera's own extent (MAX_SPAN * 1.05 in
   // scene.js), so the far end of one can be clipped down here — the arc has always had that at
   // dawn and dusk, this control just makes it reachable at any hour.
   const height = slider(MIN_ELEVATION, 90, 1, daylight.elevation());

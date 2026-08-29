@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import {
-  ROAD_W, isXAxis, dirSign, lineCoord, laneOffsetCoord, entryPoint, exitPoint, turnControl,
+  ROAD_W, isXAxis, dirSign, lineX, lineZ, laneOffsetCoord, entryPoint, exitPoint, turnControl,
   nextIntersection,
 } from '../city/grid.js';
 
@@ -212,7 +212,7 @@ export function routePath(car, route) {
   // The destination. Stop in the middle of the junction, still in lane — that is where the taxi
   // comes to rest, and running the band out to the far side would point past the pin.
   pushAhead(entryPoint(d, i, j), d);
-  pushAhead(lanePoint(d, i, j, isXAxis(d) ? lineCoord(i) : lineCoord(j)), d);
+  pushAhead(lanePoint(d, i, j, isXAxis(d) ? lineX(i) : lineZ(j)), d);
   return pts;
 }
 

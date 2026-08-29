@@ -78,7 +78,7 @@ import { createViewport } from './util/viewport.js';
 import { isNative } from './util/platform.js';
 import { tap as haptic } from './util/haptics.js';
 import { attachContextRecovery } from './game/recovery.js';
-import { isCityConnected, GRID } from './city/grid.js';
+import { isCityConnected, GRID_I, GRID_J } from './city/grid.js';
 import { cityNetwork } from './city/roadnet.js';
 import { PALETTE } from './palette.js';
 
@@ -3001,7 +3001,10 @@ if (shot) {
   // Not at a fare: at the opposite corner of the map, which is the only way to get a route
   // long enough to judge the band that draws it.
   if (shot.routeFar) {
-    routeTo({ i: traffic.taxi.i > GRID / 2 ? 0 : GRID, j: traffic.taxi.j > GRID / 2 ? 0 : GRID });
+    routeTo({
+      i: traffic.taxi.i > GRID_I / 2 ? 0 : GRID_I,
+      j: traffic.taxi.j > GRID_J / 2 ? 0 : GRID_J,
+    });
     // Framed on the taxi rather than the middle of the map: the head of the band — the gap in
     // front of the bumper and the fade after it — is the part that needs looking at, and where
     // the taxi starts moves with the run seed.

@@ -1,4 +1,4 @@
-import { GRID, rightOf, leftOf } from '../city/grid.js';
+import { GRID_I, GRID_J, rightOf, leftOf } from '../city/grid.js';
 import { cityNetwork, gridNodeId } from '../city/roadnet.js';
 
 /**
@@ -361,8 +361,8 @@ export function chainSeconds(from, stops) {
 /** Every intersection on the grid, as {i, j}. */
 export function allIntersections() {
   const out = [];
-  for (let i = 0; i <= GRID; i++) {
-    for (let j = 0; j <= GRID; j++) out.push({ i, j });
+  for (let i = 0; i <= GRID_I; i++) {
+    for (let j = 0; j <= GRID_J; j++) out.push({ i, j });
   }
   return out;
 }
