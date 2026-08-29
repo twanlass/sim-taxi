@@ -333,6 +333,33 @@ Omit the whole section if there's nothing to note.
   than losing a run over a saved score. On `file://` that safety net turns into silent data loss:
   scores appear to save and every relaunch comes up empty, with nothing logged. Whenever a store is
   allowed to fail soft, check what an origin change does to it.
+- **The city's entrance wave cannot animate anything with a transform of its own.** It is a vertex
+  shader, and the anchor each vertex scales about is stamped into the geometry in **world**
+  coordinates (`stampEntry`) — which only means anything while the mesh's own matrix is the
+  identity. A world coordinate in a rotating object's local space is not a coordinate. The burger
+  turning over the drive-through has to be its own mesh for exactly that reason, and it grows
+  through `createCityEntry`'s `objects` list instead: a handful of transforms scaled on the CPU, on
+  the same curve and the same delay. Leaving it out of the wave entirely is not the alternative it
+  looks like — the sign then hangs in the air over a hole in the ground for the whole two seconds
+  the city takes to arrive.
+- **Two flat surfaces at the same height is a shimmer, not a touch.** The block platform lays its
+  pavement at `KERB_H + 0.01`, and anything else put down on a block — the depot's forecourt, the
+  drive-through's asphalt apron, the paint on it — has to clear that rather than land on it. The
+  apron's first cut used `base ± 0.01` off `KERB_H`, which is the *same plane*, and the whole lot
+  flickered as the camera moved. Vertical faces are exempt and so are down-facing ones (a
+  down-facing surface is culled before it can fight anything, which is why the burger joint's awning
+  sitting exactly on its door's top face is fine). Name the levels off each other —
+  `PAVEMENT_Y`/`APRON_Y`/`PAINT_Y` in `city/burgerjoint.js` — rather than nudging literals, and let
+  the module that *lays* a surface export the height anything standing on it needs.
+- **A car handed back to the traffic model inside its own stop line runs the light, and nothing
+  stops it.** `placeCar` will happily put one anywhere on a lane, `STOP_SETBACK` is 3.4, and there
+  is no `distToLine > 0` guard on the stop decision — so a car released nearer than that is past
+  its hold line before it can see the signal. The half that makes it invisible rather than loud is
+  `sim/collisions.js`: it only ever tests the **taxi**, and only while it is boosting, so the car
+  does not crash into the cross traffic it just drove into. It drives *through* it. This is what
+  costs the drive-through its short exit and buys it two quarter turns (`EXIT_LIFT` in
+  `city/burgerjoint.js`), and it is the question to ask of any new `releaseCar` site: how far back
+  from the junction does this land, measured?
 - **Never name a Rollup chunk after anything under `src/`.** `vite.config.js` has two entries now
   (the game and `/lab/`), and a `manualChunks` rule that swept `src/main.js` into a shared chunk
   made every page importing that chunk *boot the game* — `/lab/` came up with the city's road

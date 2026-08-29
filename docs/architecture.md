@@ -17,6 +17,7 @@ src/
     props.js            trees, street furniture
     pond.js             the one duck pond: which park it lands in, and the water itself
     garage.js           the taxi's depot: which block it takes, and the roller door on the front
+    burgerjoint.js      the burger joint: its block, its drive-through lane, and the turning sign
 
   sim/                  things that move on their own
     traffic.js          signals + car physics + the single routing branch. The largest file.
@@ -56,6 +57,7 @@ src/
     ducks.js            the birds on the pond: paddle, sit, dabble, never leave
     clouds.js           the weather ringing the island — placed on the screen, never over the city
     opening.js          the opening vignette: camera onto the garage door, door up, taxi out
+    drivethru.js        who pulls into the burger joint, what they do in there, how they leave
     runend.js           the run-end blackout: stats counted out, then initials, then the table
     highscores.js       the local top five — localStorage is the whole backend
     homescreen.js       the iOS-only "add it to your Home Screen" screen; parks the run while up

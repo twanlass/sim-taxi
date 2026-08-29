@@ -6,9 +6,9 @@ behind it that aren't obvious from the code.
 | Doc | Covers | Main files |
 |---|---|---|
 | [architecture.md](architecture.md) | Module map, the frame loop, seeding and determinism, how a change flows through the app, offline support | `src/main.js` |
-| [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts and the duck pond, ground/buildings/props | `src/city/` |
+| [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts and the duck pond, the depot and the burger joint, ground/buildings/props | `src/city/` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
-| [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the police corridor and the bust chase | `src/sim/` |
+| [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, the police corridor and the bust chase | `src/sim/` |
 | [gameplay.md](gameplay.md) | The opening vignette, the opening tutorial, the fare loop, routing, dragging the route, the package courier, picking, the travelling clock, economy, crazy-taxi mode, pause | `src/game/` |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, Crayon and Cartoon Mode, effects | `src/game/scene.js`, `src/geometry/` |
@@ -53,6 +53,14 @@ junction**, which is what finally gives that gesture a reason to exist. A packag
 passenger, carries no clock and can never cost you a run — but the detour is paid out of the clock of
 whoever is in the back seat, and taking every one on offer halves how long you last. See
 [the package courier](gameplay.md#the-package-courier).
+
+One block of every city is a **burger joint**: a low restaurant under a red band with a burger
+turning slowly on a pole above the roof, and a drive-through lane down its street side. Ambient cars
+pull in off one road, crawl past the menu board and the pickup window, and come back out onto
+another — a third of the time there is one in there. You cannot use it and it pays nothing; it is a
+landmark to navigate by and a bit of the city getting on with its own day. See
+[the burger joint](city.md#the-burger-joint-and-its-drive-through) and
+[the drive-through](traffic.md#the-drive-through).
 
 Once a run, a side street closes for **roadworks** — barricades at both ends, cones, a hole in the
 road and two workers standing over it. Ambient traffic routes around it while the taxi's own router

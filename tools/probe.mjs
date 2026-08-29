@@ -24,6 +24,10 @@ import {
 import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
 import { createDucks } from '../src/game/ducks.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
+import {
+  createBurgerJoint, burgerSite, burgerGeometry, BURGER_R, SIGN_SPIN, VIEW_RISE, ROOF_Y,
+} from '../src/city/burgerjoint.js';
+import { createDriveThru } from '../src/game/drivethru.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
@@ -124,6 +128,7 @@ import { routePath, nearestOnPath, HEAD_GAP } from '../src/game/routeline.js';
 import { findRoute, findRouteVia, MAX_VIA_DETOUR, allIntersections } from '../src/game/route.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
 import { nearestJunction, nextIntersection } from '../src/city/grid.js';
+import { DIR, laneOffsetCoord } from '../src/city/grid.js';
 import { PALETTE, BUILDING_COLORS } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
 import { createBlast } from '../src/game/blast.js';
@@ -918,9 +923,11 @@ const onGrass = (city, i, j) => {
   const courtTrunk = [];
   const courtBest = [];      // the most trunk any one tree in a city's yard shows
   let courtBuried = 0;
-  // The absolute floor. A building is never shorter than 5 units (`buildTower`), so anything at or
-  // near that is the shop the check below exists to keep the pad off.
-  const PAD_FLOOR = 5.5;
+  // What counts as a low pad, and how many of them a sweep is allowed. A building is never shorter
+  // than 5 units (`buildTower`), so a deck near six is the two-storey shop the check below exists
+  // to keep the machine off. See the note over that check for why this is a rate and not a zero.
+  const PAD_FLOOR = 6;
+  const LOW_PAD_BUDGET = 2;
   const SEEDS = 24;
   const PAINT = new THREE.Color(PALETTE.laneMark);
 
@@ -1093,23 +1100,32 @@ const onGrass = (city, i, j) => {
   // It is meant to be *up there*. A pad on a two-storey shop is what picking the roomiest deck
   // instead of the tallest one does, and it reads as a car park with an H on it.
   //
-  // Stated as a **median plus a floor** rather than as "no city under 6", which is what it was and
-  // which was always a coin flip on the tail: one city in twenty-four genuinely has no flat deck
-  // above six units, and which seed that is moves under any change to the block footprints. The
-  // arterials being widened moved it — every block facing one lost 1.33 of depth, so the decks left
-  // after a tower's setbacks are narrower and fewer of them clear `PAD_MIN_SIDE`, which drops
-  // `choosePad` into its fallback more often. Measured over four base seeds × 24 cities, the lowest
-  // pad in a sweep went 6.4 → 5.8, 7.3 → 6.8, 7.3 → 6.9, 7.3 → 6.9. Building *heights* did not
-  // move at all — they come off `block.centrality`, not the footprint — and the part count fell
-  // 1.8%.
+  // Stated as a **median plus a budget on the tail** rather than as "no city under 6", which is
+  // what it was: that form was always a coin flip, because one city in twenty-odd genuinely has no
+  // flat deck above six units and which seed that is moves under any change to the block
+  // footprints.
   //
-  // So the tail shifted half a unit and the body did not: the median is 8.7–8.8 on every base seed
-  // tried, which is the property the check was really after and one the old form never asserted.
+  // It has now moved twice, and both times for a reason that had nothing to do with helicopters:
+  //
+  //   - **the arterials being widened.** Every block facing one lost 1.33 of depth, so the decks
+  //     left after a tower's setbacks are narrower, fewer of them clear `PAD_MIN_SIDE`, and
+  //     `choosePad` drops into its fallback more often. Over four base seeds × 24 cities the
+  //     lowest pad in a sweep went 6.4 → 5.8, 7.3 → 6.8, 7.3 → 6.9, 7.3 → 6.9.
+  //   - **the burger joint** (city/burgerjoint.js) taking a second whole block out of the tower
+  //     generator's hands, which leaves `choosePad` 24 blocks of candidates instead of 25.
+  //     Measured over 20 base seeds × 24 cities: the lowest pad anywhere went 5.44 → 5.14 and the
+  //     worst sweep median 8.41 → 8.15.
+  //
+  // The intermediate form was a hard floor at 5.5, and it survived the second of those by 0.06 on
+  // this file's own seed and nowhere else — which is the coin flip again, one decimal place down.
+  // So the tail is a budget: **at most two cities in twenty-four** under `PAD_FLOOR`, against a
+  // measured 1.5% over 480 cities and a worst single sweep of 1 in 24. The median is the property
+  // the check was really after, and it is 8.1–9.2 on every base seed tried.
   const sorted = padHeights.slice().sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-  check('and it is on a building worth landing on', lowPads === 0 && median >= 8,
-    `lowest pad ${lowestPad.toFixed(1)} units (floor ${PAD_FLOOR}), `
-    + `${lowPads} under it, median ${median.toFixed(1)}`);
+  check('and it is on a building worth landing on', lowPads <= LOW_PAD_BUDGET && median >= 8,
+    `lowest pad ${lowestPad.toFixed(1)} units, ${lowPads}/${padHeights.length} under `
+    + `${PAD_FLOOR} (budget ${LOW_PAD_BUDGET}), median ${median.toFixed(1)}`);
 }
 
 // --- Pitched roofs ----------------------------------------------------------
@@ -10684,6 +10700,390 @@ let chopperOrder; // likewise
   }
   check(`every seed hosts a depot`, sited === SEEDS, `${sited}/${SEEDS}`);
   check('and the door is unobstructed on every one of them', clear === sited, `${clear}/${sited}`);
+
+  // `createLayout` installs the network it bakes as *the* city network (see CLAUDE.md), so the
+  // sweep above has replaced the city everything below this point measures against. Put it back.
+  createLayout(makeRng(seed));
+}
+
+// --- The burger joint, and the drive-through that runs through it -----------------------------
+//
+// Four claims, and the last two could not be made any other way than here.
+//
+//   1. The city puts a joint somewhere, and the tower generator leaves its block alone.
+//   2. The lane's two ends and the traffic model agree, to the bit, about where a car comes off
+//      the road and where it goes back on.
+//   3. **A car actually goes through it.** The lot is a hand-driven path spliced into a lane model
+//      that knows nothing about it, so the only way to find out whether cars go in, sit at both
+//      windows and come back out on the right lane facing the right way is to run it.
+//   4. **The camera can see the lane.** `chooseBurgerBlock` filters on a sightline predicted from
+//      block centralities before a single tower exists (`laneSeen`); this fires real rays through
+//      the real merged city and finds out. Getting it wrong is a drive-through behind a tower.
+{
+  const block = layout.burgerBlock;
+  check('the city puts a burger joint somewhere', Boolean(block),
+    block ? `block (${block.bi}, ${block.bj})` : 'none');
+
+  const site = burgerSite(block);
+  const bounds = block.bounds;
+
+  check('and the tower generator leaves that block alone', (() => {
+    const p = buildings.mesh.geometry.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getX(i) > bounds.x0 && p.getX(i) < bounds.x1
+        && p.getZ(i) > bounds.z0 && p.getZ(i) < bounds.z1) return false;
+    }
+    return true;
+  })());
+  check('...and it is not the depot’s block either', layout.garageBlock !== block,
+    `depot (${layout.garageBlock?.bi}, ${layout.garageBlock?.bj})`);
+
+  // --- The two ends of the lane.
+  //
+  // The same claim the garage's fillet makes, and worth making twice here because this path has
+  // two handovers rather than one: a car is taken *off* a lane at the mouth and put back *on* one
+  // at the exit, and either being a few millimetres out is a car twitching sideways in front of
+  // the player.
+  const mouth = site.path.at(0);
+  const mouthTangent = site.path.tangentAt(0);
+  const mouthLane = laneOffsetCoord(DIR.NX, block.bi, block.bj + 1);
+  check('the mouth sits on the kerbside lane it takes cars off',
+    Math.abs(mouth.z - mouthLane) < 1e-9
+    && Math.abs(mouthTangent.x + 1) < 1e-9 && Math.abs(mouthTangent.z) < 1e-9,
+    `z ${mouth.z.toFixed(4)} vs lane ${mouthLane.toFixed(4)}`);
+
+  const end = site.path.at(site.path.total);
+  const endTangent = site.path.tangentAt(site.path.total);
+  check('and the exit lands pointing straight down the lane it joins',
+    Math.abs(endTangent.x) < 1e-9 && Math.abs(endTangent.z - 1) < 1e-9);
+
+  {
+    const stand = traffic.cars.find((c) => !c.isTaxi);
+    const was = { lane: stand.lane, s: stand.s, state: stand.state, turn: stand.turn };
+    placeCar(stand, site.merge.d, site.merge.i, site.merge.j, site.merge.back);
+    const landed = stand.lane.path.at(stand.s);
+    check('the exit arc lands exactly where the traffic model picks a car up',
+      Math.hypot(landed.x - end.x, landed.z - end.z) < 1e-9,
+      `arc ${end.x.toFixed(3)},${end.z.toFixed(3)} vs lane ${landed.x.toFixed(3)},${landed.z.toFixed(3)}`);
+    // The whole reason the lane goes out through the +X kerb rather than the nearer −Z one: a car
+    // put back on the road inside its own stop line runs the light it never saw. See `EXIT_LIFT`.
+    check('...far enough back that it can still stop for the light it is driving at',
+      stand.lane.length - stand.s > STOP_SETBACK + CAR_LEN,
+      `${(stand.lane.length - stand.s).toFixed(2)} units, hold line at ${STOP_SETBACK}`);
+    Object.assign(stand, was);
+  }
+
+  // Five curves joined end to end, so there are four joins to kink at. Checked as curvature rather
+  // than by inspecting the seams: sampled tightly, the heading may never turn faster than the one
+  // radius every piece of this path is built from.
+  {
+    const STEP = 0.01;
+    let worst = 0;
+    for (let d = 0; d + STEP <= site.path.total; d += STEP) {
+      const a = site.path.tangentAt(d);
+      const b = site.path.tangentAt(d + STEP);
+      const turn = Math.abs(Math.atan2(a.x * b.z - a.z * b.x, a.x * b.x + a.z * b.z));
+      worst = Math.max(worst, turn / STEP);
+    }
+    check('the lane is one continuous curve with no kink at any of its four joins',
+      worst <= 1 / site.turnR + 1e-6, `tightest radius ${(1 / worst).toFixed(3)} of ${site.turnR}`);
+  }
+
+  // Between the two kerbs the lane has to be on the block, and where it runs straight — the part a
+  // car spends its visit on, and the part the asphalt was laid for — a whole car has to fit
+  // between the building and the kerb.
+  {
+    let off = 0;
+    let narrow = 0;
+    for (let d = site.enterS; d <= site.exitS; d += 0.1) {
+      const p = site.path.at(d);
+      if (p.x < bounds.x0 - 1e-6 || p.x > bounds.x1 + 1e-6
+        || p.z < bounds.z0 - 1e-6 || p.z > bounds.z1 + 1e-6) off += 1;
+      if (Math.abs(p.x - site.laneX) > 1e-6) continue;
+      if (p.x - CAR_W / 2 < site.apron.x0 || p.x + CAR_W / 2 > site.apron.x1) narrow += 1;
+    }
+    check('every part of the lane inside the lot is on the block', off === 0,
+      `${off} samples adrift`);
+    check('...and a whole car fits on the asphalt down the straight of it', narrow === 0,
+      `${narrow} samples too narrow`);
+  }
+
+  // Both windows have to be on the straight, in the order a car meets them: one served on an arc
+  // is a car parked diagonally across its own lane, at a window on a wall that runs straight.
+  check('both windows are on the straight of the lane, in the order cars meet them',
+    site.enterS + CAR_LEN / 2 < site.orderS && site.orderS < site.pickupS
+    && site.pickupS < site.exitS - CAR_LEN / 2,
+    `enter ${site.enterS.toFixed(1)} < order ${site.orderS.toFixed(1)} `
+    + `< pickup ${site.pickupS.toFixed(1)} < exit ${site.exitS.toFixed(1)}`);
+
+  // --- The building.
+  const joint = createBurgerJoint(block, makeRng(seed + 111));
+  {
+    joint.shell.geometry.computeBoundingBox();
+    const bb = joint.shell.geometry.boundingBox;
+    // The apron runs right up to both kerbs by design, so the block's own bounds are the test. The
+    // tolerance is the two dropped kerbs and nothing else: each has to finish a hair *under* the
+    // road slab or it reads as a lip rather than a ramp, so 0.1 of each is over the line.
+    const LIP = 0.12;
+    check('the joint stays on its own block',
+      bb.min.x >= bounds.x0 - 1e-6 && bb.max.x <= bounds.x1 + LIP
+      && bb.min.z >= bounds.z0 - 1e-6 && bb.max.z <= bounds.z1 + LIP,
+      `x ${bb.min.x.toFixed(2)}..${bb.max.x.toFixed(2)} in ${bounds.x0.toFixed(2)}..${bounds.x1.toFixed(2)}, `
+      + `z ${bb.min.z.toFixed(2)}..${bb.max.z.toFixed(2)} in ${bounds.z0.toFixed(2)}..${bounds.z1.toFixed(2)}`);
+
+    // --- Nothing on this block is coplanar with anything else on it.
+    //
+    // Three flat surfaces stack on the lot — the block's own pavement, the joint's asphalt apron,
+    // and the paint on the apron — and two of them at the *same* height is not "just touching",
+    // it is two polygons the depth buffer cannot separate. It ships as the ground shimmering when
+    // the camera moves, which is what the first cut of this apron did: its top face landed on
+    // `KERB_H + 0.01`, which is exactly where `createGround` lays the pavement.
+    //
+    // So: every up-facing triangle either mesh puts on this block, gathered by height and checked
+    // pairwise. A single slab contributes one height however many triangles it has, which is why
+    // this is a set rather than a count.
+    const flatTops = (mesh, within) => {
+      const heights = new Set();
+      const geo = mesh.geometry;
+      const pos = geo.attributes.position;
+      const index = geo.index;
+      const n = index ? index.count : pos.count;
+      const at = (k) => (index ? index.getX(k) : k);
+      const a = new THREE.Vector3();
+      const b = new THREE.Vector3();
+      const c = new THREE.Vector3();
+      const ab = new THREE.Vector3();
+      const ac = new THREE.Vector3();
+      const nrm = new THREE.Vector3();
+      for (let t = 0; t + 2 < n; t += 3) {
+        a.fromBufferAttribute(pos, at(t));
+        b.fromBufferAttribute(pos, at(t + 1));
+        c.fromBufferAttribute(pos, at(t + 2));
+        // Up-facing only. A wall's vertical faces cannot fight a floor, and a *down*-facing one is
+        // culled before it can fight anything (see the awning over the door, which sits exactly on
+        // the door's top and is fine for that reason).
+        nrm.crossVectors(ab.subVectors(b, a), ac.subVectors(c, a));
+        if (nrm.lengthSq() < 1e-12 || nrm.y / nrm.length() < 0.999) continue;
+        if (Math.abs(a.y - b.y) > 1e-6 || Math.abs(a.y - c.y) > 1e-6) continue;
+        const cx2 = (a.x + b.x + c.x) / 3;
+        const cz2 = (a.z + b.z + c.z) / 3;
+        if (cx2 < within.x0 || cx2 > within.x1 || cz2 < within.z0 || cz2 > within.z1) continue;
+        if (a.y > KERB_H + 0.3) continue;      // ground level only — roofs cannot fight pavement
+        heights.add(a.y.toFixed(4));
+      }
+      return [...heights].map(Number).sort((u, v) => u - v);
+    };
+
+    const groundTops = flatTops(ground, bounds);
+    const jointTops = flatTops(joint.shell, bounds);
+    let closest = Infinity;
+    let pair = '';
+    for (const g of groundTops) {
+      for (const j of jointTops) {
+        if (Math.abs(g - j) < closest) { closest = Math.abs(g - j); pair = `${g.toFixed(3)}/${j.toFixed(3)}`; }
+      }
+    }
+    check('no surface the joint lays on the ground is coplanar with the pavement under it',
+      groundTops.length > 0 && jointTops.length > 0 && closest > 0.005,
+      `${groundTops.length} ground levels, ${jointTops.length} lot levels, nearest pair ${pair} `
+      + `(${closest.toFixed(4)} apart)`);
+
+    // Nothing the building is made of may stand in the lane at car height. The canopy deliberately
+    // reaches over it — that is what a drive-through canopy is — so the test runs from above the
+    // road paint to a car's roofline, which is where a car actually is. It caught a canopy post at
+    // 0.9 off the lane centre against a car's half-width of 0.85.
+    const CAR_TOP = KERB_H + 2.2;
+    const p = joint.shell.geometry.attributes.position;
+    let fouled = 0;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i);
+      if (y < KERB_H + 0.1 || y > CAR_TOP) continue;
+      const z = p.getZ(i);
+      if (z < site.turnZ || z > site.kerbZ) continue;     // only alongside the straight run
+      if (Math.abs(p.getX(i) - site.laneX) < CAR_W / 2 + 0.15) fouled += 1;
+    }
+    check('and nothing it is made of stands in the lane at car height', fouled === 0,
+      `${fouled} vertices inside the car's envelope`);
+
+    // The sign turns about a vertical axis through the pole, which is only true if its geometry is
+    // built centred on its own origin. Off-centre it orbits the pole instead of turning on it, and
+    // no rotation speed makes that look right.
+    const burger = burgerGeometry();
+    burger.computeBoundingBox();
+    const cx = (burger.boundingBox.min.x + burger.boundingBox.max.x) / 2;
+    const cz = (burger.boundingBox.min.z + burger.boundingBox.max.z) / 2;
+    const cy = (burger.boundingBox.min.y + burger.boundingBox.max.y) / 2;
+    check('the burger is centred on the axis it turns about',
+      Math.abs(cx) < 1e-6 && Math.abs(cz) < 1e-6 && Math.abs(cy) < 1e-6
+      && burger.boundingBox.max.x > BURGER_R * 1.2,
+      `centre ${cx.toFixed(5)},${cy.toFixed(5)},${cz.toFixed(5)}, `
+      + `${(burger.boundingBox.max.x - burger.boundingBox.min.x).toFixed(2)} across`);
+
+    // Where the sign really is, transformed by the pivot that carries the lean — every vertex,
+    // rather than a bounding box. A `Box3` over a rotated object is the AABB *of* an AABB, which
+    // over-states the drop by 0.4 here and would turn this into a test of the slack in the box.
+    const lowestSign = (() => {
+      joint.signPivot.updateMatrixWorld(true);
+      const p = joint.sign.geometry.attributes.position;
+      const v = new THREE.Vector3();
+      let lo = Infinity;
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i).applyMatrix4(joint.sign.matrixWorld);
+        lo = Math.min(lo, v.y);
+      }
+      return lo;
+    })();
+    // Measured off the parapet the pole comes out of and not off the shell's bounding box — the
+    // pole is part of that box and reaches the burger's own centre, so a bbox test could only ever
+    // say "the sign is not above its own pole".
+    check('...and it stands clear of the roof it is over, leaning and all',
+      lowestSign - ROOF_Y > 1.0,
+      `${(lowestSign - ROOF_Y).toFixed(2)} units over the parapet`);
+
+    // The lean is *away* from the camera, which is the counter-intuitive half of it and the whole
+    // reason it helps: leaning toward the viewer would show more of the bun. See `SIGN_TILT`.
+    const signUp = new THREE.Vector3(0, 1, 0).applyQuaternion(joint.signPivot.quaternion);
+    check('...and it leans away from the camera, not toward it',
+      signUp.x * VIEW_DIR.x + signUp.z * VIEW_DIR.z < -0.1 && signUp.y > 0.8,
+      `up (${signUp.x.toFixed(2)}, ${signUp.y.toFixed(2)}, ${signUp.z.toFixed(2)})`);
+    // ...about the *pivot's* axis rather than the world's: the mesh turns inside the leaning
+    // parent, which is what holds one three-quarter attitude all the way round instead of sweeping
+    // the burger round a cone.
+    check('...and it turns, inside the lean rather than under it', (() => {
+      const before = joint.sign.rotation.y;
+      const pivotBefore = joint.signPivot.quaternion.clone();
+      joint.update(1, SIGN_SPIN);
+      return Math.abs(joint.sign.rotation.y - before - SIGN_SPIN) < 1e-9
+        && joint.signPivot.quaternion.angleTo(pivotBefore) < 1e-12;
+    })(), `${(Math.PI * 2 / SIGN_SPIN).toFixed(0)}s per revolution`);
+  }
+
+  // --- A car actually goes through it.
+  //
+  // On a traffic model of its own, because the lot takes cars *out* of one: anything sharing this
+  // file's instance would inherit a city with three cars parked in a car park.
+  {
+    const lotScene = new THREE.Scene();
+    // Twenty-four rather than the low `CARS_DEFAULT` the fare checks use: how often a car passes
+    // the mouth at all is one of the inputs this is measuring, so it wants a real density.
+    const lotTraffic = createTraffic(makeRng(seed + 44), lotScene, 24);
+    lotTraffic.warmup(10);
+    const lot = createDriveThru({ site, cars: lotTraffic.cars, rng: makeRng(seed + 311) });
+
+    let peak = 0;
+    let tooClose = 0;
+    let strayed = 0;
+    let tookTaxi = 0;
+    let notStaged = 0;
+    let handovers = 0;
+    let badLanding = 0;
+    const visitors = new Set();
+    let inLot = new Set();
+
+    for (let step = 0; step < 60 * 240; step++) {       // four minutes of sim
+      lot.update(1 / 60);
+
+      const queue = lot.state.queue;
+      peak = Math.max(peak, queue.length);
+      const now = new Set();
+      for (let n = 0; n < queue.length; n++) {
+        const entry = queue[n];
+        now.add(entry.car);
+        visitors.add(entry.car);
+        if (entry.car.isTaxi) tookTaxi += 1;
+        // A car in the lot is out of the traffic model. If that stopped being true the lane model
+        // would be steering it too, from a lane position it left several seconds ago.
+        if (!entry.car.staged) notStaged += 1;
+        if (n > 0 && queue[n - 1].s - entry.s < CAR_LEN) tooClose += 1;
+        if (entry.s < -0.5 || entry.s > site.path.total + 1e-6) strayed += 1;
+      }
+      // Anything in the lot last frame and not in it now has just been handed back — and this is
+      // the only frame it can be checked on, because `traffic.update` has not composed its
+      // transform yet. What a released car *is* right now is a lane and a distance along it.
+      for (const car of inLot) {
+        if (now.has(car)) continue;
+        handovers += 1;
+        const at = car.lane?.path.at(car.s);
+        if (car.staged || car.state !== 'drive' || !at
+          || Math.hypot(at.x - site.merge.point.x, at.z - site.merge.point.z) > 1e-9) {
+          badLanding += 1;
+        }
+      }
+      inLot = now;
+
+      lotTraffic.update(1 / 60);
+    }
+
+    const served = lot.state.served();
+    check('cars pull into the drive-through and are served', served >= 4 && visitors.size >= 3,
+      `${visitors.size} different cars, ${served} served in four minutes`);
+    check('...never more than the lane holds, and never nose to tail inside it',
+      peak <= 3 && tooClose === 0 && strayed === 0,
+      `peak ${peak}, ${tooClose} overlaps, ${strayed} off-path`);
+    check('...the player’s own taxi is never one of them', tookTaxi === 0);
+    check('...and a car in the lot is out of the traffic model the whole time it is in there',
+      notStaged === 0, `${notStaged} frames with a lot car still on a lane`);
+    // The handover, checked against the cars that actually took it rather than against a staged
+    // one. Every release has to land on the merge lane exactly, and everything that went in has to
+    // have come out again bar whatever is still in there when the clock stops.
+    check('...and every one of them comes back out, onto the merge lane, to the bit',
+      handovers >= served - lot.state.queue.length && badLanding === 0,
+      `${handovers} handovers against ${served} served, ${lot.state.queue.length} still inside, `
+      + `${badLanding} bad`);
+
+    // The shot path: a lot filled by hand, because a review framing gets one tick of the world.
+    const shotScene = new THREE.Scene();
+    const shotTraffic = createTraffic(makeRng(seed + 44), shotScene, CARS_DEFAULT);
+    const shotLot = createDriveThru({ site, cars: shotTraffic.cars, rng: makeRng(seed + 311) });
+    shotLot.settle();
+    const filled = shotLot.state.queue;
+    check('settling the lot fills it for a screenshot',
+      filled.length === 3 && filled.every((e) => e.car.staged
+        && Math.abs(e.car.x - site.path.at(e.s).x) < 1e-9),
+      `${filled.length} cars, front one at the window`);
+  }
+
+  // --- Can the camera see the lane?
+  //
+  // Nine points along it at a car's roofline, each fired along VIEW_DIR through the real merged
+  // city — the buildings and the props, not the joint itself, whose own canopy is *meant* to be
+  // over the pickup window. Swept over seeds, because the answer is a property of whatever got
+  // built next door rather than of the joint.
+  const laneClear = (city, cityProps, s) => {
+    const caster = new THREE.Raycaster();
+    caster.far = 600;
+    for (let n = 0; n < 9; n++) {
+      const p = s.path.at(s.enterS + (s.exitS - s.enterS) * (n / 8));
+      const from = new THREE.Vector3(p.x, KERB_H + 1.5, p.z).addScaledVector(VIEW_DIR, 0.5);
+      caster.set(from, VIEW_DIR);
+      if (caster.intersectObjects([city, cityProps], false).length) return false;
+    }
+    return true;
+  };
+  check('nothing stands between the camera and this drive-through',
+    laneClear(buildings.mesh, props, site));
+
+  let sited = 0;
+  let clear = 0;
+  const BURGER_SEEDS = 10;
+  for (let n = 0; n < BURGER_SEEDS; n++) {
+    const s = seed + n * 977;
+    const sweepLayout = createLayout(makeRng(s));
+    if (!sweepLayout.burgerBlock) continue;
+    sited += 1;
+    const sweepCity = createBuildings(makeRng(s + 22), sweepLayout);
+    const sweepProps = createProps(makeRng(s + 33), sweepLayout).mesh;
+    if (laneClear(sweepCity.mesh, sweepProps, burgerSite(sweepLayout.burgerBlock))) clear += 1;
+  }
+  check('every seed hosts a burger joint', sited === BURGER_SEEDS, `${sited}/${BURGER_SEEDS}`);
+  check('and its lane is unobstructed on every one of them', clear === sited, `${clear}/${sited}`);
+
+  // The site filter works its sightlines out from `VIEW_DIR` without importing it — `city/` may not
+  // reach into `game/`. This is the join between the two: move the camera's elevation and the
+  // filter has to move with it, rather than going on predicting for a camera that no longer exists.
+  check('the site filter is using this camera’s own elevation',
+    Math.abs(VIEW_DIR.y / VIEW_DIR.x - VIEW_RISE) < 1e-9,
+    `${(VIEW_DIR.y / VIEW_DIR.x).toFixed(4)} vs ${VIEW_RISE}`);
 
   // `createLayout` installs the network it bakes as *the* city network (see CLAUDE.md), so the
   // sweep above has replaced the city everything below this point measures against. Put it back.

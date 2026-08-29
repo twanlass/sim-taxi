@@ -3,6 +3,7 @@ import {
 } from './grid.js';
 import { roadNetFromGrid, setCityNetwork } from './roadnet.js';
 import { chooseGarageBlock } from './garage.js';
+import { chooseBurgerBlock } from './burgerjoint.js';
 import { configureSignals } from '../sim/traffic.js';
 
 // Decides what each block *is* before anything is built. Ground, buildings and props all read
@@ -132,6 +133,15 @@ export function createLayout(rng) {
   const garage = chooseGarageBlock(rng, blocks);
   if (garage) garage.type = 'garage';
   blocks.garageBlock = garage ?? null;
+
+  // ...and the burger joint, drawn after it and for the same three reasons: it needs a whole block
+  // rather than a lot inside one, `null` is a real answer, and drawing it last means adding it
+  // cannot reshuffle a park, an arterial, a tower or the depot. It reads the depot's block as
+  // already spoken for, since the line above has set its `type` — which is also why the order of
+  // these two is not free. See city/burgerjoint.js.
+  const burger = chooseBurgerBlock(rng, blocks);
+  if (burger) burger.type = 'burger';
+  blocks.burgerBlock = burger ?? null;
 
   // Bake the road network for the city just decided, and install it as *the* network. Everything
   // above — the closures, the arterials, their coordinated directions — is exactly the input it
