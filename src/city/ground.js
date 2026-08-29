@@ -5,7 +5,7 @@ import { PALETTE, color, jitterColor } from '../palette.js';
 import {
   GRID_I, GRID_J, ROAD_W, SPAN_X, SPAN_Z, lineX, lineZ,
   isUnsignalised, isSegmentClosed, halfRoadX, halfRoadZ, isArterialX, isArterialZ,
-  medianRuns, MEDIAN_W,
+  isRiverGap, riverBanks, medianRuns, MEDIAN_W,
 } from './grid.js';
 
 const KERB_H = 0.35;
@@ -54,7 +54,7 @@ function curbBox(w, h, d, x, y, z, col, radius = CURB_RADIUS) {
 
 // The sidewalk surface sits 0.15 in from the kerb's own edge (see the `- 0.3` below), so its
 // corners are rounded to a slightly tighter radius to stay concentric with the kerb beneath it.
-const PAVE_INSET = 0.15;
+export const PAVE_INSET = 0.15;
 const PAVE_RADIUS = CURB_RADIUS - PAVE_INSET;
 
 /** The flat sidewalk surface on top of a kerb block, rounded to match its corners. */
@@ -168,9 +168,65 @@ function slabShape(w, d, radius) {
   return shape;
 }
 
-/** That shape, lying flat on the ground plane. */
-function roundedSlab(w, d, radius) {
-  const geo = new THREE.ShapeGeometry(slabShape(w, d, radius), SLAB_SEGMENTS);
+/**
+ * The same outline cut straight across at a world z, keeping the side `keep` names.
+ *
+ * **The river splits the island in two.** The slab is a flat opaque surface at y = 0 and the water
+ * is two units under it, so leaving the asphalt whole would simply hide the river; a `Shape.hole`
+ * cannot help either, since the channel runs off both ends of the map and a hole has to be
+ * interior. Two shapes it is.
+ *
+ * Authored directly rather than clipped, because the cut is always in the **straight** part of the
+ * outline and is known to be: the channel sits at |z| <= 36 on any river row, and the corner arcs
+ * only start past |z| = `d/2 - radius` = 50. So each piece is two rounded corners and two square
+ * ones, and there is no general polygon clip to get wrong.
+ *
+ * `rotateX(-PI/2)` maps shape-space y onto world **-z**, which is why the cut goes in negated.
+ */
+function slabPieceShape(w, d, radius, cutZ, keep) {
+  const hw = w / 2;
+  const hd = d / 2;
+  const cut = -cutZ;
+  const shape = new THREE.Shape();
+
+  // Both pieces are wound the same way round as the whole slab is — anticlockwise in shape space,
+  // starting from the corner nearest shape -x-y. Matching it is not cosmetic: `asphaltFade` walks
+  // this outline to build its skirt, and a piece wound the other way would send every one of its
+  // outward normals inward.
+  if (keep === 'north') {
+    // World z above the cut is shape-y *below* it, so the northern piece is the lower region.
+    shape.moveTo(-hw + radius, -hd);
+    shape.lineTo(hw - radius, -hd);
+    shape.absarc(hw - radius, -hd + radius, radius, -Math.PI / 2, 0, false);
+    shape.lineTo(hw, cut);
+    shape.lineTo(-hw, cut);
+    shape.lineTo(-hw, -hd + radius);
+    shape.absarc(-hw + radius, -hd + radius, radius, Math.PI, Math.PI * 1.5, false);
+  } else {
+    shape.moveTo(-hw, cut);
+    shape.lineTo(hw, cut);
+    shape.lineTo(hw, hd - radius);
+    shape.absarc(hw - radius, hd - radius, radius, 0, Math.PI / 2, false);
+    shape.lineTo(-hw + radius, hd);
+    shape.absarc(-hw + radius, hd - radius, radius, Math.PI / 2, Math.PI, false);
+    shape.lineTo(-hw, cut);
+  }
+  return shape;
+}
+
+/** The island's outlines: one shape, or two with the river between them. */
+function slabShapes(w, d, radius) {
+  const banks = riverBanks();
+  if (!banks) return [slabShape(w, d, radius)];
+  return [
+    slabPieceShape(w, d, radius, banks.z1, 'north'),
+    slabPieceShape(w, d, radius, banks.z0, 'south'),
+  ];
+}
+
+/** A shape, lying flat on the ground plane. */
+function roundedSlab(shape) {
+  const geo = new THREE.ShapeGeometry(shape, SLAB_SEGMENTS);
   geo.rotateX(-Math.PI / 2);
   return geo;
 }
@@ -188,10 +244,23 @@ function roundedSlab(w, d, radius) {
  * both come from `extractPoints` on the same Shape, so there is no seam to leak sky through at
  * the corner arcs — where a hand-sampled ring would drift from Three's own tessellation.
  */
-function asphaltFade(w, d, radius) {
-  const outline = slabShape(w, d, radius).extractPoints(SLAB_SEGMENTS).shape;
+function asphaltFade(shape, w, d, radius) {
+  const outline = shape.extractPoints(SLAB_SEGMENTS).shape;
   // The path closes on its start point, which would otherwise give the wrap-around a zero-width quad.
   if (outline[outline.length - 1].distanceTo(outline[0]) < 1e-9) outline.pop();
+
+  // **The river bank is not an edge of the island.** Where the slab has been cut in two, the two
+  // straight cuts are the *inside* of the map — asphalt stopping at a wall two units above the
+  // water — and feathering them would hang a translucent shelf out over the channel. Every other
+  // segment of the outline is a real coast and keeps its skirt.
+  //
+  // Detected by height rather than by being handed the cut: `extractPoints` re-samples the shape
+  // and hands back a plain point list with no idea which segment came from where, so the geometry
+  // is the only thing left to ask.
+  const banks = riverBanks();
+  const onCut = banks
+    ? outline.map((p) => Math.abs(-p.y - banks.z0) < 1e-6 || Math.abs(-p.y - banks.z1) < 1e-6)
+    : outline.map(() => false);
 
   // Outward normal of a rounded rectangle in one expression: clamp the point into the box the
   // corner arcs are centred on, and the direction back out to it is the edge normal along a
@@ -221,6 +290,7 @@ function asphaltFade(w, d, radius) {
   for (let ring = 0; ring < FADE_RINGS; ring++) {
     for (let i = 0; i < outline.length; i++) {
       const j = (i + 1) % outline.length;
+      if (onCut[i] && onCut[j]) continue;                 // the river bank, not the coast
       // Wound to match ShapeGeometry's own front face, so both survive the same rotateX below.
       vertex(i, ring); vertex(i, ring + 1); vertex(j, ring + 1);
       vertex(i, ring); vertex(j, ring + 1); vertex(j, ring);
@@ -252,6 +322,72 @@ function asphaltFade(w, d, radius) {
 }
 
 /**
+ * The island's rim carried **across the river mouth**.
+ *
+ * Without it the coastline has a twelve-unit notch in it at each end of the channel: the slab is
+ * cut bank to bank, and the cut is not a coast, so `asphaltFade` skips it — which leaves sky
+ * showing at the mouth at a distance where the rim either side of it is still dark. Filled with a
+ * fading river instead it is no better, and measurably so: sampled every two units out, water
+ * dissolving on the same band and the same curve still runs about 24 luma ahead of the asphalt
+ * beside it, and 24 luma of a 125-luma ramp is a pale blade lying in the coastline.
+ *
+ * So the rim simply carries on over the water, on the skirt's own colour and the skirt's own curve,
+ * and the river ends underneath it. Nothing out there is water or road any more — it is the edge of
+ * the world, and the whole point of the skirt is that the edge of the world has no edge.
+ *
+ * Built as its own strip rather than as part of `asphaltFade` because that function walks one
+ * closed outline and this crosses between two of them.
+ */
+function riverMouthFade() {
+  const banks = riverBanks();
+  if (!banks) return null;
+
+  const c = new THREE.Color(color('asphalt'));
+  const alphaAt = (t) => 1 - t * t * (3 - 2 * t);
+  const pos = [];
+  const col = [];
+  const vertex = (x, z, t) => {
+    pos.push(x, 0, z);
+    col.push(c.r, c.g, c.b, alphaAt(t));
+  };
+
+  for (const side of [-1, 1]) {
+    const from = side * (SLAB_X / 2);
+    for (let ring = 0; ring < FADE_RINGS; ring++) {
+      const t0 = ring / FADE_RINGS;
+      const t1 = (ring + 1) / FADE_RINGS;
+      const x0 = from + side * EDGE_FADE * t0;
+      const x1 = from + side * EDGE_FADE * t1;
+      // Wound to face up on both sides, which the `side` flip is what makes non-obvious: taken in
+      // one fixed order the -x mouth comes out inside out.
+      if (side > 0) {
+        vertex(x0, banks.z0, t0); vertex(x0, banks.z1, t0); vertex(x1, banks.z1, t1);
+        vertex(x0, banks.z0, t0); vertex(x1, banks.z1, t1); vertex(x1, banks.z0, t1);
+      } else {
+        vertex(x0, banks.z0, t0); vertex(x1, banks.z1, t1); vertex(x0, banks.z1, t0);
+        vertex(x0, banks.z0, t0); vertex(x1, banks.z0, t1); vertex(x1, banks.z1, t1);
+      }
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 4));
+  geo.computeVertexNormals();
+
+  const material = propMaterial();
+  material.transparent = true;
+  material.depthWrite = false;
+
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.receiveShadow = true;
+  // With the skirt, and ahead of everything painted on the road. The water it covers is at -2.
+  mesh.renderOrder = -1;
+  mesh.name = 'river-mouth-fade';
+  return mesh;
+}
+
+/**
  * Roads, kerbs, sidewalks and paint. All of it merges into a single static mesh — the geometry
  * never changes at runtime, so there's no reason for it to cost more than one draw call. (The
  * edge fade is the one exception, and only because alpha cannot ride in the merged mesh's
@@ -265,7 +401,10 @@ export function createGround(rng, blocks) {
   // it is a gradient over the whole frame rather than an edge fade: at the map's corners it is
   // 0.17 of the way to the sky, which is a long way short of hiding an apron.) The edge itself is
   // feathered rather than cut: see `asphaltFade`.
-  parts.push(bakeColor(roundedSlab(SLAB_X, SLAB_Z, SLAB_RADIUS), color('asphalt')));
+  const outlines = slabShapes(SLAB_X, SLAB_Z, SLAB_RADIUS);
+  for (const outline of outlines) {
+    parts.push(bakeColor(roundedSlab(outline), color('asphalt')));
+  }
 
   // --- Park districts first: a single platform spanning both blocks and the road that used to
   // run between them, so the green reads as one continuous mass.
@@ -284,6 +423,9 @@ export function createGround(rng, blocks) {
 
   // --- Block platforms: raised kerb + sidewalk surface, or grass for parks.
   for (const block of blocks) {
+    // The river row has no platform at all: no kerb, no pavement, nothing to stand on. What edges
+    // it is the channel wall and the parapet on each bank, and those are `city/river.js`'s.
+    if (block.type === 'river') continue;
     if (block.districtId !== null && block.districtId !== undefined) continue;
     const { x0, z0, cx, cz } = block.bounds;
     const w = block.bounds.x1 - x0;
@@ -361,6 +503,12 @@ export function createGround(rng, blocks) {
     const gaps = axis === 'z' ? GRID_J : GRID_I;
 
     for (let k = 0; k < gaps; k++) {
+      // **A gap with no road under it gets no paint.** Over a park district that never mattered,
+      // because the district's platform sits at KERB_H and covers the dashes; over the river there
+      // is nothing to cover them and they would float above open water. A bridged crossing is
+      // skipped too — an arched deck is not at y = 0 and a flat quad laid at 0.02 would sink into
+      // it, so the span paints its own (`geometry/bridge.js`).
+      if (axis === 'z' && (isRiverGap(k) || isSegmentClosed(line, k, 1))) continue;
       const from = along(k) + (axis === 'z' ? halfRoadX(k) : halfRoadZ(k));
       const to = along(k + 1) - (axis === 'z' ? halfRoadX(k + 1) : halfRoadZ(k + 1));
 
@@ -413,11 +561,15 @@ export function createGround(rng, blocks) {
       const acrossX = !isArterialX(j);
       const acrossZ = !isArterialZ(i);
 
-      // No crossing onto a road that no longer exists.
+      // No crossing onto a road that no longer exists — and none laid out over the river. A
+      // crossing is painted `halfRoad + 0.9` clear of the junction centre, which on a riverside
+      // street is 0.9 units past the kerb: over the parapet and out above the water. (The bar is
+      // laid across the *crossing* road, so what rules it out is the gap it sits in, not the road
+      // it belongs to.)
       const west = acrossX && i > 0 && !isSegmentClosed(i, j, 2);
       const east = acrossX && i < GRID_I && !isSegmentClosed(i, j, 0);
-      const south = acrossZ && j > 0 && !isSegmentClosed(i, j, 3);
-      const north = acrossZ && j < GRID_J && !isSegmentClosed(i, j, 1);
+      const south = acrossZ && j > 0 && !isSegmentClosed(i, j, 3) && !isRiverGap(j - 1);
+      const north = acrossZ && j < GRID_J && !isSegmentClosed(i, j, 1) && !isRiverGap(j);
 
       for (let b = 0; b < BARS; b++) {
         // Spread the bars across the width of the road being *crossed*, centred on its centreline.
@@ -441,7 +593,9 @@ export function createGround(rng, blocks) {
   const mesh = new THREE.Mesh(merged, propMaterial());
   mesh.receiveShadow = true;
   mesh.name = 'ground';
-  mesh.add(asphaltFade(SLAB_X, SLAB_Z, SLAB_RADIUS));
+  for (const outline of outlines) mesh.add(asphaltFade(outline, SLAB_X, SLAB_Z, SLAB_RADIUS));
+  const mouths = riverMouthFade();
+  if (mouths) mesh.add(mouths);
   return mesh;
 }
 

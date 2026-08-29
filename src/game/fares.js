@@ -1,4 +1,6 @@
-import { GRID_I, GRID_J, halfRoadX, halfRoadZ, isParkBlock, lineX, lineZ } from '../city/grid.js';
+import {
+  GRID_I, GRID_J, halfRoadX, halfRoadZ, isParkBlock, isRiverBlock, lineX, lineZ,
+} from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
 import { createPerson } from '../geometry/person.js';
@@ -345,6 +347,27 @@ export const onParkBlock = (spot) => {
   return isParkBlock(bi, bj);
 };
 
+/**
+ * Whether an intersection's corner pin would stand on the river.
+ *
+ * The same shape as `onParkBlock`, through the same `blockFor` flip, and exported for the same
+ * reason: which block a pin ends up on is `cornerFor`'s -X-Z choice, and that choice has one owner.
+ *
+ * **It is the mark, not the pin, that rules these corners out.** The embankment walk is 1.4 units
+ * wide and `cornerFor` stakes its pin 0.5 past the kerb, so a rider on the river's north bank would
+ * in fact be standing on pavement — but a fare's disc is `RING_R` across and reaches 1.75 further,
+ * which puts most of it out over the water, and a courier's pad is not much smaller. A marker
+ * floating on a river is worse than one nobody can see.
+ *
+ * It costs the board the row of junctions along that bank — the ones whose -X-Z corner lands in the
+ * channel — which is the other half of why the city grew a row rather than flooding one: 42
+ * junctions less that row is 36, exactly what a 5x5 city offered.
+ */
+export const onWaterBlock = (spot) => {
+  const { bi, bj } = blockFor(spot.i, spot.j);
+  return isRiverBlock(bi, bj);
+};
+
 // How far out from the kerb corner the visibility test samples, and on what pattern. The widest
 // ground mark a corner ever wears is the fare disc at RING_R; the courier pad is a shade smaller.
 // Sampled at half that reach rather than at the rim, because the rim is not the part that has to
@@ -544,9 +567,12 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // the player hunts for with a clock draining, and their drop-off ring is the only thing saying
     // where the trip ends. Unlike the rest of this predicate it is a fact about the *city* rather
     // than about what is on the board, so it never changes during a run.
+    // ...and every corner standing in the river (`onWaterBlock`), which is the same kind of fact
+    // about the city as the sightline above it and is filtered in the same breath.
     const free = (i, j) => !avoid.some((a) => a.i === i && a.j === j)
       && !held.some((a) => (a.i === i && a.j === j) || onSameBlock({ i, j }, a))
       && (!avoidBlockOf || !onSameBlock({ i, j }, avoidBlockOf))
+      && !onWaterBlock({ i, j })
       && cornerSeen(i, j);
 
     if (near) {

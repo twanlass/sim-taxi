@@ -6,6 +6,8 @@ import {
 } from './game/camera.js';
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
+import { createRiver, bridgeLines, bridgeSpan } from './city/river.js';
+import { createBridge } from './geometry/bridge.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
 import { createGarage } from './city/garage.js';
@@ -61,7 +63,7 @@ import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js'
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
-import { setAmbientOcclusion, setCrayon, setCartoon } from './util/geo.js';
+import { setAmbientOcclusion, setCrayon, setCartoon, propMaterial } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createPause } from './game/pause.js';
@@ -242,6 +244,30 @@ daylight.setCycling(false);
 // anything lit by `propMaterial()` has to be in there: a mesh that receives AO without casting it
 // samples the occlusion of whatever stands behind it. See `game/ssao.js`.
 scene.add(markOccluder(createGround(makeRng(seed + 11), layout)));
+
+// The river, and the spans that get over it. Its own stream, like every other generator, so that
+// moving a bridge cannot reshuffle a park.
+//
+// The water is **not** an occluder: `markOccluder` puts a mesh in the AO depth prepass, and the
+// contract there is that anything lit by `propMaterial()` casts as well as receives. The channel's
+// walls and parapets do both; the water is two units down at the bottom of a hole with nothing
+// under it to crease, and putting a translucent surface in a depth prepass writes its depth over
+// whatever it is meant to be seen through.
+const river = createRiver(makeRng(seed + 44), layout);
+if (river) {
+  scene.add(river.group);
+  markOccluder(river.shell);
+
+  const bridgeRng = makeRng(seed + 55);
+  for (const line of bridgeLines()) {
+    const span = bridgeSpan(line);
+    const mesh = new THREE.Mesh(createBridge(span, bridgeRng), propMaterial());
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.name = `bridge-${line}`;
+    scene.add(markOccluder(mesh));
+  }
+}
 // Held onto for its `pad`: exactly one roof in the city carries a landing circle, and the
 // helicopter below has to be told which one — see `choosePad` in city/buildings.js.
 const city = createBuildings(makeRng(seed + 22), layout);

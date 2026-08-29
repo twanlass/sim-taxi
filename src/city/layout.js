@@ -1,7 +1,8 @@
 import {
-  GRID_I, GRID_J, blockBounds, HALF_SPAN_X, HALF_SPAN_Z, segmentKey,
-  setArterialLines, setClosedSegments, setParkBlocks,
+  GRID_I, GRID_J, blockBounds, HALF_SPAN_X, HALF_SPAN_Z, isRiverBlock, segmentKey,
+  setArterialLines, setClosedSegments, setParkBlocks, setRiverRow,
 } from './grid.js';
+import { planRiver, setRiverCrossings } from './river.js';
 import { roadNetFromGrid, setCityNetwork } from './roadnet.js';
 import { chooseGarageBlock } from './garage.js';
 import { chooseBurgerBlock } from './burgerjoint.js';
@@ -37,6 +38,19 @@ export function createLayout(rng) {
   setArterialLines({ x: arterialX, z: arterialZ });
   configureSignals({ arterialX, arterialZ, dirX, dirZ });
 
+  // --- The river, second ------------------------------------------------------
+  //
+  // After the arterials, because the channel's width is the gap between the two roads either side
+  // of it and one of those may be a main street (`riverBanks` reads `halfRoadX`). Before everything
+  // below, for two reasons that both bite: the crossings with no bridge are **closed segments**, so
+  // they have to be in hand before `setClosedSegments` runs, and a park district must not be able
+  // to claim a row that is water or to close a crossing on top of one already closed.
+  //
+  // See city/river.js for which crossings bridge and why the two ring roads always do.
+  const river = planRiver(rng);
+  setRiverRow(river.row);
+  setRiverCrossings(river.crossings);
+
   // A park district is two adjacent blocks *plus the road that used to separate them*, merged
   // into one solid green mass. Leaving the road in place produced two parks either side of a
   // street, which still reads as the same repeating grid. Closing the segment is what actually
@@ -55,6 +69,10 @@ export function createLayout(rng) {
       const a = [bi, bj];
       const b = horizontal ? [bi + 1, bj] : [bi, bj + 1];
       if (parkCells.has(`${a[0]},${a[1]}`) || parkCells.has(`${b[0]},${b[1]}`)) continue;
+      // Not on the water, and not straddling it. A district lays one platform across both its
+      // blocks and the road between them, so a vertical pair spanning the bank would pave over the
+      // river; and closing the road between them would close a crossing that may be a bridge.
+      if (isRiverBlock(a[0], a[1]) || isRiverBlock(b[0], b[1])) continue;
 
       const id = districts.length;
       parkCells.set(`${a[0]},${a[1]}`, id);
@@ -80,17 +98,35 @@ export function createLayout(rng) {
     }
   }
 
-  setClosedSegments(closed);
+  // The river's bridgeless crossings join the districts' closures: from here down nothing knows
+  // the difference between a road a park built over and a road with a river across it.
+  setClosedSegments([...closed, ...river.closed]);
+
+  // Normalised by the map's own half-diagonal, which stopped being `HALF_SPAN * SQRT2` when the
+  // two axes came apart. Taken per axis rather than off the longer one: centrality is "how far in
+  // from the edge is this", and the edge is nearer on the short axis.
+  const offCentre = (bi, bj) => {
+    const { cx, cz } = blockBounds(bi, bj);
+    return Math.hypot(cx / HALF_SPAN_X, cz / HALF_SPAN_Z) / Math.SQRT2;
+  };
+
+  // **The core is where the nearest block is, not where the origin is.** With an even number of
+  // rows the map's centre falls *between* two of them, so no block can stand on it: at six rows
+  // the most central block is half a row out and a raw distance tops out at 0.82 rather than 1,
+  // which quietly takes two units off the tallest tower in the city and with it the helipad the
+  // helicopter lands on. Measuring from the nearest a block can actually get keeps "1 at the core"
+  // true of whatever grid this is handed — and on an odd grid, where a block does sit on the
+  // origin, `floor` is 0 and this is exactly the arithmetic it always was.
+  let floorDist = Infinity;
+  for (let bi = 0; bi < GRID_I; bi++) {
+    for (let bj = 0; bj < GRID_J; bj++) floorDist = Math.min(floorDist, offCentre(bi, bj));
+  }
 
   const blocks = [];
 
   for (let bi = 0; bi < GRID_I; bi++) {
     for (let bj = 0; bj < GRID_J; bj++) {
-      const { cx, cz } = blockBounds(bi, bj);
-      // Normalised by the map's own half-diagonal, which stopped being `HALF_SPAN * SQRT2` when
-      // the two axes came apart. Taken per axis rather than off the longer one: centrality is
-      // "how far in from the edge is this", and the edge is nearer on the short axis.
-      const distance = Math.hypot(cx / HALF_SPAN_X, cz / HALF_SPAN_Z) / Math.SQRT2;
+      const distance = (offCentre(bi, bj) - floorDist) / (1 - floorDist);
 
       // 1 at the core, ~0 at the corners.
       const centrality = Math.max(0, 1 - distance * 1.55);
@@ -99,14 +135,22 @@ export function createLayout(rng) {
       const districtId = parkCells.get(`${bi},${bj}`);
       const inDistrict = districtId !== undefined;
       const isPark = inDistrict || rng.chance(0.02 + (1 - centrality) * 0.03);
+      // ...and the river row is neither. Typed rather than filtered out of the array, so that every
+      // generator downstream skips it by the rule it already has — `createBuildings` walks `'built'`
+      // blocks, `createProps` walks `'park'` ones, and neither needs to learn about water.
+      //
+      // The park roll still happens on a river block, and is thrown away. That is deliberate: it
+      // keeps this loop's draw from the rng stream the same shape for every seed regardless of
+      // which row the river landed on, so moving the river does not reshuffle the whole city.
+      const water = isRiverBlock(bi, bj);
 
       blocks.push({
         bi,
         bj,
         bounds: blockBounds(bi, bj),
-        type: isPark ? 'park' : 'built',
-        districtId: inDistrict ? districtId : null,
-        districtBounds: inDistrict ? districts[districtId].bounds : null,
+        type: water ? 'river' : isPark ? 'park' : 'built',
+        districtId: water || !inDistrict ? null : districtId,
+        districtBounds: water || !inDistrict ? null : districts[districtId].bounds,
         centrality,
       });
     }
@@ -124,6 +168,7 @@ export function createLayout(rng) {
   // junction's offset from how far along the wave it sits.
   blocks.arterials = { x: arterialX, z: arterialZ, dirX, dirZ };
   blocks.closedSegments = closed;
+  blocks.river = river;
 
   // The taxi's depot, and the block it takes out of the tower generator's hands. Chosen **last**,
   // after every other draw in this function, so adding it cannot reshuffle a single park or

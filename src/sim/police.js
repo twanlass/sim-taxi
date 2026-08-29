@@ -7,6 +7,7 @@ import {
   legalExits, lineX, lineZ,
   isSegmentClosed, nextIntersection, opposite,
 } from '../city/grid.js';
+import { deckHeightAt } from '../city/river.js';
 import { cityNetwork } from '../city/roadnet.js';
 import {
   setPriorityCorridor, setPolicePresence, locoWeave, locoWheelie, isLaneClosed, sirenLaneAhead,
@@ -489,7 +490,10 @@ export function createPolice(rng, scene, cars = []) {
 
   function place() {
     const p = railPoint();
-    group.position.set(p.x, ROAD_Y, p.z);
+    // Over a bridge. The corridor runs a whole line end to end and **every** road running along Z
+    // crosses the river, so without this the cruiser drives through an arched deck on any run that
+    // picks one — and declining the crossing lines is not an option when they all cross.
+    group.position.set(p.x, ROAD_Y + deckHeightAt(p.x, p.z).y, p.z);
     group.rotation.y = railHeading();
   }
 
@@ -742,9 +746,18 @@ export function createPolice(rng, scene, cars = []) {
     // Both tilts pivot on the car's origin at road level, so either one on its own drives an edge
     // under the tarmac. Lifting by the sagitta of each keeps the low corner on the road — same
     // correction the ambient cars get, with this body's dimensions.
+    // The chase's own pass over a bridge, sampled at nose and tail for the reason the ambient
+    // cars are (see the pose step in sim/traffic.js): a rigid body pitched to the tangent under its
+    // own origin floats at the crest and buries its nose at the foot.
+    const ahead = CAR_LEN / 2;
+    const nose = deckHeightAt(drawn.x + Math.cos(state.yaw) * ahead, drawn.z - Math.sin(state.yaw) * ahead);
+    const tail = deckHeightAt(drawn.x - Math.cos(state.yaw) * ahead, drawn.z + Math.sin(state.yaw) * ahead);
+    const deckY = (nose.y + tail.y) / 2;
+    shownPitch += Math.atan2(nose.y - tail.y, 2 * ahead);
+
     const lift = Math.abs(Math.sin(state.roll)) * (CAR_W / 2)
       + Math.abs(Math.sin(shownPitch)) * (CAR_LEN / 2);
-    group.position.set(drawn.x, ROAD_Y + lift, drawn.z);
+    group.position.set(drawn.x, ROAD_Y + lift + deckY, drawn.z);
     // 'YXZ', not the default — see the note by the ambient euler in sim/traffic.js. The default
     // 'XYZ' rolls about the world X axis, so a cruiser chasing north or south would show no lean
     // at all and one heading west would lean into its corners instead of out of them.

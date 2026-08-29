@@ -430,17 +430,23 @@ for (let s = 0; s < SEEDS; s++) {
     const wanted = [];
     for (const block of layout) {
       if (block.districtId !== null && block.districtId !== undefined) continue;
+      // The river row is not land. The network merges its faces across every bridgeless crossing,
+      // so five blocks there come back as one or two — which is the *right* answer about the
+      // graph and the wrong one about what can be built on, and `roadNetFromGrid` tags them
+      // `'water'` for exactly that reason.
+      if (block.type === 'river') continue;
       wanted.push(block.bounds);
     }
     for (const district of layout.districts) wanted.push(district.bounds);
 
-    check(`${tag} block count`, net.blocks.length === wanted.length,
-      `net ${net.blocks.length} vs layout ${wanted.length}`);
+    const land = net.blocks.filter((b) => b.type !== 'water');
+    check(`${tag} block count`, land.length === wanted.length,
+      `net ${land.length} vs layout ${wanted.length}`);
 
     let unmatched = 0;
     let example = '';
     for (const want of wanted) {
-      const hit = net.blocks.find((b) => near(b.bounds.x0, want.x0) <= TOL
+      const hit = land.find((b) => near(b.bounds.x0, want.x0) <= TOL
         && near(b.bounds.x1, want.x1) <= TOL
         && near(b.bounds.z0, want.z0) <= TOL
         && near(b.bounds.z1, want.z1) <= TOL);

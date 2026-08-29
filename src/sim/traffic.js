@@ -14,6 +14,7 @@ import {
   GRID_I, GRID_J, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
   ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor,
 } from '../city/grid.js';
+import { deckHeightAt } from '../city/river.js';
 import { cityNetwork } from '../city/roadnet.js';
 
 // Re-exported for callers that still ask the *grid* about a junction. The sim itself no longer
@@ -3641,7 +3642,26 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         else airY = landingBounce(car.bounceT);
       }
 
-      const shownPitch = car.pitch + wheelieBoost + airPitch;
+      // --- Over a bridge -------------------------------------------------------
+      //
+      // The fixed spans arch, and this is where a car goes up and over one. **Render-only**, on
+      // exactly the terms the ramp above it is: `car.s`, `car.lane`, the turn decision, following
+      // distance and the collision test all carry on as if the deck were flat, so a piece of
+      // scenery cannot break the sim.
+      //
+      // Sampled at the **nose and the tail**, not at the centre. A rigid body pitched to the
+      // tangent under its own origin floats at the crest and buries its nose at the foot — the
+      // error is the sagitta of a 3.4-unit chord on a curve that rises 1.1 over 12, which is a
+      // visible fraction of a wheel. Two lookups cost four rectangle tests each and are simply
+      // correct.
+      const ahead = CAR_LEN / 2;
+      const nose = deckHeightAt(car.x + Math.cos(car.yaw) * ahead, car.z - Math.sin(car.yaw) * ahead);
+      const tail = deckHeightAt(car.x - Math.cos(car.yaw) * ahead, car.z + Math.sin(car.yaw) * ahead);
+      const deckY = (nose.y + tail.y) / 2;
+      // Positive is nose-up, the same sense as `locoWheelie` and the ramp's `airPitch`.
+      const deckPitch = Math.atan2(nose.y - tail.y, 2 * ahead);
+
+      const shownPitch = car.pitch + wheelieBoost + airPitch + deckPitch;
 
       // Roll and pitch both pivot on the car's origin at road level, so tilting drives one edge
       // underground. Lifting by the sagitta of each keeps the low edge on the tarmac and reads as
@@ -3654,7 +3674,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // the two position lines saying the same thing. `kerbLift` is the opening vignette's, and
         // is 0 for every frame of an ordinary run: it is how a staged taxi stands on the pavement
         // outside its garage and then comes down the dropped kerb onto the road.
-        taxiGroup.position.set(car.x, ROAD_Y + bob + lift + airY + mount + car.kerbLift, car.z);
+        taxiGroup.position.set(car.x, ROAD_Y + bob + lift + airY + mount + car.kerbLift + deckY, car.z);
         // 'YXZ' — not the default — for the same reason the ambient euler below says so. See the
         // note there: with the default order the roll is applied about the *world* X axis, which
         // only doubles as the car's own axis when it happens to be driving east.
@@ -3664,7 +3684,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         continue;
       }
 
-      pos.set(car.x, ROAD_Y + bob + lift + mount, car.z);
+      pos.set(car.x, ROAD_Y + bob + lift + mount + deckY, car.z);
       // The order is load-bearing and the default is wrong here. Three composes 'XYZ' as
       // Rx·Ry·Rz, so the roll lands *outside* the yaw and turns about the world X axis — which is
       // the car's own long axis only when the car is driving east. Head north or south and the
@@ -3672,7 +3692,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // way. 'YXZ' is Ry·Rx·Rz: yaw first, so the roll turns about the body, and the lean is the
       // same at every heading. (The two orders agree exactly at yaw 0, which is why the passing
       // lab — a road running due east — could never have caught this.)
-      quat.setFromEuler(euler.set(roll, car.yaw, car.pitch, BODY_EULER_ORDER));
+      quat.setFromEuler(euler.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER));
       matrix.compose(pos, quat, scl);
       writeAmbient(car);
     }

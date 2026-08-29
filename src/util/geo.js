@@ -442,7 +442,7 @@ const SHADOW_LIGHT = /* glsl */ `
  * the air exactly as the façade under it does. Hooking `<dithering_fragment>` instead would ink
  * lines at full strength across a hazed skyline.
  */
-function patchProp(material) {
+function patchProp(material, { ao = true } = {}) {
   // Without this the patch silently does nothing. Three builds the program cache key from the
   // material's *parameters*, before `onBeforeCompile` has touched the source, so a patched
   // flat-shaded Lambert collides with every unpatched one sharing those parameters and
@@ -451,7 +451,8 @@ function patchProp(material) {
   //
   // Composed out of both flags rather than one string, because the two are independent: with
   // `?crayon&ao=off` a crayoned material and a bare one would otherwise share a key.
-  const key = `prop${aoEnabled ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
+  const useAO = aoEnabled && ao;
+  const key = `prop${useAO ? '-ssao' : ''}${crayonEnabled ? '-crayon' : ''}`
     + `${cartoonEnabled ? '-cartoon' : ''}`;
   material.customProgramCacheKey = () => key;
 
@@ -482,7 +483,7 @@ uniform float uToonSteps;
 uniform float uToonInk;
 uniform float uToonBite;` : ''}`);
 
-    if (aoEnabled) {
+    if (useAO) {
       // Three's own AO hook is the right seam: `reflectedLight` is complete by then and
       // `outgoingLight` has not been summed yet. Screen space, so the lookup is the fragment's
       // own position on screen — no uv, no second set of attributes.
@@ -512,11 +513,33 @@ ${SHADOW_LIGHT}`);
 }
 
 /** The shared material for every merged prop mesh. */
-export function propMaterial() {
+/**
+ * @param ao  false to leave this material out of the screen-space AO lookup.
+ *
+ * **A transparent surface has to opt out, and the reason is the rule in `markOccluder`.** That
+ * function refuses to put a transparent mesh in the AO depth prepass — quite rightly, since a
+ * surface you can see through has no business writing depth. But receiving is the default here, so
+ * a translucent prop lit by this material samples the occlusion of *whatever is behind it*, which
+ * is the exact failure `main.js` warns about beside `markOccluder` and is invisible until the
+ * thing behind it is interesting.
+ *
+ * The river is where it stopped being invisible. Its water sits at the bottom of a two-unit
+ * channel, so inside the city it sampled the walls' own crease and went nearly black, while the
+ * stretch running off the end of the island had an empty AO buffer behind it and came out at full
+ * brightness — a pale wedge shooting out of the river mouth, with the discontinuity landing
+ * exactly on the coast. Nothing about the water changed across that line except what it was
+ * reading out of a buffer it is not in.
+ *
+ * The asphalt's own fade skirt (`asphaltFade` in city/ground.js) is the other transparent
+ * `propMaterial` in the project and has the same hole in it. It gets away with it because it lives
+ * out past the ring road where the AO buffer is empty anyway, so its lookup is uniformly 1 — left
+ * alone here rather than changed on spec.
+ */
+export function propMaterial({ ao = true } = {}) {
   const material = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   // Unconditional now: the shadow tint rides in the same patch and is always available. See
   // SHADOW_UNIFORMS for why it does not need a flag of its own.
-  patchProp(material);
+  patchProp(material, { ao });
   return material;
 }
 

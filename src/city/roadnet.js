@@ -21,6 +21,7 @@
 
 import {
   GRID_I, GRID_J, LANE, HALF_ROAD, DIR, lineX, lineZ, isSegmentClosed, isXAxis, dirSign,
+  riverBanks,
   halfRoadX, halfRoadZ, laneOffX, laneOffZ,
 } from './grid.js';
 import {
@@ -871,6 +872,19 @@ export function roadNetFromGrid(layout, config = {}) {
   }
 
   const net = bakeNetwork({ nodes, edges }, config);
+
+  // A face over the river is not buildable land, and the network has no way to know that on its
+  // own: water is not a road, so the graph sees an ordinary face — one merged across every
+  // crossing that has no bridge, which is why the river row comes back as one or two big blocks
+  // rather than five. Tagged rather than dropped, so the editor model keeps describing every face
+  // the roads enclose and only the *meaning* of one is grid knowledge.
+  const banks = riverBanks();
+  if (banks) {
+    for (const block of net.blocks) {
+      const cz = (block.bounds.z0 + block.bounds.z1) / 2;
+      if (cz > banks.z0 && cz < banks.z1) block.type = 'water';
+    }
+  }
   const byEnds = new Map(net.lanes.map((l) => [`${l.from}>${l.to}`, l]));
   /** Intersection one step from (i, j) along grid direction `d`, sign `way` (+1 on, -1 back). */
   const step = (d, i, j, way) => (isXAxis(d)

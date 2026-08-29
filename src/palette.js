@@ -467,6 +467,45 @@ export const PALETTE = {
   // against everything it touches.
   pondBank: '#8C7F6B',
 
+  // --- The river ------------------------------------------------------------
+  //
+  // Same 216° family as the pond, and deliberately so: this game has exactly one idea of what
+  // water looks like and a second one would read as a different substance. What differs is scale.
+  // A pond is a 45-pixel hole in a lawn; the river is a 90-unit band across the whole map with
+  // roads either side of it, so the two colours it has to hold against are `asphalt` (luma 105)
+  // and the pale `sidewalk` — not grass.
+  //
+  // **That inverts the pond's rule.** The pond goes dark because it must read as a hole in
+  // something bright; the river sits in something already dark, so going darker still would make
+  // the map's biggest feature its least visible one. `riverWater` is luma 112 against asphalt's
+  // 104 — a shade *lighter* than the road, which is what a sky-lit surface actually is, and enough
+  // separation to read from across the city without the band shouting.
+  //
+  // Two of them for the pond's reason: the channel is drawn with its open middle catching the sky
+  // and its edges going dark under the walls, which is depth for the price of a vertex colour.
+  riverWater: '#4E7699',
+  riverDeep: '#3C5C7B',
+  // The channel wall, and the parapet standing on the kerb line above it. Engineering concrete
+  // rather than the `kerb` a block is edged in: a river wall is a poured retaining structure and a
+  // kerb is a laid stone, and at 0.75 units tall the parapet is the one piece of street furniture
+  // in this city big enough for that distinction to show. At luma 139 it is a shade off the `kerb`
+  // it stands on (136) and a long way under `concrete` (178), so a sunlit parapet cannot be
+  // mistaken for the pale façade of a building behind it.
+  riverWall: '#8D8B84',
+  // The bridge deck. Asphalt, because it is road, and near enough the `asphalt` slab it continues
+  // to be the same material — a shade darker, which is what a span in the shadow of its own
+  // parapets is, and no more than that. The first cut went to luma 92 against the road's 104 and
+  // came out looking like a hole in the map rather than a crossing over one; the deck sits inside
+  // a two-unit-deep channel, so ambient occlusion is already taking a bite out of it before any
+  // colour choice does.
+  bridgeDeck: '#5E656E',
+  // Its edge beam and parapet: the same poured concrete as the river wall, lightened, so the deck
+  // is outlined against both the water under it and the road either end of it. It is doing the
+  // work the kerb does on an ordinary block — telling you where the road stops — against a drop
+  // rather than a step, so it is pushed further from the surface it edges: luma 170 against the
+  // deck's 108, where a block's kerb is only 32 clear of its pavement.
+  bridgeTrim: '#AFACA4',
+
   // Flower beds on the arterials' medians — see `flowerBedParts` in city/props.js. Blooms are drawn
   // from this per *flower*, not per bed, so one bed carries four or five of them.
   //

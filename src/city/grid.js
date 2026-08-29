@@ -13,7 +13,10 @@
 // values and `halfRoadX(j)` is a road's extent in z. A `GRID_X` would have read as the opposite of
 // what it is. `i` runs `0..GRID_I` and `j` runs `0..GRID_J`; blocks are `bi < GRID_I`, `bj < GRID_J`.
 export const GRID_I = 5;             // block columns
-export const GRID_J = 5;             // block rows
+// Six rows against five columns, because **one of the rows is the river** (`city/river.js`). The
+// city is a block row taller than it is wide so that the water costs it neither a street nor a
+// buildable block: 25 of the 30 blocks are still land, which is exactly what a 5×5 city had.
+export const GRID_J = 6;             // block rows, one of them water
 export const PITCH = 20;             // distance between road centrelines
 export const ROAD_W = 8;             // full road width (two lanes)
 export const BLOCK = PITCH - ROAD_W; // buildable footprint between two ordinary streets
@@ -292,6 +295,10 @@ export function medianRuns() {
     const i = axis === 'x' ? k : line;
     const j = axis === 'x' ? line : k;
     if (isSegmentClosed(i, j, axis === 'x' ? DIR.PX : DIR.PZ)) return;
+    // A z-running arterial crossing the river is on a bridge for the whole gap, and a bridge has
+    // no room for a planted island — the deck carries painted double lines instead. (A crossing
+    // with no bridge is open water and has already been caught by the closure test above.)
+    if (axis === 'z' && isRiverGap(k)) return;
 
     // `k` steps along the road's own direction of travel, so an x-running road's gaps are
     // indexed by *i* lines and measured with `lineX`, and a z-running road's by *j* lines. The
@@ -340,6 +347,57 @@ export function setParkBlocks(cells) {
  * been registered.
  */
 export const isParkBlock = (bi, bj) => parkBlocks.has(`${bi},${bj}`);
+
+// --- The river --------------------------------------------------------------
+//
+// Which block row is water, registered here for the same reason the park blocks and the closed
+// segments are: the decision belongs to `city/river.js` by way of `createLayout`, but the systems
+// that have to *respect* it — the median islands, the road markings, the fare board's corner pins
+// — have no business importing the layout to ask.
+//
+// It is a single index rather than a set of blocks because the river is a whole row by
+// construction. That is not a simplification of a general case: the row *is* the river, which is
+// what lets `blockBounds` describe the channel without knowing anything about water.
+//
+// `null` until a layout has been built, so a headless tool that never called `createLayout`
+// measures a city with no river in it — the same contract `isSegmentClosed` and `isParkBlock` keep.
+
+let riverRowIndex = null;
+
+export function setRiverRow(row) {
+  riverRowIndex = row ?? null;
+}
+
+/** The block row the river runs down, or null. */
+export const riverRow = () => riverRowIndex;
+
+/** Is block (bi, bj) water? Every block in the row is, from one edge of the map to the other. */
+export const isRiverBlock = (bi, bj) => riverRowIndex !== null && bj === riverRowIndex;
+
+/**
+ * Does the gap between j lines `k` and `k + 1` hold the river?
+ *
+ * Only a road running along **Z** can cross it — one running along X lies within a single row and
+ * never meets the water — so callers pass the gap index of a z-running road. What it gates is
+ * everything the ground lays *between* two junctions: the planted median and the centre-line
+ * dashes both stop at the bank, because over the channel there is a bridge deck carrying its own.
+ */
+export const isRiverGap = (k) => riverRowIndex !== null && k === riverRowIndex;
+
+/**
+ * The channel's two edges in z — the kerb lines of the roads either side of the river row — or
+ * null on a city without one.
+ *
+ * Derived rather than stored, so a river beside a divided arterial is automatically 1.33 narrower
+ * on that side without anyone re-deriving what `blockBounds` already knows.
+ */
+export function riverBanks() {
+  if (riverRowIndex === null) return null;
+  return {
+    z0: lineZ(riverRowIndex) + halfRoadX(riverRowIndex),
+    z1: lineZ(riverRowIndex + 1) - halfRoadX(riverRowIndex + 1),
+  };
+}
 
 /** Directions a car may leave (i, j) on — no U-turn, no leaving the map, no closed roads. */
 export function legalExits(dIn, i, j) {

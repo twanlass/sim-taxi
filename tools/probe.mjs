@@ -3953,6 +3953,12 @@ check('no two cars occupy the same space', worst > 1.6,
       for (const d of [0, 1, 2, 3]) {
         if (!legalExits(d, i, j).includes(d)) continue;
         if (approachRoom(d, i, j) < 30) continue;
+        // ...and a crossing road to be held back, since half of what is staged here is that cross
+        // traffic never gets released through a taxi standing in the box. A junction with the
+        // crossing arm missing staged the first half fine and quietly skipped the second: the
+        // check answered `crossLane` null with `closest = Infinity` and failed on nothing. Rare
+        // with only park closures able to remove an arm, routine once the river could.
+        if (!cityNetwork().laneByGrid(leftOf(d), i, j)) continue;
         bI = i; bJ = j; bD = d;
         break outerBrake;
       }
@@ -4659,10 +4665,21 @@ check('the taxi is an ordinary car in the traffic array',
   // ...and the bail animates on past `gameOver`. The whole point of the beat is that it moves while
   // the camera comes in, and `update`'s early return is exactly the shape that would leave it on
   // frame one — visible, in place, with every check above still green.
-  for (let k = 0; k < 45; k++) tFares.update(1 / 60, tTaxi);
+  //
+  // **Measured as travel between two frames, not as distance from the cab.** The run is aimed at
+  // the nearest kerb corner and stops there (`BAIL_RUN` is a ceiling, not a length), so how far the
+  // rider gets is a fact about where the taxi happened to stop — a cab that dies two units from the
+  // corner gives a two-unit dash, and an absolute threshold then fails on the staging rather than
+  // on the animation. What is being asserted is that it is still *running*, so what is measured is
+  // that it moved.
+  tFares.update(1 / 60, tTaxi);
+  const bailFrom = riding.slot.passenger.standing.group.position.clone();
+  for (let k = 0; k < 44; k++) tFares.update(1 / 60, tTaxi);
   const ran = riding.slot.passenger.standing.group.position;
-  check('the bail keeps running after the run has ended', Math.hypot(ran.x, ran.z) > 1,
-    `${Math.hypot(ran.x, ran.z).toFixed(1)} units from the cab`);
+  const travelled = Math.hypot(ran.x - bailFrom.x, ran.z - bailFrom.z);
+  check('the bail keeps running after the run has ended', travelled > 0.5,
+    `${travelled.toFixed(2)} units travelled over 44 frames past gameOver,`
+    + ` ${Math.hypot(ran.x, ran.z).toFixed(1)} from the cab`);
   check('and the outburst is over them, not where they jumped',
     Math.hypot(riding.slot.curse.group.position.x - ran.x,
       riding.slot.curse.group.position.z - ran.z) < 1e-6);
@@ -10386,18 +10403,32 @@ let chopperOrder; // likewise
   {
     const ends = [closed[0].edge.a, closed[0].edge.b].map((id) => net.nodeById.get(id));
     const junctions = [...net.nodeById.values()].map((n) => ({ i: n.gi, j: n.gj }));
-    const origin = { i: ends[0].gi, j: ends[0].gj, d: net.dirOfLane(closed[0]) };
+
+    // **Swept over every origin, not planned from one.** This used to plan from the closed lane's
+    // own near end, travelling along it — which is a state the router has already committed to the
+    // discounted street from, so making it cheaper can change nothing about where it goes next. On
+    // a city where that happened to be true of every destination the check reported "0 of 42
+    // rerouted" and failed on placement luck rather than on anything about `laneCost`; measured
+    // across the road network, five side streets in thirty-four are like that.
+    //
+    // What the check is actually about is whether the discount reaches the cost function at all, so
+    // it asks the whole board: every junction to every junction, on all four approaches.
+    const pairs = [];
+    for (const from of junctions) {
+      for (let d = 0; d < 4; d++) pairs.push({ i: from.i, j: from.j, d });
+    }
+    const planAll = () => pairs.flatMap((o) => junctions.map((t) => planRoute(o, t)));
 
     setRoadworkLanes([]);
-    const plain = junctions.map((t) => planRoute(origin, t));
+    const plain = planAll();
     setRoadworkLanes(roadwork.closedLaneIds);
-    const cheap = junctions.map((t) => planRoute(origin, t));
+    const cheap = planAll();
 
     const same = (p, q) => (p === null || q === null
       ? p === q : p.length === q.length && p.every((d, k) => d === q[k]));
     const changed = plain.filter((p, k) => !same(p, cheap[k])).length;
     check('pricing the closed street low actually reaches the router',
-      changed > 0, `${changed} of ${junctions.length} routes rerouted`);
+      changed > 0, `${changed} of ${plain.length} routes rerouted`);
 
     // ...and does not turn into a detour finder. The weights in route.js are tie-breakers by
     // design — 0.45 is worth about half a block, so nothing should gain more than one leg.
@@ -10996,9 +11027,15 @@ let chopperOrder; // likewise
   // file's instance would inherit a city with three cars parked in a car park.
   {
     const lotScene = new THREE.Scene();
-    // Twenty-four rather than the low `CARS_DEFAULT` the fare checks use: how often a car passes
-    // the mouth at all is one of the inputs this is measuring, so it wants a real density.
-    const lotTraffic = createTraffic(makeRng(seed + 44), lotScene, 24);
+    // A real density rather than the low `CARS_DEFAULT` the fare checks use: how often a car
+    // passes the mouth at all is one of the inputs this is measuring.
+    //
+    // Stated as cars **per junction** rather than as the flat 24 it used to be. That 24 was
+    // measured on a 6x6 city, and the map has since grown a row for the river — 42 junctions of
+    // road with 24 cars on it is a sixth emptier than the number was tuned at, which showed up
+    // here as a drive-through that was not busy enough rather than as anything to do with the lot.
+    const lotCars = Math.round((24 / 36) * (GRID_I + 1) * (GRID_J + 1));
+    const lotTraffic = createTraffic(makeRng(seed + 44), lotScene, lotCars);
     lotTraffic.warmup(10);
     const lot = createDriveThru({ site, cars: lotTraffic.cars, rng: makeRng(seed + 311) });
 
