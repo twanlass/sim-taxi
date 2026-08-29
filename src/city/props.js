@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, jitterVertices, propMaterial, stampEntry } from '../util/geo.js';
 import { PALETTE, jitterColor } from '../palette.js';
-import { KERB_H, MEDIAN_EDGE, PARK_EDGE, roundedRectShape } from './ground.js';
+import { KERB_H, MEDIAN_EDGE, PARK_EDGE, PAVE_INSET, roundedRectShape } from './ground.js';
 import { MEDIAN_W, medianRuns } from './grid.js';
+import { plusXFaceSeen } from './garage.js';
 import { planPond, pondParts } from './pond.js';
 
 /**
@@ -411,6 +412,183 @@ export function parkPlots(blocks) {
   return plots;
 }
 
+// --- Fire hydrants ------------------------------------------------------------
+//
+// Three to five in a city, standing on the pavement. The whole of the brief is that you can *see*
+// one, and at this camera that is two separate problems — how big it is drawn, and which frontage
+// it stands on — so both are answered here rather than left to luck.
+//
+// **The size is a lie, and a measured one.** This city's scale is a 4.5m car drawn `CAR_LEN` 3.4
+// units long, so 1 unit ≈ 1.3m and an honest hydrant — they are about 0.75m tall — is 0.57 units:
+// four pixels at play zoom, which is a speck rather than an object. Drawn at double, 1.14 tall and
+// 0.58 across the outlets, or nine pixels by four. That is the same lie geometry/person.js tells
+// about a rider (3.3 units against a 3.4-unit car) and told for the same reason, but told much
+// more quietly. The bench above is the honest yardstick: this stands 2.6 times its seat height
+// where a real hydrant stands 1.7 times, which is an exaggeration you would have to go and measure
+// — and the two are never in one frame, since benches are in parks and hydrants are on streets.
+export const HYDRANT_H = 1.14;
+// The base flange, which is the widest part of the barrel and so the one placement has to budget
+// for. The outlets reach further — 0.29 — but only on two of the four sides.
+const HYDRANT_BASE_R = 0.27;
+export const HYDRANT_REACH = 0.29;
+const HYDRANT_SIDES = 8;
+
+// How far in from the block's own edge one stands: the middle of the pavement band, which runs
+// from the 0.15 of kerb a block platform leaves showing (`PAVE_INSET`) to the 0.85 a façade sets
+// back (`INSET` in buildings.js). Centred rather than nudged toward the kerb, because the band is
+// only 0.7 across and the hydrant reaches 0.29 — there is 0.06 of daylight either side and no
+// room to spend it on taste.
+const HYDRANT_SET = (PAVE_INSET + 0.85) / 2;
+
+/**
+ * One hydrant, built facing +X and then turned to `yaw` and set down at (x, z) on a surface at `y`.
+ *
+ * Five stacked drums and three outlets. There is no barrel taper worth resolving at nine pixels
+ * and no chain on the caps at all; what has to read is a bright vertical thing with a bulge at
+ * shoulder height, and the two side outlets are the bulge.
+ */
+function hydrantParts(x, z, y, yaw, rng) {
+  const parts = [];
+  const body = jitterColor(PALETTE.hydrant, rng, { l: 0.03 });
+  const cap = jitterColor(PALETTE.hydrantCap, rng, { l: 0.03 });
+
+  const drum = (rTop, rBot, h, oy, col) => {
+    const geo = new THREE.CylinderGeometry(rTop, rBot, h, HYDRANT_SIDES);
+    geo.translate(0, oy, 0);
+    parts.push(bakeColor(geo, col));
+  };
+  // An outlet lies on its side: `spin` turns the cylinder's own Y axis onto X or Z.
+  const outlet = (radius, len, oy, ox, oz, spin) => {
+    const geo = new THREE.CylinderGeometry(radius, radius, len, HYDRANT_SIDES);
+    if (spin === 'x') geo.rotateZ(Math.PI / 2);
+    else geo.rotateX(Math.PI / 2);
+    geo.translate(ox, oy, oz);
+    parts.push(bakeColor(geo, body));
+  };
+
+  drum(HYDRANT_BASE_R, HYDRANT_BASE_R, 0.10, 0.05, body);        // flange, 0 → 0.10
+  drum(0.185, 0.215, 0.60, 0.40, body);                          // barrel, 0.10 → 0.70
+  drum(0.235, 0.235, 0.09, 0.745, body);                         // shoulder, 0.70 → 0.79
+
+  // The dome. A hemisphere rather than a cone: a cone at eight sides reads as a spike.
+  const dome = new THREE.SphereGeometry(0.20, HYDRANT_SIDES, 3, 0, Math.PI * 2, 0, Math.PI / 2);
+  dome.translate(0, 0.79, 0);                                    // 0.79 → 0.99
+  parts.push(bakeColor(dome, body));
+
+  drum(0.075, 0.105, 0.15, 1.065, cap);                          // bonnet, 0.99 → HYDRANT_H
+
+  // Two hose outlets across the frontage and the big steamer facing the road. The steamer is what
+  // gives the silhouette a front, so it goes on the side the camera is looking at.
+  outlet(0.095, 0.16, 0.50, 0, 0.21, 'z');
+  outlet(0.095, 0.16, 0.50, 0, -0.21, 'z');
+  outlet(0.115, 0.14, 0.56, 0.215, 0, 'x');
+
+  for (const part of parts) {
+    part.rotateY(yaw);
+    part.translate(x, y, z);
+  }
+  return parts;
+}
+
+// How many. Three is enough to stop one reading as a mistake, five is where the eye starts
+// counting them rather than noticing them.
+const HYDRANT_MIN = 3;
+const HYDRANT_MAX = 5;
+// How far back from the far end of a frontage one stands, and how much of the near end stays
+// clear. See `planHydrants` for what sets 8.6 — it is not a taste number, it is the width of the
+// road the sightline has to leave over.
+const HYDRANT_BACK = 8.6;
+const HYDRANT_END = 1.4;
+
+/**
+ * Where the fire hydrants go, decided before any of them is built.
+ *
+ * Split out and exported like `planParkFurniture` above, and for a stronger version of the same
+ * reason: every rule here is about **being seen**, all of it is invisible once the props are one
+ * merged mesh, and the failure mode is silence — a hydrant behind a tower is not a wrong hydrant,
+ * it is no hydrant, with nothing logged.
+ *
+ * Three rules:
+ *
+ *   1. **Built blocks only, and none on the two origin-edge rows.** A park has a walk but no
+ *      frontage to speak of, a district's walk is not where its block bounds say it is, and the
+ *      depot's street face is a forecourt with a dropped kerb. The `bi > 0 && bj > 0` is a
+ *      different kind of exclusion and worth naming: every other block in the city carries exactly
+ *      one fare-marker corner, on its +X+Z corner, which both placements below stand seven units
+ *      clear of — but `cornerFor` in game/fares.js flips its pin *inward* at i === 0 and j === 0
+ *      rather than off the map, so the blocks on those two edges carry a second one, and a hydrant
+ *      landed inside a rider's disc on about a third of them. Restating that flip here would be
+ *      copying a rule with exactly one owner, and city/ has no business importing game/ anyway, so
+ *      those nine blocks are simply not hydranted. Sixteen is plenty of city for five.
+ *   2. **A frontage the camera can see.** The view is a fixed +X+Z diagonal that never rotates, so
+ *      only a block's +X and +Z faces are ever visible at all, and even those can be lost behind
+ *      the tower on the diagonal neighbour. That is exactly the ray `plusXFaceSeen` in garage.js
+ *      works out for the depot's door, so it is asked rather than restated.
+ *   3. **Well back from the far end of that frontage.** This is the part that is easy to get
+ *      wrong. From a hydrant on the +X face the sightline runs +X+Z, and it has to leave the
+ *      block's own z band *before* it reaches the façade across the road — 8.85 units of x out
+ *      (8 of road plus the 0.85 a building sets back), against the 0.5 of pavement it starts
+ *      with, so it has 9.35 of z to spend and it spends `HYDRANT_BACK` of it. Bigger is better
+ *      for the diagonal block beyond and worse for the near one, and 8.6 leaves 0.75 of margin on
+ *      the near side while putting the ray 0.92 × (8.6 + 8.85) = 16.05 units up by the diagonal's
+ *      façade — clear of `buildTower`'s 16-unit ceiling on its own, before rule 2 knocks that
+ *      ceiling down to 13.25. (Rooftop clutter can stand higher than 16; so can the depot's door
+ *      sightline, and this lives with it for the same reason.)
+ *
+ * The +Z face is the mirror of all of it — the view is symmetric about its own diagonal, and the
+ * block that can occlude is the same diagonal neighbour either way — so which of the two a hydrant
+ * takes is variety and nothing else.
+ */
+export function planHydrants(rng, blocks) {
+  const want = rng.int(HYDRANT_MIN, HYDRANT_MAX);
+
+  const place = (block) => {
+    const { x0, x1, z0, z1 } = block.bounds;
+    const onX = rng.chance(0.5);
+    // A block beside an arterial is up to 2.67 narrower, and on those `HYDRANT_BACK` would put the
+    // hydrant off the end of its own frontage. Giving up the margin is the right trade: a shorter
+    // block puts the far kerb *closer*, so the near-side leg has room to spare, and the diagonal
+    // leg still comes out at 0.92 × (7.93 + 8.85) = 15.4 against a 13.25 ceiling.
+    const back = Math.min(HYDRANT_BACK, (onX ? z1 - z0 : x1 - x0) - HYDRANT_END);
+    return onX
+      ? { x: x1 - HYDRANT_SET, z: z1 - back, yaw: 0, block }
+      : { x: x1 - back, z: z1 - HYDRANT_SET, yaw: -Math.PI / 2, block };
+  };
+
+  const pool = blocks.filter((b) => b.type === 'built' && b.bi > 0 && b.bj > 0
+    && plusXFaceSeen(blocks, b.bi, b.bj));
+  // Fisher-Yates rather than a per-block `chance`: the pass below breaks its ties on this order,
+  // and a filtered roll would hand it the same low-index blocks on every seed.
+  for (let n = pool.length - 1; n > 0; n--) {
+    const m = rng.int(0, n);
+    [pool[n], pool[m]] = [pool[m], pool[n]];
+  }
+
+  // "Throughout the city" is the ask, so spread is a rule and not a hope: two hydrants on blocks
+  // that touch are one hydrant as far as the eye is concerned. Farthest-point rather than a
+  // minimum separation with a fallback — a hard floor has to be relaxed on the cities that cannot
+  // meet it, and the step below the floor is no constraint at all, which is exactly the seed where
+  // the spread mattered. This always fills the board and always takes the most spread out block
+  // still going, on every city.
+  const chosen = [];
+  const taken = new Set();
+  const apart = (a, b) => Math.max(Math.abs(a.bi - b.bi), Math.abs(a.bj - b.bj));
+  while (chosen.length < want && taken.size < pool.length) {
+    let best = null;
+    let bestGap = -1;
+    for (const block of pool) {
+      if (taken.has(block)) continue;
+      // The first pick has nothing to be far from, so every candidate scores Infinity and the
+      // strict `>` leaves the shuffle above to decide it.
+      const gap = chosen.reduce((least, c) => Math.min(least, apart(c.block, block)), Infinity);
+      if (gap > bestGap) { bestGap = gap; best = block; }
+    }
+    taken.add(best);
+    chosen.push(place(best));
+  }
+  return chosen;
+}
+
 export function createProps(rng, blocks) {
   const parts = [];
 
@@ -525,6 +703,18 @@ export function createProps(rng, blocks) {
     const built = flowerBedParts(bed.x, bed.z, rng, bed);
     const rand = hash01(bed.x, bed.z);
     for (const part of built) stampEntry(part, bed.x, bed.z, rand);
+    parts.push(...built);
+  }
+
+  // --- The fire hydrants ------------------------------------------------------
+  //
+  // Last for the same reason the beds are: a seed's parks and its medians came through this
+  // change untouched because nothing above here reads `rng` after them. See `planHydrants` for
+  // where they go and why it is not a free choice.
+  for (const hydrant of planHydrants(rng, blocks)) {
+    const built = hydrantParts(hydrant.x, hydrant.z, SURFACE_Y, hydrant.yaw, rng);
+    const rand = hash01(hydrant.x, hydrant.z);
+    for (const part of built) stampEntry(part, hydrant.x, hydrant.z, rand);
     parts.push(...built);
   }
 

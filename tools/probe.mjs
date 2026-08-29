@@ -12,18 +12,19 @@ import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createLayout } from '../src/city/layout.js';
 import {
-  createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
+  createGround, KERB_H, SLAB, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE, PAVE_INSET,
+  planRoadWear, arterialPaving,
 } from '../src/city/ground.js';
 import {
   createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
 } from '../src/city/buildings.js';
 import {
   createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
-  BENCH_LEN, STATUE_PLAZA,
+  BENCH_LEN, STATUE_PLAZA, planHydrants, HYDRANT_REACH, HYDRANT_H,
 } from '../src/city/props.js';
 import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
 import { createDucks } from '../src/game/ducks.js';
-import { createGarage, garageSite } from '../src/city/garage.js';
+import { createGarage, garageSite, plusXFaceSeen } from '../src/city/garage.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
@@ -118,6 +119,7 @@ import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN, ROAD_W, LANE, PITCH, lineCoord, GRID, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
 import {
   halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns, MEDIAN_W,
+  isArterialX, isArterialZ, LANE_TO_KERB, isSegmentClosed, DIR,
 } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath, nearestOnPath, HEAD_GAP } from '../src/game/routeline.js';
@@ -451,6 +453,285 @@ const onGrass = (city, i, j) => {
     escaped === 0 && beds > 0,
     `${escaped} of ${beds} over the edge, tightest ${tightest.toFixed(3)} to spare`);
   check('and no median is left bare', bare === 0, `${bare} islands with nothing on them`);
+}
+
+// --- Wear on the road surface ------------------------------------------------
+//
+// Resurfaced stretches, patches and manhole covers, all of them flat marks merged into the one
+// ground mesh — so once `createGround` has run there is no way left to ask where any of them went.
+// `planRoadWear` exists to be asked, and what it has to get right is the same thing every other
+// placement in this city has to get right: **the road is not always 8 units wide**. A patch bounded
+// by a bare `HALF_ROAD` is a patch 1.33 into the pavement on every arterial, and it would look
+// exactly like a patch.
+//
+// Swept over seeds rather than checked on one, because the marks are drawn where the dice fall and
+// the escape would be the widest patch on the narrowest carriageway.
+{
+  let offRoad = 0;         // any mark reaching past a kerb
+  let onIsland = 0;        // ...or over a planted median
+  let inTheBox = 0;        // ...or laid across a junction
+  let onACrossing = 0;     // ...or under a crosswalk's bars
+  let offLane = 0;         // a cover anywhere but its lane centre
+  let marks = 0;
+  let tightest = Infinity;
+  let bareCities = 0;
+
+  // The crosswalk bars are painted out to `BAR_LEN + 0.15` past the junction box — the numbers are
+  // `ground.js`'s, restated here rather than exported, since what this is checking is that a cover
+  // clears them and an exported constant shared with the thing under test proves less.
+  const CROSSING_REACH = 1.5 + 0.15;
+
+  for (let city = 0; city < 12; city++) {
+    createLayout(makeRng(seed + city * 53));
+    const wear = planRoadWear(makeRng(seed + city * 53 + 11));
+    if (!wear.strips.length || !wear.patches.length || !wear.covers.length) bareCities += 1;
+
+    // Every mark, reduced to the road it is on and its own reach across and along that road.
+    const laid = [
+      ...wear.strips.map((m) => ({ ...m, ex: m.w / 2, ez: m.d / 2 })),
+      ...wear.patches.map((m) => ({ ...m, ex: m.rx, ez: m.rz })),
+      ...wear.covers.map((m) => ({ ...m, ex: m.r, ez: m.r, cover: true })),
+    ];
+
+    for (const mark of laid) {
+      marks += 1;
+      const alongZ = mark.axis === 'z';
+      const half = alongZ ? halfRoadZ(mark.line) : halfRoadX(mark.line);
+      const arterial = alongZ ? isArterialZ(mark.line) : isArterialX(mark.line);
+      const centre = lineCoord(mark.line);
+      const across = (alongZ ? mark.x : mark.z) - centre;
+      const reach = alongZ ? mark.ex : mark.ez;
+      const along = alongZ ? mark.z : mark.x;
+      const runs = alongZ ? mark.ez : mark.ex;
+
+      // Kerb to kerb, and never over the island a main street carries down its middle.
+      const room = half - (Math.abs(across) + reach);
+      tightest = Math.min(tightest, room);
+      if (room < 0) offRoad += 1;
+      // Tolerance is float32-free arithmetic meeting itself: the planner draws a patch's offset
+      // from `MEDIAN_W / 2 + reach` upward, so the tightest legal case lands *on* the kerb line and
+      // subtracting back off it lands either side of it by a few ulps.
+      if (arterial && Math.abs(across) - reach < MEDIAN_W / 2 - 1e-9) onIsland += 1;
+
+      // Between the junction boxes at both ends, which are the *crossing* roads' half-widths.
+      const k = Math.floor((along + HALF_SPAN) / PITCH);
+      const from = lineCoord(k) + (alongZ ? halfRoadX(k) : halfRoadZ(k));
+      const to = lineCoord(k + 1) - (alongZ ? halfRoadX(k + 1) : halfRoadZ(k + 1));
+      if (along - runs < from - 1e-9 || along + runs > to + 1e-9) inTheBox += 1;
+
+      if (!mark.cover) continue;
+      // A cover sits on a lane centre — 2 units off its own kerb on every road in the city — and
+      // clear of both crosswalks, since the bars are painted over it rather than under it.
+      if (Math.abs(Math.abs(across) - (half - LANE_TO_KERB)) > 1e-9) offLane += 1;
+      if (along - runs < from + CROSSING_REACH || along + runs > to - CROSSING_REACH) onACrossing += 1;
+    }
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+
+  check('every road mark stays inside its own carriageway',
+    offRoad === 0 && marks > 0,
+    `${offRoad} of ${marks} over a kerb, tightest ${tightest.toFixed(3)} to spare`);
+  check('and none of them is laid over a planted median', onIsland === 0,
+    `${onIsland} of ${marks} across an island`);
+  check('and none is laid across a junction box', inTheBox === 0,
+    `${inTheBox} of ${marks} into an intersection`);
+  check('a manhole cover sits on a lane centre, clear of both crosswalks',
+    offLane === 0 && onACrossing === 0,
+    `${offLane} off lane, ${onACrossing} under a zebra`);
+  check('and every city gets all three kinds of wear', bareCities === 0,
+    `${bareCities} of 12 cities missing one`);
+
+  // A mark drawn over the paint is a street nobody has repainted, which is a scruffier city than
+  // this one. The whole layer has to sit under `MARK_Y` — and above the slab, or it is inside it.
+  // Five heights: the concrete arterials, then resurfacing, patches, and a cover's collar and lid.
+  const wearY = new Set();
+  for (const attr of [ground.geometry.attributes.position]) {
+    for (let i = 0; i < attr.count; i++) {
+      const y = attr.getY(i);
+      if (y > 1e-9 && y < 0.02 - 1e-9) wearY.add(Number(y.toFixed(4)));
+    }
+  }
+  const stack = [...wearY].sort((a, b) => a - b);
+  check('the carriageway layer stacks under the road paint and over the slab',
+    stack.length === 5, `${stack.length} heights: ${stack.join(', ')}`);
+  // The tightest gap is what the depth buffer has to resolve. See the note by `RESURFACE_Y`: only
+  // the 0.525 of a world-Y offset that survives projection down VIEW_DIR counts, and this camera's
+  // 1..1400 range quantises to 8.3e-5 units in a 24-bit buffer.
+  const closest = Math.min(...stack.slice(1).map((y, n) => y - stack[n]), 0.02 - stack.at(-1));
+  check('and no two layers are closer than the depth buffer can tell apart',
+    closest * 0.525 > 8.3e-5 * 8,
+    `${closest.toFixed(4)} units apart ≈ ${Math.round(closest * 0.525 / 8.3e-5)} depth units`);
+}
+
+// --- The main streets are concrete -------------------------------------------
+//
+// `arterialPaving` lays a strip down each arterial and takes on one job to do it: the strips must
+// not overlap. Two coplanar quads z-fight, and the alternative — a hair of height between the two
+// axes — would spend one of the gaps in a stack that has five layers under `MARK_Y` already. So
+// the roads running along Z are split around the bands the roads running along X occupy, and that
+// split is exactly the kind of thing that is right on the seed you look at and wrong on the next.
+{
+  let overlapping = 0;
+  let short = 0;            // an arterial not paved from one end of the city to the other
+  let offRoad = 0;          // ...or paved wider than the road it is on
+  let slabs = 0;
+  let cities = 0;
+
+  for (let city = 0; city < 24; city++) {
+    createLayout(makeRng(seed + city * 53));
+    const strips = arterialPaving();
+    cities += 1;
+    slabs += strips.length;
+
+    for (let a = 0; a < strips.length; a++) {
+      for (let b = a + 1; b < strips.length; b++) {
+        const p = strips[a];
+        const q = strips[b];
+        const wide = Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0);
+        const deep = Math.min(p.z1, q.z1) - Math.max(p.z0, q.z0);
+        if (wide > 1e-9 && deep > 1e-9) overlapping += 1;
+      }
+    }
+
+    // Every arterial paved end to end: the union of the slabs covering its band has to run the
+    // full width of the city with no gap in it. Walked as intervals rather than measured by area,
+    // since a gap and an overlap cancel each other out in a total.
+    //
+    // A slab counts toward a road if it spans that road's **full width** across — which is the
+    // part worth getting right, and the part the first version of this check got wrong. Where the
+    // two arterials cross, the stretch of one of them is paved by the *other* one's slab: that is
+    // the whole point of the split, and a walk that only looked at the slabs cut to this road's
+    // own band reported a hole in the middle of every city.
+    const spans = (line, alongX) => {
+      const c = lineCoord(line);
+      const h = alongX ? halfRoadX(line) : halfRoadZ(line);
+      const runs = strips
+        // Containment across, and nothing at all about along — the along-axis intervals are what
+        // the walk below is unioning, so filtering on them is filtering on the answer.
+        .filter((s) => (alongX
+          ? s.z0 <= c - h + 1e-9 && s.z1 >= c + h - 1e-9
+          : s.x0 <= c - h + 1e-9 && s.x1 >= c + h - 1e-9))
+        .map((s) => (alongX ? [s.x0, s.x1] : [s.z0, s.z1]))
+        .sort((p, q) => p[0] - q[0]);
+
+      let reach = lineCoord(0) - (alongX ? halfRoadZ(0) : halfRoadX(0));
+      for (const [lo, hi] of runs) {
+        if (lo > reach + 1e-9) break;
+        reach = Math.max(reach, hi);
+      }
+      const end = lineCoord(GRID) + (alongX ? halfRoadZ(GRID) : halfRoadX(GRID));
+      if (reach < end - 1e-9) short += 1;
+    };
+
+    for (let n = 0; n <= GRID; n++) {
+      if (isArterialX(n)) spans(n, true);
+      if (isArterialZ(n)) spans(n, false);
+    }
+
+    // And every slab is exactly one arterial wide across its short axis — an arterial is 10.67
+    // kerb to kerb, not the 8 an ordinary street is, and a slab cut to `ROAD_W` would leave a
+    // stripe of tarmac showing along both kerbs of every main street.
+    const widths = new Set();
+    for (let n = 0; n <= GRID; n++) {
+      if (isArterialX(n)) widths.add(Number((halfRoadX(n) * 2).toFixed(6)));
+      if (isArterialZ(n)) widths.add(Number((halfRoadZ(n) * 2).toFixed(6)));
+    }
+    for (const slab of strips) {
+      const across = Math.min(slab.x1 - slab.x0, slab.z1 - slab.z0);
+      if (!widths.has(Number(across.toFixed(6)))) offRoad += 1;
+    }
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+
+  check('the concrete never overlaps itself, so nothing z-fights where two main streets cross',
+    overlapping === 0 && slabs > 0, `${overlapping} overlaps over ${slabs} slabs in ${cities} cities`);
+  check('and every arterial is paved from one side of the city to the other',
+    short === 0, `${short} left part tarmac`);
+  check("and paved kerb to kerb, at an arterial's width rather than an ordinary street's",
+    offRoad === 0, `${offRoad} of ${slabs} slabs the wrong width`);
+}
+
+// --- Fire hydrants -----------------------------------------------------------
+//
+// Three to five per city, and every rule behind where they land is about being **seen**: the view
+// is a fixed +X+Z diagonal that never rotates, so a hydrant on the wrong frontage of the wrong
+// block is not a badly placed hydrant, it is no hydrant at all — merged into the props mesh with
+// nothing logged. See `planHydrants` for the ray.
+//
+// The two other things worth asserting are physical. A hydrant stands on a 0.7-unit band of
+// pavement between the kerb the platform leaves showing and the façade line, and it reaches 0.29,
+// so there is 0.06 either side and no room for a placement that drifts. And it must keep off the
+// kerb corner the fare board puts its markers on — a rider's disc is `RING_R` across, and an
+// orange post standing in one is a post the player has to tap through.
+{
+  let offThePavement = 0;
+  let onTheWrongBlock = 0;
+  let hidden = 0;
+  let underAMarker = 0;
+  let crowded = 0;           // two hydrants on blocks that touch
+  let miscounted = 0;
+  let hydrants = 0;
+  let cities = 0;
+  let tightest = Infinity;
+  let nearestMarker = Infinity;
+
+  const SEEDS = 40;
+  for (let s = 0; s < SEEDS; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 37));
+    const plan = planHydrants(makeRng(seed + s * 37 + 33), cityLayout);
+    cities += 1;
+    if (plan.length < 3 || plan.length > 5) miscounted += 1;
+
+    for (const hydrant of plan) {
+      hydrants += 1;
+      const { x0, x1, z0, z1 } = hydrant.block.bounds;
+      if (hydrant.block.type !== 'built') onTheWrongBlock += 1;
+      if (!plusXFaceSeen(cityLayout, hydrant.block.bi, hydrant.block.bj)) hidden += 1;
+
+      // Inside the block, and inside the *pavement* — past the kerb's own 0.15 and short of the
+      // 0.85 a façade sets back (`INSET` in buildings.js, restated rather than imported: props.js
+      // cannot import buildings.js, which already imports it).
+      const edge = Math.min(x1 - hydrant.x, hydrant.x - x0, z1 - hydrant.z, hydrant.z - z0);
+      const clear = Math.min(edge - (PAVE_INSET + HYDRANT_REACH), 0.85 - HYDRANT_REACH - edge);
+      tightest = Math.min(tightest, clear);
+      if (clear < 0) offThePavement += 1;
+
+      // Clear of every kerb corner the fare board can put a marker on.
+      for (let i = 0; i <= GRID; i++) {
+        for (let j = 0; j <= GRID; j++) {
+          const pin = cornerFor(i, j);
+          const gap = Math.hypot(pin.x - hydrant.x, pin.z - hydrant.z) - HYDRANT_REACH;
+          nearestMarker = Math.min(nearestMarker, gap);
+          if (gap < RING_R) underAMarker += 1;
+        }
+      }
+    }
+
+    for (let a = 0; a < plan.length; a++) {
+      for (let b = a + 1; b < plan.length; b++) {
+        if (plan[a].block === plan[b].block) crowded += 1;
+      }
+    }
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+
+  check('every city gets three to five fire hydrants',
+    miscounted === 0 && hydrants > 0, `${hydrants} over ${cities} cities, ${miscounted} off the range`);
+  check('a hydrant stands on a built block the camera can see',
+    onTheWrongBlock === 0 && hidden === 0,
+    `${onTheWrongBlock} on a park or the depot, ${hidden} behind a tower`);
+  check('and it stands on the pavement, clear of both the kerb and the façade',
+    offThePavement === 0, `${offThePavement} of ${hydrants} off it, tightest ${tightest.toFixed(3)} to spare`);
+  check("and never inside a fare marker's disc",
+    underAMarker === 0, `${underAMarker} of ${hydrants}, nearest pin ${nearestMarker.toFixed(2)} against RING_R ${RING_R}`);
+  check('and no two share a block', crowded === 0, `${crowded} doubled up`);
+
+  // The exaggeration is deliberate (see `HYDRANT_H`) and worth pinning: it is the one number here
+  // that a later "make it read better" nudge could quietly walk into absurdity. Twice life size
+  // against this city's 1.3m unit, and still under a bench's back.
+  check('the hydrant is drawn about twice life size and no more',
+    HYDRANT_H > 0.9 && HYDRANT_H < 1.3,
+    `${HYDRANT_H} units ≈ ${(HYDRANT_H * 1.3).toFixed(2)}m against a real 0.75m`);
 }
 
 // The blooms are the one place this game paints a saturated colour on something the player must
@@ -10402,7 +10683,7 @@ let chopperOrder; // likewise
 //   1. The depot really does take its block out of the tower generator's hands.
 //   2. The exit path and the traffic model agree, to the bit, about where the taxi lands.
 //   3. **The camera can see the door.** `chooseGarageBlock` filters on a sightline argument worked
-//      out on paper (see `occlusionClear`); this fires a real ray through the real merged city and
+//      out on paper (see `plusXFaceSeen`); this fires a real ray through the real merged city and
 //      finds out. Getting it wrong is a run that opens on a two-second close-up of a wall.
 {
   const site = garageSite(layout.garageBlock);
