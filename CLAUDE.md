@@ -342,6 +342,15 @@ Omit the whole section if there's nothing to note.
   the same curve and the same delay. Leaving it out of the wave entirely is not the alternative it
   looks like — the sign then hangs in the air over a hole in the ground for the whole two seconds
   the city takes to arrive.
+- **Two flat surfaces at the same height is a shimmer, not a touch.** The block platform lays its
+  pavement at `KERB_H + 0.01`, and anything else put down on a block — the depot's forecourt, the
+  drive-through's asphalt apron, the paint on it — has to clear that rather than land on it. The
+  apron's first cut used `base ± 0.01` off `KERB_H`, which is the *same plane*, and the whole lot
+  flickered as the camera moved. Vertical faces are exempt and so are down-facing ones (a
+  down-facing surface is culled before it can fight anything, which is why the burger joint's awning
+  sitting exactly on its door's top face is fine). Name the levels off each other —
+  `PAVEMENT_Y`/`APRON_Y`/`PAINT_Y` in `city/burgerjoint.js` — rather than nudging literals, and let
+  the module that *lays* a surface export the height anything standing on it needs.
 - **A car handed back to the traffic model inside its own stop line runs the light, and nothing
   stops it.** `placeCar` will happily put one anywhere on a lane, `STOP_SETBACK` is 3.4, and there
   is no `distToLine > 0` guard on the stop decision — so a car released nearer than that is past

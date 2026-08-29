@@ -10831,6 +10831,63 @@ let chopperOrder; // likewise
       `x ${bb.min.x.toFixed(2)}..${bb.max.x.toFixed(2)} in ${bounds.x0.toFixed(2)}..${bounds.x1.toFixed(2)}, `
       + `z ${bb.min.z.toFixed(2)}..${bb.max.z.toFixed(2)} in ${bounds.z0.toFixed(2)}..${bounds.z1.toFixed(2)}`);
 
+    // --- Nothing on this block is coplanar with anything else on it.
+    //
+    // Three flat surfaces stack on the lot — the block's own pavement, the joint's asphalt apron,
+    // and the paint on the apron — and two of them at the *same* height is not "just touching",
+    // it is two polygons the depth buffer cannot separate. It ships as the ground shimmering when
+    // the camera moves, which is what the first cut of this apron did: its top face landed on
+    // `KERB_H + 0.01`, which is exactly where `createGround` lays the pavement.
+    //
+    // So: every up-facing triangle either mesh puts on this block, gathered by height and checked
+    // pairwise. A single slab contributes one height however many triangles it has, which is why
+    // this is a set rather than a count.
+    const flatTops = (mesh, within) => {
+      const heights = new Set();
+      const geo = mesh.geometry;
+      const pos = geo.attributes.position;
+      const index = geo.index;
+      const n = index ? index.count : pos.count;
+      const at = (k) => (index ? index.getX(k) : k);
+      const a = new THREE.Vector3();
+      const b = new THREE.Vector3();
+      const c = new THREE.Vector3();
+      const ab = new THREE.Vector3();
+      const ac = new THREE.Vector3();
+      const nrm = new THREE.Vector3();
+      for (let t = 0; t + 2 < n; t += 3) {
+        a.fromBufferAttribute(pos, at(t));
+        b.fromBufferAttribute(pos, at(t + 1));
+        c.fromBufferAttribute(pos, at(t + 2));
+        // Up-facing only. A wall's vertical faces cannot fight a floor, and a *down*-facing one is
+        // culled before it can fight anything (see the awning over the door, which sits exactly on
+        // the door's top and is fine for that reason).
+        nrm.crossVectors(ab.subVectors(b, a), ac.subVectors(c, a));
+        if (nrm.lengthSq() < 1e-12 || nrm.y / nrm.length() < 0.999) continue;
+        if (Math.abs(a.y - b.y) > 1e-6 || Math.abs(a.y - c.y) > 1e-6) continue;
+        const cx2 = (a.x + b.x + c.x) / 3;
+        const cz2 = (a.z + b.z + c.z) / 3;
+        if (cx2 < within.x0 || cx2 > within.x1 || cz2 < within.z0 || cz2 > within.z1) continue;
+        if (a.y > KERB_H + 0.3) continue;      // ground level only — roofs cannot fight pavement
+        heights.add(a.y.toFixed(4));
+      }
+      return [...heights].map(Number).sort((u, v) => u - v);
+    };
+
+    const groundTops = flatTops(ground, bounds);
+    const jointTops = flatTops(joint.shell, bounds);
+    let closest = Infinity;
+    let pair = '';
+    for (const g of groundTops) {
+      for (const j of jointTops) {
+        if (Math.abs(g - j) < closest) { closest = Math.abs(g - j); pair = `${g.toFixed(3)}/${j.toFixed(3)}`; }
+      }
+    }
+    check('no surface the joint lays on the ground is coplanar with the pavement under it',
+      groundTops.length > 0 && jointTops.length > 0 && closest > 0.005,
+      `${groundTops.length} ground levels, ${jointTops.length} lot levels, nearest pair ${pair} `
+      + `(${closest.toFixed(4)} apart)`);
+
     // Nothing the building is made of may stand in the lane at car height. The canopy deliberately
     // reaches over it — that is what a drive-through canopy is — so the test runs from above the
     // road paint to a car's roofline, which is where a car actually is. It caught a canopy post at
@@ -10855,19 +10912,49 @@ let chopperOrder; // likewise
     burger.computeBoundingBox();
     const cx = (burger.boundingBox.min.x + burger.boundingBox.max.x) / 2;
     const cz = (burger.boundingBox.min.z + burger.boundingBox.max.z) / 2;
+    const cy = (burger.boundingBox.min.y + burger.boundingBox.max.y) / 2;
     check('the burger is centred on the axis it turns about',
-      Math.abs(cx) < 1e-6 && Math.abs(cz) < 1e-6 && burger.boundingBox.max.x > BURGER_R * 0.9,
-      `centre ${cx.toFixed(5)},${cz.toFixed(5)}, radius ${burger.boundingBox.max.x.toFixed(2)}`);
-    // Measured off the parapet the pole comes out of and not off the mesh's bounding box — the
+      Math.abs(cx) < 1e-6 && Math.abs(cz) < 1e-6 && Math.abs(cy) < 1e-6
+      && burger.boundingBox.max.x > BURGER_R * 1.2,
+      `centre ${cx.toFixed(5)},${cy.toFixed(5)},${cz.toFixed(5)}, `
+      + `${(burger.boundingBox.max.x - burger.boundingBox.min.x).toFixed(2)} across`);
+
+    // Where the sign really is, transformed by the pivot that carries the lean — every vertex,
+    // rather than a bounding box. A `Box3` over a rotated object is the AABB *of* an AABB, which
+    // over-states the drop by 0.4 here and would turn this into a test of the slack in the box.
+    const lowestSign = (() => {
+      joint.signPivot.updateMatrixWorld(true);
+      const p = joint.sign.geometry.attributes.position;
+      const v = new THREE.Vector3();
+      let lo = Infinity;
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i).applyMatrix4(joint.sign.matrixWorld);
+        lo = Math.min(lo, v.y);
+      }
+      return lo;
+    })();
+    // Measured off the parapet the pole comes out of and not off the shell's bounding box — the
     // pole is part of that box and reaches the burger's own centre, so a bbox test could only ever
     // say "the sign is not above its own pole".
-    check('...and it stands clear of the roof it is over',
-      site.signAt.y - 0.68 - ROOF_Y > 1.5,
-      `${(site.signAt.y - 0.68 - ROOF_Y).toFixed(2)} units over the parapet`);
-    check('...and it turns', (() => {
+    check('...and it stands clear of the roof it is over, leaning and all',
+      lowestSign - ROOF_Y > 1.0,
+      `${(lowestSign - ROOF_Y).toFixed(2)} units over the parapet`);
+
+    // The lean is *away* from the camera, which is the counter-intuitive half of it and the whole
+    // reason it helps: leaning toward the viewer would show more of the bun. See `SIGN_TILT`.
+    const signUp = new THREE.Vector3(0, 1, 0).applyQuaternion(joint.signPivot.quaternion);
+    check('...and it leans away from the camera, not toward it',
+      signUp.x * VIEW_DIR.x + signUp.z * VIEW_DIR.z < -0.1 && signUp.y > 0.8,
+      `up (${signUp.x.toFixed(2)}, ${signUp.y.toFixed(2)}, ${signUp.z.toFixed(2)})`);
+    // ...about the *pivot's* axis rather than the world's: the mesh turns inside the leaning
+    // parent, which is what holds one three-quarter attitude all the way round instead of sweeping
+    // the burger round a cone.
+    check('...and it turns, inside the lean rather than under it', (() => {
       const before = joint.sign.rotation.y;
+      const pivotBefore = joint.signPivot.quaternion.clone();
       joint.update(1, SIGN_SPIN);
-      return Math.abs(joint.sign.rotation.y - before - SIGN_SPIN) < 1e-9;
+      return Math.abs(joint.sign.rotation.y - before - SIGN_SPIN) < 1e-9
+        && joint.signPivot.quaternion.angleTo(pivotBefore) < 1e-12;
     })(), `${(Math.PI * 2 / SIGN_SPIN).toFixed(0)}s per revolution`);
   }
 

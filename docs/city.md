@@ -300,6 +300,23 @@ back to the junction is the whole depth of the block less `EXIT_LIFT` — eight 
 block there is, against a `STOP_SETBACK` of 3.4. The joint keeps the −Z end of its block for the
 building, and `tools/probe.mjs` asserts the clearance rather than trusting it.
 
+### Three flat surfaces, at three different heights
+
+The lot stacks the block's own pavement, the joint's asphalt apron, and the paint on that apron —
+and each has to sit at a *different* height from the one under it. Coplanar is not "just touching":
+it is two polygons the depth buffer cannot separate, and it ships as the ground shimmering when the
+camera moves. The first cut of the apron put its top face at `KERB_H + 0.01`, which is exactly where
+`createGround` lays the pavement, and the lot flickered.
+
+So the three are named constants measured off each other (`PAVEMENT_Y`, `APRON_Y`, `PAINT_Y`) rather
+than a set of nudged literals, `game/drivethru.js` takes the height its cars ride at from `APRON_Y`
+instead of recomputing it, and `tools/probe.mjs` gathers every up-facing triangle either mesh puts
+on the block and asserts no two of them land within 5mm of each other.
+
+Vertical faces are exempt and so are down-facing ones: a wall cannot fight a floor, and a
+down-facing surface is culled before it can fight anything — which is why the awning sitting exactly
+on top of the door is fine.
+
 ### The site filter is a sightline, along a whole lane
 
 The depot's filter asks whether the camera can see one door. This one asks the same question of
@@ -329,15 +346,31 @@ The burger is five slices and a scatter of seeds, every one of them a cylinder o
 `flatShading` at twelve radial segments is what makes it read as a *toy* burger rather than a small
 photograph of lunch. The cheese is the only piece that is not round: a square turned 45°, so its
 corners come out past the patty and its flats tuck inside, which is the one detail that says
-*cheeseburger* at a size where the whole thing is seventeen pixels.
+*cheeseburger* rather than *bap*. Every thickness in it is a fraction of `BURGER_R`, so that one
+constant is the sign's whole size — it went 0.95 → 1.9 in one edit, from a warm dot at play zoom to
+**five units across, about forty pixels**, which is a car and a half.
 
-Two things about it are consequences of **this camera looking down at 33°**. It mostly sees the
-*top* of anything on a pole, and the top of a burger is a bun, which identifies nothing — so the
-stack is bottom-heavy and each filling is wider than the piece under it, leaving a third of a unit
-of cheese and lettuce showing as a ring all the way round. A first pass with a taller crown and
-narrower fillings photographed as a tan blob with a green edge.
+Three things about it are consequences of **this camera looking down at 33°**, and all three were
+settled by a screenshot rather than on paper.
 
-And it **turns**, which is why it is a mesh of its own rather than part of the merged shell. The
+It mostly sees the *top* of anything on a pole, and the top of a burger is a bun, which identifies
+nothing — so the stack is bottom-heavy and each filling is wider than the piece under it, leaving a
+ring of cheese and lettuce showing all the way round. A first pass with a taller crown and narrower
+fillings photographed as a tan blob with a green edge.
+
+For the same reason the sign **leans away from the viewer**, which reads backwards and is not: at
+33° of elevation the angle between a level burger's top face and the line to the eye is already 57°,
+so tilting the top *toward* the camera closes that angle and shows more bun. Leaning it away opens
+it to 79°, turns the stack side-on, and puts the patty, the cheese and the lettuce square in front
+of the lens. 22° is where that stops helping — at 15° the dome takes the frame back, and much past
+22° the underside of the bottom bun becomes a third of the silhouette in shade.
+
+The lean rides on a **pivot**, with the mesh turning inside it. `rotation.y` on a tilted mesh turns
+it about the *world* vertical, which sweeps the burger round a cone; turning it about the pivot's
+own tilted axis holds one three-quarter attitude all the way round.
+
+And it **turns at all**, which is why it is an object of its own rather than part of the merged
+shell. The
 city's entrance animation ([cityentry.js](../src/game/cityentry.js)) grows every building in a vertex
 shader, scaling each vertex about a ground anchor **stamped into the geometry in world
 coordinates** — and a world coordinate in a rotating object's local space is not a coordinate at

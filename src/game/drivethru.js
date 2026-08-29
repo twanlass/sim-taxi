@@ -1,5 +1,5 @@
 import { DIR } from '../city/grid.js';
-import { KERB_H } from '../city/ground.js';
+import { APRON_Y } from '../city/burgerjoint.js';
 import { CAR_LEN, SPEED, releaseCar, stageCar } from '../sim/traffic.js';
 
 // The drive-through: which ambient cars pull into the burger joint, what they do while they are in
@@ -119,8 +119,6 @@ const MERGE_AHEAD = 4;
 /** ...and how long it will wait for one. Traffic is not obliged to leave a gap. */
 const HOLD_MAX = 8;
 
-/** The apron is laid over the pavement, so a car standing on it rides this much higher. */
-const APRON_Y = KERB_H + 0.01;
 // The two kerb crossings, as a window of arc length either side of the lip. Wider than the ramp
 // mesh (1.6 units) because it is describing a 3.4-unit car crossing it, not the slab — the same
 // argument `DROP_FROM`/`DROP_TO` make in game/opening.js.
@@ -167,7 +165,12 @@ export function createDriveThru({ site, cars, rng }) {
   const dwellFor = (index) => (index === 0 ? ORDER_DWELL : PICKUP_DWELL)
     + rng.range(0, DWELL_JITTER);
 
-  /** How high the body rides at this point on the path: on the apron between the two kerbs. */
+  /**
+   * How high the body rides at this point on the path: up on the lot's asphalt between the two
+   * kerbs, down on the road either side of them. `APRON_Y` is the joint's own surface height, taken
+   * from the module that lays it rather than recomputed here — the two have to be the same number
+   * or the cars float over their own lane.
+   */
   function liftAt(s) {
     const up = smoothstep((s - (enterS - KERB_BEFORE)) / (KERB_BEFORE + KERB_AFTER));
     const down = smoothstep((s - (exitS - KERB_AFTER)) / (KERB_BEFORE + KERB_AFTER));
