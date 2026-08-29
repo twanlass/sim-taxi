@@ -54,8 +54,9 @@ passenger, carries no clock and can never cost you a run — but the detour is p
 whoever is in the back seat, and taking every one on offer halves how long you last. See
 [the package courier](gameplay.md#the-package-courier).
 
-One block of every city is a **burger joint**: a low restaurant under a red band with a burger
-turning slowly on a pole above the roof, and a drive-through lane down its street side. Ambient cars
+One block of every city is a **burger joint**: a low restaurant under a red band with a line of
+neon tracing its roofline, a burger turning slowly on a pole above that, and a drive-through lane
+down its street side. Ambient cars
 pull in off one road, crawl past the menu board and the pickup window, and come back out onto
 another — a third of the time there is one in there.
 
