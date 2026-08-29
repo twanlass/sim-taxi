@@ -229,6 +229,7 @@ function steeredWheels(group) {
       const wheel = new THREE.Mesh(wheelGeometry(), material);
       wheel.position.set(anchor.x, anchor.y, anchor.z);
       wheel.castShadow = true;
+      wheel.receiveShadow = true;
       group.add(wheel);
       return wheel;
     });
@@ -272,6 +273,7 @@ function lightBar(group) {
 export function createPolice(rng, scene, cars = []) {
   const group = new THREE.Group();
   const body = new THREE.Mesh(policeGeometry(), propMaterial());
+  body.receiveShadow = true;
   group.add(body);
   const lights = lightBar(group);
   const front = steeredWheels(group);

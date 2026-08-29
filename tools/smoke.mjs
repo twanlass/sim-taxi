@@ -684,7 +684,7 @@ try {
         const p = t.projectToScreen(c.x, 0.1, c.z);
         if (p.x < ${EDGE} || p.x > w - ${EDGE} || p.y < ${EDGE} || p.y > h - ${EDGE}) off++;
       }
-      // Note `style.color` reads back serialised — a '#3ecf5a' written by the module comes out of
+      // Note \`style.color\` reads back serialised — a '#3ecf5a' written by the module comes out of
       // the getter as 'rgb(62, 207, 90)', which is what \`coloured\` below matches against.
       const up = [...document.querySelectorAll('.fare-pointer')].filter((el) => !el.hidden);
       return JSON.stringify({
