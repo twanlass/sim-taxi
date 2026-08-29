@@ -6,6 +6,7 @@ import { PITCH, LANE } from '../city/grid.js';
 import { PLAY_ZOOM } from './camera.js';
 import { setShadowTint, shadowTint } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
+import { POD_GLOW_R } from '../geometry/glow.js';
 
 // Screen pixels to a world unit at play zoom, for the readouts that need one. Derived rather than
 // written down as the 7.7 that appears as prose all over this project: the frustum is sized by
@@ -77,6 +78,8 @@ export function createDebugPanel({
   crayon = { state: { enabled: false }, set: () => {} },
   // Cartoon Mode's, same shape — `{ state, set }` over game/cartoon.js.
   cartoon = { state: { enabled: false }, set: () => {} },
+  // The bokeh glow's, same shape again — `{ state, set }` over geometry/glow.js.
+  glow = { state: { enabled: false }, set: () => {} },
   // The scene's haze (game/scene.js). Defaulted to null for the same reason `scores` is defaulted:
   // the `npm run check` boot pass builds this panel against nothing.
   fog = null,
@@ -420,6 +423,33 @@ export function createDebugPanel({
     toonRow('Line bite', 'bite', 0, 0.9, 0.02);
     toonRow('Cel', 'cel', 0, 1, 0.05);
     toonRow('Bands', 'steps', 2, 6, 1, (v) => v.toFixed(0));
+  }
+
+  // --- Glow -------------------------------------------------------------------
+  // The halo on every self-lit thing in the game (geometry/glow.js). `?glow=off` takes the pass
+  // away; these four shape it, and every one of them is live because not one of them can be
+  // settled from a still. Gain in particular: the halo is additive, so what it looks like depends
+  // on what is *under* it — a brake light over dark tarmac and the same lamp over a pale forecourt
+  // are two different pictures, and the number has to be judged against both with the city moving.
+  if (glow.state.enabled) {
+    heading('Glow');
+    const glowRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
+      const el = slider(min, max, step, glow.state[key]);
+      const value = row(panel, label, el);
+      value.textContent = format(glow.state[key]);
+      el.addEventListener('input', () => {
+        const next = Number(el.value);
+        glow.set(key, next);
+        value.textContent = format(next);
+      });
+    };
+    // Size in world units against the pod it sits on, with the pixel count beside it for the same
+    // reason the cartoon rims carry one: a halo is authored in the world and judged on the screen.
+    glowRow('Size', 'size', 0, 2.5, 0.05,
+      (v) => `${(v * POD_GLOW_R).toFixed(2)}u · ${(v * POD_GLOW_R * PX_PER_UNIT).toFixed(1)}px`);
+    glowRow('Gain', 'gain', 0, 1.5, 0.05);
+    glowRow('Falloff', 'falloff', 1, 6, 0.1, (v) => v.toFixed(1));
+    glowRow('Bokeh', 'bokeh', 0, 1, 0.05);
   }
 
   // --- Haze -------------------------------------------------------------------

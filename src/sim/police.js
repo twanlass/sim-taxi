@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial, unlitMaterial, BODY_EULER_ORDER } from '../util/geo.js';
+import { glowField } from '../geometry/glow.js';
 import { PALETTE, color } from '../palette.js';
 import {
   DIR, GRID, HALF_SPAN, PITCH, dirSign, isXAxis, laneOffX, laneOffZ,
@@ -266,6 +267,22 @@ function lightBar(group) {
 }
 
 /**
+ * The halo each half of the bar wears — see geometry/glow.js.
+ *
+ * Twice the radius of a brake pod's, and that is the whole reason the bar reads at all: the two
+ * boxes are half a unit across, four pixels at play zoom, and the point light beside them washes
+ * the tarmac without ever putting anything *on* the roof. `game/sirenglow.js` already makes this
+ * argument for the cruiser you cannot see; this is the same argument for the one you can.
+ */
+const BAR_GLOW_R = 2.1;
+// Peak brightness the two point lights run at, so the halo strobes off the same numbers rather
+// than off a second opinion about the same siren. 90 is the run-up, 130 once it has locked on —
+// the level goes over 1 there deliberately, and a halo whose colour clips is a halo with a
+// white-hot core, which is exactly what a siren three car-lengths away looks like.
+const BAR_GLOW_REF = 90;
+const barGlowAt = new THREE.Vector3();
+
+/**
  * @param cars  the traffic array, so the cruiser can see what is in its lane and move over for it.
  *              Optional: the probe stands police cars up in empty scenes, and a cruiser with
  *              nobody to squeeze past simply never dodges.
@@ -276,6 +293,8 @@ export function createPolice(rng, scene, cars = []) {
   body.receiveShadow = true;
   group.add(body);
   const lights = lightBar(group);
+  // Two slots, one per half of the bar. See geometry/glow.js.
+  const glow = glowField().lane(2);
   const front = steeredWheels(group);
   group.visible = false;
   // Set once, at construction, rather than only where the body is posed: the corridor run writes
@@ -761,9 +780,32 @@ export function createPolice(rng, scene, cars = []) {
     const peak = hunting ? 130 : 90;
     lights.redLamp.intensity = (on ? peak : 14) * fade;
     lights.blueLamp.intensity = (on ? 14 : peak) * fade;
+
+    // The bar's own local positions through the group's pose, rather than `matrixWorld` — three
+    // does not update that until the render, and `bodyStep` has just written the pose this frame.
+    // The group carries no scale, so an euler and an add is the whole transform.
+    for (const [mesh, level] of [
+      [lights.red, (on ? peak : 14) / BAR_GLOW_REF],
+      [lights.blue, (on ? 14 : peak) / BAR_GLOW_REF],
+    ]) {
+      barGlowAt.copy(mesh.position).applyEuler(group.rotation).add(group.position);
+      glow.add(barGlowAt.x, barGlowAt.y, barGlowAt.z, BAR_GLOW_R,
+        mesh.material.color, level * fade);
+    }
   }
 
+  /**
+   * The bar's halos are framed here rather than inside `siren()`, which is not reached on every
+   * tick: between corridor runs `update` returns at the cooldown, and a lane nobody rewinds keeps
+   * whatever it last held — a siren strobing on an empty street for the rest of the run.
+   */
   function update(dt) {
+    glow.begin();
+    step(dt);
+    glow.end();
+  }
+
+  function step(dt) {
     state.flash += dt;
 
     // Pulled up at the bust: parked, lights still going, still keeping traffic off it. The body

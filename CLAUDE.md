@@ -371,6 +371,22 @@ Omit the whole section if there's nothing to note.
   costs the drive-through its short exit and buys it two quarter turns (`EXIT_LIFT` in
   `city/burgerjoint.js`), and it is the question to ask of any new `releaseCar` site: how far back
   from the junction does this land, measured?
+- **Three initialises an instance matrix to the *identity*, not to zeros.** So an `InstancedMesh`
+  slot nobody has written yet is not invisible — it is a full-size copy of the geometry standing at
+  the world origin, drawn for as long as `count` reaches it. The glow field allocates its lanes
+  ahead of use and collapses each range on allocation for exactly that reason
+  (`geometry/glow.js`); without it, seventy-two unwritten halos stacked in the middle of the map,
+  which reads as a mysterious bright patch and not as an uninitialised buffer.
+- **The sim does not tick once per render, so a per-frame buffer cannot be framed by the render.**
+  `traffic.warmup()` runs twelve seconds of city before the first frame, shot mode auto-plays whole
+  fares between one render and the next, and the opening vignette steps the world on its own.
+  Anything that *accumulates* during an update and is sealed at draw time therefore gets one round
+  per render and dozens per staged frame: the glow field's first cut was one immediate-mode stream
+  rewound in `renderFrame()`, and a screenshot came back with the buffer full of halos belonging to
+  cars that had driven away minutes of sim time ago. The fix is for each emitter to own its slots
+  and rewind its own (`createLane` in `geometry/glow.js`) — then re-emitting is idempotent however
+  many rounds run between two frames. Same family as the frozen-`settle()` traps above, from the
+  opposite end: those tick too *few* times, this ticks too many.
 - **Never name a Rollup chunk after anything under `src/`.** `vite.config.js` has two entries now
   (the game and `/lab/`), and a `manualChunks` rule that swept `src/main.js` into a shared chunk
   made every page importing that chunk *boot the game* — `/lab/` came up with the city's road

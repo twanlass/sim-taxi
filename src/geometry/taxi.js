@@ -18,7 +18,7 @@ import { addGhostOutline } from './ghostoutline.js';
 
 const CAR_LEN = 3.4;
 const CAR_W = 1.7;
-const TAXI_SCALE = 1.18;
+export const TAXI_SCALE = 1.18;
 
 // World-space distance from the taxi origin back to the bumper — used by the tailpipe flame burst
 // (main.js). Kept here rather than in flames.js so both offsets follow if the mesh ever resizes.

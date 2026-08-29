@@ -720,6 +720,18 @@ export function createBurgerJoint(block, rng) {
   glowParts.forEach((p) => p.dispose());
   glow.name = 'burger-glow';
 
+  // Where each of those two panels wants its halo — see geometry/glow.js. Handed back rather than
+  // emitted here, for the reason `createLayout()` is a cautionary tale (CLAUDE.md): a glow lane is
+  // claimed once and held, and a probe sweeping seeds builds a hundred joints. `main.js` builds
+  // exactly one, and rides them all up and down the daylight curve together.
+  //
+  // The radius is a little over the panel's own half-height. Any more and the wash reaches the
+  // asphalt of the apron, which reads as a puddle rather than as light coming out of a window.
+  const lamps = [
+    { x: wall.x1 + 0.03, y: base + 1.6, z: pickupZ, r: 1.5, color: color('burgerGlow') },
+    { x: wall.x1 + 0.29, y: base + 1.6, z: orderZ, r: 1.7, color: color('burgerGlow') },
+  ];
+
   // --- The sign -------------------------------------------------------------
   // Two objects, and the split is what lets the thing lean: the **pivot** carries the position and
   // the lean, and the **mesh** turns inside it about the pivot's own (tilted) Y. One object cannot
@@ -756,6 +768,8 @@ export function createBurgerJoint(block, rng) {
     /** The turning mesh, and the leaning pivot it turns inside. */
     sign,
     signPivot,
+    /** The two lit panels' halo anchors, for `main.js` to pin. See geometry/glow.js. */
+    lamps,
     update,
     /** Both stamped meshes, for the city's entrance wave and for the AO prepass. */
     meshes: [shell, glow],

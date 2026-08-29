@@ -9,7 +9,10 @@ import {
 import {
   brakeLightGeometry, turnSignalGeometry, brakeLightMaterial, turnSignalMaterial,
 } from '../geometry/lights.js';
-import { createTaxiMesh } from '../geometry/taxi.js';
+import {
+  glowField, emitVehicleGlow, VEHICLE_GLOW_SLOTS, TRUCK_GLOW_STANDOFF,
+} from '../geometry/glow.js';
+import { createTaxiMesh, TAXI_SCALE } from '../geometry/taxi.js';
 import {
   GRID, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
   ringAxisAt, isUnsignalised, lineCoord, laneOffsetFor,
@@ -2114,6 +2117,16 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3(1, 1, 1);
   const euler = new THREE.Euler();
+  // The taxi is drawn TAXI_SCALE bigger than CAR_LEN says (see CLAUDE.md), and the halos on its
+  // light pods are the one thing here that has to stand on the car *as drawn* rather than on the
+  // car the sim is running.
+  const taxiScl = new THREE.Vector3().setScalar(TAXI_SCALE);
+  // Where every lit pod on a vehicle hangs its halo — the fleet and the taxi, which is the `+ 1`.
+  // Sized for the ceiling for the reason the pod meshes themselves are: an instanced buffer cannot
+  // be resized once built. An inert stub under `?glow=off` and in every headless tool. The lane is
+  // rewound by `begin()` below rather than by the render, which is what keeps a warmup or a shot's
+  // auto-play from stacking twelve seconds of stale halos into it. See geometry/glow.js.
+  const glow = glowField().lane((MAX_AMBIENT + 1) * VEHICLE_GLOW_SLOTS);
   const ZERO_SCALE = new THREE.Vector3(0, 0, 0);
   const headColor = new THREE.Color();
   // A light pod that is "off" this frame is written this matrix instead of the body's — same
@@ -2256,6 +2269,15 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     turnLeftInst.setMatrixAt(car.instanceIndex, lightMatrix);
     lightMatrix.compose(pos, quat, lightScale.setScalar(car.turnRightLevel));
     turnRightInst.setMatrixAt(car.instanceIndex, lightMatrix);
+
+    // ...and a soft halo on each pod that is actually lit. Off the same three levels and the same
+    // body matrix, so a glow cannot drift from the lamp it belongs to. A truck passes its own
+    // standoff: its cargo box stands a metre and a half over a car's roof, and a halo that only
+    // clears a car is bitten flat by it. See GLOW_STANDOFF in geometry/glow.js.
+    emitVehicleGlow(glow, matrix,
+      car.isTruck ? TRUCK_LEN : CAR_LEN, car.isTruck ? TRUCK_W : CAR_W,
+      car.brakeLevel, car.turnLeftLevel, car.turnRightLevel,
+      car.isTruck ? TRUCK_GLOW_STANDOFF : undefined);
   }
 
   /**
@@ -3364,6 +3386,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     }
 
     // --- Resolve render transforms.
+    // The glow lane is rewound here rather than by the render, and that is the whole point of it
+    // being a lane: `warmup()` and shot mode's auto-play both run this many times between two
+    // frames, so anything keyed on the render stacks every one of those rounds on top of the last.
+    glow.begin();
     for (let index = 0; index < cars.length; index++) {
       const car = cars[index];
 
@@ -3654,6 +3680,17 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         taxiGroup.rotation.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER);
         setTaxiSteer(car.wheelAngle);
         setTaxiLights(car.brakeLevel, car.turnLeftLevel, car.turnRightLevel);
+        // Its halos, from a matrix composed here rather than from `taxiGroup.matrixWorld`: three
+        // does not update that until the render, so reading it would put every glow one frame
+        // behind the car — 0.57 units at the Loco Mode top, which is most of a pod. The scratch
+        // vectors are free to use: the ambient branch below recomposes all three from scratch.
+        matrix.compose(
+          pos.set(car.x, ROAD_Y + bob + lift + airY + mount + car.kerbLift, car.z),
+          quat.setFromEuler(euler.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER)),
+          taxiScl,
+        );
+        emitVehicleGlow(glow, matrix, CAR_LEN, CAR_W,
+          car.brakeLevel, car.turnLeftLevel, car.turnRightLevel);
         continue;
       }
 
@@ -3669,6 +3706,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       matrix.compose(pos, quat, scl);
       writeAmbient(car);
     }
+    // Retires the halos of whatever went dark this round — a car that stopped indicating, or one
+    // that has been taken off the board entirely.
+    glow.end();
     mesh.instanceMatrix.needsUpdate = true;
     wheelMesh.instanceMatrix.needsUpdate = true;
     truckMesh.instanceMatrix.needsUpdate = true;

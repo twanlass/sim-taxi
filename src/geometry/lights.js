@@ -44,12 +44,30 @@ export const LIGHT_EMISSIVE = 1.4;
  */
 export function lightPod(sx, sz, len, width, d, h, w) {
   const box = new THREE.BoxGeometry(d, h, w);
-  box.translate(
+  const at = lightPodAnchor(sx, sz, len, width, POD_AT, d, w);
+  box.translate(at.x, at.y, at.z);
+  return box;
+}
+
+// Scratch for the call above. `lightPodAnchor` is on the per-frame path for every lit pod in the
+// city (see `emitVehicleGlow` in geometry/glow.js), so it writes into a caller's vector rather
+// than minting one — at six pods a vehicle and forty vehicles that is 240 Vector3s a frame.
+const POD_AT = new THREE.Vector3();
+
+/**
+ * Where a pod's centre sits in car-local space — the same arithmetic `lightPod` translates its box
+ * by, factored out so anything that has to *stand something on* a light can ask for the position
+ * instead of re-deriving it. `geometry/glow.js` hangs each pod's halo off this.
+ *
+ * Takes the destination vector, and `d`/`w` only because `lightPod` does; every caller in the game
+ * uses the one shared pod size.
+ */
+export function lightPodAnchor(sx, sz, len, width, out, d = LIGHT_D, w = LIGHT_W) {
+  return out.set(
     sx * (len / 2 + LIGHT_PROUD - d / 2),
     LIGHT_Y,
     sz * (width / 2 + LIGHT_PROUD - w / 2),
   );
-  return box;
 }
 
 /** Both rear corners in one geometry — the two brake lights only ever switch together. */
