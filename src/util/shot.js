@@ -132,6 +132,20 @@ export const SHOTS = [
   // the ducks are posed the instant they are built precisely so a frozen frame has birds on it.
   { name: 'pond', description: 'the duck pond, close', target: [0, 0], zoom: 9, warmup: 12, atPond: true },
   { name: 'pond-far', description: 'the duck pond at play zoom', target: [0, 0], zoom: 52, warmup: 12, atPond: true },
+  // The burger joint and the drive-through running through it (city/burgerjoint.js,
+  // game/drivethru.js). Appended, for the index-addressing reason stated above the `birds` entry.
+  //
+  // Two framings, the same pair every ambient thing round here gets. Close: does a stack of five
+  // cylinders on a pole read as a *burger*, does the lane read as a lane, and is the car at the
+  // window still visible from under its own canopy — which is a clearance worked out on paper in
+  // `CANOPY_Y` and the one thing a screenshot can settle better than an assertion. At play zoom:
+  // is it a landmark you notice while driving past, or a red smudge on a block?
+  //
+  // Neither needs a `burgerAt`, because the lot has no *moment* — but both do need it filled, and
+  // `driveThru.settle()` is what does that: a shot ticks the world once, so a drive-through left
+  // to fill itself is photographed empty. See the note over `settle` in game/drivethru.js.
+  { name: 'burger', description: 'the drive-through, close', target: [0, 0], zoom: 11, warmup: 12, atBurger: true },
+  { name: 'burger-far', description: 'the burger joint at play zoom', target: [0, 0], zoom: 52, warmup: 12, atBurger: true },
   // There were two more here, `parcel-aboard` and `parcel-flight`, and both photographed a load that
   // has since left the world: the box no longer rides on the taxi's rear deck and no longer crosses
   // the road to get there — it flies into the HUD (game/cargochip.js), and shot mode hides the HUD.

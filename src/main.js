@@ -9,6 +9,7 @@ import { createGround, KERB_H } from './city/ground.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
 import { createGarage } from './city/garage.js';
+import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
   createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
@@ -17,6 +18,7 @@ import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
+import { createDriveThru } from './game/drivethru.js';
 import { createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD } from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
 import { flyEnergyToBoost } from './game/energybits.js';
@@ -259,13 +261,25 @@ if (garage) {
   garage.meshes.forEach(markOccluder);
 }
 
+// The burger joint — the second block `createLayout` took out of the tower generator's hands, and
+// the one building in the city with something on it that moves. `null` on a city with nowhere to
+// put one, exactly as the depot is, and handled the same way all the way down: no joint, no
+// drive-through, and nothing else notices. See city/burgerjoint.js.
+const burger = layout.burgerBlock ? createBurgerJoint(layout.burgerBlock, makeRng(seed + 111)) : null;
+if (burger) {
+  scene.add(burger.group);
+  // The shell and the lit windows, not the sign: `markOccluder` is the AO prepass, and a burger
+  // turning three units above a roof has nothing under it to crease.
+  burger.meshes.forEach(markOccluder);
+}
+
 // Which kerb corners this camera can see, settled once now that everything permanent is standing.
 // The board consults it when it places a marker — a rider, a drop-off ring or a courier pad on a
 // corner with a tower in front of it is a job the player cannot find. See game/sightline.js, and
 // `cornerSeen` in game/fares.js. Everything that can stand in front of a mark goes in: the towers,
 // the trees, and the depot. Nothing transient does — a construction zone is 3 units of barrier and
 // comes and goes, and the boards would have to be re-asked every time one moved.
-setCityOccluders(city.mesh, propsMesh, ...(garage?.meshes ?? []));
+setCityOccluders(city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? []));
 
 // Density is on the difficulty curve, so the run opens at its bottom and the instanced meshes are
 // sized for its top — an InstancedMesh cannot be resized once built. An explicit `?cars=N` beats
@@ -303,6 +317,14 @@ const parcels = parcelsEnabled ? createParcelSystem(makeRng(runSeed + 255), scen
 // gesture once.
 let taxiFlashAt = null;
 const flashTaxi = () => { taxiFlashAt = fares.state.elapsed; };
+// The drive-through, if the city has a joint to run one. Given the cars array for the same reason
+// the police cruiser is: it has to see who is on the road it is pulling cars off and back onto.
+// On the **run** seed rather than the city's — which cars stop for lunch is part of the situation,
+// not part of the map. See game/drivethru.js.
+const driveThru = burger
+  ? createDriveThru({ site: burger.site, cars: traffic.cars, rng: makeRng(runSeed + 311) })
+  : null;
+
 // Given the cars array so the cruiser can see who is in its lane and move over for them — see
 // DODGE_* in sim/police.js. It never mutates it.
 const police = createPolice(makeRng(runSeed + 66), scene, traffic.cars);
@@ -437,8 +459,12 @@ const dust = createDust(scene, camera, makeRng(seed + 77));
 const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
-  meshes: garage ? [city.mesh, propsMesh, ...garage.meshes] : [city.mesh, propsMesh],
-  sites: garage ? [...city.entrySites, garage.entrySite] : city.entrySites,
+  meshes: [city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? [])],
+  // The one thing in the city the wave's vertex shader cannot reach, because it turns — see the
+  // `objects` note in game/cityentry.js.
+  objects: burger ? [burger.entryObject] : [],
+  sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
+    ...(burger ? [burger.entrySite] : [])],
   dust,
   // The spawn point for now — the wave is re-aimed at the taxi's *post-warmup* position at the
   // bottom of this file, which is where the player actually first sees the car.
@@ -2206,6 +2232,9 @@ function frame() {
   // scenery block in one place.
   for (const flock of flocks) flock.update(dt, traffic.taxi);
   ducks.update(dt);
+  // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
+  // paused with them: `frame()` has already returned by here on a paused frame.
+  burger?.update(dt, SIGN_SPIN);
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 
@@ -2219,6 +2248,9 @@ function frame() {
   // the car's position, heading and speed by hand, and the render pass inside `traffic.update`
   // reads them on the same frame. See game/opening.js for the staging split.
   opening?.update(dt);
+  // ...and the drive-through is the same claim about somebody else's car: while one is in the lot
+  // this is its physics, so it has to have written the position before the render pass reads it.
+  driveThru?.update(dt);
 
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
@@ -2716,6 +2748,16 @@ if (shot) {
     controller.update(aspect());
   }
 
+  // The burger joint, framed on the drive-through lane rather than on the building — which is one
+  // flag for both of its framings, for exactly the reason the pond's is. The close shot asks
+  // whether a burger on a pole and a car at a window read as what they are; the far one asks
+  // whether any of it survives the frame the game is actually played in, and that only means
+  // anything if the two are pointed at the same lane.
+  if (shot.atBurger && burger) {
+    controller.state.target.set(burger.site.focus.x, 0, burger.site.focus.z);
+    controller.update(aspect());
+  }
+
   // Stage a take-off and freeze it partway up. Same argument as the flyover and the wreck: the
   // flock is on the grass for most of a run and the departure is over in a couple of seconds, so
   // without this the only way to look at one is to load the game and drive at a park. `birdsAt` is
@@ -2871,6 +2913,15 @@ if (shot) {
   // another, and a disc that grows out of its own centre is a function of sim time. A shot ticks the
   // fare loop once, so the grow never got past its first frame — and every rider's kerb disc went
   // missing from every screenshot the day that animation landed. This lands them all instead.
+  // The lot is filled by hand, for the reason the helicopter and the flock are staged: a shot
+  // ticks the world once, and a drive-through left to fill itself is one photographed empty. The
+  // sim frame after it is not optional — `settle` writes each car's position, and the *instanced*
+  // matrix those cars are drawn from is composed inside `traffic.update`, so without it three
+  // cars are standing in a lot that nothing has been told about.
+  if (driveThru) {
+    driveThru.settle();
+    traffic.update(1 / 60);
+  }
   fares.settleMarkers();
   parcels?.settleMarkers();
   // The city's own entrance is an animation that opens at zero too — unsettled, every screenshot
@@ -3035,6 +3086,13 @@ window.__taxi = {
    */
   garage,
   opening: () => opening,
+  /**
+   * The burger joint and its drive-through, or null on a city with nowhere to put one.
+   * `burger.site` is every number the lane is built from and `driveThru.state.queue` is who is
+   * currently in it — which is how `tools/probe.mjs` watches the lot without guessing at wallclock.
+   */
+  burger,
+  driveThru,
   /** The opening rise-out-of-the-ground animation. `cityEntry.replay()` reruns it on demand. */
   cityEntry,
   // Every flock in the city, in build order — `flocks[0]` is the one shot 18 frames.

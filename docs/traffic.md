@@ -1543,6 +1543,93 @@ not been told what scene it is in. They reach the kerb, turn to look back, hold 
 reads as having got there. Their alpha multiplies into the zone's rather than being overwritten
 by it.
 
+## The drive-through
+
+`game/drivethru.js`. The lot, the lane and the building are the city's — see
+[city.md](city.md#the-burger-joint-and-its-drive-through) — and this is only the behaviour: which
+ambient cars pull in, what they do while they are in there, and how they get back onto the road.
+
+**A car in the lot is out of the traffic model entirely.** It has to be: a drive-through lane is
+nowhere on the road network, and a car sitting at a window cannot be expressed as a lane coordinate.
+`stageCar` is that split — out of every simulation loop, still in the render pass — which is the
+same mechanism [the opening vignette](gameplay.md#the-opening-vignette) uses to drive the taxi out of
+its garage, and it is what lets a car in here keep its own suspension, its brake lights and its
+indicators while something else decides where it is. The module writes `x`, `z`, `yaw`, `v`,
+`travelled` and `speedFactor` by hand every frame, and shoves `pitchV` at each of the two dropped
+kerbs rather than animating the dip.
+
+Two consequences of that split are worth knowing before changing anything in there.
+
+**The lane bookkeeping loses the car the instant it is staged**, while it is still physically
+swinging off the carriageway — so traffic behind it stops seeing it a fraction of a second before it
+is out of the way. That is safe only because the turn-in is quick: the entry arc is 3.1 units taken
+at about 5 u/s, so the car is off the road inside 0.4s, and a follower held at `MIN_GAP` (5.3) cannot
+close that in the time available. Slowing a car down *before* it turns in — which is what a real
+driver does — would need a hook inside the traffic model rather than a module out here, and the
+compromise instead is `ENTRY_CAP`: the speed comes off in one step at the driveway, which the pitch
+spring and the brake lights pick up on their own and which reads as a car braking hard for a turn-in
+it left slightly late.
+
+**Nothing in here can crash into anything.** `sim/collisions.js` only ever tests the taxi, and only
+while it is boosting, so a car crossing a kerb is never checked against ambient traffic. The gap
+check before the exit is therefore what stops a car pulling out through another one, and not a
+safety net under it. It is the same box `mergeClear` uses in the vignette, for the same manoeuvre —
+a right turn into the near lane — with `HOLD_MAX` behind it so a car cannot be trapped forever by
+traffic that never leaves a gap.
+
+### The queue
+
+Each car in the lot is a distance along the lane, and every frame it is given a **limit**: the
+nearest of the stop it has not finished with, the kerb it is waiting to cross, and the car in front
+of it. It then brakes to stop *on* that limit rather than at it — the speed it may be doing with
+`room` left is the speed it can still shed in that distance — which is also what makes the line
+shuffle forward the way a queue does, since each car's cap is set by wherever the car ahead of it
+got to.
+
+`GAP` is 4.2, tighter than the road's own `MIN_GAP` of 5.3, and deliberately: that number is a
+*following* distance, chosen so a car at cruise can stop behind the one in front. A drive-through
+queue is stationary or crawling, and a real one is nose to tail.
+
+Three is what the lane holds at that spacing — 15.4 units of path from the mouth to the exit against
+8.4 of queue — and the ceiling matters more than it looks. A fourth car would be held at the
+**mouth**, which is on the carriageway, and a stationary staged car on a road is invisible to every
+other car on it.
+
+The two stops are the menu board and the pickup window, ~2.6s and ~3.8s apart plus jitter, and the
+dwell is keyed on being *at* the stop and stopped rather than on a clock — so a car held back by the
+one in front does not serve its own dwell from the middle of the lane. On the narrowest block the
+board and the window are 3.2 apart against a `GAP` of 4.2, so a car often waits short of the board
+until the window clears. That is a fact about a small lot rather than a bug, and it is what a small
+lot looks like.
+
+### Nobody eats twice in a row
+
+The lane goes out onto the road that runs down the joint's *other* side, and that road meets the one
+the mouth is on at the block's own corner — so a car that leaves and turns left is back at the
+driveway one junction later. Measured over thirty minutes of traffic, the median gap between a car
+leaving the lot and pulling into it again was **3.1 seconds**, and 64 of 71 repeat visits were inside
+half a minute. That is one car doing laps of a burger joint, in front of a player who can see the
+whole block at once.
+
+`FED_COOLDOWN` is 40 seconds, which is enough road to break the loop and nothing like enough to be a
+rule about appetite. Blocking those laps also removes the passes they were making, so `ENTER_CHANCE`
+carries the rate instead. What it is tuned against is not how many cars stop but **how much of the
+time there is a car in the lot at all**, measured over 24 minutes of traffic per density — a run
+plays between 12 and 22 cars ([difficulty.md](difficulty.md)):
+
+| cars | pull in / min | a car in the lot |
+|---|---|---|
+| 12 | 1.3 | 28% of the time |
+| 18 | 1.5 | 34% |
+| 24 | 2.2 | 46% |
+
+So a player driving past sees it running about a third of the time early in a run and about half of
+it late, and never sees a queue standing out into the road.
+
+**Cars only.** A box truck at a drive-through is a good joke and a bad fit: it is 5.6 long against a
+2-unit turn radius, and it would ride the kerb through both arcs. The player's own taxi is never
+taken either — it has somewhere to be.
+
 ## Police priority corridor
 
 `src/sim/police.js`. A police car crosses the city on a cycle, holding every signal on its road

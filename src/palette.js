@@ -147,6 +147,43 @@ export const PALETTE = {
   // a vertical face four units up is not mistakable for a car on the road.
   garageSign: '#F5C130',
 
+  // --- The burger joint -------------------------------------------------------
+  // The city's one drive-through (city/burgerjoint.js). Like the depot above it, its envelope
+  // stays **outside** BUILDING_COLORS: the whole read of a roadside restaurant is that it is not
+  // one of the boxes around it — a low pale shed under a coloured band, sitting in its own apron
+  // of asphalt, where every neighbour is a tower in a muted concrete.
+  burgerWall: '#E4DCCB',
+  // The mansard band around the parapet, and the fascia the sign's pole stands out of. This is the
+  // one saturated thing on the block and it has to survive the same audit `garageSign` did: red is
+  // not spoken for anywhere in this game's vocabulary — the urgency ramp ends at #D8503C but on a
+  // *rider's crystal nine units in the air*, never on a wall — and a band a unit tall on a
+  // single-storey building cannot be read as a fare running out of time.
+  burgerBand: '#C4453A',
+  // Door frames, the parapet cap, the canopy's edge and the window surrounds: one dark for every
+  // piece of the building's ironwork, the same argument as `rooftopIron`.
+  burgerTrim: '#4F5259',
+  // What is behind the pickup window and the menu board's panel. A warm interior glow rather than
+  // the depot's `garageBay` dark: the bay is a hole the taxi is the light thing inside, and this is
+  // a lit room seen through a hatch. Unlit, for the reason `garageLight` is.
+  burgerGlow: '#FFD79A',
+
+  // The sign itself: a burger, turning on a pole above the roof. Five colours because it is built
+  // as five slices and the whole gag is that they are legible as one at play zoom, where the thing
+  // is about fourteen pixels across — so each is picked for *separation from its neighbours* under
+  // a warm sun rather than for being the most accurate photograph of a bun.
+  //
+  // The first pass had the bun at #D9A05B and the cheese at #F0A93C — 22° apart in hue and both of
+  // them orange — and the whole sign came back from a screenshot as one orange blob with a green
+  // rim. What separates a slice of cheese from the bun it is under is that it is **yellow**, so the
+  // cheese moved to 44° and the buns moved *away* from it rather than the other way: a paler,
+  // browner bun is still a bun, and a lemon-yellow one is a mistake.
+  bunTop: '#DFAE6C',
+  bunBase: '#D2A163',
+  patty: '#54321F',
+  cheese: '#F7C63C',
+  lettuce: '#7FB050',
+  sesame: '#F7EDD6',
+
   // Yellow is reserved for the taxi. An amber car used to sit in this list and was genuinely
   // mistakable for the player's vehicle at play zoom, where both are a few pixels of warm colour.
   carBody: ['#C9503F', '#2F8F94', '#4E7FC0', '#E4E1DA', '#3F8A63', '#8A6BB0', '#D9D2C3', '#455160'],

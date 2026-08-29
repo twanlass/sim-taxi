@@ -15,6 +15,10 @@ import { setOccluderDepthMaterial } from './ssao.js';
 // util/geo.js) and one uniform clock drives them all; a vertex scales about its own anchor, so
 // whole buildings pop individually out of a mesh that never stops being one mesh.
 //
+// The one thing that mechanism cannot animate is an object with a transform of its own, because
+// the anchor it scales about is a *world* coordinate baked into the vertex — see `objects` below,
+// which grows those on the CPU on the same curve.
+//
 // The per-object timeline, in local t over ENTRY_DUR seconds:
 //   - scale runs an easeOutBack from 0: rises out of the ground, overshoots its full size
 //     (by OVERSHOOT — the peak's timing and height both follow it), settles at exactly 1 —
@@ -93,7 +97,9 @@ const ENTRY_VERTEX = `#include <begin_vertex>
 	transformed.z = aEntry.y + (transformed.z - aEntry.y) * eXZ;
 	vEntryFade = smoothstep(0.0, ${f(FADE_IN)}, eT);`;
 
-export function createCityEntry({ meshes, sites = [], dust = null, from = { x: 0, z: 0 } } = {}) {
+export function createCityEntry({
+  meshes, objects = [], sites = [], dust = null, from = { x: 0, z: 0 },
+} = {}) {
   // One clock, shared by reference into every patched shader — Three reads `.value` at draw time,
   // the same way the AO uniforms fan out from one bag in util/geo.js. The origin travels the same
   // way, so `replay` can re-aim the wave without touching a single compiled program.
@@ -192,6 +198,45 @@ export function createCityEntry({ meshes, sites = [], dust = null, from = { x: 0
     setOccluderDepthMaterial(mesh, makeDepth());
   }
 
+  // --- The objects the shader cannot reach ---------------------------------
+  //
+  // Everything above rides in one merged mesh precisely so the city stays one draw call, and the
+  // wave is a vertex shader for exactly that reason. That mechanism has one requirement: the
+  // anchor a vertex scales about is stamped in **world** coordinates, so the mesh's own transform
+  // has to be the identity. Anything that *moves* is therefore excluded from it by construction —
+  // the burger turning over the drive-through (city/burgerjoint.js) is the case that made this
+  // list exist, since a rotating object's local space is not world space and the stamped anchor
+  // stops meaning anything the moment it turns.
+  //
+  // So those grow on the CPU instead, on the same easeOutBack over the same delay: one `scale.set`
+  // per object per frame, against however many hundred vertices the shader is doing the same
+  // arithmetic to. `object.scale` is the whole of what this owns — position, rotation and
+  // visibility all stay with whoever built the thing.
+  const grown = objects.map((entry) => ({
+    ...entry,
+    // Whatever the object was authored at, so a sign built at 1.4 comes up to 1.4 and not to 1.
+    rest: entry.object.scale.clone(),
+  }));
+
+  const easeOutBack = (t) => {
+    const b = t - 1;
+    return 1 + (uEntryOver.value + 1) * b * b * b + uEntryOver.value * b * b;
+  };
+
+  const applyObjects = () => {
+    for (const g of grown) {
+      const t = THREE.MathUtils.clamp(
+        (uEntryTime.value - delayOf(g.x, g.z, g.rand)) / uEntryDur.value, 0, 1,
+      );
+      const k = easeOutBack(t);
+      g.object.scale.set(g.rest.x * k, g.rest.y * k, g.rest.z * k);
+      // A scale of exactly 0 leaves a degenerate matrix three still has to draw, and the object is
+      // a separate mesh rather than a slice of a merged one — so it can simply be switched off.
+      g.object.visible = t > 0;
+    }
+  };
+  applyObjects();
+
   // Dust fires in delay order, so playback is one pointer walking a sorted list. Rebuilt on every
   // replay, because the delays are a function of the origin and the tunable levers.
   const buildQueue = () => sites
@@ -205,6 +250,7 @@ export function createCityEntry({ meshes, sites = [], dust = null, from = { x: 0
     done = true;
     uEntryTime.value = endAt();
     head = queue.length;
+    applyObjects();
     // Back to opaque: alpha is 1 everywhere from here on, and a transparent merged city would
     // keep paying the sorted-pass cost (and self-sort wrong) forever. No recompile — the flag is
     // render state, not a shader define.
@@ -214,6 +260,7 @@ export function createCityEntry({ meshes, sites = [], dust = null, from = { x: 0
   function update(dt) {
     if (done) return;
     uEntryTime.value += dt;
+    applyObjects();
 
     while (head < queue.length && queue[head].at <= uEntryTime.value) {
       const s = queue[head];
@@ -253,6 +300,7 @@ export function createCityEntry({ meshes, sites = [], dust = null, from = { x: 0
     uEntryTime.value = 0;
     head = 0;
     done = false;
+    applyObjects();
     for (const material of materials) material.transparent = true;
   }
 

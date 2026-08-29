@@ -240,6 +240,111 @@ That is the arithmetic; `tools/probe.mjs` does not trust it. It fires nine real 
 real merged city, across ten seeds, and asserts every one of them reaches the camera. Getting this
 wrong is a run that opens with a two-second close-up of a wall.
 
+## The burger joint, and its drive-through
+
+`city/burgerjoint.js` for the building and the lane, `game/drivethru.js` for the cars that use it.
+
+One block per city is `type: 'burger'`, which — exactly like the depot above it — takes it out of
+the tower generator's hands and leaves it for a single-storey roadside restaurant: a pale box under
+a coloured mansard band, a lot of asphalt, a drive-through lane down its street side with an
+illuminated menu board and a pickup window under a canopy, and **a burger turning on a pole above
+the roof**.
+
+It is a whole block for the depot's reasons, drawn at the very end of `createLayout` for the depot's
+reasons, and `blocks.burgerBlock` may be **null** for the depot's reasons. What is different is
+everything about the lane.
+
+### Why the lot faces the way it does
+
+None of the orientation is a free choice, and each constraint removes one degree of freedom.
+
+The camera never rotates, so only the **+X and +Z** faces of a building are ever visible — and only
+the +X and +Z *strips* of a block are ever in front of the building rather than behind it. A
+drive-through nobody can see may as well not run. So the building sits against the block's −X−Z
+corner, the lane runs down the +X strip in front of it, and both openings are on the +X face
+pointing straight at the camera.
+
+The **direction** the lane runs is fixed by the same right-hand traffic that decides which side of
+the road a car drives on. The driver sits on the left; a drive-through window is on the driver's
+side; the left-hand side of a car running −Z is the west, which is where the building is. Run it +Z
+instead — which reads just as well on paper and puts every car nose-on to the camera — and every
+driver is served through their passenger's window.
+
+That fixes both ends of the lane, because a car may only leave a road by turning **right** off the
+kerbside lane and may only join one by turning **right** into it. (A left turn across oncoming
+traffic is a yielding problem, and the lane has no business inventing one.) Of the four roads round
+a block that leaves exactly one pair:
+
+| | road | what the car does |
+|---|---|---|
+| **in** | the +Z edge, kerbside lane runs −X | right turn into −Z, onto the lane |
+| **out** | the +X edge, kerbside lane runs +Z | right off the lane onto a short +X run over the near kerb, then right again onto the road |
+
+All three quarter turns share one radius, and it is not chosen either: each is tangent to a lane
+centre at one end and to a kerbside lane at the other, so the radius is the gap between a kerb and
+the lane nearest it — `LANE_TO_KERB`, which is 2 on an arterial and on a side street alike. It is
+also the radius every right turn in the city already uses, so a car pulling into the lot corners
+like a car pulling round a junction.
+
+### Why the exit takes two turns instead of one
+
+The obvious exit runs the lane down to the −Z kerb and turns right onto *that* road, which is one
+quarter turn rather than two and reads fine until it is measured. That exit lands on the −Z road
+**0.7 units short of the junction** at the block's own corner — inside its own stop line, so a car
+released there is past the hold line before it can see the light. It runs the red, and since
+`sim/collisions.js` only ever tests the taxi, it does not crash into the cross traffic. It drives
+*through* it.
+
+Going out through the +X kerb instead puts the merge on the road running along Z, where the distance
+back to the junction is the whole depth of the block less `EXIT_LIFT` — eight units on the narrowest
+block there is, against a `STOP_SETBACK` of 3.4. The joint keeps the −Z end of its block for the
+building, and `tools/probe.mjs` asserts the clearance rather than trusting it.
+
+### The site filter is a sightline, along a whole lane
+
+The depot's filter asks whether the camera can see one door. This one asks the same question of
+every point on the lane, and it has to, because **the answer is routinely no**: every block in this
+city is eight units of road from the next, so a sightline leaving the ground has climbed only 7.4
+units by the time it reaches the far façade, and a downtown tower goes to 16. That is the same
+arithmetic [game/sightline.js](../src/game/sightline.js) records about courier pads, and the reason
+two junctions in a typical city cannot hold one.
+
+`laneSeen` samples nine points along the lane and marches each one's sightline through the blocks
+it crosses. The march is the cheap kind — the ray climbs monotonically, so the lowest it ever is
+inside a block's footprint is where it *enters*, and one height comparison per block settles it.
+Heights are predicted rather than measured, because the block has to be chosen before anything
+stands on it: `5 + centrality * 11` for a built block (`buildTower`'s own ceiling) and 6 for a park's
+tallest tree. Twenty-five blocks by nine samples, once per city.
+
+There is a second preference on top of it. The joint avoids the top of the density curve, and it
+earns that twice: a drive-through is a roadside building and downtown is where it least belongs, and
+the block is one the tower generator no longer gets — so taking a *downtown* one costs the skyline
+its tallest deck. That is measured rather than assumed. The helicopter's pad is chosen from every
+flat deck in the city, and its low tail moved 5.79 → 5.14 over 192 cities when this module started
+taking a block at all; `tools/probe.mjs` carries the numbers next to the check that watches it.
+
+### The sign, and why it is not in the entrance wave
+
+The burger is five slices and a scatter of seeds, every one of them a cylinder or a box, which under
+`flatShading` at twelve radial segments is what makes it read as a *toy* burger rather than a small
+photograph of lunch. The cheese is the only piece that is not round: a square turned 45°, so its
+corners come out past the patty and its flats tuck inside, which is the one detail that says
+*cheeseburger* at a size where the whole thing is seventeen pixels.
+
+Two things about it are consequences of **this camera looking down at 33°**. It mostly sees the
+*top* of anything on a pole, and the top of a burger is a bun, which identifies nothing — so the
+stack is bottom-heavy and each filling is wider than the piece under it, leaving a third of a unit
+of cheese and lettuce showing as a ring all the way round. A first pass with a taller crown and
+narrower fillings photographed as a tan blob with a green edge.
+
+And it **turns**, which is why it is a mesh of its own rather than part of the merged shell. The
+city's entrance animation ([cityentry.js](../src/game/cityentry.js)) grows every building in a vertex
+shader, scaling each vertex about a ground anchor **stamped into the geometry in world
+coordinates** — and a world coordinate in a rotating object's local space is not a coordinate at
+all. So `createCityEntry` grew an `objects` list: a handful of transforms scaled on the CPU, on the
+same easeOutBack over the same delay, so the sign comes up with the building under it instead of
+hanging in the air over a hole in the ground.
+
 ## Park districts close roads
 
 A park district is **two adjacent blocks plus the road that used to separate them**, merged into

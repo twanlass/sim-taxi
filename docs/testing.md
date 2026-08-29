@@ -156,6 +156,21 @@ and the far one whether it is a landmark you notice while driving past or a blue
 The close framing is what caught the first two versions — ducks floating half-submerged, and a mix of
 plumage balanced against grass rather than against water.
 
+Shots 27–28 (`burger`, `burger-far`) are the
+[burger joint](city.md#the-burger-joint-and-its-drive-through), close and at play zoom, and they are
+the pond's pair with one difference: this one *is* staged. A shot ticks the world once, and a
+drive-through left to fill itself is a drive-through photographed empty — so `driveThru.settle()`
+puts three cars in the lane by hand, one pulling out, one at the window and one queued behind it.
+The sim frame after that call is not optional: `settle` writes each car's position, and the
+*instanced* matrix those cars are actually drawn from is composed inside `traffic.update`.
+
+Both framings aim at the lane rather than at the building. The close one asks whether a stack of
+five cylinders on a pole reads as a **burger** — it did not on the first pass, and the fix (a lower
+crown and wider fillings, so a ring of cheese and lettuce shows past the dome from a camera looking
+down at 33°) is a judgement only a picture could make — and whether the car at the window is still
+visible from under its own canopy, which is a clearance worked out on paper in `CANOPY_Y`. The far
+one asks whether any of it is a landmark you notice while driving past.
+
 There were two more, `parcel-aboard` and `parcel-flight`, and both photographed a load that has since
 left the world: a collected box no longer rides on the taxi's rear deck and no longer crosses the road
 to get there — it flies into the HUD, and **shot mode hides the HUD**. There is nothing left for a still
