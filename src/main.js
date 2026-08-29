@@ -19,7 +19,10 @@ import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
 import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createDriveThru } from './game/drivethru.js';
-import { createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD } from './game/boost.js';
+import { createBurgerRun } from './game/burgerrun.js';
+import {
+  createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
+} from './game/boost.js';
 import { createBoostMeter } from './game/boostmeter.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
@@ -62,7 +65,7 @@ import { setAmbientOcclusion, setCrayon, setCartoon } from './util/geo.js';
 import * as difficulty from './game/difficulty.js';
 import { createHomeScreenTip } from './game/homescreen.js';
 import { createPause } from './game/pause.js';
-import { findRoute, findRouteVia, planOrigin } from './game/route.js';
+import { findRoute, findRouteVia, findRouteOnto, planOrigin } from './game/route.js';
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
@@ -271,6 +274,17 @@ if (burger) {
   // The shell and the lit windows, not the sign: `markOccluder` is the AO prepass, and a burger
   // turning three units above a roof has nothing under it to crease.
   burger.meshes.forEach(markOccluder);
+  // ...and the whole joint is tappable, which is the secret: it sends the taxi through the
+  // drive-through for a splash of boost (game/burgerrun.js). Tagged on the root group, so the walk
+  // up the ancestors that `createPicker` already does answers for the shell, the lit windows and
+  // the turning burger alike — a player aiming at this is aiming at the sign as often as not.
+  //
+  // No invisible hit box, unlike every fare marker on the board. Those are a few pixels of geometry
+  // standing on a corner and their targets have to be *drawn* rather than raycast, with all the
+  // trouble that brings (see `BILLBOARD` in game/camera.js). A building occupying most of a block is
+  // 150px across at play zoom and already exactly the shape it looks like — and raycasting the real
+  // mass is the one version that can never cover a marker the player can see past it.
+  burger.group.userData.pickable = 'burger';
 }
 
 // Which kerb corners this camera can see, settled once now that everything permanent is standing.
@@ -323,6 +337,34 @@ const flashTaxi = () => { taxiFlashAt = fares.state.elapsed; };
 // not part of the map. See game/drivethru.js.
 const driveThru = burger
   ? createDriveThru({ site: burger.site, cars: traffic.cars, rng: makeRng(runSeed + 311) })
+  : null;
+
+// ...and the player's own trip through it, which is the tap on the joint. It owns the route to the
+// mouth and what happens to the job the detour interrupted; the lot itself drives the taxi exactly
+// as it drives everybody else. See game/burgerrun.js.
+//
+// `routeTo` is a hoisted function declaration further down this file, and the two callbacks below
+// are only ever *called* from the frame loop — the same forward reference `fares`'s `reserved`
+// closure makes to `parcels`.
+const burgerRun = driveThru
+  ? createBurgerRun({
+    site: burger.site,
+    lot: driveThru,
+    taxi: traffic.taxi,
+    routeTo,
+    // Paid at the window, on the same energy bit a delivery pays with (`flyEnergyToBoost`): the
+    // reward reads as the reward, rather than as a meter that moved on its own. It is the smallest
+    // top-up in the game — see BOOST_BURGER_REWARD.
+    onServed: () => {
+      flyEnergyToBoost({
+        from: taxiScreenPos,
+        to: boostScreenPos,
+        onArrive: () => boost.topUp(BOOST_BURGER_REWARD),
+      });
+      haptic('burger');
+    },
+    onFinish: (handBack) => resumeAfterBurger(handBack),
+  })
   : null;
 
 // Given the cars array so the cruiser can see who is in its lane and move over for them — see
@@ -840,16 +882,23 @@ const selected = true;
  * cap written for a dragged waypoint; the courier tap passes its own, because that cap is about a
  * finger that slipped and a tap cannot slip (see `TAP_MAX_DETOUR` in game/parcels.js).
  *
+ * `onto` names the *direction* the taxi has to be travelling when it gets there, which turns the
+ * destination from a junction into a lane. Only the burger run asks for one — the drive-through's
+ * mouth opens off one kerbside lane and a route that arrives from any other side drives past it —
+ * and `findRouteOnto` carries why the obvious `via` version does not work.
+ *
  * The target object's *identity* is what the band's rollout sweep keys off, so a re-plan that
  * keeps the same destination must pass the same object rather than an equal one — otherwise every
  * frame of a drag replays the sweep and the band never finishes drawing itself.
  */
-function routeTo(target, { via = null, maxDetour } = {}) {
+function routeTo(target, { via = null, maxDetour, onto = null } = {}) {
   const car = traffic.taxi;
   const route = via
     // `undefined` falls through to `findRouteVia`'s own default rather than reading as "no cap".
-    ? findRouteVia(planOrigin(car), via, target, { maxDetour })
-    : findRoute(planOrigin(car), target);
+    ? findRouteVia(planOrigin(car), via, target, { maxDetour, onto })
+    : onto !== null
+      ? findRouteOnto(planOrigin(car), target, onto)
+      : findRoute(planOrigin(car), target);
   if (!route) return false;
   car.route = route;
   car.routeConsumed = false;
@@ -942,12 +991,60 @@ function divertToParcel(parcel) {
   parcels?.acknowledge(parcel, taken);
 }
 
+/**
+ * A tap on the burger joint. The one thing on the map that is not a job.
+ *
+ * It reads like every other dispatch — the taxi is re-aimed and the band redraws on the same frame —
+ * and it is deliberately not gated on anything: a rider in the back does not refuse it, an empty
+ * tank does not refuse it, and no clock is consulted first. What it costs is time, in front of the
+ * player, on whatever clock is already running. See game/burgerrun.js.
+ */
+function sendForBurger() {
+  if (!burgerRun) return;
+  // Same rule as the fare and package taps: the buzz reports that the taxi is now going somewhere
+  // else, so it is gated on the route actually being taken.
+  if (burgerRun.send()) haptic('pick');
+}
+
+/**
+ * The trip is over — put the taxi back on the job it was taken off.
+ *
+ * The seat outranks whatever was remembered at the tap. A rider who boarded *during* the detour
+ * (the fare loop resolves a pickup on proximity, and the joint's block can be a corner away from a
+ * waiting one) leaves a stale `handBack` aimed at their own kerb, and the only drive that makes
+ * sense with somebody in the car is the one to their drop-off.
+ *
+ * Everything else has to still exist. A remembered target is a plain `{ i, j }` belonging to a fare
+ * or a package, and both can be delivered, missed or timed out while the taxi is sitting at a
+ * window — so it is matched by *identity* against the boards rather than trusted, and a target that
+ * has gone leaves the taxi cruising with an empty route, exactly as a delivery does.
+ */
+function resumeAfterBurger(handBack) {
+  const riding = fares.carrying();
+  if (riding) {
+    if (routeTo(riding.target)) fares.markDirected(riding, { pop: false });
+    return;
+  }
+  if (!handBack) return;
+  const live = [
+    ...fares.state.fares.map((f) => f.target),
+    ...(parcels?.state.parcels.map((p) => p.target) ?? []),
+  ];
+  if (live.includes(handBack)) routeTo(handBack);
+}
+
 createPicker(
   camera,
   renderer.domElement,
-  () => [traffic.taxiGroup, ...fares.pickables(), ...(parcels?.pickables() ?? [])],
+  () => [traffic.taxiGroup, ...fares.pickables(), ...(parcels?.pickables() ?? []),
+    ...(burger ? [burger.group] : [])],
   (kind, hit) => {
     if (fares.state.gameOver) return;
+
+    if (kind === 'burger') {
+      sendForBurger();
+      return;
+    }
 
     // The courier board answers a tap with a detour rather than a destination, so it is handled
     // before the fare board rather than inside it — there is no fare behind a package and nothing
@@ -994,7 +1091,12 @@ pathDrag = createPathDrag({
   scene,
   routeLine,
   getCar: () => traffic.taxi,
-  reroute: (via) => routeTo(traffic.taxi.pendingTarget, { via }),
+  // A burger run's destination is a *lane* rather than a junction (game/burgerrun.js), and a
+  // re-plan that forgets which one drops the taxi at the right corner facing the wrong way — so
+  // the module that owns the constraint owns the re-plan too. Everything else is the plain one.
+  reroute: (via) => (burgerRun?.active()
+    ? burgerRun.reroute(via)
+    : routeTo(traffic.taxi.pendingTarget, { via })),
   // `pause` is declared further down and only ever read from a pointer handler, which is long
   // after this module has finished evaluating — same as `homeTip` in the tutorial's guards.
   canGrab: () => Boolean(
@@ -1547,6 +1649,9 @@ function updateBoostButton(dt) {
 // is already running has the pedal down and nothing to kick.
 function holdLocoMode() {
   if (fares.state.gameOver || boostButton?.disabled) return false;
+  // Nothing to press against: the drive-through has the wheel and the car is between two kerbs.
+  // See the release beside `boost.update` in the frame loop.
+  if (burgerRun?.holdsTaxi()) return false;
   // Doing the thing the third bubble is asking for answers it. Called explicitly rather than left
   // to the tutorial's window-level tap handler, because the preventDefault in either caller can
   // suppress the click the gesture would otherwise synthesise — so the hint would outstay its own
@@ -2190,6 +2295,12 @@ function frame() {
     dt *= slowMoMin + (1 - slowMoMin) * t;
   }
 
+  // A taxi at a pickup window cannot move, and a pill leaned on there would pour the whole tank
+  // into a parked car — fifteen seconds of it, if the queue in front is two cars deep. Released
+  // every frame rather than once on the way in, for the reason the flags below are written every
+  // frame: a thumb that never comes back up must not be able to leave the pedal stuck down. The
+  // press itself is refused for the same window, in `holdLocoMode`.
+  if (burgerRun?.holdsTaxi()) boost.release();
   boost.update(dt);
   // Never re-arm boost on a wrecked taxi — the flag would flick on the next frame otherwise and
   // the collision detector already only checks `if (taxi.boost)`. `taxi.boost` covers the hold
@@ -2251,6 +2362,10 @@ function frame() {
   // ...and the drive-through is the same claim about somebody else's car: while one is in the lot
   // this is its physics, so it has to have written the position before the render pass reads it.
   driveThru?.update(dt);
+  // After the lot, not before it: a taxi handed back to the road on this frame is released inside
+  // the call above, and this is what puts a route back under it before `traffic.update` asks which
+  // way to go at the next junction.
+  burgerRun?.update(dt);
 
   police.update(dt);   // may flip a whole corridor green before traffic reads the signals
   traffic.update(dt);
@@ -2352,6 +2467,13 @@ function frame() {
       // Straight on to where they're going, on the same frame the pin appears — no kerb hold and
       // no confirming tap.
       dispatchToDropoff(fare);
+      // ...unless the taxi was on its way to the burger joint, in which case the rider was collected
+      // *en route* and the detour is still the player's standing instruction. `send` puts the burger
+      // back in front of the car and takes the drop-off just dispatched as what to return to, so the
+      // trip ends by driving the fare it interrupted. It refuses while the taxi is already in the
+      // lot, where the route above is the one that will be planned again on the way out anyway.
+      // See game/burgerrun.js.
+      if (burgerRun?.active()) burgerRun.send();
     } else if (type === 'delivered') {
       popEarning(fare.value);
       updateStreak(difficulty.payoutMultiplier(fares.state.delivered));
@@ -3093,6 +3215,12 @@ window.__taxi = {
    */
   burger,
   driveThru,
+  /**
+   * The player's own trip through that lot, or null with it — `state`, `send()`, `active()`,
+   * `holdsTaxi()`. `send()` is what a tap on the joint does, so a browser test can take the secret
+   * without having to land a synthesised click on a building.
+   */
+  burgerRun,
   /** The opening rise-out-of-the-ground animation. `cityEntry.replay()` reruns it on demand. */
   cityEntry,
   // Every flock in the city, in build order — `flocks[0]` is the one shot 18 frames.

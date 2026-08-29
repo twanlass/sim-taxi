@@ -28,6 +28,7 @@ import {
   createBurgerJoint, burgerSite, burgerGeometry, BURGER_R, SIGN_SPIN, VIEW_RISE, ROOF_Y,
 } from '../src/city/burgerjoint.js';
 import { createDriveThru } from '../src/game/drivethru.js';
+import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
@@ -125,7 +126,9 @@ import {
 } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath, nearestOnPath, HEAD_GAP } from '../src/game/routeline.js';
-import { findRoute, findRouteVia, MAX_VIA_DETOUR, allIntersections } from '../src/game/route.js';
+import {
+  findRoute, findRouteVia, findRouteOnto, MAX_VIA_DETOUR, allIntersections,
+} from '../src/game/route.js';
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
 import { nearestJunction, nextIntersection } from '../src/city/grid.js';
 import { DIR, laneOffsetCoord } from '../src/city/grid.js';
@@ -11020,7 +11023,7 @@ let chopperOrder; // likewise
     check('...never more than the lane holds, and never nose to tail inside it',
       peak <= 3 && tooClose === 0 && strayed === 0,
       `peak ${peak}, ${tooClose} overlaps, ${strayed} off-path`);
-    check('...the player’s own taxi is never one of them', tookTaxi === 0);
+    check('...and the player’s own taxi is never swept in with them', tookTaxi === 0);
     check('...and a car in the lot is out of the traffic model the whole time it is in there',
       notStaged === 0, `${notStaged} frames with a lot car still on a lane`);
     // The handover, checked against the cars that actually took it rather than against a staged
@@ -11041,6 +11044,205 @@ let chopperOrder; // likewise
       filled.length === 3 && filled.every((e) => e.car.staged
         && Math.abs(e.car.x - site.path.at(e.s).x) < 1e-9),
       `${filled.length} cars, front one at the window`);
+  }
+
+  // --- Every way in is a way in *down the mouth's own lane*.
+  //
+  // `findRouteOnto` is the router the tap uses, and the property it exists for is one a junction
+  // router cannot state: the last leg of the route is the lane the driveway opens off. Swept over
+  // every junction in the city and all four headings, walked step by step rather than trusted —
+  // "the last direction is −X" is necessary and not sufficient, since a route that ends −X into the
+  // *wrong* junction reads identically. Which is exactly how the `findRouteVia` version failed.
+  {
+    const { d: mouthD, i: mouthI, j: mouthJ } = site.approach;
+    const walk = (from, route) => {
+      let at = { i: from.i, j: from.j };
+      for (const step of route) {
+        at = {
+          i: at.i + (step === DIR.PX ? 1 : step === DIR.NX ? -1 : 0),
+          j: at.j + (step === DIR.PZ ? 1 : step === DIR.NZ ? -1 : 0),
+        };
+      }
+      return at;
+    };
+
+    let asked = 0;
+    let missing = 0;
+    let wrongEnd = 0;
+    let wrongSide = 0;
+    let empty = 0;
+    let longest = 0;
+    for (const start of allIntersections()) {
+      for (const d of [DIR.PX, DIR.PZ, DIR.NX, DIR.NZ]) {
+        const from = { i: start.i, j: start.j, d };
+        const route = findRouteOnto(from, { i: mouthI, j: mouthJ }, mouthD);
+        asked += 1;
+        if (route === null) { missing += 1; continue; }
+        if (!route.length) { empty += 1; continue; }
+        const end = walk(from, route);
+        if (end.i !== mouthI || end.j !== mouthJ) wrongEnd += 1;
+        if (route[route.length - 1] !== mouthD) wrongSide += 1;
+        longest = Math.max(longest, route.length);
+      }
+    }
+    check('every route to the drive-through ends on the lane its driveway opens off',
+      missing === 0 && wrongEnd === 0 && wrongSide === 0 && empty === 0,
+      `${asked} starts swept, ${missing} unroutable, ${wrongEnd} at the wrong junction, `
+      + `${wrongSide} from the wrong side, longest ${longest} legs`);
+
+    // ...including from the lane itself, which is the case with an answer nobody would guess: a taxi
+    // that has just gone past the driveway is *on* the lane it needs, and the shortest way back onto
+    // it is a lap of the block. An empty route would be the router agreeing it is already there.
+    const lap = findRouteOnto({ i: mouthI, j: mouthJ, d: mouthD }, { i: mouthI, j: mouthJ }, mouthD);
+    check('...and a taxi that has just driven past it is sent round the block for another pass',
+      lap !== null && lap.length > 0 && lap[lap.length - 1] === mouthD,
+      lap ? `${lap.length} legs` : 'unroutable');
+  }
+
+  // --- ...and the player's taxi goes through it when it is *sent*.
+  //
+  // The secret (game/burgerrun.js): a tap on the joint routes the taxi in for a splash of boost. It
+  // is the same lot loop the cars above run, so what is new — and what nothing but a run can answer —
+  // is the half either side of it:
+  //
+  //   1. **the route reaches the mouth.** A drive-through has one way in: the kerbside −X lane of the
+  //      road along the block's +Z edge. The plan is `findRouteVia` through the junction that lane
+  //      leaves, and if that ever stops landing the taxi *on* that lane the trip silently becomes a
+  //      drive past a building.
+  //   2. **the lot is held.** From the tap until the taxi is back on the road no ambient car may be
+  //      taken, or a player can arrive at a full lot they watched fill up.
+  //   3. **the job comes back.** The detour interrupts whatever the taxi was doing, and the taxi has
+  //      to be driving it again on the way out — with the reward paid exactly once on the way.
+  //
+  // Five trips, taken from wherever the previous one left the car, so the plan is asked the awkward
+  // questions on its own: from the far side of the city, from the joint's own street, and — after the
+  // first visit — from the exit lane one junction from the mouth it just came out of.
+  {
+    const runScene = new THREE.Scene();
+    const runTraffic = createTraffic(makeRng(seed + 44), runScene, 12);
+    runTraffic.warmup(10);
+    const runLot = createDriveThru({ site, cars: runTraffic.cars, rng: makeRng(seed + 311) });
+    const taxi = runTraffic.taxi;
+
+    // main.js's own `routeTo`, less the parts that only matter to a drawn game.
+    const routeTo = (target, { via = null, maxDetour, onto = null } = {}) => {
+      const route = onto !== null
+        ? findRouteOnto(planOrigin(taxi), target, onto)
+        : via
+          ? findRouteVia(planOrigin(taxi), via, target, { maxDetour })
+          : findRoute(planOrigin(taxi), target);
+      if (!route) return false;
+      taxi.route = route;
+      taxi.routeConsumed = false;
+      taxi.pendingTarget = target;
+      taxi.parked = false;
+      return true;
+    };
+
+    let paid = 0;
+    let finished = 0;
+    let restored = 0;
+    const run = createBurgerRun({
+      site,
+      lot: runLot,
+      taxi,
+      routeTo,
+      onServed: () => { paid += 1; },
+      // What main.js does with a handed-back job, minus the board it checks it against.
+      onFinish: (handBack) => {
+        finished += 1;
+        if (handBack && routeTo(handBack)) restored += 1;
+      },
+    });
+
+    const S = 1 / 60;
+    const step = (seconds) => {
+      for (let n = 0; n < Math.round(seconds / S); n++) {
+        runLot.update(S);
+        run.update(S);
+        runTraffic.update(S);
+      }
+    };
+
+    // Somewhere to be when the tap lands. Four corners of the map and the joint's own doorstep, so
+    // the last trip is planned from a car that is already on the lane it has to come back down.
+    const jobs = [
+      { i: 0, j: 0 }, { i: GRID, j: GRID }, { i: 0, j: GRID },
+      { i: site.approach.i, j: site.approach.j }, { i: GRID, j: 0 },
+    ];
+
+    let refused = 0;
+    let trips = 0;
+    let neverEntered = 0;
+    let intruders = 0;
+    let badLanding = 0;
+    let stillStaged = 0;
+    let notHandedBack = 0;
+    let overpaid = 0;
+    let slowest = 0;
+
+    for (const job of jobs) {
+      routeTo(job);
+      step(2);                        // driving it for a beat, so the tap interrupts something
+      const before = paid;
+      if (!run.send()) { refused += 1; continue; }
+      trips += 1;
+
+      let clock = 0;
+      let entered = false;
+      let landed = null;
+      let inLot = new Set(runLot.state.queue.map((e) => e.car));
+      while (run.active() && clock < 150) {
+        runLot.update(S);
+        run.update(S);
+
+        const now = new Set(runLot.state.queue.map((e) => e.car));
+        for (const car of now) {
+          if (inLot.has(car)) continue;
+          if (car === taxi) entered = true;
+          else intruders += 1;         // the lot was supposed to be held
+        }
+        // The one frame a released car can be checked on: `traffic.update` has not composed its
+        // transform yet, so what it *is* right now is a lane and a distance along it.
+        if (inLot.has(taxi) && !now.has(taxi)) landed = taxi.lane?.path.at(taxi.s) ?? null;
+        inLot = now;
+
+        runTraffic.update(S);
+        clock += S;
+      }
+      slowest = Math.max(slowest, clock);
+
+      if (!entered) neverEntered += 1;
+      if (!landed || Math.hypot(landed.x - site.merge.point.x, landed.z - site.merge.point.z) > 1e-9) {
+        badLanding += 1;
+      }
+      if (taxi.staged) stillStaged += 1;
+      if (taxi.pendingTarget !== job) notHandedBack += 1;
+      if (paid !== before + 1) overpaid += 1;
+    }
+
+    check('a tap on the joint takes the taxi through the drive-through',
+      refused === 0 && trips === jobs.length && neverEntered === 0,
+      `${trips - neverEntered}/${jobs.length} trips reached the lane, ${refused} refused, `
+      + `slowest ${slowest.toFixed(1)}s`);
+    check('...and the lot is held for it: nobody else pulls in while it is on its way',
+      intruders === 0, `${intruders} cars took a place that was being held`);
+    check('...it comes back out onto the merge lane, to the bit, back in the traffic model',
+      badLanding === 0 && stillStaged === 0 && finished === trips,
+      `${badLanding} bad landings, ${stillStaged} left staged, ${finished} trips ended`);
+    check('...the burger is paid for exactly once per visit',
+      overpaid === 0 && paid === trips, `${paid} rewards over ${trips} visits`);
+    check('...and the job the detour interrupted is put back under the car on the way out',
+      notHandedBack === 0 && restored === trips,
+      `${restored}/${trips} routes restored`);
+
+    // And the lot goes back to being a drive-through. A reservation that leaked would show up here
+    // and nowhere else: the queue would simply never take another car for the rest of the run.
+    const servedBefore = runLot.state.served();
+    step(300);
+    check('...and ambient cars pull in again once the taxi has gone',
+      runLot.state.served() > servedBefore,
+      `${runLot.state.served() - servedBefore} served in the five minutes after`);
   }
 
   // --- Can the camera see the lane?

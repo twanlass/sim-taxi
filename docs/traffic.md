@@ -1628,7 +1628,38 @@ it late, and never sees a queue standing out into the road.
 
 **Cars only.** A box truck at a drive-through is a good joke and a bad fit: it is 5.6 long against a
 2-unit turn radius, and it would ride the kerb through both arcs. The player's own taxi is never
-taken either — it has somewhere to be.
+swept in with them either — the roll above skips it outright. It can be *sent*, which is the next
+section.
+
+### The player's own visit
+
+Tapping the joint sends the taxi through it for a splash of boost — the rules of the trip, what it
+costs and what it pays are [gameplay.md](gameplay.md#the-burger-run), and the module that owns the
+route is `game/burgerrun.js`. What belongs here is the part that happens inside the lot, and the
+short version is that **there is no part**: from the driveway to the kerb on the way out the taxi is
+an entry in the same queue as everybody else, taking the same limits, the same two kerb shoves and
+the same gap check before it pulls out. A second lot loop written for one car is a second lot loop to
+keep true.
+
+Three things the invitation changes, all of them at the mouth:
+
+- **The lot is held.** From the tap until the taxi is back on the road no ambient car is taken, so
+  the queue in front of it drains rather than growing while it drives over. Without that the player
+  can be turned away by three cars that pulled in during the ten seconds the trip took — a refusal
+  they could not see coming and did nothing to earn. It is also the one thing that could quietly
+  kill the drive-through for a whole run if it leaked, which is why `tools/probe.mjs` checks that
+  ambient cars pull in again afterwards.
+- **There is no roll.** `ENTER_CHANCE` and `FED_COOLDOWN` are how ambient traffic decides; the tap
+  is the decision, and the taxi is not put on the cooldown on the way out either. Doing laps of a
+  restaurant is a choice the player is paying a fare's clock for.
+- **It eats faster.** 0.6s at the board and 1.0s at the window, against 2.6 and 3.8 plus jitter. An
+  ambient car's dwell is scenery and has to *read* from across the city; the player's is a clock
+  they are paying. 1.6s of standing still out of the **8.0s** the lot takes end to end — measured
+  mouth to kerb with the lane empty — is enough to make the visit read as a visit, and short enough
+  that it is not what the detour costs. What the detour costs is the driving either side of it.
+
+A wreck in the lot — the run ending while the player is at the window — stops where it is, and the
+queue behind it holds, because each car's limit comes from its leader's position.
 
 ## Police priority corridor
 

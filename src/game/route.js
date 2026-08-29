@@ -116,20 +116,15 @@ function startExits(net, origin, inDir) {
 }
 
 /**
- * @param from  {{i, j, d}} the intersection the car is heading toward, and its current heading
- * @param target {{i, j}}   intersection to reach
- * @param cost   optional (lane) -> number, overriding the built-in road-hierarchy weights.
- *               Only tools/router-sweep.mjs uses this, to compare tunings.
- * @returns array of directions to take at each successive intersection, or null if unreachable.
- *          An empty array means the car is already heading to the target.
+ * Dijkstra from `from` until `reached(lane)` says the search has arrived, as a list of directions.
+ *
+ * Split out of `findRoute` for `findRouteOnto` below: the two searches differ in nothing but that
+ * predicate — one stops at a *junction*, the other on a particular lane into it — and a second copy
+ * of the open-set loop would be a second place for the road hierarchy's weights to drift.
  */
-export function findRoute(from, target, cost = laneCost) {
-  if (from.i === target.i && from.j === target.j) return [];
-
-  const net = cityNetwork();
+function search(net, from, reached, cost) {
   const origin = net.nodeByGrid(from.i, from.j);
-  const targetId = gridNodeId(target.i, target.j);
-  if (!origin || !net.nodeById.has(targetId)) return null;
+  if (!origin) return null;
 
   // The search starts *at* the origin junction rather than on a lane, so a car arriving from
   // off-map — a state the probe asks about and the game never reaches — still has somewhere to
@@ -147,7 +142,7 @@ export function findRoute(from, target, cost = laneCost) {
     }
     open.delete(cur);
 
-    if (cur !== START && cur.to === targetId) {
+    if (cur !== START && reached(cur)) {
       const out = [];
       for (let lane = cur; lane !== START; lane = prev.get(lane)) out.unshift(net.dirOfLane(lane));
       return out;
@@ -164,6 +159,54 @@ export function findRoute(from, target, cost = laneCost) {
   }
 
   return null;
+}
+
+/**
+ * @param from  {{i, j, d}} the intersection the car is heading toward, and its current heading
+ * @param target {{i, j}}   intersection to reach
+ * @param cost   optional (lane) -> number, overriding the built-in road-hierarchy weights.
+ *               Only tools/router-sweep.mjs uses this, to compare tunings.
+ * @returns array of directions to take at each successive intersection, or null if unreachable.
+ *          An empty array means the car is already heading to the target.
+ */
+export function findRoute(from, target, cost = laneCost) {
+  if (from.i === target.i && from.j === target.j) return [];
+
+  const net = cityNetwork();
+  const targetId = gridNodeId(target.i, target.j);
+  if (!net.nodeById.has(targetId)) return null;
+
+  return search(net, from, (lane) => lane.to === targetId, cost);
+}
+
+/**
+ * The route that arrives at (i, j) **travelling `d`** — a route to a *lane* rather than to a
+ * junction.
+ *
+ * Every other router in this file answers "get me to that corner", which is the right question for
+ * a rider standing on one. It is the wrong question for anything that can only be reached from one
+ * side: the drive-through's mouth opens off one kerbside lane (game/burgerrun.js), and a route that
+ * arrives at the same junction down any of the other three drives straight past it.
+ *
+ * `findRouteVia` through the junction the lane leaves is the version that looks like it works and
+ * does not, which is worth writing down because it is the obvious first try. Its second leg is
+ * planned from the heading the first leg arrives on, and `legalExits` forbids U-turns — so a car
+ * that reaches that junction travelling *along* the target lane's road in the other direction
+ * cannot take the lane, and the router quietly answers with a three-leg lap that arrives at the
+ * right corner from the wrong side. Measured on the burger run: about one trip in five, and the
+ * failure is invisible from the outside because the taxi does exactly what a taxi does, just not the
+ * thing that was asked for.
+ *
+ * **No empty route.** A car already on this lane still gets a way back onto it — the shortest one,
+ * which is a lap of the block — because "I am already on it" and "the thing I wanted on it is
+ * behind me" are the same state from here and only the caller can tell them apart.
+ */
+export function findRouteOnto(from, target, d, cost = laneCost) {
+  const net = cityNetwork();
+  const goal = net.laneByGrid(d, target.i, target.j);
+  if (!goal) return null;
+
+  return search(net, from, (lane) => lane === goal, cost);
 }
 
 // --- Routing through a waypoint ---------------------------------------------
@@ -187,6 +230,11 @@ export const MAX_VIA_DETOUR = 6;
  * the heading is carried across the join rather than guessed, because `legalExits` forbids
  * U-turns and the second leg planned from the wrong heading is a route the car cannot drive.
  *
+ * `onto` makes the destination a lane rather than a junction, for both legs of the comparison — see
+ * `findRouteOnto`. It is what lets the route band be dragged during a burger run: without it a
+ * dragged waypoint re-plans to the mouth's junction and quietly drops the one thing that made the
+ * route a drive-through visit rather than a drive past one.
+ *
  * Null covers three different refusals and the caller wants the same thing for all of them —
  * keep the route it already had:
  *
@@ -194,8 +242,10 @@ export const MAX_VIA_DETOUR = 6;
  *   - the detour blows `maxDetour`,
  *   - the direct route itself is unroutable, which a shipped city never is.
  */
-export function findRouteVia(from, via, target, { maxDetour = MAX_VIA_DETOUR } = {}) {
-  const direct = findRoute(from, target);
+export function findRouteVia(from, via, target, { maxDetour = MAX_VIA_DETOUR, onto = null } = {}) {
+  const arrive = (at) => (onto !== null ? findRouteOnto(at, target, onto) : findRoute(at, target));
+
+  const direct = arrive(from);
   if (direct === null) return null;
 
   const toVia = findRoute(from, via);
@@ -204,7 +254,7 @@ export function findRouteVia(from, via, target, { maxDetour = MAX_VIA_DETOUR } =
   // arrive on is the one it has now.
   const atVia = { i: via.i, j: via.j, d: toVia.length ? toVia[toVia.length - 1] : from.d };
 
-  const onward = findRoute(atVia, target);
+  const onward = arrive(atVia);
   if (onward === null) return null;
 
   const route = [...toVia, ...onward];

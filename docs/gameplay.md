@@ -794,6 +794,29 @@ The route it hands back is still a list of grid directions, because `traffic.js`
 `car.d` and drives `(i, j)` to `(i, j)`. That conversion (`laneDir`) is the one piece of `route.js`
 that only works while the city is a grid, and it comes out when the sim drives lanes directly.
 
+### Routing to a lane
+
+`findRoute` answers "get me to that corner", which is the right question for a rider standing on
+one and the wrong one for anything reachable from a single side. The drive-through's mouth is the
+case: it opens off one kerbside lane, and three of the four ways to its junction drive past it.
+
+`findRouteOnto(from, target, d)` is the same Dijkstra with one line changed — it stops on a
+particular **lane** into the junction rather than on the junction — so the two share the search and
+cannot drift apart in their weights. Two things about it are worth knowing before reaching for it:
+it never returns an empty route (a car already on that lane is given the shortest way back onto it,
+which is a lap of the block, because "I am on it" and "the thing I wanted on it is behind me" are
+the same state from inside the router), and `findRouteVia` takes it as an option, so a route band
+dragged during a burger run keeps the constraint that made the trip a drive-through visit.
+
+The version that does *not* work is worth writing down, because it is the obvious first try:
+routing `via` the junction the lane leaves. `findRouteVia` plans its second leg from the heading the
+first leg arrives on, and `legalExits` forbids U-turns — so a car that reaches that junction
+travelling along the same road the other way cannot take the lane, and the router quietly answers
+with a three-leg lap that arrives at the right corner from the wrong side. Measured on the burger
+run at about one trip in five, and invisible from outside: the taxi drives a perfectly good route,
+just not to the thing that was asked for. `tools/probe.mjs` now sweeps all 144 (junction, heading)
+starts and walks each route to its end.
+
 ### Road-hierarchy weights
 
 Edges are not equal cost. The signal model was tuned around a coordinated green wave on two
@@ -1835,9 +1858,10 @@ decision is now *how long* to press as well as *when*. The button doubles as the
 CSS variable tracks the fuel level, dropping as you drain and climbing as a drop-off pours fuel in.
 
 **The meter never refills on its own.** The run opens with **a third of a tank**, each successful
-drop-off pours in **another third**, and a [delivered package](#the-rest-of-it) pours in **a
-sixth** — that is the whole list of sources, and all three are jobs done. Spend it all and the pill
-goes grey and dead (`.is-empty`, `disabled`) until you deliver something. A top-up that lands while
+drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a sixth**, and
+a [burger run](#the-burger-run) pours in **15%** — that is the whole list of sources, and the first
+three are jobs done. Spend it all and the pill goes grey and dead (`.is-empty`, `disabled`) until you
+deliver something, or go and buy a burger. A top-up that lands while
 you're still holding the button rolls straight back into boost rather than making you press again.
 
 Both ways out of a boost — letting go, and running the tank dry — pass through the one-second
@@ -2038,6 +2062,49 @@ The **hold** has its own effect, and it is a different object: a flat stylized f
 of the tailpipe for exactly as long as the button is down (`game/locoflame.js`, and see
 [rendering.md](rendering.md#the-tailpipe-plume--gamelocoflamejs)). The burst is the bark on the
 press; this is what says the mode is *still on*, which nothing but the draining pill said before.
+
+## The burger run
+
+**Tap the burger joint.** The taxi drives itself round to the drive-through, crawls the lane, stops
+at the menu board and again at the pickup window, and comes back out onto the road with **15% of a
+tank** of boost — 2.25 seconds of it, the smallest top-up in the game and the only one that was not
+paid for a job.
+
+It is a secret rather than a mechanic, and everything about it is sized to keep it one. Nothing on
+screen advertises it, nothing in the tutorial mentions it, and the reward is small enough that a
+player who finds it has found a treat rather than a strategy. What it costs is **time on whatever
+clock is already running**: the rider in the back keeps counting down the whole way there, through
+both windows and back out again. Measured tap to kerb, the trip is **12s** when the taxi is already
+coming down the joint's own street, **28s** for a lap of the block, and **38s** from the far side of
+the city — against 2.25s of boost. So it is a bad trade taken on purpose and a good one when the
+taxi was going that way anyway, which is the whole of the decision on offer.
+
+Nothing refuses the tap. A rider in the back does not refuse it, a full tank does not refuse it, and
+no clock is consulted first — the same rule [a package detour](#what-the-detour-actually-costs)
+follows, for the same reason: it is the player's call, and the band redraws through the joint on the
+same frame so the cost is visible before a wheel has turned. Tapping a rider, tapping a package, or picking a rider off a
+finder chip all take the wheel back, and the burger is off — silently, because the player has just
+said what they want instead.
+
+**The destination is a lane, not a junction.** The lot can only take a car off one kerbside lane —
+the one running −X along the block's +Z edge — so a route planned to the junction at either end of
+it arrives from whichever side is cheapest and drives straight past the thing the player asked for.
+`findRouteOnto` (`game/route.js`) is a router that takes a lane instead of a corner, and it is the
+whole of what makes the tap land. The obvious version — route *via* the junction the lane leaves —
+looks right and fails about one trip in five, because the second leg is planned from the heading the
+first one arrives on and a U-turn is not a legal exit: the router answers with a three-leg lap that
+reaches the right corner from the wrong side. See
+[the drive-through](traffic.md#the-players-own-visit) for what happens once the taxi is in the lot,
+and `game/burgerrun.js` for the trip.
+
+Two consequences worth knowing:
+
+- **A taxi that has just gone past the driveway is sent round the block.** There is one way into a
+  drive-through, and the pass is spent. It is the honest answer rather than a punishment — but it is
+  a lap of a block, so tapping the joint as the taxi passes it is the expensive way to do this.
+- **Loco Mode is dead while the taxi is in the lot.** A pill leaned on at a pickup window would pour
+  the tank into a car that cannot move — fifteen seconds of it if the queue in front is two cars
+  deep — so the press is refused and a held one is released for as long as the visit lasts.
 
 ## The brake
 
