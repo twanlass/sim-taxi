@@ -300,17 +300,6 @@ export function createGarage(block, rng) {
   const light = new THREE.Mesh(lightGeo, unlitMaterial({ vertexColors: true }));
   light.name = 'garage-light';
 
-  // Its halo — three of them, because the strip is 3.8 units long and one disc over the middle of
-  // it reads as a bulb rather than as a tube. Handed back for `main.js` to emit, the way the burger
-  // joint's windows are: a glow lane is claimed once and held, and this module gets built by tools.
-  //
-  // No standoff on a fixed light, which is what makes this one right for free: the strip hangs
-  // 1.3 units back inside the bay, so the shutter occludes it while it is down and the glow comes
-  // out of the opening as the door winds up. See GLOW_STANDOFF in geometry/glow.js.
-  const lamps = [-1.2, 0, 1.2].map((dz) => ({
-    x: curtainX - 1.3, y: head - 0.14, z: doorZ + dz, r: 1.3, color: color('garageLight'),
-  }));
-
   const group = new THREE.Group();
   group.add(shell, curtain, light);
 
@@ -337,7 +326,7 @@ export function createGarage(block, rng) {
     // construction stays valid and there is nothing to refresh.
   }
 
-  return { site, group, shell, curtain, light, lamps, meshes: [shell, curtain], setDoor,
+  return { site, group, shell, curtain, light, meshes: [shell, curtain], setDoor,
     entrySite: { x: anchorX, z: anchorZ, r: Math.max(frontX - bx0, bz1 - bz0) / 2, rand } };
 }
 

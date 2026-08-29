@@ -392,26 +392,6 @@ export function getCartoon(fallback = false) {
 }
 
 /**
- * The bokeh glow over every emissive thing in the game, via `?glow=off`.
- *
- * **On by default**, unlike `?crayon` and `?cartoon` beside it, because it is not a look being
- * judged — it is one additive quad per lit lamp, in one draw call, and the lights it sits on are
- * already part of the shipped picture. The flag is here to take it away: a like-for-like A/B on a
- * real device, and one more thing to bisect when a phone renders nothing (see `?safe`).
- *
- * A flag rather than a live toggle for the ordinary reason — with it off there is no mesh, no
- * material and no program, and the emitters dotted through `sim/` compile down to a branch on a
- * frozen boolean. Every *number* in it is live in the ⚙️ panel. It does not follow safe mode: the
- * pass is cheaper than the AO prepass safe mode is actually there to drop.
- */
-export function getGlow(fallback = true) {
-  const params = new URLSearchParams(window.location.search);
-  const raw = params.get('glow');
-  if (raw === null) return fallback;
-  return !isOff(raw);
-}
-
-/**
  * Multisampling, via `?msaa=off`.
  *
  * Not the same request as the stencil buffer, even though the two ride in the same back buffer:

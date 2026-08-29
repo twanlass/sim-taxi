@@ -47,7 +47,7 @@ import {
   TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT, TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK,
   TAXI_FRONT_AXLE_FWD, TAXI_FRONT_TRACK,
 } from './geometry/taxi.js';
-import { createDaylight, DAY_SECONDS, MIN_ELEVATION } from './game/daylight.js';
+import { createDaylight, DAY_SECONDS } from './game/daylight.js';
 import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
 import { createTaxiFinder } from './game/taxifinder.js';
@@ -59,7 +59,6 @@ import { createFarePointers } from './game/farepointers.js';
 import { createSirenGlow } from './game/sirenglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
-import { setGlow, glowField } from './geometry/glow.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
 import { setAmbientOcclusion, setCrayon, setCartoon } from './util/geo.js';
@@ -70,7 +69,7 @@ import { findRoute, findRouteVia, findRouteOnto, planOrigin } from './game/route
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getGlow } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { setCityOccluders } from './game/sightline.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
@@ -142,7 +141,6 @@ const budget = {
   ao: getAmbientOcclusion(),
   crayon: getCrayon(),
   cartoon: getCartoon(),
-  glow: getGlow(),
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -179,13 +177,6 @@ setCrayon(crayonEnabled);
 // into the same materials, so it is decided in the same breath and for the same reason.
 const cartoonEnabled = budget.cartoon;
 setCartoon(cartoonEnabled);
-// And the bokeh glow over every self-lit thing in the game — see geometry/glow.js. Decided here
-// with the other two because the emitters are dotted through `sim/` and read the flag through a
-// singleton, so it has to be settled before anything that emits into it is constructed. Unlike
-// those two it is *on* by default, and it compiles nothing into the city's materials: the halos
-// are one instanced mesh of their own.
-setGlow(budget.glow);
-const glow = glowField();
 // `edges` is why the pass takes two flags: the line is traced out of this depth buffer, and
 // Android's `?safe` default would otherwise have turned it off on the platform most likely to be
 // asked for a drawn look.
@@ -204,10 +195,6 @@ const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shado
 // The page, over the city and under every read-out — an ordinary object in the main scene at
 // `renderOrder` 1, not a post pass. See `game/crayon.js`; null when the flag is off.
 if (crayon.overlay) scene.add(crayon.overlay);
-
-// Every halo in the game, in one instanced mesh. Added once here; what is *in* it each frame is
-// written by whatever is lit — see geometry/glow.js. Null under `?glow=off`.
-if (glow.mesh) scene.add(glow.mesh);
 
 // A GPU that takes the context away gets the budget turned down rather than the player getting a
 // black screen for the rest of the run — see `game/recovery.js` for the two steps and why the
@@ -299,49 +286,6 @@ if (burger) {
   // mass is the one version that can never cover a marker the player can see past it.
   burger.group.userData.pickable = 'burger';
 }
-
-// The city's own lights — the drive-through's lit windows and menu board, and the depot's strip
-// light in the bay. Each module hands its anchors back rather than claiming a glow lane itself,
-// because a lane is claimed once and held and both of those modules get built by tools as well;
-// `main.js` builds exactly one of each, which is what makes this the right place for it. It is also
-// the only place that can ride them all up and down the daylight curve together. See
-// geometry/glow.js.
-const cityLamps = [...(burger?.lamps ?? []), ...(garage?.lamps ?? [])];
-const lampLane = glow.lane(cityLamps.length);
-
-// How far the sun has to drop before they are at full strength, in degrees of elevation. Neon that
-// burns as hard at noon as at midnight is a decal, and `elevationAt` bottoms out at MIN_ELEVATION
-// (6°) rather than going negative — so the band is measured from there rather than from the
-// horizon. 40 is a little after the golden hour the game is parked at, which puts the shipped
-// default around two thirds lit: visibly on, and still plainly daytime.
-const LAMP_DUSK = 40;
-// ...and what is left of them at noon. Not zero: these are lights inside rooms, and a lit window
-// reads as lit at any hour — it is the *halo* around it that has to give way to the sun.
-const LAMP_DAY = 0.45;
-
-/**
- * Ride the daylight curve. Called from the frame loop, beside the sky it belongs to — and once
- * here, because a screenshot never runs the loop and a dark shopfront in every shot ever taken is
- * the trap the ground discs' `settle()` exists for.
- *
- * Re-emitted rather than written once and left, so these lights are framed exactly the way the
- * fleet's and the cruiser's are: one lane, rewound by whoever fills it. See geometry/glow.js.
- */
-function litWindows() {
-  if (!cityLamps.length) return;
-  const dusk = 1 - THREE.MathUtils.clamp(
-    (daylight.elevation() - MIN_ELEVATION) / (LAMP_DUSK - MIN_ELEVATION), 0, 1,
-  );
-  const level = LAMP_DAY + (1 - LAMP_DAY) * dusk;
-  lampLane.begin();
-  // No standoff: a light fixed to a building is mounted on the surface that ought to occlude it,
-  // which is what keeps the depot's bay dark behind a shut door. See GLOW_STANDOFF.
-  for (const lamp of cityLamps) {
-    lampLane.add(lamp.x, lamp.y, lamp.z, lamp.r, lamp.color, level, 0);
-  }
-  lampLane.end();
-}
-litWindows();
 
 // Which kerb corners this camera can see, settled once now that everything permanent is standing.
 // The board consults it when it places a marker — a rider, a drop-off ring or a courier pad on a
@@ -2404,9 +2348,6 @@ function frame() {
   burger?.update(dt, SIGN_SPIN);
   controller.updateShake(dt, aspect());
   daylight.update(dt);
-  // After it, not before: the shopfronts' halos are a read of the sky this frame, and a frame
-  // behind is a neon that lags the sunset by one.
-  litWindows();
 
   // The two halves of the ramp that live in `sim/`. They are pushed rather than pulled because
   // `sim/` must not import from `game/` — the same reason `traffic.taxi.boost` is written here
@@ -3201,7 +3142,6 @@ if (!shot && wantsDebugPanel) {
     ao,
     crayon,
     cartoon,
-    glow,
     scores: { load: loadScores, clear: clearScores },
     clouds,
     // The entrance levers. The panel's replay re-aims the wave at wherever the taxi is *now* —
@@ -3236,12 +3176,6 @@ window.__taxi = {
    */
   crayon,
   cartoon,
-  /**
-   * The bokeh glow field — `{ state, set }` like the two look modes above, plus the `mesh` itself
-   * so a browser test can count what actually got emitted. An inert stub under `?glow=off`.
-   * See GLOW_DEFAULTS in geometry/glow.js for what each number means.
-   */
-  glow,
   tutorial,
   carGhosts,
   skids,
