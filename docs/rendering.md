@@ -1151,6 +1151,123 @@ only distinction being made.
 - **The bands are subtle at the shipped `steps` of 3**, since golden hour already puts most of a
   facade in one band. It is a slider for exactly that reason.
 
+## Bloom — `game/bloom.js`, and the comparison in `game/hdr.js`
+
+Spill around every self-lit thing in the game: brake pods and indicators on every vehicle, a
+cruiser's light bar, the drive-through's lit windows and menu board, the depot's strip light. On by
+default; `?bloom=off` takes it away, and the ⚙️ panel has both of its numbers live.
+
+### There is no HDR in this game to threshold
+
+The obvious bloom is a bright-pass over the finished frame. Measured on a shipped frame at golden
+hour, here is what a threshold would actually have to work with:
+
+| | max channel |
+|---|---|
+| Sunlit building faces, kerbs, road paint | ~180–200 |
+| The drive-through's lit windows | 255 |
+| The fare ring, the route band, the taxi's roof sign | 250–255 |
+
+Two things fall out of that. The first is that **the read-outs are exactly as bright as the lamps** —
+a fare's ring is a clock and its hue is the time remaining ([gameplay.md](gameplay.md)), and a
+threshold cannot tell it from a brake light. The second is that there is no headroom at all:
+`renderer.toneMapping` is `NoToneMapping` and a white face in full sun computes to about 0.9 in
+linear (sun intensity 3.55 through Lambert's `1/π`), so the whole picture lives inside 0..1 and only
+0.08% of pixels ever reach 254. There is nothing above the frame to extract.
+
+And it moves. `game/daylight.js` swings `sun.intensity` from 0 to 3.84 across a day, so every
+surface in that first row walks up and down under whatever threshold was picked.
+
+### So selection is a draw list, not a number
+
+`markEmissive()`, opt-in, exactly the shape [`markOccluder()`](#the-occluder-rule) already has for
+the AO prepass. A mesh is in the bloom because something said so.
+
+That is also what makes it cheap, and the reason is a happy accident of how the lamps were already
+built: **every emissive thing in this game is already its own mesh.** The light pods have to be, so
+they can be switched by scale (`instanceColor` is paint and cannot carry an on/off — see
+[traffic.md](traffic.md)); the lamps have to be, so they can be unlit. So the pass is a dozen draw
+calls with no material surgery anywhere, and the instanced pods need no per-frame bookkeeping at
+all — a pod that is off has already had its instance matrix collapsed to a zero scale, and a
+degenerate triangle rasterises nothing whatever material it is wearing.
+
+Marking happens in `main.js`, because `sim/` may not import from `game/` and the two vehicle modules
+own most of the lamps; each hands its light meshes back the way the AO occluders are handed back.
+
+### The pass
+
+1. **The lamps into a half-res half-float target.** One `MeshBasicMaterial` per marked mesh, built
+   from the mesh's own: an `unlitMaterial()`'s colour *is* the light (flat or per-vertex), and a
+   Lambert's `emissive × emissiveIntensity` is what it actually adds. Times an intensity from
+   `BLOOM_INTENSITY` — **this is the entire HDR pipeline.** `THREE.Color` does not clamp and
+   `diffuse` is a plain `vec3`, so a value over 1 survives to the target untouched.
+2. **Reject what the world is standing in front of.** A patch on each material discards against
+   `game/ssao.js`'s packed depth — the solid world, already drawn, at exactly this resolution.
+   Sharing it is why the bloom needs no prepass of its own; the price is a `depth` flag on the AO
+   module so the prepass runs when only the bloom wants it.
+3. **Three downsamples and three tent upsamples**, each adding into the level above.
+4. **Composite additively as one more object in the main scene**, at `renderOrder` 0 — the same
+   trick [the crayon page](#the-page--one-tile-baked-in-code) uses, hoisted out of a render target
+   and into the transparent queue. **This is the whole reason the frame keeps its MSAA and the
+   ghost outlines keep their stencil.**
+
+The intensities are per *kind* of lamp because spill is a total rather than a peak: a brake pod is
+four pixels and a menu board forty times that, so equal intensities put a wash over the
+drive-through and a hint on a car.
+
+### Two numbers that were wrong first
+
+**Summing the chain at equal weight is a fog, not a glow.** A box downsample preserves the *average*
+of what it reads, so every level carries the same average as the one above it — and adding three of
+them lifts the whole frame by three times the mean brightness of the lamps. On screen that is a pink
+haze over the road around a police car rather than a light on its roof. `LEVEL_WEIGHT` brings each
+level in at a fraction of the one below, so the finest stays dominant and the widest is a tail. It
+is the same thing `UnrealBloomPass` spells as its `radius` lerp.
+
+**A lit panel wants a fraction of a pod's intensity.** At the pod's 3.4 the drive-through's two
+window panels washed out the entire building they are set into. 1.15 puts the same total spill into
+forty times the area.
+
+### What it costs
+
+Half-res emissive target plus a 1/4, 1/8, 1/16 chain: about **1.3MB** at DPR 2 on a phone, against
+the ~10.7MB an RGBA16F *frame* would cost. A dozen half-res draw calls and five small fullscreen
+blits. `EXT_color_buffer_half_float` is what makes the target renderable and a device without it
+falls back to RGBA8 — a bloom whose cores are flat rather than no bloom, and the ⚙️ panel says which
+one is running.
+
+### `?hdr` — the other route, for comparison
+
+`game/hdr.js` is the real thing: the whole frame through an `EffectComposer` at RGBA16F with
+`ACESFilmicToneMapping` on, `UnrealBloomPass`, and an `OutputPass`. It takes `?bloom`'s place rather
+than stacking with it. It is a **comparison, not a shipped mode**, and what it costs is the reason
+it exists:
+
+- **Tone mapping changes every colour in the game.** Everything in `palette.js`, the sky dome's
+  gradient, `hazeColor()`, the shadow tint and the golden-hour key were picked against a straight
+  clamp at 1. Side by side, the city comes out cooler and flatter — the warm khaki ground goes
+  grey-green and the shadows crush. Getting it back is a pass over the whole palette, not an
+  exposure slider. **That is the bill, and the bloom is the cheap part.**
+- **MSAA and the stencil buffer have to be bought back** as `samples` and `stencilBuffer` on the
+  composer's target: two full-size allocations and a resolve per frame, on a budget
+  [`game/recovery.js`](#losing-the-context--gamerecoveryjs) exists to climb down from.
+- **Crayon and Cartoon Mode cannot run with it.** Three disables in-material tone mapping *and* the
+  sRGB encode whenever the render target is not the screen — precisely so an `OutputPass` can do
+  both — and [both look modes deliberately mix their ink in display space](#the-fill--after-the-colour-space-before-the-haze),
+  after `<colorspace_fragment>`. The module declines the flag rather than drawing something wrong.
+- **And it demonstrates the threshold problem rather than solving it.** The lamps have to be pushed
+  above the threshold to bloom at all, and once the threshold is low enough to find them it finds
+  the route band too — which glows, visibly, in the `?hdr` frames.
+
+### What neither is doing yet
+
+- **The city's own windows and street lamps do not glow**, only the drive-through's and the depot's.
+  A building's windows are baked vertex colour on one merged mesh, so there is nowhere to hang a
+  per-window anchor without generating one at mesh time.
+- **Nothing glows harder for being in shadow**, where a real light reads far stronger.
+- **No lens dirt, no anamorphic streak, no chromatic separation** in the spill — it is radially
+  symmetric and colourless beyond the lamp's own hue.
+
 ## The renderer budget — `?safe` and friends
 
 Four things on this page cost GPU memory that a plain three.js scene doesn't, and each has a URL

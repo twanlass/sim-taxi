@@ -31,7 +31,7 @@ import { CRAYON_UNIFORMS } from '../util/geo.js';
 // the city and the sky — every opaque object, since the opaque queue is drawn first regardless —
 // and *nothing the player reads a number off*. A fare's ring is a clock and its hue is the time
 // remaining (`docs/gameplay.md`); a paper tint over it reports the wrong one.
-const PAPER_ORDER = 1;
+export const PAPER_ORDER = 1;
 
 // The tile, in texels. Sampled 1:1 against CSS pixels, so this is also how often it repeats across
 // the screen — 256 is about a fifth of a phone's width, far enough apart that the eye reads fibre

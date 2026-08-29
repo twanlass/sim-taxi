@@ -60,6 +60,11 @@ import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../src/ge
 import { createLocoFlame } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
+import {
+  markEmissive, unmarkEmissive, emissiveList, BLOOM_LAYER, BLOOM_ORDER, BLOOM_INTENSITY,
+  BLOOM_UNIFORMS,
+} from '../src/game/bloom.js';
+import { LIGHT_EMISSIVE } from '../src/geometry/lights.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
 import { createPicker } from '../src/game/pick.js';
 import { setCityOccluders, sightlineClear } from '../src/game/sightline.js';
@@ -95,7 +100,7 @@ import {
   AO_LAYER, markOccluder, unmarkOccluder, occluderList, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
   EDGE_LOW, EDGE_HIGH,
 } from '../src/game/ssao.js';
-import { bakePaper, PAPER_SIZE, CRAYON_DEFAULTS } from '../src/game/crayon.js';
+import { bakePaper, PAPER_SIZE, PAPER_ORDER, CRAYON_DEFAULTS } from '../src/game/crayon.js';
 import {
   outlineRoot, instancedOutline, createCartoon, clampRim, outlineGeometry,
   toonOutlineMaterial, HERO_RIM, TAXI_RIM,
@@ -8082,11 +8087,11 @@ check('the taxi is an ordinary car in the traffic array',
   // is skid marks 2, dust 3, the route band 4, the drag handle 5, flames 6, the fare rings 7-9 —
   // so a page drawn above any of those is a tint over a clock, and a fare's hue is the time it has
   // left.
-  const crayonSource = fs.readFileSync(new URL('../src/game/crayon.js', import.meta.url), 'utf8');
-  const order = Number(crayonSource.match(/const PAPER_ORDER = (\d+)/)?.[1]);
   check('the paper draws under every game read-out',
-    Number.isFinite(order) && order < 2,
-    `renderOrder ${order}, below skid marks at 2`);
+    PAPER_ORDER < 2,
+    `renderOrder ${PAPER_ORDER}, below skid marks at 2`);
+
+  const crayonSource = fs.readFileSync(new URL('../src/game/crayon.js', import.meta.url), 'utf8');
 
   // Screen-space, and sized in CSS pixels rather than device ones. `gl_FragCoord` is in device
   // pixels, so a tooth stated in texels halves on a DPR-2 phone and stops reading at all — the
@@ -11429,6 +11434,92 @@ let chopperOrder; // likewise
   // `setCityOccluders` is the same shape of module state one layer up. Put both back.
   createLayout(makeRng(seed));
   setCityOccluders(buildings.mesh, props);
+}
+
+// --- The emissive bloom --------------------------------------------------------
+//
+// `game/bloom.js`. Three things about it fail silently and none of them shows in a screenshot as
+// itself:
+//
+//   1. **What is in the draw list.** The whole argument for this pass over a bright-pass is that
+//      selection is explicit, so what it selects is the thing to assert. At golden hour a fare's
+//      timer ring is measured at exactly the same luminance as a brake light, and only one of them
+//      is a lamp.
+//   2. **The material each lamp is drawn with.** There are two kinds of self-lit thing in this
+//      game and the pass reproduces both off the mesh it is handed; get either wrong and the lamp
+//      blooms in the wrong colour, or at 1.0 with no headroom, which reads as "the bloom is weak".
+//   3. **The depth bias.** It exists because some lamps are AO occluders and would otherwise fail
+//      their own occlusion test — a fact about two draw lists that nothing local says.
+{
+  const blScene = new THREE.Scene();
+  const blTraffic = createTraffic(makeRng(seed + 44), blScene, 8);
+  const blPolice = createPolice(makeRng(seed + 66), blScene, blTraffic.cars);
+
+  const marked = [
+    ...blTraffic.emissiveMeshes.map((m) => [m, BLOOM_INTENSITY.pod]),
+    ...blPolice.emissiveMeshes.map((m) => [m, BLOOM_INTENSITY.siren]),
+  ];
+  marked.forEach(([mesh, intensity]) => markEmissive(mesh, intensity));
+
+  check('every vehicle lamp in the game is in the bloom',
+    emissiveList().size === marked.length,
+    `${emissiveList().size}: six instanced pod meshes, the taxi's three, and both halves of the bar`);
+  check('the bloom layer is its own',
+    BLOOM_LAYER !== AO_LAYER && BLOOM_LAYER !== 0,
+    `${BLOOM_LAYER} against the AO prepass's ${AO_LAYER}`);
+  check('the composite draws under the crayon page',
+    BLOOM_ORDER < PAPER_ORDER,
+    `${BLOOM_ORDER} against ${PAPER_ORDER} — spill is part of the picture, so the page washes over it`);
+
+  // --- The two kinds of lamp, each read off its own mesh.
+  //
+  // A pod is a Lambert whose *emissive* is the light (`emissive * emissiveIntensity`); a bar lamp
+  // is an unlit basic material whose *colour* is. Reading the wrong field off either gives a lamp
+  // that blooms black or blooms its paint.
+  const podMesh = blTraffic.emissiveMeshes[0];
+  const podBloom = podMesh.userData.bloomMaterial;
+  const podWant = podMesh.material.emissive.clone()
+    .multiplyScalar(podMesh.material.emissiveIntensity * BLOOM_INTENSITY.pod);
+  check("a pod's bloom colour is its emissive, not its albedo",
+    podBloom.color.getHexString() === podWant.getHexString(),
+    `${podBloom.color.getHexString()} at ${LIGHT_EMISSIVE} x ${BLOOM_INTENSITY.pod}`);
+
+  const barMesh = blPolice.emissiveMeshes[0];
+  const barWant = barMesh.material.color.clone().multiplyScalar(BLOOM_INTENSITY.siren);
+  check("a bar lamp's is its colour, which is what an unlit material means by light",
+    barMesh.userData.bloomMaterial.color.getHexString() === barWant.getHexString());
+
+  // The headroom itself: past 1 in at least one channel is the entire difference between a bloom
+  // with a shape and a blur of clipped pixels. `THREE.Color` does not clamp and `diffuse` is a
+  // plain vec3, so this survives all the way to the half-float target.
+  const hottest = Math.max(podBloom.color.r, podBloom.color.g, podBloom.color.b);
+  check('a lamp is written past 1, which is the whole of the HDR here',
+    hottest > 1.5, `brightest pod channel ${hottest.toFixed(2)}`);
+
+  check('every bloom material is unfogged and keyed',
+    [...emissiveList()].every((m) => m.userData.bloomMaterial.fog === false
+      && m.userData.bloomMaterial.customProgramCacheKey?.() === 'bloom-emissive'),
+    'a lamp mixed toward the sky is not a lamp; an unkeyed patch draws with another material\'s shader');
+
+  // --- Why the depth bias is not zero.
+  //
+  // The pass rejects a lamp the solid world stands in front of by testing against the AO prepass's
+  // depth — and some lamps are *in* that prepass, because they are opaque colour-writing meshes
+  // (`markOccluder`'s rule). Each one therefore stamps its own depth and then fails its own test.
+  // Asserted as the overlap it actually is rather than as a number, so it stays true if either
+  // draw list changes.
+  const blJoint = createBurgerJoint(layout.burgerBlock, makeRng(seed + 111));
+  blJoint.meshes.forEach(markOccluder);
+  markEmissive(blJoint.glow, BLOOM_INTENSITY.window);
+  const selfOccluding = [...emissiveList()].filter((m) => occluderList().has(m));
+  check('the depth bias is paid for by lamps that are their own occluders',
+    selfOccluding.length > 0 && BLOOM_UNIFORMS.uBloomDepthBias.value > 0,
+    `${selfOccluding.length} lamp(s) in the AO prepass too — bias ${BLOOM_UNIFORMS.uBloomDepthBias.value}, or each fails its own test`);
+
+  // Module state, so put it back — everything the probe builds after this expects an empty list.
+  [...emissiveList()].forEach(unmarkEmissive);
+  blJoint.meshes.forEach(unmarkOccluder);
+  check('unmarking empties the draw list', emissiveList().size === 0);
 }
 
 // --- Taxi roof sign -----------------------------------------------------------

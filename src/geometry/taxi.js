@@ -269,5 +269,18 @@ export function createTaxiMesh() {
     turnRightLight.scale.setScalar(turnRightLevel);
   };
 
-  return { group, sign, setOccupied, setHighlight, setSteer, setLights };
+  return {
+    group,
+    sign,
+    /**
+     * The three light meshes, so `main.js` can put them in the bloom (`markEmissive` in
+     * game/bloom.js). Handed back rather than marked here for the reason the AO occluders are:
+     * this module is built by tools too, and the draw list is module state.
+     */
+    lights: [brakeLights, turnLeftLight, turnRightLight],
+    setOccupied,
+    setHighlight,
+    setSteer,
+    setLights,
+  };
 }

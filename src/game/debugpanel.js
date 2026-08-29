@@ -6,6 +6,7 @@ import { PITCH, LANE } from '../city/grid.js';
 import { PLAY_ZOOM } from './camera.js';
 import { setShadowTint, shadowTint } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
+import { BLOOM_INTENSITY } from './bloom.js';
 
 // Screen pixels to a world unit at play zoom, for the readouts that need one. Derived rather than
 // written down as the 7.7 that appears as prose all over this project: the frustum is sized by
@@ -77,6 +78,10 @@ export function createDebugPanel({
   crayon = { state: { enabled: false }, set: () => {} },
   // Cartoon Mode's, same shape — `{ state, set }` over game/cartoon.js.
   cartoon = { state: { enabled: false }, set: () => {} },
+  // The emissive bloom's, same shape again — `{ state, set }` over game/bloom.js.
+  bloom = { state: { enabled: false }, set: () => {} },
+  // ...and the HDR comparison's, over game/hdr.js. Only one of the two is ever enabled.
+  hdr = { state: { enabled: false }, set: () => {} },
   // The scene's haze (game/scene.js). Defaulted to null for the same reason `scores` is defaulted:
   // the `npm run check` boot pass builds this panel against nothing.
   fog = null,
@@ -420,6 +425,60 @@ export function createDebugPanel({
     toonRow('Line bite', 'bite', 0, 0.9, 0.02);
     toonRow('Cel', 'cel', 0, 1, 0.05);
     toonRow('Bands', 'steps', 2, 6, 1, (v) => v.toFixed(0));
+  }
+
+  // --- Bloom ------------------------------------------------------------------
+  // Spill around the lamps (game/bloom.js). Two numbers, and they are two because they answer
+  // different questions: `Lamps` is how far past 1 a light is written, which is what sets the
+  // *shape* of the falloff and whether a core whitens; `Spill` is how much of the blurred result
+  // reaches the frame, which is how strong the whole effect is. Turning one up and the other down
+  // is not the same picture as leaving both alone — the first is a hotter, tighter light and the
+  // second a wider, flatter wash — and there is no way to settle that from a still.
+  if (bloom.state.enabled) {
+    heading('Bloom');
+    const bloomRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
+      const el = slider(min, max, step, bloom.state[key]);
+      const value = row(panel, label, el);
+      value.textContent = format(bloom.state[key]);
+      el.addEventListener('input', () => {
+        const next = Number(el.value);
+        bloom.set(key, next);
+        value.textContent = format(next);
+      });
+    };
+    bloomRow('Spill', 'strength', 0, 2, 0.05);
+    // Shown as what a brake pod is actually written at, since that is the lamp anyone judging this
+    // is looking at — the slider is a multiplier over every kind at once.
+    bloomRow('Lamps', 'intensity', 0, 3, 0.05,
+      (v) => `${v.toFixed(2)}x · pod ${(v * BLOOM_INTENSITY.pod).toFixed(1)}`);
+    // Not a knob: a device without a renderable half-float target still gets a bloom, out of an
+    // RGBA8 buffer that clips every lamp at 1. Worth saying, because it is the difference between
+    // a core that whitens and one that is flat, and nothing else on screen reports it.
+    row(panel, 'Buffer', document.createTextNode('')).textContent = bloom.state.hdr
+      ? 'RGBA16F' : 'RGBA8 — clipped';
+  }
+
+  // --- HDR ----------------------------------------------------------------------
+  // `?hdr`: the whole frame through a composer with tone mapping on (game/hdr.js). A comparison
+  // rather than a shipped mode, and `Exposure` is the row that makes the comparison honest — the
+  // city's palette was authored with no tone curve at all, so the first thing anyone looks for is
+  // where to put the exposure to get the colours back, and the answer is that you cannot.
+  if (hdr.state.enabled) {
+    heading('HDR');
+    const hdrRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
+      const el = slider(min, max, step, hdr.state[key]);
+      const value = row(panel, label, el);
+      value.textContent = format(hdr.state[key]);
+      el.addEventListener('input', () => {
+        const next = Number(el.value);
+        hdr.set(key, next);
+        value.textContent = format(next);
+      });
+    };
+    hdrRow('Exposure', 'exposure', 0.2, 2.5, 0.05);
+    hdrRow('Strength', 'strength', 0, 2, 0.05);
+    hdrRow('Radius', 'radius', 0, 1, 0.05);
+    hdrRow('Threshold', 'threshold', 0, 1.5, 0.05);
   }
 
   // --- Haze -------------------------------------------------------------------

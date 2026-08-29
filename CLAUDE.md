@@ -371,6 +371,22 @@ Omit the whole section if there's nothing to note.
   costs the drive-through its short exit and buys it two quarter turns (`EXIT_LIFT` in
   `city/burgerjoint.js`), and it is the question to ask of any new `releaseCar` site: how far back
   from the junction does this land, measured?
+- **Three turns off in-material tone mapping *and* the sRGB encode the moment the render target is
+  not the screen.** `WebGLPrograms.getParameters` reads `renderer.toneMapping` only when the current
+  target is null, and the colour-space encode follows the target's own `colorSpace` — both by
+  design, so an `EffectComposer`'s `OutputPass` can do them once at the end. Which means routing the
+  city through *any* render target silently moves a seam this project builds on: `propMaterial()`
+  patches `<colorspace_fragment>` because the frame is in **display space** by then, and both
+  Crayon and Cartoon Mode mix sRGB-encoded ink constants into it there. Under a composer those
+  constants land in linear values and every line in the game is the wrong colour, with nothing
+  logged. `game/hdr.js` declines the two look modes outright rather than drawing it.
+- **A downsample chain summed at equal weight is a fog, not a glow.** A box downsample preserves the
+  *average* of what it reads, so every level of a bloom chain carries the same average as the one
+  above it — and adding three of them lifts the whole frame by three times the mean brightness of
+  whatever is glowing. It reads as a pink haze across the road around a police car rather than a
+  light on its roof, and it looks like the strength being too high, so the instinct is to turn down
+  the one knob that was not the problem. Each level has to come in at a fraction of the one below
+  (`LEVEL_WEIGHT` in `game/bloom.js`); it is the same thing `UnrealBloomPass` spells as `radius`.
 - **Never name a Rollup chunk after anything under `src/`.** `vite.config.js` has two entries now
   (the game and `/lab/`), and a `manualChunks` rule that swept `src/main.js` into a shared chunk
   made every page importing that chunk *boot the game* — `/lab/` came up with the city's road

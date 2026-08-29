@@ -312,19 +312,26 @@ void main() {
  * @param strength  how far occlusion pulls the indirect term down. 1.0 would take a saturated
  *                  crease to black ambient.
  * @param edges     run the pass for the ink channel even with occlusion off.
+ * @param depth      run it for the depth buffer alone, which `game/bloom.js` tests its lamps
+ *                   against so a brake light behind a building does not bloom through it.
  *
- * The second flag exists because **Android defaults to `?safe`, which sets `?ao=off`** — so on the
+ * The extra flags exist because **Android defaults to `?safe`, which sets `?ao=off`** — so on the
  * platform most likely to be asked for a stylised look, the depth buffer the line is traced out of
- * would not have been built. Both `?crayon` and `?cartoon` ask for it. One pass with two consumers rather than a second prepass: it is the
- * same nine fetches and the same depth target either way. With occlusion off the strength uniform
- * is pinned to 0, so `r` comes out a flat 1.0 and a material that somehow read it is unaffected.
+ * would not have been built. `?crayon`, `?cartoon` and the bloom all ask for it. One pass with
+ * several consumers rather than a prepass each: it is the same nine fetches and the same depth
+ * target however many of them are on. With occlusion off the strength uniform is pinned to 0, so
+ * `r` comes out a flat 1.0 and a material that somehow read it is unaffected.
+ *
+ * `depth` is the weakest of the three: it wants the depth target and nothing else, so it does not
+ * even need the AO resolve. It gets it anyway — one half-res fullscreen pass, against the
+ * bookkeeping of a second code path through `render()` that nothing else would exercise.
  */
 export function createAmbientOcclusion(
-  renderer, { enabled = true, strength = 0.6, edges = false } = {}) {
+  renderer, { enabled = true, strength = 0.6, edges = false, depth = false } = {}) {
   // `enabled` stays the answer to "is there occlusion", which is what the ⚙️ panel gates its
   // strength slider on. `active` is the answer to "does the pass run".
-  const active = enabled || edges;
-  const state = { enabled, edges, strength };
+  const active = enabled || edges || depth;
+  const state = { enabled, edges, depth, strength };
 
   if (!active) {
     return {
@@ -333,6 +340,8 @@ export function createAmbientOcclusion(
       setStrength: () => {},
       dispose: () => {},
       target: () => null,
+      depth: () => null,
+      depthSize: () => null,
     };
   }
 
@@ -438,6 +447,21 @@ export function createAmbientOcclusion(
 
     /** The AO texture, for anything that wants to look at it. */
     target: () => aoTarget.texture,
+
+    /**
+     * The half-res packed-depth texture the pass builds on its way to that — the solid world and
+     * nothing else, `packDepthToRGBA(gl_FragCoord.z)`, cleared to the far plane.
+     *
+     * `game/bloom.js` reads it to reject a lamp standing behind a building. Sharing it is what
+     * keeps the bloom from needing a depth prepass of its own; the price is that a consumer has to
+     * ask for the pass to run at all (`depth` above), and that the buffer is half res, so a test
+     * against it is a texel out at a silhouette. Both fine for something that is about to be
+     * blurred across sixteen pixels.
+     */
+    depth: () => depthTarget.texture,
+
+    /** ...and its size in texels, which is what turns a `gl_FragCoord` into a uv for it. */
+    depthSize: () => ({ width, height }),
 
     setStrength(value) {
       state.strength = value;

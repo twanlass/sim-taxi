@@ -1786,7 +1786,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   taxi.isTruck = false;
 
   const {
-    group: taxiGroup, setOccupied: setTaxiOccupied,
+    group: taxiGroup, setOccupied: setTaxiOccupied, lights: taxiLights,
     setHighlight: setTaxiHighlight, setSteer: setTaxiSteer, setLights: setTaxiLights,
   } = createTaxiMesh();
   scene.add(taxiGroup);
@@ -3712,5 +3712,20 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     // prepass — but not folded into `ambient`/`wheelsPerCar` above, since those are index-aligned
     // with the *car* meshes and game/carghosts.js reads them as such.
     truckMesh, truckWheelMesh, truckBoxMesh, trucks, truckWheelsPerCar: TRUCK_FRONT.length,
+    /**
+     * Every self-lit mesh this module owns — the fleet's six instanced pod meshes and the taxi's
+     * three ordinary ones — for `main.js` to put in the bloom (`markEmissive` in game/bloom.js).
+     *
+     * Handed out rather than marked here because `sim/` may not import from `game/`, the same
+     * reason the AO occluders are marked from `main.js`. The instanced ones need no per-frame
+     * bookkeeping at all: a pod that is off has already had its instance matrix collapsed to a
+     * zero scale by `writeAmbient`, and a degenerate triangle rasterises nothing whichever
+     * material it is wearing — so the bloom switches off exactly when the lamp does.
+     */
+    emissiveMeshes: [
+      brakeMesh, turnLeftMesh, turnRightMesh,
+      truckBrakeMesh, truckTurnLeftMesh, truckTurnRightMesh,
+      ...taxiLights,
+    ],
   };
 }

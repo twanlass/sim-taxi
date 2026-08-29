@@ -844,5 +844,13 @@ export function createPolice(rng, scene, cars = []) {
    */
   const setCooldownRange = ([min, max]) => { state.cooldownRange = [min, max]; };
 
-  return { state, update, chase, group, setCooldownRange };
+  return {
+    state,
+    update,
+    chase,
+    group,
+    setCooldownRange,
+    /** Both halves of the light bar, for `main.js` to put in the bloom. See game/bloom.js. */
+    emissiveMeshes: [lights.red, lights.blue],
+  };
 }
