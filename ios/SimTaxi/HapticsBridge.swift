@@ -85,6 +85,15 @@ final class HapticsBridge: NSObject, WKScriptMessageHandler {
             // less than the delivery it is only the first half of.
             medium.impactOccurred()
             medium.prepare()
+        case "burger":
+            // An order handed through the drive-through window. `.soft` is the most cushioned
+            // transient UIKit offers and it is the right one for the smallest reward in the game —
+            // a paper bag through a window, against the `.medium` a package landing in the car
+            // gets. It shares a style with `grab`, which is safe here in a way a second `.light`
+            // would not have been: those two are in different groups, one answering a thumb on the
+            // glass and one reporting news, and they cannot arrive in the same beat.
+            soft.impactOccurred()
+            soft.prepare()
         case "parcel-out":
             // Delivered. `.success` is a three-part pattern rather than a single knock, which is
             // what makes it read as a *completion*; every other case here is one event in the world.

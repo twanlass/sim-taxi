@@ -159,6 +159,17 @@ Omit the whole section if there's nothing to note.
   rest of the shader parses as JavaScript. It cost two builds in a row on the crayon pass, and the
   error it throws (`Unexpected identifier`, pointing at a word in the middle of a comment) names
   nothing that would lead you to it. Inside a shader literal, identifiers go bare.
+- **A route through a junction does not name a *lane* into it, and a U-turn is not a legal exit.**
+  `findRouteVia` plans its second leg from the heading the first leg arrives on, so a car that
+  reaches the waypoint travelling along the target road the *wrong way* cannot take the lane you
+  meant — and rather than failing, the router answers with a three-leg lap that reaches the right
+  junction from the wrong side. That is how the burger run's tap was first written and it drove
+  straight past the drive-through on about one trip in five, with nothing to see: the taxi is
+  driving a perfectly good route, just not to the thing that was asked for. Anything reachable from
+  one side only wants `findRouteOnto` (game/route.js), which stops the same Dijkstra on a lane
+  instead of a junction. And note what it deliberately does *not* do: a car already on that lane
+  gets a lap rather than an empty route, because "I am on it" and "the thing I wanted on it is
+  behind me" are the same state from inside the router.
 - **`makeRng()` returns an object, not a function.** `rng()` throws `rng is not a function`; the
   members are `next`, `range`, `int`, `gauss`, `pick`, `chance`, `jitter`. Reach for `rng.pick(arr)`.
 - **`rotation.set(roll, yaw, pitch)` on the default Euler order rolls about the *world* X axis.**

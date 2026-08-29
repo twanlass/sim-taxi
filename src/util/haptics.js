@@ -59,11 +59,16 @@ import { isNative } from './platform.js';
  * necessarily touching anything, so they carry the weight instead of the timing:
  *
  * - `parcel-in`  — a package collected. Something landed in the car.
- * - `parcel-out` — a package delivered. The payoff, and the only one of the seven that is *earned*
+ * - `burger`     — an order handed through the drive-through window (game/burgerrun.js). The same
+ *                  shape of event as `parcel-in` — something landed in the car — and deliberately
+ *                  the lightest thing in this group, because it reports the smallest reward in the
+ *                  game. A paper bag, not a package.
+ * - `parcel-out` — a package delivered. The payoff, and the only one of the eight that is *earned*
  *                  rather than merely done — which is why the native side answers it with a
  *                  notification pattern rather than a single knock. See `HapticsBridge.swift`.
  */
-const EVENTS = new Set(['pick', 'grab', 'snap', 'brake', 'loco', 'parcel-in', 'parcel-out']);
+const EVENTS = new Set(['pick', 'grab', 'snap', 'brake', 'loco', 'parcel-in', 'parcel-out',
+  'burger']);
 
 /**
  * Fire one haptic. Silent everywhere it cannot work, which is most places.

@@ -28,6 +28,19 @@ export const BOOST_FARE_REWARD = 1 / 3;
 // twitching: ~0.35s of pour at POUR_RATE, against the ~0.7s a fare's third takes.
 export const BOOST_PARCEL_REWARD = 1 / 6;
 
+// And a burger: what the drive-through pays for the detour into it (game/burgerrun.js). Deliberately
+// the smallest reward on this list — 2.25s of boost — because unlike the two above it, nothing was
+// *delivered* for it. It is a secret handed to whoever pokes at the scenery, not a third job, and it
+// has to stay worse than driving the fare it interrupted: a lap of the joint costs 15-20s of a
+// clock that is draining, so the trade only pays when the taxi was going past anyway.
+//
+// A sixth is the smallest slice the pill's pour still reads as *filling* (see above) and this is a
+// hair under it at 0.30s of pour against 0.33s. It survives the gap for one reason the parcel's
+// does not have: a burger's fuel arrives on the energy bit's flight (`flyEnergyToBoost`), so the
+// pour is the *end* of an animation the player has already been watching cross the screen rather
+// than the whole of the feedback.
+export const BOOST_BURGER_REWARD = 0.15;
+
 // Releasing used to drop straight back to 'ready' and take every boost-only rule (collision,
 // police bust range, running reds) with it in the same frame — you could floor it at a cop or a
 // bumper and bail out a frame before impact with zero risk. This is the window that closes

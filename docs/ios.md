@@ -150,6 +150,7 @@ particular, because the default insets by the safe area and would double up on t
   | Event | Fires on | Transient |
   |---|---|---|
   | `parcel-in` | a package collected | `.medium` |
+  | `burger` | an order handed through the drive-through window | `.soft` |
   | `parcel-out` | a package delivered | `UINotificationFeedbackGenerator` `.success` |
 
   Four of those choices are worth defending. `brake` is `.rigid` rather than something heavier
@@ -158,7 +159,7 @@ particular, because the default insets by the safe area and would double up on t
   regardless of the car's speed, unlike the skid mark it sits beside, because a control that
   answers only sometimes reads as a control that is broken. `parcel-out` is a notification rather
   than one more impact style because a notification plays a short *pattern*, which is what makes it
-  read as a completion; it is also the only one of the seven the player earned rather than merely
+  read as a completion; it is also the only one of the eight the player earned rather than merely
   caused.
 
   The route band's pair are the newest, and they exist because that gesture is the one place the
@@ -348,7 +349,7 @@ On a real device, additionally:
 
 Not built yet, roughly in value-for-effort order:
 
-- **More haptics.** The bridge is in (see above) and carries seven events. What is left is the
+- **More haptics.** The bridge is in (see above) and carries eight events. What is left is the
   *fare* loop — a rider's pickup and drop-off — plus the two failures, the bust and a collision.
   The fare pair is the interesting one: it wants to feel like `parcel-in`/`parcel-out` without
   feeling identical to them, since a fare is the main loop and a package is an errand, so they

@@ -390,6 +390,14 @@ export function burgerSite(block) {
     holdS: exitS,
     // Where a car is taken off the road...
     entry: entryArc.at(0),
+    // ...and the mouth again, this time as a **lane** of the road network rather than as a point:
+    // the kerbside −X lane approaching junction (i, j), which is the road along the block's +Z edge.
+    //
+    // The player can send the taxi in here (game/burgerrun.js), and a destination that is a
+    // *junction* cannot express what that needs — the lot only takes a car off this one lane, so a
+    // route that arrives at either end of it from any of the other three directions drives straight
+    // past a drive-through the player asked for. `findRouteOnto` in game/route.js is what plans it.
+    approach: { d: DIR.NX, i: block.bi, j: block.bj + 1 },
     // ...and where it is put back on it.
     merge: {
       point: mergeArc.at(mergeArc.length),

@@ -57,8 +57,13 @@ whoever is in the back seat, and taking every one on offer halves how long you l
 One block of every city is a **burger joint**: a low restaurant under a red band with a burger
 turning slowly on a pole above the roof, and a drive-through lane down its street side. Ambient cars
 pull in off one road, crawl past the menu board and the pickup window, and come back out onto
-another — a third of the time there is one in there. You cannot use it and it pays nothing; it is a
-landmark to navigate by and a bit of the city getting on with its own day. See
+another — a third of the time there is one in there.
+
+**And you can tap it.** The taxi drives itself round to the mouth, crawls the lane, stops at the
+board and again at the window, and comes back out with a splash of boost in the tank — 15% of it,
+the smallest top-up in the game, and the only one that isn't paid for a job. It costs whatever the
+clock in the back seat is worth: nobody is stopping you taking a rider through a drive-through. See
+[the burger run](gameplay.md#the-burger-run),
 [the burger joint](city.md#the-burger-joint-and-its-drive-through) and
 [the drive-through](traffic.md#the-drive-through).
 

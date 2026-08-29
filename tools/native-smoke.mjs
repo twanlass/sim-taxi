@@ -162,7 +162,8 @@ async function probe({ native, port }) {
       hapticPosted: await evalJs(`(() => {
         const seen = [];
         window.webkit = { messageHandlers: { haptics: { postMessage: (m) => seen.push(m) } } };
-        for (const e of ['pick', 'grab', 'snap', 'brake', 'loco', 'parcel-in', 'parcel-out']) {
+        for (const e of ['pick', 'grab', 'snap', 'brake', 'loco', 'parcel-in', 'parcel-out',
+          'burger']) {
           window.__taxi.haptic(e);
         }
         return seen.join(',');
@@ -221,7 +222,7 @@ try {
   check('web: add-to-home-screen gate shows', web.gateShown === true);
   check('app: add-to-home-screen gate never shows', app.gateShown === false);
 
-  const HAPTICS = 'pick,grab,snap,brake,loco,parcel-in,parcel-out';
+  const HAPTICS = 'pick,grab,snap,brake,loco,parcel-in,parcel-out,burger';
   check('app: every haptic event reaches the shell, in order',
     app.hapticPosted === HAPTICS, app.hapticPosted);
   check('web: haptics stay off the bridge entirely', web.hapticPosted === '', web.hapticPosted);

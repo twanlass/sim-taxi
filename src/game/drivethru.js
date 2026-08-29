@@ -29,6 +29,24 @@ import { CAR_LEN, SPEED, releaseCar, stageCar } from '../sim/traffic.js';
 // **PROTOTYPE.** Cars only — see `eligible`. A box truck at a drive-through is a good joke and a
 // bad fit: it is 5.6 long against a 2-unit turn radius, and it would ride the kerb through both
 // arcs.
+//
+// --- ...and the player's taxi, when it is sent -------------------------------
+//
+// The taxi is never swept in by the roll above — the whole lot is scenery it drives past — but it
+// can be *sent*, by tapping the joint (game/burgerrun.js, which owns the route and the reward). That
+// arrives here as `inviteTaxi`, and everything downstream of the mouth is deliberately the same code
+// the ambient cars run: the same queue, the same limits, the same two kerb shoves, the same gap check
+// before the exit. A second lot loop written for one car is a second lot loop to keep true.
+//
+// Three things the invitation does change, each of them where it lands below:
+//
+//   - **the lot is held for it.** From the tap until the taxi is back on the road no new ambient car
+//     is taken, so the queue in front of it drains rather than growing while it drives over. Without
+//     that the player can be sent away from a full lot by three cars that turned in during the ten
+//     seconds the trip took, which is a refusal they cannot see coming and did nothing to earn.
+//   - **it does not roll.** A tap is the decision; `ENTER_CHANCE` and `FED_COOLDOWN` are how *ambient*
+//     traffic decides, and neither has any business answering the player.
+//   - **it eats faster.** See `TAXI_ORDER_DWELL`.
 
 /**
  * Share of the cars passing the mouth of the lane that pull into it.
@@ -108,6 +126,21 @@ const ORDER_DWELL = 2.6;
 const PICKUP_DWELL = 3.8;
 const DWELL_JITTER = 1.1;
 
+/**
+ * ...and what the player waits, which is less than half of it: 0.6s to order and 1.0s at the window.
+ *
+ * An ambient car's dwell is scenery and is sized to *read* from across the city — a car that stopped
+ * for under a second at a window would look like a car that stalled. The taxi's is a clock the player
+ * is paying, in the middle of a fare, and every tenth of it is spent on a joke. What it has to be is
+ * long enough to be a **stop** rather than a slow corner: 1.6s of standing still out of the 8.0s the
+ * lot takes end to end (measured, mouth to kerb, with the lane empty), which is what makes the visit
+ * read as a visit.
+ *
+ * No jitter on either. A secret the player is going to go back for should cost the same every time.
+ */
+const TAXI_ORDER_DWELL = 0.6;
+const TAXI_PICKUP_DWELL = 1.0;
+
 // The gap a car wants on the road before it pulls out, as a box on the lane it is joining rather
 // than a radius around the merge point — see `mergeClear` in game/opening.js, which is the same
 // check for the same manoeuvre (a right turn into the near lane) and carries the reasoning. The
@@ -149,10 +182,19 @@ export function createDriveThru({ site, cars, rng }) {
   const fed = new Map();
   let served = 0;
   let clock = 0;
+  /**
+   * The player's visit, or null. One at a time — there is one taxi — and it is the *caller's* object
+   * rather than this module's: `inviteTaxi` hands it back and game/burgerrun.js reads it every frame.
+   * Everything on it is written here and nowhere else.
+   */
+  let ticket = null;
 
-  const eligible = (car) => !car.isTaxi && !car.isTruck && !car.crashed && !car.staged
+  /** Is this car on the mouth's own lane, in the right direction, and driveable? */
+  const atTheMouth = (car) => !car.isTruck && !car.crashed && !car.staged
     && car.state === 'drive' && car.d === DIR.NX
     && Math.abs(car.z - site.entry.z) < LANE_TOL;
+
+  const eligible = (car) => !car.isTaxi && atTheMouth(car);
 
   /** Has this one just been through? */
   const fedRecently = (car) => clock - (fed.get(car) ?? -Infinity) < FED_COOLDOWN;
@@ -162,8 +204,9 @@ export function createDriveThru({ site, cars, rng }) {
     && Math.abs(car.x - merge.point.x) < MERGE_LATERAL
     && car.z > merge.point.z - MERGE_BEHIND && car.z < merge.point.z + MERGE_AHEAD);
 
-  const dwellFor = (index) => (index === 0 ? ORDER_DWELL : PICKUP_DWELL)
-    + rng.range(0, DWELL_JITTER);
+  const dwellFor = (index, taxi = false) => (taxi
+    ? (index === 0 ? TAXI_ORDER_DWELL : TAXI_PICKUP_DWELL)
+    : (index === 0 ? ORDER_DWELL : PICKUP_DWELL) + rng.range(0, DWELL_JITTER));
 
   /**
    * How high the body rides at this point on the path: up on the lot's asphalt between the two
@@ -191,7 +234,7 @@ export function createDriveThru({ site, cars, rng }) {
     return { x: p.x, z: p.z, yaw: Math.atan2(-t.z, t.x) };
   };
 
-  function take(car, s0) {
+  function take(car, s0, forTicket = null) {
     const v = Math.min(car.v, ENTRY_CAP);
     const pose = poseAt(s0);
     // Staged *at* its pose rather than at the origin: `stageCar` primes the steering and wheel
@@ -204,7 +247,9 @@ export function createDriveThru({ site, cars, rng }) {
     car.v = v;
     car.prevV = v;
     car.stageSignal = 'right';
-    queue.push({ car, s: s0, v, next: 0, wait: 0, dwell: dwellFor(0), held: 0, mounted: false, dropped: false });
+    queue.push({ car, s: s0, v, next: 0, wait: 0, dwell: dwellFor(0, Boolean(forTicket)),
+      held: 0, mounted: false, dropped: false, ticket: forTicket });
+    if (forTicket) forTicket.stage = 'inlot';
   }
 
   /** Everything a staged car needs written for it, since it is out of every loop that would. */
@@ -240,8 +285,41 @@ export function createDriveThru({ site, cars, rng }) {
   function update(dt) {
     clock += dt;
 
+    // --- Is there room for one more? ----------------------------------------
+    // Both intakes below ask this, and the taxi's asks it about a lot that is being *held* for it:
+    // a live ticket stops any ambient car being taken from the tap onward, so whatever is in the
+    // queue when the player sets off is the worst it can get.
+    const room = () => queue.length < CAPACITY
+      // ...and only if the back of the queue has cleared the mouth, or the car turns in on top of
+      // one that has not moved up yet.
+      && (!queue.length || queue[queue.length - 1].s >= GAP);
+
+    // --- Take the player in, if they were sent ------------------------------
+    // Before the ambient roll, so a car arriving on the same frame cannot take the last place in a
+    // lot that is being held for the taxi.
+    if (ticket?.stage === 'invited' && atTheMouth(ticket.car)) {
+      // The lane the mouth is on runs −X, so a car short of the driveway is at a *greater* x.
+      const ahead = ticket.car.x - site.entry.x;
+      if (ahead <= DECIDE_AHEAD && ahead > -CATCH) {
+        ticket.approached = true;
+        if (ahead <= 0 && room()) take(ticket.car, -ahead, ticket);
+      } else if (ticket.approached && ahead <= -CATCH) {
+        // Past the mouth and still on the road: a full lot, or a taxi weaving wide enough at the
+        // driveway that `atTheMouth` lost it for the two frames that mattered. Reported rather than
+        // retried here — the lot has no idea how to send a car round the block, and the module that
+        // does is the one that asked (game/burgerrun.js).
+        ticket.missed = true;
+        ticket = null;
+      }
+    }
+
     // --- Take on whoever wants a burger -------------------------------------
+    // ...unless the lot is being held for the player, in which case nobody is taken and every roll
+    // in flight is dropped: a car that was rolled a burger while the taxi was on its way must not
+    // still be holding that coin flip when it comes past again a minute later.
+    if (ticket) decided.clear();
     for (const car of cars) {
+      if (ticket) break;
       if (!eligible(car)) { decided.delete(car); continue; }
       // The lane the mouth is on runs −X, so a car short of the driveway is at a *greater* x.
       const ahead = car.x - site.entry.x;
@@ -252,10 +330,7 @@ export function createDriveThru({ site, cars, rng }) {
       const wants = decided.get(car);
       decided.delete(car);
       if (!wants) continue;
-      if (queue.length >= CAPACITY) continue;
-      // ...and only if the back of the queue has cleared the mouth, or the car turns in on top of
-      // one that has not moved up yet.
-      if (queue.length && queue[queue.length - 1].s < GAP) continue;
+      if (!room()) continue;
       // `ahead` is negative here: how far past the driveway the car got this frame. The entry arc
       // leaves tangent to the lane, so that overshoot is the same distance along the path.
       take(car, -ahead);
@@ -265,6 +340,16 @@ export function createDriveThru({ site, cars, rng }) {
     // Front of the queue first, so each car has its leader's settled position to measure against.
     for (let index = 0; index < queue.length; index++) {
       const entry = queue[index];
+
+      // A wreck in the lot stays where it is. Only the taxi can be one — ambient cars in here are
+      // out of the collision test entirely (see the top of this file) — and it is how a run that
+      // ends while the player is at the window looks: the car stops, and the queue behind it holds,
+      // because the limit each of them takes from its leader is the leader's own `s`.
+      if (entry.car.crashed) {
+        entry.v = 0;
+        entry.car.v = 0;
+        continue;
+      }
 
       // How far this car may get this frame, from whichever of the three things is nearest: the
       // stop it has not finished with, the kerb it is waiting to cross, or the car in front.
@@ -300,8 +385,16 @@ export function createDriveThru({ site, cars, rng }) {
         if (entry.wait >= entry.dwell) {
           entry.next += 1;
           entry.wait = 0;
-          entry.dwell = entry.next < stops.length ? dwellFor(entry.next) : 0;
-          if (entry.next >= stops.length) served += 1;
+          entry.dwell = entry.next < stops.length
+            ? dwellFor(entry.next, Boolean(entry.ticket))
+            : 0;
+          if (entry.next >= stops.length) {
+            served += 1;
+            // Handed their order. This is the moment the reward is paid rather than the handover at
+            // the kerb a couple of seconds later: what the player is being paid *for* is the visit,
+            // and the visit ends at the window. See game/burgerrun.js.
+            if (entry.ticket) entry.ticket.served = true;
+          }
         }
       }
 
@@ -321,7 +414,16 @@ export function createDriveThru({ site, cars, rng }) {
       // been teleported there.
       entry.car.v = v;
       entry.car.prevV = v;
-      fed.set(entry.car, clock);
+      // The taxi is not put on the cooldown: `FED_COOLDOWN` is there to stop *ambient* traffic doing
+      // laps of a restaurant in front of the player, and the player doing laps of one is a choice
+      // they are paying a fare's clock for. It also releases the lot, which has been held since the
+      // tap — and the ticket goes with it, because a ticket is one visit.
+      if (entry.ticket) {
+        entry.ticket.stage = 'out';
+        if (ticket === entry.ticket) ticket = null;
+      } else {
+        fed.set(entry.car, clock);
+      }
       queue.shift();
     }
   }
@@ -365,14 +467,44 @@ export function createDriveThru({ site, cars, rng }) {
     for (const entry of queue) place(entry, 0);
   }
 
+  /**
+   * The player is on their way: hold the lot, and take the taxi in when it reaches the mouth.
+   *
+   * Returns the ticket, which is the whole of the conversation between here and game/burgerrun.js —
+   * polled every frame rather than delivered as callbacks, because every field on it is a *state*
+   * the caller has to be able to read late (a frame the run was paused on, a `?shot=` render) rather
+   * than an event it has to be awake for:
+   *
+   *     stage       'invited' → 'inlot' → 'out'
+   *     approached  has the taxi come inside the decision window yet
+   *     served      handed its order at the window — the frame the reward is paid
+   *     missed      it went past. The ticket is dead; take another one to try again.
+   *
+   * Replacing a live ticket is legal and is what a second tap does: the old one is dropped where it
+   * stands. Only an *invited* one can be dropped, though — a taxi already in the lot is being driven
+   * by this module, and there is nowhere to put it down between the two kerbs.
+   */
+  function inviteTaxi(car) {
+    if (ticket?.stage === 'inlot') return ticket;
+    ticket = { car, stage: 'invited', approached: false, served: false, missed: false };
+    return ticket;
+  }
+
+  /** Give the lot back to the traffic. A visit already under way finishes; nothing else does. */
+  function dismissTaxi() {
+    if (ticket?.stage === 'invited') ticket = null;
+  }
+
   return {
     update,
     settle,
+    inviteTaxi,
+    dismissTaxi,
     /**
-     * For the ⚙️ panel and the probe: who is in the lot, how many have been through it, and the
-     * module's own clock — which is the cheapest way to tell from a live page that this is being
-     * ticked at all, given the lot is empty most of the time by design.
+     * For the ⚙️ panel and the probe: who is in the lot, how many have been through it, the module's
+     * own clock — which is the cheapest way to tell from a live page that this is being ticked at
+     * all, given the lot is empty most of the time by design — and whether the player is expected.
      */
-    state: { queue, served: () => served, clock: () => clock },
+    state: { queue, served: () => served, clock: () => clock, ticket: () => ticket },
   };
 }

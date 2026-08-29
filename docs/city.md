@@ -280,6 +280,11 @@ a block that leaves exactly one pair:
 | **in** | the +Z edge, kerbside lane runs −X | right turn into −Z, onto the lane |
 | **out** | the +X edge, kerbside lane runs +Z | right off the lane onto a short +X run over the near kerb, then right again onto the road |
 
+That one-way-in is a fact the *router* has to know as well, now that the player can send the taxi in
+here: `site.approach` names the mouth's lane — direction and the junction it runs to — because a
+route planned to a junction arrives from whichever of four sides is cheapest, and three of them
+drive past the driveway. See [the burger run](gameplay.md#the-burger-run).
+
 All three quarter turns share one radius, and it is not chosen either: each is tangent to a lane
 centre at one end and to a kerbside lane at the other, so the radius is the gap between a kerb and
 the lane nearest it — `LANE_TO_KERB`, which is 2 on an arterial and on a side street alike. It is
