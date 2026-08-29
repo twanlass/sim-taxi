@@ -118,6 +118,9 @@ export function createTaxiMesh() {
 
   const shell = new THREE.Mesh(merged, propMaterial());
   shell.castShadow = true;
+  // ...and receives, like every ambient car — see the note over the traffic meshes in
+  // sim/traffic.js for what that costs and why it is not behind a flag.
+  shell.receiveShadow = true;
   // Marks this subtree as the taxi for the picker, which raycasts recursively.
   shell.userData.pickable = 'taxi';
   group.add(shell);
@@ -138,6 +141,7 @@ export function createTaxiMesh() {
       const wheel = new THREE.Mesh(wheelGeometry(), wheelMaterial);
       wheel.position.set(anchor.x, anchor.y, anchor.z);
       wheel.castShadow = true;
+      wheel.receiveShadow = true;
       wheel.userData.pickable = 'taxi';
       // Small rim to match the part — and being in the mask is what stops the wheel occluding
       // the shell's rim (see the note above addGhostOutline(shell)). Children of the wheel, so
@@ -174,6 +178,7 @@ export function createTaxiMesh() {
     new THREE.MeshLambertMaterial({ color: new THREE.Color(PALETTE.taxiTrim), flatShading: true }),
   );
   sign.castShadow = true;
+  sign.receiveShadow = true;
   sign.userData.pickable = 'taxi';
   group.add(sign);
   // A smaller rim than the shell's: the default 0.3 on a 0.34-unit-tall sign would double it.
