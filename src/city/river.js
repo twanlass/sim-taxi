@@ -256,6 +256,9 @@ export function bridgeSpan(i) {
   return {
     line: i,
     kind: riverCrossing(i),
+    // The two junctions the crossing runs between, so a caller can name its lanes without
+    // re-deriving which row the river is in.
+    row: riverRow(),
     z0: banks.z0,
     z1: banks.z1,
     cx: lineX(i),

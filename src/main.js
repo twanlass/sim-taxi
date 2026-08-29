@@ -7,6 +7,8 @@ import {
 import { createLayout } from './city/layout.js';
 import { createGround, KERB_H } from './city/ground.js';
 import { createRiver, bridgeLines, bridgeSpan } from './city/river.js';
+import { createDrawbridge } from './game/drawbridge.js';
+import { createBoats } from './game/boats.js';
 import { createBridge } from './geometry/bridge.js';
 import { createBuildings } from './city/buildings.js';
 import { createProps } from './city/props.js';
@@ -261,6 +263,9 @@ if (river) {
   const bridgeRng = makeRng(seed + 55);
   for (const line of bridgeLines()) {
     const span = bridgeSpan(line);
+    // The lifting span is `game/drawbridge.js`'s: it needs its leaf as an object it can turn, not
+    // as geometry merged into a static city mesh.
+    if (span.kind !== 'fixed') continue;
     const mesh = new THREE.Mesh(createBridge(span, bridgeRng), propMaterial());
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -605,6 +610,34 @@ for (const offset of [199, 211]) {
 // paddle about, sit, dabble, and never leave. Run seed like the flocks — which park has the water
 // in it is the map, and what the birds on it are doing is the situation. See game/ducks.js.
 const ducks = createDucks(scene, makeRng(runSeed + 299), props.pond);
+
+// The one span that lifts, and the only thing in this game that changes the road network mid-run.
+// See game/drawbridge.js. `null` on a city with no river, which the chain below handles rather than
+// guards against — the same contract the depot and the burger joint keep.
+//
+// **City seed, not run seed**, unlike the roadworks below it: which span lifts is a fact about the
+// map, decided by `planRiver` alongside the rest of the layout, and the map has to stay learnable.
+// What runs on the run seed is *when* it lifts, which is the boat's business (game/boats.js).
+//
+// `replan` is the callback shape `pathdrag` uses for the same reason: main.js owns `routeTo`, and
+// a module that reached in to assign `car.route` itself would skip everything else that function
+// does to a route already part-driven.
+const drawbridge = createDrawbridge(scene, makeRng(seed + 66), {
+  replan: () => {
+    // Unconditional, and it does not need to ask whether the old route used the span. By the time
+    // this fires the two lanes are already in `setBlockedLanes`, so `findRoute` cannot return them
+    // — a route that never went near the river re-plans to itself, and one that crossed comes back
+    // going round. Passing the **same target object** is what keeps that free: the band's rollout
+    // sweep keys off `pendingTarget`'s identity, so an unchanged route does not restart the draw.
+    const car = traffic.taxi;
+    if (car.pendingTarget) routeTo(car.pendingTarget);
+  },
+});
+
+// Traffic on the river, and the thing that asks the span to lift — see game/boats.js. Run seed,
+// unlike the bridge itself: a barge every twenty seconds or so and a tug every minute and a half
+// is the situation, not the map. Null wherever the drawbridge is null, and for the same reason.
+const boats = createBoats(scene, makeRng(runSeed + 401), drawbridge);
 
 // A street closed for roadworks, once per run, forty seconds or so in — see game/roadwork.js.
 // Ambient traffic routes around it and the taxi has never heard of it, so the closed street is the
@@ -2411,6 +2444,18 @@ function frame() {
   // position test, and a taxi wrecked on this frame must not also be launched off a ramp. The
   // kerb corners it is handed are the ones riders are standing on — a zone must not close the
   // street a fare is waiting in.
+  // Beside `roadwork`, and for the same reason it sits here rather than before `traffic.update`:
+  // both are handed the cars as they stand *after* the step, which is what a "is anything on the
+  // deck" test wants to be reading. A closure taken now lands on the next frame's turn decisions,
+  // which is a frame later than it could be and a frame earlier than anything can act on it — the
+  // barriers take 1.1s to come down before the leaf moves at all.
+  //
+  // The two no longer fight over the lane set: they hold their closures under separate source keys
+  // (`setClosedLanes` in sim/traffic.js), so whichever runs second no longer clears the other.
+  // Boats first, so a tug that reaches its asking distance this frame gets the barriers moving on
+  // the same frame rather than the next one.
+  boats?.update(dt);
+  drawbridge?.update(dt, traffic.cars);
   roadwork.update(dt, traffic.taxi, traffic.cars, fares.occupiedSpots());
 
   tutorial?.update(dt);
@@ -2930,6 +2975,28 @@ if (shot) {
     }
   }
 
+  // Run the drawbridge's own cycle forward and freeze it, aimed at the span. Like the wreck and
+  // the flyover, the lift has no steady state — it is up for a dozen seconds once or twice a
+  // session — so the only way to look at it is to stage it. The cycle is the *real* one, stepped
+  // rather than posed, so a screenshot cannot drift out of step with what the player gets.
+  //
+  // The boats are placed by `settle()` above and then stepped along with it, which is what puts the
+  // tug at the span rather than wherever a minute and a half of waiting would have left it.
+  if (shot.drawbridgeAt !== undefined && drawbridge) {
+    // The boats are placed **before** the cycle is stepped, not after. `settle()` further down runs
+    // for every other shot and would have put the tug down at the end of a cycle it had taken no
+    // part in — parked short of a bridge that opened for nobody, which is the picture this framing
+    // exists to not be.
+    boats?.settle();
+    drawbridge.request();
+    for (let step = 0; step < Math.round(shot.drawbridgeAt * 60); step++) {
+      boats?.update(1 / 60);
+      drawbridge.update(1 / 60, traffic.cars);
+    }
+    controller.state.target.set(drawbridge.span.cx, 0, (drawbridge.span.z0 + drawbridge.span.z1) / 2);
+    controller.update(aspect());
+  }
+
   // Stage a construction zone and let it finish rising out of the road. Placed through the same
   // `place()` a live run calls, so the framing cannot drift out of step with what the player gets
   // — and the camera is aimed at whichever street it picked, since that is drawn from the run seed
@@ -3075,6 +3142,11 @@ if (shot) {
   }
   fares.settleMarkers();
   parcels?.settleMarkers();
+  // The river's own two, for the drive-through's reason: a shot ticks the world once, so a boat
+  // that has not been spawned yet never will be and every screenshot of the river is of an empty
+  // one. `settle` places one of each beside the lifting span instead of waiting a minute for a tug.
+  boats?.settle();
+  drawbridge?.settle();
   // The city's own entrance is an animation that opens at zero too — unsettled, every screenshot
   // is an empty street grid.
   cityEntry.settle();

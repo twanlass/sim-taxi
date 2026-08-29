@@ -192,10 +192,12 @@ export function bridgeParts(span, rng, range = [0, 1]) {
   const walkCol = jitterColor(PALETTE.sidewalk, rng, { l: 0.03 });
   const markCol = color('laneMark');
 
+  const soffitCol = jitterColor(PALETTE.bridgeSoffit, rng, { l: 0.02 });
+
   // Running surface, and the soffit under the whole deck.
   parts.push(bakeColor(loftedStrip(-span.half, span.half, length, rise, 0, from, to), deckCol));
   parts.push(bakeColor(
-    soffitStrip(-span.outer, span.outer, length, rise, DECK_THICK, from, to), trimCol,
+    soffitStrip(-span.outer, span.outer, length, rise, DECK_THICK, from, to), soffitCol,
   ));
 
   for (const sign of [-1, 1]) {
@@ -245,8 +247,17 @@ export function abutmentParts(span, rng, end) {
   return [bakeColor(box, trimCol)];
 }
 
-/** One span's geometry, merged, in world space. */
-export function createBridge(span, rng, { range = [0, 1], abutments = true } = {}) {
+/**
+ * One span's geometry, merged.
+ *
+ * @param range   [from, to] as fractions of the span. The drawbridge builds its fixed approach and
+ *                its leaf as two calls over two ranges of the same profile, so a leaf lowered back
+ *                down sits exactly on the road it came out of rather than nearly on it.
+ * @param pivotZ  z, in span-local units from the near bank, to put the geometry's origin on. The
+ *                leaf needs its hinge at the origin so a group can turn it; everything else wants
+ *                world coordinates and gets `null`.
+ */
+export function createBridge(span, rng, { range = [0, 1], abutments = true, pivotZ = null } = {}) {
   const parts = bridgeParts(span, rng, range);
   if (abutments) {
     if (range[0] <= 1e-9) parts.push(...abutmentParts(span, rng, 0));
@@ -254,6 +265,7 @@ export function createBridge(span, rng, { range = [0, 1], abutments = true } = {
   }
   const merged = mergeGeometries(parts, false);
   parts.forEach((part) => part.dispose());
-  merged.translate(span.cx, 0, span.z0);
+  if (pivotZ === null) merged.translate(span.cx, 0, span.z0);
+  else merged.translate(0, 0, -pivotZ);
   return merged;
 }

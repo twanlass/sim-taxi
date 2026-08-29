@@ -52,6 +52,28 @@ export function setRoadworkLanes(ids) {
 }
 
 /**
+ * Lanes the taxi genuinely **cannot** drive, published by game/drawbridge.js while a leaf is up.
+ *
+ * The opposite of the set above it in every sense, and the two are worth reading together. A
+ * roadworks closure is soft on purpose — ambient traffic is kept out and the taxi is *tempted in*,
+ * and the asymmetry is the whole vignette. A raised bridge is hard for everybody: there is no road
+ * there, in the most literal way anything in this game has ever meant it.
+ *
+ * Enforced by skipping the lane in `search`'s successor expansion rather than by pricing it high.
+ * A weight, however large, is still a number Dijkstra will pay if it has to — and on a city where
+ * the bridge is the short way across, "has to" is exactly the case that comes up. Skipping means no
+ * route can ever thread a raised leaf, which is what lets `main.js` re-plan on the lift and trust
+ * the answer.
+ */
+let blockedLanes = new Set();
+export function setBlockedLanes(ids) {
+  blockedLanes = new Set(ids);
+}
+
+/** Whether a route may use this lane at all. */
+export const laneOpen = (lane) => !blockedLanes.has(lane.id);
+
+/**
  * Cost of driving one lane. Reads the class off the lane rather than recomputing it from `(i, j,
  * d)`: the network already worked out what kind of road this is and which way its green wave
  * runs, and an editor-drawn arterial has no line index to look either up by.
@@ -149,6 +171,7 @@ function search(net, from, reached, cost) {
     }
 
     for (const next of cur === START ? startExits(net, origin, from.d) : cur.onward) {
+      if (!laneOpen(next)) continue;      // a raised bridge is not a road — see setBlockedLanes
       const nd = curDist + cost(next);
       if (nd < (dist.get(next) ?? Infinity)) {
         dist.set(next, nd);

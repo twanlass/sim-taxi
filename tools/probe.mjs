@@ -36,7 +36,7 @@ import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/loc
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
-import { findRoute as planRoute, setRoadworkLanes, laneCost } from '../src/game/route.js';
+import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
 import { createCollisions } from '../src/sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET, sirenOn, CHASE_SPEED } from '../src/sim/police.js';
 import {
@@ -121,7 +121,15 @@ import {
 import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits } from '../src/city/grid.js';
+import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow } from '../src/city/grid.js';
+import {
+  waterEdges, bridgeSpan, bridgeLines, riverCrossing, archAt,
+  WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR,
+} from '../src/city/river.js';
+import { createBridge } from '../src/geometry/bridge.js';
+import { createBargeMesh, createTugMesh } from '../src/geometry/boat.js';
+import { createDrawbridge } from '../src/game/drawbridge.js';
+import { createBoats } from '../src/game/boats.js';
 import {
   halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns, MEDIAN_W,
 } from '../src/city/grid.js';
@@ -11510,6 +11518,185 @@ let chopperOrder; // likewise
   setOccupied(false);
   check('taxi sign goes dark again once the rider is dropped off',
     sign.material.color.getHexString() === hex(PALETTE.taxiTrim));
+}
+
+// --- The river, its bridges and the span that lifts ------------------------
+//
+// Four things, and each is the sort that fails silently: geometry the camera never shows you,
+// a clearance chain spread over three files, a closure that has to still leave the city routable,
+// and a leaf that must never come down on anything.
+{
+  const rScene = new THREE.Scene();
+  const rBanks = riverBanks();
+  const rWater = waterEdges();
+
+  check('the city has a river, and it splits it roughly in half',
+    rBanks !== null && riverRow() !== null
+    && riverRow() >= 1 && riverRow() <= GRID_J - 2,
+    `row ${riverRow()} of ${GRID_J}, channel ${(rWater.z1 - rWater.z0).toFixed(1)} units of water`);
+
+  // --- The clearance chain.
+  //
+  // Four numbers across three files decide whether the drawbridge has a reason to exist: two
+  // soffits in city/river.js, two air draughts built into geometry/boat.js. Asserted as the chain
+  // rather than as its outcome, so moving any one of them fails here rather than shipping a tug
+  // that sails under the bridge it opens.
+  const flatGap = -WATER_Y + FLAT_SOFFIT;
+  const archGap = -WATER_Y + ARCH_SOFFIT;
+  const bargeGeo = createBargeMesh(makeRng(seed + 811));
+  const tugGeo = createTugMesh(makeRng(seed + 812));
+  bargeGeo.computeBoundingBox();
+  tugGeo.computeBoundingBox();
+  const bargeAir = bargeGeo.boundingBox.max.y;
+  const tugAir = tugGeo.boundingBox.max.y;
+
+  check('a barge clears every span in the city',
+    bargeAir <= BARGE_AIR + 1e-6 && bargeAir < flatGap,
+    `${bargeAir.toFixed(2)} against the flat span's ${flatGap.toFixed(2)}`);
+  check('and a tug clears the arched ones but not the flat one',
+    tugAir < archGap && tugAir > flatGap,
+    `${tugAir.toFixed(2)} against ${flatGap.toFixed(2)} flat and ${archGap.toFixed(2)} arched`);
+  check('the arch is what buys the tug that clearance',
+    archGap - flatGap > 0.9, `${(archGap - flatGap).toFixed(2)} units of hump`);
+
+  // --- The deck profile.
+  //
+  // Zero slope at both abutments is the whole reason the hump is a `sin^2` — a curve arriving at
+  // the road with slope left in it kinks where the two meet, and no rise tunes that out.
+  const rSpan = bridgeSpan(bridgeLines().find((i) => riverCrossing(i) === 'fixed'));
+  const rLen = rSpan.z1 - rSpan.z0;
+  check('the arch meets the road flat at both ends',
+    Math.abs(archAt(0, rLen).slope) < 1e-9 && Math.abs(archAt(1, rLen).slope) < 1e-9
+    && Math.abs(archAt(0, rLen).y) < 1e-9 && Math.abs(archAt(1, rLen).y) < 1e-9,
+    `crest ${archAt(0.5, rLen).y.toFixed(2)} at ${(Math.atan(Math.max(
+      ...Array.from({ length: 41 }, (_, k) => Math.abs(archAt(k / 40, rLen).slope)),
+    )) * 180 / Math.PI).toFixed(1)} degrees of peak grade`);
+
+  // Every deck triangle wound the way it claims. A lofted arch is exactly the shape the roadworks
+  // ramp shipped inside out, and `computeVertexNormals` launders a reversed one into looking
+  // deliberate — so the normal is computed from the winding rather than read off the attribute.
+  {
+    let degenerate = 0;
+    let upward = 0;
+    const a = new THREE.Vector3(); const b = new THREE.Vector3();
+    const c = new THREE.Vector3(); const n = new THREE.Vector3();
+    for (const i of bridgeLines()) {
+      const geo = createBridge(bridgeSpan(i), makeRng(seed + 820 + i));
+      const p = geo.attributes.position;
+      for (let k = 0; k < p.count; k += 3) {
+        a.fromBufferAttribute(p, k); b.fromBufferAttribute(p, k + 1); c.fromBufferAttribute(p, k + 2);
+        n.copy(b).sub(a).cross(c.clone().sub(a));
+        if (n.length() < 1e-9) { degenerate += 1; continue; }
+        if (n.normalize().y > 0.5) upward += 1;
+      }
+    }
+    check('no bridge triangle is degenerate', degenerate === 0, `${degenerate} of them`);
+    // The running surface, both footways, the rail caps and the dashes all face up; if the lofting
+    // ever flips, this is what goes with it.
+    check('the deck faces the sky', upward > 100, `${upward} up-facing triangles`);
+  }
+
+  // --- The paint does not sink into the hump.
+  //
+  // `markRoad` lays its dashes flat at y = 0.02 and an arched deck is 1.1 above that at the crest,
+  // which is why the span paints its own. If the ground ever starts painting a bridged gap again
+  // the marks vanish into the deck with nothing logged.
+  {
+    const rGround = createGround(makeRng(seed + 11), layout);
+    let overWater = 0;
+    const scan = (geo) => {
+      const p = geo.attributes.position;
+      for (let k = 0; k < p.count; k += 3) {
+        let cz = 0;
+        for (let v = 0; v < 3; v++) cz += p.getZ(k + v);
+        cz /= 3;
+        if (cz > rBanks.z0 + 1e-3 && cz < rBanks.z1 - 1e-3) overWater += 1;
+      }
+    };
+    scan(rGround.geometry);
+    for (const child of rGround.children) if (child.geometry && child.name !== 'river-mouth-fade') scan(child.geometry);
+    check('the ground lays nothing over the channel', overWater === 0,
+      `${overWater} triangles between the banks`);
+  }
+
+  // --- The lift, and the two things it must never do.
+  {
+    const bridge = createDrawbridge(rScene, makeRng(seed + 830), {});
+    check('one span lifts', bridge !== null && bridge.laneIds.length === 2,
+      bridge ? `line ${bridge.line}` : 'none');
+
+    // **The city is still routable with the leaf up.** `isCityConnected` runs at layout time with
+    // every bridge down, so it says nothing about the state this module spends a fifth of the run
+    // in — and a lift that stranded a corner of the map would strand a fare with it.
+    setBlockedLanes(bridge.laneIds);
+    const ints = allIntersections();
+    let stranded = 0;
+    for (const from of ints) {
+      for (let d = 0; d < 4; d++) {
+        for (const to of ints) if (findRoute({ i: from.i, j: from.j, d }, to) === null) stranded += 1;
+      }
+    }
+    setBlockedLanes([]);
+    check('every fare is still reachable with the leaf up', stranded === 0,
+      `${stranded} unroutable of ${ints.length * 4 * ints.length}`);
+
+    // ...and no route threads the raised span, which is the other half of the same claim: a large
+    // weight would still be paid on a city where the bridge is the short way across.
+    setBlockedLanes(bridge.laneIds);
+    const net2 = cityNetwork();
+    let threaded = 0;
+    for (const from of ints) {
+      for (let d = 0; d < 4; d++) {
+        const path = findRoute({ i: from.i, j: from.j, d }, { i: bridge.span.line, j: bridge.span.row });
+        if (!path) continue;
+        let at = { i: from.i, j: from.j, d };
+        for (const step of path) {
+          const lane = net2.laneOutByGrid(step, at.i, at.j);
+          if (lane && bridge.laneIds.includes(lane.id)) threaded += 1;
+          const next = lane ? net2.nodeById.get(lane.to) : null;
+          at = next ? { i: next.gi, j: next.gj, d: step } : at;
+        }
+      }
+    }
+    setBlockedLanes([]);
+    check('and no route threads a raised leaf', threaded === 0, `${threaded} legs over it`);
+
+    // **The leaf waits for the deck, with no timeout.** A car standing on the span holds the whole
+    // cycle in `clearing` — including the taxi, including one the player is sitting on with the
+    // brake held. This is the check that stops "it hardly ever happens" from becoming a car in the
+    // river.
+    bridge.request();
+    const stuck = [{ lane: { id: bridge.laneIds[0] }, turn: null }];
+    for (let f = 0; f < 60 * 40; f++) bridge.update(1 / 60, stuck);
+    check('the leaf never moves while a car is on the deck',
+      bridge.state.lift === 0 && bridge.state.phase === 'clearing',
+      `${bridge.state.phase} after 40s, lift ${bridge.state.lift.toFixed(2)}`);
+    for (let f = 0; f < 60 * 6; f++) bridge.update(1 / 60, []);
+    check('and goes up once it clears', bridge.state.lift > 0.99, bridge.state.phase);
+
+    // The boats, over a full run. The tug must never be inside the span with the leaf anywhere but
+    // fully up — which is the boat's own doing (`HOLD_OFF`), not the bridge's.
+    const boats = createBoats(rScene, makeRng(seed + 840), bridge);
+    let lowest = 1;
+    let shutFrames = 0;
+    for (let f = 0; f < 60 * 300; f++) {
+      boats.update(1 / 60);
+      bridge.update(1 / 60, []);
+      if (bridge.closed) shutFrames += 1;
+      for (const boat of boats.boats) {
+        if (boat.kind !== 'tug') continue;
+        if (Math.abs(boat.x - bridge.span.cx) < 5) lowest = Math.min(lowest, bridge.state.lift);
+      }
+    }
+    check('a tug is never inside the span unless the leaf is fully up', lowest > 0.99,
+      `lowest lift with a tug in the span: ${lowest.toFixed(3)}`);
+    // Long enough to be an event, short enough not to be the map. Two or three lifts in a
+    // three-minute session, and the span open for four fifths of the run.
+    check('the span spends most of the run open', shutFrames / (60 * 300) < 0.3,
+      `shut ${((100 * shutFrames) / (60 * 300)).toFixed(0)}% of five minutes,`
+      + ` ${boats.state.tugs} tugs and ${boats.state.barges} barges`);
+    bridge.dispose();
+  }
 }
 
 // Average speed per car over the whole run — a stable throughput number, unlike a snapshot of

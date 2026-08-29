@@ -243,10 +243,29 @@ export function setPriorityJunction(next) {
 // for the reason given. `chainSeconds` does plan over the discounted weights — but
 // `estimateSeconds` bills a route in blocks and turns, never in lane cost, so the discount can only
 // move a clock by changing which route is picked, bounded at one leg either way.
+//
+// **Keyed by source, because there are two of them now.** This used to be one set with one owner,
+// and `roadwork.js` replaced it wholesale on every change — which is correct exactly while nothing
+// else holds a closure and silently wrong the moment something does. The drawbridge is the
+// something: it shuts its two lanes for a dozen seconds at a time, and a roadworks zone standing up
+// or packing away in that window would have reopened them under it.
+const closedBySource = new Map();
 let closedLanes = new Set();
 
-export function setClosedLanes(ids) {
-  closedLanes = new Set(ids);
+const recomputeClosed = () => {
+  closedLanes = new Set();
+  for (const ids of closedBySource.values()) for (const id of ids) closedLanes.add(id);
+};
+
+/**
+ * @param ids     lane ids to close
+ * @param source  who is closing them. Each source replaces only its own set, so two callers can
+ *                hold closures at once. Defaults to 'roadwork' — the original caller, so a tool
+ *                that clears the set with `setClosedLanes([])` still clears what it meant to.
+ */
+export function setClosedLanes(ids, source = 'roadwork') {
+  closedBySource.set(source, new Set(ids));
+  recomputeClosed();
 }
 
 /**

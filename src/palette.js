@@ -505,6 +505,37 @@ export const PALETTE = {
   // rather than a step, so it is pushed further from the surface it edges: luma 170 against the
   // deck's 108, where a block's kerb is only 32 clear of its pavement.
   bridgeTrim: '#AFACA4',
+  // The **underside**, and it is a much bigger decision than a soffit sounds like — because when the
+  // drawbridge stands up, the underside is the whole of what the camera sees. Raised to 70 degrees
+  // the leaf turns its belly through the view axis, so a soffit in `bridgeTrim`'s pale concrete
+  // presented a blank panel the size of a block, at the same value as the buildings behind it: the
+  // one moment in the game with a bridge standing on end read as a flat card lying on the skyline.
+  //
+  // At luma 74 it is the darkest surface in the city bar the trench a roadworks zone digs, which is
+  // right twice over — a soffit is the one face of a bridge the sun never reaches, and a raised leaf
+  // has to be legible from across the map as a *thing that has moved*.
+  bridgeSoffit: '#4A4844',
+
+  // --- Boats ----------------------------------------------------------------
+  //
+  // A boat is about twenty pixels long at play zoom on a band of dark water, so what has to carry
+  // is **value against the river**, not hue. `riverWater` renders around luma 112 and `riverDeep`
+  // 87, so both hulls go dark and both decks go pale: a boat reads as a light shape with a dark
+  // waterline under it, which is what a boat looks like from above.
+  //
+  // Neither is allowed near the warm end. The taxi owns 34 degrees, the urgency ramp owns
+  // everything from 1 to 126 and the roadworks orange sits at 6 — a working boat in red or orange
+  // is a thing the player would look at twice on a board where warm means "act on this".
+  bargeHull: '#4A4E55',
+  bargeCargo: '#5F6B78',
+  tugHull: '#3E4A52',
+  // The one exception, and it is a small one: a tug's wheelhouse and funnel are the only saturated
+  // thing on the water. It sits at 213 degrees — inside the same blue window the pond and the river
+  // already occupy, 27 clear of the courier cyan — so it is a *boat* colour rather than a marker
+  // one. What it separates from is its own hull, which is what makes the tug read as taller than
+  // the barge from across the map.
+  tugTrim: '#37698F',
+  boatDeck: '#B6B2A6',
 
   // Flower beds on the arterials' medians — see `flowerBedParts` in city/props.js. Blooms are drawn
   // from this per *flower*, not per bed, so one bed carries four or five of them.
