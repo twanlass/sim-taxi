@@ -914,6 +914,10 @@ const onGrass = (city, i, j) => {
   let padsOffMesh = 0;
   let lowestPad = Infinity;
   const padHeights = [];
+  // How much bare trunk each courtyard tree shows, and how many crowns are inside a wing.
+  const courtTrunk = [];
+  const courtBest = [];      // the most trunk any one tree in a city's yard shows
+  let courtBuried = 0;
   // The absolute floor. A building is never shorter than 5 units (`buildTower`), so anything at or
   // near that is the shop the check below exists to keep the pad off.
   const PAD_FLOOR = 5.5;
@@ -975,6 +979,44 @@ const onGrass = (city, i, j) => {
       if (onPad === 0) padsOffMesh += 1;
     }
 
+    // What the yard actually shows the player. A courtyard's trees are the only reason to hollow a
+    // block out at all, and both ways of losing them are invisible in the code:
+    //
+    //   - **A crown inside a wing.** The trunk stands off the yard edge by its own crown's reach,
+    //     so no part of the canopy is in a wall. It used to be planted 0.7 off it whatever it was
+    //     carrying, and 71 of 91 trees over these seeds had a wing through the crown — which
+    //     reads, correctly, as a shrub growing out of a roof. Checked from the placement, which is
+    //     exact: this one is an invariant rather than a rate.
+    //   - **No trunk showing.** Cast rather than derived. The arithmetic — a wing of height h
+    //     hides everything within h / tan(33°) of its inner face, and a crown hides the top of its
+    //     own trunk — is what `buildCourtyard` is built on and it is an *upper bound*: it knows
+    //     nothing about the tree in front of this one. Over these seeds it reads 1.61 against a
+    //     measured 0.90, and calls all 15 of the hidden trees visible. 2,275 rays is 0.7s of the
+    //     probe's 26, so it pays for the real answer.
+    if (built.court) {
+      const { yard, trees } = built.court;
+      const ray = new THREE.Raycaster();
+      ray.far = 300;
+      courtBest.push(0);
+      for (const t of trees) {
+        const N = 24;
+        let seen = 0;
+        for (let i = 0; i <= N; i++) {
+          // Stood off along the ray, so the trunk's own skin isn't what the ray hits.
+          const from = new THREE.Vector3(t.x, KERB_H + (t.trunkH * i) / N, t.z)
+            .addScaledVector(VIEW_DIR, 0.3);
+          ray.set(from, VIEW_DIR);
+          if (ray.intersectObject(built.mesh, false).length === 0) seen += 1;
+        }
+        const run = (seen / (N + 1)) * t.trunkH;
+        courtTrunk.push(run);
+        courtBest[courtBest.length - 1] = Math.max(courtBest[courtBest.length - 1], run);
+        for (const gap of [yard.x1 - t.x, yard.z1 - t.z, t.x - yard.x0, t.z - yard.z0]) {
+          if (gap < t.crownReach - 1e-9) courtBuried += 1;
+        }
+      }
+    }
+
     // A courtyard is a hollow block with trees in it, and the trees are the whole point — they
     // are the only green in the buildings mesh, so counting foliage-hued vertices is enough to
     // say the yard was actually planted rather than left as a hole.
@@ -1010,6 +1052,26 @@ const onGrass = (city, i, j) => {
     `${courtyards}/${SEEDS} seeds`);
   check('and plants every one of them', unplanted === 0,
     `${unplanted} cities with a courtyard and no trees in it`);
+  // Both halves of "a tree standing in a hole in a building" rather than "a green lump on a roof".
+  // The bar is a *rate* because the near corner of a yard is genuinely behind its own wing and a
+  // tree that lands there is meant to be hidden — what must not come back is that being the normal
+  // case. With the crown at 0.55 of the height in a 6.0-unit yard it is 15 trees in 91; with it at
+  // 0.42 in a 5.0-unit one it was 69 of them.
+  const bareTrunk = courtTrunk.filter((t) => t < 0.05).length;
+  const trunkSeen = courtTrunk.reduce((a, t) => a + t, 0) / courtTrunk.length;
+  const bareYards = courtBest.filter((t) => t < 0.3).length;
+  check('a courtyard tree shows its trunk',
+    bareTrunk < courtTrunk.length * 0.25 && trunkSeen > 0.6,
+    `${trunkSeen.toFixed(2)} of a unit on average (${(trunkSeen * SCREEN_PER_WORLD_Y * 7.7).toFixed(1)}px`
+    + ` at play zoom), ${bareTrunk}/${courtTrunk.length} showing none`);
+  // The per-city half of it, and the one a player would ever put into words. A yard is 3–5 trees
+  // and the rate above lets a few of them hide, so this is what says no city draws the whole
+  // massing with nothing but crowns showing: it was 11 cities in 24.
+  check('and no city hides every one of them', bareYards === 0,
+    `${bareYards}/${courtBest.length} cities with no trunk in the yard, best in yard averages `
+    + `${(courtBest.reduce((a, t) => a + t, 0) / courtBest.length).toFixed(2)}`);
+  check('and never grows a crown into a wing', courtBuried === 0,
+    `${courtBuried} crowns inside a wall across ${courtTrunk.length} trees`);
   // A few a city, on the low masonry stock — which is most of the map, so a city with none at all
   // means the eligibility test has quietly stopped matching anything.
   check('the city builds pitched roofs', flatOnly === 0,
