@@ -193,7 +193,7 @@ export function setHazeTop(fog, top) {
 
 // Captured from the in-game tweak panel. Expressed as elevation/azimuth rather than a raw
 // position vector so these numbers mean the same thing here as they do on the sliders.
-const SUN = {
+export const SUN = {
   elevation: THREE.MathUtils.degToRad(28.5),   // ~16:24
   azimuth: THREE.MathUtils.degToRad(56),
   radius: SPAN * 1.2,

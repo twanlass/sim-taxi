@@ -5,6 +5,7 @@ import { PALETTE, jitterColor } from '../palette.js';
 import { KERB_H, MEDIAN_EDGE, PARK_EDGE, PAVE_INSET, roundedRectShape } from './ground.js';
 import { MEDIAN_W, medianRuns } from './grid.js';
 import { plusXFaceSeen } from './garage.js';
+import { planPond, pondParts } from './pond.js';
 
 /**
  * Park tree — same construction as the terrain prototype's broadleaf, scaled for a city block.
@@ -380,7 +381,11 @@ export function planParkFurniture(rng, areas) {
   // the one spot in a park that was never anything else.
   const plots = areas.filter((a) => a.district);
   const pool = plots.length ? plots : areas;
-  const statue = pool.length ? { ...centreOf(rng.pick(pool)) } : null;
+  // The plot rides along with the position: `planPond` has to keep the water out of the statue's
+  // park, and identity says that where comparing two centres for equality is a float comparison
+  // against a number that has been through a Vector3 and back.
+  const chosen = pool.length ? rng.pick(pool) : null;
+  const statue = chosen ? { ...centreOf(chosen), plot: chosen } : null;
 
   return { benches, statue };
 }
@@ -608,6 +613,12 @@ export function createProps(rng, blocks) {
   // a tree growing through the statue is the one arrangement a park cannot have.
   const plots = parkPlots(blocks);
   const { benches, statue } = planParkFurniture(rng, plots);
+  // And the pond with the furniture, for the same reason — a tree standing in the water is the
+  // other one. This does mean a seed's trees are planted in different spots than they were before
+  // there were ponds: two draws land in this stream ahead of them now. Everything *outside*
+  // `createProps` runs on its own offset and has not moved, which is the separation that matters
+  // (see the seeding note in docs/architecture.md).
+  const pond = planPond(rng, plots, statue);
 
   const SURFACE_Y = KERB_H + 0.01;
   for (const bench of benches) {
@@ -618,6 +629,15 @@ export function createProps(rng, blocks) {
   if (statue) {
     const built = statueParts(statue.x, statue.z, SURFACE_Y, rng);
     for (const part of built) stampEntry(part, statue.x, statue.z, hash01(statue.x, statue.z));
+    parts.push(...built);
+  }
+  if (pond) {
+    // Stamped on its own centre like everything else in this mesh, so the pond rises out of the
+    // park in the city's entrance wave rather than being the one thing already there. The bank and
+    // the water share one anchor: they are two halves of a single object, and given separate ones
+    // they would arrive on separate frames with the shore ring briefly hanging round nothing.
+    const built = pondParts(pond, rng);
+    for (const part of built) stampEntry(part, pond.x, pond.z, hash01(pond.x, pond.z));
     parts.push(...built);
   }
 
@@ -643,7 +663,14 @@ export function createProps(rng, blocks) {
       || Math.abs(dx * sin + dz * cos) > BENCH_CLEAR_Z;
   });
 
-  const clearOfFurniture = (x, z) => clearOfStatue(x, z) && clearOfBenches(x, z);
+  // And clear of the water. A radius, not a frame: the pond genuinely is round-ish, and it is the
+  // one thing here where the *crown* has to miss as well as the trunk — a tree leaning over a bench
+  // is shade and a tree leaning over a pond is a tree growing out of it. Hence the pond's nominal
+  // radius (which its wobbled outline never exceeds) plus a crown's own reach, ~1.8 at the top of
+  // `treeParts`' height range.
+  const clearOfPond = (x, z) => !pond || Math.hypot(x - pond.x, z - pond.z) > pond.r + 1.8;
+
+  const clearOfFurniture = (x, z) => clearOfStatue(x, z) && clearOfBenches(x, z) && clearOfPond(x, z);
 
   // Districts are planted as one area so trees fall across the old road line too — nothing
   // gives away a merged park faster than a treeless stripe down the middle of it.
@@ -698,5 +725,8 @@ export function createProps(rng, blocks) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'props';
-  return mesh;
+  // `{ mesh, pond }` rather than the bare mesh, the same shape `createBuildings` hands back its
+  // `pad` in: exactly one park in the city has water in it, and `game/ducks.js` has to be told
+  // which one. Null on a city with no park big enough — no pond, no ducks.
+  return { mesh, pond };
 }

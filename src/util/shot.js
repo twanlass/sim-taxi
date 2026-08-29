@@ -112,6 +112,26 @@ export const SHOTS = [
   // what a thing is" and the one claim no assertion can make.
   { name: 'parcel', description: 'a package waiting on its pad — needs ?parcels=1', target: [0, 0], zoom: 11, warmup: 12, untilParcel: true },
   { name: 'parcel-board', description: 'a courier pad against the fare board at play zoom — needs ?parcels=1', target: [0, 0], zoom: 30, warmup: 12, untilParcel: true },
+  // The weather ringing the island (game/clouds.js). Appended, for the index-addressing reason
+  // stated above the `birds` entry.
+  //
+  // Framed on the map's **far corner** rather than on the middle of it, and that is the whole point
+  // of the shot: at play zoom the island is 221 x 120 on screen against a frame 104 tall, so what
+  // the player ever sees of the sky is the wedge between the map's edge and the corner of the frame
+  // — 91% of it within 30 units of the edge — and a cloud that is not against that edge is a cloud
+  // nobody is ever going to see. The question this framing asks is whether the band sits where the
+  // sky actually is.
+  { name: 'clouds', description: 'the weather ringing the island', target: [-38, -38], zoom: 52, warmup: 12 },
+  // The duck pond (city/pond.js, game/ducks.js). Appended, for the index-addressing reason stated
+  // above the `birds` entry.
+  //
+  // Two framings, and the pair is the whole brief an ambient thing gets round here. Close: does the
+  // water read as *water* — a shore, a dark middle, birds sitting in the surface rather than on it
+  // — at a size where a duck is ten pixels. At play zoom: is it a landmark you notice while driving
+  // past, or a blue smudge on a lawn? Nothing here is staged: a pond does not have a moment, and
+  // the ducks are posed the instant they are built precisely so a frozen frame has birds on it.
+  { name: 'pond', description: 'the duck pond, close', target: [0, 0], zoom: 9, warmup: 12, atPond: true },
+  { name: 'pond-far', description: 'the duck pond at play zoom', target: [0, 0], zoom: 52, warmup: 12, atPond: true },
   // There were two more here, `parcel-aboard` and `parcel-flight`, and both photographed a load that
   // has since left the world: the box no longer rides on the taxi's rear deck and no longer crosses
   // the road to get there — it flies into the HUD (game/cargochip.js), and shot mode hides the HUD.

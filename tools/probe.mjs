@@ -22,6 +22,8 @@ import {
   createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
   BENCH_LEN, STATUE_PLAZA, planHydrants, HYDRANT_REACH, HYDRANT_H,
 } from '../src/city/props.js';
+import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
+import { createDucks } from '../src/game/ducks.js';
 import { createGarage, garageSite, plusXFaceSeen } from '../src/city/garage.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
@@ -69,6 +71,10 @@ import { createTaxiMesh } from '../src/geometry/taxi.js';
 import { isCarOffScreen } from '../src/game/taxifinder.js';
 import { createPlaneMesh, PLANE_SPAN, PLANE_UNDERSIDE } from '../src/geometry/plane.js';
 import { createFlyover, trailRoll, heading, PROP_SPIN } from '../src/game/flyover.js';
+import {
+  createClouds, cloudTint, screenOf, silhouetteTop, silhouetteBottom,
+  KEEP_OUT, INNER_KEEP_OUT, INNER_REACH, CITY_REACH, BUILT_REACH, CITY_TOP, ROUND as CLOUD_ROUND,
+} from '../src/game/clouds.js';
 import { createHelicopterMesh, HELI_SKID_DROP, MAIN_R } from '../src/geometry/helicopter.js';
 import { createChopper, CRUISE_ALT as CHOPPER_ALT, ROTOR_FLIGHT } from '../src/game/chopper.js';
 import {
@@ -163,7 +169,8 @@ const scene = new THREE.Scene();
 const layout = time('layout', () => createLayout(makeRng(seed)));
 const ground = time('ground', () => createGround(makeRng(seed + 11), layout));
 const buildings = time('buildings', () => createBuildings(makeRng(seed + 22), layout));
-const props = time('props', () => createProps(makeRng(seed + 33), layout));
+const propsBuild = time('props', () => createProps(makeRng(seed + 33), layout));
+const props = propsBuild.mesh;
 const traffic = time('traffic init', () => createTraffic(makeRng(seed + 44), scene, 24));
 
 const tris = (mesh) => mesh.geometry.attributes.position.count / 3;
@@ -807,6 +814,274 @@ const onGrass = (city, i, j) => {
   }
   check('and nothing stands in a bench', throughASeat === 0,
     `${throughASeat} vertices anchored inside one across ${ownPlan.benches.length} benches`);
+}
+
+// --- The duck pond -----------------------------------------------------------
+//
+// Exactly one a city, never in the statue's park, and every bit of it on the lawn. All three are
+// placement rules and none of them is visible once the water is merged into the props mesh, which
+// is why `planPond` is a function of its own — the same split `planParkFurniture` and
+// `planMedianBeds` are held to, and swept over seeds for the same reason: the pond that escapes is
+// the widest one on the narrowest park, and that pairing does not come up on the city you happen to
+// be looking at.
+{
+  let cities = 0;
+  let ponds = 0;
+  let onTheStatuesLawn = 0;
+  let overTheWalk = 0;             // any part of the circle past where the grass starts
+  let inABench = 0;
+  let tightest = Infinity;         // least lawn to spare between a pond's edge and the paving
+  let smallest = Infinity;
+
+  const SEEDS = 40;
+  for (let s = 0; s < SEEDS; s++) {
+    const cityLayout = createLayout(makeRng(seed + s * 37));
+    const plots = parkPlots(cityLayout);
+    if (!plots.length) continue;
+    cities += 1;
+
+    // Planned off one stream in the order `createProps` draws them, because that is the only way
+    // to reproduce the pond a seed actually builds: the furniture draws first and the pond takes
+    // what is left of the sequence.
+    const rng = makeRng(seed + s * 37 + 33);
+    const plan = planParkFurniture(rng, plots);
+    const pond = planPond(rng, plots, plan.statue);
+    if (!pond) continue;
+    ponds += 1;
+    smallest = Math.min(smallest, pond.r);
+
+    if (plan.statue && pond.plot === plan.statue.plot) onTheStatuesLawn += 1;
+
+    // The whole circle inside the grass: the outline never exceeds `r`, so the nearest block edge
+    // less the radius is where the water gets closest to the walk round the park.
+    const { x0, x1, z0, z1 } = pond.plot.bounds;
+    const room = Math.min(pond.x - x0, x1 - pond.x, pond.z - z0, z1 - pond.z) - pond.r;
+    tightest = Math.min(tightest, room - PARK_EDGE);
+    if (room < PARK_EDGE) overTheWalk += 1;
+
+    // And clear of the furniture standing on the same lawn. Measured in each bench's own frame
+    // rather than against a radius round its centre: a bench is 1.9 by 0.645 and a circle big
+    // enough to cover its ends reaches a unit out across the lawn behind it, which fails every
+    // bench on the side of the park the pond is nearest without either of them touching.
+    for (const bench of plan.benches) {
+      const cos = Math.cos(bench.yaw);
+      const sin = Math.sin(bench.yaw);
+      const dx = pond.x - bench.x;
+      const dz = pond.z - bench.z;
+      // Distance from the pond's centre to the bench's rectangle: the overshoot past each of its
+      // own half-extents, taken together.
+      const along = Math.max(0, Math.abs(dx * cos - dz * sin) - BENCH_LEN / 2);
+      const across = Math.max(0, Math.abs(dx * sin + dz * cos) - 0.34);
+      if (Math.hypot(along, across) < pond.r) inABench += 1;
+    }
+  }
+  createLayout(makeRng(seed));     // `createLayout` installs its network — put the probe's city back
+
+  check('every city that can hold a pond gets exactly one', ponds === cities,
+    `${ponds} across ${cities} cities, smallest ${smallest.toFixed(2)} in radius`);
+  check('and it is never in the statue\'s park', onTheStatuesLawn === 0,
+    `${onTheStatuesLawn} sharing a lawn with the statue`);
+  check('the water lies entirely on the grass', overTheWalk === 0,
+    `${overTheWalk} over the walk, tightest ${tightest.toFixed(2)} to spare`);
+  check('and no bench stands in it', inABench === 0, `${inABench} benches in the water`);
+}
+
+// The pond's own geometry: two flat surfaces that have to face **up**. The water is a hand-wound
+// fan — wound the other way round it is a pond lit from underneath, and `computeVertexNormals`
+// would launder that into looking deliberate, which is exactly how the roadworks ramp shipped
+// inside out (see CLAUDE.md). So the normal is computed from the winding rather than read off the
+// normal attribute, and for every triangle rather than the first: `ShapeGeometry` is indexed, so
+// walking `attributes.position` in order tests triangles that do not exist.
+{
+  const pondRng = makeRng(seed + 33);
+  const pondPlan = planPond(pondRng, parkPlots(layout), planParkFurniture(makeRng(seed + 33), parkPlots(layout)).statue);
+  let faces = 0;
+  let downward = 0;
+  let offLevel = 0;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const n = new THREE.Vector3();
+
+  if (pondPlan) {
+    for (const part of pondParts(pondPlan, makeRng(seed + 7))) {
+      const pos = part.attributes.position;
+      const index = part.index;
+      const at = (k) => (index ? index.getX(k) : k);
+      const count = index ? index.count : pos.count;
+      for (let i = 0; i < count; i += 3) {
+        a.fromBufferAttribute(pos, at(i));
+        b.fromBufferAttribute(pos, at(i + 1));
+        c.fromBufferAttribute(pos, at(i + 2));
+        const level = Math.abs(a.y - b.y) < 1e-9 && Math.abs(a.y - c.y) < 1e-9;
+        // `sub` writes into the vector it is called on, so the winding is taken last — reading the
+        // corners back after this line reads whatever the cross product left behind.
+        n.copy(b).sub(a).cross(c.sub(a));
+        if (n.lengthSq() < 1e-12) continue;          // a degenerate sliver has no side to be on
+        faces += 1;
+        if (n.normalize().y < 0.999) downward += 1;
+        if (!level) offLevel += 1;
+      }
+    }
+  }
+  check('every face of the pond points at the sky', !!pondPlan && faces > 0 && downward === 0,
+    `${faces - downward}/${faces} facing up`);
+  check('and the water lies level', offLevel === 0, `${offLevel} sloping triangles`);
+}
+
+// Nothing planted in the water, read off the merged mesh rather than off the plan — every part
+// carries its own object's ground anchor for the entrance animation (`stampEntry`), so "what stands
+// here" is a question the props mesh itself can answer. Same read as the statue's clearing above.
+{
+  const furniture = planParkFurniture(makeRng(seed + 33), parkPlots(layout));
+  const rng = makeRng(seed + 33);
+  planParkFurniture(rng, parkPlots(layout));
+  const pond = planPond(rng, parkPlots(layout), furniture.statue);
+  const entry = props.geometry.attributes.aEntry;
+  // The furniture is not planting: a bench half a unit off the water is exactly where the pond's
+  // setback puts one, and it carries an anchor like everything else in this mesh. What is being
+  // counted here is *trees*, so everything the plan already accounts for is struck out first — the
+  // pond's own two pieces, the benches, and the statue.
+  const known = [...furniture.benches, furniture.statue, pond].filter(Boolean);
+  const isAt = (ax, az, p) => Math.abs(ax - p.x) < 1e-4 && Math.abs(az - p.z) < 1e-4;
+  let inTheWater = 0;
+  if (pond) {
+    for (let i = 0; i < entry.count; i++) {
+      const ax = entry.getX(i);
+      const az = entry.getY(i);          // the anchor's z rides in the attribute's y
+      // A crown reaches ~1.8 past its trunk and a tree leaning over water is a tree growing out of
+      // it, so the margin is the one `createProps` plants by rather than the bare radius.
+      if (Math.hypot(ax - pond.x, az - pond.z) > pond.r + 1.8) continue;
+      if (known.some((p) => isAt(ax, az, p))) continue;
+      inTheWater += 1;
+    }
+  }
+  check('nothing is planted in the pond', !!pond && inTheWater === 0,
+    pond ? `${inTheWater} vertices of something else inside it` : 'no pond');
+}
+
+// --- The ducks on it ---------------------------------------------------------
+//
+// Five minutes of paddling. What has to hold is that a duck never leaves the water: the body is
+// held a bird's length inside the radius the water is *guaranteed* to cover, which is what hides
+// its legs under an opaque surface and keeps its tail off the bank. A duck aground is the one way
+// this effect can look broken, and it would look broken for the whole run.
+{
+  const duckScene = new THREE.Scene();
+  const furniture = planParkFurniture(makeRng(seed + 33), parkPlots(layout));
+  const rng = makeRng(seed + 33);
+  planParkFurniture(rng, parkPlots(layout));
+  const pond = planPond(rng, parkPlots(layout), furniture.statue);
+  const flotilla = createDucks(duckScene, makeRng(seed + 299), pond);
+
+  let aground = 0;
+  let stacked = 0;                 // two of them parked in the same place
+  let sunk = 0;                    // ...or riding at a height the water would not hold them at
+  let worst = 0;                   // the furthest any of them got from the middle
+  let dabbles = 0;
+  let travelled = 0;
+  const was = flotilla.ducks.map((d) => ({ x: d.x, z: d.z }));
+
+  for (let step = 0; step < 300 * 60; step++) {
+    flotilla.update(1 / 60);
+    for (let i = 0; i < flotilla.ducks.length; i++) {
+      const duck = flotilla.ducks[i];
+      const out = Math.hypot(duck.x - pond.x, duck.z - pond.z);
+      worst = Math.max(worst, out);
+      if (out > pond.water) aground += 1;
+      if (Math.abs(duck.y - POND_WATER_Y) > 0.12) sunk += 1;
+      if (duck.pitch < -0.5) dabbles += 1;
+      travelled += Math.hypot(duck.x - was[i].x, duck.z - was[i].z);
+      was[i] = { x: duck.x, z: duck.z };
+      // Only while both are sitting: a pair crossing paths is a pond with ducks on it, and a pair
+      // that has *settled* on the same spot reads as one bird.
+      for (let j = i + 1; j < flotilla.ducks.length; j++) {
+        const other = flotilla.ducks[j];
+        if (duck.dwell <= 0 || other.dwell <= 0) continue;
+        if (Math.hypot(duck.x - other.x, duck.z - other.z) < 0.55) stacked += 1;
+      }
+    }
+  }
+
+  check('the pond carries ducks', !!pond && flotilla.ducks.length >= 2,
+    pond ? `${flotilla.ducks.length} on ${(2 * pond.r).toFixed(1)} units of water` : 'no pond');
+  check('and none of them ever paddles onto the bank', aground === 0,
+    `furthest out ${worst.toFixed(2)} of ${pond ? pond.water.toFixed(2) : '?'} of open water`);
+  check('they sit in the surface rather than under it or over it', sunk === 0, `${sunk} frames adrift in y`);
+  check('they get about, and they dabble', travelled > 20 && dabbles > 0,
+    `${travelled.toFixed(0)} units paddled in 5 min, ${(dabbles / 60).toFixed(0)}s spent nose-down`);
+  check('and no two of them settle in the same spot', stacked === 0, `${stacked} frames parked together`);
+}
+
+// The flock walks on the same lawns, and a pigeon crossing the pond would cross it in a straight
+// line at walking pace — the one arrangement the keep-out exists to prevent. Ten minutes of it,
+// with the flock pinned to the pond's own park so the test is actually asked.
+{
+  const walkScene = new THREE.Scene();
+  const furniture = planParkFurniture(makeRng(seed + 33), parkPlots(layout));
+  const rng = makeRng(seed + 33);
+  planParkFurniture(rng, parkPlots(layout));
+  const pond = planPond(rng, parkPlots(layout), furniture.statue);
+  const keep = pond ? { x: pond.x, z: pond.z, r: pond.r + 0.7 } : null;
+  const flock = createBirds(walkScene, makeRng(seed + 199), layout, { keepOut: keep ? [keep] : [] });
+  // The pond's own park, by the bounds `parkAreas` hands out — settled there rather than left to
+  // wander, since a flock that spends the run two parks away proves nothing.
+  const home = parkAreas(layout).find((a) => pond
+    && pond.x > a.x0 && pond.x < a.x1 && pond.z > a.z0 && pond.z < a.z1);
+  if (home) flock.settle(home);
+
+  let wet = 0;
+  let onIt = 0;
+  for (let step = 0; step < 600 * 60; step++) {
+    flock.update(1 / 60);
+    if (flock.state.mode !== 'ground' || flock.state.area !== home) continue;
+    onIt += 1;
+    for (const bird of flock.birds) {
+      if (Math.hypot(bird.x - pond.x, bird.z - pond.z) < pond.r) wet += 1;
+    }
+  }
+  check('a walking bird stops at the water rather than crossing it',
+    !!home && onIt > 0 && wet === 0,
+    home ? `${wet} birds in the pond over ${(onIt / 60).toFixed(0)}s on its lawn` : 'no flock on the pond\'s park');
+}
+
+// The water is a 45-pixel patch of saturated colour sitting in a park, which is the same thing a
+// flower bed is and gets the same clearance argument: the urgency ramp, the taxi, the courier cyan
+// and the VIP purple can all be on the board at once, and none of them may be confusable with a
+// pond. Asserted here beside the blooms rather than trusted to the note in palette.js.
+{
+  const hueOf = (hex) => {
+    const hsl = { h: 0, s: 0, l: 0 };
+    new THREE.Color(hex).getHSL(hsl);
+    return hsl;
+  };
+  const spoken = [...PALETTE.urgency, PALETTE.taxiBody, PALETTE.vip, PALETTE.parcel,
+    PALETTE.routeLine].map(hueOf);
+  // Luma in the space the eye reads, which is where the pond has to separate from the lawn it is
+  // cut into — the trap `birdBody` documents, and worse here because this is an area rather than a
+  // speck. Rec. 709 on the 8-bit channels, the same measure those palette notes are written in.
+  const luma = (hex) => {
+    const c = new THREE.Color(); c.setStyle(hex, THREE.SRGBColorSpace);
+    const ch = hex.replace('#', '').match(/../g).map((h) => parseInt(h, 16));
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+  };
+
+  let nearest = 360;
+  let loudest = 0;
+  for (const hex of [PALETTE.pondWater, PALETTE.pondShallow]) {
+    const water = hueOf(hex);
+    loudest = Math.max(loudest, water.s);
+    for (const other of spoken) {
+      const raw = Math.abs(water.h - other.h) * 360;
+      nearest = Math.min(nearest, raw > 180 ? 360 - raw : raw);
+    }
+  }
+  const contrast = luma(PALETTE.park) - luma(PALETTE.pondWater);
+  check('a pond cannot be mistaken for anything the player acts on',
+    nearest > 20 && loudest < 0.75,
+    `nearest game hue ${nearest.toFixed(0)}°, loudest ${loudest.toFixed(2)} saturated`);
+  check('and it reads as a hole in the lawn rather than a patch of it', contrast > 25,
+    `${contrast.toFixed(0)} luma under the grass`);
 }
 
 // --- Façades ----------------------------------------------------------------
@@ -9169,6 +9444,249 @@ let chopperOrder; // likewise
   planeOrder = flyover.group.rotation.order;
 }
 
+// --- Weather -------------------------------------------------------------------
+// The clouds (game/clouds.js) are placed by where they land **on screen**, so every claim about
+// them is a claim about a projection and none of it can be seen from the world coordinates. Three
+// things have to hold and all three failed at least once while this was being built: a cloud never
+// overlaps the city, a cloud stays in the frustum from every framing the game allows, and there is
+// weather in shot often enough to be worth having at all.
+{
+  // The city's silhouette as a convex polygon, built the same way `clouds.js` builds its chains but
+  // kept whole, so a cloud can be tested against the *outline* rather than against the two halves.
+  // Twice: the island as the player sees it, and the inner city a block inside the ring road, which
+  // is the one the weather may never reach however far in the band is dragged.
+  const hullOf = (points) => {
+    const pts = points.map((k) => [k.sx, k.sy]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const half = (src) => {
+      const out = [];
+      for (const p of src) {
+        while (out.length > 1) {
+          const [ax, ay] = out[out.length - 2];
+          const [bx, by] = out[out.length - 1];
+          if ((bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax) <= 0) out.pop(); else break;
+        }
+        out.push(p);
+      }
+      return out;
+    };
+    const lower = half(pts);
+    const upper = half([...pts].reverse());
+    return lower.slice(0, -1).concat(upper.slice(0, -1));
+  };
+
+  const hull = hullOf(KEEP_OUT);
+  const innerHull = hullOf(INNER_KEEP_OUT);
+
+  /** Signed distance from a point to a hull: positive outside, negative within it. */
+  const distanceTo = (poly, x, y) => {
+    let worst = -Infinity;
+    for (let i = 0; i < poly.length; i++) {
+      const [ax, ay] = poly[i];
+      const [bx, by] = poly[(i + 1) % poly.length];
+      const ex = bx - ax;
+      const ey = by - ay;
+      worst = Math.max(worst, ((x - ax) * ey - (y - ay) * ex) / Math.hypot(ex, ey));
+    }
+    return worst;
+  };
+
+  const clearanceOf = (x, y) => distanceTo(hull, x, y);
+
+  // The two chains have to agree with the hull they were cut from. Rounding a corner *outward* is
+  // free — it only ever buys more sky between the cloud and the city — but rounding one **inward**
+  // eats the clearance, and `ROUND * 0.25` is the deepest the polynomial smooth-min can cut. That
+  // is the number `clouds.js` hands back when it places a cloud, so this is the assertion that the
+  // number it hands back is the right one. Sampled across the hull's own span, since beyond that
+  // the chains deliberately stop tracing the outline and carry on past the map's side.
+  let bite = 0;
+  const span = Math.max(...KEEP_OUT.map((k) => k.sx));
+  for (let sx = -span; sx <= span; sx += 0.5) {
+    bite = Math.max(bite, -clearanceOf(sx, silhouetteTop(sx)), -clearanceOf(sx, silhouetteBottom(sx)));
+  }
+  check('the smoothed silhouette never cuts deeper into the city than it pays back',
+    bite <= CLOUD_ROUND * 0.25 + 1e-9,
+    `deepest bite ${bite.toFixed(2)} against the ${(CLOUD_ROUND * 0.25).toFixed(2)} handed back`);
+
+  const framings = [];
+  for (const aspect of [0.46, 1, 1.78, 2.4]) {
+    for (const target of [[0, 0], [HALF_SPAN, HALF_SPAN], [-HALF_SPAN, HALF_SPAN],
+      [HALF_SPAN, -HALF_SPAN], [-HALF_SPAN, -HALF_SPAN]]) {
+      framings.push(createCityCamera(aspect, { zoom: 52, target }).camera);
+    }
+  }
+
+  let worstClearance = Infinity;
+  let innerClearance = Infinity;
+  let broadside = Infinity;
+  let darkest = 1;
+  let faintest = 1;
+  let strongest = 0;
+  let solid = 0;
+  let seen = 0;
+  let alphaless = 0;
+  let chunked = 0;
+  let outOfOrder = 0;
+  let shadows = 0;
+  let behindCamera = 0;
+  const corner = new THREE.Vector3();
+  const YAXIS = new THREE.Vector3(0, 1, 0);
+  const LOBE_VERTS = 240;      // a detail-1 icosahedron: 80 faces, non-indexed
+
+  for (let s = 0; s < 4; s++) {
+    const skyScene = new THREE.Scene();
+    const clouds = createClouds(skyScene, makeRng(seed + s * 977 + 277));
+
+    for (const cloud of clouds.clouds) {
+      // The long axis lies down the wind, and the wind runs across the frame — so a cloud is a
+      // good deal wider than it is tall *on screen*. This is the check that catches the sign of
+      // the yaw: the other quarter turn aims the model straight into the screen, where it
+      // projects to almost nothing across the frame and reads as a lumpy potato on end.
+      broadside = Math.min(broadside, (2 * cloud.reach) / (cloud.drop + cloud.rise));
+      if (cloud.mesh.castShadow) shadows += 1;
+
+      // Colour is rgb **and** the rim fade, so the darkest-channel walk has to step over the alpha
+      // — which reaches 0 by design, and read as a black cloud the first time this ran.
+      const colours = cloud.mesh.geometry.attributes.color;
+      if (colours.itemSize !== 4) alphaless += 1;
+      for (let v = 0; v < colours.count; v++) {
+        darkest = Math.min(darkest, colours.getX(v), colours.getY(v), colours.getZ(v));
+        const a = colours.getW(v);
+        faintest = Math.min(faintest, a);
+        strongest = Math.max(strongest, a);
+        if (a > 0.999) solid += 1;
+        seen += 1;
+      }
+
+      // Back to front, so the translucent lobes blend in depth order rather than painting over
+      // each other — see the sort in geometry/cloud.js. Every lobe is a detail-1 icosahedron, so
+      // the merged geometry is exactly 240 vertices per lobe and the chunks *are* the lobes.
+      const pos = cloud.mesh.geometry.attributes.position;
+      if (pos.count % LOBE_VERTS) chunked += 1;
+      let previous = -Infinity;
+      for (let lobe = 0; lobe + LOBE_VERTS <= pos.count; lobe += LOBE_VERTS) {
+        let depth = 0;
+        for (let v = lobe; v < lobe + LOBE_VERTS; v++) {
+          corner.set(pos.getX(v), pos.getY(v), pos.getZ(v))
+            .applyAxisAngle(YAXIS, cloud.mesh.rotation.y);
+          depth += corner.dot(VIEW_DIR);
+        }
+        depth /= LOBE_VERTS;
+        // Against a tolerance, because what is sorted is each lobe's **centre** and what is
+        // measured here is the mean of its vertices — and `jitterVertices` moves those about, so
+        // the two disagree by a few hundredths of a unit. Measured worst case on the shipped
+        // jitter: 0.05. Anything that is actually a sorting bug is a whole lobe out of place.
+        if (depth < previous - 0.25) outOfOrder += 1;
+        previous = Math.max(previous, depth);
+      }
+    }
+
+    // Eight minutes of drift each, which is a couple of laps of the run — a cloud crosses the
+    // 400-unit sweep in a little over three.
+    for (let step = 0; step < 60 * 480; step++) {
+      clouds.update(1 / 60);
+      if (step % 13) continue;
+      for (let i = 0; i < clouds.state.count; i++) {
+        const cloud = clouds.clouds[i];
+        if (!cloud.mesh.visible) continue;
+        const p = cloud.mesh.position;
+        const at = screenOf(p.x, p.y, p.z);
+        for (const dx of [-cloud.reach, cloud.reach]) {
+          for (const dy of [-cloud.drop, cloud.rise]) {
+            worstClearance = Math.min(worstClearance, clearanceOf(at.sx + dx, at.sy + dy));
+            innerClearance = Math.min(innerClearance, distanceTo(innerHull, at.sx + dx, at.sy + dy));
+          }
+        }
+        if (step % 601) continue;
+        // And in front of the camera from anywhere the player can drive to. Depth is measured from
+        // the camera's *target*, so a cloud that sits comfortably in frame with the camera at the
+        // middle of the map can be behind it once the target has moved 59 units down the view axis.
+        for (const cam of framings) {
+          if (corner.copy(p).project(cam).z >= 1) behindCamera += 1;
+        }
+      }
+    }
+  }
+
+  // The weather hangs **over the coast**: a cloud's box comes in past the island's edge on purpose
+  // (`OVERLAP`, which the ⚙️ panel can drag), and the box is a long way outside the drawn shape —
+  // the fade has dissolved the lower rim before its bounding box ends — so this is a veil over the
+  // outermost asphalt rather than a lid on it. What is asserted is that it stays a veil.
+  check('the weather comes in over the coast, and no further', worstClearance > -20,
+    `deepest ${(-worstClearance).toFixed(1)} units in past the island's edge`);
+  // And the half of it that is not a preference: whatever the band is set to, nothing in the sky
+  // may reach the city inside the ring road. This is the check that stops "a little closer in" from
+  // becoming weather over the play area one tweak at a time.
+  check('and never over the map itself', innerClearance > 0,
+    `closest approach ${innerClearance.toFixed(1)} units outside the inner city (±${INNER_REACH})`);
+  check('every cloud is drawn broadside to the wind', broadside > 1.3,
+    `narrowest is ${broadside.toFixed(2)}x wider than tall on screen`);
+  check('clouds stay in front of the camera from every framing', behindCamera === 0,
+    `${framings.length} framings, ${behindCamera} clipped`);
+  check('nothing in the sky casts a shadow', shadows === 0,
+    shadows ? `${shadows} clouds throwing a patch over the city` : 'the band would land on the map');
+  // The light is baked (geometry/cloud.js), and the floor under it is what keeps the unlit side of
+  // a cloud reading as cloud rather than as rock.
+  check('a cloud is bright even on its own shaded side', darkest > 0.12,
+    `darkest baked channel ${darkest.toFixed(3)}`);
+  // And the fade, which is the whole of why a low-poly cloud does not read as one: it has to reach
+  // nothing at the silhouette *and* reach solid at the point of each lobe aimed at the camera. Only
+  // a few percent of a lobe's vertices are in that solid cap — the body of a cloud is opaque
+  // because its lobes stack, not because any one of them is — so what is asserted is the range.
+  check('the fade reaches both ends', alphaless === 0 && faintest < 0.02 && strongest > 0.999,
+    `alpha ${faintest.toFixed(3)} at the silhouette to ${strongest.toFixed(3)} at the core, ${(100 * solid / seen).toFixed(1)}% of vertices fully opaque`);
+  check('a cloud\'s lobes are built back to front', chunked === 0 && outOfOrder === 0,
+    `${outOfOrder} lobes out of depth order, ${chunked} clouds not a whole number of lobes`);
+
+  // And the point of all of it: is there any weather in the picture? Measured on the framing that
+  // has the least sky in it by a distance — a portrait phone at play zoom, where the island fills
+  // the frame and what is left is the wedge past its edge.
+  {
+    const skyScene = new THREE.Scene();
+    const clouds = createClouds(skyScene, makeRng(seed + 277));
+    const halfW = 52 * 0.46;
+    let seen = 0;
+    let samples = 0;
+    for (let step = 0; step < 60 * 420; step++) {
+      clouds.update(1 / 60);
+      if (step % 60) continue;
+      const t = step / 60;
+      const view = screenOf(40 * Math.sin(t * 0.11), 0, 40 * Math.sin(t * 0.07 + 1));
+      let inFrame = 0;
+      for (let i = 0; i < clouds.state.count; i++) {
+        const cloud = clouds.clouds[i];
+        if (!cloud.mesh.visible) continue;
+        const p = cloud.mesh.position;
+        const at = screenOf(p.x, p.y, p.z);
+        if (Math.abs(at.sx - view.sx) < halfW + cloud.reach
+          && Math.abs(at.sy - view.sy) < 52 + cloud.rise) inFrame += 1;
+      }
+      samples += 1;
+      if (inFrame) seen += 1;
+    }
+    check('there is weather in shot on a phone', seen / samples > 0.5,
+      `a cloud is in frame ${(100 * seen / samples).toFixed(0)}% of the time at 0.46 aspect`);
+  }
+
+  // The keep-out is two boxes, and the tall one stops at the ring road — the difference is 17
+  // units of sky the clouds get to use. Asserted rather than trusted because it is the one number
+  // in here that comes from somewhere else in the project.
+  check('the keep-out stops where the city does', BUILT_REACH < CITY_REACH && CITY_TOP > 16,
+    `built to ${BUILT_REACH} and ${CITY_TOP} tall, ground out to ${CITY_REACH}`);
+
+  // The clouds are the only unlit thing in the sky, so the tint is the *whole* of what the day
+  // cycle does to them (game/daylight.js). A tint that stopped tracking would leave white clouds
+  // hanging over a midnight city, which nothing else in the suite would notice.
+  const hsl = { h: 0, s: 0, l: 0 };
+  const lightness = (top, bottom) => {
+    cloudTint(new THREE.Color(top), new THREE.Color(bottom)).getHSL(hsl);
+    return hsl.l;
+  };
+  const noon = lightness('#6FA9D4', '#CDE3EE');
+  const midnight = lightness('#0A1320', '#16202E');
+  check('the clouds go out with the light', midnight < noon * 0.4 && midnight > 0.02,
+    `lightness ${noon.toFixed(2)} at noon, ${midnight.toFixed(2)} at midnight`);
+}
+
 // --- The rooftop helicopter ------------------------------------------------------
 // The aeroplane's problem, with a second one on top of it: this thing has to *land* somewhere real.
 // Everything about that is a number nobody would be told about if it went wrong — a machine that
@@ -10380,7 +10898,7 @@ let chopperOrder; // likewise
     if (!sweepLayout.garageBlock) continue;
     sited += 1;
     const sweepCity = createBuildings(makeRng(s + 22), sweepLayout);
-    const sweepProps = createProps(makeRng(s + 33), sweepLayout);
+    const sweepProps = createProps(makeRng(s + 33), sweepLayout).mesh;
     if (sightline(sweepCity.mesh, sweepProps, garageSite(sweepLayout.garageBlock))) clear += 1;
   }
   check(`every seed hosts a depot`, sited === SEEDS, `${sited}/${SEEDS}`);
@@ -10443,7 +10961,7 @@ let chopperOrder; // likewise
     const s = seed + n * 977;
     const sweepLayout = createLayout(makeRng(s));
     const sweepCity = createBuildings(makeRng(s + 22), sweepLayout).mesh;
-    const sweepProps = createProps(makeRng(s + 33), sweepLayout);
+    const sweepProps = createProps(makeRng(s + 33), sweepLayout).mesh;
     const targets = [sweepCity, sweepProps];
     setCityOccluders(sweepCity, sweepProps);
     let rejectedHere = 0;

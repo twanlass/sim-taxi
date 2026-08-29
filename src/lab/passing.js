@@ -131,7 +131,7 @@ const net = setCityNetwork(labNetwork(LAB_BLOCKS));
 const ROAD_EAST = labNodeX(LAB_BLOCKS);
 
 scene.add(markOccluder(createLabGround(makeRng(knobs.seed + 11), LAB_BLOCKS)));
-scene.add(markOccluder(createProps(makeRng(knobs.seed + 33), labTreeBlocks(LAB_BLOCKS))));
+scene.add(markOccluder(createProps(makeRng(knobs.seed + 33), labTreeBlocks(LAB_BLOCKS)).mesh));
 
 // --- Traffic ----------------------------------------------------------------
 

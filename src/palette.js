@@ -27,6 +27,23 @@ export const PALETTE = {
   // from them, not nudged by eye.
   fog: '#77CFFF',
 
+  // The clouds ringing the island — see game/clouds.js. Two colours rather than one because a
+  // white lump under a directional sun comes back as a white lump: at 28.5° of elevation the top
+  // of a cloud and its flanks are lit within a few percent of each other, and the only thing left
+  // to say "this is a body and not a cut-out" is the gradient baked into it (geometry/cloud.js).
+  //
+  // Neither is pure white, for the reason the roadworks' bands aren't (see `coneBand`): a cloud
+  // sits against the palest thing in the game — the sky at the top of the dome is #8CC4E8 and its
+  // horizon is a near-white — and at #FF the two ends of the gradient stop separating from it and
+  // from each other. The lit colour is a shade *cool* on top of that, which is what keeps it
+  // reading as white rather than as cream.
+  //
+  // The shade is a proper cool blue, not a grey: it is standing in for the sky the underside is
+  // being lit by, and the hemisphere fill it actually gets down there is the ground's warm brown
+  // (`hemiGround`). Left grey, the underside of every cloud came out the colour of the sidewalk.
+  cloudLit: '#F4F8FC',
+  cloudShade: '#A9C0DA',
+
   sun: '#CFBD8C',
   // Where the shade goes when the tint is turned up — see `SHADOW_UNIFORMS` in util/geo.js. A cool
   // blue against a warm sun, which is the oldest trick in the book and the reason the control
@@ -435,6 +452,34 @@ export const PALETTE = {
 
   trunk: '#6B4E35',
   foliage: '#4F8F4A',
+
+  // The duck pond — see city/pond.js. The only water in the game, so these three have nothing to
+  // agree with and two things to stay clear of.
+  //
+  // **Value, not hue, is what separates water from lawn.** The first pass at this was a handsome
+  // #5E88B4, and it is luma 130 against the park's 140 — the same trap `birdBody` documents one
+  // entry up, and worse here because the pond is a 45-pixel *area* rather than a moving speck. A
+  // pond has to read as a hole in the green from across the map, which means going properly dark:
+  // `pondWater` is luma 101 and `pondShallow` 84, both a long way under the grass they sit in.
+  //
+  // Two of them because the water is drawn as a fan with a centre vertex (see `pondParts`), and
+  // what that buys is depth for the price of a vertex colour: the open middle catches the sky and
+  // the shallows round the rim go dark under the bank. One flat blue read as a painted disc.
+  //
+  // Hue is the same 216° in both, which is the free window between the courier cyan at 192° and the
+  // VIP purple at 260° — 24° clear of the nearer one, on the same clearance rule the blooms and the
+  // roadworks orange are held to, and `tools/probe.mjs` asserts it beside them. Saturation stays
+  // under the blooms' own ceiling for the same reason: nothing in a park may read as a thing the
+  // player has to act on.
+  pondWater: '#456A8E',
+  pondShallow: '#3A5876',
+  // The shore. Damp earth rather than stone — a municipal pond is a hole in a lawn with a mown
+  // edge, not a fountain basin. It sits at 34°, which is the taxi's own hue, and is kept apart from
+  // it exactly the way `spoil` (31°) is: at 0.28 saturation against the taxi's 0.80 it is a brown,
+  // and a brown ring 0.4 units wide is not a car. Darker than both the grass it interrupts (128
+  // against 140) and the `sidewalk` a park's walk is paved in (156), so the pond has an edge
+  // against everything it touches.
+  pondBank: '#8C7F6B',
 
   // Flower beds on the arterials' medians — see `flowerBedParts` in city/props.js. Blooms are drawn
   // from this per *flower*, not per bed, so one bed carries four or five of them.
