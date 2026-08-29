@@ -538,7 +538,7 @@
       #run-end .score-row.is-you > span { color: #F5C130; }
       #run-end .score-row.is-you .score-rank { color: rgba(245, 193, 48, 0.7); }
 
-      /* Same pill treatment as #boost — the retry action reads as the primary yellow button. */
+      /* Same yellow as the throttle's fuel gauge — the retry action reads as the primary button. */
       #run-end .retry {
         /* Doubled from `clamp(14px, 3.5vh, 28px)`, the same way as `.run-end-body` above and for
            the same reason — the two gaps are paid on the same axis and a short viewport pays both. */
@@ -557,201 +557,209 @@
 
       /* The Loco Mode pill and the ⚙️ tweak toggle are gameplay controls; once the run is over
          they are noise behind the retry pill. */
-      body.game-over #boost, body.game-over #brake,
+      body.game-over #throttle,
       body.game-over #dbg-toggle, body.game-over #dbg-panel { display: none; }
 
-      /* The bottom control row: Loco Mode and the brake, sharing the 3/4-width band the pill used to
-         have to itself, 60/40 with a gap between them.
-         The two buttons stay independently `position: fixed` rather than becoming flex children of a
-         row, because a wrapper would be a new element between them and the viewport — and `#boost`
-         is measured (game/tutorial.js aims its third bubble at `getBoundingClientRect`), animated
-         (`translate` on the HUD entrance), and pressed through pointer capture. Two `calc()`s cost
-         less than re-testing all of that.
-         The shares are of the *band*, not of the screen: 40% of 75% is the 30% below, so the split
-         survives any change to the band's own margins as long as these two numbers do. */
+      /* --- The throttle -------------------------------------------------------
+         One spring-loaded lever in the bottom-left reach zone, replacing the Loco Mode pill and the
+         brake button that used to share a row across the bottom of the screen. See
+         docs/gameplay.md#the-throttle for why it is a lever, and src/game/throttle.js for the
+         clock behind the knob.
+
+         The anatomy, top to bottom, is one 150px track with the rest line 60% of the way down it:
+           - above the rest line, the **boost channel** — an empty pale trough that the amber fuel
+             gauge fills upward from the middle. The half you push into is the half that empties.
+           - below it, the **brake**, solid red and always full: it costs nothing and cannot run
+             out, so there is nothing there for a gauge to say.
+         The knob's travel is the track: at +1 its centre sits on the top cap, at -1 on the bottom
+         one, so it overhangs each end by its own radius and the lever reads as having *ends*.
+
+         `--throttle-neutral` is the one number the CSS and the JS both have to agree on — it is
+         `THROTTLE_NEUTRAL` in game/throttle.js, and the smoke check asserts the knob at rest lands
+         on the line it describes. */
       :root {
-        --ctl-side: 12.5%;            /* band margin, left and right — also #rider-finder-stack's */
-        --ctl-gap: 8px;
-        --brake-w: 30%;               /* 40% of the 75% band */
+        --ctl-side: 12.5%;            /* band margin, left — also #rider-finder-stack's column */
+        --throttle-w: 72px;           /* the hit box: wider than the knob, so a thumb has slack */
+        --throttle-track-w: 26px;
+        --throttle-h: 150px;          /* the track alone, cap to cap */
+        --throttle-knob: 46px;
+        --throttle-neutral: 0.6;      /* fraction of the track above the rest line — the boost half */
       }
 
       body.shot-mode #hud, body.shot-mode #run-end { display: none; }
 
-      #boost {
-        /* The left 60% of the control row above — 45% of the screen. It was the whole 3/4-width band
-           before the brake arrived, wide enough that a thumb pressing it no longer covers the whole
-           pill, which is what let the mirror bar above it (see the removed #boost::before) retire;
-           the fill is still visible past the thumb on either side at this width. */
-        position: fixed; bottom: calc(26px + var(--safe-bottom)); z-index: 20;
-        left: var(--ctl-side); right: calc(var(--ctl-side) + var(--brake-w) + var(--ctl-gap));
-        text-align: center;
-        /* 16px of side padding rather than the 26 this had at full width: "Loco Mode™" is ~100px
-           of 800-weight 17px text, and at 45% of a 320px screen the box is 144px. */
-        padding: 14px 16px; border-radius: 999px; cursor: pointer;
-        /* Black outline so the pill holds its shape against pale asphalt and the yellow taxi. */
-        border: 2px solid #16120a;
-        font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        letter-spacing: 0.02em; color: #16120a; white-space: nowrap;
-        /* Hold-to-enable, so kill the mobile long-press UI: no text selection, no callout,
-           no double-tap zoom pause between the press and the boost engaging. None of these three
-           is sufficient on iOS on its own — see .boost-label below and the `touchstart` guard in
-           main.js. */
-        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
-        /* `none`, not `manipulation`, and for the same reason the canvas uses it. `manipulation`
-           only drops double-tap zoom; pan and pinch stay live, and either one starting on this
-           pill makes the browser claim the touch and fire `pointercancel` at us. That releases a
-           boost the player is still physically holding down, and pointer capture means no further
-           event arrives until they lift and press again — the gas cutting out mid-hold with no
-           way to get it back. Two-handed play is the case that hits it: a thumb on this pill and
-           a second finger tapping a fare is a pinch gesture as far as the browser is concerned,
-           and preventDefault on `pointerdown` explicitly does not suppress it. */
+      #throttle {
+        position: fixed; z-index: 20;
+        left: var(--ctl-side); bottom: calc(26px + var(--safe-bottom));
+        width: var(--throttle-w);
+        /* The knob overhangs the track by half of itself at each end, so the box is the track plus
+           one whole knob. Everything that measures this control — the tutorial's third spotlight,
+           the delivery sparks' target — measures the box. */
+        height: calc(var(--throttle-h) + var(--throttle-knob));
+        cursor: grab;
+        /* Hold-to-hold, so kill the mobile long-press UI. `none` rather than `manipulation`, and
+           for the reason the old pill carried it: `manipulation` only drops double-tap zoom, and a
+           pan or a pinch starting here lets the browser claim the touch and fire `pointercancel`
+           at a lever the player is still holding — which with pointer capture means nothing else
+           arrives until they lift and press again. A thumb on this control and a second finger
+           tapping a fare is a pinch as far as the browser is concerned, and that is exactly how
+           this game is held. */
         touch-action: none;
-        /* The dial drains left-to-right rather than around a circle, because the button is now a
-           pill. Same reading as the fare ring: filled means time remaining. The fallback matches
-           the starting third, so the frame before the loop first sets --pct doesn't flash full. */
-        background: linear-gradient(90deg, #F5C130 var(--pct, 33.3%), rgba(255, 255, 255, 0.18) 0);
-        transition: box-shadow 0.15s ease, transform 0.1s ease;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+        transition: transform 0.1s ease;
       }
-      /* The label is wrapped and taken out of hit-testing so that the only thing under a thumb on
-         this pill is the pill. WebKit's selection and magnifier gestures hit-test like everything
-         else does, so with no text node to land on they have nothing to select — which matters
-         because iOS 15 stopped honouring `-webkit-user-select: none` for them
-         (webkit.org/b/231161), and a double tap was picking out "Loco Mode™", raising the loupe
-         and zooming the city in behind it. The button keeps the events either way: `pointer-events`
-         only moves the target up to the parent. */
-      .boost-label { pointer-events: none; }
-      #boost.is-active {
-        /* Solid white behind the drained portion, not a translucent wash — over pale asphalt the
-           translucent version read as the same tan as the road and the dial lost its edge. */
-        background: linear-gradient(90deg, #FFE873 var(--pct, 100%), #fff 0);
-        box-shadow: 0 0 30px rgba(255, 232, 115, 0.85);
-      }
-      /* Empty tank. Nothing refills on its own, so this greyed-out state persists until the next
-         drop-off tops it up — it reads as "go earn it", not "wait for it". Flat grey rather than the
-         usual dial gradient, and the black outline drops out too: every other state of this pill
-         reads as "press me", so disabled has to read unambiguously as the opposite rather than as a
-         drained version of the same button. */
-      #boost.is-empty {
-        cursor: default; color: #6b6f73; border-color: transparent;
-        background: #b9c0c4;
-      }
-      /* Delivery bonus. Fuel is now *only* ever earned, so the pour is the reward animation and it
-         gets the full treatment: the bar overshoots its new mark and springs back, the pill pulses,
-         and a bright edge rides the front of the fill. The shapes are here, the envelope comes from
-         updateBoostButton in main.js — `--fill` is 0..1 for "fuel is arriving" and `--pulse` is the
-         throb inside it. Driving the alpha from a variable rather than a keyframe is what lets the
-         glow fade out smoothly however long the pour ran, instead of snapping off when a fixed
-         animation ends. Listed after .is-active so a top-up collected mid-boost still shows.
+      #throttle:active { cursor: grabbing; }
+      body.shot-mode #throttle { display: none; }
 
-         An earlier version was a one-shot green flash matching the flying "$20". Green read as
-         "money", which is what the earnings pop already says — yellow says *this is boost*, which
-         is the thing the player has to notice, and pulsing for exactly as long as fuel is landing
-         ties it to the bar's movement rather than to a fixed 0.65s. */
-      #boost.is-filling {
-        /* Every property here is rewritten per frame, so any transition at all smears the 8Hz
-           throb flat — 0.1s of ease against a 125ms period leaves almost nothing moving. */
-        transition: none;
-        box-shadow: 0 0 calc(14px + 26px * var(--pulse, 0)) rgba(245, 193, 48, calc(0.95 * var(--fill, 0)));
-        /* The pill itself flutters, not just its glow. 3.5% is a couple of pixels either side —
-           enough to catch the eye at the edge of vision, which is where this button is while the
-           player is watching the road. */
-        transform: scale(calc(1 + 0.035 * var(--pulse, 0)));
+      /* The track. Every child of #throttle is `pointer-events: none` for the same reason the pill's
+         label was wrapped and taken out of hit-testing: iOS 15 stopped honouring
+         `-webkit-user-select: none` for the magnifier and the double-tap zoom (webkit.org/b/231161)
+         and both of them hit-test like everything else, so the fix is to leave them nothing to land
+         on but the control itself. Combined with the `touchstart` guard in main.js, that is the
+         whole of it. */
+      #throttle > * { pointer-events: none; }
+      .throttle-track {
+        position: absolute; left: 50%; margin-left: calc(var(--throttle-track-w) / -2);
+        /* Inset by the knob's radius top and bottom: the track is the knob's travel. */
+        top: calc(var(--throttle-knob) / 2); height: var(--throttle-h);
+        width: var(--throttle-track-w);
+        border-radius: 999px; border: 2px solid #16120a;
+        /* Black outline and a near-solid trough, so the lever holds its shape over pale asphalt and
+           over the yellow taxi both. The alpha is the load-bearing number: the empty boost channel
+           has to read as *empty*, and at 0.55 the city drove visibly through it — a window rather
+           than a trough, which is the same mistake the old pill's `.is-active` fill was moved off a
+           translucent wash to fix. */
+        background: rgba(250, 248, 242, 0.86);
+        overflow: hidden;
+        transition: background-color 0.15s ease, box-shadow 0.15s ease;
       }
-      /* The leading edge of the fill: a soft vertical bar sitting on the fill front, blurred so it
-         reads as light spilling off the advancing fuel rather than as a hairline UI divider. It
-         tracks the same --pct as the gradient — both resolve against the padding box, so they stay
-         locked together — and inherits the fill envelope, fading in as fuel starts arriving and out
-         as the bar springs to rest. Inset a couple of px top and bottom so the blur bleeds to about
-         the pill's edge instead of poking out of the rounded ends. */
-      #boost::after {
-        content: ''; position: absolute; top: 1px; bottom: 1px;
-        left: var(--pct, 33.3%); width: 4px; margin-left: -2px;
+      /* The brake, from the rest line to the bottom cap. Solid, always full: it costs nothing to use
+         and has nothing to run out of, so a gauge on it would promise a resource that isn't there.
+         Brake-light red against Loco Mode's taxi yellow, so the two halves never have to be read to
+         be told apart at the edge of vision — which is where this control is while the player is
+         watching the road. */
+      .throttle-brake {
+        position: absolute; left: 0; right: 0; bottom: 0;
+        top: calc(var(--throttle-neutral) * 100%);
+        background: #D33A2C;
+        transition: background-color 0.12s ease;
+      }
+      /* The fuel gauge, growing up out of the rest line. `--pct` is 0..1 straight off the boost
+         meter (game/boostmeter.js), so the overshoot-and-settle the meter authors on a top-up lands
+         here as the fill springing past its new mark. */
+      .throttle-fuel {
+        position: absolute; left: 0; right: 0;
+        bottom: calc(100% - var(--throttle-neutral) * 100%);
+        height: calc(var(--pct, 0.333) * var(--throttle-neutral) * 100%);
+        background: linear-gradient(180deg, #FFD75A 0%, #F5C130 100%);
+      }
+      /* The leading edge of the fill: a soft bar riding the fuel's top, blurred so it reads as light
+         spilling off the arriving fuel rather than as a hairline UI divider. Near-white core with a
+         yellow bloom, not a yellow line — the fill under it is already #F5C130 and a yellow-on-
+         yellow edge washes out to nothing. Fades in with the pour and out with the bounce. */
+      .throttle-fuel::after {
+        content: ''; position: absolute; left: -2px; right: -2px; top: -2px; height: 4px;
         border-radius: 4px;
-        /* Near-white core with a yellow bloom, not a yellow line: the fill behind it is already
-           #F5C130 and the empty track ahead of it is pale, so a yellow-on-yellow line washed out
-           to nothing at 3px/blur 2.5px. The core carries the position, the bloom carries the
-           colour. Blur stays under half the core width or the line stops reading as an edge. */
         background: #FFFDF2;
         box-shadow: 0 0 9px 3px rgba(255, 213, 74, 0.95);
         filter: blur(1.4px);
         opacity: var(--fill, 0);
-        pointer-events: none;
       }
-      /* A pill fluttering at 8Hz is exactly what someone who asked for less motion doesn't want.
-         The glow and the leading edge still carry the top-up; only the movement goes. */
+      /* The knob. Positioned by its top edge off one number the JS writes: `--knob-frac` is the
+         offset from the rest line as a fraction of the *whole* track, which is what makes the two
+         unequal halves one coordinate (see `knobFraction` in game/throttle.js). At 0 the knob's top
+         is 60% of the way down the track and its centre is on the rest line; at +0.6 (full boost)
+         the top is at 0 and the knob caps the track. */
+      .throttle-knob {
+        position: absolute; left: 50%; margin-left: calc(var(--throttle-knob) / -2);
+        top: calc((var(--throttle-neutral) - var(--knob-frac, 0)) * var(--throttle-h));
+        width: var(--throttle-knob); height: var(--throttle-knob);
+        border-radius: 50%;
+        border: 2px solid #4a453d;
+        /* A lit sphere rather than a flat disc: the offset highlight is what says "grab this" on a
+           control with no label on it. */
+        background: radial-gradient(circle at 38% 32%, #FFFFFF 0%, #EFEDE8 45%, #D2CEC6 100%);
+        box-shadow: 0 2px 5px rgba(10, 12, 16, 0.35);
+        /* No transition on `top`: the knob follows a finger, and 100ms of ease between the thumb
+           and the thing under it is exactly the lag a direct-manipulation control cannot have. The
+           spring back to the middle is integrated per frame in game/throttle.js instead, which is
+           also why it can overshoot — a CSS ease cannot. */
+        transition: transform 0.1s ease, filter 0.15s ease;
+      }
+      /* Held. The knob dips under the thumb, and it is a class rather than `:active` for the reason
+         the pedal row's `is-held` was: this control captures the pointer, so `:active` stays pinned
+         to it however far the finger travels — and here the finger is *meant* to travel. The class
+         follows the lever actually being held, including when the spacebar is the one holding it,
+         which `:active` cannot describe at all. */
+      #throttle.is-held .throttle-knob { transform: scale(0.94); }
+
+      /* Boosting. The trough goes solid white behind the fuel — over pale asphalt the translucent
+         version reads as the same tan as the road and the gauge loses its edge — and the fill runs
+         hot, amber at the top down into the ember at the bottom of the channel where the tank is
+         being spent from. */
+      #throttle.is-active .throttle-track {
+        background: #fff;
+        box-shadow: 0 0 26px rgba(255, 232, 115, 0.85);
+      }
+      #throttle.is-active .throttle-fuel {
+        background: linear-gradient(180deg, #FFE873 0%, #F5C130 52%, #E0662B 100%);
+      }
+      /* Braking. Lit rather than dimmed: this is a brake *light*, and the taxi's own lamps are
+         coming on out on the road at the same moment. */
+      #throttle.is-braking .throttle-brake { background: #FF4B36; }
+      #throttle.is-braking .throttle-track { box-shadow: 0 0 24px rgba(255, 75, 54, 0.8); }
+      /* Empty tank. Nothing refills on its own, so this persists until the next drop-off tops it up
+         — it has to read as "go earn it", not "wait for it". There is no `disabled` here and there
+         cannot be: the lever still has a brake on it, and half a dead control is not a state. What
+         says it instead is the channel standing empty above a knob that has gone grey — the one
+         push on this control that now does nothing, drawn as nothing. */
+      #throttle.is-empty .throttle-knob {
+        background: radial-gradient(circle at 38% 32%, #DDE1E4 0%, #B7BDC1 45%, #969CA1 100%);
+        border-color: #6b6f73;
+      }
+
+      /* Delivery bonus. Fuel is only ever earned, so the pour is the reward animation: the gauge
+         overshoots its new mark and springs back (game/boostmeter.js), the whole lever pulses, and
+         the bright edge above rides the front of the fill. `--fill` is 0..1 for "fuel is arriving"
+         and `--pulse` is the throb inside it; both are written per frame by main.js, which is what
+         lets the glow fade out smoothly however long the pour ran instead of snapping off when a
+         fixed keyframe ends. Listed after .is-active so a top-up collected mid-boost still shows. */
+      #throttle.is-filling .throttle-track {
+        /* Every property here is rewritten per frame, so any transition at all smears the throb
+           flat — 0.15s of ease against a 250ms period leaves almost nothing moving. */
+        transition: none;
+        box-shadow: 0 0 calc(14px + 26px * var(--pulse, 0)) rgba(245, 193, 48, calc(0.95 * var(--fill, 0)));
+      }
+      #throttle.is-filling {
+        transition: none;
+        /* The lever itself flutters, not just its glow — enough to catch the eye at the edge of
+           vision, which is where this control is while the player is watching the road. Scaled
+           about the bottom so the knob, which the thumb may be resting on, moves least. */
+        transform-origin: 50% 100%;
+        transform: scale(calc(1 + 0.035 * var(--pulse, 0)));
+      }
+      /* A control fluttering under someone who asked for less motion is exactly what they didn't
+         want. The glow and the leading edge still carry the top-up; only the movement goes. */
       @media (prefers-reduced-motion: reduce) {
-        #boost.is-filling { transform: none; }
+        #throttle.is-filling { transform: none; }
       }
-      /* Last of the #boost rules on purpose: the press dip is the one piece of feedback that has to
-         win over everything else, and both the throb and the reduced-motion override set a
-         transform at equal specificity — a media query adds no weight — so a top-up landing under
-         the player's thumb would otherwise swallow it. */
-      #boost:active { transform: scale(0.95); }
-      /* The one exception: an empty tank doesn't press. The extra class already outranks the rule
-         above on specificity, but a disabled `<button>` still needs this — some mobile browsers
-         synthesise `:active` off the touch even though the click and pointerdown are suppressed. */
-      #boost.is-empty:active { transform: none; }
-      body.shot-mode #boost { display: none; }
-
-      /* The brake. The right 40% of the control row, and everything about it that is shared with the
-         pill beside it is shared on purpose: same bottom edge, same 49px height, same 999px radius,
-         same black outline, same hold-to-hold contract. What differs is the one thing that has to —
-         the colour. Loco Mode is the taxi's own yellow and the brake is brake-light red, so the two
-         never have to be read to be told apart at the edge of vision.
-         No dial and no meter: this costs nothing to use and has nothing to run out of, so a pill
-         with a fill on it would promise a resource that isn't there. */
-      #brake {
-        position: fixed; bottom: calc(26px + var(--safe-bottom)); z-index: 20;
-        left: calc(100% - var(--ctl-side) - var(--brake-w)); right: var(--ctl-side);
-        text-align: center;
-        padding: 14px 16px; border-radius: 999px; cursor: pointer;
-        border: 2px solid #16120a;
-        font: 800 17px/1 ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
-        letter-spacing: 0.02em; color: #FFF1EA; white-space: nowrap;
-        background: #D33A2C;
-        /* Every one of these is the pill's, for the reasons written out over there: iOS selection
-           and callout suppression, and `none` rather than `manipulation` so a second finger on the
-           screen can't turn this press into a pinch and fire `pointercancel` at a brake the player
-           is still holding down. */
-        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
-        touch-action: none;
-        transition: background-color 0.12s ease, box-shadow 0.15s ease, transform 0.1s ease;
-      }
-      /* Same reason as .boost-label: with no text node under the thumb, WebKit's magnifier and
-         double-tap zoom have nothing to hit-test onto. */
-      .brake-label { pointer-events: none; }
-      /* Held. Lit rather than dimmed — this is a brake *light*, and the taxi's own lamps are coming
-         on at the same moment out on the road. */
-      #brake.is-on {
-        background: #FF4B36;
-        box-shadow: 0 0 26px rgba(255, 75, 54, 0.8);
-      }
-      /* Last, so it outranks the lit state's transform-free rules — the press dip is the feedback
-         that has to survive whatever else is painting the button. */
-      #brake:active { transform: scale(0.95); }
-      body.shot-mode #brake { display: none; }
-
-      /* The pedal slide: one thumb, either pedal. Hold Loco Mode, slide right, and the brake takes
-         over as the finger crosses onto it — see "The pedal slide" in main.js for the gesture. This
-         is the half of it the player sees, and it exists because `:active` is the wrong state to
-         paint with once a press can move: the browser puts `:active` on the button the pointer went
-         *down* on and leaves it there, so a slide would light the pill the thumb has left and leave
-         the brake it is now standing on looking untouched. For the length of a gesture the dip is
-         driven by the class instead, and follows the pedal that is actually down.
-         Both rules are more specific than every `transform` above them, and `.is-held` is second so
-         it wins the tie against the `:active` it has to override on the same element. */
-      body.pedal-slide #boost:active, body.pedal-slide #brake:active { transform: none; }
-      body.pedal-slide #boost.is-held, body.pedal-slide #brake.is-held { transform: scale(0.95); }
 
       /* Rider finder — one chip per waiting fare, in a row above the Loco Mode pill, left-aligned
          to the pill's own left edge so both controls share one visual column in the bottom-centre
          reach zone. Sized to the same 49px height as Loco Mode so the two read as a matched pair;
-         the row grows rightward as extra riders spawn, keeping the first chip anchored above the
-         pill's left edge. Each chip is a circular disc with a conic-gradient ring for the fare's
-         clock — same four-stage colour as the in-world timer — and a mini three.js canvas drawing
-         the figure. */
+         the row grows rightward as extra riders spawn, keeping the first chip anchored beside the
+         throttle. Each chip is a circular disc with a conic-gradient ring for the fare's clock —
+         same four-stage colour as the in-world timer — and a mini three.js canvas drawing the
+         figure.
+
+         It used to sit *above* the Loco Mode pill, in the same column. The throttle is 196px tall
+         and stands in that column now, so the row moved to the lever's right on the same baseline:
+         still one reach zone, still the first chip anchored to a control's edge, and nothing under
+         a thumb that is on the lever. */
       #rider-finder-stack {
-        position: fixed; left: 12.5%; bottom: calc(95px + var(--safe-bottom)); z-index: 20;
+        position: fixed; z-index: 20;
+        left: calc(var(--ctl-side) + var(--throttle-w) + 14px);
+        bottom: calc(26px + var(--safe-bottom));
         display: flex; flex-direction: row; align-items: center; gap: 8px;
         pointer-events: none;
       }
@@ -932,10 +940,14 @@
       }
       #coach[hidden] { display: none; }
       /* The third beat is about a control rather than about something in the city, so it sits
-         directly over that control with its tail pointing down at it — left-aligned to the Loco
-         Mode pill's own left edge, just clear of the pill's top edge (26 + 49 = 75). The other
-         two hang centred with the tail up, because what they are talking about is up there. */
-      #coach.at-boost { bottom: calc(94px + var(--safe-bottom)); justify-content: flex-start; padding-left: 12.5%; }
+         directly over that control with its tail pointing down at it, left-aligned to the
+         throttle's own column and clear of its top edge — 26px of gutter, the lever's own height,
+         and 12px of air. The other two hang centred with the tail up, because what they are
+         talking about is up there. */
+      #coach.at-boost {
+        bottom: calc(38px + var(--throttle-h) + var(--throttle-knob) + var(--safe-bottom));
+        justify-content: flex-start; padding-left: var(--ctl-side);
+      }
       /* Grows up out of the tail, which is now underneath it. */
       #coach.at-boost .coach-bubble {
         transform-origin: 45px 100%;
@@ -943,9 +955,10 @@
       }
       #coach.at-boost .coach-bubble::after {
         top: 100%; bottom: auto;
-        /* Aimed at the pill's left third rather than its centre: the pill's width follows its
-           label, and the left edge is the one thing both boxes share. */
-        left: 36px;
+        /* Half the lever's width, so the tail comes down on the track itself. Unlike the old pill
+           — whose width followed its label, leaving the left edge as the only thing the two boxes
+           shared — the throttle is a fixed 72px and its middle is a real place. */
+        left: calc(var(--throttle-w) / 2);
         border-bottom: 0; border-top: 12px solid #FFFDF7;
       }
       #coach.at-boost.is-open .coach-bubble { transform: scale(1) translateY(0); }
@@ -1065,42 +1078,45 @@
 
          The offset is the standalone `translate` property, NOT a transform. Three of these four
          elements already animate their own transform — the money bump, the streak bump, the Loco
-         Mode press dip and its top-up flutter — and a `body.hud-ready #boost { transform: none }`
-         would outrank `#boost:active` on specificity and quietly kill the press feedback for the
-         rest of the run. `translate` composes with `transform` instead of competing with it.
+         Mode press dip and its top-up flutter — and a `body.hud-ready #throttle { transform: none }`
+         would outrank the flutter on specificity and quietly kill it for the rest of the run.
+         `translate` composes with `transform` instead of competing with it.
 
          main.js adds `hud-ready`: the moment the last bubble is dismissed, or immediately when
          there is no tutorial (`?tutorial=off`, shot mode). */
-      #hud, #streak, #pause, #boost, #brake, #rider-finder-stack {
+      #hud, #streak, #pause, #throttle, #rider-finder-stack {
         opacity: 0;
         transition: opacity 0.45s ease, translate 0.55s cubic-bezier(0.22, 1, 0.36, 1);
       }
       #hud, #streak, #pause { translate: 0 -160%; }
-      #boost, #brake, #rider-finder-stack { translate: 0 200%; }
+      #throttle, #rider-finder-stack { translate: 0 200%; }
       /* Invisible is not un-tappable: a 0-opacity pill still takes the tap that was aimed at the
          rider behind it. (#hud and #streak are already pointer-events: none.) The pause button
          rides in the same group for the same reason it waits at all: there is nothing to pause
          while the tutorial is still holding the clocks. */
-      body:not(.hud-ready) #pause, body:not(.hud-ready) #boost,
-      body:not(.hud-ready) #brake, body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
+      body:not(.hud-ready) #pause, body:not(.hud-ready) #throttle,
+      body:not(.hud-ready) #rider-finder-stack { pointer-events: none; }
       body.hud-ready #hud, body.hud-ready #streak, body.hud-ready #pause,
-      body.hud-ready #boost, body.hud-ready #brake,
+      body.hud-ready #throttle,
       body.hud-ready #rider-finder-stack { opacity: 1; translate: 0 0; }
       /* Staggered, top corners first then the bottom ones, so four elements arriving at once read
          as a HUD assembling rather than as a single fade. */
-      /* The third beat's other half: the pill pulses while the bubble talks about it, so the text
+      /* The third beat's other half: the lever pulses while the bubble talks about it, so the text
          is not the only thing saying which control it means.
 
-         Box-shadow and nothing else. Every other state this pill can be in animates its `transform`
-         — the press dip, the top-up flutter — and a keyframe animation outranks all of them, so a
-         pulse that scaled would silently kill the press feedback for as long as it ran. */
+         Box-shadow on the *track*, and nothing else. A keyframe outranks every ordinary rule on the
+         element it runs on, so a pulse that scaled would silently kill the top-up flutter for as
+         long as it ran — and putting it on the track rather than on #throttle keeps it off the
+         property the flutter uses at all. It does outrank the track's own `is-active` glow, which
+         is fine and unreachable: the beat fires two seconds after a drop-off, and the bubble is
+         asking for a boost that has not happened yet. */
       @keyframes coach-boost-pulse {
         0%, 100% { box-shadow: 0 0 0 0 rgba(245, 193, 48, 0.5); }
         50%      { box-shadow: 0 0 26px 7px rgba(245, 193, 48, 0.95); }
       }
-      body.coach-boost #boost { animation: coach-boost-pulse 1.3s ease-in-out infinite; }
+      body.coach-boost #throttle .throttle-track { animation: coach-boost-pulse 1.3s ease-in-out infinite; }
       @media (prefers-reduced-motion: reduce) {
-        body.coach-boost #boost {
+        body.coach-boost #throttle .throttle-track {
           animation: none; box-shadow: 0 0 22px 5px rgba(245, 193, 48, 0.85);
         }
       }
@@ -1109,10 +1125,10 @@
          rest of the same top edge, and staggering a row of three left-to-right would read as the
          HUD dealing itself out rather than arriving. */
       body.hud-ready #streak, body.hud-ready #pause { transition-delay: 0.07s; }
-      body.hud-ready #boost, body.hud-ready #brake { transition-delay: 0.14s; }
+      body.hud-ready #throttle { transition-delay: 0.14s; }
       body.hud-ready #rider-finder-stack { transition-delay: 0.21s; }
       @media (prefers-reduced-motion: reduce) {
-        #hud, #streak, #pause, #boost, #brake, #rider-finder-stack { translate: none; }
+        #hud, #streak, #pause, #throttle, #rider-finder-stack { translate: none; }
       }
 
       /* --- "Add to Home Screen" screen — see src/game/homescreen.js -------------
@@ -1357,15 +1373,25 @@
       <button class="pause-resume" type="button">Resume</button>
     </div>
 
-    <!-- `aria-keyshortcuts` is how the spacebar hold announces itself; nothing is painted on the
-         pill, which is already the fuel dial and the tutorial's third target. See main.js. -->
-    <button id="boost" type="button" aria-label="Loco Mode" aria-keyshortcuts="Space"
-      ><span class="boost-label">Loco Mode&trade;</span></button>
-    <!-- The brake shares the bottom row with the pill above, 40% of it to Loco Mode's 60%. Same
-         hold-to-hold contract, same label-in-a-span trick for iOS (see .boost-label), and the same
-         keyboard affordance one key over. -->
-    <button id="brake" type="button" aria-label="Brake" aria-keyshortcuts="B"
-      ><span class="brake-label">Brake</span></button>
+    <!-- The throttle: one spring-loaded lever where the Loco Mode pill and the brake used to be two
+         buttons. Push the knob up to floor it, pull it down to brake, let go and it springs back to
+         the middle — which is the taxi driving itself. The upper half of the track doubles as the
+         fuel gauge, so the thing you push into is the thing that empties.
+         A `div` rather than a `button` because it is a slider and answers a drag, not a click, and
+         `role="slider"` is the only thing that describes that to a screen reader. Every child is
+         `aria-hidden` and out of hit-testing: the only thing under a thumb here is #throttle
+         itself, which is what keeps WebKit's magnifier and double-tap zoom off it (see the
+         `#throttle > *` rule). `aria-keyshortcuts` carries both holds — the
+         spacebar is still the boost and B is still the brake, through the same lever. -->
+    <div id="throttle" role="slider" tabindex="0"
+         aria-label="Throttle" aria-orientation="vertical" aria-keyshortcuts="Space B"
+         aria-valuemin="-1" aria-valuemax="1" aria-valuenow="0" aria-valuetext="Coasting">
+      <div class="throttle-track" aria-hidden="true">
+        <div class="throttle-brake"></div>
+        <div class="throttle-fuel"></div>
+      </div>
+      <div class="throttle-knob" aria-hidden="true"></div>
+    </div>
     <div id="rider-finder-stack" role="group" aria-label="Waiting riders"></div>
     <!-- Up only while the taxi is completely off-frame; a tap rides the camera back to it. Empty
          here: the car inside it is the real `createTaxiMesh` in a WebGL context of its own, the

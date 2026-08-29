@@ -1,22 +1,22 @@
-// The Punch It pill's read-out: how the meter *looks* while fuel is arriving, kept apart from both
-// the fuel itself (game/boost.js) and the DOM it ends up on (main.js sets three CSS variables from
-// this and nothing else). Same reason boost.js is a pure clock — the animation is the reward for a
+// The throttle's fuel-gauge read-out: how the meter *looks* while fuel is arriving, kept apart from
+// both the fuel itself (game/boost.js) and the DOM it ends up on (main.js sets three CSS variables
+// from this and nothing else). Same reason boost.js is a pure clock — the animation is the reward for a
 // drop-off now that a drop-off is the only source of fuel, so it's worth being able to assert on it
 // headlessly rather than squinting at a screenshot.
 //
 // Three outputs, all 0..1:
-//   pct    the bar to draw — the real fuel level plus the overshoot, clamped to the pill
+//   pct    the fill to draw — the real fuel level plus the overshoot, clamped to the channel
 //   fill   envelope for "fuel is arriving": drives the glow's alpha and the leading edge's opacity
-//   pulse  the throb inside that envelope, drives the glow's blur radius and the pill's scale
+//   pulse  the throb inside that envelope, drives the glow's blur radius and the lever's scale
 
 // The overrun is scripted, not simulated. The obvious version — model the drawn bar as a spring
 // chasing the real fuel level and let its momentum carry it past the mark — was tried first and
-// measured at 3.3% of a tank of overshoot at its best (K=160, C=4), about 4px on the pill, and it
+// measured at 3.3% of a tank of overshoot at its best (K=160, C=4), about 3px of gauge, and it
 // wobbled for 1.4s getting back. A spring following a ramp can only overshoot by around v/ω, and a
 // 0.5-tank/s pour against any ω fast enough to not look sluggish leaves nothing to work with. So
 // the bounce is authored. It starts on the frame the pour finishes, which is why it doesn't read as
 // a jump: the bar is already travelling at the pour rate and the kick just carries it further.
-export const OVERSHOOT = 0.045;       // 4.5% of a tank past the mark ≈ 6px on the pill — small, but it reads
+export const OVERSHOOT = 0.045;       // 4.5% of a tank past the mark ≈ 4px of gauge — small, but it reads
 export const OVERSHOOT_RISE = 0.1;    // seconds out to the peak: faster than the pour, so it snaps
 
 // Coming back is a damped ring, not a curve back to the mark. An eased fall reached the mark and
@@ -36,7 +36,7 @@ const SETTLE_TIME = Math.log(OVERSHOOT / SETTLE_FLOOR) / SETTLE_DECAY;
 // length of the bounce, so the glow and the leading edge finish fading exactly as the bar stops.
 const FILL_ATTACK = 0.09;
 const FILL_RELEASE = OVERSHOOT_RISE + SETTLE_TIME;
-// The glow and the pill's scale both ride this. It ran at 8Hz originally so it would read as a
+// The glow and the lever's scale both ride this. It ran at 8Hz originally so it would read as a
 // flutter rather than the 5Hz "breathing" that was tried and rejected — but against a burst of
 // several energy circles landing in the same pour, that many pulses stacked up read as chaotic
 // rather than lively. Halved to land one clear pulse where there used to be two; slower than the
@@ -82,7 +82,7 @@ export function createBoostMeter() {
       phase = (phase + dt * PULSE_HZ) % 1;
       state.pulse = state.fill * (0.5 - 0.5 * Math.cos(phase * Math.PI * 2));
       // Clamped: at a full tank the overshoot has nowhere to go, and a leading edge parked past
-      // 100% would sit outside the pill.
+      // 100% would sit outside the channel.
       state.pct = Math.max(0, Math.min(1, fraction + bounce));
     },
   };

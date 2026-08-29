@@ -108,8 +108,19 @@ try {
   // this page turns them back on; the arrows are on either way and are checked here too.
   await client.send('Page.navigate', { url: `${baseUrl}?chips=on` });
 
+  // An expression that throws in the page comes back as `{ result: <the error>, exceptionDetails }`
+  // with no `value`, so a bare `result.value` hands the caller `undefined` — and the caller is
+  // almost always a `JSON.parse`, which then fails as "undefined is not valid JSON" naming neither
+  // the expression nor the error. Surfacing the page's own message here is the difference between
+  // half an hour of bisecting and reading the line number off the stack.
   const evaluate = async (expression) => {
-    const { result } = await client.send('Runtime.evaluate', { expression, returnByValue: true });
+    const { result, exceptionDetails } = await client.send('Runtime.evaluate',
+      { expression, returnByValue: true });
+    if (exceptionDetails) {
+      const why = exceptionDetails.exception?.description
+        ?? exceptionDetails.text ?? 'threw in the page';
+      throw new Error(`${why}\n  in: ${expression.slice(0, 200)}`);
+    }
     return result.value;
   };
 
@@ -519,18 +530,25 @@ try {
     // evaluate, with no await in the middle. Split across CDP round-trips the page renders a frame
     // or two in between and the pan is already under way, which is exactly what a cut would look
     // like. Synchronously after the tap: a pan is queued and the camera has not moved yet.
+    // Re-read inside the evaluate rather than trusting `chipShown` from the round-trip above: the
+    // taxi is live and the rider it is chasing can be collected in between, taking the chip with
+    // them. That raced, and the failure was the whole suite aborting on a null.
     const tap = JSON.parse(await evaluate(`(() => {
+      const chip = ${CHIP};
+      if (!chip) return JSON.stringify({ gone: true });
       const cam = window.__taxi.camera;
       cam.cancelGlide();
       cam.state.target.set(0, 0, 0);
-      ${CHIP}.click();
+      chip.click();
       return JSON.stringify({ gliding: cam.isGliding(), target: cam.state.target.toArray() });
     })()`));
-    const stillParked = tap.target.every((v) => v === 0);
-    check('a chip tap pans instead of cutting', tap.gliding && stillParked,
-      !tap.gliding ? 'no pan started'
-        : stillParked ? 'pan queued, camera still parked'
-          : `camera cut straight to ${JSON.stringify(tap.target)}`);
+    if (!tap.gone) {
+      const stillParked = tap.target.every((v) => v === 0);
+      check('a chip tap pans instead of cutting', tap.gliding && stillParked,
+        !tap.gliding ? 'no pan started'
+          : stillParked ? 'pan queued, camera still parked'
+            : `camera cut straight to ${JSON.stringify(tap.target)}`);
+    }
 
     // And it arrives, holds the rider for a beat, and rides back to the taxi — the pan out is only
     // half of what a chip tap does (see camera.js's peekAt). Leaving the camera parked on the kerb
@@ -690,7 +708,9 @@ try {
       return JSON.stringify({
         off,
         up: up.length,
-        coloured: up.every((el) => /^rgba?\(/.test(el.style.color || '')),
+        // Double-escaped: this whole expression is a template literal, so a single backslash is
+        // spent getting through it and the page would receive /^rgba?(/ — an unterminated group.
+        coloured: up.every((el) => /^rgba?\\(/.test(el.style.color || '')),
         inFrame: up.every((el) => {
           const r = el.getBoundingClientRect();
           return r.left >= -1 && r.top >= -1 && r.right <= w + 1 && r.bottom <= h + 1;
@@ -1440,39 +1460,41 @@ try {
     await evaluate("document.getElementById('smoke-focus-probe').remove();"
       + ' delete window.__spaceProbe;');
 
-    // ...but the pill is the one control where the key and the focus mean the same thing, so it
-    // keeps working after a player has clicked it — the case that would otherwise go quietly dead,
-    // since the browser answers a focused button with a synthesised `click` nothing listens for.
-    await evaluate("document.getElementById('boost').focus()");
+    // ...but the throttle is the one control where the key and the focus mean the same thing, so it
+    // keeps working with focus on it — the case that would otherwise go quietly dead. `role="slider"`
+    // is not in `keyIsSpokenFor`'s list of things that own a keystroke, and it must not become one:
+    // this lever *is* what Space drives.
+    await evaluate("document.getElementById('throttle').focus()");
     await key('rawKeyDown');
     await sleep(200);
-    const onPill = await mode();
-    check('the key survives clicking the pill', onPill === 'active', `mode ${onPill}`);
+    const onLever = await mode();
+    check('the key survives focus landing on the lever', onLever === 'active', `mode ${onLever}`);
     await key('keyUp');
     await evaluate('document.activeElement?.blur()');
 
-    // The pill's gesture surface. Reported as "the button text is selectable, and double-tapping it
-    // zooms": on iOS a thumb resting on the pill picked out "Loco Mode™", raised the magnifier and
-    // zoomed the whole city in, because iOS 15 stopped honouring `-webkit-user-select: none` for
-    // those gestures (webkit.org/b/231161). Three things hold it off and none of them is visible in
-    // a screenshot, so they are asserted here.
+    // The lever's gesture surface. Reported against the old pill as "the button text is selectable,
+    // and double-tapping it zooms": on iOS a thumb resting on it picked out "Loco Mode™", raised the
+    // magnifier and zoomed the whole city in, because iOS 15 stopped honouring
+    // `-webkit-user-select: none` for those gestures (webkit.org/b/231161). Three things hold it off
+    // and none of them is visible in a screenshot, so they are asserted here.
     //
     // The hit test is the load-bearing one, and it is a hit test rather than a style read on
-    // purpose: what matters is that a finger on the middle of the pill lands on the *button*, which
-    // is true only while the label stays wrapped and out of hit-testing. Unwrap it and this fails;
-    // read `.boost-label`'s `pointer-events` instead and it would still pass with the span gone.
+    // purpose: what matters is that a finger anywhere on this control lands on the *control*, which
+    // is true only while every child stays out of hit-testing. Drop the `#throttle > *` rule and
+    // this fails; read that rule's `pointer-events` instead and it would still pass with the rule
+    // scoped to the wrong element. Tested on the knob, which is the child a thumb actually lands on.
     //
     // `hud-ready` first, and then a wait for the entrance to land. The score check above reloaded
-    // the page, so the tutorial is talking and the pill is still parked 200% below the bottom edge —
-    // where `elementFromPoint` is outside the viewport and answers "nothing" whatever the label is
-    // doing. The keyboard checks above never noticed because a keystroke does not care where the
-    // pill is.
+    // the page, so the tutorial is talking and the lever is still parked 200% below the bottom edge —
+    // where `elementFromPoint` is outside the viewport and answers "nothing" whatever the children
+    // are doing. The keyboard checks above never noticed because a keystroke does not care where the
+    // control is.
     await evaluate("document.body.classList.add('hud-ready')");
     await sleep(600);
     const gestures = JSON.parse(await evaluate(`(() => {
-      const b = document.getElementById('boost');
-      const r = b.getBoundingClientRect();
-      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      const b = document.getElementById('throttle');
+      const k = b.querySelector('.throttle-knob').getBoundingClientRect();
+      const hit = document.elementFromPoint(k.x + k.width / 2, k.y + k.height / 2);
       const cs = getComputedStyle(b);
       const probe = document.createElement('div');
       document.body.appendChild(probe);
@@ -1483,9 +1505,9 @@ try {
         touchAction: cs.touchAction, userSelect: cs.userSelect, unstyled: inherited,
       });
     })()`));
-    check('a thumb on the pill lands on the pill, not its label',
-      gestures.hit === 'boost', `hit ${gestures.hit}`);
-    check('the pill takes no browser gesture',
+    check('a thumb on the knob lands on the lever, not on the knob',
+      gestures.hit === 'throttle', `hit ${gestures.hit}`);
+    check('the lever takes no browser gesture',
       gestures.touchAction === 'none' && gestures.userSelect === 'none',
       `touch-action ${gestures.touchAction}, user-select ${gestures.userSelect}`);
     // `touch-action` does not inherit, so the root-level declaration that covers selection cannot
@@ -1494,64 +1516,82 @@ try {
     check('nothing else on the page double-taps to zoom',
       gestures.unstyled === 'manipulation', `unstyled element ${gestures.unstyled}`);
 
-    // --- The brake, the other half of the bottom row.
+    // --- The throttle, as a thing a finger drives.
     //
-    // All of it is browser-only wiring: the sim's side (`taxi.braking` stops the car, hard, from
-    // anywhere) is asserted deterministically in the probe, and none of that is reachable if the
-    // key never lands on the flag or the button sits under the pill. Last on this page for the same
-    // reason the Loco key block is late — this stops the taxi in the road, and every check above
-    // wants it driving.
+    // All of it is browser-only wiring: the lever's own arithmetic is asserted deterministically in
+    // the probe (dead zone, the unequal halves, the spring), the sim's side is too (`taxi.braking`
+    // stops the car, hard, from anywhere), and none of it is reachable if the y a finger is at never
+    // reaches the lever. Last on this page for the same reason the Loco key block is late — the
+    // bottom of this control stops the taxi in the road, and every check above wants it driving.
     const brakeKey = (type) => client.send('Input.dispatchKeyEvent', {
       type, code: 'KeyB', key: 'b', windowsVirtualKeyCode: 66, nativeVirtualKeyCode: 66,
     });
 
-    const row = JSON.parse(await evaluate(`(() => {
-      const b = document.getElementById('boost').getBoundingClientRect();
-      const k = document.getElementById('brake').getBoundingClientRect();
-      const hit = document.elementFromPoint(k.x + k.width / 2, k.y + k.height / 2);
-      const cs = getComputedStyle(document.getElementById('brake'));
+    // The geometry first, because everything below is measured against it. The one number the CSS
+    // and game/throttle.js both have to agree on is where the rest line sits — THROTTLE_NEUTRAL,
+    // 0.6 of the way down the track — and nothing else in the codebase would notice the two drifting
+    // apart: the knob would simply come to rest somewhere that is not where a finger has to press to
+    // mean "nothing", and every zone would be off by the difference.
+    //
+    // Everything about the knob is polled on *sim* time rather than slept for. The spring settles in
+    // 0.52s of it, and this page renders in software with dt clamped at 0.05 — so a wall-clock sleep
+    // that looks generous can be three frames, which is a knob still visibly ringing. The Space
+    // checks above just let go of the lever, which is exactly that case.
+    const atRest = async (why) => {
+      for (let attempt = 0; attempt < 40; attempt++) {
+        if ((await evaluate('window.__taxi.throttle.state.pos')) === 0) return true;
+        await sleep(200);
+      }
+      check(why, false, 'the knob never came to rest');
+      return false;
+    };
+    await atRest('the knob springs home after the keyboard hold');
+
+    const geom = JSON.parse(await evaluate(`(() => {
+      const el = document.getElementById('throttle');
+      const track = el.querySelector('.throttle-track').getBoundingClientRect();
+      const knob = el.querySelector('.throttle-knob').getBoundingClientRect();
+      const box = el.getBoundingClientRect();
       return JSON.stringify({
-        share: k.width / (b.width + k.width), gap: Math.round(k.x - (b.x + b.width)),
-        sameRow: Math.abs(k.bottom - b.bottom) < 1 && Math.abs(k.height - b.height) < 1,
-        hit: hit ? (hit.id || hit.className || hit.tagName) : 'nothing',
-        touchAction: cs.touchAction, userSelect: cs.userSelect,
+        restFrac: ((knob.y + knob.height / 2) - track.y) / track.height,
+        upright: track.height > track.width * 3,
+        capped: Math.abs(box.height - (track.height + knob.height)) < 1.5,
+        pos: window.__taxi.throttle.state.pos,
       });
     })()`));
-    // 40% of the two buttons together, give or take the gap between them.
-    check('the brake takes the right 40% of the bottom row',
-      row.sameRow && row.gap > 0 && Math.abs(row.share - 0.4) < 0.03,
-      `${(row.share * 100).toFixed(1)}% of the row, ${row.gap}px gap, same row ${row.sameRow}`);
-    check('a thumb on the brake lands on the brake, not its label',
-      row.hit === 'brake' && row.touchAction === 'none' && row.userSelect === 'none',
-      `hit ${row.hit}, touch-action ${row.touchAction}, user-select ${row.userSelect}`);
+    check('the knob rests on the line game/throttle.js says it does',
+      geom.pos === 0 && Math.abs(geom.restFrac - 0.6) < 0.01,
+      `rest at ${geom.restFrac.toFixed(3)} of the track, pos ${geom.pos}`);
+    check('the lever is upright and the knob caps both ends of its travel',
+      geom.upright && geom.capped, `upright ${geom.upright}, box = track + knob ${geom.capped}`);
 
-    // --- One thumb, both pedals: the slide between them.
-    //
-    // The whole feature is a browser gesture and has no other home — the pedals' own arbitration is
-    // covered in the probe, and what only a page can prove is that a finger that never lifts moves
-    // the car from one pedal to the other. Real touches rather than synthesised `PointerEvent`s for
-    // the reason the initials check uses them: the press claims a pointer capture, and an untrusted
-    // event has no pointer for the browser to capture.
+    // One finger, up and down the lever, never lifting. Real CDP touches rather than synthesised
+    // `PointerEvent`s for the reason the initials check uses them: the press claims a pointer
+    // capture, and an untrusted event has no pointer for the browser to capture.
     //
     // The tank is topped up first and given a second to pour (POUR_RATE is half a tank per second,
-    // see game/boost.js). The key checks above have been spending fuel on this same run, and a
-    // drained pill is `disabled` — which is a legitimate state for it to be in and would fail this
-    // for a reason that has nothing to do with the gesture.
+    // see game/boost.js). The key checks above have been spending fuel on this same run, and an
+    // empty tank would fail the boost half of this for a reason that has nothing to do with the
+    // gesture.
     {
       await evaluate('window.__taxi.boost.topUp(0.5)');
       await sleep(1200);
+      // Three places on the lever, in viewport pixels: the top cap, the rest line, the bottom cap.
+      // Measured off the *track*, which is what game/throttle.js maps a y against.
       const at = JSON.parse(await evaluate(`(() => {
-        const mid = (id) => {
-          const r = document.getElementById(id).getBoundingClientRect();
-          return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
-        };
-        return JSON.stringify({ boost: mid('boost'), brake: mid('brake') });
+        const t = document.getElementById('throttle')
+          .querySelector('.throttle-track').getBoundingClientRect();
+        const x = Math.round(t.x + t.width / 2);
+        return JSON.stringify({
+          top: { x, y: Math.round(t.y + 3) },
+          rest: { x, y: Math.round(t.y + 0.6 * t.height) },
+          bottom: { x, y: Math.round(t.bottom - 3) },
+        });
       })()`));
-      // One finger, one id, for the length of the gesture. `touchEnd` takes no points.
       const touch = (type, pt) => client.send('Input.dispatchTouchEvent',
         { type, touchPoints: pt ? [{ x: pt.x, y: pt.y, id: 3 }] : [] });
-      // Along the row in steps, the way a thumb travels — a single jump to the far pedal would pass
-      // this without the moves in between ever being tested against the pedal they land on.
+      // Down the lever in steps, the way a thumb travels — a single jump to the far end would pass
+      // this without any of the positions in between ever being mapped.
       const slideTo = async (from, to) => {
         for (let step = 1; step <= 6; step++) {
           await touch('touchMove', {
@@ -1560,73 +1600,86 @@ try {
           });
         }
       };
-      // Both pedals, the classes that paint them, and the press dip itself — read together so each
+      // Both pedals, the classes that paint them, and the knob's own dip — read together so each
       // check can say which half went wrong. The dip is read as a *computed scale* rather than as
-      // the class that should produce it: the whole point of `is-held` is to outrank the `:active`
-      // the browser has pinned to the button the press started on, and the class can be present
-      // while losing that fight on specificity. Anything but a `matrix()` — including the pill's
-      // top-up flutter, which scales up — reads as 1 and counts as undipped.
-      const pedalState = `(() => {
-        const cls = (id, name) => document.getElementById(id).classList.contains(name);
-        const dip = (id) => {
-          const m = getComputedStyle(document.getElementById(id)).transform.match(/matrix\\(([-\\d.]+)/);
-          return m ? Number(m[1]) : 1;
-        };
+      // the class that should produce it: `is-held` exists to paint a press the browser's `:active`
+      // cannot describe (it stays pinned to the element the press started on, and here the finger is
+      // meant to travel), and the class can be present while losing that fight on specificity.
+      const leverState = `(() => {
+        const el = document.getElementById('throttle');
+        const m = getComputedStyle(el.querySelector('.throttle-knob'))
+          .transform.match(/matrix\\(([-\\d.]+)/);
         return JSON.stringify({
           boost: window.__taxi.boost.state.mode, braking: window.__taxi.traffic.taxi.braking,
-          lit: cls('brake', 'is-on'),
-          held: [cls('boost', 'is-held'), cls('brake', 'is-held')],
-          dip: [dip('boost'), dip('brake')],
-          sliding: document.body.classList.contains('pedal-slide'),
+          zone: window.__taxi.throttle.zone(), pos: window.__taxi.throttle.state.pos,
+          lit: el.classList.contains('is-braking'),
+          held: el.classList.contains('is-held'),
+          dip: m ? Number(m[1]) : 1,
+          says: el.getAttribute('aria-valuetext'),
         });
       })()`;
-      const read = async () => JSON.parse(await evaluate(pedalState));
+      const read = async () => JSON.parse(await evaluate(leverState));
 
-      await touch('touchStart', at.boost);
-      await sleep(200);
-      const onPill = await read();
+      // Polled rather than slept for, and the dip is why: `is-held` is applied by the frame loop
+      // rather than by the press, this page renders in software at a few frames a second, and the
+      // dip is a 0.1s CSS transition *on top of that*. Read too early the transform is still on its
+      // first frame and computes as an identity matrix, which reads as undipped — the check would be
+      // measuring this page's frame rate rather than the control.
+      await touch('touchStart', at.top);
+      let up = await read();
+      for (let attempt = 0; attempt < 15 && !(up.zone === 'boost' && up.dip < 1); attempt++) {
+        await sleep(200);
+        up = await read();
+      }
+      check('a thumb at the top of the lever floors it',
+        up.boost === 'active' && !up.braking && up.zone === 'boost' && up.pos > 0.9,
+        `${up.boost}/${up.zone} at ${up.pos.toFixed(2)}, braking ${up.braking}`);
+      check('and the knob follows it there and dips under the thumb',
+        up.held && up.dip < 1 && up.says === 'Loco Mode',
+        `held ${up.held}, scaled ${up.dip}, announced "${up.says}"`);
 
-      await slideTo(at.boost, at.brake);
+      // Through the middle on the way down — the state the whole control is built around, and the
+      // one the old two-button row could not express at all: a finger still on the surface, asking
+      // for neither pedal.
+      await slideTo(at.top, at.rest);
       await sleep(200);
-      const onBrake = await read();
-      check('a thumb sliding from Loco Mode to the brake hands the car over',
-        onPill.boost === 'active' && !onPill.braking
-        && onBrake.braking && onBrake.boost !== 'active' && onBrake.lit
-        && !onBrake.held[0] && onBrake.held[1],
-        `pill ${onPill.boost}/braking ${onPill.braking}`
-        + ` → brake ${onBrake.boost}/braking ${onBrake.braking}, held ${onBrake.held}`);
-      // And the press dip travels with the thumb. Its own check: the pedals could hand over
-      // perfectly while the pill the thumb has left sits there looking pressed, which is what
-      // `:active` does on its own and what `body.pedal-slide` exists to stop.
-      check('and the press dip travels with it',
-        onBrake.dip[1] < 1 && onBrake.dip[0] >= 1,
-        `pill scaled ${onBrake.dip[0]}, brake scaled ${onBrake.dip[1]}`);
+      const middle = await read();
+      check('dragging back to the middle hands the car back to itself',
+        middle.zone === 'idle' && !middle.braking && middle.boost !== 'active'
+        && middle.held && middle.says === 'Coasting',
+        `${middle.boost}/${middle.zone}, braking ${middle.braking}, still held ${middle.held}`);
 
-      await slideTo(at.brake, at.boost);
+      await slideTo(at.rest, at.bottom);
       await sleep(200);
-      const backOnPill = await read();
-      check('and sliding back hands it to Loco Mode again',
-        backOnPill.boost === 'active' && !backOnPill.braking
-        && backOnPill.held[0] && !backOnPill.held[1]
-        && backOnPill.dip[0] < 1 && backOnPill.dip[1] >= 1,
-        `${backOnPill.boost}, braking ${backOnPill.braking}, held ${backOnPill.held},`
-        + ` scaled ${backOnPill.dip}`);
+      const down = await read();
+      check('and carrying on down stands it on the brakes',
+        down.braking && down.zone === 'brake' && down.boost !== 'active' && down.lit
+        && down.pos < -0.9 && down.says === 'Braking',
+        `${down.boost}/${down.zone} at ${down.pos.toFixed(2)},`
+        + ` braking ${down.braking}, lit ${down.lit}`);
 
-      // Off the row entirely, which is the thumb's way of letting go of both without lifting. Well
-      // past PEDAL_SLOP: the point of the slop is that a wandering thumb *keeps* the pedal, so a
-      // check placed just outside it would be testing the constant rather than the behaviour.
-      await touch('touchMove', { x: at.boost.x, y: at.boost.y - 160 });
+      // Lifting is the gesture's only exit, on purpose: a 26px track under a thumb that is dragging
+      // vertically wanders sideways by more than the track is wide, so x is not part of the mapping
+      // at all. Well clear of the control — 200px to the right of it — where the old pedal row would
+      // have let go.
+      await touch('touchMove', { x: at.bottom.x + 200, y: at.bottom.y });
       await sleep(200);
-      const offRow = await read();
-      check('sliding off the row lets go of both pedals',
-        offRow.boost !== 'active' && !offRow.braking && !offRow.held[0] && !offRow.held[1],
-        `${offRow.boost}, braking ${offRow.braking}, held ${offRow.held}`);
+      const wandered = await read();
+      check('a thumb that wanders off the lever sideways keeps hold of it',
+        wandered.braking && wandered.zone === 'brake',
+        `${wandered.zone}, braking ${wandered.braking}`);
 
       await touch('touchEnd', null);
       await sleep(200);
+      // Letting go of the *car* is immediate and the knob's journey home is not, so they are read a
+      // beat apart: the zone is asserted on the frame after the lift, the position once the spring
+      // has actually landed.
       const lifted = await read();
-      check('and lifting closes the gesture', !lifted.sliding && !lifted.braking,
-        `sliding ${lifted.sliding}, braking ${lifted.braking}`);
+      const home = await atRest('and lifting springs the knob home');
+      check('and lifting drops both pedals and springs the knob home',
+        !lifted.braking && lifted.boost !== 'active' && lifted.zone === 'idle'
+        && !lifted.held && home,
+        `${lifted.boost}/${lifted.zone}, braking ${lifted.braking}, knob home ${home}`);
     }
 
     // Press it on a moving car — a taxi sitting at a red would stop trivially and lay no rubber.
@@ -1650,7 +1703,7 @@ try {
     await brakeKey('rawKeyDown');
     await sleep(200);
     const pedal = await evaluate('window.__taxi.traffic.taxi.braking');
-    const lit = await evaluate("document.getElementById('brake').classList.contains('is-on')");
+    const lit = await evaluate("document.getElementById('throttle').classList.contains('is-braking')");
     const marksAfter = await evaluate(liveMarks);
     check('and lays rubber off all four wheels as it goes',
       rolling >= 4 && marksAfter - marksBefore >= 4,
@@ -1664,14 +1717,16 @@ try {
     }
     check('holding B screeches the taxi to a halt',
       pedal === true && lit === true && speed === 0,
-      `braking ${pedal}, button lit ${lit}, taxi at ${speed} u/s`);
+      `braking ${pedal}, lever lit ${lit}, taxi at ${speed} u/s`);
 
     await brakeKey('keyUp');
     await sleep(200);
     const lifted = await evaluate('window.__taxi.traffic.taxi.braking');
-    const dark = await evaluate("document.getElementById('brake').classList.contains('is-on')");
-    check('and letting go hands the car back', lifted === false && dark === false,
-      `braking ${lifted}, button lit ${dark}`);
+    const dark = await evaluate("document.getElementById('throttle').classList.contains('is-braking')");
+    const sprung = await atRest('and the B key\'s own hold springs home');
+    check('and letting go hands the car back and springs the knob home',
+      lifted === false && dark === false && sprung,
+      `braking ${lifted}, lever lit ${dark}, knob home ${sprung}`);
   }
 
   // --- The initials prompt: after a tap, the field still has to be editable.

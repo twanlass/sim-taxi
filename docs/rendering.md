@@ -93,7 +93,7 @@ No player-facing zoom, and one fixed default framing — that's a gameplay decis
 A fixed frame is what makes every tap unambiguous and lets the whole city stay on screen. The two
 things that do move it are cinematic and brief: a wreck pulls `zoom` in (`focusOn`), and Loco Mode
 pushes `punch` in. **Anything converting between world units and the frame reads `viewZoom()`**, not
-`state.zoom` — the two differ for as long as the pill is held, which is exactly when the taxi is
+`state.zoom` — the two differ for as long as the lever is held up, which is exactly when the taxi is
 moving fastest and a marker sized off the wrong one drifts furthest from what it is marking.
 
 **Two things override the fixed framing**, both by smooth-following the taxi and both on narrow
@@ -191,14 +191,14 @@ frame, not to the framing — the taxi stays at exactly the same place in the pi
 [the lead](#leading-the-car) is stated as a fraction of a half-frame and scales with it.
 
 **It answers a hold, never a tap.** Releasing mid-spend is a designed input — a short tap costs a
-short slice of fuel, see [boost.js](../src/game/boost.js) — so the pill gets jabbed constantly, and
+short slice of fuel, see [boost.js](../src/game/boost.js) — so the lever gets jabbed constantly, and
 a push-in keyed on the press popped the frame on every one of them. `boost.heldSeconds()` is the
 clock and `LOCO_PUNCH_HOLD = 0.25s` is the line between the two gestures: a jab is over before it
 elapses and the frustum never moves at all. That threshold is also **dead time between the press and
 the reaction**, which is why it is not larger: it is twice a touchscreen tap (80-120ms is typical,
 200ms a slow one), and under about 0.2s it stops being a gesture test and becomes a race. Once earned it survives the [momentum
-tail](traffic.md#boost-crazy-taxi-mode) (`isEngaged()`), so feathering the pill — letting go and
-grabbing it again inside the second the taxi is still at full tilt — holds the frame still instead
+tail](traffic.md#boost-crazy-taxi-mode) (`isEngaged()`), so feathering the lever — letting go and
+pushing it up again inside the second the taxi is still at full tilt — holds the frame still instead
 of breathing it out and back in. Earning it always takes a hold, though: the latch can stay on through a tail,
 never switch on during one.
 
@@ -1215,8 +1215,8 @@ that would have explained it.
 
 ### The renderer readout — `game/diag.js`
 
-`?diag` puts a six-line panel in the bottom-left corner. It is `pointer-events: none`, so the Loco
-Mode pill underneath it still takes taps, and it wraps rather than truncating — the GPU string is
+`?diag` puts a six-line panel in the bottom-left corner. It is `pointer-events: none`, so the
+throttle underneath it still takes taps, and it wraps rather than truncating — the GPU string is
 the longest line and also the one most likely to name the culprit, so an ellipsis would clip away
 the reason the panel was opened.
 
@@ -1418,8 +1418,8 @@ running boost doesn't re-fire either.
 
 ### The tailpipe plume — `game/locoflame.js`
 
-The burst above is the *bark* on the press. This is the flame that burns for as long as the button
-is held, and it is the only thing on screen that says Loco Mode is still on other than the pill
+The burst above is the *bark* on the press. This is the flame that burns for as long as the lever
+is held up, and it is the only thing on screen that says Loco Mode is still on other than the gauge
 draining in the corner.
 
 **A flat stylized cutout, not a particle system** — the same argument [the wreck](#wreck--gameblastjs-gamevanishjs)

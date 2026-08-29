@@ -1,5 +1,5 @@
 // The other half of a drop-off's payout: a handful of little yellow sparks that break off the taxi
-// and get pulled into the Punch It pill.
+// and get pulled into the throttle's fuel gauge.
 //
 // The delivery pays two currencies and they were only ever showing one. The flying `$20` says
 // "money"; nothing said "and a third of a tank", so the meter simply grew on its own in the corner
@@ -14,14 +14,14 @@
 // DOM rather than three.js, for the same reason the payout is: the target is a piece of HUD, and
 // chasing a DOM element's viewport box from inside the scene graph means unprojecting a rectangle
 // that moves on every resize. Both endpoints are resolved as functions at burst time, not baked in
-// at call time, so a taxi that has driven on — and a pill that a resize has moved — are both still
+// at call time, so a taxi that has driven on — and a gauge that a resize has moved — are both still
 // aimed at correctly.
 
 const BITS = 6;
 const HANDOFF = 1000;   // ms after the drop-off before the first spark appears — see above
 const STAGGER = 38;     // ...and between each spark after it, so they leave as a ripple not a ring
 const BURST = 200;      // ms breaking away from the taxi
-const FLY = 420;        // ms being pulled into the pill
+const FLY = 420;        // ms being pulled into the gauge
 
 // Where each spark scatters to before it gets pulled in. Fixed angles rather than random ones:
 // this is the only randomness the effect would need, and it isn't worth another seed stream (see
@@ -35,14 +35,14 @@ const scatter = (i) => {
 
 /**
  * Fire the sparks. Both `from` and `to` are functions returning viewport `{x, y}` — see above.
- * `onArrive` fires once, when the first spark reaches the pill, and is what should actually hand
+ * `onArrive` fires once, when the first spark reaches the gauge, and is what should actually hand
  * the fuel over: the meter starting to fill before the energy lands reads exactly backwards.
  */
 export function flyEnergyToBoost({ from, to, onArrive }) {
   setTimeout(() => {
     const start = from();
     const target = to();
-    // The pill is `display: none` in shot mode and once the run is over, so by the time the sparks
+    // The lever is `display: none` in shot mode and once the run is over, so by the time the sparks
     // are due there may be nothing to fly to. Hand the fuel over anyway and skip the flight —
     // losing earned boost to a presentation detail would be a real bug wearing a cosmetic one.
     if (!start || !target) {
@@ -68,7 +68,7 @@ export function flyEnergyToBoost({ from, to, onArrive }) {
       ], { duration: BURST, delay: i * STAGGER, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'both' });
 
       burst.onfinish = () => {
-        // Ease *in* on the way to the pill, not out: the spark should look pulled, accelerating
+        // Ease *in* on the way to the gauge, not out: the spark should look pulled, accelerating
         // into the button, which is what sells the button as the thing collecting it.
         const fly = bit.animate([
           { opacity: 1, transform: `translate(-50%, -50%) translate(${out.x}px, ${out.y}px) scale(1)` },

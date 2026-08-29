@@ -24,7 +24,7 @@ export const BOOST_FARE_REWARD = 1 / 3;
 // than a third keeps the fare the thing that fuels the run — a courier detour still has not
 // delivered anybody — while giving the errand something the cash alone could not, since the payout
 // is deliberately small enough that greed is punished by arithmetic (see docs/gameplay.md). A sixth
-// is also the smallest slice the pill's pour animation still reads as *filling* rather than
+// is also the smallest slice the gauge's pour animation still reads as *filling* rather than
 // twitching: ~0.35s of pour at POUR_RATE, against the ~0.7s a fare's third takes.
 export const BOOST_PARCEL_REWARD = 1 / 6;
 
@@ -87,7 +87,7 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
     press() {
       // Only a *fresh* press restarts the clock. press() is idempotent by contract and a re-press
       // mid-boost is a real gesture (it snaps a cooling car back to full send), so zeroing this
-      // unconditionally would let a player who taps the pill during their own hold knock the
+      // unconditionally would let a player who jogs the lever during their own hold knock the
       // camera back out of its push-in.
       if (!state.held) state.heldFor = 0;
       state.held = true;
@@ -119,7 +119,7 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
     },
 
     update(dt) {
-      // Runs whatever the mode is: a player holding a dead pill when a drop-off pours fuel in rolls
+      // Runs whatever the mode is: a player holding an empty tank when a drop-off pours fuel in rolls
       // straight into boost (see the 'empty' case below), and that is a hold, not a tap.
       if (state.held) state.heldFor += dt;
 

@@ -9,7 +9,7 @@ import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../geometry/taxi.js';
 // second. This is the other half of the same idea and it is a different object entirely: a flat
 // stylized cutout, three nested tongues of flat colour, riding on the bumper for the whole hold.
 // The mode had no continuous read at all before it: a player who pressed and kept holding saw one
-// puff at the start and then a car that was merely fast, and the pill draining in the corner was
+// puff at the start and then a car that was merely fast, and the gauge draining in the corner was
 // the only thing still saying *why*.
 //
 // **It is a cutout, not a particle system.** Same argument `game/blast.js` makes at length: at a

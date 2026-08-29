@@ -182,10 +182,11 @@ of it** — though the first one is currently switched off:
 2. **"Tap rider to start."** The spotlight moves to the waiting fare as the camera sets off for
    them, so the light is already on the rider and the pan carries the player to it; the bubble comes
    back once the camera has arrived. Tapping the rider answers it directly.
-3. **"Hold to floor it"** — the Loco Mode pill, two seconds after the first rider is *dropped off*,
-   with the bubble sitting directly over the pill and its tail pointing down at it, the spotlight on
-   the pill and the pill pulsing under it. Skipped entirely if the player has already fired Loco
-   Mode.
+3. **"Push up for Loco Mode™"** — [the throttle](#the-throttle), two seconds after the first rider is
+   *dropped off*, with the bubble sitting directly over the lever and its tail pointing down at it,
+   the spotlight on the lever and its track pulsing under it. The line has to say which *way*: a knob
+   sitting in the middle of a two-ended control is equally an invitation to pull it down. Skipped
+   entirely if the player has already fired Loco Mode.
 
 The city's own entrance and then the vignette come first: the whole tutorial is held frozen (via its
 `isBlocked` hook — the same one the "Add to Home Screen" screen uses) while the buildings rise out of
@@ -236,8 +237,8 @@ stands on, no more. At half again as wide it lit most of a 5×5 city and read as
 than as a light pointed at one thing.
 
 The third beat is the exception: it points at a **control**, which is a fixed thing on the glass at a
-size that has nothing to do with the camera, so its pool is measured off the Loco Mode pill's own
-box instead. Sizing that one in world units would grow and shrink the pool around a button that
+size that has nothing to do with the camera, so its pool is measured off the throttle's own box
+instead. Sizing that one in world units would grow and shrink the pool around a control that
 never moved. Its falloff is proportionally wider than the world one, because a corner control
 spends half its falloff off the edge of the glass.
 
@@ -246,17 +247,17 @@ which at this contrast is not the same as lit.
 
 ### The HUD arrives afterwards
 
-The money counter, the [multiplier counter](#the-multiplier-counter), the Loco Mode pill and the
-brake all start off their own screen edge and slide in together the moment the last bubble is
+The money counter, the [multiplier counter](#the-multiplier-counter), the ⏸ and
+[the throttle](#the-throttle) all start off their own screen edge and slide in together the moment the last bubble is
 dismissed (the [rider chips](#finding-the-next-rider) rode in with them, and still do under
 `?chips=on`). A run used to open with all of them already lit, every one reading zero and answering
 a question nobody had asked yet. `main.js` adds `body.hud-ready`; with no tutorial to wait for (`?tutorial=off`, shot mode) they
 are simply there from the first frame.
 
 The offset is the standalone `translate` property, **not** a transform. Three of those four already
-animate their own transform — the money bump, the streak bump, the Loco Mode press dip and its
-top-up flutter — and a `body.hud-ready #boost { transform: none }` outranks `#boost:active` on
-specificity, which would quietly kill the press feedback for the rest of the run.
+animate their own transform — the money bump, the streak bump, the throttle's top-up flutter — and a
+`body.hud-ready #throttle { transform: none }` outranks that flutter on specificity, which would
+quietly kill it for the rest of the run.
 
 Nothing else is taught. The drop-off [dispatches itself](#the-drop-off-dispatches-itself) and the
 clock is [a coloured crystal over a head](#the-fares-clock-travels) — neither needs a sentence, and
@@ -273,8 +274,8 @@ left to the window tap handler: `pressBoost` calls `preventDefault`, which can s
 touch would otherwise synthesise, so on a phone the hint would outstay its own lesson.)
 
 It is also the only one that points at a **control** rather than at the city, so it is placed
-differently: `#coach.at-boost` drops it onto the Loco Mode pill's own 26px gutter just above the
-pill, flips the tail to the bottom, and grows the entrance upward out of it. The other two hang
+differently: `#coach.at-boost` sits it in the throttle's own column just above the lever, flips the
+tail to the bottom, and grows the entrance upward out of it. The other two hang
 centred with the tail up, because what they are talking about is up there.
 
 **It fires on a fixed delay off the first drop-off, not on trip progress and not off the rider
@@ -283,7 +284,7 @@ actually driven against the trip's block distance, both of which were correction
 *straight-line distance remaining* that came before them. All of that was a better description of a
 moment and unpredictable in practice: trip lengths vary by a factor of five, so the hint landed
 anywhere between three seconds and half a minute in, and on the long ones the player had stopped
-wondering about the pill long before it arrived.
+wondering about the lever long before it arrived.
 
 A fixed `BOOST_HINT_DELAY` off the tap that dispatched the taxi fixed the unpredictability but
 landed in the wrong place: three seconds in, the player is watching their first pickup with a clock
@@ -538,7 +539,7 @@ of them independent of the difficulty curve, and all of them binding on the run'
 
 ### Finding the next rider
 
-**The rider-finder chips are off.** They were a row above the Loco Mode pill, one per waiting fare:
+**The rider-finder chips are off.** They were a row beside the throttle, one per waiting fare:
 the real animated figure in a 38px WebGL context, that fare's countdown as a conic-gradient ring
 around it, and a tap that dispatched the taxi straight at them. They are still in the tree
 (`game/riderfinder.js`) and `?chips=on` brings them back to compare against, but nothing builds them
@@ -1660,7 +1661,7 @@ square against a disc is read at a glance.
   Loco Mode — half what a drop-off pays (`BOOST_PARCEL_REWARD` against `BOOST_FARE_REWARD`). Both
   the payout and the fuel take the same [two-phase flight](#economy) a fare's do, because it is the
   same kind of event arriving from the same place. The half is the whole argument: an errand that
-  paid nothing into the tank was the only job in the game whose reward the pill ignored, and one
+  paid nothing into the tank was the only job in the game whose reward the gauge ignored, and one
   that paid a fare's third would make a courier run the *cheap* way to fuel a run — six packages to
   a full tank keeps the fare the thing that fills it. With [one box on the board](#the-rest-of-it)
   that ceiling is a slow one to reach anyway: the fuel is a nudge toward a detour, never a supply.
@@ -1829,16 +1830,19 @@ unbroken move: with nothing to arrive at on the car, the box has one destination
 
 ## Crazy-taxi mode
 
-The **Loco Mode** button, bottom left. **Hold to enable, release to pause.** A short tap costs a
-short slice, a long hold flows until the tank is empty. Full tank is 15 seconds of boost. The
-decision is now *how long* to press as well as *when*. The button doubles as the dial: a `--pct`
-CSS variable tracks the fuel level, dropping as you drain and climbing as a drop-off pours fuel in.
+The top half of [the throttle](#the-throttle), bottom left. **Hold to enable, release to pause.** A
+short push costs a short slice, a long hold flows until the tank is empty. Full tank is 15 seconds of
+boost. The decision is now *how long* to hold as well as *when*. The lever doubles as the dial: a
+`--pct` CSS variable tracks the fuel level, filling the boost channel upward out of the rest line,
+dropping as you drain and climbing as a drop-off pours fuel in — the half you push into is the half
+that empties.
 
 **The meter never refills on its own.** The run opens with **a third of a tank**, each successful
 drop-off pours in **another third**, and a [delivered package](#the-rest-of-it) pours in **a
-sixth** — that is the whole list of sources, and all three are jobs done. Spend it all and the pill
-goes grey and dead (`.is-empty`, `disabled`) until you deliver something. A top-up that lands while
-you're still holding the button rolls straight back into boost rather than making you press again.
+sixth** — that is the whole list of sources, and all three are jobs done. Spend it all and the
+channel stands empty over a knob that has gone grey (`.is-empty`) until you deliver something. A
+top-up that lands while you're still holding the lever up rolls straight back into boost rather than
+making you let go and push again.
 
 Both ways out of a boost — letting go, and running the tank dry — pass through the one-second
 `'cooldown'` momentum window first, so `'empty'` is where a drained tank lands *after* that tail
@@ -1867,16 +1871,16 @@ taxi is never parked with a rider aboard; boost applies from the pickup frame on
 reason the taxi slows while boosting is traffic, and those are dealt with in
 [traffic.md](traffic.md#what-was-still-braking-it).
 
-Pointer capture on `pointerdown` keeps the boost held even if the finger slides off the pill;
-`pointerup`, `pointercancel`, `lostpointercapture` and the window `blur` all release it, so
-alt-tabbing or switching apps never leaves the boost stuck on.
+Pointer capture on `pointerdown` keeps the lever under the finger wherever it travels; `pointerup`,
+`pointercancel` and the window `blur` all let go of it, so alt-tabbing or switching apps never
+leaves the boost stuck on.
 
-That release path cuts both ways, which is why the pill is `touch-action: none` rather than
+That release path cuts both ways, which is why the lever is `touch-action: none` rather than
 `manipulation`. `manipulation` only drops double-tap zoom — pan and pinch stay live, and either
-one starting on the pill lets the browser claim the touch and fire `pointercancel`, releasing a
+one starting on the control lets the browser claim the touch and fire `pointercancel`, releasing a
 boost the player still has their thumb on. Pointer capture then means nothing else arrives until
 they lift and press again, so it reads as the gas cutting out with no way to get it back. The
-case that hits it is exactly how this game is held: a thumb on the pill and a second finger
+case that hits it is exactly how this game is held: a thumb on the lever and a second finger
 tapping a fare is a pinch gesture as far as the browser is concerned. `preventDefault` on
 `pointerdown` is explicitly not a fix for that — `touch-action` is the only thing that suppresses
 it, which is why the canvas has carried `none` all along.
@@ -1884,9 +1888,10 @@ it, which is why the canvas has carried `none` all along.
 ### Spacebar
 
 On a keyboard, **hold Space** — the same hold, for a hand that isn't dragging the mouse into the
-corner. `keydown` and `keyup` on `window` route into the same `holdLocoMode()` / `boost.release()`
-the pill uses, so the wheelie, the flame, the launch rubber, the tutorial dismissal and the fuel
-economy are all one code path with two ways in. Desktop-only by construction rather than by sniffing
+corner. `keydown` and `keyup` on `window` slam the *lever* to its top stop and let it go
+(`holdThrottle(1, 'space')` / `releaseThrottle('space')`), so the knob moves for the keyboard too and
+the wheelie, the flame, the launch rubber, the tutorial dismissal and the fuel economy are all one
+code path with two ways in. Desktop-only by construction rather than by sniffing
 for a desktop: a phone with no keyboard never fires a `keydown`, and a phone *with* one has earned
 it.
 
@@ -1894,15 +1899,14 @@ Five things it has to get right:
 
 - **`event.code`, not `event.key`.** The physical bar on any layout, and unlike a `key` of `' '` it
   doesn't need unpicking from the modifiers (Ctrl/Cmd/Alt+Space are the OS's, and are ignored).
-- **Auto-repeat is dropped** (`event.repeat`). `boost.press()` would return `false` on every repeat
-  anyway, so no wheelie stacks — but a held key firing 30 presses a second through the tutorial
-  dismissal and the disabled check is noise the guard costs one line to remove.
+- **Auto-repeat is dropped** (`event.repeat`). `holdThrottle` is idempotent and `boost.press()` would
+  return `false` on every repeat anyway, so no wheelie stacks — but a held key firing 30 presses a
+  second through the tutorial dismissal is noise the guard costs one line to remove.
 - **It only claims the key when nothing focusable has it.** Space is the browser's own activation
   key: tabbing to "Play again" and pressing it has to press *that*, so `keyIsSpokenFor()` bows out
-  when the target is inside an `input`, `button`, `select`, link or contenteditable. The pill itself
-  is the exception, and not an optional one — clicking it once moves focus onto it, and without the
-  exemption the hotkey would go dead for the rest of the run: the browser synthesises a `click`,
-  which nothing here listens for.
+  when the target is inside an `input`, `button`, `select`, link or contenteditable. The throttle is
+  the exception, and not an optional one — it is a focusable `role="slider"`, and it is the thing
+  Space drives; the guard takes the element to exempt as a parameter for exactly this.
 - **The Home Screen tip outranks it.** `game/homescreen.js` dismisses itself on Space and holds the
   run behind it, so the press that clears that screen must not also spend fuel on a parked taxi —
   the same `homeTip.state.holding` guard the tutorial uses. Our listener is registered first, so it
@@ -1914,19 +1918,21 @@ Five things it has to get right:
 
 The window `blur` release matters more here than it did for the pointer: a keyup that lands on
 another window never arrives at all, so alt-tabbing mid-hold is the case where blur is the *only*
-end that hold gets. It clears the `spaceHeld` latch too — that latch is what stops a stray keyup
-(one whose keydown we bowed out of) from cancelling a boost the player is holding on the pill.
+end that hold gets. It `reset`s the lever rather than releasing it — there is no hand here, and a
+tab returned to with the knob still travelling home describes a hold that stopped happening while
+nobody was looking. It clears the `spaceHeld` latch too: that latch is what stops a stray keyup (one
+whose keydown we bowed out of) from cancelling a boost the player is holding on the lever.
 
-The pill carries `aria-keyshortcuts="Space"`; there is no painted "SPACE" label on it, because the
-pill is also the fuel dial and the tutorial's third beat points at it.
+The lever carries `aria-keyshortcuts="Space B"` for both holds; nothing is painted on it, because
+the control has no room for a label and the tutorial's third beat names it instead.
 
 ### The refill animation
 
 A drop-off pays two currencies and for a while it only showed one. The flying `$20` says *money*;
 nothing said *and a third of a tank*, so the meter simply grew on its own in the corner of the
 screen with no visible cause. `src/game/energybits.js` is that cause: **six little yellow sparks
-break off the taxi and get pulled into the Punch It pill**, and the tank is topped up when the first
-one lands, not on the delivery frame. A meter that starts filling a second and a half before
+break off the taxi and get pulled into the throttle's fuel gauge**, and the tank is topped up when
+the first one lands, not on the delivery frame. A meter that starts filling a second and a half before
 anything visibly reaches it reads exactly backwards.
 
 They are **sequenced behind the payout, not fired alongside it** — the handoff is 1000ms, set from
@@ -1937,11 +1943,13 @@ the drop-off rather than immediately; that delay is the effect, and it's short e
 the gap before the next fare is worth chasing.
 
 Both endpoints are resolved as functions at burst time rather than baked in at call time, so a taxi
-that has driven on — and a pill a resize has moved — are still aimed at correctly. If the pill is
-hidden (shot mode, or the run-end blackout) the flight is skipped and the fuel is handed over
-anyway: losing earned boost to a presentation detail would be a real bug wearing a cosmetic one.
+that has driven on — and a gauge a resize has moved — are still aimed at correctly. The target is the
+middle of the *boost channel* rather than the middle of the lever, because the channel is the thing
+being topped up and the lever's geometric centre is down on the rest line with the brake. If the
+control is hidden (shot mode, or the run-end blackout) the flight is skipped and the fuel is handed
+over anyway: losing earned boost to a presentation detail would be a real bug wearing a cosmetic one.
 
-A delivered package fires the same swarm from the same car to the same pill, for `BOOST_PARCEL_REWARD`
+A delivered package fires the same swarm from the same car to the same gauge, for `BOOST_PARCEL_REWARD`
 instead — one effect for "you got fuel", regardless of which job paid it. It sits behind the courier
 payout's flight for the same reason a fare's does.
 
@@ -1955,8 +1963,8 @@ enters the meter, it carries the rest of the reward and gets three more layers, 
 | Layer | What it does | Wiring |
 |---|---|---|
 | **Overfill** | The bar runs ~4.5% of a tank past its new mark, then rings back down onto it | `--pct` |
-| **Flutter** | The whole pill throbs — glow and 3.5% of scale together, 4Hz — for as long as fuel is arriving | `--fill` × `--pulse` → `.is-filling` |
-| **Leading edge** | A blurred near-white line rides the front of the fill, fading in with the pour and out with the bounce | `--fill` → `#boost::after` |
+| **Flutter** | The whole lever throbs — glow and 3.5% of scale together, 4Hz — for as long as fuel is arriving | `--fill` × `--pulse` → `.is-filling` |
+| **Leading edge** | A blurred near-white line rides the top of the fill, fading in with the pour and out with the bounce | `--fill` → `.throttle-fuel::after` |
 
 `boostmeter.js` is pure and DOM-free for the same reason `boost.js` is: `main.js` reads three numbers
 off it and writes three CSS variables, and the probe drives it with a real pour and asserts on the
@@ -1965,7 +1973,7 @@ a second delivery landing mid-pour just extends it.
 
 **The overshoot is authored, not simulated.** The obvious version — draw the bar as a spring chasing
 the real fuel level and let its momentum carry it past the mark — was built and measured first: 3.3%
-of a tank at its best (K=160, C=4), about 4px on the pill, and a 1.4s wobble to settle. A spring
+of a tank at its best (K=160, C=4), about 3px of gauge, and a 1.4s wobble to settle. A spring
 following a ramp can only overshoot by around v/ω, and a 0.5-tank/s pour against any ω fast enough
 not to look sluggish leaves nothing to work with. The scripted kick starts on the frame the pour
 finishes, so it still doesn't read as a jump — the bar is already travelling at the pour rate and the
@@ -1982,9 +1990,9 @@ and the decay were pulled back from an original 7%/7-per-second pass that read a
 The flutter runs at 4Hz, halved from an original 8Hz. At 8Hz a pour that landed several energy
 circles at once stacked up enough pulses to read as chaotic rather than lively; one clear pulse
 where there used to be two reads calmer without dropping all the way to the 5Hz "breathing" rate
-that was tried and rejected earlier. It moves the pill itself, not just the glow, which is what
-makes it visible at the edge of vision — where this button is while the player is watching the
-road. `prefers-reduced-motion` drops the scale and keeps the glow and the edge.
+that was tried and rejected earlier. It moves the lever itself, not just the glow, which is what
+makes it visible at the edge of vision — where this control is while the player is watching the
+road. It scales about the *bottom*, so the knob a thumb may be resting on moves least. `prefers-reduced-motion` drops the scale and keeps the glow and the edge.
 
 The glow used to be a one-shot green flash matching the flying `$20`. Green read as *money*, which
 is what the earnings pop already says; yellow says *this is boost*. Driving its alpha from a variable
@@ -2035,104 +2043,145 @@ streak of rubber — all three gated on `boost.press()` returning true, so they 
 transition into Loco Mode and not on a re-press during a boost that's already running.
 
 The **hold** has its own effect, and it is a different object: a flat stylized flame that burns out
-of the tailpipe for exactly as long as the button is down (`game/locoflame.js`, and see
+of the tailpipe for exactly as long as the lever is up (`game/locoflame.js`, and see
 [rendering.md](rendering.md#the-tailpipe-plume--gamelocoflamejs)). The burst is the bark on the
-press; this is what says the mode is *still on*, which nothing but the draining pill said before.
+press; this is what says the mode is *still on*, which nothing but the draining gauge said before.
 
-## The brake
+## The throttle
 
-The **Brake** button, to the right of the Loco Mode pill and sharing the bottom row with it:
-**60% Loco Mode, 40% brake**, of the same 3/4-width band the pill used to have to itself. Hold it
-and the taxi hauls itself to a stop wherever it is; let go and it drives itself again, because
-driving itself is the game's resting state and the brake never took that away — it only outranked
-it while held. The physics is in
-[traffic.md](traffic.md#the-brake-pedal); this is what the player touches.
+**PROTOTYPE.** One spring-loaded lever, bottom left, where Loco Mode and the brake used to be two
+buttons sharing a row. `src/game/throttle.js` is the clock, `#throttle` in `index.html` is the
+control, and "The throttle" in `main.js` is the ~120 lines that map a finger's y onto one of the two
+pedals underneath.
 
-**It costs nothing and cannot run out.** No meter, no fuel, no cooldown, nothing to earn — which is
-why the button carries no dial. A pill with a fill on it would promise a resource that isn't there.
-It is a prototype control in the honest sense: the only thing it does is stop the car.
+**Push the knob up to floor it, pull it down to brake, let go and it springs back to the middle.**
+That last part is the reason it is a lever and not two buttons. "The taxi drives itself" was always
+the thing underneath both pedals — the brake never took it away, it only outranked it while held —
+and a control that *returns* to it says so with its geometry: there is a middle, the middle is where
+the car is left, and both of the things you can do are departures from it in opposite directions.
+Two buttons could not express the middle at all; it was the state of neither of them being pressed.
 
-**Red, not yellow.** Everything else about it is the pill's — same bottom edge, same 49px height,
-same radius, same black outline, same hold-to-hold contract, the same `touch-action: none` and
-label-in-a-span iOS suppression (see [above](#crazy-taxi-mode)) — so the colour is doing all the
-work of telling the two apart at the edge of vision, where this button is while the player is
-watching the road. Held, it lights (`.is-on`) rather than dimming: it is a brake *light*, and the
-taxi's own lamps are coming on out on the road at the same moment.
+### The anatomy
 
-Both buttons stay independently `position: fixed` rather than becoming flex children of a row. A
-wrapper would put a new element between `#boost` and the viewport, and that pill is measured
-(the tutorial aims its third bubble at its `getBoundingClientRect`), animated (`translate` on the
-HUD entrance) and pressed through pointer capture. Two `calc()`s against `--ctl-side` / `--ctl-gap`
-/ `--brake-w` cost less than re-testing all of that. The shares are of the *band*, not of the
-screen, so the 60/40 survives any change to the band's own margins.
+One 150px track with the rest line **60% of the way down it**, and the knob's travel is the track:
+at full boost its centre sits on the top cap, at full brake on the bottom one, so it overhangs each
+end by its own radius and the lever reads as having *ends*.
 
-**Last pedal pressed wins.** Pressing the brake releases Loco Mode and pressing Loco Mode releases
-the brake, so a two-thumbed player never ends up spending fuel against a speed target of zero — the
-tank keeps whatever is left in it. The sim doesn't depend on that arbitration: hold both by any
-means and the brake still wins, because it replaces the target the boost ceiling would have set.
+| | |
+|---|---|
+| **Above the rest line** | The boost channel — an empty pale trough that the amber fuel gauge fills upward out of the middle. The half you push into is the half that empties. |
+| **Below it** | The brake, solid red and always full. |
 
-## The pedal slide
+**The travel is deliberately not symmetric.** Boost is the thing a player reaches for and the thing
+they hold for seconds at a time, so it gets the long half; the brake is a stab, and a short throw is
+a faster stab. Everything downstream of that has to know the two halves are different lengths:
+`knobFraction()` exists because a position of +0.5 and one of −0.5 are *not* the same distance up
+and down the same lever, and reading the knob's position as symmetric puts it outside the track at
+one end and short of it at the other. `THROTTLE_NEUTRAL` is the one number `game/throttle.js` and
+the CSS both have to agree on, and nothing else in the codebase would notice them drifting apart —
+the knob would simply come to rest somewhere that is not where a finger has to press to mean
+"nothing", and every zone would be off by the difference. A smoke check measures the rendered knob
+against the rendered track for that reason.
 
-The bottom row is **one control surface, not two buttons**. A thumb that goes down on Loco Mode and
-slides right onto the brake hands the car over as it crosses, with no lift in between, and sliding
-back hands it straight back. On a phone that is the difference between "press the gas, let go, find
-the brake, press the brake" — four beats, two of them spent with the taxi doing neither — and one
-continuous movement of the thumb that is already down there.
+**The brake half carries no gauge**, because it costs nothing and has nothing to run out of. A fill
+on it would promise a resource that isn't there. Held, it *lights* (`.is-braking`) rather than
+dimming: it is a brake light, and the taxi's own lamps are coming on out on the road at the same
+moment. Brake-light red against Loco Mode's taxi yellow, so the two halves never have to be read to
+be told apart at the edge of vision, which is where this control is while the player is watching
+the road.
 
-Nothing about the pedals changed to allow it. They already arbitrated (above), so a handover
-mid-gesture is the same transition a two-thumbed player was already making; what was missing was a
-gesture that could reach both. `holdLocoMode()` and `holdBrake()` now each report whether the pedal
-actually went down, and "The pedal slide" in `main.js` is the ~60 lines that drive them off one
-pointer.
+**An empty tank is no longer a `disabled` state, and cannot be.** The old pill went grey and refused
+the press outright, which it could afford to do because it was a button and half a dead button is
+still a button; this control has a brake on its other end. What says it instead is the channel
+standing empty above a knob that has gone grey — the one push on this control that now does nothing,
+drawn as nothing. That turns out to be the better behaviour anyway: `boost.state.held` stays true
+through the dead hold, so a top-up landing mid-push rolls straight into boost without the player
+having to let go and push again.
 
-**Coordinates, not event targets.** A press captures the pointer to the button it started on, so
-for the rest of the gesture every move is delivered *there* whatever is under the finger — which is
-what makes a hold survive a wandering thumb, and what makes hit-testing the event target useless.
-The gesture hit-tests the point against two rectangles instead. They are measured on the press and
-then left alone: both buttons scale while held (the press dip, the pill's top-up flutter), and
-re-measuring per move would let a pedal's own animation move the boundary under a finger that
-never moved.
+### The dead zone, and why there is one
 
-**Two different thresholds, on purpose.** Claiming a pedal means being *inside* it; dropping one
-means being `PEDAL_SLOP` (28px) *clear* of it. Crossing between the two needs no slop — they are
-8px apart, so a finger leaving one is inside the other within a frame — but coming off the row
-entirely has to let go, and equal thresholds would put a boundary under a resting thumb that a
-pixel of jitter could cross twice a frame. A fresh press of Loco Mode is not a quiet event: it
-fires a wheelie, a flame burst, a launch skid and a haptic tick. The gap between the two answers is
-where a still finger sits. Sliding off the end of the row is therefore also how you let go of a
-pedal without lifting.
+`THROTTLE_DEADZONE` (0.28 of *each half's* travel — 25px up, 17px down) has to be crossed before
+that half engages. It is a dead zone rather than a hair trigger because this control answers a
+**drag**: the frame in which a thumb lands on the knob and has not yet moved must not fire a
+wheelie, a flame burst, a launch skid and a haptic tick. A fraction of each half rather than one
+absolute number, so the brake's short throw is not mostly dead zone; both work out as a comfortable
+deliberate movement against the ~8px of jitter a resting thumb produces.
 
-**One pointer owns the row.** A second thumb landing on the other pedal takes it over, which is the
-game's own last-pedal-wins rather than a special case, and the first thumb's eventual lift then has
-nothing left to release. An empty tank is the one case where the claim and the press come apart:
-the pill is dead under a thumb that has plainly arrived on it, so the claim moves (the brake beside
-it lets go) and nothing is pressed or painted.
+The probe sweeps the whole travel and asserts that **every position asks for exactly one thing**.
+That is the arbitration the old row needed a "last pedal pressed wins" rule for; one lever gets it
+from having one position.
 
-**The press dip stops following `:active`.** The browser pins `:active` to the button the pointer
-went *down* on and leaves it there however far the finger travels, so a slide would light the pill
-the thumb has left and leave the brake it is standing on looking untouched. For the length of a
-gesture `body.pedal-slide` suppresses `:active` on both and an `is-held` class carries the dip on
-whichever pedal is actually down.
+### The spring, and what it is not allowed to touch
+
+Letting go integrates a second-order spring (ζ = 0.59 at ω = 20.5 rad/s) rather than easing
+exponentially, because a released lever *snaps* — it arrives with a little energy left and settles,
+where an exponential creeps the last 10% and reads as the knob being dragged home by something.
+Measured: a release from full boost overshoots the middle by **8.5%** (5px past centre — a tick of
+life, not a bounce) and is at rest **0.52s** later. The damping was picked by sweeping it; at
+ζ = 0.71 the overshoot is 2.7%, under two pixels, and the spring may as well not be one.
+
+**It integrates in fixed 1/120 slices, not in one step of `dt`,** and that is not a refinement.
+Semi-implicit Euler goes unstable above about ω·h = 1, and `frame()` clamps dt at **0.05** — which
+is ω·dt = 1.03. Stepped whole, a release on one slow frame sent the knob to −0.05 and then to +0.21
+and diverged from there: the lever flew apart on exactly the frames a phone is most likely to drop,
+and it showed up as a smoke check reading the knob at −0.01 while nothing was touching it. Substepped,
+the settle is identical at 120Hz, 60Hz, 30Hz and one long stall, which is what the probe asserts.
+
+**None of that reaches the car.** `zone()` reads the *input* — where a finger or a key is holding the
+lever — and never `pos`, which is only ever a picture of a lever that has already been let go of.
+Two things fall out of that, and both are asserted: releasing stops asking for boost on the release
+frame rather than a third of a second later when the knob arrives, and the dip past centre on the
+way home is never a stab of the brake.
+
+A pause, a `blur` and a run ending call `reset()` instead: the knob is in the middle on the next
+frame drawn, with no travel. There is no hand in any of those cases, and a lever caught mid-travel
+and then revealed springing home describes a hold nobody is doing.
+
+### The gesture
+
+**Absolute, not relative.** A press maps straight to a position — press the top of the track and the
+taxi floors it on that frame, the same as the old pill answered a press on it. A relative drag would
+mean a thumb landing on the top of the lever had to travel further *up* to do anything.
+
+**Coordinates, not event targets, and only the y.** A press captures the pointer, so for the rest of
+the gesture every move is delivered to `#throttle` whatever is under the finger — which is what makes
+a hold survive a wandering thumb and what makes hit-testing the target useless. A thumb dragging up a
+26px track wanders sideways by more than the track is wide, so x is not part of the mapping at all:
+lifting is the gesture's only exit. The track's rectangle is measured **on the press and then left
+alone**, because the lever scales while a top-up pours in and re-measuring per move would let the
+control's own animation shift the mapping under a finger that never moved.
+
+**One input owns the lever, and the last one to speak takes it** — a thumb outranks a held spacebar
+and vice versa. That is the same last-pedal-wins the two pedals always arbitrated by, moved up one
+level to where the arbitration now has to happen: with one lever there is no longer a second control
+for the other hand to be holding. `releaseThrottle(source)` bows out if the source it names is not
+the one currently holding it, so a keyup for a key that already lost the lever cannot drop the thumb.
+
+**The press dip is a class, not `:active`.** The browser pins `:active` to the element the pointer
+went down on, which here is always the lever — but `is-held` also has to paint a spacebar hold, which
+`:active` cannot describe at all.
 
 **Everything after the press listens on the window.** Capture normally redirects the rest of the
-gesture to the button it started on, and a listener there would be enough — but only while the
+gesture to the element it started on, and a listener there would be enough — but only while the
 capture holds. It never takes for a synthesised pointer, and it is dropped outright when the
-capturing button leaves the screen, which is exactly what a run ending under the player's thumb
-does (`body.game-over #brake`). A `pointerup` on a hidden element is not something to hang a stuck
-pedal on. A pause and a `blur` drop the gesture too, for the same reason they drop the keyboard's
-holds.
+capturing element leaves the screen, which is exactly what a run ending under the player's thumb does
+(`body.game-over #throttle`). A `pointerup` on a hidden element is not something to hang a stuck
+throttle on.
 
-Four checks in `tools/smoke.mjs` drive it with real CDP touches — an untrusted `PointerEvent` has
-no pointer for the browser to capture — stepping along the row rather than jumping, so the moves in
-between are tested against the pedal they land on.
+**The pedals are put down from the frame loop, not from the gesture.** `applyThrottle()` runs every
+frame and fires only on a change of zone, which is what makes a run ending under a held lever let go
+of the car even though no pointer event arrives to say so — the same self-healing shape as
+`traffic.taxi.braking` in `frame()`.
 
-**On a keyboard, hold B.** One key over from the bar, through the same `holdBrake()` / `releaseBrake()`
-the button uses. `keyIsSpokenFor()` — the same guard Space uses, now taking the button it should
-exempt as a parameter — keeps a `b` typed into the initials field from driving the car, and the
-Home Screen tip and the pause both outrank it exactly as they do the spacebar. `blur` drops the
-pedal for the same reason it drops the boost: a keyup that lands on another window never arrives,
-and a brake held by a window with no keyboard is a taxi stopped in the road with nothing on screen
-saying why. A pause drops it too — the veil swallows the release.
+Five checks in `tools/smoke.mjs` drive it with real CDP touches — an untrusted `PointerEvent` has no
+pointer for the browser to capture — stepping down the lever rather than jumping, so the positions in
+between are tested against the zone they land on. They also assert the state the old row could not
+express: a finger still on the control, in the middle, asking for neither pedal.
+
+**On a keyboard, hold Space for the boost and B for the brake.** Both slam the lever to an end stop
+and let it spring back, so the knob moves for the keyboard too. `keyIsSpokenFor()` — which takes the
+element it should exempt as a parameter — keeps a `b` typed into the initials field from driving the
+car, and the Home Screen tip and the pause both outrank both keys.
 
 **Skid marks, on all four wheels.** Every other thing that marks the road in this game comes off the
 driven wheels: the launch chirp, the rubber through a boosted corner, the overtake's two lane
@@ -2170,8 +2219,10 @@ Three details in that early return are load-bearing:
 - **`clock.getDelta()` is still read**, above the return. It measures from its own last call, so
   skipping it would hand the first frame after a resume the whole length of the pause. The 0.05s
   clamp caps that — it is there to survive a stalled tab, not to license stalling on purpose.
-- **A held boost is dropped** on the way in. The veil takes the pointer release the pill was waiting
-  for, so without it the run would resume into a boost nobody is holding.
+- **A held boost is dropped** on the way in. The veil takes the pointer release the lever was waiting
+  for, so without it the run would resume into a boost nobody is holding. The lever is `reset` with
+  it, so the knob is back in the middle behind the veil rather than travelling home in front of a
+  player who has just resumed.
 
 Only the Resume pill resumes — a stray tap elsewhere on the veil must not drop the player back into
 traffic — and it resumes on `pointerdown` rather than `click` — the release then lands on the canvas
