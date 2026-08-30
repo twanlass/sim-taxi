@@ -7,7 +7,8 @@ import {
   WHEEL_R, CHASSIS_LIFT, wheelAnchors, wheelGeometry, wheelGeometries,
 } from '../geometry/wheels.js';
 import {
-  brakeLightGeometry, turnSignalGeometry, brakeLightMaterial, turnSignalMaterial,
+  lightPodGeometry, brakeLightAnchors, turnSignalAnchors, LIGHT_PODS,
+  brakeLightMaterial, turnSignalMaterial,
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
@@ -1252,10 +1253,10 @@ function truckBoxGeometry() {
 
 // --- Brake lights and turn signals -----------------------------------------------------------
 //
-// The geometry and materials (LIGHT_D/H/W, brakeLightGeometry(), brakeLightMaterial() and their
-// turn-signal counterparts) live in geometry/lights.js, shared with the taxi's own lights
-// (geometry/taxi.js) — see the note there for why a car's paint tint can't just be repurposed for
-// this. What is here is the *state*: reading a car's braking and signalling levels off its physics
+// The geometry and materials (LIGHT_D/H/W, lightPodGeometry(), brakeLightAnchors(),
+// brakeLightMaterial() and their turn-signal counterparts) live in geometry/lights.js, shared with
+// the taxi's own lights (geometry/taxi.js) — see the note there for why a car's paint tint can't
+// just be repurposed for this. What is here is the *state*: reading a car's braking and signalling levels off its physics
 // each frame, and the InstancedMesh machinery that fleet of ambient vehicles needs and the taxi
 // (an ordinary Group with ordinary Meshes) does not.
 //
@@ -1911,50 +1912,40 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   truckBoxMesh.count = trucks.length;
 
   // Brake lights and turn signals: three more instanced meshes per vehicle class, none of them
-  // painted — see the note by lightPod() above for why on/off is a matrix write (present or
+  // painted — see the note by lightPodGeometry() for why on/off is a matrix write (a scale, or
   // ZERO_MATRIX) rather than a colour change. No shadow: a couple of pixels of lamp casts nothing
   // worth the pass.
-  const brakeMesh = neverCull(
-    new THREE.InstancedMesh(brakeLightGeometry(CAR_LEN, CAR_W), brakeLightMaterial(), MAX_AMBIENT),
-  );
-  brakeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  brakeMesh.name = 'carBrakeLights';
-  brakeMesh.count = ambient.length;
+  //
+  // **`LIGHT_PODS` instances per vehicle, not one**, indexed the same way the steered wheels are
+  // (`instanceIndex * front.length + w`). The pod geometry is centred on its own origin and its
+  // anchor rides the matrix, so the level scales each pod about *itself*; a pair merged into one
+  // geometry could only be scaled about the car's origin, and a dimming lamp would walk up the
+  // body toward it. See lightPodGeometry() for what that measured.
+  const lightMeshes = [];
+  const lightMesh = (name, material, anchors, vehicles) => {
+    const inst = neverCull(new THREE.InstancedMesh(
+      lightPodGeometry(), material(), MAX_AMBIENT * LIGHT_PODS,
+    ));
+    inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    inst.name = name;
+    inst.count = vehicles.length * LIGHT_PODS;
+    inst.userData.podAnchors = anchors;
+    lightMeshes.push(inst);
+    return inst;
+  };
 
-  const turnLeftMesh = neverCull(new THREE.InstancedMesh(
-    turnSignalGeometry(CAR_LEN, CAR_W, -1), turnSignalMaterial(), MAX_AMBIENT,
-  ));
-  turnLeftMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  turnLeftMesh.name = 'carTurnSignalsLeft';
-  turnLeftMesh.count = ambient.length;
-
-  const turnRightMesh = neverCull(new THREE.InstancedMesh(
-    turnSignalGeometry(CAR_LEN, CAR_W, 1), turnSignalMaterial(), MAX_AMBIENT,
-  ));
-  turnRightMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  turnRightMesh.name = 'carTurnSignalsRight';
-  turnRightMesh.count = ambient.length;
-
-  const truckBrakeMesh = neverCull(new THREE.InstancedMesh(
-    brakeLightGeometry(TRUCK_LEN, TRUCK_W), brakeLightMaterial(), MAX_AMBIENT,
-  ));
-  truckBrakeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  truckBrakeMesh.name = 'truckBrakeLights';
-  truckBrakeMesh.count = trucks.length;
-
-  const truckTurnLeftMesh = neverCull(new THREE.InstancedMesh(
-    turnSignalGeometry(TRUCK_LEN, TRUCK_W, -1), turnSignalMaterial(), MAX_AMBIENT,
-  ));
-  truckTurnLeftMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  truckTurnLeftMesh.name = 'truckTurnSignalsLeft';
-  truckTurnLeftMesh.count = trucks.length;
-
-  const truckTurnRightMesh = neverCull(new THREE.InstancedMesh(
-    turnSignalGeometry(TRUCK_LEN, TRUCK_W, 1), turnSignalMaterial(), MAX_AMBIENT,
-  ));
-  truckTurnRightMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  truckTurnRightMesh.name = 'truckTurnSignalsRight';
-  truckTurnRightMesh.count = trucks.length;
+  const brakeMesh = lightMesh(
+    'carBrakeLights', brakeLightMaterial, brakeLightAnchors(CAR_LEN, CAR_W), ambient);
+  const turnLeftMesh = lightMesh(
+    'carTurnSignalsLeft', turnSignalMaterial, turnSignalAnchors(CAR_LEN, CAR_W, -1), ambient);
+  const turnRightMesh = lightMesh(
+    'carTurnSignalsRight', turnSignalMaterial, turnSignalAnchors(CAR_LEN, CAR_W, 1), ambient);
+  const truckBrakeMesh = lightMesh(
+    'truckBrakeLights', brakeLightMaterial, brakeLightAnchors(TRUCK_LEN, TRUCK_W), trucks);
+  const truckTurnLeftMesh = lightMesh(
+    'truckTurnSignalsLeft', turnSignalMaterial, turnSignalAnchors(TRUCK_LEN, TRUCK_W, -1), trucks);
+  const truckTurnRightMesh = lightMesh(
+    'truckTurnSignalsRight', turnSignalMaterial, turnSignalAnchors(TRUCK_LEN, TRUCK_W, 1), trucks);
 
   const tint = new THREE.Color();
   const paint = (car, index) => {
@@ -2012,9 +2003,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       truckMesh.count = trucks.length;
       truckWheelMesh.count = trucks.length * TRUCK_FRONT.length;
       truckBoxMesh.count = trucks.length;
-      truckBrakeMesh.count = trucks.length;
-      truckTurnLeftMesh.count = trucks.length;
-      truckTurnRightMesh.count = trucks.length;
+      truckBrakeMesh.count = trucks.length * LIGHT_PODS;
+      truckTurnLeftMesh.count = trucks.length * LIGHT_PODS;
+      truckTurnRightMesh.count = trucks.length * LIGHT_PODS;
     } else {
       car.instanceIndex = ambient.length;
       ambient.push(car);
@@ -2023,9 +2014,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
       mesh.count = ambient.length;
       wheelMesh.count = ambient.length * FRONT.length;
-      brakeMesh.count = ambient.length;
-      turnLeftMesh.count = ambient.length;
-      turnRightMesh.count = ambient.length;
+      brakeMesh.count = ambient.length * LIGHT_PODS;
+      turnLeftMesh.count = ambient.length * LIGHT_PODS;
+      turnRightMesh.count = ambient.length * LIGHT_PODS;
     }
   }
   // With ?cars=1 there are no ambient vehicles at all, so setColorAt is never called and
@@ -2039,12 +2030,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   scene.add(truckMesh);
   scene.add(truckWheelMesh);
   scene.add(truckBoxMesh);
-  scene.add(brakeMesh);
-  scene.add(turnLeftMesh);
-  scene.add(turnRightMesh);
-  scene.add(truckBrakeMesh);
-  scene.add(truckTurnLeftMesh);
-  scene.add(truckTurnRightMesh);
+  for (const light of lightMeshes) scene.add(light);
 
   // --- Stop bars ------------------------------------------------------------
   //
@@ -2197,9 +2183,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const brakeInst = car.isTruck ? truckBrakeMesh : brakeMesh;
     const turnLeftInst = car.isTruck ? truckTurnLeftMesh : turnLeftMesh;
     const turnRightInst = car.isTruck ? truckTurnRightMesh : turnRightMesh;
-    brakeInst.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
-    turnLeftInst.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
-    turnRightInst.setMatrixAt(car.instanceIndex, ZERO_MATRIX);
+    for (let p = 0; p < LIGHT_PODS; p++) {
+      brakeInst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
+      turnLeftInst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
+      turnRightInst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
+    }
     brakeInst.instanceMatrix.needsUpdate = true;
     turnLeftInst.instanceMatrix.needsUpdate = true;
     turnRightInst.instanceMatrix.needsUpdate = true;
@@ -2216,16 +2204,36 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const wheelPos = new THREE.Vector3();
   const UP = new THREE.Vector3(0, 1, 0);
   const lightMatrix = new THREE.Matrix4();
+  const lightLocal = new THREE.Matrix4();
   const lightScale = new THREE.Vector3();
+  // A pod is never turned relative to its car — only moved to its anchor and scaled by its level.
+  const LIGHT_QUAT = new THREE.Quaternion();
+
+  /**
+   * Write one lamp's pods for one car, at `level`.
+   *
+   * Composed *through* the body matrix, exactly as the steered wheels are, so a pod inherits the
+   * bob, the corner lean and the pitch rock for free. The local part is the pod's own anchor with
+   * the level as its scale — which makes that anchor the point the pod shrinks *about*, and that is
+   * the whole of what keeps a fading lamp on the bumper it belongs to. See lightPodGeometry() in
+   * geometry/lights.js for what it did when the anchor lived in the vertices instead.
+   */
+  function writeLight(inst, car, level) {
+    const anchors = inst.userData.podAnchors;
+    for (let p = 0; p < anchors.length; p++) {
+      lightLocal.compose(anchors[p], LIGHT_QUAT, lightScale.setScalar(level));
+      lightMatrix.multiplyMatrices(matrix, lightLocal);
+      inst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, lightMatrix);
+    }
+  }
 
   /**
    * Write one ambient car's body matrix, the two front wheels hanging off it, and its brake/turn
    * lights. The wheels are composed *through* the body matrix rather than in world space, so they
    * inherit the bob, the corner lean and the pitch rock for free and stay bolted to the arches
-   * through all three. The lights need no such composition — their pods are baked at a fixed offset
-   * into their own geometry (see lightPod()) — but they do need their own scale, so each is `pos`
-   * and `quat` (still holding this car's own transform, set by the caller just before this runs)
-   * recomposed at that light's own eased level rather than `scl`'s fixed (1, 1, 1).
+   * through all three. The lights go through it the same way, and for a second reason on top of
+   * that one: a lamp's on/off is a scale, so composing each pod at its own anchor is what decides
+   * the point that scale shrinks about. See `writeLight` below.
    */
   function writeAmbient(car) {
     const bodyInst = car.isTruck ? truckMesh : mesh;
@@ -2250,12 +2258,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     const brakeInst = car.isTruck ? truckBrakeMesh : brakeMesh;
     const turnLeftInst = car.isTruck ? truckTurnLeftMesh : turnLeftMesh;
     const turnRightInst = car.isTruck ? truckTurnRightMesh : turnRightMesh;
-    lightMatrix.compose(pos, quat, lightScale.setScalar(car.brakeLevel));
-    brakeInst.setMatrixAt(car.instanceIndex, lightMatrix);
-    lightMatrix.compose(pos, quat, lightScale.setScalar(car.turnLeftLevel));
-    turnLeftInst.setMatrixAt(car.instanceIndex, lightMatrix);
-    lightMatrix.compose(pos, quat, lightScale.setScalar(car.turnRightLevel));
-    turnRightInst.setMatrixAt(car.instanceIndex, lightMatrix);
+    writeLight(brakeInst, car, car.brakeLevel);
+    writeLight(turnLeftInst, car, car.turnLeftLevel);
+    writeLight(turnRightInst, car, car.turnRightLevel);
   }
 
   /**
@@ -3674,12 +3679,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     truckMesh.instanceMatrix.needsUpdate = true;
     truckWheelMesh.instanceMatrix.needsUpdate = true;
     truckBoxMesh.instanceMatrix.needsUpdate = true;
-    brakeMesh.instanceMatrix.needsUpdate = true;
-    turnLeftMesh.instanceMatrix.needsUpdate = true;
-    turnRightMesh.instanceMatrix.needsUpdate = true;
-    truckBrakeMesh.instanceMatrix.needsUpdate = true;
-    truckTurnLeftMesh.instanceMatrix.needsUpdate = true;
-    truckTurnRightMesh.instanceMatrix.needsUpdate = true;
+    for (const light of lightMeshes) light.instanceMatrix.needsUpdate = true;
 
     // --- Stop bar colours, one per approach.
     for (let index = 0; index < bars.length; index++) {
@@ -3714,7 +3714,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     truckMesh, truckWheelMesh, truckBoxMesh, trucks, truckWheelsPerCar: TRUCK_FRONT.length,
     /**
      * Every self-lit mesh this module owns — the fleet's six instanced pod meshes and the taxi's
-     * three ordinary ones — for `main.js` to put in the bloom (`markEmissive` in game/bloom.js).
+     * six ordinary ones — for `main.js` to put in the bloom (`markEmissive` in game/bloom.js).
+     *
+     * Off `lightMeshes` rather than a list restated here, so a seventh lamp arrives in the bloom by
+     * being built rather than by being remembered.
      *
      * Handed out rather than marked here because `sim/` may not import from `game/`, the same
      * reason the AO occluders are marked from `main.js`. The instanced ones need no per-frame
@@ -3722,10 +3725,6 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
      * zero scale by `writeAmbient`, and a degenerate triangle rasterises nothing whichever
      * material it is wearing — so the bloom switches off exactly when the lamp does.
      */
-    emissiveMeshes: [
-      brakeMesh, turnLeftMesh, turnRightMesh,
-      truckBrakeMesh, truckTurnLeftMesh, truckTurnRightMesh,
-      ...taxiLights,
-    ],
+    emissiveMeshes: [...lightMeshes, ...taxiLights],
   };
 }

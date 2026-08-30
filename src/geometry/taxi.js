@@ -4,7 +4,7 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import { wheelGeometries, wheelGeometry, wheelAnchors, CHASSIS_LIFT } from './wheels.js';
 import {
-  brakeLightGeometry, turnSignalGeometry, brakeLightMaterial, turnSignalMaterial,
+  lightPodGeometry, brakeLightAnchors, turnSignalAnchors, brakeLightMaterial, turnSignalMaterial,
 } from './lights.js';
 import { addGhostOutline } from './ghostoutline.js';
 
@@ -202,10 +202,27 @@ export function createTaxiMesh() {
   // see the note in traffic.js by BRAKE_LIGHT_RISE for why scale rather than a colour or opacity
   // write. Scaled to 0 rather than left out of the group entirely so setLights() below never has
   // to add or remove children.
-  const brakeLights = new THREE.Mesh(brakeLightGeometry(CAR_LEN, CAR_W), brakeLightMaterial());
-  const turnLeftLight = new THREE.Mesh(turnSignalGeometry(CAR_LEN, CAR_W, -1), turnSignalMaterial());
-  const turnRightLight = new THREE.Mesh(turnSignalGeometry(CAR_LEN, CAR_W, 1), turnSignalMaterial());
-  for (const light of [brakeLights, turnLeftLight, turnRightLight]) {
+  //
+  // **One Mesh per pod, not per pair**, because that scale is about the mesh's own origin: a pair
+  // merged into one geometry carries each pod's offset in its vertices, and scaling it down slides
+  // both pods forward along the car and down toward the road instead of dimming them where they
+  // are. Hanging each pod at its own anchor makes the anchor the pivot. See lightPodGeometry() for
+  // the measurements, and note the taxi's are the *largest* in the game — TAXI_SCALE is on the
+  // group above these.
+  const podPair = (anchors, material) => anchors.map((anchor) => {
+    // A material each rather than one shared across the pair, matching the one-material-per-mesh
+    // habit the rest of this file and `propMaterial()` keep — and `markEmissive` (game/bloom.js)
+    // derives a bloom material per *mesh* off the live one, so a shared live material would have
+    // two meshes deriving from it.
+    const pod = new THREE.Mesh(lightPodGeometry(), material());
+    pod.position.copy(anchor);
+    return pod;
+  });
+  const brakeLights = podPair(brakeLightAnchors(CAR_LEN, CAR_W), brakeLightMaterial);
+  const turnLeftLight = podPair(turnSignalAnchors(CAR_LEN, CAR_W, -1), turnSignalMaterial);
+  const turnRightLight = podPair(turnSignalAnchors(CAR_LEN, CAR_W, 1), turnSignalMaterial);
+  const lightPods = [...brakeLights, ...turnLeftLight, ...turnRightLight];
+  for (const light of lightPods) {
     light.scale.setScalar(0);
     light.userData.pickable = 'taxi';
     group.add(light);
@@ -264,20 +281,21 @@ export function createTaxiMesh() {
    * car, taxi included, since the taxi is just another entry in the `cars` array physics runs over.
    */
   const setLights = (brakeLevel, turnLeftLevel, turnRightLevel) => {
-    brakeLights.scale.setScalar(brakeLevel);
-    turnLeftLight.scale.setScalar(turnLeftLevel);
-    turnRightLight.scale.setScalar(turnRightLevel);
+    for (const pod of brakeLights) pod.scale.setScalar(brakeLevel);
+    for (const pod of turnLeftLight) pod.scale.setScalar(turnLeftLevel);
+    for (const pod of turnRightLight) pod.scale.setScalar(turnRightLevel);
   };
 
   return {
     group,
     sign,
     /**
-     * The three light meshes, so `main.js` can put them in the bloom (`markEmissive` in
+     * The six light pods — two per lamp, see the note by their construction — so `main.js` can
+     * put them in the bloom (`markEmissive` in
      * game/bloom.js). Handed back rather than marked here for the reason the AO occluders are:
      * this module is built by tools too, and the draw list is module state.
      */
-    lights: [brakeLights, turnLeftLight, turnRightLight],
+    lights: lightPods,
     setOccupied,
     setHighlight,
     setSteer,

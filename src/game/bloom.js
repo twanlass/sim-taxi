@@ -182,10 +182,22 @@ export const BLOOM_UNIFORMS = {
 export const BLOOM_DEFAULTS = {
   // How much of the blurred spill reaches the frame. The intensities above set what glows and by
   // how much relative to everything else; this is the one master over all of them.
-  strength: 0.7,
+  //
+  // 0.25 rather than the 0.7 this opened at. Settled with the panel open on the running game, and
+  // it is a deliberate retreat: at 0.7 the pass is an effect you look at, and the thing it is for
+  // is a taxi you look *past*. What survives at 0.25 is the read — a brake pod ahead, a siren two
+  // blocks over — with the tarmac still tarmac around it.
+  strength: 0.25,
   // A multiplier on every `BLOOM_INTENSITY`, so the whole HDR range can be pushed and pulled with
   // one hand without renegotiating a brake light against a shopfront.
-  intensity: 1,
+  //
+  // 0.35, which puts a brake pod at 3.4 x 0.35 = 1.19 — down at the "faint smudge" end the note on
+  // the table describes, and under the ~2 that note calls the start of the useful range. That is
+  // the point: it is turned down *here*, as one number over the table, rather than by rewriting
+  // nine entries whose ratios (a siren over a pod, a menu board over both) are the part worth
+  // keeping. Anything judging the shape of the falloff should move this; anything judging how much
+  // of it lands in the frame should move `strength`.
+  intensity: 0.35,
   // How much each level of the blur chain contributes relative to the one below it. See
   // LEVEL_WEIGHT — low is a tight hot core, high is a wide wash that becomes a fog at 1.
   reach: LEVEL_WEIGHT,
@@ -336,8 +348,8 @@ export function refreshEmissive(mesh, master = 1) {
  * The exclusion `markEmissive`'s traversal needs, and the same shape as the rule
  * [`markOccluder`](./ssao.js) carries for its own prepass. Every vehicle part in the game wears a
  * ghost outline (`geometry/ghostoutline.js`) and may wear a Cartoon Mode hull on top of that — two
- * child meshes each, attached to the part rather than beside it. **The taxi's three light pods
- * therefore carry six children between them**, and a traversal that took them would bloom an
+ * child meshes each, attached to the part rather than beside it. **The taxi's six light pods
+ * therefore carry twelve children between them**, and a traversal that took them would bloom an
  * inflated hull of the pod and a mask that writes no colour at all: a soft rectangle floating
  * around each of the taxi's lights, three times the size they are.
  *

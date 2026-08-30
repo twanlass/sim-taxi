@@ -1155,7 +1155,7 @@ only distinction being made.
 
 Spill around every self-lit thing in the game: brake pods and indicators on every vehicle, a
 cruiser's light bar, the drive-through's lit windows and menu board, the depot's strip light. On by
-default; `?bloom=off` takes it away, and the ⚙️ panel has both of its numbers live.
+default; `?bloom=off` takes it away, and the ⚙️ panel has every one of its numbers live.
 
 ### There is no HDR in this game to threshold
 
@@ -1186,7 +1186,10 @@ the AO prepass. A mesh is in the bloom because something said so.
 That is also what makes it cheap, and the reason is a happy accident of how the lamps were already
 built: **every emissive thing in this game is already its own mesh.** The light pods have to be, so
 they can be switched by scale (`instanceColor` is paint and cannot carry an on/off — see
-[traffic.md](traffic.md)); the lamps have to be, so they can be unlit. So the pass is a dozen draw
+[traffic.md](traffic.md)) — and one pod per mesh rather than a pair, because a scale is about its
+carrier's origin and a merged pair could only shrink toward the car's centre, which is a lamp that
+*travels* as it dims rather than one that dims (`lightPodGeometry` in geometry/lights.js). The
+lamps have to be, so they can be unlit. So the pass is a dozen draw
 calls with no material surgery anywhere, and the instanced pods need no per-frame bookkeeping at
 all — a pod that is off has already had its instance matrix collapsed to a zero scale, and a
 degenerate triangle rasterises nothing whatever material it is wearing.
@@ -1227,7 +1230,7 @@ Three things it handles that a naive copy would not, each of which was a real th
   moment. The pass inherits a source's patch and runs its own after it; without that the burst
   blooms as a solid disc of fire parked on the road.
 - **Outlines hung off a lamp.** Every vehicle part wears a ghost outline — a mask and an inflated
-  rim, attached as *children* — so the taxi's three light pods carry six between them. A traversal
+  rim, attached as *children* — so the taxi's six light pods carry twelve between them. A traversal
   that took them blooms a hull three times the size of the lamp inside it. `isOutline` drops them:
   the mask by `colorWrite === false` (it has no colour to be light), the rim by name, the way
   `setGhostOutlines` already identifies them.
@@ -1303,6 +1306,17 @@ sets the shape of the falloff), **Spill** (how much of the blurred result reache
 **Reach** (how the chain's levels are weighted against each other, from a tight hot core at 0 to a
 flat fog at 1) — and then one row per kind, generated off `BLOOM_KINDS` so anything marked with a
 new kind arrives with its own slider.
+
+Where the three masters settled, tuned with the panel open on the running game rather than against a
+still: **Lamps 0.35, Spill 0.25, Reach 0.55** (`BLOOM_DEFAULTS`). The first two came a long way down
+from the 1.0 and 0.7 the pass opened at, and the direction is the point — a brake pod is written at
+3.4 x 0.35 = 1.19, which the intensity table's own note calls the faint-smudge end, below the ~2 it
+calls the start of the useful range. At the opening numbers the bloom was a thing you looked at, and
+this is a game you look *past*: what wants to survive is the read — a brake pod ahead, a siren two
+blocks over — with the tarmac still tarmac around it. Note which knob did the work: `Lamps` moves the
+whole intensity table at once and leaves its ratios (a siren over a pod, a menu board over both)
+alone, so turning the effect down never became a renegotiation of nine entries. `Reach` did not move,
+because it decides tight-against-wide and not how much, and 0.55 was already the tight end.
 
 ### Two numbers that were wrong first
 

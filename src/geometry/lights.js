@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { color } from '../palette.js';
 import { CHASSIS_LIFT } from './wheels.js';
 
@@ -15,7 +14,10 @@ import { CHASSIS_LIFT } from './wheels.js';
 // frame to frame, independently per instance — instanceColor is RGB paint and nothing else. So each
 // kind of light wears one fixed, always-emissive material, and "on"/"off" is the mesh's own scale
 // rather than a colour write — the ambient fleet collapses an instance's matrix to a precomputed
-// zero-scale one, the taxi (a single ordinary Mesh, not an instance) just scales itself.
+// zero-scale one, the taxi (ordinary Meshes, not instances) just scales them.
+//
+// Which makes **what each pod is scaled about** load-bearing rather than incidental, and is why a
+// pod's offset lives on its transform and not in its vertices. See lightPodGeometry().
 
 // Brake and turn-signal pods share one size — colour (see LIGHT_EMISSIVE and the two materials
 // below) is what tells them apart, not geometry.
@@ -36,42 +38,74 @@ export const LIGHT_PROUD = 0.03;
 export const LIGHT_EMISSIVE = 1.4;
 
 /**
- * One light pod, in car-local space. `sx` picks the front (+1) or rear (-1) bumper; `sz` picks a
- * side — `+1` is the car's own right, `-1` its left, in the same local +Z-is-right frame the wheel
- * anchors use (see `wheelAnchors` — a car built at yaw 0 drives down +X, and rightOf/leftOf on that
- * heading resolve to world +Z/-Z, which at yaw 0 *is* local Z). `d`/`h`/`w` size it, taken from the
- * caller rather than fixed here even though brake and turn-signal pods share one size today.
+ * One light pod, centred on its own origin.
+ *
+ * **Centred, and a pod's offset travels on its transform rather than in its vertices. That split is
+ * the whole of this shape and it is not a style choice.** On/off here is a *scale* (see the note
+ * above), and a scale is about the origin of whatever carries it — so a pod holding its own offset
+ * in its vertices does not dim as the level falls, it **moves**: down the body toward the car's
+ * own centre, and down toward the road, arriving at both when the lamp reaches zero.
+ *
+ * It shipped that way and it was the bloom that made it visible rather than the mesh. At play zoom
+ * a pod is a handful of pixels and its slide reads as nothing much; the spill around it is a soft
+ * blob an order of magnitude wider, and *that* was plainly detaching from the tail and crawling up
+ * the flank. Only the brake lamp shows it, because only the brake level is eased
+ * (`BRAKE_LIGHT_FALL` in sim/traffic.js, ~0.75s to dark) — a turn signal steps between 0 and 1 and
+ * is never caught in between. Measured travel from lit to dark, on the geometry below: **1.59
+ * units forward and 0.87 down on a car (1.88 / 1.03 on the taxi, which wears TAXI_SCALE), 2.69 and
+ * 0.87 on a truck** — where a truck is 5.6 long, so the lamp finished up level with the middle of
+ * the cargo box, which is exactly where it was reported.
+ *
+ * So the pair is two pods and not one merged geometry: the anchor is a *pivot*, and a pivot has to
+ * be per pod. One merged pair can only ever be scaled about a point both pods share, and the two
+ * kinds disagree about which point that is — a brake pair shares its x and y and differs across the
+ * car, a turn-signal pair shares its y and z and differs along it. Two transforms sidestep the
+ * question. sim/traffic.js indexes two instances per vehicle (the stride its steered wheels already
+ * use); geometry/taxi.js hangs two ordinary Meshes.
  */
-export function lightPod(sx, sz, len, width, d, h, w) {
-  const box = new THREE.BoxGeometry(d, h, w);
-  box.translate(
-    sx * (len / 2 + LIGHT_PROUD - d / 2),
+export function lightPodGeometry() {
+  return new THREE.BoxGeometry(LIGHT_D, LIGHT_H, LIGHT_W);
+}
+
+/**
+ * Where one pod sits, in car-local space. `sx` picks the front (+1) or rear (-1) bumper; `sz` picks
+ * a side — `+1` is the car's own right, `-1` its left, in the same local +Z-is-right frame the wheel
+ * anchors use (see `wheelAnchors` — a car built at yaw 0 drives down +X, and rightOf/leftOf on that
+ * heading resolve to world +Z/-Z, which at yaw 0 *is* local Z).
+ *
+ * The pod is `LIGHT_D`/`LIGHT_H`/`LIGHT_W` and always has been — the sizes were parameters back
+ * when this returned geometry, and every caller passed the same three constants. What genuinely
+ * varies per vehicle is `len`/`width`, i.e. the bumper this pod is pinned to.
+ */
+export function lightPodAnchor(sx, sz, len, width) {
+  return new THREE.Vector3(
+    sx * (len / 2 + LIGHT_PROUD - LIGHT_D / 2),
     LIGHT_Y,
-    sz * (width / 2 + LIGHT_PROUD - w / 2),
+    sz * (width / 2 + LIGHT_PROUD - LIGHT_W / 2),
   );
-  return box;
 }
 
-/** Both rear corners in one geometry — the two brake lights only ever switch together. */
-export function brakeLightGeometry(len, width) {
-  const parts = [
-    lightPod(-1, -1, len, width, LIGHT_D, LIGHT_H, LIGHT_W),
-    lightPod(-1, 1, len, width, LIGHT_D, LIGHT_H, LIGHT_W),
+/**
+ * How many pods one light is made of. Both kinds are a pair, and a pair is the unit that switches
+ * together — which is also the instance stride sim/traffic.js indexes its light meshes by, the way
+ * `FRONT.length` is the stride for the steered wheels.
+ */
+export const LIGHT_PODS = 2;
+
+/** Both rear corners — the two brake lights only ever switch together. */
+export function brakeLightAnchors(len, width) {
+  return [
+    lightPodAnchor(-1, -1, len, width),
+    lightPodAnchor(-1, 1, len, width),
   ];
-  const merged = mergeGeometries(parts, false);
-  parts.forEach((p) => p.dispose());
-  return merged;
 }
 
-/** The front and rear pod on one side, in one geometry — a side's pair blinks together. */
-export function turnSignalGeometry(len, width, side) {
-  const parts = [
-    lightPod(1, side, len, width, LIGHT_D, LIGHT_H, LIGHT_W),
-    lightPod(-1, side, len, width, LIGHT_D, LIGHT_H, LIGHT_W),
+/** The front and rear pod on one side — a side's pair blinks together. */
+export function turnSignalAnchors(len, width, side) {
+  return [
+    lightPodAnchor(1, side, len, width),
+    lightPodAnchor(-1, side, len, width),
   ];
-  const merged = mergeGeometries(parts, false);
-  parts.forEach((p) => p.dispose());
-  return merged;
 }
 
 /** Fresh material per mesh, matching `propMaterial()`'s (util/geo.js) own one-material-per-mesh habit. */

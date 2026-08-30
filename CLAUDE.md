@@ -330,6 +330,23 @@ Omit the whole section if there's nothing to note.
   what the fade eats, and a surface *buried inside a neighbour* has to be exempted, or every
   intersection curve between two lobes draws an arc where one is turning away while the other is
   still solid.
+- **A scale is about its carrier's origin, so "shrink it to hide it" moves anything whose offset is
+  in its vertices.** The brake and turn-signal pods are switched by scaling their level to 0
+  (`instanceColor` is paint and cannot carry an on/off), and each *pair* was one merged geometry
+  holding both pods' offsets in its own vertices. Scaling that does not dim a lamp, it flies it: the
+  pods slid toward the car's origin and down to the road as the level fell — 1.59 units forward and
+  0.87 down on a car, **2.69 forward on a truck**, which parks a brake light level with the middle
+  of the cargo box. Three things kept it hidden for so long, and each is worth its own note. A pod
+  is a handful of pixels at play zoom, so the mesh's own slide reads as nothing; it was the *bloom*
+  that showed it, the spill being an order of magnitude wider than the thing spilling, and it got
+  reported as the glow having come unstuck from the car. Only the **brake** lamp can show it at all,
+  because only the brake level is eased (`BRAKE_LIGHT_FALL`, ~0.75s) — a turn signal steps 0 to 1
+  and is never caught in between. And the taxi had it too, by the same line of reasoning in a
+  different file (`setLights` in geometry/taxi.js), because both read their geometry from
+  geometry/lights.js. The fix is that the anchor is a **pivot**: pods are centred on their own
+  origin and the offset rides the transform, one pod per mesh or instance. It has to be per pod —
+  one merged pair can only be scaled about a point both pods share, and the two kinds disagree about
+  which point that is (a brake pair differs across the car, a turn-signal pair along it).
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

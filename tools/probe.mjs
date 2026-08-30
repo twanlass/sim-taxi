@@ -2493,7 +2493,10 @@ check('no two cars occupy the same space', worst > 1.6,
     check('and leaves the brake light and indicators alone',
       // They are not body panels; they are lamps with their own state, and lifting them would read as
       // the taxi braking at the moment it accepted a package.
-      dark.filter((h) => h !== 0).length === 3
+      //
+      // Six, not three: each lamp is a *pair* of pods and each pod is its own Mesh, because on/off
+      // is a scale and a scale needs the pod's own anchor as its pivot (geometry/lights.js).
+      dark.filter((h) => h !== 0).length === 6
       && dark.filter((h) => h !== 0).every((h, n) => h === lit.filter((_, i) => dark[i] !== 0)[n]),
       `${dark.filter((h) => h !== 0).length} lamps, unchanged`);
   }
@@ -7672,17 +7675,102 @@ check('the taxi is an ordinary car in the traffic array',
     if (node.name === 'ghostRim') rims.push(node);
   });
 
-  // Seven parts: shell, roof sign, both steered wheels, and the three light pods (brake, left turn
-  // signal, right turn signal). Every opaque part of the car must be in the mask — a part left out
-  // counts as an occluder of the rim behind it, and the wheels being skipped once painted a yellow
-  // streak along the rocker panel of a fully visible car. The light pods are opaque parts too even
-  // though they are usually scaled to nothing — see geometry/taxi.js's setLights().
+  // Ten parts: shell, roof sign, both steered wheels, and six light pods — brake, left turn signal
+  // and right turn signal, each a *pair*. Every opaque part of the car must be in the mask — a part
+  // left out counts as an occluder of the rim behind it, and the wheels being skipped once painted
+  // a yellow streak along the rocker panel of a fully visible car. The light pods are opaque parts
+  // too even though they are usually scaled to nothing — see geometry/taxi.js's setLights().
   //
   // It was eight while a courier parcel rode the rear deck. The load is a chip in the HUD now
   // (game/cargochip.js) and the car carries nothing, which is one fewer silhouette to mask rather
-  // than one that stopped mattering.
-  check('taxi wears a ghost outline on every opaque part', masks.length === 7 && rims.length === 7,
+  // than one that stopped mattering. And it was seven until each lamp became two meshes: a pair
+  // merged into one geometry cannot be dimmed by a scale without walking up the car
+  // (geometry/lights.js), so the pair is two pods pivoting on their own anchors.
+  check('taxi wears a ghost outline on every opaque part', masks.length === 10 && rims.length === 10,
     `${masks.length} masks, ${rims.length} rims`);
+
+  // --- A dimming lamp must dim where it stands ---------------------------------------------------
+  //
+  // The one assertion behind the pod-per-mesh split (geometry/lights.js). On/off is a *scale*, and a
+  // scale is about the origin of whatever carries it — so the question "where is this pod?" has to
+  // come back with the same answer at every level between lit and dark. It did not: the pair used to
+  // be one merged geometry carrying both offsets in its vertices, so a fading brake lamp slid 1.59
+  // units forward and 0.87 down on a car and 2.69 forward on a truck, arriving at the car's own
+  // centre at zero. Nothing about the mesh made that visible — a pod is a handful of pixels at play
+  // zoom — but the bloom's spill around it is far wider, and it was plainly detaching from the tail
+  // and crawling up the flank of a truck.
+  //
+  // Only the brake lamp could show it, because only the brake level is eased; a turn signal steps
+  // 0 to 1 and is never caught mid-slide. So the check sweeps the level itself rather than waiting
+  // for the sim to produce an interesting one.
+  const taxi = createTaxiMesh();
+  const podAt = (level) => {
+    taxi.setLights(level, level, level);
+    taxi.group.updateMatrixWorld(true);
+    return taxi.lights.map((pod) => pod.getWorldPosition(new THREE.Vector3()));
+  };
+  const litPods = podAt(1);
+  let podDrift = 0;
+  for (const level of [0.75, 0.5, 0.25, 0.05, 0]) {
+    podAt(level).forEach((at, n) => { podDrift = Math.max(podDrift, at.distanceTo(litPods[n])); });
+  }
+  check('a dimming taxi lamp stays where it is', podDrift < 1e-9,
+    `${taxi.lights.length} pods, max drift ${podDrift.toExponential(1)} over level 1 → 0`);
+
+  // ...and the same invariant on the fleet, where the reported failure actually was: a truck, whose
+  // 5.6 length gives the slide the most room in the game. The taxi's pods are ordinary Meshes and
+  // the fleet's are instances composed through the body matrix, so they are two separate ways to get
+  // this wrong and one check cannot cover both.
+  //
+  // Asked as a *local* offset rather than by sweeping the level, because the sim owns the level
+  // here and will not be told: decompose `body⁻¹ · pod` and its translation must be the pod's own
+  // anchor, on every frame, at whatever level the easing happens to be passing through. It holds at
+  // level 0 too — a zero scale flattens the linear part and leaves the translation alone.
+  const lScene = new THREE.Scene();
+  const lTraffic = createTraffic(makeRng(seed + 44), lScene, CARS_DEFAULT);
+  lTraffic.warmup(5);
+  const bodyFor = (car) => (car.isTruck ? lTraffic.truckMesh : lTraffic.mesh);
+  const inverse = new THREE.Matrix4();
+  const podLocal = new THREE.Matrix4();
+  const bodyM = new THREE.Matrix4();
+  const podM = new THREE.Matrix4();
+  const offset = new THREE.Vector3();
+  let fleetDrift = 0;
+  let fleetPods = 0;
+  let sawPartial = false;      // the eased mid-levels are the only ones that could ever have moved
+  for (let f = 0; f < 600; f++) {
+    lTraffic.update(1 / 60);
+    for (const car of [...lTraffic.ambient, ...lTraffic.trucks]) {
+      // A wreck's pods are collapsed to ZERO_MATRIX at the world origin rather than composed
+      // through anything, so there is no local offset to ask about.
+      if (car.crashed) continue;
+      if (car.brakeLevel > 0.02 && car.brakeLevel < 0.98) sawPartial = true;
+      bodyFor(car).getMatrixAt(car.instanceIndex, bodyM);
+      inverse.copy(bodyM).invert();
+      for (const light of lTraffic.emissiveMeshes) {
+        const anchors = light.userData?.podAnchors;
+        if (!anchors || !light.isInstancedMesh) continue;
+        // Each fleet mesh serves one vehicle class; a car's index is not a truck's.
+        if (light.name.startsWith('truck') !== !!car.isTruck) continue;
+        for (let n = 0; n < anchors.length; n++) {
+          light.getMatrixAt(car.instanceIndex * anchors.length + n, podM);
+          podLocal.multiplyMatrices(inverse, podM);
+          offset.setFromMatrixPosition(podLocal);
+          fleetDrift = Math.max(fleetDrift, offset.distanceTo(anchors[n]));
+          fleetPods += 1;
+        }
+      }
+    }
+  }
+  // 1e-4 rather than an equality: `instanceMatrix` is a Float32Array, so every matrix here has been
+  // through a float32 round trip and is then *inverted* at world coordinates up to ~110 units out.
+  // That is worth about 1.3e-5 of absolute error on its own and measures 4.6e-6 over 21,600
+  // pod-frames. The bug this guards against is 2.69 units on a truck — four and a half orders of
+  // magnitude clear of the tolerance, so there is no reading of this number that is ambiguous.
+  check('a dimming lamp on the fleet stays on its own bumper',
+    fleetDrift < 1e-4 && sawPartial && fleetPods > 0,
+    `${fleetPods} pod-frames, max drift ${fleetDrift.toExponential(1)}`
+    + `, eased mid-levels seen ${sawPartial}`);
 
   const rimsHidden = rims.every((r) => r.material.depthFunc === THREE.GreaterDepth
     && r.material.depthWrite === false && r.material.side === THREE.BackSide);
