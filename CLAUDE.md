@@ -397,6 +397,19 @@ Omit the whole section if there's nothing to note.
   origin and the offset rides the transform, one pod per mesh or instance. It has to be per pod —
   one merged pair can only be scaled about a point both pods share, and the two kinds disagree about
   which point that is (a brake pair differs across the car, a turn-signal pair along it).
+- **A thin shell that both casts and receives shadows will shadow itself, and it looks like
+  z-fighting.** One shadow texel is 0.123 world units (`MAX_SPAN * 1.05` each way over a 2048 map),
+  and the depth a texel records slides by `texel × tan(incidence)` across its own width — up to
+  0.33 for a bridge soffit 70° off the light, more once PCFSoft reads a three-texel kernel. A
+  bridge deck sits `DECK_THICK` = 0.35 above that soffit, so the map cannot tell the two apart and
+  the deck goes blue in blotches down the carriageway. Every *other* caster in this city is a solid
+  box whose far wall is a long way behind the lit face, which is why `sun.shadow.bias` and
+  `normalBias` are tuned as if the problem did not exist — and why the fix is per-mesh
+  (`sinkShadowCaster` in game/scene.js) rather than another turn of those: the bias that clears the
+  deck detaches every car's shadow from its wheels by 0.82 units. Push a thin caster **along the
+  light's own rays** instead; a directional light's rays are parallel, so its silhouette on every
+  receiver is unchanged and only the recorded depth moves. Under an orthographic shadow camera that
+  direction is free — it is view-space −Z, so `mvPosition.z -=` needs no uniform.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

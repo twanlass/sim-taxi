@@ -9,6 +9,7 @@ import { KERB_H } from '../city/ground.js';
 import { createBridge, abutmentParts } from '../geometry/bridge.js';
 import { setClosedLanes, policeRoad } from '../sim/traffic.js';
 import { setBlockedLanes } from './route.js';
+import { sinkShadowCaster } from './scene.js';
 
 // The one span that lifts.
 //
@@ -130,6 +131,9 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null } = 
   const leaf = new THREE.Mesh(leafGeo, propMaterial());
   leaf.castShadow = true;
   leaf.receiveShadow = true;
+  // Same shell as a fixed span — flat rather than arched, and it self-shadowed just the same, in a
+  // band down the carriageway. See `sinkShadowCaster` (game/scene.js).
+  sinkShadowCaster(leaf);
   leaf.name = 'drawbridge-leaf';
 
   // The pivot carries the leaf; the leaf's own geometry is built with its hinge on the origin.
