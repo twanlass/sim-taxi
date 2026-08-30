@@ -155,6 +155,54 @@ try {
   check('...and the fare board opens behind it',
     await evaluate('window.__taxi.fares.state.fares.length > 0'));
 
+  // --- The tutorial's spotlight, on the rider it is telling the player to tap.
+  //
+  // Browser-only in every part: the pool is a CSS gradient on a div, aimed through the live camera,
+  // switched by a class on `body`. The node suite imports `tutorial.js` and never calls it, so the
+  // whole of this is invisible to it — which is how the light came to be *aimed* correctly at the
+  // rider, every frame, at opacity 0 for an entire release. `spotlight-on` went on in `openOnTaxi`
+  // alone, and `openOnTaxi` stopped running the day `TAXI_BEAT` was switched off.
+  //
+  // Hence the two halves below: that it is lit, and that it is lit *on the rider*. Either one on its
+  // own passes against a real failure — a pool at full opacity still parked on the taxi is the
+  // regression a `classList.contains` check would wave through.
+  let coachStep = '';
+  const riderBeat = Date.now() + 60000;
+  while (Date.now() < riderBeat) {
+    coachStep = await evaluate('window.__taxi.tutorial ? window.__taxi.tutorial.state.step : "off"');
+    if (coachStep === 'rider' || coachStep === 'done') break;
+    await sleep(250);
+  }
+  // The fade is 0.45s of wallclock and runs whether or not the sim is keeping up, so this waits it
+  // out rather than reading an opacity mid-ramp.
+  await sleep(700);
+  const spot = JSON.parse(await evaluate(`(() => {
+    const el = document.getElementById('spotlight');
+    const s = getComputedStyle(el);
+    const at = { x: parseFloat(s.getPropertyValue('--sx')), y: parseFloat(s.getPropertyValue('--sy')) };
+    const fare = window.__taxi.fares.waiting();
+    const corner = fare ? window.__taxi.cornerFor(fare.target.i, fare.target.j) : null;
+    // 1.4 up, the same height tutorial.js aims at — a rider's chest rather than the road they
+    // stand on. Reading it at ground level would put this check a few px out on every viewport.
+    const rider = corner ? window.__taxi.projectToScreen(corner.x, 1.4, corner.z) : null;
+    const car = window.__taxi.traffic.taxi;
+    const taxi = window.__taxi.projectToScreen(car.x, 1.4, car.z);
+    return JSON.stringify({
+      on: document.body.classList.contains('spotlight-on'),
+      opacity: Number(s.opacity),
+      toRider: rider ? Math.hypot(at.x - rider.x, at.y - rider.y) : -1,
+      toTaxi: Math.hypot(at.x - taxi.x, at.y - taxi.y),
+    });
+  })()`));
+  check('the tutorial dims the city for the rider beat',
+    coachStep === 'rider' && spot.on && spot.opacity > 0.9,
+    `step ${coachStep}, spotlight-on ${spot.on}, opacity ${spot.opacity.toFixed(2)}`);
+  // 8px of slack: the pool's centre is written to whole pixels, and the camera has kept gliding
+  // between the frame that wrote it and this readback.
+  check('...and points it at the rider, not at the taxi',
+    spot.toRider >= 0 && spot.toRider < 8,
+    `${spot.toRider.toFixed(0)}px off the rider, ${spot.toTaxi.toFixed(0)}px off the taxi`);
+
   // --- ...and the tap that gets out of it.
   //
   // A second page, because the two claims are mutually exclusive: the one above needs a vignette
@@ -690,7 +738,12 @@ try {
       return JSON.stringify({
         off,
         up: up.length,
-        coloured: up.every((el) => /^rgba?\(/.test(el.style.color || '')),
+        // \`\\\\(\` and not \`\\(\`: this regex is written inside a template literal, and a template
+        // literal eats one level of backslash — \`\\(\` reaches the page as a bare \`(\`, which is an
+        // unterminated group. It threw a SyntaxError on every run, which \`evaluate\` returns as
+        // undefined, so this check and **every check after it** died on \`JSON.parse(undefined)\`
+        // — with the suite's own summary the only sign that a third of it never ran.
+        coloured: up.every((el) => /^rgba?\\(/.test(el.style.color || '')),
         inFrame: up.every((el) => {
           const r = el.getBoundingClientRect();
           return r.left >= -1 && r.top >= -1 && r.right <= w + 1 && r.bottom <= h + 1;
