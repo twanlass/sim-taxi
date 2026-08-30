@@ -3083,6 +3083,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           }
 
           let chosen = null;
+          // Whether a turn was picked and then *refused*, as opposed to never being offered one.
+          // Only a refusal invalidates the approach intent — see the `!chosen` block below.
+          let vetoed = false;
 
           if (viaRightOnRed) {
             // The only legal move is the right turn. A routed car takes it if its plan agrees;
@@ -3101,12 +3104,24 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             // 40 soak runs (`node tools/soak.mjs 25 4 40`) it delivered a mean of 9.7 fares against
             // 11.1 for this rule and 10.3 for no rule at all: suppressing two thirds of the city's
             // right-on-reds queues traffic up in front of the taxi, and a lamp is not worth a fare
-            // in ten. This rule costs nothing measurable on either tool — 7.70 units/s per car on
-            // tools/signals.mjs against 7.73, and a soak mean slightly *above* no rule at all.
+            // in ten. This rule still costs nothing measurable in fares — a soak mean of 10.6
+            // against 10.3 with it off, each averaged over four 40-run sweeps (`node tools/soak.mjs
+            // 25 4 40 <firstSeed>`), and a single sweep swings by more than that on its own.
+            //
+            // It does cost throughput, and that number moved once the intent stopped being
+            // re-rolled every frame a car sat at a red (see the `!chosen` block below). It read as
+            // free — 7.70 units/s per car on tools/signals.mjs against 7.73 — because the lamp it
+            // tests was a fresh dice roll each frame, so `signalHand === 'left'` was true on 14% of
+            // *frames* rather than for 14% of *cars*, and a left-turner slipped away on its next
+            // frame instead of holding the queue for the length of the red. Honest, the rule costs
+            // 7.26 against 7.66 with it off, and cars are stationary 15% of the time rather than
+            // 10%. That is a left-turner blocking a queue, which is what left-turners do.
             //
             // What is left is a car that rolled straight taking the free right with no lamp lit at
-            // all: 80 of them in the same two minutes. That is what every car in the city did
-            // before this change, and what plenty of real ones do.
+            // all: 109 of them in the same two minutes, up from a measured 80 for the same reason —
+            // a churning lamp happened to be showing right for a quarter of those and scored as
+            // indicated. That is what every car in the city did before this change, and what
+            // plenty of real ones do.
             const turn = exitToward(net, car.lane, rightOf(car.d));
             const indicatingLeft = !car.route?.length && car.signalHand === 'left';
             if (turn && !indicatingLeft
@@ -3163,22 +3178,37 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
             // not a risk the player could read and dodge, it was the default outcome. What is
             // left is: oncoming traffic, cross traffic at a junction being run, and a car turning
             // out of the oncoming lane — all of which are in front of the player and avoidable.
-            if (car === taxi.passTarget && chosen?.hand === 'left') chosen = null;
+            if (car === taxi.passTarget && chosen?.hand === 'left') { chosen = null; vetoed = true; }
 
             // The same two tests the approach above already asked, now on the turn actually
             // chosen — a dice roll can land on an exit the "every exit blocked" form let through.
             if (!bargesThrough(car)) {
-              if (chosen?.hand === 'left' && leftYieldBlocked(car)) chosen = null;
-              if (chosen && exitLaneFull(car, net.laneById.get(chosen.outLane))) chosen = null;
+              if (chosen?.hand === 'left' && leftYieldBlocked(car)) { chosen = null; vetoed = true; }
+              if (chosen && exitLaneFull(car, net.laneById.get(chosen.outLane))) {
+                chosen = null;
+                vetoed = true;
+              }
             }
           }
 
           if (!chosen) {
             // Held at the line after all — the routed turn was never taken, so the route must not
-            // advance. It will be reconsidered next frame, intent included: a veto that stands
-            // would otherwise leave the car indicating a turn it has been refused.
+            // advance. It will be reconsidered next frame, and a *refused* turn is re-rolled with
+            // it: a veto that stands would otherwise leave the car indicating a turn it has been
+            // told it cannot have.
+            //
+            // Only a refusal, though. Dropping the intent unconditionally re-rolled it on every
+            // frame a car sat at a red — this branch runs each frame once `s` is pinned at the
+            // line, and nothing about a red light refuses any particular turn — so the lamp
+            // redecided at 60 Hz and the car flickered between left and right for the whole wait.
+            // Measured at 21.31 changes of intent per held car-second, against 0.05 for this
+            // version — the vetoes, which are a driver being told no rather than one dithering.
+            // `tools/probe.mjs` holds that as "a car held at a red does not re-decide its turn".
+            // The stale-intent cases a red light *can* hide behind it — a closure, a siren, a car
+            // fleeing the boosting taxi — are re-rolled at the line anyway, by the `intentFor`
+            // call in the green branch above, which drops the intent under each of them.
             car.routeConsumed = false;
-            car.intentLane = null;
+            if (vetoed) car.intentLane = null;
             car.s = holdS - 0.02; // hold at the line, clear of the crosswalk
             // Pinning `s` stops the car; it does not stop the *car*. Everything downstream reads
             // `v` — the wheels, the body bob, the pitch spring's nose dip, the Loco weave, which

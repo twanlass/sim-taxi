@@ -3277,9 +3277,15 @@ check('no two cars occupy the same space', worst > 1.6,
   const gTails = [];       // and how long it ran on after the car landed
   const gTurning = new Map();
   const gTail = new Map();
+  let gHeld = 0;           // car-frames spent stopped at a hold line, not mid-turn
+  let gRedecided = 0;      // ...on which the intent changed under the driver
   for (let f = 0; f < 60 * 120; f++) {
     const gBefore = new Map(gTraffic.cars.map((c) => [c, {
       state: c.state, hand: c.signalHand, t: c.signalT,
+      // A car is only "held" while stopped and not yet committed to a turn; `intent` is undefined
+      // on every other frame so the pair either side of a wait never compares across the move.
+      intent: c.v < 0.05 && c.state === 'drive' && !c.parked && !c.staged
+        ? c.intentTurn ?? '-' : undefined,
     }]));
     gTraffic.update(gDt);
     for (const car of gTraffic.cars) {
@@ -3299,6 +3305,12 @@ check('no two cars occupy the same space', worst > 1.6,
         if (was.hand === car.turn.hand) { ownLamp += 1; gLeads.push(was.t); }
         else if (was.hand !== null) wrongLamp += 1;
       }
+      const gNow = car.v < 0.05 && car.state === 'drive' && !car.parked && !car.staged
+        ? car.intentTurn ?? '-' : undefined;
+      if (gNow !== undefined) {
+        gHeld += 1;
+        if (was.intent !== undefined && was.intent !== gNow) gRedecided += 1;
+      }
       if (was.state === 'turn' && car.state === 'drive' && gTurning.has(car)) {
         gTail.set(car, { hand: gTurning.get(car), frames: 0 });
         gTurning.delete(car);
@@ -3307,13 +3319,33 @@ check('no two cars occupy the same space', worst > 1.6,
   }
   const gMedian = (a) => a.slice().sort((x, y) => x - y)[a.length >> 1];
 
-  // Two minutes of a 24-car city is ~560 turns, so these are population numbers rather than
+  // Two minutes of a 24-car city is ~530 turns, so these are population numbers rather than
   // anecdotes. The ones without a lamp are the free right at a red taken by a car whose dice had
   // rolled straight — it turns unindicated, which is what every car did before this change.
+  //
+  // `wrongLamp === 0` is the claim with teeth and it is exact. The proportion below is a floor on
+  // how much of the traffic indicates at all, and it was 0.8 while a car held at a red re-rolled
+  // its intent every frame: a straight-rolling car taking the free right showed a *randomly lit*
+  // hand ~24% of the time and scored as indicated. With the intent held for the length of the wait
+  // (see the `!chosen` block in sim/traffic.js) the same car shows nothing, which is honest and
+  // moves ~6 points of the mix from "own lamp" to "none" — 0.86/0.85/0.84/0.83 across seeds 71624/
+  // 4242/90210/31337 before, 0.80/0.82/0.79/0.76 after. The bar is set under that spread.
   check('a car turns under its own lamp or none, never the other one',
-    entered > 300 && wrongLamp === 0 && ownLamp / entered > 0.8,
+    entered > 300 && wrongLamp === 0 && ownLamp / entered > 0.7,
     `${entered} turns — ${ownLamp} under their own lamp, ${entered - ownLamp - wrongLamp} under `
     + `none, ${wrongLamp} under the wrong one`);
+
+  // A driver does not change their mind about which way they are going while sitting still at a
+  // red. The intent used to be dropped on every frame a car was held at the line — that branch runs
+  // *each* frame once `s` is pinned there, so the dice were re-rolled at 60 Hz and the indicator
+  // flickered between left and right for the whole wait: 21.31 changes per held car-second over
+  // these two minutes, which is what "the blinkers can't make up their mind" looked like. What is
+  // left is the intents a veto actually refuses, which is a driver being told no rather than one
+  // dithering: 16 changes over 17805 held car-frames, 0.05/s.
+  check('a car held at a red does not re-decide its turn',
+    gHeld > 5000 && gRedecided / gHeld * 60 < 1,
+    `${gRedecided} intent changes over ${gHeld} held car-frames `
+    + `(${(gRedecided / gHeld * 60).toFixed(2)}/s)`);
 
   // SIGNAL_LEAD / SPEED = 0.82s at cruise, and the median lands on it because most cars meet their
   // junction at cruise. The long tail is a queue: a car held at a red indicates for as long as it
