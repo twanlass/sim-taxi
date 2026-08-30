@@ -1232,13 +1232,27 @@ Three things it handles that a naive copy would not, each of which was a real th
   the mask by `colorWrite === false` (it has no colour to be light), the rim by name, the way
   `setGhostOutlines` already identifies them.
 
+And one it handles by doing nothing, which is worth knowing because it looks like it should need
+work: **a hue that lives in `instanceColor` rather than in the material.** The wreck's fireball
+leaves its material white and writes its colour ramp per puff, so "what colour is this lamp" has no
+answer in the material at all. `USE_INSTANCING_COLOR` is derived from the *mesh*, not the material,
+so the pass's own material picks the ramp up on the same `InstancedMesh` — and the white it reads
+off the source is exactly the identity that ramp multiplies. "Fixing" that is how every explosion in
+the game ends up blooming white.
+
 Where to call it from is the same split `markOccluder` has. Anything `sim/` or `city/` owns is
 marked from `main.js`, because neither may import from `game/`; anything already in `game/` marks
 itself, the way `game/roadwork.js` marks its own slab.
 
 **What is in it today:** every vehicle's brake pods and indicators, the cruiser's light bar, the
 drive-through's lit windows and menu board, the depot's strip light, the Loco plume and its kickoff
-burst, and — quietly — a fare's crystal and the disc under it.
+burst, the wreck's fireball, and — quietly — a fare's crystal and the disc under it.
+
+The fireball is the one place in this game where blowing the frame out is the *point* rather than a
+cost, so it carries the highest intensity in the table. It also demonstrates the whole of the pass
+in one object: its hue is per-instance, its alpha is a shader patch, and it is pooled — so it is
+marked once at construction and everything else follows the frame. The **shockwave ring** beside it
+is deliberately left out: it is a thin annulus, and a thin line is the first thing a blur destroys.
 
 Those last two are the ones to be careful with rather than the ones to turn up. Bloom desaturates
 toward white as it saturates, and a fare's ring is a clock whose hue *is* the answer. `crystal` and

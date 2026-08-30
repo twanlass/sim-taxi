@@ -11568,6 +11568,22 @@ let chopperOrder; // likewise
     && /unpackRGBAToDepth\(texture2D\(tBloomDepth/.test(compiled.fragmentShader),
     "the burst's per-instance alpha and the pass's depth reject, both in one fragment shader");
 
+  // --- A lamp whose hue is per *instance* rather than in its material.
+  //
+  // The wreck's fireball leaves `puffMat.color` white and writes the RAMP into `instanceColor` per
+  // puff (game/blast.js), so "what colour is this lamp" has no answer in the material at all. It
+  // needs nothing special, and this is what says so: `USE_INSTANCING_COLOR` is derived from the
+  // *mesh*, so the pass's own material picks the ramp up on the same InstancedMesh, and the white
+  // it reads off the source is the identity that ramp multiplies. Get this wrong by "fixing" it
+  // and every explosion in the game blooms white.
+  const { puffMesh: fireball } = createBlast(new THREE.Scene(), makeRng(seed + 12));
+  check("a lamp coloured per instance blooms its instance colour, not its material's",
+    fireball.userData.bloomKind === 'blast'
+    && fireball.userData.bloomMaterial.vertexColors === false
+    && fireball.material.color.getHexString() === 'ffffff',
+    `puff material is white x ${BLOOM_INTENSITY.blast}, and the ramp arrives through the mesh`);
+  mine.push(fireball);
+
   // --- Why the depth bias is not zero.
   //
   // The pass rejects a lamp the solid world stands in front of by testing against the AO prepass's
