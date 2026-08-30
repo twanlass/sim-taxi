@@ -131,8 +131,54 @@ const WALL_H = 3.4;              // eaves: the top of the street glazing
 const BAND_H = 1.0;              // the coloured mansard over it
 const HEIGHT = WALL_H + BAND_H;
 const CAP_H = 0.12;              // the parapet cap on top of that
+/**
+ * How far the mansard band oversails the walls, and how far the cap over it oversails the band.
+ *
+ * Named rather than inlined because a third thing now measures itself against both: the neon
+ * traces the band's face and has to stay under the cap's drip edge, so the gap between these two
+ * numbers is the whole depth the tube has to stand out in.
+ */
+const BAND_OUT = 0.2;
+const CAP_OUT = 0.3;
+/**
+ * The parapet cap's underside — the top of the band, and the line the neon hangs from. Exported
+ * for the same reason `ROOF_Y` is: `tools/probe.mjs` measures the tuck off it.
+ */
+export const CAP_Y = KERB_H + HEIGHT;
 /** The parapet line the pole comes out of. Exported because the probe measures the sign off it. */
-export const ROOF_Y = KERB_H + HEIGHT + CAP_H;
+export const ROOF_Y = CAP_Y + CAP_H;
+
+// --- The neon ----------------------------------------------------------------
+//
+// A tube of it tracing the roofline, tucked under the parapet cap on the band's own face. It is
+// the one piece of this building that is *only* there to be looked at from across the block, and
+// three things about it are settled by that.
+//
+// **Where it sits.** Under the cap rather than on top of it. Both read as "the roof line", and at
+// 33° above the horizon a vertical face projects at cos 33° = 0.84 of its height where a
+// horizontal one projects at sin 33° = 0.54 — so the same tube laid flat on the parapet is two
+// thirds the line it is standing on the fascia. The cap oversails the band by
+// `CAP_OUT - BAND_OUT` = 0.1, and the tube spends 0.08 of that: enough to stand off the fascia and
+// throw a shadow gap under the drip edge, with 0.02 left so its outer face is not *coplanar* with
+// the cap's, which is a z-fight rather than a flush detail.
+//
+// **How tall.** 0.2, which is a pixel and a half at play zoom (`PLAY_ZOOM` is 52 world units of
+// half-frame, so a unit is about 7.7px on a phone). That is thin, and it is the whole budget: the
+// band under it is 1.0 and a tube eating a third of that stops being a line on a red band and
+// starts being a two-tone band. What buys the read back is that the tube is *unlit* — full
+// brightness on the flank the sun has left, against a fascia that has gone to shadow.
+//
+// **Which sides.** Only +X and +Z, mitred round the corner between them. This camera never
+// rotates, so those are the only two faces of anything that are ever visible — and the two arms
+// left out are not merely facing away, they are *behind the cap*: a sightline off a tube on the
+// −X face climbs 0.92 per unit of x (`VIEW_RISE`) and so meets the cap's underside 0.17 of a unit
+// in, well inside the 0.3 it oversails by. There is nothing to see there from anywhere.
+/** The tube's own height. */
+const NEON_H = 0.2;
+/** How far below the cap's underside it hangs — the shadow gap over the tube. */
+const NEON_DROP = 0.16;
+/** ...and how far proud of the band's face it stands. Must leave `CAP_OUT - BAND_OUT` clear. */
+const NEON_OUT = 0.08;
 /**
  * The drive-through canopy: how high its soffit is over the pavement, and how far past the lane
  * centre it reaches. Neither is free, and they are the same constraint from two ends — the car
@@ -498,6 +544,35 @@ function chevron(x, z, col) {
 }
 
 /**
+ * The neon tracing the roofline, as two arms of tube mitred round one corner.
+ *
+ * The mitre is the only fiddly part, and it is fiddly for a reason worth writing down: two boxes
+ * butted end-on at an outside corner share a *coplanar pair of faces*, and one of that pair is
+ * front-facing. That is a z-fight — an eighth of a unit of it, right on the corner the camera is
+ * pointed at, which is the worst place in the building to put one.
+ *
+ * So one arm carries the corner rather than both meeting in it. The **+X** arm runs the full depth
+ * of its face and on past the +Z arm to the outside corner, and the +Z arm stops on that arm's
+ * *inner* face. The joint between them is then a butt: the +Z arm's end cap sits at the same plane
+ * as a face of the +X arm that points the other way and is culled, with 0.08 of solid tube in front
+ * of it. Nothing coincident is ever drawn twice.
+ *
+ * Both arms run out to the band's own far corners (`wall - BAND_OUT`), where their end caps face
+ * away from the camera and are culled — so the tube reads as carrying on round the back, which is
+ * exactly what the two arms that aren't here would be doing.
+ */
+function neonParts(wall, col) {
+  const y0 = CAP_Y - NEON_DROP - NEON_H;
+  const y1 = CAP_Y - NEON_DROP;
+  const inner = BAND_OUT;                 // the band's face, which the tube is fixed to...
+  const outer = BAND_OUT + NEON_OUT;      // ...and the face of the tube itself
+  return [
+    span(wall.x1 + inner, wall.x1 + outer, y0, y1, wall.z0 - BAND_OUT, wall.z1 + outer, col),
+    span(wall.x0 - BAND_OUT, wall.x1 + inner, y0, y1, wall.z1 + inner, wall.z1 + outer, col),
+  ];
+}
+
+/**
  * The burger, as its own geometry about its own origin.
  *
  * Built centred rather than in world space because it is the one part of this building that
@@ -626,8 +701,10 @@ export function createBurgerJoint(block, rng) {
     // 0.2 on every side, which is the whole read of a mansard: a lid a size too big for the box
     // under it.
     span(wall.x0, wall.x1, base, eaves, wall.z0, wall.z1, shellCol),
-    span(wall.x0 - 0.2, wall.x1 + 0.2, eaves, top, wall.z0 - 0.2, wall.z1 + 0.2, band),
-    span(wall.x0 - 0.3, wall.x1 + 0.3, top, roof, wall.z0 - 0.3, wall.z1 + 0.3, trim),
+    span(wall.x0 - BAND_OUT, wall.x1 + BAND_OUT, eaves, top,
+      wall.z0 - BAND_OUT, wall.z1 + BAND_OUT, band),
+    span(wall.x0 - CAP_OUT, wall.x1 + CAP_OUT, top, roof,
+      wall.z0 - CAP_OUT, wall.z1 + CAP_OUT, trim),
 
     // The street elevation. `+Z` is the second of the two faces this camera can ever see, and it is
     // the one somebody would walk up to — so it gets the full-height glazing a restaurant has, a
@@ -706,14 +783,21 @@ export function createBurgerJoint(block, rng) {
   shell.name = 'burger-joint';
 
   // --- What is lit ----------------------------------------------------------
-  // The room behind the pickup window, and the panel on the menu board. Both stand a hair proud of
-  // the piece of trim framing them, so each reads as a lit surface with a dark border rather than
-  // as a decal.
+  // The room behind the pickup window, the panel on the menu board, and the neon round the roof.
+  // The two panels stand a hair proud of the piece of trim framing them, so each reads as a lit
+  // surface with a dark border rather than as a decal.
+  //
+  // All three in one mesh because they are one material's worth of thing — unlit, for the reason
+  // `garageLight` is: they *are* lights, and a pale box standing in its own shadow reads as grey
+  // paint. That is not only a draw call saved. It is what keeps the joint lit in one colour after
+  // dark, and what puts the neon in `meshes` below without a third entry, so the entrance wave and
+  // the AO prepass both pick it up on the terms the rest of the building is already on.
   const glowParts = [
     span(wall.x1 + 0.02, wall.x1 + 0.04, base + 0.95, base + 2.25,
       pickupZ - 0.66, pickupZ + 0.66, color('burgerGlow')),
     span(wall.x1 + 0.28, wall.x1 + 0.30, base + 0.85, base + 2.35,
       orderZ - 0.7, orderZ + 0.7, color('burgerGlow')),
+    ...neonParts(wall, color('burgerNeon')),
   ];
   glowParts.forEach(stampAll);
   const glow = new THREE.Mesh(mergeGeometries(glowParts, false),

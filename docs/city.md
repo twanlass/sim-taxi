@@ -334,6 +334,41 @@ Vertical faces are exempt and so are down-facing ones: a wall cannot fight a flo
 down-facing surface is culled before it can fight anything — which is why the awning sitting exactly
 on top of the door is fine.
 
+### The neon on the roofline
+
+A tube of it traces the roof, tucked under the parapet cap on the mansard band's own face. It is
+part of the same unlit mesh as the pickup window and the menu panel, because it is the same kind of
+thing: a light. That is what makes it read as neon rather than as a painted stripe — it holds full
+brightness on whichever flank the sun has left, where the fascia around it has gone to shadow — and
+it is why the joint stays lit in one colour after dark.
+
+Three of its numbers are settled rather than picked.
+
+**Under the cap, not on it.** Both read as "the roof line", and this camera is 33° above the
+horizon: a vertical face projects at cos 33° = 0.84 of its height where a horizontal one projects at
+sin 33° = 0.54, so the same tube laid flat along the parapet is two thirds the line it is standing
+on the fascia. The cap oversails the band by 0.1 and the tube spends 0.08 of that — enough to stand
+off the wall under the drip edge, with 0.02 left so its outer face is not *coplanar* with the cap's,
+which is a z-fight rather than a flush detail. `tools/probe.mjs` measures that clearance off the cap
+the shell actually drew and holds it to the same 5mm the coplanar check above uses.
+
+**0.2 tall**, which is about a pixel and a half at play zoom, and that thinness is the budget rather
+than a compromise: the band under it is a whole unit, and a tube eating a third of that stops being
+a line on a red band and starts being a two-tone band. Being unlit is what buys the read back.
+
+**Two arms, not four**, mitred round the one corner that faces the camera. The other two are not
+merely facing away — they are *behind the cap*: a sightline off a tube on the −X face climbs 0.92
+per unit of x and meets the cap's underside 0.17 of a unit in, well inside the 0.3 it oversails by.
+
+The mitre is the fiddly part, and it is fiddly for a reason worth repeating: two boxes butted
+end-on at an outside corner share a coplanar pair of faces and one of that pair is front-facing,
+which puts an eighth of a unit of z-fight on the corner the camera is aimed at. So one arm carries
+the corner rather than both meeting in it — the +X arm runs the full depth of its face and on past
+the +Z arm to the outside corner, and the +Z arm stops on that arm's *inner* face, where its end cap
+is a culled face with solid tube in front of it. Both arms run out to the band's own far corners,
+where their end caps face away and are culled, so what the tube does at the two corners it cannot be
+seen turning is carry on.
+
 ### The site filter is a sightline, along a whole lane
 
 The depot's filter asks whether the camera can see one door. This one asks the same question of

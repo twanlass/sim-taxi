@@ -166,6 +166,21 @@ export const PALETTE = {
   // the depot's `garageBay` dark: the bay is a hole the taxi is the light thing inside, and this is
   // a lit room seen through a hatch. Unlit, for the reason `garageLight` is.
   burgerGlow: '#FFD79A',
+  // The neon tracing the roofline: a tube of it tucked under the parapet cap, on the two faces
+  // this camera can ever see. Unlit for the reason the two panels above it are — it is a light —
+  // which is also what makes it read as neon rather than as a painted stripe: it stays the same
+  // colour on the flank the sun has left, where every surface around it has gone to shadow.
+  //
+  // Amber rather than the band's own red, and that is contrast rather than taste. A red tube on a
+  // #C4453A band is 12° of hue and a tenth of lightness away from what it is fixed to, which at
+  // play zoom — the whole tube is about a pixel and a half tall — is no line at all. This sits 35°
+  // off the band and a fifth lighter.
+  //
+  // It has to answer "yellow is reserved for the taxi" below, and it answers it the way
+  // `garageSign` does: what that rule is protecting is the read of a *car on the road* at play
+  // zoom. This is a 0.2-unit line four and a half units up a building, and the one other warm thing
+  // on the block is the light already behind its windows.
+  burgerNeon: '#FFC24A',
 
   // The sign itself: a burger, turning on a pole above the roof. Five colours because it is built
   // as five slices and the whole gag is that they are legible as one at play zoom, where the thing
