@@ -406,6 +406,14 @@ whose dice rolled straight still takes the free right, unindicated. Gating it on
 was measured and not taken — it suppresses two thirds of the city's right-on-reds and costs a fare
 in ten over a 40-run soak (mean 9.7 against 11.1), which a lamp is not worth.
 
+The rule reads as free in fares (a soak mean of 10.6 against 10.3 with it off, each averaged over
+four 40-run sweeps, which is inside the swing of a single sweep) and is not free in throughput: 7.26 units/s per car against 7.66 with it off, with cars stationary 15% of the
+time rather than 10%. It used to read as free on both — 7.70 against 7.73 — because the intent it
+tests was being re-rolled every frame a car sat at the line, so `signalHand === 'left'` was true on
+14% of *frames* rather than for 14% of *cars* and a left-turner slipped away on its next frame
+instead of holding the queue for the length of the red. The honest cost is a left-turner blocking a
+queue, which is what left-turners do.
+
 **The taxi runs yellows** (`taxiClearsYellow`). Ambient traffic still stops on yellow — the streets
 would otherwise turn into a demolition derby — but the player's taxi treats a yellow-on-axis as
 passable whenever it can still clear the far edge of the junction before the phase changes. That is
@@ -458,9 +466,20 @@ old global-clock-plus-`car.phase` did, since no two cars reach their decision on
 Buying the lead is what moved the dice roll off the hold line (see [The one routing
 branch](#the-one-routing-branch)), and that is the part with teeth: a decision that can still be
 overruled at the line is a lamp that can end up pointing the wrong way. `tools/probe.mjs` measures
-it over two minutes of a 24-car city — ~560 real turns, of which 481 begin under the lamp for the
-hand actually taken, 80 under no lamp at all (the free right at a red, taken by a car whose dice
+it over two minutes of a 24-car city — ~530 real turns, of which 425 begin under the lamp for the
+hand actually taken, 109 under no lamp at all (the free right at a red, taken by a car whose dice
 had rolled straight) and **none** under the wrong one.
+
+**The intent has to survive the wait.** A car held at the line reaches the junction decision on
+every frame — `s` is pinned just short of the line, so the "about to arrive" test stays true for
+the whole red — and the hold used to drop `intentLane` each time it ran, which re-rolled the dice
+at 60 Hz. The lamp then flickered between left and right for as long as the car waited: 21.31
+changes of hand per held car-second, reported as cars that "can't make up their mind". Only a turn
+that was actually *refused* invalidates the intent now (a blocked left, a full exit lane, a left
+across an overtaking taxi); a red light refuses nothing in particular, so the intent stands. What
+is left is 0.05 changes per held car-second, and it is the vetoes. The conditions a stale intent
+could hide behind a red — a closure, a siren, a car fleeing the boosting taxi — are re-rolled at
+the line anyway, by the commit that reads the intent back.
 
 ### Front wheels
 

@@ -6,6 +6,7 @@ import { PITCH, LANE } from '../city/grid.js';
 import { PLAY_ZOOM } from './camera.js';
 import { setShadowTint, shadowTint } from '../util/geo.js';
 import { MIN_ELEVATION } from './daylight.js';
+import { BLOOM_INTENSITY, BLOOM_KINDS } from './bloom.js';
 
 // Screen pixels to a world unit at play zoom, for the readouts that need one. Derived rather than
 // written down as the 7.7 that appears as prose all over this project: the frustum is sized by
@@ -77,6 +78,10 @@ export function createDebugPanel({
   crayon = { state: { enabled: false }, set: () => {} },
   // Cartoon Mode's, same shape — `{ state, set }` over game/cartoon.js.
   cartoon = { state: { enabled: false }, set: () => {} },
+  // The emissive bloom's, same shape again — `{ state, set }` over game/bloom.js.
+  bloom = { state: { enabled: false }, set: () => {} },
+  // ...and the HDR comparison's, over game/hdr.js. Only one of the two is ever enabled.
+  hdr = { state: { enabled: false }, set: () => {} },
   // The scene's haze (game/scene.js). Defaulted to null for the same reason `scores` is defaulted:
   // the `npm run check` boot pass builds this panel against nothing.
   fog = null,
@@ -420,6 +425,85 @@ export function createDebugPanel({
     toonRow('Line bite', 'bite', 0, 0.9, 0.02);
     toonRow('Cel', 'cel', 0, 1, 0.05);
     toonRow('Bands', 'steps', 2, 6, 1, (v) => v.toFixed(0));
+  }
+
+  // --- Bloom ------------------------------------------------------------------
+  // Spill around the lamps (game/bloom.js). Split into the three numbers that shape the *whole*
+  // effect and then one per kind of lamp, because those are two different jobs: the first three are
+  // "what does bloom look like in this game", the rest are "how much does this particular thing
+  // deserve", and mixing them into one slider is how a brake light ends up tuned against a
+  // shopfront.
+  //
+  // The three masters are three because they answer different questions and are not
+  // interchangeable. `Lamps` is how far past 1 a light is written — it sets the *shape* of the
+  // falloff and whether a core whitens. `Spill` is how much of the blurred result reaches the
+  // frame. `Reach` is how the blur chain's levels are weighted against each other: low is a tight
+  // hot core, high is a wide soft wash, and at 1 the levels sum to a flat lift over the whole frame
+  // and the glow becomes a fog (see LEVEL_WEIGHT). Turning one up and another down is a different
+  // picture from leaving all three alone, and no still frame settles which.
+  if (bloom.state.enabled) {
+    heading('Bloom');
+    const bloomRow = (label, key, min, max, step, format = (v) => v.toFixed(2), read = null) => {
+      const initial = read ? read() : bloom.state[key];
+      const el = slider(min, max, step, initial);
+      const value = row(panel, label, el);
+      value.textContent = format(initial);
+      el.addEventListener('input', () => {
+        const next = Number(el.value);
+        bloom.set(key, next);
+        value.textContent = format(next);
+      });
+    };
+    bloomRow('Spill', 'strength', 0, 2, 0.05);
+    // Shown as what a brake pod is actually written at, since that is the lamp anyone judging this
+    // is looking at — the slider is a multiplier over every kind at once.
+    bloomRow('Lamps', 'intensity', 0, 3, 0.05,
+      (v) => `${v.toFixed(2)}x · pod ${(v * BLOOM_INTENSITY.pod).toFixed(1)}`);
+    bloomRow('Reach', 'reach', 0, 1, 0.05,
+      (v) => (v >= 0.95 ? `${v.toFixed(2)} — fog` : v.toFixed(2)));
+
+    // Then one row per kind of lamp. Generated off `BLOOM_KINDS` rather than listed here, so
+    // anything that gets marked with a new kind arrives with its own slider instead of being
+    // stuck on whatever `markEmissive` was given.
+    //
+    // The two read-outs at the bottom of the list — a fare's crystal and its disc — are the ones
+    // worth being careful with rather than the ones worth turning up: **their hue is the clock**,
+    // and bloom desaturates toward white as it saturates, so past a point they stop reporting the
+    // number the player is racing. They are in the list because that judgement is the player's to
+    // make with the game running, not because they want to be loud.
+    for (const kind of BLOOM_KINDS) {
+      const label = kind.charAt(0).toUpperCase() + kind.slice(1);
+      bloomRow(label, kind, 0, 8, 0.1, (v) => v.toFixed(1), () => BLOOM_INTENSITY[kind]);
+    }
+
+    // Not a knob: a device without a renderable half-float target still gets a bloom, out of an
+    // RGBA8 buffer that clips every lamp at 1. Worth saying, because it is the difference between
+    // a core that whitens and one that is flat, and nothing else on screen reports it.
+    row(panel, 'Buffer', document.createTextNode('')).textContent = bloom.state.hdr
+      ? 'RGBA16F' : 'RGBA8 — clipped';
+  }
+
+  // --- HDR ----------------------------------------------------------------------
+  // `?hdr`: the whole frame through a composer with tone mapping on (game/hdr.js). A comparison
+  // rather than a shipped mode, and `Exposure` is the row that makes the comparison honest — the
+  // city's palette was authored with no tone curve at all, so the first thing anyone looks for is
+  // where to put the exposure to get the colours back, and the answer is that you cannot.
+  if (hdr.state.enabled) {
+    heading('HDR');
+    const hdrRow = (label, key, min, max, step, format = (v) => v.toFixed(2)) => {
+      const el = slider(min, max, step, hdr.state[key]);
+      const value = row(panel, label, el);
+      value.textContent = format(hdr.state[key]);
+      el.addEventListener('input', () => {
+        const next = Number(el.value);
+        hdr.set(key, next);
+        value.textContent = format(next);
+      });
+    };
+    hdrRow('Exposure', 'exposure', 0.2, 2.5, 0.05);
+    hdrRow('Strength', 'strength', 0, 2, 0.05);
+    hdrRow('Radius', 'radius', 0, 1, 0.05);
+    hdrRow('Threshold', 'threshold', 0, 1.5, 0.05);
   }
 
   // --- Haze -------------------------------------------------------------------

@@ -63,6 +63,8 @@ import { createFarePointers } from './game/farepointers.js';
 import { createSirenGlow } from './game/sirenglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
+import { createBloom, markEmissive } from './game/bloom.js';
+import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
 import { setAmbientOcclusion, setCrayon, setCartoon, propMaterial } from './util/geo.js';
@@ -73,7 +75,7 @@ import { findRoute, findRouteVia, findRouteOnto, planOrigin } from './game/route
 import { createPathDrag } from './game/pathdrag.js';
 import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getAmbientOcclusion,
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
-  getDiagnostics, getParcelsPin, getCrayon, getCartoon } from './util/shot.js';
+  getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
 import { setCityOccluders } from './game/sightline.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
@@ -145,6 +147,10 @@ const budget = {
   ao: getAmbientOcclusion(),
   crayon: getCrayon(),
   cartoon: getCartoon(),
+  // The two bloom routes, and they are alternatives rather than layers — see `game/hdr.js`. `?hdr`
+  // wins where it can run at all; both are settled below, once it has had its say.
+  hdr: getHdr(),
+  bloom: getBloom(),
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -181,11 +187,40 @@ setCrayon(crayonEnabled);
 // into the same materials, so it is decided in the same breath and for the same reason.
 const cartoonEnabled = budget.cartoon;
 setCartoon(cartoonEnabled);
-// `edges` is why the pass takes two flags: the line is traced out of this depth buffer, and
-// Android's `?safe` default would otherwise have turned it off on the platform most likely to be
-// asked for a drawn look.
+// Notices raised while the passes below are being built, replayed into `game/diag.js` once it
+// exists. See `onNotice` on `createHdr`.
+const declined = [];
+
+// The comparison route first, because whether it can run at all is what decides the other one.
+// `?hdr` takes the whole frame through a composer with tone mapping on — see game/hdr.js — and
+// declines itself outright when a look mode is on or the GPU has no renderable float target.
+const hdr = createHdr(renderer, {
+  enabled: budget.hdr,
+  incompatible: [crayonEnabled && 'crayon', cartoonEnabled && 'cartoon'].filter(Boolean),
+  // Queued rather than passed straight to `diag`, which does not exist yet: this module declines
+  // the flag *during construction*, and reaching a `const` declared thirty lines further down is a
+  // temporal-dead-zone throw that takes the whole page with it.
+  onNotice: (text) => { declined.push(text); },
+});
+// Written back, not just read: the diagnostics panel reports the budget the page actually got, and
+// `?hdr&crayon` is a request that was refused rather than one that was honoured.
+budget.hdr = hdr.state.enabled;
+// **A declined `?hdr` stands the ordinary bloom back up.** The two are alternatives, so asking for
+// the composer takes this one's place — but only if the composer is actually running, or the flag
+// would leave a page with neither and no way to tell from the picture which of them was missing.
+budget.bloom = budget.bloom && !budget.hdr;
+
+// `edges` and `depth` are why the AO pass takes three flags: the crayon line is traced out of its
+// depth buffer and the bloom rejects its lamps against it, and Android's `?safe` default would
+// otherwise have turned the pass off on the platform most likely to be asked for a drawn look.
 const ao = createAmbientOcclusion(renderer, {
-  enabled: aoEnabled, edges: crayonEnabled || cartoonEnabled,
+  enabled: aoEnabled, edges: crayonEnabled || cartoonEnabled, depth: budget.bloom,
+});
+// Spill around every self-lit thing in the game — see game/bloom.js. Not a bright-pass over the
+// frame: an explicit draw list of lamps, rendered into a small half-float target of its own, so
+// the main render keeps its MSAA and the ghost outlines keep their stencil.
+const bloom = createBloom(renderer, {
+  enabled: budget.bloom, depth: ao.depth, depthSize: ao.depthSize,
 });
 const crayon = createCrayon(renderer, { enabled: crayonEnabled });
 const cartoon = createCartoon({ enabled: cartoonEnabled });
@@ -193,12 +228,17 @@ const cartoon = createCartoon({ enabled: cartoonEnabled });
 // `?diag`. A no-op without the flag; with it, the one readout that can tell a lost context from a
 // scene that submitted nothing from a scene that drew and came out black. See `game/diag.js`.
 const diag = createDiagnostics(renderer, { enabled: getDiagnostics(), flags: budget });
+declined.forEach((text) => diag.note(text));
 
 const { scene, sun, hemi, sky, fog } = createScene({ shadowMapSize: budget.shadowMapSize });
 
 // The page, over the city and under every read-out — an ordinary object in the main scene at
 // `renderOrder` 1, not a post pass. See `game/crayon.js`; null when the flag is off.
 if (crayon.overlay) scene.add(crayon.overlay);
+
+// The bloom composite, on the same terms and under it — an ordinary object in the main scene, not
+// a post pass. See `game/bloom.js`; null under `?bloom=off` and under `?hdr`.
+if (bloom.overlay) scene.add(bloom.overlay);
 
 // A GPU that takes the context away gets the budget turned down rather than the player getting a
 // black screen for the rest of the run — see `game/recovery.js` for the two steps and why the
@@ -219,7 +259,11 @@ function renderFrame() {
   // shot mode and `__taxi.redraw()` both reach a render without ever reaching the loop.
   crayon.prepare();
   ao.render(scene, camera);
-  renderer.render(scene, camera);
+  // After the AO prepass, which is what fills the depth buffer the lamps are rejected against.
+  bloom.render(scene, camera);
+  // `?hdr` takes the whole frame through a composer instead; a no-op without the flag, and it
+  // returns false so the ordinary path below still runs.
+  if (!hdr.render(scene, camera)) renderer.render(scene, camera);
 }
 
 // Weather, ringing the island — see game/clouds.js. Scenery on the same terms as the aeroplane and
@@ -411,6 +455,24 @@ markOccluder(traffic.truckWheelMesh);
 markOccluder(traffic.truckBoxMesh);
 markOccluder(traffic.taxiGroup);
 markOccluder(police.group);
+
+// --- What glows ---------------------------------------------------------------------------
+// The bloom's draw list, marked here for the reason the AO occluders are: `sim/` may not import
+// from `game/`, so the two vehicle modules hand their light meshes back instead. This is the whole
+// selector — there is no luminance threshold anywhere in the pass, deliberately, because at golden
+// hour a fare's timer ring is exactly as bright as a brake light and only one of them is a lamp.
+// See `game/bloom.js`.
+//
+// The intensity is per *kind* rather than per mesh, and it is per kind because spill is a total
+// rather than a peak: a four-pixel pod and a menu board forty times its area do not want the same
+// number. See BLOOM_INTENSITY.
+for (const mesh of traffic.emissiveMeshes) markEmissive(mesh, 'pod');
+for (const mesh of police.emissiveMeshes) markEmissive(mesh, 'siren');
+// One mesh, three lit things: the pickup window, the menu board and the neon round the roofline
+// are merged into `burger.glow` (see city/burgerjoint.js), so the neon arrived in the bloom with
+// nothing to wire.
+if (burger) markEmissive(burger.glow, 'window');
+if (garage) markEmissive(garage.light, 'bay');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
@@ -3260,6 +3322,8 @@ if (!shot && wantsDebugPanel) {
     ao,
     crayon,
     cartoon,
+    bloom,
+    hdr,
     scores: { load: loadScores, clear: clearScores },
     clouds,
     // The entrance levers. The panel's replay re-aims the wave at wherever the taxi is *now* —
@@ -3294,6 +3358,13 @@ window.__taxi = {
    */
   crayon,
   cartoon,
+  /**
+   * The two bloom routes — `{ state, set }` each, the same handles the ⚙️ panel drives, plus
+   * `target()` on the emissive one so a browser test can look at what the lamps actually wrote.
+   * Only ever one of them is enabled; the other is an inert stub. See game/bloom.js, game/hdr.js.
+   */
+  bloom,
+  hdr,
   tutorial,
   carGhosts,
   skids,

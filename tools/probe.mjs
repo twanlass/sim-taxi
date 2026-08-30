@@ -60,6 +60,11 @@ import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../src/ge
 import { createLocoFlame } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
+import {
+  markEmissive, unmarkEmissive, emissiveList, BLOOM_LAYER, BLOOM_ORDER, BLOOM_INTENSITY,
+  BLOOM_UNIFORMS, BLOOM_KINDS, refreshEmissive as bloomRefreshFor,
+} from '../src/game/bloom.js';
+import { LIGHT_EMISSIVE } from '../src/geometry/lights.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
 import { createPicker } from '../src/game/pick.js';
 import { setCityOccluders, sightlineClear } from '../src/game/sightline.js';
@@ -96,7 +101,7 @@ import {
   AO_LAYER, markOccluder, unmarkOccluder, occluderList, RING_BROAD, RING_TIGHT, MAX_DEPTH_DIFF,
   EDGE_LOW, EDGE_HIGH,
 } from '../src/game/ssao.js';
-import { bakePaper, PAPER_SIZE, CRAYON_DEFAULTS } from '../src/game/crayon.js';
+import { bakePaper, PAPER_SIZE, PAPER_ORDER, CRAYON_DEFAULTS } from '../src/game/crayon.js';
 import {
   outlineRoot, instancedOutline, createCartoon, clampRim, outlineGeometry,
   toonOutlineMaterial, HERO_RIM, TAXI_RIM,
@@ -2336,6 +2341,24 @@ check('no two cars occupy the same space', worst > 1.6,
   const parcel = parcels.state.parcels[0];
 
   if (rider && parcel) {
+    // **Give the rider a clock this staged scenario can actually be driven inside.**
+    //
+    // What follows is not a trip any fare is budgeted for: the taxi is sent to a rider, then
+    // diverted clear across the city to whichever junction the package happened to spawn on, then
+    // to the pad. Measured on this seed the diversion alone spends 35 of the rider's 35.8 seconds,
+    // and it got longer twice over — the map grew a block row and a river to go round, and ambient
+    // traffic got slower when a held car stopped re-deciding its turn. The rider timing out
+    // mid-test is *correct game behaviour* and useless as a test of the courier path; it is the
+    // same reasoning that already pauses the clocks for the delivery leg further down.
+    //
+    // Sized so it can never be the binding constraint rather than tuned until it passed: the loops
+    // below give up after 240 seconds each, so a clock longer than that fails on the loop's own
+    // guard — which is the failure you want, because it says "never got there" rather than "ran out
+    // of a budget the scenario was not testing". `limit` moves with it or `urgencyOf` reads over 1.
+    rider.limit = 300;
+    rider.timeLeft = rider.limit;
+    // Captured *after* the top-up, so "the detour does not touch the rider's clock" below still
+    // compares like with like and still requires the clock to have run down during the pickup.
     const clockBefore = rider.timeLeft;
     const targetBefore = rider.target;
     // The player's bend of the route band, as a route through the package's junction.
@@ -2525,7 +2548,10 @@ check('no two cars occupy the same space', worst > 1.6,
     check('and leaves the brake light and indicators alone',
       // They are not body panels; they are lamps with their own state, and lifting them would read as
       // the taxi braking at the moment it accepted a package.
-      dark.filter((h) => h !== 0).length === 3
+      //
+      // Six, not three: each lamp is a *pair* of pods and each pod is its own Mesh, because on/off
+      // is a scale and a scale needs the pod's own anchor as its pivot (geometry/lights.js).
+      dark.filter((h) => h !== 0).length === 6
       && dark.filter((h) => h !== 0).every((h, n) => h === lit.filter((_, i) => dark[i] !== 0)[n]),
       `${dark.filter((h) => h !== 0).length} lamps, unchanged`);
   }
@@ -3314,9 +3340,15 @@ check('no two cars occupy the same space', worst > 1.6,
   const gTails = [];       // and how long it ran on after the car landed
   const gTurning = new Map();
   const gTail = new Map();
+  let gHeld = 0;           // car-frames spent stopped at a hold line, not mid-turn
+  let gRedecided = 0;      // ...on which the intent changed under the driver
   for (let f = 0; f < 60 * 120; f++) {
     const gBefore = new Map(gTraffic.cars.map((c) => [c, {
       state: c.state, hand: c.signalHand, t: c.signalT,
+      // A car is only "held" while stopped and not yet committed to a turn; `intent` is undefined
+      // on every other frame so the pair either side of a wait never compares across the move.
+      intent: c.v < 0.05 && c.state === 'drive' && !c.parked && !c.staged
+        ? c.intentTurn ?? '-' : undefined,
     }]));
     gTraffic.update(gDt);
     for (const car of gTraffic.cars) {
@@ -3336,6 +3368,12 @@ check('no two cars occupy the same space', worst > 1.6,
         if (was.hand === car.turn.hand) { ownLamp += 1; gLeads.push(was.t); }
         else if (was.hand !== null) wrongLamp += 1;
       }
+      const gNow = car.v < 0.05 && car.state === 'drive' && !car.parked && !car.staged
+        ? car.intentTurn ?? '-' : undefined;
+      if (gNow !== undefined) {
+        gHeld += 1;
+        if (was.intent !== undefined && was.intent !== gNow) gRedecided += 1;
+      }
       if (was.state === 'turn' && car.state === 'drive' && gTurning.has(car)) {
         gTail.set(car, { hand: gTurning.get(car), frames: 0 });
         gTurning.delete(car);
@@ -3344,13 +3382,33 @@ check('no two cars occupy the same space', worst > 1.6,
   }
   const gMedian = (a) => a.slice().sort((x, y) => x - y)[a.length >> 1];
 
-  // Two minutes of a 24-car city is ~560 turns, so these are population numbers rather than
+  // Two minutes of a 24-car city is ~530 turns, so these are population numbers rather than
   // anecdotes. The ones without a lamp are the free right at a red taken by a car whose dice had
   // rolled straight — it turns unindicated, which is what every car did before this change.
+  //
+  // `wrongLamp === 0` is the claim with teeth and it is exact. The proportion below is a floor on
+  // how much of the traffic indicates at all, and it was 0.8 while a car held at a red re-rolled
+  // its intent every frame: a straight-rolling car taking the free right showed a *randomly lit*
+  // hand ~24% of the time and scored as indicated. With the intent held for the length of the wait
+  // (see the `!chosen` block in sim/traffic.js) the same car shows nothing, which is honest and
+  // moves ~6 points of the mix from "own lamp" to "none" — 0.86/0.85/0.84/0.83 across seeds 71624/
+  // 4242/90210/31337 before, 0.80/0.82/0.79/0.76 after. The bar is set under that spread.
   check('a car turns under its own lamp or none, never the other one',
-    entered > 300 && wrongLamp === 0 && ownLamp / entered > 0.8,
+    entered > 300 && wrongLamp === 0 && ownLamp / entered > 0.7,
     `${entered} turns — ${ownLamp} under their own lamp, ${entered - ownLamp - wrongLamp} under `
     + `none, ${wrongLamp} under the wrong one`);
+
+  // A driver does not change their mind about which way they are going while sitting still at a
+  // red. The intent used to be dropped on every frame a car was held at the line — that branch runs
+  // *each* frame once `s` is pinned there, so the dice were re-rolled at 60 Hz and the indicator
+  // flickered between left and right for the whole wait: 21.31 changes per held car-second over
+  // these two minutes, which is what "the blinkers can't make up their mind" looked like. What is
+  // left is the intents a veto actually refuses, which is a driver being told no rather than one
+  // dithering: 16 changes over 17805 held car-frames, 0.05/s.
+  check('a car held at a red does not re-decide its turn',
+    gHeld > 5000 && gRedecided / gHeld * 60 < 1,
+    `${gRedecided} intent changes over ${gHeld} held car-frames `
+    + `(${(gRedecided / gHeld * 60).toFixed(2)}/s)`);
 
   // SIGNAL_LEAD / SPEED = 0.82s at cruise, and the median lands on it because most cars meet their
   // junction at cruise. The long tail is a queue: a car held at a red indicates for as long as it
@@ -4974,6 +5032,13 @@ check('the taxi is an ordinary car in the traffic array',
   cTaxi.x = target.x;
   cTaxi.z = target.z;
   cTaxi.boost = true;
+  // **And make sure it is actually moving.** The impact fires on the very first frame, so the taxi
+  // arrives at it carrying whatever speed the warm-up happened to leave it with — and if that was a
+  // red light, it is zero, `impact.speed` is zero, and the two checks below assert nothing while
+  // still reading like they passed. It became reachable when a held car stopped re-deciding its
+  // turn and cars started spending 15% of the time stationary rather than 10%. The scenario is
+  // already teleporting the car onto its victim; this is the same staging, one line further.
+  cTaxi.v = Math.max(cTaxi.v, SPEED);
 
   for (let step = 0; step < 90; step++) {
     collisions.update();
@@ -7728,17 +7793,102 @@ check('the taxi is an ordinary car in the traffic array',
     if (node.name === 'ghostRim') rims.push(node);
   });
 
-  // Seven parts: shell, roof sign, both steered wheels, and the three light pods (brake, left turn
-  // signal, right turn signal). Every opaque part of the car must be in the mask — a part left out
-  // counts as an occluder of the rim behind it, and the wheels being skipped once painted a yellow
-  // streak along the rocker panel of a fully visible car. The light pods are opaque parts too even
-  // though they are usually scaled to nothing — see geometry/taxi.js's setLights().
+  // Ten parts: shell, roof sign, both steered wheels, and six light pods — brake, left turn signal
+  // and right turn signal, each a *pair*. Every opaque part of the car must be in the mask — a part
+  // left out counts as an occluder of the rim behind it, and the wheels being skipped once painted
+  // a yellow streak along the rocker panel of a fully visible car. The light pods are opaque parts
+  // too even though they are usually scaled to nothing — see geometry/taxi.js's setLights().
   //
   // It was eight while a courier parcel rode the rear deck. The load is a chip in the HUD now
   // (game/cargochip.js) and the car carries nothing, which is one fewer silhouette to mask rather
-  // than one that stopped mattering.
-  check('taxi wears a ghost outline on every opaque part', masks.length === 7 && rims.length === 7,
+  // than one that stopped mattering. And it was seven until each lamp became two meshes: a pair
+  // merged into one geometry cannot be dimmed by a scale without walking up the car
+  // (geometry/lights.js), so the pair is two pods pivoting on their own anchors.
+  check('taxi wears a ghost outline on every opaque part', masks.length === 10 && rims.length === 10,
     `${masks.length} masks, ${rims.length} rims`);
+
+  // --- A dimming lamp must dim where it stands ---------------------------------------------------
+  //
+  // The one assertion behind the pod-per-mesh split (geometry/lights.js). On/off is a *scale*, and a
+  // scale is about the origin of whatever carries it — so the question "where is this pod?" has to
+  // come back with the same answer at every level between lit and dark. It did not: the pair used to
+  // be one merged geometry carrying both offsets in its vertices, so a fading brake lamp slid 1.59
+  // units forward and 0.87 down on a car and 2.69 forward on a truck, arriving at the car's own
+  // centre at zero. Nothing about the mesh made that visible — a pod is a handful of pixels at play
+  // zoom — but the bloom's spill around it is far wider, and it was plainly detaching from the tail
+  // and crawling up the flank of a truck.
+  //
+  // Only the brake lamp could show it, because only the brake level is eased; a turn signal steps
+  // 0 to 1 and is never caught mid-slide. So the check sweeps the level itself rather than waiting
+  // for the sim to produce an interesting one.
+  const taxi = createTaxiMesh();
+  const podAt = (level) => {
+    taxi.setLights(level, level, level);
+    taxi.group.updateMatrixWorld(true);
+    return taxi.lights.map((pod) => pod.getWorldPosition(new THREE.Vector3()));
+  };
+  const litPods = podAt(1);
+  let podDrift = 0;
+  for (const level of [0.75, 0.5, 0.25, 0.05, 0]) {
+    podAt(level).forEach((at, n) => { podDrift = Math.max(podDrift, at.distanceTo(litPods[n])); });
+  }
+  check('a dimming taxi lamp stays where it is', podDrift < 1e-9,
+    `${taxi.lights.length} pods, max drift ${podDrift.toExponential(1)} over level 1 → 0`);
+
+  // ...and the same invariant on the fleet, where the reported failure actually was: a truck, whose
+  // 5.6 length gives the slide the most room in the game. The taxi's pods are ordinary Meshes and
+  // the fleet's are instances composed through the body matrix, so they are two separate ways to get
+  // this wrong and one check cannot cover both.
+  //
+  // Asked as a *local* offset rather than by sweeping the level, because the sim owns the level
+  // here and will not be told: decompose `body⁻¹ · pod` and its translation must be the pod's own
+  // anchor, on every frame, at whatever level the easing happens to be passing through. It holds at
+  // level 0 too — a zero scale flattens the linear part and leaves the translation alone.
+  const lScene = new THREE.Scene();
+  const lTraffic = createTraffic(makeRng(seed + 44), lScene, CARS_DEFAULT);
+  lTraffic.warmup(5);
+  const bodyFor = (car) => (car.isTruck ? lTraffic.truckMesh : lTraffic.mesh);
+  const inverse = new THREE.Matrix4();
+  const podLocal = new THREE.Matrix4();
+  const bodyM = new THREE.Matrix4();
+  const podM = new THREE.Matrix4();
+  const offset = new THREE.Vector3();
+  let fleetDrift = 0;
+  let fleetPods = 0;
+  let sawPartial = false;      // the eased mid-levels are the only ones that could ever have moved
+  for (let f = 0; f < 600; f++) {
+    lTraffic.update(1 / 60);
+    for (const car of [...lTraffic.ambient, ...lTraffic.trucks]) {
+      // A wreck's pods are collapsed to ZERO_MATRIX at the world origin rather than composed
+      // through anything, so there is no local offset to ask about.
+      if (car.crashed) continue;
+      if (car.brakeLevel > 0.02 && car.brakeLevel < 0.98) sawPartial = true;
+      bodyFor(car).getMatrixAt(car.instanceIndex, bodyM);
+      inverse.copy(bodyM).invert();
+      for (const light of lTraffic.emissiveMeshes) {
+        const anchors = light.userData?.podAnchors;
+        if (!anchors || !light.isInstancedMesh) continue;
+        // Each fleet mesh serves one vehicle class; a car's index is not a truck's.
+        if (light.name.startsWith('truck') !== !!car.isTruck) continue;
+        for (let n = 0; n < anchors.length; n++) {
+          light.getMatrixAt(car.instanceIndex * anchors.length + n, podM);
+          podLocal.multiplyMatrices(inverse, podM);
+          offset.setFromMatrixPosition(podLocal);
+          fleetDrift = Math.max(fleetDrift, offset.distanceTo(anchors[n]));
+          fleetPods += 1;
+        }
+      }
+    }
+  }
+  // 1e-4 rather than an equality: `instanceMatrix` is a Float32Array, so every matrix here has been
+  // through a float32 round trip and is then *inverted* at world coordinates up to ~110 units out.
+  // That is worth about 1.3e-5 of absolute error on its own and measures 4.6e-6 over 21,600
+  // pod-frames. The bug this guards against is 2.69 units on a truck — four and a half orders of
+  // magnitude clear of the tolerance, so there is no reading of this number that is ambiguous.
+  check('a dimming lamp on the fleet stays on its own bumper',
+    fleetDrift < 1e-4 && sawPartial && fleetPods > 0,
+    `${fleetPods} pod-frames, max drift ${fleetDrift.toExponential(1)}`
+    + `, eased mid-levels seen ${sawPartial}`);
 
   const rimsHidden = rims.every((r) => r.material.depthFunc === THREE.GreaterDepth
     && r.material.depthWrite === false && r.material.side === THREE.BackSide);
@@ -8143,11 +8293,11 @@ check('the taxi is an ordinary car in the traffic array',
   // is skid marks 2, dust 3, the route band 4, the drag handle 5, flames 6, the fare rings 7-9 —
   // so a page drawn above any of those is a tint over a clock, and a fare's hue is the time it has
   // left.
-  const crayonSource = fs.readFileSync(new URL('../src/game/crayon.js', import.meta.url), 'utf8');
-  const order = Number(crayonSource.match(/const PAPER_ORDER = (\d+)/)?.[1]);
   check('the paper draws under every game read-out',
-    Number.isFinite(order) && order < 2,
-    `renderOrder ${order}, below skid marks at 2`);
+    PAPER_ORDER < 2,
+    `renderOrder ${PAPER_ORDER}, below skid marks at 2`);
+
+  const crayonSource = fs.readFileSync(new URL('../src/game/crayon.js', import.meta.url), 'utf8');
 
   // Screen-space, and sized in CSS pixels rather than device ones. `gl_FragCoord` is in device
   // pixels, so a tooth stated in texels halves on a DPR-2 phone and stops reading at all — the
@@ -11569,6 +11719,219 @@ let chopperOrder; // likewise
   // `setCityOccluders` is the same shape of module state one layer up. Put both back.
   createLayout(makeRng(seed));
   setCityOccluders(buildings.mesh, props);
+}
+
+// --- The emissive bloom --------------------------------------------------------
+//
+// `game/bloom.js`. Four things about it fail silently and none shows in a screenshot as itself:
+//
+//   1. **What is in the draw list.** The whole argument for this pass over a bright-pass is that
+//      selection is explicit, so what it selects is the thing to assert. At golden hour a fare's
+//      timer ring is measured at exactly the same luminance as a brake light.
+//   2. **The material each lamp is drawn with.** There are two kinds of self-lit thing here and the
+//      pass reproduces both off the mesh it is handed; get either wrong and a lamp blooms in the
+//      wrong colour, or at 1.0 with no headroom, which reads as "the bloom is weak".
+//   3. **That it tracks a material which *moves*.** The plume animates its opacity and a fare's
+//      crystal is repainted as its clock runs down. A copy taken at mark time is right on the
+//      frame it was made and wrong for the rest of the run.
+//   4. **The depth bias**, which exists because some lamps are AO occluders and would otherwise
+//      fail their own occlusion test — a fact about two draw lists that nothing local says.
+{
+  const blScene = new THREE.Scene();
+  // Scoped as a delta rather than an absolute count: the list is module state and several `game/`
+  // modules now mark themselves at construction, so a process that builds a dozen cities (this
+  // one) has a dozen cities' worth of lamps in it. Which is fine — the pass is off here — but it
+  // means "how many" is only a question about what *this* block just added.
+  const before = emissiveList().size;
+  const blTraffic = createTraffic(makeRng(seed + 44), blScene, 8);
+  const blPolice = createPolice(makeRng(seed + 66), blScene, blTraffic.cars);
+
+  const mine = [];
+  const mark = (mesh, kind) => { markEmissive(mesh, kind); mine.push(mesh); };
+  blTraffic.emissiveMeshes.forEach((m) => mark(m, 'pod'));
+  blPolice.emissiveMeshes.forEach((m) => mark(m, 'siren'));
+
+  check('every vehicle lamp in the game is in the bloom, and nothing else',
+    emissiveList().size - before === mine.length,
+    `${emissiveList().size - before} added for ${mine.length} marked: six instanced pod meshes, the taxi's three, and both halves of the bar`);
+  // The half of that a count alone would miss. Every vehicle part in this game wears a ghost
+  // outline — a mask and an inflated rim, attached *as children* — so the taxi's three light pods
+  // carry six of them, and a traversal that took them would bloom a hull three times the size of
+  // the lamp inside it. See `isOutline`.
+  const outlines = [];
+  blTraffic.taxiGroup.traverse((o) => {
+    if (o.isMesh && (o.name === 'ghostMask' || o.name === 'ghostRim')) outlines.push(o);
+  });
+  check('...and an outline hung off a lamp is not itself a lamp',
+    outlines.length > 0 && outlines.every((o) => !emissiveList().has(o)),
+    `${outlines.length} ghost mask/rim meshes on the taxi, none of them in the bloom`);
+  check('the bloom layer is its own',
+    BLOOM_LAYER !== AO_LAYER && BLOOM_LAYER !== 0,
+    `${BLOOM_LAYER} against the AO prepass's ${AO_LAYER}`);
+  check('the composite draws under the crayon page',
+    BLOOM_ORDER < PAPER_ORDER,
+    `${BLOOM_ORDER} against ${PAPER_ORDER} — spill is part of the picture, so the page washes over it`);
+
+  // --- The two kinds of lamp, each read off its own mesh.
+  //
+  // A pod is a Lambert whose *emissive* is the light (`emissive * emissiveIntensity`); a bar lamp
+  // is an unlit basic material whose *colour* is. Reading the wrong field off either gives a lamp
+  // that blooms black or blooms its paint.
+  const podMesh = blTraffic.emissiveMeshes[0];
+  const podBloom = podMesh.userData.bloomMaterial;
+  const podWant = podMesh.material.emissive.clone()
+    .multiplyScalar(podMesh.material.emissiveIntensity * BLOOM_INTENSITY.pod);
+  check("a pod's bloom colour is its emissive, not its albedo",
+    podBloom.color.getHexString() === podWant.getHexString(),
+    `${podBloom.color.getHexString()} at ${LIGHT_EMISSIVE} x ${BLOOM_INTENSITY.pod}`);
+
+  const barMesh = blPolice.emissiveMeshes[0];
+  const barWant = barMesh.material.color.clone().multiplyScalar(BLOOM_INTENSITY.siren);
+  check("a bar lamp's is its colour, which is what an unlit material means by light",
+    barMesh.userData.bloomMaterial.color.getHexString() === barWant.getHexString());
+
+  // The headroom itself: past 1 in at least one channel is the entire difference between a bloom
+  // with a shape and a blur of clipped pixels. `THREE.Color` does not clamp and `diffuse` is a
+  // plain vec3, so this survives all the way to the half-float target.
+  const hottest = Math.max(podBloom.color.r, podBloom.color.g, podBloom.color.b);
+  check('a lamp is written past 1, which is the whole of the HDR here',
+    hottest > 1.5, `brightest pod channel ${hottest.toFixed(2)}`);
+
+  check('every bloom material is unfogged and keyed',
+    mine.every((m) => m.userData.bloomMaterial.fog === false
+      && /^bloom-emissive-\d+$/.test(m.userData.bloomMaterial.customProgramCacheKey?.() ?? '')),
+    'a lamp mixed toward the sky is not a lamp; an unkeyed patch draws with another material\'s shader');
+  // Keyed *uniquely*, not to one constant for the whole pass: a material that inherits a source's
+  // own `onBeforeCompile` (the Loco burst's per-instance alpha) compiles to different source while
+  // sharing every parameter three hashes, so one shared key would hand it another lamp's program.
+  const keys = new Set(mine.map((m) => m.userData.bloomMaterial.customProgramCacheKey()));
+  check('...and no two of them share a key', keys.size === mine.length,
+    `${keys.size} keys for ${mine.length} materials`);
+
+  // --- It follows a material that moves.
+  //
+  // The one that a mark-time copy gets wrong, and the reason `refreshEmissive` runs per frame: the
+  // plume fades its opacity every frame and a fare's crystal is repainted as the clock runs down,
+  // so a snapshot blooms a flame that is out and an urgency from a minute ago.
+  const drift = createTargetRing(PALETTE.urgency[4]);
+  markEmissive(drift.group, 'ring');
+  mine.push(...drift.group.children.filter((c) => c.isMesh));
+  const rim = drift.group.children.find((c) => c.isMesh);
+  const beforeHue = rim.userData.bloomMaterial.color.getHexString();
+  drift.setColor(PALETTE.urgency[0]);
+  rim.material.opacity = 0.25;
+  bloomRefreshFor(rim);
+  check('a repainted mark blooms its new colour, not the one it was built with',
+    rim.userData.bloomMaterial.color.getHexString() !== beforeHue,
+    `${beforeHue} -> ${rim.userData.bloomMaterial.color.getHexString()} across an urgency step`);
+  check('...and a fading one fades out of the bloom with it',
+    Math.abs(rim.userData.bloomMaterial.opacity - 0.25) < 1e-6,
+    `opacity ${rim.userData.bloomMaterial.opacity}`);
+
+  // --- An effect that has a shader of its own still blooms as the shape it draws.
+  //
+  // The Loco kickoff burst multiplies a per-instance `aAlpha` into its alpha in a patch of its own
+  // (game/flames.js), and the pool is MAX_FLAMES particles of which nearly all are dead at any
+  // moment. Drop the patch and every one of them blooms at full strength — a solid disc of fire
+  // parked on the road. So `markEmissive` inherits a source's `onBeforeCompile` and runs its own
+  // after it; this checks both bodies survive into one shader, since a `.replace` that silently
+  // found nothing is exactly how this fails.
+  const patched = unlitMaterial({ color: '#FF8A2A', transparent: true });
+  patched.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vAlpha;')
+      .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
+  };
+  const patchedMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), patched);
+  markEmissive(patchedMesh, 'flame');
+  mine.push(patchedMesh);
+  const compiled = { fragmentShader: THREE.ShaderLib.basic.fragmentShader, uniforms: {} };
+  patchedMesh.userData.bloomMaterial.onBeforeCompile(compiled, null);
+  check("a lamp with a shader of its own keeps it in the bloom",
+    /varying float vAlpha/.test(compiled.fragmentShader)
+    && /gl_FragColor\.a \*= vAlpha/.test(compiled.fragmentShader)
+    && /bloomUnpackDepth\(texture2D\(tBloomDepth/.test(compiled.fragmentShader),
+    "the burst's per-instance alpha and the pass's depth reject, both in one fragment shader");
+
+  // --- A lamp whose hue is per *instance* rather than in its material.
+  //
+  // The wreck's fireball leaves `puffMat.color` white and writes the RAMP into `instanceColor` per
+  // puff (game/blast.js), so "what colour is this lamp" has no answer in the material at all. It
+  // needs nothing special, and this is what says so: `USE_INSTANCING_COLOR` is derived from the
+  // *mesh*, so the pass's own material picks the ramp up on the same InstancedMesh, and the white
+  // it reads off the source is the identity that ramp multiplies. Get this wrong by "fixing" it
+  // and every explosion in the game blooms white.
+  const { puffMesh: fireball } = createBlast(new THREE.Scene(), makeRng(seed + 12));
+  check("a lamp coloured per instance blooms its instance colour, not its material's",
+    fireball.userData.bloomKind === 'blast'
+    && fireball.userData.bloomMaterial.vertexColors === false
+    && fireball.material.color.getHexString() === 'ffffff',
+    `puff material is white x ${BLOOM_INTENSITY.blast}, and the ramp arrives through the mesh`);
+  mine.push(fireball);
+
+  // --- Every emitter is keyed on a kind the table actually has.
+  //
+  // The check that would have caught four of the nine being keyed on a *number* — `markEmissive`
+  // used to take an intensity and was changed to take a key, and `main.js` went on passing
+  // `BLOOM_INTENSITY.pod`. The lookup fell to its `?? 1` and every vehicle lamp, the cruiser's bar,
+  // the drive-through and the depot bloomed at 1 rather than at 3.4, 4.2, 1.15 and 1.6. Nothing
+  // said so: the picture was still a bloom, and the probe still passed, **because the probe called
+  // the API correctly and the caller did not**. `markEmissive` throws on an unknown kind now; this
+  // asserts the draw list agrees, which is the half a throw at the call site cannot cover.
+  const strayKinds = [...emissiveList()]
+    .map((m) => m.userData.bloomKind)
+    .filter((k) => !(k in BLOOM_INTENSITY));
+  check('every emitter in the draw list is keyed on a real kind',
+    strayKinds.length === 0,
+    strayKinds.length ? `keyed on ${[...new Set(strayKinds)].map((k) => JSON.stringify(k)).join(', ')}`
+      : `${emissiveList().size} emitters, all in ${BLOOM_KINDS.join('/')}`);
+  check('...and an unknown kind is refused rather than defaulted',
+    (() => {
+      try { markEmissive(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), unlitMaterial({})), 3.4); }
+      catch { return true; }
+      return false;
+    })(),
+    'a silent fallback is how the last one hid');
+
+  // --- An emitter dialled to zero is switched off, not skipped.
+  //
+  // The pass is gated by a **layer**, so a marked mesh is drawn whether or not anything swapped its
+  // material — and skipping the swap does not skip the draw, it draws the mesh's *own* material
+  // into the emissive target at full strength with none of the depth reject. Shipped once: the
+  // route band at `path: 0` came out brighter than it had been at 0.6 and glowing over the building
+  // in front of it, which is an exceptionally confusing way for "off" to fail.
+  const zeroed = blTraffic.emissiveMeshes[0];
+  const wasPod = BLOOM_INTENSITY.pod;
+  BLOOM_INTENSITY.pod = 0;
+  const offMaterial = bloomRefreshFor(zeroed);
+  BLOOM_INTENSITY.pod = wasPod;
+  check('an emitter at zero intensity is switched off on its material, not skipped',
+    offMaterial === zeroed.userData.bloomMaterial && offMaterial.visible === false,
+    'three honours material.visible when it builds the render list; a `continue` would draw the lamp raw');
+  bloomRefreshFor(zeroed);
+  check('...and comes back when it is turned up again',
+    zeroed.userData.bloomMaterial.visible === true);
+
+  // --- Why the depth bias is not zero.
+  //
+  // The pass rejects a lamp the solid world stands in front of by testing against the AO prepass's
+  // depth — and some lamps are *in* that prepass, because they are opaque colour-writing meshes
+  // (`markOccluder`'s rule). Each one therefore stamps its own depth and then fails its own test.
+  // Asserted as the overlap it actually is rather than as a number, so it stays true if either
+  // draw list changes.
+  const blJoint = createBurgerJoint(layout.burgerBlock, makeRng(seed + 111));
+  blJoint.meshes.forEach(markOccluder);
+  mark(blJoint.glow, 'window');
+  const selfOccluding = mine.filter((m) => occluderList().has(m));
+  check('the depth bias is paid for by lamps that are their own occluders',
+    selfOccluding.length > 0 && BLOOM_UNIFORMS.uBloomDepthBias.value > 0,
+    `${selfOccluding.length} lamp(s) in the AO prepass too — bias ${BLOOM_UNIFORMS.uBloomDepthBias.value}, or each fails its own test`);
+
+  // Module state, so put back what this block added.
+  mine.forEach(unmarkEmissive);
+  blJoint.meshes.forEach(unmarkOccluder);
+  check('unmarking empties what was marked',
+    mine.every((m) => !emissiveList().has(m)));
 }
 
 // --- Taxi roof sign -----------------------------------------------------------
