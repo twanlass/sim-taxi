@@ -131,6 +131,25 @@ export const BLOOM_INTENSITY = {
 /** The keys of `BLOOM_INTENSITY`, in panel order — the ⚙️ panel builds a row per kind off this. */
 export const BLOOM_KINDS = Object.keys(BLOOM_INTENSITY);
 
+/**
+ * Refuse a kind that is not in the table, loudly.
+ *
+ * This exists because the alternative happened. `markEmissive` used to take an intensity as a
+ * *number* and was changed to take a key into `BLOOM_INTENSITY`; `main.js` went on passing
+ * `BLOOM_INTENSITY.pod`, so four of the nine emitters — every vehicle lamp, the cruiser's bar, the
+ * drive-through and the depot — were keyed on `3.4`, which is not a key. The lookup fell to its
+ * `?? 1` and they all bloomed at 1 instead of at 3.4, 4.2, 1.15 and 1.6: the ratios that hold a
+ * siren against a shopfront were gone, and the panel's rows for those four did nothing.
+ *
+ * Nothing said so. The picture was still a bloom, the probe still passed — because the probe called
+ * the API correctly and `main.js` did not, which is the shape of the whole failure. A default that
+ * quietly stands in for a missing value is a default that hides a caller's mistake.
+ */
+function assertKind(kind) {
+  if (kind in BLOOM_INTENSITY) return kind;
+  throw new Error(`bloom: unknown kind ${JSON.stringify(kind)} — expected one of ${BLOOM_KINDS.join(', ')}`);
+}
+
 // Resolution of the emissive target, as a fraction of the drawing buffer.
 //
 // Half, and it is not a free choice: the depth this pass tests its lamps against is the half-res
@@ -197,7 +216,15 @@ export const BLOOM_DEFAULTS = {
   // nine entries whose ratios (a siren over a pod, a menu board over both) are the part worth
   // keeping. Anything judging the shape of the falloff should move this; anything judging how much
   // of it lands in the frame should move `strength`.
-  intensity: 0.35,
+  //
+  // **0.1 rather than the 0.35 it was set to, and that is the same number.** The four emitters
+  // marked from `main.js` were keyed on a number rather than a kind (see `assertKind`), so they
+  // bloomed at 1 instead of at their table values, and 0.35 was chosen against that — a brake pod
+  // reading at 1 x 0.35. With the keys fixed the pod is 3.4 again, so holding it where it was
+  // actually judged is 0.35 / 3.4 = 0.1. What *does* move for the first time is everything
+  // relative to it: the siren is now hotter than the shopfront, which is what the table always
+  // said and what was never on screen.
+  intensity: 0.1,
   // How much each level of the blur chain contributes relative to the one below it. See
   // LEVEL_WEIGHT — low is a tight hot core, high is a wide wash that becomes a fog at 1.
   reach: LEVEL_WEIGHT,
@@ -379,6 +406,7 @@ function isOutline(object) {
  * `markOccluder` has, where `game/roadwork.js` marks its own slab.
  */
 export function markEmissive(root, kind = 'pod') {
+  assertKind(kind);
   root.traverse((object) => {
     if (!object.isMesh || !object.material || Array.isArray(object.material)) return;
     if (isOutline(object)) return;
@@ -435,6 +463,7 @@ export function markEmissive(root, kind = 'pod') {
  *                  two ordinary material shapes.
  */
 export function setEmissiveMaterial(mesh, material, kind = 'pod', sync = null) {
+  assertKind(kind);
   mesh.userData.bloomMaterial = patchEmissiveDepth(material);
   mesh.userData.bloomKind = kind;
   mesh.userData.bloomSync = sync;

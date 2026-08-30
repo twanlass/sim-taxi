@@ -62,7 +62,7 @@ import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
 import {
   markEmissive, unmarkEmissive, emissiveList, BLOOM_LAYER, BLOOM_ORDER, BLOOM_INTENSITY,
-  BLOOM_UNIFORMS, refreshEmissive as bloomRefreshFor,
+  BLOOM_UNIFORMS, BLOOM_KINDS, refreshEmissive as bloomRefreshFor,
 } from '../src/game/bloom.js';
 import { LIGHT_EMISSIVE } from '../src/geometry/lights.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
@@ -11750,6 +11750,30 @@ let chopperOrder; // likewise
     && fireball.material.color.getHexString() === 'ffffff',
     `puff material is white x ${BLOOM_INTENSITY.blast}, and the ramp arrives through the mesh`);
   mine.push(fireball);
+
+  // --- Every emitter is keyed on a kind the table actually has.
+  //
+  // The check that would have caught four of the nine being keyed on a *number* — `markEmissive`
+  // used to take an intensity and was changed to take a key, and `main.js` went on passing
+  // `BLOOM_INTENSITY.pod`. The lookup fell to its `?? 1` and every vehicle lamp, the cruiser's bar,
+  // the drive-through and the depot bloomed at 1 rather than at 3.4, 4.2, 1.15 and 1.6. Nothing
+  // said so: the picture was still a bloom, and the probe still passed, **because the probe called
+  // the API correctly and the caller did not**. `markEmissive` throws on an unknown kind now; this
+  // asserts the draw list agrees, which is the half a throw at the call site cannot cover.
+  const strayKinds = [...emissiveList()]
+    .map((m) => m.userData.bloomKind)
+    .filter((k) => !(k in BLOOM_INTENSITY));
+  check('every emitter in the draw list is keyed on a real kind',
+    strayKinds.length === 0,
+    strayKinds.length ? `keyed on ${[...new Set(strayKinds)].map((k) => JSON.stringify(k)).join(', ')}`
+      : `${emissiveList().size} emitters, all in ${BLOOM_KINDS.join('/')}`);
+  check('...and an unknown kind is refused rather than defaulted',
+    (() => {
+      try { markEmissive(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), unlitMaterial({})), 3.4); }
+      catch { return true; }
+      return false;
+    })(),
+    'a silent fallback is how the last one hid');
 
   // --- An emitter dialled to zero is switched off, not skipped.
   //

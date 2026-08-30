@@ -59,7 +59,7 @@ import { createFarePointers } from './game/farepointers.js';
 import { createSirenGlow } from './game/sirenglow.js';
 import { createRouteLine, routePath, pointAlongPath } from './game/routeline.js';
 import { createAmbientOcclusion, markOccluder } from './game/ssao.js';
-import { createBloom, markEmissive, BLOOM_INTENSITY } from './game/bloom.js';
+import { createBloom, markEmissive } from './game/bloom.js';
 import { createHdr } from './game/hdr.js';
 import { createCrayon } from './game/crayon.js';
 import { createCartoon } from './game/cartoon.js';
@@ -435,10 +435,13 @@ markOccluder(police.group);
 // The intensity is per *kind* rather than per mesh, and it is per kind because spill is a total
 // rather than a peak: a four-pixel pod and a menu board forty times its area do not want the same
 // number. See BLOOM_INTENSITY.
-for (const mesh of traffic.emissiveMeshes) markEmissive(mesh, BLOOM_INTENSITY.pod);
-for (const mesh of police.emissiveMeshes) markEmissive(mesh, BLOOM_INTENSITY.siren);
-if (burger) markEmissive(burger.glow, BLOOM_INTENSITY.window);
-if (garage) markEmissive(garage.light, BLOOM_INTENSITY.bay);
+for (const mesh of traffic.emissiveMeshes) markEmissive(mesh, 'pod');
+for (const mesh of police.emissiveMeshes) markEmissive(mesh, 'siren');
+// One mesh, three lit things: the pickup window, the menu board and the neon round the roofline
+// are merged into `burger.glow` (see city/burgerjoint.js), so the neon arrived in the bloom with
+// nothing to wire.
+if (burger) markEmissive(burger.glow, 'window');
+if (garage) markEmissive(garage.light, 'bay');
 // The riders. They receive AO through `propMaterial()` either way, so leaving them out of the
 // prepass would paint the kerb's own contact line across whoever is standing in front of it.
 // Only the figure is taken — `markOccluder` filters out the translucent target disc under them.
