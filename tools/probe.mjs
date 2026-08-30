@@ -11565,7 +11565,7 @@ let chopperOrder; // likewise
   check("a lamp with a shader of its own keeps it in the bloom",
     /varying float vAlpha/.test(compiled.fragmentShader)
     && /gl_FragColor\.a \*= vAlpha/.test(compiled.fragmentShader)
-    && /unpackRGBAToDepth\(texture2D\(tBloomDepth/.test(compiled.fragmentShader),
+    && /bloomUnpackDepth\(texture2D\(tBloomDepth/.test(compiled.fragmentShader),
     "the burst's per-instance alpha and the pass's depth reject, both in one fragment shader");
 
   // --- A lamp whose hue is per *instance* rather than in its material.
@@ -11583,6 +11583,25 @@ let chopperOrder; // likewise
     && fireball.material.color.getHexString() === 'ffffff',
     `puff material is white x ${BLOOM_INTENSITY.blast}, and the ramp arrives through the mesh`);
   mine.push(fireball);
+
+  // --- An emitter dialled to zero is switched off, not skipped.
+  //
+  // The pass is gated by a **layer**, so a marked mesh is drawn whether or not anything swapped its
+  // material — and skipping the swap does not skip the draw, it draws the mesh's *own* material
+  // into the emissive target at full strength with none of the depth reject. Shipped once: the
+  // route band at `path: 0` came out brighter than it had been at 0.6 and glowing over the building
+  // in front of it, which is an exceptionally confusing way for "off" to fail.
+  const zeroed = blTraffic.emissiveMeshes[0];
+  const wasPod = BLOOM_INTENSITY.pod;
+  BLOOM_INTENSITY.pod = 0;
+  const offMaterial = bloomRefreshFor(zeroed);
+  BLOOM_INTENSITY.pod = wasPod;
+  check('an emitter at zero intensity is switched off on its material, not skipped',
+    offMaterial === zeroed.userData.bloomMaterial && offMaterial.visible === false,
+    'three honours material.visible when it builds the render list; a `continue` would draw the lamp raw');
+  bloomRefreshFor(zeroed);
+  check('...and comes back when it is turned up again',
+    zeroed.userData.bloomMaterial.visible === true);
 
   // --- Why the depth bias is not zero.
   //

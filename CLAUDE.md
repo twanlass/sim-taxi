@@ -380,6 +380,16 @@ Omit the whole section if there's nothing to note.
   Crayon and Cartoon Mode mix sRGB-encoded ink constants into it there. Under a composer those
   constants land in linear values and every line in the game is the wrong colour, with nothing
   logged. `game/hdr.js` declines the two look modes outright rather than drawing it.
+- **In a layer-gated pass, skipping the material swap does not skip the draw.** What decides who
+  renders is `camera.layers`; swapping each mesh's material is only what decides *how*. So a loop
+  that `continue`s over an entry — because it is switched off, or fails a test — leaves that mesh on
+  the layer wearing its **own** material, and it goes into the pass at full strength with none of
+  the patches the pass relies on. The bloom's route band shipped like this for an afternoon: dialled
+  to zero it came out **brighter** than at 0.6, and glowing over the building in front of it,
+  because the material carrying both the intensity and the depth reject was the one being skipped.
+  Switch an entry off on the material instead — three honours `material.visible` when it builds the
+  render list — and never let the loop that swaps have an early exit
+  (`refreshEmissive` in `game/bloom.js`).
 - **A downsample chain summed at equal weight is a fog, not a glow.** A box downsample preserves the
   *average* of what it reads, so every level of a bloom chain carries the same average as the one
   above it — and adding three of them lifts the whole frame by three times the mean brightness of

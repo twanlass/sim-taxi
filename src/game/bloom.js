@@ -101,6 +101,31 @@ export const BLOOM_INTENSITY = {
   /** ...and the disc and drop-off ring under it, on the same argument, lower again: a ring is a
    *  thin line and a thin line is what a blur destroys first. */
   ring: 1.0,
+  /**
+   * The route band. **Zero, and that is a measured answer rather than a cautious one.**
+   *
+   * The case *for* it is real: the band is the third member of the one-trip-one-hue trio
+   * (gameplay.md), and it is now the only one of the three not lifted. So it was tried, at 0.6 —
+   * already the lowest number in this table, a sixth of a brake pod's.
+   *
+   * It fails on **area**, which is the one thing this pass is least forgiving of, because spill is
+   * a total rather than a peak. Isolated on shot 10 — the same frame with `path` at 0.6 against
+   * `path` at 0, so this is the band and nothing else — it lifted **4.1% of the frame by a mean of
+   * 52/255**, where every lamp in the city put together moves a fraction of one percent. The band
+   * stops being a translucent wash you can read the road markings through and becomes an opaque
+   * green swathe with the tarmac gone underneath it.
+   *
+   * And it fails a second way that is worse, because it is the read-out failure in its purest
+   * form: the band's **alpha encodes distance along the route** — the head gap, the two end fades,
+   * the reveal sweep — and an additive accumulate saturates exactly where that alpha is highest.
+   * The gradient the band uses to say "this end is where you are" flattens into one blown-out
+   * white-green patch.
+   *
+   * Left wired rather than deleted, so the judgement stays one drag of the **Path** slider away
+   * instead of a paragraph — and so `setEmissiveMaterial` keeps a real caller. At 0 it costs
+   * nothing: `refreshEmissive` retires an emitter whose kind is dialled to zero.
+   */
+  path: 0,
 };
 
 /** The keys of `BLOOM_INTENSITY`, in panel order — the ⚙️ panel builds a row per kind off this. */
@@ -184,6 +209,19 @@ export function emissiveList() {
  * `gl_FragCoord.z` is the same NDC depth `MeshDepthMaterial` packed, and this pass renders at the
  * prepass's own size, so the lookup is texel-for-texel and needs no scaling.
  */
+// The two halves of the occlusion reject, kept as strings so the chunk path and the hand-written
+// fallback below inject the *same* code rather than two that drift apart. `unpackRGBAToDepth` comes
+// from three's `packing` chunk on the first path and is spelled out on the second, which is the
+// only difference between them.
+const DECLARE = `uniform sampler2D tBloomDepth;
+uniform vec2 uBloomDepthTexel;
+uniform float uBloomDepthBias;
+float bloomUnpackDepth(vec4 rgba) {
+  return dot(rgba, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));
+}`;
+
+const REJECT = `\tif (gl_FragCoord.z > bloomUnpackDepth(texture2D(tBloomDepth, gl_FragCoord.xy * uBloomDepthTexel)) + uBloomDepthBias) discard;`;
+
 let patchSeq = 0;
 
 function patchEmissiveDepth(material, inherited = null) {
@@ -205,13 +243,22 @@ function patchEmissiveDepth(material, inherited = null) {
     Object.assign(shader.uniforms, BLOOM_UNIFORMS);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-#include <packing>
-uniform sampler2D tBloomDepth;
-uniform vec2 uBloomDepthTexel;
-uniform float uBloomDepthBias;`)
+${DECLARE}`)
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-\tfloat sceneDepth = unpackRGBAToDepth(texture2D(tBloomDepth, gl_FragCoord.xy * uBloomDepthTexel));
-\tif (gl_FragCoord.z > sceneDepth + uBloomDepthBias) discard;`);
+${REJECT}`);
+
+    // A hand-written shader has none of three's chunks to hook — `game/routeline.js`'s band is one
+    // — so fall back to the two anchors every GLSL fragment shader does have. Never a blind
+    // `replace`: a hook that silently matched nothing leaves a lamp shining through the building in
+    // front of it, which is the sort of thing nobody notices for a month. See CLAUDE.md.
+    if (!shader.fragmentShader.includes(REJECT)) {
+      const before = shader.fragmentShader;
+      shader.fragmentShader = shader.fragmentShader
+        .replace(/void\s+main\s*\(\s*\)\s*\{/, (head) => `${DECLARE}\n${head}\n${REJECT}`);
+      if (shader.fragmentShader === before) {
+        throw new Error('bloom: no place to inject the depth reject into this fragment shader');
+      }
+    }
   };
   return material;
 }
@@ -256,12 +303,30 @@ export function refreshEmissive(mesh, master = 1) {
   const bloom = mesh.userData.bloomMaterial;
   const live = mesh.material;
   if (!bloom || !live || live === bloom) return bloom;
-  readLight(live, bloom.color)
-    .multiplyScalar((BLOOM_INTENSITY[mesh.userData.bloomKind] ?? 1) * master);
+  const intensity = (BLOOM_INTENSITY[mesh.userData.bloomKind] ?? 1) * master;
+
+  // **A kind dialled to zero is switched off on the material, never by skipping the swap.**
+  //
+  // That distinction cost an evening. The pass is gated by a *layer*, so a marked mesh is drawn
+  // whatever this function decides — and an earlier version returned null here and let the render
+  // loop `continue`, which did not skip the draw at all. It skipped the *swap*, so the mesh went
+  // into the emissive target wearing its **own** material: full strength, no intensity, and none
+  // of the depth reject. The route band at zero came out brighter than it had been at 0.6, and
+  // climbing the building in front of it, which is precisely the shape of "off" going wrong.
+  //
+  // Three honours `material.visible` when it builds the render list, so this is the switch.
+  bloom.visible = live.visible && intensity > 0;
+  if (!bloom.visible) return bloom;
+
+  // An owner-supplied material knows its own shape — see `setEmissiveMaterial`.
+  if (mesh.userData.bloomSync) {
+    mesh.userData.bloomSync(bloom, live, intensity);
+    return bloom;
+  }
+  readLight(live, bloom.color).multiplyScalar(intensity);
   // Carried, so a thing that is fading out of the frame fades out of the bloom with it.
   bloom.opacity = live.opacity;
   bloom.transparent = live.transparent;
-  bloom.visible = live.visible;
   return bloom;
 }
 
@@ -306,6 +371,12 @@ export function markEmissive(root, kind = 'pod') {
     if (!object.isMesh || !object.material || Array.isArray(object.material)) return;
     if (isOutline(object)) return;
     const live = object.material;
+    // A material this cannot read light off — a hand-written `ShaderMaterial`, which has neither a
+    // `color` nor an `emissive` — is skipped rather than guessed at. There is no general answer to
+    // "what colour is this shader's light", so the owner supplies one: see `setEmissiveMaterial`,
+    // which is how `game/routeline.js`'s band gets in. Silent, because a traversal over a group
+    // legitimately meets meshes that are not lamps.
+    if (!live.color && !live.emissive) return;
     // Through the helper, like every other unlit material in the game — and the `fog: false` it
     // carries is the point here rather than a formality: haze mixes toward the sky colour, and a
     // lamp faded into the sky is not a lamp.
@@ -323,6 +394,7 @@ export function markEmissive(root, kind = 'pod') {
       transparent: live.transparent,
     }), live.onBeforeCompile || null);
     object.userData.bloomKind = kind;
+    object.userData.bloomSync = null;
     object.layers.enable(BLOOM_LAYER);
     emissive.add(object);
     // Correct from the moment it is built rather than only after the first frame: a headless
@@ -331,6 +403,33 @@ export function markEmissive(root, kind = 'pod') {
     refreshEmissive(object);
   });
   return root;
+}
+
+/**
+ * Put `mesh` in the bloom with a material of its own, for the case `markEmissive` cannot read.
+ *
+ * The escape hatch, and the same shape `setOccluderDepthMaterial` (game/ssao.js) is for the AO
+ * prepass: a hand-written `ShaderMaterial` has no `color` and no `emissive`, so nothing generic can
+ * say what it is contributing as light. The owner does know, so the owner supplies both the
+ * material and — in `sync` — how to keep it in step with the live one each frame.
+ *
+ * The material handed in is patched for the depth reject here rather than by the caller, so an
+ * emitter cannot forget it and shine through the building in front of it.
+ *
+ * @param material  what to draw this mesh as in the emissive pass. Usually a clone of its own.
+ * @param sync      `(bloomMaterial, liveMaterial, intensity)`, called once per frame before the
+ *                  pass draws. This is where a custom shader's uniforms are carried across and its
+ *                  light is scaled into HDR — the equivalent of what `refreshEmissive` does for the
+ *                  two ordinary material shapes.
+ */
+export function setEmissiveMaterial(mesh, material, kind = 'pod', sync = null) {
+  mesh.userData.bloomMaterial = patchEmissiveDepth(material);
+  mesh.userData.bloomKind = kind;
+  mesh.userData.bloomSync = sync;
+  mesh.layers.enable(BLOOM_LAYER);
+  emissive.add(mesh);
+  refreshEmissive(mesh);
+  return mesh;
 }
 
 /** Take it back out again, and free the materials — the same contract `unmarkOccluder` has. */
@@ -630,8 +729,13 @@ export function createBloom(renderer, { enabled = true, depth = null, depthSize 
       let count = 0;
       for (const mesh of emissive) {
         // Read off the *live* material and then swap — see `refreshEmissive` for why every frame.
+        //
+        // **Every marked mesh is swapped, with no early `continue`.** The pass is layer-gated, so a
+        // mesh left unswapped is not a mesh left undrawn — it is one drawn with its own material,
+        // at full strength and with no depth reject. `refreshEmissive` switches an emitter off on
+        // the material instead, which three honours when it builds the render list.
         const material = refreshEmissive(mesh, state.intensity);
-        if (!material) continue;
+        if (!material) continue;    // no bloom material at all: nothing to swap in
         swapped[count] = mesh;
         savedMaterials[count] = mesh.material;
         mesh.material = material;

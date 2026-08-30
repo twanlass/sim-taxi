@@ -1248,6 +1248,23 @@ itself, the way `game/roadwork.js` marks its own slab.
 drive-through's lit windows and menu board, the depot's strip light, the Loco plume and its kickoff
 burst, the wreck's fireball, and — quietly — a fare's crystal and the disc under it.
 
+**And one that is wired but ships at zero: the route band.** It is the third member of the
+one-trip-one-hue trio and looks odd as the only one not lifted, so it was tried at 0.6 — already the
+lowest number in the table. It fails on *area*, which is what this pass is least forgiving of,
+because spill is a total rather than a peak. Isolated on shot 10 (`path` 0.6 against `path` 0, so
+the band and nothing else) it lifted **4.1% of the frame by a mean of 52/255**, where every lamp in
+the city together moves a fraction of one percent. The band stops being a wash you can read the road
+markings through and becomes an opaque green swathe. It also fails the read-out test in its purest
+form: **the band's alpha encodes distance along the route** — the head gap, the end fades, the
+reveal sweep — and an additive accumulate saturates exactly where that alpha is highest, flattening
+the gradient that says "this end is where you are" into one blown-out patch. Left wired so the
+judgement is one drag of the **Path** slider rather than a paragraph.
+
+It is also the one emitter that goes through `setEmissiveMaterial` rather than `markEmissive`, and
+the reason that hatch exists: a hand-written `ShaderMaterial` has neither a `color` nor an
+`emissive`, so nothing generic can say what it contributes as light. The owner supplies a clone of
+its own material and a `sync` callback that carries the uniforms across each frame.
+
 The fireball is the one place in this game where blowing the frame out is the *point* rather than a
 cost, so it carries the highest intensity in the table. It also demonstrates the whole of the pass
 in one object: its hue is per-instance, its alpha is a shader patch, and it is pooled — so it is
