@@ -110,6 +110,14 @@ Omit the whole section if there's nothing to note.
   material's parameters *before* the patch runs, so a patched material collides with every unpatched
   one sharing those parameters and gets handed whichever program compiled first. The diamond's fill
   drew with a building's shader and went missing with nothing logged.
+- **On an unlit material a reversed triangle does not draw wrong, it does not draw.** The winding
+  trap below has a nastier second form. `MeshBasicMaterial` (everything through `unlitMaterial`) is
+  `FrontSide` like everything else, but it has no lighting to go strange — so where the roadworks
+  ramp and the bridge deck at least *looked* wrong, the boats' wake was simply absent, for weeks,
+  with a comment above it stating it was wound to face up. It was `(0, -15.08, 0)`. A feature that
+  renders nothing is indistinguishable from one that was never wired up, which is how it got
+  reported: "I think we're still missing boat water trails." Compute the normal from the winding in
+  a probe check the moment you hand-write a triangle — not after someone notices.
 - **Hand-written triangles need their winding asserted, not eyeballed.** The roadworks ramp shipped
   wound clockwise throughout: its slope normals came out at `y = −0.98` and its underside's at
   `+1.00`, so the only face the camera saw was the bottom — a flat quad lying on the road, which

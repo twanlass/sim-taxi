@@ -12009,6 +12009,28 @@ let chopperOrder; // likewise
         }
       }
     }
+    // **Every wake triangle faces the sky, computed from the winding.** This is the third time this
+    // trap has been paid for in this codebase (the roadworks ramp, the bridge deck's lofted strip)
+    // and the first two at least *looked* wrong. A wake is `MeshBasicMaterial`, which is `FrontSide`
+    // by default, so a reversed one does not draw dim or draw in the wrong place — it does not draw,
+    // and a feature that does not draw is indistinguishable from one that was never wired up. It
+    // shipped that way with a comment above it claiming the winding was fine.
+    {
+      const wp = boats.boats[0]?.wake.geometry.attributes.position;
+      const a = new THREE.Vector3(); const b = new THREE.Vector3();
+      const c = new THREE.Vector3(); const n = new THREE.Vector3();
+      let down = 0;
+      let tris = 0;
+      for (let k = 0; wp && k < wp.count; k += 3) {
+        a.fromBufferAttribute(wp, k); b.fromBufferAttribute(wp, k + 1); c.fromBufferAttribute(wp, k + 2);
+        n.copy(b).sub(a).cross(c.clone().sub(a));
+        tris += 1;
+        if (n.y <= 0) down += 1;
+      }
+      check('a boat\'s wake is wound to face the sky', tris > 0 && down === 0,
+        `${tris - down} of ${tris} triangles face up`);
+    }
+
     check('a tug is never inside the span unless the leaf is fully up', lowest > 0.99,
       `lowest lift with a tug in the span: ${lowest.toFixed(3)}`);
     check('boats going opposite ways pass rather than share a lane',

@@ -378,11 +378,26 @@ now takes `fadeAt(x)`: opaque until `SLAB_X / 2`, then a smoothstep to nothing o
 the same distance and the same curve the asphalt's skirt uses, because the thing it has to agree
 with is that skirt.
 
-The **wake** is one unlit quad trailing each hull, `depthWrite: false` and `renderOrder = -1` so it
-lays over the water without fighting it. Its opacity is the product of two things: the hull's own
-fade (a wake outliving the boat it belongs to is worse than no wake) and how far the boat actually
-moved this frame over how far it *would* have at full speed — so a tug clamped at `HOLD_OFF` waiting
-on a leaf sits still with a flat wake, rather than standing on the spot throwing up spray.
+The **wake** is one unlit triangle trailing each hull, widening astern, `depthWrite: false` and
+`renderOrder = -1` so it sorts after the water (which is at -2) and lays over it without fighting.
+Its opacity is the product of two things: the hull's own fade (a wake outliving the boat it belongs
+to is worse than no wake) and how far the boat actually moved this frame over how far it *would*
+have at full speed — so a tug clamped at `HOLD_OFF` waiting on a leaf sits still with a flat wake,
+rather than standing on the spot throwing up spray.
+
+Alpha also rides in a **4-component vertex colour**, solid at the stern and gone at the tail, the
+same trick the asphalt skirt and the skid marks use. Without it the triangle ends on a straight line
+across open water and reads as a paper cone under tow rather than as foam dying out behind a hull.
+
+> **It shipped wound upside down and therefore did not draw at all**, which is a worse failure than
+> drawing wrong. `unlitMaterial` is `MeshBasicMaterial` and `FrontSide` like everything else, but it
+> has no lighting to go strange with — so where the roadworks ramp and the bridge deck at least
+> *looked* broken, this was simply absent, under a comment claiming it was wound to face up. The
+> normal computed from the winding was `(0, -15.08, 0)` on both triangles. A feature that renders
+> nothing is indistinguishable from one nobody got round to, and that is exactly how it was
+> reported. `tools/probe.mjs` now computes the normal from the winding, and `?shot=18` frames a boat
+> under way — no wider framing could have shown it, because at play zoom a wake is a few pale pixels
+> and a few pale pixels missing looks like nothing at all.
 
 ## The mouth
 

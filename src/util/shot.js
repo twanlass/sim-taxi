@@ -66,6 +66,12 @@ export const SHOTS = [
   // which is a cutting — and every failure there has been a bright speck of sky a few pixels across
   // that a wide framing simply cannot resolve. Pinned on the -x mouth; the two are mirror images.
   { name: 'mouth', description: 'the river running off the coast', target: [-58, 10.67], zoom: 15, warmup: 12 },
+  // A boat under way, close enough to see its wake. Worth its own framing because the wake shipped
+  // wound upside down and therefore did not draw at all, and *no* wider shot could have shown that:
+  // at play zoom a wake is a few pale pixels, and a few pale pixels missing looks exactly like a
+  // feature nobody got round to. `drawbridgeAt` is what puts the tug in motion rather than holding
+  // station — a boat stopped at a shut span correctly has no wake.
+  { name: 'wake', description: 'a boat under way, with its wake', target: [4, 10.67], zoom: 8, warmup: 12, drawbridgeAt: 13.0 },
   { name: 'roadwork', description: 'a street closed for roadworks', target: [0, 0], zoom: 22, warmup: 12, roadworkAt: 1.4 },
   // And the taxi going through it. Same argument as the wreck: the smash has no steady state —
   // it is over in three quarters of a second and it needs the player to have driven at it — so

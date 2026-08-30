@@ -53,6 +53,11 @@ const fadeAt = (x) => {
 const WAKE_LIFT = 0.012;
 const WAKE_LEN = 5.2;
 const WAKE_SPREAD = 1.45;
+// How solid the foam is where it leaves the stern. It rides in a **4-component vertex colour** and
+// ramps to nothing at the tail — the same trick the asphalt skirt and the skid marks use, and for
+// the same reason: without it the triangle ends on a straight line across open water, which reads
+// as a paper cone being towed rather than as a wake dying out behind a hull.
+const WAKE_HEAD = 0.9;
 
 // Speeds, in world units per second. Cars cruise at 8.5, and a boat that kept up with the traffic
 // would read as a jet ski — what sells it is being the slowest thing in the frame. At 3.4 a tug
@@ -161,21 +166,36 @@ export function createBoats(scene, rng, drawbridge) {
   function wakeMesh(len) {
     const stern = -len / 2;
     const geo = new THREE.BufferGeometry();
-    // Wound to face up. Taken the other way round it lies under the water it is drawn on.
+    // Wound to face **up**, and this shipped wound the other way — invisible, for weeks, with the
+    // comment above it saying it was fine. `MeshBasicMaterial` is `FrontSide` by default, so a
+    // down-facing quad on the water is not a dim wake or a wake in the wrong place: it is nothing
+    // at all, and nothing at all looks exactly like a feature that was never wired up.
+    //
+    // The normal computed *from the winding* was `(0, -15.08, 0)` on both triangles. That is the
+    // check to run on any hand-written triangle (CLAUDE.md has it twice over, for the roadworks
+    // ramp and the bridge deck); `computeVertexNormals` below launders a reversed triangle into
+    // whatever looks deliberate, so it cannot tell you and neither can looking at the numbers.
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
       -0.5, WAKE_LIFT, stern,
+      WAKE_SPREAD, WAKE_LIFT, stern - WAKE_LEN,
       -WAKE_SPREAD, WAKE_LIFT, stern - WAKE_LEN,
-      WAKE_SPREAD, WAKE_LIFT, stern - WAKE_LEN,
       -0.5, WAKE_LIFT, stern,
-      WAKE_SPREAD, WAKE_LIFT, stern - WAKE_LEN,
       0.5, WAKE_LIFT, stern,
+      WAKE_SPREAD, WAKE_LIFT, stern - WAKE_LEN,
     ]), 3));
+    // Alpha per vertex, solid at the stern and gone at the tail. The order matches the positions
+    // above vertex for vertex, so any change to the winding has to be made in both.
+    const c = new THREE.Color(PALETTE.wake);
+    const fade = [WAKE_HEAD, 0, 0, WAKE_HEAD, WAKE_HEAD, 0];
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(
+      fade.flatMap((a) => [c.r, c.g, c.b, a]),
+    ), 4));
     geo.computeVertexNormals();
     // Through `unlitMaterial`, which is the house rule for anything `MeshBasicMaterial` and turns
     // the haze off with it — a wake is foam, and foam has no business reporting a colour between
     // its own and the sky's just because it is at the far end of the map.
     const mat = unlitMaterial({
-      color: new THREE.Color(PALETTE.wake),
+      vertexColors: true,
       transparent: true,
       opacity: 0.5,
       // Foam on water has no business hiding what is drawn behind it, and the water it lies on is
