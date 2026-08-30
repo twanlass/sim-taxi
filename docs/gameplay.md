@@ -179,9 +179,14 @@ of it** — though the first one is currently switched off:
    the bubble gets the run to its first *instruction* a beat sooner. The beat is intact behind the
    flag — the line, `openOnTaxi`, and the `'taxi'` step in both step sets — because the vignette is
    a prototype and this is what has to come back if it goes.
-2. **"Tap rider to start."** The spotlight moves to the waiting fare as the camera sets off for
-   them, so the light is already on the rider and the pan carries the player to it; the bubble comes
-   back once the camera has arrived. Tapping the rider answers it directly.
+2. **"Tap rider to start."** The lights come down and the spotlight lands on the waiting fare as the
+   camera sets off for them, so the light is already on the rider and the pan carries the player to
+   it; the bubble comes back once the camera has arrived. Tapping the rider answers it directly.
+   With beat one switched off this is the beat that *lights* the pool, and for a while it wasn't:
+   `spotlight-on` went on the body in `openOnTaxi` alone, so switching `TAXI_BEAT` off took the
+   darkening away with it and left the one instruction a run still gives pointing at a rider in a
+   fully lit city — the pool aimed correctly at them, sized correctly, at opacity 0. Whatever beat
+   comes first has to be the one that turns the light on.
 3. **"Hold to floor it"** — the Loco Mode pill, two seconds after the first rider is *dropped off*,
    with the bubble sitting directly over the pill and its tail pointing down at it, the spotlight on
    the pill and the pill pulsing under it. Skipped entirely if the player has already fired Loco
@@ -243,6 +248,13 @@ spends half its falloff off the edge of the glass.
 
 The warm core matters more than it looks: the darkening alone left the subject merely *not dimmed*,
 which at this contrast is not the same as lit.
+
+Every beat that raises the pool aims it **before** adding `body.spotlight-on`, because the fade is a
+0.45s opacity transition on a div whose centre is wherever the last subject left it — turn it on
+first and it blooms from across the city and slides into place. `tools/smoke.mjs` asserts both halves
+of this on a real page (that it is lit, and that it is lit *on the rider*): the node suite imports
+`tutorial.js` but never calls it, so a pool that is aimed perfectly and never switched on is
+invisible to everything else.
 
 ### The HUD arrives afterwards
 

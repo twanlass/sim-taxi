@@ -611,6 +611,15 @@ export function createTutorial({
         // The pool moves to the rider now, with the camera, rather than when the bubble reappears
         // — so the light is already on them and the pan carries the player to it.
         spotAt = at;
+        // And this beat is what *lights* it. `spotlight-on` used to go on in `openOnTaxi` alone,
+        // which stopped happening the day TAXI_BEAT was switched off: the pool was aimed at the
+        // rider every frame from here, sized correctly, and left at opacity 0 for the whole
+        // tutorial. The one instruction a run still gives was pointing at a figure in an undimmed
+        // city. Anything that turns the light on has to aim it first (same as `showBoostHint`),
+        // or the fade-up blooms from wherever the previous subject left the centre — the taxi,
+        // half a city away.
+        updateSpotlight();
+        document.body.classList.add('spotlight-on');
         panned = true;
         return;
       }

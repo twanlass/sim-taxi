@@ -477,6 +477,23 @@ gated under `NARROW_VIEWPORT = 768`, and the tool launches a 900px window — so
 asserting a feature that is deliberately switched off there. That half of the run now flips to a
 390×844 viewport with `Emulation.setDeviceMetricsOverride` first.
 
+**A backslash inside an evaluated template literal is eaten before the page ever sees it.** Every
+assertion in this tool is a JavaScript string built here and run there, and a template literal
+resolves its own escapes on the way: `/^rgba?\(/` written in `smoke.mjs` arrives in the page as
+`/^rgba?(/`, an unterminated group. It needs `\\(`. What makes this worth a paragraph rather than a
+shrug is the blast radius — the page threw a `SyntaxError`, `evaluate` hands a thrown expression back
+as `undefined`, the caller's `JSON.parse` threw on that, and the run ended there. The edge-arrow
+check and **every check after it** (the cargo chip, the taxi finder, the pedals, the initials, the
+offline reload — a good half of the suite) silently stopped running, with nothing but the tool's own
+`n/m checks passed` summary to say so. Read that total, not just the absence of FAILs.
+
+**The tutorial's spotlight is checked as two claims, not one.** That the city dims for the rider
+beat, and that the pool is centred on the *rider* rather than on the taxi — each passes on its own
+against a real failure, since a pool at full opacity still parked on the car is exactly what a
+`classList.contains` check waves through. It is browser-only in every part (a CSS gradient on a div,
+aimed through the live camera, switched by a class on `body`), which is how it once shipped aimed
+correctly and never switched on: see [the spotlight](gameplay.md#the-spotlight).
+
 A third is about reading state back: anything asserted *at the instant of* an input has to be
 gathered inside a single `Runtime.evaluate`, with no `await` in the middle. Split across round
 trips the page renders in between — long enough that a pan reads as having already jumped, which is
