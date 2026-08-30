@@ -1,10 +1,12 @@
 import * as THREE from 'three';
-import { propMaterial } from '../util/geo.js';
+import { propMaterial, unlitMaterial } from '../util/geo.js';
 import { createBargeMesh, createTugMesh, BARGE_LEN, TUG_LEN } from '../geometry/boat.js';
 import {
   waterEdges, WATER_Y, bridgeSpan, drawbridgeLine, BARGE_AIR, TUG_AIR,
 } from '../city/river.js';
-import { SLAB_X } from '../city/ground.js';
+import { OPEN_SECONDS } from './drawbridge.js';
+import { SLAB_X, EDGE_FADE } from '../city/ground.js';
+import { PALETTE } from '../palette.js';
 
 // Traffic on the river, and the thing that asks the drawbridge to lift.
 //
@@ -19,28 +21,68 @@ import { SLAB_X } from '../city/ground.js';
 /** How far off each end of the map a boat is spawned and retired. Out past the fade skirt. */
 const OFF_MAP = () => SLAB_X / 2 + 26;
 
+// --- Coming and going -------------------------------------------------------
+//
+// **A boat past the coast is a boat in the sky.** The island's asphalt dissolves over `EDGE_FADE`
+// and the river dissolves with it, but a hull is opaque geometry: a barge outside the coastline
+// sits on nothing, in front of nothing, perfectly sharp — which reads as a model floating in space
+// rather than as a boat coming in from off the map, and it is the first thing the eye goes to on a
+// wide shot.
+//
+// So a boat fades on the same band the ground under it does: solid at the coast, gone by the time
+// the asphalt is. Nothing here needs to know where the water's own alpha gets to, because the two
+// are the same ramp measured from the same line.
+const FADE_FROM = () => SLAB_X / 2;
+const fadeAt = (x) => {
+  const out = Math.abs(x) - FADE_FROM();
+  if (out <= 0) return 1;
+  const t = Math.min(1, out / EDGE_FADE);
+  return 1 - t * t * (3 - 2 * t);      // the smoothstep `asphaltFade` and the water both use
+};
+
+// --- The wake ---------------------------------------------------------------
+//
+// A flat triangle trailing each hull, widening astern. It is the only thing that says a boat is
+// *moving* — at 2.6 units per second against a car's 8.5, a barge on a still river reads as
+// scenery that happens to be in a different place each time you look at it.
+//
+// Drawn as one triangle rather than a strip of quads, and lying on the water rather than standing
+// in it: at play zoom a wake is four pixels across at the stern and the shape is the whole of the
+// information. It sits `WAKE_LIFT` above the surface for the reason every painted mark in this city
+// sits above the road it is on — two coplanar surfaces is a shimmer, not a touch.
+const WAKE_LIFT = 0.012;
+const WAKE_LEN = 5.2;
+const WAKE_SPREAD = 1.45;
+
 // Speeds, in world units per second. Cars cruise at 8.5, and a boat that kept up with the traffic
 // would read as a jet ski — what sells it is being the slowest thing in the frame. At 3.4 a tug
 // takes about 45 seconds to cross the map, which is most of a fare.
 const BARGE_SPEED = 2.6;
 const TUG_SPEED = 3.4;
 
-// Seconds between tugs. A lift plus the run up to it is a ~12-second event and the whole point is
-// that it is an event, so this is deliberately long: a three-minute session sees one or two.
-const TUG_WAIT = [55, 95];
+// Seconds between tugs.
+//
+// **Stretched with the lift.** The cycle went from about twelve seconds to about twenty-four, and
+// left at the old spacing that put a route shut for 27% of the run — which stops being an event and
+// starts being the map. At 90-150 the span is open four fifths of the time and a three-minute
+// session still sees one or two lifts, which is what this is for.
+const TUG_WAIT = [90, 150];
 // ...and between barges, which cost nothing and are just weather on the water.
 const BARGE_WAIT = [16, 34];
 
 // How far short of the span a tug asks for the lift.
 //
-// **It is a distance, not a clock**, for the reason the roadworks hop is paced by distance: the
-// answer has to be the same whatever else is happening. The bridge needs `BARRIER_SECONDS` to drop
-// its arms plus however long the deck takes to clear plus `LIFT_SECONDS` to raise the leaf — call
-// it five seconds with an empty deck, which at tug speed is 17 units. 30 leaves the tug most of
-// four seconds of slack, so it arrives at an opening that is already open rather than at one still
-// grinding upward, and the player sees the bridge react to the boat rather than the other way
-// round.
-const ASK_AHEAD = 30;
+// **Derived from the bridge's own timing rather than copied from it.** The two are one decision:
+// the span needs `OPEN_SECONDS` to get its arms down and its leaf up with an empty deck, and a tug
+// covering that distance in less than that arrives at something still grinding upward. Halving the
+// lift speed without moving this number is precisely how that happens, which is why it is an import.
+//
+// The slack on top is four seconds, so the tug reaches an opening that is already open and the
+// player sees the bridge react to the boat rather than the other way round. It is a *distance* for
+// the reason the roadworks hop is paced by distance: the answer has to be the same whatever else is
+// going on.
+const ASK_SLACK = 4;
+const ASK_AHEAD = (OPEN_SECONDS + ASK_SLACK) * TUG_SPEED;
 // ...and how far past it before the tug lets go. Its stern has to be clear of the leaf's swing.
 const RELEASE_PAST = TUG_LEN + 4;
 
@@ -78,11 +120,50 @@ export function createBoats(scene, rng, drawbridge) {
     barges: 0,
   };
 
+  /**
+   * The wake, in the boat's own local frame: a triangle from the stern, widening astern.
+   *
+   * Its own mesh rather than part of the hull, because the two want opposite materials — the hull
+   * is lit and the wake is foam, which is bright at every hour and takes no shadow. Unlit is also
+   * what lets it fade with the hull without the fade reading as the water changing colour.
+   */
+  function wakeMesh(len) {
+    const stern = -len / 2;
+    const geo = new THREE.BufferGeometry();
+    // Wound to face up. Taken the other way round it lies under the water it is drawn on.
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+      -0.5, WAKE_LIFT, stern,
+      -WAKE_SPREAD, WAKE_LIFT, stern - WAKE_LEN,
+      WAKE_SPREAD, WAKE_LIFT, stern - WAKE_LEN,
+      -0.5, WAKE_LIFT, stern,
+      WAKE_SPREAD, WAKE_LIFT, stern - WAKE_LEN,
+      0.5, WAKE_LIFT, stern,
+    ]), 3));
+    geo.computeVertexNormals();
+    // Through `unlitMaterial`, which is the house rule for anything `MeshBasicMaterial` and turns
+    // the haze off with it — a wake is foam, and foam has no business reporting a colour between
+    // its own and the sky's just because it is at the far end of the map.
+    const mat = unlitMaterial({
+      color: new THREE.Color(PALETTE.wake),
+      transparent: true,
+      opacity: 0.5,
+      // Foam on water has no business hiding what is drawn behind it, and the water it lies on is
+      // itself a transparent surface at `renderOrder` -2 — so this has to sort after it and write
+      // nothing, or the two fight over a millimetre.
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = -1;
+    return mesh;
+  }
+
   function launch(kind) {
     const geo = kind === 'tug' ? createTugMesh(rng) : createBargeMesh(rng);
     const mesh = new THREE.Mesh(geo, propMaterial());
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    // Per-boat material, so each can carry its own opacity as it comes in and goes out.
+    mesh.material.transparent = true;
     // The hull is modelled bow-toward +Z; a boat running -X turns to face it.
     const dir = rng.chance(0.5) ? 1 : -1;
     mesh.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
@@ -98,6 +179,9 @@ export function createBoats(scene, rng, drawbridge) {
       len: kind === 'tug' ? TUG_LEN : BARGE_LEN,
     };
     mesh.position.set(boat.x, WATER_Y, boat.z);
+    const wake = wakeMesh(boat.len);
+    mesh.add(wake);
+    boat.wake = wake;
     group.add(mesh);
     boats.push(boat);
     if (kind === 'tug') state.tugs += 1; else state.barges += 1;
@@ -126,6 +210,7 @@ export function createBoats(scene, rng, drawbridge) {
 
     for (let k = boats.length - 1; k >= 0; k--) {
       const boat = boats[k];
+      const before = boat.x;
       boat.x += boat.dir * boat.speed * dt;
       boat.mesh.position.x = boat.x;
 
@@ -152,12 +237,22 @@ export function createBoats(scene, rng, drawbridge) {
         if (boat.asked && toGate < -RELEASE_PAST) drawbridge.release();
       }
 
+      // Fade with the ground under it, and take the wake down with it. The wake also thins out
+      // when the boat is not actually moving — a tug holding station short of a raised leaf with a
+      // full wake behind it is a boat doing a wheelspin.
+      const alpha = fadeAt(boat.x);
+      boat.mesh.material.opacity = alpha;
+      const moved = Math.abs(boat.x - before) / Math.max(1e-6, boat.speed * dt);
+      boat.wake.material.opacity = 0.5 * alpha * Math.min(1, moved);
+
       if (Math.abs(boat.x) > off) {
         // A tug retired without ever getting through — it can only happen if the bridge never
         // cleared — still has to let go, or the span stays shut for the rest of the run.
         if (boat.kind === 'tug' && boat.asked && drawbridge) drawbridge.release();
         group.remove(boat.mesh);
         boat.mesh.geometry.dispose();
+        boat.wake.geometry.dispose();
+        boat.wake.material.dispose();
         boats.splice(k, 1);
       }
     }

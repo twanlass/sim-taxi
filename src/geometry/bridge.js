@@ -186,7 +186,11 @@ export function bridgeParts(span, rng, range = [0, 1]) {
   const [from, to] = range;
   const parts = [];
 
-  const deckCol = jitterColor(PALETTE.bridgeDeck, rng, { l: 0.02 });
+  // The lifting span is steel plate rather than asphalt — see `drawbridgeDeck`. Keyed off the
+  // span's own kind so the leaf and its abutments cannot disagree about what they are made of.
+  const deckCol = jitterColor(
+    span.kind === 'draw' ? PALETTE.drawbridgeDeck : PALETTE.bridgeDeck, rng, { l: 0.02 },
+  );
   const trimCol = jitterColor(PALETTE.bridgeTrim, rng, { l: 0.02 });
   const kerbCol = jitterColor(PALETTE.kerb, rng, { l: 0.02 });
   const walkCol = jitterColor(PALETTE.sidewalk, rng, { l: 0.03 });

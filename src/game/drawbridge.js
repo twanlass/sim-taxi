@@ -40,12 +40,21 @@ import { setBlockedLanes } from './route.js';
 // except that this one comes and goes, so no static filter can catch it. It is a landmark event
 // lasting a dozen seconds, and this is as tall as it gets to stay one.
 const LIFT_ANGLE = THREE.MathUtils.degToRad(70);
-const LIFT_SECONDS = 3.4;
-const LOWER_SECONDS = 3.0;    // gravity is on its side going down, and the beat wants to end sooner
+
+// **Twice as slow as this shipped at, and the first numbers were the mistake.** 3.4s to raise a
+// hundred-odd tonnes of deck is not a bascule, it is a boom gate: the leaf snapped up faster than
+// the eye tracks it, which made the one genuinely mechanical thing in the city read as a UI state
+// change. Machinery is heavy and the whole point of this is that the player watches it.
+//
+// The cycle is now ~24 seconds end to end against ~12. That is deliberately a long time to close a
+// route for — it is the event, and a route that reopens before you have finished going round is not
+// one you had to plan against.
+const LIFT_SECONDS = 6.8;
+const LOWER_SECONDS = 6.0;    // gravity is on its side going down, and the beat wants to end sooner
 
 // The barriers across each approach, and the beat they take. Down before anything moves, up only
-// once the leaf is home.
-const BARRIER_SECONDS = 1.1;
+// once the leaf is home — and back up on the same curve, which is the half this originally missed.
+const BARRIER_SECONDS = 2.2;
 const BARRIER_DROP = THREE.MathUtils.degToRad(88);
 const BARRIER_R = 0.16;
 const BARRIER_POST_H = 1.5;
@@ -79,9 +88,19 @@ const HOLD_SECONDS = 20;
  * fired anyway would be the one event in this game that can throw a car into the river, and "it
  * hardly ever happens" is not a property worth having.
  */
-const PHASES = ['open', 'closing', 'clearing', 'lifting', 'up', 'lowering'];
+const PHASES = ['open', 'closing', 'clearing', 'lifting', 'up', 'lowering', 'raising'];
 
-export function createDrawbridge(scene, rng, { replan = null } = {}) {
+/**
+ * The phases in which nothing may cross.
+ *
+ * `raising` is not one of them, and that is the point of it existing. The deck is down and the road
+ * is a road again; the gates are still on their way up, and traffic starts moving under them
+ * exactly as it does at a level crossing. Reopening only once the arms were vertical would hold the
+ * span shut for two seconds after there was anything to hold it shut for.
+ */
+const SHUT = new Set(['closing', 'clearing', 'lifting', 'up', 'lowering']);
+
+export function createDrawbridge(scene, rng, { replan = null, onLand = null } = {}) {
   const line = drawbridgeLine();
   if (line === null) return null;
   const span = bridgeSpan(line);
@@ -209,7 +228,7 @@ export function createDrawbridge(scene, rng, { replan = null } = {}) {
     // Shut to ambient traffic and impassable to the router the moment the barriers start down —
     // not when the leaf starts to move. The gap between the two is `clearing`, and its whole job is
     // to empty a deck that nothing new can enter.
-    const shut = state.phase !== 'open';
+    const shut = SHUT.has(state.phase);
     setClosedLanes(shut ? laneIds : [], 'drawbridge');
     setBlockedLanes(shut ? laneIds : []);
   }
@@ -263,7 +282,25 @@ export function createDrawbridge(scene, rng, { replan = null } = {}) {
         break;
       case 'lowering':
         state.lift = 1 - smooth(Math.min(1, state.t / LOWER_SECONDS));
-        if (state.t >= LOWER_SECONDS) { state.lift = 0; enter('open'); }
+        if (state.t >= LOWER_SECONDS) {
+          state.lift = 0;
+          enter('raising');
+          // The leaf is home. A hundred tonnes of deck meeting its abutment is the one moment in
+          // the cycle with an impact in it, and it was landing in silence — `onLand` is what puts a
+          // puff of dust at each end of it (main.js hands it `dust.burst`).
+          onLand?.([
+            { x: span.cx, z: span.z0 },
+            { x: span.cx, z: span.z1 },
+          ]);
+        }
+        break;
+      case 'raising':
+        // **The gates come back up on their own curve.** They used to snap: `open` set `barrier = 0`
+        // on the frame it was entered, so after a full slow lower the arms jumped from flat across
+        // the road to vertical in one frame — which at this camera reads as them vanishing and
+        // popping back rather than as a gate rising.
+        state.barrier = Math.max(0, 1 - state.t / BARRIER_SECONDS);
+        if (state.t >= BARRIER_SECONDS) enter('open');
         break;
       default:
         break;
@@ -286,7 +323,7 @@ export function createDrawbridge(scene, rng, { replan = null } = {}) {
     /** The boat is through; come back down. */
     release() { state.requested = false; },
     /** True while nothing may cross — the router's answer, not the leaf's angle. */
-    get closed() { return state.phase !== 'open'; },
+    get closed() { return SHUT.has(state.phase); },
     update,
     /** Shot mode ticks the world once and freezes it. See `settle` in game/fares.js. */
     settle() { pose(); },
@@ -296,5 +333,14 @@ export function createDrawbridge(scene, rng, { replan = null } = {}) {
     },
   };
 }
+
+/**
+ * How long from `request()` to a fully raised leaf, with an empty deck.
+ *
+ * Exported so `game/boats.js` can work out how far out a tug has to ask rather than carrying a
+ * number copied from here — the two are one decision, and halving the lift speed without moving the
+ * asking distance is exactly how a tug ends up nosing into a bridge that is still grinding upward.
+ */
+export const OPEN_SECONDS = BARRIER_SECONDS + LIFT_SECONDS;
 
 export { PHASES, LIFT_ANGLE, WATER_Y, KERB_H, RAIL_W };

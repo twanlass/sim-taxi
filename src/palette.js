@@ -530,6 +530,18 @@ export const PALETTE = {
   // right twice over — a soffit is the one face of a bridge the sun never reaches, and a raised leaf
   // has to be legible from across the map as a *thing that has moved*.
   bridgeSoffit: '#4A4844',
+  // The **lifting** span's running surface, and it is the one deck that is not asphalt.
+  //
+  // A bascule leaf is a steel grid — the road stops being road where the machinery starts, and that
+  // is worth saying in colour because it is the one thing the player has to recognise from across
+  // the map *before* it moves. In `bridgeDeck` it was a stripe of street lying over the water like
+  // the other three, and the only tell that this one was different was a counterweight house the
+  // size of a bus shelter.
+  //
+  // Cool where the asphalt is warm-grey, and light where the asphalt is dark: luma 136 against
+  // `bridgeDeck`'s 100 and the road's own 104, which reads as galvanised plate under this sun
+  // without going pale enough to be mistaken for the concrete trim it is bolted to at 172.
+  drawbridgeDeck: '#87888C',
 
   // --- Boats ----------------------------------------------------------------
   //
@@ -551,6 +563,10 @@ export const PALETTE = {
   // the barge from across the map.
   tugTrim: '#37698F',
   boatDeck: '#B6B2A6',
+  // The wake. Unlit and half transparent, so what reaches the screen is this lifted toward whatever
+  // the water under it is doing — a foam white would blow out to a solid arrow at noon and vanish
+  // at dusk, and a wake has to read the same at both.
+  wake: '#DCE8EF',
 
   // Flower beds on the arterials' medians — see `flowerBedParts` in city/props.js. Blooms are drawn
   // from this per *flower*, not per bed, so one bed carries four or five of them.

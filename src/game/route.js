@@ -322,17 +322,21 @@ export function planOrigin(car) {
 // is taken at CORNER_SPEED (5.95, 70% of cruise) and its Bezier is longer than the 8-unit straight
 // through the junction — a left is 15.4 against a straight's 11.4.
 //
-// Fitted by least squares over 585 trips across 6 cities (`node tools/eta.mjs 100 6`): mean trip
-// 4.61 blocks, 2.07 turns, 17.3s. Against that data the pair below scores MAE 4.27s and bias
-// -0.10s — near enough unbiased, which is the property that matters, because a biased estimator
+// Fitted by least squares over ~590 trips across 6 cities (`node tools/eta.mjs 100 6`): mean trip
+// 4.81 blocks, 2.16 turns, 17.7s. Against that data the pair below scores MAE 4.30s and bias
+// -0.21s — near enough unbiased, which is the property that matters, because a biased estimator
 // tilts every clock in the game the same way.
 //
-// **Re-fitted when the river went in**, which is the case the instruction above was written for. A
-// city with a row more blocks in it and four crossings on the one road that gets over the water is
-// a longer drive: the mean trip went 4.20 blocks to 4.61 and 16.4s to 17.3s, and the old pair
-// carried a +0.54s bias against it — every clock in the game a little generous, in the same
-// direction, for a reason nothing on screen explains. A block is worth slightly less than it was
-// and a turn slightly more, which is what a map with more of both looks like.
+// **Re-fitted twice while the river went in**, which is the case the instruction above was written
+// for, and the second time is the more interesting one. The extra block row moved the mean trip
+// 4.20 → 4.61 blocks. Then cutting the crossings from four to three moved it again, 4.61 → 4.81,
+// and moved the *turns* more than the blocks: 2.07 → 2.16. That is the shape of a map you have to
+// go round rather than through — a detour to a bridge is mostly corners.
+//
+// So a block keeps getting cheaper and a turn keeps getting dearer (3.28 → 3.11 → 2.94 and
+// 1.30 → 1.38 → 1.55), which is exactly what a longer, twistier map looks like to a two-term
+// estimator. Left alone the old pair carried a +0.26s bias, and a bias is the one error that
+// matters here because it tilts every clock in the game the same way.
 //
 // **The 4.35s is not estimator slop, it is the city.** The same route driven twice differs by
 // about that much depending on which signal phase the taxi meets and what it queues behind;
@@ -340,8 +344,8 @@ export function planOrigin(car) {
 // that variance, which is precisely why the deadline is `budget * slack(d)` and not `budget`:
 // slack is what pays for the traffic you happen to get, and shrinking it is what makes the game
 // harder.
-export const SEC_PER_BLOCK = 3.11;
-export const SEC_PER_TURN = 1.38;
+export const SEC_PER_BLOCK = 2.94;
+export const SEC_PER_TURN = 1.55;
 
 /**
  * How many of a route's steps change direction — the turns, as opposed to going straight through.

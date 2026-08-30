@@ -14,7 +14,7 @@ import {
   GRID_I, GRID_J, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
   ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor,
 } from '../city/grid.js';
-import { deckHeightAt } from '../city/river.js';
+import { deckHeightAt, ARCH_RISE } from '../city/river.js';
 import { cityNetwork } from '../city/roadnet.js';
 
 // Re-exported for callers that still ask the *grid* about a junction. The sim itself no longer
@@ -292,6 +292,17 @@ export const isLaneClosed = (id) => closedLanes.has(id);
 // down at 7.6 with a clear unit in hand. The two numbers are a chain — probe.mjs asserts the margin
 // rather than just the outcome, so moving either one alone fails loudly.
 export const HOP_LEN = 5.5;
+
+/**
+ * How far up an arched span a boosting taxi has to be before the crest counts as a launch.
+ *
+ * A fraction of `ARCH_RISE` rather than an absolute height, so the trigger follows the hump if the
+ * hump ever changes. 0.75 of it is the top quarter of the arc — near enough the summit that the
+ * deck is genuinely falling away underneath, far enough from it that a frame landing either side of
+ * the exact peak still fires. Lower and the taxi takes off half way up the ramp, which reads as the
+ * car leaving the road rather than as the road ending.
+ */
+const ARCH_JUMP_MIN = ARCH_RISE * 0.75;
 // Height is free of that chain — it is the *span* that has to land before the hold line, and the
 // apex costs nothing but air. 1.55 was under half a car length and about 12px at play zoom, which
 // at a 3/4 camera is a lift rather than a jump: the taxi's own shadow never separated from it far
@@ -3424,6 +3435,34 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
           car.x = p.x;
           car.z = p.z;
           car.yaw = lerpAngle(dirYaw(car.d), dirYaw(car.dOut), t);
+        }
+      }
+
+      // --- Loco Mode over the hump -----------------------------------------
+      //
+      // A boosting taxi cresting an arched span leaves it. Same `launchHop` a roadworks barricade
+      // fires, because it is the same event: a ramp, a hop, a landing that loads the pitch spring.
+      // What differs is that this ramp is the road itself.
+      //
+      // **Only while boosting.** The arch is a road at cruise — cars drive over it, and a taxi that
+      // took off every time it crossed the river would make the bridges an obstacle rather than a
+      // reward. Loco Mode is the one state where the city is already bending its own rules.
+      //
+      // Fired at the *crest* rather than at the abutment, which is the difference between a jump
+      // and a bump: the launch has to happen where the deck starts falling away, so the car keeps
+      // going straight while the road drops under it. `dydz` is the slope in +z and the span runs
+      // along Z, so `dirSign(car.d)` turns it into a slope along travel — positive climbing,
+      // negative past the top.
+      //
+      // Keyed to the lane so one crossing is one jump. Without it the car lands still past the
+      // crest with the slope still negative and immediately launches again, which is a taxi
+      // skipping across the river like a stone.
+      if (car.isTaxi && car.boost && car.state === 'drive' && car.hopFrom == null) {
+        const crest = deckHeightAt(car.x, car.z);
+        if (crest.y > ARCH_JUMP_MIN && crest.dydz * dirSign(car.d) <= 0
+          && car.archHopLane !== car.lane.id) {
+          car.archHopLane = car.lane.id;
+          launchHop(car);
         }
       }
 

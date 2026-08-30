@@ -4,6 +4,7 @@ import {
   ROAD_W, isXAxis, dirSign, lineX, lineZ, laneOffsetCoord, entryPoint, exitPoint, turnControl,
   nextIntersection,
 } from '../city/grid.js';
+import { deckHeightAt } from '../city/river.js';
 
 /**
  * Draws the taxi's planned route as a band of paint laid down the lane it will drive.
@@ -603,10 +604,21 @@ export function createRouteLine(scene) {
 
     let v = 0;
     let n = 0;
+    // **The band rides the bridge decks.** `Y` is a height above the *road*, and three of the
+    // city's spans arch 1.1 units above it — a band laid flat cut straight through the hump and
+    // came out the other side, which is the one place in the city where the paint stops being on
+    // the tarmac it is describing.
+    //
+    // Sampled at the offset vertex rather than at the centreline, so both edges of the band sit on
+    // the deck: the two are up to a metre apart across, and a deck that pitched in x would tilt
+    // the band if only the middle were measured. `deckHeightAt` is zero everywhere but a span, so
+    // this costs a rectangle test per vertex on a route that never goes near the river.
     const push = (p, o, dist) => {
-      positions[v++] = p.x + o.x;
-      positions[v++] = Y;
-      positions[v++] = p.z + o.z;
+      const x = p.x + o.x;
+      const z = p.z + o.z;
+      positions[v++] = x;
+      positions[v++] = Y + deckHeightAt(x, z).y;
+      positions[v++] = z;
       dists[n++] = dist;
     };
 

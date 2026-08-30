@@ -131,15 +131,23 @@ export const DECK_OVERHANG = EMBANK_WALK;
 const middleRow = (rng) => rng.int(Math.floor((GRID_J - 1) / 2), Math.ceil((GRID_J - 1) / 2));
 
 /**
- * Which crossings carry a bridge, and what kind.
+ * Which crossings carry a bridge, and what kind. **Three of the six.**
  *
  * **The two ring roads always bridge.** The outermost roads are the signal-free ring (grid.js), the
  * police corridor drives one end to end, and ambient traffic yields into it rather than stopping —
- * breaking either one would need a fallback in all three. Two of the four interior crossings bridge
- * as well, one of them the drawbridge; the other two are open water.
+ * breaking either one would need a fallback in all three. Exactly **one** interior crossing bridges,
+ * and it is the drawbridge; the other three are open water.
  *
- * That leaves **three ways across while the bridge is up**, which is the guarantee the drawbridge
- * rests on: it may close a route, but it may never cut the city in half.
+ * It opened with four — the two ring roads and two interior spans — and four is too many ways over.
+ * With that many, a lift was an inconvenience routed round without the player ever noticing which
+ * bridge had closed or why. One interior crossing makes the drawbridge **the** way through the
+ * middle of the city, so raising it is the difference between driving across town and driving round
+ * it.
+ *
+ * That still leaves **two ways across while the leaf is up**, which is the guarantee this rests on:
+ * the span may close a route, but it may never cut the city in half. `tools/probe.mjs` asserts it
+ * over all 7,056 (origin, heading, destination) triples with the lanes blocked rather than trusting
+ * the sentence.
  */
 export function planRiver(rng) {
   const row = middleRow(rng);
@@ -149,19 +157,12 @@ export function planRiver(rng) {
   crossings.set(0, 'fixed');
   crossings.set(GRID_I, 'fixed');
 
-  // Two of the interior lines, drawn without replacement.
+  // One interior line, and it is the one that lifts. Never a ring road: the ring is the way round
+  // everything else in this game, and a lift that closed it would take the escape route away at the
+  // same moment it takes the direct one.
   const interior = [];
   for (let i = 1; i < GRID_I; i++) interior.push(i);
-  const picked = [];
-  for (let n = 0; n < 2 && interior.length; n++) {
-    picked.push(interior.splice(rng.int(0, interior.length - 1), 1)[0]);
-  }
-  for (const i of picked) crossings.set(i, 'fixed');
-
-  // The drawbridge is one of the two interior spans rather than a ring one: the ring road is the
-  // way round everything else in this game, and a lift that closed it would take the escape route
-  // away at the same moment it takes the direct one.
-  const draw = picked.length ? rng.pick(picked) : null;
+  const draw = interior.length ? interior[rng.int(0, interior.length - 1)] : null;
   if (draw !== null) crossings.set(draw, 'draw');
 
   // The crossings with no bridge are closed roads in the ordinary sense — `legalExits` drops them,

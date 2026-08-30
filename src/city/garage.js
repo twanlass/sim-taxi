@@ -3,7 +3,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, propMaterial, stampEntry, unlitMaterial } from '../util/geo.js';
 import { color, jitterColor } from '../palette.js';
 import { KERB_H } from './ground.js';
-import { DIR, GRID_I, GRID_J, HALF_ROAD, LANE, isSegmentClosed, lineX, lineZ } from './grid.js';
+import {
+  DIR, GRID_I, GRID_J, HALF_ROAD, LANE, isSegmentClosed, junctionReach, lineX, lineZ,
+} from './grid.js';
 
 // The taxi's garage: a single-storey depot with a roller door on the street, and the one building
 // in the city the tower generator doesn't draw. It exists for the opening vignette
@@ -156,8 +158,16 @@ export function garageSite(block) {
       i: block.bi + 1,
       j: block.bj + 1,
       // `placeCar` counts back from the junction. The arc lands at `doorZ + turnR`; the lane's far
-      // end is one road-half short of the junction centre.
-      back: (lineZ(block.bj + 1) - HALF_ROAD) - (doorZ + (HALF_ROAD - LANE)),
+      // end stops one **crossing** road's reach short of the junction centre.
+      //
+      // `junctionReach` and not a hard-coded `HALF_ROAD`, for the reason `city/burgerjoint.js`
+      // spells out at its own merge: that crossing road can be an arterial, and an arterial is a
+      // third wider. This read `HALF_ROAD` until a depot happened to land on a block whose exit
+      // junction is crossed by a main street, and then the vignette handed the taxi to the traffic
+      // model 1.33 units from where the arc had just put it — a car twitching sideways on the one
+      // frame the whole opening is built around.
+      back: (lineZ(block.bj + 1) - junctionReach(DIR.PZ, block.bi + 1, block.bj + 1))
+        - (doorZ + (HALF_ROAD - LANE)),
     },
     // The camera's subject: the middle of the opening, in three dimensions.
     focus: { x: curtainX, y: KERB_H + DOOR_H / 2, z: doorZ },

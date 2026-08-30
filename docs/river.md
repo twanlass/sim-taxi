@@ -4,8 +4,8 @@
 spans, `src/game/drawbridge.js` for the one that lifts, and `src/geometry/boat.js` +
 `src/game/boats.js` for the traffic on it.
 
-A river runs east–west through the middle of the city, crossed by four bridges. Three of them arch.
-The fourth is flat, and it opens.
+A river runs east–west through the middle of the city, crossed by three bridges. Two of them arch.
+The third is flat, and it opens.
 
 ## The city grew a row rather than losing one
 
@@ -25,7 +25,7 @@ what made `GRID` come apart into `GRID_I` and `GRID_J`
 - `layout.js` types those blocks `'river'`, so `createBuildings` (which walks `'built'`) and
   `createProps` (which walks `'park'`) skip them without being told, and `chooseGarageBlock` /
   `chooseBurgerBlock` filter them out by the same rule they already used.
-- The two crossings with **no** bridge are ordinary closed segments — the same mechanism a park
+- The three crossings with **no** bridge are ordinary closed segments — the same mechanism a park
   district uses when it builds over a road, so `legalExits`, the road network, ambient traffic and
   the router all learn about them for free.
 
@@ -48,20 +48,25 @@ merged faces. `tools/roadnet.mjs` compares land against land.
 | | |
 |---|---|
 | **The two ring roads** | Always a bridge. The outermost roads are the signal-free ring, the police corridor drives one end to end, and traffic yields into it rather than stopping — breaking either would need a fallback in all three. |
-| **Two of the four interior lines** | Drawn. One of the two becomes the drawbridge. |
-| **The other two** | Open water. |
+| **One of the four interior lines** | The drawbridge. |
+| **The other three** | Open water. |
 
-That leaves **three ways across while the leaf is up**, which is the guarantee the whole feature
+Three crossings, not four. The first cut bridged two interior lines as well as the ring, and playing
+it the difference was obvious: with five of six lines carrying road there was almost always a
+crossing within a block of wherever the taxi already was, and the river stopped being a decision.
+Taking one out puts real distance between the ways over — which is the whole reason for the water.
+
+That leaves **two ways across while the leaf is up**, which is the guarantee the whole feature
 rests on: the drawbridge may close a route, but it may never cut the city in half.
 `tools/probe.mjs` asserts it by planning all 7,056 (origin, heading, destination) triples with the
-span blocked.
+span blocked, and a 400-seed sweep confirms the city stays connected with three crossings.
 
 ## The fixed spans arch, and the drawbridge is flat
 
 This is the part that makes the feature hang together rather than being two features.
 
 A bascule leaf has to be **flat** to lie down and to hinge. So the one that lifts is the one span at
-plain road level — and the hump on the other three is what lets a boat clear them without anything
+plain road level — and the hump on the other two is what lets a boat clear them without anything
 having to move. **The bridge that lifts is the bridge that could not arch**, which is a better
 reason than "this one is special".
 
@@ -71,7 +76,7 @@ The chain, measured to the deck's *soffit* since that is what a boat hits:
 |---|---|---|
 | Flat span, deck 0.35 thick | −0.35 | **1.65** |
 | Arched span at the crest, rise 1.1 | +0.75 | **2.75** |
-| Barge, air draught 1.2 | | clears both |
+| Barge, air draught 1.4 | | clears both |
 | Tug, air draught 2.4 | | clears the arches by 0.35, **0.75 short of the flat one** |
 
 Four numbers across three files, so the probe asserts the **chain** rather than its outcome: move
@@ -100,12 +105,35 @@ callers already have in hand: `sim/traffic.js` poses a car from `car.x`/`car.z`,
 never an option for the corridor — every road running along Z crosses the river.
 
 Sampled at the **nose and the tail**, not the centre. A rigid body pitched to the tangent under its
-own origin floats at the crest and buries its nose at the foot; two lookups cost four rectangle
-tests each and are simply correct.
+own origin floats at the crest and buries its nose at the foot; two lookups cost one rectangle test
+per arched span and are simply correct.
+
+The **route band** takes the same treatment, for the same reason and one layer up: `routeline.js`
+builds its ribbon from lane geometry, which is flat, so a route over a hump drew a straight yellow
+line through the middle of the deck. Every vertex it emits now takes `deckHeightAt` on the point it
+is actually at, so the band rides over the arch with the road.
 
 The profile is `rise · sin²(πu)`. Zero slope at both ends is the point, not a detail — a curve that
 arrives at the abutment with slope left in it kinks where deck meets road, and no rise tunes that
 out.
+
+### Except in Loco Mode, where it is a ramp
+
+The arch is not a gameplay surface — it changes no speed, no braking and no collision envelope. The
+one exception is the boosting taxi, which **launches off the crest** into the same hop the roadworks
+ramp fires (`launchHop`, `sim/traffic.js`), because a hump you take at boost speed reading as
+nothing at all is the one place the render-only rule looks like a missing feature rather than a
+clean separation.
+
+Three guards, and each of them is load-bearing:
+
+- `crest.y > ARCH_RISE * 0.75` — a fraction of the rise, not an absolute height, so the trigger
+  follows the hump if the hump is ever re-tuned. It puts the launch in the middle third of the span
+  rather than at the foot.
+- `crest.dydz * dirSign(car.d) <= 0` — only on the way **down**. Firing on the climb throws the car
+  up the slope it is already climbing, which reads as a stumble.
+- `car.archHopLane !== car.lane.id` — once per crossing. Without it the hop retriggers every frame
+  the crest test passes and the taxi hovers across the river.
 
 ## The embankment
 
@@ -158,16 +186,38 @@ existing, with a clock running in the back seat.
 ### The cycle
 
 ```
-open ─▶ closing ─▶ clearing ─▶ lifting ─▶ up ─▶ lowering ─▶ open
+open ─▶ closing ─▶ clearing ─▶ lifting ─▶ up ─▶ lowering ─▶ raising ─▶ open
 ```
 
 | | |
 |---|---|
-| `closing` | Barriers down, and **both** closures published at once. 1.1s. |
+| `closing` | Barriers down, and **both** closures published at once. 2.2s. |
 | `clearing` | Hold until nothing is on either lane. **No timeout.** |
-| `lifting` | 3.4s, smoothstepped, to 70°. |
+| `lifting` | 6.8s, smoothstepped, to 70°. |
 | `up` | Until the boat releases it, or `HOLD_SECONDS` as a backstop. |
-| `lowering` | 3.0s. Gravity is on its side and the beat wants to end sooner. |
+| `lowering` | 6.0s. Gravity is on its side and the beat wants to end sooner. |
+| `raising` | The barriers come **back up**, 2.2s. |
+
+**The whole cycle runs at half the speed it first shipped at.** Barriers 1.1 → 2.2, lift 3.4 → 6.8,
+lower 3.0 → 6.0. Played at the original numbers the leaf snapped up and back inside four seconds and
+read as a gate rather than as machinery: there was nothing to *watch*, and a closure the player
+never notices opening is a closure that only ever arrives as a re-planned route. `OPEN_SECONDS` is
+derived (`BARRIER_SECONDS + LIFT_SECONDS`, so 9.0) and everything that has to arrive on the opening
+— the tug's ask-ahead distance, the staged screenshots in `util/shot.js` — is derived from *it*
+rather than written down again.
+
+`raising` exists to fix a pop. `open` set the barriers to 0 on the frame it was entered, so the
+moment the leaf touched down both barriers vanished and reappeared lying flat — the user reported it
+as "the gates disappear and pop back in". Lowering a barrier and raising it are not the same
+transition and cannot share a phase.
+
+The end of `lowering` fires an **`onLand` callback with both abutment feet**, and `main.js` throws a
+puff of dust at each out of the pool the roadworks smash and the boosting taxi already share. The
+leaf coming home is the one moment in the cycle with an impact in it and it was landing in silence;
+a bridge dropping a hundred tonnes onto a stone seat kicks up what a car scrubbing its tyres does,
+and it is the same dust either way. Smaller and shorter than a barricade smash — `power` 0.7 against
+well over 1 — because this is a heavy thing settling, not something exploding, and aimed **along**
+the span so the collars spread down the road rather than out over the water.
 
 **`clearing` is what makes this safe.** The barriers are already down and the lanes already shut, so
 nothing new can reach the deck; what is on it drives off, and only then does the leaf move. A car
@@ -178,7 +228,7 @@ throw a car into the river, and "it hardly ever happens" is not a property worth
 `HOLD_SECONDS` is a backstop, not a hold, and **it has to be longer than the thing it backs up or
 it becomes the thing**. A tug asks 30 units out and lets go `TUG_LEN + 4` past the span, which at
 3.4 u/s is 11.3 seconds of request. At 4.5 the backstop fired first and started lowering the leaf
-onto a boat still four seconds short of it.
+onto a boat still four seconds short of it. It is 20 now, which is that 11.3 plus most of it again.
 
 ### 70°, and what bounds it
 
@@ -193,6 +243,12 @@ through the view axis, so **the underside is the whole of what the camera sees**
 behind it: the one moment in the game with a bridge standing on end read as a flat card lying on the
 skyline. `bridgeSoffit` is luma 74 — the darkest surface in the city bar a roadworks trench, which
 is right twice over.
+
+Its **running** surface is the opposite decision, and it is the one the player reads from across the
+map *before* anything moves. `drawbridgeDeck` is a cool luma 136 against `bridgeDeck`'s 100 and the
+road's own 104: a bascule leaf is a steel grid, the road stops being road where the machinery
+starts, and in `bridgeDeck` this span was a stripe of street lying over the water exactly like the
+other two, with a counterweight house the size of a bus shelter as its only tell.
 
 ### The three closure sets
 
@@ -224,15 +280,19 @@ neither queues nor brakes, so a barrier in front of one is the single closure it
 `geometry/boat.js` builds them, `game/boats.js` runs them. **Run seed, not city seed**: which span
 lifts is a fact about the map and has to stay learnable, but when it lifts is the situation.
 
-A barge every 16–34s, a tug every 55–95s and never two at once. Both are slow on purpose — 2.6 and
+A barge every 16–34s, a tug every 90–150s and never two at once. Both are slow on purpose — 2.6 and
 3.4 units per second against a car's 8.5 — because what sells a boat is being the slowest thing in
-the frame.
+the frame. The tug's wait went 55–95 → 90–150 with the cycle: a lift is a ten-second event now, and
+one arriving every minute stops being an event.
 
-The tug asks for the lift **30 units out**, which is a distance rather than a clock for the reason
-the roadworks hop is paced by distance: the answer has to be the same whatever else is happening.
-The bridge needs 1.1s of barriers plus however long the deck takes plus 3.4s of lift — about five
-seconds with an empty deck, which at tug speed is 17 units. 30 leaves it four seconds of slack, so
-the tug arrives at an opening that is already open rather than at one still grinding upward.
+The tug asks for the lift **`ASK_AHEAD` units out**, which is a distance rather than a clock for the
+reason the roadworks hop is paced by distance: the answer has to be the same whatever else is
+happening. And it is *derived*, not written down — `(OPEN_SECONDS + ASK_SLACK) · TUG_SPEED`, so
+44.2 units at today's numbers. The arithmetic it stands for is `BARRIER_SECONDS` of barriers plus
+however long the deck takes plus `LIFT_SECONDS` of lift, which is nine seconds with an empty deck;
+`ASK_SLACK` is the four seconds of margin on top. Writing the 44 down instead is how the first cut
+of this shipped, and doubling the cycle then quietly left the tug arriving at a span still grinding
+upward.
 
 And it **waits** if it is not: `HOLD_OFF` clamps it nine units short of a span whose leaf is not up.
 `clearing` has no timeout, so a lift can take arbitrarily long, and a tug that sailed on regardless
@@ -243,6 +303,21 @@ would pass through a closed span.
 > the boat to the near side of the bridge and held it there. One tug in 260 seconds instead of four,
 > and the one was going round in circles.
 
+### Fading in, and the wake
+
+A boat starts its run off the end of the channel, well outside the island — and the island's own rim
+fades into the sky, so a fully opaque barge crossing that band hangs in mid-air over nothing. It was
+reported exactly that way, with a screenshot of a barge apparently flying past the coast. Every hull
+now takes `fadeAt(x)`: opaque until `SLAB_X / 2`, then a smoothstep to nothing over `EDGE_FADE` —
+the same distance and the same curve the asphalt's skirt uses, because the thing it has to agree
+with is that skirt.
+
+The **wake** is one unlit quad trailing each hull, `depthWrite: false` and `renderOrder = -1` so it
+lays over the water without fighting it. Its opacity is the product of two things: the hull's own
+fade (a wake outliving the boat it belongs to is worse than no wake) and how far the boat actually
+moved this frame over how far it *would* have at full speed — so a tug clamped at `HOLD_OFF` waiting
+on a leaf sits still with a flat wake, rather than standing on the spot throwing up spray.
+
 ## Looking at it
 
 `?shot=14` frames the river, `?shot=15` the leaf half way up with the tug holding station, and
@@ -250,3 +325,11 @@ would pass through a closed span.
 rather than posing it, so a screenshot cannot drift out of step with what the player gets — and the
 boats are placed before the cycle is stepped, not after, or the tug turns up parked short of a
 bridge that opened for nobody.
+
+Two things that staging got wrong and are worth not getting wrong again. The **traffic has to be
+stepped too**: `clearing` holds until the deck is empty, and a car left standing there by the warm-up
+never drives off unless the sim runs, so a loop that ticked only the bridge photographed a span with
+its barriers down and its leaf still flat — a real state, and not the one being framed. And
+`drawbridgeAt` is seconds into the cycle, so it tracks `BARRIER_SECONDS` and `LIFT_SECONDS` and has
+to be re-derived whenever they move; the 3.0 and 9.5 that framed the old cycle both landed on the
+wrong phase once it was slowed.

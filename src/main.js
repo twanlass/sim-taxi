@@ -623,6 +623,17 @@ const ducks = createDucks(scene, makeRng(runSeed + 299), props.pond);
 // a module that reached in to assign `car.route` itself would skip everything else that function
 // does to a route already part-driven.
 const drawbridge = createDrawbridge(scene, makeRng(seed + 66), {
+  // The leaf coming home is the one moment in the cycle with an impact in it, and it was landing in
+  // silence. A puff at each abutment, out of the same pool the roadworks smash and the boosting
+  // taxi both throw — a bridge dropping a hundred tonnes onto a stone seat kicks up what a car
+  // scrubbing its tyres does, and it is the same dust either way.
+  //
+  // Smaller and shorter than a barricade smash (which runs `power` well over 1): this is a heavy
+  // thing settling, not something exploding. Aimed along the span so the two collars spread down
+  // the road rather than out over the water.
+  onLand: (feet) => {
+    for (const foot of feet) dust.burst(foot.x, foot.z, Math.PI / 2, 14, 0.7, { linger: 1.3 });
+  },
   replan: () => {
     // Unconditional, and it does not need to ask whether the old route used the span. By the time
     // this fires the two lanes are already in `setBlockedLanes`, so `findRoute` cannot return them
@@ -2448,7 +2459,7 @@ function frame() {
   // both are handed the cars as they stand *after* the step, which is what a "is anything on the
   // deck" test wants to be reading. A closure taken now lands on the next frame's turn decisions,
   // which is a frame later than it could be and a frame earlier than anything can act on it — the
-  // barriers take 1.1s to come down before the leaf moves at all.
+  // barriers take `BARRIER_SECONDS` (2.2) to come down before the leaf moves at all.
   //
   // The two no longer fight over the lane set: they hold their closures under separate source keys
   // (`setClosedLanes` in sim/traffic.js), so whichever runs second no longer clears the other.
@@ -2992,6 +3003,12 @@ if (shot) {
     for (let step = 0; step < Math.round(shot.drawbridgeAt * 60); step++) {
       boats?.update(1 / 60);
       drawbridge.update(1 / 60, traffic.cars);
+      // **The traffic has to run too, and this is not optional staging.** `clearing` holds until
+      // the deck is empty, and a car left standing on it by the warm-up never drives off unless the
+      // sim is stepped — so a shot that ticked only the bridge photographed a span with its
+      // barriers down and its leaf still flat, every time, which is a real state and not the one
+      // being framed.
+      traffic.update(1 / 60);
     }
     controller.state.target.set(drawbridge.span.cx, 0, (drawbridge.span.z0 + drawbridge.span.z1) / 2);
     controller.update(aspect());

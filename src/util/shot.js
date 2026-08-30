@@ -53,12 +53,14 @@ export const SHOTS = [
   // 1.1s rise, so the props are opaque and standing rather than halfway out of the road.
   // The river, and the one span on it that moves. Both have the wreck's problem — a lift is up for
   // a dozen seconds once or twice a session — so `drawbridgeAt` is seconds into the bridge's own
-  // cycle, stepped through the real state machine rather than posed. 6.2 is past the barriers
-  // (1.1s) and the full lift (3.4s) with the tug arriving at the opening; 3.0 catches the leaf
-  // half way up, which is the frame that says what it is.
-  { name: 'river', description: 'the river, its bridges and the boats on it', target: [0, 0], zoom: 34, warmup: 12, drawbridgeAt: 6.2 },
-  { name: 'drawbridge', description: 'the leaf half way up, with the tug waiting', target: [0, 0], zoom: 17, warmup: 12, drawbridgeAt: 3.0 },
-  { name: 'drawbridge-open', description: 'the leaf fully up and the tug going through', target: [0, 0], zoom: 17, warmup: 12, drawbridgeAt: 9.5 },
+  // cycle, stepped through the real state machine rather than posed. The timings track the cycle
+  // and have to be re-derived whenever it moves: barriers take BARRIER_SECONDS (2.2), `clearing`
+  // takes as long as it takes to empty the deck (a second, typically, and unbounded by design),
+  // and the leaf takes LIFT_SECONDS (6.8). So 6.5 lands the leaf around half way up — the frame
+  // that says what the thing is — and 13.0 is past the top with the tug going through.
+  { name: 'river', description: 'the river, its bridges and the boats on it', target: [0, 0], zoom: 34, warmup: 12, drawbridgeAt: 13.0 },
+  { name: 'drawbridge', description: 'the leaf half way up, with the tug waiting', target: [0, 0], zoom: 17, warmup: 12, drawbridgeAt: 6.5 },
+  { name: 'drawbridge-open', description: 'the leaf fully up and the tug going through', target: [0, 0], zoom: 17, warmup: 12, drawbridgeAt: 13.0 },
   { name: 'roadwork', description: 'a street closed for roadworks', target: [0, 0], zoom: 22, warmup: 12, roadworkAt: 1.4 },
   // And the taxi going through it. Same argument as the wreck: the smash has no steady state —
   // it is over in three quarters of a second and it needs the player to have driven at it — so
