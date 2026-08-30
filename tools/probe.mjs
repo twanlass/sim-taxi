@@ -25,7 +25,7 @@ import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../sr
 import { createDucks } from '../src/game/ducks.js';
 import { createGarage, garageSite } from '../src/city/garage.js';
 import {
-  createBurgerJoint, burgerSite, burgerGeometry, BURGER_R, SIGN_SPIN, VIEW_RISE, ROOF_Y,
+  createBurgerJoint, burgerSite, burgerGeometry, BURGER_R, SIGN_SPIN, VIEW_RISE, ROOF_Y, CAP_Y,
 } from '../src/city/burgerjoint.js';
 import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
@@ -11000,6 +11000,53 @@ let chopperOrder; // likewise
     }
     check('and nothing it is made of stands in the lane at car height', fouled === 0,
       `${fouled} vertices inside the car's envelope`);
+
+    // --- The roofline neon sits under the parapet cap's drip edge.
+    //
+    // The tube is fixed to the band's face and stands proud of it, and what stops that from being
+    // a detail is the cap above: it oversails the band by a tenth of a unit, the tube spends most
+    // of that, and the margin left over is the only thing between "tucked under a drip edge" and
+    // "coplanar with the cap's own face", which is a z-fight on the corner the camera is aimed at.
+    // So the drip edge is measured from the cap the shell **actually drew** rather than from the
+    // constant it was drawn with, and the clearance is held to the same 5mm the coplanar check
+    // above uses.
+    //
+    // The neon is the only lit thing above the eaves — the pickup window and the menu panel are
+    // both down at a driver's height — so a height cut is enough to pick it out of the glow mesh.
+    let capX = -Infinity;
+    let capZ = -Infinity;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getY(i) < CAP_Y - 1e-6) continue;
+      capX = Math.max(capX, p.getX(i));
+      capZ = Math.max(capZ, p.getZ(i));
+    }
+    const g = joint.glow.geometry.attributes.position;
+    const neon = { n: 0, y: -Infinity, x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+    for (let i = 0; i < g.count; i++) {
+      const y = g.getY(i);
+      if (y <= CAP_Y - 1.0) continue;                 // below the eaves: the two lit panels
+      neon.n += 1;
+      neon.y = Math.max(neon.y, y);
+      neon.x0 = Math.min(neon.x0, g.getX(i));
+      neon.x1 = Math.max(neon.x1, g.getX(i));
+      neon.z0 = Math.min(neon.z0, g.getZ(i));
+      neon.z1 = Math.max(neon.z1, g.getZ(i));
+    }
+    check('the roofline neon is tucked under the parapet cap',
+      neon.n > 0 && neon.y < CAP_Y - 0.005
+      && capX - neon.x1 > 0.005 && capZ - neon.z1 > 0.005,
+      `${neon.n} vertices, top ${neon.y.toFixed(3)} under ${CAP_Y.toFixed(3)}, `
+      + `standing ${(capX - neon.x1).toFixed(3)}/${(capZ - neon.z1).toFixed(3)} inside the drip edge`);
+
+    // ...and it runs the whole length of both faces this camera can see, rather than a stub on
+    // each. Both arms reach the band's own far corners, where their end caps face away and are
+    // culled — so what the tube does at the two corners it cannot be seen turning is carry on.
+    check('and it traces the whole of both faces the camera can see',
+      neon.z1 - neon.z0 > site.wall.z1 - site.wall.z0
+      && neon.x1 - neon.x0 > site.wall.x1 - site.wall.x0,
+      `${(neon.x1 - neon.x0).toFixed(2)} × ${(neon.z1 - neon.z0).toFixed(2)} `
+      + `round a ${(site.wall.x1 - site.wall.x0).toFixed(2)} × `
+      + `${(site.wall.z1 - site.wall.z0).toFixed(2)} building`);
 
     // The sign turns about a vertical axis through the pole, which is only true if its geometry is
     // built centred on its own origin. Off-centre it orbits the pole instead of turning on it, and
