@@ -31,6 +31,22 @@ export const DECK_SEGMENTS = 10;
 const ABUT_FOOT = 1.0;
 const ABUT_DEPTH = 0.9;          // how far the abutment reaches back under the bank
 
+// How far the abutment stands **proud of** the channel wall — see `abutmentParts`.
+//
+// **Sized against a depth buffer, not against the eye.** The camera's frustum is 1 to 1400
+// (`createCityCamera`), so a 16-bit depth buffer — which is what a phone may hand back — quantises
+// it at 0.021 units a step. 0.1 is five of those and 1200 steps of a 24-bit one, so the abutment
+// wins this plane on every GPU rather than on most of them. In the other direction it is 0.77px at
+// play zoom: an abutment standing a fraction proud of the wall either side of it is what an
+// abutment does, and at this size it is read as a hard edge rather than as a ledge.
+//
+// **Proud rather than recessed, and that is a choice about what you see, not a sign.** Both break
+// the tie. Recessing it hands the plane to the wall, and the wall runs *past* the bridge — so the
+// arch would frame an unbroken bank with no visible abutment in it at all, which is the one thing
+// the geometry under there is for. Standing it proud keeps what the desktop happened to draw while
+// the tie stood, and closes the plane completely instead of leaving a slot behind it.
+const ABUT_WALL_CLEAR = 0.1;
+
 // The dashes down the middle, matched to `markRoad`'s own so a bridge reads as the road carrying
 // on. They ride the deck rather than the ground, which is the whole reason they are here: a flat
 // quad at y = 0.02 would sink into an arch.
@@ -258,10 +274,27 @@ export function abutmentParts(span, rng, end) {
   // through it is dark ground. At the mouth what shows through it is **sky**, and it was the last
   // bright speck left at the coast once the water had been shoaled out.
   //
-  // It reaches exactly to `DECK_OVERHANG`, which is where the channel wall stands. The two faces
-  // land on the same plane and do not fight: the wall faces into the channel and this one faces
-  // out of it, so whichever view you take, one of the pair is back-facing and culled.
-  const depth = ABUT_DEPTH + DECK_OVERHANG;
+  // **It goes `ABUT_WALL_CLEAR` past the wall, and that clearance is the whole point.** This used
+  // to reach exactly to `DECK_OVERHANG`, on the reasoning that the two faces land on the same plane
+  // but face opposite ways, so one of the pair is always back-facing and culled. That is not what
+  // they do. The channel wall at `edges.z0` faces **into** the channel, and so does this face — it
+  // is the +z end of a box sitting behind it — so at the far bank both are front-facing at once,
+  // over the deck's full width and the 2.25 units of height the two share. And they were coplanar
+  // to the last bit of a float32: the wall reaches its plane as `banks.z0 + EMBANK_WALK` and the
+  // abutment reached it as `span.z0 + (ABUT_DEPTH + DECK_OVERHANG) - ABUT_DEPTH`, both rounding to
+  // 6.733333110809326.
+  //
+  // Two exactly-tied surfaces do not shimmer. They hand the plane to whichever one the rasteriser
+  // rounds in front, and it rounds a map-wide quad and a 10.8-unit box face differently — so this
+  // read as a hard-edged patchwork that changed when the camera moved, and as one flat surface in
+  // any given headless still — which is how it survived a first pass over the bridges. Headless it
+  // came out wholly the abutment's; on the phone it was reported from, the same face came back cut
+  // in two.
+  //
+  // The far bank is the one you see through the arch; the near bank's pair has the identical fault
+  // and is back-facing under this camera. One line fixes both, and the invisible one is fixed too,
+  // because "you cannot see it from here" is not a reason for two surfaces to share a plane.
+  const depth = ABUT_DEPTH + DECK_OVERHANG + ABUT_WALL_CLEAR;
   const box = new THREE.BoxGeometry(span.outer * 2, height, depth);
   const mid = depth / 2 - ABUT_DEPTH;
   const z = end === 0 ? mid : (span.z1 - span.z0) - mid;

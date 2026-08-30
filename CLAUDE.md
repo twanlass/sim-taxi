@@ -380,6 +380,18 @@ Omit the whole section if there's nothing to note.
   below the skirt it butts against drew a hairline of open sky down the whole length of the mouth,
   because this camera looks *along* an 8cm riser. Ask whether the two surfaces cover any of the same
   ground before nudging either one.
+- **An exact tie does not shimmer, so it does not look like z-fighting on the machine you are on.**
+  Two front-facing surfaces on the *same* plane hand it to whichever one the rasteriser rounds in
+  front, and it rounds a map-wide quad and a small box face differently — so the bridge abutment
+  that sat exactly on the channel wall (`banks.z0 + EMBANK_WALK` against
+  `span.z0 + ABUT_DEPTH + DECK_OVERHANG - ABUT_DEPTH`, both float32 6.733333110809326) drew as one
+  clean surface in every headless still and as a hard-edged patchwork on a phone. Two things follow.
+  A still is not evidence that coplanar geometry is fine; only the *arithmetic* is. And "these two
+  face opposite ways so one is always culled" is a claim to check rather than to write down — that
+  one was wrong, both faced into the channel, and it stood for as long as the tie kept resolving the
+  flattering way. Breaking a tie is also a **look** decision, not just a sign: recessing hands the
+  plane to the surface that runs past the bridge, so the arch frames a bare bank; standing the
+  abutment proud keeps the thing the geometry is there to show.
 - **A scale is about its carrier's origin, so "shrink it to hide it" moves anything whose offset is
   in its vertices.** The brake and turn-signal pods are switched by scaling their level to 0
   (`instanceColor` is paint and cannot carry an on/off), and each *pair* was one merged geometry

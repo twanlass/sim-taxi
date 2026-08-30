@@ -131,7 +131,7 @@ import {
   waterEdges, bridgeSpan, bridgeLines, riverCrossing, archAt, deckHeightAt, createRiver, waterHeightAt,
   WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
 } from '../src/city/river.js';
-import { createBridge } from '../src/geometry/bridge.js';
+import { createBridge, abutmentParts } from '../src/geometry/bridge.js';
 import { createBargeMesh, createTugMesh, BEAM } from '../src/geometry/boat.js';
 import { createDrawbridge, OPEN_SECONDS } from '../src/game/drawbridge.js';
 import { createBoats, BOAT_LANE, LANE_WANDER } from '../src/game/boats.js';
@@ -12040,6 +12040,43 @@ let chopperOrder; // likewise
     // The running surface, both footways, the rail caps and the dashes all face up; if the lofting
     // ever flips, this is what goes with it.
     check('the deck faces the sky', upward > 100, `${upward} up-facing triangles`);
+  }
+
+  // --- Nothing under a bridge shares a plane with the channel wall.
+  //
+  // The abutment reaches forward to the water's edge to close the void under the deck's ends, and
+  // the channel wall stands on exactly that plane — so for a long time the two were coplanar to
+  // the last bit of a float32, front-facing at once, over the deck's full width. An exact tie does
+  // not shimmer, it hands the plane to whichever surface the rasteriser rounds in front, and it
+  // rounds a map-wide quad and a 10.8-unit box face differently: a hard-edged patchwork under the
+  // arch that moved with the camera, invisible in a headless still and reported from a phone.
+  //
+  // So the clearance is asserted rather than looked at, at both ends of every span — the near
+  // bank's pair is back-facing under this camera today, and "you cannot see it from here" is not a
+  // reason for two surfaces to be in the same place.
+  {
+    let closest = Infinity;
+    for (const i of bridgeLines()) {
+      const span = bridgeSpan(i);
+      for (const end of [0, 1]) {
+        const geo = abutmentParts(span, makeRng(seed + 830 + i), end)[0];
+        geo.translate(span.cx, 0, span.z0);
+        const p = geo.attributes.position;
+        let lo = Infinity; let hi = -Infinity;
+        for (let k = 0; k < p.count; k += 1) {
+          const z = p.getZ(k);
+          lo = Math.min(lo, z); hi = Math.max(hi, z);
+        }
+        // Signed **into** the channel: the +z face at the far bank, the -z face at the near one.
+        // Signed rather than absolute on purpose — a recess would break the tie just as well and
+        // would silently swap which surface the arch frames, so the direction is part of the claim.
+        closest = Math.min(closest, end === 0 ? hi - rWater.z0 : rWater.z1 - lo);
+      }
+    }
+    // Well clear of a 16-bit depth buffer's 0.021-unit step over this camera's 1..1400 frustum,
+    // which is the precision a phone may actually hand back. See `ABUT_WALL_CLEAR`.
+    check('every abutment stands proud of the channel wall rather than on its plane',
+      closest > 0.05, `nearest face stands ${closest.toFixed(3)} proud`);
   }
 
   // --- The route band rides the hump rather than being swallowed by it.
