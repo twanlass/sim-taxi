@@ -1151,6 +1151,226 @@ only distinction being made.
 - **The bands are subtle at the shipped `steps` of 3**, since golden hour already puts most of a
   facade in one band. It is a slider for exactly that reason.
 
+## Bloom — `game/bloom.js`, and the comparison in `game/hdr.js`
+
+Spill around every self-lit thing in the game: brake pods and indicators on every vehicle, a
+cruiser's light bar, the drive-through's lit windows and menu board, the depot's strip light. On by
+default; `?bloom=off` takes it away, and the ⚙️ panel has every one of its numbers live.
+
+### There is no HDR in this game to threshold
+
+The obvious bloom is a bright-pass over the finished frame. Measured on a shipped frame at golden
+hour, here is what a threshold would actually have to work with:
+
+| | max channel |
+|---|---|
+| Sunlit building faces, kerbs, road paint | ~180–200 |
+| The drive-through's lit windows | 255 |
+| The fare ring, the route band, the taxi's roof sign | 250–255 |
+
+Two things fall out of that. The first is that **the read-outs are exactly as bright as the lamps** —
+a fare's ring is a clock and its hue is the time remaining ([gameplay.md](gameplay.md)), and a
+threshold cannot tell it from a brake light. The second is that there is no headroom at all:
+`renderer.toneMapping` is `NoToneMapping` and a white face in full sun computes to about 0.9 in
+linear (sun intensity 3.55 through Lambert's `1/π`), so the whole picture lives inside 0..1 and only
+0.08% of pixels ever reach 254. There is nothing above the frame to extract.
+
+And it moves. `game/daylight.js` swings `sun.intensity` from 0 to 3.84 across a day, so every
+surface in that first row walks up and down under whatever threshold was picked.
+
+### So selection is a draw list, not a number
+
+`markEmissive()`, opt-in, exactly the shape [`markOccluder()`](#the-occluder-rule) already has for
+the AO prepass. A mesh is in the bloom because something said so.
+
+That is also what makes it cheap, and the reason is a happy accident of how the lamps were already
+built: **every emissive thing in this game is already its own mesh.** The light pods have to be, so
+they can be switched by scale (`instanceColor` is paint and cannot carry an on/off — see
+[traffic.md](traffic.md)) — and one pod per mesh rather than a pair, because a scale is about its
+carrier's origin and a merged pair could only shrink toward the car's centre, which is a lamp that
+*travels* as it dims rather than one that dims (`lightPodGeometry` in geometry/lights.js). The
+lamps have to be, so they can be unlit. So the pass is a dozen draw
+calls with no material surgery anywhere, and the instanced pods need no per-frame bookkeeping at
+all — a pod that is off has already had its instance matrix collapsed to a zero scale, and a
+degenerate triangle rasterises nothing whatever material it is wearing.
+
+Marking happens in `main.js`, because `sim/` may not import from `game/` and the two vehicle modules
+own most of the lamps; each hands its light meshes back the way the AO occluders are handed back.
+
+### Adding something to it
+
+**Nothing needs a special material.** There are only two ways a thing in this game is self-lit and
+the pass reads both off the mesh it is handed:
+
+| The mesh's material | What the pass takes as light |
+|---|---|
+| `unlitMaterial()` — flat or `vertexColors` | its `color` (times `vColor`) |
+| A Lambert carrying an emissive | `emissive × emissiveIntensity` |
+
+So if it is unlit it already qualifies, and if it is lit it qualifies to the extent it has an
+emissive. What it needs is to be **named**:
+
+```js
+markEmissive(locoFlame.group, 'flame');
+```
+
+`kind` is a key into `BLOOM_INTENSITY` rather than a number, which is what gives the whole class one
+slider in the ⚙️ panel instead of six sites answering "how bright is a brake light" separately. It
+**traverses**, so a group is fine — most of what is worth glowing is one (the plume is three
+coplanar tongues, a fare's disc is a rim, a fill and a sweep).
+
+Three things it handles that a naive copy would not, each of which was a real thing in the way:
+
+- **Materials that move.** The pass re-derives colour and opacity from the *live* material every
+  frame. Without that the plume blooms while it is out (its opacity is animated: `material.opacity
+  = heat`), and a fare's crystal blooms the urgency it was built with rather than the one on the
+  clock — **its hue is the time remaining**, so a snapshot is not a small error.
+- **Effects with a shader of their own.** The Loco kickoff burst multiplies a per-instance `aAlpha`
+  into its alpha in an `onBeforeCompile` patch, and nearly every particle in the pool is dead at any
+  moment. The pass inherits a source's patch and runs its own after it; without that the burst
+  blooms as a solid disc of fire parked on the road.
+- **Outlines hung off a lamp.** Every vehicle part wears a ghost outline — a mask and an inflated
+  rim, attached as *children* — so the taxi's six light pods carry twelve between them. A traversal
+  that took them blooms a hull three times the size of the lamp inside it. `isOutline` drops them:
+  the mask by `colorWrite === false` (it has no colour to be light), the rim by name, the way
+  `setGhostOutlines` already identifies them.
+
+And one it handles by doing nothing, which is worth knowing because it looks like it should need
+work: **a hue that lives in `instanceColor` rather than in the material.** The wreck's fireball
+leaves its material white and writes its colour ramp per puff, so "what colour is this lamp" has no
+answer in the material at all. `USE_INSTANCING_COLOR` is derived from the *mesh*, not the material,
+so the pass's own material picks the ramp up on the same `InstancedMesh` — and the white it reads
+off the source is exactly the identity that ramp multiplies. "Fixing" that is how every explosion in
+the game ends up blooming white.
+
+Where to call it from is the same split `markOccluder` has. Anything `sim/` or `city/` owns is
+marked from `main.js`, because neither may import from `game/`; anything already in `game/` marks
+itself, the way `game/roadwork.js` marks its own slab.
+
+**What is in it today:** every vehicle's brake pods and indicators, the cruiser's light bar, the
+drive-through's lit windows and menu board, the depot's strip light, the Loco plume and its kickoff
+burst, the wreck's fireball, and — quietly — a fare's crystal and the disc under it.
+
+**And one that is wired but ships at zero: the route band.** It is the third member of the
+one-trip-one-hue trio and looks odd as the only one not lifted, so it was tried at 0.6 — already the
+lowest number in the table. It fails on *area*, which is what this pass is least forgiving of,
+because spill is a total rather than a peak. Isolated on shot 10 (`path` 0.6 against `path` 0, so
+the band and nothing else) it lifted **4.1% of the frame by a mean of 52/255**, where every lamp in
+the city together moves a fraction of one percent. The band stops being a wash you can read the road
+markings through and becomes an opaque green swathe. It also fails the read-out test in its purest
+form: **the band's alpha encodes distance along the route** — the head gap, the end fades, the
+reveal sweep — and an additive accumulate saturates exactly where that alpha is highest, flattening
+the gradient that says "this end is where you are" into one blown-out patch. Left wired so the
+judgement is one drag of the **Path** slider rather than a paragraph.
+
+It is also the one emitter that goes through `setEmissiveMaterial` rather than `markEmissive`, and
+the reason that hatch exists: a hand-written `ShaderMaterial` has neither a `color` nor an
+`emissive`, so nothing generic can say what it contributes as light. The owner supplies a clone of
+its own material and a `sync` callback that carries the uniforms across each frame.
+
+The fireball is the one place in this game where blowing the frame out is the *point* rather than a
+cost, so it carries the highest intensity in the table. It also demonstrates the whole of the pass
+in one object: its hue is per-instance, its alpha is a shader patch, and it is pooled — so it is
+marked once at construction and everything else follows the frame. The **shockwave ring** beside it
+is deliberately left out: it is a thin annulus, and a thin line is the first thing a blur destroys.
+
+Those last two are the ones to be careful with rather than the ones to turn up. Bloom desaturates
+toward white as it saturates, and a fare's ring is a clock whose hue *is* the answer. `crystal` and
+`ring` are therefore the two lowest intensities in the table: a lift on their own facets rather than
+a halo around them. They are in the list because that is a judgement to make with the game running,
+not because they want to be loud.
+
+### The pass
+
+1. **The lamps into a half-res half-float target.** One `MeshBasicMaterial` per marked mesh, built
+   from the mesh's own: an `unlitMaterial()`'s colour *is* the light (flat or per-vertex), and a
+   Lambert's `emissive × emissiveIntensity` is what it actually adds. Times an intensity from
+   `BLOOM_INTENSITY` — **this is the entire HDR pipeline.** `THREE.Color` does not clamp and
+   `diffuse` is a plain `vec3`, so a value over 1 survives to the target untouched.
+2. **Reject what the world is standing in front of.** A patch on each material discards against
+   `game/ssao.js`'s packed depth — the solid world, already drawn, at exactly this resolution.
+   Sharing it is why the bloom needs no prepass of its own; the price is a `depth` flag on the AO
+   module so the prepass runs when only the bloom wants it.
+3. **Three downsamples and three tent upsamples**, each adding into the level above.
+4. **Composite additively as one more object in the main scene**, at `renderOrder` 0 — the same
+   trick [the crayon page](#the-page--one-tile-baked-in-code) uses, hoisted out of a render target
+   and into the transparent queue. **This is the whole reason the frame keeps its MSAA and the
+   ghost outlines keep their stencil.**
+
+The intensities are per *kind* of lamp because spill is a total rather than a peak: a brake pod is
+four pixels and a menu board forty times that, so equal intensities put a wash over the
+drive-through and a hint on a car.
+
+The ⚙️ panel has all of it live: three masters — **Lamps** (how far past 1 a light is written, which
+sets the shape of the falloff), **Spill** (how much of the blurred result reaches the frame) and
+**Reach** (how the chain's levels are weighted against each other, from a tight hot core at 0 to a
+flat fog at 1) — and then one row per kind, generated off `BLOOM_KINDS` so anything marked with a
+new kind arrives with its own slider.
+
+Where the three masters settled, tuned with the panel open on the running game rather than against a
+still: **Lamps 0.35, Spill 0.25, Reach 0.55** (`BLOOM_DEFAULTS`). The first two came a long way down
+from the 1.0 and 0.7 the pass opened at, and the direction is the point — a brake pod is written at
+3.4 x 0.35 = 1.19, which the intensity table's own note calls the faint-smudge end, below the ~2 it
+calls the start of the useful range. At the opening numbers the bloom was a thing you looked at, and
+this is a game you look *past*: what wants to survive is the read — a brake pod ahead, a siren two
+blocks over — with the tarmac still tarmac around it. Note which knob did the work: `Lamps` moves the
+whole intensity table at once and leaves its ratios (a siren over a pod, a menu board over both)
+alone, so turning the effect down never became a renegotiation of nine entries. `Reach` did not move,
+because it decides tight-against-wide and not how much, and 0.55 was already the tight end.
+
+### Two numbers that were wrong first
+
+**Summing the chain at equal weight is a fog, not a glow.** A box downsample preserves the *average*
+of what it reads, so every level carries the same average as the one above it — and adding three of
+them lifts the whole frame by three times the mean brightness of the lamps. On screen that is a pink
+haze over the road around a police car rather than a light on its roof. `LEVEL_WEIGHT` brings each
+level in at a fraction of the one below, so the finest stays dominant and the widest is a tail. It
+is the same thing `UnrealBloomPass` spells as its `radius` lerp.
+
+**A lit panel wants a fraction of a pod's intensity.** At the pod's 3.4 the drive-through's two
+window panels washed out the entire building they are set into. 1.15 puts the same total spill into
+forty times the area.
+
+### What it costs
+
+Half-res emissive target plus a 1/4, 1/8, 1/16 chain: about **1.3MB** at DPR 2 on a phone, against
+the ~10.7MB an RGBA16F *frame* would cost. A dozen half-res draw calls and five small fullscreen
+blits. `EXT_color_buffer_half_float` is what makes the target renderable and a device without it
+falls back to RGBA8 — a bloom whose cores are flat rather than no bloom, and the ⚙️ panel says which
+one is running.
+
+### `?hdr` — the other route, for comparison
+
+`game/hdr.js` is the real thing: the whole frame through an `EffectComposer` at RGBA16F with
+`ACESFilmicToneMapping` on, `UnrealBloomPass`, and an `OutputPass`. It takes `?bloom`'s place rather
+than stacking with it. It is a **comparison, not a shipped mode**, and what it costs is the reason
+it exists:
+
+- **Tone mapping changes every colour in the game.** Everything in `palette.js`, the sky dome's
+  gradient, `hazeColor()`, the shadow tint and the golden-hour key were picked against a straight
+  clamp at 1. Side by side, the city comes out cooler and flatter — the warm khaki ground goes
+  grey-green and the shadows crush. Getting it back is a pass over the whole palette, not an
+  exposure slider. **That is the bill, and the bloom is the cheap part.**
+- **MSAA and the stencil buffer have to be bought back** as `samples` and `stencilBuffer` on the
+  composer's target: two full-size allocations and a resolve per frame, on a budget
+  [`game/recovery.js`](#losing-the-context--gamerecoveryjs) exists to climb down from.
+- **Crayon and Cartoon Mode cannot run with it.** Three disables in-material tone mapping *and* the
+  sRGB encode whenever the render target is not the screen — precisely so an `OutputPass` can do
+  both — and [both look modes deliberately mix their ink in display space](#the-fill--after-the-colour-space-before-the-haze),
+  after `<colorspace_fragment>`. The module declines the flag rather than drawing something wrong.
+- **And it demonstrates the threshold problem rather than solving it.** The lamps have to be pushed
+  above the threshold to bloom at all, and once the threshold is low enough to find them it finds
+  the route band too — which glows, visibly, in the `?hdr` frames.
+
+### What neither is doing yet
+
+- **The city's own windows and street lamps do not glow**, only the drive-through's and the depot's.
+  A building's windows are baked vertex colour on one merged mesh, so there is nowhere to hang a
+  per-window anchor without generating one at mesh time.
+- **Nothing glows harder for being in shadow**, where a real light reads far stronger.
+- **No lens dirt, no anamorphic streak, no chromatic separation** in the spill — it is radially
+  symmetric and colourless beyond the lamp's own hue.
+
 ## The renderer budget — `?safe` and friends
 
 Four things on this page cost GPU memory that a plain three.js scene doesn't, and each has a URL

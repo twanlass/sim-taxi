@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { color } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
+import { markEmissive } from './bloom.js';
 import { wheelGeometry, WHEEL_R } from '../geometry/wheels.js';
 import { carrySpeed, carryTravel } from '../util/carry.js';
 
@@ -210,6 +211,20 @@ export function createBlast(scene, rng) {
   });
   const puffAlpha = withInstanceAlpha(puffGeo, puffMat, MAX_PUFFS);
   const puffMesh = makePool(scene, puffGeo, puffMat, MAX_PUFFS, 6);
+  // The fireball glows — see game/bloom.js. Three things about this one would each have needed
+  // handling and none of them does, which is worth knowing because it is the shape most effects in
+  // here have:
+  //
+  //   - **Its hue is `instanceColor`,** not the material's colour: `puffMat` is left white and the
+  //     RAMP below is written per puff. That needs nothing, because `USE_INSTANCING_COLOR` is
+  //     derived from the *mesh* rather than the material, so the pass's own material picks the ramp
+  //     up on the same InstancedMesh. The white it reads off `puffMat` is the identity it
+  //     multiplies.
+  //   - **Its alpha is a shader patch** (`withInstanceAlpha`), and MAX_PUFFS slots are dead at any
+  //     moment outside a wreck. `markEmissive` inherits a source's `onBeforeCompile`, so the dead
+  //     ones stay dead rather than blooming as a permanent ball of fire at the origin.
+  //   - **It is pooled**, so this marks once and `aAlpha` does the rest.
+  markEmissive(puffMesh, 'blast');
 
   // The one ramp every puff walks, keyed on its own fraction of life. Flat stops rather than a
   // formula for the same reason the daylight keyframes are: the interesting part is the shape of

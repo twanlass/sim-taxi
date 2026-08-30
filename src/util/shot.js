@@ -392,6 +392,43 @@ export function getCartoon(fallback = false) {
 }
 
 /**
+ * The emissive bloom, via `?bloom=off`.
+ *
+ * **On by default**, unlike `?crayon` and `?cartoon` beside it, because it is not a look being
+ * judged — it is spill around lamps that are already part of the shipped picture. The flag is here
+ * to take it away: a like-for-like A/B on a real device, and one more thing to bisect when a phone
+ * renders nothing (see `?safe`).
+ *
+ * It does not follow safe mode. The pass is a dozen draw calls at half res plus five small
+ * fullscreen blits, and it allocates about 1.3MB at DPR 2 — less than the AO prepass safe mode is
+ * actually there to drop. A device that cannot render an RGBA16F target at all falls back to RGBA8
+ * inside the pass rather than needing the flag (see `createBloom`).
+ */
+export function getBloom(fallback = true) {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('bloom');
+  if (raw === null) return fallback;
+  return !isOff(raw);
+}
+
+/**
+ * The other bloom — the full HDR route, via `?hdr`. See `game/hdr.js`.
+ *
+ * **Off by default, and it is a comparison rather than a shipped mode.** It routes the whole frame
+ * through an `EffectComposer` and turns tone mapping on, which changes every colour in the game:
+ * the palette was picked against `NoToneMapping`. It also takes `?bloom`'s place rather than
+ * stacking with it, and it cannot be combined with `?crayon` or `?cartoon`, both of which mix
+ * their ink in display space — a seam an output pass moves. `main.js` says so rather than
+ * silently drawing something wrong.
+ */
+export function getHdr(fallback = false) {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('hdr');
+  if (raw === null) return fallback;
+  return !isOff(raw);
+}
+
+/**
  * Multisampling, via `?msaa=off`.
  *
  * Not the same request as the stencil buffer, even though the two ride in the same back buffer:

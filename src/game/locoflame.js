@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
+import { markEmissive } from './bloom.js';
 import { TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../geometry/taxi.js';
 
 // The flame that burns out of the tailpipe for as long as Loco Mode is held.
@@ -150,6 +151,15 @@ export function createLocoFlame(scene) {
   const group = new THREE.Group();
   group.visible = false;
   scene.add(group);
+  // The plume glows — see game/bloom.js. Marked here rather than from `main.js` because this module
+  // is already in `game/` (the same latitude `game/roadwork.js` takes with `markOccluder`), and
+  // marked on the *group* so all three tongues of every flipbook frame are covered at once.
+  //
+  // Nothing about the material had to change for this: it is already `unlitMaterial`, and an unlit
+  // colour *is* light as far as the pass is concerned. The one thing that would have broken it —
+  // the opacity below being animated every frame — is why `markEmissive` re-reads the live material
+  // rather than taking a copy.
+  markEmissive(group, 'flame');
 
   // One material per layer, shared across all four flipbook frames: the frames differ in shape
   // only, and three materials is also three opacity values to animate instead of twelve.

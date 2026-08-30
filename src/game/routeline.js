@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
+import { setEmissiveMaterial } from './bloom.js';
 import {
   ROAD_W, isXAxis, dirSign, lineCoord, laneOffsetCoord, entryPoint, exitPoint, turnControl,
   nextIntersection,
@@ -520,6 +521,29 @@ export function createRouteLine(scene) {
   mesh.frustumCulled = false;
   mesh.visible = false;
   scene.add(mesh);
+
+  // The band glows a little — see game/bloom.js. It takes the escape hatch rather than the ordinary
+  // `markEmissive`, and it is the reason that hatch exists: this is a hand-written `ShaderMaterial`
+  // with neither a `color` nor an `emissive`, so nothing generic can say what it contributes as
+  // light. A clone of it is the only material that reproduces what the band actually draws — the
+  // reveal sweep, the head gap and the two end fades all live in that shader, and a plain stand-in
+  // would bloom a hard-ended stripe where the band tapers away.
+  //
+  // `uColor` is the light, and `sync` is what carries the fare's hue across every frame: the band
+  // is repainted as the clock runs down, exactly like the crystal it runs into.
+  const bloomMaterial = material.clone();
+  setEmissiveMaterial(mesh, bloomMaterial, 'path', (bloom, live, intensity) => {
+    for (const name of Object.keys(live.uniforms)) {
+      const from = live.uniforms[name].value;
+      const to = bloom.uniforms[name];
+      if (!to) continue;
+      to.value = from?.isColor || from?.isVector2 ? to.value.copy(from) : from;
+    }
+    bloom.uniforms.uColor.value.multiplyScalar(intensity);
+    // The blend mode is a live setting (`setBlend`), and a multiply band writes *darker* than the
+    // road — which is not light by any reading. Held at the pass's own additive accumulate instead.
+    bloom.blending = THREE.NormalBlending;
+  });
 
   // Identity of the route currently sweeping in, so a route that is merely being redrawn this
   // frame (the common case — every frame, as the car advances) doesn't replay the rollout, while

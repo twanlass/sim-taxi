@@ -330,6 +330,23 @@ Omit the whole section if there's nothing to note.
   what the fade eats, and a surface *buried inside a neighbour* has to be exempted, or every
   intersection curve between two lobes draws an arc where one is turning away while the other is
   still solid.
+- **A scale is about its carrier's origin, so "shrink it to hide it" moves anything whose offset is
+  in its vertices.** The brake and turn-signal pods are switched by scaling their level to 0
+  (`instanceColor` is paint and cannot carry an on/off), and each *pair* was one merged geometry
+  holding both pods' offsets in its own vertices. Scaling that does not dim a lamp, it flies it: the
+  pods slid toward the car's origin and down to the road as the level fell — 1.59 units forward and
+  0.87 down on a car, **2.69 forward on a truck**, which parks a brake light level with the middle
+  of the cargo box. Three things kept it hidden for so long, and each is worth its own note. A pod
+  is a handful of pixels at play zoom, so the mesh's own slide reads as nothing; it was the *bloom*
+  that showed it, the spill being an order of magnitude wider than the thing spilling, and it got
+  reported as the glow having come unstuck from the car. Only the **brake** lamp can show it at all,
+  because only the brake level is eased (`BRAKE_LIGHT_FALL`, ~0.75s) — a turn signal steps 0 to 1
+  and is never caught in between. And the taxi had it too, by the same line of reasoning in a
+  different file (`setLights` in geometry/taxi.js), because both read their geometry from
+  geometry/lights.js. The fix is that the anchor is a **pivot**: pods are centred on their own
+  origin and the offset rides the transform, one pod per mesh or instance. It has to be per pod —
+  one merged pair can only be scaled about a point both pods share, and the two kinds disagree about
+  which point that is (a brake pair differs across the car, a turn-signal pair along it).
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and
@@ -371,6 +388,32 @@ Omit the whole section if there's nothing to note.
   costs the drive-through its short exit and buys it two quarter turns (`EXIT_LIFT` in
   `city/burgerjoint.js`), and it is the question to ask of any new `releaseCar` site: how far back
   from the junction does this land, measured?
+- **Three turns off in-material tone mapping *and* the sRGB encode the moment the render target is
+  not the screen.** `WebGLPrograms.getParameters` reads `renderer.toneMapping` only when the current
+  target is null, and the colour-space encode follows the target's own `colorSpace` — both by
+  design, so an `EffectComposer`'s `OutputPass` can do them once at the end. Which means routing the
+  city through *any* render target silently moves a seam this project builds on: `propMaterial()`
+  patches `<colorspace_fragment>` because the frame is in **display space** by then, and both
+  Crayon and Cartoon Mode mix sRGB-encoded ink constants into it there. Under a composer those
+  constants land in linear values and every line in the game is the wrong colour, with nothing
+  logged. `game/hdr.js` declines the two look modes outright rather than drawing it.
+- **In a layer-gated pass, skipping the material swap does not skip the draw.** What decides who
+  renders is `camera.layers`; swapping each mesh's material is only what decides *how*. So a loop
+  that `continue`s over an entry — because it is switched off, or fails a test — leaves that mesh on
+  the layer wearing its **own** material, and it goes into the pass at full strength with none of
+  the patches the pass relies on. The bloom's route band shipped like this for an afternoon: dialled
+  to zero it came out **brighter** than at 0.6, and glowing over the building in front of it,
+  because the material carrying both the intensity and the depth reject was the one being skipped.
+  Switch an entry off on the material instead — three honours `material.visible` when it builds the
+  render list — and never let the loop that swaps have an early exit
+  (`refreshEmissive` in `game/bloom.js`).
+- **A downsample chain summed at equal weight is a fog, not a glow.** A box downsample preserves the
+  *average* of what it reads, so every level of a bloom chain carries the same average as the one
+  above it — and adding three of them lifts the whole frame by three times the mean brightness of
+  whatever is glowing. It reads as a pink haze across the road around a police car rather than a
+  light on its roof, and it looks like the strength being too high, so the instinct is to turn down
+  the one knob that was not the problem. Each level has to come in at a fraction of the one below
+  (`LEVEL_WEIGHT` in `game/bloom.js`); it is the same thing `UnrealBloomPass` spells as `radius`.
 - **Never name a Rollup chunk after anything under `src/`.** `vite.config.js` has two entries now
   (the game and `/lab/`), and a `manualChunks` rule that swept `src/main.js` into a shared chunk
   made every page importing that chunk *boot the game* — `/lab/` came up with the city's road
