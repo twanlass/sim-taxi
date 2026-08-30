@@ -111,6 +111,13 @@ Two things fall out for free:
 `insetPolygon` returns null for a face narrower than the roads around it, because a sliver between
 two roads genuinely has nothing buildable on it.
 
+A face over the **river** is a third case, and it is the one the model cannot reach on its own:
+water is not a road, so the graph sees an ordinary face — merged across every crossing that has no
+bridge, which is why the river row comes back as one or two big blocks rather than five.
+`roadNetFromGrid` tags those `type: 'water'` after the bake. Tagged rather than dropped, so the
+editor model goes on describing every face the roads enclose and only the *meaning* of one is grid
+knowledge. See [river.md](river.md).
+
 The inset is **per side**, since the roads round a face are no longer all the same width. Each
 vertex is stamped during the traversal with the width of the road leading away from it, because
 that is the one place the edge behind a side is known for certain. Deriving it back out of the
@@ -147,7 +154,7 @@ lane two metres off its own island.
 
 ## Equivalence with the grid is the safety net
 
-`roadNetFromGrid(layout)` builds the shipped 5×5 city in this model, and `tools/roadnet.mjs`
+`roadNetFromGrid(layout)` builds the shipped city in this model, and `tools/roadnet.mjs`
 asserts it numerically at **1e-9** — node positions, lane centres, junction entry and exit points,
 turn control points, legal moves, which junctions are signalised, the signal state sampled every
 0.1s across a full cycle, and the routes the router returns for all 5,184 (start, heading, target)

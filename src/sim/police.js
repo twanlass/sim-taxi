@@ -3,10 +3,11 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial, unlitMaterial, BODY_EULER_ORDER } from '../util/geo.js';
 import { PALETTE, color } from '../palette.js';
 import {
-  DIR, GRID, HALF_SPAN, PITCH, dirSign, isXAxis, laneOffX, laneOffZ,
-  legalExits, lineCoord,
+  DIR, GRID_I, GRID_J, HALF_SPAN_X, HALF_SPAN_Z, PITCH, dirSign, isXAxis, laneOffX, laneOffZ,
+  legalExits, lineX, lineZ,
   isSegmentClosed, nextIntersection, opposite,
 } from '../city/grid.js';
+import { deckHeightAt } from '../city/river.js';
 import { cityNetwork } from '../city/roadnet.js';
 import {
   setPriorityCorridor, setPolicePresence, locoWeave, locoWheelie, isLaneClosed, sirenLaneAhead,
@@ -175,9 +176,20 @@ export function sirenOn(flash, hunting = false) {
 // single frame.
 const FADE_BAND = 18;
 
+// `state.s` is a world coordinate **along the corridor's own axis** — an x while the rail runs
+// along X, a z while it runs along Z — so every bound on it is per-axis now that the map is not
+// square. Written once here rather than at the five sites that read it: an `s` measured against
+// the wrong axis puts the cruiser's turnaround, its fade and its arming line 10 units out, and
+// none of the three announces itself.
+const halfSpanAlong = (axis) => (axis === 'x' ? HALF_SPAN_X : HALF_SPAN_Z);
+/** The line index a corridor on this axis may take: an x-running road sits on a j line. */
+const topLineOn = (axis) => (axis === 'x' ? GRID_J : GRID_I);
+/** ...and how many junctions it passes on the way, which is the *other* axis's count. */
+const junctionsAlong = (axis) => (axis === 'x' ? GRID_I : GRID_J);
+
 /** 1 while over the city, easing to 0 as the car runs off the slab. */
-function edgeFade(s) {
-  const beyond = Math.abs(s) - HALF_SPAN;
+function edgeFade(s, axis) {
+  const beyond = Math.abs(s) - halfSpanAlong(axis);
   if (beyond <= 0) return 1;
   return Math.max(0, 1 - beyond / FADE_BAND);
 }
@@ -372,7 +384,7 @@ export function createPolice(rng, scene, cars = []) {
    * already under way, which is why roadwork.js declines to place one on a live siren's road.
    */
   const lineIsClear = (axis, line) => {
-    for (let k = 0; k < GRID; k++) {
+    for (let k = 0; k < junctionsAlong(axis); k++) {
       const closed = axis === 'x' ? isSegmentClosed(k, line, 0) : isSegmentClosed(line, k, 1);
       if (closed) return false;
       const d = axis === 'x' ? DIR.PX : DIR.PZ;
@@ -386,7 +398,7 @@ export function createPolice(rng, scene, cars = []) {
     let line = 0;
     for (let attempt = 0; attempt < 40; attempt++) {
       const tryAxis = rng.chance(0.5) ? 'x' : 'z';
-      const tryLine = rng.int(0, GRID);
+      const tryLine = rng.int(0, topLineOn(tryAxis));
       if (lineIsClear(tryAxis, tryLine)) { axis = tryAxis; line = tryLine; break; }
     }
     if (axis === null) { state.cooldown = 6; return; }   // nothing clear right now; try later
@@ -394,7 +406,8 @@ export function createPolice(rng, scene, cars = []) {
     state.axis = axis;
     state.line = line;
     state.dir = rng.chance(0.5) ? 1 : -1;
-    state.s = state.dir > 0 ? -HALF_SPAN - RUN_MARGIN : HALF_SPAN + RUN_MARGIN;
+    const half = halfSpanAlong(axis);
+    state.s = state.dir > 0 ? -half - RUN_MARGIN : half + RUN_MARGIN;
     state.dodge = 0;
     state.dodgeRate = 0;
     state.active = true;
@@ -424,7 +437,7 @@ export function createPolice(rng, scene, cars = []) {
    * the road: it ends up in the opposing lane, facing back the way it came.
    */
   function railPoint() {
-    const c = lineCoord(state.line);
+    const c = state.axis === 'x' ? lineZ(state.line) : lineX(state.line);
     const sign = state.axis === 'x' ? state.dir : -state.dir;
     const lane = state.uturn === null ? 1 : smoothstep(state.uturn) * 2 - 1;
     // The dodge comes off the lane term rather than being added to the weave, so it is measured
@@ -477,7 +490,10 @@ export function createPolice(rng, scene, cars = []) {
 
   function place() {
     const p = railPoint();
-    group.position.set(p.x, ROAD_Y, p.z);
+    // Over a bridge. The corridor runs a whole line end to end and **every** road running along Z
+    // crosses the river, so without this the cruiser drives through an arched deck on any run that
+    // picks one — and declining the crossing lines is not an option when they all cross.
+    group.position.set(p.x, ROAD_Y + deckHeightAt(p.x, p.z).y, p.z);
     group.rotation.y = railHeading();
   }
 
@@ -506,15 +522,15 @@ export function createPolice(rng, scene, cars = []) {
   function quarryOnRail() {
     const q = state.quarry;
     return state.axis === 'x'
-      ? { along: q.x, across: q.z - lineCoord(state.line) }
-      : { along: q.z, across: q.x - lineCoord(state.line) };
+      ? { along: q.x, across: q.z - lineZ(state.line) }
+      : { along: q.z, across: q.x - lineX(state.line) };
   }
 
   /** The junction it is heading toward along its own axis, clamped onto the grid. */
   function junctionAhead() {
-    const u = (state.s + HALF_SPAN) / PITCH;
+    const u = (state.s + halfSpanAlong(state.axis)) / PITCH;
     const raw = state.dir > 0 ? Math.ceil(u - 1e-4) : Math.floor(u + 1e-4);
-    const k = Math.max(0, Math.min(GRID, raw));
+    const k = Math.max(0, Math.min(junctionsAlong(state.axis), raw));
     return state.axis === 'x' ? { i: k, j: state.line } : { i: state.line, j: k };
   }
 
@@ -544,7 +560,7 @@ export function createPolice(rng, scene, cars = []) {
     for (const d of exits) {
       const n = nextIntersection(d, i, j);
       if (!n) continue;
-      const score = Math.hypot(lineCoord(n.i) - state.quarry.x, lineCoord(n.j) - state.quarry.z)
+      const score = Math.hypot(lineX(n.i) - state.quarry.x, lineZ(n.j) - state.quarry.z)
         - (d === dIn ? 0.6 : 0);
       if (score < bestScore) { bestScore = score; best = d; }
     }
@@ -552,7 +568,7 @@ export function createPolice(rng, scene, cars = []) {
     state.axis = isXAxis(best) ? 'x' : 'z';
     state.dir = dirSign(best);
     state.line = isXAxis(best) ? j : i;
-    state.s = isXAxis(best) ? lineCoord(i) : lineCoord(j);
+    state.s = isXAxis(best) ? lineX(i) : lineZ(j);
     setPriorityCorridor({ axis: state.axis, line: state.line });
   }
 
@@ -637,7 +653,7 @@ export function createPolice(rng, scene, cars = []) {
     }
 
     const target = junctionAhead();
-    const c = state.axis === 'x' ? lineCoord(target.i) : lineCoord(target.j);
+    const c = state.axis === 'x' ? lineX(target.i) : lineZ(target.j);
     state.s += state.dir * state.v * dt;
     if (state.dir > 0 ? state.s >= c : state.s <= c) {
       // Carry the overshoot through the corner. Dropping it stalls the car by up to a frame of
@@ -730,9 +746,18 @@ export function createPolice(rng, scene, cars = []) {
     // Both tilts pivot on the car's origin at road level, so either one on its own drives an edge
     // under the tarmac. Lifting by the sagitta of each keeps the low corner on the road — same
     // correction the ambient cars get, with this body's dimensions.
+    // The chase's own pass over a bridge, sampled at nose and tail for the reason the ambient
+    // cars are (see the pose step in sim/traffic.js): a rigid body pitched to the tangent under its
+    // own origin floats at the crest and buries its nose at the foot.
+    const ahead = CAR_LEN / 2;
+    const nose = deckHeightAt(drawn.x + Math.cos(state.yaw) * ahead, drawn.z - Math.sin(state.yaw) * ahead);
+    const tail = deckHeightAt(drawn.x - Math.cos(state.yaw) * ahead, drawn.z + Math.sin(state.yaw) * ahead);
+    const deckY = (nose.y + tail.y) / 2;
+    shownPitch += Math.atan2(nose.y - tail.y, 2 * ahead);
+
     const lift = Math.abs(Math.sin(state.roll)) * (CAR_W / 2)
       + Math.abs(Math.sin(shownPitch)) * (CAR_LEN / 2);
-    group.position.set(drawn.x, ROAD_Y + lift, drawn.z);
+    group.position.set(drawn.x, ROAD_Y + lift + deckY, drawn.z);
     // 'YXZ', not the default — see the note by the ambient euler in sim/traffic.js. The default
     // 'XYZ' rolls about the world X axis, so a cruiser chasing north or south would show no lean
     // at all and one heading west would lean into its corners instead of out of them.
@@ -794,9 +819,10 @@ export function createPolice(rng, scene, cars = []) {
       driveChase(dt);
     } else {
       state.s += state.dir * SPEED * dt;
+      const half = halfSpanAlong(state.axis);
       const past = state.dir > 0
-        ? state.s > HALF_SPAN + RUN_MARGIN
-        : state.s < -HALF_SPAN - RUN_MARGIN;
+        ? state.s > half + RUN_MARGIN
+        : state.s < -half - RUN_MARGIN;
       if (past) { stop(); return; }
       place();
     }
@@ -804,7 +830,8 @@ export function createPolice(rng, scene, cars = []) {
     // A chase is already past the bust it was armed for, and it can be routed anywhere on the map
     // — including back out through the outer band — so it stays armed rather than re-testing `s`
     // and disarming mid-pursuit.
-    state.armed = state.chasing || Math.abs(state.s) <= HALF_SPAN - BUST_ARM_INSET;
+    state.armed = state.chasing
+      || Math.abs(state.s) <= halfSpanAlong(state.axis) - BUST_ARM_INSET;
 
     // --- Front wheels, off the pose that was just written.
     //
@@ -829,7 +856,7 @@ export function createPolice(rng, scene, cars = []) {
 
     // The lamps fade with the bodywork. Leaving them at full strength would keep washing colour
     // across the tarmac from a car that is no longer there.
-    const fade = edgeFade(state.s);
+    const fade = edgeFade(state.s, state.axis);
     state.fade = fade;
     for (const material of skin) material.opacity = fade;
     siren(fade);

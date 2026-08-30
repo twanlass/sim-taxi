@@ -3,7 +3,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, hash01, propMaterial, stampEntry, unlitMaterial } from '../util/geo.js';
 import { color, jitterColor } from '../palette.js';
 import { KERB_H } from './ground.js';
-import { DIR, GRID, HALF_ROAD, LANE, isSegmentClosed, lineCoord } from './grid.js';
+import {
+  DIR, GRID_I, GRID_J, HALF_ROAD, LANE, isSegmentClosed, junctionReach, lineX, lineZ,
+} from './grid.js';
 
 // The taxi's garage: a single-storey depot with a roller door on the street, and the one building
 // in the city the tower generator doesn't draw. It exists for the opening vignette
@@ -81,7 +83,7 @@ export const PAVEMENT_Y = KERB_H + 0.01;
  * A block on the eastern edge has no diagonal neighbour at all, which is why those pass for free.
  */
 function occlusionClear(blocks, bi, bj) {
-  if (bi + 1 > GRID - 1 || bj + 1 > GRID - 1) return true;      // nothing built out there
+  if (bi + 1 > GRID_I - 1 || bj + 1 > GRID_J - 1) return true;  // nothing built out there
   const diagonal = blocks.find((b) => b.bi === bi + 1 && b.bj === bj + 1);
   if (!diagonal) return true;
   if (diagonal.type === 'park') return true;
@@ -112,7 +114,7 @@ export function chooseGarageBlock(rng, blocks) {
   // Prefer somewhere off the outer ring: a depot in a corner puts the player's first fare — biased
   // to spawn near the taxi, see fares.js — out on the edge of the map with the whole city behind
   // it. Falls back to the full list rather than to nothing.
-  const inner = candidates.filter((b) => b.bi > 0 && b.bj > 0 && b.bj < GRID - 1);
+  const inner = candidates.filter((b) => b.bi > 0 && b.bj > 0 && b.bj < GRID_J - 1);
   return rng.pick(inner.length ? inner : candidates);
 }
 
@@ -127,7 +129,7 @@ export function garageSite(block) {
   const curtainX = frontX - RECESS;
   // The kerb lip is the block's own +X bound: `blockBounds` stops where the road starts.
   const kerbX = x1;
-  const laneX = lineCoord(block.bi + 1) - LANE;
+  const laneX = lineX(block.bi + 1) - LANE;
 
   return {
     bi: block.bi,
@@ -156,8 +158,16 @@ export function garageSite(block) {
       i: block.bi + 1,
       j: block.bj + 1,
       // `placeCar` counts back from the junction. The arc lands at `doorZ + turnR`; the lane's far
-      // end is one road-half short of the junction centre.
-      back: (lineCoord(block.bj + 1) - HALF_ROAD) - (doorZ + (HALF_ROAD - LANE)),
+      // end stops one **crossing** road's reach short of the junction centre.
+      //
+      // `junctionReach` and not a hard-coded `HALF_ROAD`, for the reason `city/burgerjoint.js`
+      // spells out at its own merge: that crossing road can be an arterial, and an arterial is a
+      // third wider. This read `HALF_ROAD` until a depot happened to land on a block whose exit
+      // junction is crossed by a main street, and then the vignette handed the taxi to the traffic
+      // model 1.33 units from where the arc had just put it — a car twitching sideways on the one
+      // frame the whole opening is built around.
+      back: (lineZ(block.bj + 1) - junctionReach(DIR.PZ, block.bi + 1, block.bj + 1))
+        - (doorZ + (HALF_ROAD - LANE)),
     },
     // The camera's subject: the middle of the opening, in three dimensions.
     focus: { x: curtainX, y: KERB_H + DOOR_H / 2, z: doorZ },

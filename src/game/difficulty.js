@@ -114,7 +114,7 @@ const TUNING = {
   // Blocks from the bias point an extra rider may spawn within. This only became a knob once
   // clocks were budgeted: it used to be a fairness patch, holding extras near the current
   // drop-off because a flat 60s could not pay for a distant one. The budget pays for it now, so
-  // the radius is free to open up — and GRID is the whole map.
+  // the radius is free to open up — and the grid's own count is the whole map.
   spawnRadiusStart: 3,
   spawnRadiusEnd: 5,
 

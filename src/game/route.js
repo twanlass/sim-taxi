@@ -1,4 +1,4 @@
-import { GRID, rightOf, leftOf } from '../city/grid.js';
+import { GRID_I, GRID_J, rightOf, leftOf } from '../city/grid.js';
 import { cityNetwork, gridNodeId } from '../city/roadnet.js';
 
 /**
@@ -50,6 +50,28 @@ let roadworkLanes = new Set();
 export function setRoadworkLanes(ids) {
   roadworkLanes = new Set(ids);
 }
+
+/**
+ * Lanes the taxi genuinely **cannot** drive, published by game/drawbridge.js while a leaf is up.
+ *
+ * The opposite of the set above it in every sense, and the two are worth reading together. A
+ * roadworks closure is soft on purpose — ambient traffic is kept out and the taxi is *tempted in*,
+ * and the asymmetry is the whole vignette. A raised bridge is hard for everybody: there is no road
+ * there, in the most literal way anything in this game has ever meant it.
+ *
+ * Enforced by skipping the lane in `search`'s successor expansion rather than by pricing it high.
+ * A weight, however large, is still a number Dijkstra will pay if it has to — and on a city where
+ * the bridge is the short way across, "has to" is exactly the case that comes up. Skipping means no
+ * route can ever thread a raised leaf, which is what lets `main.js` re-plan on the lift and trust
+ * the answer.
+ */
+let blockedLanes = new Set();
+export function setBlockedLanes(ids) {
+  blockedLanes = new Set(ids);
+}
+
+/** Whether a route may use this lane at all. */
+export const laneOpen = (lane) => !blockedLanes.has(lane.id);
 
 /**
  * Cost of driving one lane. Reads the class off the lane rather than recomputing it from `(i, j,
@@ -149,6 +171,7 @@ function search(net, from, reached, cost) {
     }
 
     for (const next of cur === START ? startExits(net, origin, from.d) : cur.onward) {
+      if (!laneOpen(next)) continue;      // a raised bridge is not a road — see setBlockedLanes
       const nd = curDist + cost(next);
       if (nd < (dist.get(next) ?? Infinity)) {
         dist.set(next, nd);
@@ -299,10 +322,21 @@ export function planOrigin(car) {
 // is taken at CORNER_SPEED (5.95, 70% of cruise) and its Bezier is longer than the 8-unit straight
 // through the junction — a left is 15.4 against a straight's 11.4.
 //
-// Fitted by least squares over 581 trips across 6 cities (`node tools/eta.mjs 100 6`): mean trip
-// 4.20 blocks, 1.92 turns, 16.4s. Against that data the pair below scores MAE 4.35s and bias
-// -0.14s — near enough unbiased, which is the property that matters, because a biased estimator
+// Fitted by least squares over ~590 trips across 6 cities (`node tools/eta.mjs 100 6`): mean trip
+// 4.81 blocks, 2.16 turns, 17.7s. Against that data the pair below scores MAE 4.30s and bias
+// -0.21s — near enough unbiased, which is the property that matters, because a biased estimator
 // tilts every clock in the game the same way.
+//
+// **Re-fitted twice while the river went in**, which is the case the instruction above was written
+// for, and the second time is the more interesting one. The extra block row moved the mean trip
+// 4.20 → 4.61 blocks. Then cutting the crossings from four to three moved it again, 4.61 → 4.81,
+// and moved the *turns* more than the blocks: 2.07 → 2.16. That is the shape of a map you have to
+// go round rather than through — a detour to a bridge is mostly corners.
+//
+// So a block keeps getting cheaper and a turn keeps getting dearer (3.28 → 3.11 → 2.94 and
+// 1.30 → 1.38 → 1.55), which is exactly what a longer, twistier map looks like to a two-term
+// estimator. Left alone the old pair carried a +0.26s bias, and a bias is the one error that
+// matters here because it tilts every clock in the game the same way.
 //
 // **The 4.35s is not estimator slop, it is the city.** The same route driven twice differs by
 // about that much depending on which signal phase the taxi meets and what it queues behind;
@@ -310,8 +344,8 @@ export function planOrigin(car) {
 // that variance, which is precisely why the deadline is `budget * slack(d)` and not `budget`:
 // slack is what pays for the traffic you happen to get, and shrinking it is what makes the game
 // harder.
-export const SEC_PER_BLOCK = 3.28;
-export const SEC_PER_TURN = 1.30;
+export const SEC_PER_BLOCK = 2.94;
+export const SEC_PER_TURN = 1.55;
 
 /**
  * How many of a route's steps change direction — the turns, as opposed to going straight through.
@@ -361,8 +395,8 @@ export function chainSeconds(from, stops) {
 /** Every intersection on the grid, as {i, j}. */
 export function allIntersections() {
   const out = [];
-  for (let i = 0; i <= GRID; i++) {
-    for (let j = 0; j <= GRID; j++) out.push({ i, j });
+  for (let i = 0; i <= GRID_I; i++) {
+    for (let j = 0; j <= GRID_J; j++) out.push({ i, j });
   }
   return out;
 }

@@ -11,24 +11,36 @@ happening to agree on the same magic number.
 ## Coordinates
 
 ```js
-GRID  = 5     // blocks per side  → 6×6 = 36 intersections
+GRID_I = 5    // block columns → i runs 0..5
+GRID_J = 6    // block rows    → j runs 0..6, and 6 × 7 = 42 intersections
 PITCH = 20    // distance between road centrelines
 ROAD_W = 8    // full road width (two lanes)
 BLOCK = 12    // PITCH - ROAD_W, the buildable footprint between two ordinary streets
 LANE  = 2     // lane centre offset from the centreline
-SPAN  = 100   // GRID * PITCH, the whole city
+SPAN_X = 100  // GRID_I * PITCH
+SPAN_Z = 120  // GRID_J * PITCH
 
 ARTERIAL_ROAD_W = 10.667   // ROAD_W × 4/3 — a main street is divided, see below
 LANE_TO_KERB    = 2        // lane centre to its own kerb, the same on every road
 MEDIAN_W        = 2.4      // the planted island between an arterial's carriageways
 ```
 
-Intersections are indexed `(i, j)` from `0..GRID`, and `lineCoord(i) = i * PITCH - HALF_SPAN`
-converts an index to a world coordinate. The city is centred on the origin.
+Intersections are indexed `(i, j)` from `0..GRID_I` and `0..GRID_J`, and `lineX(i)` / `lineZ(j)`
+convert an index to a world coordinate. The city is centred on the origin **on both axes**, which is
+why those are two functions rather than one: the half-spans no longer agree, so `x` and `z` are
+genuinely different arithmetic and a single `lineCoord` would silently answer for the wrong one.
 
-Five blocks a side is a gameplay constant, not an aesthetic one: the whole city has to fit on
+**The two counts are named after the index rather than the axis**, and that is not a coin flip.
+Every other name in this file already means "runs along X" — `arterialX` is a set of `j` values and
+`halfRoadX(j)` is a road's extent in z — so a `GRID_X` would have read as the opposite of what it is.
+
+About five blocks a side is a gameplay constant, not an aesthetic one: the whole city has to fit on
 screen at once, because that is what allows a fixed camera and unambiguous tap-to-select. (This is
 the main change from `city-lab`, which used a 10×10 grid with a pannable camera.)
+
+The sixth row is the one asymmetry, and it is **water** — see [river.md](river.md). Land is still 25
+blocks, exactly what a 5×5 city had; the extra row is what stops the river costing the map a street
+or a landmark.
 
 ## Direction encoding
 

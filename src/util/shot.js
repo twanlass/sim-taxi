@@ -51,6 +51,27 @@ export const SHOTS = [
   // one appears and it only ever appears once, so like the wreck and the flyover there is no way
   // to look at it without staging it. `roadworkAt` is seconds after it is placed: 1.4 is past the
   // 1.1s rise, so the props are opaque and standing rather than halfway out of the road.
+  // The river, and the one span on it that moves. Both have the wreck's problem — a lift is up for
+  // a dozen seconds once or twice a session — so `drawbridgeAt` is seconds into the bridge's own
+  // cycle, stepped through the real state machine rather than posed. The timings track the cycle
+  // and have to be re-derived whenever it moves: barriers take BARRIER_SECONDS (2.2), `clearing`
+  // takes as long as it takes to empty the deck (a second, typically, and unbounded by design),
+  // and the leaf takes LIFT_SECONDS (6.8). So 6.5 lands the leaf around half way up — the frame
+  // that says what the thing is — and 13.0 is past the top with the tug going through.
+  { name: 'river', description: 'the river, its bridges and the boats on it', target: [0, 0], zoom: 34, warmup: 12, drawbridgeAt: 13.0 },
+  { name: 'drawbridge', description: 'the leaf half way up, with the tug waiting', target: [0, 0], zoom: 17, warmup: 12, drawbridgeAt: 6.5 },
+  { name: 'drawbridge-open', description: 'the leaf fully up and the tug going through', target: [0, 0], zoom: 17, warmup: 12, drawbridgeAt: 13.0 },
+  // The coast at the river mouth, close enough to judge it. This is the one part of the map where
+  // two different kinds of edge have to agree — the island's rim, which dissolves, and the channel,
+  // which is a cutting — and every failure there has been a bright speck of sky a few pixels across
+  // that a wide framing simply cannot resolve. Pinned on the -x mouth; the two are mirror images.
+  { name: 'mouth', description: 'the river running off the coast', target: [-58, 10.67], zoom: 15, warmup: 12 },
+  // A boat under way, close enough to see its wake. Worth its own framing because the wake shipped
+  // wound upside down and therefore did not draw at all, and *no* wider shot could have shown that:
+  // at play zoom a wake is a few pale pixels, and a few pale pixels missing looks exactly like a
+  // feature nobody got round to. `drawbridgeAt` is what puts the tug in motion rather than holding
+  // station — a boat stopped at a shut span correctly has no wake.
+  { name: 'wake', description: 'a boat under way, with its wake', target: [4, 10.67], zoom: 8, warmup: 12, drawbridgeAt: 13.0 },
   { name: 'roadwork', description: 'a street closed for roadworks', target: [0, 0], zoom: 22, warmup: 12, roadworkAt: 1.4 },
   // And the taxi going through it. Same argument as the wreck: the smash has no steady state —
   // it is over in three quarters of a second and it needs the player to have driven at it — so

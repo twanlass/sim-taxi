@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createTraffic, lightPhase, signalCycle } from '../src/sim/traffic.js';
 import { createLayout } from '../src/city/layout.js';
-import { GRID } from '../src/city/grid.js';
+import { GRID_I, GRID_J } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 
 createLayout(makeRng(71624));
@@ -12,8 +12,8 @@ const traffic = createTraffic(makeRng(71624 + 44), new THREE.Scene(), 24);
 // --- 1. How many genuinely distinct signal timings exist?
 // Sample each junction's state across the cycle; identical signatures mean identical timing.
 const signatures = new Set();
-for (let i = 0; i <= GRID; i++) {
-  for (let j = 0; j <= GRID; j++) {
+for (let i = 0; i <= GRID_I; i++) {
+  for (let j = 0; j <= GRID_J; j++) {
     let sig = '';
     for (let t = 0; t < signalCycle(); t += 0.5) {
       const p = lightPhase(i, j, t);
@@ -22,20 +22,21 @@ for (let i = 0; i <= GRID; i++) {
     signatures.add(sig);
   }
 }
-console.log(`distinct signal timings: ${signatures.size} across ${(GRID + 1) ** 2} intersections`);
-console.log(`  -> ${(((GRID + 1) ** 2) / signatures.size).toFixed(1)} intersections share each timing exactly`);
+const JUNCTIONS = (GRID_I + 1) * (GRID_J + 1);
+console.log(`distinct signal timings: ${signatures.size} across ${JUNCTIONS} intersections`);
+console.log(`  -> ${(JUNCTIONS / signatures.size).toFixed(1)} intersections share each timing exactly`);
 
 // --- 2. Simultaneity: how many junctions flip within the same half-second?
 let prev = null;
 const flipsPerTick = [];
 for (let t = 0; t < 60; t += 0.5) {
   const states = [];
-  for (let i = 0; i <= GRID; i++) for (let j = 0; j <= GRID; j++) states.push(lightPhase(i, j, t).axis);
+  for (let i = 0; i <= GRID_I; i++) for (let j = 0; j <= GRID_J; j++) states.push(lightPhase(i, j, t).axis);
   if (prev) flipsPerTick.push(states.filter((s, k) => s !== prev[k]).length);
   prev = states;
 }
 const peak = Math.max(...flipsPerTick);
-console.log(`peak junctions flipping together: ${peak} of ${(GRID + 1) ** 2}`);
+console.log(`peak junctions flipping together: ${peak} of ${JUNCTIONS}`);
 
 // --- 3. Green-wave quality: drive a phantom platoon down a road at cruising speed and count how
 // --- often it meets a green. This is what "the city flows" actually means.
@@ -44,7 +45,7 @@ console.log(`peak junctions flipping together: ${peak} of ${(GRID + 1) ** 2}`);
 // Measuring from arbitrary departure times just samples the split and always returns ~50%.
 //
 // Two things this used to get wrong, both invisible in the printed number:
-//   - It walked `i = 0..GRID` along row `j` whether or not those roads exist, so on a seed where a
+//   - It walked `i = 0..GRID_I` along row `j` whether or not those roads exist, so on a seed where a
 //     park district closed a segment it drove a phantom platoon straight through the park and
 //     scored the junctions beyond it against a wave that cannot reach them. It now walks a *chain*
 //     — the network's maximal through-route — which stops where the road does.

@@ -2,19 +2,45 @@
 // routing — derives from these numbers, so the layout stays consistent by construction rather
 // than by matching magic constants in three different files.
 
-// Five blocks a side: the whole city fits on screen at once, which is what lets the game use a
-// fixed camera and unambiguous tap-to-select.
-export const GRID = 5;               // blocks per side
+// About five blocks a side: the whole city fits on screen at once, which is what lets the game
+// use a fixed camera and unambiguous tap-to-select.
+//
+// **The two axes are counted separately, and they are not the same number.** `GRID_I` is the
+// highest *i* line index — the roads running along Z, the columns — and `GRID_J` the highest *j*,
+// the roads running along X. They came apart when the city grew a row for the river to run down
+// (`city/river.js`), and the pair is deliberately named after the index rather than after the axis
+// because every other name in this file already means "runs along X": `arterialX` is a set of `j`
+// values and `halfRoadX(j)` is a road's extent in z. A `GRID_X` would have read as the opposite of
+// what it is. `i` runs `0..GRID_I` and `j` runs `0..GRID_J`; blocks are `bi < GRID_I`, `bj < GRID_J`.
+export const GRID_I = 5;             // block columns
+// Six rows against five columns, because **one of the rows is the river** (`city/river.js`). The
+// city is a block row taller than it is wide so that the water costs it neither a street nor a
+// buildable block: 25 of the 30 blocks are still land, which is exactly what a 5×5 city had.
+export const GRID_J = 6;             // block rows, one of them water
 export const PITCH = 20;             // distance between road centrelines
 export const ROAD_W = 8;             // full road width (two lanes)
 export const BLOCK = PITCH - ROAD_W; // buildable footprint between two ordinary streets
 export const LANE = 2;               // lane centre offset from the road centreline
 export const HALF_ROAD = ROAD_W / 2;
-export const SPAN = GRID * PITCH;
-export const HALF_SPAN = SPAN / 2;
+export const SPAN_X = GRID_I * PITCH;
+export const SPAN_Z = GRID_J * PITCH;
+export const HALF_SPAN_X = SPAN_X / 2;
+export const HALF_SPAN_Z = SPAN_Z / 2;
+/**
+ * The larger of the two, for the handful of callers that want "the whole map" rather than an axis
+ * of it — the shadow camera's extent and the sun's orbit radius. Anything that clamps a *position*
+ * wants the per-axis pair instead, or it lets the camera pan off the short side.
+ */
+export const MAX_SPAN = Math.max(SPAN_X, SPAN_Z);
 
-/** World coordinate of road centreline i (0..GRID). */
-export const lineCoord = (i) => i * PITCH - HALF_SPAN;
+/**
+ * World coordinate of a road centreline. Two functions rather than one, because the city is
+ * centred on the origin on both axes and the two axes no longer have the same half-span — so `x`
+ * and `z` genuinely are different arithmetic now, and one `lineCoord` would silently answer for
+ * the wrong one. `lineX` takes an `i`, `lineZ` takes a `j`.
+ */
+export const lineX = (i) => i * PITCH - HALF_SPAN_X;
+export const lineZ = (j) => j * PITCH - HALF_SPAN_Z;
 
 // --- Divided arterials ------------------------------------------------------
 //
@@ -99,10 +125,10 @@ export function junctionReach(d, i, j) {
 
 /** Bounds of block (bi, bj), the buildable area between four roads. */
 export function blockBounds(bi, bj) {
-  const x0 = lineCoord(bi) + halfRoadZ(bi);
-  const x1 = lineCoord(bi + 1) - halfRoadZ(bi + 1);
-  const z0 = lineCoord(bj) + halfRoadX(bj);
-  const z1 = lineCoord(bj + 1) - halfRoadX(bj + 1);
+  const x0 = lineX(bi) + halfRoadZ(bi);
+  const x1 = lineX(bi + 1) - halfRoadZ(bi + 1);
+  const z0 = lineZ(bj) + halfRoadX(bj);
+  const z1 = lineZ(bj + 1) - halfRoadX(bj + 1);
   return { x0, z0, x1, z1, cx: (x0 + x1) / 2, cz: (z0 + z1) / 2 };
 }
 
@@ -125,14 +151,14 @@ export const dirYaw = (d) => [0, -Math.PI / 2, Math.PI, Math.PI / 2][d];
  * Right-hand traffic: the lane sits on the right-hand side of the travel direction.
  */
 export function laneOffsetCoord(d, i, j) {
-  if (isXAxis(d)) return lineCoord(j) + dirSign(d) * laneOffX(j); // z of an x-travelling lane
-  return lineCoord(i) - dirSign(d) * laneOffZ(i);                 // x of a z-travelling lane
+  if (isXAxis(d)) return lineZ(j) + dirSign(d) * laneOffX(j); // z of an x-travelling lane
+  return lineX(i) - dirSign(d) * laneOffZ(i);                 // x of a z-travelling lane
 }
 
 /** Point where a car travelling d enters the intersection box at (i, j). */
 export function entryPoint(d, i, j) {
-  const cx = lineCoord(i);
-  const cz = lineCoord(j);
+  const cx = lineX(i);
+  const cz = lineZ(j);
   const reach = junctionReach(d, i, j);
   if (isXAxis(d)) return { x: cx - dirSign(d) * reach, z: laneOffsetCoord(d, i, j) };
   return { x: laneOffsetCoord(d, i, j), z: cz - dirSign(d) * reach };
@@ -140,8 +166,8 @@ export function entryPoint(d, i, j) {
 
 /** Point where a car travelling d leaves the intersection box at (i, j). */
 export function exitPoint(d, i, j) {
-  const cx = lineCoord(i);
-  const cz = lineCoord(j);
+  const cx = lineX(i);
+  const cz = lineZ(j);
   const reach = junctionReach(d, i, j);
   if (isXAxis(d)) return { x: cx + dirSign(d) * reach, z: laneOffsetCoord(d, i, j) };
   return { x: laneOffsetCoord(d, i, j), z: cz + dirSign(d) * reach };
@@ -167,20 +193,20 @@ export function turnControl(dIn, dOut, i, j) {
 /**
  * Grid intersection nearest a world point, clamped to the map.
  *
- * The inverse of `lineCoord` on both axes. It is what turns a finger on the road into a junction
- * the router can plan through — see `game/pathdrag.js`. Clamped rather than nulled off the edge:
- * a drag that runs past the ring road should pin to the ring, not stop answering.
+ * The inverse of `lineX` / `lineZ`. It is what turns a finger on the road into a junction the
+ * router can plan through — see `game/pathdrag.js`. Clamped rather than nulled off the edge: a
+ * drag that runs past the ring road should pin to the ring, not stop answering.
  */
 export function nearestJunction(x, z) {
-  const near = (v) => Math.min(GRID, Math.max(0, Math.round((v + HALF_SPAN) / PITCH)));
-  return { i: near(x), j: near(z) };
+  const near = (v, half, top) => Math.min(top, Math.max(0, Math.round((v + half) / PITCH)));
+  return { i: near(x, HALF_SPAN_X, GRID_I), j: near(z, HALF_SPAN_Z, GRID_J) };
 }
 
 /** Intersection reached by leaving (i, j) along d, or null if it would leave the grid. */
 export function nextIntersection(d, i, j) {
   const ni = i + (d === DIR.PX ? 1 : d === DIR.NX ? -1 : 0);
   const nj = j + (d === DIR.PZ ? 1 : d === DIR.NZ ? -1 : 0);
-  if (ni < 0 || ni > GRID || nj < 0 || nj > GRID) return null;
+  if (ni < 0 || ni > GRID_I || nj < 0 || nj > GRID_J) return null;
   return { i: ni, j: nj };
 }
 
@@ -195,8 +221,8 @@ export function nextIntersection(d, i, j) {
  * junction, or a corner, where both ring roads run through and neither axis is the answer.
  */
 export function ringAxisAt(i, j) {
-  const onX = j === 0 || j === GRID;   // road running along X
-  const onZ = i === 0 || i === GRID;   // road running along Z
+  const onX = j === 0 || j === GRID_J;   // road running along X
+  const onZ = i === 0 || i === GRID_I;   // road running along Z
   if (onX && onZ) return null;         // a corner: on both, so no one axis has priority
   if (onX) return 'x';
   if (onZ) return 'z';
@@ -204,7 +230,7 @@ export function ringAxisAt(i, j) {
 }
 
 /** The four points where the ring meets itself. Two arms apiece, at a right angle. */
-export const isRingCorner = (i, j) => (i === 0 || i === GRID) && (j === 0 || j === GRID);
+export const isRingCorner = (i, j) => (i === 0 || i === GRID_I) && (j === 0 || j === GRID_J);
 
 // Both halves of the ring are light-free: the long runs, where cross traffic yields into a gap,
 // and the corners, where there is no cross traffic to yield to.
@@ -269,21 +295,29 @@ export function medianRuns() {
     const i = axis === 'x' ? k : line;
     const j = axis === 'x' ? line : k;
     if (isSegmentClosed(i, j, axis === 'x' ? DIR.PX : DIR.PZ)) return;
+    // A z-running arterial crossing the river is on a bridge for the whole gap, and a bridge has
+    // no room for a planted island — the deck carries painted double lines instead. (A crossing
+    // with no bridge is open water and has already been caught by the closure test above.)
+    if (axis === 'z' && isRiverGap(k)) return;
 
+    // `k` steps along the road's own direction of travel, so an x-running road's gaps are
+    // indexed by *i* lines and measured with `lineX`, and a z-running road's by *j* lines. The
+    // two used to be one expression, back when both axes had the same count and the same origin.
     const nearHalf = axis === 'x' ? halfRoadZ(k) : halfRoadX(k);
     const farHalf = axis === 'x' ? halfRoadZ(k + 1) : halfRoadX(k + 1);
-    const from = lineCoord(k) + nearHalf + MEDIAN_END_GAP;
-    const to = lineCoord(k + 1) - farHalf - MEDIAN_END_GAP;
+    const along = axis === 'x' ? lineX : lineZ;
+    const from = along(k) + nearHalf + MEDIAN_END_GAP;
+    const to = along(k + 1) - farHalf - MEDIAN_END_GAP;
     if (to - from < MEDIAN_MIN_LEN) return;
 
-    const c = lineCoord(line);
+    const c = axis === 'x' ? lineZ(line) : lineX(line);
     runs.push(axis === 'x'
       ? { axis, line, k, from, to, x0: from, x1: to, z0: c - MEDIAN_W / 2, z1: c + MEDIAN_W / 2 }
       : { axis, line, k, from, to, x0: c - MEDIAN_W / 2, x1: c + MEDIAN_W / 2, z0: from, z1: to });
   };
 
-  for (const line of arterialX) for (let k = 0; k < GRID; k++) add('x', line, k);
-  for (const line of arterialZ) for (let k = 0; k < GRID; k++) add('z', line, k);
+  for (const line of arterialX) for (let k = 0; k < GRID_I; k++) add('x', line, k);
+  for (const line of arterialZ) for (let k = 0; k < GRID_J; k++) add('z', line, k);
   return runs;
 }
 
@@ -314,6 +348,57 @@ export function setParkBlocks(cells) {
  */
 export const isParkBlock = (bi, bj) => parkBlocks.has(`${bi},${bj}`);
 
+// --- The river --------------------------------------------------------------
+//
+// Which block row is water, registered here for the same reason the park blocks and the closed
+// segments are: the decision belongs to `city/river.js` by way of `createLayout`, but the systems
+// that have to *respect* it — the median islands, the road markings, the fare board's corner pins
+// — have no business importing the layout to ask.
+//
+// It is a single index rather than a set of blocks because the river is a whole row by
+// construction. That is not a simplification of a general case: the row *is* the river, which is
+// what lets `blockBounds` describe the channel without knowing anything about water.
+//
+// `null` until a layout has been built, so a headless tool that never called `createLayout`
+// measures a city with no river in it — the same contract `isSegmentClosed` and `isParkBlock` keep.
+
+let riverRowIndex = null;
+
+export function setRiverRow(row) {
+  riverRowIndex = row ?? null;
+}
+
+/** The block row the river runs down, or null. */
+export const riverRow = () => riverRowIndex;
+
+/** Is block (bi, bj) water? Every block in the row is, from one edge of the map to the other. */
+export const isRiverBlock = (bi, bj) => riverRowIndex !== null && bj === riverRowIndex;
+
+/**
+ * Does the gap between j lines `k` and `k + 1` hold the river?
+ *
+ * Only a road running along **Z** can cross it — one running along X lies within a single row and
+ * never meets the water — so callers pass the gap index of a z-running road. What it gates is
+ * everything the ground lays *between* two junctions: the planted median and the centre-line
+ * dashes both stop at the bank, because over the channel there is a bridge deck carrying its own.
+ */
+export const isRiverGap = (k) => riverRowIndex !== null && k === riverRowIndex;
+
+/**
+ * The channel's two edges in z — the kerb lines of the roads either side of the river row — or
+ * null on a city without one.
+ *
+ * Derived rather than stored, so a river beside a divided arterial is automatically 1.33 narrower
+ * on that side without anyone re-deriving what `blockBounds` already knows.
+ */
+export function riverBanks() {
+  if (riverRowIndex === null) return null;
+  return {
+    z0: lineZ(riverRowIndex) + halfRoadX(riverRowIndex),
+    z1: lineZ(riverRowIndex + 1) - halfRoadX(riverRowIndex + 1),
+  };
+}
+
 /** Directions a car may leave (i, j) on — no U-turn, no leaving the map, no closed roads. */
 export function legalExits(dIn, i, j) {
   const out = [];
@@ -335,18 +420,18 @@ export function legalExits(dIn, i, j) {
  * Checked via one reverse BFS per target intersection, seeded with all four directed arrivals
  * at that target. Every directed state must be visited by every one of those searches, since
  * "state X can reach some (T, d')" is the same thing as "the reverse graph from (T, *) visits X".
- * (GRID+1)² BFS runs of ~144 nodes each — under a millisecond at 5×5.
+ * (GRID_I+1)·(GRID_J+1) BFS runs of ~144 nodes each — under a millisecond at 5×5.
  *
  * Called from main.js so a bad park-closure combination on a random seed rerolls before the
  * meshers spend time on it. Never skip: a silent unroutable seed strands fares.
  */
 export function isCityConnected() {
-  const N = (GRID + 1) * (GRID + 1) * 4;
-  const key = (i, j, d) => (i * (GRID + 1) + j) * 4 + d;
+  const N = (GRID_I + 1) * (GRID_J + 1) * 4;
+  const key = (i, j, d) => (i * (GRID_J + 1) + j) * 4 + d;
 
   const preds = new Array(N);
-  for (let i = 0; i <= GRID; i++) {
-    for (let j = 0; j <= GRID; j++) {
+  for (let i = 0; i <= GRID_I; i++) {
+    for (let j = 0; j <= GRID_J; j++) {
       for (let dIn = 0; dIn < 4; dIn++) {
         for (const dOut of legalExits(dIn, i, j)) {
           const n = nextIntersection(dOut, i, j);
@@ -358,8 +443,8 @@ export function isCityConnected() {
     }
   }
 
-  for (let ti = 0; ti <= GRID; ti++) {
-    for (let tj = 0; tj <= GRID; tj++) {
+  for (let ti = 0; ti <= GRID_I; ti++) {
+    for (let tj = 0; tj <= GRID_J; tj++) {
       const seen = new Uint8Array(N);
       const queue = [];
       for (let d = 0; d < 4; d++) {

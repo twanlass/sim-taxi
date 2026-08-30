@@ -5,7 +5,8 @@ Guidance for Claude Code when working in this repository.
 ## What this is
 
 **Sim Taxi** — a low-poly 3D browser game. Crazy Taxi meets Flight Control: a fixed 3/4 view of a
-5×5 block city, ambient traffic obeying real signals, and one taxi you route by tapping fares.
+5-by-6 block city with a river down the middle of it, ambient traffic obeying real signals, and one
+taxi you route by tapping fares.
 
 Three.js r0.180 + Vite 7. **Zero external assets** — every mesh is generated in code.
 
@@ -20,6 +21,7 @@ about to change.
 | [docs/README.md](docs/README.md) | **Index — start here** |
 | [docs/architecture.md](docs/architecture.md) | Module map, frame loop, seeding, `window.__taxi` test hook |
 | [docs/city.md](docs/city.md) | Coordinates, direction encoding, layout, park districts, divided arterials |
+| [docs/river.md](docs/river.md) | The river, the three bridges, the drawbridge and the boats |
 | [docs/traffic.md](docs/traffic.md) | Signals, arterials, ring road, car physics, boost, police corridor, the bust chase |
 | [docs/gameplay.md](docs/gameplay.md) | Opening vignette, fare loop, routing, picking, timer ring, economy |
 | [docs/difficulty.md](docs/difficulty.md) | The ramp: budgeted clocks, board size, shifts, the sweeps behind the numbers |
@@ -53,6 +55,13 @@ breakage surfaces three steps later. Any scripted edit must assert its match and
 once shipped undetected because nothing headless imported it.
 
 **Colours live in `palette.js`.** Geometry constants live in `city/grid.js`. Don't inline either.
+
+**The grid has two counts and two coordinate functions.** `GRID_I` bounds `i`, `GRID_J` bounds `j`,
+and they differ — the city is six block rows tall against five columns because one row is the river.
+`lineX(i)` gives an x and `lineZ(j)` gives a z; there is no `lineCoord`, no `GRID`, no `SPAN` and no
+`HALF_SPAN`, because the two axes are centred on the origin with different half-spans and one
+function cannot tell which it was handed. Anything reaching for "the whole map" wants `MAX_SPAN`;
+anything clamping a *position* wants the per-axis pair.
 
 **A road's width is not one number.** An arterial is a third wider than a side street, so
 `ROAD_W`/`HALF_ROAD`/`LANE` are the *ordinary street's* values and anything asking about a specific
@@ -101,6 +110,14 @@ Omit the whole section if there's nothing to note.
   material's parameters *before* the patch runs, so a patched material collides with every unpatched
   one sharing those parameters and gets handed whichever program compiled first. The diamond's fill
   drew with a building's shader and went missing with nothing logged.
+- **On an unlit material a reversed triangle does not draw wrong, it does not draw.** The winding
+  trap below has a nastier second form. `MeshBasicMaterial` (everything through `unlitMaterial`) is
+  `FrontSide` like everything else, but it has no lighting to go strange — so where the roadworks
+  ramp and the bridge deck at least *looked* wrong, the boats' wake was simply absent, for weeks,
+  with a comment above it stating it was wound to face up. It was `(0, -15.08, 0)`. A feature that
+  renders nothing is indistinguishable from one that was never wired up, which is how it got
+  reported: "I think we're still missing boat water trails." Compute the normal from the winding in
+  a probe check the moment you hand-write a triangle — not after someone notices.
 - **Hand-written triangles need their winding asserted, not eyeballed.** The roadworks ramp shipped
   wound clockwise throughout: its slope normals came out at `y = −0.98` and its underside's at
   `+1.00`, so the only face the camera saw was the bottom — a flat quad lying on the road, which
@@ -330,6 +347,39 @@ Omit the whole section if there's nothing to note.
   what the fade eats, and a surface *buried inside a neighbour* has to be exempted, or every
   intersection curve between two lobes draws an arc where one is turning away while the other is
   still solid.
+- **A formula applied per vertex does nothing where there are no vertices.** The route band emits
+  one quad per path segment and deliberately never subdivides a straight — the fade is a
+  per-fragment varying, so a 20-unit straight needs no interior points. That is sound while the only
+  per-vertex data is a *linear* one; it stops being sound the moment Y is a `sin^2`. Adding
+  `deckHeightAt` to the emitter and calling the arched bridges fixed was therefore a no-op, and an
+  exact one rather than an approximate one: a junction arm is trimmed to the **crossing** road's
+  half-width, so a bridge lane starts and ends precisely on the two abutments — the lane and the
+  deck are the same segment — and those are exactly the two places `rise · sin²(πu)` evaluates to
+  zero. Six vertices out of six read 0.0. Before believing a per-vertex fix, count the vertices it
+  has to work with, and check what the geometry does *at the ones it has*.
+- **Two guards can each look reasonable and select nothing between them.** The Loco arch jump fired
+  on `y > 0.75 · ARCH_RISE && dydz · dirSign <= 0`. On a `sin²` the height test holds across the
+  middle third and the slope test holds from the peak on, so the conjunction is satisfied on the
+  *first frame past the exact apex* — the height test was inert, the slope test was the whole gate,
+  and the hop then peaked `HOP_LEN/2` down the far side and landed the taxi 0.94 units past the
+  abutment, in the junction box. It read as "the bounce starts late", which is the kindest possible
+  symptom for a trigger that is firing in exactly the wrong place. When a trigger is a conjunction,
+  work out the interval each term admits and where they actually intersect.
+- **A hole in the geometry is invisible over the city and a bright speck at the coast.** The island
+  fades to sky at its rim, so anywhere the map has a gap, what shows through it is dark ground
+  inland and *sky* out at the edge — 211 luma against the 82 of the ground beside it. Three separate
+  gaps at the river mouth were each years-old and each only ever reported as "a white speck near the
+  bridge": the water strip stopping short of the end of the fade band, a railing run with no end post
+  (`RAIL_POST_PITCH` is a world pitch, so a run's ends land wherever they land), and an abutment that
+  stopped at the bank and left the embankment strip under the deck open from the side. Count pixels
+  brighter than the ground rather than looking — at play zoom each of these is two or three pixels,
+  and at the framing that resolves them they are obvious.
+- **The coplanar-shimmer rule is about surfaces that *overlap*, not surfaces that touch.** Two
+  co-planar quads laid edge to edge sharing their vertices are a seam, not a fight, and pushing one
+  of them down "to be safe" creates the artefact it was meant to avoid: the river's shoal set 0.08
+  below the skirt it butts against drew a hairline of open sky down the whole length of the mouth,
+  because this camera looks *along* an 8cm riser. Ask whether the two surfaces cover any of the same
+  ground before nudging either one.
 - **A scale is about its carrier's origin, so "shrink it to hide it" moves anything whose offset is
   in its vertices.** The brake and turn-signal pods are switched by scaling their level to 0
   (`instanceColor` is paint and cannot carry an on/off), and each *pair* was one merged geometry
@@ -388,6 +438,21 @@ Omit the whole section if there's nothing to note.
   costs the drive-through its short exit and buys it two quarter turns (`EXIT_LIFT` in
   `city/burgerjoint.js`), and it is the question to ask of any new `releaseCar` site: how far back
   from the junction does this land, measured?
+- **A transparent `propMaterial()` receives ambient occlusion it can never cast.** `markOccluder`
+  refuses to put a transparent mesh in the AO depth prepass — quite rightly, a surface you can see
+  through has no business writing depth — but *receiving* is the default, so a translucent prop
+  samples the occlusion of whatever is behind it. The river's water is where that stopped being
+  invisible: at the bottom of a two-unit channel it read the walls' own crease and went nearly
+  black, while the stretch running off the end of the island had an empty AO buffer behind it and
+  came out at full brightness, with the discontinuity landing exactly on the coast. Pass
+  `propMaterial({ ao: false })`. The asphalt's fade skirt has the same hole and gets away with it
+  only because nothing stands near it.
+- **A lofted strip built from a `sign` is wound backwards on one of its two sides.** Half the
+  bridge deck's pieces are built as a mirrored pair off `sign = ±1`, so one of each pair arrives
+  with its ends the other way round — and a quad wound from `x1` to `x0` faces *down*. Sort the
+  span inside the builder rather than trusting the caller. This is the roadworks ramp's bug wearing
+  a loop, and it fails the same way: `flatShading` takes its normal from a screen-space derivative,
+  so the reversed face still lights and reads as z-fighting rather than as inside out.
 - **Three turns off in-material tone mapping *and* the sRGB encode the moment the render target is
   not the screen.** `WebGLPrograms.getParameters` reads `renderer.toneMapping` only when the current
   target is null, and the colour-space encode follows the target's own `colorSpace` — both by

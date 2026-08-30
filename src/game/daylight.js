@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SPAN } from '../city/grid.js';
+import { MAX_SPAN } from '../city/grid.js';
 import { hazeColor } from './scene.js';
 import { cloudTint } from './clouds.js';
 
@@ -9,7 +9,7 @@ import { cloudTint } from './clouds.js';
 // analytic curve spends most of its range on a flat blue afternoon and rushes the two minutes
 // that actually look like something.
 
-const SUN_RADIUS = SPAN * 1.2;
+const SUN_RADIUS = MAX_SPAN * 1.2;
 
 /** One full day, in real seconds. Short enough that a single fare sees the light change. */
 export const DAY_SECONDS = 180;

@@ -12,9 +12,10 @@ import {
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
-  GRID, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
-  ringAxisAt, isUnsignalised, lineCoord, laneOffsetFor,
+  GRID_I, GRID_J, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
+  ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor, riverBanks,
 } from '../city/grid.js';
+import { deckHeightAt } from '../city/river.js';
 import { cityNetwork } from '../city/roadnet.js';
 
 // Re-exported for callers that still ask the *grid* about a junction. The sim itself no longer
@@ -153,7 +154,9 @@ export const signalCycle = () => SIGNAL.cycle;
 export function edgeClass(i, j, d) {
   const axisIsX = isXAxis(d);
   const line = axisIsX ? j : i;
-  const onOuter = line === 0 || line === GRID;
+  // The ring is the outermost line on this road's *own* axis: an x-running road is on it at
+  // j = 0 or GRID_J, a z-running one at i = 0 or GRID_I.
+  const onOuter = line === 0 || line === (axisIsX ? GRID_J : GRID_I);
   if (onOuter) return { kind: 'ring', withWave: true };
 
   const arterialSet = axisIsX ? SIGNAL.arterialX : SIGNAL.arterialZ;
@@ -241,10 +244,29 @@ export function setPriorityJunction(next) {
 // for the reason given. `chainSeconds` does plan over the discounted weights — but
 // `estimateSeconds` bills a route in blocks and turns, never in lane cost, so the discount can only
 // move a clock by changing which route is picked, bounded at one leg either way.
+//
+// **Keyed by source, because there are two of them now.** This used to be one set with one owner,
+// and `roadwork.js` replaced it wholesale on every change — which is correct exactly while nothing
+// else holds a closure and silently wrong the moment something does. The drawbridge is the
+// something: it shuts its two lanes for a dozen seconds at a time, and a roadworks zone standing up
+// or packing away in that window would have reopened them under it.
+const closedBySource = new Map();
 let closedLanes = new Set();
 
-export function setClosedLanes(ids) {
-  closedLanes = new Set(ids);
+const recomputeClosed = () => {
+  closedLanes = new Set();
+  for (const ids of closedBySource.values()) for (const id of ids) closedLanes.add(id);
+};
+
+/**
+ * @param ids     lane ids to close
+ * @param source  who is closing them. Each source replaces only its own set, so two callers can
+ *                hold closures at once. Defaults to 'roadwork' — the original caller, so a tool
+ *                that clears the set with `setClosedLanes([])` still clears what it meant to.
+ */
+export function setClosedLanes(ids, source = 'roadwork') {
+  closedBySource.set(source, new Set(ids));
+  recomputeClosed();
 }
 
 /**
@@ -271,6 +293,7 @@ export const isLaneClosed = (id) => closedLanes.has(id);
 // down at 7.6 with a clear unit in hand. The two numbers are a chain — probe.mjs asserts the margin
 // rather than just the outcome, so moving either one alone fails loudly.
 export const HOP_LEN = 5.5;
+
 // Height is free of that chain — it is the *span* that has to land before the hold line, and the
 // apex costs nothing but air. 1.55 was under half a car length and about 12px at play zoom, which
 // at a 3/4 camera is a lift rather than a jump: the taxi's own shadow never separated from it far
@@ -610,7 +633,7 @@ function sirenHoldsTurn(car) {
   // The junction this car is arriving at, in the siren's own coordinate, and how far the siren
   // still has to run to reach it. Negative means the cruiser is already past and there is
   // nothing left to wait for.
-  const box = lineCoord(carAxis === 'x' ? car.i : car.j);
+  const box = carAxis === 'x' ? lineX(car.i) : lineZ(car.j);
   const togo = policePresence.dir * (box - policePresence.s);
   return togo > 0 && togo < SIREN_BOX_LOOK;
 }
@@ -1429,13 +1452,17 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
 
   for (let n = 0; n < attempts && cars.length < want; n++) {
     const d = rng.int(0, 3);
-    const line = rng.int(0, GRID);   // the road the car drives along
-    const seg = rng.int(0, GRID - 1); // which gap between intersections
+    // A car driving along X sits on a *j* line and steps between *i* junctions; one driving along
+    // Z is the other way round. Both draws happen either way and in this order, so the random
+    // stream is byte-for-byte what it was — every seeded measurement in the suite depends on that.
+    const alongX = isXAxis(d);
+    const line = rng.int(0, alongX ? GRID_J : GRID_I);   // the road the car drives along
+    const seg = rng.int(0, (alongX ? GRID_I : GRID_J) - 1); // which gap between intersections
 
     // Target intersection is whichever end of the segment the car is heading for.
     const targetIndex = dirSign(d) > 0 ? seg + 1 : seg;
-    const i = isXAxis(d) ? targetIndex : line;
-    const j = isXAxis(d) ? line : targetIndex;
+    const i = alongX ? targetIndex : line;
+    const j = alongX ? line : targetIndex;
 
     // No lane means no road: that stretch was built over by a park district. Checked before any
     // further draw, exactly where the old `isSegmentClosed` guard sat, so a seed still produces
@@ -1757,7 +1784,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // simply drawn as its own mesh instead of an instance, so it can be raycast and highlighted.
   //
   // Which one is the taxi is now a pick, not always index 0: whichever of this draw's cars is
-  // heading for an intersection closest to the middle of the grid (GRID=5 has no single centre, so
+  // heading for an intersection closest to the middle of the grid (an odd count has no single
+  // centre, so
   // "closest" naturally lands in the 2×2 block at (2,2)-(3,3) — downtown, per layout.js's own
   // density falloff). A run used to open with the taxi anywhere on the map, including a corner,
   // which put the tutorial's first fare (biased to spawn near the taxi — see fares.js
@@ -1774,7 +1802,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   let taxiIndex = 0;
   let centreDist = Infinity;
   for (let k = 0; k < cars.length; k++) {
-    const dist = Math.abs(cars[k].i - GRID / 2) + Math.abs(cars[k].j - GRID / 2);
+    const dist = Math.abs(cars[k].i - GRID_I / 2) + Math.abs(cars[k].j - GRID_J / 2);
     if (dist < centreDist) { centreDist = dist; taxiIndex = k; }
   }
   if (taxiIndex !== 0) [cars[0], cars[taxiIndex]] = [cars[taxiIndex], cars[0]];
@@ -2063,6 +2091,28 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // exists only where a road does — so the map-edge and closed-segment guards the grid loop needed
   // are not ported, they are simply gone. A junction the network left unsignalised has no bars,
   // which is the visible half of that difference.
+  //
+  // **Nothing painted over the channel**, which is the same rule `ground.js` already applies to
+  // the centreline dashes and the crosswalks (`isRiverGap` there) and is enforced here on the
+  // bar's own z rather than on the lane's topology — the question is where the paint lands, and
+  // that is a position.
+  //
+  // It bites exactly one span. A lane crossing the river is trimmed to the *crossing* road's
+  // half-width at each end, so the bridge lane and the deck are the same segment, and a bar
+  // `BAR_SETBACK` back from the lane's end sits 2.4 units **onto** the bridge. The two fixed
+  // spans escape it twice over — they are on the ring, which is signal-free, and they arch, so a
+  // flat quad at 0.05 would sink into the deck anyway — which leaves the drawbridge as the only
+  // span in the city that can display a bar, wearing two of them 5.9 apart on a 10.7-unit deck.
+  //
+  // The second half is worse and is not a matter of taste: this mesh is baked once and only its
+  // *colour* is touched per frame, so a bar on the leaf stayed lying at y = 0.05 over open water
+  // for the whole lift, still cycling red and green with nothing underneath it.
+  //
+  // The bank roads are safe by construction and do not need a special case: a bar on one of them
+  // sits at `lineZ(bank) ± laneOffset`, and the lane offset is smaller than the half-road that
+  // defines the bank, so it can never reach the water.
+  const banks = riverBanks();
+  const overWater = (z) => banks !== null && z > banks.z0 && z < banks.z1;
   const bars = [];
   for (const node of net.nodes) {
     if (!node.signal) continue;
@@ -2070,6 +2120,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       if (lane.degenerate) continue;
       const at = Math.max(0, lane.length - BAR_SETBACK);
       const point = lane.path.at(at);
+      if (overWater(point.z)) continue;
       bars.push({ lane, x: point.x, z: point.z, yaw: yawOf(lane.path.tangentAt(at)) });
     }
   }
@@ -3435,6 +3486,45 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         }
       }
 
+      // --- Loco Mode over the hump -----------------------------------------
+      //
+      // A boosting taxi cresting an arched span leaves it. Same `launchHop` a roadworks barricade
+      // fires, because it is the same event: a ramp, a hop, a landing that loads the pitch spring.
+      // What differs is that this ramp is the road itself.
+      //
+      // **Only while boosting.** The arch is a road at cruise — cars drive over it, and a taxi that
+      // took off every time it crossed the river would make the bridges an obstacle rather than a
+      // reward. Loco Mode is the one state where the city is already bending its own rules.
+      //
+      // **Launched so the hop's own apex lands on the deck's crest**, which is a derived number
+      // and not a tuned one: the arc is `sin(pi u)` over `HOP_LEN` of travel, so it peaks half a
+      // hop-length after the launch, and firing `HOP_LEN / 2` short of the top puts the taxi in
+      // the air *over* the summit.
+      //
+      // The first cut fired on the descending slope instead, and the reason it read as "the bounce
+      // starts late, almost at the apex" is that it did: `y > 0.75 * ARCH_RISE` holds across the
+      // middle third of a `sin^2`, and requiring a negative slope on top of it selects the first
+      // frame past the exact peak, every time. The height test was doing nothing — the slope test
+      // was the whole gate — and the hop then peaked 2.75 units *down* the far side, where the road
+      // is already dropping away and there is no launch left to read.
+      //
+      // It also lands better. Off the crest the taxi touched down 11.5 units along a 12-unit deck,
+      // half a unit short of the abutment; off the climb it comes down at 8.75 with three units of
+      // deck in hand.
+      //
+      // Keyed to the lane so one crossing is one jump. Without it the car lands still inside the
+      // launch window and immediately goes again, which is a taxi skipping across the river like a
+      // stone.
+      if (car.isTaxi && car.boost && car.state === 'drive' && car.hopFrom == null) {
+        // `toCrest` is signed in +z and the span runs along Z, so `dirSign` turns it into a
+        // distance *ahead* to the top. Infinity off a bridge, so a flat road never satisfies it.
+        const ahead = deckHeightAt(car.x, car.z).toCrest * dirSign(car.d);
+        if (ahead > 0 && ahead <= HOP_LEN / 2 && car.archHopLane !== car.lane.id) {
+          car.archHopLane = car.lane.id;
+          launchHop(car);
+        }
+      }
+
       // Weave offset, in world units, + toward the road centreline. Applied at render only: the
       // simulation keeps the car on its lane coordinate, so following distances, stop lines and
       // turn arcs are all measured against the lane the car is nominally in — which is what makes
@@ -3669,7 +3759,26 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         else airY = landingBounce(car.bounceT);
       }
 
-      const shownPitch = car.pitch + wheelieBoost + airPitch;
+      // --- Over a bridge -------------------------------------------------------
+      //
+      // The fixed spans arch, and this is where a car goes up and over one. **Render-only**, on
+      // exactly the terms the ramp above it is: `car.s`, `car.lane`, the turn decision, following
+      // distance and the collision test all carry on as if the deck were flat, so a piece of
+      // scenery cannot break the sim.
+      //
+      // Sampled at the **nose and the tail**, not at the centre. A rigid body pitched to the
+      // tangent under its own origin floats at the crest and buries its nose at the foot — the
+      // error is the sagitta of a 3.4-unit chord on a curve that rises 1.1 over 12, which is a
+      // visible fraction of a wheel. Two lookups cost four rectangle tests each and are simply
+      // correct.
+      const ahead = CAR_LEN / 2;
+      const nose = deckHeightAt(car.x + Math.cos(car.yaw) * ahead, car.z - Math.sin(car.yaw) * ahead);
+      const tail = deckHeightAt(car.x - Math.cos(car.yaw) * ahead, car.z + Math.sin(car.yaw) * ahead);
+      const deckY = (nose.y + tail.y) / 2;
+      // Positive is nose-up, the same sense as `locoWheelie` and the ramp's `airPitch`.
+      const deckPitch = Math.atan2(nose.y - tail.y, 2 * ahead);
+
+      const shownPitch = car.pitch + wheelieBoost + airPitch + deckPitch;
 
       // Roll and pitch both pivot on the car's origin at road level, so tilting drives one edge
       // underground. Lifting by the sagitta of each keeps the low edge on the tarmac and reads as
@@ -3682,7 +3791,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // the two position lines saying the same thing. `kerbLift` is the opening vignette's, and
         // is 0 for every frame of an ordinary run: it is how a staged taxi stands on the pavement
         // outside its garage and then comes down the dropped kerb onto the road.
-        taxiGroup.position.set(car.x, ROAD_Y + bob + lift + airY + mount + car.kerbLift, car.z);
+        taxiGroup.position.set(car.x, ROAD_Y + bob + lift + airY + mount + car.kerbLift + deckY, car.z);
         // 'YXZ' — not the default — for the same reason the ambient euler below says so. See the
         // note there: with the default order the roll is applied about the *world* X axis, which
         // only doubles as the car's own axis when it happens to be driving east.
@@ -3692,7 +3801,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         continue;
       }
 
-      pos.set(car.x, ROAD_Y + bob + lift + mount, car.z);
+      pos.set(car.x, ROAD_Y + bob + lift + mount + deckY, car.z);
       // The order is load-bearing and the default is wrong here. Three composes 'XYZ' as
       // Rx·Ry·Rz, so the roll lands *outside* the yaw and turns about the world X axis — which is
       // the car's own long axis only when the car is driving east. Head north or south and the
@@ -3700,7 +3809,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // way. 'YXZ' is Ry·Rx·Rz: yaw first, so the roll turns about the body, and the lean is the
       // same at every heading. (The two orders agree exactly at yaw 0, which is why the passing
       // lab — a road running due east — could never have caught this.)
-      quat.setFromEuler(euler.set(roll, car.yaw, car.pitch, BODY_EULER_ORDER));
+      quat.setFromEuler(euler.set(roll, car.yaw, shownPitch, BODY_EULER_ORDER));
       matrix.compose(pos, quat, scl);
       writeAmbient(car);
     }

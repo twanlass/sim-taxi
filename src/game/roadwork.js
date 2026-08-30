@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { LANE, ROAD_W } from '../city/grid.js';
+import { LANE, ROAD_W, isRiverGap } from '../city/grid.js';
 import { cityNetwork } from '../city/roadnet.js';
 import { propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
@@ -237,6 +237,14 @@ export function createRoadwork(rng, scene, camera = null) {
     const b = net.nodeById.get(edge.b);
     if (!a || !b) return false;
     if (strands(a, ids) || strands(b, ids)) return false;
+
+    // **Not on a bridge.** Every road running along Z crosses the river, and the ones that get over
+    // it do so on a deck that arches 1.1 units above the road at its crest (`city/river.js`). This
+    // whole zone is built at road level — the trestles, the cones, the spoil heap, the hole, the
+    // two workers and the ramp the taxi launches off — so a site on a span puts all of it a metre
+    // under the tarmac at the middle and sticking out of it at both ends. There is also nothing
+    // under a bridge deck to dig a hole *in*.
+    if (a.gi === b.gi && isRiverGap(Math.min(a.gj, b.gj))) return false;
 
     // Not on the road a siren is currently running down. sim/police.js checks the closure before
     // it picks a corridor and again at every chase turn, so the only way a cruiser can end up

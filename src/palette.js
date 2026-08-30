@@ -482,6 +482,92 @@ export const PALETTE = {
   // against everything it touches.
   pondBank: '#8C7F6B',
 
+  // --- The river ------------------------------------------------------------
+  //
+  // Same 216° family as the pond, and deliberately so: this game has exactly one idea of what
+  // water looks like and a second one would read as a different substance. What differs is scale.
+  // A pond is a 45-pixel hole in a lawn; the river is a 90-unit band across the whole map with
+  // roads either side of it, so the two colours it has to hold against are `asphalt` (luma 105)
+  // and the pale `sidewalk` — not grass.
+  //
+  // **That inverts the pond's rule.** The pond goes dark because it must read as a hole in
+  // something bright; the river sits in something already dark, so going darker still would make
+  // the map's biggest feature its least visible one. `riverWater` is luma 112 against asphalt's
+  // 104 — a shade *lighter* than the road, which is what a sky-lit surface actually is, and enough
+  // separation to read from across the city without the band shouting.
+  //
+  // Two of them for the pond's reason: the channel is drawn with its open middle catching the sky
+  // and its edges going dark under the walls, which is depth for the price of a vertex colour.
+  riverWater: '#4E7699',
+  riverDeep: '#3C5C7B',
+  // The channel wall, and the parapet standing on the kerb line above it. Engineering concrete
+  // rather than the `kerb` a block is edged in: a river wall is a poured retaining structure and a
+  // kerb is a laid stone, and at 0.75 units tall the parapet is the one piece of street furniture
+  // in this city big enough for that distinction to show. At luma 139 it is a shade off the `kerb`
+  // it stands on (136) and a long way under `concrete` (178), so a sunlit parapet cannot be
+  // mistaken for the pale façade of a building behind it.
+  riverWall: '#8D8B84',
+  // The bridge deck. Asphalt, because it is road, and near enough the `asphalt` slab it continues
+  // to be the same material — a shade darker, which is what a span in the shadow of its own
+  // parapets is, and no more than that. The first cut went to luma 92 against the road's 104 and
+  // came out looking like a hole in the map rather than a crossing over one; the deck sits inside
+  // a two-unit-deep channel, so ambient occlusion is already taking a bite out of it before any
+  // colour choice does.
+  bridgeDeck: '#5E656E',
+  // Its edge beam and parapet: the same poured concrete as the river wall, lightened, so the deck
+  // is outlined against both the water under it and the road either end of it. It is doing the
+  // work the kerb does on an ordinary block — telling you where the road stops — against a drop
+  // rather than a step, so it is pushed further from the surface it edges: luma 170 against the
+  // deck's 108, where a block's kerb is only 32 clear of its pavement.
+  bridgeTrim: '#AFACA4',
+  // The **underside**, and it is a much bigger decision than a soffit sounds like — because when the
+  // drawbridge stands up, the underside is the whole of what the camera sees. Raised to 70 degrees
+  // the leaf turns its belly through the view axis, so a soffit in `bridgeTrim`'s pale concrete
+  // presented a blank panel the size of a block, at the same value as the buildings behind it: the
+  // one moment in the game with a bridge standing on end read as a flat card lying on the skyline.
+  //
+  // At luma 74 it is the darkest surface in the city bar the trench a roadworks zone digs, which is
+  // right twice over — a soffit is the one face of a bridge the sun never reaches, and a raised leaf
+  // has to be legible from across the map as a *thing that has moved*.
+  bridgeSoffit: '#4A4844',
+  // The **lifting** span's running surface, and it is the one deck that is not asphalt.
+  //
+  // A bascule leaf is a steel grid — the road stops being road where the machinery starts, and that
+  // is worth saying in colour because it is the one thing the player has to recognise from across
+  // the map *before* it moves. In `bridgeDeck` it was a stripe of street lying over the water like
+  // the other three, and the only tell that this one was different was a counterweight house the
+  // size of a bus shelter.
+  //
+  // Cool where the asphalt is warm-grey, and light where the asphalt is dark: luma 136 against
+  // `bridgeDeck`'s 100 and the road's own 104, which reads as galvanised plate under this sun
+  // without going pale enough to be mistaken for the concrete trim it is bolted to at 172.
+  drawbridgeDeck: '#87888C',
+
+  // --- Boats ----------------------------------------------------------------
+  //
+  // A boat is about twenty pixels long at play zoom on a band of dark water, so what has to carry
+  // is **value against the river**, not hue. `riverWater` renders around luma 112 and `riverDeep`
+  // 87, so both hulls go dark and both decks go pale: a boat reads as a light shape with a dark
+  // waterline under it, which is what a boat looks like from above.
+  //
+  // Neither is allowed near the warm end. The taxi owns 34 degrees, the urgency ramp owns
+  // everything from 1 to 126 and the roadworks orange sits at 6 — a working boat in red or orange
+  // is a thing the player would look at twice on a board where warm means "act on this".
+  bargeHull: '#4A4E55',
+  bargeCargo: '#5F6B78',
+  tugHull: '#3E4A52',
+  // The one exception, and it is a small one: a tug's wheelhouse and funnel are the only saturated
+  // thing on the water. It sits at 213 degrees — inside the same blue window the pond and the river
+  // already occupy, 27 clear of the courier cyan — so it is a *boat* colour rather than a marker
+  // one. What it separates from is its own hull, which is what makes the tug read as taller than
+  // the barge from across the map.
+  tugTrim: '#37698F',
+  boatDeck: '#B6B2A6',
+  // The wake. Unlit and half transparent, so what reaches the screen is this lifted toward whatever
+  // the water under it is doing — a foam white would blow out to a solid arrow at noon and vanish
+  // at dusk, and a wake has to read the same at both.
+  wake: '#DCE8EF',
+
   // Flower beds on the arterials' medians — see `flowerBedParts` in city/props.js. Blooms are drawn
   // from this per *flower*, not per bed, so one bed carries four or five of them.
   //

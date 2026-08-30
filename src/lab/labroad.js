@@ -34,7 +34,7 @@ import { PITCH, HALF_ROAD, DIR, isXAxis, dirSign } from '../city/grid.js';
  * `PASS_TRIGGER` behind a cruising leader is another ~40, and the overdrive band wants 40 units of
  * unbroken straight before it is even reachable. 200 fits all three with room to watch the taxi
  * settle back into lane afterwards, and stays inside the sun's shadow frustum, which covers
- * ±`SPAN * 1.05` = ±105 (game/scene.js) — a road any longer than this loses its shadows at the
+ * ±`MAX_SPAN * 1.05` = ±105 (game/scene.js) — a road any longer than this loses its shadows at the
  * ends, which is a strange thing for a lab about how something *looks* to give up.
  */
 export const LAB_BLOCKS = 10;

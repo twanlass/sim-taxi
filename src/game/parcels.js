@@ -8,7 +8,8 @@ import { allIntersections, findRoute } from './route.js';
 import { RIGHT as SCREEN_RIGHT, UP as SCREEN_UP } from './camera.js';
 import { nextIntersection } from '../city/grid.js';
 import {
-  ARRIVE_RADIUS, blockDistance, cornerFor, cornerSeen, intersectionCentre, onParkBlock, onSameBlock,
+  ARRIVE_RADIUS, blockDistance, cornerFor, cornerSeen, intersectionCentre,
+  onParkBlock, onWaterBlock, onSameBlock,
   priceFor,
 } from './fares.js';
 import { popEnvelope } from './selectpop.js';
@@ -503,6 +504,9 @@ export function createParcelSystem(rng, scene) {
       // Not on top of the car: a box materialising where the taxi already is asks nothing.
       if (spot.i === taxiCar.i && spot.j === taxiCar.j) return false;
       if (onParkBlock(spot)) return false;
+      // ...and no pad in the river, for the harder version of the same reason: a package on a park
+      // is an address with no door, and one in the channel is an address with no ground.
+      if (onWaterBlock(spot)) return false;
       // A corner with a building standing in front of it, same hard filter and for a harder
       // reason: a pad is a mark on the ground with nothing above the skyline speaking for it, so a
       // hidden one is a delivery address the player cannot see at all. See `cornerSeen`.

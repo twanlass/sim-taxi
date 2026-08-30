@@ -1,4 +1,6 @@
-import { GRID, halfRoadX, halfRoadZ, isParkBlock, lineCoord } from '../city/grid.js';
+import {
+  GRID_I, GRID_J, halfRoadX, halfRoadZ, isParkBlock, isRiverBlock, lineX, lineZ,
+} from '../city/grid.js';
 import { KERB_H } from '../city/ground.js';
 import { createPassengerPin, createDestinationPin } from '../geometry/marker.js';
 import { createPerson } from '../geometry/person.js';
@@ -294,12 +296,12 @@ export function cornerFor(i, j) {
   const sx = i === 0 ? 1 : -1;
   const sz = j === 0 ? 1 : -1;
   return {
-    x: lineCoord(i) + sx * (halfRoadZ(i) + 0.5),
-    z: lineCoord(j) + sz * (halfRoadX(j) + 0.5),
+    x: lineX(i) + sx * (halfRoadZ(i) + 0.5),
+    z: lineZ(j) + sz * (halfRoadX(j) + 0.5),
   };
 }
 
-export const intersectionCentre = (i, j) => ({ x: lineCoord(i), z: lineCoord(j) });
+export const intersectionCentre = (i, j) => ({ x: lineX(i), z: lineZ(j) });
 
 /**
  * Which block a corner pin at intersection (i, j) actually stands on, mirroring the sx/sz flip in
@@ -343,6 +345,27 @@ export const onSameBlock = (a, b) => {
 export const onParkBlock = (spot) => {
   const { bi, bj } = blockFor(spot.i, spot.j);
   return isParkBlock(bi, bj);
+};
+
+/**
+ * Whether an intersection's corner pin would stand on the river.
+ *
+ * The same shape as `onParkBlock`, through the same `blockFor` flip, and exported for the same
+ * reason: which block a pin ends up on is `cornerFor`'s -X-Z choice, and that choice has one owner.
+ *
+ * **It is the mark, not the pin, that rules these corners out.** The embankment walk is 1.4 units
+ * wide and `cornerFor` stakes its pin 0.5 past the kerb, so a rider on the river's north bank would
+ * in fact be standing on pavement — but a fare's disc is `RING_R` across and reaches 1.75 further,
+ * which puts most of it out over the water, and a courier's pad is not much smaller. A marker
+ * floating on a river is worse than one nobody can see.
+ *
+ * It costs the board the row of junctions along that bank — the ones whose -X-Z corner lands in the
+ * channel — which is the other half of why the city grew a row rather than flooding one: 42
+ * junctions less that row is 36, exactly what a 5x5 city offered.
+ */
+export const onWaterBlock = (spot) => {
+  const { bi, bj } = blockFor(spot.i, spot.j);
+  return isRiverBlock(bi, bj);
 };
 
 // How far out from the kerb corner the visibility test samples, and on what pattern. The widest
@@ -544,18 +567,21 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // the player hunts for with a clock draining, and their drop-off ring is the only thing saying
     // where the trip ends. Unlike the rest of this predicate it is a fact about the *city* rather
     // than about what is on the board, so it never changes during a run.
+    // ...and every corner standing in the river (`onWaterBlock`), which is the same kind of fact
+    // about the city as the sightline above it and is filtered in the same breath.
     const free = (i, j) => !avoid.some((a) => a.i === i && a.j === j)
       && !held.some((a) => (a.i === i && a.j === j) || onSameBlock({ i, j }, a))
       && (!avoidBlockOf || !onSameBlock({ i, j }, avoidBlockOf))
+      && !onWaterBlock({ i, j })
       && cornerSeen(i, j);
 
     if (near) {
       const options = [];
       const radius = difficulty.spawnRadius(state.delivered);
       const lo = (v) => Math.max(0, v - radius);
-      const hi = (v) => Math.min(GRID, v + radius);
-      for (let i = lo(near.i); i <= hi(near.i); i++) {
-        for (let j = lo(near.j); j <= hi(near.j); j++) {
+      const hi = (v, top) => Math.min(top, v + radius);
+      for (let i = lo(near.i); i <= hi(near.i, GRID_I); i++) {
+        for (let j = lo(near.j); j <= hi(near.j, GRID_J); j++) {
           if (!free(i, j)) continue;
           if (maxBlocks !== null && blockDistance({ i, j }, near) > maxBlocks) continue;
           options.push({ i, j });
@@ -565,8 +591,8 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     }
 
     for (let attempt = 0; attempt < 60; attempt++) {
-      const i = rng.int(0, GRID);
-      const j = rng.int(0, GRID);
+      const i = rng.int(0, GRID_I);
+      const j = rng.int(0, GRID_J);
       if (free(i, j)) return { i, j };
     }
     // Sixty random darts can miss a board this constrained — a full fare board plus the courier's
@@ -574,15 +600,15 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // giving up. The old code fell straight through to (0, 0), which does not consult `free` at all and
     // so was itself able to drop a rider onto a corner already spoken for: a guard with a hole in the
     // one path that runs when the guard matters most.
-    for (let i = 0; i <= GRID; i++) {
-      for (let j = 0; j <= GRID; j++) if (free(i, j)) return { i, j };
+    for (let i = 0; i <= GRID_I; i++) {
+      for (let j = 0; j <= GRID_J; j++) if (free(i, j)) return { i, j };
     }
     // Still nothing: give up the *visibility* rule before the occupancy one. A marker behind a
     // building is hard to find; two markers on one corner is a tap that answers for the wrong job.
     // This is the same ordering the courier applies to its own park filter — the rule that only
     // makes a job worse yields before the rule that makes it ambiguous.
-    for (let i = 0; i <= GRID; i++) {
-      for (let j = 0; j <= GRID; j++) {
+    for (let i = 0; i <= GRID_I; i++) {
+      for (let j = 0; j <= GRID_J; j++) {
         if (!avoid.some((a) => a.i === i && a.j === j)
           && !held.some((a) => (a.i === i && a.j === j) || onSameBlock({ i, j }, a))) return { i, j };
       }
@@ -627,11 +653,11 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
       avoid.push(f.target);
       if (f.dropoff) avoid.push(f.dropoff);
     }
-    // On the map first. `pickIntersection` draws its own candidates from `rng.int(0, GRID)` and so
+    // On the map first. `pickIntersection` draws its own candidates from `rng.int(0, GRID_*)` and so
     // can never produce an off-grid one; a hint arrives from outside and can. Without this a bad
     // hint is honoured rather than declined, and the rider's pin is staked off the edge of the
     // city — tools/probe.mjs caught exactly that.
-    const onMap = (at) => at.i >= 0 && at.i <= GRID && at.j >= 0 && at.j <= GRID;
+    const onMap = (at) => at.i >= 0 && at.i <= GRID_I && at.j >= 0 && at.j <= GRID_J;
     const usable = hint.filter((at) => onMap(at)
       && !avoid.some((a) => a.i === at.i && a.j === at.j)
       && !onSameBlock(at, spot)

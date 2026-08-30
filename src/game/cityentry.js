@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { KERB_H } from '../city/ground.js';
-import { HALF_SPAN } from '../city/grid.js';
+import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
 import { setOccluderDepthMaterial } from './ssao.js';
 
 // The city's entrance: streets and ground are already in place, then the buildings and trees
@@ -128,7 +128,7 @@ export function createCityEntry({
   const endAt = () => {
     const cornerDist = Math.max(
       ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) =>
-        Math.hypot(sx * HALF_SPAN - uEntryFrom.value.x, sz * HALF_SPAN - uEntryFrom.value.y)),
+        Math.hypot(sx * HALF_SPAN_X - uEntryFrom.value.x, sz * HALF_SPAN_Z - uEntryFrom.value.y)),
     );
     return cornerDist * uEntryWave.value + uEntryJitter.value + uEntryDur.value + 0.1;
   };

@@ -1,5 +1,15 @@
 # Architecture
 
+> **The grid has two counts.** `GRID_I` is the highest `i` line index and `GRID_J` the highest `j`,
+> and they are not the same number: the city is six block rows tall against five columns, because
+> one of the rows is the river ([river.md](river.md)). `lineCoord` split into `lineX`/`lineZ` with
+> them, since the city is centred on the origin on both axes and the half-spans no longer agree.
+>
+> `GRID`, `SPAN`, `HALF_SPAN` and `lineCoord` were **deleted rather than aliased**. An ESM named
+> import of a missing export fails at link time, which is what forced all 133 call sites to be
+> looked at instead of silently keeping the old meaning — and the split shipped as its own commit
+> with both counts still at 5, so `npm run check` was a control on it rather than a hope.
+
 ## Module map
 
 ```

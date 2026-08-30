@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RIGHT, VIEW_UP, VIEW_DIR } from './camera.js';
-import { SLAB, EDGE_FADE } from '../city/ground.js';
-import { HALF_SPAN } from '../city/grid.js';
+import { SLAB_X, SLAB_Z, EDGE_FADE } from '../city/ground.js';
+import { HALF_SPAN_X, HALF_SPAN_Z } from '../city/grid.js';
 import { SKYLINE_CEILING } from '../city/buildings.js';
 import { PALETTE } from '../palette.js';
 import { unlitMaterial } from '../util/geo.js';
@@ -102,7 +102,8 @@ export function standoffFor(sy, alt) {
  * the slab — the last of the skirt is alpha 0, but a cloud crossing the last few units of it is
  * still a cloud over the edge of the city.
  */
-export const CITY_REACH = SLAB / 2 + EDGE_FADE;
+export const CITY_REACH_X = SLAB_X / 2 + EDGE_FADE;
+export const CITY_REACH_Z = SLAB_Z / 2 + EDGE_FADE;
 
 /**
  * And how high. `SKYLINE_CEILING` is the ceiling every tower, water tower and mast in the city is
@@ -115,7 +116,8 @@ export const CITY_TOP = SKYLINE_CEILING;
  * How far out anything is *built*. Nothing stands outside the ring road, so the tall part of the
  * city stops 28 units short of where the ground does.
  */
-export const BUILT_REACH = HALF_SPAN;
+export const BUILT_REACH_X = HALF_SPAN_X;
+export const BUILT_REACH_Z = HALF_SPAN_Z;
 
 /**
  * The city as a screen-space keep-out: the corners of **two** boxes, projected — the ground out to
@@ -133,9 +135,12 @@ export const BUILT_REACH = HALF_SPAN;
  * long way clear of an edge they were supposed to be hugging, in sky the player mostly cannot see.
  */
 export const KEEP_OUT = [];
-for (const [reach, y] of [[CITY_REACH, 0], [BUILT_REACH, CITY_TOP]]) {
-  for (const x of [-reach, reach]) {
-    for (const z of [-reach, reach]) KEEP_OUT.push(screenOf(x, y, z, {}));
+for (const [rx, rz, y] of [
+  [CITY_REACH_X, CITY_REACH_Z, 0],
+  [BUILT_REACH_X, BUILT_REACH_Z, CITY_TOP],
+]) {
+  for (const x of [-rx, rx]) {
+    for (const z of [-rz, rz]) KEEP_OUT.push(screenOf(x, y, z, {}));
   }
 }
 
@@ -287,11 +292,12 @@ const BAND = 12;
  * over the roofs behind it. That costs nothing: nothing is played on a roof. Ground is different,
  * and this is the line it draws.
  */
-export const INNER_REACH = HALF_SPAN;
+export const INNER_REACH_X = HALF_SPAN_X;
+export const INNER_REACH_Z = HALF_SPAN_Z;
 
 export const INNER_KEEP_OUT = [];
-for (const x of [-INNER_REACH, INNER_REACH]) {
-  for (const z of [-INNER_REACH, INNER_REACH]) INNER_KEEP_OUT.push(screenOf(x, 0, z, {}));
+for (const x of [-INNER_REACH_X, INNER_REACH_X]) {
+  for (const z of [-INNER_REACH_Z, INNER_REACH_Z]) INNER_KEEP_OUT.push(screenOf(x, 0, z, {}));
 }
 
 /**
