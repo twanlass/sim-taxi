@@ -121,15 +121,15 @@ import {
 import { createDaylight } from '../src/game/daylight.js';
 import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/game/urgency.js';
 import { planOrigin } from '../src/game/route.js';
-import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow } from '../src/city/grid.js';
+import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, BLOCK, HALF_ROAD, HALF_ARTERIAL, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow } from '../src/city/grid.js';
 import {
   waterEdges, bridgeSpan, bridgeLines, riverCrossing, archAt, deckHeightAt,
-  WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR,
+  WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
 } from '../src/city/river.js';
 import { createBridge } from '../src/geometry/bridge.js';
-import { createBargeMesh, createTugMesh } from '../src/geometry/boat.js';
+import { createBargeMesh, createTugMesh, BEAM } from '../src/geometry/boat.js';
 import { createDrawbridge, OPEN_SECONDS } from '../src/game/drawbridge.js';
-import { createBoats } from '../src/game/boats.js';
+import { createBoats, BOAT_LANE, LANE_WANDER } from '../src/game/boats.js';
 import {
   halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns, MEDIAN_W,
 } from '../src/city/grid.js';
@@ -11679,6 +11679,116 @@ let chopperOrder; // likewise
     check('the deck faces the sky', upward > 100, `${upward} up-facing triangles`);
   }
 
+  // --- The route band rides the hump rather than being swallowed by it.
+  //
+  // This shipped broken once and the shape of the mistake is worth keeping: `deckHeightAt` was
+  // added to the band's vertex emitter and the band went on cutting straight through the bridge,
+  // because the band **had no vertices to apply it to**. Straights are deliberately not sampled
+  // (one quad per path segment, the fade computed per fragment), and a junction arm is trimmed to
+  // the crossing road's half-width — so the whole deck is one segment whose two endpoints sit
+  // exactly on the abutments, which is exactly where a `sin^2` arch evaluates to zero. The height
+  // term was multiplying nothing.
+  //
+  // So the assertion is on the vertices, not on the formula: put the taxi at the foot of an arched
+  // span, take the band it would draw, and require both that there are interior points over the
+  // water and that one of them is actually up at the crest.
+  {
+    const bScene = new THREE.Scene();
+    const bTraffic = createTraffic(makeRng(seed + 93), bScene, 1);
+    const bTaxi = bTraffic.taxi;
+    const bLine = bridgeLines().find((i) => riverCrossing(i) === 'fixed');
+    // Heading +Z arriving at the junction on the far bank: that lane *is* the deck, so `back` of a
+    // full lane length parks the taxi on the near abutment with the whole span in front of it.
+    // `rLen` is the channel width and the deck lane is exactly that long, so a hair less than it
+    // lands on the near abutment without walking back onto the approach.
+    placeCar(bTaxi, DIR.PZ, bLine, riverRow() + 1, rLen - 0.01);
+    bTaxi.route = [];
+    const band = routePath(bTaxi, bTaxi.route);
+    const inside = band.filter((p) => p.z > rBanks.z0 + 1e-6 && p.z < rBanks.z1 - 1e-6);
+    const highest = Math.max(0, ...band.map((p) => deckHeightAt(p.x, p.z).y));
+    check('the route band has vertices over the channel to ride the arch with',
+      inside.length >= 9, `${inside.length} interior points across the span`);
+    // `DECK_SEGMENTS` is even, so one split plane lands on the crest exactly; anything less than
+    // the full rise means the band is sagging below the deck it is drawn on.
+    check('and one of them stands at the top of the hump',
+      Math.abs(highest - ARCH_RISE) < 1e-6,
+      `highest band vertex ${highest.toFixed(3)} against a ${ARCH_RISE} rise`);
+    bTraffic.dispose?.();
+  }
+
+  // --- Loco Mode leaves the deck before the top, not after it.
+  //
+  // The hop's arc peaks `HOP_LEN / 2` after the launch, so launching `HOP_LEN / 2` short of the
+  // crest is what puts the taxi in the air *over* it. The first cut fired on the descending slope
+  // — reported as "the bounce starts late, almost at the apex", which is precisely where it fired —
+  // and the arc then peaked well down the far side.
+  //
+  // Asserted on where the launch happens and where it lands, rather than on the trigger's terms:
+  // the terms are what was wrong last time.
+  {
+    const jScene = new THREE.Scene();
+    const jTraffic = createTraffic(makeRng(seed + 94), jScene, 1);
+    const jTaxi = jTraffic.taxi;
+    const jLine = bridgeLines().find((i) => riverCrossing(i) === 'fixed');
+    const crestZ = (rBanks.z0 + rBanks.z1) / 2;
+    placeCar(jTaxi, DIR.PZ, jLine, riverRow() + 1, rLen - 0.01);
+    jTaxi.route = [];
+    jTaxi.boost = true;
+    let launchZ = null;
+    let landZ = null;
+    let hops = 0;
+    let airborne = false;
+    for (let f = 0; f < 60 * 6; f++) {
+      jTraffic.update(1 / 60);
+      const up = jTaxi.hopFrom != null;
+      if (up && !airborne) { launchZ = jTaxi.z; hops += 1; }
+      if (!up && airborne && landZ === null) landZ = jTaxi.z;
+      airborne = up;
+      jTaxi.boost = true;
+    }
+    check('a boosting taxi leaves the arch half a hop before the crest',
+      launchZ !== null && Math.abs((crestZ - launchZ) - HOP_LEN / 2) < 0.4,
+      launchZ === null ? 'it never took off'
+        : `launched ${(crestZ - launchZ).toFixed(2)} short of the crest, wanting ${(HOP_LEN / 2).toFixed(2)}`);
+    // And it comes down **on the deck**, which is the property that matters and the one the old
+    // trigger could not hold: launching at the crest put the touchdown `HOP_LEN / 2` past the far
+    // abutment, so the taxi landed in the junction box. Measured rather than derived, because the
+    // margin depends on which bank road is the arterial — the channel is 12.0 or 10.67 wide.
+    check('and lands back on the deck rather than in the junction',
+      landZ !== null && landZ < rBanks.z1,
+      landZ === null ? 'it never came down' : `touchdown ${(rBanks.z1 - landZ).toFixed(2)} short of the abutment`);
+    check('one crossing is still one jump', hops === 1, `${hops} launches on a single span`);
+  }
+
+  // --- Nothing paints a stop bar on the bridge.
+  //
+  // A signal in this game is a bar across the lane, and a junction arm is trimmed to the crossing
+  // road's half-width — so a bridge lane *is* the deck, and its bar lands `BAR_SETBACK` onto the
+  // span. Only one span could ever show it: the fixed pair are on the signal-free ring and arch
+  // besides, so a flat quad would sink into them. The drawbridge is flat and interior, and wore two.
+  //
+  // The half that is not a matter of taste: the bar mesh is baked once and only recoloured, so a
+  // bar on the leaf stayed lying over open water for the whole lift, still cycling.
+  {
+    const sScene = new THREE.Scene();
+    const sTraffic = createTraffic(makeRng(seed + 95), sScene, 1);
+    const barMesh = sScene.getObjectByName('stopBars');
+    const m = new THREE.Matrix4();
+    let overWater = 0;
+    for (let k = 0; k < (barMesh?.count ?? 0); k++) {
+      barMesh.getMatrixAt(k, m);
+      const z = m.elements[14];
+      if (z > rBanks.z0 + 1e-6 && z < rBanks.z1 - 1e-6) overWater += 1;
+    }
+    check('no signal is painted over the river',
+      barMesh != null && overWater === 0,
+      barMesh == null ? 'no stop bars found at all' : `${overWater} of ${barMesh.count} bars over the channel`);
+    // ...and the rest of the city still has its signals: a guard phrased slightly wrong could
+    // silently take every bar out and this check would go quiet with it.
+    check('and the rest of the junctions keep theirs', (barMesh?.count ?? 0) > 40,
+      `${barMesh?.count ?? 0} stop bars on the map`);
+  }
+
   // --- The paint does not sink into the hump.
   //
   // `markRoad` lays its dashes flat at y = 0.02 and an arched deck is 1.1 above that at the crest,
@@ -11831,17 +11941,65 @@ let chopperOrder; // likewise
     const boats = createBoats(rScene, makeRng(seed + 840), bridge);
     let lowest = 1;
     let shutFrames = 0;
+    // Two hulls in the same water, and a mast through a soffit. Both were live before boats were
+    // given lanes: direction and lateral position were independent draws, so an up-river and a
+    // down-river boat shared the channel about four times in five.
+    let worstGap = Infinity;
+    let worstAir = Infinity;
+    let bothWays = false;
     for (let f = 0; f < 60 * 300; f++) {
       boats.update(1 / 60);
       bridge.update(1 / 60, []);
       if (bridge.closed) shutFrames += 1;
       for (const boat of boats.boats) {
-        if (boat.kind !== 'tug') continue;
-        if (Math.abs(boat.x - bridge.span.cx) < 5) lowest = Math.min(lowest, bridge.state.lift);
+        // Clearance is a function of **z alone** — the arch crests on the centreline and falls off
+        // both ways — so the number that matters is the soffit above the boat's own lane, not the
+        // one above the middle of the river. Checking the crest is what let this through before.
+        if (boat.kind === 'tug') {
+          const u = (boat.z - rBanks.z0) / rLen;
+          worstAir = Math.min(worstAir, -WATER_Y + archAt(u, rLen).y - DECK_THICK);
+          if (Math.abs(boat.x - bridge.span.cx) < 5) lowest = Math.min(lowest, bridge.state.lift);
+        }
+        for (const other of boats.boats) {
+          if (other === boat || other.dir === boat.dir) continue;
+          bothWays = true;
+          // Only a pair that actually meets can collide: hulls overlapping in x is the condition,
+          // and then the beam gap in z is what has to stay positive.
+          if (Math.abs(other.x - boat.x) > (other.len + boat.len) / 2) continue;
+          worstGap = Math.min(worstGap, Math.abs(other.z - boat.z) - BEAM);
+        }
       }
     }
     check('a tug is never inside the span unless the leaf is fully up', lowest > 0.99,
       `lowest lift with a tug in the span: ${lowest.toFixed(3)}`);
+    check('boats going opposite ways pass rather than share a lane',
+      bothWays && worstGap > 0,
+      bothWays
+        ? `closest passing hulls left ${worstGap.toFixed(2)} units of water between them`
+        : 'no two boats ever met head-on, so nothing was tested');
+    // The margin is thin by design — every unit outboard is clearance spent — so it is asserted on
+    // the **widest lane the generator can hand out**, not on whatever the soak happened to draw.
+    // That distinction is the whole check: the old free-for-all put roughly one tug in twenty
+    // through the soffit, which a five-minute sample passes most of the time and did.
+    //
+    // Worst case is the outer edge of the wander on the narrower channel. There are exactly two
+    // widths and no more: `arterialX` holds a single line, so at most **one** bank of the river can
+    // be an arterial, which takes the span from `BLOCK` (12.0) to 10.67 and costs clearance at
+    // every offset. Both are checked whichever one this city happens to have built.
+    {
+      const outer = BOAT_LANE + LANE_WANDER;
+      const airAt = (span) => -WATER_Y + archAt(0.5 + outer / span, span).y - DECK_THICK;
+      const narrow = BLOCK - (HALF_ARTERIAL - HALF_ROAD);
+      const tight = Math.min(airAt(rLen), airAt(BLOCK), airAt(narrow));
+      check("and a tug's mast clears the soffit above the outermost lane it can be given",
+        tight > TUG_AIR,
+        `${tight.toFixed(3)} of air at ${outer.toFixed(2)} off the centreline against a ${TUG_AIR} mast`);
+    }
+    // ...and the soak agrees with the bound, which is what says the two are talking about the same
+    // geometry rather than each being self-consistently wrong.
+    check("and no tug the run actually launched sat outside that",
+      worstAir > TUG_AIR,
+      `${worstAir.toFixed(3)} of air over the worst lane drawn in five minutes`);
     // Long enough to be an event, short enough not to be the map. Two or three lifts in a
     // three-minute session, and the span open for four fifths of the run.
     // **The gates come back up, they do not pop.** `open` used to set the barrier flat to zero on

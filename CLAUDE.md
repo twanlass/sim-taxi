@@ -339,6 +339,24 @@ Omit the whole section if there's nothing to note.
   what the fade eats, and a surface *buried inside a neighbour* has to be exempted, or every
   intersection curve between two lobes draws an arc where one is turning away while the other is
   still solid.
+- **A formula applied per vertex does nothing where there are no vertices.** The route band emits
+  one quad per path segment and deliberately never subdivides a straight — the fade is a
+  per-fragment varying, so a 20-unit straight needs no interior points. That is sound while the only
+  per-vertex data is a *linear* one; it stops being sound the moment Y is a `sin^2`. Adding
+  `deckHeightAt` to the emitter and calling the arched bridges fixed was therefore a no-op, and an
+  exact one rather than an approximate one: a junction arm is trimmed to the **crossing** road's
+  half-width, so a bridge lane starts and ends precisely on the two abutments — the lane and the
+  deck are the same segment — and those are exactly the two places `rise · sin²(πu)` evaluates to
+  zero. Six vertices out of six read 0.0. Before believing a per-vertex fix, count the vertices it
+  has to work with, and check what the geometry does *at the ones it has*.
+- **Two guards can each look reasonable and select nothing between them.** The Loco arch jump fired
+  on `y > 0.75 · ARCH_RISE && dydz · dirSign <= 0`. On a `sin²` the height test holds across the
+  middle third and the slope test holds from the peak on, so the conjunction is satisfied on the
+  *first frame past the exact apex* — the height test was inert, the slope test was the whole gate,
+  and the hop then peaked `HOP_LEN/2` down the far side and landed the taxi 0.94 units past the
+  abutment, in the junction box. It read as "the bounce starts late", which is the kindest possible
+  symptom for a trigger that is firing in exactly the wrong place. When a trigger is a conjunction,
+  work out the interval each term admits and where they actually intersect.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

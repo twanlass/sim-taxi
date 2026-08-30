@@ -310,12 +310,19 @@ export function deckHeightAt(x, z) {
     const cx = lineX(i);
     if (x < cx - half || x > cx + half) continue;
     const { y, slope } = archAt((z - banks.z0) / span, span);
-    return { y, dydz: slope };
+    return { y, dydz: slope, toCrest: (banks.z0 + banks.z1) / 2 - z };
   }
   return FLAT;
 }
 
-const FLAT = Object.freeze({ y: 0, dydz: 0 });
+// `toCrest` is the signed distance in +z to the top of the hump — the crest is `u = 0.5`, so it is
+// the midpoint of the banks. It is here rather than worked out in the caller because it is a fact
+// about the profile, and `sim/traffic.js` has no business re-deriving the span to get at it.
+//
+// Infinity off a bridge, and off the *drawbridge* too, which is flat by definition: whatever the
+// caller compares it against, the comparison is false, so a flat road cannot accidentally satisfy
+// a "how far to the top" test.
+const FLAT = Object.freeze({ y: 0, dydz: 0, toCrest: Infinity });
 
 // --- Geometry -----------------------------------------------------------------
 

@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import { PALETTE } from '../palette.js';
 import {
   ROAD_W, isXAxis, dirSign, lineX, lineZ, laneOffsetCoord, entryPoint, exitPoint, turnControl,
-  nextIntersection,
+  nextIntersection, riverBanks,
 } from '../city/grid.js';
 import { deckHeightAt } from '../city/river.js';
+import { DECK_SEGMENTS } from '../geometry/bridge.js';
 
 /**
  * Draws the taxi's planned route as a band of paint laid down the lane it will drive.
@@ -99,9 +100,28 @@ export const ROUTE_BLEND_DEFAULT = 'additive';
 
 // Junction arcs are sampled, straights are not — the fade is computed per fragment from a
 // distance-along-the-path varying, so a 20-unit straight needs no interior vertices at all.
+//
+// **That stopped being true over the river, and the exception is worth stating rather than
+// discovering.** The claim above holds while the only per-vertex data is `aDist`, which is linear
+// along a straight and therefore interpolates exactly. Y is not: an arched deck is a `sin^2` hump,
+// and a quad with vertices only at its two ends is a flat chord under it. Worse, the ends are the
+// *exact* places the arch is zero — a junction arm is trimmed to the crossing road's half-width, so
+// a bridge lane starts at `riverBanks().z0` and ends at `.z1`, and `deckHeightAt` returns 0.0 at
+// both. The band is depth-tested on purpose (see `Y` below), so the chord did not merely look flat,
+// it was swallowed by the deck and the route vanished mid-river.
+//
+// So straights are still not sampled, except across the channel, where `densifyOverWater` splits
+// them. See it for why the split planes are fixed in the world.
 const TURN_STEPS = 10;
 const MAX_STEPS = 32;      // routed junctions; the longest route across a 5×5 is well under this
-const MAX_POINTS = MAX_STEPS * (TURN_STEPS + 1) + TURN_STEPS + 4;
+// Interior points a river crossing adds: the plane at each end is already a path point.
+const DECK_STEPS = DECK_SEGMENTS - 1;
+// Sized so that *every* step could be a crossing. Working out how many crossings a route can
+// actually contain is the kind of cleverness that is right until the map changes, and the whole
+// array is 47 KB at the generous size. Overrunning it is silent — writes past the end of a
+// `Float32Array` are dropped, so the symptom is the far end of long routes going missing with
+// nothing logged.
+const MAX_POINTS = MAX_STEPS * (TURN_STEPS + DECK_STEPS + 1) + TURN_STEPS + 4;
 
 const along = (d, p) => (isXAxis(d) ? p.x : p.z);
 
@@ -118,6 +138,57 @@ const bezier = (a, c, b, t) => {
     z: u * u * a.z + 2 * u * t * c.z + t * t * b.z,
   };
 };
+
+/**
+ * Split any segment that crosses the channel at the deck's own facet boundaries.
+ *
+ * Without this the band has no vertices between the two abutments and cannot ride the arch at all
+ * — see the note beside `TURN_STEPS`. The height itself is applied later, per vertex, in the
+ * emitter; all this does is make sure there are vertices for it to be applied to.
+ *
+ * **The split planes are fixed in the world**, at fractions of the bank-to-bank span, and that is
+ * load-bearing rather than incidental. The file's whole contract is that nothing ahead of the car
+ * re-shapes as the car advances (see the header), so a subdivision measured as "every two units
+ * from the head of the path" would slide the mid-span facets a little every frame and the hump
+ * would crawl. Pinned to the banks, the points are the same points on every frame of the crossing
+ * and the segment behind the car simply gets shorter.
+ *
+ * `DECK_SEGMENTS` rather than a count of its own: the deck is lofted in ten, and a ribbon whose
+ * facet boundaries fall between the deck's own beats against it as the camera moves.
+ *
+ * Segments that do not reach the water are returned untouched, which is nearly all of them — and
+ * the drawbridge, being flat, gets subdivided into ten collinear pieces and looks exactly as it did.
+ * That is deliberate: a rule that asked "is this span arched" would have to be re-asked the day a
+ * flat span is arched or an arched one flattened, and ten redundant points cost nothing.
+ */
+function densifyOverWater(pts) {
+  const banks = riverBanks();
+  if (!banks || pts.length < 2) return pts;
+  const span = banks.z1 - banks.z0;
+
+  const out = [pts[0]];
+  for (let k = 1; k < pts.length; k++) {
+    const a = pts[k - 1];
+    const b = pts[k];
+    const dz = b.z - a.z;
+    // Only a run *along* z can cross the channel. A bank road runs along x at a constant z outside
+    // the banks, so it never trips this, and no other segment can be over the water: every
+    // crossing without a bridge is a closed segment the router will not plan through.
+    if (Math.abs(dz) > 1e-6) {
+      const step = dz > 0 ? 1 : -1;
+      const first = dz > 0 ? 1 : DECK_STEPS;
+      for (let n = first; n >= 1 && n <= DECK_STEPS; n += step) {
+        const z = banks.z0 + (span * n) / DECK_SEGMENTS;
+        const t = (z - a.z) / dz;
+        // Strictly between, so a plane landing on an existing point does not duplicate it.
+        if (t <= 1e-6 || t >= 1 - 1e-6) continue;
+        out.push({ x: a.x + (b.x - a.x) * t, z });
+      }
+    }
+    out.push(b);
+  }
+  return out;
+}
 
 /**
  * The lane centreline the taxi will actually drive, from where it is now to its destination.
@@ -204,7 +275,7 @@ export function routePath(car, route) {
     }
 
     const next = nextIntersection(dOut, i, j);
-    if (!next) return pts;
+    if (!next) return densifyOverWater(pts);
     d = dOut;
     i = next.i;
     j = next.j;
@@ -214,7 +285,7 @@ export function routePath(car, route) {
   // comes to rest, and running the band out to the far side would point past the pin.
   pushAhead(entryPoint(d, i, j), d);
   pushAhead(lanePoint(d, i, j, isXAxis(d) ? lineX(i) : lineZ(j)), d);
-  return pts;
+  return densifyOverWater(pts);
 }
 
 /**

@@ -12,9 +12,9 @@ import {
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
   GRID_I, GRID_J, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
-  ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor,
+  ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor, riverBanks,
 } from '../city/grid.js';
-import { deckHeightAt, ARCH_RISE } from '../city/river.js';
+import { deckHeightAt } from '../city/river.js';
 import { cityNetwork } from '../city/roadnet.js';
 
 // Re-exported for callers that still ask the *grid* about a junction. The sim itself no longer
@@ -293,16 +293,6 @@ export const isLaneClosed = (id) => closedLanes.has(id);
 // rather than just the outcome, so moving either one alone fails loudly.
 export const HOP_LEN = 5.5;
 
-/**
- * How far up an arched span a boosting taxi has to be before the crest counts as a launch.
- *
- * A fraction of `ARCH_RISE` rather than an absolute height, so the trigger follows the hump if the
- * hump ever changes. 0.75 of it is the top quarter of the arc — near enough the summit that the
- * deck is genuinely falling away underneath, far enough from it that a frame landing either side of
- * the exact peak still fires. Lower and the taxi takes off half way up the ramp, which reads as the
- * car leaving the road rather than as the road ending.
- */
-const ARCH_JUMP_MIN = ARCH_RISE * 0.75;
 // Height is free of that chain — it is the *span* that has to land before the hold line, and the
 // apex costs nothing but air. 1.55 was under half a car length and about 12px at play zoom, which
 // at a 3/4 camera is a lift rather than a jump: the taxi's own shadow never separated from it far
@@ -2115,6 +2105,28 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // exists only where a road does — so the map-edge and closed-segment guards the grid loop needed
   // are not ported, they are simply gone. A junction the network left unsignalised has no bars,
   // which is the visible half of that difference.
+  //
+  // **Nothing painted over the channel**, which is the same rule `ground.js` already applies to
+  // the centreline dashes and the crosswalks (`isRiverGap` there) and is enforced here on the
+  // bar's own z rather than on the lane's topology — the question is where the paint lands, and
+  // that is a position.
+  //
+  // It bites exactly one span. A lane crossing the river is trimmed to the *crossing* road's
+  // half-width at each end, so the bridge lane and the deck are the same segment, and a bar
+  // `BAR_SETBACK` back from the lane's end sits 2.4 units **onto** the bridge. The two fixed
+  // spans escape it twice over — they are on the ring, which is signal-free, and they arch, so a
+  // flat quad at 0.05 would sink into the deck anyway — which leaves the drawbridge as the only
+  // span in the city that can display a bar, wearing two of them 5.9 apart on a 10.7-unit deck.
+  //
+  // The second half is worse and is not a matter of taste: this mesh is baked once and only its
+  // *colour* is touched per frame, so a bar on the leaf stayed lying at y = 0.05 over open water
+  // for the whole lift, still cycling red and green with nothing underneath it.
+  //
+  // The bank roads are safe by construction and do not need a special case: a bar on one of them
+  // sits at `lineZ(bank) ± laneOffset`, and the lane offset is smaller than the half-road that
+  // defines the bank, so it can never reach the water.
+  const banks = riverBanks();
+  const overWater = (z) => banks !== null && z > banks.z0 && z < banks.z1;
   const bars = [];
   for (const node of net.nodes) {
     if (!node.signal) continue;
@@ -2122,6 +2134,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       if (lane.degenerate) continue;
       const at = Math.max(0, lane.length - BAR_SETBACK);
       const point = lane.path.at(at);
+      if (overWater(point.z)) continue;
       bars.push({ lane, x: point.x, z: point.z, yaw: yawOf(lane.path.tangentAt(at)) });
     }
   }
@@ -3448,19 +3461,30 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // took off every time it crossed the river would make the bridges an obstacle rather than a
       // reward. Loco Mode is the one state where the city is already bending its own rules.
       //
-      // Fired at the *crest* rather than at the abutment, which is the difference between a jump
-      // and a bump: the launch has to happen where the deck starts falling away, so the car keeps
-      // going straight while the road drops under it. `dydz` is the slope in +z and the span runs
-      // along Z, so `dirSign(car.d)` turns it into a slope along travel — positive climbing,
-      // negative past the top.
+      // **Launched so the hop's own apex lands on the deck's crest**, which is a derived number
+      // and not a tuned one: the arc is `sin(pi u)` over `HOP_LEN` of travel, so it peaks half a
+      // hop-length after the launch, and firing `HOP_LEN / 2` short of the top puts the taxi in
+      // the air *over* the summit.
       //
-      // Keyed to the lane so one crossing is one jump. Without it the car lands still past the
-      // crest with the slope still negative and immediately launches again, which is a taxi
-      // skipping across the river like a stone.
+      // The first cut fired on the descending slope instead, and the reason it read as "the bounce
+      // starts late, almost at the apex" is that it did: `y > 0.75 * ARCH_RISE` holds across the
+      // middle third of a `sin^2`, and requiring a negative slope on top of it selects the first
+      // frame past the exact peak, every time. The height test was doing nothing — the slope test
+      // was the whole gate — and the hop then peaked 2.75 units *down* the far side, where the road
+      // is already dropping away and there is no launch left to read.
+      //
+      // It also lands better. Off the crest the taxi touched down 11.5 units along a 12-unit deck,
+      // half a unit short of the abutment; off the climb it comes down at 8.75 with three units of
+      // deck in hand.
+      //
+      // Keyed to the lane so one crossing is one jump. Without it the car lands still inside the
+      // launch window and immediately goes again, which is a taxi skipping across the river like a
+      // stone.
       if (car.isTaxi && car.boost && car.state === 'drive' && car.hopFrom == null) {
-        const crest = deckHeightAt(car.x, car.z);
-        if (crest.y > ARCH_JUMP_MIN && crest.dydz * dirSign(car.d) <= 0
-          && car.archHopLane !== car.lane.id) {
+        // `toCrest` is signed in +z and the span runs along Z, so `dirSign` turns it into a
+        // distance *ahead* to the top. Infinity off a bridge, so a flat road never satisfies it.
+        const ahead = deckHeightAt(car.x, car.z).toCrest * dirSign(car.d);
+        if (ahead > 0 && ahead <= HOP_LEN / 2 && car.archHopLane !== car.lane.id) {
           car.archHopLane = car.lane.id;
           launchHop(car);
         }

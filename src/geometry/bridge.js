@@ -17,8 +17,14 @@ import { KERB_H } from '../city/ground.js';
 // Everything here is built along a span's own axis: **+Z across the river, +X across the road**,
 // origin on the centreline at the south bank. `createBridge` places the group.
 
-/** Segments along the span. Ten is a hump you cannot see the facets of at play zoom. */
-const DECK_SEGMENTS = 10;
+/**
+ * Segments along the span. Ten is a hump you cannot see the facets of at play zoom.
+ *
+ * Exported because the route band subdivides itself on the same count: a ribbon laid over the deck
+ * with facet boundaries that do not line up with the deck's own beats against it as the camera
+ * moves.
+ */
+export const DECK_SEGMENTS = 10;
 
 
 /** How far the abutment carries down past the waterline. Nothing is seen below it. */

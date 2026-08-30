@@ -144,6 +144,29 @@ from them. Nothing conflicts, so nobody yields.
 The visible half is the paint: no stop bars (they follow `node.signal`) and no crosswalks (they
 follow `isUnsignalised` in `grid.js`, which now covers the corners via `isRingCorner`).
 
+### And none over the river
+
+There is one place a stop bar is suppressed without the junction being unsignalised at all: **a bar
+never lands on a bridge**. A junction arm is trimmed to the *crossing* road's half-width, so a lane
+over the water starts and ends exactly at the abutments — the lane and the deck are the same
+segment — and a bar `BAR_SETBACK` back from the lane's end sits 2.4 units onto the span.
+
+Only one span in the city could ever show it. The two fixed crossings are on the ring, which is
+signal-free, and they arch besides, so a flat quad at `y = 0.05` would sink into the deck. The
+drawbridge is interior *and* flat, and it wore two bars 5.9 apart on a 10.7-unit deck — the most
+prominent thing on the span, and redundant with the orange booms that are the bridge's actual
+authority over crossing it.
+
+The half that is not a matter of taste: `stopBars` is baked once at city build and only its
+**colour** is touched per frame. A bar on the leaf therefore stayed lying at `y = 0.05` over open
+water for the whole lift, still cycling red and green with nothing underneath it.
+
+The guard is a per-lane `continue` on the bar's own z falling between the river banks — a position,
+because where the paint lands is the question — and it mirrors what `ground.js` already does with
+`isRiverGap` to keep centreline dashes and crosswalks off the water. `node.signal`, the phase plan
+and every car's behaviour are untouched: a car crossing the span still stops for the far junction's
+red, and the junction still reads as signalised from the three approaches that are on land.
+
 Measured over a 300s run of 24 cars: throughput **7.19 → 7.61** units/s per car, time stationary
 **15% → 10%** (`tools/signals.mjs`). The corner lights were holding ring traffic for cross traffic
 that does not exist.

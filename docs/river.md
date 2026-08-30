@@ -110,8 +110,25 @@ per arched span and are simply correct.
 
 The **route band** takes the same treatment, for the same reason and one layer up: `routeline.js`
 builds its ribbon from lane geometry, which is flat, so a route over a hump drew a straight yellow
-line through the middle of the deck. Every vertex it emits now takes `deckHeightAt` on the point it
-is actually at, so the band rides over the arch with the road.
+line through the middle of the deck. Every vertex it emits takes `deckHeightAt` on the point it is
+actually at.
+
+> **That fix alone did nothing, and the reason is worth keeping.** The band emits one quad per path
+> segment and deliberately does not subdivide straights — the fade is a per-fragment varying, so a
+> 20-unit straight needs no interior vertices. True while the only per-vertex data is `aDist`, which
+> is linear; false the moment Y is a `sin^2`. And the bridge case is exact rather than approximate:
+> a junction arm is trimmed to the *crossing* road's half-width, so a bridge lane starts at
+> `riverBanks().z0` and ends at `.z1` — the lane and the deck are the same segment — and those are
+> precisely the two places the arch evaluates to **zero**. The height term was multiplying nothing,
+> six vertices out of six. The band was not merely flat, either: it is depth-tested on purpose so
+> traffic drives over it, so the chord was swallowed by the deck and the route vanished mid-river.
+>
+> `densifyOverWater` is the actual fix — it splits any segment crossing the channel at
+> `DECK_SEGMENTS` fixed world z-planes, matching the deck's own facets so the two do not beat
+> against each other. **Fixed in the world, not measured from the head of the path**: the file's
+> contract is that nothing ahead of the car re-shapes as it advances, and a car-relative step would
+> make the mid-span facets crawl every frame. `MAX_POINTS` had to be re-derived with it — an
+> overrun is silent, because writes past the end of a `Float32Array` are dropped.
 
 The profile is `rise · sin²(πu)`. Zero slope at both ends is the point, not a detail — a curve that
 arrives at the abutment with slope left in it kinks where deck meets road, and no rise tunes that
@@ -125,15 +142,24 @@ ramp fires (`launchHop`, `sim/traffic.js`), because a hump you take at boost spe
 nothing at all is the one place the render-only rule looks like a missing feature rather than a
 clean separation.
 
-Three guards, and each of them is load-bearing:
+**It launches `HOP_LEN / 2` short of the crest**, and that is derived rather than tuned: the arc is
+`sin(pi u)` over `HOP_LEN` of travel, so it peaks half a hop-length after the launch, and firing
+half a hop-length before the top puts the taxi in the air *over* the summit. `deckHeightAt` returns
+a signed `toCrest` for it — the profile's own business, not something `traffic.js` should re-derive
+a span to work out — and `dirSign` turns it into a distance ahead.
 
-- `crest.y > ARCH_RISE * 0.75` — a fraction of the rise, not an absolute height, so the trigger
-  follows the hump if the hump is ever re-tuned. It puts the launch in the middle third of the span
-  rather than at the foot.
-- `crest.dydz * dirSign(car.d) <= 0` — only on the way **down**. Firing on the climb throws the car
-  up the slope it is already climbing, which reads as a stumble.
-- `car.archHopLane !== car.lane.id` — once per crossing. Without it the hop retriggers every frame
-  the crest test passes and the taxi hovers across the river.
+> **The first cut fired on the descending slope, and it was wrong in the way that is hardest to
+> see: it did exactly what it said.** The guard was `y > 0.75 * ARCH_RISE && dydz * dirSign <= 0`,
+> and on a `sin^2` the height test holds across the middle third while the slope test holds from
+> the peak on — so the two together select the **first frame past the exact apex**, every time.
+> The height test was doing nothing at all; the slope test was the whole gate. Played, it reads as
+> "the bounce starts late, almost at the apex", which is precisely where it started. Measured: the
+> launch landed 0.26 units past the top and the taxi came down **0.94 units past the far abutment,
+> in the junction box**. Off the climb it touches down with about two units of deck still in hand.
+
+The one guard that survived unchanged is `car.archHopLane !== car.lane.id` — once per crossing.
+Without it the hop retriggers every frame the launch window is satisfied and the taxi hovers across
+the river.
 
 ## The embankment
 
@@ -271,6 +297,15 @@ span: the lanes are already blocked, so a route that never went near the river r
 Passing the **same target object** keeps that free — the band's rollout sweep keys off
 `pendingTarget`'s identity ([gameplay.md](gameplay.md#dragging-the-route)).
 
+### It shows no traffic light
+
+The span carries no stop bars, though the junctions at both banks are ordinary signalised interior
+junctions. A bridge lane is exactly the deck, so a bar would land on it — and on the drawbridge it
+did, on a leaf that then lifted out from under it. See
+[traffic.md](traffic.md#and-none-over-the-river) for the rule and what it deliberately leaves alone.
+The orange boom is the bridge's only "stop", which is also the only one telling the truth: during
+`closing` and `clearing` the lane is already shut while a stop bar would happily be green.
+
 It also declines to lift while a siren is running down its line, the same courtesy `roadwork.js`
 extends before digging up a road: the corridor holds every light on its road green and the cruiser
 neither queues nor brakes, so a barrier in front of one is the single closure it cannot answer.
@@ -302,6 +337,37 @@ would pass through a closed span.
 > `toGate` negative, still under `HOLD_OFF` — so the moment the leaf started back down it teleported
 > the boat to the near side of the bridge and held it there. One tug in 260 seconds instead of four,
 > and the one was going round in circles.
+
+### Lanes
+
+**Which side a boat runs on is keyed to which way it is going** — `midZ + dir * BOAT_LANE`, which
+as it happens is port to port, since heading +x a boat's starboard side is +z. The first cut drew
+the direction and the lateral position as two independent randoms, which put an up-river and a
+down-river boat in the same water about four times in five.
+
+The offset is bounded at both ends and neither bound is taste:
+
+- **Floor** — two hulls passing must not touch, so `2 * BOAT_LANE` has to clear `BEAM`. (`BEAM` is
+  exported from `geometry/boat.js` for exactly this: a separation written as a literal somewhere
+  else stops tracking the hull the moment either changes.)
+- **Ceiling, and this is the one that is easy to get backwards.** Every bridge here carries a road
+  running along Z across a river running along X, so the arch humps *across the channel*:
+  `deckHeightAt` is a function of `z` alone and it **crests on the centreline**. Clearance is
+  `1.65 + 1.1 · cos²(π·dz / span)` — best in the middle, falling off both ways. Pushing a boat
+  outboard spends the very clearance the arch exists to provide, so a design that put the **tug**
+  on the outside would be exactly wrong.
+
+> The old free-for-all was already over that ceiling. `wander` reached 2.4 where `TUG_AIR` needs
+> `|dz| ≤ 2.29`, so about one tug in twenty drove its mast through the soffit of a fixed span,
+> silently. Nothing caught it: the probe's clearance check compares against `ARCH_SOFFIT`, the value
+> at the **crest**, and never looked at where the boat actually was. Its replacement asserts the
+> bound on the widest lane the generator can hand out rather than on whatever a soak happened to
+> draw — a 5% bug passes a five-minute sample most of the time, and did.
+
+At 1.4 ± 0.2 hulls pass with 0.6 of water between them, 0.2 at the worst of the wander, and the
+tug's worst clearance is 2.52 against its 2.4 mast on the narrow channel. There are exactly two
+channel widths, because `arterialX` holds a single line and so at most one bank can be an arterial:
+12.0 and 10.67.
 
 ### Fading in, and the wake
 

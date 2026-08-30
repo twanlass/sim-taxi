@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { propMaterial, unlitMaterial } from '../util/geo.js';
-import { createBargeMesh, createTugMesh, BARGE_LEN, TUG_LEN } from '../geometry/boat.js';
+import { createBargeMesh, createTugMesh, BARGE_LEN, TUG_LEN, BEAM } from '../geometry/boat.js';
 import {
   waterEdges, WATER_Y, bridgeSpan, drawbridgeLine, BARGE_AIR, TUG_AIR,
 } from '../city/river.js';
@@ -86,6 +86,13 @@ const ASK_AHEAD = (OPEN_SECONDS + ASK_SLACK) * TUG_SPEED;
 // ...and how far past it before the tug lets go. Its stern has to be clear of the leaf's swing.
 const RELEASE_PAST = TUG_LEN + 4;
 
+// How far off the middle of the channel a boat runs, and how much of that is left to chance.
+//
+// Exported because the ceiling on them is a *clearance* and belongs in the probe: see `laneZ` in
+// `createBoats` for both bounds and why the tug is the one that pays.
+export const BOAT_LANE = BEAM / 2 + 0.3;
+export const LANE_WANDER = 0.2;
+
 // Where a tug stops if the leaf is not up yet.
 //
 // **The boat waits, not the bridge.** `clearing` has no timeout — it holds until the deck is empty,
@@ -107,10 +114,34 @@ export function createBoats(scene, rng, drawbridge) {
   const drawSpan = drawLine === null ? null : bridgeSpan(drawLine);
 
   const midZ = (edges.z0 + edges.z1) / 2;
-  // How far off the middle a boat may sit. The channel is 9-ish units wide and a hull is 2.2, so
-  // there is room for a boat to be somewhere in it rather than always down the centreline — but
-  // not so much that one grazes a wall.
-  const wander = Math.max(0, (edges.z1 - edges.z0) / 2 - 2.2);
+
+  /**
+   * Which side of the channel a boat runs on, keyed to which way it is going.
+   *
+   * The first cut drew a direction and a lateral position as two independent randoms, which put an
+   * up-river and a down-river boat in the same water about four times in five — reported, fairly,
+   * as "they are about to collide".
+   *
+   * The offset is bounded from both ends and neither bound is a matter of taste:
+   *
+   * - **Floor.** Two hulls passing must not touch, so the separation `2 * BOAT_LANE` has to clear
+   *   `BEAM`. At 1.4 they pass with 0.6 of water between them, and 0.2 at the worst of the wander.
+   * - **Ceiling, and this is the one that is easy to get backwards.** Every bridge here carries a
+   *   road running along Z across a river running along X, so the arch humps *across the channel*:
+   *   `deckHeightAt` is a function of z alone and it **crests on the centreline**. Clearance is
+   *   `1.65 + 1.1 * cos^2(pi * dz / span)` — best in the middle, falling off both ways — so pushing
+   *   a boat outboard spends the very clearance the arch exists to provide. A design that put the
+   *   *tug* on the outside would be exactly wrong.
+   *
+   * The old free-for-all was already over that ceiling: `wander` reached 2.4 where `TUG_AIR` needs
+   * `|dz| <= 2.29`, so about one tug in twenty drove its mast through the soffit of a fixed span,
+   * silently — the clearance check in the probe compares against the crest and never looked at the
+   * boat's z. At 1.4 ± 0.2 the worst case is 2.52 against a 2.4 mast on the narrow channel, which
+   * is thinner than it sounds and is asserted rather than trusted.
+   *
+   * Port to port, as it happens: heading +x a boat's starboard side is +z, so `dir` *is* the sign.
+   */
+  const laneZ = (dir) => midZ + dir * (BOAT_LANE + rng.jitter(LANE_WANDER));
 
   const boats = [];
   const state = {
@@ -173,7 +204,7 @@ export function createBoats(scene, rng, drawbridge) {
       mesh,
       dir,
       x: dir > 0 ? -off : off,
-      z: midZ + rng.jitter(wander),
+      z: laneZ(dir),
       speed: kind === 'tug' ? TUG_SPEED : BARGE_SPEED,
       asked: false,
       len: kind === 'tug' ? TUG_LEN : BARGE_LEN,
@@ -271,16 +302,21 @@ export function createBoats(scene, rng, drawbridge) {
     settle() {
       if (boats.length) return;
       const gate = spanX() ?? 0;
+      // Both forced up-river, so the lane has to be re-drawn to match: `launch` picked a side from
+      // the direction it drew, and overriding the direction afterwards without moving the boat
+      // would put a screenshot's boats on the wrong side of a river the game runs correctly.
       const barge = launch('barge');
       barge.dir = 1;
       barge.mesh.rotation.y = Math.PI / 2;
       barge.x = gate - 26;
-      barge.mesh.position.x = barge.x;
+      barge.z = laneZ(barge.dir);
+      barge.mesh.position.set(barge.x, WATER_Y, barge.z);
       const tug = launch('tug');
       tug.dir = 1;
       tug.mesh.rotation.y = Math.PI / 2;
       tug.x = gate - 2;
-      tug.mesh.position.x = tug.x;
+      tug.z = laneZ(tug.dir);
+      tug.mesh.position.set(tug.x, WATER_Y, tug.z);
     },
   };
 }

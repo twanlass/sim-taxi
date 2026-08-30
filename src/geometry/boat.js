@@ -17,7 +17,14 @@ import { BARGE_AIR, TUG_AIR } from '../city/river.js';
 /** Hull length. A car is 3.4, so a barge is two and a half cars and the tug a little over one. */
 export const BARGE_LEN = 8.6;
 export const TUG_LEN = 4.4;
-const BEAM = 2.2;              // both are the same width: the channel is what sets it
+/**
+ * Hull width, and both boats share it — the channel is what sets it, not the vessel.
+ *
+ * Exported because it is the **floor on the lane separation**: two boats passing have to be at
+ * least a beam apart or their hulls overlap, and a separation written as a literal somewhere else
+ * is a number that stops tracking this one the moment either changes.
+ */
+export const BEAM = 2.2;
 const FREEBOARD = 0.55;        // hull above the waterline
 const DRAFT = 0.35;            // ...and below it, which is only ever seen at the bow wave
 
