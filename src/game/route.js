@@ -322,10 +322,17 @@ export function planOrigin(car) {
 // is taken at CORNER_SPEED (5.95, 70% of cruise) and its Bezier is longer than the 8-unit straight
 // through the junction — a left is 15.4 against a straight's 11.4.
 //
-// Fitted by least squares over 581 trips across 6 cities (`node tools/eta.mjs 100 6`): mean trip
-// 4.20 blocks, 1.92 turns, 16.4s. Against that data the pair below scores MAE 4.35s and bias
-// -0.14s — near enough unbiased, which is the property that matters, because a biased estimator
+// Fitted by least squares over 585 trips across 6 cities (`node tools/eta.mjs 100 6`): mean trip
+// 4.61 blocks, 2.07 turns, 17.3s. Against that data the pair below scores MAE 4.27s and bias
+// -0.10s — near enough unbiased, which is the property that matters, because a biased estimator
 // tilts every clock in the game the same way.
+//
+// **Re-fitted when the river went in**, which is the case the instruction above was written for. A
+// city with a row more blocks in it and four crossings on the one road that gets over the water is
+// a longer drive: the mean trip went 4.20 blocks to 4.61 and 16.4s to 17.3s, and the old pair
+// carried a +0.54s bias against it — every clock in the game a little generous, in the same
+// direction, for a reason nothing on screen explains. A block is worth slightly less than it was
+// and a turn slightly more, which is what a map with more of both looks like.
 //
 // **The 4.35s is not estimator slop, it is the city.** The same route driven twice differs by
 // about that much depending on which signal phase the taxi meets and what it queues behind;
@@ -333,8 +340,8 @@ export function planOrigin(car) {
 // that variance, which is precisely why the deadline is `budget * slack(d)` and not `budget`:
 // slack is what pays for the traffic you happen to get, and shrinking it is what makes the game
 // harder.
-export const SEC_PER_BLOCK = 3.28;
-export const SEC_PER_TURN = 1.30;
+export const SEC_PER_BLOCK = 3.11;
+export const SEC_PER_TURN = 1.38;
 
 /**
  * How many of a route's steps change direction — the turns, as opposed to going straight through.

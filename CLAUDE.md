@@ -5,7 +5,8 @@ Guidance for Claude Code when working in this repository.
 ## What this is
 
 **Sim Taxi** — a low-poly 3D browser game. Crazy Taxi meets Flight Control: a fixed 3/4 view of a
-5×5 block city, ambient traffic obeying real signals, and one taxi you route by tapping fares.
+5-by-6 block city with a river down the middle of it, ambient traffic obeying real signals, and one
+taxi you route by tapping fares.
 
 Three.js r0.180 + Vite 7. **Zero external assets** — every mesh is generated in code.
 
@@ -20,6 +21,7 @@ about to change.
 | [docs/README.md](docs/README.md) | **Index — start here** |
 | [docs/architecture.md](docs/architecture.md) | Module map, frame loop, seeding, `window.__taxi` test hook |
 | [docs/city.md](docs/city.md) | Coordinates, direction encoding, layout, park districts, divided arterials |
+| [docs/river.md](docs/river.md) | The river, the four bridges, the drawbridge and the boats |
 | [docs/traffic.md](docs/traffic.md) | Signals, arterials, ring road, car physics, boost, police corridor, the bust chase |
 | [docs/gameplay.md](docs/gameplay.md) | Opening vignette, fare loop, routing, picking, timer ring, economy |
 | [docs/difficulty.md](docs/difficulty.md) | The ramp: budgeted clocks, board size, shifts, the sweeps behind the numbers |
@@ -53,6 +55,13 @@ breakage surfaces three steps later. Any scripted edit must assert its match and
 once shipped undetected because nothing headless imported it.
 
 **Colours live in `palette.js`.** Geometry constants live in `city/grid.js`. Don't inline either.
+
+**The grid has two counts and two coordinate functions.** `GRID_I` bounds `i`, `GRID_J` bounds `j`,
+and they differ — the city is six block rows tall against five columns because one row is the river.
+`lineX(i)` gives an x and `lineZ(j)` gives a z; there is no `lineCoord`, no `GRID`, no `SPAN` and no
+`HALF_SPAN`, because the two axes are centred on the origin with different half-spans and one
+function cannot tell which it was handed. Anything reaching for "the whole map" wants `MAX_SPAN`;
+anything clamping a *position* wants the per-axis pair.
 
 **A road's width is not one number.** An arterial is a third wider than a side street, so
 `ROAD_W`/`HALF_ROAD`/`LANE` are the *ordinary street's* values and anything asking about a specific
@@ -371,6 +380,21 @@ Omit the whole section if there's nothing to note.
   costs the drive-through its short exit and buys it two quarter turns (`EXIT_LIFT` in
   `city/burgerjoint.js`), and it is the question to ask of any new `releaseCar` site: how far back
   from the junction does this land, measured?
+- **A transparent `propMaterial()` receives ambient occlusion it can never cast.** `markOccluder`
+  refuses to put a transparent mesh in the AO depth prepass — quite rightly, a surface you can see
+  through has no business writing depth — but *receiving* is the default, so a translucent prop
+  samples the occlusion of whatever is behind it. The river's water is where that stopped being
+  invisible: at the bottom of a two-unit channel it read the walls' own crease and went nearly
+  black, while the stretch running off the end of the island had an empty AO buffer behind it and
+  came out at full brightness, with the discontinuity landing exactly on the coast. Pass
+  `propMaterial({ ao: false })`. The asphalt's fade skirt has the same hole and gets away with it
+  only because nothing stands near it.
+- **A lofted strip built from a `sign` is wound backwards on one of its two sides.** Half the
+  bridge deck's pieces are built as a mirrored pair off `sign = ±1`, so one of each pair arrives
+  with its ends the other way round — and a quad wound from `x1` to `x0` faces *down*. Sort the
+  span inside the builder rather than trusting the caller. This is the roadworks ramp's bug wearing
+  a loop, and it fails the same way: `flatShading` takes its normal from a screen-space derivative,
+  so the reversed face still lights and reads as z-fighting rather than as inside out.
 - **Never name a Rollup chunk after anything under `src/`.** `vite.config.js` has two entries now
   (the game and `/lab/`), and a `manualChunks` rule that swept `src/main.js` into a shared chunk
   made every page importing that chunk *boot the game* — `/lab/` came up with the city's road

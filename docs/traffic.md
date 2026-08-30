@@ -1356,6 +1356,19 @@ So the network is untouched and two **lane ids** are handed to `setClosedLanes`.
 exactly one place — the weighted dice at the single turn-decision site — where they zero a turn's
 weight:
 
+> **`setClosedLanes` is keyed by source.** It was one set with one owner and this module replaced
+> it wholesale, which is correct exactly while nothing else holds a closure. The drawbridge
+> ([river.md](river.md#the-three-closure-sets)) is the something else: it shuts its two lanes for a
+> dozen seconds at a time, and a zone standing up or packing away in that window would have
+> reopened the span under it.
+>
+> Note that this set and the drawbridge's are the *same* mechanism saying different things about
+> the taxi. A roadworks closure is soft on purpose — ambient traffic is kept out and the taxi is
+> tempted in, and the asymmetry is the whole vignette. A raised leaf is hard for everybody, which
+> is `setBlockedLanes` in route.js rather than a weight: a weight, however large, is still a number
+> Dijkstra will pay if it has to.
+
+
 ```js
 return { turn, w: closedLanes.has(turn.outLane) ? 0 : w };
 ```

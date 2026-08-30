@@ -7,6 +7,7 @@ behind it that aren't obvious from the code.
 |---|---|---|
 | [architecture.md](architecture.md) | Module map, the frame loop, seeding and determinism, how a change flows through the app, offline support | `src/main.js` |
 | [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts and the duck pond, the depot and the burger joint, ground/buildings/props | `src/city/` |
+| [river.md](river.md) | The river, its four bridges, the span that lifts and the boats it lifts for | `src/city/river.js`, `src/game/drawbridge.js` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, the police corridor and the bust chase | `src/sim/` |
 | [gameplay.md](gameplay.md) | The opening vignette, the opening tutorial, the fare loop, routing, dragging the route, the package courier, picking, the travelling clock, economy, crazy-taxi mode, pause | `src/game/` |
@@ -27,7 +28,7 @@ After that, three speech bubbles from the taxi — "this car is you", "tap that 
 nod at the boost pill a couple of seconds after the first drop-off — and that is the whole tutorial;
 see [the opening tutorial](gameplay.md#the-opening-tutorial).
 
-A 5×5 block city on a fixed 3/4 orthographic camera. Ambient cars drive a lane-following traffic
+A 5-by-6 block city on a fixed 3/4 orthographic camera. Ambient cars drive a lane-following traffic
 model with real signals. **The player's taxi is one of those cars** — the only difference is that
 its turn at each junction comes from a planned route rather than a dice roll, so it obeys every
 red light exactly like everyone else and cannot cheat its way to a destination.
@@ -46,6 +47,13 @@ delivery pays by distance, $8 for a one-block hop up to $35 across town, times t
 Everything **ramps with the deliveries you land**: the board grows from one rider to four, clocks
 tighten from twice the driving they cost down to 1.15×, traffic thickens, the police come round more
 often, and fares pay up to double. A perfect player survives a median of 15.
+
+A **river** runs east–west through the middle of the city, so every trip across town has to pick a
+crossing. Four of the six roads that meet it carry a bridge; the other two just stop at the water.
+Three of the four **arch** — a low hump the cars rise and pitch over — and the fourth is flat,
+because it is the one that **lifts**: barriers drop, the deck clears, and a leaf tilts up off one
+bank to let a tug through, closing that route for a dozen seconds while it does. The barges pass
+under everything, which is what the arch on the other three is for. See [river.md](river.md).
 
 Alongside the riders, one or two **packages** wait on corners under cyan rounded-square pads. You
 cannot tap one: the only way to collect or deliver a package is to **drag the route band through its
