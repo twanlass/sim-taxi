@@ -6,6 +6,7 @@ import {
   kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
 } from '../geometry/diamond.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
+import { markEmissive } from './bloom.js';
 import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './selectpop.js';
 
 // The fare's clock, as a physical object: one plumbob crystal hanging point-down over whoever it
@@ -127,6 +128,21 @@ export function createFareMarker(scene, phase = 0) {
   const ring = createTargetRing(fareColor(URGENCY_SEGMENTS));
   ring.group.visible = false;
   scene.add(ring.group);
+
+  // Both halves of the mark glow — see game/bloom.js. Marked once here rather than per fare because
+  // these are **pooled**: `game/fares.js` builds MAX_FARES of them at startup and shows and hides
+  // them, so the draw list is filled once and `visible` does the rest for free.
+  //
+  // Neither needed a material change: the crystal is a Lambert with an emissive (which is what the
+  // pass reads for a lit material) and the disc is `unlitMaterial` (whose colour *is* the light).
+  // What they did need is the pass re-reading them every frame — **their hue is the clock**, and a
+  // copy taken at construction would bloom the wrong urgency for the whole run.
+  //
+  // Both are deliberately the two lowest intensities in `BLOOM_INTENSITY`. A read-out that
+  // saturates toward white has stopped reporting its number, and these two report the one number
+  // the player is actually racing.
+  markEmissive(group, 'crystal');
+  markEmissive(ring.group, 'ring');
 
   const anchor = new THREE.Vector3();
   const from = new THREE.Vector3();

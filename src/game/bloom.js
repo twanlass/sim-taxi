@@ -85,7 +85,21 @@ export const BLOOM_INTENSITY = {
   window: 1.15,
   /** The depot's strip light, seen through an open door. */
   bay: 1.6,
+  /** The Loco Mode plume and its kickoff burst. Fire, so it can afford to be the hottest thing on
+   *  the road — and it is already fading in and out on its own, which the pass follows. */
+  flame: 3.8,
+  /** A fare's crystal. **A read-out, and that is the whole argument for keeping this low.** Its hue
+   *  is the time remaining, and bloom desaturates toward white as it saturates — so a crystal
+   *  pushed hard stops reporting the clock at exactly the moment the clock matters most. 1.4 is a
+   *  lift on the crystal's own facets rather than a halo around it. */
+  crystal: 1.4,
+  /** ...and the disc and drop-off ring under it, on the same argument, lower again: a ring is a
+   *  thin line and a thin line is what a blur destroys first. */
+  ring: 1.0,
 };
+
+/** The keys of `BLOOM_INTENSITY`, in panel order — the ⚙️ panel builds a row per kind off this. */
+export const BLOOM_KINDS = Object.keys(BLOOM_INTENSITY);
 
 // Resolution of the emissive target, as a fraction of the drawing buffer.
 //
@@ -108,7 +122,8 @@ const LEVELS = 3;
 // What each level of the chain contributes on the way back up, relative to the one below it. See
 // the note by UP_FRAGMENT: at 1.0 the three levels sum to a flat lift over the whole frame. 0.55
 // leaves the finest level dominant and the widest one a tail, which is what reads as a glow with
-// a core rather than as haze.
+// a core rather than as haze. Live in the ⚙️ panel as **Reach**, because it is the one number that
+// decides tight-and-hot against wide-and-soft and no still frame settles that.
 const LEVEL_WEIGHT = 0.55;
 
 // Depth bias for the occlusion test, in NDC. Two things need paying for, both small: the prepass is
@@ -141,6 +156,9 @@ export const BLOOM_DEFAULTS = {
   // A multiplier on every `BLOOM_INTENSITY`, so the whole HDR range can be pushed and pulled with
   // one hand without renegotiating a brake light against a shopfront.
   intensity: 1,
+  // How much each level of the blur chain contributes relative to the one below it. See
+  // LEVEL_WEIGHT — low is a tight hot core, high is a wide wash that becomes a fog at 1.
+  reach: LEVEL_WEIGHT,
 };
 
 const emissive = new Set();
@@ -161,13 +179,24 @@ export function emissiveList() {
  * `gl_FragCoord.z` is the same NDC depth `MeshDepthMaterial` packed, and this pass renders at the
  * prepass's own size, so the lookup is texel-for-texel and needs no scaling.
  */
-function patchEmissiveDepth(material) {
+let patchSeq = 0;
+
+function patchEmissiveDepth(material, inherited = null) {
   // Three builds the program cache key from the material's parameters, *before* `onBeforeCompile`
   // runs, so a patched basic material collides with every unpatched one sharing those parameters
   // and `acquireProgram` hands back whichever compiled first — the trap that once drew the
   // diamond's fill with a building's shader. See CLAUDE.md.
-  material.customProgramCacheKey = () => 'bloom-emissive';
-  material.onBeforeCompile = (shader) => {
+  //
+  // Unique per material rather than one constant for the pass, because `inherited` means two of
+  // these can carry *different* source patches while sharing every parameter three hashes.
+  const key = `bloom-emissive-${patchSeq++}`;
+  material.customProgramCacheKey = () => key;
+  material.onBeforeCompile = (shader, renderer) => {
+    // The source's own patch first, so this runs on top of whatever it did rather than being
+    // overwritten by it. That is what lets an effect with a shader of its own — the Loco kickoff
+    // burst multiplies in a per-instance `aAlpha` — bloom as the shape it actually draws instead
+    // of as every particle at full strength.
+    inherited?.(shader, renderer);
     Object.assign(shader.uniforms, BLOOM_UNIFORMS);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
@@ -183,73 +212,132 @@ uniform float uBloomDepthBias;`)
 }
 
 /**
- * Build the material a mesh is drawn with in the emissive pass.
+ * What a material is contributing as *light*, in the two forms this game writes it.
  *
- * One `MeshBasicMaterial` covers every lamp in the game, because there are only two ways a thing
- * here is self-lit and this reads both off the mesh it is handed:
+ * There are only two, and both are read off the mesh rather than configured:
  *
  *   - **`unlitMaterial()`** — the colour *is* the light. Either flat (`material.color`, the
  *     cruiser's bar) or baked per vertex (`vertexColors`, the drive-through's windows and the
  *     depot's strip). A basic material multiplies `diffuse` by `vColor`, so putting the intensity
  *     in `color` covers both with one branch.
- *   - **A Lambert carrying an emissive** — the light pods. `emissive * emissiveIntensity` is what
- *     that material actually adds to the frame, so it is what this reproduces.
+ *   - **A Lambert carrying an emissive** — the light pods, the fare's crystal.
+ *     `emissive * emissiveIntensity` is what that material actually adds to the frame.
  *
- * `THREE.Color` does not clamp and `diffuse` is a plain `vec3`, so an intensity over 1 survives all
- * the way to a half-float target. That is the entire HDR pipeline.
- *
- * The instanced pods need no special case at all: a pod that is off has had its instance matrix
- * collapsed to a zero scale by `sim/traffic.js` (`instanceColor` is paint and cannot carry an
- * on/off — see the note there), and a degenerate triangle rasterises nothing whatever material it
- * is wearing. The bloom switches off exactly when the lamp does, for free.
+ * So **nothing needs a special material to be bloomed.** If it is unlit it already qualifies, and
+ * if it is lit it qualifies to the extent it has an emissive. What it needs is to be *named*.
  */
-function emissiveMaterialFor(material) {
-  const lit = material.emissive
-    ? material.emissive.clone().multiplyScalar(material.emissiveIntensity ?? 1)
-    : material.color.clone();
-  // Through the helper, like every other unlit material in the game — and the `fog: false` it
-  // carries is the point here rather than a formality: haze mixes toward the sky colour, and a
-  // lamp faded into the sky is not a lamp.
-  return patchEmissiveDepth(unlitMaterial({
-    color: lit,
-    vertexColors: Boolean(material.vertexColors),
-    toneMapped: false,
-    side: material.side,
-  }));
+function readLight(material, out) {
+  return material.emissive
+    ? out.copy(material.emissive).multiplyScalar(material.emissiveIntensity ?? 1)
+    : out.copy(material.color);
 }
 
 /**
- * Put `mesh` in the bloom at `intensity` — see BLOOM_INTENSITY for the scale.
+ * Re-derive one mesh's emissive-pass material from its live one.
  *
- * Called from `main.js` rather than from the module that builds each lamp, for the reason
- * `markOccluder` is: `sim/` may not import from `game/`, and the two vehicle modules own most of
- * the lamps in the game. Each of them hands its light meshes back and the one caller that builds
- * exactly one of everything does the marking.
+ * **Run every frame, not once at mark time, and that is the whole of what makes this usable.** A
+ * snapshot taken when the mesh was built is wrong for everything in this game that is worth
+ * glowing:
+ *
+ *   - the Loco plume animates its **opacity** as the flame breathes (`material.opacity = heat` in
+ *     game/locoflame.js), so a snapshot blooms a flame that is not burning;
+ *   - a fare's crystal and its ring are **repainted** as the clock runs down — their hue *is* the
+ *     time remaining — so a snapshot blooms last week's urgency;
+ *   - the cruiser's bar strobes, and the police fade their whole skin out at the map edge.
+ *
+ * It costs a colour copy and a multiply per marked mesh per frame, on a list of a few dozen.
  */
-export function markEmissive(mesh, intensity = 1) {
-  if (!mesh?.isMesh) return mesh;
-  const material = emissiveMaterialFor(mesh.material);
-  // Scaled here rather than only in `render()`, so the material is correct from the moment it is
-  // built: a headless caller (`tools/probe.mjs`) never reaches a render, and a material whose
-  // colour is only right after the first frame is a material that cannot be asserted.
-  material.color.multiplyScalar(intensity);
-  mesh.layers.enable(BLOOM_LAYER);
-  mesh.userData.bloomMaterial = material;
-  // The colour before the live `intensity` multiplier, so a slider drag is idempotent rather than
-  // compounding on every frame it is held down.
-  mesh.userData.bloomBase = material.color.clone();
-  emissive.add(mesh);
-  return mesh;
+export function refreshEmissive(mesh, master = 1) {
+  const bloom = mesh.userData.bloomMaterial;
+  const live = mesh.material;
+  if (!bloom || !live || live === bloom) return bloom;
+  readLight(live, bloom.color)
+    .multiplyScalar((BLOOM_INTENSITY[mesh.userData.bloomKind] ?? 1) * master);
+  // Carried, so a thing that is fading out of the frame fades out of the bloom with it.
+  bloom.opacity = live.opacity;
+  bloom.transparent = live.transparent;
+  bloom.visible = live.visible;
+  return bloom;
 }
 
-/** Take it back out again, and free the material — the same contract `unmarkOccluder` has. */
-export function unmarkEmissive(mesh) {
-  if (!emissive.has(mesh)) return mesh;
-  mesh.layers.disable(BLOOM_LAYER);
-  mesh.userData.bloomMaterial?.dispose();
-  mesh.userData.bloomMaterial = null;
-  emissive.delete(mesh);
-  return mesh;
+/**
+ * An outline hung off a lamp, which is not itself a lamp.
+ *
+ * The exclusion `markEmissive`'s traversal needs, and the same shape as the rule
+ * [`markOccluder`](./ssao.js) carries for its own prepass. Every vehicle part in the game wears a
+ * ghost outline (`geometry/ghostoutline.js`) and may wear a Cartoon Mode hull on top of that — two
+ * child meshes each, attached to the part rather than beside it. **The taxi's three light pods
+ * therefore carry six children between them**, and a traversal that took them would bloom an
+ * inflated hull of the pod and a mask that writes no colour at all: a soft rectangle floating
+ * around each of the taxi's lights, three times the size they are.
+ *
+ * Two tests, because the two halves fail differently. A mask is `colorWrite: false` — it has no
+ * colour to *be* light, which is the same argument the AO prepass makes about it. A rim does write
+ * colour, so it is caught by name, the way `setGhostOutlines` and Cartoon Mode's own sweep already
+ * identify them.
+ */
+const OUTLINE_NAMES = new Set(['ghostMask', 'ghostRim', 'toonOutline', 'toonOutlineMask']);
+
+function isOutline(object) {
+  return object.material.colorWrite === false || OUTLINE_NAMES.has(object.name);
+}
+
+/**
+ * Put `root` and every mesh under it in the bloom, at the intensity `kind` names.
+ *
+ * `kind` is a key into `BLOOM_INTENSITY` rather than a number, which is what lets the ⚙️ panel move
+ * a whole class of lamp at once — and what stops "how bright is a brake light" being answered in
+ * six places.
+ *
+ * **Traverses**, like `markOccluder`, because most of the things worth glowing are groups: the
+ * plume is three coplanar tongues, a fare's disc is a rim, a fill and a sweep.
+ *
+ * Called either from `main.js` (for anything `sim/` or `city/` owns, since neither may import from
+ * `game/`) or by the owning module directly where it is already in `game/` — the same split
+ * `markOccluder` has, where `game/roadwork.js` marks its own slab.
+ */
+export function markEmissive(root, kind = 'pod') {
+  root.traverse((object) => {
+    if (!object.isMesh || !object.material || Array.isArray(object.material)) return;
+    if (isOutline(object)) return;
+    const live = object.material;
+    // Through the helper, like every other unlit material in the game — and the `fog: false` it
+    // carries is the point here rather than a formality: haze mixes toward the sky colour, and a
+    // lamp faded into the sky is not a lamp.
+    //
+    // Everything else is copied off the source so the lamp draws in the emissive target the shape
+    // it draws on screen: `side` because the plume is DoubleSide and a single-sided copy is
+    // invisible on half the compass, `blending` and `depthWrite` because the transparent effects
+    // are layered rather than solid.
+    object.userData.bloomMaterial = patchEmissiveDepth(unlitMaterial({
+      vertexColors: Boolean(live.vertexColors),
+      toneMapped: false,
+      side: live.side,
+      blending: live.blending,
+      depthWrite: live.depthWrite,
+      transparent: live.transparent,
+    }), live.onBeforeCompile || null);
+    object.userData.bloomKind = kind;
+    object.layers.enable(BLOOM_LAYER);
+    emissive.add(object);
+    // Correct from the moment it is built rather than only after the first frame: a headless
+    // caller (`tools/probe.mjs`) never reaches a render, and a material that cannot be asserted
+    // until something has drawn is a material nothing can check.
+    refreshEmissive(object);
+  });
+  return root;
+}
+
+/** Take it back out again, and free the materials — the same contract `unmarkOccluder` has. */
+export function unmarkEmissive(root) {
+  root.traverse((object) => {
+    if (!emissive.has(object)) return;
+    object.layers.disable(BLOOM_LAYER);
+    object.userData.bloomMaterial?.dispose();
+    object.userData.bloomMaterial = null;
+    emissive.delete(object);
+  });
+  return root;
 }
 
 /** Fullscreen-quad vertex shader: clip space written directly, no matrices, never resized. */
@@ -404,7 +492,7 @@ export function createBloom(renderer, { enabled = true, depth = null, depthSize 
   const blitUniforms = {
     tSource: { value: null },
     uTexel: { value: new THREE.Vector2() },
-    uWeight: { value: LEVEL_WEIGHT },
+    uWeight: { value: state.reach },
   };
   const downMaterial = new THREE.RawShaderMaterial({
     uniforms: blitUniforms,
@@ -536,9 +624,9 @@ export function createBloom(renderer, { enabled = true, depth = null, depthSize 
 
       let count = 0;
       for (const mesh of emissive) {
-        const material = mesh.userData.bloomMaterial;
+        // Read off the *live* material and then swap — see `refreshEmissive` for why every frame.
+        const material = refreshEmissive(mesh, state.intensity);
         if (!material) continue;
-        material.color.copy(mesh.userData.bloomBase).multiplyScalar(state.intensity);
         swapped[count] = mesh;
         savedMaterials[count] = mesh.material;
         mesh.material = material;
@@ -580,11 +668,21 @@ export function createBloom(renderer, { enabled = true, depth = null, depthSize 
       renderer.setClearColor(clearColor, savedAlpha);
     },
 
-    /** Live tuning — the ⚙️ panel, and `window.__taxi.bloom`. */
+    /**
+     * Live tuning — the ⚙️ panel, and `window.__taxi.bloom`.
+     *
+     * Takes both the pass's own numbers and any key of `BLOOM_INTENSITY`, so a caller can move one
+     * class of lamp (`set('siren', 6)`) without touching the rest.
+     */
     set(key, value) {
+      if (key in BLOOM_INTENSITY) {
+        BLOOM_INTENSITY[key] = value;
+        return;
+      }
       if (!(key in state)) return;
       state[key] = value;
       if (key === 'strength') compositeUniforms.uStrength.value = value;
+      else if (key === 'reach') blitUniforms.uWeight.value = value;
       // `intensity` is re-applied by `render()` on the next pass — nothing to push.
     },
 

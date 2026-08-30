@@ -1194,6 +1194,58 @@ degenerate triangle rasterises nothing whatever material it is wearing.
 Marking happens in `main.js`, because `sim/` may not import from `game/` and the two vehicle modules
 own most of the lamps; each hands its light meshes back the way the AO occluders are handed back.
 
+### Adding something to it
+
+**Nothing needs a special material.** There are only two ways a thing in this game is self-lit and
+the pass reads both off the mesh it is handed:
+
+| The mesh's material | What the pass takes as light |
+|---|---|
+| `unlitMaterial()` — flat or `vertexColors` | its `color` (times `vColor`) |
+| A Lambert carrying an emissive | `emissive × emissiveIntensity` |
+
+So if it is unlit it already qualifies, and if it is lit it qualifies to the extent it has an
+emissive. What it needs is to be **named**:
+
+```js
+markEmissive(locoFlame.group, 'flame');
+```
+
+`kind` is a key into `BLOOM_INTENSITY` rather than a number, which is what gives the whole class one
+slider in the ⚙️ panel instead of six sites answering "how bright is a brake light" separately. It
+**traverses**, so a group is fine — most of what is worth glowing is one (the plume is three
+coplanar tongues, a fare's disc is a rim, a fill and a sweep).
+
+Three things it handles that a naive copy would not, each of which was a real thing in the way:
+
+- **Materials that move.** The pass re-derives colour and opacity from the *live* material every
+  frame. Without that the plume blooms while it is out (its opacity is animated: `material.opacity
+  = heat`), and a fare's crystal blooms the urgency it was built with rather than the one on the
+  clock — **its hue is the time remaining**, so a snapshot is not a small error.
+- **Effects with a shader of their own.** The Loco kickoff burst multiplies a per-instance `aAlpha`
+  into its alpha in an `onBeforeCompile` patch, and nearly every particle in the pool is dead at any
+  moment. The pass inherits a source's patch and runs its own after it; without that the burst
+  blooms as a solid disc of fire parked on the road.
+- **Outlines hung off a lamp.** Every vehicle part wears a ghost outline — a mask and an inflated
+  rim, attached as *children* — so the taxi's three light pods carry six between them. A traversal
+  that took them blooms a hull three times the size of the lamp inside it. `isOutline` drops them:
+  the mask by `colorWrite === false` (it has no colour to be light), the rim by name, the way
+  `setGhostOutlines` already identifies them.
+
+Where to call it from is the same split `markOccluder` has. Anything `sim/` or `city/` owns is
+marked from `main.js`, because neither may import from `game/`; anything already in `game/` marks
+itself, the way `game/roadwork.js` marks its own slab.
+
+**What is in it today:** every vehicle's brake pods and indicators, the cruiser's light bar, the
+drive-through's lit windows and menu board, the depot's strip light, the Loco plume and its kickoff
+burst, and — quietly — a fare's crystal and the disc under it.
+
+Those last two are the ones to be careful with rather than the ones to turn up. Bloom desaturates
+toward white as it saturates, and a fare's ring is a clock whose hue *is* the answer. `crystal` and
+`ring` are therefore the two lowest intensities in the table: a lift on their own facets rather than
+a halo around them. They are in the list because that is a judgement to make with the game running,
+not because they want to be loud.
+
 ### The pass
 
 1. **The lamps into a half-res half-float target.** One `MeshBasicMaterial` per marked mesh, built
@@ -1214,6 +1266,12 @@ own most of the lamps; each hands its light meshes back the way the AO occluders
 The intensities are per *kind* of lamp because spill is a total rather than a peak: a brake pod is
 four pixels and a menu board forty times that, so equal intensities put a wash over the
 drive-through and a hint on a car.
+
+The ⚙️ panel has all of it live: three masters — **Lamps** (how far past 1 a light is written, which
+sets the shape of the falloff), **Spill** (how much of the blurred result reaches the frame) and
+**Reach** (how the chain's levels are weighted against each other, from a tight hot core at 0 to a
+flat fog at 1) — and then one row per kind, generated off `BLOOM_KINDS` so anything marked with a
+new kind arrives with its own slider.
 
 ### Two numbers that were wrong first
 

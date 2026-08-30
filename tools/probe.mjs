@@ -62,7 +62,7 @@ import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import * as difficulty from '../src/game/difficulty.js';
 import {
   markEmissive, unmarkEmissive, emissiveList, BLOOM_LAYER, BLOOM_ORDER, BLOOM_INTENSITY,
-  BLOOM_UNIFORMS,
+  BLOOM_UNIFORMS, refreshEmissive as bloomRefreshFor,
 } from '../src/game/bloom.js';
 import { LIGHT_EMISSIVE } from '../src/geometry/lights.js';
 import { createDestinationPin, createPassengerPin } from '../src/geometry/marker.js';
@@ -11438,32 +11438,48 @@ let chopperOrder; // likewise
 
 // --- The emissive bloom --------------------------------------------------------
 //
-// `game/bloom.js`. Three things about it fail silently and none of them shows in a screenshot as
-// itself:
+// `game/bloom.js`. Four things about it fail silently and none shows in a screenshot as itself:
 //
 //   1. **What is in the draw list.** The whole argument for this pass over a bright-pass is that
 //      selection is explicit, so what it selects is the thing to assert. At golden hour a fare's
-//      timer ring is measured at exactly the same luminance as a brake light, and only one of them
-//      is a lamp.
-//   2. **The material each lamp is drawn with.** There are two kinds of self-lit thing in this
-//      game and the pass reproduces both off the mesh it is handed; get either wrong and the lamp
-//      blooms in the wrong colour, or at 1.0 with no headroom, which reads as "the bloom is weak".
-//   3. **The depth bias.** It exists because some lamps are AO occluders and would otherwise fail
-//      their own occlusion test — a fact about two draw lists that nothing local says.
+//      timer ring is measured at exactly the same luminance as a brake light.
+//   2. **The material each lamp is drawn with.** There are two kinds of self-lit thing here and the
+//      pass reproduces both off the mesh it is handed; get either wrong and a lamp blooms in the
+//      wrong colour, or at 1.0 with no headroom, which reads as "the bloom is weak".
+//   3. **That it tracks a material which *moves*.** The plume animates its opacity and a fare's
+//      crystal is repainted as its clock runs down. A copy taken at mark time is right on the
+//      frame it was made and wrong for the rest of the run.
+//   4. **The depth bias**, which exists because some lamps are AO occluders and would otherwise
+//      fail their own occlusion test — a fact about two draw lists that nothing local says.
 {
   const blScene = new THREE.Scene();
+  // Scoped as a delta rather than an absolute count: the list is module state and several `game/`
+  // modules now mark themselves at construction, so a process that builds a dozen cities (this
+  // one) has a dozen cities' worth of lamps in it. Which is fine — the pass is off here — but it
+  // means "how many" is only a question about what *this* block just added.
+  const before = emissiveList().size;
   const blTraffic = createTraffic(makeRng(seed + 44), blScene, 8);
   const blPolice = createPolice(makeRng(seed + 66), blScene, blTraffic.cars);
 
-  const marked = [
-    ...blTraffic.emissiveMeshes.map((m) => [m, BLOOM_INTENSITY.pod]),
-    ...blPolice.emissiveMeshes.map((m) => [m, BLOOM_INTENSITY.siren]),
-  ];
-  marked.forEach(([mesh, intensity]) => markEmissive(mesh, intensity));
+  const mine = [];
+  const mark = (mesh, kind) => { markEmissive(mesh, kind); mine.push(mesh); };
+  blTraffic.emissiveMeshes.forEach((m) => mark(m, 'pod'));
+  blPolice.emissiveMeshes.forEach((m) => mark(m, 'siren'));
 
-  check('every vehicle lamp in the game is in the bloom',
-    emissiveList().size === marked.length,
-    `${emissiveList().size}: six instanced pod meshes, the taxi's three, and both halves of the bar`);
+  check('every vehicle lamp in the game is in the bloom, and nothing else',
+    emissiveList().size - before === mine.length,
+    `${emissiveList().size - before} added for ${mine.length} marked: six instanced pod meshes, the taxi's three, and both halves of the bar`);
+  // The half of that a count alone would miss. Every vehicle part in this game wears a ghost
+  // outline — a mask and an inflated rim, attached *as children* — so the taxi's three light pods
+  // carry six of them, and a traversal that took them would bloom a hull three times the size of
+  // the lamp inside it. See `isOutline`.
+  const outlines = [];
+  blTraffic.taxiGroup.traverse((o) => {
+    if (o.isMesh && (o.name === 'ghostMask' || o.name === 'ghostRim')) outlines.push(o);
+  });
+  check('...and an outline hung off a lamp is not itself a lamp',
+    outlines.length > 0 && outlines.every((o) => !emissiveList().has(o)),
+    `${outlines.length} ghost mask/rim meshes on the taxi, none of them in the bloom`);
   check('the bloom layer is its own',
     BLOOM_LAYER !== AO_LAYER && BLOOM_LAYER !== 0,
     `${BLOOM_LAYER} against the AO prepass's ${AO_LAYER}`);
@@ -11497,9 +11513,60 @@ let chopperOrder; // likewise
     hottest > 1.5, `brightest pod channel ${hottest.toFixed(2)}`);
 
   check('every bloom material is unfogged and keyed',
-    [...emissiveList()].every((m) => m.userData.bloomMaterial.fog === false
-      && m.userData.bloomMaterial.customProgramCacheKey?.() === 'bloom-emissive'),
+    mine.every((m) => m.userData.bloomMaterial.fog === false
+      && /^bloom-emissive-\d+$/.test(m.userData.bloomMaterial.customProgramCacheKey?.() ?? '')),
     'a lamp mixed toward the sky is not a lamp; an unkeyed patch draws with another material\'s shader');
+  // Keyed *uniquely*, not to one constant for the whole pass: a material that inherits a source's
+  // own `onBeforeCompile` (the Loco burst's per-instance alpha) compiles to different source while
+  // sharing every parameter three hashes, so one shared key would hand it another lamp's program.
+  const keys = new Set(mine.map((m) => m.userData.bloomMaterial.customProgramCacheKey()));
+  check('...and no two of them share a key', keys.size === mine.length,
+    `${keys.size} keys for ${mine.length} materials`);
+
+  // --- It follows a material that moves.
+  //
+  // The one that a mark-time copy gets wrong, and the reason `refreshEmissive` runs per frame: the
+  // plume fades its opacity every frame and a fare's crystal is repainted as the clock runs down,
+  // so a snapshot blooms a flame that is out and an urgency from a minute ago.
+  const drift = createTargetRing(PALETTE.urgency[4]);
+  markEmissive(drift.group, 'ring');
+  mine.push(...drift.group.children.filter((c) => c.isMesh));
+  const rim = drift.group.children.find((c) => c.isMesh);
+  const beforeHue = rim.userData.bloomMaterial.color.getHexString();
+  drift.setColor(PALETTE.urgency[0]);
+  rim.material.opacity = 0.25;
+  bloomRefreshFor(rim);
+  check('a repainted mark blooms its new colour, not the one it was built with',
+    rim.userData.bloomMaterial.color.getHexString() !== beforeHue,
+    `${beforeHue} -> ${rim.userData.bloomMaterial.color.getHexString()} across an urgency step`);
+  check('...and a fading one fades out of the bloom with it',
+    Math.abs(rim.userData.bloomMaterial.opacity - 0.25) < 1e-6,
+    `opacity ${rim.userData.bloomMaterial.opacity}`);
+
+  // --- An effect that has a shader of its own still blooms as the shape it draws.
+  //
+  // The Loco kickoff burst multiplies a per-instance `aAlpha` into its alpha in a patch of its own
+  // (game/flames.js), and the pool is MAX_FLAMES particles of which nearly all are dead at any
+  // moment. Drop the patch and every one of them blooms at full strength — a solid disc of fire
+  // parked on the road. So `markEmissive` inherits a source's `onBeforeCompile` and runs its own
+  // after it; this checks both bodies survive into one shader, since a `.replace` that silently
+  // found nothing is exactly how this fails.
+  const patched = unlitMaterial({ color: '#FF8A2A', transparent: true });
+  patched.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vAlpha;')
+      .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n\tgl_FragColor.a *= vAlpha;');
+  };
+  const patchedMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), patched);
+  markEmissive(patchedMesh, 'flame');
+  mine.push(patchedMesh);
+  const compiled = { fragmentShader: THREE.ShaderLib.basic.fragmentShader, uniforms: {} };
+  patchedMesh.userData.bloomMaterial.onBeforeCompile(compiled, null);
+  check("a lamp with a shader of its own keeps it in the bloom",
+    /varying float vAlpha/.test(compiled.fragmentShader)
+    && /gl_FragColor\.a \*= vAlpha/.test(compiled.fragmentShader)
+    && /unpackRGBAToDepth\(texture2D\(tBloomDepth/.test(compiled.fragmentShader),
+    "the burst's per-instance alpha and the pass's depth reject, both in one fragment shader");
 
   // --- Why the depth bias is not zero.
   //
@@ -11510,16 +11577,17 @@ let chopperOrder; // likewise
   // draw list changes.
   const blJoint = createBurgerJoint(layout.burgerBlock, makeRng(seed + 111));
   blJoint.meshes.forEach(markOccluder);
-  markEmissive(blJoint.glow, BLOOM_INTENSITY.window);
-  const selfOccluding = [...emissiveList()].filter((m) => occluderList().has(m));
+  mark(blJoint.glow, 'window');
+  const selfOccluding = mine.filter((m) => occluderList().has(m));
   check('the depth bias is paid for by lamps that are their own occluders',
     selfOccluding.length > 0 && BLOOM_UNIFORMS.uBloomDepthBias.value > 0,
     `${selfOccluding.length} lamp(s) in the AO prepass too — bias ${BLOOM_UNIFORMS.uBloomDepthBias.value}, or each fails its own test`);
 
-  // Module state, so put it back — everything the probe builds after this expects an empty list.
-  [...emissiveList()].forEach(unmarkEmissive);
+  // Module state, so put back what this block added.
+  mine.forEach(unmarkEmissive);
   blJoint.meshes.forEach(unmarkOccluder);
-  check('unmarking empties the draw list', emissiveList().size === 0);
+  check('unmarking empties what was marked',
+    mine.every((m) => !emissiveList().has(m)));
 }
 
 // --- Taxi roof sign -----------------------------------------------------------

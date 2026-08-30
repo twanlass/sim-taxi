@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { unlitMaterial } from '../util/geo.js';
+import { markEmissive } from './bloom.js';
 
 // One-shot flame burst out the tailpipe when Loco Mode fires up. Same instanced-plus-alpha-
 // attribute recipe as dust.js — different tuning so the burst reads as *hot*: hot orange, additive
@@ -46,6 +47,11 @@ export function createFlames(scene, rng) {
   mesh.renderOrder = 6;     // above the road decals — the flame is the brightest thing on screen
   mesh.frustumCulled = false;
   scene.add(mesh);
+  // The kickoff burst glows too. This one is the awkward case and the reason `markEmissive` copies
+  // a source's `onBeforeCompile`: the per-instance `aAlpha` above lives in a shader patch, so
+  // without carrying it the bloom would light every particle in the pool at full strength —
+  // including the dead ones. See game/bloom.js.
+  markEmissive(mesh, 'flame');
 
   const life = new Float32Array(MAX_FLAMES);
   // Still per-slot: a mote's own life is jittered at spawn, so t has to be measured against the
