@@ -357,6 +357,21 @@ Omit the whole section if there's nothing to note.
   abutment, in the junction box. It read as "the bounce starts late", which is the kindest possible
   symptom for a trigger that is firing in exactly the wrong place. When a trigger is a conjunction,
   work out the interval each term admits and where they actually intersect.
+- **A hole in the geometry is invisible over the city and a bright speck at the coast.** The island
+  fades to sky at its rim, so anywhere the map has a gap, what shows through it is dark ground
+  inland and *sky* out at the edge — 211 luma against the 82 of the ground beside it. Three separate
+  gaps at the river mouth were each years-old and each only ever reported as "a white speck near the
+  bridge": the water strip stopping short of the end of the fade band, a railing run with no end post
+  (`RAIL_POST_PITCH` is a world pitch, so a run's ends land wherever they land), and an abutment that
+  stopped at the bank and left the embankment strip under the deck open from the side. Count pixels
+  brighter than the ground rather than looking — at play zoom each of these is two or three pixels,
+  and at the framing that resolves them they are obvious.
+- **The coplanar-shimmer rule is about surfaces that *overlap*, not surfaces that touch.** Two
+  co-planar quads laid edge to edge sharing their vertices are a seam, not a fight, and pushing one
+  of them down "to be safe" creates the artefact it was meant to avoid: the river's shoal set 0.08
+  below the skirt it butts against drew a hairline of open sky down the whole length of the mouth,
+  because this camera looks *along* an 8cm riser. Ask whether the two surfaces cover any of the same
+  ground before nudging either one.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

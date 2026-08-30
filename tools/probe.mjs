@@ -123,7 +123,7 @@ import { URGENCY_SEGMENTS, urgencyLevel, urgencyColor, fareColor } from '../src/
 import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, BLOCK, HALF_ROAD, HALF_ARTERIAL, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow } from '../src/city/grid.js';
 import {
-  waterEdges, bridgeSpan, bridgeLines, riverCrossing, archAt, deckHeightAt,
+  waterEdges, bridgeSpan, bridgeLines, riverCrossing, archAt, deckHeightAt, createRiver, waterHeightAt,
   WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
 } from '../src/city/river.js';
 import { createBridge } from '../src/geometry/bridge.js';
@@ -11787,6 +11787,45 @@ let chopperOrder; // likewise
     // silently take every bar out and this check would go quiet with it.
     check('and the rest of the junctions keep theirs', (barMesh?.count ?? 0) > 40,
       `${barMesh?.count ?? 0} stop bars on the map`);
+  }
+
+  // --- The river closes itself at the coast.
+  //
+  // The island dissolves horizontally at y = 0 and the channel is a 2-unit cutting, so a flat skirt
+  // laid across the mouth cannot fade it: the walls and the deep water live *under* that skirt and
+  // carry on out the other side. What makes the mouth work is that there is nothing left to hide by
+  // the time the fade starts — the water rises to meet the ground through each mouth, and runs the
+  // whole fade band so the skirt is never dissolving over open sky.
+  {
+    const mid = waterHeightAt(0);
+    const coast = waterHeightAt(rBanks ? SLAB_X / 2 : 0);
+    check('the channel is at full depth down the length of the city',
+      Math.abs(mid - WATER_Y) < 1e-9, `${mid.toFixed(2)} against ${WATER_Y}`);
+    check('and has risen to meet the ground by the coast',
+      Math.abs(coast) < 1e-9, `${coast.toFixed(3)} at the coast`);
+    // Monotonic, or the shoal has a dip in it that would pond.
+    let climbs = true;
+    for (let x = 0; x < SLAB_X / 2; x += 0.5) {
+      if (waterHeightAt(x + 0.5) < waterHeightAt(x) - 1e-9) climbs = false;
+    }
+    check('the shoal only ever rises', climbs, 'sampled every half unit from midstream to the coast');
+
+    // The strip has to reach the far end of the fade band. Two units past the coast — what it used
+    // to be — left the skirt fading across a void, which does not dissolve into haze, it opens a
+    // hole: measured at the mouth, luma 211 against 82 for the ground beside it.
+    const rGeo = createRiver(makeRng(seed + 12), layout);
+    const wp = rGeo.water.geometry.attributes.position;
+    let reach = 0;
+    let above = 0;
+    for (let k = 0; k < wp.count; k++) {
+      reach = Math.max(reach, Math.abs(wp.getX(k)));
+      if (wp.getY(k) > 1e-9) above += 1;
+    }
+    check('the water runs the whole fade band, not a tuck past the coast',
+      reach >= SLAB_X / 2 + EDGE_FADE - 1e-6,
+      `reaches ${reach.toFixed(1)} against a band ending at ${(SLAB_X / 2 + EDGE_FADE).toFixed(1)}`);
+    check('and never climbs above the ground it is fading into', above === 0,
+      `${above} vertices over y = 0`);
   }
 
   // --- The paint does not sink into the hump.

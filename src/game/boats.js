@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { propMaterial, unlitMaterial } from '../util/geo.js';
 import { createBargeMesh, createTugMesh, BARGE_LEN, TUG_LEN, BEAM } from '../geometry/boat.js';
 import {
-  waterEdges, WATER_Y, bridgeSpan, drawbridgeLine, BARGE_AIR, TUG_AIR,
+  waterEdges, waterHeightAt, bridgeSpan, drawbridgeLine, BARGE_AIR, TUG_AIR,
 } from '../city/river.js';
 import { OPEN_SECONDS } from './drawbridge.js';
 import { SLAB_X, EDGE_FADE } from '../city/ground.js';
@@ -209,7 +209,7 @@ export function createBoats(scene, rng, drawbridge) {
       asked: false,
       len: kind === 'tug' ? TUG_LEN : BARGE_LEN,
     };
-    mesh.position.set(boat.x, WATER_Y, boat.z);
+    mesh.position.set(boat.x, waterHeightAt(boat.x), boat.z);
     const wake = wakeMesh(boat.len);
     mesh.add(wake);
     boat.wake = wake;
@@ -244,6 +244,10 @@ export function createBoats(scene, rng, drawbridge) {
       const before = boat.x;
       boat.x += boat.dir * boat.speed * dt;
       boat.mesh.position.x = boat.x;
+      // Ride the surface, which is not flat any more: the channel shoals up to meet the ground
+      // through each mouth (`waterHeightAt`), and a hull pinned to `WATER_Y` would sail into the
+      // shallows with the river closing over it.
+      boat.mesh.position.y = waterHeightAt(boat.x);
 
       if (boat.kind === 'tug' && gate !== null && drawbridge) {
         // Measured along the direction of travel, so both ends of the river behave the same.
@@ -310,13 +314,13 @@ export function createBoats(scene, rng, drawbridge) {
       barge.mesh.rotation.y = Math.PI / 2;
       barge.x = gate - 26;
       barge.z = laneZ(barge.dir);
-      barge.mesh.position.set(barge.x, WATER_Y, barge.z);
+      barge.mesh.position.set(barge.x, waterHeightAt(barge.x), barge.z);
       const tug = launch('tug');
       tug.dir = 1;
       tug.mesh.rotation.y = Math.PI / 2;
       tug.x = gate - 2;
       tug.z = laneZ(tug.dir);
-      tug.mesh.position.set(tug.x, WATER_Y, tug.z);
+      tug.mesh.position.set(tug.x, waterHeightAt(tug.x), tug.z);
     },
   };
 }

@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
-import { PALETTE, jitterColor } from '../palette.js';
+import { PALETTE, color, jitterColor } from '../palette.js';
 import {
   GRID_I, GRID_J, lineX, lineZ, halfRoadZ, riverBanks, riverRow, segmentKey,
 } from './grid.js';
-import { SLAB_X, KERB_H, PAVE_INSET } from './ground.js';
+import { SLAB_X, KERB_H, PAVE_INSET, EDGE_FADE, FADE_RINGS } from './ground.js';
 
 // A river running east-west through the city, and the four crossings that get over it.
 //
@@ -233,9 +233,23 @@ function straightRailing(x0, x1, z, y, col) {
     parts.push(bakeColor(rail, col));
   }
 
+  // Posts on a **world** pitch rather than measured from the run's own start, so that the railing
+  // reads as one continuous fence with the bridges cut out of it rather than as a row of separate
+  // fences each starting its pattern afresh.
+  const at = [];
   const first = Math.ceil((x0 - 0) / RAIL_POST_PITCH) * RAIL_POST_PITCH;
   for (let x = first; x <= x1 - RAIL_W / 2; x += RAIL_POST_PITCH) {
     if (x < x0 + RAIL_W / 2) continue;
+    at.push(x);
+  }
+  // ...and one at each end regardless, because the pitch does not know where a run stops. Without
+  // them a run ends with its two rails hanging in mid-air and the corner where it meets a bridge's
+  // own railing left open — which is invisible over the city, where there is dark ground behind it,
+  // and is two bright specks of **sky** at the mouth, where there is not.
+  for (const end of [x0 + RAIL_W / 2, x1 - RAIL_W / 2]) {
+    if (!at.some((x) => Math.abs(x - end) < RAIL_W)) at.push(end);
+  }
+  for (const x of at) {
     const post = new THREE.BoxGeometry(RAIL_W, RAIL_H, RAIL_W);
     post.translate(x, y + RAIL_H / 2, z);
     parts.push(bakeColor(post, col));
@@ -409,8 +423,86 @@ export function createRiver(rng, layout) {
   const water = waterMesh(rng, edges);
   group.add(shell);
   group.add(water);
+  const mouths = riverMouthFade();
+  if (mouths) group.add(mouths);
 
   return { group, shell, water, banks };
+}
+
+/**
+ * The embankment's own rim, carried off the coast at each mouth.
+ *
+ * Without it the coastline has a twelve-unit notch in it at each end of the channel: the slab is
+ * cut bank to bank, and the cut is not a coast, so `asphaltFade` skips it — which leaves sky
+ * showing at the mouth at a distance where the rim either side of it is still dark. Filled with a
+ * fading river instead it is no better, and measurably so: sampled every two units out, water
+ * dissolving on the same band and the same curve still runs about 24 luma ahead of the asphalt
+ * beside it, and 24 luma of a 125-luma ramp is a pale blade lying in the coastline.
+ *
+ * So the rim simply carries on over the water, on the skirt's own colour and the skirt's own curve,
+ * and the river ends underneath it. Nothing out there is water or road any more — it is the edge of
+ * the world, and the whole point of the skirt is that the edge of the world has no edge.
+ *
+ * Built as its own strip rather than as part of `asphaltFade` because that function walks one
+ * closed outline and this crosses between two of them.
+ */
+function riverMouthFade() {
+  const banks = riverBanks();
+  if (!banks) return null;
+
+  const c = new THREE.Color(color('asphalt'));
+  const alphaAt = (t) => 1 - t * t * (3 - 2 * t);
+  const pos = [];
+  const col = [];
+  const vertex = (x, z, t) => {
+    pos.push(x, 0, z);
+    col.push(c.r, c.g, c.b, alphaAt(t));
+  };
+
+  // **Only the two embankment strips.** The water used to end a couple of units past the coast and
+  // leave this skirt fading over a *void* — nothing under it but sky, so the fade did not dissolve
+  // into haze, it opened a hole: measured at the mouth, luma 211 against 82 for the ground beside
+  // it. The river's own strip now runs the full fade band at ground height and ground colour (see
+  // `waterMesh`), so what is left to carry here is the walk and railing either side of it. Laying
+  // this over the water as well would fade twice in the same pixels and put a *dark* blade where
+  // the light one used to be.
+  const edges = waterEdges();
+  for (const [za, zb] of [[banks.z0, edges.z0], [edges.z1, banks.z1]]) {
+    for (const side of [-1, 1]) {
+      const from = side * (SLAB_X / 2);
+      for (let ring = 0; ring < FADE_RINGS; ring++) {
+        const t0 = ring / FADE_RINGS;
+        const t1 = (ring + 1) / FADE_RINGS;
+        const x0 = from + side * EDGE_FADE * t0;
+        const x1 = from + side * EDGE_FADE * t1;
+        // Wound to face up on both sides, which the `side` flip is what makes non-obvious: taken in
+        // one fixed order the -x mouth comes out inside out.
+        if (side > 0) {
+          vertex(x0, za, t0); vertex(x0, zb, t0); vertex(x1, zb, t1);
+          vertex(x0, za, t0); vertex(x1, zb, t1); vertex(x1, za, t1);
+        } else {
+          vertex(x0, za, t0); vertex(x1, zb, t1); vertex(x0, zb, t0);
+          vertex(x0, za, t0); vertex(x1, za, t1); vertex(x1, zb, t1);
+        }
+      }
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 4));
+  geo.computeVertexNormals();
+
+  const material = propMaterial();
+  material.transparent = true;
+  material.depthWrite = false;
+
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.receiveShadow = true;
+  // With the skirt, and ahead of everything painted on the road. The water it covers is at -2.
+  mesh.renderOrder = -1;
+  mesh.name = 'river-mouth-fade';
+  return mesh;
 }
 
 // --- How the water dissolves at the two ends of the channel ------------------
@@ -424,10 +516,72 @@ export function createRiver(rng, layout) {
 // leak rather than a river running off into the haze, and the straight bank line between the two
 // fades gives it a hard edge to boot.
 //
-// How far the water tucks under the skirt that closes each mouth. A couple of units, so the
-// strip's hard end is comfortably inside the alpha-1 start of `riverMouthFade` rather than
-// landing on the same line as it and leaving a hairline of sky at the join.
-const MOUTH_TUCK = 2;
+// There is no tuck any more. The strip used to stop two units past the coast and hide its hard end
+// under the alpha-1 start of the mouth skirt, which worked only in the sense that the *end* was
+// hidden — past it the skirt went on fading over open sky. The water runs the whole fade band now
+// and dissolves on the skirt's own curve, so there is nothing left to tuck.
+
+// --- The shoal ---------------------------------------------------------------
+//
+// **A flat lid cannot dissolve a trench.** The island's rim fades horizontally at y = 0; the river
+// is a 2-unit cutting with vertical walls. `riverMouthFade` lays its skirt across the mouth at
+// ground level, and everything below that — the far wall's inner face, the dark water — simply
+// carries on underneath it and out the other side. So the channel did not fade at the coast, it
+// *stopped*: walls ending on one line, water running two units past it, and a hard dark blade of
+// river lying in a coastline that had already gone to haze.
+//
+// The fix is to have nothing left to hide. Over the last stretch before each coast the water rises
+// to meet the ground, so the cutting closes itself: the wall face that reads as depth is exactly
+// the strip between the kerb and the waterline, and lifting the waterline shrinks it to a kerb's
+// worth of lip. By the time the rim fade starts eating the ground there is no trench in the notch
+// it has to cross, and the skirt is covering an 8cm step instead of a 2.3-unit one.
+//
+// **And it is what finally lets the colour agree.** Three earlier attempts faded the water itself
+// and all three left a pale blade, because water dissolving beside asphalt measured 24 luma ahead
+// of it the whole way down. Shoaling gives that a physical reason to stop being true: shallow water
+// shows its bed, so the strip can ease into the ground's own colour as it shallows and arrive at
+// the coast matching the skirt over it, without the change being a cheat.
+//
+// 12 units, which starts the ramp at x = 50 — the outer edge of the built city, so the whole of the
+// shoal is out over the bare rim where the river is scenery rather than somewhere boats work.
+const MOUTH_SHOAL = 12;
+// Where the water finishes: exactly ground level, and it has to be *exactly*.
+//
+// The coplanar-surfaces rule does not apply here, and getting that wrong cost a build. Two flat
+// surfaces at one height shimmer when they **overlap**; the water and the mouth skirt do not — the
+// skirt covers the embankment strip either side (`banks` to `edges`) and the water covers what is
+// between them, edge to edge, sharing their vertices. Set 0.08 under, to be safe, and the step
+// itself becomes the artefact: an 8cm riser seen from a camera that looks along it, drawing a
+// hairline of open sky down the whole length of the mouth.
+const SHOAL_Y = 0;
+
+/**
+ * The height of the water at a world x — `WATER_Y` down the length of the channel, easing up to
+ * `SHOAL_Y` through each mouth.
+ *
+ * Exported for the boats, which would otherwise go on floating at `WATER_Y` and sail into the
+ * shallows half sunk. Smoothstepped rather than linear so the deep water leaves flat and the ramp
+ * has no crease at its top where it meets the level stretch.
+ */
+export function waterHeightAt(x) {
+  const t = shoalMix(x);
+  return WATER_Y + (SHOAL_Y - WATER_Y) * t;
+}
+
+/** How far through the *fade* a world x is: 0 at the coast, 1 where the island has gone entirely. */
+function fadeMix(x) {
+  const t = Math.max(0, Math.min(1, (Math.abs(x) - BANK_REACH()) / EDGE_FADE));
+  return t * t * (3 - 2 * t);
+}
+
+/** How far through the shoal a world x is: 0 in the deep channel, 1 at the coast and beyond. */
+function shoalMix(x) {
+  const t = Math.max(0, Math.min(1,
+    (Math.abs(x) - (BANK_REACH() - MOUTH_SHOAL)) / MOUTH_SHOAL));
+  // Smoothstepped rather than linear so the deep water leaves flat and the ramp has no crease at
+  // its top where it meets the level stretch.
+  return t * t * (3 - 2 * t);
+}
 
 // **The water does not dissolve itself.** Three versions of it tried to, and all three left a pale
 // blade lying in the coastline — because at the mouth the island is *gone* while the rim either
@@ -458,13 +612,42 @@ const MOUTH_TUCK = 2;
 function waterMesh(rng, edges) {
   const deep = new THREE.Color(jitterColor(PALETTE.riverDeep, rng, { l: 0.02 }));
   const open = new THREE.Color(jitterColor(PALETTE.riverWater, rng, { l: 0.02 }));
+  // What the water shallows into: the same asphalt `riverMouthFade` builds its skirt from, so the
+  // two are the same colour where one lies on top of the other.
+  const bed = new THREE.Color(PALETTE.asphalt);
 
-  // Two columns and three rows: the water is one flat opaque strip from coast to coast, and what
-  // dissolves it at each end is the island's own rim carried across the mouth (`riverMouthFade` in
-  // ground.js), not anything this mesh does. The strip runs a little past the coast so that its
-  // hard end sits under the alpha-1 start of that skirt rather than beside it.
-  const solid = BANK_REACH() + MOUTH_TUCK;
-  const columns = [{ x: -solid, a: 1 }, { x: solid, a: 1 }];
+  // Six columns and three rows. The strip is still opaque from coast to coast and still ends under
+  // the skirt that closes each mouth (`riverMouthFade` in ground.js) rather than dissolving itself
+  // — but it is no longer flat: the four outer columns carry the shoal up to meet the ground, so
+  // the cutting has closed before the rim fade has to cross it. See `waterHeightAt`.
+  //
+  // The two interior columns sit at the top of each ramp and are what keep the long middle of the
+  // river a single flat quad; without them the smoothstep would have nowhere to land and the whole
+  // 124 units would be one interpolation.
+  const bank = BANK_REACH();
+  const ramp = bank - MOUTH_SHOAL;
+  // Out to the **full** fade band, not a couple of units past the coast. The old strip stopped at
+  // a couple of units past the coast and left the skirt fading across a void: nothing under it
+  // but sky, so at the tip the fade opened a hole rather than dissolving into haze — luma 211
+  // against the 82 of the ground beside it. Now the water is the thing that fades, on the skirt's
+  // own band and the skirt's own curve, and by then it is the skirt's own colour too.
+  const xs = [-ramp, ramp];
+  for (const side of [-1, 1]) {
+    xs.push(side * bank);
+    for (let ring = 1; ring <= FADE_RINGS; ring++) {
+      xs.push(side * (bank + (EDGE_FADE * ring) / FADE_RINGS));
+    }
+  }
+  const columns = xs.sort((a, b) => a - b).map((x) => ({
+    x,
+    y: waterHeightAt(x),
+    shoal: shoalMix(x),
+    // Opaque to the coast, then the asphalt skirt's smoothstep, so the two sides of the mouth
+    // dissolve on one curve. This is only safe *because* of the shoal above it: three earlier
+    // attempts to fade the water ran 24 luma ahead of the asphalt the whole way and read as a pale
+    // blade, and what fixed that is the strip already being the asphalt's colour out here.
+    a: 1 - fadeMix(x),
+  }));
   const rows = [
     { z: edges.z0, deep: true },
     { z: (edges.z0 + edges.z1) / 2, deep: false },
@@ -474,8 +657,11 @@ function waterMesh(rng, edges) {
   const pos = [];
   const col = [];
   const vertex = (ci, ri) => {
-    const c = rows[ri].deep ? deep : open;
-    pos.push(columns[ci].x, WATER_Y, rows[ri].z);
+    // Shallow water shows its bed, so the depth gradient washes out into the ground's own colour
+    // through the shoal. That is what lets the mouth match the skirt lying over it — the thing
+    // three attempts at fading the water could never do while the water stayed river-coloured.
+    const c = (rows[ri].deep ? deep : open).clone().lerp(bed, columns[ci].shoal);
+    pos.push(columns[ci].x, columns[ci].y, rows[ri].z);
     col.push(c.r, c.g, c.b, columns[ci].a);
   };
   // Wound to face **up**. Taken in increasing (x, z) order a quad faces down, and

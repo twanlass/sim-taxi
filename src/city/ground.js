@@ -142,8 +142,10 @@ const SLAB_SEGMENTS = 14;
 //
 // 16 units is ~15% of the frustum height (2 × zoom = 104), which is what makes it read as a
 // gradient rather than as a slightly blurry edge.
-const EDGE_FADE = 16;
-const FADE_RINGS = 4;
+// Exported: the river's own strip fades on this band and this ring count too, and the whole point
+// of the mouth is that the two agree exactly.
+export const EDGE_FADE = 16;
+export const FADE_RINGS = 4;
 
 /**
  * A rectangle with rounded corners, as a Shape — the outline both the slab and its fade are cut
@@ -318,72 +320,6 @@ function asphaltFade(shape, w, d, radius) {
   // far corner of the city draw before the plane it is painted on.
   mesh.renderOrder = -1;
   mesh.name = 'asphalt-fade';
-  return mesh;
-}
-
-/**
- * The island's rim carried **across the river mouth**.
- *
- * Without it the coastline has a twelve-unit notch in it at each end of the channel: the slab is
- * cut bank to bank, and the cut is not a coast, so `asphaltFade` skips it — which leaves sky
- * showing at the mouth at a distance where the rim either side of it is still dark. Filled with a
- * fading river instead it is no better, and measurably so: sampled every two units out, water
- * dissolving on the same band and the same curve still runs about 24 luma ahead of the asphalt
- * beside it, and 24 luma of a 125-luma ramp is a pale blade lying in the coastline.
- *
- * So the rim simply carries on over the water, on the skirt's own colour and the skirt's own curve,
- * and the river ends underneath it. Nothing out there is water or road any more — it is the edge of
- * the world, and the whole point of the skirt is that the edge of the world has no edge.
- *
- * Built as its own strip rather than as part of `asphaltFade` because that function walks one
- * closed outline and this crosses between two of them.
- */
-function riverMouthFade() {
-  const banks = riverBanks();
-  if (!banks) return null;
-
-  const c = new THREE.Color(color('asphalt'));
-  const alphaAt = (t) => 1 - t * t * (3 - 2 * t);
-  const pos = [];
-  const col = [];
-  const vertex = (x, z, t) => {
-    pos.push(x, 0, z);
-    col.push(c.r, c.g, c.b, alphaAt(t));
-  };
-
-  for (const side of [-1, 1]) {
-    const from = side * (SLAB_X / 2);
-    for (let ring = 0; ring < FADE_RINGS; ring++) {
-      const t0 = ring / FADE_RINGS;
-      const t1 = (ring + 1) / FADE_RINGS;
-      const x0 = from + side * EDGE_FADE * t0;
-      const x1 = from + side * EDGE_FADE * t1;
-      // Wound to face up on both sides, which the `side` flip is what makes non-obvious: taken in
-      // one fixed order the -x mouth comes out inside out.
-      if (side > 0) {
-        vertex(x0, banks.z0, t0); vertex(x0, banks.z1, t0); vertex(x1, banks.z1, t1);
-        vertex(x0, banks.z0, t0); vertex(x1, banks.z1, t1); vertex(x1, banks.z0, t1);
-      } else {
-        vertex(x0, banks.z0, t0); vertex(x1, banks.z1, t1); vertex(x0, banks.z1, t0);
-        vertex(x0, banks.z0, t0); vertex(x1, banks.z0, t1); vertex(x1, banks.z1, t1);
-      }
-    }
-  }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 4));
-  geo.computeVertexNormals();
-
-  const material = propMaterial();
-  material.transparent = true;
-  material.depthWrite = false;
-
-  const mesh = new THREE.Mesh(geo, material);
-  mesh.receiveShadow = true;
-  // With the skirt, and ahead of everything painted on the road. The water it covers is at -2.
-  mesh.renderOrder = -1;
-  mesh.name = 'river-mouth-fade';
   return mesh;
 }
 
@@ -594,9 +530,7 @@ export function createGround(rng, blocks) {
   mesh.receiveShadow = true;
   mesh.name = 'ground';
   for (const outline of outlines) mesh.add(asphaltFade(outline, SLAB_X, SLAB_Z, SLAB_RADIUS));
-  const mouths = riverMouthFade();
-  if (mouths) mesh.add(mouths);
   return mesh;
 }
 
-export { KERB_H, SLAB_RADIUS, EDGE_FADE, roundedRectShape };
+export { KERB_H, SLAB_RADIUS, roundedRectShape };

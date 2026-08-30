@@ -251,8 +251,20 @@ export function bridgeParts(span, rng, range = [0, 1]) {
 export function abutmentParts(span, rng, end) {
   const trimCol = jitterColor(PALETTE.bridgeTrim, rng, { l: 0.02 });
   const height = -WATER_Y + ABUT_FOOT;
-  const box = new THREE.BoxGeometry(span.outer * 2, height, ABUT_DEPTH);
-  const z = end === 0 ? -ABUT_DEPTH / 2 : (span.z1 - span.z0) + ABUT_DEPTH / 2;
+  // **Forward to the water's edge, not just back under the bank.** The embankment strip either side
+  // of the channel — a walk's width, `DECK_OVERHANG` — is interrupted for the bridge, and the slab
+  // is cut bank to bank, so under the deck's two ends there was simply nothing: a void a walk wide,
+  // roofed by the deck and open from the side. Over the city that is invisible, because what shows
+  // through it is dark ground. At the mouth what shows through it is **sky**, and it was the last
+  // bright speck left at the coast once the water had been shoaled out.
+  //
+  // It reaches exactly to `DECK_OVERHANG`, which is where the channel wall stands. The two faces
+  // land on the same plane and do not fight: the wall faces into the channel and this one faces
+  // out of it, so whichever view you take, one of the pair is back-facing and culled.
+  const depth = ABUT_DEPTH + DECK_OVERHANG;
+  const box = new THREE.BoxGeometry(span.outer * 2, height, depth);
+  const mid = depth / 2 - ABUT_DEPTH;
+  const z = end === 0 ? mid : (span.z1 - span.z0) - mid;
   box.translate(0, -DECK_THICK - height / 2, z);
   return [bakeColor(box, trimCol)];
 }

@@ -384,10 +384,55 @@ fade (a wake outliving the boat it belongs to is worse than no wake) and how far
 moved this frame over how far it *would* have at full speed — so a tug clamped at `HOLD_OFF` waiting
 on a leaf sits still with a flat wake, rather than standing on the spot throwing up spray.
 
+## The mouth
+
+Two different kinds of edge have to agree here and they are not the same kind of thing. The island
+**dissolves**: a horizontal alpha ramp at `y = 0` that takes the ground to sky over `EDGE_FADE`. The
+river is a **cutting**: two units down, with vertical walls. A flat skirt laid across the mouth
+cannot fade a cutting — the walls and the deep water are *under* it and carry straight on out the
+other side. So the channel did not fade at the coast, it stopped: walls ending on one line, water
+running two units past it, and a hard dark blade of river lying in a coastline that had already gone
+to haze.
+
+**The channel shoals out instead, so there is nothing left to hide.** Over the last `MOUTH_SHOAL`
+units the water rises to meet the ground. The wall face that reads as depth is exactly the strip
+between the kerb and the waterline, so lifting the waterline shrinks it to a kerb's worth of lip, and
+by the time the rim fade has to cross the notch there is no notch. 12 units, which starts the ramp at
+x = 50 — the outer edge of the built city, so the whole shoal is out over the bare rim where the
+river is scenery rather than somewhere boats work. `waterHeightAt` is exported, because the boats
+have to ride it or they sail into the shallows half sunk.
+
+And it is what finally lets the **colour** agree. Three earlier attempts faded the water itself and
+all three left a pale blade, because water dissolving beside asphalt measured 24 luma ahead of it the
+whole way down, whether it faded from `riverWater`, from `riverDeep` or eased into the asphalt on the
+way. Shoaling gives that a physical reason to stop being true: shallow water shows its bed, so the
+strip eases into the ground's own colour as it shallows and arrives at the coast matching the skirt
+beside it. Measured after: 76 against the ground's 82.
+
+Three holes had to be closed with it, and all three are the same mistake — a gap that is invisible
+over the city, because what shows through it is dark ground, and is a bright speck at the mouth,
+because what shows through it there is sky.
+
+| | |
+|---|---|
+| The water stopped two units past the coast | so the mouth skirt spent the rest of its fade dissolving over **nothing**. Measured at the tip: luma 211 against 82 for the ground. The strip runs the full fade band now and dissolves on the skirt's own curve — which is only safe because by then it is the skirt's own colour. |
+| The embankment railing had no end posts | `RAIL_POST_PITCH` is a *world* pitch, so a run ended with two rails hanging in mid-air and the corner where it met a bridge's railing left open. |
+| The abutments stopped at the bank | leaving the embankment strip under each deck — a walk's width, roofed by the deck, open from the side — as a void. They reach `DECK_OVERHANG` further now, to where the channel wall stands. |
+
+> **The shoal has to land on exactly `y = 0`, and 0.08 under it is worse than flush.** The
+> coplanar-surfaces rule does not apply: two flat surfaces at one height shimmer when they
+> *overlap*, and the water and the mouth skirt do not — the skirt covers the embankment strip either
+> side and the water covers what is between them, edge to edge, sharing vertices. Set under, to be
+> safe, and the step itself becomes the artefact: an 8cm riser seen from a camera that looks along it
+> draws a hairline of open sky down the whole length of the mouth.
+
 ## Looking at it
 
-`?shot=14` frames the river, `?shot=15` the leaf half way up with the tug holding station, and
-`?shot=16` the leaf fully up with the tug going through. All three step the **real** state machine
+`?shot=14` frames the river, `?shot=15` the leaf half way up with the tug holding station,
+`?shot=16` the leaf fully up with the tug going through, and `?shot=17` the coast at the mouth.
+That last one is deliberately much tighter than play zoom: every failure at the mouth has been a
+bright speck of sky a few pixels across, which a wide framing cannot resolve at all — the way to
+check it is to count pixels brighter than the ground, not to look. All three step the **real** state machine
 rather than posing it, so a screenshot cannot drift out of step with what the player gets — and the
 boats are placed before the cycle is stepped, not after, or the tug turns up parked short of a
 bridge that opened for nobody.

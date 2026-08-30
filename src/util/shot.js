@@ -61,6 +61,11 @@ export const SHOTS = [
   { name: 'river', description: 'the river, its bridges and the boats on it', target: [0, 0], zoom: 34, warmup: 12, drawbridgeAt: 13.0 },
   { name: 'drawbridge', description: 'the leaf half way up, with the tug waiting', target: [0, 0], zoom: 17, warmup: 12, drawbridgeAt: 6.5 },
   { name: 'drawbridge-open', description: 'the leaf fully up and the tug going through', target: [0, 0], zoom: 17, warmup: 12, drawbridgeAt: 13.0 },
+  // The coast at the river mouth, close enough to judge it. This is the one part of the map where
+  // two different kinds of edge have to agree — the island's rim, which dissolves, and the channel,
+  // which is a cutting — and every failure there has been a bright speck of sky a few pixels across
+  // that a wide framing simply cannot resolve. Pinned on the -x mouth; the two are mirror images.
+  { name: 'mouth', description: 'the river running off the coast', target: [-58, 10.67], zoom: 15, warmup: 12 },
   { name: 'roadwork', description: 'a street closed for roadworks', target: [0, 0], zoom: 22, warmup: 12, roadworkAt: 1.4 },
   // And the taxi going through it. Same argument as the wreck: the smash has no steady state —
   // it is over in three quarters of a second and it needs the player to have driven at it — so
