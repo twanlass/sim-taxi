@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { makeRng } from './util/rng.js';
-import { createScene } from './game/scene.js';
+import { createScene, sinkShadowCaster } from './game/scene.js';
 import {
   createCityCamera, attachDragPan, VIEW_DIR, PLAY_ZOOM, LOCO_PUNCH_HOLD,
 } from './game/camera.js';
@@ -313,6 +313,9 @@ if (river) {
     const mesh = new THREE.Mesh(createBridge(span, bridgeRng), propMaterial());
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    // A deck is a shell a third of a unit thick that both casts and receives, which is the one
+    // shape the sun's shadow map cannot separate from its own underside. See `sinkShadowCaster`.
+    sinkShadowCaster(mesh);
     mesh.name = `bridge-${line}`;
     scene.add(markOccluder(mesh));
   }

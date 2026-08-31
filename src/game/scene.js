@@ -255,8 +255,91 @@ export function createScene({ shadowMapSize = 2048 } = {}) {
   sun.shadow.camera.far = MAX_SPAN * 3;
   sun.shadow.bias = -0.0006;
   sun.shadow.normalBias = 0.06;
+  // Both are the *city's* numbers: buildings are solid boxes, so the shadow map records a far
+  // wall a long way behind the face being lit and there is nothing to fight. A bridge is the one
+  // caster in this game that is a thin shell, and it needs `sinkShadowCaster` below rather than
+  // more of these — see the arithmetic there for why raising either one is the wrong trade.
   scene.add(sun);
   scene.add(sun.target);
 
   return { scene, sun, hemi, sky: sky.material, fog: scene.fog };
+}
+
+// --- Thin casters -----------------------------------------------------------
+//
+// **How far a shell's shadow geometry is pushed back along the sun's rays, in world units.**
+//
+// The number comes off the shadow map, not off taste. The sun's frustum is `MAX_SPAN * 1.05` each
+// way, so a 2048 map is 252 / 2048 = 0.123 units per texel — and the depth one texel records
+// slides by `texel * tan(incidence)` across its own width. A bridge soffit sits up to 70 degrees
+// off the light, so that is 0.33 units of slide per texel, and PCFSoft reads a kernel about three
+// texels across: call it 1.0. Against that, a deck sits `DECK_THICK` (0.35) above its own soffit,
+// which is `0.35 * cos(incidence)` = 0.12 to 0.20 units of separation in light-space depth. The
+// map cannot tell the deck from its own underside, so **the deck shadows itself** — a band of blue
+// acne smeared down the carriageway, which is exactly what z-fighting looks like and is what it
+// got reported as.
+//
+// The sweep agrees with the arithmetic, which is why the arithmetic is written down: the existing
+// constant `shadow.bias` is already worth `0.0006 * 359` = 0.215 units, 0.5 on top of it left a
+// smudge at the abutment, 0.8 left a trace, and 1.0 is clean. An arch **cannot** shadow itself
+// under this sun in the first place — the peak grade is 16 degrees against a sun at 28.6 — so
+// there is no real shadow here to protect and the margin is free.
+export const SHADOW_SINK = 1.0;
+
+/** The chunk `sinkShadowCaster` patches. Named once so the guard and the replace cannot drift. */
+const PROJECT_VERTEX = '#include <project_vertex>';
+
+/**
+ * Push one mesh's shadow-map geometry back **along the sun's own rays**, so it stops shadowing
+ * itself.
+ *
+ * The direction is the whole point. A directional light's rays are parallel, so sliding a caster
+ * along them moves nothing: the silhouette it stamps on every receiver is pixel-identical, and
+ * only the *depth* it is recorded at changes. That is what separates this from turning `bias` or
+ * `normalBias` up, which are per-light and would pay for one bridge with peter-panning on every
+ * car in the city — measured, the bias that clears the deck (-0.0026) detaches a car's shadow from
+ * its wheels by 0.82 units, about 6px at play zoom.
+ *
+ * And the direction is free: the sun's shadow camera is orthographic and looks *down its own -Z*,
+ * so in view space the rays are the Z axis. `mvPosition.z - SHADOW_SINK` is the offset, with no
+ * uniform to keep in step with the day cycle.
+ *
+ * What it costs is the near end of the mesh's *own* shadow: a receiver within `sink` of the caster
+ * along the ray stops seeing it. On a bridge that is one thing — the railing's shadow at the foot
+ * of its own posts. A rail top is `(KERB_H + RAIL_H) / sin(28.6 deg)` = 2.03 units down the ray
+ * from the deck, so at 1.0 the near 0.87 units of that shadow (measured across the deck) goes and
+ * the rest still lands. At play zoom the whole shadow is 14px, so what is lost is about seven of
+ * them off a line one pixel wide. Nothing a car casts is affected: the car is not sunk.
+ *
+ * Anything *else* wanting this has to check that trade first — it is only free here because a
+ * bridge's shadow lands on water two units down, with no contact edge in shot to peter-pan.
+ *
+ * **Not `mesh.userData.aoDepthMaterial`** (`setOccluderDepthMaterial`, game/ssao.js). The AO
+ * prepass is a screen-space pass with no light direction in it at all; sinking a mesh there would
+ * push its occlusion toward the *camera* and hollow out its own contact creases.
+ */
+export function sinkShadowCaster(mesh, sink = SHADOW_SINK) {
+  // The patch below is a string replace into three's own shader, so it asserts its match rather
+  // than trusting it: a chunk renamed upstream would leave the replace a silent no-op and the acne
+  // back, with nothing logged and nothing to point at. Asserted *here*, where the city is built,
+  // rather than inside `onBeforeCompile`, which does not run until the first frame this mesh
+  // casts — `tools/check.mjs` reaches this line, and cannot reach that one.
+  if (!THREE.ShaderLib.depth.vertexShader.includes(PROJECT_VERTEX)) {
+    throw new Error(`sinkShadowCaster: no ${PROJECT_VERTEX} in three's depth vertex shader`);
+  }
+  const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  // Three builds the program cache key from a material's parameters, before `onBeforeCompile` has
+  // touched the source — so without this the patched depth material collides with the shared
+  // unpatched one every other caster in the city draws through, and `acquireProgram` hands back
+  // whichever compiled first. The same trap `patchProp` carries in util/geo.js.
+  depth.customProgramCacheKey = () => `shadow-sink-${sink}`;
+  depth.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(PROJECT_VERTEX, /* glsl */ `
+${PROJECT_VERTEX}
+mvPosition.z -= ${sink.toFixed(4)};
+gl_Position = projectionMatrix * mvPosition;
+`);
+  };
+  mesh.customDepthMaterial = depth;
+  return mesh;
 }

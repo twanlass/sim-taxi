@@ -380,6 +380,18 @@ Omit the whole section if there's nothing to note.
   below the skirt it butts against drew a hairline of open sky down the whole length of the mouth,
   because this camera looks *along* an 8cm riser. Ask whether the two surfaces cover any of the same
   ground before nudging either one.
+- **An exact tie does not shimmer, so it does not look like z-fighting on the machine you are on.**
+  Two front-facing surfaces on the *same* plane hand it to whichever one the rasteriser rounds in
+  front, and it rounds a map-wide quad and a small box face differently — so the bridge abutment
+  that sat exactly on the channel wall (`banks.z0 + EMBANK_WALK` against
+  `span.z0 + ABUT_DEPTH + DECK_OVERHANG - ABUT_DEPTH`, both float32 6.733333110809326) drew as one
+  clean surface in every headless still and as a hard-edged patchwork on a phone. Two things follow.
+  A still is not evidence that coplanar geometry is fine; only the *arithmetic* is. And "these two
+  face opposite ways so one is always culled" is a claim to check rather than to write down — that
+  one was wrong, both faced into the channel, and it stood for as long as the tie kept resolving the
+  flattering way. Breaking a tie is also a **look** decision, not just a sign: recessing hands the
+  plane to the surface that runs past the bridge, so the arch frames a bare bank; standing the
+  abutment proud keeps the thing the geometry is there to show.
 - **A scale is about its carrier's origin, so "shrink it to hide it" moves anything whose offset is
   in its vertices.** The brake and turn-signal pods are switched by scaling their level to 0
   (`instanceColor` is paint and cannot carry an on/off), and each *pair* was one merged geometry
@@ -397,6 +409,19 @@ Omit the whole section if there's nothing to note.
   origin and the offset rides the transform, one pod per mesh or instance. It has to be per pod —
   one merged pair can only be scaled about a point both pods share, and the two kinds disagree about
   which point that is (a brake pair differs across the car, a turn-signal pair along it).
+- **A thin shell that both casts and receives shadows will shadow itself, and it looks like
+  z-fighting.** One shadow texel is 0.123 world units (`MAX_SPAN * 1.05` each way over a 2048 map),
+  and the depth a texel records slides by `texel × tan(incidence)` across its own width — up to
+  0.33 for a bridge soffit 70° off the light, more once PCFSoft reads a three-texel kernel. A
+  bridge deck sits `DECK_THICK` = 0.35 above that soffit, so the map cannot tell the two apart and
+  the deck goes blue in blotches down the carriageway. Every *other* caster in this city is a solid
+  box whose far wall is a long way behind the lit face, which is why `sun.shadow.bias` and
+  `normalBias` are tuned as if the problem did not exist — and why the fix is per-mesh
+  (`sinkShadowCaster` in game/scene.js) rather than another turn of those: the bias that clears the
+  deck detaches every car's shadow from its wheels by 0.82 units. Push a thin caster **along the
+  light's own rays** instead; a directional light's rays are parallel, so its silhouette on every
+  receiver is unchanged and only the recorded depth moves. Under an orthographic shadow camera that
+  direction is free — it is view-space −Z, so `mvPosition.z -=` needs no uniform.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and

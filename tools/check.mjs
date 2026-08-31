@@ -71,10 +71,21 @@ const started = Date.now();
 
 // scene.js actually builds its lights and sky here, which is what catches an undefined reference.
 try {
-  const { createScene } = await import('../src/game/scene.js');
+  const { createScene, sinkShadowCaster, SHADOW_SINK } = await import('../src/game/scene.js');
   const { createDaylight, DAY_SECONDS } = await import('../src/game/daylight.js');
   const world = createScene();
   for (const mod of BOOT) await import(mod);
+
+  // The bridges' shadow patch, run rather than trusted. It is a string replace into three's own
+  // depth shader (see `sinkShadowCaster`), and a replace that stops matching does not throw — it
+  // silently hands back the shader unpatched and the deck goes back to shadowing itself. Nothing
+  // headless renders, so what is checked is that the *emitted source* carries the offset.
+  const sunk = sinkShadowCaster({});
+  const stub = { vertexShader: (await import('three')).ShaderLib.depth.vertexShader, uniforms: {} };
+  sunk.customDepthMaterial.onBeforeCompile(stub);
+  if (!stub.vertexShader.includes(`mvPosition.z -= ${SHADOW_SINK.toFixed(4)}`)) {
+    throw new Error('sinkShadowCaster: the depth patch did not land in the shader');
+  }
 
   // Drive a whole day past the lights. Every keyframe gets applied, so a bad colour or a uniform
   // that moved out from under the daylight module surfaces here rather than at dusk in the browser.

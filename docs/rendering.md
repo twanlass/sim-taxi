@@ -473,6 +473,31 @@ Two bounds worth knowing:
   `scene.js`), so the far end of one can be clipped. The arc has always had this at dawn and dusk;
   the pin just makes it reachable at any hour.
 
+### Thin casters — `sinkShadowCaster` in `game/scene.js`
+
+`sun.shadow.bias` and `normalBias` are the *city's* numbers, and the city is boxes: a building's
+shadow map records a far wall a long way behind the face being lit, so there is nothing for the
+depth compare to get wrong. A **bridge** is the one caster in this game that is a thin shell which
+also receives, and it self-shadowed — a band of blue acne smeared down the deck that reads exactly
+like z-fighting, and got reported as it.
+
+The arithmetic is in `scene.js` beside the constant. The short version: one shadow texel is 0.123
+world units, the depth it records slides by `texel × tan(incidence)` across its own width, and a
+soffit up to 70° off the light slides further than the 0.35 that separates it from the deck above.
+An arch physically *cannot* shadow itself here — 16° of peak grade against a 28.6° sun — so all of
+it is spurious.
+
+The fix is per-mesh rather than another turn of the two light-wide knobs, because those would pay
+for one bridge with peter-panning on every car in the city: bias −0.0026 clears the deck and
+detaches a car's shadow from its wheels by 0.82 units, about 6px at play zoom. `sinkShadowCaster`
+instead pushes the mesh's shadow geometry **back along the sun's own rays** — parallel rays, so
+the silhouette it stamps on every receiver is pixel-identical and only the recorded depth moves.
+The direction is free: the shadow camera is orthographic and looks down its own −Z, so in view
+space the rays *are* the Z axis and one `mvPosition.z -=` needs no uniform to track the day cycle.
+
+It applies to the three fixed spans (`main.js`) and the drawbridge's leaf (`game/drawbridge.js`).
+Nothing else should reach for it without redoing the trade — see the note on the function.
+
 ### The shadow tint — `SHADOW_UNIFORMS` in `util/geo.js`
 
 `Shadow colour` and `Shadow tint` push everything the sun doesn't reach toward one hue — a cool blue

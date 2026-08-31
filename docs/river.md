@@ -181,6 +181,34 @@ out, not the pin: `cornerFor` stakes its pin 0.5 past the kerb, which is on pave
 disc reaches 1.75 further and would sit out over the water. It costs the board the row of junctions
 along one bank — 42 junctions less that row is 36, exactly what a 5×5 city offered.
 
+### The abutment stands proud of the channel wall
+
+The wall runs the full width of the map, uninterrupted, and each bridge's abutment reaches forward
+under its deck to the same water's edge — so the two want the same vertical plane, over the deck's
+full 10.8 units and the 2.25 they share in height. They used to land on it *exactly*: the wall
+arrives as `banks.z0 + EMBANK_WALK` and the abutment as
+`span.z0 + ABUT_DEPTH + DECK_OVERHANG − ABUT_DEPTH`, and both round to the same float32,
+6.733333110809326.
+
+That was written up as safe, on the grounds that the pair face opposite ways so one is always
+culled. They don't: the wall faces **into** the channel and so does the abutment's face, because it
+is the far end of a box standing behind it. Both are front-facing at the far bank at once — which is
+the bank you see through the arch.
+
+**An exact tie does not shimmer**, which is why it survived so long. There is no depth to compare,
+so the plane goes to whichever surface the rasteriser rounds in front, and it rounds a map-wide quad
+and a small box face differently: one clean surface in every headless still, a hard-edged patchwork
+under the arch on a phone. Headless the plane came out wholly the abutment's; on the device it was
+reported from, the same face came back cut in two.
+
+`ABUT_WALL_CLEAR` (0.1) breaks the tie by standing the abutment **proud** of the wall. The size is a
+depth-buffer number: this camera's frustum is 1 to 1400, so a 16-bit buffer — which a phone may hand
+back — quantises at 0.021 a step, and 0.1 is five of those against 1200 of a 24-bit one. Proud
+rather than recessed is a decision about what the arch frames: recessed hands the plane to the wall,
+which runs straight past the bridge, so the arch would frame an unbroken bank with no abutment in it
+at all. `tools/probe.mjs` asserts the clearance signed, at both ends of every span — the near bank's
+pair has the identical fault and is merely back-facing today.
+
 ## The river mouth
 
 The slab is cut bank to bank, and the cut is not a coast — so `asphaltFade` skips it, which leaves a
