@@ -15,7 +15,7 @@ import { createProps } from './city/props.js';
 import { createGarage } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
-  createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber,
+  createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber, SPEED, ROAD_Y,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
 } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
@@ -30,10 +30,11 @@ import {
 import { createBoostMeter } from './game/boostmeter.js';
 import { flyEnergyToBoost } from './game/energybits.js';
 import { createSkidMarks } from './game/skidmarks.js';
-import { createDust } from './game/dust.js';
+import { createDust, DUST_ROAD_Y } from './game/dust.js';
 import { createCityEntry } from './game/cityentry.js';
 import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
+import { createSparks } from './game/sparks.js';
 import { createLocoFlame } from './game/locoflame.js';
 import { createVanish } from './game/vanish.js';
 import { carrySpeed } from './util/carry.js';
@@ -613,6 +614,10 @@ const cityEntry = createCityEntry({
 // drag the first car's wreckage across to the second the way the old debris pools could.
 const blast = createBlast(scene, makeRng(runSeed + 88));
 const flames = createFlames(scene, makeRng(runSeed + 133));
+// Sparks off the underside of the car as it lands a jump — see game/sparks.js and `landedHard`
+// below. Run seed, like the flames: which way a shower scatters is part of the situation, and a
+// stunt landing is not something a screenshot is ever staged on.
+const sparks = createSparks(scene, makeRng(runSeed + 134));
 // The other half of the tailpipe: `flames` is the bark on the press, this is the plume that burns
 // for as long as the button is held. No seed — the flicker is a flipbook on a clock, and a flame
 // that came out differently on two runs of the same seed would take the screenshots with it.
@@ -729,12 +734,51 @@ roadwork.onSmash(({ x, z }) => {
   // impact read as exhaust rather than as hitting something. See `dust.burst`.
   dust.burst(x, z, traffic.taxi.yaw);
 });
-roadwork.onLand(({ x, z }) => {
-  controller.kickShake(0.7);
-  // The same burst turned down rather than a smaller hand-tuned one — half the puffs at 70% power.
-  // Smaller than the smash on purpose: this is the landing, and it should not upstage the thing it
-  // followed.
-  dust.burst(x, z, traffic.taxi.yaw, 14, 0.7);
+// Touchdown, off whichever ramp — the roadworks barricade or the crest of an arched bridge under
+// Loco Mode. One handler for both, because it is one event: `traffic.onTaxiLand` fires on the frame
+// the arc ends and hands over where it landed, how fast, and how high the surface under it is.
+//
+// Three things come out of it, and they are stacked in order of what they say. The **shake** says
+// the car hit something; the **dust** says it was heavy; the **sparks** say it was hard enough to
+// drag metal along the road, which is the half that was missing while the only ramp in the game was
+// one a taxi could crawl over at walking pace.
+//
+// Everything scales on `hit`, which is 0 at cruise and 1 at the Loco top — a barricade can be
+// taken at any speed and a bridge only ever at overdrive, so the same landing has to read at both.
+// At 0 it is exactly what the barricade landing has always been (14 puffs at 0.7, a 0.7 shake);
+// at 1 it is half again as much and still under the barricade *smash*'s 1.1, which is the beat it
+// must not upstage on the one ramp where the two happen a second apart.
+traffic.onTaxiLand(({ x, z, yaw, v, deck }) => {
+  // `boostCruise()` rather than a constant: the Loco top is a tunable (the ⚙️ panel moves it), and
+  // a landing measured against a number that has stopped being the top speed reads wrong at both
+  // ends of the slider.
+  const hit = Math.max(0, Math.min(1, (v - SPEED) / Math.max(1e-6, boostCruise() - SPEED)));
+  controller.kickShake(0.7 + hit * 0.3);
+  // The same burst the smash throws, turned down rather than a smaller hand-tuned one, and lifted
+  // onto the deck: a landing on the hump of a bridge that puffed at road level would leave its dust
+  // hanging in the channel two units under the car.
+  dust.burst(x, z, yaw, 14 + Math.round(hit * 6), 0.7 + hit * 0.25,
+    { y: DUST_ROAD_Y + deck });
+  // Off all four contact patches rather than the two the boost trail uses. The trail comes off the
+  // driven wheels because that is where traction breaks; a landing lands on everything at once, and
+  // two streaks under the back of a car reads as a wheelspin rather than as an impact — the same
+  // argument the brake's four-wheel skid is made from.
+  const fx = Math.cos(yaw);
+  const fz = -Math.sin(yaw);
+  const rx = Math.sin(yaw);
+  const rz = Math.cos(yaw);
+  const perWheel = 4 + Math.round(hit * 2);
+  for (const [along, track] of [[TAXI_FRONT_AXLE_FWD, TAXI_FRONT_TRACK],
+    [-TAXI_REAR_AXLE_BACK, TAXI_REAR_TRACK]]) {
+    for (const side of [-1, 1]) {
+      sparks.burst(
+        x + fx * along + rx * side * track,
+        ROAD_Y + deck,
+        z + fz * along + rz * side * track,
+        yaw, perWheel, v,
+      );
+    }
+  }
 });
 // Aim the next fare's drop-off at one end of the closed street. The router already prices those
 // lanes low (see EDGE_COST.roadwork), which wins the zone any trip that passes nearby; this is what
@@ -2469,6 +2513,7 @@ function frame() {
   dust.update(dt);
   blast.update(dt);
   flames.update(dt);
+  sparks.update(dt);
   vanish.update(dt);
   flyover.update(dt);
   chopper.update(dt);

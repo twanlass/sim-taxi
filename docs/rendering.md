@@ -1628,7 +1628,8 @@ as flat stickers next to the faceted cars.
 
 **Three effects come out of this one pool** — the boost trail, the wall a barricade throws
 (`burst`, [below](#roadworks--gameroadworkjs-geometryroadworksjs)) and the smoke collar around a
-wreck (`wreckSmoke`, [below](#wreck--gameblastjs-gamevanishjs)) — and the differences between them
+wreck (`wreckSmoke`, [below](#wreck--gameblastjs-gamevanishjs)) — plus the rotor wash off a helipad
+and the puff under a landing — and the differences between them
 are options on `burst` rather than three sets of hand-picked numbers: `tint`, `ring` (start each
 puff that far out along its own bearing), `linger` (stretch the life) and `startSize` (begin as a
 cloud rather than at a point). `instanceColor` *is* used for the tint, and it is allocated at build
@@ -1637,6 +1638,40 @@ adds `USE_INSTANCING_COLOR` to the material, so a lazy first call would put a sh
 frame of a crash. **The tint is rewritten on every spawn**, including the untinted ones: the pool is
 a ring buffer shared with the boost trail, and a slot the collar painted grey comes back round half
 a lap later.
+
+### Landing sparks — `game/sparks.js`
+
+The taxi lands a jump twice in a run at most — off a roadworks barricade, and off the crest of an
+arched bridge under Loco Mode — and both landings throw this. Fired from the one `traffic.onTaxiLand`
+handler in `main.js` alongside a camera shake and a dust burst, four to six per wheel off **all
+four** contact patches: the boost trail comes off the driven wheels because that is where traction breaks,
+but a landing lands on everything at once, and two streaks under the back of a car read as a
+wheelspin. Same argument the brake's four-wheel skid is made from.
+
+It is a **streak** pool rather than a puff pool, and every difference from `dust.js` follows from
+that:
+
+- **Thin boxes aligned to their own velocity**, stretched along the direction of travel and
+  shortening as they slow (`SPARK_LEN` is 0.055 units per u/s, clamped to 0.35–1.15 — a 2.7px dash
+  on a spent spark, 9px on a fresh one). A spark is seen as the line it draws, not the point it is;
+  a round mote at this size is a dot of grit.
+- **Additive and unlit**, like the tailpipe flame: a spark is a light source, so it brightens the
+  road under it rather than sitting on it as an opaque fleck — which is also what keeps a night
+  landing as bright as a golden-hour one. It blooms on the `flame` intensity rather than a kind of
+  its own; the two are the same thing to that pass, small and hot and gone in half a second.
+- **They bounce.** One skitter off the tarmac is what separates hot metal from thrown debris, and it
+  costs a sign flip. The floor is passed in per burst rather than assumed to be the road — a landing
+  on the hump of a span skitters along the **deck**, and a spark that fell through it would still be
+  drawn, additive and depth-write-off, as a bright dash hanging over open water.
+- **Hue is rolled once and kept**, spread across the shower rather than walked over each spark's
+  life the way the fireball's ramp is. A spark is fading the whole time it is on screen, so a ramp
+  buys nothing the alpha is not already saying; what the spread buys is metal at several
+  temperatures at once.
+
+`SPARK_CARRY` is 0.45 of the car's speed, well under a shard's 0.70 in `blast.js` and for the
+opposite reason: a shard is a piece of the car and goes with it, a spark is separating *from* it. At
+0.45 an overdrive landing throws sparks that creep forward for a tenth of a second and are then left
+behind as the taxi drives out from under them.
 
 ### Loco Mode kickoff — `game/flames.js`, plus a wheelie in `sim/traffic.js`
 

@@ -427,6 +427,22 @@ export const PALETTE = {
   locoFlameOuter: '#FF5D18',
   locoFlameMid: '#FF9E12',
   locoFlameCore: '#FFF6D8',
+
+  // Sparks off the underside of the taxi as it lands a jump — see game/sparks.js. Two stops, one
+  // per end of a shower rather than a ramp each spark walks: a spark is on screen for half a second
+  // and fading the whole time, so what a spread across the *shower* buys is metal at several
+  // temperatures at once, which is what a real one looks like.
+  //
+  // Hues below are as `getHSL` reads them, which is the working space (linear-sRGB) and not what a
+  // colour picker shows. The hot end sits on `locoFlameCore`'s own hue (45°) four points lighter at
+  // l 0.88 — white with a warm cast rather than a yellow, which is what struck metal is and what
+  // survives being drawn additive on top of itself where two sparks cross. The tail is 19°, a
+  // degree off `locoFlameMid`, and that closeness is deliberate: the tailpipe is often burning two
+  // units away from this, and two warm effects a few degrees apart read as one car doing one thing.
+  // What it must clear is `taxiBody` at 34°, so a shower under the car never reads as the car's own
+  // paint coming off.
+  sparkHot: '#FFF8E2',
+  sparkTail: '#FF9A22',
   // The collar of smoke thrown out around a wreck — the construction zone's dust, tinted. It is
   // set against the **road**, not against `blastSmoke` beside it, and that is the whole of why it
   // is this light. The fireball is unlit, so its smoke stop can be a dark #4B4B55 and still read;
