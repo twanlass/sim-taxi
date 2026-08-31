@@ -3210,8 +3210,8 @@ The value in the stylesheet is only what one opens on before its first write.
 
 **Two kinds, one arrow.** The drop-off gets one while a fare is aboard, and *every rider still on a
 kerb* gets one — which is new, and is what replaced the [rider-finder
-chips](gameplay.md#finding-the-next-rider). The drop-off's is drawn a size up (`.is-dropoff`, 34px
-against 28px), because while carrying there can be four arrows on the edge at once and only one of
+chips](gameplay.md#finding-the-next-rider). The drop-off's is drawn a size up (`.is-dropoff`, 42px
+against 35px), because while carrying there can be four arrows on the edge at once and only one of
 them is the trip under way; colour cannot carry that distinction, being already spoken for by the
 clocks.
 

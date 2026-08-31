@@ -32,10 +32,12 @@ import * as THREE from 'three';
 // colour is already spoken for by the clocks.
 //
 // The pool grows on demand and is never shrunk: at most MAX_FARES riders plus one drop-off, so it
-// tops out at a handful of 34px divs.
+// tops out at a handful of 42px divs.
 
 const EDGE_MARGIN = 36;   // px kept clear from the viewport edge, so an arrow lives on the HUD
-                          // rather than sliced by it
+                          // rather than sliced by it. An arrow is centred on its clamp point, so
+                          // this has to stay above half the largest arrow — 21px, the drop-off's
+                          // 42 — or the edge cuts the one mark that says where the trip is.
 
 // The viewport's edges are no longer the *usable* edges: with `viewport-fit=cover` the page runs
 // under the status bar and the home indicator, and an arrow clamped 36px from the raw edge parks
