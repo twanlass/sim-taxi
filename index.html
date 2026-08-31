@@ -850,13 +850,13 @@
          opens on before its first colour write. */
       .fare-pointer {
         position: fixed; left: 50%; top: 50%; z-index: 18;
-        width: 28px; height: 28px; pointer-events: none; user-select: none;
+        width: 35px; height: 35px; pointer-events: none; user-select: none;
         transform: translate(-50%, -50%);
         color: #3ECF5A;   /* PALETTE.urgency[4] — a full clock */
       }
       /* The trip actually under way, drawn a size up: while carrying, several arrows can be on the
          edge at once and colour is already spoken for by the clocks. */
-      .fare-pointer.is-dropoff { width: 34px; height: 34px; }
+      .fare-pointer.is-dropoff { width: 42px; height: 42px; }
       .fare-pointer[hidden] { display: none; }
       .fare-pointer svg { display: block; width: 100%; height: 100%;
         filter: drop-shadow(0 2px 4px rgba(10, 20, 30, 0.45)); }
