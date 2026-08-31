@@ -2446,6 +2446,54 @@ are posed the instant they are built, so shot mode — which ticks once and free
 water rather than a pond of default poses. `?shot=25` is the pond close up and `?shot=26` the same
 water at play zoom, which is the framing that decides whether it is a landmark or a smudge.
 
+### Boat wake — `game/wake.js`
+
+One `InstancedMesh` of flattened motes lying on the water, shared by every hull on the river — the
+[dust](#dust--gamedustjs) recipe with a wake's tuning. Unlit through `unlitMaterial`, so foam reads
+the same at noon and at dusk and takes no haze; `depthWrite: false` at `renderOrder = -1`, so it
+sorts after the water at -2 and lies over it without fighting; per-mote alpha in the same three-line
+`aAlpha` patch, because `instanceColor` is RGB only.
+
+**Why it is not the triangle it replaced.** The old wake was one flat cone welded to the stern,
+which meant the foam travelled *with* the boat: a shape towed along at exactly hull speed, so the
+one thing it existed to say — that this thing is moving — was the one thing its own motion
+contradicted. Foam is left behind. Every mote is spawned into the world and then stays where the
+water is, so what the eye reads is the hull pulling away from its own trail, and a wake that is
+still lying there a couple of seconds after the boat has gone.
+
+**Three parts, and the middle one is the shape.** Two arms opening astern, a churn boiling out of
+the stern between them, and a tail that comes apart rather than ending on a line drawn across open
+water. The arms open at `KELVIN` = `tan(19.47°)` = 0.354 of the boat's **own speed**, which is the
+Kelvin half-angle a displacement hull actually makes at any speed — so the tug and the barge throw
+the same shape at different lengths, which is what makes the barge read as heavy rather than as a
+tug with a slow wake. They start at `ARM_OFF` 1.0 off the centreline, just inboard of the hull's own
+`BEAM / 2` = 1.1: at 0.85 the pair was 1.7 apart against motes growing to 1.05 and closed into a
+single column before it had opened, and the V went missing at every framing.
+
+Emission is keyed to **distance travelled** — a spawn every `SPAWN_STEP` = 0.5 units, with a churn
+mote on every other one — which is what makes a boat holding station lay nothing, and is the
+[river doc's](river.md#fading-in-and-the-wake) point rather than this one's. What belongs here is
+what it costs: 2.5 motes per 0.5 units is 41 alive behind a tug and 31 behind a barge, and with the
+five barges the spawner's `BARGE_WAIT` floor can actually put on 176 units of river at once that is
+196 against a pool of **256**. The probe measures the peak over a five-minute soak (166 on the seed
+it runs) and fails if it reaches the ceiling, for the reason the dust pool has twice been grown: a
+lapped ring buffer recycles a mote out from under a wake that is still on screen, and what that
+looks like is a bite out of the middle of a trail rather than an error.
+
+`HEAD_ALPHA` is 0.36 against the old triangle's 0.45 because **motes overlap and a triangle does
+not**: astern of the boil an arm mote has grown to 1.05 against a 0.5 spacing, so two or three cover
+any given patch and a pair alone stacks to 0.59. At the triangle's number the river had a solid
+white stripe down the middle of it.
+
+Each mote's whole state is evaluated from its **age** rather than integrated frame to frame, which
+is unusual for this project and is there to buy one thing: shot mode ticks the world once and
+freezes, so a pool that fills over two seconds of travel is photographed empty. With a closed form,
+`prime` lays a finished trail in a single call by spawning each mote already the age it would have
+been — the same wake the running game makes, not a posed one — and ends on `update(0)` so the
+matrices are actually written. Without that last line every mote is at the scale 0 the pool was
+built with: a wake laid down correctly and photographed invisible, which is the same picture the
+old triangle's winding bug produced.
+
 ### The rooftop helicopter — `game/chopper.js`, `geometry/helicopter.js`
 
 A helicopter that visits the city's helipad every couple of minutes: in over the skyline on a curve,

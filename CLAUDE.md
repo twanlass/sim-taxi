@@ -117,7 +117,9 @@ Omit the whole section if there's nothing to note.
   with a comment above it stating it was wound to face up. It was `(0, -15.08, 0)`. A feature that
   renders nothing is indistinguishable from one that was never wired up, which is how it got
   reported: "I think we're still missing boat water trails." Compute the normal from the winding in
-  a probe check the moment you hand-write a triangle — not after someone notices.
+  a probe check the moment you hand-write a triangle — not after someone notices. (That particular
+  triangle is gone: the wake is a particle pool now, `game/wake.js`, and three winds its own motes.
+  The lesson is not — the roadworks ramp and the bridge deck below are the same trap.)
 - **Hand-written triangles need their winding asserted, not eyeballed.** The roadworks ramp shipped
   wound clockwise throughout: its slope normals came out at `y = −0.98` and its underside's at
   `+1.00`, so the only face the camera saw was the bottom — a flat quad lying on the road, which

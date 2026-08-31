@@ -1,12 +1,13 @@
 import * as THREE from 'three';
-import { propMaterial, unlitMaterial } from '../util/geo.js';
+import { propMaterial } from '../util/geo.js';
+import { makeRng } from '../util/rng.js';
 import { createBargeMesh, createTugMesh, BARGE_LEN, TUG_LEN, BEAM } from '../geometry/boat.js';
 import {
   waterEdges, waterHeightAt, bridgeSpan, drawbridgeLine, BARGE_AIR, TUG_AIR,
 } from '../city/river.js';
 import { OPEN_SECONDS } from './drawbridge.js';
+import { createWake } from './wake.js';
 import { SLAB_X, EDGE_FADE } from '../city/ground.js';
-import { PALETTE } from '../palette.js';
 
 // Traffic on the river, and the thing that asks the drawbridge to lift.
 //
@@ -42,22 +43,15 @@ const fadeAt = (x) => {
 
 // --- The wake ---------------------------------------------------------------
 //
-// A flat triangle trailing each hull, widening astern. It is the only thing that says a boat is
-// *moving* — at 2.6 units per second against a car's 8.5, a barge on a still river reads as
-// scenery that happens to be in a different place each time you look at it.
+// The foam behind a hull is the only thing that says a boat is *moving* — at 2.6 units per second
+// against a car's 8.5, a barge on a still river reads as scenery that happens to be in a different
+// place each time you look at it.
 //
-// Drawn as one triangle rather than a strip of quads, and lying on the water rather than standing
-// in it: at play zoom a wake is four pixels across at the stern and the shape is the whole of the
-// information. It sits `WAKE_LIFT` above the surface for the reason every painted mark in this city
-// sits above the road it is on — two coplanar surfaces is a shimmer, not a touch.
-const WAKE_LIFT = 0.012;
-const WAKE_LEN = 5.2;
-const WAKE_SPREAD = 1.45;
-// How solid the foam is where it leaves the stern. It rides in a **4-component vertex colour** and
-// ramps to nothing at the tail — the same trick the asphalt skirt and the skid marks use, and for
-// the same reason: without it the triangle ends on a straight line across open water, which reads
-// as a paper cone being towed rather than as a wake dying out behind a hull.
-const WAKE_HEAD = 0.9;
+// It is a particle pool now rather than a triangle welded to the stern, and the module next door
+// (`game/wake.js`) carries the argument for why. The two things this file still owns are that a
+// wake is spent per unit **travelled** — which is what makes a tug held at `HOLD_OFF` lay none —
+// and that the foam is laid into the world rather than parented to the boat, so it stays on the
+// water the hull is pulling away from.
 
 // Speeds, in world units per second. Cars cruise at 8.5, and a boat that kept up with the traffic
 // would read as a jet ski — what sells it is being the slowest thing in the frame. At 3.4 a tug
@@ -120,6 +114,15 @@ export function createBoats(scene, rng, drawbridge) {
 
   const midZ = (edges.z0 + edges.z1) / 2;
 
+  // The foam, on a stream of its own.
+  //
+  // **One draw off the boats' rng and no more.** A wake spends a dozen randoms a second, so sharing
+  // this generator would make which lane the next barge is given a function of how much foam the
+  // last one happened to lay — the coupling the two-seed rule exists to prevent, in its most
+  // literal form. Seeded from a single draw taken here at construction instead, so the boats' own
+  // stream advances by exactly one whatever the river does afterwards.
+  const wake = createWake(group, makeRng(rng.int(0, 0x7fffffff)), edges, fadeAt);
+
   /**
    * Which side of the channel a boat runs on, keyed to which way it is going.
    *
@@ -156,58 +159,6 @@ export function createBoats(scene, rng, drawbridge) {
     barges: 0,
   };
 
-  /**
-   * The wake, in the boat's own local frame: a triangle from the stern, widening astern.
-   *
-   * Its own mesh rather than part of the hull, because the two want opposite materials — the hull
-   * is lit and the wake is foam, which is bright at every hour and takes no shadow. Unlit is also
-   * what lets it fade with the hull without the fade reading as the water changing colour.
-   */
-  function wakeMesh(len) {
-    const stern = -len / 2;
-    const geo = new THREE.BufferGeometry();
-    // Wound to face **up**, and this shipped wound the other way — invisible, for weeks, with the
-    // comment above it saying it was fine. `MeshBasicMaterial` is `FrontSide` by default, so a
-    // down-facing quad on the water is not a dim wake or a wake in the wrong place: it is nothing
-    // at all, and nothing at all looks exactly like a feature that was never wired up.
-    //
-    // The normal computed *from the winding* was `(0, -15.08, 0)` on both triangles. That is the
-    // check to run on any hand-written triangle (CLAUDE.md has it twice over, for the roadworks
-    // ramp and the bridge deck); `computeVertexNormals` below launders a reversed triangle into
-    // whatever looks deliberate, so it cannot tell you and neither can looking at the numbers.
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-      -0.5, WAKE_LIFT, stern,
-      WAKE_SPREAD, WAKE_LIFT, stern - WAKE_LEN,
-      -WAKE_SPREAD, WAKE_LIFT, stern - WAKE_LEN,
-      -0.5, WAKE_LIFT, stern,
-      0.5, WAKE_LIFT, stern,
-      WAKE_SPREAD, WAKE_LIFT, stern - WAKE_LEN,
-    ]), 3));
-    // Alpha per vertex, solid at the stern and gone at the tail. The order matches the positions
-    // above vertex for vertex, so any change to the winding has to be made in both.
-    const c = new THREE.Color(PALETTE.wake);
-    const fade = [WAKE_HEAD, 0, 0, WAKE_HEAD, WAKE_HEAD, 0];
-    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(
-      fade.flatMap((a) => [c.r, c.g, c.b, a]),
-    ), 4));
-    geo.computeVertexNormals();
-    // Through `unlitMaterial`, which is the house rule for anything `MeshBasicMaterial` and turns
-    // the haze off with it — a wake is foam, and foam has no business reporting a colour between
-    // its own and the sky's just because it is at the far end of the map.
-    const mat = unlitMaterial({
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.5,
-      // Foam on water has no business hiding what is drawn behind it, and the water it lies on is
-      // itself a transparent surface at `renderOrder` -2 — so this has to sort after it and write
-      // nothing, or the two fight over a millimetre.
-      depthWrite: false,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder = -1;
-    return mesh;
-  }
-
   function launch(kind) {
     const geo = kind === 'tug' ? createTugMesh(rng) : createBargeMesh(rng);
     const mesh = new THREE.Mesh(geo, propMaterial());
@@ -230,9 +181,6 @@ export function createBoats(scene, rng, drawbridge) {
       len: kind === 'tug' ? TUG_LEN : BARGE_LEN,
     };
     mesh.position.set(boat.x, waterHeightAt(boat.x), boat.z);
-    const wake = wakeMesh(boat.len);
-    mesh.add(wake);
-    boat.wake = wake;
     group.add(mesh);
     boats.push(boat);
     if (kind === 'tug') state.tugs += 1; else state.barges += 1;
@@ -292,13 +240,16 @@ export function createBoats(scene, rng, drawbridge) {
         if (boat.asked && toGate < -RELEASE_PAST) drawbridge.release();
       }
 
-      // Fade with the ground under it, and take the wake down with it. The wake also thins out
-      // when the boat is not actually moving — a tug holding station short of a raised leaf with a
-      // full wake behind it is a boat doing a wheelspin.
-      const alpha = fadeAt(boat.x);
-      boat.mesh.material.opacity = alpha;
-      const moved = Math.abs(boat.x - before) / Math.max(1e-6, boat.speed * dt);
-      boat.wake.material.opacity = 0.5 * alpha * Math.min(1, moved);
+      // Fade with the ground under it. The foam behind it fades on the same band, but per mote and
+      // at the x it was *laid* at rather than at the boat's — it does not travel with the hull, so
+      // it cannot inherit the hull's opacity either.
+      boat.mesh.material.opacity = fadeAt(boat.x);
+
+      // Foam is spent per unit of river covered, so a tug clamped at `HOLD_OFF` in front of a leaf
+      // that has not come up spends nothing and lies there with the water flat behind it. That used
+      // to be a `moved / would-have-moved` term multiplied into the wake's opacity; keyed to
+      // distance it is not a special case any more, it is just what the emitter does.
+      wake.follow(boat, Math.abs(boat.x - before));
 
       if (Math.abs(boat.x) > off) {
         // A tug retired without ever getting through — it can only happen if the bridge never
@@ -306,22 +257,32 @@ export function createBoats(scene, rng, drawbridge) {
         if (boat.kind === 'tug' && boat.asked && drawbridge) drawbridge.release();
         group.remove(boat.mesh);
         boat.mesh.geometry.dispose();
-        boat.wake.geometry.dispose();
-        boat.wake.material.dispose();
+        // Its foam is **not** retired with it. The motes are in the world, not on the hull, so they
+        // go on lying where they were laid and dying of old age — which out here is past the coast
+        // fade, where their own `dim` has already taken them to nothing.
         boats.splice(k, 1);
       }
     }
+
+    wake.update(dt);
   }
 
   return {
     group,
     boats,
     state,
+    wake,
     update,
     /**
      * Shot mode ticks the world once and freezes it, so anything that opens at zero is stuck on its
      * first frame. Nothing here is scaled up from nothing, but a river with no boats on it is the
      * screenshot equivalent — so a shot gets one of each, placed rather than waited for.
+     *
+     * The wake is the same problem one layer down and it now needs saying out loud: a pool that
+     * fills over a couple of seconds of travel is empty on the frame a shot renders, so each boat
+     * is handed a finished trail by `prime` rather than left to lay one. Without it every
+     * screenshot of the river has boats standing on flat water — which is what the `wake` shot
+     * exists to catch, and exactly how the old triangle's winding bug read.
      */
     settle() {
       if (boats.length) return;
@@ -341,6 +302,10 @@ export function createBoats(scene, rng, drawbridge) {
       tug.x = gate - 2;
       tug.z = laneZ(tug.dir);
       tug.mesh.position.set(tug.x, waterHeightAt(tug.x), tug.z);
+      // After both are in their final place, not inside `launch` — a trail laid at the spawn point
+      // and then teleported with the hull would be twenty-six units up-river of the boat it belongs
+      // to, which is a wake in a screenshot of open water.
+      for (const boat of boats) wake.prime(boat);
     },
   };
 }

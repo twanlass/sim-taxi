@@ -414,26 +414,38 @@ now takes `fadeAt(x)`: opaque until `SLAB_X / 2`, then a smoothstep to nothing o
 the same distance and the same curve the asphalt's skirt uses, because the thing it has to agree
 with is that skirt.
 
-The **wake** is one unlit triangle trailing each hull, widening astern, `depthWrite: false` and
-`renderOrder = -1` so it sorts after the water (which is at -2) and lays over it without fighting.
-Its opacity is the product of two things: the hull's own fade (a wake outliving the boat it belongs
-to is worse than no wake) and how far the boat actually moved this frame over how far it *would*
-have at full speed — so a tug clamped at `HOLD_OFF` waiting on a leaf sits still with a flat wake,
-rather than standing on the spot throwing up spray.
+The **wake** is a particle pool — `game/wake.js`, and
+[rendering.md](rendering.md#boat-wake--gamewakejs) carries the tuning. What this file owns is the
+two things about it that are facts about the river rather than about the effect:
 
-Alpha also rides in a **4-component vertex colour**, solid at the stern and gone at the tail, the
-same trick the asphalt skirt and the skid marks use. Without it the triangle ends on a straight line
-across open water and reads as a paper cone under tow rather than as foam dying out behind a hull.
+- **It is spent per unit travelled**, not per second, which is what makes a tug clamped at
+  `HOLD_OFF` in front of a leaf that has not come up lay nothing at all. That used to be an explicit
+  "how far did it actually move this frame over how far it would have" term multiplied into the
+  wake's opacity — otherwise a boat holding station sat there throwing up spray, doing a wheelspin.
+  Keyed to distance it stops being a special case and becomes what the emitter does.
+- **The arms are clamped at the bank.** They open on the Kelvin angle, which is a function of the
+  boat's speed and knows nothing about the water it is in — and this water is 7.87 units across on
+  the narrow build against a lane that already sits 1.6 off the middle, so there is about a unit of
+  open water outboard of a hull. Left to open freely the foam is over the embankment inside a second
+  and a half. The pool takes `waterEdges()` for that reason, and a mote is held at the bank less its
+  own radius, which is also what a wake in a narrow channel actually does.
 
-> **It shipped wound upside down and therefore did not draw at all**, which is a worse failure than
-> drawing wrong. `unlitMaterial` is `MeshBasicMaterial` and `FrontSide` like everything else, but it
-> has no lighting to go strange with — so where the roadworks ramp and the bridge deck at least
-> *looked* broken, this was simply absent, under a comment claiming it was wound to face up. The
-> normal computed from the winding was `(0, -15.08, 0)` on both triangles. A feature that renders
-> nothing is indistinguishable from one nobody got round to, and that is exactly how it was
-> reported. `tools/probe.mjs` now computes the normal from the winding, and `?shot=18` frames a boat
-> under way — no wider framing could have shown it, because at play zoom a wake is a few pale pixels
-> and a few pale pixels missing looks like nothing at all.
+Each mote also carries the hull's own `fadeAt`, sampled **at the x it was laid at** rather than the
+boat's. Foam does not travel with the boat, so it cannot inherit the boat's opacity either — and
+since a mote never moves along the channel, one sample at spawn is exact for the rest of its life.
+
+> **The wake this replaced shipped wound upside down and therefore did not draw at all**, which is a
+> worse failure than drawing wrong. It was one hand-written triangle through `unlitMaterial`, which
+> is `MeshBasicMaterial` and `FrontSide` like everything else but has no lighting to go strange with
+> — so where the roadworks ramp and the bridge deck at least *looked* broken, this was simply
+> absent, for weeks, under a comment claiming it was wound to face up. The normal computed from the
+> winding was `(0, -15.08, 0)` on both triangles. A feature that renders nothing is
+> indistinguishable from one nobody got round to, and that is exactly how it was reported: "I think
+> we're still missing boat water trails."
+>
+> The particle pool cannot fail that way — three builds the mote — but `?shot=18` still frames a
+> boat under way, because every *other* way this can go missing looks the same from a wider shot. At
+> play zoom a wake is a few pale pixels, and a few pale pixels missing looks like nothing at all.
 
 ## The mouth
 
