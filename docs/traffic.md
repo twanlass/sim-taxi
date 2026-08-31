@@ -1527,19 +1527,71 @@ rendered group and nothing else — and what it models is a spring settling, whi
 seconds. Paced over 3.4 units instead it ran 0.4s at cruise and 0.15s in overdrive: nine frames for
 two rebounds, somewhere between a flicker and nothing.
 
-It is two parts. `landingBounce(t)` is `|sin|` over two periods under a linear decay, so the second
-rebound comes back at a third of the first; and a one-frame **nose-down impulse into the pitch
-spring** (`pitchV -= 1.25`), which is underdamped at ζ ≈ 0.4 and rocks itself back out — the reason
-the suspension hit is an impulse rather than a second hand-animated curve. The decay was squared to
-begin with, which sounds like the same shape and is not: the first hump peaks a quarter of the way
-in, where a squared decay has already taken 44% off it, so the visible rebound was 0.22 units
-against the 0.4 the constant claimed.
+### The suspension
+
+The bounce is **four things on one 0.70s envelope**, `exp(−2.2u)`, and they are four rather than one
+because a car on springs does four things at once:
+
+| | | |
+|---|---|---|
+| **Squat** | `landingBounce`, first half period | the body compresses 0.28 into the road, and *then* comes up |
+| **Rebound** | `landingBounce`, three cycles | 0.46 → 0.22 → 0.11, each about half the last |
+| **Pitch** | `pitchV -= 1.7`, one frame | the nose dives 7.0° and the spring rocks it back out |
+| **Roll** | `landingRoll`, two cycles | the body rocks 2.2° side to side on a beat of its own |
+
+`landingBounce(t)` is `−sin` rather than `|sin|`, which is the whole of what the squat costs: the
+first half period is negative, so the body meets the road and **compresses** before it rises.
+Under `|sin|` and a linear decay — what it was, for as long as the only ramp in the game was a
+barricade — the car touched down and immediately rose off it, which is a ball bouncing rather than a
+car landing. The two amplitudes are deliberately different (0.80 up, 0.34 down): a rebound is
+limited by nothing, a compression by the suspension running out of travel.
+
+The squat is spent against the `lift` term (search "Roll and pitch both pivot") that keeps a pitched
+body's low edge out of the tarmac — that is up at 0.15 while the nose is down, so **0.34 of squat
+renders as 0.17 of car actually below the road**, about 1.3px. Raising the constant to buy the
+cancellation back is the wrong knob: the two are in antiphase for three frames only, and what the
+rest of the curve would get is a car with its wheels buried.
+
+The pitch half is an **impulse into the spring the frame loop already runs** (ζ ≈ 0.4, search
+"Rocking") rather than a second hand-animated curve, which is what lets a landing taken under the
+brake come out as one motion instead of two fighting over the same axis. The roll is a fixed sign —
+a landing is symmetric, so the direction is arbitrary, and picking one keeps it out of the run's rng
+streams where a new draw reshuffles every generator downstream. Its **two** cycles against the
+vertical's **three** is what stops the two reading as one animation; in lockstep the body looks
+stamped rather than sprung.
+
+> The window went 0.42s and two rebounds → 0.70s and three when the arched bridges started launching
+> a boosting taxi. A barricade hop is one beat in a street full of other things happening; a bridge
+> jump is the whole shot — a car in the air over a river with nothing else in frame — and it landed
+> on a curve that was spent in a quarter of a second.
+>
+> An earlier version decayed on a *squared* falloff, which sounds like the same shape and is not:
+> the first hump peaks a quarter of the way in, where a squared decay has already taken 44% off it,
+> so the visible rebound was 0.22 units against the 0.4 the constant claimed.
 
 `car.bounceT` is a **separate field from `car.hopFrom`** on purpose. Everything that asks "is the
-taxi airborne" — the barricade's landing event, the roadworks pack-up, the probe's arc assertions —
-is asking about the *arc*, and a bounce that answered yes would move all of them. `landingBounce`
-is exported so the probe can assert the curve directly: measured off the rendered taxi it would be
-measuring the speed bob and the pitch lift too, and in overdrive those are three times its size.
+taxi airborne" — the roadworks pack-up, the probe's arc assertions — is asking about the *arc*, and
+a bounce that answered yes would move all of them. `landingBounce` and `landingRoll` are exported so
+the probe can assert the curves directly: measured off the rendered taxi it would be measuring the
+speed bob and the pitch lift too, and in overdrive those are three times their size.
+
+### Touchdown, published
+
+`traffic.onTaxiLand(cb)` fires on the frame the arc ends, with `{ x, z, yaw, v, deck }`. The taxi is
+launched off two different things — a barricade and the crest of an arched bridge — and both land
+the same way, so the camera shake, the dust and the sparks belong to the **landing** rather than to
+whichever ramp caused it.
+
+It has to be pushed rather than polled. `hopFrom` is cleared on touchdown, so a module ticked after
+the traffic model can only see the event by holding the previous frame's value — which is what
+`game/roadwork.js` used to do, and there is no roadworks site on a bridge to be doing it.
+
+`deck` is the height of the surface it came down on: 0 on a road, and part-way up `ARCH_RISE` on a
+span. Everything the landing throws is placed against it — dust puffed at road level under a car
+that came down on a bridge hangs in the channel a metre below it, over open water, with the arch it
+came off in between. `main.js` scales all three effects on a `hit` fraction that is 0 at cruise and
+1 at `boostCruise()`, so the same landing reads at both ends: a barricade can be taken at walking
+pace, a bridge only ever at overdrive.
 
 Three constants have to keep closing here, and they are easy to move one at a time:
 

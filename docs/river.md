@@ -161,6 +161,14 @@ The one guard that survived unchanged is `car.archHopLane !== car.lane.id` — o
 Without it the hop retriggers every frame the launch window is satisfied and the taxi hovers across
 the river.
 
+**The landing is the other half of the stunt.** Touchdown fires `traffic.onTaxiLand` — the same
+event the barricade's landing fires, see [traffic.md](traffic.md#touchdown-published) — which rocks
+the suspension through three decaying rebounds and puts a camera shake, a burst of dust and a shower
+of sparks under the car. All three are placed against the event's `deck` height rather than against
+the road: on an arch the taxi comes down about 0.3 up the far slope, and dust puffed at road level
+there hangs in the channel a metre under the car, over open water, with the arch it came off in
+between.
+
 ## The embankment
 
 Both banks carry a pavement and a railing, built exactly the way a block's platform is: a kerb box

@@ -85,8 +85,10 @@ export const BLOOM_INTENSITY = {
   window: 1.15,
   /** The depot's strip light, seen through an open door. */
   bay: 1.6,
-  /** The Loco Mode plume and its kickoff burst. Fire, so it can afford to be the hottest thing on
-   *  the road — and it is already fading in and out on its own, which the pass follows. */
+  /** The Loco Mode plume and its kickoff burst, and the sparks a landing throws (game/sparks.js).
+   *  Fire, so it can afford to be the hottest thing on the road — and it is already fading in and
+   *  out on its own, which the pass follows. The sparks share it rather than taking a kind of their
+   *  own because they are the same thing to this pass: small, hot, and gone in half a second. */
   flame: 3.8,
   /** The wreck's fireball. Hotter again and for a second and a half only, which is the one moment
    *  in this game where blowing the frame out is the point rather than a cost. Its hue lives

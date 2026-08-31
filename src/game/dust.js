@@ -72,9 +72,13 @@ const WRECK_START_SIZE = 1.2;
 const WRECK_CARRY = 0.5;
 
 // Where a puff starts, vertically, when nobody says otherwise: just off the road, which is where
-// all of this happens except the helicopter's. `add` takes a `y` for that one — see game/chopper.js
-// — and everything else keeps the road it was written against.
-const ROAD_Y = 0.3;
+// all of this happens except the helicopter's and the landings. `add` takes a `y` for those — see
+// game/chopper.js, and the landing burst in main.js, which adds this to the height of the bridge
+// deck the taxi came down on — and everything else keeps the road it was written against.
+//
+// Exported for that second caller: a burst on a bridge is this much off the *deck*, and a caller
+// that has to hard-code 0.3 to say so is a caller that will not follow this number when it moves.
+export const DUST_ROAD_Y = 0.3;
 
 export function createDust(scene, camera, rng) {
   // Detail 0: twenty faces. Enough to read as round at play zoom, few enough that the facets show.
@@ -177,7 +181,7 @@ export function createDust(scene, camera, rng) {
    * Returns the slot, so a caller that wants a different *shape* of throw — the burst below — can
    * overwrite the velocity it was given rather than needing a second spawn path.
    */
-  function add(x, z, yaw, scale = 1, spread = 0.35, tint = null, y = ROAD_Y) {
+  function add(x, z, yaw, scale = 1, spread = 0.35, tint = null, y = DUST_ROAD_Y) {
     const slot = next;
     next = (next + 1) % MAX_PUFFS;
     mesh.setColorAt(slot, tint ? tintColor.set(tint) : WHITE);
@@ -232,7 +236,7 @@ export function createDust(scene, camera, rng) {
    * impact, for a burst that happens to something that was moving.
    */
   function burst(x, z, yaw, count = 26, power = 1,
-    { tint = null, ring = 0, linger = 1, startSize = START_SIZE, y = ROAD_Y, carry = 0 } = {}) {
+    { tint = null, ring = 0, linger = 1, startSize = START_SIZE, y = DUST_ROAD_Y, carry = 0 } = {}) {
     // `yaw` is a sim heading, so forward is (cos yaw, −sin yaw). Rolled once outside the loop: it
     // is the same vector for every puff, which is what makes the collar travel as one cloud.
     const carryX = Math.cos(yaw) * carry;

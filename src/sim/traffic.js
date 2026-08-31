@@ -302,10 +302,13 @@ export const HOP_LEN = 5.5;
 const HOP_HEIGHT = 2.75;
 const HOP_PITCH = 0.34;     // nose up off the ramp, level at the apex, nose down into the landing
 
-// Touchdown. Two decaying hops, plus a nose-down impulse into the pitch spring so the suspension
-// visibly takes the hit — the spring is underdamped (ζ ≈ 0.4, see the rocking block in the frame
-// loop) and rocks back out of it on its own, which is the whole reason the kick is an impulse
-// rather than a second hand-animated curve.
+// Touchdown — the one moment the car is allowed to look like it has springs under it, and three
+// things at once rather than one curve: the body **squats** into the hit, **rebounds** three times
+// under a decaying envelope, and rocks in **pitch** and **roll** while it does.
+//
+// The pitch half is an impulse into the spring the frame loop already runs (ζ ≈ 0.4, see the
+// rocking block) rather than a second hand-animated curve, which is what lets a landing taken
+// while braking come out as one motion instead of two fighting over the same axis.
 //
 // **Paced by a clock, unlike the arc above it**, and the difference is not an inconsistency. The
 // hop is distance-paced because it has to come down before the hold line, so where it ends is the
@@ -313,25 +316,79 @@ const HOP_PITCH = 0.34;     // nose up off the ramp, level at the apex, nose dow
 // rendered group and nothing else. What it models is a spring settling, and a spring settles in
 // seconds — paced over 3.4 units instead, it ran 0.4s at cruise and 0.15s in overdrive, which is
 // nine frames for two rebounds and lands somewhere between a flicker and nothing at all.
-export const BOUNCE_DUR = 0.42;
-const BOUNCE_HEIGHT = 0.55;
-const BOUNCE_PITCH = 1.25;    // rad/s into pitchV. ω ≈ 7.75, so this dips the nose about 9°
+//
+// The window went 0.42 → 0.70 and the two rebounds became three when the arched bridges started
+// launching a boosting taxi (see the Loco arch jump in the frame loop). A barricade hop is one
+// beat in a street full of other things happening; a bridge jump is the whole shot — the camera is
+// looking at a car in the air over a river with nothing else in frame — and it landed on a curve
+// that was spent in a quarter of a second. Three rebounds of 0.46 → 0.22 → 0.11, each about half
+// the last, is the thing that reads as a suspension settling rather than as a single hop.
+export const BOUNCE_DUR = 0.70;
+const BOUNCE_HEIGHT = 0.80;   // rebound amplitude, before the envelope
+const BOUNCE_CYCLES = 3;      // rebounds. A whole number of half-periods, so the curve ends at 0
+const BOUNCE_DECAY = 2.2;     // e-folds across the window: 1.00 → 0.48 → 0.23 → 0.11 per cycle
+
+// How far the body compresses *below* the road on the first hit, on the same envelope. Asymmetric
+// against BOUNCE_HEIGHT above it, and physically so: a rebound is limited by nothing, a
+// compression is limited by the suspension running out of travel.
+//
+// It is spent against the `lift` term the frame loop adds to keep a pitched body's low edge out of
+// the tarmac, which is up at 0.15 while the nose is down — so 0.34 of squat renders as **0.17** of
+// the car actually below the road (1.3px at play zoom), and the visible half of it is the *drop*
+// rather than the depth. Raising it to buy back the cancellation is the wrong knob: the two are in
+// antiphase for the first three frames only, and what the rest of the curve would get is a car
+// with its wheels buried.
+const BOUNCE_SQUAT = 0.34;
+
+// rad/s into pitchV, and rad into the roll. ω ≈ 7.75 under ζ ≈ 0.4, so the pitch impulse peaks the
+// nose 7.0° down about 0.15s in — the same beat as the first rebound, which is the point: the car
+// comes up on its springs and drops its nose in one motion.
+//
+// The roll is a **fixed sign** and not a rolled one. A landing is symmetric, so the direction is
+// arbitrary; picking one keeps it deterministic and, more to the point, keeps it out of the run's
+// rng streams, where a new draw reshuffles every generator downstream of it. Its two cycles
+// against the vertical's three is what stops the two reading as one animation — in lockstep the
+// body looks stamped rather than sprung.
+const BOUNCE_PITCH = 1.7;
+const BOUNCE_ROLL = 0.05;
+const BOUNCE_ROLL_CYCLES = 2;
 
 /**
- * Height of the landing bounce, `t` seconds after touchdown. Zero outside the bounce.
+ * The envelope both landing curves decay under. 1 at touchdown, and — because the cycle counts are
+ * whole numbers of half-periods — the sine it multiplies is 0 at the far end, so neither curve
+ * needs a taper to avoid snapping back to the road.
+ */
+function bounceEnvelope(u) {
+  return Math.exp(-BOUNCE_DECAY * u);
+}
+
+/**
+ * Height of the landing bounce, `t` seconds after touchdown. Zero outside the bounce, **negative**
+ * while the body is compressed — see BOUNCE_SQUAT.
  *
- * `|sin|` over two periods is two rebounds; the linear decay takes the second to a third of the
- * first, so it reads as the tail of a landing rather than as a second jump. The decay was squared
- * to begin with, which sounds like the same shape and is not: the first hump peaks a quarter of the
- * way in, where a squared decay has already taken 44% off it, so the visible rebound came out at
- * 0.22 units against the 0.4 the constant claimed. Exported so tools/probe.mjs can assert the curve
- * itself — measuring it off the rendered taxi means measuring the speed bob and the pitch lift too,
- * and at overdrive those are three times the size of the thing being measured.
+ * `-sin` rather than `|sin|`: the first half period is the compression, which is what a landing
+ * does first and what the old curve had no way to say. `|sin|` under a linear decay was two
+ * rebounds and no squat at all, so the car met the road and immediately rose off it.
+ *
+ * Exported so tools/probe.mjs can assert the curve itself — measuring it off the rendered taxi
+ * means measuring the speed bob and the pitch lift too, and at overdrive those are three times the
+ * size of the thing being measured.
  */
 export function landingBounce(t) {
   const u = t / BOUNCE_DUR;
   if (u < 0 || u >= 1) return 0;
-  return BOUNCE_HEIGHT * Math.abs(Math.sin(Math.PI * 2 * u)) * (1 - u);
+  const swing = -Math.sin(Math.PI * 2 * BOUNCE_CYCLES * u);
+  return bounceEnvelope(u) * swing * (swing > 0 ? BOUNCE_HEIGHT : BOUNCE_SQUAT);
+}
+
+/**
+ * The body rocking side to side through the same landing, in radians. Positive is a lean to the
+ * car's right, the same sense as the corner lean it is summed with.
+ */
+export function landingRoll(t) {
+  const u = t / BOUNCE_DUR;
+  if (u < 0 || u >= 1) return 0;
+  return bounceEnvelope(u) * Math.sin(Math.PI * 2 * BOUNCE_ROLL_CYCLES * u) * BOUNCE_ROLL;
 }
 
 /** Launch `car` off a ramp. Idempotent while already airborne — a second barricade doesn't stack. */
@@ -2431,6 +2488,31 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     return car.intentTurn ? net.turnById.get(car.intentTurn) : null;
   }
 
+  // --- Touchdown, published --------------------------------------------------
+  //
+  // The taxi is launched off two different things now — a roadworks barricade and the crest of an
+  // arched bridge under Loco Mode — and both land the same way, so the dust, the sparks and the
+  // camera shake belong to the *landing* rather than to whichever ramp caused it. This is the one
+  // event that says so.
+  //
+  // It has to be pushed rather than polled. `hopFrom` is cleared on the frame the arc ends, so a
+  // module ticked after this one can only see a touchdown by holding the previous frame's value —
+  // which is what game/roadwork.js used to do, and which silently misses the case where two things
+  // in one frame want to know.
+  //
+  // `deck` is the height of the surface it came down on: 0 on a road, up to ARCH_RISE on the hump
+  // of a fixed span. Effects that come off the tarmac need it, and it is not knowable from (x, z)
+  // by anything that has not already imported the river.
+  const landListeners = [];
+
+  function emitLand(car) {
+    if (!landListeners.length) return;
+    const event = {
+      x: car.x, z: car.z, yaw: car.yaw, v: car.v, deck: deckHeightAt(car.x, car.z).y,
+    };
+    for (const cb of landListeners) cb(event);
+  }
+
   function update(dt) {
     stats.time += dt;
     const t = stats.time;
@@ -3740,10 +3822,11 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const u = (car.travelled - car.hopFrom) / HOP_LEN;
         if (u >= 1) {
           car.hopFrom = null;
-          // Touchdown, and the only frame that can see it — see the note in game/roadwork.js about
-          // reading this flag. Hand the landing to the bounce and load the suspension.
+          // Touchdown, and the only frame that can see it. Hand the landing to the bounce, load the
+          // suspension, and tell anything outside the sim that it happened — see `onTaxiLand`.
           car.bounceT = 0;
           car.pitchV -= BOUNCE_PITCH;
+          if (car.isTaxi) emitLand(car);
         } else {
           airY = HOP_HEIGHT * Math.sin(Math.PI * u);
           // Nose up as it leaves the ramp, level at the apex, nose down into the landing. Positive
@@ -3756,7 +3839,13 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         // asking about the *arc*, and a bounce that answered yes would move all of them.
         car.bounceT += dt;
         if (car.bounceT >= BOUNCE_DUR) car.bounceT = null;
-        else airY = landingBounce(car.bounceT);
+        else {
+          airY = landingBounce(car.bounceT);
+          // Summed onto the corner and lane-change leans above rather than replacing them — three
+          // things happening to one suspension, and landing out of a boosted turn is exactly when
+          // two of them overlap.
+          roll += landingRoll(car.bounceT);
+        }
       }
 
       // --- Over a bridge -------------------------------------------------------
@@ -3840,6 +3929,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   return {
     cars, taxi, taxiGroup, setTaxiOccupied, setTaxiHighlight, setCarCount, mesh,
     wheelMesh, barMesh, update, warmup,
+    /** Called with `{ x, z, yaw, v, deck }` on the frame the taxi's hop touches down. */
+    onTaxiLand: (cb) => { landListeners.push(cb); },
     wreckShell, stats,
     lightPhase, displayPhase,
     // The instanced cars, index-aligned with `mesh`, and how `wheelMesh` is indexed off them

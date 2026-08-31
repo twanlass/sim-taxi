@@ -151,7 +151,6 @@ export function createRoadwork(rng, scene, camera = null) {
   group.visible = false;
 
   const smashListeners = [];
-  const landListeners = [];
   const placeListeners = [];
   const clearListeners = [];
   const emit = (list, event) => { for (const cb of list) cb(event); };
@@ -922,13 +921,15 @@ export function createRoadwork(rng, scene, camera = null) {
     updateChips(dt);
     updateWorkers(dt, taxi);
 
-    // The hop is rendered by traffic.js off `hopFrom`, which it clears on touchdown — so touchdown
-    // is the frame that flag goes away, and the previous frame's value is the only way to see it.
-    // Reading it twice inside one update() cannot work: traffic.js has already run by then, so the
-    // flag is gone before this module is ever asked. Keeping the arc's length here and recomputing
-    // the landing would work too, and would be a second copy of a curve to keep in step.
+    // Whether the taxi is still in the air off the ramp, which the pack-up below waits on: a site
+    // does not start dissolving around a car that is mid-stunt over it.
+    //
+    // The *landing* is not detected here any more. `hopFrom` is cleared on touchdown, so the only
+    // way to see the event from a module ticked afterwards is to hold the previous frame's value —
+    // and the taxi is launched off an arched bridge now as well as off a barricade, where there is
+    // no roadworks site to be holding anything. `traffic.onTaxiLand` publishes it once, from the
+    // frame that clears the flag. See main.js for what hangs off it.
     const airborne = taxi.hopFrom != null;
-    if (state.airborne && !airborne) emit(landListeners, { x: taxi.x, z: taxi.z, v: taxi.v });
     state.airborne = airborne;
     state.lastLaneId = taxi.lane?.id ?? null;
     state.lastS = taxi.s;
@@ -980,7 +981,6 @@ export function createRoadwork(rng, scene, camera = null) {
     workersGone: () => workers.filter((w) => w.fade <= 0).length,
     get closedLaneIds() { return state.closedLaneIds; },
     onSmash: (cb) => { smashListeners.push(cb); },
-    onLand: (cb) => { landListeners.push(cb); },
     // Fires once, when a zone is stood up, with the two junctions it runs between. main.js uses it
     // to aim one fare's drop-off at the far end of the closed street.
     onPlaced: (cb) => { placeListeners.push(cb); },

@@ -30,11 +30,12 @@ import {
 import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
+import { createSparks } from '../src/game/sparks.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
 import { createCollisions } from '../src/sim/collisions.js';
@@ -10325,6 +10326,8 @@ let chopperOrder; // likewise
 
     let smashes = 0;
     let lands = 0;
+    let landing = null;
+    let landedAt = null;
     let peakY = 0;
     let launchAt = null;
     let air = null;
@@ -10338,7 +10341,10 @@ let chopperOrder; // likewise
     // `landingBounce` — see below for why it cannot usefully be measured off the rendered taxi.
     let bounceFrames = 0;
     runwork.onSmash(() => { smashes += 1; });
-    runwork.onLand(() => { lands += 1; });
+    // Touchdown is published by the traffic model rather than by the site, because the taxi is
+    // launched off an arched bridge as well as off a barricade and there is no site there to
+    // publish it — see `onTaxiLand` in sim/traffic.js.
+    runTraffic.onTaxiLand((event) => { lands += 1; landing = event; });
 
     for (let step = 0; step < 60 * 6; step++) {
       const before = taxi.hopFrom;
@@ -10355,11 +10361,15 @@ let chopperOrder; // likewise
         air = taxi.travelled - launchAt;
       }
       if (taxi.hopFrom == null && taxi.bounceT != null) bounceFrames += 1;
+      // Where the taxi actually was on the frame the event fired. Nothing moves it between the
+      // emit — which happens in the render half of the per-car pass — and `update` returning, so
+      // this is what the event's own (x, z) has to agree with.
+      if (landing && landedAt === null) landedAt = { x: taxi.x, z: taxi.z };
       for (const cone of runwork.cones) if (cone.knocked) peakCone = Math.max(peakCone, cone.y);
       for (const chip of runwork.chips) if (chip.live) peakChip = Math.max(peakChip, chip.y);
     }
     flights.push({
-      boosting, smashes, lands, peakY, air, airborneAtLine, taxi, runwork,
+      boosting, smashes, lands, landing, landedAt, peakY, air, airborneAtLine, taxi, runwork,
       peakCone, peakChip, bounceFrames,
     });
   }
@@ -10435,24 +10445,89 @@ let chopperOrder; // likewise
     flights.map((f) => `${f.boosting ? 'boost' : 'cruise'} ${f.bounceFrames}`).join(', ')
     + ` against ${bounceFrames} frames`);
 
-  // ...and then the curve itself, off `landingBounce` rather than off the rendered taxi. The
-  // rendered height also carries the speed bob and the pitch lift, and in overdrive those are three
-  // times the size of the bounce — measured there, a bounce of zero passes and a bounce of double
-  // fails. Two decaying rebounds, the second clearly smaller, back to nothing by the end, and the
-  // whole thing well under the jump it follows: a landing that out-hops the hop reads as a ramp.
+  // ...and then the curves themselves, off `landingBounce` and `landingRoll` rather than off the
+  // rendered taxi. The rendered height also carries the speed bob and the pitch lift, and in
+  // overdrive those are three times the size of the bounce — measured there, a bounce of zero
+  // passes and a bounce of double fails.
+  //
+  // What is asserted is the *shape*, in the terms the suspension is written in: it squats first,
+  // rebounds three times, each rebound roughly half the last, and it is spent by the end. Every one
+  // of those is a thing that has been got wrong. A curve with no squat is what the landing had for
+  // as long as the only ramp was a barricade — the car met the road and immediately rose off it —
+  // and a curve whose humps do not decay is a taxi skipping like a stone.
   {
-    const samples = Array.from({ length: 61 }, (_, n) => landingBounce((n / 60) * BOUNCE_DUR));
-    const peakAt = (from, to) => Math.max(...samples.slice(from, to));
-    const first = peakAt(0, 31);
-    const second = peakAt(31, 61);
+    const samples = Array.from({ length: 121 }, (_, n) => landingBounce((n / 120) * BOUNCE_DUR));
+    // Peaks and troughs off the sampled curve, in order, rather than at hard-coded indices: the
+    // cycle count is a constant and a check that re-derives where the humps *should* be is a check
+    // that agrees with the bug when the constant moves.
+    const rebounds = [];
+    const squats = [];
+    for (let n = 1; n < samples.length - 1; n++) {
+      if (samples[n] > samples[n - 1] && samples[n] >= samples[n + 1] && samples[n] > 0.01) {
+        rebounds.push(samples[n]);
+      }
+      if (samples[n] < samples[n - 1] && samples[n] <= samples[n + 1] && samples[n] < -0.01) {
+        squats.push(samples[n]);
+      }
+    }
     const jump = Math.min(...flights.map((f) => f.peakY));
-    check('the bounce is two decaying rebounds that end on the road',
-      first > 0.3 && first < jump * 0.35
-      && second > 0.05 && second < first * 0.6
+    const decaying = (xs) => xs.every((x, i) => i === 0 || Math.abs(x) < Math.abs(xs[i - 1]) * 0.75);
+    check('the landing squats, rebounds three times, and each rebound is about half the last',
+      rebounds.length === 3 && squats.length >= 2
+      && decaying(rebounds) && decaying(squats)
+      // The first rebound is the one that has to read at play zoom, and the one that must not
+      // out-hop the jump it followed: a landing bigger than a third of the ramp is a second ramp.
+      && rebounds[0] > 0.3 && rebounds[0] < jump * 0.35
+      // ...and the last one still has to be visible rather than a rounding error. 0.11 is ~0.8px.
+      && rebounds[2] > 0.05
+      // The squat is bounded from *both* ends: too shallow and the pitch lift (up at 0.15 while the
+      // nose is down) cancels it outright, too deep and the car's wheels are buried in the road.
+      && squats[0] < -0.2 && squats[0] > -0.5
       && landingBounce(-0.1) === 0 && landingBounce(BOUNCE_DUR) === 0
       && samples[0] === 0,
-      `rebounds ${first.toFixed(2)} then ${second.toFixed(2)}, against a ${jump.toFixed(2)} jump`);
+      `squats ${squats.map((x) => x.toFixed(2)).join(' → ')}, `
+      + `rebounds ${rebounds.map((x) => x.toFixed(2)).join(' → ')}, `
+      + `against a ${jump.toFixed(2)} jump`);
+
+    // The roll rides the same envelope on a different cycle count, and that is the whole of what
+    // makes the body read as sprung rather than as stamped: in lockstep with the vertical it is one
+    // animation, and the eye reads one animation as a keyframe.
+    const rolls = Array.from({ length: 121 }, (_, n) => landingRoll((n / 120) * BOUNCE_DUR));
+    const peakRoll = Math.max(...rolls.map(Math.abs));
+    // Lobes, counted the same way the rebounds above are: a lean has one, a rock has several.
+    let lobes = 0;
+    for (let n = 1; n < rolls.length - 1; n++) {
+      const isPeak = Math.abs(rolls[n]) > Math.abs(rolls[n - 1]) && Math.abs(rolls[n]) >= Math.abs(rolls[n + 1]);
+      if (isPeak && Math.abs(rolls[n]) > 1e-3) lobes += 1;
+    }
+    check('...and it rocks side to side on its own beat while it does',
+      // 2.2° at the first lobe, off a 2.9° amplitude the envelope has already eaten into. Big
+      // enough to see at play zoom against the 17° a corner leans at cruise, small enough that a
+      // landing taken mid-corner does not tip the car over on top of it.
+      peakRoll > 0.02 && peakRoll < 0.12
+      // Several reversals, and a different count from the vertical's rebounds: in lockstep the two
+      // read as one keyframed animation rather than as a body on springs.
+      && lobes >= 3 && lobes !== rebounds.length
+      && landingRoll(-0.1) === 0 && landingRoll(BOUNCE_DUR) === 0
+      && Math.abs(rolls[0]) < 1e-12,
+      `peak ${(peakRoll * 180 / Math.PI).toFixed(1)}° over ${lobes} lobes, `
+      + `against ${rebounds.length} rebounds`);
   }
+
+  // --- The landing is published, and it knows what it landed on -------------
+  //
+  // The event carries the height of the surface under the taxi, which is 0 on a road and the arch's
+  // rise on a bridge. Everything the landing throws is placed against it — dust puffed at road
+  // level under a car that came down on the hump of a span hangs in the channel two units below it.
+  check('touchdown is published once per landing, where the taxi actually is',
+    flights.every((f) => f.lands === 1 && f.landing && f.landedAt
+      && Math.abs(f.landing.x - f.landedAt.x) < 1e-9
+      && Math.abs(f.landing.z - f.landedAt.z) < 1e-9
+      // Flat street, so the surface it came down on is the road itself. The arched-bridge case —
+      // the one this field exists for — is asserted with the rest of the Loco arch jump.
+      && Math.abs(f.landing.deck) < 1e-9 && f.landing.v > 1),
+    flights.map((f) => `${f.boosting ? 'boost' : 'cruise'} deck ${f.landing?.deck?.toFixed(2)} `
+      + `at ${f.landing?.v?.toFixed(1)} u/s`).join(', '));
 
   // --- The dust off a barricade ---------------------------------------------
   // The smash used to emit two ordinary trail puffs, which is exactly what a boosting taxi lays
@@ -10488,6 +10563,69 @@ let chopperOrder; // likewise
       && Math.max(...many) > Math.max(...one) * 1.5,
       `${many.length} puffs at up to ${Math.max(...many).toFixed(2)} `
       + `against ${one.length} at ${Math.max(...one).toFixed(2)}`);
+  }
+
+  // --- ...and the sparks off the landing ------------------------------------
+  //
+  // The other half of what a landing throws, and the half with a floor to respect: a shower fired
+  // on the hump of a bridge has to skitter along the *deck*. Sparks are additive and drawn with
+  // `depthWrite` off, so ones that fell through the deck would still be drawn — as a bright dash
+  // hanging under the arch over open water, which is the exact shape of the three river-mouth gaps
+  // that each shipped for years as "a white speck near the bridge".
+  //
+  // Asserted off the instance matrices rather than off the pool's own arrays, so what is measured
+  // is what gets drawn.
+  {
+    const sparkScene = new THREE.Scene();
+    const pool = createSparks(sparkScene, makeRng(seed + 502));
+    const DECK = 1.1;
+    const m = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    const scl = new THREE.Vector3();
+    const quatOf = new THREE.Quaternion();
+
+    const drawn = () => {
+      const out = [];
+      for (let n = 0; n < pool.mesh.count; n++) {
+        pool.mesh.getMatrixAt(n, m);
+        m.decompose(pos, quatOf, scl);
+        if (scl.x > 0) out.push({ y: pos.y, len: scl.x, thick: scl.y, x: pos.x, z: pos.z });
+      }
+      return out;
+    };
+
+    check('nothing is drawn before a landing', drawn().length === 0 && pool.live() === 0);
+
+    pool.burst(0, DECK, 0, 0, 5, 22);
+    pool.update(1 / 60);
+    check('a landing throws a shower of sparks', pool.live() === 5 && drawn().length === 5,
+      `${pool.live()} alive, ${drawn().length} drawn`);
+
+    // Every frame of every spark's life, not the end state: a spark that dips under the deck and is
+    // pushed back up next frame is invisible in a still and is the bug.
+    let underDeck = 0;
+    let round = 0;
+    let travelled = 0;
+    let frames = 0;
+    while (pool.live() > 0 && frames < 300) {
+      pool.update(1 / 60);
+      frames += 1;
+      for (const spark of drawn()) {
+        // Half the streak's thickness of slack: the box is centred on the spark, so a streak lying
+        // flat on the deck has its lower face that far into it whatever the physics says.
+        if (spark.y < DECK - spark.thick) underDeck += 1;
+        if (spark.len <= spark.thick * 1.5) round += 1;
+        travelled = Math.max(travelled, Math.hypot(spark.x, spark.z));
+      }
+    }
+    check('they skitter along the surface they landed on rather than through it',
+      underDeck === 0, `${underDeck} spark-frames under the deck`);
+    check('...they are streaks rather than motes', round === 0, `${round} spark-frames drawn round`);
+    check('...they are thrown clear of the wheel that made them and then left behind',
+      travelled > 1 && travelled < 12, `the shower reached ${travelled.toFixed(1)} units`);
+    check('...and the shower is spent, and every slot back at zero scale',
+      frames < 60 && drawn().length === 0,
+      `${frames} frames, ${drawn().length} still drawn`);
   }
 
   // --- Packing up once the taxi has been through ----------------------------
@@ -12138,6 +12276,8 @@ let chopperOrder; // likewise
     let landZ = null;
     let hops = 0;
     let airborne = false;
+    let landing = null;
+    jTraffic.onTaxiLand((event) => { landing = landing ?? event; });
     for (let f = 0; f < 60 * 6; f++) {
       jTraffic.update(1 / 60);
       const up = jTaxi.hopFrom != null;
@@ -12158,6 +12298,20 @@ let chopperOrder; // likewise
       landZ !== null && landZ < rBanks.z1,
       landZ === null ? 'it never came down' : `touchdown ${(rBanks.z1 - landZ).toFixed(2)} short of the abutment`);
     check('one crossing is still one jump', hops === 1, `${hops} launches on a single span`);
+
+    // ...and the landing is published with the **deck** under it rather than the road, which is the
+    // whole reason the event carries a height at all. The dust and the sparks are placed against
+    // this: puffed at road level, a landing on the hump of a span leaves its dust hanging in the
+    // channel a metre under the car, over open water, with the arch it came off in between.
+    //
+    // Bounded above by the rise as well as below by zero — the taxi comes down past the crest, so
+    // anything reporting the full rise is reporting the top of the arch rather than the point the
+    // wheels actually met.
+    check('and the landing is published on the deck, not on the road',
+      landing != null && landing.deck > 0.2 && landing.deck < ARCH_RISE
+      && Math.abs(landing.z - landZ) < 1e-9,
+      landing == null ? 'no landing was published'
+        : `deck ${landing.deck.toFixed(2)} of a ${ARCH_RISE} rise, at ${landing.v.toFixed(1)} u/s`);
   }
 
   // --- Nothing paints a stop bar on the bridge.
