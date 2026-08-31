@@ -135,6 +135,7 @@ import { createBridge, abutmentParts } from '../src/geometry/bridge.js';
 import { createBargeMesh, createTugMesh, BEAM } from '../src/geometry/boat.js';
 import { createDrawbridge, OPEN_SECONDS } from '../src/game/drawbridge.js';
 import { createBoats, BOAT_LANE, LANE_WANDER } from '../src/game/boats.js';
+import { FOAM_LIFE } from '../src/game/wake.js';
 import {
   halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns, MEDIAN_W,
 } from '../src/city/grid.js';
@@ -12386,8 +12387,37 @@ let chopperOrder; // likewise
     let worstGap = Infinity;
     let worstAir = Infinity;
     let bothWays = false;
+    // The wake, which is a pool of motes lying on the water rather than a triangle towed behind
+    // each hull. Three things are worth a number over a five-minute soak: how far the foam gets
+    // from the middle of the channel, whether it stays on the surface, and how much of the pool the
+    // busiest moment of the river actually spends.
+    let peakFoam = 0;
+    let outOfChannel = 0;
+    let worstBank = 0;
+    let offSurface = 0;
     for (let f = 0; f < 60 * 300; f++) {
       boats.update(1 / 60);
+      // Every half second. The wake is a slow effect — a mote lives 2.4s — so this samples each one
+      // several times over its life without walking 256 matrices eighteen thousand times.
+      if (f % 30 === 0) {
+        const foam = boats.wake.motes();
+        peakFoam = Math.max(peakFoam, foam.length);
+        for (const mote of foam) {
+          // **The bank is the bound, and it is tighter than it sounds.** The water is 7.87 units
+          // across on the narrow build against a lane that already sits 1.6 off the middle, so
+          // there is about a unit of open water outboard of a hull. Arms left to open on the
+          // Kelvin angle alone are over the embankment inside a second and a half, and foam lying
+          // on a stone walkway is as wrong as this effect goes.
+          const past = Math.max(mote.z - rWater.z1, rWater.z0 - mote.z) + mote.size / 2;
+          if (past > 0) outOfChannel += 1;
+          worstBank = Math.max(worstBank, past);
+          // ...and on the water, not in it or above it. The channel shoals up through each mouth,
+          // so this is `waterHeightAt` and not a constant — a mote pinned to WATER_Y is under the
+          // river it is supposed to be lying on by the time it reaches the coast.
+          const lift = mote.y - waterHeightAt(mote.x);
+          if (lift < 0 || lift > 0.3) offSurface += 1;
+        }
+      }
       bridge.update(1 / 60, []);
       if (bridge.closed) shutFrames += 1;
       for (const boat of boats.boats) {
@@ -12409,26 +12439,74 @@ let chopperOrder; // likewise
         }
       }
     }
-    // **Every wake triangle faces the sky, computed from the winding.** This is the third time this
-    // trap has been paid for in this codebase (the roadworks ramp, the bridge deck's lofted strip)
-    // and the first two at least *looked* wrong. A wake is `MeshBasicMaterial`, which is `FrontSide`
-    // by default, so a reversed one does not draw dim or draw in the wrong place — it does not draw,
-    // and a feature that does not draw is indistinguishable from one that was never wired up. It
-    // shipped that way with a comment above it claiming the winding was fine.
+    // **There is foam on the river at all.** The wake this replaced shipped wound upside down and
+    // therefore drew nothing for weeks, under a comment claiming the winding was fine, and got
+    // reported as "I think we're still missing boat water trails" — so the first thing asked of the
+    // pool that replaced it is whether it ever put anything on the water. A particle wake cannot
+    // fail that way for a winding reason (three builds the mote), which is one of the things it
+    // buys; it can fail for a dozen others, and the checks below are those.
+    check('a boat under way leaves foam behind it', peakFoam > 0,
+      `${peakFoam} motes alive at the busiest frame of five minutes, of ${boats.wake.size}`);
+    // Headroom in the ring buffer, the check `dust.js` has twice been resized by. The pool laps
+    // itself silently: a mote is recycled out from under a wake that is still on screen, and what
+    // that looks like is a trail with a bite out of the middle of it rather than an error.
+    check('and the pool never laps itself', peakFoam < boats.wake.size,
+      `peak ${peakFoam} of ${boats.wake.size}, ${boats.wake.size - peakFoam} slots of headroom`);
+    // The bank. Nothing else in this file bounds it — the arms open on the Kelvin angle, which is a
+    // function of speed and not of the river it is in — so the clamp inside the pool is the only
+    // thing between the foam and the embankment, and this is what says it holds.
+    check('and none of it ends up on the embankment', outOfChannel === 0,
+      outOfChannel === 0
+        ? `closest mote edge came within ${(-worstBank).toFixed(2)} of the water's edge`
+        : `${outOfChannel} motes over the bank, worst by ${worstBank.toFixed(2)}`);
+    check('and all of it lies on the water', offSurface === 0, `${offSurface} motes off the surface`);
+
+    // **Spent per unit travelled, which is what makes a boat holding station lay nothing.** The old
+    // wake needed an explicit "how far did it actually move" term multiplied into its opacity to
+    // avoid a tug waiting on a shut leaf sitting there with a full wake behind it — a boat doing a
+    // wheelspin. Keyed to distance that stops being a special case, and this is the assertion that
+    // it is really keyed to distance rather than to `dt` with a factor that happens to be near 1.
     {
-      const wp = boats.boats[0]?.wake.geometry.attributes.position;
-      const a = new THREE.Vector3(); const b = new THREE.Vector3();
-      const c = new THREE.Vector3(); const n = new THREE.Vector3();
-      let down = 0;
-      let tris = 0;
-      for (let k = 0; wp && k < wp.count; k += 3) {
-        a.fromBufferAttribute(wp, k); b.fromBufferAttribute(wp, k + 1); c.fromBufferAttribute(wp, k + 2);
-        n.copy(b).sub(a).cross(c.clone().sub(a));
-        tris += 1;
-        if (n.y <= 0) down += 1;
+      const pool = boats.wake;
+      const boat = boats.boats[0];
+      const held = pool.laid();
+      for (let f = 0; f < 60; f++) { pool.follow(boat, 0); pool.update(1 / 60); }
+      const still = pool.laid();
+      for (let f = 0; f < 60; f++) {
+        const stepped = boat.speed / 60;
+        boat.x += boat.dir * stepped;
+        pool.follow(boat, stepped);
+        pool.update(1 / 60);
       }
-      check('a boat\'s wake is wound to face the sky', tris > 0 && down === 0,
-        `${tris - down} of ${tris} triangles face up`);
+      check('a boat holding station lays no foam, and one under way does',
+        still === held && pool.laid() > still,
+        `${still - held} motes over a second stopped, ${pool.laid() - still} over a second moving`);
+    }
+
+    // **A shot gets a finished wake rather than an empty pool**, which is the trap CLAUDE.md
+    // records twice over: shot mode ticks the world once and freezes, so anything that fills up
+    // over time is photographed on its first frame. A trail that takes two seconds of travel to
+    // build is the purest form of it — every screenshot of the river would have boats standing on
+    // flat water, which is indistinguishable from the winding bug this effect replaced.
+    //
+    // Both halves are checked, because they fail identically: the motes have to be *there*, and
+    // they have to have been through an update — a mote laid at the right place and left at the
+    // scale 0 the pool was built with is a wake nobody can see. The size comes back out of the
+    // instance matrix for that reason.
+    {
+      const shot = createBoats(rScene, makeRng(seed + 841), null);
+      shot.settle();
+      const foam = shot.wake.motes();
+      const drawn = foam.filter((m) => m.size > 0.01 && m.alpha > 0);
+      // Astern, and within the length of river a mote's life covers — a trail laid at the spawn
+      // point and then teleported with the hull would still count as "some foam exists".
+      const behind = shot.boats.map((boat) => foam.filter((m) => {
+        const back = (boat.x - m.x) * boat.dir;
+        return back > 0 && back < boat.speed * FOAM_LIFE + boat.len;
+      }).length);
+      check('a settled shot has a drawn wake behind every boat',
+        shot.boats.length === 2 && drawn.length === foam.length && behind.every((n) => n > 10),
+        `${drawn.length} of ${foam.length} motes drawn, ${behind.join(' and ')} behind the two boats`);
     }
 
     check('a tug is never inside the span unless the leaf is fully up', lowest > 0.99,
