@@ -981,7 +981,7 @@
         /* Grows out of its own tail rather than its middle, so the pop reads as the taxi speaking
            rather than as a panel expanding. The tail is on top — it points up at the taxi (or the
            rider) the bubble is talking about, which is always above it on screen. */
-        transform-origin: 38px 0;
+        transform-origin: 35px 0;
         opacity: 0; transform: scale(0.8) translateY(-10px);
         transition: opacity 0.18s ease, transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
       }
@@ -995,7 +995,7 @@
 
       /* The tail, on top and centred over the avatar. One triangle now that the outline is gone. */
       .coach-bubble::after {
-        content: ''; position: absolute; left: 29px; bottom: 100%; width: 0; height: 0;
+        content: ''; position: absolute; left: 26px; bottom: 100%; width: 0; height: 0;
         border-left: 9px solid transparent; border-right: 9px solid transparent;
         border-bottom: 12px solid #FFFDF7;
       }
@@ -1004,9 +1004,15 @@
          the car doing the talking says "that yellow thing down there is you" faster than any
          sentence about it. No disc and no ring behind it: the car is lit by the game's own sun
          (see tutorial.js) and sits straight on the bubble, so it reads as the actual vehicle
-         rather than as an icon of one. */
-      .coach-avatar { flex: none; width: 54px; height: 54px; }
-      .coach-avatar canvas { display: block; width: 100%; height: 100%; }
+         rather than as an icon of one.
+
+         Shrink-to-fit, with no size of its own: the box is not the same shape for both subjects
+         — the rider beat gained the fare's crystal over the figure's head and needs a portrait
+         48 × 80, the turning car keeps its 54 square — so tutorial.js sizes the canvas per beat
+         and this slot follows it. A width/height here would fight that and stretch one of the two.
+         The bubble is bottom-anchored, so the taller box grows the card upward. */
+      .coach-avatar { flex: none; display: flex; }
+      .coach-avatar canvas { display: block; }
 
       /* The line types itself out. Both spans stack: the ghost holds the *finished* text at zero
          visibility purely to reserve the bubble's size, and the typed copy is painted over it —

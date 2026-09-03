@@ -1422,9 +1422,10 @@ safe mode rather than from a literal**, evaluated per call — so one flag moves
 module that opens a renderer of its own reads the effective value without anyone threading it
 through. Four do: the tutorial's avatar bubble, each rider-finder chip, the courier
 [cargo chip](gameplay.md#the-load-is-carried-into-the-hud) and the
-[taxi finder](#getting-back-to-the-taxi). They are 46px, 38px, 42px and 44px square respectively and
-their own cost is nothing, but each is a **WebGL context this page is holding**, and that is part of
-what `?safe` is asking about.
+[taxi finder](#getting-back-to-the-taxi). They are 38px, 42px and 44px square and — for the tutorial,
+which swaps box with its subject — a 54px square or a 48 × 80 portrait. Their own cost is nothing,
+but each is a **WebGL context this page is holding**, and that is part of what `?safe` is asking
+about.
 
 The flags exist because of a failure a desktop cannot see and a phone cannot report — see
 [testing.md](testing.md#when-a-device-renders-nothing) for the whole picture. `stencil: true` is

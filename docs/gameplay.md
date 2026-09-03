@@ -227,6 +227,37 @@ Its **roof sign is lit**, which is the one place the sign is not the occupancy r
 and the lit off-white is the only bright mark on a roof that is otherwise a dark cabin block — it is
 what makes the shape say "taxi" at 54px.
 
+#### The rider's card carries the crystal
+
+The second beat's avatar is the real `createPerson()` on the same terms — the city's own sun, the
+same +Z azimuth — and it now stands under **the fare's own plumbob**, the real `createDiamond()` on
+the real top-of-the-scale hue. The line says "tap rider", and what the player then has to find on a
+darkened map is not a 20px figure on a kerb: it is
+[the green crystal](#the-fares-clock-travels) floating over them, which is the brightest thing
+in the spotlight and the only mark on the board that is not scenery. With it in the bubble the card
+is a picture of the *target*, so the glance from bubble to city is a match rather than a search.
+
+That makes the avatar a **stack**, and a stack does not fit a square without shrinking both halves
+past reading — hence `AVATAR_BOX` in `tutorial.js`, one box per subject: the turning car keeps its
+54 square, the rider gets a portrait 48 × 80, and the canvas is resized on the frame the subject
+changes. The 48 × 80 is chosen so the rider camera keeps its old horizontal framing exactly (±2.2
+world units, the rider-finder chip's frustum) and its old ground line, and spends every pixel it
+gains on sky: 4.4 × 7.33 world is 48 × 80 px, so nothing is stretched and nothing that used to be in
+frame has left it. The figure gives up about 6px of height for it (39.5 → 33.5) and the crystal
+arrives at ~38. The bubble is bottom-anchored, so the taller box grows the card upward, away from
+the Loco Mode pill.
+
+Two of the marker's numbers are deliberately not the city's. The crystal is scaled to **0.68**: at
+full size it is 4.5 units against a 3.24 figure and the card reads as a crystal with a person under
+it — true to the city, where the marker really is the larger of the two on screen, and wrong for a
+card whose subject is the rider. And its headroom is **0.53** rather than the marker's own 1.3
+(`LIFT` in `game/faremarker.js`), because that much air in an 80px box is a third of the picture
+spent on nothing. The rim rides the scale down to ~1.6px, within a whisker of the 1.7px it draws at
+play zoom, so the outline — the part that actually says "plumbob" at this size — keeps its weight.
+The bounce is the marker's own `bounceOffset`, scaled with the shape. The vessel is full and stays
+full: the clocks are held while the tutorial runs, and a draining crystal in the card would be the
+one thing on screen contradicting that.
+
 ### The spotlight
 
 A single `#spotlight` div: two radial gradients centred on the subject, a warm core over a darkening

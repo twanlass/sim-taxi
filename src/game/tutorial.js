@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { createTaxiMesh } from '../geometry/taxi.js';
-import { createPerson } from '../geometry/person.js';
+import { createPerson, PERSON_TOP_Y } from '../geometry/person.js';
+import { createDiamond, DIAMOND_HALF_H, RIM_OFFSET, bounceOffset } from '../geometry/diamond.js';
+import { fareColor, URGENCY_SEGMENTS } from './urgency.js';
 import { mirrorSceneLights } from './avatarlights.js';
 import { VIEW_DIR } from './camera.js';
 import { getMsaa, getPixelRatioCap } from '../util/shot.js';
@@ -96,8 +98,22 @@ const BOOST_HINT_LINGER = 6;
 // without the framing whipping across the city to get there.
 const COACH_FOLLOW = 2.0;
 
-// The avatar box, in CSS pixels — matches .coach-avatar in index.html.
-const AVATAR_SIZE = 54;
+// The avatar box, in CSS pixels — one per subject, because the two are not the same shape.
+//
+// The taxi is a car turning on the spot: square, and the framing below is derived from the cylinder
+// it sweeps. The rider is a *stack* — a figure with the fare's crystal floating over its head (see
+// the rider scene) — and that does not fit a square without shrinking both halves past reading. Its
+// 48 × 80 keeps the horizontal framing exactly what the square had (±2.2 world units, the
+// rider-finder chip's own frustum) and spends every pixel it gains on sky: the figure gives up
+// about 6px of height for it (39.5 → 33.5) and the crystal arrives at ~38.
+//
+// The canvas is resized when the subject changes rather than sized once — one `setSize` per beat,
+// against a beat that lasts seconds. `.coach-avatar` in index.html is therefore shrink-to-fit and
+// takes its size from the canvas, not the other way round.
+const AVATAR_BOX = {
+  taxi: { w: 54, h: 54 },
+  rider: { w: 48, h: 80 },
+};
 // One turn every 5.5s. Quick enough to read as alive in the corner of a bubble you are reading,
 // slow enough that the car is legible as a car at every angle.
 const AVATAR_SPIN = (Math.PI * 2) / 5.5;
@@ -129,16 +145,27 @@ const prefersReducedMotion = () =>
  */
 function createAvatar(sun, hemi) {
   const canvas = document.createElement('canvas');
-  canvas.width = AVATAR_SIZE;
-  canvas.height = AVATAR_SIZE;
 
   // A second WebGL context, and it honours the same budget flags the main renderer does — see
-  // `util/shot.js`. Not for its own cost, which is a 46px disc, but because `?safe` is asking a
-  // device "what will you render at all", and a context this page opened is part of the answer.
+  // `util/shot.js`. Not for its own cost, which is a box under 50px on a side, but because `?safe`
+  // is asking a device "what will you render at all", and a context this page opened is part of the
+  // answer.
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: getMsaa(), alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, getPixelRatioCap()));
-  renderer.setSize(AVATAR_SIZE, AVATAR_SIZE, false);
   renderer.setClearColor(0x000000, 0);
+
+  // `setSize`'s third argument leaves the element's CSS size alone, so the style has to be written
+  // here too — without it the canvas would lay out at its backing-store size, which is the pixel
+  // ratio times too big.
+  let box = null;
+  const setBox = (next) => {
+    if (box === next) return;
+    box = next;
+    renderer.setSize(next.w, next.h, false);
+    canvas.style.width = `${next.w}px`;
+    canvas.style.height = `${next.h}px`;
+  };
+  setBox(AVATAR_BOX.taxi);
 
   const scene = new THREE.Scene();
 
@@ -225,11 +252,56 @@ function createAvatar(sun, hemi) {
   const syncRiderLights = mirrorSceneLights(riderScene, sun, hemi);
   const person = createPerson();
   riderScene.add(person.group);
+
+  // **The fare's own crystal, over the figure's head.** The line says "tap rider", and what the
+  // player then has to find on a dark map is not a 20px person on a kerb — it is the green plumbob
+  // floating over them, which is the brightest thing in the spotlight and the only mark on the
+  // board that is not scenery. Putting it in the bubble makes the card a picture of the *target*
+  // rather than of a passer-by, so the glance from the bubble to the city is a match rather than a
+  // search. The real `createDiamond`, on the real top-of-the-scale hue, for the same reason the
+  // figure is the real `createPerson`: neither can drift out of step with what is on the road.
+  //
+  // Full — `createDiamond` opens at fill 1 — because the clocks are held while the tutorial runs
+  // (see the header), so a draining vessel in the card would be the one thing on screen
+  // contradicting the pause.
+  const crystal = createDiamond(fareColor(URGENCY_SEGMENTS));
+
+  // Two things are deliberately *not* the city's numbers.
+  //
+  // The **scale**: at full size the crystal is 4.5 units against a 3.24 figure, and the card would
+  // read as a crystal with a person under it — true to the city, where the marker is the larger of
+  // the two on screen, and wrong for a card whose subject is the rider. At 0.68 the two are about
+  // matched and both stay legible, which is what the composition is for. The rim scales with it and
+  // lands at 0.15 world ≈ 1.6px here, within a whisker of the 1.7px it draws at play zoom, so the
+  // weight of the outline — the part that actually says "plumbob" at this size — is unchanged.
+  //
+  // The **gap**: 0.53 rather than the marker's own 1.3 units of headroom (LIFT in
+  // game/faremarker.js). That much air in an 80px box is a third of the picture spent on nothing;
+  // half a unit still opens to ~7px at the top of the bounce, which is plainly a hovering object
+  // and not a hat.
+  const CRYSTAL_SCALE = 0.68;
+  const CRYSTAL_GAP = 0.53;
+  // Measured to the rim rather than to the crystal, since the rim is what the eye sees the bottom
+  // point end at.
+  const CRYSTAL_Y = PERSON_TOP_Y + CRYSTAL_GAP + (DIAMOND_HALF_H + RIM_OFFSET) * CRYSTAL_SCALE;
+  crystal.mesh.scale.setScalar(CRYSTAL_SCALE);
+  crystal.mesh.position.y = CRYSTAL_Y;
+  riderScene.add(crystal.mesh);
+
   // `createPerson`'s torso is thin on Z and wide on X (shoulders either side, chest facing along
   // Z — see `board()`'s "local +Z is treated as forward"), so the camera sits on +Z to look at the
-  // figure head-on. Same ortho frustum, distance and elevation as the rider-finder chip's camera
+  // figure head-on. Same distance and elevation as the rider-finder chip's camera
   // (game/riderfinder.js) — just turned from +X to face front.
-  const riderCamera = new THREE.OrthographicCamera(-2.2, 2.2, 2.7, -1.5, 0.1, 40);
+  //
+  // The frustum keeps that chip's ±2.2 sideways and its ground line (bottom −1.5 lands world y at
+  // −0.03, i.e. the pavement on the bottom edge) and grows *upward* to 5.83 for the crystal. That
+  // is the whole of what the portrait box buys: 4.4 × 7.33 is exactly 48 × 80, so nothing is
+  // stretched and nothing that used to be in frame has left it.
+  //
+  // 5.83 reaches world y 7.70 — the camera is pitched 18.6° down, so a world height maps to
+  // 0.9477 of itself in view space — against a crystal whose top point reaches 7.44 at the peak of
+  // its bounce. A quarter of a unit of sky, about 2.7px.
+  const riderCamera = new THREE.OrthographicCamera(-2.2, 2.2, 5.83, -1.5, 0.1, 40);
   riderCamera.position.set(0, 3.2, 4.9);
   riderCamera.lookAt(0, 1.55, 0);
 
@@ -242,11 +314,18 @@ function createAvatar(sun, hemi) {
     /** `subject` is 'taxi' (default) or 'rider' — which scene this frame renders. */
     render(elapsed, subject) {
       if (subject === 'rider') {
-        person.wave(prefersReducedMotion() ? stillWaveT : elapsed);
+        setBox(AVATAR_BOX.rider);
+        const still = prefersReducedMotion();
+        person.wave(still ? stillWaveT : elapsed);
+        // The crystal's own hop, on the marker's own curve — scaled with the shape so the bounce
+        // stays the same fraction of it. Frozen at rest under reduced motion, where a still plumbob
+        // over a still figure is exactly what the marker looks like between bounces anyway.
+        crystal.mesh.position.y = CRYSTAL_Y + (still ? 0 : bounceOffset(elapsed) * CRYSTAL_SCALE);
         syncRiderLights();
         renderer.render(riderScene, riderCamera);
         return;
       }
+      setBox(AVATAR_BOX.taxi);
       pivot.rotation.y = prefersReducedMotion() ? stillAngle : elapsed * AVATAR_SPIN;
       syncLights();
       renderer.render(scene, camera);

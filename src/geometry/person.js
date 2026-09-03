@@ -35,6 +35,17 @@ const HIP_Y = 1.15;
 const LEG_LEN = 1.15;
 const ARM_LEN = 1.0;
 
+// The hair slab, hoisted out of `box()` below only so the top of the head can be exported.
+const HAIR_Y = 3.14;
+const HAIR_H = 0.2;
+
+/**
+ * Where a bare-headed figure tops out — anything that has to leave headroom over one measures from
+ * here rather than guessing. A hard hat adds another 0.39 on top of it, and nothing needs to clear
+ * that: the only figures wearing one are the road crew, who never carry a marker.
+ */
+export const PERSON_TOP_Y = HAIR_Y + HAIR_H / 2;
+
 /**
  * @param body  torso and arm colour
  * @param legs  trouser colour
@@ -59,7 +70,7 @@ export function createPerson({
   };
   box(1.0, 1.3, 0.6, 0, 1.8, 0, body);          // torso
   box(0.62, 0.62, 0.62, 0, 2.75, 0, SKIN);      // head
-  box(0.68, 0.2, 0.68, 0, 3.14, 0, hair);       // hair
+  box(0.68, HAIR_H, 0.68, 0, HAIR_Y, 0, hair);  // hair
   if (hat) {
     // Brim first, then crown. Both wider than the head so the hat reads as *worn* rather than as
     // a second head — at play zoom the silhouette is the only thing carrying it.
