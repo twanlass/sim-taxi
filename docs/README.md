@@ -14,7 +14,7 @@ behind it that aren't obvious from the code.
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, Crayon and Cartoon Mode, bloom, effects | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
-| [lab.md](lab.md) | The passing lab at `/lab/` — one straight road with no lights, for watching Loco Mode overtake | `src/lab/`, `lab/` |
+| [lab.md](lab.md) | The passing lab at `/lab/` — one straight road with no lights, for watching a nitro overtake | `src/lab/`, `lab/` |
 | [ios.md](ios.md) | The App Store build: the WKWebView shell, why a custom URL scheme rather than `file://`, the native flag | `ios/`, `src/util/platform.js` |
 
 ## The 60-second version
@@ -70,9 +70,10 @@ pull in off one road, crawl past the menu board and the pickup window, and come 
 another — a third of the time there is one in there.
 
 **And you can tap it.** The taxi drives itself round to the mouth, crawls the lane, stops at the
-board and again at the window, and comes back out with a splash of boost in the tank — 15% of it,
-the smallest top-up in the game, and the only one that isn't paid for a job. It costs whatever the
-clock in the back seat is worth: nobody is stopping you taking a rider through a drive-through. See
+board and again at the window, and comes back out. It used to come back out with 15% of a tank of
+boost, the smallest top-up in the game and the only one that wasn't paid for a job; with nitro no
+longer a resource that payout is gone and the detour currently pays nothing, while still costing
+whatever the clock in the back seat is worth. See
 [the burger run](gameplay.md#the-burger-run),
 [the burger joint](city.md#the-burger-joint-and-its-drive-through) and
 [the drive-through](traffic.md#the-drive-through).
@@ -88,11 +89,11 @@ go through, re-planned live while the car keeps driving. That is the one way to 
 the road ahead without giving up the fare. See
 [dragging the route](gameplay.md#dragging-the-route).
 
-**Loco Mode** (bottom left) is the crazy-taxi button: **hold** for double speed that runs red
-lights, release to pause the meter. Two clear blocks in a row take it past double into the
-overdrive band, and any corner takes that back. A full tank is 15 seconds of boost, earned rather than
-regenerated: you start with a third, each drop-off tops it up by another third, and a delivered
-package pours in half of that.
+**Nitro** (bottom left) is the crazy-taxi button: **hold** for double speed that runs red lights,
+release to stop. Two clear blocks in a row take it past double into the overdrive band, and any
+corner takes that back. It is free and always available — it used to be a 15-second tank earned by
+delivering, and that meter is gone. What a press costs is the risk it arms, for as long as it is
+held and a second after.
 
 Next to it, taking the right 40% of the same row, is the **brake**: hold it and the taxi screeches
 to a halt with rubber off all four wheels, let go and it drives itself again. It costs nothing and

@@ -57,8 +57,8 @@
         font-variant-numeric: tabular-nums; white-space: nowrap;
       }
 
-      /* The Loco Mode pill, cut down from the game's. The fill machinery is all gone — the lab's
-         tank is bottomless, so a dial reporting how much is left would report 100% forever. */
+      /* The Nitro pill, cut down from the game's. No fill machinery and no rings — nitro has no
+         tank to report on (src/game/boost.js) and the lab is for watching the *car*, not the HUD. */
       #boost {
         position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 20;
         padding: 14px 34px; border-radius: 999px; cursor: pointer;
@@ -102,8 +102,8 @@
     </div>
 
     <div id="lab-readout"></div>
-    <button id="boost" type="button" aria-label="Loco Mode"
-      ><span class="boost-label">Loco Mode&trade;</span></button>
+    <button id="boost" type="button" aria-label="Nitro"
+      ><span class="boost-label">Nitro</span></button>
 
     <div id="error" hidden style="position:fixed;inset:0;z-index:99;padding:20px;overflow:auto;
       background:#1b232b;color:#ffd7d0;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap"></div>

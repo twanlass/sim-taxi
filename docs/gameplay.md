@@ -1375,7 +1375,7 @@ Each fare is priced by **trip distance**, not a flat rate: `FARE_BASE + FARE_PER
 where `blocks` is the Manhattan distance between the pickup and drop-off intersections. The
 price is fixed at spawn — the moment both endpoints are known — and stamped on the fare so a
 long haul that runs into traffic pays the same as one that flies through green lights. Metering
-during the trip would double-count the clock and reward Loco Mode for the wrong reasons.
+during the trip would double-count the clock and reward nitro for the wrong reasons.
 
 The player does not see that distance before choosing — a bar over the rider's head used to
 advertise a tier of it, and went with the meter (see
@@ -1439,9 +1439,6 @@ Everything else about a VIP is the ordinary fare loop with four numbers turned:
   board, so the marker's fixed purple says what this one is worth the moment it appears rather than
   leaving it to be found out on delivery. A miss resets the streak to zero — the whole tension of
   stacking VIPs is that one late drop-off gives it all back.
-- **A full tank on delivery**, rather than the ordinary third. `main.js` reads the boost meter's
-  current fraction at the moment the delivery's energy bits land and tops up exactly what's missing,
-  so a VIP always leaves Loco Mode topped off regardless of what was left in the tank going in.
 
 What the numbers are worth, measured over 20 auto-played runs at a 1.5s reaction (the harness in
 `tools/autoplay.mjs`, driven from a scratch copy that counts VIP events):
@@ -1721,15 +1718,13 @@ square against a disc is read at a glance.
   the rider's target and does not reset, pause or extend their clock.
 - **Priced exactly like a rider going the same distance** — `priceFor`, times the shift multiplier,
   stamped at spawn. `PARCEL_PAY_FACTOR` is the one number to turn if it plays too rich.
-- **Cash and a splash of fuel.** No multiplier bump (that number means "this is what a *fare* is
-  worth now") and no run-end stat row, but a delivered package does pour **a sixth of a tank** into
-  Loco Mode — half what a drop-off pays (`BOOST_PARCEL_REWARD` against `BOOST_FARE_REWARD`). Both
-  the payout and the fuel take the same [two-phase flight](#economy) a fare's do, because it is the
-  same kind of event arriving from the same place. The half is the whole argument: an errand that
-  paid nothing into the tank was the only job in the game whose reward the pill ignored, and one
-  that paid a fare's third would make a courier run the *cheap* way to fuel a run — six packages to
-  a full tank keeps the fare the thing that fills it. With [one box on the board](#the-rest-of-it)
-  that ceiling is a slow one to reach anyway: the fuel is a nudge toward a detour, never a supply.
+- **Cash, and only cash.** No multiplier bump (that number means "this is what a *fare* is worth
+  now") and no run-end stat row. A delivered package used to pour a sixth of a tank into nitro as
+  well — half what a drop-off paid, which is what kept a courier run a detour rather than the cheap
+  way to fuel a run — and that half of the reward went with the tank
+  ([the refill animation](#the-refill-animation-and-why-there-isnt-one-any-more)). The payout still
+  takes the same flight off the taxi a fare's does, because it is the same kind of event arriving
+  from the same place.
 - **One box on the board at a time** (`MAX_PARCELS`). It held two at first, on the argument that a
   choice of which detour to take beats a single offer, and what it actually produced was a *supply* —
   a pair of cyan pads is something you serve rather than something you notice, and it put two jobs'
@@ -1895,22 +1890,32 @@ unbroken move: with nothing to arrive at on the car, the box has one destination
 
 ## Crazy-taxi mode
 
-The **Loco Mode** button, bottom left. **Hold to enable, release to pause.** A short tap costs a
-short slice, a long hold flows until the tank is empty. Full tank is 15 seconds of boost. The
-decision is now *how long* to press as well as *when*. The button doubles as the dial: a `--pct`
-CSS variable tracks the fuel level, dropping as you drain and climbing as a drop-off pours fuel in.
+The **Nitro** button, bottom left. **Hold to enable, release to stop.** It is free and it is always
+available: hold it as long as you like, as often as you like, from the first frame of the run.
 
-**The meter never refills on its own.** The run opens with **a third of a tank**, each successful
-drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a sixth**, and
-a [burger run](#the-burger-run) pours in **15%** — that is the whole list of sources, and the first
-three are jobs done. Spend it all and the pill goes grey and dead (`.is-empty`, `disabled`) until you
-deliver something, or go and buy a burger. A top-up that lands while
-you're still holding the button rolls straight back into boost rather than making you press again.
+**There is no meter.** Nitro used to be a consumable — a 15-second tank that opened at a third full,
+drained only while held, and was topped up by drop-offs (a third), packages (a sixth) and the
+[burger run](#the-burger-run) (15%), with the pill itself doubling as the dial and going grey and
+dead (`.is-empty`, `disabled`) on empty. All of it is gone: no tank, no top-ups, no pour animation,
+no dead state. The pill is a plain yellow button that lights up while it is held.
 
-Both ways out of a boost — letting go, and running the tank dry — pass through the one-second
-`'cooldown'` momentum window first, so `'empty'` is where a drained tank lands *after* that tail
-rather than the instant the fuel runs out. See
+The argument for the change is that the meter layered a resource question ("can I afford this?") on
+top of the driving question ("should I be going this fast *here*?"), and the second one is the
+interesting one — it is the whole of Crazy Taxi. Free nitro asks it at every corner instead of once
+a tank. What still costs something is the **risk**: collision detection, the police bust range and
+running reds are armed for as long as the mode is engaged, so flooring it into traffic is exactly as
+expensive as it ever was. The price moved off the meter and onto the road.
+
+Releasing passes through the one-second `'cooldown'` momentum window, which is now the *whole*
+mechanical cost of a press — you are exposed for a second after you let go. See
 [traffic.md](traffic.md#boost-crazy-taxi-mode) for what stays armed through it.
+
+**The rings are what says it is running.** With no bar draining, the feedback is the pill's own
+outline: while `.is-active`, two copies of it grow out to 1.35× and fade, half a period apart on a
+1.1s loop, so the emission reads as continuous rather than as a blink. Both are pseudo-elements on
+`#boost` (`::before` and `::after`) animating a `transform` and an `opacity` and nothing else —
+this runs for most of a run now, so it has to be free. `prefers-reduced-motion` drops the rings and
+keeps the lit background and the glow.
 
 **A tap and a hold are two different inputs, and only one of them moves the camera.** `heldSeconds()`
 on the boost clock times the current press, and past `LOCO_PUNCH_HOLD` (0.25s) the frame pushes in
@@ -1919,16 +1924,9 @@ for as long as it lasts — see
 question to answer: taps are frequent here by design, so a jab must be allowed to spend its slice of
 fuel without the view reacting to it.
 
-That is a deliberate replacement for the old economy, which handed back 15% per drop-off but also
-fast-recharged from empty in 15s and trickled a partial tank back up at a fifth of that rate. Under
-those rules waiting was a valid way to get boost back, so the meter said nothing about how the run
-was going; now every second of it was earned by a fare, and three deliveries is a full tank.
-Opening with a third rather than empty keeps the toy in reach on the first fare — an empty start
-leaves the button dead in the hand until the first drop-off lands.
-
 **There is no longer a case where holding it does nothing.** A taxi that had just picked someone up
 used to be `parked` — waiting at the kerb for you to tap a destination — and `parked` sets
-`allowed = 0` ahead of anything boost can do, so Loco Mode was dead in the hand until you'd
+`allowed = 0` ahead of anything boost can do, so nitro was dead in the hand until you'd
 dispatched the car. Now [the drop-off dispatches itself](#the-drop-off-dispatches-itself) and the
 taxi is never parked with a rider aboard; boost applies from the pickup frame on. Every other
 reason the taxi slows while boosting is traffic, and those are dealt with in
@@ -1985,78 +1983,36 @@ end that hold gets. It clears the `spaceHeld` latch too — that latch is what s
 (one whose keydown we bowed out of) from cancelling a boost the player is holding on the pill.
 
 The pill carries `aria-keyshortcuts="Space"`; there is no painted "SPACE" label on it, because the
-pill is also the fuel dial and the tutorial's third beat points at it.
+tutorial's third beat points at it and the word would be competing with the one word on the button.
 
-### The refill animation
+### The refill animation, and why there isn't one any more
 
-A drop-off pays two currencies and for a while it only showed one. The flying `$20` says *money*;
-nothing said *and a third of a tank*, so the meter simply grew on its own in the corner of the
-screen with no visible cause. `src/game/energybits.js` is that cause: **six little yellow sparks
-break off the taxi and get pulled into the Punch It pill**, and the tank is topped up when the first
-one lands, not on the delivery frame. A meter that starts filling a second and a half before
-anything visibly reaches it reads exactly backwards.
+A drop-off used to pay two currencies, and for a while it only showed one. The flying `$20` says
+*money*; nothing said *and a third of a tank*, so the meter simply grew on its own in the corner of
+the screen with no visible cause. `src/game/energybits.js` was that cause — six little yellow sparks
+breaking off the taxi and pulled into the pill, sequenced 1000ms behind the payout's own flight so
+the two currencies never left the car at the same time — and the pour they landed on had three more
+layers on top of it (an authored 4.5% overshoot ringing back down onto the mark, a 4Hz flutter of the
+whole pill, and a blurred leading edge riding the front of the fill), all timed by a pure
+`src/game/boostmeter.js` and shaped as `--pct`/`--fill`/`--pulse` in `index.html`.
 
-They are **sequenced behind the payout, not fired alongside it** — the handoff is 1000ms, set from
-the payout's own flight (620ms rise + 460ms fly), so the coin has landed and gone before the first
-spark appears. Two swarms leaving the same car at the same time for two different corners is noise,
-and the two currencies stop reading as two. The cost is that a delivery's fuel arrives ~1.6s after
-the drop-off rather than immediately; that delay is the effect, and it's short enough to sit inside
-the gap before the next fare is worth chasing.
+**All of it is gone with the tank.** `energybits.js` and `boostmeter.js` are deleted, the three CSS
+variables with them. Nothing pays nitro any more, so there is nothing to animate arriving, and a
+reward flight that handed over nothing would be worse than no flight at all. What replaced it is the
+[expanding rings](#crazy-taxi-mode) on the button itself, which answer the *hold* rather than a
+payout.
 
-Both endpoints are resolved as functions at burst time rather than baked in at call time, so a taxi
-that has driven on — and a pill a resize has moved — are still aimed at correctly. If the pill is
-hidden (shot mode, or the run-end blackout) the flight is skipped and the fuel is handed over
-anyway: losing earned boost to a presentation detail would be a real bug wearing a cosmetic one.
+Two consequences worth having written down:
 
-A delivered package fires the same swarm from the same car to the same pill, for `BOOST_PARCEL_REWARD`
-instead — one effect for "you got fuel", regardless of which job paid it. It sits behind the courier
-payout's flight for the same reason a fare's does.
-
-Then the pour itself. `boost.topUp(BOOST_FARE_REWARD)` queues the fuel as *pending* and pours it in
-at half a tank per second (~0.7s) so the bar visibly fills rather than snaps. A package's sixth takes
-half that (~0.35s), which the probe pins as the floor: below about a quarter-second the fill stops
-reading as a fill and starts reading as a jump. Since that pour is now the *only* way fuel ever
-enters the meter, it carries the rest of the reward and gets three more layers, all timed by
-`src/game/boostmeter.js` and shaped in `index.html`:
-
-| Layer | What it does | Wiring |
-|---|---|---|
-| **Overfill** | The bar runs ~4.5% of a tank past its new mark, then rings back down onto it | `--pct` |
-| **Flutter** | The whole pill throbs — glow and 3.5% of scale together, 4Hz — for as long as fuel is arriving | `--fill` × `--pulse` → `.is-filling` |
-| **Leading edge** | A blurred near-white line rides the front of the fill, fading in with the pour and out with the bounce | `--fill` → `#boost::after` |
-
-`boostmeter.js` is pure and DOM-free for the same reason `boost.js` is: `main.js` reads three numbers
-off it and writes three CSS variables, and the probe drives it with a real pour and asserts on the
-same numbers. It keys off `boost.state.pending`, so nothing has to remember to fire the animation and
-a second delivery landing mid-pour just extends it.
-
-**The overshoot is authored, not simulated.** The obvious version — draw the bar as a spring chasing
-the real fuel level and let its momentum carry it past the mark — was built and measured first: 3.3%
-of a tank at its best (K=160, C=4), about 4px on the pill, and a 1.4s wobble to settle. A spring
-following a ramp can only overshoot by around v/ω, and a 0.5-tank/s pour against any ω fast enough
-not to look sluggish leaves nothing to work with. The scripted kick starts on the frame the pour
-finishes, so it still doesn't read as a jump — the bar is already travelling at the pour rate and the
-kick just carries it further, 0.1s out to the peak.
-
-**Coming back is a damped ring, not a curve.** The first version eased from the peak down onto the
-mark and stopped there, which is the exact moment the eye is on it, and it read as linear — the bar
-*arrived* rather than *settled*. The peak now releases into a decaying cosine (4Hz, e-folding at 8/s)
-so it dips under the mark, comes back over it smaller, and converges: off a 4.5% overshoot the swings
-measure **-1.7%, +0.6%, -0.2%**, then it snaps to the real level once the ring is under a fifth of a
-pixel, about 0.43s in. This is the spring the scripted kick doesn't get for free. Both the overshoot
-and the decay were pulled back from an original 7%/7-per-second pass that read as too bouncy.
-
-The flutter runs at 4Hz, halved from an original 8Hz. At 8Hz a pour that landed several energy
-circles at once stacked up enough pulses to read as chaotic rather than lively; one clear pulse
-where there used to be two reads calmer without dropping all the way to the 5Hz "breathing" rate
-that was tried and rejected earlier. It moves the pill itself, not just the glow, which is what
-makes it visible at the edge of vision — where this button is while the player is watching the
-road. `prefers-reduced-motion` drops the scale and keeps the glow and the edge.
-
-The glow used to be a one-shot green flash matching the flying `$20`. Green read as *money*, which
-is what the earnings pop already says; yellow says *this is boost*. Driving its alpha from a variable
-rather than a keyframe is also what lets it fade out cleanly however long the pour ran, instead of
-snapping off when a fixed-length animation ends.
+- **The drive-through now pays nothing.** Nitro was its entire reward (`BOOST_BURGER_REWARD`, 15% of
+  a tank, the smallest top-up in the game and the only one nothing was delivered for). The lap of
+  the joint still costs 15-20s of a draining clock, so the trade is now strictly bad — it is an
+  easter egg with a flourish and a haptic and no payout. See [the burger run](#the-burger-run); it
+  wants a new reward before this ships.
+- **A package's only claim on the run is its cash.** The courier layer used to pay half a fare's
+  fuel on top, which is what kept it a real detour rather than a side quest; the cash payout is
+  deliberately small (greed is punished by arithmetic, see [the rest of it](#the-rest-of-it)), so
+  the errand is now worth noticeably less than it was.
 
 While active the taxi runs at 2.2× speed, forces its next junction green, doesn't slow for
 corners, lays **skid marks** off the line and through turns, and kicks up **dust**. See
@@ -2087,8 +2043,8 @@ only brake. See [traffic.md](traffic.md#nothing-stops-the-taxi) for the mechanis
 — it turns out to be *faster* than letting it yield, and it barely moves the crash rate, because
 the holds were rare enough to cost the mode its feel without protecting it.
 
-**Releasing isn't an instant off.** For `BOOST_COOLDOWN` (1s) after the button comes up — or the
-tank runs dry — the taxi is still exposed to everything Loco Mode was: it can still crash into
+**Releasing isn't an instant off.** For `BOOST_COOLDOWN` (1s) after the button comes up, the taxi
+is still exposed to everything Loco Mode was: it can still crash into
 traffic, still gets caught if a cop is in bust range, still forces the next light. What it loses
 immediately is the speed — the cap drops back to cruise the moment the hold ends, and ordinary
 braking (the same constant every other stop uses) hauls it down from 22.1 to 8.5 in under a
@@ -2104,14 +2060,19 @@ transition into Loco Mode and not on a re-press during a boost that's already ru
 The **hold** has its own effect, and it is a different object: a flat stylized flame that burns out
 of the tailpipe for exactly as long as the button is down (`game/locoflame.js`, and see
 [rendering.md](rendering.md#the-tailpipe-plume--gamelocoflamejs)). The burst is the bark on the
-press; this is what says the mode is *still on*, which nothing but the draining pill said before.
+press; this is what says the mode is *still on*, in the world — the pill's own
+[rings](#crazy-taxi-mode) say it on the HUD.
 
 ## The burger run
 
 **Tap the burger joint.** The taxi drives itself round to the drive-through, crawls the lane, stops
-at the menu board and again at the pickup window, and comes back out onto the road with **15% of a
-tank** of boost — 2.25 seconds of it, the smallest top-up in the game and the only one that was not
-paid for a job.
+at the menu board and again at the pickup window, and comes back out onto the road.
+
+**It currently pays nothing.** The reward was 15% of a tank of nitro — 2.25 seconds of boost, the
+smallest top-up in the game and the only one that was not paid for a job — and the tank is gone
+([the refill animation](#the-refill-animation-and-why-there-isnt-one-any-more)). Everything below
+about the trade being finely balanced was written against that 2.25s and no longer holds: with no
+payout at the window, the lap is pure cost. It wants a new reward before this ships.
 
 It is a secret rather than a mechanic, and everything about it is sized to keep it one. Nothing on
 screen advertises it, nothing in the tutorial mentions it, and the reward is small enough that a
@@ -2119,10 +2080,11 @@ player who finds it has found a treat rather than a strategy. What it costs is *
 clock is already running**: the rider in the back keeps counting down the whole way there, through
 both windows and back out again. Measured tap to kerb, the trip is **12s** when the taxi is already
 coming down the joint's own street, **28s** for a lap of the block, and **38s** from the far side of
-the city — against 2.25s of boost. So it is a bad trade taken on purpose and a good one when the
-taxi was going that way anyway, which is the whole of the decision on offer.
+the city. Against 2.25s of boost that was a bad trade taken on purpose and a good one when the taxi
+was going that way anyway, which was the whole of the decision on offer — see the note above about
+what is left of it.
 
-Nothing refuses the tap. A rider in the back does not refuse it, a full tank does not refuse it, and
+Nothing refuses the tap. A rider in the back does not refuse it, and
 no clock is consulted first — the same rule [a package detour](#what-the-detour-actually-costs)
 follows, for the same reason: it is the player's call, and the band redraws through the joint on the
 same frame so the cost is visible before a wheel has turned. Tapping a rider, tapping a package, or picking a rider off a
@@ -2145,9 +2107,12 @@ Two consequences worth knowing:
 - **A taxi that has just gone past the driveway is sent round the block.** There is one way into a
   drive-through, and the pass is spent. It is the honest answer rather than a punishment — but it is
   a lap of a block, so tapping the joint as the taxi passes it is the expensive way to do this.
-- **Loco Mode is dead while the taxi is in the lot.** A pill leaned on at a pickup window would pour
-  the tank into a car that cannot move — fifteen seconds of it if the queue in front is two cars
-  deep — so the press is refused and a held one is released for as long as the visit lasts.
+- **Loco Mode is dead while the taxi is in the lot.** A pedal leaned on at a pickup window is a
+  press against a car that cannot move, so it is refused and a held one is released for as long as
+  the visit lasts. It used to matter more than it does — it was fifteen seconds of tank poured into
+  a stationary car if the queue in front was two deep — but with nothing to spend, what it protects
+  now is the [cooldown's](#crazy-taxi-mode) risk window: a thumb parked on the pill through a
+  two-car queue would otherwise leave the lot with the collision and bust gates already armed.
 
 ## The brake
 
@@ -2177,8 +2142,8 @@ HUD entrance) and pressed through pointer capture. Two `calc()`s against `--ctl-
 screen, so the 60/40 survives any change to the band's own margins.
 
 **Last pedal pressed wins.** Pressing the brake releases Loco Mode and pressing Loco Mode releases
-the brake, so a two-thumbed player never ends up spending fuel against a speed target of zero — the
-tank keeps whatever is left in it. The sim doesn't depend on that arbitration: hold both by any
+the brake, so a two-thumbed player never ends up holding a boost against a speed target of zero.
+The sim doesn't depend on that arbitration: hold both by any
 means and the brake still wins, because it replaces the target the boost ceiling would have set.
 
 ## The pedal slide
@@ -2214,9 +2179,9 @@ pedal without lifting.
 
 **One pointer owns the row.** A second thumb landing on the other pedal takes it over, which is the
 game's own last-pedal-wins rather than a special case, and the first thumb's eventual lift then has
-nothing left to release. An empty tank is the one case where the claim and the press come apart:
-the pill is dead under a thumb that has plainly arrived on it, so the claim moves (the brake beside
-it lets go) and nothing is pressed or painted.
+nothing left to release. (The claim and the press used to come apart in one case — an empty tank
+left the pill dead under a thumb that had plainly arrived on it, so the claim moved and nothing was
+pressed or painted. Nitro is never dead now, so both pedals always answer.)
 
 **The press dip stops following `:active`.** The browser pins `:active` to the button the pointer
 went *down* on and leaves it there however far the finger travels, so a slide would light the pill
@@ -2267,7 +2232,7 @@ once the run is over, because a paused ending is not a thing.
 
 **It stops the whole frame, not just the clocks.** `main.js` returns out of `frame()` before any
 `update()` while it is set, so the traffic, the signals, the fare deadlines, the sky and the boost
-tank are all where the player left them. Compare the two holds that already existed: the tutorial's
+clock are all where the player left them. Compare the two holds that already existed: the tutorial's
 `fares.setPaused` and the Home Screen screen's `state.holding` both park the *fare loop* while the
 city keeps driving, which is right for something talking over a live game. A pause that did that
 would hand back a junction with a car in it that arrived while nobody was looking.
