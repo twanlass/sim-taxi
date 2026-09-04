@@ -62,11 +62,12 @@ parallax is the only thing in frame that says how fast the taxi is actually goin
 
 ## What is not the game
 
-Three departures, all so a scenario can be run twice.
+Two departures, both so a scenario can be run twice. (There were three: the lab used to pin
+`boost.state.fuel` full every frame, because topping it up through `topUp()` would have strobed the
+pill's delivery-reward pour once a second. Nitro has no tank now — see
+[gameplay.md](gameplay.md#crazy-taxi-mode) — so holding the button here is the same thing it is in
+the game.)
 
-- **The tank is bottomless.** `boost.state.fuel` is pinned full every frame rather than topped up
-  through `topUp()`, which queues fuel to *pour* in over ~0.7s and lights the pill's
-  delivery-reward flutter while it does — right in the game, a strobe here.
 - **A wreck doesn't consume the taxi.** The game hands both shells to `game/vanish.js`, which says
   up front that it never restores anything: a wreck ends the run and Retry reloads the page. The lab
   resets in place a beat later, and leaves the taxi standing where it stopped — in a lab the useful

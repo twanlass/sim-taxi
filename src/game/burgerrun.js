@@ -22,10 +22,12 @@ import { planOrigin } from './route.js';
 // whole way there, through both windows and back out again. Measured end to end, tap to back on the
 // road (`tools/probe.mjs`): **12s** when the taxi is already coming down the joint's own street, 28s
 // for a lap of the block from the lane it was just spat out onto, 38s from the far side of the city.
-// Against 2.25s of boost at the end of it (`BOOST_BURGER_REWARD`, game/boost.js) — so it is a bad
-// trade taken on purpose and a good one when the taxi was going past anyway, which is the whole of
-// the decision the secret is offering. Nothing here checks the clock before taking it: same rule as
-// the courier detour, and for the same reason, it is the player's to make.
+// That used to buy 2.25s of boost at the window (`BOOST_BURGER_REWARD`) — a bad trade taken on
+// purpose and a good one when the taxi was going past anyway, which was the whole of the decision
+// the secret was offering. **It now buys nothing:** nitro is not a resource (game/boost.js) and
+// nothing replaced the payout, so the lap is pure cost and the decision is gone with it. This wants
+// a new reward. Nothing here checks the clock before taking it either: same rule as the courier
+// detour, and for the same reason, it is the player's to make.
 //
 // **Anything else the player aims the taxi at wins.** The run is abandoned the moment
 // `pendingTarget` stops being this module's own object — a tap on a rider or a package, a rider

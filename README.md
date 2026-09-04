@@ -18,11 +18,11 @@ The 60-second clock does **not** reset at pickup: one deadline covers spawn to d
 collecting a rider quickly is what buys the time to deliver them. Let a clock expire and the run
 ends.
 
-**Loco Mode** (bottom left) is the crazy-taxi button — **hold** for double speed that blows
-through red lights and squeals around corners, release to pause. Find two clear blocks in a row and
-it keeps climbing past double, to 67mph; every corner hands that back. A full tank is 15 seconds of
-boost, and it never refills on its own: you start with a third and every drop-off earns another
-third. On a keyboard, **hold the spacebar** for the same thing.
+**Nitro** (bottom left) is the crazy-taxi button — **hold** for double speed that blows through red
+lights and squeals around corners, release to stop. Find two clear blocks in a row and it keeps
+climbing past double, to 67mph; every corner hands that back. It is free and always available;
+what it costs is the risk, because a boosting taxi can crash and can be busted for a full second
+after you let go. On a keyboard, **hold the spacebar** for the same thing.
 
 **Brake** (to its right) is the other pedal: hold it and the taxi screeches to a stop wherever it
 is, leaving rubber off all four wheels; let go and it goes back to driving itself. Nothing to earn

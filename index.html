@@ -282,18 +282,6 @@
         transform: translate(-50%, -50%);
       }
 
-      /* The boost half of a drop-off's payout — see src/game/energybits.js. Small, bright and
-         round, so it reads as *energy* against the flying "$20"'s green text: the two currencies
-         leaving the same car have to be told apart at a glance. The light core inside the taxi
-         yellow keeps it legible over both the pale asphalt and the parks. */
-      .energy-bit {
-        position: fixed; z-index: 25; pointer-events: none;
-        width: 11px; height: 11px; border-radius: 50%;
-        background: radial-gradient(circle at 40% 35%, #FFF6C9 0%, #FFD84D 45%, #F5C130 100%);
-        box-shadow: 0 0 10px 2px rgba(245, 193, 48, 0.75);
-        transform: translate(-50%, -50%);
-      }
-
       /* The cut to black a skipped opening happens behind — see src/game/wipe.js. Nothing is ever
          drawn on it: it exists so the vignette can be landed, and the camera thrown across the map
          to the framing the run plays at, on a frame nobody can see.
@@ -585,8 +573,9 @@
         position: fixed; bottom: calc(26px + var(--safe-bottom)); z-index: 20;
         left: var(--ctl-side); right: calc(var(--ctl-side) + var(--brake-w) + var(--ctl-gap));
         text-align: center;
-        /* 16px of side padding rather than the 26 this had at full width: "Loco Mode™" is ~100px
-           of 800-weight 17px text, and at 45% of a 320px screen the box is 144px. */
+        /* 16px of side padding rather than the 26 this had at full width: the label is ~50px of
+           800-weight 17px text and at 45% of a 320px screen the box is 144px, so the padding is
+           what stops the pill collapsing onto a word half its width. */
         padding: 14px 16px; border-radius: 999px; cursor: pointer;
         /* Black outline so the pill holds its shape against pale asphalt and the yellow taxi. */
         border: 2px solid #16120a;
@@ -606,91 +595,73 @@
            a second finger tapping a fare is a pinch gesture as far as the browser is concerned,
            and preventDefault on `pointerdown` explicitly does not suppress it. */
         touch-action: none;
-        /* The dial drains left-to-right rather than around a circle, because the button is now a
-           pill. Same reading as the fare ring: filled means time remaining. The fallback matches
-           the starting third, so the frame before the loop first sets --pct doesn't flash full. */
-        background: linear-gradient(90deg, #F5C130 var(--pct, 33.3%), rgba(255, 255, 255, 0.18) 0);
+        /* Flat taxi yellow. This was a left-to-right dial draining a tank of fuel; nitro is not a
+           resource any more (src/game/boost.js), so there is nothing to read out and a bar that
+           never moved would be a gauge lying about being a gauge. */
+        background: #F5C130;
         transition: box-shadow 0.15s ease, transform 0.1s ease;
       }
       /* The label is wrapped and taken out of hit-testing so that the only thing under a thumb on
          this pill is the pill. WebKit's selection and magnifier gestures hit-test like everything
          else does, so with no text node to land on they have nothing to select — which matters
          because iOS 15 stopped honouring `-webkit-user-select: none` for them
-         (webkit.org/b/231161), and a double tap was picking out "Loco Mode™", raising the loupe
-         and zooming the city in behind it. The button keeps the events either way: `pointer-events`
+         (webkit.org/b/231161), and a double tap was picking out the label, raising the loupe and
+         zooming the city in behind it. The button keeps the events either way: `pointer-events`
          only moves the target up to the parent. */
       .boost-label { pointer-events: none; }
       #boost.is-active {
-        /* Solid white behind the drained portion, not a translucent wash — over pale asphalt the
-           translucent version read as the same tan as the road and the dial lost its edge. */
-        background: linear-gradient(90deg, #FFE873 var(--pct, 100%), #fff 0);
+        /* Lighter than the resting yellow, so the pill reads as lit from inside rather than merely
+           outlined by the rings below. */
+        background: #FFE873;
         box-shadow: 0 0 30px rgba(255, 232, 115, 0.85);
       }
-      /* Empty tank. Nothing refills on its own, so this greyed-out state persists until the next
-         drop-off tops it up — it reads as "go earn it", not "wait for it". Flat grey rather than the
-         usual dial gradient, and the black outline drops out too: every other state of this pill
-         reads as "press me", so disabled has to read unambiguously as the opposite rather than as a
-         drained version of the same button. */
-      #boost.is-empty {
-        cursor: default; color: #6b6f73; border-color: transparent;
-        background: #b9c0c4;
-      }
-      /* Delivery bonus. Fuel is now *only* ever earned, so the pour is the reward animation and it
-         gets the full treatment: the bar overshoots its new mark and springs back, the pill pulses,
-         and a bright edge rides the front of the fill. The shapes are here, the envelope comes from
-         updateBoostButton in main.js — `--fill` is 0..1 for "fuel is arriving" and `--pulse` is the
-         throb inside it. Driving the alpha from a variable rather than a keyframe is what lets the
-         glow fade out smoothly however long the pour ran, instead of snapping off when a fixed
-         animation ends. Listed after .is-active so a top-up collected mid-boost still shows.
 
-         An earlier version was a one-shot green flash matching the flying "$20". Green read as
-         "money", which is what the earnings pop already says — yellow says *this is boost*, which
-         is the thing the player has to notice, and pulsing for exactly as long as fuel is landing
-         ties it to the bar's movement rather than to a fixed 0.65s. */
-      #boost.is-filling {
-        /* Every property here is rewritten per frame, so any transition at all smears the 8Hz
-           throb flat — 0.1s of ease against a 125ms period leaves almost nothing moving. */
-        transition: none;
-        box-shadow: 0 0 calc(14px + 26px * var(--pulse, 0)) rgba(245, 193, 48, calc(0.95 * var(--fill, 0)));
-        /* The pill itself flutters, not just its glow. 3.5% is a couple of pixels either side —
-           enough to catch the eye at the edge of vision, which is where this button is while the
-           player is watching the road. */
-        transform: scale(calc(1 + 0.035 * var(--pulse, 0)));
+      /* The rings. While the pedal is down the pill throws off copies of its own outline that grow
+         out of it and fade — the one piece of feedback that says "this is still running" now that
+         there is no bar draining to say it.
+
+         Both pseudo-elements run the same keyframes half a period apart, which is the whole reason
+         there are two: one element can only ever have one ring in the air, and a single ring
+         restarting from nothing every 1.1s reads as a blink rather than as a pulse. Staggered, the
+         second is at half its travel as the first retires and the emission looks continuous.
+
+         `inset: -2px` and the matching radius put the ring exactly on the pill's own 2px border
+         rather than inside it, so the shape it grows out of is the shape you can see. It scales
+         about its own centre, so an element inset by the border width stays concentric all the way
+         out. `pointer-events: none` matters more than it looks: these overflow the button by half
+         its height at full travel, and a ring that could be hit-tested would hand presses to the
+         pill from well outside it — including from over the brake. */
+      #boost::before, #boost::after {
+        content: ''; position: absolute; inset: -2px;
+        border: 2px solid rgba(255, 232, 115, 0.9); border-radius: 999px;
+        pointer-events: none; opacity: 0;
       }
-      /* The leading edge of the fill: a soft vertical bar sitting on the fill front, blurred so it
-         reads as light spilling off the advancing fuel rather than as a hairline UI divider. It
-         tracks the same --pct as the gradient — both resolve against the padding box, so they stay
-         locked together — and inherits the fill envelope, fading in as fuel starts arriving and out
-         as the bar springs to rest. Inset a couple of px top and bottom so the blur bleeds to about
-         the pill's edge instead of poking out of the rounded ends. */
-      #boost::after {
-        content: ''; position: absolute; top: 1px; bottom: 1px;
-        left: var(--pct, 33.3%); width: 4px; margin-left: -2px;
-        border-radius: 4px;
-        /* Near-white core with a yellow bloom, not a yellow line: the fill behind it is already
-           #F5C130 and the empty track ahead of it is pale, so a yellow-on-yellow line washed out
-           to nothing at 3px/blur 2.5px. The core carries the position, the bloom carries the
-           colour. Blur stays under half the core width or the line stops reading as an edge. */
-        background: #FFFDF2;
-        box-shadow: 0 0 9px 3px rgba(255, 213, 74, 0.95);
-        filter: blur(1.4px);
-        opacity: var(--fill, 0);
-        pointer-events: none;
+      #boost.is-active::before, #boost.is-active::after {
+        animation: nitro-ring 1.1s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
       }
-      /* A pill fluttering at 8Hz is exactly what someone who asked for less motion doesn't want.
-         The glow and the leading edge still carry the top-up; only the movement goes. */
+      #boost.is-active::after { animation-delay: 0.55s; }
+      /* Scale rather than a growing border width or a spreading box-shadow: both of those are
+         layout/paint work every frame, where a transform on a composited pseudo-element is free —
+         and this runs for as long as the player holds the pedal, which is most of a run now.
+         1.35 is about 17px of overshoot on a 49px pill: past the pill's own glow, well short of the
+         brake beside it. The opacity peaks a beat after the start rather than at it, so the ring
+         separates from the button's edge before it becomes visible instead of flashing on top of
+         it. */
+      @keyframes nitro-ring {
+        0%   { transform: scale(1);    opacity: 0; }
+        12%  { opacity: 0.85; }
+        100% { transform: scale(1.35); opacity: 0; }
+      }
+      /* A ring pumping out of a button twice a second is exactly what someone who asked for less
+         motion doesn't want. The lit background and the glow still say the pedal is down. */
       @media (prefers-reduced-motion: reduce) {
-        #boost.is-filling { transform: none; }
+        #boost.is-active::before, #boost.is-active::after { animation: none; }
       }
       /* Last of the #boost rules on purpose: the press dip is the one piece of feedback that has to
-         win over everything else, and both the throb and the reduced-motion override set a
-         transform at equal specificity — a media query adds no weight — so a top-up landing under
-         the player's thumb would otherwise swallow it. */
+         win over everything else. It dips the *pill*, and the rings are its children, so they dip
+         with it and stay welded to the outline they are copies of — which is what the old
+         top-up flutter, an equal-specificity transform on the button itself, used to fight over. */
       #boost:active { transform: scale(0.95); }
-      /* The one exception: an empty tank doesn't press. The extra class already outranks the rule
-         above on specificity, but a disabled `<button>` still needs this — some mobile browsers
-         synthesise `:active` off the touch even though the click and pointerdown are suppressed. */
-      #boost.is-empty:active { transform: none; }
       body.shot-mode #boost { display: none; }
 
       /* The brake. The right 40% of the control row, and everything about it that is shared with the
@@ -1363,10 +1334,11 @@
       <button class="pause-resume" type="button">Resume</button>
     </div>
 
-    <!-- `aria-keyshortcuts` is how the spacebar hold announces itself; nothing is painted on the
-         pill, which is already the fuel dial and the tutorial's third target. See main.js. -->
-    <button id="boost" type="button" aria-label="Loco Mode" aria-keyshortcuts="Space"
-      ><span class="boost-label">Loco Mode&trade;</span></button>
+    <!-- `aria-keyshortcuts` is how the spacebar hold announces itself; no "SPACE" is painted on
+         the pill, which already carries a word of its own and is the tutorial's third target.
+         See main.js. -->
+    <button id="boost" type="button" aria-label="Nitro" aria-keyshortcuts="Space"
+      ><span class="boost-label">Nitro</span></button>
     <!-- The brake shares the bottom row with the pill above, 40% of it to Loco Mode's 60%. Same
          hold-to-hold contract, same label-in-a-span trick for iOS (see .boost-label), and the same
          keyboard affordance one key over. -->

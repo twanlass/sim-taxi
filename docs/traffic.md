@@ -1032,16 +1032,16 @@ balking under a green of its own reads as drivers getting out of a maniac's way.
 corridor is deliberately not excepted — emergency preemption really does turn the lights, and
 watching the green path open ahead of the siren is the whole effect.
 
-The meter itself lives in `game/boost.js` as a pure clock with no knowledge of the taxi or the
-DOM. Hold-to-enable: the tank drains only while the button is held (15s from full) and releasing
-just pauses it. Nothing refills it but a drop-off — see
-[gameplay.md](gameplay.md#crazy-taxi-mode) for the economy.
+The mode itself lives in `game/boost.js` as a pure clock with no knowledge of the taxi or the DOM.
+Hold-to-enable, and that is the whole of it: there is no tank, nothing to earn and nothing to spend
+— it used to be a 15-second meter refilled only by drop-offs, packages and the drive-through. See
+[gameplay.md](gameplay.md#crazy-taxi-mode) for why that went.
 
 **Releasing doesn't switch it off.** It used to — the taxi went from full boost to ordinary traffic
 in the same frame, so tapping off a beat before a crash or a cop was a free escape. `game/boost.js`
 now holds the mode at `'cooldown'` for `BOOST_COOLDOWN` (1s) after release before it lands on
-`'ready'` (or `'empty'`, if the tank ran dry rather than being released on purpose — both exits
-from `'active'` get the same tail). `isEngaged()` covers `'active'` and `'cooldown'` both, and
+`'ready'`. With the tank gone that second is the *entire* cost of a press, which is why it matters
+more than it did. `isEngaged()` covers `'active'` and `'cooldown'` both, and
 is what `taxi.boost` is driven from — collision detection, the police bust range and the priority
 junction that lets Loco Mode run reds all read `taxi.boost`, so all three stay armed through the
 cooldown. What *doesn't* survive it is speed: `taxi.boostEasing` is true only during `'cooldown'`,
@@ -1059,9 +1059,8 @@ Once nothing else stops the taxi, the car directly in front is the only thing le
 cannot be gone round *inside* the lane — 4 units wide against a 2.31-unit collision envelope — so
 the taxi goes round outside it: a full lane change into the **oncoming** lane, past, and back.
 
-> There is a workbench for this one: [`/lab/`](lab.md) is a straight road with no lights, a car in
-> front, and a bottomless boost tank, so the manoeuvre can be watched on demand rather than waited
-> for. The numbers below are what it is running.
+> There is a workbench for this one: [`/lab/`](lab.md) is a straight road with no lights and a car
+> in front, so the manoeuvre can be watched on demand rather than waited for. The numbers below are what it is running.
 
 **The player takes it by keeping the button down.** Holding through a car in front means "go around
 it"; letting go means "tuck in behind". No new control on a HUD that has deliberately few, and the

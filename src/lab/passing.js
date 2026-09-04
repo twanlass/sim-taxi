@@ -10,11 +10,8 @@
 // it, points a camera at the car, and holds the button. If the taxi behaves differently here than
 // it does in the game, that is a bug in the lab, not a different mode.
 //
-// Two things are deliberately *not* the game, both so a scenario can be run twice:
+// One thing is deliberately *not* the game, so a scenario can be run twice:
 //
-//   - **The tank is bottomless.** `boost.state.fuel` is pinned full every frame rather than topped
-//     up through `topUp()`, which would put the pill into its delivery-reward pour animation once a
-//     second for the whole session.
 //   - **A wreck doesn't consume the taxi.** The game hands both shells to `game/vanish.js`, which
 //     says up front that it never restores anything — a wreck ends the run and Retry reloads the
 //     page. The lab resets in place instead, so the taxi stays where it stopped and drives again a
@@ -31,7 +28,7 @@ import { createProps } from '../city/props.js';
 import { setCityNetwork } from '../city/roadnet.js';
 import { createTraffic, placeCar, SPEED, laysPassRubber, MPH_PER_UNIT } from '../sim/traffic.js';
 import { createCollisions } from '../sim/collisions.js';
-import { createBoost, BOOST_DURATION } from '../game/boost.js';
+import { createBoost } from '../game/boost.js';
 import { createSkidMarks } from '../game/skidmarks.js';
 import { createDust } from '../game/dust.js';
 import { createBlast } from '../game/blast.js';
@@ -193,7 +190,7 @@ renderer.domElement.addEventListener('wheel', (event) => {
 
 // --- Effects ----------------------------------------------------------------
 
-const boost = createBoost(BOOST_DURATION, 1);
+const boost = createBoost();
 const skids = createSkidMarks(scene);
 const dust = createDust(scene, camera, makeRng(knobs.seed + 77));
 const blast = createBlast(scene, makeRng(knobs.seed + 88));
@@ -563,11 +560,6 @@ function frame() {
   if (resetAt && nowMs >= resetAt) stage();
 
   boost.update(dt);
-  // A bottomless tank. Written straight onto the clock's state rather than through `topUp()`,
-  // which queues fuel to *pour* in over ~0.7s and lights the pill's delivery-reward flutter while
-  // it does — correct in the game, a strobe in a lab where the tank refills every frame.
-  boost.state.fuel = BOOST_DURATION;
-  if (boost.state.mode === 'empty') boost.state.mode = boost.state.held ? 'active' : 'ready';
 
   if (!taxi.crashed) {
     taxi.boost = boost.isEngaged();
