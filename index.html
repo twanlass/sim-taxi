@@ -585,8 +585,10 @@
         position: fixed; bottom: calc(26px + var(--safe-bottom)); z-index: 20;
         left: var(--ctl-side); right: calc(var(--ctl-side) + var(--brake-w) + var(--ctl-gap));
         text-align: center;
-        /* 16px of side padding rather than the 26 this had at full width: "Loco Mode™" is ~100px
-           of 800-weight 17px text, and at 45% of a 320px screen the box is 144px. */
+        /* 16px of side padding rather than the 26 this had at full width: this was sized for
+           "Loco Mode™" at ~100px of 800-weight 17px text against a 144px box (45% of a 320px
+           screen); the label now reads "Nitro", which is shorter still, so the same padding
+           holds with room to spare. */
         padding: 14px 16px; border-radius: 999px; cursor: pointer;
         /* Black outline so the pill holds its shape against pale asphalt and the yellow taxi. */
         border: 2px solid #16120a;
@@ -1365,8 +1367,8 @@
 
     <!-- `aria-keyshortcuts` is how the spacebar hold announces itself; nothing is painted on the
          pill, which is already the fuel dial and the tutorial's third target. See main.js. -->
-    <button id="boost" type="button" aria-label="Loco Mode" aria-keyshortcuts="Space"
-      ><span class="boost-label">Loco Mode&trade;</span></button>
+    <button id="boost" type="button" aria-label="Nitro" aria-keyshortcuts="Space"
+      ><span class="boost-label">Nitro</span></button>
     <!-- The brake shares the bottom row with the pill above, 40% of it to Loco Mode's 60%. Same
          hold-to-hold contract, same label-in-a-span trick for iOS (see .boost-label), and the same
          keyboard affordance one key over. -->
