@@ -45,7 +45,7 @@ import {
 } from '../src/game/sirenglow.js';
 import {
   createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES,
-  ARRIVE_RADIUS, onSameBlock, CURSE_LIFT,
+  ARRIVE_RADIUS, onSameBlock, CURSE_LIFT, BURGER_PRICE,
 } from '../src/game/fares.js';
 import { createCurseBubble, TAIL_DROP } from '../src/geometry/cursebubble.js';
 import {
@@ -11672,6 +11672,31 @@ let chopperOrder; // likewise
     check('...and ambient cars pull in again once the taxi has gone',
       runLot.state.served() > servedBefore,
       `${runLot.state.served() - servedBefore} served in the five minutes after`);
+  }
+
+  // --- ...and what it costs at the window --------------------------------------------------------
+  //
+  // The burger is bought, not found: `BURGER_PRICE` comes off the run's cash on the same frame the
+  // boost is poured (main.js's `onServed`, which is the seam the reward has always used). What has
+  // to hold is that the till never goes red — a run's cash is its score, and the counter, the
+  // run-end card and the score table all print it — so a player who taps the joint on less than the
+  // price pays what they have and still gets their tank. Checked here rather than in the trips
+  // above because it is arithmetic on the fare loop's total, not anything the lot does.
+  {
+    const tillScene = new THREE.Scene();
+    const till = createFareSystem(makeRng(seed + 55), tillScene);
+    till.credit(BURGER_PRICE * 2 + 4);
+    const first = till.charge(BURGER_PRICE);
+    const second = till.charge(BURGER_PRICE);
+    // Third visit on $4: takes the $4, and the run is on zero rather than four dollars in debt.
+    const third = till.charge(BURGER_PRICE);
+    const fourth = till.charge(BURGER_PRICE);
+    check(`a burger costs the player $${BURGER_PRICE} at the window`,
+      first === BURGER_PRICE && second === BURGER_PRICE,
+      `$${first} then $${second} off a full till`);
+    check('...and an empty till is charged what it has and no more',
+      third === 4 && fourth === 0 && till.state.money === 0,
+      `$${third} of $${BURGER_PRICE} taken, then $${fourth}, run total $${till.state.money}`);
   }
 
   // --- Can the camera see the lane?

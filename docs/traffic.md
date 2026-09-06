@@ -1758,12 +1758,13 @@ Three things the invitation changes, all of them at the mouth:
   ambient cars pull in again afterwards.
 - **There is no roll.** `ENTER_CHANCE` and `FED_COOLDOWN` are how ambient traffic decides; the tap
   is the decision, and the taxi is not put on the cooldown on the way out either. Doing laps of a
-  restaurant is a choice the player is paying a fare's clock for.
+  restaurant is a choice the player is paying a fare's clock — and $10 a burger — for.
 - **It eats faster.** 0.6s at the board and 1.0s at the window, against 2.6 and 3.8 plus jitter. An
   ambient car's dwell is scenery and has to *read* from across the city; the player's is a clock
   they are paying. 1.6s of standing still out of the **8.0s** the lot takes end to end — measured
   mouth to kerb with the lane empty — is enough to make the visit read as a visit, and short enough
-  that it is not what the detour costs. What the detour costs is the driving either side of it.
+  that it is not what the detour costs. What the detour costs is the driving either side of it, and
+  the tenner that comes off the counter at the window.
 
 A wreck in the lot — the run ending while the player is at the window — stops where it is, and the
 queue behind it holds, because each car's limit comes from its leader's position.

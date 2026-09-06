@@ -116,6 +116,16 @@
         40%  { transform: scale(1.14); color: #6BE08A; }
         100% { transform: scale(1);    color: #fff;    }
       }
+      /* ...and the same bump for money going the other way — the burger's counter charge, which is
+         the only thing in the game that takes cash off the player. Red rather than green, and it
+         dips *in* rather than swelling: the payout's 1.14 is the counter reacting to something
+         arriving, so a charge that used it would say the same thing about a total going down. */
+      #hud .money.money-charged { animation: money-charge 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+      @keyframes money-charge {
+        0%   { transform: scale(1);    color: #fff;    }
+        40%  { transform: scale(0.92); color: #FF7A6B; }
+        100% { transform: scale(1);    color: #fff;    }
+      }
 
       /* Cargo chip — the courier box, pictured under the cash total while a package is aboard. See
          src/game/cargochip.js for what is inside it and why it lives up here rather than at the end
@@ -281,6 +291,10 @@
         color: #6BE08A; text-shadow: 0 2px 10px rgba(10, 30, 20, 0.65);
         transform: translate(-50%, -50%);
       }
+      /* A charge — the burger at the drive-through window, and nothing else so far. Same flight,
+         same size, same anchor on the taxi: only the sign and the colour say which way the money
+         went, which is the whole point of reusing the pop rather than inventing a second one. */
+      .earning.is-charge { color: #FF7A6B; text-shadow: 0 2px 10px rgba(40, 12, 10, 0.65); }
 
       /* The boost half of a drop-off's payout — see src/game/energybits.js. Small, bright and
          round, so it reads as *energy* against the flying "$20"'s green text: the two currencies
