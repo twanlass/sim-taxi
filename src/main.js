@@ -1504,6 +1504,7 @@ if (!tutorial) revealHud();
 
 const hud = {
   money: document.getElementById('money'),
+  fareClock: document.getElementById('fare-clock'),
   streak: document.getElementById('streak'),
   streakCount: document.getElementById('streak-count'),
   banner: document.getElementById('run-end'),
@@ -1726,8 +1727,43 @@ function collectScores() {
   };
 }
 
+/**
+ * The fare clock's digits: seconds and milliseconds, `12.345`, rolling over to `1:02.345` past a
+ * minute. Budgeted clocks routinely clear 60s (see `budgetFor` in game/fares.js), so a bare
+ * seconds field would have counted 74 and read as nonsense.
+ *
+ * Floored rather than rounded — a clock that shows `0.000` while there is still time on it, or
+ * rounds `59.6` up to a minute, is lying in the direction that matters.
+ */
+function formatFareClock(seconds) {
+  const left = Math.max(0, seconds);
+  const ms = Math.floor(left * 1000);
+  const whole = Math.floor(ms / 1000);
+  const frac = String(ms % 1000).padStart(3, '0');
+  if (whole < 60) return `${whole}.${frac}`;
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}.${frac}`;
+}
+
+/**
+ * PROTOTYPE — paint the clock of the rider currently aboard, and hide it when there isn't one.
+ *
+ * Read straight off the fare rather than kept as a countdown of its own: `timeLeft` is already
+ * the one authority, it is what pausing holds and what ends the run at zero, and a second copy
+ * ticking here would drift the moment either of those happened. Nothing to `settle()` for shot
+ * mode either — the whole of `#hud` is hidden there.
+ */
+function updateFareClock() {
+  if (!hud.fareClock) return;
+  const aboard = fares.state.gameOver ? null : fares.carrying();
+  hud.fareClock.classList.toggle('is-on', !!aboard);
+  // Left holding its last value while it fades out, so the field doesn't blank a frame before it
+  // goes. It is repainted on the next pickup before the fade back in.
+  if (aboard) hud.fareClock.textContent = formatFareClock(aboard.timeLeft);
+}
+
 function updateHud(dt) {
   const s = fares.state;
+  updateFareClock();
 
   // A bust holds the banner until the cruiser is alongside — see the BUST_BANNER_* block. The
   // floor keeps a chase that ends in half a block from cutting to the retry screen while the

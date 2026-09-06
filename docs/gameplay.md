@@ -1336,6 +1336,30 @@ Per-rider patience is not in yet — every rider drains at the same flat `fareSe
 `urgencyOf(fare)` in `fares.js`: a patience mechanic changes what goes into that function and
 nothing downstream of it, because every surface already speaks in levels rather than seconds.
 
+### The fare clock in the HUD
+
+**PROTOTYPE.** `#fare-clock` in `index.html`, painted by `updateFareClock` in `main.js`, under the
+cash total and above the [cargo chip](#the-load-is-carried-into-the-hud). It prints the seconds and
+milliseconds left on the rider **currently aboard** — `12.345`, rolling to `1:02.345` past a minute,
+because a [budgeted clock](#the-clock-is-budgeted) routinely clears 60s — and it is not there at all
+when the seat is empty.
+
+It is the first surface in the game to speak in *seconds* rather than in levels. That is the whole
+point of trying it: the four urgency surfaces answer "am I in trouble", and none of them answers "by
+how much", so a player deciding whether a second fare is takeable has been reading a colour and
+guessing. The milliseconds are what make it a stopwatch rather than a number — they are also the
+part most likely to be wrong for the game, and they are cheap to drop.
+
+Read straight off `fare.timeLeft` every frame rather than kept as a countdown of its own. That field
+is already the one authority — it is what `setPaused` holds and what ends the run at zero — and a
+second copy ticking in the HUD would drift the moment either happened. Nothing here needs a
+`settle()`: `#hud` is hidden in shot mode.
+
+Open questions, all of them deliberately unanswered for now: whether it should colour with the rest
+of the urgency scale (a fifth voice on a fact four surfaces already carry), whether a *waiting*
+rider's clock belongs up here too, and whether the digits belong beside the cash at all rather than
+on the taxi or the drop-off ring.
+
 ## Economy
 
 `$0` at top left. On delivery a green **fare price pops off the taxi itself**, rises for a beat,

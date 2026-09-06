@@ -117,6 +117,29 @@
         100% { transform: scale(1);    color: #fff;    }
       }
 
+      /* PROTOTYPE — the fare clock. The rider aboard has one budgeted deadline (see
+         `budgetFor` in src/game/fares.js) and until now the only place it was legible was the
+         ring around their drop-off pin, which speaks in levels rather than seconds. This prints
+         the seconds themselves, under the cash total, and only while someone is aboard.
+
+         Milliseconds are the point of it: the ring answers "am I in trouble", the digits answer
+         "by how much", and a hundredths-only readout ticks slowly enough to read as a stopwatch
+         someone else is holding. `tabular-nums` is not optional — a proportional 1 next to a
+         proportional 8 makes the whole field breathe on every frame.
+
+         No urgency colour here yet. The pin's ring, the diamond and the finder chips are all
+         already saying that in the world; a second voice on the same fact is a thing to decide
+         on deliberately rather than to get for free from a prototype. */
+      #fare-clock {
+        font-size: calc(var(--hud-count-size) * 0.62); font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.01em;
+        margin-top: -2px;
+        color: rgba(255, 255, 255, 0.92);
+        opacity: 0; transition: opacity 0.18s ease;
+      }
+      #fare-clock.is-on { opacity: 1; }
+
       /* Cargo chip — the courier box, pictured under the cash total while a package is aboard. See
          src/game/cargochip.js for what is inside it and why it lives up here rather than at the end
          of the rider-finder row.
@@ -1338,6 +1361,9 @@
   <body>
     <div id="hud">
       <div class="money">$<span id="money">0</span></div>
+      <!-- PROTOTYPE: seconds left on the rider aboard. Empty until a pickup; painted from
+           updateHud in src/main.js. -->
+      <div id="fare-clock" aria-hidden="true"></div>
       <!-- The courier load, drawn into by game/cargochip.js while a package is aboard. Empty here:
            the box inside it is the real `createParcel` mesh in a WebGL context of its own, the same
            way the rider-finder chips draw the real figure. -->
