@@ -11609,6 +11609,7 @@ let chopperOrder; // likewise
     let notHandedBack = 0;
     let overpaid = 0;
     let slowest = 0;
+    let worstBandEnd = 0;
 
     for (const job of jobs) {
       routeTo(job);
@@ -11616,6 +11617,17 @@ let chopperOrder; // likewise
       const before = paid;
       if (!run.send()) { refused += 1; continue; }
       trips += 1;
+
+      // ...and the band the player is looking at stops at the driveway. The route ends on a *lane*,
+      // and drawn to its end it ran on to the junction that lane leaves — 13.7 units past the thing
+      // that was tapped, which is three-quarters of a block of paint pointing down an empty road.
+      // Asserted on the drawn path rather than on the trim, because the trim is what was wrong.
+      {
+        const band = routePath(taxi, taxi.route);
+        const last = band[band.length - 1];
+        worstBandEnd = Math.max(worstBandEnd,
+          Math.hypot(last.x - site.entry.x, last.z - site.entry.z));
+      }
 
       let clock = 0;
       let entered = false;
@@ -11664,6 +11676,9 @@ let chopperOrder; // likewise
     check('...and the job the detour interrupted is put back under the car on the way out',
       notHandedBack === 0 && restored === trips,
       `${restored}/${trips} routes restored`);
+    check('...and the route band ends at the driveway rather than at the junction past it',
+      worstBandEnd < 1e-9,
+      `band finishes ${worstBandEnd.toFixed(2)} from the mouth at its worst`);
 
     // And the lot goes back to being a drive-through. A reservation that leaked would show up here
     // and nowhere else: the queue would simply never take another car for the rest of the run.
