@@ -63,6 +63,28 @@ export const FARE_SECONDS = 60;
 export const FARE_BASE = 5;
 export const FARE_PER_BLOCK = 3;
 
+/**
+ * What the burger costs, in dollars off the run's cash.
+ *
+ * The boost was free before this, and free is what made the secret a strictly-better detour for a
+ * player who had already found it: the trip's only price was the clock, so any tap taken while the
+ * taxi was going that way anyway was pure profit. A price is what turns that into a decision the
+ * second time as well as the first.
+ *
+ * Ten against a fare board that pays $8 for the shortest ride and $20 for a median one (`FARE_BASE`
+ * and `FARE_PER_BLOCK` above), before the shift multiplier — so a burger is half a fare early on and
+ * loose change by the last shift, which is the right way round: the tank matters most when the
+ * multiplier is small and the cash matters most then too. Deliberately *not* scaled by that
+ * multiplier, because the reward it buys is a flat 2.25 seconds of boost at every point in the run
+ * — a price that climbed with the board would make the same purchase steadily worse for no reason
+ * the player could see.
+ *
+ * Charged at the window, on the frame the order is handed over — the same moment the boost is
+ * poured and for the same reason: what the player is paying for is the visit, and the visit ends
+ * there rather than at the kerb a couple of seconds later.
+ */
+export const BURGER_PRICE = 10;
+
 /** Blocks between two intersections. */
 export const blockDistance = (a, b) => Math.abs(a.i - b.i) + Math.abs(a.j - b.j);
 
@@ -1491,6 +1513,22 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
      * call rather than main.js reaching into another module's state to do it by hand.
      */
     credit: (amount) => { state.money += amount; },
+    /**
+     * Take money back out of the run's total — the burger run's counter charge (game/burgerrun.js),
+     * and so far the only thing in the game that costs cash rather than time.
+     *
+     * **Clamped at the till, and it returns what was actually taken.** A run's cash is its score:
+     * the counter prints it, the run-end card prints it as "Cash" and the score table sorts on it,
+     * and none of the three has any idea what a negative total would mean. So a player who taps the
+     * joint on $4 pays $4 and still gets their boost — the secret is not the place to introduce debt.
+     * The caller needs the number back because the pop that flies to the counter has to say the
+     * amount that left it, not the amount on the price list.
+     */
+    charge: (amount) => {
+      const taken = Math.min(amount, state.money);
+      state.money -= taken;
+      return taken;
+    },
     crash,
     /**
      * Put every marker's arrival animation straight into its landed state.
