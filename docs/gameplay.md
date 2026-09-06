@@ -588,14 +588,25 @@ route is planned — but it was enforced in *silence*, and a tap that does nothi
 indistinguishable from a tap that missed. So the board now says the rule twice, once before the tap
 and once after it.
 
-**Before.** A waiting rider's mark steps back for as long as the seat is full: the crystal eases to
-**half size** over 0.3s, and the disc under their feet darkens (0.42× on the rim and fill, half
-opacity on the fill) and drops its sweep. `setBackgrounded` on the marker is reconciled every frame
+**Before.** A waiting rider's mark steps back for as long as the seat is full: the **glow goes off
+both halves of it** and the disc under their feet darkens (0.42× on the rim and fill, half opacity
+on the fill) and drops its sweep — all of it eased over 0.3s, because a halo that vanishes on one
+frame reads as the marker being switched off rather than turned down. `setBackgrounded` on the marker is reconciled every frame
 from `carrying()` rather than latched at the pickup, because the seat empties through four different
 exits — a drop-off, a crash, a VIP expiring, the run ending — and only one of them is somewhere a
 latch could be released. A rider who *spawns* while the seat is full opens already stepped back:
 that is the fifth argument to `showAt`, passed rather than set afterwards because these markers are
 pooled and the loop does not tick a fare on the frame it spawns.
+
+**The crystal keeps its size and its hue, and the glow is what goes.** It was shrunk to half for a
+first cut and that came back wrong: it read as a *different, smaller kind of marker* rather than as
+the same one turned down, and it took the hue — which is the clock — down with it in screen area.
+The glow is the right thing to spend instead, because the bloom's spill is an order of magnitude
+wider than the thing spilling ([rendering.md](rendering.md#bloom--gamebloomjs-and-the-comparison-in-gamehdrjs)), so it is most of
+what makes a marker carry across the city. Taking it off is the loudest change available that
+doesn't touch what the marker *says*. `setEmissiveScale` is how, rather than
+`unmarkEmissive`/`markEmissive` per transition: these markers are pooled and switch several times a
+run, and the scalar can be eased where a flag cannot.
 
 **The disc darkens rather than disappearing, and that is the whole design decision.** The disc is
 the half of the mark that survives this camera — a rider whose crystal is behind a tower still has

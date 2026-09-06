@@ -1686,6 +1686,13 @@ check('no two cars occupy the same space', worst > 1.6,
     sweep: marker.ring.children[2],
   });
 
+  // Whether a marked mesh would actually draw in the bloom pass — derived the way the pass derives
+  // it, not read off `userData.bloomScale`. The scale is what was *asked for*; this is what the
+  // renderer would do with it, and the distinction is the whole of the layer-gate trap in
+  // CLAUDE.md: an emitter switched off anywhere other than `material.visible` still draws, at full
+  // strength and with none of the pass's patches.
+  const glows = (mesh) => bloomRefreshFor(mesh, 1)?.visible === true;
+
   const route = (fare) => {
     const r = findRoute(planOrigin(oTraffic.taxi), fare.target);
     if (r) { oTraffic.taxi.route = r; oTraffic.taxi.routeConsumed = false; fares.markDirected(fare); }
@@ -1695,6 +1702,7 @@ check('no two cars occupy the same space', worst > 1.6,
   let sawWaiterWhileCarrying = false;
   let steppedBack = false;
   let carriedStaysForward = false;
+  let keptItsSize = false;
   let refuseAnswered = false;
   let refusedShake = 0;       // peak sideways offset on the refused crystal
   let refusedPulse = 0;       // peak swell on the drop-off it was pointed at
@@ -1717,7 +1725,7 @@ check('no two cars occupy the same space', worst > 1.6,
       // simply always been small.
       if (refusedFare && fares.state.fares.includes(refusedFare)
         && refusedFare.slot.marker.getBackgrounded() < 0.01
-        && refusedFare.slot.marker.mesh.scale.x > 0.9
+        && glows(refusedFare.slot.marker.mesh)
         && discLayers(refusedFare.slot.marker).sweep.visible) cameBack = true;
       const next = fares.state.fares.find((f) => f.stage === 'waiting' && !f.directed);
       if (next) route(next);
@@ -1736,14 +1744,20 @@ check('no two cars occupy the same space', worst > 1.6,
 
     const { rim, fill, sweep } = discLayers(marker);
     const crystal = new THREE.Color(diamondHex(marker));
-    steppedBack = marker.mesh.scale.x < 0.6
-      && rim.material.color.r < crystal.r - 1e-3
+    steppedBack = rim.material.color.r < crystal.r - 1e-3
       && fill.material.opacity < ROUTE_OPACITY
-      && !sweep.visible;
+      && !sweep.visible
+      && !glows(marker.mesh) && !glows(rim);
+    // The crystal keeps its **size** and its **hue** throughout — the step-back is a glow and a
+    // dim, and a first cut that shrank it to half read as a different, smaller kind of marker
+    // rather than as the same one turned down. This is the guard on that: what a rider's clock is
+    // saying must not get smaller because the seat happens to be full.
+    keptItsSize = marker.mesh.scale.x > 0.9
+      && diamondHex(marker) === fares.colorOf(waiter).getHexString();
     // The fare in the car keeps its crystal at full size — it is the one the player is actually
     // driving, and stepping it back would say the opposite of what the rule means.
     carriedStaysForward = carried.slot.marker.getBackgrounded() === 0
-      && carried.slot.marker.mesh.scale.x > 0.9;
+      && glows(carried.slot.marker.mesh);
 
     // Now tap the rider the game will not let you have. `refuse` is what main.js calls where it
     // used to `return` with nothing at all.
@@ -1763,6 +1777,7 @@ check('no two cars occupy the same space', worst > 1.6,
 
   check('the board goes two deep with one aboard', sawWaiterWhileCarrying);
   check('a rider on the kerb steps back while the seat is full', steppedBack);
+  check('...without their clock getting smaller or changing colour', keptItsSize);
   check('and the fare in the car does not', carriedStaysForward);
   check('a refused tap shakes the rider it refused', refuseAnswered && refusedShake > 0.1,
     `peak ${refusedShake.toFixed(3)}`);

@@ -344,7 +344,11 @@ export function refreshEmissive(mesh, master = 1) {
   const bloom = mesh.userData.bloomMaterial;
   const live = mesh.material;
   if (!bloom || !live || live === bloom) return bloom;
-  const intensity = (BLOOM_INTENSITY[mesh.userData.bloomKind] ?? 1) * master;
+  // `bloomScale` is a per-mesh dimmer on top of its kind — see `setEmissiveScale`. Folded into
+  // the intensity rather than applied to the colour afterwards, so a scale of 0 goes down the
+  // switched-off path below and out of the draw list entirely instead of drawing black.
+  const intensity = (BLOOM_INTENSITY[mesh.userData.bloomKind] ?? 1) * master
+    * (mesh.userData.bloomScale ?? 1);
 
   // **A kind dialled to zero is switched off on the material, never by skipping the swap.**
   //
@@ -473,6 +477,32 @@ export function setEmissiveMaterial(mesh, material, kind = 'pod', sync = null) {
   emissive.add(mesh);
   refreshEmissive(mesh);
   return mesh;
+}
+
+/**
+ * Turn one marked object's glow up or down, 0..1, without unmarking it.
+ *
+ * For a lamp that is *still a lamp* but should not be spilling light right now — a fare marker
+ * stepped back behind the rider in the car (game/faremarker.js) is the case this exists for. The
+ * alternative is `unmarkEmissive` and a re-`markEmissive` when it comes back, which disposes and
+ * rebuilds a material per transition on objects that are **pooled** and switch several times a run.
+ *
+ * A scalar rather than a flag because it is meant to be *eased*: a halo that vanishes on one frame
+ * reads as the marker having been switched off, where a fade reads as it turning down. At exactly
+ * 0 the mesh leaves the pass properly — `refreshEmissive` folds this into the intensity, so the
+ * zero goes through `material.visible` like a kind dialled to zero, never through a skipped swap.
+ * See the note in `refreshEmissive` about why that distinction is the whole of "off".
+ *
+ * Applied to every marked mesh under `root`, so a caller can hand it the same group it marked.
+ * Silent on anything unmarked: a traversal over a group legitimately meets meshes that are not
+ * lamps, which is the rule `markEmissive` itself works by.
+ */
+export function setEmissiveScale(root, scale) {
+  root.traverse((object) => {
+    if (!emissive.has(object)) return;
+    object.userData.bloomScale = scale;
+  });
+  return root;
 }
 
 /** Take it back out again, and free the materials — the same contract `unmarkOccluder` has. */

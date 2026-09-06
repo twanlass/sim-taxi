@@ -1272,6 +1272,17 @@ Where to call it from is the same split `markOccluder` has. Anything `sim/` or `
 marked from `main.js`, because neither may import from `game/`; anything already in `game/` marks
 itself, the way `game/roadwork.js` marks its own slab.
 
+**`setEmissiveScale(root, 0..1)`** turns a marked object's glow down without unmarking it — for a
+lamp that is still a lamp but should not be spilling right now. The one caller today is the fare
+marker stepping back behind the rider in the car
+([gameplay.md](gameplay.md#the-board-steps-back-while-the-seat-is-full)), and both of its properties
+are the reason it exists rather than an `unmarkEmissive`/`markEmissive` pair: the markers are
+**pooled** and switch several times a run, so a pair would dispose and rebuild a material per
+transition; and it is a *scalar*, so the halo can be eased out rather than vanishing on one frame,
+which reads as the marker being switched off rather than turned down. It folds into the pass's
+intensity, so a scale of 0 leaves the draw list through `material.visible` exactly the way a kind
+dialled to zero does — never by skipping the swap, which is the trap the next paragraph is about.
+
 **What is in it today:** every vehicle's brake pods and indicators, the cruiser's light bar, the
 drive-through's lit windows and menu board, the depot's strip light, the Loco plume and its kickoff
 burst, the wreck's fireball, and — quietly — a fare's crystal and the disc under it.
