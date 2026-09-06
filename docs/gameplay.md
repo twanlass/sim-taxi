@@ -1352,6 +1352,15 @@ the same animation at the new total instead of two counters racing. Roll length 
 payout (~50ms per dollar, clamped) so a `$8` hop reads as a quick bump and a `$35` haul as a
 longer roll.
 
+**It runs backwards too.** The [burger](#the-burger-run) is the one thing that takes cash off the
+player, and it takes the same two phases wearing the other sign: a red `−$10` off the taxi, the same
+flight to the counter, the same roll, and a red dip on the counter instead of the green swell
+(`.money-charged` against `.money-bumped`). Same direction across the screen, deliberately — a
+number flying from the counter *to* the taxi would read as the player being handed something.
+`rollMoneyTo()` used to snap on any non-positive delta, which was invisible while nothing could
+charge; it tweens either way now, and the total never goes below zero (see `charge()` in
+`game/fares.js`).
+
 ### The multiplier counter
 
 `N×` at top-right, opposite the money counter, and on screen from the first frame reading `1×` —
@@ -1895,9 +1904,10 @@ available: hold it as long as you like, as often as you like, from the first fra
 
 **There is no meter.** Nitro used to be a consumable — a 15-second tank that opened at a third full,
 drained only while held, and was topped up by drop-offs (a third), packages (a sixth) and the
-[burger run](#the-burger-run) (15%), with the pill itself doubling as the dial and going grey and
-dead (`.is-empty`, `disabled`) on empty. All of it is gone: no tank, no top-ups, no pour animation,
-no dead state. The pill is a plain yellow button that lights up while it is held.
+[burger run](#the-burger-run) (15%, the one you *bought*, at $10 off the counter), with the pill
+itself doubling as the dial and going grey and dead (`.is-empty`, `disabled`) on empty. All of it is
+gone: no tank, no top-ups, no pour animation, no dead state. The pill is a plain yellow button that
+lights up while it is held.
 
 The argument for the change is that the meter layered a resource question ("can I afford this?") on
 top of the driving question ("should I be going this fast *here*?"), and the second one is the
@@ -2066,30 +2076,57 @@ press; this is what says the mode is *still on*, in the world — the pill's own
 ## The burger run
 
 **Tap the burger joint.** The taxi drives itself round to the drive-through, crawls the lane, stops
-at the menu board and again at the pickup window, and comes back out onto the road.
+at the menu board and again at the pickup window, and comes back out onto the road. It costs **$10**
+off the run's cash (`BURGER_PRICE`, `game/fares.js`), taken at the window on the frame the order is
+handed over.
 
-**It currently pays nothing.** The reward was 15% of a tank of nitro — 2.25 seconds of boost, the
-smallest top-up in the game and the only one that was not paid for a job — and the tank is gone
-([the refill animation](#the-refill-animation-and-why-there-isnt-one-any-more)). Everything below
-about the trade being finely balanced was written against that 2.25s and no longer holds: with no
-payout at the window, the lap is pure cost. It wants a new reward before this ships.
+**And it currently pays nothing back.** The reward was 15% of a tank of nitro — 2.25 seconds of
+boost, the smallest top-up in the game and the only one the player bought rather than earned — and
+the tank is gone ([the refill animation](#the-refill-animation-and-why-there-isnt-one-any-more)).
+Everything below about the trade being finely balanced was written against that 2.25s: with the
+tenner still leaving and nothing arriving, the secret is now a pure cost, and the argument for
+charging for it (below) argues for a purchase that no longer happens. It wants a new reward before
+this ships.
 
 It is a secret rather than a mechanic, and everything about it is sized to keep it one. Nothing on
-screen advertises it, nothing in the tutorial mentions it, and the reward is small enough that a
-player who finds it has found a treat rather than a strategy. What it costs is **time on whatever
-clock is already running**: the rider in the back keeps counting down the whole way there, through
-both windows and back out again. Measured tap to kerb, the trip is **12s** when the taxi is already
-coming down the joint's own street, **28s** for a lap of the block, and **38s** from the far side of
-the city. Against 2.25s of boost that was a bad trade taken on purpose and a good one when the taxi
-was going that way anyway, which was the whole of the decision on offer — see the note above about
-what is left of it.
+screen advertises it, nothing in the tutorial mentions it, and the reward was small enough that a
+player who found it had found a treat rather than a strategy. What it costs is that tenner and
+**time on whatever clock is already running**: the rider in the back keeps counting down the whole
+way there, through both windows and back out again. Measured tap to kerb, the trip is **12s** when
+the taxi is already coming down the joint's own street, **28s** for a lap of the block, and **38s**
+from the far side of the city. Against 2.25s of boost that was a bad trade taken on purpose and a
+good one when the taxi was going that way anyway, which was the whole of the decision on offer —
+see the note above about what is left of it.
 
-Nothing refuses the tap. A rider in the back does not refuse it, and
-no clock is consulted first — the same rule [a package detour](#what-the-detour-actually-costs)
-follows, for the same reason: it is the player's call, and the band redraws through the joint on the
-same frame so the cost is visible before a wheel has turned. Tapping a rider, tapping a package, or picking a rider off a
-finder chip all take the wheel back, and the burger is off — silently, because the player has just
-said what they want instead.
+**Why it was not free.** It was, once, and free made it a strictly-better detour after the first
+find: the only price was a clock the player was already spending, so every tap taken on a route that
+passed the joint was pure profit and the decision stopped being one. Ten dollars is about half a
+median fare early in a run and loose change by the last shift, which is the right way round — the
+tank was worth most when the multiplier was small, and so is the money. It deliberately does **not**
+scale with the multiplier: the tank it bought was a flat 2.25 seconds at every point in the run, and
+a price that climbed would quietly have made the same purchase worse for no reason on screen. (All
+of which is an argument about a purchase; with the tank gone it is an argument for a charge with
+nothing on the other side of it.)
+
+**The counter goes down, visibly.** The charge takes the payout's own flight in reverse sign — a red
+`−$10` rises off the taxi, flies to the counter, and the total *rolls* down and bumps red when it
+lands (see [Economy](#economy)). Digits dropping on their own is the exact side effect the two-phase
+flight exists to prevent, and it does not become acceptable because the number is going the other
+way. (A boost bit used to fly to the pill on the same frame, so a player who read neither number
+still saw one thing bought with another. That half is gone.)
+
+**An empty till is not refused; it is emptied.** A run's cash is its score — the counter prints it,
+the run-end card prints it as "Cash", the score table sorts on it — and none of the three has any
+idea what a negative total means, so a player who taps the joint on $4 pays $4. Debt is not a thing
+this game has, and the secret is not the place to introduce it.
+
+Nothing refuses the tap. A rider in the back does not refuse it, an empty till does not refuse it,
+and no clock is consulted first — the same rule
+[a package detour](#what-the-detour-actually-costs) follows, for the same reason: it is the player's
+call, and the band redraws through the joint on the same frame so the cost is visible before a wheel
+has turned. Tapping a rider, tapping a package, or picking a rider off a finder chip all take the
+wheel back, and the burger is off — silently, because the player has just said what they want
+instead.
 
 **The destination is a lane, not a junction.** The lot can only take a car off one kerbside lane —
 the one running −X along the block's +Z edge — so a route planned to the junction at either end of
@@ -2101,6 +2138,14 @@ first one arrives on and a U-turn is not a legal exit: the router answers with a
 reaches the right corner from the wrong side. See
 [the drive-through](traffic.md#the-players-own-visit) for what happens once the taxi is in the lot,
 and `game/burgerrun.js` for the trip.
+
+That has a tail the player can see: a lane is driven to its *end*, and the trip ends at the
+driveway part-way down it. Drawn literally, the route band ran on to the junction the lane leaves —
+**13.7 units past the joint**, three-quarters of a block of paint pointing down an empty road at
+nothing, which reads as the tap having aimed at the wrong thing. So the target the taxi is sent at
+carries an `endAt` point as well as its junction, and `routePath` (`game/routeline.js`) trims the
+drawn path to it. It is on the target rather than passed in so that the band, the drag's hit test
+and shot mode all get the same path without any of them knowing which kind of trip is running.
 
 Two consequences worth knowing:
 

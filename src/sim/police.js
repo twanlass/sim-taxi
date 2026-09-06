@@ -5,12 +5,14 @@ import { PALETTE, color } from '../palette.js';
 import {
   DIR, GRID_I, GRID_J, HALF_SPAN_X, HALF_SPAN_Z, PITCH, dirSign, isXAxis, laneOffX, laneOffZ,
   legalExits, lineX, lineZ,
+  entryPoint, exitPoint, turnControl,
   isSegmentClosed, nextIntersection, opposite,
 } from '../city/grid.js';
 import { deckHeightAt } from '../city/river.js';
 import { cityNetwork } from '../city/roadnet.js';
 import {
-  setPriorityCorridor, setPolicePresence, locoWeave, locoWheelie, isLaneClosed, sirenLaneAhead,
+  setPriorityCorridor, setPolicePresence, setPoliceRoads, locoWeave, locoWheelie, isLaneClosed,
+  sirenLaneAhead,
   locoWeaveFade, WHEELIE_DUR, ROAD_Y,
   wheelAnchors, wheelGeometries, wheelGeometry, steerToward, CHASSIS_LIFT,
 } from './traffic.js';
@@ -33,6 +35,53 @@ import {
 
 const SPEED = 19;
 const RUN_MARGIN = 26;          // how far off-map it starts and ends
+
+// --- The jog ----------------------------------------------------------------
+//
+// A corridor run used to be one straight line from one edge of the map to the other, which is the
+// whole of what a rail is: eight seconds with no decision anywhere in them, and the cruiser reads
+// as a tram more than as a car. So most runs now take a **one-block sidestep** — two corners
+// somewhere in the middle, a short leg across, and back onto the heading it started on, a road
+// over from where it was pointed.
+//
+// Deliberately no more than that, and deliberately planned before the run starts rather than
+// decided at each junction. Nothing here has collision response or queueing; what keeps that from
+// showing is the corridor holding the road *ahead* green and the lane clearing itself
+// (PULLOVER_* in traffic.js). Both of those need a road named in advance to work on, and a corner
+// is the one moment the road being cleared changes — so the two roads a jog uses are checked end
+// to end at `start()`, the same test the straight line already had to pass. Routing junction by
+// junction is the chase's job, and the chase is allowed to look reckless because it is supposed to.
+const JOG_CHANCE = 0.6;
+// Chords the corner arc is measured in. Enough of them is not about the arc's *length* — eight
+// chords are already inside a millimetre of that — it is about pacing the car along it.
+//
+// A quadratic Bezier's parameter is not its arc length. Both halves of this one are as long as the
+// junction is deep, but the entry leg carries the lane offset as well (`reach + laneOff` against
+// `reach`), so |B'| runs from 17.3 down to 8 across an arterial corner: driving `t` at a constant
+// rate takes the cruiser into the junction half as fast again as its own 19 and out of it at two
+// thirds. The chords carry a cumulative length and `t` is looked up against a distance instead, so
+// what is left is the |B'| variation *within* one chord — ~3% at 24 of them.
+const ARC_CHORDS = 24;
+// Half-width of the finite difference `arcScale` measures the dodge's cost over. Small against the
+// arc, large against a float.
+const ARC_PROBE = 0.05;
+
+/** Quadratic Bezier through the same three points every ambient car turns on. */
+const bezierAt = (a, b, c, t) => {
+  const u = 1 - t;
+  return {
+    x: u * u * a.x + 2 * u * t * b.x + t * t * c.x,
+    z: u * u * a.z + 2 * u * t * b.z + t * t * c.z,
+  };
+};
+/** ...and its tangent, which is the heading: exactly dIn at t = 0 and exactly dOut at t = 1. */
+const bezierTangent = (a, b, c, t) => {
+  const u = 1 - t;
+  return {
+    x: 2 * (u * (b.x - a.x) + t * (c.x - b.x)),
+    z: 2 * (u * (b.z - a.z) + t * (c.z - b.z)),
+  };
+};
 
 // --- Squeezing past its own lane ---------------------------------------------
 //
@@ -319,6 +368,12 @@ export function createPolice(rng, scene, cars = []) {
     line: 0,
     dir: 1,
     s: 0,
+    // The sidestep. `plan` holds the corners still to come on this run — each one a junction and
+    // the direction to leave it on — and `corner` is the arc being driven, null on a straight.
+    // Both are cleared by a chase: routing then belongs to turnAt(), which is a different problem.
+    plan: [],
+    corner: null,
+    turns: 0,            // corners taken, published so the probe can assert a run actually jogs
     cooldown: rng.range(5, 12),
     // Seconds between corridor runs, as a range to draw from. Pushed in by main.js off the
     // difficulty curve — `sim/` must not import from `game/`, so the pressure arrives here the
@@ -383,6 +438,70 @@ export function createPolice(rng, scene, cars = []) {
    * ~8s a corridor takes to cross the map. What this cannot catch is a zone rising *during* a run
    * already under way, which is why roadwork.js declines to place one on a live siren's road.
    */
+  /** One segment out of (i, j) along d: on the map, not built over by a park, not dug up. */
+  const hopClear = (d, i, j) => Boolean(nextIntersection(d, i, j))
+    && !isSegmentClosed(i, j, d) && !exitDug(d, i, j);
+
+  /** ...and every segment from (i, j) along d to the edge of the map. */
+  const runClear = (d, i, j) => {
+    let at = { i, j };
+    for (let next = nextIntersection(d, at.i, at.j); next; next = nextIntersection(d, at.i, at.j)) {
+      if (!hopClear(d, at.i, at.j)) return false;
+      at = next;
+    }
+    return true;
+  };
+
+  /**
+   * The two corners of a one-block sidestep, or null if there is nowhere to put one.
+   *
+   * Both are at the same junction index along the run: turn off at `k`, cross the one block to the
+   * neighbouring road, turn straight back onto the original heading. So the run still enters at one
+   * edge of the map and leaves by the opposite one — the only thing that moves is which road it
+   * spends its second half on.
+   *
+   * `k` keeps a block of straight either side. At the ends of the range the first corner is either
+   * off the slab or on the last junction of the map, and a run that turns as it arrives or as it
+   * leaves reads as a spawn pointed crooked rather than as a car taking a detour.
+   *
+   * Everything the jog will drive is checked here, once, against the same two closures
+   * `lineIsClear` tests — a park district and a roadworks zone (which is also how the drawbridge
+   * announces itself: it shuts its two lanes through the same set). It has to be up front. The
+   * corridor is what clears the road ahead of a car with no collision response at all, and a
+   * corner it discovers mid-run is a corner with a green it has not paid for.
+   */
+  const planJog = (axis, line, dir) => {
+    const count = junctionsAlong(axis);
+    const lo = 1;
+    const hi = count - 1;
+    if (hi < lo) return null;
+    const hands = rng.chance(0.5) ? [1, -1] : [-1, 1];
+    const first = rng.int(lo, hi);
+    for (let n = 0; n <= hi - lo; n++) {
+      const k = lo + ((first - lo + n) % (hi - lo + 1));
+      for (const hand of hands) {
+        const toLine = line + hand;
+        if (toLine < 0 || toLine > topLineOn(axis)) continue;
+        // `line` names a j while the run is along X and an i while it is along Z, so the road it
+        // steps across is the *other* axis's, and the junction it steps from is (k, line) read the
+        // same way round.
+        const cross = axis === 'x'
+          ? (hand > 0 ? DIR.PZ : DIR.NZ)
+          : (hand > 0 ? DIR.PX : DIR.NX);
+        const back = axis === 'x'
+          ? (dir > 0 ? DIR.PX : DIR.NX)
+          : (dir > 0 ? DIR.PZ : DIR.NZ);
+        const at = (l, m) => (axis === 'x' ? { i: m, j: l } : { i: l, j: m });
+        const off = at(line, k);
+        const on = at(toLine, k);
+        if (!hopClear(cross, off.i, off.j)) continue;
+        if (!runClear(back, on.i, on.j)) continue;
+        return [{ ...off, dOut: cross }, { ...on, dOut: back }];
+      }
+    }
+    return null;
+  };
+
   const lineIsClear = (axis, line) => {
     for (let k = 0; k < junctionsAlong(axis); k++) {
       const closed = axis === 'x' ? isSegmentClosed(k, line, 0) : isSegmentClosed(line, k, 1);
@@ -392,6 +511,23 @@ export function createPolice(rng, scene, cars = []) {
     }
     return true;
   };
+
+  /**
+   * Publish every road this run will use: the leg it is on, then whatever the plan has left.
+   *
+   * Not the same list as the priority corridor, which is one road because it is one set of lights
+   * and holding two would stop the cross traffic on a road the cruiser has not reached. This one
+   * is read by the systems that *close* a road — roadworks and the drawbridge — and they have to
+   * know about a corner before it is taken, not as it is.
+   */
+  function publishRoads() {
+    setPoliceRoads([
+      { axis: state.axis, line: state.line },
+      ...state.plan.map(({ i, j, dOut }) => (isXAxis(dOut)
+        ? { axis: 'x', line: j }
+        : { axis: 'z', line: i })),
+    ]);
+  }
 
   function start() {
     let axis = null;
@@ -410,6 +546,12 @@ export function createPolice(rng, scene, cars = []) {
     state.s = state.dir > 0 ? -half - RUN_MARGIN : half + RUN_MARGIN;
     state.dodge = 0;
     state.dodgeRate = 0;
+    state.corner = null;
+    // Drawn whether or not the jog is wanted, so switching JOG_CHANCE moves how often a run bends
+    // and not which roads every later run picks.
+    const jogging = rng.chance(JOG_CHANCE);
+    state.plan = (jogging && planJog(axis, line, state.dir)) || [];
+    if (state.plan.length) state.plan[0].at = cornerStart(state.plan[0]);
     state.active = true;
     state.lit = true;      // siren from the spawn frame; the bust waits for BUST_ARM_INSET
     state.runs += 1;
@@ -424,6 +566,7 @@ export function createPolice(rng, scene, cars = []) {
     state.prevX = group.position.x;
     state.prevZ = group.position.z;
     setPriorityCorridor({ axis: state.axis, line: state.line });
+    publishRoads();
   }
 
   /**
@@ -482,22 +625,168 @@ export function createPolice(rng, scene, cars = []) {
     const ahead = sirenLaneAhead(cars, {
       axis: state.axis, line: state.line, dir: state.dir, s: state.s,
     });
-    const want = state.uturn === null && ahead < DODGE_LOOK ? DODGE_LATERAL : 0;
+    // Not mid-corner, for the same reason as mid-U-turn: the manoeuvre is a *lane* offset, and
+    // inside a junction box there is no lane to be beside. What is suppressed is it *growing* —
+    // the offset already on the car keeps being applied and keeps decaying, so the arc is joined
+    // with no step at either end. Coming off it on the approach instead was tried and is worse:
+    // straightening up 12 units out leaves the cruiser square in its lane for the last half second
+    // before a junction, which is exactly where the queue it was squeezing past is standing. Same
+    // seeds and same draws, one constant apart: 27 frames inside a driving body against 14.
+    const want = state.uturn === null && state.corner === null && ahead < DODGE_LOOK
+      ? DODGE_LATERAL : 0;
     const prev = state.dodge;
     state.dodge += (want - state.dodge) * Math.min(1, dt * DODGE_EASE);
     state.dodgeRate = dt > 1e-6 ? (state.dodge - prev) / dt : 0;
   }
 
+  /**
+   * Write a pose to the mesh. Split out of `place()` because the corner arc needs the same
+   * treatment and gets its position from somewhere else entirely.
+   *
+   * The height is the bridge. The corridor runs a whole line end to end and **every** road running
+   * along Z crosses the river, so without this the cruiser drives through an arched deck on any run
+   * that picks one — and declining the crossing lines is not an option when they all cross.
+   */
+  function poseAt(x, z, yaw) {
+    group.position.set(x, ROAD_Y + deckHeightAt(x, z).y, z);
+    group.rotation.y = yaw;
+  }
+
   function place() {
     const p = railPoint();
-    // Over a bridge. The corridor runs a whole line end to end and **every** road running along Z
-    // crosses the river, so without this the cruiser drives through an arched deck on any run that
-    // picks one — and declining the crossing lines is not an option when they all cross.
-    group.position.set(p.x, ROAD_Y + deckHeightAt(p.x, p.z).y, p.z);
-    group.rotation.y = railHeading();
+    poseAt(p.x, p.z, railHeading());
+  }
+
+  // --- The jog's corners ------------------------------------------------------
+  //
+  // A corridor corner is driven, not snapped. The chase turns its rail square and lets
+  // CHASE_SMOOTH bend the drawn car round it, which works because a chase is meant to look like a
+  // car being thrown at a corner; at corridor speed the same trick leaves the cruiser cutting
+  // across the junction on a lag it never recovers. So the two corners of a jog are the exact
+  // quadratic Bezier every ambient car turns on — entryPoint to exitPoint about turnControl — and
+  // the arc joins the two straights with no discontinuity in either position or heading, because
+  // its ends *are* the two lane centrelines the rail already sits on.
+
+  /** Where on the current leg the corner at this junction begins: its entry into the box. */
+  const cornerStart = ({ i, j }) => {
+    const e = entryPoint(railDir(), i, j);
+    return state.axis === 'x' ? e.x : e.z;
+  };
+
+  /**
+   * A point on the arc, dodge and all — which is to say the point the car is actually drawn at.
+   *
+   * The dodge means one thing everywhere, which is what lets it survive a corner that has no axis
+   * of its own: right-hand traffic puts the centreline on the driver's left, and left of a heading
+   * is (-sin yaw, -cos yaw). On a straight that reduces exactly to the `- dodge` term in
+   * railPoint(), so the offset is continuous into the arc and out of it.
+   */
+  function arcPoint(arc, t) {
+    const p = bezierAt(arc.e, arc.c, arc.x, t);
+    const v = bezierTangent(arc.e, arc.c, arc.x, t);
+    const yaw = Math.atan2(-v.z, v.x);
+    return { x: p.x - Math.sin(yaw) * state.dodge, z: p.z - Math.cos(yaw) * state.dodge, yaw };
+  }
+
+  /**
+   * How much further the drawn car travels than the arc underneath it, here.
+   *
+   * An offset curve is not the same length as the curve it is offset from — it is `1 - w·k` of it,
+   * for an offset `w` and a curvature `k`. That is a rounding error on a straight and is not one
+   * here: a **right** turn's arc is 3.25 units long, its two Bezier legs being `reach - laneOff`
+   * apart where a left turn's are `reach + laneOff`, so 0.9 of dodge still on the car is an
+   * appreciable fraction of the radius it is turning on. Paced off the arc, the cruiser covered
+   * 0.54 units in a frame — 32 units/s of ground, against the 0.32 and 19 the rail can produce.
+   *
+   * Taken as a finite difference rather than as a curvature, because the offset point is already
+   * written and its derivative is not.
+   */
+  function arcScale(arc, driven) {
+    if (state.dodge < 1e-6) return 1;
+    const lo = Math.max(0, driven - ARC_PROBE);
+    const hi = Math.min(arc.len, driven + ARC_PROBE);
+    if (hi - lo < 1e-6) return 1;
+    const a = arcPoint(arc, arcT(arc, lo));
+    const b = arcPoint(arc, arcT(arc, hi));
+    return Math.hypot(b.x - a.x, b.z - a.z) / (hi - lo);
+  }
+
+  function poseOnArc() {
+    const p = arcPoint(state.corner, state.corner.t);
+    poseAt(p.x, p.z, p.yaw);
+  }
+
+  /**
+   * Drive `dist` further round the corner, and back onto the rail if that runs out of arc.
+   *
+   * The leftover is carried through rather than dropped: at 19 units/s a discarded remainder costs
+   * up to a third of a unit of travel at every corner, which is the same book-keeping the chase
+   * does at turnAt().
+   */
+  /** The curve parameter `dist` units along the arc, off the chord table `beginTurn` built. */
+  const arcT = ({ cum }, dist) => {
+    let n = 1;
+    while (n < ARC_CHORDS && cum[n] < dist) n += 1;
+    const span = cum[n] - cum[n - 1];
+    return (n - 1 + (span > 1e-9 ? (dist - cum[n - 1]) / span : 0)) / ARC_CHORDS;
+  };
+
+  function advanceCorner(dist) {
+    const arc = state.corner;
+    // `dist` is ground the car covers; what advances is the arc underneath it.
+    const rail = dist / arcScale(arc, arc.driven);
+    const remain = arc.len - arc.driven;
+    if (rail < remain) {
+      arc.driven += rail;
+      arc.t = arcT(arc, arc.driven);
+      poseOnArc();
+      return;
+    }
+    state.corner = null;
+    state.s = arc.out + state.dir * (rail - remain);
+    place();
+  }
+
+  /**
+   * Start the corner at (i, j) leaving on `dOut`, carrying `over` units of this frame's step into
+   * it.
+   *
+   * The rail commits to the new leg **here**, at the mouth of the junction, rather than at the far
+   * end of the arc. Both of the things that keep the cruiser from driving through anybody are
+   * published off that leg — the corridor turns the lights on the road it is entering, and
+   * `setPolicePresence` is what the cars on it read to pull over — and neither is worth anything
+   * arriving half a second after the car does.
+   */
+  function beginTurn({ i, j, dOut }, over) {
+    const dIn = railDir();
+    const e = entryPoint(dIn, i, j);
+    const c = turnControl(dIn, dOut, i, j);
+    const x = exitPoint(dOut, i, j);
+    const cum = [0];
+    let prev = e;
+    for (let n = 1; n <= ARC_CHORDS; n++) {
+      const q = bezierAt(e, c, x, n / ARC_CHORDS);
+      cum.push(cum[n - 1] + Math.hypot(q.x - prev.x, q.z - prev.z));
+      prev = q;
+    }
+    state.corner = {
+      e, c, x, cum, len: cum[ARC_CHORDS], out: isXAxis(dOut) ? x.x : x.z, driven: 0, t: 0,
+    };
+    state.axis = isXAxis(dOut) ? 'x' : 'z';
+    state.dir = dirSign(dOut);
+    state.line = isXAxis(dOut) ? j : i;
+    state.turns += 1;
+    setPriorityCorridor({ axis: state.axis, line: state.line });
+    publishRoads();
+    advanceCorner(over);
+    // The next corner is measured along the leg this one just committed to, so it cannot be
+    // worked out until the commit above has happened.
+    if (state.plan.length) state.plan[0].at = cornerStart(state.plan[0]);
   }
 
   function stop() {
+    state.corner = null;
+    state.plan.length = 0;
     lights.redLamp.intensity = 0;
     lights.blueLamp.intensity = 0;
     state.active = false;
@@ -506,6 +795,7 @@ export function createPolice(rng, scene, cars = []) {
     group.visible = false;
     setPriorityCorridor(null);
     setPolicePresence(null);
+    setPoliceRoads([]);
     state.cooldown = rng.range(state.cooldownRange[0], state.cooldownRange[1]);
   }
 
@@ -570,11 +860,18 @@ export function createPolice(rng, scene, cars = []) {
     state.line = isXAxis(best) ? j : i;
     state.s = isXAxis(best) ? lineX(i) : lineZ(j);
     setPriorityCorridor({ axis: state.axis, line: state.line });
+    publishRoads();
   }
 
   /** Give up the corridor run and hunt this car down. Called from the bust in main.js. */
   function chase(quarry) {
     if (!state.active || state.chasing || state.arrived) return;
+    // Whatever the run was going to do with itself stops mattering the moment it has a quarry.
+    // Dropping a corner mid-arc is safe because the rail underneath it is already the outgoing
+    // leg — the chase picks that leg up and eases the drawn car onto it, which is what it does at
+    // every corner of its own anyway.
+    state.corner = null;
+    state.plan.length = 0;
     state.chasing = true;
     state.quarry = quarry;
     state.elapsed = 0;
@@ -600,11 +897,15 @@ export function createPolice(rng, scene, cars = []) {
     // junction and taking three sides of a block to come back. This is the beat that sells the
     // lock-on, so it is worth the special case.
     if (state.dir * (quarryOnRail().along - state.s) < -UTURN_BEHIND) {
-      state.uturnYaw0 = railYaw();     // recorded before the flip; the sweep runs from here
+      // Taken off the drawn nose rather than railYaw(), so the sweep starts from where the car is
+      // actually pointing. On a straight the two agree to within the dodge's tilt; coming out of a
+      // jog corner they need not, and the sweep is assigned raw.
+      state.uturnYaw0 = group.rotation.y;
       state.uturn = 0;
       state.dir = -state.dir;
     }
     setPriorityCorridor({ axis: state.axis, line: state.line });
+    publishRoads();
   }
 
   function arrive() {
@@ -817,14 +1118,22 @@ export function createPolice(rng, scene, cars = []) {
 
     if (state.chasing) {
       driveChase(dt);
+    } else if (state.corner) {
+      advanceCorner(SPEED * dt);
     } else {
       state.s += state.dir * SPEED * dt;
-      const half = halfSpanAlong(state.axis);
-      const past = state.dir > 0
-        ? state.s > half + RUN_MARGIN
-        : state.s < -half - RUN_MARGIN;
-      if (past) { stop(); return; }
-      place();
+      const turn = state.plan[0];
+      if (turn && state.dir * (state.s - turn.at) >= 0) {
+        state.plan.shift();
+        beginTurn(turn, Math.abs(state.s - turn.at));
+      } else {
+        const half = halfSpanAlong(state.axis);
+        const past = state.dir > 0
+          ? state.s > half + RUN_MARGIN
+          : state.s < -half - RUN_MARGIN;
+        if (past) { stop(); return; }
+        place();
+      }
     }
 
     // A chase is already past the bust it was armed for, and it can be routed anywhere on the map

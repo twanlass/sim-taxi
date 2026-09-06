@@ -409,8 +409,21 @@ export function setPolicePresence(next) {
   policePresence = next;
 }
 
-/** The road a live siren is on, for the things outside the sim that have to stay off it. */
-export const policeRoad = () => policePresence;
+// Every road a live run will use — the leg the cruiser is on first, then the legs a jog still has
+// ahead of it. Separate from the presence above, which is one road because it is one *car*.
+//
+// The things outside the sim that have to stay off a siren's road were reading the presence for
+// this, which was the same answer for as long as a run was a straight line. It stopped being one:
+// a zone or a raised drawbridge on the second half of a jog is a hole the run drove into a corner
+// and only then found, and the corner is already committed by the time the current leg names it.
+let sirenRoads = [];         // [{ axis: 'x' | 'z', line: number }]
+
+export function setPoliceRoads(next) {
+  sirenRoads = next ?? [];
+}
+
+/** The roads a live run covers, for the things outside the sim that have to stay off them. */
+export const policeRoads = () => sirenRoads;
 
 // Cars on the police car's own road react as it approaches: swerve outward toward the kerb,
 // wobble in yaw, dip the throttle. The siren straddles the centreline at ~2× traffic speed, so

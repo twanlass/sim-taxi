@@ -30,7 +30,7 @@ import {
 import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, setPriorityCorridor, policeRoads, setPoliceRoads, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -45,7 +45,7 @@ import {
 } from '../src/game/sirenglow.js';
 import {
   createFareSystem, cornerFor, cornerSeen, intersectionCentre, blockDistance, priceFor, MAX_FARES,
-  ARRIVE_RADIUS, onSameBlock, CURSE_LIFT,
+  ARRIVE_RADIUS, onSameBlock, CURSE_LIFT, BURGER_PRICE,
 } from '../src/game/fares.js';
 import { createCurseBubble, TAIL_DROP } from '../src/geometry/cursebubble.js';
 import {
@@ -1429,6 +1429,133 @@ check('no two cars occupy the same space', worst > 1.6,
   check('traffic still flows with corridors active',
     pTraffic.stats.distance / pTraffic.stats.time / pTraffic.cars.length > 1,
     `${(pTraffic.stats.distance / pTraffic.stats.time / pTraffic.cars.length).toFixed(2)} units/s per car`);
+
+  // The corridor is a module global in traffic.js, and this block stops on whatever frame 240s
+  // lands on — which is as likely as not to be mid-run. Left held, every later section in this
+  // file runs its city with one road permanently green and every crossing road permanently red:
+  // couriers never delivered, cars indicated for turns they were being held out of, and one
+  // junction with a 300-second queue on it. None of those name the police anywhere.
+  setPriorityCorridor(null);
+  setPoliceRoads([]);
+}
+
+// --- The corridor's jog -----------------------------------------------------
+// Most runs step one block sideways somewhere in the middle: two corners and a short leg across,
+// so the cruiser still enters at one edge of the map and leaves by the opposite one but spends
+// its second half on a different road. The shape is asserted rather than the roads, because which
+// roads are clear is the city's business — what has to hold on every seed is that a jog is a
+// *detour* and not a different run.
+{
+  const jScene = new THREE.Scene();
+  const jTraffic = createTraffic(makeRng(seed + 44), jScene, 24);
+  const jPolice = createPolice(makeRng(seed + 66), jScene, jTraffic.cars);
+
+  // Distance from a point to the nearest road centreline, on whichever axis is closer. A car in
+  // its lane sits a lane offset out; a car inside a junction box is within the widest half-road.
+  const offCentre = (x, z) => {
+    let dx = Infinity;
+    let dz = Infinity;
+    for (let i = 0; i <= GRID_I; i++) dx = Math.min(dx, Math.abs(x - lineX(i)));
+    for (let j = 0; j <= GRID_J; j++) dz = Math.min(dz, Math.abs(z - lineZ(j)));
+    return Math.min(dx, dz);
+  };
+
+  let runs = 0;
+  let jogged = 0;
+  let straight = 0;
+  let badShape = 0;
+  let shortRuns = 0;
+  let corridorAdrift = 0;
+  let roadsAdrift = 0;
+  let worstOff = 0;
+  let worstYaw = 0;
+  // The corner has to cost the car nothing: what it may not do is cover more ground per frame than
+  // the same run does on its own straights. Compared against each other rather than against a
+  // constant, because the two *are* the same speed — see arcScale() in police.js for the two ways
+  // that came apart.
+  let straightStep = 0;
+  let cornerStep = 0;
+  let cornerLock = 0;
+  let began = null;
+  let prev = null;
+
+  for (let step = 0; step < 900 * 60; step++) {
+    const was = jPolice.state.active;
+    jPolice.update(1 / 60);
+    jTraffic.update(1 / 60);
+    const st = jPolice.state;
+
+    if (st.active && !was) {
+      began = { axis: st.axis, line: st.line, dir: st.dir };
+      prev = null;
+    }
+    if (st.active) {
+      const p = jPolice.group.position;
+      if (prev) {
+        const d = Math.hypot(p.x - prev.x, p.z - prev.z);
+        if (st.corner) cornerStep = Math.max(cornerStep, d);
+        else straightStep = Math.max(straightStep, d);
+        const raw = jPolice.group.rotation.y - prev.y;
+        worstYaw = Math.max(worstYaw, Math.abs(Math.atan2(Math.sin(raw), Math.cos(raw))));
+      }
+      prev = { x: p.x, z: p.z, y: jPolice.group.rotation.y };
+
+      if (st.corner) cornerLock = Math.max(cornerLock, Math.abs(st.wheelAngle));
+      // Only over the slab: a run spawns and dies RUN_MARGIN off the edge of the map, where there
+      // is no road to be near the centreline of.
+      if (Math.abs(st.s) <= (st.axis === 'x' ? HALF_SPAN_X : HALF_SPAN_Z)) {
+        worstOff = Math.max(worstOff, offCentre(p.x, p.z));
+      }
+
+      // The lights and the roads both follow the leg, every frame of it. A corner that turned the
+      // car without turning the corridor is a cruiser crossing a road that still has a green.
+      const c = getPriorityCorridor();
+      if (!c || c.axis !== st.axis || c.line !== st.line) corridorAdrift += 1;
+      const roads = policeRoads();
+      if (roads.length !== st.plan.length + 1
+        || roads[0].axis !== st.axis || roads[0].line !== st.line) roadsAdrift += 1;
+    }
+
+    if (!st.active && was) {
+      runs += 1;
+      if (st.turns === 0) straight += 1;
+      else {
+        jogged += 1;
+        // Two corners, back onto the axis and the direction it set out on, one road over.
+        if (st.turns !== 2 || st.axis !== began.axis || st.dir !== began.dir
+          || Math.abs(st.line - began.line) !== 1) badShape += 1;
+      }
+      // It still leaves by the far edge rather than stopping somewhere in the middle: `s` ends
+      // past the map on the side it was heading for.
+      if (st.dir * st.s <= 0) shortRuns += 1;
+      st.turns = 0;
+    }
+  }
+
+  check('corridor runs both jog and run straight', jogged > 0 && straight > 0,
+    `${jogged} jogged, ${straight} straight, of ${runs}`);
+  check('a jog is two corners onto the neighbouring road', badShape === 0,
+    `${badShape} of ${jogged} came out somewhere else`);
+  check('and the run still crosses the map', shortRuns === 0, `${shortRuns} of ${runs} stopped short`);
+  check('the corridor follows the leg the cruiser is on', corridorAdrift === 0 && roadsAdrift === 0,
+    `${corridorAdrift} corridor frames, ${roadsAdrift} road-list frames adrift`);
+  check('a corner never covers more ground than a straight', cornerStep < straightStep * 1.05,
+    `${cornerStep.toFixed(3)} against ${straightStep.toFixed(3)} units a frame`);
+  // Same bound as the chase's: the eased nose there peaks at 13.3°/frame.
+  check('the corridor nose never snaps round', worstYaw < 0.28,
+    `fastest yaw ${(worstYaw * 180 / Math.PI).toFixed(1)}°/frame`);
+  // The arc is the same quadratic Bezier an ambient car turns on, so it stays inside the junction
+  // box: the widest half-road is HALF_ARTERIAL, 5.33.
+  check('the arc keeps the cruiser on the asphalt', worstOff < 4.4,
+    `furthest off a centreline ${worstOff.toFixed(2)}`);
+  // The wheels are where a corner shows on a car with no suspension roll of its own, and they are
+  // wired to the *drawn* pose — so a corner that only moved the rail would read here as a flat
+  // zero. The straight is asserted separately, in the chase block below.
+  check('and the front wheels turn through it', cornerLock > 0.3,
+    `${(cornerLock * 180 / Math.PI).toFixed(0)}° peak lock in the arc`);
+
+  setPriorityCorridor(null);
+  setPoliceRoads([]);
 }
 
 // --- The fare's travelling clock --------------------------------------------
@@ -6287,7 +6414,12 @@ check('the taxi is an ordinary car in the traffic array',
     // Run it up to mid-city so there is room on every side for the quarry.
     for (let step = 0; step < 60 * 90; step++) {
       cPolice.update(1 / 60);
-      if (cPolice.state.active) corridorLock = Math.max(corridorLock, Math.abs(cPolice.state.wheelAngle));
+      // Before the run's first corner. A corridor run takes two of its own now (see the jog,
+      // above) and those steer for real — what this one is still about is the rail between them,
+      // and `!state.corner` alone would sample the half second the lock takes to unwind after one.
+      if (cPolice.state.active && cPolice.state.turns === 0) {
+        corridorLock = Math.max(corridorLock, Math.abs(cPolice.state.wheelAngle));
+      }
       if (cPolice.state.active && Math.abs(cPolice.state.s) < PITCH) break;
     }
     if (!cPolice.state.active) { failed = `${kase.name}: no run to chase from`; break; }
@@ -6391,7 +6523,7 @@ check('the taxi is an ordinary car in the traffic array',
   // The cruiser runs the same steerToward() as every car in traffic.js, so what is checked here is
   // that it is wired to a heading that actually moves — a corridor run alone would pass any
   // implementation, including one that never turned the wheels at all.
-  check('the cruiser holds its wheels straight down a corridor', corridorLock < 1e-6,
+  check('the cruiser holds its wheels straight down a corridor straight', corridorLock < 1e-6,
     `${(corridorLock * 180 / Math.PI).toFixed(1)}° peak on the rail`);
   check('the cruiser steers into the chase', chaseLock > 0.3 && Math.abs(rigLock - chaseLock) < 1e-9,
     `rig ${(rigLock * 180 / Math.PI).toFixed(0)}° vs model ${(chaseLock * 180 / Math.PI).toFixed(0)}°`);
@@ -11448,6 +11580,7 @@ let chopperOrder; // likewise
     let notHandedBack = 0;
     let overpaid = 0;
     let slowest = 0;
+    let worstBandEnd = 0;
 
     for (const job of jobs) {
       routeTo(job);
@@ -11455,6 +11588,17 @@ let chopperOrder; // likewise
       const before = paid;
       if (!run.send()) { refused += 1; continue; }
       trips += 1;
+
+      // ...and the band the player is looking at stops at the driveway. The route ends on a *lane*,
+      // and drawn to its end it ran on to the junction that lane leaves — 13.7 units past the thing
+      // that was tapped, which is three-quarters of a block of paint pointing down an empty road.
+      // Asserted on the drawn path rather than on the trim, because the trim is what was wrong.
+      {
+        const band = routePath(taxi, taxi.route);
+        const last = band[band.length - 1];
+        worstBandEnd = Math.max(worstBandEnd,
+          Math.hypot(last.x - site.entry.x, last.z - site.entry.z));
+      }
 
       let clock = 0;
       let entered = false;
@@ -11503,6 +11647,9 @@ let chopperOrder; // likewise
     check('...and the job the detour interrupted is put back under the car on the way out',
       notHandedBack === 0 && restored === trips,
       `${restored}/${trips} routes restored`);
+    check('...and the route band ends at the driveway rather than at the junction past it',
+      worstBandEnd < 1e-9,
+      `band finishes ${worstBandEnd.toFixed(2)} from the mouth at its worst`);
 
     // And the lot goes back to being a drive-through. A reservation that leaked would show up here
     // and nowhere else: the queue would simply never take another car for the rest of the run.
@@ -11511,6 +11658,31 @@ let chopperOrder; // likewise
     check('...and ambient cars pull in again once the taxi has gone',
       runLot.state.served() > servedBefore,
       `${runLot.state.served() - servedBefore} served in the five minutes after`);
+  }
+
+  // --- ...and what it costs at the window --------------------------------------------------------
+  //
+  // The burger is bought, not found: `BURGER_PRICE` comes off the run's cash on the same frame the
+  // boost is poured (main.js's `onServed`, which is the seam the reward has always used). What has
+  // to hold is that the till never goes red — a run's cash is its score, and the counter, the
+  // run-end card and the score table all print it — so a player who taps the joint on less than the
+  // price pays what they have and still gets their tank. Checked here rather than in the trips
+  // above because it is arithmetic on the fare loop's total, not anything the lot does.
+  {
+    const tillScene = new THREE.Scene();
+    const till = createFareSystem(makeRng(seed + 55), tillScene);
+    till.credit(BURGER_PRICE * 2 + 4);
+    const first = till.charge(BURGER_PRICE);
+    const second = till.charge(BURGER_PRICE);
+    // Third visit on $4: takes the $4, and the run is on zero rather than four dollars in debt.
+    const third = till.charge(BURGER_PRICE);
+    const fourth = till.charge(BURGER_PRICE);
+    check(`a burger costs the player $${BURGER_PRICE} at the window`,
+      first === BURGER_PRICE && second === BURGER_PRICE,
+      `$${first} then $${second} off a full till`);
+    check('...and an empty till is charged what it has and no more',
+      third === 4 && fourth === 0 && till.state.money === 0,
+      `$${third} of $${BURGER_PRICE} taken, then $${fourth}, run total $${till.state.money}`);
   }
 
   // --- Can the camera see the lane?

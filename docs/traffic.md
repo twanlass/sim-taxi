@@ -1757,12 +1757,13 @@ Three things the invitation changes, all of them at the mouth:
   ambient cars pull in again afterwards.
 - **There is no roll.** `ENTER_CHANCE` and `FED_COOLDOWN` are how ambient traffic decides; the tap
   is the decision, and the taxi is not put on the cooldown on the way out either. Doing laps of a
-  restaurant is a choice the player is paying a fare's clock for.
+  restaurant is a choice the player is paying a fare's clock — and $10 a burger — for.
 - **It eats faster.** 0.6s at the board and 1.0s at the window, against 2.6 and 3.8 plus jitter. An
   ambient car's dwell is scenery and has to *read* from across the city; the player's is a clock
   they are paying. 1.6s of standing still out of the **8.0s** the lot takes end to end — measured
   mouth to kerb with the lane empty — is enough to make the visit read as a visit, and short enough
-  that it is not what the detour costs. What the detour costs is the driving either side of it.
+  that it is not what the detour costs. What the detour costs is the driving either side of it, and
+  the tenner that comes off the counter at the window.
 
 A wreck in the lot — the run ending while the player is at the window — stops where it is, and the
 queue behind it holds, because each car's limit comes from its leader's position.
@@ -1777,6 +1778,69 @@ being touched at all.
 It drives its **lane** — right-hand traffic, one `LANE` off the road centreline — at `SPEED = 19`
 (about twice traffic). It skips the lane-following and collision machinery entirely, so it never
 queues behind anyone. A red/blue point light rides with it.
+
+### The jog
+
+A run used to be one straight line from one edge of the map to the other, which is the whole of
+what a rail is: eight seconds with no decision anywhere in them, and the cruiser reading as a tram
+rather than as a car. `JOG_CHANCE` of runs now take a **one-block sidestep** — two corners at the
+same junction index somewhere in the middle, a short leg across, and back onto the heading it set
+out on, one road over from where it was pointed. It still enters at one edge and leaves by the
+opposite one; the only thing that moves is which road it spends its second half on. Measured over
+152 runs on 8 seeds: 80 jogged, every one of them two corners onto the neighbouring road, and none
+stopped short of the far edge.
+
+**Planned before the run starts, not decided at each junction.** Nothing here has collision
+response or queueing; what keeps that from showing is the corridor holding the road *ahead* green
+and the lane clearing itself. Both need a road named in advance, and a corner is the one moment the
+road being cleared changes — so both roads a jog uses are checked end to end at `start()`, against
+the same closures the straight line already had to pass. Routing junction by junction is
+[the chase](#the-bust-chase)'s job, and the chase is allowed to look reckless because it is
+supposed to.
+
+**The corner is driven, not snapped.** The chase turns its rail square and lets `CHASE_SMOOTH` bend
+the drawn car round it, which works because a chase is meant to look like a car being thrown at a
+corner; at corridor speed the same trick has the cruiser cutting across the junction on a lag it
+never recovers. So a jog's corner is the exact quadratic Bezier every ambient car turns on —
+`entryPoint` to `exitPoint` about `turnControl` — and it joins the two straights with no
+discontinuity in position *or* heading, because its two ends **are** the lane centrelines the rail
+already sits on. Two things fall out of it that did not look like they would:
+
+- **A quadratic Bezier's parameter is not its arc length.** Both of this one's legs are as long as
+  the junction is deep, but the entry leg carries the lane offset as well (`reach + laneOff`
+  against `reach`), so `|B'|` runs 17.3 down to 8 across an arterial corner. Driving `t` at a
+  constant rate takes the cruiser *into* the junction half as fast again as its own 19 and out of
+  it at two thirds. `ARC_CHORDS` carries a cumulative length and `t` is looked up against a
+  distance.
+- **The dodge makes the car drive a different curve from the arc.** An offset curve is `1 - w·k` of
+  the length of the curve it is offset from — a rounding error on a straight, and not one on a
+  **right** turn, whose arc is only 3.25 units long (its legs are `reach - laneOff` apart where a
+  left turn's are `reach + laneOff`), so 0.9 of dodge is an appreciable fraction of the radius. The
+  cruiser covered 0.54 units in a frame, 32 units/s of ground, against the 0.32 and 19 the rail can
+  produce. `arcScale()` paces the arc by the ground the car covers instead.
+
+  Coming off the dodge *before* the corner is the obvious alternative and is worse: it leaves the
+  cruiser square in its lane for the last half second before a junction, which is exactly where the
+  queue it was squeezing past is standing. Same seeds and same draws, one constant apart: 27 frames
+  inside a driving body against 14.
+
+**What a corner costs is warning.** `PULLOVER_RANGE` is 34 units and a jog's cross leg is 9-12, so
+the road turned onto has had only the corner's own length to get out of the way, and a car standing
+near its far junction is one the cruiser can still meet square. That is arithmetic rather than a
+measurement, and deliberately written as such: the probe's overlap counter is too coarse to
+separate it out. Reshuffling the cruiser's own rng with the jog switched off moves that number
+further than the jog does — 23 frames against 14 on the same three seeds — so the honest claim is
+the arithmetic, and the category is the one [the wreck](#the-wreck) and the junction boxes already
+leave standing.
+
+**The roads of a run are published, not just the leg it is on.** `policeRoads()` lists the current
+leg first and then whatever the plan has left. It is a different list from the priority corridor,
+which is one road because it is one set of lights and holding two would stop the cross traffic on a
+road the cruiser has not reached yet. What reads it is everything that *closes* a road — the
+roadworks placement veto and the drawbridge — and those have to know about a corner before it is
+taken. Reading the presence for this was the same answer for as long as a run was a straight line;
+it is not any more, and a leaf coming up under a committed corner is a cruiser driving through a
+raised bridge.
 
 ### Nothing crashes into it, so the lane has to clear
 
@@ -1856,15 +1920,25 @@ trees. A [roadworks closure](#the-closure-is-soft-and-that-is-not-a-shortcut) is
 ids in a set, nothing removed from the graph — so nothing stops a car that does not look, and the
 police car was that car: it drove through the barricades, the cones and the hole.
 
-It looks in three places now, one per way a cruiser can reach a dug-up street:
+It looks in four places now, one per way a cruiser can reach a dug-up street:
 
 - **Drawing a corridor.** `lineIsClear` walks the whole line and rejects it if any segment is
   closed, by a park or by a zone. Six of forty draws used to land on the closed line.
+- **Planning a jog.** `planJog` runs the same test over the segment it steps across and the whole
+  of the road it steps onto — `hopClear` and `runClear` — and gives up on that hand if either is
+  shut. It is the same check as the line's, applied to the roads a run has committed to but is not
+  on yet.
 - **Every junction of a chase.** `turnAt` filters dug exits out in a first pass — only a first
   pass, because a chase that found every exit closed should drive through the cones rather than
   abandon the bust over a traffic cone.
-- **Placing the zone.** `eligible` in `roadwork.js` declines an edge on a live siren's road, which
-  closes the one case the other two cannot: a zone rising underneath a run already in progress.
+- **Placing the zone.** `eligible` in `roadwork.js` declines an edge on any road of a live run —
+  `policeRoads()`, so the roads a jog has ahead of it as well as the one under it — which closes
+  the one case the others cannot: a zone rising underneath a run already in progress.
+
+The drawbridge comes through the same two doors and needs no case of its own: it shuts its span by
+putting two lane ids in the same closed set a zone uses, so `hopClear` sees it, and `sirenOnLine`
+in `drawbridge.js` reads `policeRoads()` rather than hold off only for the leg the cruiser is
+currently on.
 
 > Once fixed: the police car drove straight through a park. It now respects closed segments.
 
@@ -1999,15 +2073,19 @@ one. Measured across five seeds:
 
 | | p50 | max |
 |---|---|---|
-| corridor run | 0° | 0° |
+| corridor straight | 0° | 12.2° (the dodge) |
+| corridor corner | 28.2° | 34.2° (on the clamp) |
 | chase | 5.2° | 34° (on the clamp) |
 | U-turn | 25.8° | 33° |
 | parked after the arrest | 2.8° | 3.3° |
 
-The corridor run is a flat zero because it is a straight rail — which is exactly why the cruiser
-had no business having steered wheels before the chase existed. It also means the assertion that
-matters is the chase one: a corridor-only check would pass an implementation that never turned
-them at all.
+A corridor straight with nothing in its lane is a flat zero, which is exactly why the cruiser had
+no business having steered wheels before the chase existed. It is not the whole of a corridor run
+any more — [the jog](#the-jog) puts two real corners in most of them — but it is still not the
+assertion that matters, because it is satisfied by a car that never turns its wheels at all. That
+one is the chase's. The probe's corridor check is therefore taken **before the run's first
+corner**: `!state.corner` alone would sample the half second the lock takes to unwind after one,
+which peaks at 34° and is not a straight.
 
 **The banner waits for the arrest.** `BUST_BANNER_DELAY` is a floor, not the schedule — the retry
 screen holds until the cruiser stops, plus a beat. A park district can close the one road between

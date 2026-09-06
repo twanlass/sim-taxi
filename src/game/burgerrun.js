@@ -18,16 +18,18 @@ import { planOrigin } from './route.js';
 // is the obvious first try, silently answers about one trip in five with a lap that arrives at the
 // right corner from the wrong side.
 //
-// **It costs the clock it interrupts, and nothing else.** A rider in the back keeps counting down the
-// whole way there, through both windows and back out again. Measured end to end, tap to back on the
-// road (`tools/probe.mjs`): **12s** when the taxi is already coming down the joint's own street, 28s
-// for a lap of the block from the lane it was just spat out onto, 38s from the far side of the city.
-// That used to buy 2.25s of boost at the window (`BOOST_BURGER_REWARD`) — a bad trade taken on
-// purpose and a good one when the taxi was going past anyway, which was the whole of the decision
-// the secret was offering. **It now buys nothing:** nitro is not a resource (game/boost.js) and
-// nothing replaced the payout, so the lap is pure cost and the decision is gone with it. This wants
-// a new reward. Nothing here checks the clock before taking it either: same rule as the courier
-// detour, and for the same reason, it is the player's to make.
+// **It costs the clock it interrupts, and a tenner at the window, and pays nothing back.** A rider
+// in the back keeps counting down the whole way there, through both windows and back out again.
+// Measured end to end, tap to back on the road (`tools/probe.mjs`): **12s** when the taxi is
+// already coming down the joint's own street, 28s for a lap of the block from the lane it was just
+// spat out onto, 38s from the far side of the city — plus `BURGER_PRICE` off the run's cash.
+// That used to buy 2.25s of boost at the window (`BOOST_BURGER_REWARD`), which made it a bad trade
+// taken on purpose and a good one when the taxi was going past anyway: the whole of the decision
+// the secret was offering. Nitro is not a resource any more (game/boost.js) and nothing replaced
+// the payout, so **the window now takes and gives nothing** and the decision is gone with it. This
+// wants a new reward before it ships. Nothing here checks either cost before taking it: same rule
+// as the courier detour, and for the same reason, it is the player's to make. An empty till does
+// not refuse the tap either — see `charge` in game/fares.js for what a player on $4 pays.
 //
 // **Anything else the player aims the taxi at wins.** The run is abandoned the moment
 // `pendingTarget` stops being this module's own object — a tap on a rider or a package, a rider
@@ -75,9 +77,10 @@ const MAX_TRIES = 1;
  *                 plan (clearing `routeConsumed`, releasing `parked`, keeping `pendingTarget`'s
  *                 identity stable for the route band) is load-bearing for a route that replaces one
  *                 already part-driven.
- * @param onServed  fires once per visit, on the frame the order is handed over at the window. The
- *                  reward lives at the call site: this module knows the taxi went through a
- *                  drive-through, not what a tank of boost is.
+ * @param onServed  fires once per visit, on the frame the order is handed over at the window. Both
+ *                  sides of the till live at the call site — the boost poured in and the
+ *                  `BURGER_PRICE` taken out: this module knows the taxi went through a
+ *                  drive-through, not what a tank of boost is or what a run's cash is for.
  * @param onFinish  `(handBack) => void` — the trip is over and the taxi is somebody else's problem
  *                  again. `handBack` is whatever the taxi was aimed at when this took the wheel, or
  *                  null when the trip ended because the player aimed it somewhere else themselves.
@@ -89,7 +92,14 @@ export function createBurgerRun({ site, lot, taxi, routeTo, onServed = () => {},
   // the route band's rollout sweep (which replays from scratch if the target is merely equal), and
   // this module's own "is that still my route" test in `update`. A fresh `{ i, j }` per plan would
   // break both.
-  const target = { i: approach.i, j: approach.j };
+  //
+  // `endAt` is where the trip actually ends, as opposed to where the *route* does. Every other
+  // destination in the game is a junction and the two are the same place; this one is a lane, and
+  // the taxi leaves it at the driveway rather than driving it to the end — 13.7 units short of the
+  // junction the router named, which is three-quarters of a block. The band read the route
+  // literally and finished down the road past the joint, pointing at nothing. `routePath`
+  // (game/routeline.js) trims to this, which fixes the drawn band and the drag's hit test at once.
+  const target = { i: approach.i, j: approach.j, endAt: site.entry };
 
   const state = {
     // 'off' — nothing running. 'driving' — on the road, heading for the mouth. 'inlot' — the

@@ -20,7 +20,9 @@ import {
 } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
 import { createPolice, POLICE_BUST_RANGE } from './sim/police.js';
-import { createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned } from './game/fares.js';
+import {
+  createFareSystem, cornerFor, setFareSeconds, getFareSeconds, isFareClockPinned, BURGER_PRICE,
+} from './game/fares.js';
 import { createDebugPanel } from './game/debugpanel.js';
 import { createDriveThru } from './game/drivethru.js';
 import { createBurgerRun } from './game/burgerrun.js';
@@ -427,10 +429,19 @@ const burgerRun = driveThru
     lot: driveThru,
     taxi: traffic.taxi,
     routeTo,
-    // The window used to pay a splash of nitro fuel, flown to the pill on an energy bit. Nitro is
-    // not a resource any more (game/boost.js), so the burger currently pays nothing but the buzz
-    // and the flourish — the detour is an easter egg with no payout until it is given a new one.
-    onServed: () => haptic('burger'),
+    // Half of the counter transaction survives. Main added a *price* for the burger — the money
+    // leaves on the same flight a fare's payout arrives on, just wearing the other sign, so a player
+    // who never reads a number still sees one thing bought with another; `charge` returns what it
+    // could actually take (see fares.js), so a near-empty till pops the number that really left
+    // rather than the price on the board. The other half was a splash of nitro fuel flown to the
+    // pill on an energy bit, and nitro is not a resource any more (game/boost.js) — so the window
+    // now takes cash and hands back nothing. That is a worse trade than the one this secret was
+    // balanced around and it wants a new reward; see the note at the top of game/burgerrun.js.
+    onServed: () => {
+      const paid = fares.charge(BURGER_PRICE);
+      if (paid > 0) popEarning(-paid);
+      haptic('burger');
+    },
     onFinish: (handBack) => resumeAfterBurger(handBack),
   })
   : null;
@@ -1551,20 +1562,31 @@ function counterScreenPos() {
 }
 
 /**
- * Roll the counter from its current value up to `target`. Uses rAF rather than a CSS tween so a
+ * Roll the counter from its current value to `target`. Uses rAF rather than a CSS tween so a
  * second delivery landing mid-roll simply re-aims the same animation at the new total instead of
  * two counters racing. The bump class is toggled off then on across a reflow, because a class that
  * stays put doesn't re-fire the keyframe.
+ *
+ * **It rolls both ways.** This used to snap on any `delta <= 0`, which was safe only while nothing
+ * in the game could take money *off* the player: the burger's counter charge (`BURGER_PRICE`) is
+ * the first thing that can, and left alone it would have landed as digits silently dropping — the
+ * exact side effect the two-phase flight exists to prevent. Same tween, same rate, and the bump
+ * carries the sign: green for money arriving, red for money leaving.
+ *
+ * `up` is the *event's* sign and not the roll's, which are not the same question. The roll is aimed
+ * at whatever the total is now, so a charge landing while a payout is still in the air computes a
+ * positive delta and would otherwise bump green for money the player just spent. What the counter
+ * is reacting to is the thing that flew into it, and only the caller knows which that was.
  */
-function rollMoneyTo(target) {
+function rollMoneyTo(target, up = true) {
   if (!hud.money) return;
   if (moneyRoll) cancelAnimationFrame(moneyRoll);
   const from = shownMoney;
   const delta = target - from;
-  if (delta <= 0) { shownMoney = target; hud.money.textContent = String(target); return; }
+  if (delta === 0) { hud.money.textContent = String(target); return; }
   // ~50ms per dollar so a $8 tick reads as a quick bump and a $35 one as a longer roll, clamped so
   // neither extreme feels wrong.
-  const dur = Math.min(700, Math.max(240, delta * 50));
+  const dur = Math.min(700, Math.max(240, Math.abs(delta) * 50));
   const t0 = performance.now();
   const step = (now) => {
     const t = Math.min(1, (now - t0) / dur);
@@ -1576,20 +1598,31 @@ function rollMoneyTo(target) {
   };
   moneyRoll = requestAnimationFrame(step);
   // Bump the whole "$X" unit — the `$` prefix lives on the parent — so the payout registers as one
-  // visual event rather than just a digit changing. Toggle off / reflow / on to re-fire keyframes.
+  // visual event rather than just a digit changing. Toggle off / reflow / on to re-fire keyframes,
+  // and drop the other direction's class while doing it: the two keyframes animate the same two
+  // properties, so a leftover class would let a charge finish on the colour of a payout.
   const bump = hud.money.parentElement;
   if (bump) {
-    bump.classList.remove('money-bumped');
+    bump.classList.remove('money-bumped', 'money-charged');
     void bump.offsetWidth;
-    bump.classList.add('money-bumped');
+    bump.classList.add(up ? 'money-bumped' : 'money-charged');
   }
 }
 
+/**
+ * The flying number, off the taxi and onto the counter.
+ *
+ * Negative is a **charge** — the burger's `BURGER_PRICE`, and so far the only one. It takes the same
+ * flight rather than one of its own, because it is the same claim: this car, here, is what moved the
+ * counter. What changes is the sign, the colour (red, `.is-charge`) and nothing else — including the
+ * direction, which stays taxi → counter. A charge flown counter → taxi would read as the player
+ * being *given* something.
+ */
 function popEarning(amount) {
   const start = taxiScreenPos();
   const el = document.createElement('div');
-  el.className = 'earning';
-  el.textContent = `$${amount}`;
+  el.className = amount < 0 ? 'earning is-charge' : 'earning';
+  el.textContent = amount < 0 ? `−$${-amount}` : `$${amount}`;
   el.style.left = `${start.x}px`;
   el.style.top = `${start.y}px`;
   document.body.append(el);
@@ -1617,7 +1650,7 @@ function popEarning(amount) {
     ], { duration: 460, easing: 'cubic-bezier(0.42, 0, 0.58, 1)', fill: 'forwards' });
     fly.onfinish = () => {
       el.remove();
-      rollMoneyTo(fares.state.money);
+      rollMoneyTo(fares.state.money, amount >= 0);
     };
   };
 }

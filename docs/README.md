@@ -70,10 +70,11 @@ pull in off one road, crawl past the menu board and the pickup window, and come 
 another — a third of the time there is one in there.
 
 **And you can tap it.** The taxi drives itself round to the mouth, crawls the lane, stops at the
-board and again at the window, and comes back out. It used to come back out with 15% of a tank of
-boost, the smallest top-up in the game and the only one that wasn't paid for a job; with nitro no
-longer a resource that payout is gone and the detour currently pays nothing, while still costing
-whatever the clock in the back seat is worth. See
+board and again at the window, and comes back out. It costs **$10** off the counter, taken at the
+window, plus whatever the clock in the back seat is worth — nobody is stopping you taking a rider
+through a drive-through. It used to buy 15% of a tank of boost for that, the smallest top-up in the
+game and the only one you bought rather than earned; with nitro no longer a resource the payout is
+gone and the detour currently gives nothing back. See
 [the burger run](gameplay.md#the-burger-run),
 [the burger joint](city.md#the-burger-joint-and-its-drive-through) and
 [the drive-through](traffic.md#the-drive-through).
