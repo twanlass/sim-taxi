@@ -1,4 +1,4 @@
-import { CAR_LEN, CAR_W } from './traffic.js';
+import { CAR_LEN, CIRCLE_OFFSET, CIRCLE_R } from './traffic.js';
 
 // Collision detection between the taxi and ambient cars. Deliberately narrow: only the taxi is
 // checked, and only while boosting — everywhere else the lane bookkeeping and following-distance
@@ -23,8 +23,11 @@ import { CAR_LEN, CAR_W } from './traffic.js';
 // 18 minutes of continuous boosting, that took the crash rate from one every 9.7s to one every
 // 25.1s. Ambient-vs-ambient never runs through here, so the width is safe for lane-following
 // queues (MIN_GAP still gives ~1 unit of longitudinal clearance).
-const CIRCLE_OFFSET = CAR_LEN * 0.28;
-const CIRCLE_R = CAR_W * 0.68;
+//
+// Both constants now live in `traffic.js`. Not because they belong there — this is where they are
+// used — but because the overtake has to *steer by* them, and this file already imports from that
+// one. Two copies is two numbers that drift, and the copy that drifts is the one nobody runs: this
+// detector would go on firing at its own width while the manoeuvre aimed itself at the other.
 
 function carCircles(car) {
   const fx = Math.cos(car.yaw) * CIRCLE_OFFSET;

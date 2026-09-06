@@ -29,7 +29,8 @@ import { createScene } from '../game/scene.js';
 import { createCityCamera } from '../game/camera.js';
 import { createProps } from '../city/props.js';
 import { setCityNetwork } from '../city/roadnet.js';
-import { createTraffic, placeCar, SPEED, laysPassRubber, MPH_PER_UNIT } from '../sim/traffic.js';
+import { createTraffic, placeCar, SPEED, MIN_GAP, STOP_SETBACK, laysPassRubber, MPH_PER_UNIT }
+  from '../sim/traffic.js';
 import { createCollisions } from '../sim/collisions.js';
 import { createBoost, BOOST_DURATION } from '../game/boost.js';
 import { createSkidMarks } from '../game/skidmarks.js';
@@ -77,6 +78,15 @@ const knobs = {
   // happened before the first frame.
   gap: num('gap', 22, 8, 70),
   oncoming: num('oncoming', 0, 0, MAX_ONCOMING),
+  // The queue at a red: everyone stopped, the taxi at ordinary following distance behind, and the
+  // `Gap` slider ignored because a queue's spacing is not a knob — it is `MIN_GAP`. There are no
+  // lights on this road to hold them, so the cars ahead are `parked` instead, which is the sim's
+  // own "this car is going nowhere" and holds them there for as long as you want to look.
+  //
+  // It is a separate scenario rather than `gap` going lower because the interesting variable is
+  // the *speed*, not the distance: at 8 units and cruising the taxi has 40 units of road to make
+  // its swing in, and from a standstill it has none at all until it has made some.
+  standing: num('standing', 0, 0, 1),
   seed: num('seed', (Math.random() * 0xffffffff) >>> 0, 0, 0xffffffff),
 };
 
@@ -316,14 +326,50 @@ function stage() {
   zoomBeforeWreck = null;
 
   const start = labNodeX(0) + TAXI_START;
-  reseat(taxi, DIR.PX, start);
+  const standing = knobs.standing === 1 && knobs.ahead > 0;
 
-  // The queue in front, one gap apart, so passing the first car puts you on the run-up to the
-  // next one rather than ending the scenario.
-  aheadPool.forEach((car, k) => {
-    if (k < knobs.ahead) reseat(car, DIR.PX, start + knobs.gap * (k + 1));
-    else park(car);
-  });
+  if (standing) {
+    // A queue is stacked **back from a hold line**, not forward from the taxi, and it has to be
+    // staged that way. `placeAtX` clamps a requested x into the lane it falls in, so laying cars
+    // out forward at MIN_GAP puts the second one inside a junction box and the clamp folds it back
+    // onto the first: a 5.3-unit queue came out 4.0 apart, which is *already* inside the collision
+    // envelope, and pressing the button wrecked the taxi on the spot against a scenario that had
+    // never been legal. `placeCar` takes a distance back from a junction boundary and walks the
+    // chain to find it, which is the same staging `tools/probe.mjs` uses and the only one that can
+    // express a queue longer than one 12-unit lane.
+    //
+    // Anchored on the *third* junction so there is road behind the taxi and the camera opens on a
+    // car standing in traffic rather than at the edge of the world.
+    //
+    // **One stopped car per junction, not one queue.** A 12-unit lane holds a hold line, a car on
+    // it, and exactly one more behind — a third would want `s = -2`, and a queue backing through a
+    // junction is a thing no lane coordinate can express (the cars in the box are in the `turn`
+    // state, which is a position on an arc). `placeCar` says as much by clamping to the lane's near
+    // end, and a first cut that ignored it stacked the taxi and the third car 3.3 units apart and
+    // wrecked on the opening frame. So `Cars ahead` walks *down the road* here: the first pass is
+    // the standing one, and each junction after it is the same manoeuvre arrived at under power.
+    const anchor = 3;
+    for (let k = 0; k < MAX_AHEAD; k++) {
+      const car = aheadPool[k];
+      if (k >= knobs.ahead) { park(car); continue; }
+      reseat(car, DIR.PX, start, 0);
+      placeCar(car, DIR.PX, anchor + k, 0, STOP_SETBACK);
+      // `parked` with an empty route is a positional budget of zero: the car eases to a halt where
+      // it stands and stays there. `reseat` clears both, so it drives on if the box is unticked.
+      car.parked = true;
+      car.route = [];
+    }
+    reseat(taxi, DIR.PX, start, 0);
+    placeCar(taxi, DIR.PX, anchor, 0, STOP_SETBACK + MIN_GAP);
+  } else {
+    reseat(taxi, DIR.PX, start, SPEED);
+    // The queue in front, one gap apart, so passing the first car puts you on the run-up to the
+    // next one rather than ending the scenario.
+    aheadPool.forEach((car, k) => {
+      if (k < knobs.ahead) reseat(car, DIR.PX, start + knobs.gap * (k + 1));
+      else park(car);
+    });
+  }
 
   // Oncoming traffic, spread down the other carriageway so it arrives during a pass rather than
   // all at once. `PASS_SIGHT` (35 units) is what decides whether the taxi will pull out with one
@@ -451,6 +497,20 @@ function slider(id, key, format) {
 slider('ahead', 'ahead', (n) => String(n));
 slider('gap', 'gap', (n) => `${n} u`);
 slider('oncoming', 'oncoming', (n) => String(n));
+// The one knob that isn't a count or a distance. It also disables `Gap`, because a queue's spacing
+// is `MIN_GAP` and a slider that visibly does nothing is worse than one that is visibly off.
+{
+  const standing = document.getElementById('standing');
+  const gapInput = document.getElementById('gap');
+  const paint = () => { gapInput.disabled = knobs.standing === 1; };
+  standing.checked = knobs.standing === 1;
+  standing.addEventListener('change', () => {
+    knobs.standing = standing.checked ? 1 : 0;
+    paint();
+    stage();
+  });
+  paint();
+}
 document.getElementById('reset').addEventListener('click', () => stage());
 
 /**

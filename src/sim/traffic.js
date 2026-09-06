@@ -587,9 +587,22 @@ export const laysPassRubber = (car) => Boolean(car.boost)
  * off. Asking about the offset instead means the brake comes back when the taxi is back in the
  * lane, which is the only moment it means anything.
  *
- * Half a lane, because that is where the body stops overlapping the lane it came out of.
+ * Half a lane, because that is where the body stops overlapping the lane it came out of — or the
+ * collision envelope, whichever is wider. Below the envelope the leader can still be *hit*, which
+ * is the only thing this question is really about, and on an ordinary street half a lane (2.0) is
+ * a shade under it (2.31). On an arterial the lane wins and nothing changes.
+ *
+ * `!car.passing` used to be ANDed onto the front of this, which is the whole rule the offset test
+ * was written to replace and it quietly outranked it: the brake came off on the frame the taxi
+ * *decided* to pass, not the frame it got out of the lane. On a moving pass that is invisible —
+ * the taxi pulls out at PASS_TRIGGER (10) with 4.2 units of envelope to spend and never closes far
+ * enough to care. From a standing start behind a queue it is fatal: `BOOST_KICK` puts 10.6 u/s on
+ * the car, `allowed` goes to Infinity, and the taxi drives into the boot of the car it is going
+ * round with the lane change 0.18 of the way done. See `envelopeGap`, which is what the tailgate
+ * becomes while the swing is in progress.
  */
-const seesLeader = (car) => !car.passing && car.passOffset < laneOffsetFor(car.d, car.i, car.j);
+const seesLeader = (car) => car.passOffset
+  < Math.max(ENVELOPE, laneOffsetFor(car.d, car.i, car.j));
 // Where the taxi pulls out, and the number the whole manoeuvre is sized by. Closing to a body
 // length past the leader is (PASS_TRIGGER + 5) units of relative displacement, and at the ~10 u/s
 // a boosting taxi gains on cruising traffic that is 1.83 units of road for every unit of it. At
@@ -872,7 +885,39 @@ function taxiClearsYellow(car, sig, distToLine) {
 
 export const CAR_LEN = 3.4;
 export const CAR_W = 1.7;
-const MIN_GAP = CAR_LEN + 1.9;   // centre-to-centre, car following car
+export const MIN_GAP = CAR_LEN + 1.9;   // centre-to-centre, car following car
+
+/**
+ * The collision envelope, in the terms `sim/collisions.js` tests it: two circles per car offset
+ * ±`CIRCLE_OFFSET` along the body, radius `CIRCLE_R`, touching when their centres come within
+ * `2 · CIRCLE_R` — 2.31 units.
+ *
+ * They live here rather than in `collisions.js` because the overtake has to *steer by* them and
+ * `collisions.js` already imports from this file, so putting them the other way round is a cycle.
+ * A copy in each would be two numbers that can drift, and the one that drifts is the one nobody
+ * runs: the detector fires on impact and would keep firing at whatever width it kept, while the
+ * manoeuvre aimed at the other. `tools/probe.mjs` asserts the two agree.
+ */
+export const CIRCLE_OFFSET = CAR_LEN * 0.28;
+export const CIRCLE_R = CAR_W * 0.68;
+export const ENVELOPE = CIRCLE_R * 2;
+
+/**
+ * The longitudinal clearance two cars need when they are `lateral` units apart across the road.
+ *
+ * At `lateral` 0 it is 4.22 — a whole body plus the envelope, which is what `BOOST_GAP` (4.5) has
+ * always been a hair over. It falls as the car slides sideways and reaches **zero** at a full
+ * `ENVELOPE` of separation: past that point no pair of circles can meet however far forward the
+ * taxi goes, which is the whole reason the overtake commits the entire lane rather than settling
+ * on the centreline.
+ *
+ * The step at `lateral === ENVELOPE` is real and not smoothed. It is a step *upward* in the room
+ * the taxi is granted, and an upward step in a speed cap is chased at ordinary acceleration —
+ * only a downward one snaps a car, which is the freeze `seesLeader` documents below.
+ */
+const envelopeGap = (lateral) => (lateral >= ENVELOPE
+  ? 0
+  : CIRCLE_OFFSET * 2 + Math.sqrt(ENVELOPE * ENVELOPE - lateral * lateral));
 
 // Box trucks share an ordinary car's collision envelope on purpose — sim/collisions.js is keyed
 // off CAR_LEN/CAR_W regardless of which vehicle it's testing, and that stays a simplification: it
@@ -932,6 +977,29 @@ const followGap = (follower, leader) => vehicleHalfLen(follower) + vehicleHalfLe
 // TRUCK_LEN) — widening the tailgate for a truck while the hitbox that matters stayed car-sized
 // would just be a taxi that hangs back further from a target it can still clip at the old range.
 const BOOST_GAP = MIN_GAP * 0.85;
+
+/**
+ * The tailgate distance a boosting taxi actually wants right now.
+ *
+ * `BOOST_GAP` while it is in its lane, and while it is *leaving* it, whatever the collision
+ * envelope still needs at the offset reached so far — falling to zero once the taxi is a full
+ * envelope width across, which is exactly when the two bodies can no longer meet.
+ *
+ * This is what makes an overtake from a standing start possible at all, and it is worth being
+ * precise about why, because "suppress the leader brake while committed" is what the moving pass
+ * has always done and it looks like the same problem. It isn't. A moving pass begins 10 units back
+ * and the swing takes 7 units of road, so the taxi is out of the lane long before the gap could
+ * matter — the suppression is free. A pass out of a queue begins at 4.5 units with the leader
+ * *stationary*: suppress the brake there and the taxi covers the whole 4.5 in a quarter of a second
+ * with the lane change a fifth done, which is a rear-end, not an overtake.
+ *
+ * A shrinking gap is the honest version of the same idea. The taxi noses up alongside as it swings,
+ * ending level with the car it is passing rather than a body-length behind it, and it can never
+ * reach a position the detector calls a crash — the constraint *is* the detector's own geometry.
+ */
+const boostGap = (car) => (car.passOffset > 0
+  ? Math.min(BOOST_GAP, envelopeGap(car.passOffset))
+  : BOOST_GAP);
 /**
  * How far clear of the car it just passed the taxi must be before it may cut back in.
  *
@@ -1615,6 +1683,9 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       passOffset: 0,
       passSlope: 0,
       passBank: 0,
+      // Road a standing lane change was credited with this frame but did not cover — see the pass
+      // block in `update`. Only the front wheels read it, and only the taxi ever writes it.
+      passCredit: 0,
       // Ambient cars leave `route` empty and fall through to random turns. The taxi's route is
       // filled in by the game layer; see the turn decision below.
       route: [],
@@ -1743,6 +1814,7 @@ export function stageCar(car, x, z, yaw) {
   car.passOffset = 0;
   car.passSlope = 0;
   car.passBank = 0;
+  car.passCredit = 0;
   car.panic = 0;
   car.pullover = 0;
   car.pulloverSlope = 0;
@@ -2614,7 +2686,28 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       } else if (car.turnT < 0.6) {
         // First half of the turn: still queued behind in the lane it came from, nose past the line
         // and into the junction — hence a position beyond the lane's own end.
-        laneS = car.lane.length + car.turnT * 5;
+        //
+        // **It starts at the hold line, not at the lane's end.** `state` flips to `turn` the moment
+        // a car is cleared to go, and the first `leadIn` (= STOP_SETBACK, 3.4) units of the arc are
+        // the straight run-up from the hold line to the junction boundary — the car is still
+        // physically in the lane for all of it. Charging the crossing from `lane.length` therefore
+        // *teleported* the leader 3.4 units forward on the frame it set off, and handed whoever was
+        // queued behind it 3.4 units of road that did not exist.
+        //
+        // It never showed on ambient traffic: a car pulling away from a red is accelerating at
+        // ACCEL from a standstill, so the phantom gap is spent long before the follower — also
+        // pulling away from a standstill — could close it. A boosting taxi is a different animal.
+        // `BOOST_KICK` puts it at 10.6 u/s on the frame the button goes down, and the phantom gap
+        // reads straight into `leadCap` as sqrt(2 · BRAKE · 3.4) ≈ 11 u/s of permission. Measured:
+        // pressing boost while queued at a red wrecked the taxi within 13 frames on **12 of 12**
+        // runs, at a real separation of 3.35 units against the 2.31 envelope — the whole of the
+        // "hit boost at a light" experience, and nothing to do with the overtake it looked like.
+        //
+        // 5 units of lane coordinate for the crossing is still a fiction (the box is 8 wide, and a
+        // left turn's arc is 15). Keeping it and moving only where it *starts* is deliberate: the
+        // defect is the discontinuity at `turnT === 0`, and this makes the handover exact — a car
+        // at the line reads at `lane.length - STOP_SETBACK` in both states.
+        laneS = car.lane.length - car.leadIn + car.turnT * (car.leadIn + 5);
       } else {
         // Second half: hand the car over to the lane it is about to land in, still short of that
         // lane's start. Without this it is invisible to that lane's traffic for the rest of the
@@ -2949,8 +3042,39 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // A straight-through crossing has no arc to peel off. Its path is a straight line and its
       // yaw is constant, so the offset composes with it exactly as it does on a lane.
       const crossingStraight = taxi.state === 'turn' && taxi.turn?.hand === 'straight';
-      const ds = (taxi.state === 'drive' || crossingStraight) ? taxi.v * dt : 0;
+      const rolled = (taxi.state === 'drive' || crossingStraight) ? taxi.v * dt : 0;
       const delta = (taxi.passing ? 1 : 0) - taxi.pass;
+
+      // --- Getting out of the lane from a standing start.
+      //
+      // Distance pacing has one hole in it, and it is exactly the hole this manoeuvre falls down:
+      // a taxi held up by the car in front has no road to pace against, so the swing that would
+      // free it can never begin. Behind a queue at a red that is a deadlock in both directions —
+      // it cannot move because it is in the lane, and it cannot leave the lane because it cannot
+      // move — and it is what "hitting boost at a light does nothing" actually is.
+      //
+      // So while the ramp is *in flight*, it is credited with road at `SPEED` however slowly the
+      // taxi is really going: the swing takes about as long as it takes at ordinary cruise, 0.8s
+      // for the full lane, whether the car is doing 22 u/s or standing still. That is the one place
+      // a lane-relative offset may advance without the car moving, and the distinction from the
+      // weave — which learned this lesson the other way round, twice — is that the weave is
+      // *involuntary*: it has no business sliding a car sideways at a red, and a settled `pass` of
+      // 0 or 1 has `delta === 0` and gets no credit here either. What moves is a lane change the
+      // player is holding the button for, and a car that cannot start one is a car that cannot
+      // overtake anything it is actually stuck behind.
+      //
+      // It is not a hovercraft in practice: `boostGap` lets the taxi nose forward as the offset
+      // grows, so most of a standing pass is real road. The floor covers the first tenth of a
+      // second, before there is any.
+      const ds = delta !== 0 && (taxi.state === 'drive' || crossingStraight)
+        ? Math.max(rolled, SPEED * dt)
+        : rolled;
+      // The fictional part of it, published so the front wheels can be paced by the same road the
+      // crab angle is. Without this the body slews 40° out of the queue with the wheels pointing
+      // dead ahead — `steerToward` is distance-paced too, and for its own good reason (a car held
+      // at a red keeps the lock it rolled up with), which a standing lane change is the one thing
+      // that falsifies.
+      taxi.passCredit = ds - rolled;
       const step = Math.sign(delta) * Math.min(Math.abs(delta), ds / passFade);
       taxi.pass += step;
 
@@ -3129,7 +3253,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const ahead = seesLeader(car) ? leaderDist.get(car) : undefined;
         if (ahead !== undefined) {
           const leader = leaderOf.get(car);
-          const gap = car.boost ? BOOST_GAP : followGap(car, leader);
+          const gap = car.boost ? boostGap(car) : followGap(car, leader);
           const room = Math.max(0, ahead - gap);
           allowed = Math.min(allowed, room);
           leadCap = (leader?.v ?? 0) + Math.sqrt(2 * brake() * room);
@@ -3476,7 +3600,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
         const lead = seesLeader(car) ? leaderOf.get(car) : undefined;
         const leadGap = lead === undefined ? undefined : leaderDist.get(car);
         if (leadGap !== undefined) {
-          const room = Math.max(0, leadGap - (car.boost ? BOOST_GAP : followGap(car, lead)));
+          const room = Math.max(0, leadGap - (car.boost ? boostGap(car) : followGap(car, lead)));
           target = Math.min(target, lead.v + Math.sqrt(2 * brake() * room));
         }
         // The brake pedal, on the same terms as the drive branch. A pedal that only worked on a
@@ -3642,7 +3766,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       // lock it rolled up to the line with instead of straightening under a time-based ease, and
       // one stopped mid-turn — waiting for room to land — holds its wheels round the corner. That
       // is also what makes the divide safe, since a stationary car never reaches it.
-      const ds = car.travelled - car.prevTravelled;
+      // `passCredit` is the road a standing lane change was credited with but did not cover (see
+      // the pass block above); it is 0 for every car that is not the taxi and for every frame the
+      // taxi is actually rolling, so the rule below is unchanged everywhere it already worked.
+      const ds = car.travelled - car.prevTravelled + (car.passCredit ?? 0);
       car.prevTravelled = car.travelled;
       car.wheelAngle = steerToward(car.wheelAngle, car.yaw, car.prevSteerYaw, ds);
       car.prevSteerYaw = car.yaw;

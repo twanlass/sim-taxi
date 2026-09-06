@@ -322,6 +322,40 @@ About 1.5–3% of ground speed, for not driving into the back of the car in fron
 small — eight cities, each ending at its first wreck — so read the direction rather than the
 decimals.
 
+### A car entering a junction used to teleport 3.4 units forward
+
+`state` flips to `turn` the moment a car is cleared to go, and the first `leadIn` (= `STOP_SETBACK`,
+3.4) units of the arc are the **straight run-up from the hold line to the junction boundary** — the
+car is still physically in the lane for all of it. The bookkeeping that puts a mid-turn car back in
+its follower's view charged the crossing from `lane.length` regardless, so on the frame the leader
+crossed its own hold line it jumped 3.4 units forward and handed whoever was queued behind it 3.4
+units of road that did not exist.
+
+It never showed on ambient traffic. A car pulling away from a red is accelerating from a standstill
+at `ACCEL`, so the phantom gap is spent long before the follower — also pulling away from a
+standstill — could close it. A boosting taxi is a different animal: `BOOST_KICK` puts it at 10.6 u/s
+on the frame the button goes down, and 3.4 units of phantom road reads into `leadCap` as
+`sqrt(2 · BRAKE · 3.4)` ≈ 11 u/s of permission to use it. **Pressing boost while queued at a red
+wrecked the taxi within 13 frames on 12 of 12 sampled city runs**, at a real separation of 3.35
+units against the 2.31 envelope — which is the whole of what "hitting boost at a light" did, and
+nothing to do with the overtake it looked like.
+
+The fix moves where the crossing *starts*, not what it costs: 5 units of lane coordinate for the
+junction is still a fiction (the box is 8 wide and a left turn's arc is 15), and the defect was the
+discontinuity at `turnT === 0`. A car at the line now reads at `lane.length - STOP_SETBACK` in both
+states, so the handover is exact.
+
+What it costs, because it is real road the taxi no longer gets for free: ground covered over a run
+of routed boosting at `?cars=22` goes **24.46 → 23.86 u/s**, and the taxi now spends 0.43% of frames
+crawling behind a leader where it used to spend none. The probe's own `taxiFloor` — the boosting
+taxi's slowest moment behind a fleeing car — drops from 1.09× to 0.93× cruise on two seeds of five
+and is unchanged on the other three. That floor *is* the leader's speed as it sheds for a corner
+4.5 units ahead, which is the rule the rest of this page asserts everywhere else.
+
+> The second half of the crossing keeps its own fiction — `-(1 - turnT) * 5` on the lane the car is
+> landing in — and it is wrong in the safe direction: it reports a turner as *closer* to its exit
+> lane than it is, so `exitLaneFull` holds cars slightly longer than it needs to. Untouched.
+
 > Watch out: a distance short of a junction can land *inside a junction box*, which no lane
 > position can express. The infinite row could, and one probe scenario relied on it — staging a car
 > 18 units back on a 12-unit lane, and the boosting taxi 30 units back from a junction one block
@@ -1298,6 +1332,78 @@ scatter has already failed to move, because one it moved would have opened the g
 and never been passed at all. The cars the taxi goes round are the ones stuck behind something, and
 telling them to floor it does nothing. Sizing the manoeuvre to the road is what made passing
 possible; the flee was never in the way.
+
+#### Out of a queue, from a dead stop
+
+Rolling up to a red behind a car and pressing the button is the moment Loco Mode is most obviously
+*for*, and it was the one moment it could not do anything. Three things stood in the way, and only
+the first is about passing at all.
+
+**The phantom gap.** [A car entering a junction used to teleport 3.4 units
+forward](#a-car-entering-a-junction-used-to-teleport-34-units-forward) in its follower's view, so a
+taxi that pressed boost at a red drove into the back of the car in front within 13 frames, on 12 of
+12 runs. That is a following bug rather than a passing one and it is fixed as one; nothing below
+works until it is.
+
+**The brake came off on the decision, not on the position.** `seesLeader` read
+`!car.passing && passOffset < laneOffset` — an AND, whose first term is exactly the rule the second
+was written to replace. On a moving pass the difference is invisible: the taxi pulls out at
+`PASS_TRIGGER` (10 units) with 4.2 units of envelope to spend and never closes far enough to care.
+From a standing start behind a queue it is fatal — `allowed` goes to Infinity with `BOOST_KICK`
+already on the car, and the taxi covers the whole 4.5 units in a quarter of a second with the lane
+change 0.18 of the way done. The term is gone, and the release point is `max(ENVELOPE, laneOffset)`:
+half a lane is 2.0 on an ordinary street and the envelope is 2.31, so half a lane was a shade too
+early to stop looking.
+
+**The tailgate is now shaped like the collision envelope.** `boostGap` is `BOOST_GAP` in lane and,
+while the taxi is *leaving* the lane, whatever the envelope still needs at the offset reached so
+far — 4.22 at zero, falling to **zero** at a full `ENVELOPE` across, which is the point past which
+no pair of collision circles can meet however far forward the taxi goes. So the taxi noses up
+alongside as it swings, ending level with the car it is passing rather than a body-length behind
+it, and it cannot reach a position the detector calls a crash: the constraint *is* the detector's
+own geometry. `CIRCLE_OFFSET`/`CIRCLE_R` moved into `traffic.js` for this — the overtake has to
+steer by them and `collisions.js` already imports from there, so the other way round is a cycle and
+two copies is two numbers that drift.
+
+**And the swing had no road to happen in.** The offset is paced by distance travelled, which is the
+right rule and has one hole: a taxi pinned behind a stopped car has no distance, so the swing that
+would free it can never begin. It cannot leave the lane because it cannot move, and it cannot move
+because it has not left the lane. So while the ramp is *in flight*, it is credited with road at
+`SPEED` however slowly the taxi is really going — the full lane takes about 0.8s whether the car is
+doing 22 u/s or standing still.
+
+> That is the one place a lane-relative offset may advance without the car moving, and the
+> distinction from the weave — which learned this lesson the other way round, twice — is that the
+> weave is *involuntary*. A settled `pass` of 0 or 1 has nothing in flight and gets no credit
+> either, so a taxi held at a red with the button down and no reason to pull out sits exactly on
+> its lane centre. What moves is a lane change the player is holding the button for.
+
+Two things ride along with the credited road rather than being written twice. The crab angle comes
+off `step / ds` as it always did, so a standing swing produces **the same 30° of lock and the same
+roll** a rolling one does instead of needing a clamp. And the front wheels are paced by the same
+number, through `passCredit` — `steerToward` is distance-paced too, for its own good reason (a car
+held at a red keeps the lock it rolled up with), and a standing lane change is the one thing that
+falsifies it. Without that the body slews thirty degrees across the road with the wheels pointing
+dead ahead.
+
+It is not a hovercraft in practice: `boostGap` gives the taxi real road as the offset grows, and the
+queue is usually pulling away by then, so the credited part covers about the first tenth of a
+second. Measured over the city, taking the first moment in each run where the taxi is stopped behind
+a stopped car and pressing the button then:
+
+| | before | after |
+|---|---|---|
+| lane change completed | 0 of 8 eligible (peak 0.18) | **8 of 8** |
+| closest approach to the car being passed | 3.28 | **4.03** (envelope 2.31) |
+| wrecked inside 3s | 12 of 12 | 10 of 16 |
+| ground covered in the first second | 13.6 units | 9.6 |
+
+The residual wrecks are the mode behaving as designed rather than the launch failing: they land 1–2.5
+seconds later, mostly with `pass` at 0, and they are the taxi barging a junction into cross traffic
+that has a green — which is what [nothing stops the taxi](#nothing-stops-the-taxi) buys and costs.
+
+**The rolling pass is untouched**, which is the check that matters most here: the lab's 130 staged
+approaches passed 130 and wrecked 0 both before and after.
 
 ### Seeing what you're about to hit
 

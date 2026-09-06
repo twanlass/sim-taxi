@@ -31,7 +31,7 @@ import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
 import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
-  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade } from '../src/sim/traffic.js';
+  LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
 import { createDust } from '../src/game/dust.js';
@@ -3599,14 +3599,21 @@ check('no two cars occupy the same space', worst > 1.6,
   let fleePeak = 0;      // peak of the scatter envelope, not its value at the end — the leader
                          // turns off the taxi's road partway through and it decays from there
   let taxiFloor = Infinity;
+  let taxiSum = 0;
+  let taxiFrames = 0;
   for (let f = 0; f < 60 * 2; f++) {
     sTraffic.update(1 / 60);
     sTaxi.boost = true;
     fleePeak = Math.max(fleePeak, leader.scatter);
     if (leader.state === 'drive') fleeSpeed = Math.max(fleeSpeed, leader.speedFactor);
     // Skip the first few frames: the taxi is still spinning up from cruise.
-    if (f > 20 && sTaxi.state === 'drive') taxiFloor = Math.min(taxiFloor, sTaxi.speedFactor);
+    if (f > 20 && sTaxi.state === 'drive') {
+      taxiFloor = Math.min(taxiFloor, sTaxi.speedFactor);
+      taxiSum += sTaxi.speedFactor;
+      taxiFrames += 1;
+    }
   }
+  const taxiMean = taxiFrames ? taxiSum / taxiFrames : 0;
   // speedFactor is v/SPEED, so anything over 1 is a car exceeding the ambient cruise, and 2.2 is
   // full boost. Measured against its own control — the identical scenario with the taxi not
   // boosting — the leader peaks at exactly 1.00x cruise with a scatter envelope of 0.00, against
@@ -3625,9 +3632,25 @@ check('no two cars occupy the same space', worst > 1.6,
   // ambient speed behind a car it is chasing. Measured across five city seeds: 1.09, 1.65, 1.65,
   // 1.74, 1.89 — the tight one is the default seed, where the leader spends the sampled window
   // mid-junction at cruise.
+  //
+  // That floor is **0.9 now, and the drop is a bug being paid off rather than the mode slowing
+  // down.** A car entering a junction used to jump 3.4 units forward in its follower's book on the
+  // frame it crossed its own hold line (see the `turnT < 0.6` branch in traffic.js), and that
+  // phantom road read straight into `leadCap` as another 11 u/s of permission. What the taxi is
+  // doing at 0.93 is tailgating a leader that is 4.5 units ahead and shedding speed for its corner
+  // — matching it, which is the rule this same block asserts elsewhere and the correct answer with
+  // no road to spare. Measured across five city seeds: 0.93, 0.93, 1.95, 2.60, 1.95, against 1.09,
+  // 1.65, 1.65, 1.74, 1.89 before. Only the seeds where the leader corners inside the window move.
+  //
+  // The mean is what keeps this a check on the mode being fast rather than on a single frame: the
+  // floor is one moment behind one cornering car, and if Loco Mode were actually being held up the
+  // average would go with it. Measured over the same five seeds: 1.56, 1.68, 2.47, 1.99, 2.44 —
+  // and across a whole run of routed boosting the phantom road was worth 24.46 u/s of ground
+  // covered against 23.86, which is the honest size of what this cost.
   check('traffic gets out of the boosting taxi\'s way',
-    dIn >= 0 && fleePeak > 0.9 && fleeSpeed > 1.35 && taxiFloor > 1.0,
-    `leader peaked at ${fleeSpeed.toFixed(2)}x cruise, taxi never fell below ${taxiFloor.toFixed(2)}x`);
+    dIn >= 0 && fleePeak > 0.9 && fleeSpeed > 1.35 && taxiFloor > 0.9 && taxiMean > 1.4,
+    `leader peaked at ${fleeSpeed.toFixed(2)}x cruise, taxi never fell below ${taxiFloor.toFixed(2)}x`
+    + ` and averaged ${taxiMean.toFixed(2)}x`);
 
   // 1b. The same staging with a truck as the leader. Trucks never scatter — too big to skitter,
   // see the scatter block in traffic.js — and `car.scatter` only ever rises via the `mark` that
@@ -3844,11 +3867,23 @@ check('no two cars occupy the same space', worst > 1.6,
     const scene = new THREE.Scene();
     const traffic = createTraffic(makeRng(seed + 167), scene, opts.oncoming ? 3 : 2);
     const [car, lead, onc] = traffic.cars;
-    placeCar(car, pD, pI, pJ, 26); car.parked = false;
-    placeCar(lead, pD, pI, pJ, 14); lead.parked = false;
+    if (opts.standing) {
+      // The queue. The leader holds at its own stop line and stays there — `parked` with an empty
+      // route is the sim's own "this car is not going anywhere", which isolates the manoeuvre from
+      // signal timing: the taxi's priority hold would otherwise green the junction and send the
+      // car it is meant to be stuck behind on its way. Both cars start at a dead stop, one
+      // following distance apart, which is where a red light leaves them.
+      placeCar(lead, pD, pI, pJ, STOP_SETBACK); lead.parked = true;
+      placeCar(car, pD, pI, pJ, STOP_SETBACK + MIN_GAP); car.parked = false;
+      car.v = 0; lead.v = 0;
+    } else {
+      placeCar(car, pD, pI, pJ, 26); car.parked = false;
+      placeCar(lead, pD, pI, pJ, 14); lead.parked = false;
+    }
     car.route = route; car.routeConsumed = false;
-    // Straight by default so it stays in front rather than rolling a random turn-off.
-    lead.route = opts.leadRoute ?? [pD, pD, pD]; lead.routeConsumed = false;
+    // Straight by default so it stays in front rather than rolling a random turn-off. A standing
+    // leader gets none at all — an empty route is half of what keeps `parked` parked.
+    if (!opts.standing) { lead.route = opts.leadRoute ?? [pD, pD, pD]; lead.routeConsumed = false; }
     if (opts.oncoming) {
       // The other half of this road, coming the other way, and *far enough up it to still be
       // there*. The two close on each other at 18.7 + 8.5 = 27 u/s, so a car staged level with
@@ -3898,8 +3933,14 @@ check('no two cars occupy the same space', worst > 1.6,
     pD >= 0 && over.peak > 0.95 && over.got,
     `reached ${(over.peak * 2 * LANE).toFixed(2)} of ${2 * LANE} units across, got by=${over.got}`);
 
-  // 2.31 is the collision envelope in sim/collisions.js — CAR_W * 0.68, doubled. Clearing it by a
-  // margin is the difference between a manoeuvre and a coin flip.
+  // 2.31 is the collision envelope — CAR_W * 0.68, doubled. It is written out as a literal in
+  // half a dozen checks and comments, so pin it: it now lives in traffic.js (the overtake steers
+  // by it, and collisions.js already imports from there), and moving it would silently retune the
+  // tailgate a standing pass shrinks to, not just the detector.
+  check('the collision envelope is the 2.31 everything here is written against',
+    Math.abs(ENVELOPE - 2.312) < 1e-9, `${ENVELOPE}`);
+
+  // Clearing it by a margin is the difference between a manoeuvre and a coin flip.
   check('an overtaking taxi never comes within the collision envelope of the car it passes',
     pD >= 0 && over.closest > 2.31,
     `closest approach ${over.closest.toFixed(2)} units, envelope 2.31`);
@@ -3938,6 +3979,46 @@ check('no two cars occupy the same space', worst > 1.6,
   check('no overtake into oncoming traffic that is already in sight',
     pD >= 0 && intoTraffic.peak < 0.02,
     `reached ${(intoTraffic.peak * 2 * LANE).toFixed(2)} units across`);
+
+  // --- And the same manoeuvre from a dead stop, which is the one a player actually asks for.
+  //
+  // Rolling up to a red behind a car and pressing the button is the moment Loco Mode is most
+  // obviously *for*, and it was the one moment it could not do anything. Two separate faults, and
+  // the harmless-looking one is the one that killed you:
+  //
+  //  - the swing is paced by distance travelled, and a taxi pinned behind a stopped car has none —
+  //    it cannot leave the lane because it cannot move, and cannot move because it has not left
+  //    the lane. Measured before: the lane change peaked at 0.18 of itself and went no further.
+  //  - `seesLeader` dropped the leader brake on the frame the taxi *decided* to pass rather than
+  //    the frame it got out of the lane, so `allowed` went to Infinity with `BOOST_KICK` already
+  //    on the car. Pressing boost while queued at a red wrecked the taxi within 13 frames on 12 of
+  //    12 sampled city runs, at 3.35 units against the 2.31 envelope.
+  //
+  // Both are asserted here at once, because either alone still fails: without the pacing floor the
+  // taxi never gets across, and without the envelope-shaped tailgate (`boostGap`) it gets across
+  // by driving through the car first.
+  const standing = runOvertake(true, [pD, pD, pD], { standing: true });
+  check('Loco Mode gets a stopped taxi out from behind a stopped car',
+    pD >= 0 && standing.peak > 0.95 && standing.got,
+    `reached ${(standing.peak * 2 * LANE).toFixed(2)} of ${2 * LANE} units across, got by=${standing.got}`);
+  check('...without driving into the back of it on the way out',
+    pD >= 0 && standing.closest > 2.31,
+    `closest approach ${standing.closest.toFixed(2)} units, envelope 2.31`);
+  // The button is still the whole control, standing start included: letting go means queue up.
+  const standingOff = runOvertake(false, [pD, pD, pD], { standing: true });
+  check('...and only while the button is held',
+    pD >= 0 && standingOff.peak < 0.02,
+    `reached ${(standingOff.peak * 2 * LANE).toFixed(2)} units across`);
+
+  // The pacing floor is a lane change in flight being credited with road it did not cover, and it
+  // must not become the weave's old bug — an offset that slides a stationary car sideways for as
+  // long as it sits there. A settled `pass` has nothing in flight, so it gets no credit: a taxi
+  // held at a red with the button *down* and no reason to pull out stays exactly on its lane
+  // centre. (The weave has its own envelope and is separately asserted above.)
+  const noReason = runOvertake(true, [leftOf(pD), pD, pD], { standing: true });
+  check('a standing taxi with no pass to make does not drift out of its lane',
+    pD >= 0 && noReason.peak < 0.02,
+    `reached ${(noReason.peak * 2 * LANE).toFixed(2)} units across`);
 
   setPriorityJunction(null);
 }

@@ -104,6 +104,18 @@ Omit the whole section if there's nothing to note.
   as "is turning" is what made the overtake refuse every leader that happened to be inside a
   junction — 40% of the time on a 20-unit grid — and cost a quarter of all passes. Whenever this
   flag gates a *danger*, ask which `hand` the danger actually belongs to.
+- **A car's `state` flips to `turn` at the hold line, not at the junction, and the first
+  `STOP_SETBACK` of the arc is still in the lane.** So the bookkeeping that puts a mid-turn car back
+  in its follower's view has to start the crossing from `lane.length - leadIn`; starting it from
+  `lane.length` *teleports the leader 3.4 units forward* on the frame it sets off and hands whoever
+  is behind it 3.4 units of road that does not exist. It hid for as long as it did because ambient
+  traffic cannot spend it — a car pulling away from a red is accelerating from a standstill and so
+  is the car behind it — and it was lethal for exactly one vehicle: `BOOST_KICK` puts the taxi at
+  10.6 u/s on the frame the button goes down, and 3.4 phantom units read into `leadCap` as another
+  11 u/s of permission. Pressing boost while queued at a red wrecked the taxi within 13 frames on
+  **12 of 12** sampled runs, at 3.35 units against a 2.31 envelope, and it looked like a bug in the
+  overtake. Anywhere a car is projected back onto a lane it is no longer strictly on, check the two
+  states agree at the frame they hand over.
 - **No `distToLine > 0` guard on the stop decision.** A car spawning within `STOP_SETBACK` of its
   target starts past the hold line; that guard once sent cars off the map to x = −1064.
 - **An `onBeforeCompile` patch needs `customProgramCacheKey`.** Three builds the cache key from the
