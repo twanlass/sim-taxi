@@ -1583,8 +1583,13 @@ function counterScreenPos() {
  * the first thing that can, and left alone it would have landed as digits silently dropping — the
  * exact side effect the two-phase flight exists to prevent. Same tween, same rate, and the bump
  * carries the sign: green for money arriving, red for money leaving.
+ *
+ * `up` is the *event's* sign and not the roll's, which are not the same question. The roll is aimed
+ * at whatever the total is now, so a charge landing while a payout is still in the air computes a
+ * positive delta and would otherwise bump green for money the player just spent. What the counter
+ * is reacting to is the thing that flew into it, and only the caller knows which that was.
  */
-function rollMoneyTo(target) {
+function rollMoneyTo(target, up = true) {
   if (!hud.money) return;
   if (moneyRoll) cancelAnimationFrame(moneyRoll);
   const from = shownMoney;
@@ -1611,7 +1616,7 @@ function rollMoneyTo(target) {
   if (bump) {
     bump.classList.remove('money-bumped', 'money-charged');
     void bump.offsetWidth;
-    bump.classList.add(delta > 0 ? 'money-bumped' : 'money-charged');
+    bump.classList.add(up ? 'money-bumped' : 'money-charged');
   }
 }
 
@@ -1656,7 +1661,7 @@ function popEarning(amount) {
     ], { duration: 460, easing: 'cubic-bezier(0.42, 0, 0.58, 1)', fill: 'forwards' });
     fly.onfinish = () => {
       el.remove();
-      rollMoneyTo(fares.state.money);
+      rollMoneyTo(fares.state.money, amount >= 0);
     };
   };
 }
