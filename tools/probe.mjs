@@ -141,7 +141,7 @@ import {
   halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns, MEDIAN_W,
 } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
-import { routePath, nearestOnPath, HEAD_GAP } from '../src/game/routeline.js';
+import { routePath, nearestOnPath, HEAD_GAP, ROUTE_OPACITY } from '../src/game/routeline.js';
 import {
   findRoute, findRouteVia, findRouteOnto, MAX_VIA_DETOUR, allIntersections,
 } from '../src/game/route.js';
@@ -1663,6 +1663,112 @@ check('no two cars occupy the same space', worst > 1.6,
   check('a VIP speaks one purple at every level of the scale',
     vipHues.size === 1 && vipHues.has(new THREE.Color(PALETTE.vip).getHexString()),
     [...vipHues].join(', '));
+}
+
+// --- One seat, said on the board ---------------------------------------------
+// You cannot take a kerbside fare while carrying one, and playtesters kept trying to. So a waiting
+// rider's mark steps back while the seat is full — half-size crystal, darkened disc, no sweep — and
+// a tap that gets refused now answers instead of going silent. Every part of that is invisible in a
+// still and silent on failure: a step-back that never lifts leaves the board permanently dim, and a
+// refusal that does nothing is the bug this replaces.
+{
+  const oScene = new THREE.Scene();
+  const oTraffic = createTraffic(makeRng(seed + 44), oScene, CARS_DEFAULT);
+  const fares = createFareSystem(makeRng(seed + 55), oScene);
+  oTraffic.warmup(5);
+
+  // The disc's three layers in order — see createTargetRing. Only the rim and the fill carry the
+  // dim; the sweep fades on opacity and stops being drawn once it is out, which is the layer the
+  // step-back is actually there to remove.
+  const discLayers = (marker) => ({
+    rim: marker.ring.children[0],
+    fill: marker.ring.children[1],
+    sweep: marker.ring.children[2],
+  });
+
+  const route = (fare) => {
+    const r = findRoute(planOrigin(oTraffic.taxi), fare.target);
+    if (r) { oTraffic.taxi.route = r; oTraffic.taxi.routeConsumed = false; fares.markDirected(fare); }
+  };
+
+  let elapsed = 0;
+  let sawWaiterWhileCarrying = false;
+  let steppedBack = false;
+  let carriedStaysForward = false;
+  let refuseAnswered = false;
+  let refusedShake = 0;       // peak sideways offset on the refused crystal
+  let refusedPulse = 0;       // peak swell on the drop-off it was pointed at
+  let refusedFare = null;     // ...and who it was, so the lift can be checked on the same one
+  let cameBack = false;
+
+  while (elapsed < 600 && !fares.state.gameOver && !cameBack) {
+    oTraffic.update(1 / 60);
+    // The drop-off dispatches itself, same as dispatchToDropoff in main.js — without it the taxi
+    // never delivers, the clock runs out and the run ends before the board is ever two deep.
+    for (const { type, fare } of fares.update(1 / 60, oTraffic.taxi)) {
+      if (type === 'pickup') route(fare);
+    }
+    elapsed += 1 / 60;
+
+    const carried = fares.carrying();
+    if (!carried) {
+      // The seat is free again: every mark that was stepped back has to come forward. A one-way
+      // dim would leave the rest of the run unreadable, and it would look like the markers having
+      // simply always been small.
+      if (refusedFare && fares.state.fares.includes(refusedFare)
+        && refusedFare.slot.marker.getBackgrounded() < 0.01
+        && refusedFare.slot.marker.mesh.scale.x > 0.9
+        && discLayers(refusedFare.slot.marker).sweep.visible) cameBack = true;
+      const next = fares.state.fares.find((f) => f.stage === 'waiting' && !f.directed);
+      if (next) route(next);
+      continue;
+    }
+
+    const waiter = fares.state.fares.find((f) => f.stage === 'waiting');
+    if (!waiter) continue;
+    sawWaiterWhileCarrying = true;
+    const marker = waiter.slot.marker;
+    // Wait for the step-back to have landed *and* the drop-off's own arrival to have settled: the
+    // disc grows out of its centre with a 1.045 overshoot on a clock the same length as the ease,
+    // so refusing any earlier would measure that growth as the swell this is looking for.
+    const dropRing = fares.carrying().slot.destination.ring;
+    if (refusedFare || marker.getBackgrounded() < 0.999 || dropRing.group.scale.x !== 1) continue;
+
+    const { rim, fill, sweep } = discLayers(marker);
+    const crystal = new THREE.Color(diamondHex(marker));
+    steppedBack = marker.mesh.scale.x < 0.6
+      && rim.material.color.r < crystal.r - 1e-3
+      && fill.material.opacity < ROUTE_OPACITY
+      && !sweep.visible;
+    // The fare in the car keeps its crystal at full size — it is the one the player is actually
+    // driving, and stepping it back would say the opposite of what the rule means.
+    carriedStaysForward = carried.slot.marker.getBackgrounded() === 0
+      && carried.slot.marker.mesh.scale.x > 0.9;
+
+    // Now tap the rider the game will not let you have. `refuse` is what main.js calls where it
+    // used to `return` with nothing at all.
+    refuseAnswered = fares.refuse(waiter);
+    refusedFare = waiter;
+    for (let f = 0; f < 30 && fares.carrying() === carried; f++) {
+      oTraffic.update(1 / 60);
+      fares.update(1 / 60, oTraffic.taxi);
+      elapsed += 1 / 60;
+      // Sideways along the screen's own right, which is the axis the shake is written on. The
+      // bounce owns y, so reading the ground plane alone keeps the two from being confused.
+      refusedShake = Math.max(refusedShake,
+        Math.abs(marker.mesh.position.x * RIGHT.x + marker.mesh.position.z * RIGHT.z));
+      refusedPulse = Math.max(refusedPulse, dropRing.group.scale.x);
+    }
+  }
+
+  check('the board goes two deep with one aboard', sawWaiterWhileCarrying);
+  check('a rider on the kerb steps back while the seat is full', steppedBack);
+  check('and the fare in the car does not', carriedStaysForward);
+  check('a refused tap shakes the rider it refused', refuseAnswered && refusedShake > 0.1,
+    `peak ${refusedShake.toFixed(3)}`);
+  check('and swells the drop-off it has to clear first', refusedPulse > 1.05,
+    `peak ${refusedPulse.toFixed(3)}`);
+  check('the board comes forward again once the seat empties', cameBack);
 }
 
 // --- The difficulty curve is winnable everywhere on it ------------------------

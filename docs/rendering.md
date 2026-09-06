@@ -3033,11 +3033,31 @@ beam of the same hue as the rim beneath it read as brighter rather than merely t
 Because the patch changes what the material draws without changing its constructor parameters, it
 carries its own `customProgramCacheKey` — see the trap in [CLAUDE.md](../CLAUDE.md) about
 `onBeforeCompile` and three's program cache. `setColor` paints it the same colour as the rim and
-fill; `tools/probe.mjs` reads all three back together and expects one hex, repeated three times.
+fill; `tools/probe.mjs` reads all three back together and expects one hex, repeated three times —
+except on a **backgrounded** disc, below, where only the rim and fill carry the dim.
 
 The beam has to be told to spin: `ring.update(elapsed)` is called from `game/faremarker.js`'s own
 per-frame `update` while the rider's disc is visible, and from `game/fares.js`'s fare loop while a
 fare is `riding`, for the drop-off's. Neither ring ticks while hidden.
+
+**`setDim(0..1)` steps a disc back behind the fare in the car.** A waiting rider cannot be picked up
+while the seat is full, so their mark turns down for as long as that holds — see
+[gameplay.md](gameplay.md#the-board-steps-back-while-the-seat-is-full) for why the disc *darkens*
+rather than disappearing. Mechanically it is a colour scale (0.42× on the rim and fill) plus half
+again off the fill's opacity, with the sweep fading on `opacity` and then dropping out of the draw
+entirely. Scaling the colour rather than fading the material is what keeps it cheap: two of the three
+layers are opaque `unlitMaterial`s whose colour *is* their light, and turning them transparent to dim
+them would move them into three's transparent queue for a look change. The dim and the clock write
+the same channel, so both go through one `paint()` — otherwise a level change would repaint a
+backgrounded disc at full brightness four times a fare. The caller (`game/faremarker.js`) owns the
+easing; this only ever applies the number it is handed.
+
+**`pulse()` swells a disc once and settles**, borrowing the select pop's own envelope at
+`PULSE_SCALE = 0.16` — about +4px of radius on a 27px disc, half the crystal's 0.34 because the two
+are wildly different sizes on screen and the gesture has to read as the same one. It is fired on the
+**drop-off's** disc when a tap on a kerbside rider is refused, as the "that one first" half of the
+answer. The swell *multiplies* whatever the arrival/exit animation has got to rather than replacing
+it, so a disc pulsed mid-grow swells out of where it is instead of jumping to full size.
 
 ### The courier pad — `geometry/parcelpad.js`
 

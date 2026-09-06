@@ -909,7 +909,11 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // top level by construction rather than by rounding. Placed on the same kerb corner the figure
     // stands on, which is where it will launch from at pickup.
     const corner = cornerFor(spot.i, spot.j);
-    slot.marker.showAt(URGENCY_SEGMENTS, corner.x, corner.z, vip);
+    // The last argument is the one-seat step-back: a rider who arrives while someone is already in
+    // the car opens *already* stepped back rather than shrinking in front of the player
+    // (game/faremarker.js). Passed here rather than set on the marker afterwards because these
+    // slots are pooled and the loop does not tick a fare on the frame it spawns.
+    slot.marker.showAt(URGENCY_SEGMENTS, corner.x, corner.z, vip, Boolean(carrying()));
 
     return fare;
   }
@@ -1198,6 +1202,9 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // Snapshot before refilling, for two reasons: resolving an arrival splices the fare out from
     // under the loop, and a fare spawned *this* frame must not also be ticked in it.
     const live = [...state.fares];
+    // Read once for the whole frame: every waiting fare's mark answers to it — see the step-back
+    // below — and `carrying()` is a scan of the board.
+    const occupied = Boolean(carrying());
 
     // Refill the board at the top of the frame rather than the bottom, so a fare delivered last
     // frame has visibly cleared its ring before its slot gets handed to the next one. An empty
@@ -1286,6 +1293,14 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
       // ...and the ring at the far end of the trip steps with it, so the crystal over the roof and
       // the disc the taxi is driving at are never a level apart.
       if (fare.stage === 'riding') paintDropoff(fare, level);
+      // One seat: a rider on the kerb cannot be taken while someone is in the car, so their mark
+      // steps back for as long as that holds — a half-size crystal over a darkened disc with no
+      // sweep (game/faremarker.js). Reconciled every frame rather than latched at the pickup,
+      // because the seat empties through four different exits (a drop-off, a crash, a VIP expiring,
+      // the run ending) and only one of them is a place a latch could be released.
+      //
+      // The fare in the car is never stepped back — its own crystal is the one riding the roof.
+      marker.setBackgrounded(occupied && fare.stage === 'waiting');
       if (fare.stage === 'waiting') {
         // No target: it holds the kerb corner it was shown on.
         marker.update(state.elapsed, null, fare.timeLeft);
@@ -1442,6 +1457,37 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     return true;
   }
 
+  /**
+   * Answer a tap on a kerbside rider that the one-seat rule refuses.
+   *
+   * `markDirected` has always returned false for this and `main.js` has always returned before the
+   * route was planned — correctly, the tap must not move the taxi — but it did so in **silence**,
+   * and a tap that does nothing at all is indistinguishable from a tap that missed. Playtesters kept
+   * trying to pick up a second rider, which is as easily a report that the game never said no as it
+   * is a report that the rider looked available; this is the half that says no.
+   *
+   * Two marks, and they are one sentence. The tapped rider's crystal shakes — "not this one" — and
+   * the drop-off's disc swells — "that one first". Pointing at the drop-off is the part that
+   * teaches: it names the thing standing between the player and the rider they just asked for,
+   * which the refusal on its own leaves them to work out.
+   *
+   * No haptic. `src/util/haptics.js` is explicit that its player-side events all fire on the input
+   * being *accepted*, "because a confirming buzz on a refusal says the opposite of what the screen
+   * is saying" — and the buzz that would be right here is a warning transient the native bridge
+   * does not have. Adding one is a change to `HapticsBridge.swift`, not to this call site.
+   *
+   * @returns whether there was anything to refuse — false if the fare is gone or the seat is free,
+   *          in which case the caller should be routing rather than calling this.
+   */
+  function refuse(fare) {
+    if (!fare || !state.fares.includes(fare) || fare.stage !== 'waiting') return false;
+    const riding = carrying();
+    if (!riding) return false;
+    fare.slot.marker.refuse();
+    riding.slot.destination.ring.pulse();
+    return true;
+  }
+
   /** Objects the picker may hit — every live fare's one visible marker. */
   function pickables() {
     return state.fares.map((f) => (f.stage === 'waiting' ? f.slot.passenger : f.slot.destination).group);
@@ -1509,6 +1555,7 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     pickables,
     fareFor,
     markDirected,
+    refuse,
     /**
      * The fare the taxi has actually been sent at, if any — the one the route band belongs to.
      * At most one is ever flagged: `markDirected` clears every other fare's, because there is one

@@ -535,7 +535,8 @@ why the cell is half a unit.
 
 The taxi has **one seat**, so any extra fare beyond the one aboard is someone *waiting* — a clock
 draining on the kerb while you decide who to grab. Tapping a waiting rider while already carrying
-one is refused outright, rather than driving there and quietly not picking anyone up.
+one is refused outright, rather than driving there and quietly not picking anyone up — and the
+board says so on both sides of the tap, see [the board steps back](#the-board-steps-back-while-the-seat-is-full).
 
 Two waiting riders on the board at the same time is the whole difficulty of the game: you can't
 take both, and the wrong pick loses one of the two clocks. `fares.waiting()` returns the *most
@@ -578,6 +579,48 @@ of them independent of the difficulty curve, and all of them binding on the run'
 | `FIRST_FARE_MAX_BLOCKS` | 1 block | Manhattan distance from the taxi to the rider. |
 | `FIRST_FARE_MAX_TRIP_BLOCKS` | 2 blocks | Manhattan distance from that rider to their drop-off — the one time a drop-off is drawn near its own pickup instead of unbiased. |
 | `FIRST_FARE_MIN_CLOCK` | 45s | A floor under the budgeted clock, because the caps above would otherwise issue a short one. |
+
+### The board steps back while the seat is full
+
+Play tests kept showing the same thing: with someone aboard, players tapped a rider on the kerb
+anyway. The rule had always been enforced — `markDirected` refuses and `main.js` returns before the
+route is planned — but it was enforced in *silence*, and a tap that does nothing at all is
+indistinguishable from a tap that missed. So the board now says the rule twice, once before the tap
+and once after it.
+
+**Before.** A waiting rider's mark steps back for as long as the seat is full: the crystal eases to
+**half size** over 0.3s, and the disc under their feet darkens (0.42× on the rim and fill, half
+opacity on the fill) and drops its sweep. `setBackgrounded` on the marker is reconciled every frame
+from `carrying()` rather than latched at the pickup, because the seat empties through four different
+exits — a drop-off, a crash, a VIP expiring, the run ending — and only one of them is somewhere a
+latch could be released. A rider who *spawns* while the seat is full opens already stepped back:
+that is the fifth argument to `showAt`, passed rather than set afterwards because these markers are
+pooled and the loop does not tick a fare on the frame it spawns.
+
+**The disc darkens rather than disappearing, and that is the whole design decision.** The disc is
+the half of the mark that survives this camera — a rider whose crystal is behind a tower still has
+colour on the tarmac ([corners the camera cannot see](#corners-the-camera-cannot-see)) — and the
+colour it is carrying is that rider's clock. A waiting fare running out **ends the run**, and
+[the clock is budgeted](#the-clock-is-budgeted) so that every new arrival pays for the whole waiting
+queue ahead of it: which rider is closest to the edge is exactly what the player should be reading
+on the way to a drop-off. Hiding the disc would take the ordering puzzle off the road at the moment
+it is being driven. What *can* go is the sweep — the beam circling the rim means "this is a live
+target" and nothing else, so it is the one layer that was saying something untrue.
+
+**After.** A refused tap gets an answer: the tapped rider's crystal shakes sideways (three swings
+over 0.34s, damped, along the screen's own right) and the **drop-off's disc swells** — "not this
+one; that one first". Pointing at the drop-off is the half that teaches, because it names the thing
+standing between the player and the rider they just asked for. Both are pushed rather than
+reconciled: a second refused tap on the same rider has to shake again, or it reads as the tap having
+been swallowed, which is the complaint in the first place. `fares.refuse()` owns both halves, and
+the picker and the rider-finder chip both call it, so the rule never looks conditional on which
+control you used.
+
+The refusal is deliberately **silent on the hand** and **colourless on the crystal**. Every haptic
+in the game reports an *accepted* input ([ios.md](ios.md), `src/util/haptics.js`) — a confirming buzz
+on a refusal would say the opposite of what the screen is saying — and the crystal's hue is the
+clock while its highlight channel belongs to the select pop, so a refusal that lit it up would read
+as the tap having worked.
 
 ### Finding the next rider
 
