@@ -90,7 +90,14 @@ export function createBurgerRun({ site, lot, taxi, routeTo, onServed = () => {},
   // the route band's rollout sweep (which replays from scratch if the target is merely equal), and
   // this module's own "is that still my route" test in `update`. A fresh `{ i, j }` per plan would
   // break both.
-  const target = { i: approach.i, j: approach.j };
+  //
+  // `endAt` is where the trip actually ends, as opposed to where the *route* does. Every other
+  // destination in the game is a junction and the two are the same place; this one is a lane, and
+  // the taxi leaves it at the driveway rather than driving it to the end — 13.7 units short of the
+  // junction the router named, which is three-quarters of a block. The band read the route
+  // literally and finished down the road past the joint, pointing at nothing. `routePath`
+  // (game/routeline.js) trims to this, which fixes the drawn band and the drag's hit test at once.
+  const target = { i: approach.i, j: approach.j, endAt: site.entry };
 
   const state = {
     // 'off' — nothing running. 'driving' — on the road, heading for the mouth. 'inlot' — the

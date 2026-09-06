@@ -2172,6 +2172,14 @@ reaches the right corner from the wrong side. See
 [the drive-through](traffic.md#the-players-own-visit) for what happens once the taxi is in the lot,
 and `game/burgerrun.js` for the trip.
 
+That has a tail the player can see: a lane is driven to its *end*, and the trip ends at the
+driveway part-way down it. Drawn literally, the route band ran on to the junction the lane leaves —
+**13.7 units past the joint**, three-quarters of a block of paint pointing down an empty road at
+nothing, which reads as the tap having aimed at the wrong thing. So the target the taxi is sent at
+carries an `endAt` point as well as its junction, and `routePath` (`game/routeline.js`) trims the
+drawn path to it. It is on the target rather than passed in so that the band, the drag's hit test
+and shot mode all get the same path without any of them knowing which kind of trip is running.
+
 Two consequences worth knowing:
 
 - **A taxi that has just gone past the driveway is sent round the block.** There is one way into a

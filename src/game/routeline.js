@@ -192,12 +192,75 @@ function densifyOverWater(pts) {
 }
 
 /**
+ * How far off the drawn centreline a destination point may sit and still be recognised as a point
+ * *on* this route.
+ *
+ * Measured rather than guessed, and the measurement is 0.0: the drive-through's mouth is the start
+ * of an arc whose radius is exactly `LANE_TO_KERB`, so it lands on the kerbside lane's centreline
+ * to the last bit of the float (city/burgerjoint.js). The tolerance is not there for that — it is
+ * there so a point the band does *not* run over leaves the band alone rather than snapping it to
+ * whichever bend happens to pass within a lane of it. A metre is comfortably under the width of the
+ * road, which is the nearest another lane of this route can ever come.
+ */
+const END_ON_PATH = 1.0;
+
+/**
+ * Cut the tail of a drawn path at `end`, a point on the lane it finishes on.
+ *
+ * Scanned from the far end backwards, because a route may cross its own destination lane earlier —
+ * a taxi that has just driven past the drive-through is sent round the block and comes back down
+ * the lane it started on (`findRouteOnto` in game/route.js) — and it is the *last* time the band
+ * runs over the point that ends the trip.
+ *
+ * Leaves the path untouched when the point is not on it at all. That is a live case rather than a
+ * defensive one: the band is drawn every frame, including the frames between the taxi passing the
+ * mouth and the run noticing and re-planning, and a band that kept its whole route is a much better
+ * wrong answer than one snapped back to the car.
+ */
+function trimToEnd(pts, end) {
+  for (let k = pts.length - 2; k >= 0; k--) {
+    const a = pts[k];
+    const b = pts[k + 1];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const len2 = dx * dx + dz * dz;
+    if (len2 < 1e-9) continue;
+    const t = ((end.x - a.x) * dx + (end.z - a.z) * dz) / len2;
+    if (t < 0 || t > 1) continue;
+    const x = a.x + dx * t;
+    const z = a.z + dz * t;
+    if (Math.hypot(x - end.x, z - end.z) > END_ON_PATH) continue;
+    pts.length = k + 1;
+    // Not when the cut lands on the vertex it follows: a zero-length last segment is two coincident
+    // points, and `mitreOffsets` divides by the segment direction.
+    if (Math.hypot(x - a.x, z - a.z) > 1e-4) pts.push({ x, z });
+    return pts;
+  }
+  return pts;
+}
+
+/**
  * The lane centreline the taxi will actually drive, from where it is now to its destination.
  *
  * Exported for `tools/probe.mjs`: "does the drawn path stay in the lane" and "does the part ahead
  * of the car stay put as the car advances" are both plain assertions on this array.
+ *
+ * **A destination is usually a junction, and once in the game it is not.** `pendingTarget.endAt`
+ * is an optional world point the trip actually ends at, carried on the target object rather than
+ * passed in, so that every caller — the band, the drag's hit test, shot mode — gets the same path
+ * without any of them having to know which kind of trip is running. The drive-through's mouth is
+ * the one that sets it (game/burgerrun.js): its route ends on a *lane*, and the junction that lane
+ * runs to is 13.7 units past the driveway the player tapped — three-quarters of a block of band
+ * pointing down the road at nothing.
  */
 export function routePath(car, route) {
+  const pts = lanePath(car, route);
+  const end = car.pendingTarget?.endAt;
+  return end ? trimToEnd(pts, end) : pts;
+}
+
+/** The whole route, junction to junction — `routePath` above, before any trim. */
+function lanePath(car, route) {
   const pts = [];
   const push = (p) => {
     const last = pts[pts.length - 1];
