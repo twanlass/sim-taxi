@@ -1805,13 +1805,12 @@ from under a player already driving at it.
 
 ### Two kinds of load
 
-A courier job is carrying a **box** or a **food order** — a takeaway bag with a burger and a soda cup
-standing out of it (`geometry/parcel.js`, `geometry/food.js`), drawn per package at even odds
-(`FOOD_CHANCE`). That is the whole of the difference: same pad, same cyan, same gestures, same money,
+A courier job is carrying a **box** or a **food order** — an oversized burger with a soda cup behind
+it (`geometry/parcel.js`, `geometry/food.js`), drawn per package at even odds (`FOOD_CHANCE`). That is the whole of the difference: same pad, same cyan, same gestures, same money,
 same fuel, same absence of a clock. Nothing branches on it after the draw except which mesh is shown.
 
 **It is flavour, and it is deliberately kept as flavour.** A second load is the obvious place to hang a
-second rule — food that goes cold, a bag worth more, an order that has to be delivered before the box
+second rule — food that goes cold, an order worth more, one that has to be delivered before the box
 the taxi is also carrying — and every one of those wants the thing this layer does not have and
 [cannot grow](#a-package-has-no-clock-and-so-has-no-diamond): a clock. What the second kind buys is
 the thing a screenshot can see, and it is not nothing: a board where the errand on the corner is a

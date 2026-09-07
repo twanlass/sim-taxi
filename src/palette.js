@@ -404,23 +404,17 @@ export const PALETTE = {
   parcelTape: '#DED6C4',
   parcelLabel: '#F2F0E8',
 
-  // The courier's other load: a takeaway bag with a burger and a soda standing out of it
-  // (geometry/food.js). Two colours only, because everything else it is built out of is **already
-  // here** — the bag's band, the straw, and all four slices of the burger are the burger joint's own
-  // entries above (`burgerBand`, `bunBase`, `patty`, `cheese`, `bunTop`). That is the point rather
-  // than a saving: the order came from the city's one drive-through, and a second red and a second
-  // bun mixed for the same object at half the size is how two things that should match drift apart.
+  // The courier's other load: an oversized burger and a soda cup (geometry/food.js). **Two colours,
+  // and neither of them is the burger's** — that whole stack is the drive-through's own mesh and
+  // arrives already painted out of `bunTop`/`bunBase`/`patty`/`cheese`/`lettuce`/`sesame` above. The
+  // city has one burger, tuned once; a second set of slice colours mixed for the same object at half
+  // the size is how two things that should match drift apart.
   //
-  // Kraft again, and deliberately *not* the box's kraft: side by side on the same pad they would read
-  // as two goes at one colour. This is paler and greyer — a paper bag against a card box — which also
-  // keeps the burger's warm slices on top of it as the warmest thing in the silhouette.
-  foodBag: '#DFCEAE',
-  foodBagFold: '#C2AC85',
-  // The cup: an off-white body under a **red** lid, and the lid is the working half. Kraft, card and
-  // an off-white lid are three shades of the same tan under this sun, so the first cut had a cup that
-  // dissolved into the bag it was standing in — the drink was only legible once the thing capping it
-  // was the one colour on the order that the bag is not. It is a shade off `burgerBand` rather than
-  // the same red, so the lid and the straw crossing it stay two objects at 10px.
+  // The cup: an off-white body under a **red** lid, and the lid is the working half. Paper and bun
+  // are near neighbours under this sun, so an off-white cap on an off-white cup was one shade of one
+  // colour and the drink did not read at all until the thing capping it was neither. It is a shade
+  // off `burgerBand` rather than the same red, so the lid and the pale straw coming out of it stay
+  // two objects at 10px.
   //
   // The body is kept off pure white for the reason the parcel's label is: white belongs to the
   // waiting rider, and nothing else in the game should reach for it.

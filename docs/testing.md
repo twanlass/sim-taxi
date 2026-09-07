@@ -146,8 +146,8 @@ rather than a re-run of `parcel` at a lucky seed because which load a package ca
 inside the run seed: without the `cargoKind` pin half of every sweep photographs a box under a name
 that says food. One framing rather than the usual pair — the play-zoom question is about the *pad*,
 and both loads stand on the same one, so `parcel-board` already answers it. What only a close-up can
-answer is this shot's own question: does a bag with a burger and a cup standing out of it read as food
-at all, and does the straw survive being two pixels.
+answer is this shot's own question: do a burger and a cup read as food at all at this size, and does
+the straw survive being two pixels.
 
 Shot 29 (`clouds`) frames the map's **far corner** rather than the middle of it, which is the whole
 point of it: the clouds ring the island (see [rendering.md](rendering.md#clouds--gamecloudsjs-geometrycloudjs)),

@@ -107,7 +107,7 @@ import * as difficulty from './difficulty.js';
 // after the draw except which mesh is shown.
 //
 // **It is flavour, and it is deliberately kept as flavour.** A second load type is the obvious place
-// to hang a second rule — food that cools, a bag that pays more, an order that has to be delivered
+// to hang a second rule — food that cools, an order that pays more, one that has to be delivered
 // before the box the taxi is also carrying — and every one of those wants the thing this layer does
 // not have and cannot grow: a clock. See the section below for why. What the second kind buys is the
 // thing a screenshot can see: a board where the errand on the corner is a specific errand rather than

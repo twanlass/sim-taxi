@@ -2206,35 +2206,39 @@ check('no two cars occupy the same space', worst > 1.6,
   // aboard, a pickup hands the chip a point on the load's own middle, and the outbound flight opens at
   // "cargo, at the scale the car handles cargo at". So the second kind has to fit the first one's
   // envelope, and this is where that is *asserted* rather than left to a comment in the file that
-  // built it: the failure is a bag that stands out of the top of a 42px canvas, which nothing headless
+  // built it: the failure is a straw standing out of the top of a 42px canvas, which nothing headless
   // renders and nothing else would catch.
-  const boxBounds = (() => {
-    const geo = createParcel({ pickable: null }).mesh.geometry;
+  //
+  // The width is measured as the **furthest vertex from the spin axis**, not off a bounding box.
+  // A box's corners are real vertices and a bounding box reports them exactly; a burger and a cup on
+  // a diagonal have nothing at the corners of theirs, so a box-corner reading would fail an order
+  // that is comfortably inside the box's own sweep. What both the chip's frustum and the idle spin
+  // actually care about is the radius, so that is what is compared.
+  const envelope = (mesh) => {
+    const geo = mesh.geometry;
     geo.computeBoundingBox();
-    return geo.boundingBox.clone();
-  })();
-  const foodBounds = (() => {
-    const geo = createFoodOrder({ pickable: null }).mesh.geometry;
-    geo.computeBoundingBox();
-    return geo.boundingBox.clone();
-  })();
-  const halfDiagonal = (b) => Math.max(
-    Math.hypot(b.min.x, b.min.z), Math.hypot(b.max.x, b.max.z),
-    Math.hypot(b.min.x, b.max.z), Math.hypot(b.max.x, b.min.z),
-  );
+    const pos = geo.attributes.position;
+    let radius = 0;
+    for (let i = 0; i < pos.count; i++) {
+      radius = Math.max(radius, Math.hypot(pos.getX(i), pos.getZ(i)));
+    }
+    return { box: geo.boundingBox.clone(), radius };
+  };
+  const boxBounds = envelope(createParcel({ pickable: null }).mesh);
+  const foodBounds = envelope(createFoodOrder({ pickable: null }).mesh);
   check('a food order stands in the same envelope as the box',
-    foodBounds.max.y <= boxBounds.max.y + 1e-6
-    && foodBounds.min.y >= -1e-6
-    && halfDiagonal(foodBounds) <= halfDiagonal(boxBounds) + 1e-6,
-    `${foodBounds.max.y.toFixed(3)} tall and ${halfDiagonal(foodBounds).toFixed(3)} out, `
-    + `against the box's ${boxBounds.max.y.toFixed(3)} and ${halfDiagonal(boxBounds).toFixed(3)}`);
+    foodBounds.box.max.y <= boxBounds.box.max.y + 1e-6
+    && foodBounds.box.min.y >= -1e-6
+    && foodBounds.radius <= boxBounds.radius + 1e-6,
+    `${foodBounds.box.max.y.toFixed(3)} tall and ${foodBounds.radius.toFixed(3)} out, `
+    + `against the box's ${boxBounds.box.max.y.toFixed(3)} and ${boxBounds.radius.toFixed(3)}`);
   // And is centred on the same point, which is the one number the pickup hand-off and the chip's
   // camera both read. A load whose middle is half a box off centre lands the chip's slide low and
   // frames it high, and both are the same mistake made twice.
   check('and is centred on the same point a picture of a load is framed around',
-    Math.abs((foodBounds.min.y + foodBounds.max.y) / 2 - CARGO_CENTRE_Y) < 0.02
+    Math.abs((foodBounds.box.min.y + foodBounds.box.max.y) / 2 - CARGO_CENTRE_Y) < 0.02
     && Math.abs(CARGO_CENTRE_Y - PARCEL_CENTRE_Y) < 1e-9,
-    `food centred at ${((foodBounds.min.y + foodBounds.max.y) / 2).toFixed(3)}, `
+    `food centred at ${((foodBounds.box.min.y + foodBounds.box.max.y) / 2).toFixed(3)}, `
     + `envelope says ${CARGO_CENTRE_Y.toFixed(3)}`);
 
   // The rig itself: exactly one kind on show, `mesh` following it, and the idle riding the **outer**
@@ -2570,7 +2574,7 @@ check('no two cars occupy the same space', worst > 1.6,
   // below is written around.
   // **Both kinds turn up, and neither is rare.** The two loads play identically (see FOOD_CHANCE), so
   // what this is protecting is not a balance number: it is that the draw exists at all. A `kind` that
-  // got pinned, inverted or dropped leaves a board that is all boxes or all bags, which is exactly
+  // got pinned, inverted or dropped leaves a board that is all boxes or all burgers, which is exactly
   // what the layer looked like before the second one — invisible, and never reported.
   //
   // The band is wide on purpose. 80 draws at even odds sit inside 25–75 on all but about one seed in
@@ -2758,7 +2762,7 @@ check('no two cars occupy the same space', worst > 1.6,
     // jumps on the frame it changes objects.
     // And it is the same *load* that was standing there. The flying copy is a second rig (see
     // `createSlot`), so the kind has to be pushed onto it at launch — miss that and the box the player
-    // watched leave the kerb is a bag by the time it reaches the corner of the screen.
+    // watched leave the kerb is a burger by the time it reaches the corner of the screen.
     check('and the copy that flies away is carrying what the kerb was',
       parcel.slot.flightBox.kind === parcel.kind,
       `${parcel.slot.flightBox.kind} in flight against ${parcel.kind} on the board`);

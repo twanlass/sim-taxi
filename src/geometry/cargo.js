@@ -45,7 +45,7 @@ if (Math.abs(FOOD_CENTRE_Y - PARCEL_CENTRE_Y) > 1e-6) {
  * One load, either kind. `group` carries the pose; the two meshes hang inside it.
  *
  * The idle **lives here rather than in either geometry module**, and that is not tidiness: a box and
- * a bag turning at two rates would be two answers to "this is a thing to pick up", and the rate is
+ * an order turning at two rates would be two answers to "this is a thing to pick up", and the rate is
  * the whole of what that motion says. See `idle` below.
  *
  * @param pickable  the `userData.pickable` kind for both meshes, or null for a load that is scenery.

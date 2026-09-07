@@ -194,9 +194,8 @@ export const SHOTS = [
   //
   // One framing rather than the usual pair. The play-zoom question — is a courier pad tellable from a
   // fare's disc — is about the *pad*, and both loads stand on the same one, so `parcel-board` already
-  // answers it. What is only answerable close up is this shot's own question: does a bag with a burger
-  // and a cup standing out of it read as food at all, and does the straw survive being two pixels of
-  // red.
+  // answers it. What is only answerable close up is this shot's own question: do a burger and a cup
+  // read as food at all at this size, and does the straw survive being two pixels.
   { name: 'food', description: 'a food order waiting on its pad — needs ?parcels=1', target: [0, 0], zoom: 11, warmup: 12, untilParcel: true, cargoKind: 'food' },
 ];
 

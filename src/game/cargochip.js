@@ -22,7 +22,7 @@ import { getMsaa, getPixelRatioCap } from '../util/shot.js';
 //
 // Which is also why the chip is told the **kind** on the way in and not left to guess. A courier job
 // carries a box or a food order (game/parcels.js), the cargo rig holds both, and a chip that raised
-// the box while a bag was still fading out over the kerb would break the one continuity this whole
+// the box while a burger was still fading out over the kerb would break the one continuity this whole
 // hand-off is built to keep.
 //
 // ## Why it sits with the money and not with the rider chips

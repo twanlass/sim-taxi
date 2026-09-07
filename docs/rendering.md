@@ -3293,52 +3293,69 @@ counts them, because a part left *out* of the mask counts as an occluder of the 
 
 ### The food order — `geometry/food.js`
 
-The courier's other load: a takeaway bag with a burger and a soda cup standing out of the top of it.
-Same pad, same cyan, same errand, same money — the whole of the difference is what it *is*, and the
+The courier's other load: an oversized burger with a soda cup standing behind it. Same pad, same
+cyan, same errand, same money — the whole of the difference is what it *is*, and the
 [gameplay doc](gameplay.md#two-kinds-of-load) covers why it was kept that way.
 
-**A different silhouette, not a different colour.** Hue on this board is spent: shape says what a thing
-is and hue says whose clock is paying for it, and a courier job has no clock — so a second load
-arriving as a second cyan would be saying something the board cannot mean. What is left is the
-outline, and three parts carry it:
+**Two objects and no container, and that is the whole design.** The first cut put both of them in a
+takeaway bag, which is what a real order comes in and which cost the order the only thing it had: the
+bag is a squat tapered block, it took two thirds of the envelope, and it left the burger and the cup
+as trinkets balanced on top of something that reads at ten pixels as *another box*. Cargo on this
+board is already a box. What is worth having here is the pair of shapes nothing else in the game has,
+at the size they can be recognised at — so both are several sizes too big, the same deliberate lie
+[the figure](gameplay.md#the-taxis-roof-sign) and the parcel both tell. The burger is 1.24 across,
+which is wider than the box.
 
-- the box is a **squat square**; this is a **taper with things standing out of the top**, which is a
-  different shape at any size that resolves at all;
-- the **straw** is what breaks the outline. It is the one part that reaches the top of the envelope,
-  and it is what makes the spin legible the way the tape strip is for the box — a bag on its own is
-  close enough to rotationally symmetric that turning it says nothing;
-- the **burger** carries the close-up, and it is the [drive-through's own sign](city.md#the-burger-joint-and-its-drive-through)
-  in miniature: the same slices in the same order out of the same palette entries. That sign is
-  fourteen pixels on a pole and solved this problem once already; the lettuce is the only slice that
-  did not survive the trip down, because at half the size a 0.02-unit green ring is a smudge on the
-  patty rather than a slice of anything.
+**A different silhouette, not a different colour.** Hue on this board is spent: shape says what a
+thing is and hue says whose clock is paying for it, and a courier job has no clock — so a second load
+arriving as a second cyan would be saying something the board cannot mean. What is left is the
+outline: a round stack and a tall tapered cup against a squat square, plus the **straw**, which is the
+only part of any load in the game that breaks the outline at the top and is what makes the spin
+legible the way the tape strip is for the box.
+
+**The burger is the drive-through's own mesh**, `burgerGeometry()` from
+[city/burgerjoint.js](city.md#the-burger-joint-and-its-drive-through), shrunk — not a second recipe
+for one. That sign is fourteen pixels on a pole and solved this exact problem once already: which
+slices read at that size, how much of each has to stand out past the crown, why the cheese is a square
+turned 45°. Rebuilding it here would put two burgers in one city, tuned twice, drifting apart on the
+first change to either. It is scaled and stood on the ground **by its own measured bounding box**
+rather than by arithmetic off `BURGER_R`, so it follows any re-tune of the sign.
 
 **It shares the box's envelope, and that is a hard constraint.** Three things measure a load without
 asking which kind it is: the chip frames one square frustum around whatever is aboard, a pickup hands
 the chip a point on the load's own middle, and the outbound flight opens at "cargo, at the scale the
 car handles cargo at". A taller second load overflows the first, sits off-centre in the second and
-opens at the wrong size in the third — three bugs out of one dimension. So the whole order, straw tip
-included, lands on the box's 1.16 and inside its half-diagonal, and `tools/probe.mjs` asserts that
-against the two meshes that actually get built rather than against the numbers that were meant to
-produce them.
+opens at the wrong size in the third — three bugs out of one dimension. So the straw's tip lands on
+the box's 1.16 and the pair stays inside its sweep, and `tools/probe.mjs` asserts that against the two
+meshes that actually get built rather than against the numbers meant to produce them. The width there
+is measured as the **furthest vertex from the spin axis**, not off a bounding box: a box's corners are
+real vertices, a burger and a cup on a diagonal have nothing at the corners of theirs, and what both
+the chip's frustum and the spin care about is the radius.
 
-Three things were measured rather than guessed, and each was a first cut that photographed wrong:
+Three things were measured rather than guessed:
 
-- **The bag is tall and steeply tapered.** At 0.70 high on a 0.92 base with a 1.10 mouth it read as a
-  **tub** — at that aspect with that little flare there is nothing in the outline a bucket does not
-  also have, and the wide flat rim on top read as the lip of one. A bag is the other proportion:
-  narrow at the base, open at the top, taller than it is wide.
-- **The cup is narrow, bedded deep, and capped in red.** Kraft, card and an off-white lid are three
-  shades of the same tan under this sun, so the first cup dissolved into the bag it was standing in.
-  The red lid is what makes a drink legible even when most of the cup is hidden — which is what pays
-  for bedding it a fifth of a unit down, which is in turn what buys the straw its air.
-- **The straw is nearly upright, and off-white.** Leaning it to buy length is the obvious move and it
-  spends the height it had: at 35° the tip came down level with the lid and the whole thing
-  photographed as a white streak lying across it. Red on a red lid is a straw nobody can see.
+- **The tall one goes up-screen, and the pair sits on the diagonal.** −X−Z is away from the eye and up
+  the frame, so cup behind and burger in front is the one arrangement where the burger cannot cover
+  the cup's body. On the diagonal rather than side by side for a second reason: two objects strung out
+  along one axis swing between their full width and nothing as the order turns.
+- **The pair is centred on its own plan extents, after the fact.** The offsets are chosen to balance,
+  but the burger carries a scatter of sesame seeds that is deliberately *not* symmetric, so the pair
+  as built leans a few hundredths — and the idle spin is about this mesh's Y axis, where a lopsided
+  plan reads as an orbit rather than a turn.
+- **The cup's body stops well short of the lid line.** Drawn up to it, the straw gets a tenth of a
+  unit of air and is a nub; at 0.78 the body is still half again as tall as it is wide, which is all a
+  cup needs to be a cup, and the straw gets a third of a unit to stand up in. The lid is **red** for
+  the other half of the same read: paper and bun are near neighbours under this sun, so an off-white
+  cap on an off-white cup was one shade of one colour.
 
-Everything is a cylinder, a box or a squashed hemisphere — nothing here is hand-wound, which is the
-one thing that keeps it clear of [the winding trap](#the-courier-pad--geometryparcelpadjs) the pad
-next door fell into.
+> **Trap.** `BufferGeometry.scale` goes through `applyMatrix4`, which **recomputes a bounding box that
+> already exists**. So a box read off the sign before the scale and held by reference has silently had
+> the scale applied to it by the time it is used, and standing the mesh on the ground with it applies
+> the scale twice — it sank the burger a quarter of a unit into the pavement. `.clone()` the reading.
+
+Everything is a cylinder, a box or a squashed hemisphere — nothing here is hand-wound, which is what
+keeps it clear of [the winding trap](#the-courier-pad--geometryparcelpadjs) the pad next door fell
+into.
 
 ### The drop-off ring — `geometry/marker.js`
 
