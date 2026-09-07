@@ -42,7 +42,7 @@ src/
     routeline.js        the route band painted down the taxi's lane
     pick.js             raycast click picking
     sightline.js        which kerb corners the camera can see, settled once per city
-    farepointers.js     one edge arrow per off-frame fare — direction and clock, nothing more
+    farepointers.js     edge arrows — every off-frame rider, or just the drop-off while carrying
     riderfinder.js      the HUD chips that used to do that job, now behind `?chips=on`
     taxifinder.js       the chip that comes up when the taxi is off-frame — tap to ride back to it
     faremarker.js       the fare clock, as a physical object: kerb, flight, taxi

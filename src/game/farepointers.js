@@ -11,13 +11,28 @@ import * as THREE from 'three';
 //   - **The drop-off**, while a fare is aboard. One arrow, aimed at the ring the taxi is meant to
 //     reach. The drop-off no longer floats a marker above the rooftops, so this is the only thing
 //     that reports it off-frame.
-//   - **Every rider still on the kerb.** One arrow each, aimed at the corner they are standing on.
+//   - **Every rider still on the kerb — but only while the seat is free.** One arrow each, aimed at
+//     the corner they are standing on.
 //     This used to be the [rider-finder chips](riderfinder.js)' job, and the chips did it by
 //     answering the question outright: a row of portraits with their own clocks, one tap to
 //     dispatch, no need to ever find the pin. That made the whole board readable — and pickable —
 //     without looking at the city, which is the opposite of the game. The arrow says *which
 //     direction* and *how urgent* and stops there; finding the rider and judging whether they are
 //     worth the drive is back to being something the player does on the map.
+//
+// **The two kinds are exclusive, and that is the whole of the rule.** With a rider aboard there is
+// exactly one arrow on screen and it is the drop-off's. An arrow is a *go here*, and a kerbside
+// rider is the one thing on the board the player is not allowed to go to while carrying one
+// (`markDirected` in game/fares.js refuses the tap) — so a ring of them around the frame is three
+// or four invitations to do the one thing the game will not accept, which is what the board's
+// [step-back](gameplay.md) is already spending a glow and a bounce to say. Enforced here rather
+// than by the caller passing an empty list: it is one rule about arrows, and it belongs with them.
+//
+// What it costs is real and is the reason it took a playtest to settle: a waiting rider off the
+// side of the frame has *no* mark while you are carrying, so their clock is only readable by
+// panning to them. Their disc is still on the tarmac at their corner, and the arrow is back the
+// instant the seat empties — but on a phone, mid-trip, "off frame" and "invisible" are the same
+// thing. It is the deliberate price of the frame saying one thing at a time.
 //
 // **They wear the fare's colour, which is that rider's clock** (see game/urgency.js) — passed in
 // per frame rather than read from a palette, because the thing each one stands in for changes
@@ -145,8 +160,10 @@ export function createFarePointers({ camera, pinLocation, viewport = null }) {
   }
 
   /**
-   * @param aboard   the fare in the car, or null — its drop-off gets the large arrow
-   * @param waiting  the fares still on the kerb; one arrow each, at their own corner
+   * @param aboard   the fare in the car, or null — its drop-off gets the large arrow, and while it
+   *                 is set it gets the *only* arrow (see the header)
+   * @param waiting  the fares still on the kerb; one arrow each, at their own corner, and ignored
+   *                 entirely while `aboard` is riding
    * @param colorOf  `fares.colorOf`, so every arrow reads its clock off the one urgency scale
    */
   function update(aboard, waiting = [], colorOf = null) {
@@ -156,6 +173,13 @@ export function createFarePointers({ camera, pinLocation, viewport = null }) {
       const c = pinLocation(aboard.target.i, aboard.target.j);
       aim(arrowAt(slot), c, colorOf ? colorOf(aboard) : null, true);
       slot += 1;
+    }
+
+    // One seat, one arrow: with someone aboard the drop-off above is the whole of it — see the
+    // header. `slot` is left at 1, so the sweep at the bottom hides every other arrow in the pool.
+    if (aboard && aboard.stage === 'riding') {
+      for (let i = slot; i < arrows.length; i++) arrows[i].el.hidden = true;
+      return;
     }
 
     // Sorted by slot index rather than by time left, the same way the chips were: an arrow that

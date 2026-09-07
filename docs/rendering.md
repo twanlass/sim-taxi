@@ -1272,6 +1272,17 @@ Where to call it from is the same split `markOccluder` has. Anything `sim/` or `
 marked from `main.js`, because neither may import from `game/`; anything already in `game/` marks
 itself, the way `game/roadwork.js` marks its own slab.
 
+**`setEmissiveScale(root, 0..1)`** turns a marked object's glow down without unmarking it — for a
+lamp that is still a lamp but should not be spilling right now. The one caller today is the fare
+marker stepping back behind the rider in the car
+([gameplay.md](gameplay.md#the-board-steps-back-while-the-seat-is-full)), and both of its properties
+are the reason it exists rather than an `unmarkEmissive`/`markEmissive` pair: the markers are
+**pooled** and switch several times a run, so a pair would dispose and rebuild a material per
+transition; and it is a *scalar*, so the halo can be eased out rather than vanishing on one frame,
+which reads as the marker being switched off rather than turned down. It folds into the pass's
+intensity, so a scale of 0 leaves the draw list through `material.visible` exactly the way a kind
+dialled to zero does — never by skipping the swap, which is the trap the next paragraph is about.
+
 **What is in it today:** every vehicle's brake pods and indicators, the cruiser's light bar, the
 drive-through's lit windows and menu board, the depot's strip light, the Loco plume and its kickoff
 burst, the wreck's fireball, and — quietly — a fare's crystal and the disc under it.
@@ -3033,11 +3044,31 @@ beam of the same hue as the rim beneath it read as brighter rather than merely t
 Because the patch changes what the material draws without changing its constructor parameters, it
 carries its own `customProgramCacheKey` — see the trap in [CLAUDE.md](../CLAUDE.md) about
 `onBeforeCompile` and three's program cache. `setColor` paints it the same colour as the rim and
-fill; `tools/probe.mjs` reads all three back together and expects one hex, repeated three times.
+fill; `tools/probe.mjs` reads all three back together and expects one hex, repeated three times —
+except on a **backgrounded** disc, below, where only the rim and fill carry the dim.
 
 The beam has to be told to spin: `ring.update(elapsed)` is called from `game/faremarker.js`'s own
 per-frame `update` while the rider's disc is visible, and from `game/fares.js`'s fare loop while a
 fare is `riding`, for the drop-off's. Neither ring ticks while hidden.
+
+**`setDim(0..1)` steps a disc back behind the fare in the car.** A waiting rider cannot be picked up
+while the seat is full, so their mark turns down for as long as that holds — see
+[gameplay.md](gameplay.md#the-board-steps-back-while-the-seat-is-full) for why the disc *darkens*
+rather than disappearing. Mechanically it is a colour scale (0.42× on the rim and fill) plus half
+again off the fill's opacity, with the sweep fading on `opacity` and then dropping out of the draw
+entirely. Scaling the colour rather than fading the material is what keeps it cheap: two of the three
+layers are opaque `unlitMaterial`s whose colour *is* their light, and turning them transparent to dim
+them would move them into three's transparent queue for a look change. The dim and the clock write
+the same channel, so both go through one `paint()` — otherwise a level change would repaint a
+backgrounded disc at full brightness four times a fare. The caller (`game/faremarker.js`) owns the
+easing; this only ever applies the number it is handed.
+
+**`pulse()` swells a disc once and settles**, borrowing the select pop's own envelope at
+`PULSE_SCALE = 0.16` — about +4px of radius on a 27px disc, half the crystal's 0.34 because the two
+are wildly different sizes on screen and the gesture has to read as the same one. It is fired on the
+**drop-off's** disc when a tap on a kerbside rider is refused, as the "that one first" half of the
+answer. The swell *multiplies* whatever the arrival/exit animation has got to rather than replacing
+it, so a disc pulsed mid-grow swells out of where it is instead of jumping to full size.
 
 ### The courier pad — `geometry/parcelpad.js`
 
@@ -3292,12 +3323,26 @@ the fare it stands in for, which is that rider's clock: the colour is written fr
 wrapper's `color` and the polygon fills with `currentColor`, so a level change is one style write.
 The value in the stylesheet is only what one opens on before its first write.
 
-**Two kinds, one arrow.** The drop-off gets one while a fare is aboard, and *every rider still on a
-kerb* gets one — which is new, and is what replaced the [rider-finder
-chips](gameplay.md#finding-the-next-rider). The drop-off's is drawn a size up (`.is-dropoff`, 42px
-against 35px), because while carrying there can be four arrows on the edge at once and only one of
-them is the trip under way; colour cannot carry that distinction, being already spoken for by the
-clocks.
+**Two kinds, one arrow, and they are exclusive.** With the seat free, *every rider still on a kerb*
+gets one — which replaced the [rider-finder chips](gameplay.md#finding-the-next-rider). With a rider
+aboard there is exactly **one** arrow on the whole frame and it is the drop-off's.
+
+That exclusivity is the [step-back](gameplay.md#the-board-steps-back-while-the-seat-is-full) reaching
+the frame edge. An arrow is a *go here*, and a kerbside rider is the one thing on the board a player
+carrying someone may not go to — so a ring of three or four of them is that many invitations to do
+the thing the game refuses, spent on the only channel that has no room for nuance: an arrow has a
+direction and a hue and nothing else to say "not yet" with. The rule lives in `update` rather than in
+the caller passing an empty list, because it is one rule about arrows.
+
+It costs something real. A waiting rider off the side of the frame now has *no* mark at all while you
+are carrying — their disc is still on the tarmac at their corner, and the arrow returns the instant
+the seat empties, but on a phone mid-trip "off frame" and "invisible" are the same thing, so the
+board's ordering puzzle is readable only by panning. That is the deliberate price of the frame saying
+one thing at a time.
+
+The drop-off's is still drawn a size up (`.is-dropoff`, 42px against 35px) even now that it is alone
+while carrying: the sizes have to keep meaning what they mean across the transition, and a lone arrow
+that shrank when the seat filled would read as the trip mattering less.
 
 The drop-off's arrow carries more weight since the head came off. A crystal at rooftop height stayed
 visible over the skyline for a beat after the ring had gone behind a tower; the arrow only covers the
@@ -3305,9 +3350,14 @@ visible over the skyline for a beat after the ring had gone behind a tower; the 
 at `y = 0.1` — the mark on the road — where it used to aim halfway up the pin's post.
 
 The pool grows on demand and is never shrunk: `maxFares` riders plus one drop-off, so it tops out at
-five divs. `tools/smoke.mjs` asserts the bookkeeping — as many arrows up as there are marks outside
-the band, each coloured and each inside the frame — through `__taxi.projectToScreen` and
-`__taxi.cornerFor`, which are the same functions the HUD itself aims with.
+five divs. `tools/smoke.mjs` asserts the bookkeeping — as many arrows up as there are marks *eligible*
+to raise one and outside the band, each coloured and each inside the frame — through
+`__taxi.projectToScreen` and `__taxi.cornerFor`, which are the same functions the HUD itself aims
+with. It mirrors the exclusivity rule rather than reading it off the module, so the two have to agree
+rather than agreeing by construction, and it reports whether the sample it passed on actually
+*reached* a board with someone aboard and a kerbside rider off-frame — the state is a fact about
+where the taxi has driven by then, and a pass that never met it says so rather than looking like
+proof.
 
 The third thing the map outgrowing the frame can lose is the **taxi itself**, and that one gets a
 chip rather than an arrow: a direction is enough when you already know what is over there, and not

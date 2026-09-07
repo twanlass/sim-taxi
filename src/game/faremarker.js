@@ -6,7 +6,8 @@ import {
   kickEnvelope, KICK_TIME, KICK_SCALE, KICK_HOP,
 } from '../geometry/diamond.js';
 import { createTargetRing, RING_Y } from '../geometry/targetring.js';
-import { markEmissive } from './bloom.js';
+import { RIGHT } from './camera.js';
+import { markEmissive, setEmissiveScale } from './bloom.js';
 import { popEnvelope, popHighlight, POP_TIME, POP_SCALE_DIAMOND } from './selectpop.js';
 
 // The fare's clock, as a physical object: one plumbob crystal hanging point-down over whoever it
@@ -98,6 +99,68 @@ const PULSE_BELOW_S = 5;
 const PULSE_HZ = 3.5;
 const PULSE_AMPLITUDE = 0.15;
 
+// --- Backgrounded, while a rider is aboard ----------------------------------
+//
+// There is one seat. `markDirected` (game/fares.js) has always refused a kerbside fare while
+// carrying one, and playtesters kept tapping them anyway — so a waiting rider's mark now steps back
+// for as long as the seat is full: the crystal shrinks, and the disc under their feet darkens and
+// loses its sweep (geometry/targetring.js).
+//
+// **Quieter, never gone, and never smaller.** A waiting fare's clock keeps draining while you
+// drive, and running one out ends the run — and `budgetFor` charges every new arrival for the whole
+// waiting queue ahead of it, so which rider is closest to the edge is exactly what the player should
+// be reading on the way to a drop-off. The step-back says "not yet", not "not there".
+//
+// The crystal was shrunk to half for a first cut and it is **back at full size**: it read as a
+// different, smaller kind of marker rather than as the same one turned down, and it took the hue —
+// which is the clock — down with it in screen area. What goes instead is the **glow** and the
+// **bounce**. Both halves of the mark are in the bloom (see markEmissive below), and the spill is
+// an order of magnitude wider than the thing spilling, so it is most of what makes a marker carry
+// across the city; the hop is the other half of the same claim, because a thing that moves on its
+// own is a thing asking to be pressed. Between them they are the loudest pair that can come off a
+// marker without touching what it *says*: same size, same hue, same place, still — no halo.
+//
+// **The bounce is damped, not stopped.** `bg` scales its amplitude, so a marker settles onto its
+// rest height over the same 0.3s the glow fades in rather than freezing wherever in the cycle the
+// pickup happened to land. `bounceOffset` is `abs(sin)` and bottoms out at exactly 0, so the height
+// it settles to *is* the height it already touches once a cycle — the marker comes to rest at a
+// place the eye has been watching it hit all along, which is what makes it read as stopping rather
+// than as dropping.
+//
+// Two things deliberately keep moving. The **panic pulse** under five seconds: a rider about to
+// give up is exactly as urgent whether or not the seat is full, and that is the one piece of news
+// this must never suppress — it is also why the pulse rides the scale channel and the bounce rides
+// position, so damping one cannot touch the other. And the **level-change kick**, for the same
+// reason: a still marker that knocks once is a clock stepping down, which is news rather than an
+// invitation.
+const BACKGROUND_GLOW = 0;
+// Seconds to cross, either way. Longer than a kick and shorter than the boarding animation, so the
+// board settles into its new reading while the rider is still climbing in rather than snapping on
+// the pickup frame — which already has a crystal in flight and two discs trading places. A halo
+// that vanished on one frame would read as the marker being switched off rather than turned down.
+const BACKGROUND_EASE = 0.3;
+
+// --- The refused tap --------------------------------------------------------
+//
+// A tap on a kerbside rider while carrying used to do *nothing at all* — `main.js` returned before
+// the route was planned, with no pop, no buzz and no mark on the screen, which is indistinguishable
+// from tapping the sky. That is most likely what the playtest was actually showing: not players who
+// could not see the rule, but players who asked the question and got no answer.
+//
+// So the crystal shakes. Sideways along the screen's own right (`RIGHT` in game/camera.js, which is
+// the ground vector that projects horizontal under this fixed camera), damped to nothing — a head
+// shake, and the one gesture on the board that is not a swell, because every swell here already
+// means "yes".
+//
+// **Deliberately no colour.** The hue is the clock and nothing else may write it, and the highlight
+// channel is the select pop's — a refusal that lit the crystal the way an accepted tap does would
+// be the screen saying both things at once.
+const REFUSE_TIME = 0.34;
+const REFUSE_HZ = 8.5;         // ~3 shakes inside the envelope
+const REFUSE_AMPLITUDE = 0.55; // world units at the first swing, ~4px at play zoom, and it is a
+                               // position offset rather than a scale, so a half-size crystal shakes
+                               // proportionally further rather than proportionally less
+
 /**
  * One fare's marker. Built once per fare slot and re-set on every spawn, the same way the rest of
  * the slot's meshes are reused.
@@ -159,6 +222,39 @@ export function createFareMarker(scene, phase = 0) {
   let popPending = false;
   let transferAt = null;
   let transferPending = false;
+  let refuseAt = null;
+  let refusePending = false;
+  // The step-back, and where it is heading. `bg` is eased toward `bgTarget` in `update`; `showAt`
+  // snaps it, so a rider who appears while the seat is already full opens backgrounded rather than
+  // shrinking in front of the player as their first act.
+  let bg = 0;
+  let bgTarget = 0;
+
+  /**
+   * Push the current step-back to the two things that carry it: the disc's dim, and the glow on
+   * both halves of the mark.
+   *
+   * One function because they have to move together — a crystal with its halo gone over a disc at
+   * full brightness is not a marker turned down, it is a marker with a bug. Written unconditionally
+   * on every frame the marker is visible rather than only while `bg` is moving: both setters are a
+   * compare-and-return on the common path, and unconditional is one less way to leave a rider the
+   * player can now take sitting there with no glow on them.
+   */
+  function applyBackground() {
+    ring.setDim(bg);
+    // Both groups, and both are already marked — the crystal (with its outline hull) and the disc's
+    // three layers. `setEmissiveScale` folds into the pass's intensity, so 0 leaves the draw list
+    // through `material.visible` rather than drawing black. See game/bloom.js.
+    const glow = THREE.MathUtils.lerp(1, BACKGROUND_GLOW, bg);
+    setEmissiveScale(group, glow);
+    setEmissiveScale(ring.group, glow);
+  }
+  // `update` is handed sim time, not a delta — every animation in this file is a function of the
+  // clock, which is what keeps a frozen shot reproducible. The ease is the one thing here that is
+  // *rate*-shaped rather than envelope-shaped (it can be interrupted and reversed halfway), so it
+  // takes its own delta off the same clock. null until the first frame, and reset by `showAt`, so
+  // a slot coming back from the pool never integrates a run's worth of elapsed time in one step.
+  let lastElapsed = null;
 
   /**
    * Paint the diamond in this level's colour, kicking it if the level actually moved.
@@ -243,8 +339,41 @@ export function createFareMarker(scene, phase = 0) {
     /** Whether the marker is between the kerb and the taxi. */
     isTransferring: () => transferPending || transferAt !== null,
 
-    /** Show the marker over a rider who has just appeared, at their kerb corner. */
-    showAt(nextLevel, x, z, vip = false) {
+    /**
+     * Step this fare's mark back behind the one in the car, or bring it forward again.
+     *
+     * Pushed from the fare loop every frame (game/fares.js) rather than latched at the pickup,
+     * because it is a *state* — "is the seat full" — and a fare can enter it either way round: a
+     * rider already on the kerb when someone else gets in, or a rider spawning while one is aboard.
+     * Reconciling it per frame is also what makes it correct across a drop-off, a run ending and a
+     * VIP expiring, none of which go through a common exit.
+     */
+    setBackgrounded(on) { bgTarget = on ? 1 : 0; },
+    /** How far back this mark currently stands, 0..1 — for the headless tools. */
+    getBackgrounded: () => bg,
+
+    /**
+     * The player tapped this rider while carrying someone: shake the crystal.
+     *
+     * The other half of the answer is on the drop-off's disc, which swells at the same moment
+     * (`refuse` in game/fares.js) — this one says "not this", that one says "that". Neither is a
+     * state, so both are pushed rather than reconciled: a second refused tap on the same rider has
+     * to shake again or it reads as the tap having been swallowed, which is the whole complaint.
+     */
+    refuse() { refusePending = true; },
+
+    /**
+     * Show the marker over a rider who has just appeared, at their kerb corner.
+     *
+     * `backgrounded` is passed rather than left to the caller's next `setBackgrounded`, because
+     * these markers are **pooled**: the slot this rider is opening on may have spent the last fare
+     * stepped back behind someone in the car, and a target inherited across a spawn is the same
+     * class of bug as an inherited pop or an inherited kick — both of which this function already
+     * clears below. It also has to be known *now* rather than a frame later: the fare loop
+     * snapshots its live list before it refills, so a marker shown here is not updated until the
+     * next frame, and shot mode never gets one.
+     */
+    showAt(nextLevel, x, z, vip = false, backgrounded = false) {
       // Straight to the opening colour with no kick: a marker that pops the moment it appears is
       // announcing a change that hasn't happened. A VIP opens straight into its fixed purple
       // instead of the urgency scale's top level — see setUrgency.
@@ -268,6 +397,15 @@ export function createFareMarker(scene, phase = 0) {
       diamond.setHighlight(0);
       transferAt = null;
       transferPending = false;
+      refuseAt = null;
+      refusePending = false;
+      // Snapped, not eased: a rider appearing while the seat is full opens at their backgrounded
+      // size. Shrinking in front of the player would announce a change that happened before they
+      // arrived.
+      bgTarget = backgrounded ? 1 : 0;
+      bg = bgTarget;
+      applyBackground();
+      lastElapsed = null;
       anchor.set(x, LIFT, z);
       group.position.copy(anchor);
       // Same corner, on the pavement: the rider stands in the middle of their own disc. It grows
@@ -275,6 +413,11 @@ export function createFareMarker(scene, phase = 0) {
       ring.group.position.set(x, KERB_H + RING_Y, z);
       ring.appear();
       diamond.mesh.scale.setScalar(1);
+      // Damped by the step-back here too — `update` owns this channel but does not run on the frame
+      // a fare spawns (the loop snapshots its live list before it refills), and shot mode ticks the
+      // loop exactly once, so a rider appearing while the seat is full would render one frame, or
+      // one screenshot, mid-hop.
+      diamond.mesh.position.set(0, bounceOffset(phase) * (1 - bg), 0);
       group.visible = true;
     },
 
@@ -296,6 +439,9 @@ export function createFareMarker(scene, phase = 0) {
 
     hide() {
       group.visible = false;
+      refuseAt = null;
+      refusePending = false;
+      lastElapsed = null;
       // Instant. `hide` is a slot being handed on or a run ending, neither of which is a gesture —
       // and an animated exit here would be driven by an `update` that is no longer being called.
       ring.hideNow();
@@ -311,6 +457,18 @@ export function createFareMarker(scene, phase = 0) {
      */
     update(elapsed, target = null, secondsLeft = Infinity) {
       if (!group.visible) return;
+
+      // The step-back, eased on its own delta — see `lastElapsed`. Written through to the disc
+      // every frame rather than only while it is moving: `setDim` is a compare-and-return on the
+      // common path, and unconditional is one less way to leave a disc dark under a rider the
+      // player can now take.
+      const dt = lastElapsed === null ? 0 : Math.max(0, elapsed - lastElapsed);
+      lastElapsed = elapsed;
+      if (bg !== bgTarget) {
+        const step = dt / BACKGROUND_EASE;
+        bg = bgTarget > bg ? Math.min(bgTarget, bg + step) : Math.max(bgTarget, bg - step);
+      }
+      applyBackground();
 
       // The beam circling the disc, while there is a disc to circle — it goes dark with the ring
       // itself at the hand-off (see beginTransfer), so there is nothing left to spin in the car.
@@ -370,14 +528,45 @@ export function createFareMarker(scene, phase = 0) {
       // burning.
       diamond.setHighlight(glow);
 
+      if (refusePending) {
+        refuseAt = elapsed;
+        refusePending = false;
+      }
+      let shake = 0;
+      if (refuseAt !== null) {
+        const since = elapsed - refuseAt;
+        // On the clock like every other envelope here: a damped sine passes through zero three
+        // times inside its own run, so clearing on the value would kill the shake on its first
+        // crossing and leave a single flick.
+        if (since >= REFUSE_TIME) refuseAt = null;
+        else {
+          shake = Math.sin(since * REFUSE_HZ * Math.PI * 2)
+            * REFUSE_AMPLITUDE * (1 - since / REFUSE_TIME);
+        }
+      }
+
       const pulse = secondsLeft <= PULSE_BELOW_S
         ? PULSE_AMPLITUDE * (0.5 + 0.5 * Math.sin(elapsed * PULSE_HZ * Math.PI * 2))
         : 0;
 
-      diamond.mesh.position.y = bounceOffset(elapsed + phase) + kick * KICK_HOP;
+      // `RIGHT` is in the ground plane (y = 0), so the shake never fights the bounce for the
+      // vertical channel — the crystal keeps hopping while it is being shaken.
+      //
+      // The bounce is damped by the step-back and the kick's hop is not: see BACKGROUND_GLOW. A
+      // backgrounded marker sits still and can still knock.
+      diamond.mesh.position.set(
+        RIGHT.x * shake,
+        bounceOffset(elapsed + phase) * (1 - bg) + kick * KICK_HOP,
+        RIGHT.z * shake,
+      );
       // The kick, the pulse and the pop share the scale channel and simply add: a level change
       // landing inside the last five seconds should read as a knock on top of a beating marker, not
       // replace it, and a tap on that same rider has to answer over both.
+      //
+      // The step-back is **not** in this sum. It used to shrink the crystal and multiply here; it
+      // is a glow now, and the crystal keeps its size through the whole of a fare's life — so a
+      // backgrounded rider still kicks, pulses and pops at exactly the size the eye has learned
+      // those gestures at.
       diamond.mesh.scale.setScalar(1 + kick * KICK_SCALE + pulse + pop * POP_SCALE_DIAMOND);
     },
   };

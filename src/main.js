@@ -1257,6 +1257,11 @@ createPicker(
     // Gated on the fare's stage rather than on `kind`: the two agree today, since a waiting fare's
     // only visible marker is its rider, but the rule is about the fare, not about which mesh was hit.
     if (fare.stage === 'waiting' && fares.carrying()) {
+      // ...and *say so*. The refusal used to return here with nothing at all, which is the same
+      // response as a tap on the sky — see `fares.refuse`, which shakes the rider's crystal and
+      // swells the drop-off the player has to clear first. No haptic on purpose: every buzz in this
+      // game reports an accepted input (src/util/haptics.js).
+      fares.refuse(fare);
       return;
     }
 
@@ -1334,7 +1339,9 @@ function panToRider(fare) {
 // rule consistent here.
 function dispatchToRider(fare) {
   if (!fare || fares.state.gameOver) return;
-  if (fares.carrying()) return;
+  // Same refusal as the picker's, and it has to answer the same way: a chip and a pin are one
+  // instruction wearing two hats, so one of them going quiet would make the rule look conditional.
+  if (fares.carrying()) { fares.refuse(fare); return; }
   if (routeTo(fare.target)) {
     fares.markDirected(fare);
   }
