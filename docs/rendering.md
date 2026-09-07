@@ -1,7 +1,8 @@
 # Rendering
 
-Three.js r0.180. **Zero external assets** — every mesh is generated in code, there is no loader,
-no texture and no model file.
+Three.js r0.180. **Zero external *visual* assets** — every mesh is generated in code, there is no
+loader, no texture and no model file. (Audio is the one exception to "zero assets" anywhere in this
+project, and it is not a rendering concern — see [audio.md](audio.md).)
 
 ## The low-poly look
 

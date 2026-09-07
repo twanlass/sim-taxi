@@ -15,6 +15,7 @@ behind it that aren't obvious from the code.
 | [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, Crayon and Cartoon Mode, bloom, effects | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 | [lab.md](lab.md) | The passing lab at `/lab/` — one straight road with no lights, for watching Loco Mode overtake | `src/lab/`, `lab/` |
+| [audio.md](audio.md) | **Planned, not built.** Music and effects: the event model, the mix as data, the sound lab at `/audio/`, the iOS audio session | `src/audio/` |
 | [ios.md](ios.md) | The App Store build: the WKWebView shell, why a custom URL scheme rather than `file://`, the native flag | `ios/`, `src/util/platform.js` |
 
 ## The 60-second version
@@ -104,10 +105,12 @@ changes hands as it crosses, with no lift in between. See
 
 ## Conventions worth knowing before editing
 
-- **Zero external assets.** Every mesh is generated in code. There is no loader and no model file.
-  If something needs to look different, it changes in geometry or in `palette.js`. The one texture
-  in the project is [Crayon Mode](rendering.md#crayon-mode--gamecrayonjs)'s paper, which is baked
-  from seeded noise at boot — generated in code like everything else.
+- **Zero external *visual* assets.** Every mesh is generated in code. There is no loader and no
+  model file. If something needs to look different, it changes in geometry or in `palette.js`. The
+  one texture in the project is [Crayon Mode](rendering.md#crayon-mode--gamecrayonjs)'s paper, which
+  is baked from seeded noise at boot — generated in code like everything else.
+  **Audio is the deliberate exception**, and only audio: the music and effects are human-authored
+  files. See [audio.md](audio.md) for why the synthesised alternative was rejected.
 - **Seeded generation.** The city is one seed, the run situation is another; see
   [architecture.md](architecture.md#seeding).
 - **Comments carry the "why".** Most non-obvious lines already explain themselves in place —

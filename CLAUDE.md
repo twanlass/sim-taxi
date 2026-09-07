@@ -8,7 +8,10 @@ Guidance for Claude Code when working in this repository.
 5-by-6 block city with a river down the middle of it, ambient traffic obeying real signals, and one
 taxi you route by tapping fares.
 
-Three.js r0.180 + Vite 7. **Zero external assets** — every mesh is generated in code.
+Three.js r0.180 + Vite 7. **Zero external *visual* assets** — every mesh is generated in code. The
+one exception to "zero assets" is sound: the music and effects are human-authored files, a decision
+taken deliberately and written up in [docs/audio.md](docs/audio.md). Nothing under `geometry/` or
+`city/` gets to load a model on the strength of it.
 
 ## Read the docs first
 
