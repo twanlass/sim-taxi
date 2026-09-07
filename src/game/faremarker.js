@@ -113,11 +113,26 @@ const PULSE_AMPLITUDE = 0.15;
 //
 // The crystal was shrunk to half for a first cut and it is **back at full size**: it read as a
 // different, smaller kind of marker rather than as the same one turned down, and it took the hue —
-// which is the clock — down with it in screen area. What goes instead is the **glow**. Both halves
-// of the mark are in the bloom (see markEmissive below), and the spill is an order of magnitude
-// wider than the thing spilling, so it is most of what makes a marker carry across the city. Fading
-// it out is the loudest thing that can be taken off a marker without touching what it says: same
-// size, same hue, same place, no halo.
+// which is the clock — down with it in screen area. What goes instead is the **glow** and the
+// **bounce**. Both halves of the mark are in the bloom (see markEmissive below), and the spill is
+// an order of magnitude wider than the thing spilling, so it is most of what makes a marker carry
+// across the city; the hop is the other half of the same claim, because a thing that moves on its
+// own is a thing asking to be pressed. Between them they are the loudest pair that can come off a
+// marker without touching what it *says*: same size, same hue, same place, still — no halo.
+//
+// **The bounce is damped, not stopped.** `bg` scales its amplitude, so a marker settles onto its
+// rest height over the same 0.3s the glow fades in rather than freezing wherever in the cycle the
+// pickup happened to land. `bounceOffset` is `abs(sin)` and bottoms out at exactly 0, so the height
+// it settles to *is* the height it already touches once a cycle — the marker comes to rest at a
+// place the eye has been watching it hit all along, which is what makes it read as stopping rather
+// than as dropping.
+//
+// Two things deliberately keep moving. The **panic pulse** under five seconds: a rider about to
+// give up is exactly as urgent whether or not the seat is full, and that is the one piece of news
+// this must never suppress — it is also why the pulse rides the scale channel and the bounce rides
+// position, so damping one cannot touch the other. And the **level-change kick**, for the same
+// reason: a still marker that knocks once is a clock stepping down, which is news rather than an
+// invitation.
 const BACKGROUND_GLOW = 0;
 // Seconds to cross, either way. Longer than a kick and shorter than the boarding animation, so the
 // board settles into its new reading while the rider is still climbing in rather than snapping on
@@ -398,7 +413,11 @@ export function createFareMarker(scene, phase = 0) {
       ring.group.position.set(x, KERB_H + RING_Y, z);
       ring.appear();
       diamond.mesh.scale.setScalar(1);
-      diamond.mesh.position.set(0, bounceOffset(phase), 0);
+      // Damped by the step-back here too — `update` owns this channel but does not run on the frame
+      // a fare spawns (the loop snapshots its live list before it refills), and shot mode ticks the
+      // loop exactly once, so a rider appearing while the seat is full would render one frame, or
+      // one screenshot, mid-hop.
+      diamond.mesh.position.set(0, bounceOffset(phase) * (1 - bg), 0);
       group.visible = true;
     },
 
@@ -532,9 +551,12 @@ export function createFareMarker(scene, phase = 0) {
 
       // `RIGHT` is in the ground plane (y = 0), so the shake never fights the bounce for the
       // vertical channel — the crystal keeps hopping while it is being shaken.
+      //
+      // The bounce is damped by the step-back and the kick's hop is not: see BACKGROUND_GLOW. A
+      // backgrounded marker sits still and can still knock.
       diamond.mesh.position.set(
         RIGHT.x * shake,
-        bounceOffset(elapsed + phase) + kick * KICK_HOP,
+        bounceOffset(elapsed + phase) * (1 - bg) + kick * KICK_HOP,
         RIGHT.z * shake,
       );
       // The kick, the pulse and the pop share the scale channel and simply add: a level change

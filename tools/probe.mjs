@@ -72,7 +72,7 @@ import { setCityOccluders, sightlineClear } from '../src/game/sightline.js';
 import {
   createDiamond,
   bounceOffset, KICK_SCALE, KICK_HOP, RIM_SCALE, RIM_OFFSET, EMISSIVE, HIGHLIGHT_EMISSIVE,
-  DIAMOND_HALF_H,
+  DIAMOND_HALF_H, BOUNCE_HEIGHT,
 } from '../src/geometry/diamond.js';
 import { CRYSTAL_TOP } from '../src/game/faremarker.js';
 import { createPerson, HIGHLIGHT_EMISSIVE as RIDER_HIGHLIGHT } from '../src/geometry/person.js';
@@ -1703,6 +1703,8 @@ check('no two cars occupy the same space', worst > 1.6,
   let steppedBack = false;
   let carriedStaysForward = false;
   let keptItsSize = false;
+  let bobWhileHeld = 0;
+  let bobbedAfter = 0;
   let refuseAnswered = false;
   let refusedShake = 0;       // peak sideways offset on the refused crystal
   let refusedPulse = 0;       // peak swell on the drop-off it was pointed at
@@ -1726,7 +1728,13 @@ check('no two cars occupy the same space', worst > 1.6,
       if (refusedFare && fares.state.fares.includes(refusedFare)
         && refusedFare.slot.marker.getBackgrounded() < 0.01
         && glows(refusedFare.slot.marker.mesh)
-        && discLayers(refusedFare.slot.marker).sweep.visible) cameBack = true;
+        && discLayers(refusedFare.slot.marker).sweep.visible) {
+        // ...and it is hopping again. Measured over a whole bounce cycle rather than on the frame
+        // the seat empties, because `abs(sin)` passes through the rest height once per cycle and a
+        // single sample can land on it.
+        bobbedAfter = Math.max(bobbedAfter, refusedFare.slot.marker.mesh.position.y);
+        if (bobbedAfter > BOUNCE_HEIGHT * 0.5) cameBack = true;
+      }
       const next = fares.state.fares.find((f) => f.stage === 'waiting' && !f.directed);
       if (next) route(next);
       continue;
@@ -1764,6 +1772,10 @@ check('no two cars occupy the same space', worst > 1.6,
     refuseAnswered = fares.refuse(waiter);
     refusedFare = waiter;
     for (let f = 0; f < 30 && fares.carrying() === carried; f++) {
+      // The bounce is off while the seat is full — a thing that moves on its own is a thing asking
+      // to be pressed, and this one cannot be. Read on frames where no *kick* is in flight: a level
+      // change still hops a backgrounded marker on purpose, and that lift lands in the same channel.
+      if (!marker.isKicking()) bobWhileHeld = Math.max(bobWhileHeld, marker.mesh.position.y);
       oTraffic.update(1 / 60);
       fares.update(1 / 60, oTraffic.taxi);
       elapsed += 1 / 60;
@@ -1783,7 +1795,10 @@ check('no two cars occupy the same space', worst > 1.6,
     `peak ${refusedShake.toFixed(3)}`);
   check('and swells the drop-off it has to clear first', refusedPulse > 1.05,
     `peak ${refusedPulse.toFixed(3)}`);
-  check('the board comes forward again once the seat empties', cameBack);
+  check('...and stops bobbing, because a thing that moves asks to be pressed',
+    steppedBack && bobWhileHeld < BOUNCE_HEIGHT * 0.02, `peak ${bobWhileHeld.toFixed(4)}`);
+  check('the board comes forward again once the seat empties', cameBack,
+    `bob after ${bobbedAfter.toFixed(3)} of ${BOUNCE_HEIGHT}`);
 }
 
 // --- The difficulty curve is winnable everywhere on it ------------------------
