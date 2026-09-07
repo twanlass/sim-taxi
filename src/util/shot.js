@@ -172,6 +172,18 @@ export const SHOTS = [
   // the road to get there — it flies into the HUD (game/cargochip.js), and shot mode hides the HUD.
   // Removed from the **end** of the list rather than blanked in place, which is the one edit the
   // index-addressing rule above allows without renumbering anything that survived.
+  //
+  // The depot (city/garage.js), which had no shot of its own for as long as the only thing anybody
+  // looked at it for was the vignette — and the vignette frames itself. It has a livery now, so
+  // there is something to look at from outside the cut scene. Same pair as everything else here.
+  // Close: do the yellow band and the chequer course under it read as a *livery* rather than as a
+  // stripe, and does a frustum on a mast read as a dish. At play zoom: is the depot a block you can
+  // pick out of the skyline, which is what all that paint is for.
+  //
+  // The door is shut in both. Shot mode never stages the taxi, so `setDoor(0)` is what main.js
+  // leaves it at — see the note there.
+  { name: 'depot', description: 'the taxi depot, close', target: [0, 0], zoom: 11, warmup: 12, atDepot: true },
+  { name: 'depot-far', description: 'the depot at play zoom', target: [0, 0], zoom: 52, warmup: 12, atDepot: true },
 ];
 
 export function getActiveShot() {

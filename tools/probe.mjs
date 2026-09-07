@@ -148,7 +148,7 @@ import {
 import { GRAB_RADIUS } from '../src/game/pathdrag.js';
 import { nearestJunction, nextIntersection } from '../src/city/grid.js';
 import { DIR, laneOffsetCoord } from '../src/city/grid.js';
-import { PALETTE, BUILDING_COLORS } from '../src/palette.js';
+import { PALETTE, BUILDING_COLORS, color } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
 import { createBlast } from '../src/game/blast.js';
 import {
@@ -11479,6 +11479,162 @@ let chopperOrder; // likewise
       + `target ${Math.hypot(onDoor.x - rest.x, onDoor.z - rest.z).toFixed(1)} units off rest`);
     check('...and the camera handed back with it',
       !opening.holdsCamera());
+  }
+
+  // --- The livery, and the mast over it.
+  //
+  // Read off the mesh's own baked colours rather than off the constants that put them there, so
+  // this is a claim about what got built rather than a restatement of `garage.js`.
+  {
+    const pos = garage.shell.geometry.attributes.position;
+    const col = garage.shell.geometry.attributes.color;
+    const at = (i) => new THREE.Color(col.getX(i), col.getY(i), col.getZ(i)).getHexString();
+    const YELLOW = color('garageSign').getHexString();
+    const PALE = color('garageWhite').getHexString();
+    const DARK = color('garageCheck').getHexString();
+
+    // The two courses, by the y each colour actually occupies. Only what is up the wall: the same
+    // yellow is on the forecourt, four and a half units below anything here.
+    const bandOf = (want) => {
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let i = 0; i < pos.count; i++) {
+        if (pos.getY(i) < KERB_H + 2 || !want.includes(at(i))) continue;
+        lo = Math.min(lo, pos.getY(i));
+        hi = Math.max(hi, pos.getY(i));
+      }
+      return { lo, hi };
+    };
+    const yellow = bandOf([YELLOW]);
+    const chequer = bandOf([PALE, DARK]);
+    check('the depot wears a yellow course and a chequer course', Number.isFinite(yellow.lo)
+      && Number.isFinite(chequer.lo), `yellow ${yellow.lo.toFixed(2)}, chequer ${chequer.lo.toFixed(2)}`);
+    // Order and contact in one: yellow on top because a dark coping over a chequer is mud, and
+    // touching because a reveal of wall between them is sub-pixel at play zoom and reads as a gap
+    // in the paint at the vignette's.
+    check('...with the yellow on top of the chequer and no wall showing between them',
+      chequer.hi > yellow.lo - 1e-9 && chequer.hi < yellow.lo + 1e-9 && chequer.lo < yellow.lo,
+      `chequer ${chequer.lo.toFixed(2)}→${chequer.hi.toFixed(2)}, yellow ${yellow.lo.toFixed(2)}→${yellow.hi.toFixed(2)}`);
+
+    // It has to actually alternate. A chequer built off an index that ran over two faces, or a
+    // parity that came out even both ways round, is still a course of squares and still looks like
+    // paint from far enough away — so walk the squares along one elevation in z and demand the
+    // colour flips at every step. Anything under two runs of squares is not a chequer.
+    const squares = new Map();
+    for (let i = 0; i < pos.count; i++) {
+      const c = at(i);
+      if (pos.getY(i) < KERB_H + 2 || (c !== PALE && c !== DARK)) continue;
+      // The +X elevation's outer face only, which is the one whose squares run along z. Strictly
+      // past `frontX`, because the +Z run ends *on* that plane and would otherwise contribute a
+      // one-colour edge of its own to the tally below.
+      if (pos.getX(i) < site.frontX + 1e-6) continue;
+      const key = pos.getZ(i).toFixed(4);
+      if (!squares.has(key)) squares.set(key, new Set());
+      squares.get(key).add(c);
+    }
+    // Each edge in z is shared by two neighbouring squares, so an alternating course puts *both*
+    // colours on every interior edge and exactly one on each of its two ends.
+    const edges = [...squares.entries()].sort((a, b) => Number(a[0]) - Number(b[0]));
+    const shared = edges.filter(([, cols]) => cols.size === 2).length;
+    check('...and the chequer alternates along the whole run',
+      edges.length > 8 && shared === edges.length - 2,
+      `${edges.length} edges, ${shared} carrying both colours`);
+
+    // Neither course is *painted on*: both stand off the wall in front of them, which is the
+    // coplanar rule (CLAUDE.md) rather than a modelling preference — two front-facing surfaces on
+    // one plane are a tie the rasteriser breaks differently on different machines, and a still
+    // rendered here is no evidence either way. Measured on the +X elevation, whose wall plane is
+    // `site.frontX` exactly and which is the face the vignette spends two seconds on.
+    let paintReach = -Infinity;
+    let copingReach = -Infinity;
+    const TRIM = color('garageTrim').getHexString();
+    for (let i = 0; i < pos.count; i++) {
+      const c = at(i);
+      if (pos.getY(i) < KERB_H + 2) continue;
+      if ([YELLOW, PALE, DARK].includes(c)) paintReach = Math.max(paintReach, pos.getX(i));
+      // The coping, which is the only trim above the courses.
+      else if (c === TRIM && pos.getY(i) > chequer.hi) copingReach = Math.max(copingReach, pos.getX(i));
+    }
+    check('...and both courses stand off the wall rather than lying on it',
+      paintReach > site.frontX + 0.05,
+      `paint to x ${paintReach.toFixed(2)}, wall at ${site.frontX.toFixed(2)}`);
+    // ...and no further off it than the coping over them, or the parapet stops being a lid and the
+    // top course grows a lit edge of its own along the roofline.
+    check('...and tuck under the coping rather than standing past it',
+      copingReach > paintReach + 1e-6,
+      `coping to x ${copingReach.toFixed(2)}, paint to ${paintReach.toFixed(2)}`);
+
+    // The forecourt's guide lines, against the asphalt they are laid on. Same rule, laid flat: two
+    // horizontal surfaces at one height is the shimmer `city/burgerjoint.js` names its apron levels
+    // to avoid, and the depot now has the same three levels to keep apart.
+    let paintTop = -Infinity;
+    let paintFar = -Infinity;
+    let surfaceTop = -Infinity;
+    const RAMP_FROM = site.kerbX - 1.5;
+    for (let i = 0; i < pos.count; i++) {
+      if (at(i) === YELLOW && pos.getY(i) < KERB_H + 1) paintFar = Math.max(paintFar, pos.getX(i));
+      // The flat part of the forecourt: from just behind the threshold out to where the dropped
+      // kerb starts falling. The ramp is outside the window on purpose — it is a slope, and what is
+      // being asserted here is about two *level* surfaces meeting at one height.
+      if (pos.getY(i) > KERB_H + 0.1 || pos.getX(i) < site.curtainX - 0.2
+        || pos.getX(i) > RAMP_FROM - 1e-6) continue;
+      // The asphalt is jittered per city, so it is identified by *not* being the paint.
+      if (at(i) === YELLOW) paintTop = Math.max(paintTop, pos.getY(i));
+      else surfaceTop = Math.max(surfaceTop, pos.getY(i));
+    }
+    // The up-facing faces, which are the ones that can fight. The paint's *under*side lands exactly
+    // on the asphalt's top and that is fine — a down-facing surface is culled before it can argue
+    // with anything (CLAUDE.md) — so what has to be strictly clear is the two visible surfaces.
+    check('the forecourt paint is laid over its asphalt rather than in it',
+      paintTop > surfaceTop + 1e-6,
+      `paint to ${paintTop.toFixed(3)}, asphalt to ${surfaceTop.toFixed(3)}`);
+    // ...and stops before the ground under it starts falling away. A level strip carried out over
+    // the dropped kerb is buried in it at one end of the ramp and hanging over it at the other.
+    check('...and stops at the top of the dropped kerb rather than running over it',
+      paintFar < RAMP_FROM + 1e-6,
+      `paint to x ${paintFar.toFixed(2)}, ramp from ${RAMP_FROM.toFixed(2)}`);
+
+    // --- The mast, and the dish orbiting on it.
+    //
+    // The one thing a mast on this roof could break is the shot the whole depot exists for, and it
+    // cannot break it for a reason that is about **x**, not about height: every ray out of the
+    // opening starts on the curtain plane and runs +X, so anything wholly behind that plane is
+    // unreachable at any height. The dish is the part that moves, and it moves *outward* — 1.15
+    // units along its arm — so this is the number to watch.
+    garage.dish.geometry.computeBoundingBox();
+    const reach = garage.dishPivot.position.x + garage.dish.geometry.boundingBox.max.x;
+    check('the sweeping dish stays behind the plane the door\u2019s sightlines leave from',
+      reach < site.curtainX,
+      `dish reaches x ${reach.toFixed(2)}, curtain at ${site.curtainX.toFixed(2)}`);
+
+    // The entrance wave's contract, and the reason the pivot is where it is. The shader scales the
+    // shell about KERB_H; `objects` in game/cityentry.js owns nothing but `object.scale`, so the
+    // only way a CPU-grown object rises with the mesh it stands on is for its pivot to sit on that
+    // same plane. Anywhere else and the dish shrinks toward a point the mast has not reached.
+    check('...and its pivot sits on the plane the entrance wave scales about',
+      Math.abs(garage.dishPivot.position.y - KERB_H) < 1e-9,
+      `pivot y ${garage.dishPivot.position.y.toFixed(3)} against ${KERB_H}`);
+
+    // It orbits, so it passes over the crossbars once a revolution: the clearance is not a static
+    // one and cannot be read off a single pose.
+    let barTop = -Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      if (Math.hypot(pos.getX(i) - garage.dishPivot.position.x,
+        pos.getZ(i) - garage.dishPivot.position.z) > 0.6) continue;
+      const y = pos.getY(i);
+      if (y > KERB_H + 5.5 && y < KERB_H + garage.dish.geometry.boundingBox.min.y) {
+        barTop = Math.max(barTop, y);
+      }
+    }
+    check('...and clears the crossbars under it all the way round',
+      KERB_H + garage.dish.geometry.boundingBox.min.y - barTop > 0.1,
+      `${(KERB_H + garage.dish.geometry.boundingBox.min.y - barTop).toFixed(2)} units`);
+
+    // Last: the dish is out of both lists it must not be in. The wave cannot animate it (it turns)
+    // and the AO prepass must not draw it (its matrix changes every frame), so it is neither a
+    // stamped mesh nor an occluder — it is an `entryObject` instead.
+    check('...and it is an entrance *object*, not one of the stamped meshes',
+      !garage.meshes.includes(garage.dish) && garage.entryObject.object === garage.dishPivot);
   }
 
   // --- Can the camera see the door?

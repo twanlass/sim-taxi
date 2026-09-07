@@ -142,10 +142,37 @@ export const PALETTE = {
   // The strip light on the bay ceiling. Unlit (see `unlitMaterial`) — it *is* a light source, and
   // a pale box standing in its own shadow reads as grey paint.
   garageLight: '#FFE7B8',
-  // The fascia band over the door, and a deliberate exception to "yellow is reserved for the taxi"
-  // below. It is reserved for the taxi; this is the taxi's building, and a band 0.45 units tall on
-  // a vertical face four units up is not mistakable for a car on the road.
+  // The livery band under the coping, and a deliberate exception to "yellow is reserved for the
+  // taxi" below. It is reserved for the taxi; this is the taxi's building, and a band 0.46 units
+  // tall on a vertical face four and a half units up is not mistakable for a car on the road.
+  //
+  // It started as a fascia over the door alone and now wraps both elevations the camera can see,
+  // which is a *lot* more of it — so the audit is worth restating rather than inheriting. What the
+  // rule protects is the read of a yellow car against the road at play zoom, and none of this is
+  // near the road: the lowest pixel of it is 4.5 units up a wall, it is horizontal where a car is
+  // a moving rectangle, and the one thing that has to stay unmistakable — the taxi coming out of
+  // the bay in the vignette — is coming out of a **hole** two units below it. That reveal is the
+  // reason the envelope itself stays grey. Paint the shed yellow and the yellow car drives out of
+  // a yellow wall.
   garageSign: '#F5C130',
+  // The chequer course under that band, and the depot's one nod at a cab company's own livery.
+  //
+  // An off-white and a charcoal rather than #FFF and #000. A true black square against a true white
+  // one is the highest-contrast pair available anywhere in this game, and each of these squares is
+  // about three and a half pixels wide at play zoom — at that size maximum contrast does not read
+  // as a chequer, it fizzes. These two are 0.80 apart in lightness where `getHSL` measures (the
+  // working space, not the colour picker's — see the long note on `door`) against the 1.00 they
+  // would be, which is still the widest pair on the building and a step back off the edge.
+  //
+  // Both carry the ironwork's own blue cast — 216° and 217° against `garageTrim`'s 221° — rather
+  // than being neutral greys. A neutral chequer on a warm-lit building comes out looking like two
+  // shades of the wall.
+  //
+  // The pale one doubles as the radio dish on the roof, and that is consolidation rather than
+  // coincidence — the same argument `rooftopIron` makes. There is one white thing on this
+  // building and it is used twice.
+  garageWhite: '#E9EBEE',
+  garageCheck: '#33373D',
 
   // --- The burger joint -------------------------------------------------------
   // The city's one drive-through (city/burgerjoint.js). Like the depot above it, its envelope

@@ -55,9 +55,71 @@ const DOOR_OFF = 4.5;
 const SLATS = 9;
 const RAIL_H = 0.16;             // the bottom rail: the leading edge the eye tracks
 
+// --- The livery -------------------------------------------------------------
+// A cab company paints its own depot. Two courses — a yellow band under the coping and a chequer
+// under that — wrapping the two elevations this camera can ever see.
+//
+// They are **boxes standing off the wall**, not a colour baked into the wall's own vertices, and
+// that is the coplanar rule rather than laziness: a stripe painted onto a face is two surfaces on
+// one plane, and an exact tie does not shimmer on the machine you are looking at (see CLAUDE.md).
+// A tenth of a unit is also enough to catch the sun's own edge, so the band reads as painted metal
+// screwed to a shed rather than as a decal.
+const PAINT_PROUD = 0.1;
+// Both measured **down from the parapet line**, because that is what they are aligned to: the
+// coping sits directly on top of the yellow and overhangs it by 0.08, so the band tucks under.
+const BAND_H = 0.46;
+const CHECK_H = 0.46;
+// A square's target width. Each run is then divided into a whole number of squares of whatever
+// width comes out nearest this, so a course ends flush on the corner rather than on a half of one
+// — the two faces are different lengths and neither is a multiple of anything.
+const CHECK_SQ = 0.46;
+
+// --- The radio mast ---------------------------------------------------------
+// Dispatch has to reach the car somehow. A mast off the roof's front corner with a dish sweeping
+// on it, which is the only moving part on this building other than the door itself.
+const MAST_H = 2.4;              // the pole, above the plinth it is bolted to
+const MAST_PLINTH = 0.16;
+const WHIP_H = 0.8;              // the aerial above the dish
+// A first cut at 0.62 came out a pale smudge beside a mast that is 0.24 wide and much darker, so
+// the eye went to the pole. The dish has to be the thing you see.
+const DISH_R = 0.72;
+// How far the dish is tipped off vertical. 0.95 rad is 54°, which points its face up steeply
+// enough to read as a dish from a camera 33° above the horizon, and shallowly enough that its rim
+// still draws as an ellipse rather than as a line.
+const DISH_TILT = 0.95;
+const DISH_ARM = 0.52;           // how far off the mast's axis it orbits
+// Where up the mast it sits, as a fraction of MAST_H, and it is measured rather than picked: the
+// dish **orbits**, so it passes over both crossbars once a revolution and the clearance has to hold
+// at every angle. Tipped by DISH_TILT its lowest point is 0.49 under its own centre — the rim plus
+// the frustum's own thickness carried round by the tilt, not just `DISH_R * cos(DISH_TILT)` — which
+// at 0.76 puts it 0.22 over the upper bar (see `radioMast`, where the bars were dropped to buy
+// that). It was 0.03 before the dish was grown, which is a clip at play zoom and a collision at the
+// vignette's.
+const DISH_AT = 0.76;
+
+/**
+ * How fast the dish sweeps, in radians a second — fourteen seconds a revolution.
+ *
+ * Slow, for the reason `SIGN_SPIN` is one building over: at play zoom this thing is about five
+ * pixels across, and anything much past this stops reading as a radar and starts reading as a toy
+ * being spun. It is only at the vignette's zoom that it is a dish at all.
+ */
+export const DISH_SPIN = 0.45;
+
 // The block platform's walking surface — `createGround` lays the pavement one centimetre over the
 // kerb box. A car standing on it rides this much higher than one on the road.
 export const PAVEMENT_Y = KERB_H + 0.01;
+
+// The forecourt asphalt's own top face, and the paint on it. Named off each other rather than
+// nudged as literals, the way `city/burgerjoint.js` names its apron levels: two flat surfaces at
+// the same height is a shimmer, not a touch, and the level anything standing on the forecourt
+// wants is the one the forecourt itself lays.
+const APRON_Y = PAVEMENT_Y + 0.01;
+const PAINT_Y = APRON_Y + 0.015;
+// How far back from the lip the dropped kerb starts falling — `dropKerb`'s own run, and therefore
+// also where anything laid flat on the forecourt has to stop. One constant rather than two because
+// the second copy is the one that drifts.
+const KERB_RUN = 1.5;
 
 /**
  * Can the camera actually see this block's +X face?
@@ -186,11 +248,119 @@ function span(x0, x1, y0, y1, z0, z1, col) {
 }
 
 /**
- * The depot: two merged meshes and a light.
+ * The two painted courses, on one elevation.
  *
- * Two rather than one because the curtain moves and the shell does not. Both are stamped with the
- * same entrance anchor (see `stampEntry`), so the city's opening wave lifts the door with its own
- * building rather than leaving it hanging in the air.
+ * `axis` says which way the face runs — `'z'` for the +X elevation, `'x'` for the +Z one — and
+ * `at` is the wall plane it stands off. Only those two faces get any: the camera never rotates,
+ * so the other two are paint nobody will ever be shown.
+ */
+function livery(parts, axis, at, from, to, top) {
+  const bandY = top - BAND_H;
+  const checkY = bandY - CHECK_H;
+  // One helper so the chequer loop below doesn't have to know which way round the world is.
+  const face = (y0, y1, a, b, col) => (axis === 'z'
+    ? span(at, at + PAINT_PROUD, y0, y1, a, b, col)
+    : span(a, b, y0, y1, at, at + PAINT_PROUD, col));
+
+  parts.push(face(bandY, top, from, to, color('garageSign')));
+
+  // A whole number of squares, so the course lands on the corner rather than halfway through one.
+  const n = Math.max(4, Math.round((to - from) / CHECK_SQ));
+  const sq = (to - from) / n;
+  for (let k = 0; k < n; k++) {
+    parts.push(face(checkY, bandY, from + k * sq, from + (k + 1) * sq,
+      color(k % 2 ? 'garageWhite' : 'garageCheck')));
+  }
+}
+
+/**
+ * The mast, minus the dish — everything on it that doesn't turn, so it can ride in the shell's
+ * merge and be lifted by the entrance wave like the rest of the building.
+ *
+ * `foot` is the top of the coping, which is what it stands on.
+ */
+function radioMast(x, z, foot) {
+  const trim = color('garageTrim');
+  const parts = [box(0.5, MAST_PLINTH, 0.5, x, foot, z, trim)];
+  const base = foot + MAST_PLINTH;
+
+  const pole = new THREE.CylinderGeometry(0.09, 0.12, MAST_H, 6);
+  pole.translate(x, base + MAST_H / 2, z);
+  parts.push(bakeColor(pole, trim));
+
+  // Two crossbars under the dish and a whip above it. A bare rod on a roof is a flagpole; these
+  // are the whole of what says *communications* at a size where nothing else can. Crossed rather
+  // than stacked on one axis, because this camera never rotates and a bar laid along the sightline
+  // is a dot.
+  //
+  // Low, and that is the dish's clearance rather than taste: the upper one is what DISH_AT is
+  // measured against, and the pair sat at 0.36/0.52 until the dish grew into them.
+  parts.push(box(0.9, 0.05, 0.05, x, base + MAST_H * 0.30, z, trim));
+  parts.push(box(0.05, 0.05, 0.7, x, base + MAST_H * 0.44, z, trim));
+
+  const whip = new THREE.CylinderGeometry(0.025, 0.05, WHIP_H, 4);
+  whip.translate(x, base + MAST_H + WHIP_H / 2, z);
+  parts.push(bakeColor(whip, color('pole')));
+
+  return parts;
+}
+
+/**
+ * The dish, in its pivot's own space.
+ *
+ * **The pivot stands at the mast's foot on the kerb, not at the mast's head**, and that is the one
+ * subtle thing here. This is the only piece of the depot the entrance wave cannot reach — it turns,
+ * and the wave's anchor is a *world* coordinate stamped into a vertex, which stops meaning anything
+ * in a rotating object's local space — so it grows on the CPU instead, and all the CPU path owns is
+ * `object.scale` (see `objects` in game/cityentry.js). The shader scales the shell about `KERB_H`;
+ * a uniform scale about a pivot placed on `KERB_H` is that same arithmetic, so the dish rides up
+ * the mast as the mast grows. Put the pivot at the mast's head and it would instead shrink toward a
+ * point two seconds of animation away from where the mast actually is.
+ *
+ * @param dishY  the dish's height above the pivot, i.e. above `KERB_H`
+ */
+function dishGeometry(dishY) {
+  // The arm, out along +X. The dish hangs off the end of it rather than sitting on the mast's own
+  // axis, so the assembly **orbits**: a radar sweeps, it does not spin on the spot.
+  const parts = [box(DISH_ARM, 0.09, 0.09, DISH_ARM / 2, dishY - 0.045, 0, color('garageTrim'))];
+
+  // Built pointing straight up and tipped afterwards, so everything on the dish's own axis — the
+  // strut, the feed at the end of it — can be placed by one number and then carried along.
+  //
+  // A shallow frustum rather than a bowl, and that is a winding decision rather than a triangle
+  // budget. The face you look at on a bowl is its *inside*, and an inside is a back face — which
+  // under `flatShading` takes its normal from a screen-space derivative and lights as though the
+  // sun were behind it (docs/rendering.md, and the boats' wake in CLAUDE.md). A solid frustum has
+  // no inside: the face pointed at the sky is its own front face.
+  const face = [];
+  const dish = new THREE.CylinderGeometry(DISH_R, DISH_R * 0.4, 0.16, 12);
+  dish.translate(0, 0.08, 0);
+  face.push(bakeColor(dish, color('garageWhite')));
+  // The feed on its strut, standing off the face. Three pixels at play zoom, and the whole of what
+  // makes the frustum read as a dish rather than as a drum.
+  const strut = new THREE.CylinderGeometry(0.035, 0.035, 0.44, 4);
+  strut.translate(0, 0.38, 0);
+  face.push(bakeColor(strut, color('garageTrim')));
+  face.push(box(0.16, 0.16, 0.16, 0, 0.56, 0, color('garageTrim')));
+
+  // Negative, so the dish's own +Y tips toward +X — away from the mast, out over the arm.
+  for (const geo of face) {
+    geo.rotateZ(-DISH_TILT);
+    geo.translate(DISH_ARM, dishY, 0);
+    parts.push(geo);
+  }
+  const merged = mergeGeometries(parts, false);
+  parts.forEach((g) => g.dispose());
+  return merged;
+}
+
+/**
+ * The depot: two merged meshes, a light and a dish.
+ *
+ * Two meshes rather than one because the curtain moves and the shell does not. Both are stamped
+ * with the same entrance anchor (see `stampEntry`), so the city's opening wave lifts the door with
+ * its own building rather than leaving it hanging in the air. The light is unlit and outside the
+ * wave, and the dish is outside it for a different reason — see `dishGeometry`.
  */
 export function createGarage(block, rng) {
   const site = garageSite(block);
@@ -206,6 +376,20 @@ export function createGarage(block, rng) {
   const base = KERB_H;
   const head = base + DOOR_H;           // the lintel: where the curtain winds away
   const top = base + HEIGHT;
+  const deck = top + 0.34;              // the top of the coping, which the mast stands on
+
+  // Where the mast goes: the roof's front corner, which is the one this camera looks straight at,
+  // and clear of the rooftop plant sitting further back.
+  //
+  // It cannot occlude the door, and the reason is x rather than height: every ray out of the
+  // opening starts on the curtain plane and runs +X, so anything wholly **behind** that plane is
+  // unreachable however tall it is. 1.9 rather than the 1.5 this was first written at, for a
+  // margin the dish can be grown into — the dish orbits 1.15 units out on its arm, which at 1.5
+  // put its far edge 0.05 short of the curtain and one bump of `DISH_R` past it. The probe
+  // measures that gap rather than trusting this comment.
+  const mastX = frontX - 1.9;
+  const mastZ = bz1 - 1.5;
+  const dishY = deck + MAST_PLINTH + MAST_H * DISH_AT;
 
   const wall = jitterColor(color('garageWall'), rng, { l: 0.03 });
   const trim = color('garageTrim');
@@ -244,13 +428,10 @@ export function createGarage(block, rng) {
     // nothing needs hiding — but it is the one part that says *roller* rather than *shutter*.
     span(curtainX - 0.25, frontX + 0.15, head - 0.08, head + 0.62, dz0 - 0.25, dz1 + 0.25, trim),
 
-    // The fascia band. See `garageSign` in palette.js for why this one is allowed to be yellow.
-    span(frontX, frontX + 0.1, head + 0.78, head + 1.23, dz0 - 0.3, dz1 + 0.3, color('garageSign')),
-
     // The forecourt: asphalt laid over the pavement from under the door out to the kerb, which is
     // what says "cars come out of here" on a block that is otherwise bare paving. It runs back to
     // where the bay floor stops, so the threshold is continuous.
-    span(curtainX - 0.12, kerbX, PAVEMENT_Y - 0.01, PAVEMENT_Y + 0.01, dz0 - 0.5, dz1 + 0.5,
+    span(curtainX - 0.12, kerbX, PAVEMENT_Y - 0.01, APRON_Y, dz0 - 0.5, dz1 + 0.5,
       jitterColor(color('asphalt'), rng, { l: 0.02 })),
 
     // The other elevation. `+Z` is the second of the two faces this camera can ever see, and on a
@@ -268,7 +449,27 @@ export function createGarage(block, rng) {
     box(1.0, 0.42, 1.0, bx0 + 5.6, top + 0.34, bz1 - 2.2, color('rooftopIron')),
 
     dropKerb(kerbX, doorZ, rng),
+
+    // The forecourt's own paint: two guide lines out of the bay, the way any yard marks the way out
+    // of a shed. Laid *on* the asphalt rather than in it — see PAINT_Y, which exists so this cannot
+    // be nudged onto the plane it is standing on.
+    //
+    // They stop at `KERB_RUN` short of the lip rather than running to it, because that is where the
+    // dropped kerb starts falling away: a flat strip carried out over a ramp is buried in it at one
+    // end and hanging over it at the other, and neither is a thing anybody painted.
+    span(curtainX, kerbX - KERB_RUN, APRON_Y, PAINT_Y, dz0 + 0.35, dz0 + 0.63, color('garageSign')),
+    span(curtainX, kerbX - KERB_RUN, APRON_Y, PAINT_Y, dz1 - 0.63, dz1 - 0.35, color('garageSign')),
+
+    // The mast. Static, so it rides in the shell's merge and the entrance wave lifts it with the
+    // building; only the dish below is excluded from that, and only because it turns.
+    ...radioMast(mastX, mastZ, deck),
   ];
+
+  // The livery, on the two elevations this camera can ever see. The +X run takes the corner — it
+  // runs PAINT_PROUD past `bz1` — so the +Z run can stop dead on the wall plane and the two meet
+  // without either one burying a face inside the other.
+  livery(parts, 'z', frontX, bz0, bz1 + PAINT_PROUD, top);
+  livery(parts, 'x', bz1, bx0, frontX, top);
 
   // The entrance wave scales every vertex about its object's ground anchor. One anchor for the
   // whole depot — shell and curtain alike — so the building comes up as one object.
@@ -310,8 +511,25 @@ export function createGarage(block, rng) {
   const light = new THREE.Mesh(lightGeo, unlitMaterial({ vertexColors: true }));
   light.name = 'garage-light';
 
+  // --- The dish -------------------------------------------------------------
+  // Its own mesh and its own pivot, for the reason the burger over the drive-through is one: it
+  // turns, and the entrance wave cannot animate anything with a transform of its own. See
+  // `dishGeometry` for why the pivot sits on the kerb rather than at the head of its mast.
+  const dishGeo = dishGeometry(dishY - KERB_H);
+  const dish = new THREE.Mesh(dishGeo, propMaterial());
+  dish.castShadow = true;
+  dish.name = 'garage-dish';
+
+  const dishPivot = new THREE.Group();
+  dishPivot.name = 'garage-dish-pivot';
+  dishPivot.position.set(mastX, KERB_H, mastZ);
+  // Seeded rather than zero, the same as the burger's: shot mode ticks once and freezes, so a dish
+  // that started square-on would be square-on in every screenshot of every city.
+  dishPivot.rotation.y = rand * Math.PI * 2;
+  dishPivot.add(dish);
+
   const group = new THREE.Group();
-  group.add(shell, curtain, light);
+  group.add(shell, curtain, light, dishPivot);
 
   /**
    * Wind the curtain up. `open` is 0 (shut) to 1 (gone).
@@ -336,8 +554,31 @@ export function createGarage(block, rng) {
     // construction stays valid and there is nothing to refresh.
   }
 
-  return { site, group, shell, curtain, light, meshes: [shell, curtain], setDoor,
-    entrySite: { x: anchorX, z: anchorZ, r: Math.max(frontX - bx0, bz1 - bz0) / 2, rand } };
+  /** Sweep the dish. One rotation and no state, so a paused frame simply stops being advanced. */
+  function update(dt, spin = DISH_SPIN) {
+    dishPivot.rotation.y += spin * dt;
+  }
+
+  return {
+    site,
+    group,
+    shell,
+    curtain,
+    light,
+    dish,
+    dishPivot,
+    update,
+    /**
+     * The two stamped meshes, for the entrance wave and for the AO prepass — and **not** the dish,
+     * which is neither: the wave's vertex shader cannot reach a turning object, and a mesh whose
+     * matrix changes every frame has no business writing into a screen-space occlusion buffer.
+     */
+    meshes: [shell, curtain],
+    setDoor,
+    /** ...so the dish grows on the CPU instead, on the shell's own delay. */
+    entryObject: { object: dishPivot, x: anchorX, z: anchorZ, rand },
+    entrySite: { x: anchorX, z: anchorZ, r: Math.max(frontX - bx0, bz1 - bz0) / 2, rand },
+  };
 }
 
 /**
@@ -349,9 +590,9 @@ export function createGarage(block, rng) {
  * only the sloped top and the two sides show.
  */
 function dropKerb(kerbX, doorZ, rng) {
-  // The slope, by its two endpoints: from a hair over the pavement 1.5 units back from the lip, to
-  // a hair under the road just past it.
-  const ax = kerbX - 1.5;
+  // The slope, by its two endpoints: from a hair over the pavement KERB_RUN back from the lip, to a
+  // hair under the road just past it.
+  const ax = kerbX - KERB_RUN;
   const ay = PAVEMENT_Y + 0.02;
   const bx = kerbX + 0.1;
   const by = -0.02;

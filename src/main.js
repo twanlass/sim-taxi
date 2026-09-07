@@ -610,9 +610,10 @@ const cityEntry = createCityEntry({
   // The garage rises with everything else, shell and shutter alike — both are stamped with the one
   // anchor, so it comes up as a building rather than as a building and a door.
   meshes: [city.mesh, propsMesh, ...(garage?.meshes ?? []), ...(burger?.meshes ?? [])],
-  // The one thing in the city the wave's vertex shader cannot reach, because it turns — see the
-  // `objects` note in game/cityentry.js.
-  objects: burger ? [burger.entryObject] : [],
+  // The two things in the city the wave's vertex shader cannot reach, because they turn: the
+  // depot's radio dish and the burger over the drive-through. See the `objects` note in
+  // game/cityentry.js.
+  objects: [...(garage ? [garage.entryObject] : []), ...(burger ? [burger.entryObject] : [])],
   sites: [...city.entrySites, ...(garage ? [garage.entrySite] : []),
     ...(burger ? [burger.entrySite] : [])],
   dust,
@@ -2586,6 +2587,8 @@ function frame() {
   // The burger turning on its pole. Scenery in the same sense the flock and the flyover are, and
   // paused with them: `frame()` has already returned by here on a paused frame.
   burger?.update(dt, SIGN_SPIN);
+  // And the dish on the depot's roof, on the same terms — see DISH_SPIN in city/garage.js.
+  garage?.update(dt);
   controller.updateShake(dt, aspect());
   daylight.update(dt);
 
@@ -3129,6 +3132,15 @@ if (shot) {
   // anything if the two are pointed at the same lane.
   if (shot.atBurger && burger) {
     controller.state.target.set(burger.site.focus.x, 0, burger.site.focus.z);
+    controller.update(aspect());
+  }
+
+  // And the depot, on the same two framings. `site.focus` is the middle of the door opening, which
+  // is a couple of units below the middle of the building — but an orthographic camera aimed at a
+  // point in the air is aimed at the wrong point on the ground (see the birds), so the target is
+  // taken flat off the ground the way every other `at*` shot here takes it.
+  if (shot.atDepot && garage) {
+    controller.state.target.set(garage.site.focus.x, 0, garage.site.focus.z);
     controller.update(aspect());
   }
 
