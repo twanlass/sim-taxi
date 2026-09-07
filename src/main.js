@@ -59,7 +59,7 @@ import { createPicker } from './game/pick.js';
 import { createRiderFinder } from './game/riderfinder.js';
 import { createTaxiFinder } from './game/taxifinder.js';
 import { createCargoChip } from './game/cargochip.js';
-import { createTutorial } from './game/tutorial.js';
+import { createTutorial, LOCO_HINT_HOLD } from './game/tutorial.js';
 import { createOpening } from './game/opening.js';
 import { createWipe } from './game/wipe.js';
 import { createFarePointers } from './game/farepointers.js';
@@ -1446,8 +1446,18 @@ const wipe = shot ? null : createWipe(document.getElementById('wipe'));
 const revealHud = () => document.body.classList.add('hud-ready');
 
 // Set on the first successful press of Loco Mode, and never cleared. The tutorial's third beat
-// reads it: a player who has already fired it does not need a bubble pointing at the pill.
+// reads it to pick which line it says — a player who has jabbed the pill is told to hold it down
+// rather than told about it again.
 let locoUsed = false;
+// Set the first time that press is *held* past LOCO_HINT_HOLD with the boost actually engaged, and
+// never cleared. This is what retires the third beat, because it is the only evidence that the
+// player has met the thing the pill does: a tap gives a flicker of boost and hands it straight back,
+// so retiring the hint on `locoUsed` closed it on the exact gesture it exists to correct.
+//
+// `isEngaged` rather than `isActive` deliberately, so a hold that ran the tank dry still counts —
+// the fuel ending is not the player letting go, and the one-second cooldown tail is where a hold
+// that outlasted its tank sits.
+let locoHeld = false;
 tutorial = shot || !wantsTutorial ? null : createTutorial({
   controller,
   aspect,
@@ -1476,7 +1486,9 @@ tutorial = shot || !wantsTutorial ? null : createTutorial({
   // The third beat waits on this rather than on the dispatch: the Loco Mode hint lands a couple of
   // seconds after the first rider is actually dropped off, once the loop has closed one full turn.
   hasDelivered: () => fares.state.delivered > 0,
-  // A player who has already found Loco Mode does not need the third beat pointing at it.
+  // A player who has already *held* Loco Mode does not need the third beat pointing at it — and one
+  // who has only tapped it very much does, which is the whole difference between these two.
+  boostHeld: () => locoHeld,
   boostUsed: () => locoUsed,
   isOver: () => fares.state.gameOver,
   // The "Add to Home Screen" screen gets there first on iOS in a tab, and holds the run until it is
@@ -1864,10 +1876,12 @@ function holdLocoMode() {
   // Nothing to press against: the drive-through has the wheel and the car is between two kerbs.
   // See the release beside `boost.update` in the frame loop.
   if (burgerRun?.holdsTaxi()) return false;
-  // Doing the thing the third bubble is asking for answers it. Called explicitly rather than left
-  // to the tutorial's window-level tap handler, because the preventDefault in either caller can
-  // suppress the click the gesture would otherwise synthesise — so the hint would outstay its own
-  // lesson (on a phone for the pill, on every device for the key, which synthesises nothing).
+  // Still called on the press, and still explicit rather than left to the tutorial's window-level
+  // tap handler, because the preventDefault in either caller can suppress the click the gesture
+  // would otherwise synthesise (on a phone for the pill, on every device for the key, which
+  // synthesises nothing). What changed is what it does with it: the *third* bubble no longer takes
+  // a press for an answer — a jab is the gesture it exists to correct — so this now only clears the
+  // first two, which a player reaching for the pill mid-lesson has plainly finished with.
   tutorial?.dismiss();
   // The other half of "last pedal pressed wins" — see holdBrake. Without this a player holding the
   // brake button with one thumb and jabbing the pill with the other would spend fuel on a car the
@@ -1885,7 +1899,9 @@ function holdLocoMode() {
 // why the whole kick is gated on it above.
 function kickLocoMode() {
   // Fires only on the transition into Loco Mode, which makes it exactly the right place to record
-  // that the player has now used it.
+  // that the player has now *pressed* it. Only that: whether they went on to hold it is a question
+  // this function cannot answer — the press is one frame and the hold is the seconds after it — and
+  // `locoHeld` is latched in the frame loop for that reason.
   locoUsed = true;
   // Above the `crashed` bail deliberately: the press was accepted either way — `boost.press()`
   // already returned true and the fuel is already committed — so the hand should be told even when
@@ -2514,6 +2530,10 @@ function frame() {
   // press itself is refused for the same window, in `holdLocoMode`.
   if (burgerRun?.holdsTaxi()) boost.release();
   boost.update(dt);
+  // Latched here rather than on the press, because the whole point of it is that it cannot be
+  // answered by one — see `locoHeld` where it is declared. Read every frame off the same hold clock
+  // the camera's push-in uses, which stops with a paused run rather than banking the pause.
+  if (!locoHeld && boost.isEngaged() && boost.heldSeconds() >= LOCO_HINT_HOLD) locoHeld = true;
   // Never re-arm boost on a wrecked taxi — the flag would flick on the next frame otherwise and
   // the collision detector already only checks `if (taxi.boost)`. `taxi.boost` covers the hold
   // *and* the one-second cooldown tail after release — collision, police bust range and running
