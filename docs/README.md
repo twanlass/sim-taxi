@@ -71,8 +71,9 @@ another — a third of the time there is one in there.
 
 **And you can tap it.** The taxi drives itself round to the mouth, crawls the lane, stops at the
 board and again at the window, and comes back out with a splash of boost in the tank — 15% of it,
-the smallest top-up in the game, and the only one that isn't paid for a job. It costs whatever the
-clock in the back seat is worth: nobody is stopping you taking a rider through a drive-through. See
+the smallest top-up in the game, and the only one you *buy* rather than earn: **$10** off the
+counter, taken at the window. The rest of the price is whatever the clock in the back seat is worth,
+because nobody is stopping you taking a rider through a drive-through. See
 [the burger run](gameplay.md#the-burger-run),
 [the burger joint](city.md#the-burger-joint-and-its-drive-through) and
 [the drive-through](traffic.md#the-drive-through).
