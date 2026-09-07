@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createParcelPin, createParcelDropPin } from '../geometry/marker.js';
-import { createParcel, PARCEL_DECK_SCALE, PARCEL_CENTRE_Y } from '../geometry/parcel.js';
+import { createCargo, CARGO_KINDS, CARGO_DECK_SCALE, CARGO_CENTRE_Y } from '../geometry/cargo.js';
 import { TAXI_DECK_Y } from '../geometry/taxi.js';
 import { KERB_H } from '../city/ground.js';
 import { PARCEL_COLOR } from './urgency.js';
@@ -99,6 +99,20 @@ import * as difficulty from './difficulty.js';
 // leaves it alone too — a waiting rider the player had sent the taxi at stays `directed`, so driving
 // past them on the way to the box still picks them up, the same gift a lucky detour has always been.)
 //
+// ## Two kinds of load, and nothing else different
+//
+// A courier job is carrying a **box** or a **food order** (geometry/parcel.js, geometry/food.js),
+// drawn per package at `FOOD_CHANCE`. That is the whole of the difference: same pad, same cyan, same
+// gestures, same money, same fuel, same absence of a clock. Nothing in this module branches on it
+// after the draw except which mesh is shown.
+//
+// **It is flavour, and it is deliberately kept as flavour.** A second load type is the obvious place
+// to hang a second rule — food that cools, a bag that pays more, an order that has to be delivered
+// before the box the taxi is also carrying — and every one of those wants the thing this layer does
+// not have and cannot grow: a clock. See the section below for why. What the second kind buys is the
+// thing a screenshot can see: a board where the errand on the corner is a specific errand rather than
+// the same brown box for the ninth time in a run.
+//
 // ## A package has no clock, and so has no diamond
 //
 // The board's vocabulary is: shape says what a thing is, hue says whose clock is paying for it. A
@@ -186,6 +200,21 @@ export const PARCEL_AFTER_DELIVERY = 20;
  * and if it moves, write the measured survival curve down beside it.
  */
 export const PARCEL_PAY_FACTOR = 1;
+
+/**
+ * How often a package is a **food order** rather than a box (geometry/food.js).
+ *
+ * Half, and the halves are interchangeable: the two loads play identically, so there is no reason for
+ * the draw to favour either and every reason for both to be *common*. A rare variant on a board that
+ * shows one job every twenty to forty-five seconds is a thing a player meets twice in a run and reads
+ * as a glitch rather than as the other kind — the courier layer is not a collection, and a load the
+ * player has to be lucky to see is one nobody ever learns is there.
+ *
+ * Drawn per package, out of this module's own stream, at the last moment: after both corners and the
+ * route between them are settled, so a spawn that is refused for a bad city does not spend a draw and
+ * shift every later one.
+ */
+export const FOOD_CHANCE = 0.5;
 
 /**
  * The detour cap on a **tapped** courier diversion. Uncapped, and that is the correction.
@@ -320,12 +349,12 @@ export const PARCEL_PAD_LIFT = KERB_H + 0.12;
 /**
  * What the outbound box grows *from* as it comes out of the taxi, rather than from nothing.
  *
- * The size a parcel would be if it were riding on the car (`PARCEL_DECK_SCALE`), imported rather than
+ * The size a load would be if it were riding on the car (`CARGO_DECK_SCALE`), imported rather than
  * restated. Nothing rides there any more — the load is a chip in the HUD (game/cargochip.js) — but the
- * number is still the right one: it is "a box, at the scale this car handles boxes at", and a delivery
+ * number is still the right one: it is "cargo, at the scale this car handles cargo at", and a delivery
  * that opened at full kerb size would read as the pad producing one rather than the taxi setting it down.
  */
-const FLIGHT_MIN_SCALE = PARCEL_DECK_SCALE;
+const FLIGHT_MIN_SCALE = CARGO_DECK_SCALE;
 
 // --- Answering the tap --------------------------------------------------------------------------
 //
@@ -361,7 +390,11 @@ const NO_EVENTS = Object.freeze([]);
 function createSlot(scene, index) {
   // `pickable: null` throughout — a package is never raycast, so tagging one would be a trap for
   // whoever next picks against the scene rather than against an explicit target list.
-  const pickup = createParcelPin(() => createParcel({ pickable: null }));
+  //
+  // `createCargo` rather than either geometry module: a slot is built once and carries whatever the
+  // rest of the run puts on it, and which kind that is changes every time the board turns over. See
+  // geometry/cargo.js.
+  const pickup = createParcelPin(() => createCargo({ pickable: null }));
   const dropoff = createParcelDropPin();
 
   // The box that crosses from the taxi to the pad on a delivery. A **second** parcel rather than the
@@ -372,7 +405,7 @@ function createSlot(scene, index) {
   // Two nested groups, also the crystal's arrangement: the outer one carries the flight (position,
   // and the scale that takes the box down into the taxi) and the inner box goes on spinning and
   // bobbing in local space, so the two concerns never fight over one transform.
-  const flightBox = createParcel({ pickable: null });
+  const flightBox = createCargo({ pickable: null });
   const flight = new THREE.Group();
   flight.add(flightBox.group);
   flight.visible = false;
@@ -411,6 +444,12 @@ export function createParcelSystem(rng, scene) {
   };
 
   const slots = Array.from({ length: MAX_PARCELS }, (_, index) => createSlot(scene, index));
+
+  /**
+   * A kind every future package is forced to, or null for the draw. Shot mode only (`forceKind`
+   * below): a screenshot of a *specific* load cannot be taken by waiting for the right seed.
+   */
+  let kindPin = null;
 
   // Boxes in the air. Kept out of `state.parcels` for the reason `fares.js` keeps its exit animations
   // out of `state.fares`: the puzzle is over the moment a package resolves and the animation is only
@@ -557,6 +596,10 @@ export function createParcelSystem(rng, scene) {
       stage: 'waiting',
       pickup,
       dropoff,
+      // Box or food order — see FOOD_CHANCE. A fact about this package, settled at spawn like its
+      // price, so the kerb marker, the two flights and the HUD chip are all reading one answer
+      // rather than each drawing their own.
+      kind: kindPin ?? (rng.chance(FOOD_CHANCE) ? 'food' : 'parcel'),
       // What resolving this package next needs the taxi to reach. Moves to the drop-off when the box
       // is collected, the same hand-off a fare's `target` makes at pickup.
       target: pickup,
@@ -580,6 +623,7 @@ export function createParcelSystem(rng, scene) {
 
     place(slot.pickup, pickup.i, pickup.j);
     slot.pickup.standing?.rest?.();
+    slot.pickup.standing?.setKind?.(parcel.kind);
     // Grows out of its own centre rather than appearing at full size — see targetring.js.
     slot.pickup.ring?.appear();
     // The pad at the far end stays hidden until the box is aboard. Both ends lit from spawn would put
@@ -642,13 +686,14 @@ export function createParcelSystem(rng, scene) {
    * pavement height starts under the car's own sills, which reads as the box being posted out through
    * the tarmac instead of lifted off the car.
    */
-  function launch(slot, from, to) {
+  function launch(slot, from, to, kind) {
     slot.flightBox.rest();
+    slot.flightBox.setKind(kind);
     slot.flight.visible = true;
     slot.flight.position.set(from.x, TAXI_DECK_Y, from.z);
     slot.flight.scale.setScalar(FLIGHT_MIN_SCALE);
     flights.push({
-      slot, kind: 'drop', from: { ...from }, to: { ...to },
+      slot, kind: 'drop', cargo: kind, from: { ...from }, to: { ...to },
       fromY: TAXI_DECK_Y, toY: PARCEL_PAD_LIFT, at: null,
     });
   }
@@ -663,13 +708,16 @@ export function createParcelSystem(rng, scene) {
    * same pose by construction rather than by a reading taken on the hand-off frame, and the swap
    * cannot drift however the box was moving when it was collected.
    */
-  function launchLift(slot, from) {
+  function launchLift(slot, from, kind) {
     slot.flightBox.rest();
+    slot.flightBox.setKind(kind);
     slot.flight.visible = true;
     slot.flight.position.set(from.x, PARCEL_PAD_LIFT, from.z);
     slot.flight.scale.setScalar(1);
     flights.push({
-      slot, kind: 'lift', from: { ...from }, fromY: PARCEL_PAD_LIFT, at: null, handed: false,
+      // `kind` is the *flight's* kind — which animation this is — and `cargo` is what is being flown.
+      // Two words for two facts that were one word for as long as there was one load to fly.
+      slot, kind: 'lift', cargo: kind, from: { ...from }, fromY: PARCEL_PAD_LIFT, at: null, handed: false,
     });
   }
 
@@ -691,7 +739,7 @@ export function createParcelSystem(rng, scene) {
     parcel.slot.pickup.standing?.rest?.();
     parcel.slot.pickup.group.visible = false;
     parcel.slot.pickup.ring?.hideNow();
-    launchLift(parcel.slot, cornerFor(parcel.pickup.i, parcel.pickup.j));
+    launchLift(parcel.slot, cornerFor(parcel.pickup.i, parcel.pickup.j), parcel.kind);
     place(parcel.slot.dropoff, parcel.dropoff.i, parcel.dropoff.j);
     parcel.slot.dropoff.ring?.appear();
   }
@@ -705,7 +753,7 @@ export function createParcelSystem(rng, scene) {
    */
   function beginDrop(parcel, taxiCar) {
     const pad = cornerFor(parcel.dropoff.i, parcel.dropoff.j);
-    launch(parcel.slot, { x: taxiCar.x, z: taxiCar.z }, pad);
+    launch(parcel.slot, { x: taxiCar.x, z: taxiCar.z }, pad, parcel.kind);
     const at = state.parcels.indexOf(parcel);
     if (at !== -1) state.parcels.splice(at, 1);
   }
@@ -741,10 +789,14 @@ export function createParcelSystem(rng, scene) {
         if (!f.handed && t >= LIFT_HANDOFF) {
           f.handed = true;
           landed.push({
+            // Which load the chip should raise. It comes off the flight rather than off the package,
+            // because by the time this is read the package has moved on to being carried and the two
+            // ends of a hand-off should agree by construction rather than by lookup.
+            cargo: f.cargo,
             x: f.slot.flight.position.x,
             // The box's middle rather than its base: what reads this points a 42px picture of the box
-            // at it, and that picture is centred on `PARCEL_CENTRE_Y` (game/cargochip.js).
-            y: f.slot.flight.position.y + PARCEL_CENTRE_Y * f.slot.flight.scale.y,
+            // at it, and that picture is centred on `CARGO_CENTRE_Y` (game/cargochip.js).
+            y: f.slot.flight.position.y + CARGO_CENTRE_Y * f.slot.flight.scale.y,
             z: f.slot.flight.position.z,
             // Which way it is *facing*, wrapped to (−π, π] — not the angle the idle has accumulated,
             // which after a minute on a corner is some tens of radians. Both point the same way and
@@ -942,6 +994,15 @@ export function createParcelSystem(rng, scene) {
      * there is no clock for it to report.
      */
     colorOf: () => PARCEL_COLOR,
+    /**
+     * Force every future package to one kind of load, or pass null for the draw. **Shot mode only.**
+     *
+     * A screenshot of the food order cannot be taken by waiting: which load a package is carrying is
+     * a coin flip inside a seeded run, so photographing a specific one means either pinning a seed
+     * that happens to answer — which then has to be re-found every time anything upstream of the draw
+     * changes — or saying which. Ignores a kind it does not know, for the reason `setKind` does.
+     */
+    forceKind: (kind) => { kindPin = CARGO_KINDS.includes(kind) ? kind : null; },
     slots,
   };
 }

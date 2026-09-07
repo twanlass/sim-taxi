@@ -4,8 +4,12 @@ import { bakeColor, propMaterial } from '../util/geo.js';
 import { PALETTE } from '../palette.js';
 
 // A parcel waiting to be couriered: a taped cardboard box on a kerb corner, where a rider would
-// otherwise be standing. The same rig serves the small one riding on the taxi's rear deck and the
-// one that flies between the two (game/parcels.js), scaled down by its caller.
+// otherwise be standing. The same rig serves the copy in the HUD's cargo chip and the one that flies
+// between the two (game/parcels.js), scaled down by its caller.
+//
+// **One of two loads a courier job can be carrying**, the other being the food order in
+// geometry/food.js. Neither knows about the other: geometry/cargo.js is the rig that holds both and
+// switches between them, and it is also where the shared envelope and the idle spin live.
 //
 // **Built to read as 📦.** Four parts, and each is doing one job at the ~10px this ends up:
 //
@@ -114,21 +118,12 @@ export function createParcel({ pickable = 'parcel' } = {}) {
   if (pickable) mesh.userData.pickable = pickable;
   group.add(mesh);
 
-  /**
-   * Waiting on the corner: a slow spin and a gentle bob.
-   *
-   * The rider's answer to "come and get me" is a raised, waving arm. A box has no arm, so the motion
-   * carries the whole of it — a slow turn is the universal "this is a thing to pick up", and it is
-   * deliberately slower than the rider's wave: a parcel is not impatient, it has no clock. The square
-   * footprint means the spin never changes the silhouette's width, so it reads as turning rather than
-   * as pulsing, and it brings the label and the tape past the camera in turn.
-   *
-   * `t` is sim time, never an accumulated dt — a frozen shot has to render the same frame every time.
-   */
-  function idle(t) {
-    group.rotation.y = t * 0.55;
-    group.position.y = Math.sin(t * 1.6) * 0.07;
-  }
+  // **The idle spin is not here.** It used to be, and it moved to geometry/cargo.js when the courier
+  // gained a second load to carry: a box and a food order turning at two rates would be two answers
+  // to "this is a thing to pick up", where the rate is the whole of what that motion says. What the
+  // box still contributes to it is the reason it works — a square footprint means the spin never
+  // changes the silhouette's width, so it reads as turning rather than as pulsing, and it brings the
+  // label and the tape past the camera in turn.
 
   /**
    * Set the box's opacity, 0..1 — the fade on the flight to and from the taxi.
@@ -161,5 +156,5 @@ export function createParcel({ pickable = 'parcel' } = {}) {
   }
 
   rest();
-  return { group, mesh, idle, setOpacity, rest };
+  return { group, mesh, setOpacity, rest };
 }

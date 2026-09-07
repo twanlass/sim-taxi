@@ -60,6 +60,8 @@ import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../src/geometry/taxi.js';
 import { createLocoFlame } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
+import { createFoodOrder } from '../src/geometry/food.js';
+import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
 import {
   markEmissive, unmarkEmissive, emissiveList, BLOOM_LAYER, BLOOM_ORDER, BLOOM_INTENSITY,
@@ -2197,6 +2199,70 @@ check('no two cars occupy the same space', worst > 1.6,
   check('a loose parcel mesh can still be tagged when something wants it to be',
     createParcel({ pickable: 'parcel' }).mesh.userData.pickable === 'parcel');
 
+  // --- Two kinds of load, one envelope ------------------------------------------------------------
+  //
+  // A courier job carries a box or a food order (geometry/parcel.js, geometry/food.js) and three
+  // things measure it without asking which: the HUD chip frames one square frustum around whatever is
+  // aboard, a pickup hands the chip a point on the load's own middle, and the outbound flight opens at
+  // "cargo, at the scale the car handles cargo at". So the second kind has to fit the first one's
+  // envelope, and this is where that is *asserted* rather than left to a comment in the file that
+  // built it: the failure is a bag that stands out of the top of a 42px canvas, which nothing headless
+  // renders and nothing else would catch.
+  const boxBounds = (() => {
+    const geo = createParcel({ pickable: null }).mesh.geometry;
+    geo.computeBoundingBox();
+    return geo.boundingBox.clone();
+  })();
+  const foodBounds = (() => {
+    const geo = createFoodOrder({ pickable: null }).mesh.geometry;
+    geo.computeBoundingBox();
+    return geo.boundingBox.clone();
+  })();
+  const halfDiagonal = (b) => Math.max(
+    Math.hypot(b.min.x, b.min.z), Math.hypot(b.max.x, b.max.z),
+    Math.hypot(b.min.x, b.max.z), Math.hypot(b.max.x, b.min.z),
+  );
+  check('a food order stands in the same envelope as the box',
+    foodBounds.max.y <= boxBounds.max.y + 1e-6
+    && foodBounds.min.y >= -1e-6
+    && halfDiagonal(foodBounds) <= halfDiagonal(boxBounds) + 1e-6,
+    `${foodBounds.max.y.toFixed(3)} tall and ${halfDiagonal(foodBounds).toFixed(3)} out, `
+    + `against the box's ${boxBounds.max.y.toFixed(3)} and ${halfDiagonal(boxBounds).toFixed(3)}`);
+  // And is centred on the same point, which is the one number the pickup hand-off and the chip's
+  // camera both read. A load whose middle is half a box off centre lands the chip's slide low and
+  // frames it high, and both are the same mistake made twice.
+  check('and is centred on the same point a picture of a load is framed around',
+    Math.abs((foodBounds.min.y + foodBounds.max.y) / 2 - CARGO_CENTRE_Y) < 0.02
+    && Math.abs(CARGO_CENTRE_Y - PARCEL_CENTRE_Y) < 1e-9,
+    `food centred at ${((foodBounds.min.y + foodBounds.max.y) / 2).toFixed(3)}, `
+    + `envelope says ${CARGO_CENTRE_Y.toFixed(3)}`);
+
+  // The rig itself: exactly one kind on show, `mesh` following it, and the idle riding the **outer**
+  // group. That last one is not cosmetic — the yaw a pickup hands to the HUD is read off that group
+  // (game/parcels.js), so an idle that turned the inner mesh instead would hand the chip a facing of
+  // zero for every load in the game and nothing would look wrong until the box arrived square.
+  const rig = createCargo({ pickable: null });
+  let shownPerKind = '';
+  let meshFollows = 0;
+  for (const kind of CARGO_KINDS) {
+    rig.setKind(kind);
+    const shown = Object.entries(rig.rigs).filter(([, r]) => r.group.visible).map(([n]) => n);
+    shownPerKind += `${kind}:${shown.join('+') || 'none'} `;
+    if (shown.length === 1 && shown[0] === kind && rig.mesh === rig.rigs[kind].mesh) meshFollows += 1;
+  }
+  check('a cargo rig shows exactly one kind, and its mesh is that kind',
+    meshFollows === CARGO_KINDS.length, shownPerKind.trim());
+  rig.idle(1.4);
+  check('and the idle turns the group the pickup reads its yaw off',
+    Math.abs(rig.group.rotation.y) > 0.01
+    && Object.values(rig.rigs).every((r) => r.group.rotation.y === 0),
+    `outer ${rig.group.rotation.y.toFixed(2)}, `
+    + `inner ${Object.values(rig.rigs).map((r) => r.group.rotation.y).join('/')}`);
+  rig.rest();
+  check('and rest puts it back square with the kind it was left on',
+    rig.group.rotation.y === 0 && rig.group.position.y === 0
+    && rig.rigs[rig.kind].group.visible);
+
   // The rest of the tap: `parcelFor` maps a hit back to the errand that owns it, `pickables()` offers
   // only the end that is actually standing on the board, and `acknowledge` answers on the corner.
   //
@@ -2470,6 +2536,11 @@ check('no two cars occupy the same space', worst > 1.6,
   // pair of corners the draw came up with.
   let sampled = 0;
   let sampledOnPark = 0;
+  // The other thing 80 boards are enough to say something about: which load each package is carrying.
+  // A run of this length sees a handful, so the draw is sampled here for the same reason the park
+  // filter is — one spawn cannot tell a coin flip from a constant.
+  let sampledFood = 0;
+  let sampledWrongMesh = 0;
   const BOARDS = 80;
   for (let s = 0; s < BOARDS; s++) {
     const boardScene = new THREE.Scene();
@@ -2479,6 +2550,11 @@ check('no two cars occupy the same space', worst > 1.6,
     for (const { type, parcel } of board.update(1 / 60, pTraffic.taxi, { delivered: 99 })) {
       if (type !== 'spawned') continue;
       sampled += 1;
+      if (parcel.kind === 'food') sampledFood += 1;
+      // The kerb marker has to be wearing what the package says it is: the kind is drawn in `spawn`
+      // and pushed onto a rig that is reused for the whole run, so a missed `setKind` shows up as a
+      // board that is stuck on whatever the last package was.
+      if (parcel.slot.pickup.standing.kind !== parcel.kind) sampledWrongMesh += 1;
       for (const end of [parcel.pickup, parcel.dropoff]) {
         if (onGrass(layout, end.i, end.j)) sampledOnPark += 1;
       }
@@ -2492,6 +2568,20 @@ check('no two cars occupy the same space', worst > 1.6,
   // only the detours that cost a single leg, which in an unlucky city is none of them. Asserting more
   // than one here would be asserting the city's geometry, the same trap the missing gap *ceiling*
   // below is written around.
+  // **Both kinds turn up, and neither is rare.** The two loads play identically (see FOOD_CHANCE), so
+  // what this is protecting is not a balance number: it is that the draw exists at all. A `kind` that
+  // got pinned, inverted or dropped leaves a board that is all boxes or all bags, which is exactly
+  // what the layer looked like before the second one — invisible, and never reported.
+  //
+  // The band is wide on purpose. 80 draws at even odds sit inside 25–75 on all but about one seed in
+  // 40,000, and the thing worth failing on is a kind that never appears rather than one that appeared
+  // 44 times instead of 40.
+  check('a package is a box or a food order, and both are common',
+    sampledFood > sampled * 0.25 && sampledFood < sampled * 0.75,
+    `${sampledFood} food of ${sampled}`);
+  check('and the corner is wearing the load the package says it is',
+    sampledWrongMesh === 0, `${sampledWrongMesh} of ${sampled} showing the wrong mesh`);
+
   check('packages appear on the board', spawns >= 1, `${spawns} spawned`);
   check('no package before the tutorial delivery', spawnedTooEarly === 0,
     `${spawnedTooEarly} early`);
@@ -2666,6 +2756,12 @@ check('no two cars occupy the same space', worst > 1.6,
     // The lift is already running — it was launched on the frame the box was collected. Its first
     // position is the seam: the flying copy has to stand exactly where the kerb copy did, or the box
     // jumps on the frame it changes objects.
+    // And it is the same *load* that was standing there. The flying copy is a second rig (see
+    // `createSlot`), so the kind has to be pushed onto it at launch — miss that and the box the player
+    // watched leave the kerb is a bag by the time it reaches the corner of the screen.
+    check('and the copy that flies away is carrying what the kerb was',
+      parcel.slot.flightBox.kind === parcel.kind,
+      `${parcel.slot.flightBox.kind} in flight against ${parcel.kind} on the board`);
     check('a collected box lifts off from the corner it was standing on',
       lift.visible
       && Math.hypot(lift.position.x - kerb.x, lift.position.z - kerb.z) < 0.01

@@ -3136,11 +3136,16 @@ The cross is on the **top** face because the camera looks down the +X+Z diagonal
 the largest face on screen; a band around the girth would be mostly hidden. It is what says *parcel*
 rather than *crate*.
 
-`idle(t)` is a slow Y spin plus a gentle bob, off sim time. The rider's answer to "come and get me" is
-a raised waving arm; a box has no arm, so the motion carries all of it — and it is deliberately
-slower than the wave, because a parcel is not impatient, it has no clock. The footprint is square so
-the spin never changes the silhouette's width, which is what makes it read as turning rather than as
-pulsing.
+**A courier job carries one of two loads**, this box or the [food order](#the-food-order--geometryfoodjs)
+below, and `geometry/cargo.js` is the rig that holds both and switches between them. Both are built
+once per slot and one is shown, because a slot is built once and reused for the whole run.
+
+`idle(t)` is a slow Y spin plus a gentle bob, off sim time, and it lives on that rig rather than in
+either geometry module — two loads turning at two rates would be two answers to the one thing the
+motion says. The rider's answer to "come and get me" is a raised waving arm; a load has no arm, so the
+motion carries all of it — and it is deliberately slower than the wave, because a courier job is not
+impatient, it has no clock. The box's footprint is square so the spin never changes the silhouette's
+width, which is what makes it read as turning rather than as pulsing.
 
 **It is built to read as 📦**, and each of the four parts is doing one job at ~15px: a kraft body; a
 darker lid slab so the top seam is a plane rather than a stripe; **one** semi-white tape strip; and a
@@ -3235,7 +3240,7 @@ the same one the digits above it wear. Three things about the view:
   42px square with no ground under it, half a black box is a smudge. From the −X +Z quadrant the visible
   X face is at +0.78 and the Z face stays at +0.40, and the visible Z face is the one carrying the strip
   and a label — the pair 📦 shows.
-- **The frustum is computed, not eyeballed.** The box stands 1.16 tall and 1.384 across at the lid, so
+- **The frustum is computed, not eyeballed — once, for both loads.** The box stands 1.16 tall and 1.384 across at the lid, so
   at 45° its half-diagonal is 0.979 and its screen half-height is 1.16·cos33/2 + 0.979·sin33 = 1.02 —
   near enough the same number as the half-width, so one square frustum covers both. `FIT` is 1.15, that
   plus 13% for the drop shadow and nothing else, because a *square* canvas has no corner for the box to
@@ -3285,6 +3290,55 @@ to be the same point on the box, or it moves on the frame it changes renderers.
 The deck copy those numbers were first written for is gone — the taxi carries nothing now, so it also
 drops out of the ghost-outline stencil mask, which is seven parts rather than eight (`tools/probe.mjs`
 counts them, because a part left *out* of the mask counts as an occluder of the rim behind it).
+
+### The food order — `geometry/food.js`
+
+The courier's other load: a takeaway bag with a burger and a soda cup standing out of the top of it.
+Same pad, same cyan, same errand, same money — the whole of the difference is what it *is*, and the
+[gameplay doc](gameplay.md#two-kinds-of-load) covers why it was kept that way.
+
+**A different silhouette, not a different colour.** Hue on this board is spent: shape says what a thing
+is and hue says whose clock is paying for it, and a courier job has no clock — so a second load
+arriving as a second cyan would be saying something the board cannot mean. What is left is the
+outline, and three parts carry it:
+
+- the box is a **squat square**; this is a **taper with things standing out of the top**, which is a
+  different shape at any size that resolves at all;
+- the **straw** is what breaks the outline. It is the one part that reaches the top of the envelope,
+  and it is what makes the spin legible the way the tape strip is for the box — a bag on its own is
+  close enough to rotationally symmetric that turning it says nothing;
+- the **burger** carries the close-up, and it is the [drive-through's own sign](city.md#the-burger-joint-and-its-drive-through)
+  in miniature: the same slices in the same order out of the same palette entries. That sign is
+  fourteen pixels on a pole and solved this problem once already; the lettuce is the only slice that
+  did not survive the trip down, because at half the size a 0.02-unit green ring is a smudge on the
+  patty rather than a slice of anything.
+
+**It shares the box's envelope, and that is a hard constraint.** Three things measure a load without
+asking which kind it is: the chip frames one square frustum around whatever is aboard, a pickup hands
+the chip a point on the load's own middle, and the outbound flight opens at "cargo, at the scale the
+car handles cargo at". A taller second load overflows the first, sits off-centre in the second and
+opens at the wrong size in the third — three bugs out of one dimension. So the whole order, straw tip
+included, lands on the box's 1.16 and inside its half-diagonal, and `tools/probe.mjs` asserts that
+against the two meshes that actually get built rather than against the numbers that were meant to
+produce them.
+
+Three things were measured rather than guessed, and each was a first cut that photographed wrong:
+
+- **The bag is tall and steeply tapered.** At 0.70 high on a 0.92 base with a 1.10 mouth it read as a
+  **tub** — at that aspect with that little flare there is nothing in the outline a bucket does not
+  also have, and the wide flat rim on top read as the lip of one. A bag is the other proportion:
+  narrow at the base, open at the top, taller than it is wide.
+- **The cup is narrow, bedded deep, and capped in red.** Kraft, card and an off-white lid are three
+  shades of the same tan under this sun, so the first cup dissolved into the bag it was standing in.
+  The red lid is what makes a drink legible even when most of the cup is hidden — which is what pays
+  for bedding it a fifth of a unit down, which is in turn what buys the straw its air.
+- **The straw is nearly upright, and off-white.** Leaning it to buy length is the obvious move and it
+  spends the height it had: at 35° the tip came down level with the lid and the whole thing
+  photographed as a white streak lying across it. Red on a red lid is a straw nobody can see.
+
+Everything is a cylinder, a box or a squashed hemisphere — nothing here is hand-wound, which is the
+one thing that keeps it clear of [the winding trap](#the-courier-pad--geometryparcelpadjs) the pad
+next door fell into.
 
 ### The drop-off ring — `geometry/marker.js`
 

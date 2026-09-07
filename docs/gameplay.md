@@ -1803,6 +1803,28 @@ pacing assumes. If it plays too quiet, the lever is not `MAX_PARCELS`: it is giv
 box permission to move, which needs to happen without a countdown and without anything vanishing
 from under a player already driving at it.
 
+### Two kinds of load
+
+A courier job is carrying a **box** or a **food order** — a takeaway bag with a burger and a soda cup
+standing out of it (`geometry/parcel.js`, `geometry/food.js`), drawn per package at even odds
+(`FOOD_CHANCE`). That is the whole of the difference: same pad, same cyan, same gestures, same money,
+same fuel, same absence of a clock. Nothing branches on it after the draw except which mesh is shown.
+
+**It is flavour, and it is deliberately kept as flavour.** A second load is the obvious place to hang a
+second rule — food that goes cold, a bag worth more, an order that has to be delivered before the box
+the taxi is also carrying — and every one of those wants the thing this layer does not have and
+[cannot grow](#a-package-has-no-clock-and-so-has-no-diamond): a clock. What the second kind buys is
+the thing a screenshot can see, and it is not nothing: a board where the errand on the corner is a
+*specific* errand rather than the same brown box for the ninth time in a run.
+
+**Both are common on purpose.** The two play identically, so there is no reason for the draw to favour
+either and every reason for both to be seen. A rare variant on a board that shows one job every twenty
+to forty-five seconds is something a player meets twice in a run and reads as a glitch — the courier
+layer is not a collection, and a load you have to be lucky to see is one nobody learns is there.
+
+How the two are drawn, and why the order had to be built into the box's envelope, is in
+[rendering.md](rendering.md#the-food-order--geometryfoodjs).
+
 ### A package has no clock, and so has no diamond
 
 The board's vocabulary is [shape says what a thing is, hue says whose clock is paying for
