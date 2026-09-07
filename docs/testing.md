@@ -130,7 +130,7 @@ playing ten fares to reach it. It exists because "can you read this board" is th
 screenshot answers better than an assertion — and because the board was capped at three for years
 on a readability judgement made against a marker that no longer exists.
 
-Shots 22–23 (`parcel`, `parcel-board`) are the only ones that need a **query param to work at all**: the
+Shots 27–28 (`parcel`, `parcel-board`) are the only ones that need a **query param to work at all**: the
 package courier is off in shot mode by default, so both want `?parcels=1`. Every framing
 in the sweep was composed before packages existed, and a cyan pad wandering into one is a change to a
 reference image that has nothing to do with whatever is being looked at — so the layer stays out
@@ -141,13 +141,13 @@ read as a *parcel* and does the tape cross survive; at play zoom, is the pad's r
 distinguishable from a fare's disc. That second one is the whole of "shape says what a thing is" and
 is the one claim no assertion can make.
 
-Shot 24 (`clouds`) frames the map's **far corner** rather than the middle of it, which is the whole
+Shot 29 (`clouds`) frames the map's **far corner** rather than the middle of it, which is the whole
 point of it: the clouds ring the island (see [rendering.md](rendering.md#clouds--gamecloudsjs-geometrycloudjs)),
 so a framing centred on the city photographs the one part of the sky they are never in. It is also
 why they turn up in the corners of every *other* shot — that is the band doing its job, not a shot
 that needs recomposing.
 
-Shots 25–26 (`pond`, `pond-far`) are the [duck pond](rendering.md#the-duck-pond--citypondjs-gameducksjs),
+Shots 30–31 (`pond`, `pond-far`) are the [duck pond](rendering.md#the-duck-pond--citypondjs-gameducksjs),
 close and at play zoom, and neither stages anything — a pond has no moment, and the ducks are posed
 the instant they are built precisely so a frozen frame has birds sitting on the water rather than a
 default pose. Both aim at the same water, which is the point of having two: the close one asks
@@ -156,7 +156,7 @@ and the far one whether it is a landmark you notice while driving past or a blue
 The close framing is what caught the first two versions — ducks floating half-submerged, and a mix of
 plumage balanced against grass rather than against water.
 
-Shots 27–28 (`burger`, `burger-far`) are the
+Shots 32–33 (`burger`, `burger-far`) are the
 [burger joint](city.md#the-burger-joint-and-its-drive-through), close and at play zoom, and they are
 the pond's pair with one difference: this one *is* staged. A shot ticks the world once, and a
 drive-through left to fill itself is a drive-through photographed empty — so `driveThru.settle()`
@@ -170,6 +170,16 @@ crown and wider fillings, so a ring of cheese and lettuce shows past the dome fr
 down at 33°) is a judgement only a picture could make — and whether the car at the window is still
 visible from under its own canopy, which is a clearance worked out on paper in `CANOPY_Y`. The far
 one asks whether any of it is a landmark you notice while driving past.
+
+Shots 34–35 (`depot`, `depot-far`) are the [depot](city.md#the-depot-block), on the same pair of
+distances and staging nothing — a depot has no moment either, and the door is shut in both because
+shot mode never puts the taxi in the bay. They are newer than the building: for as long as the only
+reason to look at the depot was the vignette, the vignette framed itself. It wears a livery now, so
+there is something to look at from outside the cut scene. Close: does the chequer read as a
+**chequer** — it did not at first, being square on the wall and therefore a row of narrow bars in a
+foreshortened frame — and does a tilted frustum on a mast read as a dish. At play zoom: is the
+depot a block you can pick out of a city of muted concrete, which is what the yellow is for, and is
+it still distinguishable from the taxi, which is the thing that yellow costs.
 
 There were two more, `parcel-aboard` and `parcel-flight`, and both photographed a load that has since
 left the world: a collected box no longer rides on the taxi's rear deck and no longer crosses the road

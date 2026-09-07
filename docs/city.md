@@ -216,7 +216,9 @@ extra width out of the blocks either side of it and `blockBounds` cannot answer 
 of the tower generator's hands (`createBuildings` only walks `'built'` blocks) and leaves it for the
 taxi's own depot: a single-storey shed at the back of the block with a roller door on the street, a
 3-unit asphalt forecourt, and a dropped kerb the taxi comes off in
-[the opening vignette](gameplay.md#the-opening-vignette).
+[the opening vignette](gameplay.md#the-opening-vignette). It is painted in the cab company's own
+colours and carries a radio mast — see [the livery](#the-livery-and-the-mast-on-the-roof) and
+[the mast](#the-mast-and-what-is-derived-from-the-dish) below.
 
 **A whole block, not a lot.** The depot needs a forecourt to pull out of, and the generated city
 only leaves 0.85 units of pavement between a façade and the kerb — a car pulling out of a door that
@@ -229,6 +231,91 @@ it free: nothing in layout.js reads `rng` after it, and every generator downstre
 offset stream — so adding the depot moved no park, no arterial and no building. `blocks.garageBlock`
 is the answer, and it may be **null**: a city with nowhere to put one opens without the vignette
 rather than not opening.
+
+### The livery, and the mast on the roof
+
+The depot is the one building the player owns, and it is painted like it. **The envelope itself is
+yellow** — `garageWall`, the biggest exception in `palette.js` to "yellow is reserved for the taxi",
+and the note there carries the audit. The short version is that the rule protects the read of a
+*yellow car on a road*, which is a small moving rectangle at play zoom; this is a static mass on a
+block, and every seed puts it somewhere different, so there is no learned "the yellow thing is the
+taxi" to break.
+
+What it does have to survive is the opening vignette, where a yellow car drives out of this
+building. Which is why it is **#DDA62F rather than `taxiBody`'s #F5C130** — ten points of lightness
+and four degrees of hue below the car, enough for the taxi to read as a separate object against its
+own depot. The bay behind the door stays `garageBay` dark for the reason it always did: the reveal
+is a bright thing coming out of a dark hole, and the wall's colour must not become the hole.
+
+Under the parapet runs one **black-and-white chequer course**, on the two elevations this camera can
+ever see. Four shapes of the same trap here, each worth knowing before moving any of it:
+
+- **The course is boxes standing `PAINT_PROUD` off the wall**, not a colour baked into the wall's
+  own vertices. A stripe painted onto a face is two front-facing surfaces on one plane, and an exact
+  tie resolves differently on different hardware — see [the coplanar note in CLAUDE.md](../CLAUDE.md).
+  The paint is proud of the wall and the coping is proud of the paint, so the parapet still reads as
+  a lid; `tools/probe.mjs` measures both.
+- **It hangs `CHECK_DROP` below the coping rather than flush against it,** and the gap is the
+  building's own yellow doing a job. The coping is dark and every other square is nearly as dark, so
+  a flush course loses half of itself into the parapet. (That gap used to be a *yellow band*, back
+  when the wall was grey. On a yellow wall a yellow band is not a band, so the wall does it
+  directly.) **0.17 of the drop is spent before it shows**: the coping overhangs by 0.18 and this
+  camera looks down at 0.92 of rise per unit of x, so its lip hides the top 0.17 of everything under
+  it. The probe asserts the *visible* remainder, not the nominal drop.
+- **The squares are wider than they are tall,** and that is the difference between square on the
+  wall and square in the frame. A face running along z is seen at 45° to the view, so its horizontal
+  extent is foreshortened by about 1/√2 while its height is not: at 0.46 square the course drew as a
+  row of narrow vertical bars.
+- **Each elevation is sized to a whole number of squares**, not to a fixed pitch. The two faces are
+  different lengths and neither divides by anything, so a fixed pitch ends a run on half a square at
+  the corner. The probe walks the squares and demands the colour flips at every step, because a
+  course that stopped alternating is still a course of squares from far enough away.
+
+The forecourt gets **two guide lines** out of the bay — the last thing still wearing `garageSign`,
+which is `taxiBody`'s own hex, because two lines on the ground where the car is about to be are the
+one place reading the taxi's yellow is the point. They are a third level on the block: `PAVEMENT_Y`
+is the paving, `APRON_Y` the asphalt on it, `PAINT_Y` the paint on that, named off each other the
+way [the burger joint](#the-burger-joint-and-its-drive-through) names its apron. They also stop
+`KERB_RUN` short of the lip, where the dropped kerb starts falling away — a level strip carried out
+over a ramp is buried in it at one end and hanging over it at the other.
+
+### The mast, and what is derived from the dish
+
+On the roof, a **radio mast** with a **dish sweeping on it** — dispatch has to reach the car
+somehow, and it is the only moving part on the building other than the door. The mast is static and
+rides in the shell's merge like everything else. The dish cannot: the city's entrance wave is a
+vertex shader whose anchor is a *world* coordinate, and a world coordinate in a turning object's
+local space is not a coordinate, so it grows on the CPU through `createCityEntry`'s `objects` list
+exactly as the burger over the drive-through does.
+
+Where its pivot sits is the subtle part. The CPU path owns nothing but `object.scale`, and the
+shader scales the shell about `KERB_H` — so the pivot stands at the **mast's foot, on the kerb**,
+not at the mast's head. A uniform scale about a point on that plane is the same arithmetic the
+shader is doing, and the dish rides up the mast as the mast grows. Put the pivot at the head and it
+shrinks toward a point two seconds of animation away from where the mast actually is.
+
+**Almost nothing else up here is a literal, and that is the lesson rather than the style.** The dish
+has been resized twice, and both times what broke was a hand-tuned number *around* it. So they are
+derived from its built geometry instead:
+
+- **The arm** it orbits on is `DISH_R · cos(DISH_TILT) + 0.26`. The disc is tilted about the z axis,
+  so its nearest point to the mast is `arm − DISH_R · cos(DISH_TILT)`; at a fixed arm, doubling the
+  radius put that on the far side of the pole and ran the mast through the dish.
+- **The crossbars** hang off the dish's measured underside with a fixed clearance, rather than at a
+  fraction of `MAST_H`. The dish orbits, so it passes over them once a revolution — a clearance that
+  holds in one pose is not a clearance.
+- **The mast's standoff from the roof corner** is the radius the dish actually sweeps — the furthest
+  any vertex gets from the pivot *axis*, which is not `boundingBox.max.x`, because the box measures
+  a pose the dish holds for an instant — plus a margin. One number answers both things it must not
+  reach: the +Z parapet it could swing out over, and the **curtain plane**, since every sightline
+  out of the door starts there and runs +X, so anything wholly behind it cannot occlude the door at
+  any height.
+
+One thing that is *not* derived and cost a probe failure to find: the rooftop plant. Its two boxes
+were placed one offset from the back of the roof in x and one from the front in z, which only ever
+stayed clear of the mast because an ordinary block is 12 wide. A block squeezed between two
+arterials is 9.33, and the mast walked into a box with nothing in the geometry to say so. Both are
+measured off the back corner now, and the probe measures the gap.
 
 ### The site filter is a sightline
 
