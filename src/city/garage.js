@@ -56,46 +56,84 @@ const SLATS = 9;
 const RAIL_H = 0.16;             // the bottom rail: the leading edge the eye tracks
 
 // --- The livery -------------------------------------------------------------
-// A cab company paints its own depot. Two courses — a yellow band under the coping and a chequer
-// under that — wrapping the two elevations this camera can ever see.
+// The depot is painted in the company's colours: the envelope itself is `garageWall` yellow (see
+// palette.js, which carries the audit for spending that much of the taxi's own colour on a
+// building), and one chequer course runs under the parapet on the two elevations this camera can
+// ever see.
 //
-// They are **boxes standing off the wall**, not a colour baked into the wall's own vertices, and
-// that is the coplanar rule rather than laziness: a stripe painted onto a face is two surfaces on
-// one plane, and an exact tie does not shimmer on the machine you are looking at (see CLAUDE.md).
-// A tenth of a unit is also enough to catch the sun's own edge, so the band reads as painted metal
-// screwed to a shed rather than as a decal.
+// The chequer is **boxes standing off the wall**, not a colour baked into the wall's own vertices,
+// and that is the coplanar rule rather than laziness: a stripe painted onto a face is two surfaces
+// on one plane, and an exact tie does not shimmer on the machine you are looking at (see
+// CLAUDE.md). A tenth of a unit is also enough to catch the sun's own edge, so the course reads as
+// painted metal screwed to a shed rather than as a decal.
 const PAINT_PROUD = 0.1;
-// Both measured **down from the parapet line**, because that is what they are aligned to: the
-// coping sits directly on top of the yellow and overhangs it by 0.08, so the band tucks under.
-const BAND_H = 0.46;
 const CHECK_H = 0.46;
+// How far the course hangs below the parapet line, and it is doing a job rather than being a
+// margin. The coping is `garageTrim` dark and every other square in the chequer is nearly as dark
+// — run the course flush under the coping and half of it merges into it. This leaves a reveal of
+// the **wall** between the two, so the building's own yellow is what separates them. That is the
+// same job the yellow band did while the wall was grey; on a yellow wall a yellow band is not a
+// band, so the wall does it directly.
+//
+// **0.17 of it is spent before it shows**, which is why this is not the 0.30 it was first set to.
+// The coping overhangs the paint by 0.08 and the wall by 0.18, and this camera looks *down* the
+// sightline at 0.92 of rise per unit of x — so the coping's own lip hides the top `0.18 × 0.92` of
+// everything under it. A 0.30 drop leaves 0.13 of visible wall, which at play zoom is one pixel.
+const CHECK_DROP = 0.40;
 // A square's target width. Each run is then divided into a whole number of squares of whatever
 // width comes out nearest this, so a course ends flush on the corner rather than on a half of one
 // — the two faces are different lengths and neither is a multiple of anything.
-const CHECK_SQ = 0.46;
+//
+// **Wider than CHECK_H rather than equal to it**, which is the difference between a chequer that is
+// square on the wall and one that is square in the frame. A face running along z is seen at 45° to
+// the view, so its horizontal extent is foreshortened by about 1/√2 while its height is not: at
+// 0.46 square the course drew as a row of narrow vertical bars. 0.62 across against 0.46 tall lands
+// at 0.44 × 0.46 on screen.
+const CHECK_SQ = 0.62;
 
 // --- The radio mast ---------------------------------------------------------
-// Dispatch has to reach the car somehow. A mast off the roof's front corner with a dish sweeping
-// on it, which is the only moving part on this building other than the door itself.
-const MAST_H = 2.4;              // the pole, above the plinth it is bolted to
+// Dispatch has to reach the car somehow. A mast on the roof with a dish sweeping on it, which is
+// the only moving part on this building other than the door itself.
+//
+// **Almost nothing here is placed by a literal.** The dish has been resized twice now, and both
+// times the numbers that broke were the hand-tuned ones around it: where the crossbars sit under
+// it, and how far in from the roof's edge the mast stands. Those are derived from the dish's own
+// measured geometry below (`radioMast` takes the height to stay under; `createGarage` takes the
+// radius it sweeps), so growing DISH_R again moves them rather than clipping through them.
 const MAST_PLINTH = 0.16;
 const WHIP_H = 0.8;              // the aerial above the dish
-// A first cut at 0.62 came out a pale smudge beside a mast that is 0.24 wide and much darker, so
-// the eye went to the pole. The dish has to be the thing you see.
-const DISH_R = 0.72;
+// The dish. 0.72 read as a pale smudge next to a mast that was darker than it, and this is double
+// that — a 2.9-unit dish, about twenty pixels across at play zoom, which is a landmark rather than
+// a detail.
+const DISH_R = 1.44;
+// The pole, above the plinth it is bolted to. Sized off the dish rather than chosen — it has two
+// jobs and the dish sets both. Above: the head has to show past the dish's top, which reaches
+// `1.36 · DISH_R / 1.44` over the dish's centre, or the whip appears to grow out of the rim.
+// Below: the space between the plinth and the dish's underside has to hold two crossbars.
+const MAST_H = 4.0;
 // How far the dish is tipped off vertical. 0.95 rad is 54°, which points its face up steeply
 // enough to read as a dish from a camera 33° above the horizon, and shallowly enough that its rim
 // still draws as an ellipse rather than as a line.
 const DISH_TILT = 0.95;
-const DISH_ARM = 0.52;           // how far off the mast's axis it orbits
-// Where up the mast it sits, as a fraction of MAST_H, and it is measured rather than picked: the
-// dish **orbits**, so it passes over both crossbars once a revolution and the clearance has to hold
-// at every angle. Tipped by DISH_TILT its lowest point is 0.49 under its own centre — the rim plus
-// the frustum's own thickness carried round by the tilt, not just `DISH_R * cos(DISH_TILT)` — which
-// at 0.76 puts it 0.22 over the upper bar (see `radioMast`, where the bars were dropped to buy
-// that). It was 0.03 before the dish was grown, which is a clip at play zoom and a collision at the
-// vignette's.
-const DISH_AT = 0.76;
+/**
+ * How far off the mast's axis the dish orbits — derived, because at this size a fixed arm puts the
+ * pole *through* the dish.
+ *
+ * The disc is tilted about the z axis, so its nearest point to the mast sits at
+ * `DISH_ARM - DISH_R * cos(DISH_TILT)` — which at the arm this had while the dish was half the size
+ * is 0.32 units on the **far** side of the pole. It has to be at least the pole's own radius out,
+ * plus something to see daylight through.
+ */
+const DISH_ARM = DISH_R * Math.cos(DISH_TILT) + 0.26;
+// Where up the mast it sits, as a fraction of MAST_H — the one number here still chosen by eye, and
+// the two things it is squeezed between are checked rather than assumed: `radioMast` hangs the
+// crossbars off the dish's measured underside, and the probe asserts the pole's head clears its top.
+const DISH_AT = 0.58;
+// What the crossbars keep between themselves and the dish sweeping over them.
+const CROSSBAR_CLEAR = 0.28;
+// And what the mast's whole orbit keeps between itself and the two things it must not reach: the
+// roof's own edge, and the curtain plane every sightline out of the door starts on.
+const MAST_STANDOFF = 0.4;
 
 /**
  * How fast the dish sweeps, in radians a second — fourteen seconds a revolution.
@@ -248,27 +286,25 @@ function span(x0, x1, y0, y1, z0, z1, col) {
 }
 
 /**
- * The two painted courses, on one elevation.
+ * The chequer course, on one elevation.
  *
  * `axis` says which way the face runs — `'z'` for the +X elevation, `'x'` for the +Z one — and
- * `at` is the wall plane it stands off. Only those two faces get any: the camera never rotates,
+ * `at` is the wall plane it stands off. Only those two faces get one: the camera never rotates,
  * so the other two are paint nobody will ever be shown.
  */
 function livery(parts, axis, at, from, to, top) {
-  const bandY = top - BAND_H;
-  const checkY = bandY - CHECK_H;
-  // One helper so the chequer loop below doesn't have to know which way round the world is.
-  const face = (y0, y1, a, b, col) => (axis === 'z'
+  const y1 = top - CHECK_DROP;
+  const y0 = y1 - CHECK_H;
+  // One helper so the loop below doesn't have to know which way round the world is.
+  const face = (a, b, col) => (axis === 'z'
     ? span(at, at + PAINT_PROUD, y0, y1, a, b, col)
     : span(a, b, y0, y1, at, at + PAINT_PROUD, col));
-
-  parts.push(face(bandY, top, from, to, color('garageSign')));
 
   // A whole number of squares, so the course lands on the corner rather than halfway through one.
   const n = Math.max(4, Math.round((to - from) / CHECK_SQ));
   const sq = (to - from) / n;
   for (let k = 0; k < n; k++) {
-    parts.push(face(checkY, bandY, from + k * sq, from + (k + 1) * sq,
+    parts.push(face(from + k * sq, from + (k + 1) * sq,
       color(k % 2 ? 'garageWhite' : 'garageCheck')));
   }
 }
@@ -277,14 +313,18 @@ function livery(parts, axis, at, from, to, top) {
  * The mast, minus the dish — everything on it that doesn't turn, so it can ride in the shell's
  * merge and be lifted by the entrance wave like the rest of the building.
  *
- * `foot` is the top of the coping, which is what it stands on.
+ * @param foot   the top of the coping, which is what it stands on
+ * @param under  the world height of the **lowest point of the dish**, measured off the built
+ *               geometry rather than worked out here. The crossbars hang below it: the dish orbits,
+ *               so it passes over them once a revolution and a clearance derived from a fraction of
+ *               MAST_H holds only until somebody changes DISH_R. It has been changed twice.
  */
-function radioMast(x, z, foot) {
+function radioMast(x, z, foot, under) {
   const trim = color('garageTrim');
-  const parts = [box(0.5, MAST_PLINTH, 0.5, x, foot, z, trim)];
+  const parts = [box(0.6, MAST_PLINTH, 0.6, x, foot, z, trim)];
   const base = foot + MAST_PLINTH;
 
-  const pole = new THREE.CylinderGeometry(0.09, 0.12, MAST_H, 6);
+  const pole = new THREE.CylinderGeometry(0.11, 0.15, MAST_H, 6);
   pole.translate(x, base + MAST_H / 2, z);
   parts.push(bakeColor(pole, trim));
 
@@ -292,11 +332,9 @@ function radioMast(x, z, foot) {
   // are the whole of what says *communications* at a size where nothing else can. Crossed rather
   // than stacked on one axis, because this camera never rotates and a bar laid along the sightline
   // is a dot.
-  //
-  // Low, and that is the dish's clearance rather than taste: the upper one is what DISH_AT is
-  // measured against, and the pair sat at 0.36/0.52 until the dish grew into them.
-  parts.push(box(0.9, 0.05, 0.05, x, base + MAST_H * 0.30, z, trim));
-  parts.push(box(0.05, 0.05, 0.7, x, base + MAST_H * 0.44, z, trim));
+  const upper = under - CROSSBAR_CLEAR;
+  parts.push(box(0.05, 0.05, 0.9, x, upper, z, trim));
+  parts.push(box(1.1, 0.05, 0.05, x, base + (upper - base) * 0.5, z, trim));
 
   const whip = new THREE.CylinderGeometry(0.025, 0.05, WHIP_H, 4);
   whip.translate(x, base + MAST_H + WHIP_H / 2, z);
@@ -321,8 +359,11 @@ function radioMast(x, z, foot) {
  */
 function dishGeometry(dishY) {
   // The arm, out along +X. The dish hangs off the end of it rather than sitting on the mast's own
-  // axis, so the assembly **orbits**: a radar sweeps, it does not spin on the spot.
-  const parts = [box(DISH_ARM, 0.09, 0.09, DISH_ARM / 2, dishY - 0.045, 0, color('garageTrim'))];
+  // axis, so the assembly **orbits**: a radar sweeps, it does not spin on the spot. Every dimension
+  // below is a fraction of DISH_R, so the whole assembly is one number — at the 0.72 it was first
+  // built at, each of these fractions is exactly the literal it replaced.
+  const arm = DISH_R * 0.125;
+  const parts = [box(DISH_ARM, arm, arm, DISH_ARM / 2, dishY - arm / 2, 0, color('garageTrim'))];
 
   // Built pointing straight up and tipped afterwards, so everything on the dish's own axis — the
   // strut, the feed at the end of it — can be placed by one number and then carried along.
@@ -333,15 +374,18 @@ function dishGeometry(dishY) {
   // sun were behind it (docs/rendering.md, and the boats' wake in CLAUDE.md). A solid frustum has
   // no inside: the face pointed at the sky is its own front face.
   const face = [];
-  const dish = new THREE.CylinderGeometry(DISH_R, DISH_R * 0.4, 0.16, 12);
-  dish.translate(0, 0.08, 0);
+  const thick = DISH_R * 0.222;
+  const dish = new THREE.CylinderGeometry(DISH_R, DISH_R * 0.4, thick, 12);
+  dish.translate(0, thick / 2, 0);
   face.push(bakeColor(dish, color('garageWhite')));
-  // The feed on its strut, standing off the face. Three pixels at play zoom, and the whole of what
+  // The feed on its strut, standing off the face. A few pixels at play zoom, and the whole of what
   // makes the frustum read as a dish rather than as a drum.
-  const strut = new THREE.CylinderGeometry(0.035, 0.035, 0.44, 4);
-  strut.translate(0, 0.38, 0);
+  const reach = DISH_R * 0.611;
+  const horn = DISH_R * 0.222;
+  const strut = new THREE.CylinderGeometry(DISH_R * 0.049, DISH_R * 0.049, reach, 4);
+  strut.translate(0, thick + reach / 2, 0);
   face.push(bakeColor(strut, color('garageTrim')));
-  face.push(box(0.16, 0.16, 0.16, 0, 0.56, 0, color('garageTrim')));
+  face.push(box(horn, horn, horn, 0, thick + reach - horn * 0.125, 0, color('garageTrim')));
 
   // Negative, so the dish's own +Y tips toward +X — away from the mast, out over the arm.
   for (const geo of face) {
@@ -378,18 +422,32 @@ export function createGarage(block, rng) {
   const top = base + HEIGHT;
   const deck = top + 0.34;              // the top of the coping, which the mast stands on
 
-  // Where the mast goes: the roof's front corner, which is the one this camera looks straight at,
-  // and clear of the rooftop plant sitting further back.
+  // --- The mast's placement, worked out from the dish rather than chosen.
   //
-  // It cannot occlude the door, and the reason is x rather than height: every ray out of the
-  // opening starts on the curtain plane and runs +X, so anything wholly **behind** that plane is
-  // unreachable however tall it is. 1.9 rather than the 1.5 this was first written at, for a
-  // margin the dish can be grown into — the dish orbits 1.15 units out on its arm, which at 1.5
-  // put its far edge 0.05 short of the curtain and one bump of `DISH_R` past it. The probe
-  // measures that gap rather than trusting this comment.
-  const mastX = frontX - 1.9;
-  const mastZ = bz1 - 1.5;
+  // The dish is built first because everything about the mast depends on how much room it takes.
+  // Its height off the pole is the one free number; the rest — where the crossbars hang, and how
+  // far in from the roof's edge the whole thing stands — comes off its measured bounds.
   const dishY = deck + MAST_PLINTH + MAST_H * DISH_AT;
+  const dishGeo = dishGeometry(dishY - KERB_H);
+  dishGeo.computeBoundingBox();
+
+  // The radius it sweeps: the furthest any of its vertices gets from the pivot's own axis. Not
+  // `boundingBox.max.x` — the box is measured in the dish's rest pose and the dish **turns**, so
+  // its footprint is the circle that pose inscribes, and the disc is widest across its z axis
+  // where the box is narrowest along x.
+  const dp = dishGeo.attributes.position;
+  let orbit = 0;
+  for (let i = 0; i < dp.count; i++) orbit = Math.max(orbit, Math.hypot(dp.getX(i), dp.getZ(i)));
+
+  // One standoff answers both of the things the mast must not reach, because they are the same
+  // distance from two different planes. It has to keep its whole orbit **on the roof**, off the +Z
+  // parapet; and it has to keep it **behind the curtain plane**, since every sightline out of the
+  // opening starts there and runs +X — so anything wholly behind it cannot occlude the door at any
+  // height, and anything past it can. `curtainX` is the tighter of the two on x, being 0.3 back
+  // from the wall.
+  const stand = orbit + MAST_STANDOFF;
+  const mastX = curtainX - stand;
+  const mastZ = bz1 - stand;
 
   const wall = jitterColor(color('garageWall'), rng, { l: 0.03 });
   const trim = color('garageTrim');
@@ -445,8 +503,15 @@ export function createGarage(block, rng) {
 
     // Rooftop plant, on top of the coping rather than under it. Same argument as the elevation
     // above: a flat lid reads as an unfinished box, and the city's own towers all carry some.
-    box(1.6, 0.55, 1.2, bx0 + 2.2, top + 0.34, bz0 + 3.0, color('rooftop')),
-    box(1.0, 0.42, 1.0, bx0 + 5.6, top + 0.34, bz1 - 2.2, color('rooftopIron')),
+    //
+    // Both are measured off the roof's **back** corner, because the mast owns the front one and
+    // stands a whole dish-radius in from it. The small one used to be at (bx0 + 5.6, bz1 - 2.2) —
+    // one offset from the back in x and one from the front in z — and the two placements only
+    // stayed apart because an ordinary block is 12 wide. A block squeezed between two arterials is
+    // 9.33, the mast walked into the box, and nothing in the geometry said so. Same corner for
+    // both, and the probe measures the gap.
+    box(1.6, 0.55, 1.2, bx0 + 1.4, deck, bz0 + 1.3, color('rooftop')),
+    box(1.0, 0.42, 1.0, bx0 + 1.2, deck, bz0 + 3.4, color('rooftopIron')),
 
     dropKerb(kerbX, doorZ, rng),
 
@@ -461,8 +526,8 @@ export function createGarage(block, rng) {
     span(curtainX, kerbX - KERB_RUN, APRON_Y, PAINT_Y, dz1 - 0.63, dz1 - 0.35, color('garageSign')),
 
     // The mast. Static, so it rides in the shell's merge and the entrance wave lifts it with the
-    // building; only the dish below is excluded from that, and only because it turns.
-    ...radioMast(mastX, mastZ, deck),
+    // building; only the dish is excluded from that, and only because it turns.
+    ...radioMast(mastX, mastZ, deck, KERB_H + dishGeo.boundingBox.min.y),
   ];
 
   // The livery, on the two elevations this camera can ever see. The +X run takes the corner — it
@@ -512,10 +577,10 @@ export function createGarage(block, rng) {
   light.name = 'garage-light';
 
   // --- The dish -------------------------------------------------------------
-  // Its own mesh and its own pivot, for the reason the burger over the drive-through is one: it
-  // turns, and the entrance wave cannot animate anything with a transform of its own. See
-  // `dishGeometry` for why the pivot sits on the kerb rather than at the head of its mast.
-  const dishGeo = dishGeometry(dishY - KERB_H);
+  // Built at the top of this function, because the mast is placed off its bounds. Its own mesh and
+  // its own pivot, for the reason the burger over the drive-through is one: it turns, and the
+  // entrance wave cannot animate anything with a transform of its own. See `dishGeometry` for why
+  // the pivot sits on the kerb rather than at the head of its mast.
   const dish = new THREE.Mesh(dishGeo, propMaterial());
   dish.castShadow = true;
   dish.name = 'garage-dish';

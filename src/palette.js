@@ -127,7 +127,21 @@ export const PALETTE = {
   // envelope stays *outside* BUILDING_COLORS on purpose: a depot is a shed among offices, and
   // giving it a family of its own is what stops it reading as one more block of flats with a hole
   // in the front.
-  garageWall: '#8C8D8A',
+  //
+  // It is painted in the company's colours, which is the biggest exception in this file to "yellow
+  // is reserved for the taxi" below — a whole building of it. The rule survives because of what it
+  // is actually protecting: the read of a *yellow car on a road*, which is a small moving rectangle
+  // at play zoom. This is a static mass sitting up on a block, and every seed puts it somewhere
+  // different, so there is no learned "the yellow thing is the taxi" to break.
+  //
+  // What it does have to survive is the opening vignette, where a yellow car drives out of this
+  // building — and that is the whole of why it is **#DDA62F and not `taxiBody`'s #F5C130**. Ten
+  // points of lightness and four degrees of hue below the car, measured where `getHSL` does (the
+  // working space, not the colour picker's — see the long note on `door`), which is enough for the
+  // taxi to read as a separate object against its own depot rather than as a hole in it. The bay
+  // itself stays `garageBay` dark for the same reason it always did: the reveal is a bright thing
+  // coming out of a dark hole, and the hole is what the wall's colour must not become.
+  garageWall: '#DDA62F',
   // Parapet cap, door frame, shutter drum. One dark for every piece of the building's ironwork,
   // the same argument as `rooftopIron` above.
   garageTrim: '#5E6167',
@@ -142,20 +156,17 @@ export const PALETTE = {
   // The strip light on the bay ceiling. Unlit (see `unlitMaterial`) — it *is* a light source, and
   // a pale box standing in its own shadow reads as grey paint.
   garageLight: '#FFE7B8',
-  // The livery band under the coping, and a deliberate exception to "yellow is reserved for the
-  // taxi" below. It is reserved for the taxi; this is the taxi's building, and a band 0.46 units
-  // tall on a vertical face four and a half units up is not mistakable for a car on the road.
+  // The paint on the forecourt: two guide lines out of the bay, and the only thing left wearing
+  // this since the envelope above went yellow. It was a fascia band over the door for a long time
+  // and then a course under the coping; on a yellow wall a yellow band is not a band.
   //
-  // It started as a fascia over the door alone and now wraps both elevations the camera can see,
-  // which is a *lot* more of it — so the audit is worth restating rather than inheriting. What the
-  // rule protects is the read of a yellow car against the road at play zoom, and none of this is
-  // near the road: the lowest pixel of it is 4.5 units up a wall, it is horizontal where a car is
-  // a moving rectangle, and the one thing that has to stay unmistakable — the taxi coming out of
-  // the bay in the vignette — is coming out of a **hole** two units below it. That reveal is the
-  // reason the envelope itself stays grey. Paint the shed yellow and the yellow car drives out of
-  // a yellow wall.
+  // A stop brighter and more saturated than `garageWall`, because it has to be paint rather than a
+  // patch of the building lying down — and it is on asphalt rather than on the wall, so the two
+  // never touch. This *is* `taxiBody`'s own hex, which the wall deliberately is not: two lines on
+  // the ground under a car, where the car is about to be, are the one place in this city where
+  // reading the taxi's yellow is the point.
   garageSign: '#F5C130',
-  // The chequer course under that band, and the depot's one nod at a cab company's own livery.
+  // The chequer course under the parapet, and the depot's one nod at a cab company's own livery.
   //
   // An off-white and a charcoal rather than #FFF and #000. A true black square against a true white
   // one is the highest-contrast pair available anywhere in this game, and each of these squares is
@@ -165,8 +176,8 @@ export const PALETTE = {
   // would be, which is still the widest pair on the building and a step back off the edge.
   //
   // Both carry the ironwork's own blue cast — 216° and 217° against `garageTrim`'s 221° — rather
-  // than being neutral greys. A neutral chequer on a warm-lit building comes out looking like two
-  // shades of the wall.
+  // than being neutral greys. That was contrast against a grey wall and it is complement against a
+  // yellow one: a warm chequer on `garageWall` would read as two more shades of the building.
   //
   // The pale one doubles as the radio dish on the roof, and that is consolidation rather than
   // coincidence — the same argument `rooftopIron` makes. There is one white thing on this

@@ -11492,29 +11492,66 @@ let chopperOrder; // likewise
     const YELLOW = color('garageSign').getHexString();
     const PALE = color('garageWhite').getHexString();
     const DARK = color('garageCheck').getHexString();
+    const TRIM = color('garageTrim').getHexString();
 
-    // The two courses, by the y each colour actually occupies. Only what is up the wall: the same
-    // yellow is on the forecourt, four and a half units below anything here.
-    const bandOf = (want) => {
-      let lo = Infinity;
-      let hi = -Infinity;
-      for (let i = 0; i < pos.count; i++) {
-        if (pos.getY(i) < KERB_H + 2 || !want.includes(at(i))) continue;
-        lo = Math.min(lo, pos.getY(i));
-        hi = Math.max(hi, pos.getY(i));
+    // The envelope is yellow now, and the one thing that has to survive that is the vignette: a
+    // yellow car drives out of this building. So the depot's yellow is deliberately *not* the
+    // taxi's, and the gap has to hold across the per-city jitter `createGarage` puts on the wall.
+    const wall = new THREE.Color(PALETTE.garageWall);
+    const body = new THREE.Color(PALETTE.taxiBody);
+    const wallHsl = {};
+    const bodyHsl = {};
+    wall.getHSL(wallHsl);
+    body.getHSL(bodyHsl);
+    const WALL_JITTER = 0.03;   // matches the `jitterColor(..., { l: 0.03 })` in createGarage
+    check('the depot is painted yellow, but not the taxi\u2019s own yellow',
+      bodyHsl.l - wallHsl.l > WALL_JITTER * 2 && Math.abs(wallHsl.h - bodyHsl.h) < 0.05,
+      `wall L ${wallHsl.l.toFixed(3)} against body ${bodyHsl.l.toFixed(3)}, `
+      + `hue ${(wallHsl.h * 360).toFixed(0)}\u00b0 against ${(bodyHsl.h * 360).toFixed(0)}\u00b0`);
+
+    // The chequer course, by the y its two colours actually occupy on the wall.
+    let chequerLo = Infinity;
+    let chequerHi = -Infinity;
+    let copingLo = Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      const c = at(i);
+      if (pos.getY(i) < KERB_H + 2) continue;
+      if (c === PALE || c === DARK) {
+        chequerLo = Math.min(chequerLo, pos.getY(i));
+        chequerHi = Math.max(chequerHi, pos.getY(i));
       }
-      return { lo, hi };
-    };
-    const yellow = bandOf([YELLOW]);
-    const chequer = bandOf([PALE, DARK]);
-    check('the depot wears a yellow course and a chequer course', Number.isFinite(yellow.lo)
-      && Number.isFinite(chequer.lo), `yellow ${yellow.lo.toFixed(2)}, chequer ${chequer.lo.toFixed(2)}`);
-    // Order and contact in one: yellow on top because a dark coping over a chequer is mud, and
-    // touching because a reveal of wall between them is sub-pixel at play zoom and reads as a gap
-    // in the paint at the vignette's.
-    check('...with the yellow on top of the chequer and no wall showing between them',
-      chequer.hi > yellow.lo - 1e-9 && chequer.hi < yellow.lo + 1e-9 && chequer.lo < yellow.lo,
-      `chequer ${chequer.lo.toFixed(2)}→${chequer.hi.toFixed(2)}, yellow ${yellow.lo.toFixed(2)}→${yellow.hi.toFixed(2)}`);
+    }
+    for (let i = 0; i < pos.count; i++) {
+      // The coping, which is the only trim above the course.
+      if (at(i) === TRIM && pos.getY(i) > chequerHi) copingLo = Math.min(copingLo, pos.getY(i));
+    }
+    check('the depot wears a chequer course under its parapet',
+      Number.isFinite(chequerLo) && Number.isFinite(copingLo),
+      `chequer ${chequerLo.toFixed(2)}\u2192${chequerHi.toFixed(2)}, coping from ${copingLo.toFixed(2)}`);
+    // ...hanging clear of it rather than flush against it. The coping is dark and every other
+    // square is nearly as dark, so a flush course loses half of itself into the parapet; what shows
+    // between them is the wall's own yellow doing the job the old yellow band used to.
+    //
+    // And more than a token gap: the coping overhangs the wall by 0.18 and this camera looks down
+    // at 0.92 of rise per unit of x, so its own lip hides the top 0.17 of whatever is under it.
+    // What has to be left over is what a player can actually see.
+    const COPING_HIDES = 0.18 * 0.92;
+    check('...hanging clear of the coping, with the wall showing between them',
+      copingLo - chequerHi - COPING_HIDES > 0.15,
+      `${(copingLo - chequerHi).toFixed(2)} units of wall, `
+      + `${(copingLo - chequerHi - COPING_HIDES).toFixed(2)} of it visible`);
+    // ...and clear of the shutter drum coming the other way. The drum is the one piece of trim that
+    // stands proud of this wall below the course, and it is what stops the course being dropped any
+    // further to buy more of that reveal.
+    let drumTop = -Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      if (at(i) === TRIM && pos.getX(i) > site.frontX + 0.05 && pos.getY(i) < chequerLo) {
+        drumTop = Math.max(drumTop, pos.getY(i));
+      }
+    }
+    check('...and clear of the shutter drum under it',
+      chequerLo - drumTop > 0.05,
+      `${(chequerLo - drumTop).toFixed(2)} units over the drum`);
 
     // It has to actually alternate. A chequer built off an index that ran over two faces, or a
     // parity that came out even both ways round, is still a course of squares and still looks like
@@ -11540,33 +11577,30 @@ let chopperOrder; // likewise
       edges.length > 8 && shared === edges.length - 2,
       `${edges.length} edges, ${shared} carrying both colours`);
 
-    // Neither course is *painted on*: both stand off the wall in front of them, which is the
-    // coplanar rule (CLAUDE.md) rather than a modelling preference — two front-facing surfaces on
-    // one plane are a tie the rasteriser breaks differently on different machines, and a still
-    // rendered here is no evidence either way. Measured on the +X elevation, whose wall plane is
-    // `site.frontX` exactly and which is the face the vignette spends two seconds on.
+    // The course is not *painted on*: it stands off the wall in front of it, which is the coplanar
+    // rule (CLAUDE.md) rather than a modelling preference — two front-facing surfaces on one plane
+    // are a tie the rasteriser breaks differently on different machines, and a still rendered here
+    // is no evidence either way. Measured on the +X elevation, whose wall plane is `site.frontX`
+    // exactly and which is the face the vignette spends two seconds on.
     let paintReach = -Infinity;
     let copingReach = -Infinity;
-    const TRIM = color('garageTrim').getHexString();
     for (let i = 0; i < pos.count; i++) {
       const c = at(i);
       if (pos.getY(i) < KERB_H + 2) continue;
-      if ([YELLOW, PALE, DARK].includes(c)) paintReach = Math.max(paintReach, pos.getX(i));
-      // The coping, which is the only trim above the courses.
-      else if (c === TRIM && pos.getY(i) > chequer.hi) copingReach = Math.max(copingReach, pos.getX(i));
+      if (c === PALE || c === DARK) paintReach = Math.max(paintReach, pos.getX(i));
+      else if (c === TRIM && pos.getY(i) > chequerHi) copingReach = Math.max(copingReach, pos.getX(i));
     }
-    check('...and both courses stand off the wall rather than lying on it',
+    check('...and stands off the wall rather than lying on it',
       paintReach > site.frontX + 0.05,
       `paint to x ${paintReach.toFixed(2)}, wall at ${site.frontX.toFixed(2)}`);
-    // ...and no further off it than the coping over them, or the parapet stops being a lid and the
-    // top course grows a lit edge of its own along the roofline.
-    check('...and tuck under the coping rather than standing past it',
+    // ...and no further off it than the coping over it, or the parapet stops being a lid.
+    check('...and tucks under the coping rather than standing past it',
       copingReach > paintReach + 1e-6,
       `coping to x ${copingReach.toFixed(2)}, paint to ${paintReach.toFixed(2)}`);
 
     // The forecourt's guide lines, against the asphalt they are laid on. Same rule, laid flat: two
     // horizontal surfaces at one height is the shimmer `city/burgerjoint.js` names its apron levels
-    // to avoid, and the depot now has the same three levels to keep apart.
+    // to avoid, and the depot has the same three levels to keep apart.
     let paintTop = -Infinity;
     let paintFar = -Infinity;
     let surfaceTop = -Infinity;
@@ -11596,39 +11630,77 @@ let chopperOrder; // likewise
 
     // --- The mast, and the dish orbiting on it.
     //
+    // Every number here is derived in `garage.js` from the dish's own measured bounds rather than
+    // hand-tuned, and each of these is the claim that derivation was supposed to guarantee. They
+    // are worth asserting anyway: the dish has been resized twice, and both times it was one of
+    // these that broke.
+    garage.dish.geometry.computeBoundingBox();
+    const bb = garage.dish.geometry.boundingBox;
+    const dishLow = KERB_H + bb.min.y;
+    const dishHigh = KERB_H + bb.max.y;
+    const axis = garage.dishPivot.position;
+
+    // The radius it actually sweeps — the furthest any vertex gets from the pivot's axis, not the
+    // bounding box's x, because the pose the box measures is one the dish only holds for an instant.
+    const dp = garage.dish.geometry.attributes.position;
+    let orbit = 0;
+    for (let i = 0; i < dp.count; i++) orbit = Math.max(orbit, Math.hypot(dp.getX(i), dp.getZ(i)));
+
     // The one thing a mast on this roof could break is the shot the whole depot exists for, and it
     // cannot break it for a reason that is about **x**, not about height: every ray out of the
     // opening starts on the curtain plane and runs +X, so anything wholly behind that plane is
-    // unreachable at any height. The dish is the part that moves, and it moves *outward* — 1.15
-    // units along its arm — so this is the number to watch.
-    garage.dish.geometry.computeBoundingBox();
-    const reach = garage.dishPivot.position.x + garage.dish.geometry.boundingBox.max.x;
+    // unreachable at any height.
     check('the sweeping dish stays behind the plane the door\u2019s sightlines leave from',
-      reach < site.curtainX,
-      `dish reaches x ${reach.toFixed(2)}, curtain at ${site.curtainX.toFixed(2)}`);
+      axis.x + orbit < site.curtainX,
+      `orbit reaches x ${(axis.x + orbit).toFixed(2)}, curtain at ${site.curtainX.toFixed(2)}`);
+    // ...and stays inside the +Z parapet, rather than swinging out over the street. Only that edge:
+    // the camera sees two faces of this building and the other two parapets are behind it, so an
+    // overhang there is geometry nobody is ever shown — and on a block squeezed between two
+    // arterials the roof is 5.4 wide against an orbit of 2.4, which is not room to demand it.
+    check('...and stays inside the parapet it could swing out over',
+      axis.z + orbit < bounds.z1 - 0.9,
+      `orbit to z ${(axis.z + orbit).toFixed(2)}, parapet at ${(bounds.z1 - 0.9).toFixed(2)}`);
 
     // The entrance wave's contract, and the reason the pivot is where it is. The shader scales the
     // shell about KERB_H; `objects` in game/cityentry.js owns nothing but `object.scale`, so the
     // only way a CPU-grown object rises with the mesh it stands on is for its pivot to sit on that
     // same plane. Anywhere else and the dish shrinks toward a point the mast has not reached.
     check('...and its pivot sits on the plane the entrance wave scales about',
-      Math.abs(garage.dishPivot.position.y - KERB_H) < 1e-9,
-      `pivot y ${garage.dishPivot.position.y.toFixed(3)} against ${KERB_H}`);
+      Math.abs(axis.y - KERB_H) < 1e-9,
+      `pivot y ${axis.y.toFixed(3)} against ${KERB_H}`);
 
+    // The two things the dish is squeezed between on the pole. Both are measured off the mast's own
+    // vertices — the ones within a plinth's width of its axis — rather than off MAST_H, so a change
+    // to either end shows up here.
+    let barTop = -Infinity;
+    let poleHead = -Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      if (Math.hypot(pos.getX(i) - axis.x, pos.getZ(i) - axis.z) > 0.62) continue;
+      const y = pos.getY(i);
+      if (y > KERB_H + 5.5 && y < dishLow) barTop = Math.max(barTop, y);
+      // The pole's head, which is where the whip takes over: the topmost `garageTrim` vertex on the
+      // axis. The whip itself is `pole`-coloured and sits above it.
+      if (at(i) === TRIM && y > KERB_H + 5.5) poleHead = Math.max(poleHead, y);
+    }
     // It orbits, so it passes over the crossbars once a revolution: the clearance is not a static
     // one and cannot be read off a single pose.
-    let barTop = -Infinity;
-    for (let i = 0; i < pos.count; i++) {
-      if (Math.hypot(pos.getX(i) - garage.dishPivot.position.x,
-        pos.getZ(i) - garage.dishPivot.position.z) > 0.6) continue;
-      const y = pos.getY(i);
-      if (y > KERB_H + 5.5 && y < KERB_H + garage.dish.geometry.boundingBox.min.y) {
-        barTop = Math.max(barTop, y);
-      }
-    }
     check('...and clears the crossbars under it all the way round',
-      KERB_H + garage.dish.geometry.boundingBox.min.y - barTop > 0.1,
-      `${(KERB_H + garage.dish.geometry.boundingBox.min.y - barTop).toFixed(2)} units`);
+      dishLow - barTop > 0.1, `${(dishLow - barTop).toFixed(2)} units`);
+    // And the pole shows past the top of it, or the whip appears to grow out of the dish's rim.
+    check('...with the pole\u2019s head still showing above it',
+      poleHead > dishHigh, `head ${poleHead.toFixed(2)} against dish top ${dishHigh.toFixed(2)}`);
+
+    // The roof's own plant, which the mast walked into once already: the standoff grew with the
+    // dish and took the mast to a corner a unit box was standing in.
+    const PLANT = [color('rooftop').getHexString(), color('rooftopIron').getHexString()];
+    let plantGap = Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      if (pos.getY(i) < KERB_H + 5 || !PLANT.includes(at(i))) continue;
+      plantGap = Math.min(plantGap,
+        Math.hypot(pos.getX(i) - axis.x, pos.getZ(i) - axis.z));
+    }
+    check('...and the roof\u2019s plant is clear of the mast standing among it',
+      plantGap > 0.6, `nearest box corner ${plantGap.toFixed(2)} from the mast`);
 
     // Last: the dish is out of both lists it must not be in. The wave cannot animate it (it turns)
     // and the AO prepass must not draw it (its matrix changes every frame), so it is neither a

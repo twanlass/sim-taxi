@@ -175,10 +175,11 @@ Shots 34–35 (`depot`, `depot-far`) are the [depot](city.md#the-depot-block), o
 distances and staging nothing — a depot has no moment either, and the door is shut in both because
 shot mode never puts the taxi in the bay. They are newer than the building: for as long as the only
 reason to look at the depot was the vignette, the vignette framed itself. It wears a livery now, so
-there is something to look at from outside the cut scene. Close: do a yellow course and a chequer
-under it read as a **livery** rather than as two stripes, and does a tilted frustum on a mast read
-as a dish. At play zoom: is the depot a block you can pick out of a city of muted concrete, which is
-what all that paint is for.
+there is something to look at from outside the cut scene. Close: does the chequer read as a
+**chequer** — it did not at first, being square on the wall and therefore a row of narrow bars in a
+foreshortened frame — and does a tilted frustum on a mast read as a dish. At play zoom: is the
+depot a block you can pick out of a city of muted concrete, which is what the yellow is for, and is
+it still distinguishable from the taxi, which is the thing that yellow costs.
 
 There were two more, `parcel-aboard` and `parcel-flight`, and both photographed a load that has since
 left the world: a collected box no longer rides on the taxi's rear deck and no longer crosses the road
