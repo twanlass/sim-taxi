@@ -1500,6 +1500,33 @@ The zone then **rises out of the road** over 1.1s rather than appearing on it. T
 and drawn first, so the part still below y = 0 fails the depth test — which is what makes the rise
 free, and what covers the desktop case where nothing can be set up off-screen.
 
+### Everything is placed off a lane, and a lane is not the middle of the road
+
+Two frames put the zone down, and both start from a *lane*: `laneFrame` for the two barricades and
+their ramps, `roadPoint` for the cones, the spoil heap, the trench and the workers. A lane centre is
+`LANE` off the road's own centreline, so both have to take that offset back out — and the direction
+they take it out in is the whole of this section.
+
+`laneFrame`'s basis is `makeBasis(across, up, forward)` with **+Z forward**, and it has to stay
+right-handed or every stripe on the barricade mirrors and the ramp lands on the wrong side. With +Y
+up and +Z forward there is exactly one axis left for +X, and it is the driver's **left**. There is no
+arrangement of this frame in which +X is their right. Traffic here drives on the right, so the road
+centreline is a lane to the left of a lane centre: local X = **`+LANE`**, and `roadPoint`'s offset is
+`side + LANE`.
+
+Reading that axis as "right" and writing `-LANE` does not nudge the zone, it moves it `2 · LANE` — a
+whole road's half-width. Both frames had it, both in the same direction, so the site stayed
+internally consistent and simply sat four units off the middle of the street: one row of cones on the
+pavement, one end of each trestle past the far kerb. On 24 of the 25 blocks that reads as a wide site
+and nothing more. On the street along the **riverbank**, whose far kerb is the channel, it reads as a
+construction site standing on the water, which is how it was eventually reported.
+
+`tools/probe.mjs` now walks every vertex the zone draws — not just the cones — against the road
+centreline it is supposed to be centred on, and separately stages zones on riverbank streets across
+eight cities to assert none of it ends up in the channel. The cone check that existed before this
+missed it because it derived the centreline with the *same* flipped sign, and so measured from the
+line the bug had put everything on.
+
 ### The ramp
 
 `HOP_LEN`, `launchHop` and the arc live in `traffic.js`, next to `locoWheelie` and for the same

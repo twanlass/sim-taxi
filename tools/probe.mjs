@@ -10381,10 +10381,15 @@ let chopperOrder; // likewise
   let worstLateral = 0;
   let outsideSpan = 0;
   const laterals = [];
+  // The road centreline: `LANE` to the **left** of this lane, since traffic drives on the right.
+  // Left of a heading (ux, uz) is (uz, -ux) — the same anticlockwise quarter turn game/roadwork.js
+  // takes, and the sign that has to agree with it. This check was first written with it flipped, so
+  // it measured from a line 2 · LANE off the road and passed a zone laid out half on the pavement.
+  const cx = a.x + uz * LANE;
+  const cz = a.z - ux * LANE;
   for (const cone of roadwork.cones) {
     const along = (cone.x - a.x) * ux + (cone.z - a.z) * uz;
-    // Lateral offset from the road centreline, which sits LANE to the left of this lane.
-    const lateral = (cone.x - a.x) * uz - (cone.z - a.z) * ux + LANE;
+    const lateral = (cone.x - cx) * uz - (cone.z - cz) * ux;
     worstLateral = Math.max(worstLateral, Math.abs(lateral));
     laterals.push(lateral);
     if (along < 0 || along > lane.length) outsideSpan += 1;
@@ -10407,6 +10412,38 @@ let chopperOrder; // likewise
   check('one row is in the taxi\'s path and the other survives it',
     CONE_ROW < LANE + CAR_W / 2 && CONE_ROW > LANE - 1,
     `row at ${CONE_ROW}, taxi flank reaches ${(LANE + CAR_W / 2).toFixed(2)}`);
+
+  // ...and the cones are only a twelfth of what gets put down. The trestles, the ramps, the spoil
+  // heap and the trench come off the *same* two lateral frames, so a sign error in either lands the
+  // whole zone `2 · LANE` off the middle of the road — one row of cones on the pavement, one end of
+  // each barricade hanging past the kerb. That shipped. Over ordinary blocks it reads as a slightly
+  // odd layout; on the street along the riverbank, half the site hangs over the water, which is how
+  // it was finally reported. So this walks every vertex the zone actually draws, not just the cones.
+  //
+  // A worker's outstretched arm reaches 1.63 from their feet and they stand up to 3.5 off the
+  // centre, so the tolerance is a kerb's width of slack rather than HALF_ROAD exactly — what it is
+  // looking for is a lane and a half, not a hand.
+  {
+    const banks = riverBanks();
+    let zoneWorst = 0;
+    let inChannel = 0;
+    const v = new THREE.Vector3();
+    rwScene.updateMatrixWorld(true);
+    roadwork.group.traverse((o) => {
+      if (!o.isMesh || o.isInstancedMesh || !o.geometry?.attributes?.position) return;
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+        zoneWorst = Math.max(zoneWorst, Math.abs((v.x - cx) * uz - (v.z - cz) * ux));
+        if (banks && v.z > banks.z0 && v.z < banks.z1) inChannel += 1;
+      }
+    });
+    check('the whole zone is centred on the road it closes, not on a lane',
+      zoneWorst < ROAD_W / 2 + 1.7,
+      `worst vertex ${zoneWorst.toFixed(2)} off the centreline, half-road ${ROAD_W / 2}`);
+    check('nothing the zone draws stands over the river',
+      inChannel === 0, `${inChannel} vertices inside the channel`);
+  }
 
   // Ambient traffic routes around it. Sampled every frame rather than at the end, because a car
   // that turns in and out again between two samples is exactly the bug this is looking for.
@@ -10968,6 +11005,59 @@ let chopperOrder; // likewise
       gap(PALETTE.cone) > 20 && gap(PALETTE.barrier) > 20 && gap(PALETTE.hiVis) > 20,
       `cone ${gap(PALETTE.cone).toFixed(0)}°, barrier ${gap(PALETTE.barrier).toFixed(0)}°, `
       + `vest ${gap(PALETTE.hiVis).toFixed(0)}° from the taxi's ${taxiHue.toFixed(0)}°`);
+  }
+
+  // The riverbank street, swept across cities rather than trusted to the one this probe generates.
+  //
+  // The bug this guards was invisible on 24 of the 25 blocks: a zone laid out `2 · LANE` off the
+  // road's middle merely looks like a wide site, and only the street whose far kerb *is* the
+  // channel turns it into furniture standing on the water. The probe's own city puts its zone
+  // wherever it puts it, so the check above can go a hundred seeds without ever visiting the one
+  // street that shows the fault. This makes the visit deliberate.
+  //
+  // `createLayout` is not a pure function — it installs the network it bakes, and `riverBanks()`
+  // reads that same module state — so every city here re-asks for its own banks, and the probe's
+  // city is put back at the end.
+  {
+    const far = { x: 1e4, z: 1e4 };   // a taxi nowhere near anything, so PLACE_CLEARANCE never bites
+    let onBank = 0;
+    let inChannel = 0;
+    const v = new THREE.Vector3();
+    for (let city = 0; city < 8; city++) {
+      createLayout(makeRng(seed + city * 311));
+      const bankNet = cityNetwork();
+      const banks = riverBanks();
+      const inWater = (z) => z > banks.z0 && z < banks.z1;
+      for (let k = 0; k < 24; k++) {
+        setClosedLanes([]);
+        const sweepScene = new THREE.Scene();
+        const zone = createRoadwork(makeRng(seed + city * 311 + k * 13), sweepScene, null);
+        if (!zone.place(far, [], [])) continue;
+        const closedEdge = bankNet.laneById.get(zone.closedLaneIds[0]).edge;
+        const ea = bankNet.nodeById.get(closedEdge.a);
+        const eb = bankNet.nodeById.get(closedEdge.b);
+        // A street running *along* the water: both ends on the same j line, and that line one of
+        // the two the river row is cut between. Named by row index rather than by `banks`, which is
+        // the *kerb* line — half a road further out than the junctions that carry the street.
+        if (ea.gj !== eb.gj) continue;
+        if (ea.gj !== riverRow() && ea.gj !== riverRow() + 1) continue;
+        onBank += 1;
+        sweepScene.updateMatrixWorld(true);
+        zone.group.traverse((o) => {
+          if (!o.isMesh || o.isInstancedMesh || !o.geometry?.attributes?.position) return;
+          const pos = o.geometry.attributes.position;
+          for (let i = 0; i < pos.count; i++) {
+            v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+            if (inWater(v.z)) inChannel += 1;
+          }
+        });
+        for (const cone of zone.cones) if (inWater(cone.z)) inChannel += 1;
+      }
+    }
+    createLayout(makeRng(seed));   // put the probe's own city back
+    check('a zone on the riverbank street keeps every part of itself out of the water',
+      onBank >= 4 && inChannel === 0,
+      `${onBank} zones staged on a bank street, ${inChannel} parts over the channel`);
   }
 
   // Leave the sim as it was found: `closedLanes` is module state in traffic.js, and anything below

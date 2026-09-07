@@ -424,6 +424,20 @@ Omit the whole section if there's nothing to note.
   light's own rays** instead; a directional light's rays are parallel, so its silhouette on every
   receiver is unchanged and only the recorded depth moves. Under an orthographic shadow camera that
   direction is free — it is view-space −Z, so `mvPosition.z -=` needs no uniform.
+- **A frame with +Z forward and +Y up has +X on the driver's *left*, and no amount of naming makes
+  it the right.** `makeBasis(r, up, f)` has to stay right-handed or the geometry it carries mirrors,
+  and that fixes the third axis. The roadworks zone is placed off two such frames — `laneFrame` for
+  the barricades, `roadPoint` for the cones, spoil, trench and workers — and both called that axis
+  "right" and took the lane's `LANE` of offset back out toward it. Traffic drives on the right, so
+  the road centreline is a lane to the *left*: the sign was inverted, and an inverted sign here is
+  not a nudge, it is `2 · LANE`. The whole site sat four units off the middle of the street with one
+  row of cones on the pavement and one end of each trestle past the far kerb — and stayed internally
+  consistent, so it read as a wide site on 24 of the 25 blocks. The block it did not read as a wide
+  site on was the **riverbank**, whose far kerb is the channel: reported as "construction site
+  floating over river". The check that should have caught it derived the centreline with the same
+  flipped sign and measured from the line the bug had put everything on, which is the second half of
+  the lesson — a lateral check has to build its centreline from the *lane offset the traffic model
+  uses*, not from the code under test.
 - **`instanceColor` is RGB only.** Per-instance alpha needs a custom attribute plus an
   `onBeforeCompile` patch — a 4-component colour attribute takes a different code path.
 - **Jitter vertices by position, not index.** Non-indexed geometry repeats shared corners, and
