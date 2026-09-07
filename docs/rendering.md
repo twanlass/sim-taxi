@@ -3294,8 +3294,8 @@ counts them, because a part left *out* of the mask counts as an occluder of the 
 ### The food order — `geometry/food.js`
 
 The courier's other load: an oversized burger with a soda cup standing behind it. Same pad, same
-cyan, same errand, same money — the whole of the difference is what it *is*, and the
-[gameplay doc](gameplay.md#two-kinds-of-load) covers why it was kept that way.
+cyan, same money — it differs in what it *is*, and in one thing that is not cosmetic: it is collected
+at the [burger joint](gameplay.md#two-kinds-of-load-and-one-of-them-has-an-address) and nowhere else.
 
 **Two objects and no container, and that is the whole design.** The first cut put both of them in a
 takeaway bag, which is what a real order comes in and which cost the order the only thing it had: the

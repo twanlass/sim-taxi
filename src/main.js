@@ -401,7 +401,19 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
 // seeded, so equal offsets are not independent streams, they are identical ones. `tools/probe.mjs`
 // now asserts every offset in this file is distinct, because nothing about the collision was visible:
 // no crash, no failing check, just a package board silently correlated with a helicopter.
-const parcels = parcelsEnabled ? createParcelSystem(makeRng(runSeed + 255), scene) : null;
+//
+// `foodPickup` is the burger joint's own corner junction, and it is the whole of what that module
+// knows about the city: a food order is collected there and nowhere else (see game/parcels.js). The
+// **+X+Z** corner of the joint's block, because `cornerFor` puts a kerb pin on the −X−Z side of its
+// junction — so junction (bi + 1, bj + 1) is the one whose pin stands on the joint's *own* slab
+// rather than across the road from it. It is also the corner the drive-through's exit crosses, which
+// is as close to "at the window" as a mark on a junction can be. A city that failed to place a joint
+// (`chooseBurgerBlock` can come back empty) passes null and serves boxes only.
+const parcels = parcelsEnabled
+  ? createParcelSystem(makeRng(runSeed + 255), scene, {
+    foodPickup: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
+  })
+  : null;
 // Sim time the taxi's flourish was stamped at, or null when it is not running. See the frame loop —
 // it lights the whole car for the length of a select pop.
 //

@@ -99,19 +99,31 @@ import * as difficulty from './difficulty.js';
 // leaves it alone too — a waiting rider the player had sent the taxi at stays `directed`, so driving
 // past them on the way to the box still picks them up, the same gift a lucky detour has always been.)
 //
-// ## Two kinds of load, and nothing else different
+// ## Two kinds of load, and one of them has an address
 //
 // A courier job is carrying a **box** or a **food order** (geometry/parcel.js, geometry/food.js),
-// drawn per package at `FOOD_CHANCE`. That is the whole of the difference: same pad, same cyan, same
-// gestures, same money, same fuel, same absence of a clock. Nothing in this module branches on it
-// after the draw except which mesh is shown.
+// drawn per package at `FOOD_CHANCE`. Everything about the errand is the same either way — same pad,
+// same cyan, same gestures, same money, same fuel, same absence of a clock — with **one** exception,
+// and it is the reason the second kind is worth having at all:
 //
-// **It is flavour, and it is deliberately kept as flavour.** A second load type is the obvious place
-// to hang a second rule — food that cools, an order that pays more, one that has to be delivered
+// **A food order is collected at the burger joint.** Not at a corner the draw liked: at the one place
+// in this city that sells food (`foodPickup`, injected). The city has had a drive-through for a long
+// time and it has been scenery with one secret in it (game/burgerrun.js); this makes it an *address*
+// — a building the player learns the position of because jobs come out of it. The delivery end is
+// still anywhere, which is what a food delivery is: one origin, and the whole map to take it to.
+//
+// It also costs something honest. A box is an errand between two corners the draw chose to be near
+// the taxi's route; a food order always starts in the same place, so how good a courier job it is
+// depends on where the taxi happens to be — and in a run that never goes near that block, the food
+// half of the board is simply not for you. That is the trade a landmark makes, and it is the same one
+// the drive-through itself already makes.
+//
+// **Everything else about it is flavour, deliberately.** A second load type is the obvious place to
+// hang a second *rule* — food that cools, an order that pays more, one that has to be delivered
 // before the box the taxi is also carrying — and every one of those wants the thing this layer does
-// not have and cannot grow: a clock. See the section below for why. What the second kind buys is the
-// thing a screenshot can see: a board where the errand on the corner is a specific errand rather than
-// the same brown box for the ninth time in a run.
+// not have and cannot grow: a clock. See the section below for why. A fixed origin is the one
+// mechanic that costs the layer nothing it is built on: it takes no deadline, it cannot fail, and it
+// spends nothing but the map.
 //
 // ## A package has no clock, and so has no diamond
 //
@@ -202,17 +214,18 @@ export const PARCEL_AFTER_DELIVERY = 20;
 export const PARCEL_PAY_FACTOR = 1;
 
 /**
- * How often a package is a **food order** rather than a box (geometry/food.js).
+ * How often a package is drawn as a **food order** rather than a box (geometry/food.js).
  *
- * Half, and the halves are interchangeable: the two loads play identically, so there is no reason for
- * the draw to favour either and every reason for both to be *common*. A rare variant on a board that
- * shows one job every twenty to forty-five seconds is a thing a player meets twice in a run and reads
- * as a glitch rather than as the other kind — the courier layer is not a collection, and a load the
- * player has to be lucky to see is one nobody ever learns is there.
+ * Half, and the halves are interchangeable: the two loads pay the same and are collected the same
+ * way, so there is no reason to favour either and every reason for both to be *common*. A rare
+ * variant on a board that shows one job every twenty to forty-five seconds is a thing a player meets
+ * twice in a run and reads as a glitch rather than as the other kind — the courier layer is not a
+ * collection, and a load the player has to be lucky to see is one nobody ever learns is there.
  *
- * Drawn per package, out of this module's own stream, at the last moment: after both corners and the
- * route between them are settled, so a spawn that is refused for a bad city does not spend a draw and
- * shift every later one.
+ * The chance of *asking* for food rather than the share of packages that are food: an order whose
+ * pickup — the burger joint's corner — is unusable this frame is served as a box instead (see
+ * `spawn`). In a shipped city that is a rare correction, and `tools/probe.mjs` measures what is
+ * actually served rather than trusting this number to describe it.
  */
 export const FOOD_CHANCE = 0.5;
 
@@ -425,7 +438,17 @@ function createSlot(scene, index) {
   return { index, pickup, dropoff, flight, flightBox };
 }
 
-export function createParcelSystem(rng, scene) {
+/**
+ * @param foodPickup  the one intersection a **food order** is collected from — the burger joint's own
+ *                    corner — or null for a city with no joint, which serves boxes only.
+ *
+ *                    Injected rather than imported, the same way `fares.js` learns about this
+ *                    module's corners through `reserved`: this file holds no reference to the city
+ *                    layout, and the joint is a fact about *where the city put its restaurant*, which
+ *                    is `main.js`'s to know. It is a plain `{i, j}` rather than a getter because a
+ *                    building does not move.
+ */
+export function createParcelSystem(rng, scene, { foodPickup = null } = {}) {
   const state = {
     /** Live packages: on a corner (`waiting`) or aboard the taxi (`carried`). */
     parcels: [],
@@ -538,25 +561,36 @@ export function createParcelSystem(rng, scene) {
    * 4 blocks of district plus a pocket park or two, which is 5 to 9 junctions of 36, and the
    * sightline filter takes a further 1.7 on average.
    */
+  /**
+   * Whether one intersection may carry a courier mark at all. Split out of the draw below because
+   * the food order does not *draw* its pickup — it has exactly one (`foodPickup`, the burger joint's
+   * own corner) — and the one thing that must not differ between the two is what counts as a corner
+   * a package can stand on. A second copy of this list is a second answer to "can a pad go here",
+   * and the half that would rot is the one with a single candidate that almost always passes.
+   */
+  function spotLegal(spot, taxiCar, taken, minBlocksFrom = null) {
+    // Not on top of the car: a box materialising where the taxi already is asks nothing.
+    if (spot.i === taxiCar.i && spot.j === taxiCar.j) return false;
+    if (onParkBlock(spot)) return false;
+    // ...and no pad in the river, for the harder version of the same reason: a package on a park
+    // is an address with no door, and one in the channel is an address with no ground.
+    if (onWaterBlock(spot)) return false;
+    // A corner with a building standing in front of it, same hard filter and for a harder
+    // reason: a pad is a mark on the ground with nothing above the skyline speaking for it, so a
+    // hidden one is a delivery address the player cannot see at all. See `cornerSeen`.
+    if (!cornerSeen(spot.i, spot.j)) return false;
+    if (taken.some((other) => spot.i === other.i && spot.j === other.j)) return false;
+    // `onSameBlock`, not `(i, j)` equality: near the map's origin edge two intersections a whole
+    // block apart still park their corner pins on the same slab — see fares.js.
+    if (taken.some((other) => onSameBlock(spot, other))) return false;
+    if (minBlocksFrom && blockDistance(spot, minBlocksFrom) < MIN_TRIP_BLOCKS) return false;
+    return true;
+  }
+
   function pickIntersection(taxiCar, taken, { avoid = [], minBlocksFrom = null } = {}) {
-    const legal = allIntersections().filter((spot) => {
-      // Not on top of the car: a box materialising where the taxi already is asks nothing.
-      if (spot.i === taxiCar.i && spot.j === taxiCar.j) return false;
-      if (onParkBlock(spot)) return false;
-      // ...and no pad in the river, for the harder version of the same reason: a package on a park
-      // is an address with no door, and one in the channel is an address with no ground.
-      if (onWaterBlock(spot)) return false;
-      // A corner with a building standing in front of it, same hard filter and for a harder
-      // reason: a pad is a mark on the ground with nothing above the skyline speaking for it, so a
-      // hidden one is a delivery address the player cannot see at all. See `cornerSeen`.
-      if (!cornerSeen(spot.i, spot.j)) return false;
-      if (taken.some((other) => spot.i === other.i && spot.j === other.j)) return false;
-      // `onSameBlock`, not `(i, j)` equality: near the map's origin edge two intersections a whole
-      // block apart still park their corner pins on the same slab — see fares.js.
-      if (taken.some((other) => onSameBlock(spot, other))) return false;
-      if (minBlocksFrom && blockDistance(spot, minBlocksFrom) < MIN_TRIP_BLOCKS) return false;
-      return true;
-    });
+    const legal = allIntersections().filter(
+      (spot) => spotLegal(spot, taxiCar, taken, minBlocksFrom),
+    );
     if (!legal.length) return null;
     const offRoute = legal.filter(
       (spot) => !avoid.some((other) => spot.i === other.i && spot.j === other.j),
@@ -578,7 +612,30 @@ export function createParcelSystem(rng, scene) {
 
     const taken = [...fareSpots, ...occupiedSpots()];
     const avoid = routeJunctions(taxiCar);
-    const pickup = pickIntersection(taxiCar, taken, { avoid });
+
+    // **Which load, and then where it is collected — in that order, because for food the second
+    // follows from the first.** A box is an errand from anywhere to anywhere; a food order comes from
+    // the one place in the city that sells food (`foodPickup`, injected — see `createParcelSystem`).
+    //
+    // The draw therefore has to happen *before* the pickup is chosen rather than after both ends are
+    // settled, which is where it used to sit so that a spawn refused for a bad city did not spend a
+    // draw and shift every later one. That property is gone and it is worth almost nothing: the only
+    // way past this point without a pickup is a city with no legal corner at all, which a shipped
+    // city does not have.
+    //
+    // A food order that cannot be collected becomes a **box**, rather than no package at all. The
+    // joint's corner is unusable in three ordinary ways — a rider is already standing on it, the taxi
+    // is parked on it, or this city has no joint — and none of them is a reason for the board to sit
+    // empty. `FOOD_CHANCE` is the chance of *asking* for food; what is actually served is asserted in
+    // `tools/probe.mjs` rather than assumed to be the same number.
+    const wanted = kindPin ?? (rng.chance(FOOD_CHANCE) ? 'food' : 'parcel');
+    let kind = 'parcel';
+    let pickup = null;
+    if (wanted === 'food' && foodPickup && spotLegal(foodPickup, taxiCar, taken)) {
+      pickup = { ...foodPickup };
+      kind = 'food';
+    }
+    if (!pickup) pickup = pickIntersection(taxiCar, taken, { avoid });
     if (!pickup) return null;
     const dropoff = pickIntersection(taxiCar, [...taken, pickup], {
       avoid, minBlocksFrom: pickup,
@@ -596,10 +653,10 @@ export function createParcelSystem(rng, scene) {
       stage: 'waiting',
       pickup,
       dropoff,
-      // Box or food order — see FOOD_CHANCE. A fact about this package, settled at spawn like its
-      // price, so the kerb marker, the two flights and the HUD chip are all reading one answer
-      // rather than each drawing their own.
-      kind: kindPin ?? (rng.chance(FOOD_CHANCE) ? 'food' : 'parcel'),
+      // Box or food order — see FOOD_CHANCE and the note in `spawn`. A fact about this package,
+      // settled at spawn like its price, so the kerb marker, the two flights and the HUD chip are
+      // all reading one answer rather than each drawing their own.
+      kind,
       // What resolving this package next needs the taxi to reach. Moves to the drop-off when the box
       // is collected, the same hand-off a fare's `target` makes at pickup.
       target: pickup,

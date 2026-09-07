@@ -196,6 +196,11 @@ export const SHOTS = [
   // fare's disc — is about the *pad*, and both loads stand on the same one, so `parcel-board` already
   // answers it. What is only answerable close up is this shot's own question: do a burger and a cup
   // read as food at all at this size, and does the straw survive being two pixels.
+  //
+  // It frames itself on the **drive-through**, without being asked to: a food order is collected at
+  // the burger joint and nowhere else (game/parcels.js), and `untilParcel` points the camera at
+  // whichever corner the package landed on. So the second thing this shot answers for free is
+  // whether a cyan pad sitting on that lot reads as part of the restaurant or as litter on it.
   { name: 'food', description: 'a food order waiting on its pad — needs ?parcels=1', target: [0, 0], zoom: 11, warmup: 12, untilParcel: true, cargoKind: 'food' },
 ];
 
