@@ -127,21 +127,29 @@ const smoothstep = (t) => t * t * (3 - 2 * t);
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
 /**
- * A local frame on a lane: **+X across the road to the right of travel, +Y up, +Z the direction of
+ * A local frame on a lane: **+X across the road to the *left* of travel, +Y up, +Z the direction of
  * travel**, with the origin on the tarmac at the lane centre.
  *
- * `makeBasis(r, up, f)` is right-handed here — `r · (up × f)` works out to `fx² + fz²` = 1 — which
- * matters because a left-handed basis would mirror every stripe on the barricade and put the ramp
- * on the wrong side of the road.
+ * Left, not right, and the two are not interchangeable — a sign here is a whole lane and a half of
+ * placement error. `makeBasis(l, up, f)` has to stay right-handed (`l · (up × f)` = `fx² + fz²` = 1)
+ * or every stripe on the barricade mirrors and the ramp lands on the wrong side of the road; and
+ * with +Y up and +Z *forward* the only axis a right-handed basis leaves for +X is the lane's left.
+ * There is no arrangement of this frame in which +X is the driver's right.
+ *
+ * Which matters to every caller, because traffic here drives on the right: the road centreline is
+ * `LANE` to the **left** of the lane, i.e. at local X = `+LANE`. Reading the axis as "right" and
+ * writing `-LANE` puts the thing being placed `2 · LANE` off the centre of the road — half on the
+ * pavement, and on the street along the riverbank, half over the water. That shipped, and it was
+ * reported as the construction site floating over the river.
  */
 function laneFrame(lane, s) {
   const p = lane.path.at(s);
   const t = lane.path.tangentAt(s);
   const f = new THREE.Vector3(t.x, 0, t.z).normalize();
-  const r = new THREE.Vector3(f.z, 0, -f.x);
-  const m = new THREE.Matrix4().makeBasis(r, UP, f);
+  const l = new THREE.Vector3(f.z, 0, -f.x);
+  const m = new THREE.Matrix4().makeBasis(l, UP, f);
   m.setPosition(p.x, 0, p.z);
-  return { matrix: m, forward: f, right: r, x: p.x, z: p.z };
+  return { matrix: m, forward: f, across: l, x: p.x, z: p.z };
 }
 
 export function createRoadwork(rng, scene, camera = null) {
@@ -291,17 +299,22 @@ export function createRoadwork(rng, scene, camera = null) {
    * cross traffic drove over them and the taxi collected them on its way past. A lane is already
    * trimmed to the tarmac between the two.
    *
-   * The lane sits `LANE` to the right of the centreline, so `side` is offset by that to end up
-   * measured from the middle of the road, which is where a road's furniture is naturally placed.
+   * `side` is measured from the middle of the road, which is where a road's furniture is naturally
+   * placed — so the lane's own `LANE` of offset has to be taken back out. Traffic drives on the
+   * right, so a lane centre is `LANE` to the **right** of the centreline and the axis below points
+   * **left** (`(tan.z, -tan.x)` is the tangent turned anticlockwise); the two agree in sign, and the
+   * offset is `side + LANE` rather than `side - LANE`. Getting that sign wrong does not shift the
+   * zone a little, it shifts it `2 · LANE` — clear of the kerb on one side and off the road
+   * altogether on the other. See laneFrame for the same trap in the barricades' frame.
    */
   function roadPoint(edge, u, side) {
     const lane = edge.lanes[0];
     const at = lane.path.at(u * lane.length);
     const tan = lane.path.tangentAt(u * lane.length);
-    const rx = tan.z;
-    const rz = -tan.x;
-    const o = side - LANE;
-    return { x: at.x + rx * o, z: at.z + rz * o, rx, rz, u };
+    const ax = tan.z;
+    const az = -tan.x;
+    const o = side + LANE;
+    return { x: at.x + ax * o, z: at.z + az * o, ax, az, u };
   }
 
   function buildStatic(edge) {
@@ -310,7 +323,9 @@ export function createRoadwork(rng, scene, camera = null) {
 
     for (const lane of edge.lanes) {
       const frame = laneFrame(lane, BARRIER_S);
-      const { trestle, ramp } = barricadeParts({ width: ROAD_W - 0.4, centreX: -LANE });
+      // `+LANE`, because the frame's +X is the lane's *left* and the road centreline is a lane to
+      // the left of a lane centre — see laneFrame.
+      const { trestle, ramp } = barricadeParts({ width: ROAD_W - 0.4, centreX: LANE });
 
       // The trestle gets a group of its own so it can be thrown. Its geometry stays in the local
       // frame and the group carries the placement, which is what lets the flight below be written
@@ -328,7 +343,7 @@ export function createRoadwork(rng, scene, camera = null) {
         x: frame.x, z: frame.z,
         // Kept so the splinters can be thrown in the trestle's own frame rather than in world
         // axes — see burstChips. The frame itself is discarded with the matrix it was built for.
-        forward: frame.forward.clone(), right: frame.right.clone(),
+        forward: frame.forward.clone(), across: frame.across.clone(),
       });
 
       // The ramp is bolted to the road, so it joins the static mesh — transformed into world space
@@ -341,7 +356,7 @@ export function createRoadwork(rng, scene, camera = null) {
     // Spoil and its hole, off-centre along the block so the zone isn't symmetrical.
     const site = roadPoint(edge, rng.range(0.35, 0.6), 0);
     const off = rng.range(-1.4, 1.4);
-    parts.push(...spoilParts(site.x + site.rx * off, site.z + site.rz * off, rng));
+    parts.push(...spoilParts(site.x + site.ax * off, site.z + site.az * off, rng));
 
     const mesh = new THREE.Mesh(mergeAll(parts), propMaterial());
     mesh.castShadow = true;
@@ -451,8 +466,8 @@ export function createRoadwork(rng, scene, camera = null) {
       const travel = KERB_OUT * outward - side;
       workers.push({
         person, holder, mats,
-        dx: spot.rx * travel,
-        dz: spot.rz * travel,
+        dx: spot.ax * travel,
+        dz: spot.az * travel,
         phase: rng.range(0, Math.PI * 2),
         fleeing: 0,
         held: 0,      // seconds spent standing at the kerb since the run finished
@@ -595,8 +610,8 @@ export function createRoadwork(rng, scene, camera = null) {
 
       chip.live = true;
       chip.age = 0;
-      chip.x0 = barrier.x + barrier.right.x * rng.jitter(2.6);
-      chip.z0 = barrier.z + barrier.right.z * rng.jitter(2.6);
+      chip.x0 = barrier.x + barrier.across.x * rng.jitter(2.6);
+      chip.z0 = barrier.z + barrier.across.z * rng.jitter(2.6);
       chip.y0 = CHIP_PLANK_Y + rng.jitter(0.35);
       chip.x = chip.x0;
       chip.y = chip.y0;
@@ -606,9 +621,9 @@ export function createRoadwork(rng, scene, camera = null) {
       // lateral one does not: a plank pushed out of the way goes out of the way at the speed the
       // crowbar was swung, but what sends it *down the street* is the car.
       const along = rng.range(0.45, 1) * (2.5 + speed * 0.42);
-      const across = rng.range(-4.6, 4.6);
-      chip.vx = barrier.forward.x * along + barrier.right.x * across;
-      chip.vz = barrier.forward.z * along + barrier.right.z * across;
+      const spray = rng.range(-4.6, 4.6);
+      chip.vx = barrier.forward.x * along + barrier.across.x * spray;
+      chip.vz = barrier.forward.z * along + barrier.across.z * spray;
       chip.vy = rng.range(3.4, 8.2);
 
       // Fall time from the plank line to the road, out of the same quadratic the position uses —
