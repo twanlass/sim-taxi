@@ -49,6 +49,11 @@ const LINES = {
   taxi: "Let's pick up some rides and earn some cash.",
   rider: 'Tap rider to start.',
   boost: 'Hold to floor it',
+  // Said instead of the line above once the player has *pressed* the pill without ever holding it —
+  // see BOOST_HINT_SHOWS. Repeating "Hold to floor it" at someone who is jabbing the pill is a
+  // louder version of the sentence they have already read and acted on; this one names what they
+  // are doing wrong, which is the only new information there is to give them.
+  boostAgain: "Hold it down — don't tap",
 };
 
 // Typing speed. ~38 chars/sec — fast enough that a reader is never waiting on the machine, slow
@@ -92,6 +97,36 @@ const BOOST_HINT_DELAY = 2;
 // Unlike the first two, this beat gates nothing — the run is live and the clocks are running, so it
 // cannot sit there until it is tapped. Long enough to read twice after the line lands.
 const BOOST_HINT_LINGER = 6;
+
+// **The beat is answered by a hold, not by a press.** It used to retire on the first press of the
+// pill, which is the one gesture that does *not* teach what the pill does: a tap spends a slice of
+// fuel and hands it straight back a second later, so a player who only ever jabbed it came away
+// having seen Loco Mode flicker rather than having driven in it, and nothing ever told them again.
+// So the hint now comes back, and what closes it for good is a hold long enough to have felt the
+// boost sustain (`LOCO_HINT_HOLD`).
+//
+// The cost of that is the spotlight, which dims the whole city by 78% for as long as a showing is
+// up — this beat runs *alongside* a live run, so a hint that simply sat there until it was obeyed
+// would be a dark city over a taxi the player is trying to drive. Hence a fixed budget rather than
+// a nag: three showings of BOOST_HINT_LINGER, 18 seconds of dimmed city across the whole run, and
+// then it gives up and lets them play. A player who has not taken it by the third is not going to.
+const BOOST_HINT_SHOWS = 3;
+// The gap between showings. Long enough that the bubble is plainly a second attempt rather than a
+// flicker, short enough that the press it is answering (or the absence of one) is still the thing
+// the player was last doing.
+const BOOST_HINT_REPEAT_GAP = 10;
+
+/**
+ * How long the pill has to stay down before the player counts as having *held* it, in seconds.
+ *
+ * Deliberately three times `LOCO_PUNCH_HOLD` (0.25, game/camera.js). That one is a gesture test —
+ * "is this a tap or a hold" — and 0.25 is the right line for a camera that must not pop on a jab.
+ * This is a different question: has the player felt the boost *keep going* because they kept
+ * pressing? A quarter second is over before the wheelie has finished playing. Three quarters is
+ * 15% of the 5s a third-tank holds (BOOST_DURATION 15 × BOOST_FARE_REWARD), well clear of a slow
+ * tap at 200ms and short enough that it is satisfied by the first press that means it.
+ */
+export const LOCO_HINT_HOLD = 0.75;
 
 // Gentler than the boost chase (3.2) and a touch firmer than the ambient opening follow (1.5): the
 // bubble is talking about this car *now*, so it wants to be centred while the line is still typing,
@@ -467,8 +502,11 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  * @param isDispatched  () => boolean — has the player sent the taxi at anyone yet
  * @param hasDelivered  () => boolean — has a rider been dropped off yet; the third beat's countdown
  *                      runs off this, so the Loco Mode hint lands once the loop has closed one turn
- * @param boostUsed     () => boolean — has Loco Mode been fired at least once; if so the third beat
- *                      never appears, because it would be explaining something already discovered
+ * @param boostHeld     () => boolean — has Loco Mode been *held* (LOCO_HINT_HOLD) at least once. This
+ *                      is what answers the third beat: it never appears if this is already true, and
+ *                      it stops repeating the moment it becomes true
+ * @param boostUsed     () => boolean — has the pill been pressed at all, hold or jab. Chooses which
+ *                      line a repeat showing says, and nothing else: a press is not an answer
  * @param isOver        () => boolean — run ended under the tutorial (a wreck, say); drop everything
  * @param isBlocked     () => boolean — something else is holding the run in front of this, so say
  *                      nothing and take no taps until it lets go
@@ -480,7 +518,8 @@ const GATED_STEPS = new Set(['wait', 'taxi', 'toRider', 'rider']);
  */
 export function createTutorial({
   controller, aspect, isNarrow, taxi, lights, project, pixelsPerUnit, boostAnchor = () => null,
-  waitingFare, fareLocation, isDispatched, hasDelivered = () => false, boostUsed = () => false,
+  waitingFare, fareLocation, isDispatched, hasDelivered = () => false,
+  boostHeld = () => false, boostUsed = () => false,
   isOver = () => false, isBlocked = () => false, shouldIgnoreTap = () => false,
   onRunning = () => {},
 }) {
@@ -500,9 +539,12 @@ export function createTutorial({
   // else would ever put the default whole-city framing back; `toBoost` is the whole first fare —
   // pickup, drive and drop-off — with nothing on screen.
   const state = { step: 'wait' };
-  // The third beat's countdown, and how long it stays once it lands.
+  // The third beat's countdown, how long it stays once it lands, and how many showings it has spent
+  // of its BOOST_HINT_SHOWS budget. The step goes back to 'toBoost' between showings, so `boostWait`
+  // is both the first delay and every gap after it.
   let boostWait = 0;
   let linger = 0;
+  let boostShows = 0;
   let elapsed = 0;
   let wait = 0;
   let panned = false;
@@ -514,6 +556,11 @@ export function createTutorial({
   // the player to it, rather than the light snapping on after they arrive.
   const spotlight = document.getElementById('spotlight');
   let spotAt = null;              // {x, z} in world space, or null for "aim at the taxi"
+  // Set by the third beat and never cleared: from its first showing on, the pool belongs to the
+  // pill. It has to outlast `state.step === 'boost'` because the pool is still fading out over the
+  // 0.45s after a showing ends, and a frame that re-aimed it at the rider from beat two would slide
+  // a half-lit pool across the city on its way out — and then bloom from there on the next showing.
+  let spotOnPill = false;
 
   const bubble = createBubble(root, lights, () => dismiss());
 
@@ -529,7 +576,7 @@ export function createTutorial({
   function updateSpotlight() {
     if (!spotlight) return;
     let at;
-    if (state.step === 'boost') {
+    if (spotOnPill) {
       const pill = boostAnchor();
       if (!pill) return;
       at = { x: pill.x, y: pill.y, r0: pill.r, r1: pill.r * BUTTON_POOL_FALLOFF };
@@ -552,12 +599,17 @@ export function createTutorial({
     state.step = 'done';
     bubble.hide();
     document.body.classList.remove('coach-open', 'spotlight-on', 'coach-boost');
-    root.classList.remove('at-boost');
     window.removeEventListener('click', onTap);
     onRunning(false);
-    // The context is no use to anyone once the bubble is gone for good. Held until the exit
-    // animation has played — the avatar is still spinning through it.
-    setTimeout(() => bubble.avatar.dispose(), CLOSE_MS + 50);
+    // Both held until the exit animation has played. The context is no use to anyone once the
+    // bubble is gone for good, and the avatar is still spinning through the close; `at-boost` is
+    // what *places* the bubble over the pill, so dropping it on this frame would slide the thing
+    // sideways to the centre of the screen through its own 220ms fade rather than letting it go
+    // down where it was.
+    setTimeout(() => {
+      root.classList.remove('at-boost');
+      bubble.avatar.dispose();
+    }, CLOSE_MS + 50);
   }
 
   /** The player is done with the current beat: advance, or wind the whole thing up. */
@@ -569,7 +621,12 @@ export function createTutorial({
       return;
     }
     if (state.step === 'rider') { finish(); return; }
-    if (state.step === 'boost') end();
+    // The third beat is deliberately **not** dismissible. It used to close on any tap, and the two
+    // taps most likely to arrive while it is up are the two that mean the player has not learned it
+    // yet: a jab at the pill (routed here explicitly by `holdLocoMode`, since a touch's synthesised
+    // click can be swallowed by its own preventDefault) and a tap on the road to route the taxi. It
+    // was answering itself with the gesture it exists to correct. What closes it is `boostHeld`,
+    // read in `update` — or its own linger running out, which brings it back rather than ending it.
   }
 
   /**
@@ -599,16 +656,37 @@ export function createTutorial({
   function showBoostHint() {
     state.step = 'boost';
     linger = BOOST_HINT_LINGER;
+    boostShows += 1;
+    spotOnPill = true;
     // Pulses the pill itself, so the bubble is not the only thing saying which control it means.
     document.body.classList.add('coach-boost');
     // Sits higher than the first two beats — see #coach.at-boost. The rider chips are live now.
     root.classList.add('at-boost');
-    // Same treatment the taxi and the rider got. `state.step` is already 'boost', so this picks up
-    // the pill's box rather than the last world subject — aim before the fade, or it blooms from
+    // Same treatment the taxi and the rider got. `spotOnPill` is already set, so this picks up the
+    // pill's box rather than the last world subject — aim before the fade, or it blooms from
     // wherever the previous beat left it.
     updateSpotlight();
     document.body.classList.add('spotlight-on');
-    bubble.show(LINES.boost);
+    // A player who has pressed the pill and still not held it gets told what they are doing rather
+    // than told the same thing twice. `boostUsed` is a press of any length, which is exactly the
+    // gesture this line is about.
+    bubble.show(boostUsed() ? LINES.boostAgain : LINES.boost);
+  }
+
+  /**
+   * One showing over, with the hold still not taken: put the city's lights back up and go around
+   * again after BOOST_HINT_REPEAT_GAP. Not `end()` — that retires the whole tutorial, and this beat
+   * is only finished when it has been *answered* (a hold) or has spent its budget of showings.
+   */
+  function retireBoostHint() {
+    bubble.hide();
+    // `at-boost` deliberately stays on: it is what places the bubble over the pill, and taking it
+    // off now would slide the bubble to the centre of the screen through the 220ms of its own
+    // closing fade. It costs nothing while the element is hidden, and the next showing wants it.
+    document.body.classList.remove('spotlight-on', 'coach-boost');
+    if (boostShows >= BOOST_HINT_SHOWS) { end(); return; }
+    state.step = 'toBoost';
+    boostWait = BOOST_HINT_REPEAT_GAP;
   }
 
   // One handler for the whole screen, not a click on the bubble: a tap anywhere advances. It stays
@@ -723,19 +801,28 @@ export function createTutorial({
       && (state.step === 'restore' || state.step === 'toBoost')) boostWait -= dt;
 
     if (state.step === 'toBoost') {
+      // Already discovered it — and *discovered* means held, not pressed. Nothing left to say, so
+      // the tutorial simply stops rather than explaining a control the player is mid-way through
+      // using. Checked before the countdown so a hold taken during a repeat gap retires the beat on
+      // the frame it happens rather than at the end of that gap.
+      if (boostHeld()) { end(); return; }
       if (boostWait > 0 || !hasDelivered()) return;
-      // Already discovered it. Nothing to say, so the tutorial simply stops rather than explaining
-      // a control the player is mid-way through using.
-      if (boostUsed()) { end(); return; }
       showBoostHint();
       return;
     }
 
-    // Nothing is waiting on this one — the run is live and the clocks are running — so it times
-    // itself out rather than sitting over the road until someone taps it.
-    if (state.step === 'boost' && !bubble.isTyping()) {
-      linger -= dt;
-      if (linger <= 0) end();
+    if (state.step === 'boost') {
+      // The one thing that answers this beat. Immediately, and mid-line if that is when it lands:
+      // the bubble is talking about a gesture the player is now making, so it has nothing left to
+      // say and the pool over the pill is dimming a city they are driving through at full tilt.
+      if (boostHeld()) { end(); return; }
+      // Nothing else is waiting on it — the run is live and the clocks are running — so a showing
+      // times itself out rather than sitting over the road. `retireBoostHint` brings it back a
+      // gap later, or ends the tutorial once the showings are spent.
+      if (!bubble.isTyping()) {
+        linger -= dt;
+        if (linger <= 0) retireBoostHint();
+      }
     }
   }
 

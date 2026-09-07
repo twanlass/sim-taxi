@@ -309,11 +309,30 @@ every extra beat is one more thing between the player and the game.
 
 The first two stand in front of the game: the clocks are held, the camera is theirs, and each waits
 to be answered. The third runs *alongside* a live run — the player is driving, the clocks are
-counting — so it gates nothing, holds nothing, and times itself out after
-`BOOST_HINT_LINGER` rather than sitting over the road until someone taps it. Pressing Punch It
-dismisses it too, since doing the thing it asks for answers it. (That call is explicit rather than
-left to the window tap handler: `pressBoost` calls `preventDefault`, which can suppress the click a
-touch would otherwise synthesise, so on a phone the hint would outstay its own lesson.)
+counting — so it gates nothing, holds nothing, and a showing of it times itself out after
+`BOOST_HINT_LINGER` rather than sitting over the road until someone taps it.
+
+**And a tap does not answer it — a hold does.** This is the one beat whose lesson is a *gesture*
+rather than a target, and the gesture it is teaching is the one the player is least likely to try:
+Loco Mode is hold-to-enable, so a jab spends a slice of fuel and hands it straight back a second
+later. A hint that retired on the first press therefore closed itself on the exact input it exists
+to correct — the player saw the pill flicker, and nothing ever told them again. What retires it now
+is `boostHeld`: `main.js` latches `locoHeld` the frame the pill has been down for `LOCO_HINT_HOLD`
+with the boost engaged, checked every frame off `boost.heldSeconds()` rather than on the press,
+because a press is not evidence of anything. `locoUsed` — the old flag, still set on the transition
+into boost — now only picks *which line* a repeat says.
+
+So the beat is not dismissible. Tapping anywhere leaves it up, and so does pressing the pill (which
+routes through `tutorial.dismiss()` explicitly — `holdLocoMode` calls `preventDefault`, which can
+suppress the click a touch would otherwise synthesise — so that call now clears the first two beats
+and deliberately does nothing to the third). Instead it comes *back*: `BOOST_HINT_SHOWS` showings,
+`BOOST_HINT_REPEAT_GAP` apart, with the step falling back to `toBoost` in between so the same
+countdown serves as both the first delay and every gap after it. The budget is there because the
+spotlight dims the whole city by 78% while a showing is up, and this beat is over a live run: three
+showings is 18 seconds of dark city across a whole run, and a player who has not taken it by the
+third is not going to. A repeat says `LINES.boostAgain` — "Hold it down — don't tap" — whenever
+`boostUsed` is true, since repeating the original line at someone who is jabbing the pill is a
+louder version of a sentence they have already read and acted on.
 
 It is also the only one that points at a **control** rather than at the city, so it is placed
 differently: `#coach.at-boost` drops it onto the Loco Mode pill's own 26px gutter just above the
@@ -341,10 +360,19 @@ right way round — there is no point selling a way to drive faster to someone w
 the driving. The countdown is ticked through the `restore` glide as well as `toBoost`, since on a
 desktop that glide can still be running when the delivery lands.
 
-**And it never appears if Loco Mode has already been fired.** `main.js` sets `locoUsed` on the
-transition into boost — `kickLocoMode`, which by construction runs exactly once per press-from-rest
-— and the tutorial reads it at the moment the delay elapses. Explaining a control the player is
-mid-way through using is worse than saying nothing.
+**And it never appears if Loco Mode has already been held.** The tutorial reads `boostHeld` at the
+moment the delay elapses and at the top of every frame a showing is up, so a hold taken mid-line
+ends the beat there and then — explaining a control the player is mid-way through using is worse
+than saying nothing, and the pool over the pill is dimming a city they are now driving through at
+full tilt. A player who has only ever *pressed* it gets the hint, which is the whole point of the
+two flags being separate.
+
+`LOCO_HINT_HOLD` is 0.75s — three times `LOCO_PUNCH_HOLD`, the camera push-in's threshold, because
+the two ask different questions. That one is a gesture test ("tap or hold?") and 0.25 is the right
+line for a frame that must not pop on a jab; this one asks whether the player has felt the boost
+*keep going* because they kept pressing, and a quarter second is over before the wheelie has
+finished playing. It is read against `isEngaged` rather than `isActive`, so a hold that ran the tank
+dry still counts: the fuel ending is not the player letting go.
 
 ### It does not spend the player's clock
 
