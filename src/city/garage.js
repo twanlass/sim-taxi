@@ -581,7 +581,19 @@ export function createGarage(block, rng) {
   // its own pivot, for the reason the burger over the drive-through is one: it turns, and the
   // entrance wave cannot animate anything with a transform of its own. See `dishGeometry` for why
   // the pivot sits on the kerb rather than at the head of its mast.
-  const dish = new THREE.Mesh(dishGeo, propMaterial());
+  //
+  // **Out of the AO lookup**, and that is the rule in `markOccluder` rather than a preference. It
+  // refuses to put this mesh in the depth prepass and so does main.js — but *receiving* is the
+  // default, so left alone the dish samples the occlusion of whatever is behind it on screen. What
+  // is behind it is its own roof, and the crease where its own mast meets that roof: the shaded
+  // dish came out with a soft dark blotch across it that moved with the camera and belonged to a
+  // surface two units below. It is the river water's bug (see `propMaterial` in util/geo.js) with
+  // an opaque surface instead of a transparent one, and it is louder here because the water at
+  // least sampled something under itself.
+  //
+  // Nothing is lost by opting out. AO in this game is a contact darkening a world unit wide, and
+  // the nearest thing to the dish is the roof it floats two units over.
+  const dish = new THREE.Mesh(dishGeo, propMaterial({ ao: false }));
   dish.castShadow = true;
   dish.name = 'garage-dish';
 

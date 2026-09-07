@@ -11653,10 +11653,14 @@ let chopperOrder; // likewise
     check('the sweeping dish stays behind the plane the door\u2019s sightlines leave from',
       axis.x + orbit < site.curtainX,
       `orbit reaches x ${(axis.x + orbit).toFixed(2)}, curtain at ${site.curtainX.toFixed(2)}`);
-    // ...and stays inside the +Z parapet, rather than swinging out over the street. Only that edge:
-    // the camera sees two faces of this building and the other two parapets are behind it, so an
-    // overhang there is geometry nobody is ever shown — and on a block squeezed between two
-    // arterials the roof is 5.4 wide against an orbit of 2.4, which is not room to demand it.
+    // ...and stays inside the +Z parapet, rather than swinging out over the street the door faces.
+    //
+    // Only that edge, and the reason is arithmetic rather than visibility — an overhang on any of
+    // the four would be seen, since this camera looks down on the roof and throws anything tall
+    // up-screen. It is that the +Z one is satisfiable by construction (`mastZ` is placed from
+    // `bz1`) and the −X one is not: a block squeezed between two arterials leaves a roof 5.43 wide
+    // against the 5.48 a centred orbit would need, so demanding it would be a check that fails on
+    // a city the generator is allowed to build. On every seed swept it clears by over a unit.
     check('...and stays inside the parapet it could swing out over',
       axis.z + orbit < bounds.z1 - 0.9,
       `orbit to z ${(axis.z + orbit).toFixed(2)}, parapet at ${(bounds.z1 - 0.9).toFixed(2)}`);
@@ -11702,11 +11706,18 @@ let chopperOrder; // likewise
     check('...and the roof\u2019s plant is clear of the mast standing among it',
       plantGap > 0.6, `nearest box corner ${plantGap.toFixed(2)} from the mast`);
 
-    // Last: the dish is out of both lists it must not be in. The wave cannot animate it (it turns)
-    // and the AO prepass must not draw it (its matrix changes every frame), so it is neither a
-    // stamped mesh nor an occluder — it is an `entryObject` instead.
+    // Last: the dish is out of both lists it must not be in. The wave cannot animate it — it turns,
+    // and the anchor a vertex scales about is a world coordinate — so it is not a stamped mesh; it
+    // is an `entryObject` instead.
     check('...and it is an entrance *object*, not one of the stamped meshes',
       !garage.meshes.includes(garage.dish) && garage.entryObject.object === garage.dishPivot);
+    // And having been kept out of the AO depth prepass, it must not *receive* AO either. Receiving
+    // is the default, so a mesh that is not in the prepass reads the occlusion of whatever is
+    // behind it on screen — for the dish, its own roof and the crease under its own mast. The flag
+    // is visible from here because `patchProp` folds it into the program cache key.
+    check('...and out of the AO lookup, since it is not in the prepass that feeds it',
+      !garage.dish.material.customProgramCacheKey().includes('ssao'),
+      `program key "${garage.dish.material.customProgramCacheKey()}"`);
   }
 
   // --- Can the camera see the door?
