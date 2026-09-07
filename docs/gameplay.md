@@ -596,6 +596,13 @@ turned down. The bounce is *damped* rather than stopped, and it settles onto a
 height the eye already knows: `bounceOffset` is `abs(sin)` and touches 0 once a cycle, so the rest
 position is a place the marker has been landing on all along — it reads as stopping, not dropping.
 
+**And it reaches the frame edge.** The off-screen pointer arrows
+([rendering.md](rendering.md#off-screen-fare-pointers)) go the whole way rather than dimming: with a
+rider aboard there is exactly one arrow on screen and it is the drop-off's. An arrow is a *go here*
+and has no vocabulary for "not yet" — it is a direction and a hue — so three of them around the frame
+are three invitations to do the one thing the game refuses. The cost is that a waiting rider off the
+side of the frame has no mark at all until the seat empties.
+
 **Two things deliberately keep moving.** The panic pulse under five seconds, because a rider about
 to give up is exactly as urgent whether or not the seat is full; and the level-change kick, because
 a still marker that knocks once is a clock stepping down. Both ride channels the step-back doesn't

@@ -710,7 +710,11 @@ try {
   // --- An off-frame fare gets an edge arrow. See src/game/farepointers.js.
   //
   // The chips used to be how a rider off the side of the frame was found; now it is one arrow per
-  // waiting fare, plus the drop-off's while one is aboard, and the whole thing lives in the DOM —
+  // waiting fare — **or**, with a rider aboard, the drop-off's arrow and nothing else, because an
+  // arrow is a "go here" and a kerbside rider is exactly what you may not go to while carrying one.
+  // That exclusivity is most of what this check is worth: the failure it guards is silent, since
+  // hiding too much and hiding too little both render as a perfectly plausible frame. The whole
+  // thing lives in the DOM —
   // there is no headless surface for it at all. What is asserted is the bookkeeping rather than the
   // trigonometry (probe.mjs owns no part of this either): exactly as many arrows are up as there
   // are marks currently outside the band, they carry a colour, and each sits inside the frame it is
@@ -725,19 +729,35 @@ try {
     const sample = () => evaluate(`(() => {
       const t = window.__taxi;
       const w = t.viewport.width(), h = t.viewport.height();
+      // One seat, one arrow. With someone aboard the drop-off is the only mark that may raise one;
+      // with the seat free it is every rider on the kerb. Mirrored from farepointers.js rather than
+      // read off it, so the two have to agree rather than agreeing by construction.
+      const carried = t.fares.state.fares.find((f) => f.stage === 'riding');
+      const marks = carried
+        ? [carried]
+        : t.fares.state.fares.filter((f) => f.stage === 'waiting');
       let off = 0;
-      for (const f of t.fares.state.fares) {
-        if (f.stage !== 'waiting' && f.stage !== 'riding') continue;
+      for (const f of marks) {
         const c = t.cornerFor(f.target.i, f.target.j);
         const p = t.projectToScreen(c.x, 0.1, c.z);
         if (p.x < ${EDGE} || p.x > w - ${EDGE} || p.y < ${EDGE} || p.y > h - ${EDGE}) off++;
       }
+      const kerbOffFrame = carried ? t.fares.state.fares.filter((f) => {
+        if (f.stage !== 'waiting') return false;
+        const c = t.cornerFor(f.target.i, f.target.j);
+        const p = t.projectToScreen(c.x, 0.1, c.z);
+        return p.x < ${EDGE} || p.x > w - ${EDGE} || p.y < ${EDGE} || p.y > h - ${EDGE};
+      }).length : 0;
       // Note \`style.color\` reads back serialised — a '#3ecf5a' written by the module comes out of
       // the getter as 'rgb(62, 207, 90)', which is what \`coloured\` below matches against.
       const up = [...document.querySelectorAll('.fare-pointer')].filter((el) => !el.hidden);
       return JSON.stringify({
         off,
         up: up.length,
+        // How many kerbside riders were off-frame and *correctly* went unpointed. Reported so a
+        // pass says which case it actually exercised: "1 arrow for 1 mark" is true both when the
+        // rule is working and when there was never a second rider to suppress.
+        suppressed: kerbOffFrame,
         // \`\\\\(\` and not \`\\(\`: this regex is written inside a template literal, and a template
         // literal eats one level of backslash — \`\\(\` reaches the page as a bare \`(\`, which is an
         // unterminated group. It threw a SyntaxError on every run, which \`evaluate\` returns as
@@ -753,17 +773,27 @@ try {
 
     let worst = null;
     let best = 0;
+    let sawSuppression = 0;
     for (let attempt = 0; attempt < 20 && worst === null; attempt++) {
       const seen = JSON.parse(await sample());
       if (seen.off !== seen.up || !seen.coloured || !seen.inFrame) worst = seen;
-      else best = Math.max(best, seen.off);
-      if (best > 0) break;
+      else {
+        best = Math.max(best, seen.off);
+        sawSuppression = Math.max(sawSuppression, seen.suppressed);
+      }
+      // Keep sampling past the first match if the exclusive case has not come up yet: a board with
+      // one fare on it proves nothing about the rule, and it is the common early state.
+      if (best > 0 && sawSuppression > 0) break;
       await sleep(250);
     }
     check('an off-frame fare gets an edge arrow', worst === null,
       worst ? `${worst.up} arrow(s) up for ${worst.off} off-frame mark(s)`
         + `${worst.coloured ? '' : ', uncoloured'}${worst.inFrame ? '' : ', outside the frame'}`
-        : best > 0 ? `${best} arrow(s) matched the marks off the frame`
+        : best > 0
+          ? `${best} arrow(s) matched the marks off the frame`
+            + (sawSuppression > 0
+              ? `, with ${sawSuppression} kerbside rider(s) correctly unpointed while carrying`
+              : ', but never with a rider aboard and another off-frame')
           : 'every mark stayed in frame — nothing to point at');
   }
 
