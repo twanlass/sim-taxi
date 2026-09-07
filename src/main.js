@@ -26,11 +26,7 @@ import {
 import { createDebugPanel } from './game/debugpanel.js';
 import { createDriveThru } from './game/drivethru.js';
 import { createBurgerRun } from './game/burgerrun.js';
-import {
-  createBoost, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD, BOOST_BURGER_REWARD,
-} from './game/boost.js';
-import { createBoostMeter } from './game/boostmeter.js';
-import { flyEnergyToBoost } from './game/energybits.js';
+import { createBoost } from './game/boost.js';
 import { createSkidMarks } from './game/skidmarks.js';
 import { createDust, DUST_ROAD_Y } from './game/dust.js';
 import { createCityEntry } from './game/cityentry.js';
@@ -433,22 +429,15 @@ const burgerRun = driveThru
     lot: driveThru,
     taxi: traffic.taxi,
     routeTo,
-    // Both halves of the counter transaction, on the frame the order is handed over. The boost
-    // arrives on the same energy bit a delivery pays with (`flyEnergyToBoost`), so the reward reads
-    // as the reward rather than as a meter that moved on its own — it is the smallest top-up in the
-    // game, see BOOST_BURGER_REWARD — and the money leaves on the same flight a fare's payout
-    // arrives on, just wearing the other sign.
-    //
-    // The two travel in opposite directions across the screen on purpose: the bit flies *to* the
-    // pill and the price flies *to* the counter, and a player who never reads a number still sees
-    // one thing bought with another. `charge` returns what it could actually take (see fares.js), so
-    // a near-empty till pops the number that really left rather than the price on the board.
+    // Half of the counter transaction survives. Main added a *price* for the burger — the money
+    // leaves on the same flight a fare's payout arrives on, just wearing the other sign, so a player
+    // who never reads a number still sees one thing bought with another; `charge` returns what it
+    // could actually take (see fares.js), so a near-empty till pops the number that really left
+    // rather than the price on the board. The other half was a splash of nitro fuel flown to the
+    // pill on an energy bit, and nitro is not a resource any more (game/boost.js) — so the window
+    // now takes cash and hands back nothing. That is a worse trade than the one this secret was
+    // balanced around and it wants a new reward; see the note at the top of game/burgerrun.js.
     onServed: () => {
-      flyEnergyToBoost({
-        from: taxiScreenPos,
-        to: boostScreenPos,
-        onArrive: () => boost.topUp(BOOST_BURGER_REWARD),
-      });
       const paid = fares.charge(BURGER_PRICE);
       if (paid > 0) popEarning(-paid);
       haptic('burger');
@@ -1839,27 +1828,14 @@ viewport.onChange((w, h) => {
 
 const boostButton = document.getElementById('boost');
 
-// A drop-off is the only thing that ever puts fuel in the tank (see game/boost.js), so the pour is
-// the reward animation and it gets three layers: the bar overruns its new mark and eases back, the
-// pill pulses yellow the whole time fuel is arriving, and a blurred bright edge rides the front of
-// the fill. game/boostmeter.js owns the timing of all three; this just hands it the clock and the
-// fuel level and paints what comes back onto three CSS variables.
-const boostMeter = createBoostMeter();
-
-function updateBoostButton(dt) {
+// The pill was a dial once: a drained bar, a grey dead state, and a three-layer pour animation
+// (overshoot, glow, leading edge) that was the reward for a drop-off. With no tank behind it
+// (game/boost.js) there is nothing left to read out, so the button is a plain one — one class, no
+// CSS variables, never disabled. The expanding rings that answer a hold are pure CSS off
+// `.is-active`; nothing here has to drive them, which is why this takes no `dt` any more.
+function updateBoostButton() {
   if (!boostButton) return;
-  const mode = boost.state.mode;
-  boostMeter.update(dt, boost.fraction(), boost.state.pending > 0);
-
-  boostButton.classList.toggle('is-active', mode === 'active');
-  boostButton.classList.toggle('is-empty', mode === 'empty');
-  boostButton.classList.toggle('is-filling', boostMeter.state.fill > 0);
-  boostButton.style.setProperty('--pct', `${(boostMeter.state.pct * 100).toFixed(1)}%`);
-  boostButton.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));
-  boostButton.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
-  // Dead until a drop-off pours fuel back in — nothing refills on its own, so a pressable-looking
-  // pill on an empty tank would be a lie.
-  boostButton.disabled = mode === 'empty';
+  boostButton.classList.toggle('is-active', boost.state.mode === 'active');
 }
 
 // The press itself, with no idea what pressed it — the pill, the spacebar and a thumb sliding onto
@@ -1904,8 +1880,8 @@ function kickLocoMode() {
   // `locoHeld` is latched in the frame loop for that reason.
   locoUsed = true;
   // Above the `crashed` bail deliberately: the press was accepted either way — `boost.press()`
-  // already returned true and the fuel is already committed — so the hand should be told even when
-  // the wrecked car has no wheelie left to answer with.
+  // already returned true — so the hand should be told even when the wrecked car has no wheelie
+  // left to answer with.
   haptic('loco');
   const car = traffic.taxi;
   if (car.crashed) return;
@@ -1924,11 +1900,6 @@ function kickLocoMode() {
   stampRearRubber(car);
   launchSkidT = LAUNCH_SKID_TIME;
 }
-
-// (The top-up flash used to live here as a one-shot class the delivery had to remember to fire,
-// which meant back-to-back deliveries needed a reflow to restart the animation. The glow is now
-// driven off `boost.state.pending` in updateBoostButton — it lasts exactly as long as fuel is
-// actually arriving, and a second delivery mid-pour just extends it.)
 
 // iOS runs text selection, the magnifier and double-tap zoom off the raw touch stream, and since
 // iOS 15 it does all three on this pill regardless of `-webkit-user-select: none`
@@ -2549,7 +2520,7 @@ function frame() {
     // to rely on. Same self-healing shape as the two flags above it.
     traffic.taxi.braking = brakeHeld && !fares.state.gameOver;
   }
-  updateBoostButton(dt);
+  updateBoostButton();
   skids.update(dt);
   // Before the dust pool ticks, so a building's ground-burst is at age zero on the frame it fires.
   // The "Add to Home Screen" screen (iOS in a tab) *skips* the entrance outright rather than
@@ -2722,16 +2693,9 @@ function frame() {
     } else if (type === 'delivered') {
       popEarning(fare.value);
       updateStreak(difficulty.payoutMultiplier(fares.state.delivered));
-      // A third of a tank of boost fuel as the ordinary delivery reward — the only way any fuel
-      // enters the meter otherwise. A VIP pays out bigger here too: the tank tops all the way to
-      // full rather than by a third, on the same delayed pour as everything else so it reads as
-      // the same reward, just a bigger one. Read at arrival time rather than baked in now, so a
-      // tank that drained (or filled) during the flight still tops out exactly full.
-      flyEnergyToBoost({
-        from: taxiScreenPos,
-        to: boostScreenPos,
-        onArrive: () => boost.topUp(fare.vip ? 1 - boost.fraction() : BOOST_FARE_REWARD),
-      });
+      // A drop-off used to pay a third of a tank of nitro on top of the cash — the only way fuel
+      // ever entered the meter — and a VIP filled it outright. There is no tank now (see
+      // game/boost.js), so the payout is cash and the multiplier alone.
       traffic.taxi.route = [];
       traffic.taxi.pendingTarget = null;
       traffic.setTaxiOccupied(false);
@@ -2834,21 +2798,13 @@ function frame() {
       // second to reach the counter and the pill, and a buzz that waited for them would land on a
       // frame the player has already stopped associating with the pad they just left.
       haptic('parcel-out');
-      // Cash and fuel, the same two currencies a drop-off pays, and both take the same two-phase
-      // flight a fare's does — off the taxi, then to the counter and to the pill — because it is the
-      // same kind of event arriving from the same place, and a bonus that landed in either place
-      // with no visible link to the car would read as a side effect. The fuel is deliberately *half*
-      // a fare's (see BOOST_PARCEL_REWARD): an errand pays into the tank, but a fare still fills it
-      // twice as fast, so the courier layer stays a detour rather than the way you fuel a run. What
-      // a package still does not touch is the multiplier — that number means "this is what a *fare*
-      // is worth now", and a package is not a fare.
+      // Cash, on the same flight off the taxi a fare's payout takes, because it is the same kind of
+      // event arriving from the same place. A package used to pay half a fare's nitro fuel as well;
+      // with no tank to pay into (game/boost.js) the cash is the whole reward. What a package still
+      // does not touch is the multiplier — that number means "this is what a *fare* is worth now",
+      // and a package is not a fare.
       fares.credit(parcel.value);
       popEarning(parcel.value);
-      flyEnergyToBoost({
-        from: taxiScreenPos,
-        to: boostScreenPos,
-        onArrive: () => boost.topUp(BOOST_PARCEL_REWARD),
-      });
     }
   }
 

@@ -1586,13 +1586,11 @@ try {
     // the reason the initials check uses them: the press claims a pointer capture, and an untrusted
     // event has no pointer for the browser to capture.
     //
-    // The tank is topped up first and given a second to pour (POUR_RATE is half a tank per second,
-    // see game/boost.js). The key checks above have been spending fuel on this same run, and a
-    // drained pill is `disabled` — which is a legitimate state for it to be in and would fail this
-    // for a reason that has nothing to do with the gesture.
+    // This used to top the tank up first and wait for the pour: the key checks above spend the
+    // whole run's fuel, and a drained pill was `disabled`, which would have failed the gesture for
+    // a reason that has nothing to do with it. Nitro is never disabled now (game/boost.js), so the
+    // press lands whatever the run has been doing.
     {
-      await evaluate('window.__taxi.boost.topUp(0.5)');
-      await sleep(1200);
       const at = JSON.parse(await evaluate(`(() => {
         const mid = (id) => {
           const r = document.getElementById(id).getBoundingClientRect();

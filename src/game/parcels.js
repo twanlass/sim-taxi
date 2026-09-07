@@ -19,9 +19,10 @@ import * as difficulty from './difficulty.js';
 //
 // A brown parcel sits on a kerb corner on a cyan rounded-square pad. Drive near it and the taxi
 // picks it up — while carrying a passenger, if it is carrying one — and the pad it is going to
-// lights up somewhere else on the map. Drive near *that* and the package pays out in cash and in a
-// splash of Loco Mode fuel (half what a fare pays — `BOOST_PARCEL_REWARD`, spent in main.js: this
-// module reports the delivery and stays out of the economy).
+// lights up somewhere else on the map. Drive near *that* and the package pays out in cash (it used
+// to pay a splash of Loco Mode fuel as well, half what a fare paid, until nitro stopped being a
+// resource — see game/boost.js). Paid in main.js: this module reports the delivery and stays out of
+// the economy.
 //
 // ## Where a collected box goes: the corner of the screen, not the back of the car
 //

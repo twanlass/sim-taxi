@@ -11,7 +11,7 @@
  * the player already struggling, which is the wrong way round — and it would make the ramp
  * something that happens *to* you rather than something you earned.
  *
- * The module is pure and DOM-free, like `boost.js` and `boostmeter.js`. It also knows nothing
+ * The module is pure and DOM-free, like `boost.js`. It also knows nothing
  * about the sim: `sim/` must not import from `game/`, so the two knobs that steer traffic and
  * police are pushed *into* those systems by `main.js`, the same way `traffic.taxi.boost` is.
  */

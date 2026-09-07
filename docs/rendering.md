@@ -190,8 +190,9 @@ the frustum: everything on screen grows by 1 / 0.76 and the city crowds in. It i
 frame, not to the framing — the taxi stays at exactly the same place in the picture, because
 [the lead](#leading-the-car) is stated as a fraction of a half-frame and scales with it.
 
-**It answers a hold, never a tap.** Releasing mid-spend is a designed input — a short tap costs a
-short slice of fuel, see [boost.js](../src/game/boost.js) — so the pill gets jabbed constantly, and
+**It answers a hold, never a tap.** Feathering the pedal is a designed input — a short tap buys a
+short kick and a second of exposure, see [boost.js](../src/game/boost.js) — so the pill gets jabbed
+constantly, and
 a push-in keyed on the press popped the frame on every one of them. `boost.heldSeconds()` is the
 clock and `LOCO_PUNCH_HOLD = 0.25s` is the line between the two gestures: a jab is over before it
 elapses and the frustum never moves at all. That threshold is also **dead time between the press and
