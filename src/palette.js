@@ -508,6 +508,14 @@ export const PALETTE = {
   // short of the dust's pure white: white here is a dust cloud, and this is what is burning.
   wreckSmoke: '#C9C2BB',
 
+  // What a wreck's paint is pulled toward as it scorches — see SCORCH_MIX in game/wreckage.js. Only
+  // a fifth of the way, and behind a plain multiply that does most of the darkening, because the
+  // whole reason the two cars are left lying on the road is so the player can see *what they hit*:
+  // a lerp far enough to read as charred takes the hue with it and both wrecks come out the same
+  // dark grey. Warm rather than neutral — this is soot over paint, and the pull is doing the last
+  // fifth of the work on top of a multiply that has already taken a third of the value off.
+  wreckChar: '#3A322C',
+
   lightRed: '#E24B3C',
   // The blue half of a police light bar, paired with `lightRed` above. Brighter and bluer than
   // `policeBody` on purpose: the bar has to read as a lamp against the car carrying it, not as more

@@ -202,6 +202,20 @@ export const SHOTS = [
   // whichever corner the package landed on. So the second thing this shot answers for free is
   // whether a cyan pad sitting on that lot reads as part of the restaurant or as litter on it.
   { name: 'food', description: 'a food order waiting on its pad — needs ?parcels=1', target: [0, 0], zoom: 11, warmup: 12, untilParcel: true, cargoKind: 'food' },
+  // The third of the wreck's shots, and the one the other two exist against now. 12 freezes the
+  // flash and 17 the smoke; this is what is left once both have gone — two crumpled, scorched cars
+  // lying in the road, which is the whole of what game/wreckage.js was written to put there.
+  //
+  // It has to be a separate entry because it answers a different question. 12 and 17 ask whether
+  // the crash reads as an *event*; this one asks whether the wreck reads as a *pair of cars* — can
+  // you tell, from the still, which car you hit and what colour it was — and that is only askable
+  // once the fire is out. At `wreckAt` 3.2 the fireball, the shards and the collar are all spent,
+  // the settle is long finished, and what is on screen is what the player looks at for the rest of
+  // the run-end hold.
+  //
+  // Appended rather than filed beside 17 because inserting one renumbers every shot after it, and
+  // those numbers are what docs/testing.md and every review habit refer to.
+  { name: 'wreck-rest', description: 'the two wrecks lying in the road, after the fire', target: [0, 0], zoom: 26, warmup: 12, wreckAt: 3.2 },
 ];
 
 export function getActiveShot() {

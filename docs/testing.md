@@ -209,8 +209,7 @@ Shot 12 (`wreck`) is the other exception, and for the opposite reason: everythin
 has a steady state to point a camera at, and the crash does not — it fires once, ends the run and is
 over in about a second and a half. So the shot **stages a real one**: the taxi is parked on an
 ambient car with boost on, `collisions.update()` detonates it through the same handler a live run
-uses, and then only the blast and the two shrinking shells are stepped forward, to `wreckAt`
-seconds. Traffic is deliberately *not* stepped with them — the rest of the city driving on under a
+uses, and then only the blast and the two wrecks are stepped forward, to `wreckAt` seconds. Traffic is deliberately *not* stepped with them — the rest of the city driving on under a
 frozen wreck is a different picture. Driving the real path rather than firing the effects by hand is
 what stops the framing drifting away from the thing it exists to review; move `wreckAt` to look at a
 different beat of the explosion (0.08 is the flash, 0.22 the peak, 0.9 the embers).
@@ -222,6 +221,14 @@ framed on has gone out entirely. At `wreckAt` 1.15 the fire is a couple of frame
 smoke is what is left, which is what the player is actually looking at while the retry banner comes
 up. The dust pool is stepped alongside the blast in this staging; left out, the collar would freeze
 stacked on the impact point at zero age.
+
+Shot 37 (`wreck-rest`) is the third of the set and the one the other two now exist against. It is
+the same staging at `wreckAt` 3.2, by which point the fire, the shards and the collar are all
+spent and what is left on the road is the two cars themselves —
+[crumpled and scorched](rendering.md#the-wrecks-that-stay) rather than faded out from under their
+own fireballs. 12 and 17 ask whether the crash reads as an *event*; this one asks whether the wreck
+reads as a *pair of cars*, which is only askable once the fire is out. It is appended at the end of
+the list rather than filed beside 17 because inserting an entry renumbers every shot after it.
 
 Shot 13 (`flyover`) has the wreck's problem without the wreck's drama: the
 [ambient plane](rendering.md#the-flyover--gameflyoverjs) is up for six seconds every minute or so,

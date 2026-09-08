@@ -152,6 +152,7 @@ import { nearestJunction, nextIntersection } from '../src/city/grid.js';
 import { DIR, laneOffsetCoord } from '../src/city/grid.js';
 import { PALETTE, BUILDING_COLORS, color } from '../src/palette.js';
 import { createVanish } from '../src/game/vanish.js';
+import { createWreckage } from '../src/game/wreckage.js';
 import { createBlast } from '../src/game/blast.js';
 import {
   createBoost, BOOST_DURATION, BOOST_START_FRACTION, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD,
@@ -5487,25 +5488,26 @@ check('the taxi is an ordinary car in the traffic array',
   const cFares = createFareSystem(makeRng(seed + 55), cScene);
   const cTaxi = cTraffic.taxi;
   const collisions = createCollisions(cTraffic.cars, cTaxi);
-  const cVanish = createVanish();
+  const cWreckage = createWreckage();
   let hits = 0;
   let impact = null;
   const shells = [];
   collisions.onImpact((event) => {
     hits += 1;
     impact = event;
-    // Mirror the main.js wiring: both cars hand over their bodywork to the shrink-and-fade, and
-    // the run ends.
+    // Mirror the main.js wiring: both cars hand over their bodywork to the wreckage, and the run
+    // ends.
     for (const car of [event.taxi, event.other]) {
       const shell = cTraffic.wreckShell(car);
       shells.push(shell);
-      // Mirroring main.js again: each shell collapses while still *moving*, along the taxi's
-      // heading and at its share of the speed the impact came in at. The fractions here are only
-      // representative — what is being checked below is the wiring, not main.js's tuning.
-      cVanish.take(shell, {
+      // Mirroring main.js again: each shell slides out of the impact while still *moving*, along
+      // the taxi's heading and at its share of the speed it came in at. The fractions here are
+      // only representative — what is being checked below is the wiring, not main.js's tuning.
+      cWreckage.take(shell, {
         driftX: Math.cos(event.taxi.yaw) * event.speed * 0.6,
         driftZ: -Math.sin(event.taxi.yaw) * event.speed * 0.6,
         spin: 1.2,
+        lean: shells.length === 1 ? 1 : -1,
       });
     }
     cFares.crash();
@@ -5580,18 +5582,20 @@ check('the taxi is an ordinary car in the traffic array',
     `body + ${wheelScales.length} wheels`);
 
   // Two shells handed over — the taxi group and a standalone copy of the ambient car — and both
-  // shrink and fade rather than cutting out on the impact frame.
-  check('both wrecks hand over a shell to fade', shells.length === 2 && shells[0] !== shells[1]);
+  // stay on the road rather than cutting out on the impact frame.
+  check('both wrecks hand over a shell', shells.length === 2 && shells[0] !== shells[1]);
   // One material across the copy's body and wheels; read it off the body mesh.
   const shellMaterial = shells[1].children[0].material;
-  const baseScale = shells[1].scale.x;
+  const shellPaint = shellMaterial.color.clone();
+  const baseScale = shells[1].scale.clone();
   const shellFrom = shells[1].position.clone();
   const shellPose = shells[1].quaternion.clone();
-  cVanish.update(0.17);
-  check('a wreck shell shrinks and fades under the explosion',
-    shells[1].scale.x < baseScale && shells[1].scale.x > 0
-    && shellMaterial.opacity < 1 && shellMaterial.opacity > 0,
-    `scale ${shells[1].scale.x.toFixed(2)}, opacity ${shellMaterial.opacity.toFixed(2)}`);
+  cWreckage.update(0.17);
+  check('a wreck shell crumples under the explosion',
+    shells[1].scale.x < baseScale.x && shells[1].scale.z > baseScale.z
+    && shells[1].scale.y < baseScale.y,
+    `${shells[1].scale.x.toFixed(2)} long, ${shells[1].scale.z.toFixed(2)} wide, `
+    + `${shells[1].scale.y.toFixed(2)} tall`);
 
   // And it is still travelling while it does. The shells are the most visible half of the crash's
   // momentum — a fireball is an abstraction and can be forgiven for standing still, a recognisable
@@ -5599,18 +5603,87 @@ check('the taxi is an ordinary car in the traffic array',
   // exploding however much was moving around it. Downfield along the heading, and slewed off its
   // own line as it goes.
   const heading = { x: Math.cos(impact.taxi.yaw), z: -Math.sin(impact.taxi.yaw) };
+  // Horizontally: the settle also lifts the shell by the sagitta of its own tilt (asserted below),
+  // so a length taken in three dimensions is not the ground it covered.
   const moved = shells[1].position.clone().sub(shellFrom);
-  check('a wreck shell keeps travelling as it collapses',
-    moved.length() > 0.4
-    && moved.x * heading.x + moved.z * heading.z > moved.length() - 1e-6
+  const ran = Math.hypot(moved.x, moved.z);
+  check('a wreck shell keeps travelling as it crumples',
+    ran > 0.4
+    && moved.x * heading.x + moved.z * heading.z > ran - 1e-6
     && shells[1].quaternion.angleTo(shellPose) > 0.05,
-    `${moved.length().toFixed(2)} units on, `
+    `${ran.toFixed(2)} units on, `
     + `${(shells[1].quaternion.angleTo(shellPose) * 180 / Math.PI).toFixed(1)}° of slew`);
-  cVanish.update(0.4);
-  check('a wreck shell ends hidden at zero size',
-    !shells[1].visible && shells[1].scale.x === 0 && cVanish.pending() === 0);
+  // And then it stays. The whole reason the fade went: the run-end hold runs 2.6s past the impact
+  // and the fireball is out after one, so a wreck that consumed itself left the player looking at
+  // bare tarmac for the half of the beat where the question "what did I hit" is still open.
+  cWreckage.update(4);
+  check('both wrecks are still on the road four seconds later',
+    cWreckage.pending() === 2 && shells.every((shell) => shell.visible && shell.scale.x > 0),
+    `${cWreckage.pending()} wrecks, scales ${shells.map((sh) => sh.scale.x.toFixed(2)).join(' / ')}`);
+
+  // Scorched, but still recognisably the car that was hit — which is the whole point of leaving it
+  // there. The soot is a **multiply** on the material colour with only a fifth of a pull toward
+  // `wreckChar` on top, so the value falls a long way and the hue barely moves; a lerp far enough
+  // to read as burnt would take both wrecks to the same dark grey.
+  const burntHsl = { h: 0, s: 0, l: 0 };
+  const paintHsl = { h: 0, s: 0, l: 0 };
+  shellMaterial.color.getHSL(burntHsl);
+  shellPaint.getHSL(paintHsl);
+  check('a wreck scorches without losing its paint',
+    burntHsl.l < paintHsl.l * 0.75
+    && Math.abs(burntHsl.h - paintHsl.h) < 0.05
+    && burntHsl.s > paintHsl.s * 0.5,
+    `L ${paintHsl.l.toFixed(2)}→${burntHsl.l.toFixed(2)}, `
+    + `H ${paintHsl.h.toFixed(3)}→${burntHsl.h.toFixed(3)}, `
+    + `S ${paintHsl.s.toFixed(2)}→${burntHsl.s.toFixed(2)}`);
+
+  // It settles nose-down and leaning, and — the half that is easy to leave out — it is lifted by
+  // the sagitta of both, because roll and pitch pivot on an origin at road level and a tilt with
+  // nothing done about it drives a corner underground. Same arithmetic as `lift` in sim/traffic.js.
+  //
+  // Measured as a *change* from the pose the impact caught, not as an absolute: a car arrives here
+  // already carrying a corner lean and a pitch rock of its own, so the sign of the settle is only
+  // legible against what it was handed. `nose` is the y of the body's forward axis — a +X-facing
+  // model, so the model's own long axis run through each quaternion in turn.
+  const forward = new THREE.Vector3(1, 0, 0);
+  const caughtNose = forward.clone().applyQuaternion(shellPose).y;
+  const settledNose = forward.clone().applyQuaternion(shells[1].quaternion).y;
+  check('a wreck settles nose-down and clear of the road',
+    settledNose < caughtNose - 0.02 && shells[1].position.y > shellFrom.y,
+    `nose ${caughtNose.toFixed(3)}→${settledNose.toFixed(3)}, `
+    + `lifted ${(shells[1].position.y - shellFrom.y).toFixed(3)}`);
 
   check('a wrecked taxi does not fire further impacts', hits === 1, `${hits} impacts`);
+
+  // Its lamps go out with it, on the same terms the ambient car's do — a crashed car never reaches
+  // the render pass again, so a brake light lit at the moment of impact would stay lit for the rest
+  // of the run. That is now a wreck held in a close-up for the whole run-end beat with the
+  // brightest thing in frame on the wrong object. The taxi's pods are the only plain Meshes in
+  // `emissiveMeshes`; everything else in there is ambient traffic's instanced pods.
+  const taxiPods = cTraffic.emissiveMeshes.filter((m) => !m.isInstancedMesh);
+  check('a wrecked taxi puts its lamps out',
+    taxiPods.length === 6 && taxiPods.every((pod) => pod.scale.x === 0),
+    `${taxiPods.length} pods, levels ${taxiPods.map((pod) => pod.scale.x.toFixed(2)).join(' ')}`);
+
+  // The shrink-and-fade the game *used* to hand its shells to. It is still the passing lab's ending
+  // (see docs/lab.md — there the useful thing about a wreck is where it happened, and the lab wants
+  // the road clear again afterwards), so it is still checked: nothing in the game reaches it any
+  // more, and an unused module is one that quietly stops working. Fed a bare mesh rather than a
+  // shell, because what it does it does to any Object3D.
+  {
+    const fading = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    const cVanish = createVanish();
+    cVanish.take(fading);
+    cVanish.update(0.17);
+    check('the lab\'s wreck fade still shrinks a shell under the explosion',
+      fading.scale.x < 1 && fading.scale.x > 0
+      && fading.material.opacity < 1 && fading.material.opacity > 0,
+      `scale ${fading.scale.x.toFixed(2)}, opacity ${fading.material.opacity.toFixed(2)}`);
+    cVanish.update(0.4);
+    check('the lab\'s wreck fade ends hidden at zero size',
+      !fading.visible && fading.scale.x === 0 && cVanish.pending() === 0);
+  }
 
   // A non-boosting taxi must never trigger a collision — normal lane logic keeps them apart.
   const qScene = new THREE.Scene();
@@ -5846,7 +5919,7 @@ check('the taxi is an ordinary car in the traffic array',
     `cab + box + ${truckWheelScales.length} wheels`);
 
   // The shell itself carries two materials for a truck — cab+wheels in its car-palette colour, the
-  // box in the fixed PALETTE.truckBox — and game/vanish.js has to find and fade both.
+  // box in the fixed PALETTE.truckBox — and game/wreckage.js has to find and scorch both.
   const uShell = uShells[1];
   check('a wrecked truck hands over both a cab and a box mesh',
     uShell.children.length === 2 + truckWheelScales.length);
