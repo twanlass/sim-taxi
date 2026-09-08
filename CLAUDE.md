@@ -32,6 +32,7 @@ about to change.
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
 | [docs/lab.md](docs/lab.md) | The passing lab at `/lab/` — a straight road with no lights, for watching Loco Mode |
 | [docs/ios.md](docs/ios.md) | The App Store build: the WKWebView shell, the custom URL scheme, `window.__native` |
+| [docs/audio.md](docs/audio.md) | **Planned, not built.** Music and effects: the event model, the mix as data, the sound lab at `/audio/`, the iOS audio session |
 
 ## Commands
 
