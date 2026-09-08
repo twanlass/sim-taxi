@@ -1,5 +1,12 @@
-// Shrink-and-fade for wrecked bodywork. Both cars in a crash — the taxi and the one it hit — are
-// handed here on the impact frame and collapse into their own explosions.
+// Shrink-and-fade for wrecked bodywork: a shell handed here collapses into its own explosion.
+//
+// **The game does not use this any more** — it leaves both cars lying in the road instead, see
+// game/wreckage.js. What still does is the [passing lab](../../docs/lab.md), which wrecks a car
+// every time you misjudge a pass and wants the road clear again for the next staged approach; there
+// the useful thing about a wreck is *where it happened*, and a crumpled shell parked across the
+// road is in the way of the next one. Everything below is the argument for a fade over a cut, and
+// all of it still holds — what changed is that in the game the thing being argued about is no
+// longer taken away at all.
 //
 // It exists because the wreck used to *cut*. `taxiGroup.visible = false` fired on the impact
 // frame, a frame before the fireball had grown big enough to hide anything, so the eye read a car

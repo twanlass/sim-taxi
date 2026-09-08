@@ -2301,19 +2301,31 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const ZERO_MATRIX = new THREE.Matrix4().makeScale(0, 0, 0);
 
   /**
-   * Take a wrecked car off the road and hand its bodywork to the game layer, which shrinks and
-   * fades it into the explosion — see game/vanish.js. Called for both cars in a crash.
+   * Take a wrecked car off the road and hand its bodywork to the game layer, which crumples it,
+   * scorches it and leaves it lying there — see game/wreckage.js. Called for both cars in a crash.
    *
    * The taxi owns its own group — steered wheels and all — so that comes straight back. An ambient
    * car is spread across two InstancedMeshes (body, plus one instance per steered front wheel),
-   * neither of which has anywhere to put a per-instance opacity: `instanceColor` is RGB only, so
-   * fading one would mean a custom attribute plus an onBeforeCompile patch for something that
-   * happens once per run. It is copied out into a standalone group wearing one tinted,
-   * transparent-able material instead, and every instance behind it collapses to zero scale.
+   * neither of which has anywhere to put a colour of its own: `instanceColor` is one attribute
+   * shared across the whole fleet, and a wreck has to be repainted as it burns. It is copied out
+   * into a standalone group wearing one tinted material instead, and every instance behind it
+   * collapses to zero scale.
    */
   function wreckShell(car) {
     car.crashed = true;
-    if (car.isTaxi) return taxiGroup;
+    if (car.isTaxi) {
+      // Its lamps, on the same terms as the ambient car's below: a crashed car stops reaching this
+      // loop's render pass, so whatever level it last wrote would sit there for the rest of the
+      // run — and the frame this fires on is exactly the one a taxi is hardest on the brakes.
+      //
+      // It went unnoticed for as long as the shell faded out in a third of a second. Left lying in
+      // the road (game/wreckage.js) the wreck is held in a close-up for the whole run-end beat, and
+      // two brake lamps at full level are the brightest thing in it — bloomed, an order of
+      // magnitude wider than the pods themselves, and pulling the eye off the two cars the shot
+      // exists to show.
+      setTaxiLights(0, 0, 0);
+      return taxiGroup;
+    }
 
     // A truck reads its body and wheels from its own mesh pair — everything below is identical to
     // an ordinary car's wreck, just aimed at whichever pair this car actually lives in. Both wear
@@ -2350,8 +2362,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     }
 
     // The cargo box: its own mesh, its own fixed-colour material — never tinted by colorIndex, on
-    // the road or in the wreck. game/vanish.js collects every distinct material under the shell
-    // into a Set, so a second material here fades in step with the cab's without extra wiring.
+    // the road or in the wreck. game/wreckage.js collects every distinct material under the shell,
+    // so a second material here scorches in step with the cab's without extra wiring.
     if (car.isTruck) {
       const boxMaterial = propMaterial();
       boxMaterial.color.set(PALETTE.truckBox);

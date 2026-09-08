@@ -1640,7 +1640,7 @@ as flat stickers next to the faceted cars.
 
 **Three effects come out of this one pool** — the boost trail, the wall a barricade throws
 (`burst`, [below](#roadworks--gameroadworkjs-geometryroadworksjs)) and the smoke collar around a
-wreck (`wreckSmoke`, [below](#wreck--gameblastjs-gamevanishjs)) — plus the rotor wash off a helipad
+wreck (`wreckSmoke`, [below](#wreck--gameblastjs-gamewreckagejs)) — plus the rotor wash off a helipad
 and the puff under a landing — and the differences between them
 are options on `burst` rather than three sets of hand-picked numbers: `tint`, `ring` (start each
 puff that far out along its own bearing), `linger` (stretch the life) and `startSize` (begin as a
@@ -1714,7 +1714,7 @@ The burst above is the *bark* on the press. This is the flame that burns for as 
 is held, and it is the only thing on screen that says Loco Mode is still on other than the pill
 draining in the corner.
 
-**A flat stylized cutout, not a particle system** — the same argument [the wreck](#wreck--gameblastjs-gamevanishjs)
+**A flat stylized cutout, not a particle system** — the same argument [the wreck](#wreck--gameblastjs-gamewreckagejs)
 makes at length. Three nested tongues of flat unlit colour — `locoFlameOuter` outside,
 `locoFlameMid` under it, `locoFlameCore` at the pipe — and it flickers by cycling **four hand-shaped
 silhouettes at 16fps**, which is a flipbook and reads as drawn fire rather than as a blob being
@@ -1766,7 +1766,7 @@ Its envelope is 0.05s up and 0.16s down — the attack answers a button press, a
 well inside `BOOST_COOLDOWN` so the flame never outlasts the mode. A wrecked taxi drops it
 immediately, the same bail `traffic.taxi.boost` gets.
 
-### Wreck — `game/blast.js`, `game/vanish.js`, plus a smoke collar out of `game/dust.js`
+### Wreck — `game/blast.js`, `game/wreckage.js`, plus a smoke collar out of `game/dust.js`
 
 The crash is **one call per car** — `blast.fire(x, z, tint, yaw, speed)` — and everything *it* puts on the road
 lives in one module: a shockwave ring on the tarmac, a fireball, a scatter of shards in that car's
@@ -1812,8 +1812,54 @@ one. Fourteen segments, so the flat sides show at the wreck zoom.
 
 Shards are the whole of what is left of the old debris: seven per car, one tetrahedron squashed
 per instance into plates and chunks, tinted with that car's paint so a two-car wreck comes apart in
-two colours. They no longer bounce, settle or come to rest — wreckage on the tarmac is a detail for
-a camera that stays, and this one pulls into a close-up and then cuts to the retry screen.
+two colours. They no longer bounce, settle or come to rest: a shard is a piece of the *moment* of
+coming apart, and the thing that is left on the tarmac afterwards is the two cars themselves —
+[below](#the-wrecks-that-stay).
+
+#### The wrecks that stay
+
+The two cars do not go anywhere. `traffic.wreckShell(car)` takes each one off the road for good and
+hands its bodywork to `game/wreckage.js` — the taxi's own group for the taxi, and for an ambient car
+a standalone copy wearing one tinted material, since `instanceColor` is RGB and an `InstancedMesh`
+has nowhere to put the rest of this. Each shell slides out of the impact, crumples, scorches, and is
+still lying there when the retry card slides over it.
+
+It used to be consumed instead: both shells shrank and faded into their own fireballs over 0.34s
+(`game/vanish.js`, which is now only the [passing lab's](lab.md) ending). That sells the *bang* and
+leaves nothing behind it. The run-end hold is `CRASH_BANNER_DELAY` = 2.6 seconds and the fireball is
+out after one, so more than half the beat was a held close-up of bare tarmac — and the one question
+a crash has to answer, **what did I just hit**, was only ever answerable from the half-second of
+flame that had already gone past.
+
+Three things happen at once, on two clocks, and all of them are the same **closed form** the rest of
+the wreck is built on — evaluated from scratch off the shell's age, so a frame under the crash
+slow-mo, a full-speed frame and a shot-mode frame stepped by hand at 1/60 are all the same shape.
+
+- **The carry**, on `util/carry.js`'s drag, exactly as the fade had it: the taxi hit something and
+  keeps less of its speed, the car it hit is shoved and keeps more. See [Momentum](#momentum) below
+  for what the numbers had to become when the shells stopped disappearing partway along the curve.
+- **The crumple**, a non-uniform scale in the *body* frame — 0.86 along its own long axis, 1.07
+  across and 0.9 tall, plus a lean and a nose-down settle. This is the whole of what says wrecked
+  rather than parked: a drawn car is 4.01 units long, 55 pixels at the wreck's zoom of 26, so 0.86
+  takes nearly eight pixels out of its silhouette. The wheels are inside the same group and squash
+  with it; that is a pixel and a half on an 11-pixel black disc, which is cheaper than carrying a
+  list of which children are bodywork through two very different hierarchies.
+- **The scorch**, a **multiply** on each material's colour rather than a lerp to a soot grey, with
+  only a fifth of a pull toward `wreckChar` on top. A multiply preserves hue exactly, which is the
+  property the whole feature rests on — the red car ends at L 0.18 from 0.32 with its hue moved by
+  three thousandths, so it is a burnt red car and not a dark shape. Lerped far enough to read as
+  charred, both wrecks come out the same grey and the crash stops answering its own question.
+
+Two smaller things travel with it. The settle is **lifted by the sagitta of its own tilt**, because
+roll and pitch pivot on an origin at road level and a tilt with nothing done about it drives a
+corner underground — the same arithmetic as the `lift` beside `taxiGroup.position` in
+`sim/traffic.js`, and worth 0.21 of a unit here, three pixels of a wheel. And a **smoulder**: one
+wisp into the dust pool every 0.3s for six and a half seconds, because a completely static object at
+the middle of a held close-up reads as a prop rather than as something that just happened.
+
+Nothing is restored, and nothing needs to be: a wreck ends the run and Retry reloads the page. It
+also costs no shader recompile, which the fade did — `transparent` is part of the program cache key
+and flipping it at runtime needs `needsUpdate`.
 
 #### Momentum
 
@@ -1841,7 +1887,7 @@ What is per-effect is the fraction, and the ordering is about weight rather than
 | | keeps | measured drift at 22.1 u/s |
 |---|---|---|
 | Shards | 0.70 | 7.8 units, on top of their own 6–12 of fan |
-| Shells (`vanish`) | 0.62, ×0.8 taxi / ×1.25 struck | ~3.5 units over the 0.34s they take to collapse |
+| Shells (`wreckage`) | 0.26, ×0.8 taxi / ×1.25 struck | 2.7 units for the taxi, 4.2 for the car it shunted, both to rest |
 | Smoke collar (`dust`) | 0.50 | 3.2 units |
 | Fireball | 0.42 | 4.5 units |
 | Shockwave ring | 0.30 | 2.0 units |
@@ -1962,28 +2008,32 @@ Five numbers, and none of them is free:
   road's value, and still well short of the dust's pure white, because white here is a dust cloud
   and this is what is burning.
 
-`vanish.js` owns the disappearance: each shell shrinks and fades into its own fireball over 0.34s
-of sim time rather than being switched off. It steps on the frame's already-slowed `dt`, so it
-runs at the same rate as the blast through the crash slow-mo — as does the collar, which is stepped
-by the same `dust.update(dt)` the boost trail is.
+`wreckage.js` owns [the two cars themselves](#the-wrecks-that-stay). It steps on the frame's
+already-slowed `dt`, so the crumple and the slide run at the same rate as the blast through the
+crash slow-mo — as does the collar, which is stepped by the same `dust.update(dt)` the boost trail
+is.
 
-`take()` also accepts a **drift and a slew** ([above](#momentum)), and this is where the momentum
-reads hardest: the shells are the only recognisable objects in the wreck, and a car that freezes on
-the spot and collapses reads as a car that stopped however much its explosion is moving. The two are
-given deliberately different shares — the taxi keeps 0.8 of the base for having hit something, the
-car it hit 1.25 — and are slewed in opposite directions (about 9° and 28°, spent almost entirely in
-the first third of a second) off which side of the taxi's line it was sitting on. Matched, the pair
-travels as a rigid unit, which reads as a wreck being panned across rather than as one car hitting
-another. The slew is applied by **premultiplying** a world-Y rotation onto the pose the shell was
-caught in, not by writing `rotation.y`: a shell arrives holding a quaternion decomposed out of a
-car's body matrix — corner lean, pitch rock and all — and the Euler that comes back out of that is
-in XYZ order, where `.y` is not the car's yaw.
+`take()` accepts a **drift and a slew** ([above](#momentum)), and this is where the momentum reads
+hardest: the shells are the only recognisable objects in the wreck, and a car that freezes on the
+spot reads as a car that stopped however much its explosion is moving. The two are given
+deliberately different shares — the taxi keeps 0.8 of the base for having hit something, the car it
+hit 1.25 — and are slewed in opposite directions (run to rest, about 20° and 64°) off which side of
+the taxi's line it was sitting on. Matched, the pair travels as a rigid unit, which reads as a wreck
+being panned across rather than as one car hitting another.
 
-Both default to nothing, which is what keeps [the passing lab](lab.md) detonating its wrecks on the
-spot: there the useful thing about a wreck is *where it happened*. See
-[traffic.md](traffic.md#the-wreck) for the rest of the staging, and
-[testing.md](testing.md#screenshots) for `?shot=12` and `?shot=17`, which stage a real crash and
-freeze it at the fire and at the smoke respectively.
+The slew is applied by **premultiplying** a world-Y rotation onto the pose the shell was caught in,
+not by writing `rotation.y`; the crumple's lean and nose-down are **post**-multiplied onto the same
+pose, so they land in the body's own frame. Neither can be an Euler component: a shell arrives
+holding a quaternion decomposed out of a car's body matrix — corner lean, pitch rock and all — and
+that already has both a roll and a pitch in it. See the note on `BODY_EULER_ORDER` in `util/geo.js`
+for the shape of the trap.
+
+Everything defaults to nothing, which is what keeps [the passing lab](lab.md) detonating its wrecks
+on the spot and clearing them away with the older `vanish.js` fade: there the useful thing about a
+wreck is *where it happened*, and a crumpled shell left in the way of the next staged approach is
+not. See [traffic.md](traffic.md#the-wreck) for the rest of the staging, and
+[testing.md](testing.md#screenshots) for `?shot=12`, `?shot=17` and `?shot=37`, which stage a real
+crash and freeze it at the fire, at the smoke, and at the two wrecks left in the road.
 
 ### Roadworks — `game/roadwork.js`, `geometry/roadworks.js`
 

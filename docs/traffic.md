@@ -1416,8 +1416,8 @@ than the speed cap, so like every other hazard rule it stays up through the cool
 
 ## The wreck
 
-`sim/collisions.js` detects the impact, `main.js` stages it, `game/vanish.js` clears the bodywork
-away.
+`sim/collisions.js` detects the impact, `main.js` stages it, `game/wreckage.js` leaves the two
+cars lying in the road.
 
 **Both cars are destroyed.** The one the taxi hits used to be *stunned*: kicked sideways under a
 little drift-physics packet, spun out, then snapped back onto the lane grid and driven off. Two
@@ -1454,34 +1454,42 @@ car** on top — a pool re-shot its own pieces on every call, so one shared pool
 the taxi's wreckage across to the other car's the instant the second burst fired. All of that is
 one module now, and the pool-per-car problem is gone with it: nothing in `blast.js` is re-shot from
 a stored position, so a second call cannot drag the first one's wreckage anywhere. See
-[rendering.md](rendering.md#wreck--gameblastjs-gamevanishjs).
+[rendering.md](rendering.md#wreck--gameblastjs-gamewreckagejs).
 
-**The shells shrink and fade into the fireballs** rather than being hidden. The old version cut:
-`taxiGroup.visible = false` fired on the impact frame, one frame before the fireball had grown
-large enough to hide anything, so the eye read a car blinking out and then, separately, a bang.
-`vanish.take()` collapses each shell over 0.34s of sim time instead — stepped with the frame's
-already-slowed `dt`, so it stretches to nearly two seconds on screen under the crash slow-mo,
-which is exactly how long the fireball is at its biggest. The fade leads the collapse (halfway
-through: three-quarters size, a quarter opaque), because matching the two curves left a small,
-solid, brightly lit nugget riding the middle of the fireball to the last frame.
+**Both cars are left lying in the road.** They used to be taken away: the first version cut
+outright (`taxiGroup.visible = false` on the impact frame, one frame before the fireball had grown
+large enough to hide anything, so the eye read a car blinking out and then, separately, a bang) and
+the second shrank and faded each shell into its own fireball over a third of a second. That second
+one sells the bang and leaves nothing behind it — the run-end banner is held for 2.6 seconds and the
+fire is out after one, so most of the beat was a close-up of empty tarmac with the question the
+crash exists to pose, *what did I just hit*, already off screen. `wreckage.take()` slides each shell
+out of the impact, crumples it, scorches it and stops. See
+[rendering.md](rendering.md#the-wrecks-that-stay) for the crumple, the multiply that does the
+scorching, and why neither can be a lerp toward grey.
 
-They also collapse while still **moving** — `take()` takes a drift and a slew, on the same decaying
-curve the rest of the wreck's momentum rides. This is where the momentum reads hardest, because a
-shell is the only recognisable object in the picture: a fireball is an abstraction and can be
-forgiven for standing still, a car cannot. The two are given deliberately different numbers — the
-taxi keeps less for having hit something, the car it hit is shoved harder — and are slewed in
-opposite directions, taken from which side of the taxi's line it was sitting on. Matched, the pair
-travels as a rigid unit, which reads as a wreck being panned across rather than as one car hitting
-another.
+They slide while still **moving** — `take()` takes a drift and a slew, on the same decaying curve
+the rest of the wreck's momentum rides. This is where the momentum reads hardest, because a shell
+is the only recognisable object in the picture: a fireball is an abstraction and can be forgiven for
+standing still, a car cannot. The two are given deliberately different numbers — the taxi keeps less
+for having hit something, the car it hit is shoved harder — and are slewed in opposite directions,
+taken from which side of the taxi's line it was sitting on. Matched, the pair travels as a rigid
+unit, which reads as a wreck being panned across rather than as one car hitting another.
 
-The taxi has its own group to fade, steered wheels and all. An ambient car is spread across two
+**A wrecked car's lamps go out.** A crashed car never reaches the render pass again, so whatever
+brake level it last wrote would sit there for the rest of the run — and the frame this fires on is
+exactly the one anything is hardest on the brakes. The ambient car's pods are collapsed to zero in
+`wreckShell()`; so are the taxi's, which went unnoticed for as long as its shell disappeared inside
+a third of a second and became the brightest thing in the close-up the moment it stopped.
+
+The taxi has its own group to hand over, steered wheels and all. An ambient car is spread across two
 `InstancedMesh`es — the body, plus one instance per steered front wheel — and neither has anywhere
 to put a per-instance opacity, since `instanceColor` is RGB only. So `wreckShell()` copies the car
 out into a standalone group (body plus both wheels at the lock the impact caught them at) sharing
-one tinted, fadeable material, and collapses **every** instance behind it to zero scale. Collapsing
-only the body would leave two wheels parked on the road; `tools/probe.mjs` asserts all three. This
-is cheaper than the alternative — a custom alpha attribute plus an `onBeforeCompile` patch on the
-traffic material — for something that happens once per run.
+one tinted material, and collapses **every** instance behind it to zero scale. Collapsing only the
+body would leave two wheels parked on the road; `tools/probe.mjs` asserts all three. The copy is
+what makes the wreck's paint writable at all: `instanceColor` is RGB and shared with every other
+car in the mesh, so there is nowhere on an instance to put the scorch — or, in the fade this
+replaced, an opacity.
 
 ## Roadworks: a street closed at both ends
 

@@ -15,7 +15,7 @@ import { createProps } from './city/props.js';
 import { createGarage } from './city/garage.js';
 import { createBurgerJoint, SIGN_SPIN } from './city/burgerjoint.js';
 import {
-  createTraffic, placeCar, TRUCK_CHANCE, laysPassRubber, SPEED, ROAD_Y,
+  createTraffic, placeCar, TRUCK_CHANCE, TRUCK_LEN, TRUCK_W, laysPassRubber, SPEED, ROAD_Y,
   boostCruise, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, LOCO_DEFAULTS,
 } from './sim/traffic.js';
 import { createCollisions } from './sim/collisions.js';
@@ -38,7 +38,7 @@ import { createBlast } from './game/blast.js';
 import { createFlames } from './game/flames.js';
 import { createSparks } from './game/sparks.js';
 import { createLocoFlame } from './game/locoflame.js';
-import { createVanish } from './game/vanish.js';
+import { createWreckage } from './game/wreckage.js';
 import { carrySpeed } from './util/carry.js';
 import { createFlyover } from './game/flyover.js';
 import { createChopper } from './game/chopper.js';
@@ -646,7 +646,18 @@ const sparks = createSparks(scene, makeRng(runSeed + 134));
 // for as long as the button is held. No seed — the flicker is a flipbook on a clock, and a flame
 // that came out differently on two runs of the same seed would take the screenshots with it.
 const locoFlame = createLocoFlame(scene);
-const vanish = createVanish();
+// Where the two wrecked cars end up: crumpled, scorched and **left on the road** rather than faded
+// out from under their own fireballs. See game/wreckage.js for why the fade went — the short of it
+// is that a crash has to answer "what did I just hit" for as long as the shot is held, and the
+// half-second of flame it used to be answered by is long gone by the time the retry card arrives.
+//
+// The smoulder goes through the same dust pool the boost trail and the barricade share, off the
+// wreck's own heading so it trails behind it. `traffic.taxi.yaw` is frozen from the impact frame
+// on — a crashed car is skipped by every loop in traffic.js — so this reads the crash's heading
+// however long the wisps go on for.
+const wreckage = createWreckage({
+  smoke: (x, y, z) => dust.add(x, z, traffic.taxi.yaw, 0.5, 0.45, PALETTE.wreckSmoke, y),
+});
 
 // A light aircraft crossing the city every minute or so. Scenery and nothing else — see
 // game/flyover.js. On the run seed rather than the city seed: which way it crosses and when is
@@ -820,10 +831,10 @@ const carGhosts = createCarGhosts(scene, traffic);
 
 // Collision detection between the taxi and ambient cars. Only fires while boosting — see
 // src/sim/collisions.js. On impact *both* cars are wrecked: each detonates where it stands and
-// each shell shrinks and fades into its own fireball, the camera shakes and pulls into a close-up,
-// the sim drops into slow-mo, boost is released, and the fare system flips into game-over — but
-// the run-end banner is held for CRASH_BANNER_DELAY (wallclock, so the delay is unaffected by
-// the slow-mo).
+// each shell slides out of the blast, crumples and is left lying in the road, the camera shakes and
+// pulls into a close-up, the sim drops into slow-mo, boost is released, and the fare system flips
+// into game-over — but the run-end banner is held for CRASH_BANNER_DELAY (wallclock, so the delay
+// is unaffected by the slow-mo).
 const CRASH_BANNER_DELAY = 2600;
 const WRECK_ZOOM = 26;
 const SLOW_MO_MIN = 0.18;                // sim runs at this fraction of real time at impact
@@ -878,25 +889,34 @@ let slowMoUntil = 0;
 let slowMoMin = SLOW_MO_MIN;
 let bustAt = 0;              // wallclock ms of the bust, while the banner is still waiting on the cop
 
-// What the two shells keep of the taxi's speed as they collapse into the fireballs — the drift and
-// the slew in game/vanish.js, both on util/carry.js's drag.
+// What the two shells keep of the taxi's speed as they slide out of the impact — the drift and the
+// slew in game/wreckage.js, both on util/carry.js's drag.
 //
 // The shells are where the momentum reads hardest, because they are the only recognisable objects
 // in the wreck: a fireball is an abstraction and can be forgiven for standing still, a car cannot.
-// At a boost-speed impact SHELL_CARRY moves each one about 3.5 units over the 0.34s it takes to
-// collapse — roughly its own length — and the crash slow-mo stretches that across nearly two
-// seconds on screen, which is the whole beat.
 //
 // The two are **not** given the same numbers, and that asymmetry is the point of doing it at all:
 // the taxi hit something and loses more of its speed to it, the car it hit is shoved. Give both the
 // same drift and the pair travels as a rigid unit, which is a wreck being panned across rather than
 // one car hitting another.
-const SHELL_CARRY = 0.62;
+//
+// SHELL_CARRY was 0.62 while the shells faded out under their own fireballs, and **the number had
+// to be more than halved when they stopped doing that**, for no change in what is on screen. A
+// fading shell only ever spent the first 0.34s of the drag curve, which is `carryTravel` = 0.245 of
+// its 0.588 bound; a shell that stays spends all of it, so the same fraction buys 2.4× the ground.
+// At the old number a boost-speed wreck slid 6.4 units to rest and shunted the car it hit ten —
+// half a block, which is a car being launched down the road rather than a crash coming to a stop.
+// 0.26 puts the taxi at the 2.7 units the collapsing shell used to show and the struck car at 4.2.
+const SHELL_CARRY = 0.26;
 const STRUCK_SHOVE = 1.25;      // the shunted car keeps this much more than the base share
 const TAXI_KEEP = 0.8;          // and the taxi this much less, for having hit something
 
-// How hard each one is slewed off its own line, in rad/s on the same decaying curve — so ~9° for
-// the taxi and ~28° for the car it shunted, spent almost entirely in the first third of a second.
+// How hard each one is slewed off its own line, in rad/s on the same decaying curve. These are
+// **not** rescaled alongside the drift, and for the same reason the drift had to be: run to the end
+// of the curve they now turn the taxi 20° and the car it shunted 64°, against the 8° and 27° the
+// fade used to cut them off at. That is the whole difference between a car parked askew and a car
+// spun out — a wreck at rest wants to be sideways across the road it stopped on.
+//
 // Signed away from the impact below: a car struck on its left is turned to the right, and the taxi
 // the opposite way, so the two shells open apart instead of both swinging the same way.
 const SHELL_SPIN = 0.6;
@@ -936,10 +956,14 @@ collisions.onImpact(({ x, z, speed, other }) => {
   // into the seam where the two fireballs meet, which is the middle of the blast.
   dust.wreckSmoke((x + other.x) / 2, (z + other.z) / 2, yaw, speed);
 
-  // Both shells collapse into their own fireballs — see game/vanish.js for why they are faded out
-  // rather than simply hidden. `wreckShell` also takes each car off the road for good.
+  // And both cars are left lying there. `wreckShell` takes each one off the road for good and hands
+  // its bodywork over as a standalone group; game/wreckage.js slides it out of the impact, crumples
+  // it, scorches it and never touches it again. It used to shrink and fade into the fireball
+  // instead (game/vanish.js, which the passing lab still uses) — the note at the top of
+  // wreckage.js is why that stopped: the run-end hold is 2.6 seconds and the fire is out after
+  // one, so the question a crash exists to answer had nothing left on screen to answer it.
   //
-  // They collapse while still *moving*, along the taxi's heading and at their own share of its
+  // They slide while still *moving*, along the taxi's heading and at their own share of its
   // speed — saturated here, because these two calls are the only place the speed is done
   // arithmetic with by hand; `blast.fire` and `dust.wreckSmoke` both clamp what they are handed.
   const carry = carrySpeed(speed);
@@ -952,15 +976,22 @@ collisions.onImpact(({ x, z, speed, other }) => {
   // opens apart — a glance rather than two objects deleted in formation. Cars meeting dead centre
   // give a cross near zero, and `|| 1` picks a side rather than leaving both shells unturned.
   const struckSide = Math.sign(fx * (other.z - traffic.taxi.z) - fz * (other.x - traffic.taxi.x)) || 1;
-  vanish.take(traffic.wreckShell(traffic.taxi), {
+  wreckage.take(traffic.wreckShell(traffic.taxi), {
     driftX: fx * carry * SHELL_CARRY * TAXI_KEEP,
     driftZ: fz * carry * SHELL_CARRY * TAXI_KEEP,
     spin: -struckSide * SHELL_SPIN,
+    // The settle leans the same way the slew turns it, so the two wrecks tip apart as well as
+    // opening apart — the pair reads as one impact from either side of it.
+    lean: -struckSide,
   });
-  vanish.take(traffic.wreckShell(other), {
+  wreckage.take(traffic.wreckShell(other), {
     driftX: fx * carry * SHELL_CARRY * STRUCK_SHOVE,
     driftZ: fz * carry * SHELL_CARRY * STRUCK_SHOVE,
     spin: struckSide * STRUCK_SPIN,
+    lean: struckSide,
+    // A truck is 5.6 long against a car's 3.4, which is 6cm more sagitta under the settle pitch —
+    // enough to bury a wheel. See the `lift` in game/wreckage.js.
+    ...(other.isTruck ? { len: TRUCK_LEN, width: TRUCK_W } : {}),
   });
 
   endSpot = { x, z };
@@ -2587,7 +2618,7 @@ function frame() {
   blast.update(dt);
   flames.update(dt);
   sparks.update(dt);
-  vanish.update(dt);
+  wreckage.update(dt);
   flyover.update(dt);
   chopper.update(dt);
   clouds.update(dt);
@@ -3071,6 +3102,21 @@ if (shot) {
     traffic.taxi.x = victim.x - Math.cos(victim.yaw) * 2;
     traffic.taxi.z = victim.z + Math.sin(victim.yaw) * 2;
     traffic.taxi.yaw = victim.yaw;
+    // **One staged frame before the boost goes on**, and it is not optional. A taxi's `x`/`z` are
+    // derived from its lane every frame, so writing them by hand moves the *collision test* onto
+    // the victim and nothing else: the impact fires from the frame the flag goes on, `crashed`
+    // takes the taxi out of the render loop on that same frame, and `taxiGroup` is therefore
+    // handed to the wreck still standing wherever the warm-up left it — on seed 1234, 65 units
+    // away from the fire. `staged` is the flag that says "whoever is driving this by hand owns its
+    // position" and is the one state the render loop honours without a lane, so one update through
+    // it is what puts the group where the crash is about to happen. Not `stageCar()`, which zeroes
+    // the speed the whole blast is sized off.
+    //
+    // It was invisible for as long as the shells faded out inside a third of a second: the taxi's
+    // vanished off-screen and the picture was one car's wreck, which is what a crash looked like.
+    traffic.taxi.staged = true;
+    traffic.update(1 / 60);
+    traffic.taxi.staged = false;
     traffic.taxi.boost = true;
     for (let guard = 0; guard < 90 && !traffic.taxi.crashed; guard++) {
       collisions.update();
@@ -3080,7 +3126,7 @@ if (shot) {
     controller.update(aspect());
     for (let step = 0; step < Math.round(shot.wreckAt * 60); step++) {
       blast.update(1 / 60);
-      vanish.update(1 / 60);
+      wreckage.update(1 / 60);
       // The smoke collar is part of the wreck now, and it lives in the dust pool rather than in
       // blast.js — left out of this loop, `?shot=12` would freeze a crash with its smoke still
       // stacked on the impact point at zero age.

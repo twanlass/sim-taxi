@@ -67,11 +67,12 @@ Three departures, all so a scenario can be run twice.
 - **The tank is bottomless.** `boost.state.fuel` is pinned full every frame rather than topped up
   through `topUp()`, which queues fuel to *pour* in over ~0.7s and lights the pill's
   delivery-reward flutter while it does — right in the game, a strobe here.
-- **A wreck doesn't consume the taxi.** The game hands both shells to `game/vanish.js`, which says
-  up front that it never restores anything: a wreck ends the run and Retry reloads the page. The lab
-  resets in place a beat later, and leaves the taxi standing where it stopped — in a lab the useful
-  thing about a wreck is *where it happened*. The car it hit still gets the full treatment, since
-  that one is re-staged from the pool anyway. For the same reason the lab passes no impact speed to
+- **A wreck doesn't consume the taxi.** The game leaves both cars lying in the road
+  (`game/wreckage.js`); the lab hands the car it hit to `game/vanish.js` instead — the older
+  shrink-and-fade, which the lab is now the only caller of — and leaves the taxi standing where it
+  stopped, because in a lab the useful thing about a wreck is *where it happened* and a crumpled
+  shell in the way of the next staged approach is not. That one is re-staged from the pool a beat
+  later anyway. For the same reason the lab passes no impact speed to
   `blast.fire` or `dust.wreckSmoke`, so its wrecks detonate on the spot rather than carrying
   downfield the way the game's do (see [rendering.md](rendering.md#momentum)) — a blast that slid
   away from a taxi standing still would separate the one thing this view is for from the mark it

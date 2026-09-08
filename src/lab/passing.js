@@ -15,11 +15,11 @@
 //   - **The tank is bottomless.** `boost.state.fuel` is pinned full every frame rather than topped
 //     up through `topUp()`, which would put the pill into its delivery-reward pour animation once a
 //     second for the whole session.
-//   - **A wreck doesn't consume the taxi.** The game hands both shells to `game/vanish.js`, which
-//     says up front that it never restores anything — a wreck ends the run and Retry reloads the
-//     page. The lab resets in place instead, so the taxi stays where it stopped and drives again a
-//     beat later. The car it hit still gets the full treatment, because that one is replaced from
-//     the pool anyway.
+//   - **A wreck doesn't consume the taxi.** The game leaves both cars lying in the road
+//     (`game/wreckage.js`); the lab hands the car it hit to `game/vanish.js` instead — the older
+//     shrink-and-fade, which never restores anything and which this file is now the only caller of
+//     — and resets the taxi in place, so it stays where it stopped and drives again a beat later.
+//     A crumpled shell parked across the next staged approach is the last thing this view wants.
 //
 // See docs/lab.md.
 
@@ -303,8 +303,8 @@ function reseat(car, d, x, v = SPEED) {
 }
 
 // Wreck shells are copies `wreckShell` adds to the scene and `vanish` only ever hides. In the game
-// that is the last thing that happens before the page reloads; here it happens every time you
-// misjudge a pass, so they are tracked and cleared on the next reset.
+// they are never hidden at all and the page reloads out from under them; here a wreck happens every
+// time you misjudge a pass, so they are tracked and cleared on the next reset.
 const shells = [];
 
 function clearShells() {

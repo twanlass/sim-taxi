@@ -59,7 +59,8 @@ src/
     blast.js            the crash detonation whole — shockwave, fireball, shards; one per wrecked car
     flames.js           the tailpipe bark on the press that engages Loco Mode
     locoflame.js        the flat stylized plume that burns out of it for the whole hold
-    vanish.js           shrink-and-fade for wrecked bodywork, so it is consumed not deleted
+    wreckage.js         wrecked bodywork left on the road — carried out, crumpled, scorched, kept
+    vanish.js           shrink-and-fade for the same, now only the passing lab's ending
     carghosts.js        occluded-only outlines on the traffic nearest the taxi, faded in with boost
     flyover.js          the ambient plane that crosses the city every so often — scenery, nothing more
     chopper.js          the helicopter that lands on the city's rooftop helipad, idles and leaves
