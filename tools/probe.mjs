@@ -60,6 +60,8 @@ import { createParcelPad, PAD_R } from '../src/geometry/parcelpad.js';
 import { TAXI_DECK_Y, TAXI_TAILPIPE_BACK, TAXI_TAILPIPE_HEIGHT } from '../src/geometry/taxi.js';
 import { createLocoFlame } from '../src/game/locoflame.js';
 import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
+import { createFoodOrder } from '../src/geometry/food.js';
+import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
 import {
   markEmissive, unmarkEmissive, emissiveList, BLOOM_LAYER, BLOOM_ORDER, BLOOM_INTENSITY,
@@ -194,6 +196,14 @@ const buildings = time('buildings', () => createBuildings(makeRng(seed + 22), la
 const propsBuild = time('props', () => createProps(makeRng(seed + 33), layout));
 const props = propsBuild.mesh;
 const traffic = time('traffic init', () => createTraffic(makeRng(seed + 44), scene, 24));
+
+// Where a food order is collected — the burger joint's +X+Z corner junction, exactly as `main.js`
+// derives it (see game/parcels.js). Every courier board in this file is built with it, because a
+// board without one serves boxes only and would quietly turn every check about the second load into
+// a no-op that passes.
+const FOOD_PICKUP = layout.burgerBlock
+  ? { i: layout.burgerBlock.bi + 1, j: layout.burgerBlock.bj + 1 }
+  : null;
 
 const tris = (mesh) => mesh.geometry.attributes.position.count / 3;
 console.log(`  triangles: ground ${tris(ground)}, buildings ${tris(buildings.mesh)}, props ${tris(props)}`);
@@ -2172,7 +2182,12 @@ check('no two cars occupy the same space', worst > 1.6,
   const fares = createFareSystem(makeRng(seed + 55), pScene, {
     reserved: () => parcels.occupiedSpots(),
   });
-  const parcels = createParcelSystem(makeRng(seed + 255), pScene);
+  check('this city has a burger joint for food orders to come out of', FOOD_PICKUP !== null,
+    FOOD_PICKUP
+      ? `junction (${FOOD_PICKUP.i}, ${FOOD_PICKUP.j})`
+      : 'no joint — every food check below is measuring a board that can only serve boxes');
+
+  const parcels = createParcelSystem(makeRng(seed + 255), pScene, { foodPickup: FOOD_PICKUP });
   pTraffic.warmup(5);
 
   const tagsUnder = (root) => {
@@ -2196,6 +2211,74 @@ check('no two cars occupy the same space', worst > 1.6,
   check('the box in flight is not tappable', flightTagged === 0, `${flightTagged} tagged`);
   check('a loose parcel mesh can still be tagged when something wants it to be',
     createParcel({ pickable: 'parcel' }).mesh.userData.pickable === 'parcel');
+
+  // --- Two kinds of load, one envelope ------------------------------------------------------------
+  //
+  // A courier job carries a box or a food order (geometry/parcel.js, geometry/food.js) and three
+  // things measure it without asking which: the HUD chip frames one square frustum around whatever is
+  // aboard, a pickup hands the chip a point on the load's own middle, and the outbound flight opens at
+  // "cargo, at the scale the car handles cargo at". So the second kind has to fit the first one's
+  // envelope, and this is where that is *asserted* rather than left to a comment in the file that
+  // built it: the failure is a straw standing out of the top of a 42px canvas, which nothing headless
+  // renders and nothing else would catch.
+  //
+  // The width is measured as the **furthest vertex from the spin axis**, not off a bounding box.
+  // A box's corners are real vertices and a bounding box reports them exactly; a burger and a cup on
+  // a diagonal have nothing at the corners of theirs, so a box-corner reading would fail an order
+  // that is comfortably inside the box's own sweep. What both the chip's frustum and the idle spin
+  // actually care about is the radius, so that is what is compared.
+  const envelope = (mesh) => {
+    const geo = mesh.geometry;
+    geo.computeBoundingBox();
+    const pos = geo.attributes.position;
+    let radius = 0;
+    for (let i = 0; i < pos.count; i++) {
+      radius = Math.max(radius, Math.hypot(pos.getX(i), pos.getZ(i)));
+    }
+    return { box: geo.boundingBox.clone(), radius };
+  };
+  const boxBounds = envelope(createParcel({ pickable: null }).mesh);
+  const foodBounds = envelope(createFoodOrder({ pickable: null }).mesh);
+  check('a food order stands in the same envelope as the box',
+    foodBounds.box.max.y <= boxBounds.box.max.y + 1e-6
+    && foodBounds.box.min.y >= -1e-6
+    && foodBounds.radius <= boxBounds.radius + 1e-6,
+    `${foodBounds.box.max.y.toFixed(3)} tall and ${foodBounds.radius.toFixed(3)} out, `
+    + `against the box's ${boxBounds.box.max.y.toFixed(3)} and ${boxBounds.radius.toFixed(3)}`);
+  // And is centred on the same point, which is the one number the pickup hand-off and the chip's
+  // camera both read. A load whose middle is half a box off centre lands the chip's slide low and
+  // frames it high, and both are the same mistake made twice.
+  check('and is centred on the same point a picture of a load is framed around',
+    Math.abs((foodBounds.box.min.y + foodBounds.box.max.y) / 2 - CARGO_CENTRE_Y) < 0.02
+    && Math.abs(CARGO_CENTRE_Y - PARCEL_CENTRE_Y) < 1e-9,
+    `food centred at ${((foodBounds.box.min.y + foodBounds.box.max.y) / 2).toFixed(3)}, `
+    + `envelope says ${CARGO_CENTRE_Y.toFixed(3)}`);
+
+  // The rig itself: exactly one kind on show, `mesh` following it, and the idle riding the **outer**
+  // group. That last one is not cosmetic — the yaw a pickup hands to the HUD is read off that group
+  // (game/parcels.js), so an idle that turned the inner mesh instead would hand the chip a facing of
+  // zero for every load in the game and nothing would look wrong until the box arrived square.
+  const rig = createCargo({ pickable: null });
+  let shownPerKind = '';
+  let meshFollows = 0;
+  for (const kind of CARGO_KINDS) {
+    rig.setKind(kind);
+    const shown = Object.entries(rig.rigs).filter(([, r]) => r.group.visible).map(([n]) => n);
+    shownPerKind += `${kind}:${shown.join('+') || 'none'} `;
+    if (shown.length === 1 && shown[0] === kind && rig.mesh === rig.rigs[kind].mesh) meshFollows += 1;
+  }
+  check('a cargo rig shows exactly one kind, and its mesh is that kind',
+    meshFollows === CARGO_KINDS.length, shownPerKind.trim());
+  rig.idle(1.4);
+  check('and the idle turns the group the pickup reads its yaw off',
+    Math.abs(rig.group.rotation.y) > 0.01
+    && Object.values(rig.rigs).every((r) => r.group.rotation.y === 0),
+    `outer ${rig.group.rotation.y.toFixed(2)}, `
+    + `inner ${Object.values(rig.rigs).map((r) => r.group.rotation.y).join('/')}`);
+  rig.rest();
+  check('and rest puts it back square with the kind it was left on',
+    rig.group.rotation.y === 0 && rig.group.position.y === 0
+    && rig.rigs[rig.kind].group.visible);
 
   // The rest of the tap: `parcelFor` maps a hit back to the errand that owns it, `pickables()` offers
   // only the end that is actually standing on the board, and `acknowledge` answers on the corner.
@@ -2470,15 +2553,41 @@ check('no two cars occupy the same space', worst > 1.6,
   // pair of corners the draw came up with.
   let sampled = 0;
   let sampledOnPark = 0;
+  // The other thing 80 boards are enough to say something about: which load each package is carrying.
+  // A run of this length sees a handful, so the draw is sampled here for the same reason the park
+  // filter is — one spawn cannot tell a coin flip from a constant.
+  let sampledFood = 0;
+  let sampledWrongMesh = 0;
+  let sampledLoosePickup = 0;
+  const foodDropoffs = new Set();
   const BOARDS = 80;
   for (let s = 0; s < BOARDS; s++) {
     const boardScene = new THREE.Scene();
-    const board = createParcelSystem(makeRng(seed + 900 + s * 7), boardScene);
+    const board = createParcelSystem(makeRng(seed + 900 + s * 7), boardScene,
+      { foodPickup: FOOD_PICKUP });
     // `delivered` past the tutorial gate and `nextSpawnAt` still at −Infinity, so the first frame
     // spawns rather than waiting out a drawn gap.
     for (const { type, parcel } of board.update(1 / 60, pTraffic.taxi, { delivered: 99 })) {
       if (type !== 'spawned') continue;
       sampled += 1;
+      if (parcel.kind === 'food') {
+        sampledFood += 1;
+        // **A food order comes from the joint, and from nowhere else.** This is the one thing about
+        // the second load that is not cosmetic, and the way it fails is silent: a `foodPickup` that
+        // never passes `spotLegal` — a corner the camera cannot see, say — does not throw, it serves
+        // a box under a different name, and the board goes on looking exactly right.
+        if (parcel.pickup.i !== FOOD_PICKUP?.i || parcel.pickup.j !== FOOD_PICKUP?.j) {
+          sampledLoosePickup += 1;
+        }
+        // ...and the delivery end is still anywhere, which is what makes it a delivery rather than a
+        // shuttle. Counted rather than asserted per spawn: with one origin, "anywhere" is a claim
+        // about the spread of the *set*.
+        foodDropoffs.add(`${parcel.dropoff.i},${parcel.dropoff.j}`);
+      }
+      // The kerb marker has to be wearing what the package says it is: the kind is drawn in `spawn`
+      // and pushed onto a rig that is reused for the whole run, so a missed `setKind` shows up as a
+      // board that is stuck on whatever the last package was.
+      if (parcel.slot.pickup.standing.kind !== parcel.kind) sampledWrongMesh += 1;
       for (const end of [parcel.pickup, parcel.dropoff]) {
         if (onGrass(layout, end.i, end.j)) sampledOnPark += 1;
       }
@@ -2492,6 +2601,31 @@ check('no two cars occupy the same space', worst > 1.6,
   // only the detours that cost a single leg, which in an unlucky city is none of them. Asserting more
   // than one here would be asserting the city's geometry, the same trap the missing gap *ceiling*
   // below is written around.
+  // **Both kinds turn up, and neither is rare.** The two loads play identically (see FOOD_CHANCE), so
+  // what this is protecting is not a balance number: it is that the draw exists at all. A `kind` that
+  // got pinned, inverted or dropped leaves a board that is all boxes or all burgers, which is exactly
+  // what the layer looked like before the second one — invisible, and never reported.
+  //
+  // The band is wide on purpose. 80 draws at even odds sit inside 25–75 on all but about one seed in
+  // 40,000, and the thing worth failing on is a kind that never appears rather than one that appeared
+  // 44 times instead of 40.
+  check('a package is a box or a food order, and both are common',
+    sampledFood > sampled * 0.25 && sampledFood < sampled * 0.75,
+    `${sampledFood} food of ${sampled}`);
+  check('and the corner is wearing the load the package says it is',
+    sampledWrongMesh === 0, `${sampledWrongMesh} of ${sampled} showing the wrong mesh`);
+  check('every food order is collected at the burger joint',
+    sampledFood > 0 && sampledLoosePickup === 0,
+    FOOD_PICKUP
+      ? `${sampledFood} orders, ${sampledLoosePickup} from somewhere other than `
+        + `(${FOOD_PICKUP.i}, ${FOOD_PICKUP.j})`
+      : 'no joint in this city');
+  // Ten distinct drop-offs out of the orders drawn is not a distribution test — it is the assertion
+  // that the *far* end is still drawn at all. A food order whose delivery was also pinned would be
+  // the same drive every time, which is the failure a fixed origin invites.
+  check('and delivered anywhere', foodDropoffs.size >= 10,
+    `${foodDropoffs.size} distinct drop-offs across ${sampledFood} orders`);
+
   check('packages appear on the board', spawns >= 1, `${spawns} spawned`);
   check('no package before the tutorial delivery', spawnedTooEarly === 0,
     `${spawnedTooEarly} early`);
@@ -2582,7 +2716,7 @@ check('no two cars occupy the same space', worst > 1.6,
   const fares = createFareSystem(makeRng(seed + 55), cScene, {
     reserved: () => parcels.occupiedSpots(),
   });
-  const parcels = createParcelSystem(makeRng(seed + 255), cScene);
+  const parcels = createParcelSystem(makeRng(seed + 255), cScene, { foodPickup: FOOD_PICKUP });
   cTraffic.warmup(2);
 
   // Get a rider aboard the ordinary way.
@@ -2666,6 +2800,12 @@ check('no two cars occupy the same space', worst > 1.6,
     // The lift is already running — it was launched on the frame the box was collected. Its first
     // position is the seam: the flying copy has to stand exactly where the kerb copy did, or the box
     // jumps on the frame it changes objects.
+    // And it is the same *load* that was standing there. The flying copy is a second rig (see
+    // `createSlot`), so the kind has to be pushed onto it at launch — miss that and the box the player
+    // watched leave the kerb is a burger by the time it reaches the corner of the screen.
+    check('and the copy that flies away is carrying what the kerb was',
+      parcel.slot.flightBox.kind === parcel.kind,
+      `${parcel.slot.flightBox.kind} in flight against ${parcel.kind} on the board`);
     check('a collected box lifts off from the corner it was standing on',
       lift.visible
       && Math.hypot(lift.position.x - kerb.x, lift.position.z - kerb.z) < 0.01
@@ -12486,6 +12626,8 @@ let chopperOrder; // likewise
   let worstKept = 1;
   let originRejected = 0;
   let mostRejectedInOneCity = 0;
+  let jointCorners = 0;
+  let jointSeen = 0;
   const SEEDS = 4;
   for (let n = 0; n < SEEDS; n++) {
     const s = seed + n * 977;
@@ -12494,6 +12636,16 @@ let chopperOrder; // likewise
     const sweepProps = createProps(makeRng(s + 33), sweepLayout).mesh;
     const targets = [sweepCity, sweepProps];
     setCityOccluders(sweepCity, sweepProps);
+    // **The food order's own corner, in every city this sweep builds.** A food order is collected at
+    // the burger joint and nowhere else (game/parcels.js), and the filter this block is about is the
+    // one thing standing between that and a board that quietly serves boxes for a whole run: a joint
+    // whose corner the camera cannot see offers no food at all, in a city that looks perfectly
+    // normal. It is checked here rather than beside the courier board because this is the only place
+    // that builds more than one city with its sightlines installed.
+    if (sweepLayout.burgerBlock) {
+      jointCorners += 1;
+      if (cornerSeen(sweepLayout.burgerBlock.bi + 1, sweepLayout.burgerBlock.bj + 1)) jointSeen += 1;
+    }
     let rejectedHere = 0;
     for (let i = 0; i <= GRID_I; i++) {
       for (let j = 0; j <= GRID_J; j++) {
@@ -12542,6 +12694,9 @@ let chopperOrder; // likewise
   // hidden in nearly every city, and it was on the board in all of them.
   check('the origin corner — hidden in nearly every city — is off the board',
     originRejected >= SEEDS - 1, `${originRejected}/${SEEDS} cities`);
+  check('the burger joint\u2019s own corner is visible in every city, so food is always on offer',
+    jointCorners === SEEDS && jointSeen === jointCorners,
+    `${jointSeen}/${jointCorners} joints with a visible pickup corner`);
   // A filter that eats the board is worse than the bug. Two junctions a city on average, and the
   // worst city in the sweep is the number that would show up as "nowhere to put a fare".
   check('and the filter costs the board a couple of junctions, not a district',

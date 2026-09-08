@@ -824,11 +824,21 @@ try {
     ctx.drawImage(src, 0, 0);
     const data = ctx.getImageData(0, 0, c.width, c.height).data;
     let drawn = 0;
-    for (let i = 3; i < data.length; i += 4) if (data[i] > 200) drawn += 1;
+    let edge = 0;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] <= 200) continue;
+      drawn += 1;
+      // On the outermost ring of the canvas, which is what a load too big for the frustum reaches.
+      const px = (i - 3) / 4;
+      const x = px % c.width;
+      const y = (px - x) / c.width;
+      if (x === 0 || y === 0 || x === c.width - 1 || y === c.height - 1) edge += 1;
+    }
     return JSON.stringify({
       on: el.classList.contains('is-on'),
       hidden: el.getAttribute('aria-hidden'),
       drawn: drawn / (data.length / 4),
+      edge,
     });
   })()`);
 
@@ -844,6 +854,31 @@ try {
   check('a package aboard raises the cargo chip',
     chipUp.on === true && chipUp.hidden === 'false' && chipUp.drawn > 0.3,
     `${(chipUp.drawn * 100).toFixed(0)}% of the canvas drawn`);
+
+  // **The other load, in the same frame.** A courier job carries a box or a food order
+  // (game/parcels.js) and the chip frames *one* frustum for both — which is the whole reason
+  // geometry/food.js is built into the box's envelope. `probe.mjs` asserts the two meshes against
+  // each other; what only a page can say is whether the thing that survives that arithmetic actually
+  // fits, so this counts opaque pixels on the **outermost ring** of the canvas. A load that overflows
+  // the frustum is a load with its straw or its bun cut off square by an edge, which is a correct
+  // element drawing a wrong picture and passes every DOM check there is.
+  const chipFood = JSON.parse(await chipState(
+    "chip.setCarrying(false); chip.setCarrying(true, 'food'); chip.render()",
+  ));
+  //
+  // The floor is lower than the box's for a reason that is not a fault: coverage is opaque *pixels*,
+  // and a burger with a cup standing behind it is a sparse silhouette with sky through the middle of
+  // it where the box is a solid square. Measured, the two frame to almost the same height — 0.97
+  // against 1.02 of the frustum's 1.15 — and land at 21% and 52% of the canvas. What this number is
+  // for is the two failures that look fine from the DOM: nothing drawn at all, and a load framed off
+  // the side of the canvas.
+  check('and a food order is framed by the same chip, whole',
+    chipFood.on === true && chipFood.drawn > 0.12 && chipFood.edge === 0 && chipUp.edge === 0,
+    `${(chipFood.drawn * 100).toFixed(0)}% drawn, ${chipFood.edge} px on the rim `
+    + `(the box: ${(chipUp.drawn * 100).toFixed(0)}%, ${chipUp.edge})`);
+  // Back to the box, so the checks below read the load every other run of this suite read.
+  await evaluate("window.__taxi.cargoChip?.setCarrying(false)");
+  await evaluate("window.__taxi.cargoChip?.setCarrying(true, 'parcel')");
 
   // ...and it is riding along rather than sitting there as a picture. The chip turns a full circle
   // every 20s and bobs half a pixel, both driven from `render` off wall time — so the way this fails

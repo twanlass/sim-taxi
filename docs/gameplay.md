@@ -1803,6 +1803,59 @@ pacing assumes. If it plays too quiet, the lever is not `MAX_PARCELS`: it is giv
 box permission to move, which needs to happen without a countdown and without anything vanishing
 from under a player already driving at it.
 
+### Two kinds of load, and one of them has an address
+
+A courier job is carrying a **box** or a **food order** — an oversized burger with a soda cup behind
+it (`geometry/parcel.js`, `geometry/food.js`), drawn per package at even odds (`FOOD_CHANCE`).
+Everything about the errand is the same either way — same pad, same cyan, same gestures, same money,
+same fuel, same absence of a clock — with **one** exception, and it is the reason the second kind is
+worth having at all:
+
+**A food order is collected at the [burger joint](#the-burger-run).** Not at a corner the draw
+liked: at the one place in the city that sells food. The junction is the joint's own +X+Z corner, so
+the pad lands on the lot itself, by the drive-through's exit — `cornerFor` puts a kerb pin on the
+−X−Z side of its junction, which makes `(bi + 1, bj + 1)` the one corner of that block whose pin
+stands on the joint's slab rather than across the road from it. `main.js` derives it and injects it;
+`parcels.js` holds no reference to the city layout, the same one-way arrangement `reserved` keeps in
+the other direction.
+
+The drive-through has been scenery with one secret in it for a long time. This makes it an
+**address** — a building whose position the player learns because jobs come out of it — and the
+delivery end is still drawn from anywhere, which is what a food delivery *is*: one origin, and the
+whole map to take it to.
+
+It costs something honest, and the trade is the same one the drive-through itself already makes. A
+box is an errand between two corners the draw put near the taxi's route; a food order always starts
+in the same place, so how good a job it is depends on where the taxi happens to be — and in a run
+that never goes near that block, the food half of the board is not for you. That is a landmark
+working, not a bug in the placement.
+
+**A food order that cannot be collected is served as a box.** The joint's corner is unusable in three
+ordinary ways — a rider is standing on it, the taxi is parked on it, or the city failed to place a
+joint at all — and none of them is a reason for the board to sit empty. So `FOOD_CHANCE` is the
+chance of *asking* for food, and what actually gets served is measured in `tools/probe.mjs` rather
+than assumed to match it (43 of 80 on the probe's city). The one thing that would make the whole
+feature vanish silently is a joint whose corner the camera cannot see — the
+[sightline filter](#corners-the-camera-cannot-see) would drop it and the board would
+serve boxes for the entire run, in a city that looks perfectly normal — so that is swept across
+cities and asserted too.
+
+**Everything else about the second kind is flavour, deliberately.** A second load is the obvious
+place to hang a second *rule* — food that goes cold, an order worth more, one that has to be
+delivered before the box the taxi is also carrying — and every one of those wants the thing this
+layer does not have and [cannot grow](#a-package-has-no-clock-and-so-has-no-diamond): a clock. A
+fixed origin is the one mechanic that costs the layer nothing it is built on. It takes no deadline,
+it cannot fail, and it spends nothing but the map.
+
+**Both kinds are common on purpose.** They pay the same and are collected the same way, so there is
+no reason for the draw to favour either and every reason for both to be seen. A rare variant on a
+board that shows one job every twenty to forty-five seconds is something a player meets twice in a
+run and reads as a glitch — the courier layer is not a collection, and a load you have to be lucky to
+see is one nobody learns is there.
+
+How the two are drawn, and why the order had to be built into the box's envelope, is in
+[rendering.md](rendering.md#the-food-order--geometryfoodjs).
+
 ### A package has no clock, and so has no diamond
 
 The board's vocabulary is [shape says what a thing is, hue says whose clock is paying for

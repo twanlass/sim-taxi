@@ -3136,11 +3136,16 @@ The cross is on the **top** face because the camera looks down the +X+Z diagonal
 the largest face on screen; a band around the girth would be mostly hidden. It is what says *parcel*
 rather than *crate*.
 
-`idle(t)` is a slow Y spin plus a gentle bob, off sim time. The rider's answer to "come and get me" is
-a raised waving arm; a box has no arm, so the motion carries all of it — and it is deliberately
-slower than the wave, because a parcel is not impatient, it has no clock. The footprint is square so
-the spin never changes the silhouette's width, which is what makes it read as turning rather than as
-pulsing.
+**A courier job carries one of two loads**, this box or the [food order](#the-food-order--geometryfoodjs)
+below, and `geometry/cargo.js` is the rig that holds both and switches between them. Both are built
+once per slot and one is shown, because a slot is built once and reused for the whole run.
+
+`idle(t)` is a slow Y spin plus a gentle bob, off sim time, and it lives on that rig rather than in
+either geometry module — two loads turning at two rates would be two answers to the one thing the
+motion says. The rider's answer to "come and get me" is a raised waving arm; a load has no arm, so the
+motion carries all of it — and it is deliberately slower than the wave, because a courier job is not
+impatient, it has no clock. The box's footprint is square so the spin never changes the silhouette's
+width, which is what makes it read as turning rather than as pulsing.
 
 **It is built to read as 📦**, and each of the four parts is doing one job at ~15px: a kraft body; a
 darker lid slab so the top seam is a plane rather than a stripe; **one** semi-white tape strip; and a
@@ -3235,7 +3240,7 @@ the same one the digits above it wear. Three things about the view:
   42px square with no ground under it, half a black box is a smudge. From the −X +Z quadrant the visible
   X face is at +0.78 and the Z face stays at +0.40, and the visible Z face is the one carrying the strip
   and a label — the pair 📦 shows.
-- **The frustum is computed, not eyeballed.** The box stands 1.16 tall and 1.384 across at the lid, so
+- **The frustum is computed, not eyeballed — once, for both loads.** The box stands 1.16 tall and 1.384 across at the lid, so
   at 45° its half-diagonal is 0.979 and its screen half-height is 1.16·cos33/2 + 0.979·sin33 = 1.02 —
   near enough the same number as the half-width, so one square frustum covers both. `FIT` is 1.15, that
   plus 13% for the drop shadow and nothing else, because a *square* canvas has no corner for the box to
@@ -3285,6 +3290,72 @@ to be the same point on the box, or it moves on the frame it changes renderers.
 The deck copy those numbers were first written for is gone — the taxi carries nothing now, so it also
 drops out of the ghost-outline stencil mask, which is seven parts rather than eight (`tools/probe.mjs`
 counts them, because a part left *out* of the mask counts as an occluder of the rim behind it).
+
+### The food order — `geometry/food.js`
+
+The courier's other load: an oversized burger with a soda cup standing behind it. Same pad, same
+cyan, same money — it differs in what it *is*, and in one thing that is not cosmetic: it is collected
+at the [burger joint](gameplay.md#two-kinds-of-load-and-one-of-them-has-an-address) and nowhere else.
+
+**Two objects and no container, and that is the whole design.** The first cut put both of them in a
+takeaway bag, which is what a real order comes in and which cost the order the only thing it had: the
+bag is a squat tapered block, it took two thirds of the envelope, and it left the burger and the cup
+as trinkets balanced on top of something that reads at ten pixels as *another box*. Cargo on this
+board is already a box. What is worth having here is the pair of shapes nothing else in the game has,
+at the size they can be recognised at — so both are several sizes too big, the same deliberate lie
+[the figure](gameplay.md#the-taxis-roof-sign) and the parcel both tell. The burger is 1.24 across,
+which is wider than the box.
+
+**A different silhouette, not a different colour.** Hue on this board is spent: shape says what a
+thing is and hue says whose clock is paying for it, and a courier job has no clock — so a second load
+arriving as a second cyan would be saying something the board cannot mean. What is left is the
+outline: a round stack and a tall tapered cup against a squat square, plus the **straw**, which is the
+only part of any load in the game that breaks the outline at the top and is what makes the spin
+legible the way the tape strip is for the box.
+
+**The burger is the drive-through's own mesh**, `burgerGeometry()` from
+[city/burgerjoint.js](city.md#the-burger-joint-and-its-drive-through), shrunk — not a second recipe
+for one. That sign is fourteen pixels on a pole and solved this exact problem once already: which
+slices read at that size, how much of each has to stand out past the crown, why the cheese is a square
+turned 45°. Rebuilding it here would put two burgers in one city, tuned twice, drifting apart on the
+first change to either. It is scaled and stood on the ground **by its own measured bounding box**
+rather than by arithmetic off `BURGER_R`, so it follows any re-tune of the sign.
+
+**It shares the box's envelope, and that is a hard constraint.** Three things measure a load without
+asking which kind it is: the chip frames one square frustum around whatever is aboard, a pickup hands
+the chip a point on the load's own middle, and the outbound flight opens at "cargo, at the scale the
+car handles cargo at". A taller second load overflows the first, sits off-centre in the second and
+opens at the wrong size in the third — three bugs out of one dimension. So the straw's tip lands on
+the box's 1.16 and the pair stays inside its sweep, and `tools/probe.mjs` asserts that against the two
+meshes that actually get built rather than against the numbers meant to produce them. The width there
+is measured as the **furthest vertex from the spin axis**, not off a bounding box: a box's corners are
+real vertices, a burger and a cup on a diagonal have nothing at the corners of theirs, and what both
+the chip's frustum and the spin care about is the radius.
+
+Three things were measured rather than guessed:
+
+- **The tall one goes up-screen, and the pair sits on the diagonal.** −X−Z is away from the eye and up
+  the frame, so cup behind and burger in front is the one arrangement where the burger cannot cover
+  the cup's body. On the diagonal rather than side by side for a second reason: two objects strung out
+  along one axis swing between their full width and nothing as the order turns.
+- **The pair is centred on its own plan extents, after the fact.** The offsets are chosen to balance,
+  but the burger carries a scatter of sesame seeds that is deliberately *not* symmetric, so the pair
+  as built leans a few hundredths — and the idle spin is about this mesh's Y axis, where a lopsided
+  plan reads as an orbit rather than a turn.
+- **The cup's body stops well short of the lid line.** Drawn up to it, the straw gets a tenth of a
+  unit of air and is a nub; at 0.78 the body is still half again as tall as it is wide, which is all a
+  cup needs to be a cup, and the straw gets a third of a unit to stand up in. The lid is **red** for
+  the other half of the same read: paper and bun are near neighbours under this sun, so an off-white
+  cap on an off-white cup was one shade of one colour.
+
+> **Trap.** `BufferGeometry.scale` goes through `applyMatrix4`, which **recomputes a bounding box that
+> already exists**. So a box read off the sign before the scale and held by reference has silently had
+> the scale applied to it by the time it is used, and standing the mesh on the ground with it applies
+> the scale twice — it sank the burger a quarter of a unit into the pavement. `.clone()` the reading.
+
+Everything is a cylinder, a box or a squashed hemisphere — nothing here is hand-wound, which is what
+keeps it clear of [the winding trap](#the-courier-pad--geometryparcelpadjs) the pad next door fell
+into.
 
 ### The drop-off ring — `geometry/marker.js`
 

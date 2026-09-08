@@ -130,7 +130,7 @@ playing ten fares to reach it. It exists because "can you read this board" is th
 screenshot answers better than an assertion — and because the board was capped at three for years
 on a readability judgement made against a marker that no longer exists.
 
-Shots 27–28 (`parcel`, `parcel-board`) are the only ones that need a **query param to work at all**: the
+Shots 27–28 (`parcel`, `parcel-board`) and 36 (`food`) are the only ones that need a **query param to work at all**: the
 package courier is off in shot mode by default, so both want `?parcels=1`. Every framing
 in the sweep was composed before packages existed, and a cyan pad wandering into one is a change to a
 reference image that has nothing to do with whatever is being looked at — so the layer stays out
@@ -140,6 +140,18 @@ delivery. Two distances because the two questions are at different distances: cl
 read as a *parcel* and does the tape cross survive; at play zoom, is the pad's rounded square
 distinguishable from a fare's disc. That second one is the whole of "shape says what a thing is" and
 is the one claim no assertion can make.
+
+`food` is the [other load](gameplay.md#two-kinds-of-load-and-one-of-them-has-an-address) on the same pad, and it is a separate shot
+rather than a re-run of `parcel` at a lucky seed because which load a package carries is a coin flip
+inside the run seed: without the `cargoKind` pin half of every sweep photographs a box under a name
+that says food. One framing rather than the usual pair — the play-zoom question is about the *pad*,
+and both loads stand on the same one, so `parcel-board` already answers it. What only a close-up can
+answer is this shot's own question: do a burger and a cup read as food at all at this size, and does
+the straw survive being two pixels. It frames itself on the **drive-through** without being asked to,
+because a food order is collected at the burger joint and nowhere else
+([gameplay.md](gameplay.md#two-kinds-of-load-and-one-of-them-has-an-address)) — so the second thing it
+answers for free is whether a cyan pad on that lot reads as part of the restaurant or as litter on
+it.
 
 Shot 29 (`clouds`) frames the map's **far corner** rather than the middle of it, which is the whole
 point of it: the clouds ring the island (see [rendering.md](rendering.md#clouds--gamecloudsjs-geometrycloudjs)),

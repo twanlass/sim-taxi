@@ -184,6 +184,24 @@ export const SHOTS = [
   // leaves it at — see the note there.
   { name: 'depot', description: 'the taxi depot, close', target: [0, 0], zoom: 11, warmup: 12, atDepot: true },
   { name: 'depot-far', description: 'the depot at play zoom', target: [0, 0], zoom: 52, warmup: 12, atDepot: true },
+  // The courier's other load: a food order on its pad (geometry/food.js). Appended, for the
+  // index-addressing reason stated above the `birds` entry — and **needs `?parcels=1`**, like the two
+  // `parcel` framings it is the sibling of.
+  //
+  // `cargoKind` is the whole reason this is a separate entry rather than a re-run of `parcel` at a
+  // lucky seed: which load a package is carrying is a coin flip inside the run seed, so without a pin
+  // half of every sweep photographs a box under a name that says food.
+  //
+  // One framing rather than the usual pair. The play-zoom question — is a courier pad tellable from a
+  // fare's disc — is about the *pad*, and both loads stand on the same one, so `parcel-board` already
+  // answers it. What is only answerable close up is this shot's own question: do a burger and a cup
+  // read as food at all at this size, and does the straw survive being two pixels.
+  //
+  // It frames itself on the **drive-through**, without being asked to: a food order is collected at
+  // the burger joint and nowhere else (game/parcels.js), and `untilParcel` points the camera at
+  // whichever corner the package landed on. So the second thing this shot answers for free is
+  // whether a cyan pad sitting on that lot reads as part of the restaurant or as litter on it.
+  { name: 'food', description: 'a food order waiting on its pad — needs ?parcels=1', target: [0, 0], zoom: 11, warmup: 12, untilParcel: true, cargoKind: 'food' },
 ];
 
 export function getActiveShot() {

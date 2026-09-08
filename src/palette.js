@@ -404,6 +404,23 @@ export const PALETTE = {
   parcelTape: '#DED6C4',
   parcelLabel: '#F2F0E8',
 
+  // The courier's other load: an oversized burger and a soda cup (geometry/food.js). **Two colours,
+  // and neither of them is the burger's** — that whole stack is the drive-through's own mesh and
+  // arrives already painted out of `bunTop`/`bunBase`/`patty`/`cheese`/`lettuce`/`sesame` above. The
+  // city has one burger, tuned once; a second set of slice colours mixed for the same object at half
+  // the size is how two things that should match drift apart.
+  //
+  // The cup: an off-white body under a **red** lid, and the lid is the working half. Paper and bun
+  // are near neighbours under this sun, so an off-white cap on an off-white cup was one shade of one
+  // colour and the drink did not read at all until the thing capping it was neither. It is a shade
+  // off `burgerBand` rather than the same red, so the lid and the pale straw coming out of it stay
+  // two objects at 10px.
+  //
+  // The body is kept off pure white for the reason the parcel's label is: white belongs to the
+  // waiting rider, and nothing else in the game should reach for it.
+  foodCup: '#EFEBDF',
+  foodCupLid: '#B0433B',
+
   // Urgency, indexed by how much of the clock is left, in quarters. Deliberately not a ramp: a
   // colour that changes imperceptibly tells the player nothing, so it snaps at each quarter lost.
   // 1 and 0 share red — by then there is nothing redder to go to.

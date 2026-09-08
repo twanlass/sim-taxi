@@ -401,7 +401,19 @@ const fares = createFareSystem(makeRng(runSeed + 55), scene, {
 // seeded, so equal offsets are not independent streams, they are identical ones. `tools/probe.mjs`
 // now asserts every offset in this file is distinct, because nothing about the collision was visible:
 // no crash, no failing check, just a package board silently correlated with a helicopter.
-const parcels = parcelsEnabled ? createParcelSystem(makeRng(runSeed + 255), scene) : null;
+//
+// `foodPickup` is the burger joint's own corner junction, and it is the whole of what that module
+// knows about the city: a food order is collected there and nowhere else (see game/parcels.js). The
+// **+X+Z** corner of the joint's block, because `cornerFor` puts a kerb pin on the −X−Z side of its
+// junction — so junction (bi + 1, bj + 1) is the one whose pin stands on the joint's *own* slab
+// rather than across the road from it. It is also the corner the drive-through's exit crosses, which
+// is as close to "at the window" as a mark on a junction can be. A city that failed to place a joint
+// (`chooseBurgerBlock` can come back empty) passes null and serves boxes only.
+const parcels = parcelsEnabled
+  ? createParcelSystem(makeRng(runSeed + 255), scene, {
+    foodPickup: burger ? { i: burger.site.bi + 1, j: burger.site.bj + 1 } : null,
+  })
+  : null;
 // Sim time the taxi's flourish was stamped at, or null when it is not running. See the frame loop —
 // it lights the whole car for the length of a select pop.
 //
@@ -2826,9 +2838,13 @@ function frame() {
       // the fade (see `flyIn` in game/cargochip.js).
       if (at && cargoChip) {
         const p = projectToScreen(at.x, at.y, at.z);
-        cargoChip.flyIn({ x: p.x, y: p.y, yaw: at.yaw });
+        // `at.cargo` is which load it was — a box or a food order (game/parcels.js). It rides on the
+        // event rather than being read back off the package, because the package is already carried
+        // by the time this lands and the chip has to raise the same thing that is fading out over
+        // the kerb.
+        cargoChip.flyIn({ x: p.x, y: p.y, yaw: at.yaw, kind: at.cargo });
       } else {
-        cargoChip?.setCarrying(true);
+        cargoChip?.setCarrying(true, at?.cargo);
       }
     } else if (type === 'delivered') {
       // Same retirement as `'pickup'` above, for a dispatch aimed at the drop-off pad.
@@ -3256,6 +3272,10 @@ if (shot) {
   //
   // Only reachable with `?parcels=1`, which is also what turns the layer on in shot mode at all.
   if (shot.untilParcel && parcels) {
+    // Which load to photograph, when the shot asks for a particular one. Which kind a package is
+    // carrying is a coin flip inside the run seed, so a framing of the food order that waited for the
+    // draw to answer would be a framing that moves the day anything upstream of it changes.
+    if (shot.cargoKind) parcels.forceKind(shot.cargoKind);
     parcels.state.nextSpawnAt = -Infinity;
     parcels.update(1 / 60, traffic.taxi, { fareSpots: fares.occupiedSpots(), delivered: 9 });
     // A few frames of sim time so the box is mid-spin rather than dead square to the camera, which
