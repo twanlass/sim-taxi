@@ -8,7 +8,10 @@ Guidance for Claude Code when working in this repository.
 5-by-6 block city with a river down the middle of it, ambient traffic obeying real signals, and one
 taxi you route by tapping fares.
 
-Three.js r0.180 + Vite 7. **Zero external assets** — every mesh is generated in code.
+Three.js r0.180 + Vite 7. **Zero external *visual* assets** — every mesh is generated in code. The
+one exception to "zero assets" is sound: the music and effects are human-authored files, a decision
+taken deliberately and written up in [docs/audio.md](docs/audio.md). Nothing under `geometry/` or
+`city/` gets to load a model on the strength of it.
 
 ## Read the docs first
 
@@ -29,6 +32,7 @@ about to change.
 | [docs/testing.md](docs/testing.md) | `npm run check`, the headless tools, screenshots |
 | [docs/lab.md](docs/lab.md) | The passing lab at `/lab/` — a straight road with no lights, for watching Loco Mode |
 | [docs/ios.md](docs/ios.md) | The App Store build: the WKWebView shell, the custom URL scheme, `window.__native` |
+| [docs/audio.md](docs/audio.md) | **Planned, not built.** Music and effects: the event model, the mix as data, the sound lab at `/audio/`, the iOS audio session |
 
 ## Commands
 

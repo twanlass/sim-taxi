@@ -360,9 +360,14 @@ Not built yet, roughly in value-for-effort order:
   `highscores.js`'s injectable store is the seam it slots into. Keep the local top-5 and submit in
   addition.
 - **Audio.** The game is silent — there is no `AudioContext` anywhere in `src/`. Highest value and
-  highest effort. Synthesised Web Audio rather than sample files would hold the zero-external-assets
-  line the project has kept everywhere else; on the native side set `AVAudioSession` to `.ambient`
-  so it does not stop the player's music.
+  highest effort. Planned in full in [audio.md](audio.md); two things this entry used to say are
+  now settled the other way. The music and effects are **human-authored files**, not synthesised
+  Web Audio — the zero-external-assets line is amended to cover visual assets only, because
+  synthesis narrows the hiring pool to almost nobody. And the session category is **`.playback`
+  with `.mixWithOthers`**, not `.ambient`: `.ambient` does leave the player's own music alone, but
+  it also stays silent when the ringer switch is off, which is how "audio is broken on iPhone" gets
+  reported. `.playback` + `.mixWithOthers` gets both halves. One line in `GameViewController.swift`,
+  and nothing in `src/` can substitute for it.
 - **App Store submission**: a privacy policy URL (required even though the app collects nothing —
   it makes no network requests at all, so the nutrition label is "Data Not Collected"), age rating,
   and screenshots. `tools/shoot.mjs` can render the required sizes — 6.9" iPhone at 1320×2868, and
