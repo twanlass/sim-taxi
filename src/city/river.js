@@ -88,9 +88,17 @@ export const RAIL_POST_PITCH = 1.7;
 //
 //     flat span, deck 0.35 thick     soffit -0.35    clearance 1.65
 //     arched span at the crest       soffit +0.75    clearance 2.75
+//     ...over the outermost lane                     clearance 2.52
 //     barge, air draught 1.4                         clears both
-//     tug, air draught 2.4                           clears the arches by 0.35,
-//                                                    0.75 short of the flat one
+//     sailboat, air draught 2.4                      clears the arches by 0.12 over its
+//                                                    worst lane, 0.75 short of the flat one
+//
+// **That third row is the ceiling on the whole feature and it is easy to miss.** The tall boat has
+// to pass under both ring-road bridges to reach the drawbridge at all, so its rig cannot exceed
+// what an *arch* leaves — and an arch crests on the channel's centreline (`deckHeightAt` is a
+// function of z alone), so what bounds it is the clearance over the outermost lane the boats are
+// given, not the 2.75 at the crest. At 2.4 the sailboat has 0.12 of air. Anything that wants a
+// taller boat has to move `ARCH_RISE` first, which is the camera number below.
 //
 // **The rise is a camera number too.** A world-Y lift of `h` moves `6.45h` px up the screen at
 // play zoom (SCREEN_PER_WORLD_Y 0.838 x 7.7 px per unit), so 1.1 is about 7px. That is
@@ -105,7 +113,7 @@ export const ARCH_SOFFIT = ARCH_RISE - DECK_THICK;
 
 /** Air draughts, exported so `tools/probe.mjs` can assert the chain above rather than the outcome. */
 export const BARGE_AIR = 1.4;
-export const TUG_AIR = 2.4;
+export const SAIL_AIR = 2.4;
 
 // How far a bridge deck reaches beyond the road it carries: its footway, and the edge beam under
 // it. **The same 1.4 the embankment walk is**, deliberately — a pavement that narrowed as it

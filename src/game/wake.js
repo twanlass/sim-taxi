@@ -20,24 +20,24 @@ import { PALETTE } from '../palette.js';
 // The pool, and it is sized against the worst river rather than the usual one.
 //
 // A boat spends `2 + 1/CHURN_EVERY` motes every `SPAWN_STEP` units travelled, so the rate is
-// `2.5 · speed / 0.5` a second and what is alive at once is that times `LIFE`: 41 for a tug at 3.4,
+// `2.5 · speed / 0.5` a second and what is alive at once is that times `LIFE`: 41 for a sailboat at 3.4,
 // 31 for a barge at 2.6. The hulls on the water at once are the thing that multiplies it — a barge
 // crosses `SLAB_X + 52` = 176 units at 2.6, which is 68 seconds, against a `BARGE_WAIT` floor of 16
-// — so five barges is the ceiling the spawner can actually reach, and with the one tug that is 196.
+// — so five barges is the ceiling the spawner can reach, and with the one sailboat that is 196.
 // At 256 there are 60 slots of headroom; below about 200 the ring buffer starts recycling a mote
 // out from under a wake that is still on screen, which is the failure the dust pool has twice been
 // grown to avoid.
 const MAX_FOAM = 256;
 
-// How long a mote lasts. Measured as a *length* rather than picked: at 3.4 u/s this trails a tug by
+// How long a mote lasts. Measured as a *length* rather than picked: at 3.4 u/s this trails a boat by
 // 8.2 units against the old triangle's 5.2, and the alpha curve below spends the last third of it
 // under 0.06 — so what reads is about six units of foam that comes apart at the end instead of
 // stopping on a line.
 const LIFE = 2.4;
 
 // One spawn every this many units *travelled*, which is what makes the trail a fact about the
-// distance covered rather than about the frame rate — and, the part that matters here, is why a tug
-// clamped at `HOLD_OFF` in front of a shut leaf lays nothing at all. The old wake needed an
+// distance covered rather than about the frame rate — and, the part that matters here, is why a boat
+// clamped in front of a shut leaf lays nothing at all. The old wake needed an
 // explicit "how far did it actually move this frame" term multiplied into its opacity to avoid a
 // boat standing still with a full wake behind it; a distance-keyed emitter gets that for free.
 const SPAWN_STEP = 0.5;
@@ -50,8 +50,8 @@ const CHURN_EVERY = 2;
 // This is the Kelvin angle: a displacement hull's wake opens at a half-angle of `asin(1/3)` =
 // 19.47° whatever the speed, so a mote leaving the stern at `tan(19.47°) = 0.354` of hull speed
 // sideways traces exactly that V. It matters that it scales with speed rather than being a fixed
-// lateral rate — the tug and the barge then throw the *same shape* at different lengths, which is
-// what makes the barge read as heavy rather than as a tug with a slower wake.
+// lateral rate — the sailboat and the barge then throw the *same shape* at different lengths, which
+// is what makes the barge read as heavy rather than as a sailboat with a slower wake.
 const KELVIN = 0.354;
 
 // Where an arm starts, off the boat's centreline. Just inboard of the hull's own `BEAM / 2` = 1.1,
@@ -221,7 +221,7 @@ export function createWake(parent, rng, edges, fade) {
 
   /** Everything one step of travel spends: an arm each side, and a churn on every other step. */
   function step(boat, count) {
-    // Off the stern, which is where a wake starts and is not the same point on a 4.4-unit tug as on
+    // Off the stern, which is where a wake starts and is not the same point on a 6.4-unit sailboat as on
     // an 8.6-unit barge — hung off the origin instead, a barge's foam appears four units inside its
     // own hull.
     const sx = boat.x - boat.dir * boat.len / 2;

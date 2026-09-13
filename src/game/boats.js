@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { propMaterial } from '../util/geo.js';
 import { makeRng } from '../util/rng.js';
-import { createBargeMesh, createTugMesh, BARGE_LEN, TUG_LEN, BEAM } from '../geometry/boat.js';
+import { createBargeMesh, createSailboatMesh, BARGE_LEN, SAIL_LEN, BEAM } from '../geometry/boat.js';
 import {
-  waterEdges, waterHeightAt, bridgeSpan, drawbridgeLine, BARGE_AIR, TUG_AIR,
+  waterEdges, waterHeightAt, bridgeSpan, drawbridgeLine, BARGE_AIR, SAIL_AIR,
 } from '../city/river.js';
 import { OPEN_SECONDS } from './drawbridge.js';
 import { createWake } from './wake.js';
@@ -12,9 +12,14 @@ import { SLAB_X, EDGE_FADE } from '../city/ground.js';
 // Traffic on the river, and the thing that asks the drawbridge to lift.
 //
 // **Two kinds, and the difference between them is a number rather than a decision.** A barge clears
-// every span in the city and never asks for anything; a tug's mast does not clear the flat one, so
-// it has to. That is the whole mechanism — the bridge is not on a timer with boats added for
+// every span in the city and never asks for anything; a sailboat's rig does not clear the flat one,
+// so it has to. That is the whole mechanism — the bridge is not on a timer with boats added for
 // decoration, it opens because something that cannot fit is coming.
+//
+// The tall one was a tug until it was a sailboat, and the swap was about *reading* the mechanism
+// rather than about the mechanism itself: the air draught is unchanged at 2.4 and cannot go up
+// (see the ceiling note in geometry/boat.js), but a mainsail spends it on nineteen times the
+// silhouette a mast did. Nothing in this file moved for it except the hull length.
 //
 // Run seed, not city seed, for the reason the flyover and the police runs are: which span lifts is
 // a fact about the map and has to stay learnable, but *when* is the situation.
@@ -49,57 +54,70 @@ const fadeAt = (x) => {
 //
 // It is a particle pool now rather than a triangle welded to the stern, and the module next door
 // (`game/wake.js`) carries the argument for why. The two things this file still owns are that a
-// wake is spent per unit **travelled** — which is what makes a tug held at `HOLD_OFF` lay none —
+// wake is spent per unit **travelled** — which is what makes a boat held at `holdOff` lay none —
 // and that the foam is laid into the world rather than parented to the boat, so it stays on the
 // water the hull is pulling away from.
 
 // Speeds, in world units per second. Cars cruise at 8.5, and a boat that kept up with the traffic
-// would read as a jet ski — what sells it is being the slowest thing in the frame. At 3.4 a tug
-// takes about 45 seconds to cross the map, which is most of a fare.
+// would read as a jet ski — what sells it is being the slowest thing in the frame. At 3.4 the
+// sailboat takes about 45 seconds to cross the map, which is most of a fare.
 const BARGE_SPEED = 2.6;
-const TUG_SPEED = 3.4;
+const SAIL_SPEED = 3.4;
 
-// Seconds between tugs.
+// Seconds between sailboats.
 //
 // **Stretched with the lift.** The cycle went from about twelve seconds to about twenty-four, and
 // left at the old spacing that put a route shut for 27% of the run — which stops being an event and
 // starts being the map. At 90-150 the span is open four fifths of the time and a three-minute
 // session still sees one or two lifts, which is what this is for.
-const TUG_WAIT = [90, 150];
+const SAIL_WAIT = [90, 150];
 // ...and between barges, which cost nothing and are just weather on the water.
 const BARGE_WAIT = [16, 34];
 
-// How far short of the span a tug asks for the lift.
+// How far short of the span the sailboat asks for the lift.
 //
 // **Derived from the bridge's own timing rather than copied from it.** The two are one decision:
-// the span needs `OPEN_SECONDS` to get its arms down and its leaf up with an empty deck, and a tug
+// the span needs `OPEN_SECONDS` to get its arms down and its leaf up with an empty deck, and a boat
 // covering that distance in less than that arrives at something still grinding upward. Halving the
 // lift speed without moving this number is precisely how that happens, which is why it is an import.
 //
-// The slack on top is four seconds, so the tug reaches an opening that is already open and the
-// player sees the bridge react to the boat rather than the other way round. It is a *distance* for
-// the reason the roadworks hop is paced by distance: the answer has to be the same whatever else is
+// The slack on top is four seconds, so the boat reaches an opening that is already open and the
+// player sees the bridge react to it rather than the other way round. It is a *distance* for the
+// reason the roadworks hop is paced by distance: the answer has to be the same whatever else is
 // going on.
 const ASK_SLACK = 4;
-const ASK_AHEAD = (OPEN_SECONDS + ASK_SLACK) * TUG_SPEED;
-// ...and how far past it before the tug lets go. Its stern has to be clear of the leaf's swing.
-const RELEASE_PAST = TUG_LEN + 4;
+const ASK_AHEAD = (OPEN_SECONDS + ASK_SLACK) * SAIL_SPEED;
+// ...and how far past it before the boat lets go. Its stern has to be clear of the leaf's swing.
+const RELEASE_PAST = SAIL_LEN + 4;
 
 // How far off the middle of the channel a boat runs, and how much of that is left to chance.
 //
 // Exported because the ceiling on them is a *clearance* and belongs in the probe: see `laneZ` in
-// `createBoats` for both bounds and why the tug is the one that pays.
+// `createBoats` for both bounds and why the sailboat is the one that pays.
 export const BOAT_LANE = BEAM / 2 + 0.3;
 export const LANE_WANDER = 0.2;
 
-// Where a tug stops if the leaf is not up yet.
+// How much water the waiting boat keeps between its bow and the edge of the deck.
 //
 // **The boat waits, not the bridge.** `clearing` has no timeout — it holds until the deck is empty,
-// taxi included — so a lift can take arbitrarily long, and a tug that sailed on regardless would
-// pass through a closed span. Nine units is a hull length clear of the abutment: near enough that
-// it reads as a boat nosing up to a bridge and waiting, far enough that the leaf coming down would
-// not land on it.
-const HOLD_OFF = 9;
+// taxi included — so a lift can take arbitrarily long, and a boat that sailed on regardless would
+// pass through a closed span.
+//
+// **Measured from the bow to the deck's edge, not from the hull's middle to the bridge's.** It used
+// to be a flat nine units centre-to-centre, which was a hull length of clearance for a 4.4-unit tug
+// and is 3.0 for a 4.6-unit sailboat under a span on an arterial line — the leaf comes down onto the
+// widest deck in the city and there are two units of variation in how wide that is. Stated as the
+// gap that actually has to exist and turned into a stopping distance where the span is known
+// (`holdOff` in `createBoats`), so neither a longer hull nor a wider road can quietly eat it.
+const BOW_GAP = 2.2;
+
+// ...and how much water a boat keeps behind the one in front of it, on top of the two half-hulls.
+//
+// A boat length would be tidy and is too much: at 2.6 u/s a barge closing on a stopped sailboat
+// takes the gap down over several seconds, and the eye reads the *approach* rather than the number
+// it settles at. 2.0 is enough that two hulls never touch and near enough that a queue at a raised
+// leaf reads as boats waiting their turn rather than as boats parked at random.
+const WAKE_ROOM = 2.0;
 
 export function createBoats(scene, rng, drawbridge) {
   const edges = waterEdges();
@@ -113,6 +131,12 @@ export function createBoats(scene, rng, drawbridge) {
   const drawSpan = drawLine === null ? null : bridgeSpan(drawLine);
 
   const midZ = (edges.z0 + edges.z1) / 2;
+
+  // Where the sailboat stops if the leaf is not up yet — `BOW_GAP` of water ahead of its bow, and
+  // the bow is half a hull ahead of the position the sim actually moves. `outer` rather than `half`,
+  // because what a leaf comes down onto is the deck plus its footway, and on an arterial line that
+  // is 6.73 rather than 5.4.
+  const holdOff = (drawSpan ? drawSpan.outer : 0) + BOW_GAP + SAIL_LEN / 2;
 
   // The foam, on a stream of its own.
   //
@@ -139,13 +163,15 @@ export function createBoats(scene, rng, drawbridge) {
    *   `deckHeightAt` is a function of z alone and it **crests on the centreline**. Clearance is
    *   `1.65 + 1.1 * cos^2(pi * dz / span)` — best in the middle, falling off both ways — so pushing
    *   a boat outboard spends the very clearance the arch exists to provide. A design that put the
-   *   *tug* on the outside would be exactly wrong.
+   *   **sailboat** on the outside would be exactly wrong.
    *
-   * The old free-for-all was already over that ceiling: `wander` reached 2.4 where `TUG_AIR` needs
-   * `|dz| <= 2.29`, so about one tug in twenty drove its mast through the soffit of a fixed span,
-   * silently — the clearance check in the probe compares against the crest and never looked at the
-   * boat's z. At 1.4 ± 0.2 the worst case is 2.52 against a 2.4 mast on the narrow channel, which
-   * is thinner than it sounds and is asserted rather than trusted.
+   * The old free-for-all was already over that ceiling: `wander` reached 2.4 where `SAIL_AIR` needs
+   * `|dz| <= 2.29`, so about one tall boat in twenty drove its rig through the soffit of a fixed
+   * span, silently — the clearance check in the probe compares against the crest and never looked at
+   * the boat's z. At 1.4 ± 0.2 the worst case is 2.52 against a 2.4 rig on the narrow channel, which
+   * is thinner than it sounds and is asserted rather than trusted. It is also why redrawing the tug
+   * as a sailboat bought no height: 0.12 is the whole of the headroom, so the boat had to get more
+   * *visible* rather than taller.
    *
    * Port to port, as it happens: heading +x a boat's starboard side is +z, so `dir` *is* the sign.
    */
@@ -154,13 +180,13 @@ export function createBoats(scene, rng, drawbridge) {
   const boats = [];
   const state = {
     bargeIn: rng.range(BARGE_WAIT[0], BARGE_WAIT[1]) * 0.4,
-    tugIn: rng.range(TUG_WAIT[0], TUG_WAIT[1]) * 0.5,
-    tugs: 0,
+    sailIn: rng.range(SAIL_WAIT[0], SAIL_WAIT[1]) * 0.5,
+    sails: 0,
     barges: 0,
   };
 
   function launch(kind) {
-    const geo = kind === 'tug' ? createTugMesh(rng) : createBargeMesh(rng);
+    const geo = kind === 'sail' ? createSailboatMesh(rng) : createBargeMesh(rng);
     const mesh = new THREE.Mesh(geo, propMaterial());
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -176,85 +202,136 @@ export function createBoats(scene, rng, drawbridge) {
       dir,
       x: dir > 0 ? -off : off,
       z: laneZ(dir),
-      speed: kind === 'tug' ? TUG_SPEED : BARGE_SPEED,
+      speed: kind === 'sail' ? SAIL_SPEED : BARGE_SPEED,
       asked: false,
-      len: kind === 'tug' ? TUG_LEN : BARGE_LEN,
+      len: kind === 'sail' ? SAIL_LEN : BARGE_LEN,
     };
     mesh.position.set(boat.x, waterHeightAt(boat.x), boat.z);
     group.add(mesh);
     boats.push(boat);
-    if (kind === 'tug') state.tugs += 1; else state.barges += 1;
+    if (kind === 'sail') state.sails += 1; else state.barges += 1;
     return boat;
   }
 
   /** Where along the channel the lifting span is, or null on a city without one. */
   const spanX = () => (drawSpan ? drawSpan.cx : null);
 
+  /**
+   * Nobody overtakes, and nobody sails through the boat in front.
+   *
+   * **The lanes only ever solved half the problem.** Keying which side of the channel a boat runs on
+   * to which way it is going (`laneZ`) fixed head-on pairs and is silent about a *following* pair —
+   * two boats going the same way are in the same water by construction, and nothing here made them
+   * keep a distance. The closing speed is small, so for a long time it did not show; what made it
+   * show is the sailboat **stopping**. A boat clamped at `holdOff` in front of a shut leaf is a
+   * parked obstacle in a lane a barge is still running down at 2.6 u/s, and the barge drove straight
+   * through it. Measured over 20 five-minute runs before this existed: hulls overlapped on 2% of
+   * frames, the worst by 7.5 units — a whole barge inside a whole sailboat.
+   *
+   * It read as "the boats are always colliding" and it was invisible to the probe, whose passing
+   * check skips any pair sharing a direction (`other.dir === boat.dir`) because that check was
+   * written to test the lanes. A bound nothing asserts is a bound that decays.
+   *
+   * **Leaders first.** Sorted by progress along their own heading, so a boat is clamped against a
+   * leader that has already taken its own clamp — one pass settles a whole queue instead of leaving
+   * each boat a frame behind the one ahead. Clamped rather than slowed for the reason the bridge
+   * hold-off is: at these speeds a stopping curve is a second motion model nobody would see.
+   */
+  function keepStation() {
+    const order = [...boats].sort((a, b) => b.x * b.dir - a.x * a.dir);
+    for (let k = 1; k < order.length; k++) {
+      const boat = order[k];
+      for (let j = 0; j < k; j++) {
+        const lead = order[j];
+        if (lead.dir !== boat.dir) continue;
+        // Only a pair actually sharing water: the wander can put two same-heading boats far enough
+        // apart across the channel to pass, and `BEAM` is the barge's, so it is the safe side of
+        // both hulls.
+        if (Math.abs(lead.z - boat.z) >= BEAM) continue;
+        const room = (lead.len + boat.len) / 2 + WAKE_ROOM;
+        const ahead = (lead.x - boat.x) * boat.dir;
+        if (ahead < room) boat.x = lead.x - boat.dir * room;
+      }
+    }
+  }
+
   function update(dt) {
     state.bargeIn -= dt;
-    state.tugIn -= dt;
+    state.sailIn -= dt;
     if (state.bargeIn <= 0) {
       launch('barge');
       state.bargeIn = rng.range(BARGE_WAIT[0], BARGE_WAIT[1]);
     }
-    // One tug at a time. Two would queue at a bridge that only opens for the first, and a boat
-    // waiting in the channel is a whole behaviour this does not have.
-    if (state.tugIn <= 0 && !boats.some((b) => b.kind === 'tug')) {
-      launch('tug');
-      state.tugIn = rng.range(TUG_WAIT[0], TUG_WAIT[1]);
+    // One sailboat at a time. Two would queue at a bridge that only opens for the first, and a
+    // boat waiting in the channel is a whole behaviour this does not have.
+    if (state.sailIn <= 0 && !boats.some((b) => b.kind === 'sail')) {
+      launch('sail');
+      state.sailIn = rng.range(SAIL_WAIT[0], SAIL_WAIT[1]);
     }
 
     const gate = spanX();
     const off = OFF_MAP();
 
+    // --- Advance, then hold station, then keep station. Three passes, in that order.
+    //
+    // It used to be one loop that moved a boat and spent its wake in the same step, which is fine
+    // while nothing can move a boat *after* it has moved — and the queue below is exactly that. A
+    // boat clamped behind another after its foam had already been laid would lay a full step's wake
+    // while standing still, which is the wheelspin this effect was keyed to distance to avoid.
+    for (const boat of boats) {
+      boat.before = boat.x;
+      boat.x += boat.dir * boat.speed * dt;
+    }
+
+    for (const boat of boats) {
+      if (boat.kind !== 'sail' || gate === null || !drawbridge) continue;
+      // Measured along the direction of travel, so both ends of the river behave the same.
+      const toGate = (gate - boat.x) * boat.dir;
+      if (!boat.asked && toGate <= ASK_AHEAD && toGate > 0) {
+        boat.asked = true;
+        drawbridge.request();
+      }
+      // Hold station short of a span that is not open yet. Clamped rather than decelerated: at
+      // 3.4 u/s a boat is barely moving on screen anyway, and a stopping curve would be a second
+      // motion model for something the player sees twice a session.
+      //
+      // **`toGate > 0` is load-bearing.** Without it the clamp goes on applying after the boat
+      // is through — `toGate` is negative by then, still under `holdOff` — so the moment the leaf
+      // started back down it teleported the boat to the near side of the bridge and held it
+      // there. One boat in 260 seconds instead of three, and the one was going round in circles.
+      if (boat.asked && toGate > 0 && toGate <= holdOff && drawbridge.state.lift < 0.98) {
+        boat.x = gate - boat.dir * holdOff;
+      }
+      // Through, and far enough past that the leaf can come down behind it.
+      if (boat.asked && toGate < -RELEASE_PAST) drawbridge.release();
+    }
+
+    keepStation();
+
     for (let k = boats.length - 1; k >= 0; k--) {
       const boat = boats[k];
-      const before = boat.x;
-      boat.x += boat.dir * boat.speed * dt;
       boat.mesh.position.x = boat.x;
       // Ride the surface, which is not flat any more: the channel shoals up to meet the ground
       // through each mouth (`waterHeightAt`), and a hull pinned to `WATER_Y` would sail into the
       // shallows with the river closing over it.
       boat.mesh.position.y = waterHeightAt(boat.x);
 
-      if (boat.kind === 'tug' && gate !== null && drawbridge) {
-        // Measured along the direction of travel, so both ends of the river behave the same.
-        const toGate = (gate - boat.x) * boat.dir;
-        if (!boat.asked && toGate <= ASK_AHEAD && toGate > 0) {
-          boat.asked = true;
-          drawbridge.request();
-        }
-        // Hold station short of a span that is not open yet. Clamped rather than decelerated: at
-        // 3.4 u/s a boat is barely moving on screen anyway, and a stopping curve would be a second
-        // motion model for something the player sees twice a session.
-        //
-        // **`toGate > 0` is load-bearing.** Without it the clamp goes on applying after the tug is
-        // through — `toGate` is negative by then, still under `HOLD_OFF` — so the moment the leaf
-        // started back down it teleported the boat to the near side of the bridge and held it
-        // there. One tug in 260 seconds instead of three, and the one was going round in circles.
-        if (boat.asked && toGate > 0 && toGate <= HOLD_OFF && drawbridge.state.lift < 0.98) {
-          boat.x = gate - boat.dir * HOLD_OFF;
-          boat.mesh.position.x = boat.x;
-        }
-        // Through, and far enough past that the leaf can come down behind it.
-        if (boat.asked && toGate < -RELEASE_PAST) drawbridge.release();
-      }
-
       // Fade with the ground under it. The foam behind it fades on the same band, but per mote and
       // at the x it was *laid* at rather than at the boat's — it does not travel with the hull, so
       // it cannot inherit the hull's opacity either.
       boat.mesh.material.opacity = fadeAt(boat.x);
 
-      // Foam is spent per unit of river covered, so a tug clamped at `HOLD_OFF` in front of a leaf
-      // that has not come up spends nothing and lies there with the water flat behind it. That used
-      // to be a `moved / would-have-moved` term multiplied into the wake's opacity; keyed to
-      // distance it is not a special case any more, it is just what the emitter does.
-      wake.follow(boat, Math.abs(boat.x - before));
+      // Foam is spent per unit of river covered, so a boat clamped at `holdOff` in front of a leaf
+      // that has not come up — or queued behind one that is — spends nothing and lies there with
+      // the water flat behind it. That used to be a `moved / would-have-moved` term multiplied into
+      // the wake's opacity; keyed to distance it is not a special case any more, it is just what the
+      // emitter does.
+      wake.follow(boat, Math.abs(boat.x - boat.before));
 
       if (Math.abs(boat.x) > off) {
-        // A tug retired without ever getting through — it can only happen if the bridge never
+        // A sailboat retired without ever getting through — it can only happen if the bridge never
         // cleared — still has to let go, or the span stays shut for the rest of the run.
-        if (boat.kind === 'tug' && boat.asked && drawbridge) drawbridge.release();
+        if (boat.kind === 'sail' && boat.asked && drawbridge) drawbridge.release();
         group.remove(boat.mesh);
         boat.mesh.geometry.dispose();
         // Its foam is **not** retired with it. The motes are in the world, not on the hull, so they
@@ -287,21 +364,27 @@ export function createBoats(scene, rng, drawbridge) {
     settle() {
       if (boats.length) return;
       const gate = spanX() ?? 0;
-      // Both forced up-river, so the lane has to be re-drawn to match: `launch` picked a side from
-      // the direction it drew, and overriding the direction afterwards without moving the boat
-      // would put a screenshot's boats on the wrong side of a river the game runs correctly.
-      const barge = launch('barge');
-      barge.dir = 1;
-      barge.mesh.rotation.y = Math.PI / 2;
-      barge.x = gate - 26;
-      barge.z = laneZ(barge.dir);
-      barge.mesh.position.set(barge.x, waterHeightAt(barge.x), barge.z);
-      const tug = launch('tug');
-      tug.dir = 1;
-      tug.mesh.rotation.y = Math.PI / 2;
-      tug.x = gate - 2;
-      tug.z = laneZ(tug.dir);
-      tug.mesh.position.set(tug.x, waterHeightAt(tug.x), tug.z);
+      // **Sent past each other, not nose to tail.** Both used to be forced up-river, which put them
+      // in one lane by the rule that keys a lane to a heading — and then the shot stepped the cycle
+      // for thirteen seconds, during which the sailboat stopped at the leaf and the barge behind it
+      // did not. Every staged frame of the river had a barge closing on a parked sailboat in its own
+      // lane, which is what "it looks like it's always colliding with the barge" was a report of. It
+      // was a real bug in the sim (see `keepStation`) and this staging is what put it in every
+      // screenshot. Opposite headings now, so the picture is two boats passing — which is also the
+      // one arrangement that shows the lanes doing their job.
+      //
+      // The lane has to be re-drawn after the heading is overridden: `launch` picked a side from the
+      // direction it drew, and changing the direction without moving the boat would put a
+      // screenshot's boats on the wrong side of a river the game runs correctly.
+      const place = (boat, dir, x) => {
+        boat.dir = dir;
+        boat.mesh.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+        boat.x = x;
+        boat.z = laneZ(dir);
+        boat.mesh.position.set(boat.x, waterHeightAt(boat.x), boat.z);
+      };
+      place(launch('barge'), -1, gate + 21);
+      place(launch('sail'), 1, gate - 2);
       // After both are in their final place, not inside `launch` — a trail laid at the spawn point
       // and then teleported with the hull would be twenty-six units up-river of the boat it belongs
       // to, which is a wake in a screenshot of open water.
@@ -310,4 +393,4 @@ export function createBoats(scene, rng, drawbridge) {
   };
 }
 
-export { BARGE_AIR, TUG_AIR };
+export { BARGE_AIR, SAIL_AIR };

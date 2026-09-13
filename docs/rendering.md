@@ -2526,16 +2526,16 @@ still lying there a couple of seconds after the boat has gone.
 **Three parts, and the middle one is the shape.** Two arms opening astern, a churn boiling out of
 the stern between them, and a tail that comes apart rather than ending on a line drawn across open
 water. The arms open at `KELVIN` = `tan(19.47°)` = 0.354 of the boat's **own speed**, which is the
-Kelvin half-angle a displacement hull actually makes at any speed — so the tug and the barge throw
+Kelvin half-angle a displacement hull actually makes at any speed — so the sailboat and the barge throw
 the same shape at different lengths, which is what makes the barge read as heavy rather than as a
-tug with a slow wake. They start at `ARM_OFF` 1.0 off the centreline, just inboard of the hull's own
+sailboat with a slow wake. They start at `ARM_OFF` 1.0 off the centreline, just inboard of the hull's own
 `BEAM / 2` = 1.1: at 0.85 the pair was 1.7 apart against motes growing to 1.05 and closed into a
 single column before it had opened, and the V went missing at every framing.
 
 Emission is keyed to **distance travelled** — a spawn every `SPAWN_STEP` = 0.5 units, with a churn
 mote on every other one — which is what makes a boat holding station lay nothing, and is the
 [river doc's](river.md#fading-in-and-the-wake) point rather than this one's. What belongs here is
-what it costs: 2.5 motes per 0.5 units is 41 alive behind a tug and 31 behind a barge, and with the
+what it costs: 2.5 motes per 0.5 units is 41 alive behind a sailboat and 31 behind a barge, and with the
 five barges the spawner's `BARGE_WAIT` floor can actually put on 176 units of river at once that is
 196 against a pool of **256**. The probe measures the peak over a five-minute soak (166 on the seed
 it runs) and fails if it reaches the ceiling, for the reason the dust pool has twice been grown: a

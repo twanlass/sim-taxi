@@ -634,13 +634,25 @@ export const PALETTE = {
   // is a thing the player would look at twice on a board where warm means "act on this".
   bargeHull: '#4A4E55',
   bargeCargo: '#5F6B78',
-  tugHull: '#3E4A52',
-  // The one exception, and it is a small one: a tug's wheelhouse and funnel are the only saturated
+  sailHull: '#3E4A52',
+  // The one exception, and it is a small one: the sailboat's cabin trunk is the only saturated
   // thing on the water. It sits at 213 degrees — inside the same blue window the pond and the river
   // already occupy, 27 clear of the courier cyan — so it is a *boat* colour rather than a marker
-  // one. What it separates from is its own hull, which is what makes the tug read as taller than
-  // the barge from across the map.
-  tugTrim: '#37698F',
+  // one. What it separates from is its own hull.
+  sailTrim: '#37698F',
+  // **The canvas, and it is the whole of why the tall boat was redrawn as a sailboat.**
+  //
+  // What the drawbridge opens for has to be legible from across the map, and the tug's tell was a
+  // 0.11-wide mast: 0.85 of a pixel at play zoom, against a hull twenty pixels long. The boat that
+  // could not fit under the flat span looked exactly like the barge that could. A mainsail is the
+  // same fact drawn as 93 px² of cloth at play zoom — nineteen times the silhouette, and the one
+  // shape nobody has to be told means "this one needs the bridge".
+  //
+  // Luma 214, which makes it the brightest lit surface in the city: the sail is read against
+  // `riverWater` at 112 and `riverDeep` at 87, so the contrast is the point. It stays under the
+  // wake's 230 — foam is the one thing on the river allowed to be whiter than canvas — and it is a
+  // near-neutral, so it spends nothing out of the hue budget the note above guards.
+  sailCanvas: '#DCD6C6',
   boatDeck: '#B6B2A6',
   // The wake. Unlit and half transparent, so what reaches the screen is this lifted toward whatever
   // the water under it is doing — a foam white would blow out to a solid arrow at noon and vanish
