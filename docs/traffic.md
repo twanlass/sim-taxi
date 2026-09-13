@@ -1068,7 +1068,8 @@ watching the green path open ahead of the siren is the whole effect.
 
 The meter itself lives in `game/boost.js` as a pure clock with no knowledge of the taxi or the
 DOM. Hold-to-enable: the tank drains only while the button is held (15s from full) and releasing
-just pauses it. Nothing refills it but a drop-off — see
+just pauses it. Above a quarter tank nothing refills it but a delivery; below one it trickles back
+up to a quarter over five seconds, so the pill is never dead for good — see
 [gameplay.md](gameplay.md#crazy-taxi-mode) for the economy.
 
 **Releasing doesn't switch it off.** It used to — the taxi went from full boost to ordinary traffic

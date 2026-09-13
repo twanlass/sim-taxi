@@ -156,7 +156,7 @@ import { createWreckage } from '../src/game/wreckage.js';
 import { createBlast } from '../src/game/blast.js';
 import {
   createBoost, BOOST_DURATION, BOOST_START_FRACTION, BOOST_FARE_REWARD, BOOST_PARCEL_REWARD,
-  BOOST_COOLDOWN,
+  BOOST_COOLDOWN, BOOST_FLOOR_FRACTION, BOOST_REGEN_SECONDS,
 } from '../src/game/boost.js';
 import { createBoostMeter } from '../src/game/boostmeter.js';
 
@@ -8159,18 +8159,21 @@ check('the taxi is an ordinary car in the traffic array',
 
 // --- The Loco Mode meter ----------------------------------------------------
 //
-// The meter is now an earned resource: it opens at a third, drains only while held, and the sole
-// way fuel gets in is a drop-off. A regression here is invisible in a screenshot — a stray refill
-// path just makes the game quietly easier — so assert the whole arc as numbers.
+// The meter is an earned resource with a floor: it opens at a third, drains only while held, and
+// the only thing that fills it above a quarter is a delivery. Below a quarter it trickles back up
+// to a quarter on its own. A regression here is invisible in a screenshot — a stray refill path
+// just makes the game quietly easier, and a missing one leaves the pill dead for the rest of the
+// run — so assert the whole arc as numbers.
 {
   const b = createBoost();
   check('the meter opens at a third of a tank',
     Math.abs(b.fraction() - BOOST_START_FRACTION) < 1e-9, `${b.fraction().toFixed(3)}`);
 
-  // Idle for a full tank's worth of seconds with the button untouched. Nothing may move.
+  // Idle for a full tank's worth of seconds with the button untouched. Nothing may move: the
+  // trickle only ever fills the bottom quarter, and the opening third is above it.
   const idleStart = b.fraction();
   for (let i = 0; i < 60 * BOOST_DURATION; i++) b.update(1 / 60);
-  check('an idle meter does not regenerate', b.fraction() === idleStart,
+  check('an idle meter above the floor does not regenerate', b.fraction() === idleStart,
     `${idleStart.toFixed(3)} -> ${b.fraction().toFixed(3)}`);
 
   // Drain it dry: a third of a tank is 5s of boost, plus the BOOST_COOLDOWN momentum tail that
@@ -8178,20 +8181,67 @@ check('the taxi is an ordinary car in the traffic array',
   // room to spare.
   b.press();
   for (let i = 0; i < 60 * 7; i++) b.update(1 / 60);
-  check('holding drains the tank to empty', b.fraction() === 0 && b.isEmpty(), `mode ${b.state.mode}`);
+  check('holding drains the tank and the pill goes dead',
+    b.isEmpty() && b.fraction() < BOOST_FLOOR_FRACTION, `mode ${b.state.mode}`);
 
-  // Still held, still empty, and — the point of the change — it stays that way. The old fast
-  // recharge would have refilled it inside 15s and re-engaged under the finger.
-  for (let i = 0; i < 60 * BOOST_DURATION; i++) b.update(1 / 60);
-  check('an empty meter never recharges itself', b.fraction() === 0 && !b.isActive(),
-    `mode ${b.state.mode} after ${BOOST_DURATION}s held on empty`);
-
-  // A drop-off is the only way back. It pours in over ~0.7s, and because the button was never
+  // A drop-off is the fast way back, and it outranks the trickle: the pour lights the pill on the
+  // frame it starts rather than waiting out the five seconds. Because the button was never
   // released the boost re-engages rather than waiting for a fresh press.
   b.topUp(BOOST_FARE_REWARD);
   b.update(1 / 60);
-  check('a drop-off revives an empty meter under a held button', b.isActive() && b.fraction() > 0,
-    `mode ${b.state.mode}, ${b.fraction().toFixed(3)}`);
+  check('a drop-off revives an empty meter under a held button without waiting for the trickle',
+    b.isActive() && b.fraction() > 0, `mode ${b.state.mode}, ${b.fraction().toFixed(3)}`);
+
+  // --- the floor ---
+  // A dry tank is never left dry. Timed from the frame it reads 'empty', because the momentum tail
+  // before that freezes everything, the trickle included.
+  const f = createBoost();
+  f.press();
+  let dry = 0;
+  while (!f.isEmpty() && dry < 60 * 20) { f.update(1 / 60); dry += 1; }
+  f.release();
+  check('a drained tank reaches empty with the pill dead',
+    f.isEmpty() && f.fraction() < BOOST_FLOOR_FRACTION,
+    `mode ${f.state.mode} after ${(dry / 60).toFixed(2)}s`);
+
+  // Halfway through the recharge. The bar is visibly climbing — this is the whole point of the
+  // floor, that the meter is never parked on zero — behind a button that is still dead, because a
+  // pill that lit up on the first frame of the trickle would offer a sixtieth of a second.
+  for (let i = 0; i < Math.round(60 * BOOST_REGEN_SECONDS / 2); i++) f.update(1 / 60);
+  const half = f.fraction();
+  check('an empty meter trickles back up instead of sitting at zero',
+    half > BOOST_FLOOR_FRACTION * 0.4 && half < BOOST_FLOOR_FRACTION && f.isEmpty(),
+    `${half.toFixed(3)} of a tank, mode ${f.state.mode}`);
+
+  // ...and lands on the quarter, at which point the pill is pressable again.
+  for (let i = 0; i < Math.round(60 * BOOST_REGEN_SECONDS / 2) + 2; i++) f.update(1 / 60);
+  check('the trickle reaches a quarter tank in BOOST_REGEN_SECONDS and wakes the pill',
+    Math.abs(f.fraction() - BOOST_FLOOR_FRACTION) < 1e-9 && f.isReady(),
+    `${f.fraction().toFixed(3)}, mode ${f.state.mode}`);
+
+  // And stops there. Four recharges' worth of idling adds nothing: everything above the floor is
+  // still earned, which is the half of the old no-refill rule worth keeping.
+  for (let i = 0; i < 60 * BOOST_REGEN_SECONDS * 4; i++) f.update(1 / 60);
+  check('and stops at the floor rather than creeping on to a full tank',
+    Math.abs(f.fraction() - BOOST_FLOOR_FRACTION) < 1e-9, `${f.fraction().toFixed(3)}`);
+
+  // The trickle must not fight the drain. Regen is 0.75 of a second of fuel per second against a
+  // drain of 1, so a quarter tank spent while it ran would last 15 seconds instead of 3.75 — the
+  // bottom of the meter would quietly become the most efficient place to keep it.
+  const g = createBoost(BOOST_DURATION, BOOST_FLOOR_FRACTION);
+  g.press();
+  for (let i = 0; i < 60; i++) g.update(1 / 60);
+  check('holding below the floor still spends a second of fuel a second',
+    Math.abs(g.state.fuel - (BOOST_DURATION * BOOST_FLOOR_FRACTION - 1)) < 1e-9,
+    `${g.state.fuel.toFixed(3)}s left of ${(BOOST_DURATION * BOOST_FLOOR_FRACTION).toFixed(3)}s`);
+
+  // Nor may it thaw the momentum window: fuel is frozen through the cooldown so a re-press catches
+  // the tank exactly where the release left it.
+  g.release();
+  const atRelease = g.state.fuel;
+  g.update(BOOST_COOLDOWN * 0.5);
+  check('the momentum window freezes the trickle too', g.state.fuel === atRelease,
+    `${g.state.fuel.toFixed(4)} vs ${atRelease.toFixed(4)}`);
 
   // Three drop-offs fill it from empty. Release first so the pour isn't racing the drain.
   const c = createBoost(BOOST_DURATION, 0);
@@ -8237,7 +8287,9 @@ check('the taxi is an ordinary car in the traffic array',
 // a sixth takes ~0.33s, against the ~0.7s a fare's third takes. Assert it stays a pour — long enough
 // to see, and still overshooting so the pill's spring fires the same way.
 {
-  const b = createBoost(BOOST_DURATION, 0);
+  // Opened at the floor rather than empty: a package poured into a dry tank lands on top of a
+  // trickle that is climbing at the same time, and the thing under test here is the pour.
+  const b = createBoost(BOOST_DURATION, BOOST_FLOOR_FRACTION);
   const m = createBoostMeter();
   const dt = 1 / 60;
   b.topUp(BOOST_PARCEL_REWARD);
@@ -8254,8 +8306,9 @@ check('the taxi is an ordinary car in the traffic array',
 
   check('a package pours long enough to read as filling', pourT > 0.25 && pourT < 0.5,
     `${pourT.toFixed(2)}s`);
-  check('and the bar still overshoots it', peak > BOOST_PARCEL_REWARD + 0.02,
-    `peaked at ${(peak * 100).toFixed(1)}% of a ${(BOOST_PARCEL_REWARD * 100).toFixed(1)}% pour`);
+  const pourMark = BOOST_FLOOR_FRACTION + BOOST_PARCEL_REWARD;
+  check('and the bar still overshoots it', peak > pourMark + 0.02,
+    `peaked at ${(peak * 100).toFixed(1)}% off a ${(BOOST_PARCEL_REWARD * 100).toFixed(1)}% pour to ${(pourMark * 100).toFixed(1)}%`);
   check('the bar settles on the fuel a package left', Math.abs(m.state.pct - b.fraction()) < 1e-9,
     `${(m.state.pct * 100).toFixed(1)}% vs ${(b.fraction() * 100).toFixed(1)}% fuel`);
 }

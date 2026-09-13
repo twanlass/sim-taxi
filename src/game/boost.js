@@ -3,11 +3,17 @@
 // Kept as a pure clock with no knowledge of the taxi or the DOM, so the sim, the button and the
 // headless tests can all read the same state without any of them owning it.
 //
-// The meter does not refill on its own. Every drop of it is *earned* — the run opens with a third
-// of a tank, each successful drop-off pours another third in, and a package delivered pours half of
-// that — so a spent tank is a real cost and the only way back is to go do a job. An earlier version
-// trickled back up on its own (and fast-recharged from empty), which meant waiting was a valid way
-// to get boost back and the meter said nothing about how the run was going.
+// Nearly every drop of it is *earned* — the run opens with a third of a tank, each successful
+// drop-off pours another third in, and a package delivered pours half of that — so a spent tank is
+// a real cost and the way back up is to go do a job. An early version trickled the *whole* tank
+// back on its own (and fast-recharged from empty), which meant waiting was a valid way to get boost
+// back and the meter said nothing about how the run was going.
+//
+// What it does have is a floor. A tank below a quarter creeps back up to a quarter and stops there
+// (BOOST_FLOOR_FRACTION, BOOST_REGEN_SECONDS), so the pill is never permanently dead in the hand —
+// wait five seconds and there is always one straightaway's worth of Loco Mode to spend. Everything
+// above the floor is still earned and still never moves on its own, which is the half of the old
+// rule that was worth keeping: waiting buys you a quarter tank, and only deliveries buy the rest.
 //
 // Releasing mid-spend just pauses the drain, so a short tap costs a short slice of fuel and a long
 // hold keeps flowing until it runs out — the decision is *how long* to press as well as *when*.
@@ -50,6 +56,16 @@ export const BOOST_BURGER_REWARD = 0.15;
 // see `fullPower` in traffic.js).
 export const BOOST_COOLDOWN = 1;
 
+// The floor the tank always comes back to, and how long a dry one takes to reach it. 3.75s of
+// boost, which is the same slice a package pays plus a half — enough to be worth pressing for,
+// well short of the third a fare earns, so regenerating is never competitive with driving.
+//
+// The rate is flat (`floor / BOOST_REGEN_SECONDS`) rather than "five seconds from wherever you
+// are", so a tank released with a sliver left tops up faster than a dry one rather than slower —
+// saving fuel must never leave the player worse off than spending it all.
+export const BOOST_FLOOR_FRACTION = 1 / 4;
+export const BOOST_REGEN_SECONDS = 5;
+
 export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_START_FRACTION,
   cooldown = BOOST_COOLDOWN) {
   const state = {
@@ -77,6 +93,9 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
   // rather than snapping, fast enough that it's obviously connected to the drop-off that
   // triggered it.
   const POUR_RATE = duration * 0.5;
+
+  const FLOOR = duration * BOOST_FLOOR_FRACTION;
+  const REGEN_RATE = FLOOR / BOOST_REGEN_SECONDS;
 
   return {
     state,
@@ -152,10 +171,23 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
 
       // Bonus fuel pours in on top of whatever the mode is doing, so a top-up mid-drain slows the
       // drain visibly and a top-up on an empty tank refills it in front of the player.
+      let poured = false;
       if (state.pending > 0) {
         const drip = Math.min(state.pending, POUR_RATE * dt);
         state.fuel += drip;
         state.pending -= drip;
+        poured = drip > 0;
+      }
+
+      // The trickle back to the floor, and only while the tank is *not* being spent. Regen during
+      // 'active' would fight the drain at 0.75 against 1 a second and stretch the last quarter of a
+      // tank into 15 seconds of boost instead of 3.75; regen during 'cooldown' would put fuel in a
+      // tank the momentum window deliberately holds frozen, and a re-press would then get to spend
+      // it. An arriving pour outranks it for the same reason — earned fuel is already going in, and
+      // both at once counts the frame twice.
+      if (!poured && state.pending <= 0 && state.fuel < FLOOR
+        && (state.mode === 'ready' || state.mode === 'empty')) {
+        state.fuel = Math.min(FLOOR, state.fuel + REGEN_RATE * dt);
       }
 
       // One clamp point covers both sources of change (drain, top-up).
@@ -164,7 +196,8 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
         // Running the tank dry gets the same momentum tail as letting go on purpose — the taxi
         // was still at full tilt the frame the fuel ran out, so it still deserves the coast-down.
         // 'empty' comes after that tail, and it's where the button goes dead and grey rather than
-        // looking pressable: nothing but a drop-off gets it back.
+        // looking pressable — until a delivery pours fuel in, or the trickle below gets the tank
+        // back to its floor.
         if (state.mode === 'active') enterCooldown();
       } else {
         if (state.fuel > duration) state.fuel = duration;
@@ -172,11 +205,23 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
         // boost — the drop-off just handed them a live one, not a "press again" moment. A tank
         // refilled mid-cooldown needs nothing here: the window's own expiry already picks the
         // right mode now that there's fuel again.
-        if (state.mode === 'empty') state.mode = state.held ? 'active' : 'ready';
+        //
+        // The trickle has to *finish* before it does the same. Coming alive on the first frame of
+        // the regen would hand the player a pill worth a sixtieth of a second that goes grey again
+        // under their thumb; staying dead until the quarter is actually in the tank makes the five
+        // seconds a visible recharge — the bar climbs behind a dead button and the button lights
+        // when it lands.
+        if (state.mode === 'empty' && (poured || state.fuel >= FLOOR)) {
+          state.mode = state.held ? 'active' : 'ready';
+        }
       }
     },
 
-    /** 0..1 of the dial that should be filled: drops while active, climbs while topping up. */
+    /**
+     * 0..1 of the dial that should be filled: drops while active, climbs while topping up, and
+     * creeps up to BOOST_FLOOR_FRACTION on its own from anywhere below it. Live through the whole
+     * recharge, `'empty'` included — the climbing bar is what the dead button is waiting on.
+     */
     fraction() {
       return state.fuel / duration;
     },

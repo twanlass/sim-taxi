@@ -2061,13 +2061,28 @@ short slice, a long hold flows until the tank is empty. Full tank is 15 seconds 
 decision is now *how long* to press as well as *when*. The button doubles as the dial: a `--pct`
 CSS variable tracks the fuel level, dropping as you drain and climbing as a drop-off pours fuel in.
 
-**The meter never refills on its own.** The run opens with **a third of a tank**, each successful
-drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a sixth**, and
-a [burger run](#the-burger-run) pours in **15%** — that is the whole list of sources, and the first
-three are jobs done. The fourth is the one you buy: $10 off the counter at the window. Spend it all
-and the pill goes grey and dead (`.is-empty`, `disabled`) until you deliver something, or go and buy
-a burger. A top-up that lands while you're still holding the button rolls straight back into boost
-rather than making you press again.
+**Everything above a quarter tank is earned.** The run opens with **a third of a tank**, each
+successful drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a
+sixth**, and a [burger run](#the-burger-run) pours in **15%** — that is the whole list of sources,
+and the first three are jobs done. The fourth is the one you buy: $10 off the counter at the window.
+A top-up that lands while you're still holding the button rolls straight back into boost rather than
+making you press again.
+
+**Below a quarter it trickles back up, so the pill is never dead for good.** Spend it all and the
+pill goes grey and dead (`.is-empty`, `disabled`) — but the tank starts climbing behind it at
+`BOOST_FLOOR_FRACTION / BOOST_REGEN_SECONDS`, a quarter of a tank over **five seconds**, and the
+button comes alive again the moment it lands. The bar is live through the whole recharge, so the
+dead button has a visible clock on it. Three things keep that from undoing the economy above:
+
+- The floor is **3.75 seconds** of boost — a package and a half, half what a fare pays. Waiting is
+  the worst rate in the game and it caps out immediately; deliveries are still the only way to a
+  full tank, and a tank above the floor never moves on its own.
+- The pill stays dead for the *whole* five seconds rather than waking on the first frame of the
+  trickle, which would hand the player a sixtieth of a second of boost and go grey again under their
+  thumb. A delivery outranks it: a pour lights the button on the frame it starts.
+- Nothing trickles while the tank is being spent — not during a boost (regen at 0.75 a second
+  against a drain of 1 would stretch the last quarter tank from 3.75 seconds to 15) and not through
+  the `'cooldown'` momentum window, which freezes the fuel by design.
 
 Both ways out of a boost — letting go, and running the tank dry — pass through the one-second
 `'cooldown'` momentum window first, so `'empty'` is where a drained tank lands *after* that tail
@@ -2082,11 +2097,13 @@ question to answer: taps are frequent here by design, so a jab must be allowed t
 fuel without the view reacting to it.
 
 That is a deliberate replacement for the old economy, which handed back 15% per drop-off but also
-fast-recharged from empty in 15s and trickled a partial tank back up at a fifth of that rate. Under
+fast-recharged from empty in 15s and trickled a *whole* tank back up at a fifth of that rate. Under
 those rules waiting was a valid way to get boost back, so the meter said nothing about how the run
-was going; now every second of it was earned by a fare, and three deliveries is a full tank.
-Opening with a third rather than empty keeps the toy in reach on the first fare — an empty start
-leaves the button dead in the hand until the first drop-off lands.
+was going; now all but the bottom quarter of it was earned by a fare, and three deliveries is a full
+tank. Opening with a third rather than empty keeps the toy in reach on the first fare — an empty
+start leaves the button dead in the hand until the first drop-off lands, which is the same reason
+the floor exists at all: a run that has spent its tank and is between fares should still have one
+straightaway's worth of Loco Mode within five seconds of asking.
 
 **There is no longer a case where holding it does nothing.** A taxi that had just picked someone up
 used to be `parked` — waiting at the kerb for you to tap a destination — and `parked` sets

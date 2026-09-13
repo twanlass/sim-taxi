@@ -1908,8 +1908,10 @@ function updateBoostButton(dt) {
   boostButton.style.setProperty('--pct', `${(boostMeter.state.pct * 100).toFixed(1)}%`);
   boostButton.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));
   boostButton.style.setProperty('--pulse', boostMeter.state.pulse.toFixed(3));
-  // Dead until a drop-off pours fuel back in — nothing refills on its own, so a pressable-looking
-  // pill on an empty tank would be a lie.
+  // Dead until there is something worth pressing for: a drop-off pouring fuel back in, or the
+  // trickle finishing its climb to a quarter tank (game/boost.js). A pressable-looking pill over a
+  // tank with a sixtieth of a second in it would be a lie, so 'empty' covers the whole recharge and
+  // the bar climbing behind the dead button is what says it is coming back.
   boostButton.disabled = mode === 'empty';
 }
 
