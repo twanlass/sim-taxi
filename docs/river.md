@@ -76,14 +76,21 @@ The chain, measured to the deck's *soffit* since that is what a boat hits:
 |---|---|---|
 | Flat span, deck 0.35 thick | −0.35 | **1.65** |
 | Arched span at the crest, rise 1.1 | +0.75 | **2.75** |
+| Arched span over the outermost boat lane | | **2.52** |
 | Barge, air draught 1.4 | | clears both |
-| Tug, air draught 2.4 | | clears the arches by 0.35, **0.75 short of the flat one** |
+| Sailboat, air draught 2.4 | | clears the arches by 0.12, **0.75 short of the flat one** |
 
 Four numbers across three files, so the probe asserts the **chain** rather than its outcome: move
-any one of them and it fails here rather than shipping a tug that sails under the bridge it opens.
-The tug's mast is positioned *from* `TUG_AIR` rather than eyeballed on top of its superstructure —
-a first cut came out at 2.81, over the arches' 2.75, and would have left the tug unable to reach
-the drawbridge at all.
+any one of them and it fails here rather than shipping a boat that sails under the bridge it opens.
+The masthead is positioned *from* `SAIL_AIR` rather than eyeballed on top of the rig — the tug that
+came before it had a first cut at 2.81, over the arches' 2.75, which would have left it unable to
+reach the drawbridge at all.
+
+**That third row is the ceiling on the whole feature**, and it is the row people miss. The tall boat
+has to pass under both ring-road bridges to reach the drawbridge, so its rig is bounded by what an
+*arch* leaves — and an arch crests on the centreline, so the bound is the clearance over the
+outermost lane the boats are given, not the 2.75 at the top. There is 0.12 of headroom at 2.4.
+Nothing makes the tall boat taller without moving `ARCH_RISE` first.
 
 ### The rise is a camera number
 
@@ -265,7 +272,7 @@ lower 3.0 → 6.0. Played at the original numbers the leaf snapped up and back i
 read as a gate rather than as machinery: there was nothing to *watch*, and a closure the player
 never notices opening is a closure that only ever arrives as a re-planned route. `OPEN_SECONDS` is
 derived (`BARRIER_SECONDS + LIFT_SECONDS`, so 9.0) and everything that has to arrive on the opening
-— the tug's ask-ahead distance, the staged screenshots in `util/shot.js` — is derived from *it*
+— the boat's ask-ahead distance, the staged screenshots in `util/shot.js` — is derived from *it*
 rather than written down again.
 
 `raising` exists to fix a pop. `open` set the barriers to 0 on the frame it was entered, so the
@@ -288,9 +295,11 @@ the whole cycle — the boat waits. A lift that fired anyway would be the one ev
 throw a car into the river, and "it hardly ever happens" is not a property worth having.
 
 `HOLD_SECONDS` is a backstop, not a hold, and **it has to be longer than the thing it backs up or
-it becomes the thing**. A tug asks 30 units out and lets go `TUG_LEN + 4` past the span, which at
-3.4 u/s is 11.3 seconds of request. At 4.5 the backstop fired first and started lowering the leaf
-onto a boat still four seconds short of it. It is 20 now, which is that 11.3 plus most of it again.
+it becomes the thing**. The sailboat asks `ASK_AHEAD` out and lets go `SAIL_LEN + 4` past the span,
+which at 3.4 u/s is 16.1 seconds of request with a deck that clears instantly. At 4.5 the backstop
+fired first and started lowering the leaf onto a boat still four seconds short of it. It is 26 now,
+which is that 16.1 plus half of it again — it was 20 against a note claiming the request was 11.3
+seconds, a figure that predated `ASK_AHEAD` being derived rather than written down.
 
 ### 70°, and what bounds it
 
@@ -351,28 +360,60 @@ neither queues nor brakes, so a barrier in front of one is the single closure it
 `geometry/boat.js` builds them, `game/boats.js` runs them. **Run seed, not city seed**: which span
 lifts is a fact about the map and has to stay learnable, but when it lifts is the situation.
 
-A barge every 16–34s, a tug every 90–150s and never two at once. Both are slow on purpose — 2.6 and
-3.4 units per second against a car's 8.5 — because what sells a boat is being the slowest thing in
-the frame. The tug's wait went 55–95 → 90–150 with the cycle: a lift is a ten-second event now, and
-one arriving every minute stops being an event.
+A barge every 16–34s, a sailboat every 90–150s and never two at once. Both are slow on purpose — 2.6
+and 3.4 units per second against a car's 8.5 — because what sells a boat is being the slowest thing
+in the frame. The tall boat's wait went 55–95 → 90–150 with the cycle: a lift is a ten-second event
+now, and one arriving every minute stops being an event.
 
-The tug asks for the lift **`ASK_AHEAD` units out**, which is a distance rather than a clock for the
+### The tall one is a sailboat, and the reason is legibility rather than clearance
+
+It was a tug, and the tug's clearance chain was correct: 2.4 of air against a flat span's 1.65, which
+is a boat that genuinely cannot fit. **The player could not see any of it.** The whole of the tug's
+overshoot lived in a 0.11-wide mast — 0.85 of a pixel at play zoom, on a hull twenty pixels long —
+so the vessel the bridge opened for looked exactly like the barge that sailed straight under it. The
+bridge appeared to lift for no reason.
+
+The air draught did not change and **could not**: the 2.52 row in the table above leaves 0.12 of
+headroom, so the fix had to come out of *area* instead of altitude. A gaff mainsail spends the same
+2.4 units on 3.0 square units of pale canvas — 149 px² at play zoom against the mast's 5, with a jib
+for another 60 — and it is a shape nobody has to be told the meaning of. The probe asserts the
+canvas area for the same reason it asserts the soffits: a rig that quietly collapses to a stick is
+the old bug back again, and it renders as nothing rather than as an error.
+
+**Gaff-rigged, and that follows from the ceiling too.** The rig has 1.85 units between deck and
+masthead on a 6.4-unit hull; a Bermudan triangle in that box is a thin sliver on a long boat, which
+is the tug's problem with a better outline. A gaff fills the box — boom low, peak slung aft and high
+— and low-slung working sail is what a craft built to duck under bridges actually carries, so the
+shape the clearance forces is also the honest one. Even so the sail only fills 69% of the rig's
+height; the first cut hung its spars where a boat with headroom would carry them and managed 54%,
+which is half the argument thrown away.
+
+The hull is 6.4 rather than the tug's 4.4, between a car's 3.4 and the barge's 8.6, and it is the one
+number in `game/boats.js` that moved with it: `RELEASE_PAST` is `SAIL_LEN + 4`, and the waiting
+distance is now stated as the gap between the **bow** and the deck's edge (`BOW_GAP`) rather than as
+a flat nine units centre-to-centre. Nine was a hull length of clearance for the tug and 1.1 for this
+boat under a span on an arterial line, which is the leaf coming down rather close to a mast.
+
+Measured over 40 seeds the span is now shut 16.7% of a five-minute run against 15.6% before — the
+longer hull costs about a point, which is what a bigger boat should cost.
+
+The sailboat asks for the lift **`ASK_AHEAD` units out**, which is a distance rather than a clock for the
 reason the roadworks hop is paced by distance: the answer has to be the same whatever else is
-happening. And it is *derived*, not written down — `(OPEN_SECONDS + ASK_SLACK) · TUG_SPEED`, so
+happening. And it is *derived*, not written down — `(OPEN_SECONDS + ASK_SLACK) · SAIL_SPEED`, so
 44.2 units at today's numbers. The arithmetic it stands for is `BARRIER_SECONDS` of barriers plus
 however long the deck takes plus `LIFT_SECONDS` of lift, which is nine seconds with an empty deck;
 `ASK_SLACK` is the four seconds of margin on top. Writing the 44 down instead is how the first cut
-of this shipped, and doubling the cycle then quietly left the tug arriving at a span still grinding
+of this shipped, and doubling the cycle then quietly left the boat arriving at a span still grinding
 upward.
 
-And it **waits** if it is not: `HOLD_OFF` clamps it nine units short of a span whose leaf is not up.
-`clearing` has no timeout, so a lift can take arbitrarily long, and a tug that sailed on regardless
-would pass through a closed span.
+And it **waits** if it is not: the clamp holds it `BOW_GAP` of water short of a span whose leaf is
+not up. `clearing` has no timeout, so a lift can take arbitrarily long, and a boat that sailed on
+regardless would pass through a closed span.
 
-> The clamp needs its `toGate > 0` guard. Without it, it went on applying after the tug was through —
-> `toGate` negative, still under `HOLD_OFF` — so the moment the leaf started back down it teleported
-> the boat to the near side of the bridge and held it there. One tug in 260 seconds instead of four,
-> and the one was going round in circles.
+> The clamp needs its `toGate > 0` guard. Without it, it went on applying after the boat was through
+> — `toGate` negative, still under the hold-off — so the moment the leaf started back down it
+> teleported the boat to the near side of the bridge and held it there. One boat in 260 seconds
+> instead of four, and the one was going round in circles.
 
 ### Lanes
 
@@ -385,23 +426,24 @@ The offset is bounded at both ends and neither bound is taste:
 
 - **Floor** — two hulls passing must not touch, so `2 * BOAT_LANE` has to clear `BEAM`. (`BEAM` is
   exported from `geometry/boat.js` for exactly this: a separation written as a literal somewhere
-  else stops tracking the hull the moment either changes.)
+  else stops tracking the hull the moment either changes. It is the **barge's** beam and the wider
+  of the two — the sailboat is 1.9 — so a separation cleared against it is cleared against both.)
 - **Ceiling, and this is the one that is easy to get backwards.** Every bridge here carries a road
   running along Z across a river running along X, so the arch humps *across the channel*:
   `deckHeightAt` is a function of `z` alone and it **crests on the centreline**. Clearance is
   `1.65 + 1.1 · cos²(π·dz / span)` — best in the middle, falling off both ways. Pushing a boat
-  outboard spends the very clearance the arch exists to provide, so a design that put the **tug**
-  on the outside would be exactly wrong.
+  outboard spends the very clearance the arch exists to provide, so a design that put the
+  **sailboat** on the outside would be exactly wrong.
 
-> The old free-for-all was already over that ceiling. `wander` reached 2.4 where `TUG_AIR` needs
-> `|dz| ≤ 2.29`, so about one tug in twenty drove its mast through the soffit of a fixed span,
+> The old free-for-all was already over that ceiling. `wander` reached 2.4 where `SAIL_AIR` needs
+> `|dz| ≤ 2.29`, so about one tall boat in twenty drove its rig through the soffit of a fixed span,
 > silently. Nothing caught it: the probe's clearance check compares against `ARCH_SOFFIT`, the value
 > at the **crest**, and never looked at where the boat actually was. Its replacement asserts the
 > bound on the widest lane the generator can hand out rather than on whatever a soak happened to
 > draw — a 5% bug passes a five-minute sample most of the time, and did.
 
 At 1.4 ± 0.2 hulls pass with 0.6 of water between them, 0.2 at the worst of the wander, and the
-tug's worst clearance is 2.52 against its 2.4 mast on the narrow channel. There are exactly two
+sailboat's worst clearance is 2.52 against its 2.4 rig on the narrow channel. There are exactly two
 channel widths, because `arterialX` holds a single line and so at most one bank can be an arterial:
 12.0 and 10.67.
 
@@ -418,8 +460,8 @@ The **wake** is a particle pool — `game/wake.js`, and
 [rendering.md](rendering.md#boat-wake--gamewakejs) carries the tuning. What this file owns is the
 two things about it that are facts about the river rather than about the effect:
 
-- **It is spent per unit travelled**, not per second, which is what makes a tug clamped at
-  `HOLD_OFF` in front of a leaf that has not come up lay nothing at all. That used to be an explicit
+- **It is spent per unit travelled**, not per second, which is what makes a boat clamped in front of
+  a leaf that has not come up lay nothing at all. That used to be an explicit
   "how far did it actually move this frame over how far it would have" term multiplied into the
   wake's opacity — otherwise a boat holding station sat there throwing up spray, doing a wheelspin.
   Keyed to distance it stops being a special case and becomes what the emitter does.
@@ -491,13 +533,13 @@ because what shows through it there is sky.
 
 ## Looking at it
 
-`?shot=14` frames the river, `?shot=15` the leaf half way up with the tug holding station,
-`?shot=16` the leaf fully up with the tug going through, and `?shot=17` the coast at the mouth.
+`?shot=14` frames the river, `?shot=15` the leaf half way up with the sailboat holding station,
+`?shot=16` the leaf fully up with the sailboat going through, and `?shot=17` the coast at the mouth.
 That last one is deliberately much tighter than play zoom: every failure at the mouth has been a
 bright speck of sky a few pixels across, which a wide framing cannot resolve at all — the way to
 check it is to count pixels brighter than the ground, not to look. All three step the **real** state machine
 rather than posing it, so a screenshot cannot drift out of step with what the player gets — and the
-boats are placed before the cycle is stepped, not after, or the tug turns up parked short of a
+boats are placed before the cycle is stepped, not after, or the boat turns up parked short of a
 bridge that opened for nobody.
 
 Two things that staging got wrong and are worth not getting wrong again. The **traffic has to be

@@ -132,10 +132,10 @@ import { planOrigin } from '../src/game/route.js';
 import { HALF_SPAN_X, HALF_SPAN_Z, ROAD_W, LANE, PITCH, BLOCK, HALF_ROAD, HALF_ARTERIAL, lineX, lineZ, GRID_I, GRID_J, isXAxis, leftOf, rightOf, opposite, dirSign, legalExits, riverBanks, riverRow } from '../src/city/grid.js';
 import {
   waterEdges, bridgeSpan, bridgeLines, riverCrossing, archAt, deckHeightAt, createRiver, waterHeightAt,
-  WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, TUG_AIR, ARCH_RISE, DECK_THICK,
+  WATER_Y, FLAT_SOFFIT, ARCH_SOFFIT, BARGE_AIR, SAIL_AIR, ARCH_RISE, DECK_THICK,
 } from '../src/city/river.js';
 import { createBridge, abutmentParts } from '../src/geometry/bridge.js';
-import { createBargeMesh, createTugMesh, BEAM } from '../src/geometry/boat.js';
+import { createBargeMesh, createSailboatMesh, BEAM } from '../src/geometry/boat.js';
 import { createDrawbridge, OPEN_SECONDS } from '../src/game/drawbridge.js';
 import { createBoats, BOAT_LANE, LANE_WANDER } from '../src/game/boats.js';
 import { FOAM_LIFE } from '../src/game/wake.js';
@@ -13070,25 +13070,82 @@ let chopperOrder; // likewise
   //
   // Four numbers across three files decide whether the drawbridge has a reason to exist: two
   // soffits in city/river.js, two air draughts built into geometry/boat.js. Asserted as the chain
-  // rather than as its outcome, so moving any one of them fails here rather than shipping a tug
+  // rather than as its outcome, so moving any one of them fails here rather than shipping a boat
   // that sails under the bridge it opens.
   const flatGap = -WATER_Y + FLAT_SOFFIT;
   const archGap = -WATER_Y + ARCH_SOFFIT;
   const bargeGeo = createBargeMesh(makeRng(seed + 811));
-  const tugGeo = createTugMesh(makeRng(seed + 812));
+  const sailGeo = createSailboatMesh(makeRng(seed + 812));
   bargeGeo.computeBoundingBox();
-  tugGeo.computeBoundingBox();
+  sailGeo.computeBoundingBox();
   const bargeAir = bargeGeo.boundingBox.max.y;
-  const tugAir = tugGeo.boundingBox.max.y;
+  const sailAir = sailGeo.boundingBox.max.y;
 
   check('a barge clears every span in the city',
     bargeAir <= BARGE_AIR + 1e-6 && bargeAir < flatGap,
     `${bargeAir.toFixed(2)} against the flat span's ${flatGap.toFixed(2)}`);
-  check('and a tug clears the arched ones but not the flat one',
-    tugAir < archGap && tugAir > flatGap,
-    `${tugAir.toFixed(2)} against ${flatGap.toFixed(2)} flat and ${archGap.toFixed(2)} arched`);
-  check('the arch is what buys the tug that clearance',
+  check('and the sailboat clears the arched ones but not the flat one',
+    sailAir < archGap && sailAir > flatGap && Math.abs(sailAir - SAIL_AIR) < 1e-6,
+    `${sailAir.toFixed(2)} against ${flatGap.toFixed(2)} flat and ${archGap.toFixed(2)} arched`);
+  check('the arch is what buys the sailboat that clearance',
     archGap - flatGap > 0.9, `${(archGap - flatGap).toFixed(2)} units of hump`);
+
+  // --- The rig, which is the *visible* half of the clearance chain.
+  //
+  // The air draught being right is not the same claim as the player being able to see it, and the
+  // tug this replaced is the proof: its mast was 0.11 wide, 0.85 of a pixel at play zoom, so the
+  // boat that could not fit under the flat span looked exactly like the barge that could. What
+  // makes the drawbridge legible is canvas, and canvas can go missing in two ways that both render
+  // as nothing at all — so both are asserted rather than looked at.
+  //
+  // **Wound outward, part by part.** A sail is a flat panel, which is precisely the shape this
+  // project has shipped inside out three times (the roadworks ramp, the bridge deck, the wake
+  // triangle that drew nothing for weeks under a comment saying it faced up). `ExtrudeGeometry`
+  // winds its own faces, so this is really a check on the two transforms after it — but "it is
+  // Three's winding" is exactly the kind of reasoning that was wrong about the wake.
+  //
+  // The test is the **signed volume** of each connected part rather than a face normal, because a
+  // boat is eleven closed solids and a face normal only means anything relative to the solid it is
+  // on: a spar's inboard face correctly points back at the hull. Divergence theorem, per component
+  // — positive is outward, and a single reversed part comes out negative on its own.
+  {
+    const p = sailGeo.attributes.position;
+    const at = (i) => p.array.subarray(i * 3, i * 3 + 3).join(',');
+    const owner = new Map();
+    const find = (x) => { while (owner.get(x) !== x) { owner.set(x, owner.get(owner.get(x))); x = owner.get(x); } return x; };
+    const join = (x, y) => { const rx = find(x); const ry = find(y); if (rx !== ry) owner.set(rx, ry); };
+    for (let i = 0; i < p.count; i++) { const k = at(i); if (!owner.has(k)) owner.set(k, k); }
+    for (let i = 0; i < p.count; i += 3) { join(at(i), at(i + 1)); join(at(i + 1), at(i + 2)); }
+
+    const parts = new Map();
+    const a = new THREE.Vector3(); const b = new THREE.Vector3();
+    const c = new THREE.Vector3(); const n = new THREE.Vector3();
+    for (let i = 0; i < p.count; i += 3) {
+      a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); c.fromBufferAttribute(p, i + 2);
+      const part = parts.get(find(at(i))) ?? { vol: 0, box: new THREE.Box3() };
+      part.vol += a.dot(n.crossVectors(b, c)) / 6;
+      part.box.expandByPoint(a).expandByPoint(b).expandByPoint(c);
+      parts.set(find(at(i)), part);
+    }
+    const solids = [...parts.values()];
+    const reversed = solids.filter((part) => part.vol <= 0);
+    check('every part of the sailboat is wound outward',
+      solids.length > 8 && reversed.length === 0,
+      `${solids.length} closed parts, ${reversed.length} inside out`);
+
+    // **And there is enough cloth on it to be the reason.** The sails are the two parts thinner
+    // than a spar is wide; their area is the volume over that thickness. 149 px² of mainsail and
+    // 60 of jib at play zoom (1 unit is 7.7px across and 0.838 of that up the screen), against the
+    // 5 px² the tug's mast managed — so a rig that quietly collapses fails here rather than
+    // shipping a tall boat nobody can tell from a short one.
+    const canvas = solids
+      .filter((part) => part.box.max.x - part.box.min.x < 0.08)
+      .reduce((sum, part) => sum + part.vol / (part.box.max.x - part.box.min.x), 0);
+    const onScreen = canvas * 7.7 * 7.7 * 0.838;
+    check('and it carries enough canvas to read as the boat that needs the bridge',
+      onScreen > 150,
+      `${canvas.toFixed(2)} square units of sail, ${onScreen.toFixed(0)} px² at play zoom`);
+  }
 
   // --- The deck profile.
   //
@@ -13476,8 +13533,8 @@ let chopperOrder; // likewise
     for (let f = 0; f < 60 * (OPEN_SECONDS + 1); f++) bridge.update(1 / 60, []);
     check('and goes up once it clears', bridge.state.lift > 0.99, bridge.state.phase);
 
-    // The boats, over a full run. The tug must never be inside the span with the leaf anywhere but
-    // fully up — which is the boat's own doing (`HOLD_OFF`), not the bridge's.
+    // The boats, over a full run. The sailboat must never be inside the span with the leaf anywhere
+    // but fully up — which is the boat's own doing (`holdOff`), not the bridge's.
     const boats = createBoats(rScene, makeRng(seed + 840), bridge);
     let lowest = 1;
     let shutFrames = 0;
@@ -13524,7 +13581,7 @@ let chopperOrder; // likewise
         // Clearance is a function of **z alone** — the arch crests on the centreline and falls off
         // both ways — so the number that matters is the soffit above the boat's own lane, not the
         // one above the middle of the river. Checking the crest is what let this through before.
-        if (boat.kind === 'tug') {
+        if (boat.kind === 'sail') {
           const u = (boat.z - rBanks.z0) / rLen;
           worstAir = Math.min(worstAir, -WATER_Y + archAt(u, rLen).y - DECK_THICK);
           if (Math.abs(boat.x - bridge.span.cx) < 5) lowest = Math.min(lowest, bridge.state.lift);
@@ -13563,7 +13620,7 @@ let chopperOrder; // likewise
 
     // **Spent per unit travelled, which is what makes a boat holding station lay nothing.** The old
     // wake needed an explicit "how far did it actually move" term multiplied into its opacity to
-    // avoid a tug waiting on a shut leaf sitting there with a full wake behind it — a boat doing a
+    // avoid a boat waiting on a shut leaf sitting there with a full wake behind it — a boat doing a
     // wheelspin. Keyed to distance that stops being a special case, and this is the assertion that
     // it is really keyed to distance rather than to `dt` with a factor that happens to be near 1.
     {
@@ -13609,8 +13666,8 @@ let chopperOrder; // likewise
         `${drawn.length} of ${foam.length} motes drawn, ${behind.join(' and ')} behind the two boats`);
     }
 
-    check('a tug is never inside the span unless the leaf is fully up', lowest > 0.99,
-      `lowest lift with a tug in the span: ${lowest.toFixed(3)}`);
+    check('the sailboat is never inside the span unless the leaf is fully up', lowest > 0.99,
+      `lowest lift with a boat in the span: ${lowest.toFixed(3)}`);
     check('boats going opposite ways pass rather than share a lane',
       bothWays && worstGap > 0,
       bothWays
@@ -13618,7 +13675,7 @@ let chopperOrder; // likewise
         : 'no two boats ever met head-on, so nothing was tested');
     // The margin is thin by design — every unit outboard is clearance spent — so it is asserted on
     // the **widest lane the generator can hand out**, not on whatever the soak happened to draw.
-    // That distinction is the whole check: the old free-for-all put roughly one tug in twenty
+    // That distinction is the whole check: the old free-for-all put roughly one tall boat in twenty
     // through the soffit, which a five-minute sample passes most of the time and did.
     //
     // Worst case is the outer edge of the wander on the narrower channel. There are exactly two
@@ -13630,14 +13687,14 @@ let chopperOrder; // likewise
       const airAt = (span) => -WATER_Y + archAt(0.5 + outer / span, span).y - DECK_THICK;
       const narrow = BLOCK - (HALF_ARTERIAL - HALF_ROAD);
       const tight = Math.min(airAt(rLen), airAt(BLOCK), airAt(narrow));
-      check("and a tug's mast clears the soffit above the outermost lane it can be given",
-        tight > TUG_AIR,
-        `${tight.toFixed(3)} of air at ${outer.toFixed(2)} off the centreline against a ${TUG_AIR} mast`);
+      check("and the sailboat's rig clears the soffit above the outermost lane it can be given",
+        tight > SAIL_AIR,
+        `${tight.toFixed(3)} of air at ${outer.toFixed(2)} off the centreline against a ${SAIL_AIR} rig`);
     }
     // ...and the soak agrees with the bound, which is what says the two are talking about the same
     // geometry rather than each being self-consistently wrong.
-    check("and no tug the run actually launched sat outside that",
-      worstAir > TUG_AIR,
+    check("and no sailboat the run actually launched sat outside that",
+      worstAir > SAIL_AIR,
       `${worstAir.toFixed(3)} of air over the worst lane drawn in five minutes`);
     // Long enough to be an event, short enough not to be the map. Two or three lifts in a
     // three-minute session, and the span open for four fifths of the run.
@@ -13665,7 +13722,7 @@ let chopperOrder; // likewise
 
     check('the span spends most of the run open', shutFrames / (60 * 300) < 0.3,
       `shut ${((100 * shutFrames) / (60 * 300)).toFixed(0)}% of five minutes,`
-      + ` ${boats.state.tugs} tugs and ${boats.state.barges} barges`);
+      + ` ${boats.state.sails} sailboats and ${boats.state.barges} barges`);
     bridge.dispose();
   }
 }

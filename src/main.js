@@ -751,7 +751,7 @@ const drawbridge = createDrawbridge(scene, makeRng(seed + 66), {
 });
 
 // Traffic on the river, and the thing that asks the span to lift — see game/boats.js. Run seed,
-// unlike the bridge itself: a barge every twenty seconds or so and a tug every minute and a half
+// unlike the bridge itself: a barge every twenty seconds or so and a sailboat every minute and a half
 // is the situation, not the map. Null wherever the drawbridge is null, and for the same reason.
 const boats = createBoats(scene, makeRng(runSeed + 401), drawbridge);
 
@@ -2679,7 +2679,7 @@ function frame() {
   //
   // The two no longer fight over the lane set: they hold their closures under separate source keys
   // (`setClosedLanes` in sim/traffic.js), so whichever runs second no longer clears the other.
-  // Boats first, so a tug that reaches its asking distance this frame gets the barriers moving on
+  // Boats first, so a boat that reaches its asking distance this frame gets the barriers moving on
   // the same frame rather than the next one.
   boats?.update(dt);
   drawbridge?.update(dt, traffic.cars);
@@ -3236,10 +3236,10 @@ if (shot) {
   // rather than posed, so a screenshot cannot drift out of step with what the player gets.
   //
   // The boats are placed by `settle()` above and then stepped along with it, which is what puts the
-  // tug at the span rather than wherever a minute and a half of waiting would have left it.
+  // sailboat at the span rather than wherever a minute and a half of waiting would have left it.
   if (shot.drawbridgeAt !== undefined && drawbridge) {
     // The boats are placed **before** the cycle is stepped, not after. `settle()` further down runs
-    // for every other shot and would have put the tug down at the end of a cycle it had taken no
+    // for every other shot and would have put the boat down at the end of a cycle it had taken no
     // part in — parked short of a bridge that opened for nobody, which is the picture this framing
     // exists to not be.
     boats?.settle();
@@ -3409,7 +3409,7 @@ if (shot) {
   parcels?.settleMarkers();
   // The river's own two, for the drive-through's reason: a shot ticks the world once, so a boat
   // that has not been spawned yet never will be and every screenshot of the river is of an empty
-  // one. `settle` places one of each beside the lifting span instead of waiting a minute for a tug.
+  // one. `settle` places one of each beside the lifting span instead of waiting a minute for a boat.
   boats?.settle();
   drawbridge?.settle();
   // The city's own entrance is an animation that opens at zero too — unsettled, every screenshot

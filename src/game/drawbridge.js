@@ -69,13 +69,20 @@ const BARRIER_SETBACK = 1.6;
  * and this only exists so that a caller which forgets can never shut a route for the rest of the
  * run.
  *
- * **It has to be longer than the thing it is backing up, or it becomes the thing.** A tug asks 30
- * units out and lets go `TUG_LEN + 4` past the span, which at 3.4 u/s is 11.3 seconds of request —
- * about 6.8 of it after the leaf is fully up, and more when the deck took a while to clear. At 4.5
- * this fired first and started lowering the leaf onto a boat that was still four seconds short of
- * it, which looked exactly like the bridge closing early because that is what it was.
+ * **It has to be longer than the thing it is backing up, or it becomes the thing.** At 4.5 it fired
+ * first and started lowering the leaf onto a boat still four seconds short of it, which looked
+ * exactly like the bridge closing early because that is what it was.
+ *
+ * The thing it backs up is the sailboat's request, which runs from `ASK_AHEAD` short of the span to
+ * `RELEASE_PAST` beyond it (game/boats.js): 44.2 + 10.4 units at 3.4 u/s, so **16.1 seconds** with
+ * a deck that clears instantly, and longer by however long `clearing` takes — the boat is clamped
+ * short of a shut span, so it spends none of that distance while it waits.
+ *
+ * 26 is that plus half of it again. It was 20, against a note here that put the request at 11.3
+ * seconds: that number predates `ASK_AHEAD` being derived from `OPEN_SECONDS` rather than written
+ * down, and slowing the whole cycle to half speed quietly took the margin from nine seconds to four.
  */
-const HOLD_SECONDS = 20;
+const HOLD_SECONDS = 26;
 
 /**
  * The cycle.
@@ -344,9 +351,9 @@ export function createDrawbridge(scene, rng, { replan = null, onLand = null } = 
 /**
  * How long from `request()` to a fully raised leaf, with an empty deck.
  *
- * Exported so `game/boats.js` can work out how far out a tug has to ask rather than carrying a
+ * Exported so `game/boats.js` can work out how far out a boat has to ask rather than carrying a
  * number copied from here — the two are one decision, and halving the lift speed without moving the
- * asking distance is exactly how a tug ends up nosing into a bridge that is still grinding upward.
+ * asking distance is exactly how a boat ends up nosing into a bridge that is still grinding upward.
  */
 export const OPEN_SECONDS = BARRIER_SECONDS + LIFT_SECONDS;
 

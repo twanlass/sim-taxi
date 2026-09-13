@@ -52,7 +52,7 @@ A **river** runs east–west through the middle of the city, so every trip acros
 crossing. Three of the six roads that meet it carry a bridge; the other three just stop at the
 water. Two of the three **arch** — a low hump the cars rise and pitch over, and a ramp the boosting
 taxi gets air off — and the third is flat, because it is the one that **lifts**: barriers drop, the
-deck clears, and a leaf tilts up off one bank to let a tug through, closing that route for a dozen
+deck clears, and a leaf tilts up off one bank to let a sailboat through, closing that route for a dozen
 seconds while it does. The barges pass under everything, which is what the arch on the other two is
 for. See [river.md](river.md).
 

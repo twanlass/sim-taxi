@@ -57,10 +57,10 @@ export const SHOTS = [
   // and have to be re-derived whenever it moves: barriers take BARRIER_SECONDS (2.2), `clearing`
   // takes as long as it takes to empty the deck (a second, typically, and unbounded by design),
   // and the leaf takes LIFT_SECONDS (6.8). So 6.5 lands the leaf around half way up — the frame
-  // that says what the thing is — and 13.0 is past the top with the tug going through.
+  // that says what the thing is — and 13.0 is past the top with the sailboat going through.
   { name: 'river', description: 'the river, its bridges and the boats on it', target: [0, 0], zoom: 34, warmup: 12, drawbridgeAt: 13.0 },
-  { name: 'drawbridge', description: 'the leaf half way up, with the tug waiting', target: [0, 0], zoom: 17, warmup: 12, drawbridgeAt: 6.5 },
-  { name: 'drawbridge-open', description: 'the leaf fully up and the tug going through', target: [0, 0], zoom: 17, warmup: 12, drawbridgeAt: 13.0 },
+  { name: 'drawbridge', description: 'the leaf half way up, with the sailboat waiting', target: [0, 0], zoom: 17, warmup: 12, drawbridgeAt: 6.5 },
+  { name: 'drawbridge-open', description: 'the leaf fully up and the sailboat going through', target: [0, 0], zoom: 17, warmup: 12, drawbridgeAt: 13.0 },
   // The coast at the river mouth, close enough to judge it. This is the one part of the map where
   // two different kinds of edge have to agree — the island's rim, which dissolves, and the channel,
   // which is a cutting — and every failure there has been a bright speck of sky a few pixels across
@@ -69,7 +69,7 @@ export const SHOTS = [
   // A boat under way, close enough to see its wake. Worth its own framing because the wake shipped
   // wound upside down and therefore did not draw at all, and *no* wider shot could have shown that:
   // at play zoom a wake is a few pale pixels, and a few pale pixels missing looks exactly like a
-  // feature nobody got round to. `drawbridgeAt` is what puts the tug in motion rather than holding
+  // feature nobody got round to. `drawbridgeAt` is what puts the boat in motion rather than holding
   // station — a boat stopped at a shut span correctly has no wake.
   { name: 'wake', description: 'a boat under way, with its wake', target: [4, 10.67], zoom: 8, warmup: 12, drawbridgeAt: 13.0 },
   { name: 'roadwork', description: 'a street closed for roadworks', target: [0, 0], zoom: 22, warmup: 12, roadworkAt: 1.4 },
