@@ -1900,10 +1900,17 @@ const boostMeter = createBoostMeter();
 function updateBoostButton(dt) {
   if (!boostButton) return;
   const mode = boost.state.mode;
-  boostMeter.update(dt, boost.fraction(), boost.state.pending > 0);
+  // The recharge out of 'empty' is fed to the meter as a pour, because to the player it is one:
+  // fuel is arriving and the bar is moving. That buys the climb the leading edge and the glow for
+  // free, and — the part worth the reuse — the spring on the end, which fires on the frame the
+  // trickle stops and the button wakes. What it must NOT buy is the pill's 4Hz flutter; a dead
+  // button bouncing reads as pressable, so `#boost.is-charging` takes the movement back out.
+  const charging = boost.isCharging();
+  boostMeter.update(dt, boost.fraction(), boost.state.pending > 0 || charging);
 
   boostButton.classList.toggle('is-active', mode === 'active');
   boostButton.classList.toggle('is-empty', mode === 'empty');
+  boostButton.classList.toggle('is-charging', charging);
   boostButton.classList.toggle('is-filling', boostMeter.state.fill > 0);
   boostButton.style.setProperty('--pct', `${(boostMeter.state.pct * 100).toFixed(1)}%`);
   boostButton.style.setProperty('--fill', boostMeter.state.fill.toFixed(3));

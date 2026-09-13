@@ -2061,28 +2061,35 @@ short slice, a long hold flows until the tank is empty. Full tank is 15 seconds 
 decision is now *how long* to press as well as *when*. The button doubles as the dial: a `--pct`
 CSS variable tracks the fuel level, dropping as you drain and climbing as a drop-off pours fuel in.
 
-**Everything above a quarter tank is earned.** The run opens with **a third of a tank**, each
+**Every drop of it is earned, except the way back out of empty.** The run opens with **a third of a tank**, each
 successful drop-off pours in **another third**, a [delivered package](#the-rest-of-it) pours in **a
 sixth**, and a [burger run](#the-burger-run) pours in **15%** — that is the whole list of sources,
 and the first three are jobs done. The fourth is the one you buy: $10 off the counter at the window.
 A top-up that lands while you're still holding the button rolls straight back into boost rather than
 making you press again.
 
-**Below a quarter it trickles back up, so the pill is never dead for good.** Spend it all and the
-pill goes grey and dead (`.is-empty`, `disabled`) — but the tank starts climbing behind it at
-`BOOST_FLOOR_FRACTION / BOOST_REGEN_SECONDS`, a quarter of a tank over **five seconds**, and the
-button comes alive again the moment it lands. The bar is live through the whole recharge, so the
-dead button has a visible clock on it. Three things keep that from undoing the economy above:
+**An empty tank climbs back to a quarter, so the pill is never dead for good.** Spend it all and
+the pill goes grey and dead (`.is-empty`, `disabled`) — and then the tank starts climbing behind it
+at `BOOST_FLOOR_FRACTION / BOOST_REGEN_SECONDS`, a quarter of a tank over **five seconds**, with the
+button coming alive on the frame it lands. Four things make it a recovery rather than a refill:
 
-- The floor is **3.75 seconds** of boost — a package and a half, half what a fare pays. Waiting is
-  the worst rate in the game and it caps out immediately; deliveries are still the only way to a
-  full tank, and a tank above the floor never moves on its own.
-- The pill stays dead for the *whole* five seconds rather than waking on the first frame of the
-  trickle, which would hand the player a sixtieth of a second of boost and go grey again under their
-  thumb. A delivery outranks it: a pour lights the button on the frame it starts.
-- Nothing trickles while the tank is being spent — not during a boost (regen at 0.75 a second
-  against a drain of 1 would stretch the last quarter tank from 3.75 seconds to 15) and not through
-  the `'cooldown'` momentum window, which freezes the fuel by design.
+- **Only `'empty'` recharges.** Not a partial tank, not a tank being spent, not one frozen inside
+  the `'cooldown'` momentum window. A player who let go with a sliver left keeps the sliver and gets
+  no trickle; the climb answers a dead button, and running the tank out is what asks the question.
+  (Spending that sliver is what runs it out, so the sliver is never a trap — just not a head start.)
+- **It stops at a quarter.** 3.75 seconds of boost, half what a fare pays and a package and a half.
+  Waiting is the worst rate in the game and it caps out immediately; deliveries are still the only
+  way to a full tank, and a tank above zero never moves on its own.
+- **The pill stays dead for the whole five seconds** rather than waking on the first frame with a
+  sixtieth of a second in it and going grey again under the player's thumb. A delivery outranks the
+  climb: a pour lights the button on the frame it starts.
+- **The climb is shown.** `.is-empty` paints a flat grey plate, which is why the first cut of this
+  was five seconds of nothing — the dial the fuel was moving wasn't being drawn. `.is-charging`
+  brings it back in a muted gold across the left quarter of the pill, under the same bright leading
+  edge a pour rides: `updateBoostButton` feeds the recharge to `game/boostmeter.js` as a pour, so
+  the climb gets that envelope and the spring at the end of it for free, and `#boost.is-charging.is-filling` takes back the two things written for a live button
+  — full-strength yellow and the 4Hz flutter, both of which read as "press me" on a button that
+  refuses. The spring fires on the frame the button wakes.
 
 Both ways out of a boost — letting go, and running the tank dry — pass through the one-second
 `'cooldown'` momentum window first, so `'empty'` is where a drained tank lands *after* that tail
@@ -2102,7 +2109,7 @@ those rules waiting was a valid way to get boost back, so the meter said nothing
 was going; now all but the bottom quarter of it was earned by a fare, and three deliveries is a full
 tank. Opening with a third rather than empty keeps the toy in reach on the first fare — an empty
 start leaves the button dead in the hand until the first drop-off lands, which is the same reason
-the floor exists at all: a run that has spent its tank and is between fares should still have one
+the recharge exists at all: a run that has spent its tank and is between fares should still have one
 straightaway's worth of Loco Mode within five seconds of asking.
 
 **There is no longer a case where holding it does nothing.** A taxi that had just picked someone up

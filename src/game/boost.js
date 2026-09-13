@@ -9,11 +9,23 @@
 // back on its own (and fast-recharged from empty), which meant waiting was a valid way to get boost
 // back and the meter said nothing about how the run was going.
 //
-// What it does have is a floor. A tank below a quarter creeps back up to a quarter and stops there
-// (BOOST_FLOOR_FRACTION, BOOST_REGEN_SECONDS), so the pill is never permanently dead in the hand —
-// wait five seconds and there is always one straightaway's worth of Loco Mode to spend. Everything
-// above the floor is still earned and still never moves on its own, which is the half of the old
-// rule that was worth keeping: waiting buys you a quarter tank, and only deliveries buy the rest.
+// What it does have is a recovery from dead. A tank that has actually run *out* — the `'empty'`
+// mode, and nothing else — climbs back to a quarter over five seconds (BOOST_FLOOR_FRACTION,
+// BOOST_REGEN_SECONDS) and stops there, so the pill is never permanently dead in the hand.
+// Everything else is still earned and still never moves on its own, which is the half of the old
+// rule worth keeping: running out buys you a quarter tank, and only deliveries buy the rest.
+//
+// It is deliberately keyed on the *mode* and not on "the tank is below a quarter". A player who
+// let go with a sliver left keeps their sliver and gets no trickle: the recharge is the answer to
+// a dead button, not a drip that tops the meter up all run. (The sliver is not a trap — spending
+// it is what runs the tank out, and running out is what starts the clock.)
+//
+// The climb is *shown*, which is most of why it is a five-second clock and not an instant refill.
+// `state.charging` is the flag the HUD dresses: the pill keeps its dead grey and stays `disabled`,
+// but the dial comes back as a muted fill creeping across the left quarter with the same bright
+// leading edge a delivery's pour gets (`#boost.is-charging` in index.html, driven through
+// game/boostmeter.js like any other fill), and the spring on the end of it lands on the frame the
+// button wakes up.
 //
 // Releasing mid-spend just pauses the drain, so a short tap costs a short slice of fuel and a long
 // hold keeps flowing until it runs out — the decision is *how long* to press as well as *when*.
@@ -56,13 +68,11 @@ export const BOOST_BURGER_REWARD = 0.15;
 // see `fullPower` in traffic.js).
 export const BOOST_COOLDOWN = 1;
 
-// The floor the tank always comes back to, and how long a dry one takes to reach it. 3.75s of
-// boost, which is the same slice a package pays plus a half — enough to be worth pressing for,
-// well short of the third a fare earns, so regenerating is never competitive with driving.
-//
-// The rate is flat (`floor / BOOST_REGEN_SECONDS`) rather than "five seconds from wherever you
-// are", so a tank released with a sliver left tops up faster than a dry one rather than slower —
-// saving fuel must never leave the player worse off than spending it all.
+// What a dry tank comes back to, and how long it takes. 3.75s of boost — the same slice a package
+// pays plus a half — so it is enough to be worth pressing for and well short of the third a fare
+// earns, and running dry on purpose is never competitive with driving. Five seconds is long enough
+// that the climb is something to watch rather than a refill that has already happened, and short
+// enough that it is over before a player has finished swearing at the dead button.
 export const BOOST_FLOOR_FRACTION = 1 / 4;
 export const BOOST_REGEN_SECONDS = 5;
 
@@ -80,6 +90,10 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
     // is only allowed to answer the second. Counted against sim time like everything else in
     // `update`, so it stops with a paused run rather than banking the length of the pause.
     heldFor: 0,
+    // Is the recharge running this frame? The HUD's cue (game/boostmeter.js, `#boost.is-charging`)
+    // and nothing else — every decision in here reads the mode instead, so that the flag can never
+    // be the thing that gates the fuel.
+    charging: false,
   };
 
   // Leaving 'active' for any reason — letting go or running the tank dry — passes through here
@@ -97,12 +111,26 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
   const FLOOR = duration * BOOST_FLOOR_FRACTION;
   const REGEN_RATE = FLOOR / BOOST_REGEN_SECONDS;
 
+  // Fuel that cannot buy a single frame of boost on even a slow phone is not fuel. Letting go a
+  // hair before the tank runs out lands exactly there — the drain stops mid-frame and the momentum
+  // window freezes whatever is left, which measured 1.3e-14 seconds on the run that turned this up
+  // — and the state it lands in is the bad one: 'ready', because the tank is technically not empty.
+  // The pill then reads 0%, looks pressable, gives back one frame of nothing when pressed, and
+  // never recharges, since only 'empty' does. So the one place the mode is decided from the level
+  // rounds a crumb down to a dead tank instead. A thirtieth of a second is the largest slice that
+  // can honestly be called nothing; anything a player could *feel* has to stay in the tank, because
+  // fuel silently deleted at the bottom of the meter is the same bug pointing the other way.
+  const EMPTY_FUEL = 1 / 30;
+
   return {
     state,
     isActive: () => state.mode === 'active',
     isReady: () => state.mode === 'ready',
     isCoolingDown: () => state.mode === 'cooldown',
     isEmpty: () => state.mode === 'empty',
+    // Empty *and* climbing back out of it. Always a subset of `isEmpty` — the button stays dead
+    // for the whole recharge — so the HUD can ask this one question for the dressing.
+    isCharging: () => state.charging,
     // What the taxi's boost-only rules (collision, police bust range, running reds) key off —
     // true for the hold itself and for the one-second tail after it, false the moment that tail
     // runs out.
@@ -163,7 +191,7 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
         state.cooldownLeft -= dt;
         if (state.cooldownLeft <= 0) {
           state.cooldownLeft = 0;
-          if (state.fuel <= 0) state.mode = 'empty';
+          if (state.fuel <= EMPTY_FUEL) { state.fuel = 0; state.mode = 'empty'; }
           else if (state.held) state.mode = 'active';   // re-pressed and still owed fuel
           else state.mode = 'ready';
         }
@@ -179,16 +207,15 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
         poured = drip > 0;
       }
 
-      // The trickle back to the floor, and only while the tank is *not* being spent. Regen during
-      // 'active' would fight the drain at 0.75 against 1 a second and stretch the last quarter of a
-      // tank into 15 seconds of boost instead of 3.75; regen during 'cooldown' would put fuel in a
-      // tank the momentum window deliberately holds frozen, and a re-press would then get to spend
-      // it. An arriving pour outranks it for the same reason — earned fuel is already going in, and
-      // both at once counts the frame twice.
-      if (!poured && state.pending <= 0 && state.fuel < FLOOR
-        && (state.mode === 'ready' || state.mode === 'empty')) {
-        state.fuel = Math.min(FLOOR, state.fuel + REGEN_RATE * dt);
-      }
+      // The climb back out of 'empty', and *only* out of 'empty'. Nothing else regenerates: not a
+      // partial tank in 'ready' (that is a sliver the player still has, not a dead button), not a
+      // tank being spent in 'active' — regen at 0.75 against a drain of 1 would stretch the last
+      // quarter tank from 3.75s to 15s — and not one held frozen by the 'cooldown' momentum window,
+      // which a re-press would then get to spend. An arriving pour outranks it as well: earned fuel
+      // is already going in, and both at once counts the frame twice.
+      state.charging = state.mode === 'empty' && !poured && state.pending <= 0
+        && state.fuel < FLOOR;
+      if (state.charging) state.fuel = Math.min(FLOOR, state.fuel + REGEN_RATE * dt);
 
       // One clamp point covers both sources of change (drain, top-up).
       if (state.fuel <= 0) {
@@ -206,21 +233,27 @@ export function createBoost(duration = BOOST_DURATION, startFraction = BOOST_STA
         // refilled mid-cooldown needs nothing here: the window's own expiry already picks the
         // right mode now that there's fuel again.
         //
-        // The trickle has to *finish* before it does the same. Coming alive on the first frame of
-        // the regen would hand the player a pill worth a sixtieth of a second that goes grey again
-        // under their thumb; staying dead until the quarter is actually in the tank makes the five
-        // seconds a visible recharge — the bar climbs behind a dead button and the button lights
-        // when it lands.
+        // The recharge has to *finish* before it does the same. Coming alive on the first frame of
+        // the climb would hand the player a pill worth a sixtieth of a second that goes grey again
+        // under their thumb; staying dead until the quarter is actually in the tank is what makes
+        // the five seconds a thing to watch — the dial creeps across a still-dead button, and the
+        // button lights on the frame it lands.
         if (state.mode === 'empty' && (poured || state.fuel >= FLOOR)) {
           state.mode = state.held ? 'active' : 'ready';
+          // Cleared here and not left to the next frame's `state.charging =` above it, which runs
+          // *before* this flip and so had already said `true` for the tick that finished the job.
+          // One frame of a woken pill still wearing `.is-charging` is nothing to look at, but it is
+          // a frame of the dressing disagreeing with the mode — and it is what puts the spring on
+          // the exact frame the button lights rather than the one after it.
+          state.charging = false;
         }
       }
     },
 
     /**
      * 0..1 of the dial that should be filled: drops while active, climbs while topping up, and
-     * creeps up to BOOST_FLOOR_FRACTION on its own from anywhere below it. Live through the whole
-     * recharge, `'empty'` included — the climbing bar is what the dead button is waiting on.
+     * creeps up to BOOST_FLOOR_FRACTION while `'empty'`. Live through the whole recharge — the
+     * climbing dial is the only thing the dead button has to say for itself.
      */
     fraction() {
       return state.fuel / duration;
