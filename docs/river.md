@@ -374,28 +374,85 @@ so the vessel the bridge opened for looked exactly like the barge that sailed st
 bridge appeared to lift for no reason.
 
 The air draught did not change and **could not**: the 2.52 row in the table above leaves 0.12 of
-headroom, so the fix had to come out of *area* instead of altitude. A gaff mainsail spends the same
-2.4 units on 3.0 square units of pale canvas — 149 px² at play zoom against the mast's 5, with a jib
-for another 60 — and it is a shape nobody has to be told the meaning of. The probe asserts the
-canvas area for the same reason it asserts the soffits: a rig that quietly collapses to a stick is
-the old bug back again, and it renders as nothing rather than as an error.
+headroom, so the fix had to come out of *area* instead of altitude. The rig carries 93 px² of pale
+canvas at play zoom against the mast's 5. The probe asserts that area for the same reason it asserts
+the soffits: a rig that quietly collapses to a stick is the old bug back again, and it renders as
+nothing rather than as an error.
 
-**Gaff-rigged, and that follows from the ceiling too.** The rig has 1.85 units between deck and
-masthead on a 6.4-unit hull; a Bermudan triangle in that box is a thin sliver on a long boat, which
-is the tug's problem with a better outline. A gaff fills the box — boom low, peak slung aft and high
-— and low-slung working sail is what a craft built to duck under bridges actually carries, so the
-shape the clearance forces is also the honest one. Even so the sail only fills 69% of the rig's
-height; the first cut hung its spars where a boat with headroom would carry them and managed 54%,
-which is half the argument thrown away.
+#### Area is not the same thing as reading as a sailboat
 
-The hull is 6.4 rather than the tug's 4.4, between a car's 3.4 and the barge's 8.6, and it is the one
-number in `game/boats.js` that moved with it: `RELEASE_PAST` is `SAIL_LEN + 4`, and the waiting
-distance is now stated as the gap between the **bow** and the deck's edge (`BOW_GAP`) rather than as
-a flat nine units centre-to-centre. Nine was a hull length of clearance for the tug and 1.1 for this
-boat under a span on an arterial line, which is the leaf coming down rather close to a mast.
+The first cut of this got that wrong, and it is the more interesting half. With only 1.79 units
+between deck and masthead, the way to spend the budget on *canvas* is to spend it sideways — so it
+was gaff-rigged on a 6.4-unit hull, a four-sided mainsail with 3.3 units of foot against 1.2 of
+hoist. That is the most cloth the box can hold, **209 px² against the 93 here**, and it did not
+read as a boat at all: a peak slung high and aft, a jib mirroring it forward, and the two together
+drawing one symmetrical roof with the mast buried inside it. Reported, exactly right, as *"the sail
+doesn't follow the mast and rig"*.
 
-Measured over 40 seeds the span is now shut 16.7% of a five-minute run against 15.6% before — the
-longer hull costs about a point, which is what a bigger boat should cost.
+What says *sailboat* is not area. It is **a vertical leading edge with a triangle hanging off the
+back of it** — so the main is Bermudan, its luff running the mast from boom to head, its leech one
+diagonal down to the clew, and the masthead standing clear above the head where it can be seen. The
+jib is a third the size and set forward with daylight between the two, because two sails that touch
+are one shape. Half the canvas, and the only version of the two that anyone identifies.
+
+**And then the foot came in again, for a reason that is pure camera.** A world X unit projects to
+0.707 across this screen and 0.385 *down* it, against a world Y unit's 0.838 straight up — so on a
+boat running east-west both the foot and the leech travel *up*-screen as they go aft, and the
+triangle shears open into a wedge. At a foot of 0.46 of the hull the leech came down at 19° off
+horizontal and read as a pennant; at 0.36 it is 32° and reads as a sail. Another fifth of the area
+gone, and the same trade again.
+
+Two things pay for the hoist that costs:
+
+- **The hull came down from 6.4 to 4.6.** A mast is read against the boat under it, and on the long
+  hull 1.79 units of rig was 0.28 of the waterline — a mast that looks snapped off. Nothing in the
+  clearance chain ever wanted the long hull; the air draught is what the bridge cares about and that
+  is 2.4 whatever the hull does.
+- **`SAIL_FREEBOARD` drops the deck**, 0.55 → 0.34. The mast starts at the deck and ends at a height
+  the arches fix, so lowering the deck is the one way to lengthen it without touching a number in
+  the chain — 0.21 more mast, an eighth of the rig, for what a sailing hull gives up anyway against
+  a cargo one. Together those take the mast from 0.28 of the hull to **0.43**.
+
+The cost is that the boat the bridge opens for is now smaller than the barge that sails straight
+under it. That is what a yacht and a lighter actually look like side by side, and the mast is the
+part the bridge is answering.
+
+`RELEASE_PAST` is `SAIL_LEN + 4` and follows the hull. The waiting distance is now stated as the gap
+between the **bow** and the deck's edge (`BOW_GAP`) rather than as a flat nine units centre-to-centre:
+nine was a hull length of clearance for the 4.4-unit tug, and it is measured off the span's own
+`outer` now, which is 1.33 wider where a bank is an arterial.
+
+Measured over 40 seeds the span is shut 16.7% of a five-minute run against the tug's 15.6%.
+
+### Nobody overtakes, and nobody sails through the boat in front
+
+`keepStation` in `game/boats.js`. **The lanes only ever solved half the problem.** Keying a lane to a
+heading fixes head-on pairs and says nothing about a *following* pair — two boats going the same way
+are in the same water by construction, and nothing kept them apart. The closing speeds are small, so
+for a long time it did not show.
+
+What made it show is the tall boat learning to **stop**. A boat clamped at the hold-off in front of a
+shut leaf is a parked obstacle in a lane a barge is still running down at 2.6 u/s, and the barge drove
+straight through it. Measured over twenty five-minute runs before the fix: hulls overlapped on **2% of
+frames, the worst by 7.5 units** — a whole barge inside a whole sailboat.
+
+It was invisible to the probe, and for a reason worth keeping: the passing check skips any pair
+sharing a direction (`other.dir === boat.dir`), because that check was written to test the *lanes*.
+A bound nothing asserts is a bound that decays. There are two checks now, and the axes swap between
+them — a head-on pair is kept apart across the channel and a following pair along it.
+
+The clamp runs **leaders first**, sorted by progress along their own heading, so one pass settles a
+whole queue rather than leaving each boat a frame behind the one ahead. It also forced the update
+loop apart into three passes: advance, hold station at the bridge, keep station behind the boat in
+front — and only then spend the wake. Spending it in the same step that moves a boat was safe only
+while nothing could move a boat *afterwards*; a boat clamped after its foam was laid would lay a full
+step of wake standing still, which is the wheelspin the per-distance emitter exists to prevent.
+
+The screenshots were staging the same bug. `settle()` forced both boats up-river, which put them in
+one lane by the rule above, and then the shot stepped thirteen seconds during which the sailboat
+stopped at the leaf and the barge behind it did not — so every staged frame of the river had a barge
+closing on a parked sailboat. They are sent past each other now, which is also the one arrangement
+that shows the lanes doing their job.
 
 The sailboat asks for the lift **`ASK_AHEAD` units out**, which is a distance rather than a clock for the
 reason the roadworks hop is paced by distance: the answer has to be the same whatever else is

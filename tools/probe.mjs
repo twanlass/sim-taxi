@@ -13133,17 +13133,24 @@ let chopperOrder; // likewise
       solids.length > 8 && reversed.length === 0,
       `${solids.length} closed parts, ${reversed.length} inside out`);
 
-    // **And there is enough cloth on it to be the reason.** The sails are the two parts thinner
-    // than a spar is wide; their area is the volume over that thickness. 149 px² of mainsail and
-    // 60 of jib at play zoom (1 unit is 7.7px across and 0.838 of that up the screen), against the
-    // 5 px² the tug's mast managed — so a rig that quietly collapses fails here rather than
-    // shipping a tall boat nobody can tell from a short one.
+    // **And there is enough cloth on it to be the reason.** A sail is 0.05 thick and the thinnest
+    // spar on the boat is 0.06, so thickness alone separates canvas from rigging — exactly, and
+    // without the geometry having to carry a label through the merge. The bound was 0.08 first,
+    // which swept the forestay and the backstay in and inflated the answer by a sixth: both are
+    // long and thin, so dividing their volume by their width reads as a great deal of sail.
+    //
+    // 65 px² of mainsail and 29 of jib at play zoom (1 unit is 7.7px across and 0.838 of that up
+    // the screen), against the 5 px² the tug's mast managed. The floor is set well under the 93
+    // those measure, because what it is here for is a rig that *collapses* rather than one that
+    // gets retuned — and this rig has been retuned twice already, both times *downward*, because
+    // the shape of a sail carries further than its area. A sail that silently stops being drawn
+    // looks from any wide framing exactly like a feature nobody got round to.
     const canvas = solids
-      .filter((part) => part.box.max.x - part.box.min.x < 0.08)
+      .filter((part) => part.box.max.x - part.box.min.x < 0.055)
       .reduce((sum, part) => sum + part.vol / (part.box.max.x - part.box.min.x), 0);
     const onScreen = canvas * 7.7 * 7.7 * 0.838;
     check('and it carries enough canvas to read as the boat that needs the bridge',
-      onScreen > 150,
+      onScreen > 60,
       `${canvas.toFixed(2)} square units of sail, ${onScreen.toFixed(0)} px² at play zoom`);
   }
 
@@ -13544,6 +13551,10 @@ let chopperOrder; // likewise
     let worstGap = Infinity;
     let worstAir = Infinity;
     let bothWays = false;
+    // ...and the same pair of numbers for boats following each other, which is a different bound
+    // with a different mechanism behind it (`keepStation` rather than `laneZ`).
+    let worstFollow = Infinity;
+    let sameWay = false;
     // The wake, which is a pool of motes lying on the water rather than a triangle towed behind
     // each hull. Three things are worth a number over a five-minute soak: how far the foam gets
     // from the middle of the channel, whether it stays on the surface, and how much of the pool the
@@ -13587,12 +13598,22 @@ let chopperOrder; // likewise
           if (Math.abs(boat.x - bridge.span.cx) < 5) lowest = Math.min(lowest, bridge.state.lift);
         }
         for (const other of boats.boats) {
-          if (other === boat || other.dir === boat.dir) continue;
-          bothWays = true;
-          // Only a pair that actually meets can collide: hulls overlapping in x is the condition,
-          // and then the beam gap in z is what has to stay positive.
-          if (Math.abs(other.x - boat.x) > (other.len + boat.len) / 2) continue;
-          worstGap = Math.min(worstGap, Math.abs(other.z - boat.z) - BEAM);
+          if (other === boat) continue;
+          if (other.dir !== boat.dir) {
+            bothWays = true;
+            // Only a pair that actually meets can collide: hulls overlapping in x is the condition,
+            // and then the beam gap in z is what has to stay positive.
+            if (Math.abs(other.x - boat.x) > (other.len + boat.len) / 2) continue;
+            worstGap = Math.min(worstGap, Math.abs(other.z - boat.z) - BEAM);
+          } else {
+            // Following, and the axes swap over: a pair on one heading is kept apart *along* the
+            // channel, so the gap that has to stay positive is the one in x, and the z test is what
+            // decides whether the pair shares water at all.
+            if (Math.abs(other.z - boat.z) >= BEAM) continue;
+            sameWay = true;
+            worstFollow = Math.min(worstFollow,
+              Math.abs(other.x - boat.x) - (other.len + boat.len) / 2);
+          }
         }
       }
     }
@@ -13673,6 +13694,20 @@ let chopperOrder; // likewise
       bothWays
         ? `closest passing hulls left ${worstGap.toFixed(2)} units of water between them`
         : 'no two boats ever met head-on, so nothing was tested');
+    // **And boats going the *same* way queue rather than drive through each other.**
+    //
+    // This is the half the lane rule never covered and the check above was blind to by
+    // construction: it skips any pair sharing a direction, because it was written to test the
+    // lanes, and two boats on one heading share a lane by design. Nothing bounded how close they
+    // could get. Measured before `keepStation` existed, over twenty five-minute runs: hulls
+    // overlapped on 2% of frames and the worst by 7.5 units, which is a whole barge inside a whole
+    // sailboat. What made it visible was the sailboat learning to *stop* — a boat held at the
+    // hold-off in front of a shut leaf is a parked obstacle in a lane a barge is still running down.
+    check('and boats going the same way queue rather than sail through each other',
+      sameWay && worstFollow > 0,
+      sameWay
+        ? `closest following hulls left ${worstFollow.toFixed(2)} units of water between them`
+        : 'no two boats ever shared a heading and a lane, so nothing was tested');
     // The margin is thin by design — every unit outboard is clearance spent — so it is asserted on
     // the **widest lane the generator can hand out**, not on whatever the soak happened to draw.
     // That distinction is the whole check: the old free-for-all put roughly one tall boat in twenty

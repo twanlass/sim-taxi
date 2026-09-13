@@ -18,7 +18,7 @@ import { SLAB_X, EDGE_FADE } from '../city/ground.js';
 //
 // The tall one was a tug until it was a sailboat, and the swap was about *reading* the mechanism
 // rather than about the mechanism itself: the air draught is unchanged at 2.4 and cannot go up
-// (see the ceiling note in geometry/boat.js), but a gaff mainsail spends it on thirty times the
+// (see the ceiling note in geometry/boat.js), but a mainsail spends it on nineteen times the
 // silhouette a mast did. Nothing in this file moved for it except the hull length.
 //
 // Run seed, not city seed, for the reason the flyover and the police runs are: which span lifts is
@@ -105,11 +105,19 @@ export const LANE_WANDER = 0.2;
 //
 // **Measured from the bow to the deck's edge, not from the hull's middle to the bridge's.** It used
 // to be a flat nine units centre-to-centre, which was a hull length of clearance for a 4.4-unit tug
-// and is 1.1 for a 6.4-unit sailboat under a span on an arterial line — the leaf comes down onto the
+// and is 3.0 for a 4.6-unit sailboat under a span on an arterial line — the leaf comes down onto the
 // widest deck in the city and there are two units of variation in how wide that is. Stated as the
 // gap that actually has to exist and turned into a stopping distance where the span is known
 // (`holdOff` in `createBoats`), so neither a longer hull nor a wider road can quietly eat it.
 const BOW_GAP = 2.2;
+
+// ...and how much water a boat keeps behind the one in front of it, on top of the two half-hulls.
+//
+// A boat length would be tidy and is too much: at 2.6 u/s a barge closing on a stopped sailboat
+// takes the gap down over several seconds, and the eye reads the *approach* rather than the number
+// it settles at. 2.0 is enough that two hulls never touch and near enough that a queue at a raised
+// leaf reads as boats waiting their turn rather than as boats parked at random.
+const WAKE_ROOM = 2.0;
 
 export function createBoats(scene, rng, drawbridge) {
   const edges = waterEdges();
@@ -208,6 +216,45 @@ export function createBoats(scene, rng, drawbridge) {
   /** Where along the channel the lifting span is, or null on a city without one. */
   const spanX = () => (drawSpan ? drawSpan.cx : null);
 
+  /**
+   * Nobody overtakes, and nobody sails through the boat in front.
+   *
+   * **The lanes only ever solved half the problem.** Keying which side of the channel a boat runs on
+   * to which way it is going (`laneZ`) fixed head-on pairs and is silent about a *following* pair —
+   * two boats going the same way are in the same water by construction, and nothing here made them
+   * keep a distance. The closing speed is small, so for a long time it did not show; what made it
+   * show is the sailboat **stopping**. A boat clamped at `holdOff` in front of a shut leaf is a
+   * parked obstacle in a lane a barge is still running down at 2.6 u/s, and the barge drove straight
+   * through it. Measured over 20 five-minute runs before this existed: hulls overlapped on 2% of
+   * frames, the worst by 7.5 units — a whole barge inside a whole sailboat.
+   *
+   * It read as "the boats are always colliding" and it was invisible to the probe, whose passing
+   * check skips any pair sharing a direction (`other.dir === boat.dir`) because that check was
+   * written to test the lanes. A bound nothing asserts is a bound that decays.
+   *
+   * **Leaders first.** Sorted by progress along their own heading, so a boat is clamped against a
+   * leader that has already taken its own clamp — one pass settles a whole queue instead of leaving
+   * each boat a frame behind the one ahead. Clamped rather than slowed for the reason the bridge
+   * hold-off is: at these speeds a stopping curve is a second motion model nobody would see.
+   */
+  function keepStation() {
+    const order = [...boats].sort((a, b) => b.x * b.dir - a.x * a.dir);
+    for (let k = 1; k < order.length; k++) {
+      const boat = order[k];
+      for (let j = 0; j < k; j++) {
+        const lead = order[j];
+        if (lead.dir !== boat.dir) continue;
+        // Only a pair actually sharing water: the wander can put two same-heading boats far enough
+        // apart across the channel to pass, and `BEAM` is the barge's, so it is the safe side of
+        // both hulls.
+        if (Math.abs(lead.z - boat.z) >= BEAM) continue;
+        const room = (lead.len + boat.len) / 2 + WAKE_ROOM;
+        const ahead = (lead.x - boat.x) * boat.dir;
+        if (ahead < room) boat.x = lead.x - boat.dir * room;
+      }
+    }
+  }
+
   function update(dt) {
     state.bargeIn -= dt;
     state.sailIn -= dt;
@@ -225,38 +272,49 @@ export function createBoats(scene, rng, drawbridge) {
     const gate = spanX();
     const off = OFF_MAP();
 
+    // --- Advance, then hold station, then keep station. Three passes, in that order.
+    //
+    // It used to be one loop that moved a boat and spent its wake in the same step, which is fine
+    // while nothing can move a boat *after* it has moved — and the queue below is exactly that. A
+    // boat clamped behind another after its foam had already been laid would lay a full step's wake
+    // while standing still, which is the wheelspin this effect was keyed to distance to avoid.
+    for (const boat of boats) {
+      boat.before = boat.x;
+      boat.x += boat.dir * boat.speed * dt;
+    }
+
+    for (const boat of boats) {
+      if (boat.kind !== 'sail' || gate === null || !drawbridge) continue;
+      // Measured along the direction of travel, so both ends of the river behave the same.
+      const toGate = (gate - boat.x) * boat.dir;
+      if (!boat.asked && toGate <= ASK_AHEAD && toGate > 0) {
+        boat.asked = true;
+        drawbridge.request();
+      }
+      // Hold station short of a span that is not open yet. Clamped rather than decelerated: at
+      // 3.4 u/s a boat is barely moving on screen anyway, and a stopping curve would be a second
+      // motion model for something the player sees twice a session.
+      //
+      // **`toGate > 0` is load-bearing.** Without it the clamp goes on applying after the boat
+      // is through — `toGate` is negative by then, still under `holdOff` — so the moment the leaf
+      // started back down it teleported the boat to the near side of the bridge and held it
+      // there. One boat in 260 seconds instead of three, and the one was going round in circles.
+      if (boat.asked && toGate > 0 && toGate <= holdOff && drawbridge.state.lift < 0.98) {
+        boat.x = gate - boat.dir * holdOff;
+      }
+      // Through, and far enough past that the leaf can come down behind it.
+      if (boat.asked && toGate < -RELEASE_PAST) drawbridge.release();
+    }
+
+    keepStation();
+
     for (let k = boats.length - 1; k >= 0; k--) {
       const boat = boats[k];
-      const before = boat.x;
-      boat.x += boat.dir * boat.speed * dt;
       boat.mesh.position.x = boat.x;
       // Ride the surface, which is not flat any more: the channel shoals up to meet the ground
       // through each mouth (`waterHeightAt`), and a hull pinned to `WATER_Y` would sail into the
       // shallows with the river closing over it.
       boat.mesh.position.y = waterHeightAt(boat.x);
-
-      if (boat.kind === 'sail' && gate !== null && drawbridge) {
-        // Measured along the direction of travel, so both ends of the river behave the same.
-        const toGate = (gate - boat.x) * boat.dir;
-        if (!boat.asked && toGate <= ASK_AHEAD && toGate > 0) {
-          boat.asked = true;
-          drawbridge.request();
-        }
-        // Hold station short of a span that is not open yet. Clamped rather than decelerated: at
-        // 3.4 u/s a boat is barely moving on screen anyway, and a stopping curve would be a second
-        // motion model for something the player sees twice a session.
-        //
-        // **`toGate > 0` is load-bearing.** Without it the clamp goes on applying after the boat
-        // is through — `toGate` is negative by then, still under `holdOff` — so the moment the leaf
-        // started back down it teleported the boat to the near side of the bridge and held it
-        // there. One boat in 260 seconds instead of three, and the one was going round in circles.
-        if (boat.asked && toGate > 0 && toGate <= holdOff && drawbridge.state.lift < 0.98) {
-          boat.x = gate - boat.dir * holdOff;
-          boat.mesh.position.x = boat.x;
-        }
-        // Through, and far enough past that the leaf can come down behind it.
-        if (boat.asked && toGate < -RELEASE_PAST) drawbridge.release();
-      }
 
       // Fade with the ground under it. The foam behind it fades on the same band, but per mote and
       // at the x it was *laid* at rather than at the boat's — it does not travel with the hull, so
@@ -264,10 +322,11 @@ export function createBoats(scene, rng, drawbridge) {
       boat.mesh.material.opacity = fadeAt(boat.x);
 
       // Foam is spent per unit of river covered, so a boat clamped at `holdOff` in front of a leaf
-      // that has not come up spends nothing and lies there with the water flat behind it. That used
-      // to be a `moved / would-have-moved` term multiplied into the wake's opacity; keyed to
-      // distance it is not a special case any more, it is just what the emitter does.
-      wake.follow(boat, Math.abs(boat.x - before));
+      // that has not come up — or queued behind one that is — spends nothing and lies there with
+      // the water flat behind it. That used to be a `moved / would-have-moved` term multiplied into
+      // the wake's opacity; keyed to distance it is not a special case any more, it is just what the
+      // emitter does.
+      wake.follow(boat, Math.abs(boat.x - boat.before));
 
       if (Math.abs(boat.x) > off) {
         // A sailboat retired without ever getting through — it can only happen if the bridge never
@@ -305,21 +364,27 @@ export function createBoats(scene, rng, drawbridge) {
     settle() {
       if (boats.length) return;
       const gate = spanX() ?? 0;
-      // Both forced up-river, so the lane has to be re-drawn to match: `launch` picked a side from
-      // the direction it drew, and overriding the direction afterwards without moving the boat
-      // would put a screenshot's boats on the wrong side of a river the game runs correctly.
-      const barge = launch('barge');
-      barge.dir = 1;
-      barge.mesh.rotation.y = Math.PI / 2;
-      barge.x = gate - 26;
-      barge.z = laneZ(barge.dir);
-      barge.mesh.position.set(barge.x, waterHeightAt(barge.x), barge.z);
-      const sailboat = launch('sail');
-      sailboat.dir = 1;
-      sailboat.mesh.rotation.y = Math.PI / 2;
-      sailboat.x = gate - 2;
-      sailboat.z = laneZ(sailboat.dir);
-      sailboat.mesh.position.set(sailboat.x, waterHeightAt(sailboat.x), sailboat.z);
+      // **Sent past each other, not nose to tail.** Both used to be forced up-river, which put them
+      // in one lane by the rule that keys a lane to a heading — and then the shot stepped the cycle
+      // for thirteen seconds, during which the sailboat stopped at the leaf and the barge behind it
+      // did not. Every staged frame of the river had a barge closing on a parked sailboat in its own
+      // lane, which is what "it looks like it's always colliding with the barge" was a report of. It
+      // was a real bug in the sim (see `keepStation`) and this staging is what put it in every
+      // screenshot. Opposite headings now, so the picture is two boats passing — which is also the
+      // one arrangement that shows the lanes doing their job.
+      //
+      // The lane has to be re-drawn after the heading is overridden: `launch` picked a side from the
+      // direction it drew, and changing the direction without moving the boat would put a
+      // screenshot's boats on the wrong side of a river the game runs correctly.
+      const place = (boat, dir, x) => {
+        boat.dir = dir;
+        boat.mesh.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+        boat.x = x;
+        boat.z = laneZ(dir);
+        boat.mesh.position.set(boat.x, waterHeightAt(boat.x), boat.z);
+      };
+      place(launch('barge'), -1, gate + 21);
+      place(launch('sail'), 1, gate - 2);
       // After both are in their final place, not inside `launch` — a trail laid at the spawn point
       // and then teleported with the hull would be twenty-six units up-river of the boat it belongs
       // to, which is a wake in a screenshot of open water.

@@ -644,9 +644,9 @@ export const PALETTE = {
   //
   // What the drawbridge opens for has to be legible from across the map, and the tug's tell was a
   // 0.11-wide mast: 0.85 of a pixel at play zoom, against a hull twenty pixels long. The boat that
-  // could not fit under the flat span looked exactly like the barge that could. A gaff mainsail is
-  // the same fact drawn at 3.3 by 1.2 units — about 25 by 9 pixels of cloth, thirty times the
-  // silhouette, and the one shape nobody has to be told means "this one needs the bridge".
+  // could not fit under the flat span looked exactly like the barge that could. A mainsail is the
+  // same fact drawn as 93 px² of cloth at play zoom — nineteen times the silhouette, and the one
+  // shape nobody has to be told means "this one needs the bridge".
   //
   // Luma 214, which makes it the brightest lit surface in the city: the sail is read against
   // `riverWater` at 112 and `riverDeep` at 87, so the contrast is the point. It stays under the

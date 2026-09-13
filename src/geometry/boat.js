@@ -15,8 +15,10 @@ import { BARGE_AIR, SAIL_AIR } from '../city/river.js';
 // the tug this replaced got wrong. Its mast was 0.11 wide — 0.85 of a pixel at play zoom — on a
 // hull twenty pixels long, so the boat that could not fit under the flat span was, on screen, the
 // barge that could. The clearance chain was right and nobody could read it. A sailboat spends the
-// *same* 2.4 units of air on a gaff mainsail instead of a stick: 3.3 by 1.2 units of pale canvas,
-// about thirty times the silhouette, and a shape that says what it needs without being told.
+// *same* 2.4 units of air on a mainsail instead of a stick: 93 px² of pale canvas at play zoom
+// against the mast's 5, and — the half that took two goes to get right — a shape that says what it
+// is without being told. See `createSailboatMesh` for why that is a Bermudan rig on a short hull
+// and not the gaff on a long one that held half again as much cloth.
 //
 // **The height itself could not go up, and that is worth writing down before someone tries.** The
 // tall boat has to sail under both ring-road bridges to reach the drawbridge at all, and an arched
@@ -30,7 +32,7 @@ import { BARGE_AIR, SAIL_AIR } from '../city/river.js';
 
 /** Hull length. A car is 3.4, so a barge is two and a half cars and the sailboat a shade under two. */
 export const BARGE_LEN = 8.6;
-export const SAIL_LEN = 6.4;
+export const SAIL_LEN = 4.6;
 /**
  * Hull width — the barge's, and the **wider of the two**, which is the property that matters.
  *
@@ -42,9 +44,19 @@ export const SAIL_LEN = 6.4;
  */
 export const BEAM = 2.2;
 /** ...and the sailboat's own, because a sloop at 3.4:1 is a sloop and at 2.9:1 is a launch. */
-const SAIL_BEAM = 1.9;
-const FREEBOARD = 0.55;        // hull above the waterline
+const SAIL_BEAM = 1.72;
+const FREEBOARD = 0.55;        // the barge's hull above the waterline
 const DRAFT = 0.35;            // ...and below it, which is only ever seen at the bow wave
+/**
+ * The sailboat's, and it is **mast height bought for nothing**.
+ *
+ * Every unit of freeboard is a unit the deck stands off the water, and the deck is where the mast
+ * starts — so on a rig whose top is pinned by the arches at `SAIL_AIR`, dropping the deck is the
+ * one way to make the mast longer without touching a single number in the clearance chain. 0.34
+ * against the barge's 0.55 is 0.21 more mast, which on 1.79 is an eighth of the whole rig, and it
+ * costs only what a yacht gives up anyway: a sailing hull sits lower and wetter than a cargo one.
+ */
+const SAIL_FREEBOARD = 0.34;
 
 /**
  * A hull: a box with its bow drawn in.
@@ -54,8 +66,8 @@ const DRAFT = 0.35;            // ...and below it, which is only ever seen at th
  * reversed. Rotation and positive non-uniform scale both preserve handedness, so neither step here
  * can undo the winding Three gave it.
  */
-function hull(length, col, beam = BEAM) {
-  const geo = new THREE.BoxGeometry(beam, FREEBOARD + DRAFT, length);
+function hull(length, col, beam = BEAM, free = FREEBOARD) {
+  const geo = new THREE.BoxGeometry(beam, free + DRAFT, length);
   const pos = geo.attributes.position;
   const nose = length / 2;
   for (let i = 0; i < pos.count; i++) {
@@ -67,7 +79,7 @@ function hull(length, col, beam = BEAM) {
     }
   }
   geo.computeVertexNormals();
-  geo.translate(0, FREEBOARD / 2 - DRAFT / 2, 0);
+  geo.translate(0, free / 2 - DRAFT / 2, 0);
   return bakeColor(geo, col);
 }
 
@@ -157,12 +169,28 @@ export function createBargeMesh(rng) {
 /**
  * The sailboat: the one that has to ask, and the one that has to *look* like it has to ask.
  *
- * **Gaff-rigged, and that is a consequence rather than a style choice.** The rig has 1.85 units
- * between the deck and the ceiling the arched spans impose, on a 6.4-unit hull — a Bermudan
- * triangle in that box is a tall thin sliver on a long boat, which is the tug's problem again with
- * a nicer outline. A gaff fills the box: a four-sided mainsail from the boom up to a spar slung
- * aft, 3.3 units of foot against 1.2 of hoist. Low-slung working sail is also what a craft built to
- * duck under bridges actually carries, so the shape the clearance forces is the honest one.
+ * **The luff is the mast, and everything else was tried first.** The rig has 1.79 units between the
+ * deck and the ceiling the arched spans impose, which is a short mast by any measure — so the first
+ * cut spent the width instead and hung a gaff mainsail off it, 3.3 units of foot against 1.2 of
+ * hoist. It was the most canvas the box can hold (209 px² against this rig's 93) and it did not
+ * read as a boat at all: a peak slung high and aft, a jib mirroring it forward, and the two of them
+ * together drew one symmetrical roof with the mast buried inside it. Reported, exactly right, as
+ * "the sail doesn't follow the mast and rig".
+ *
+ * What says *sailboat* is not area, it is **a vertical leading edge with a triangle hanging off the
+ * back of it**. So the main is Bermudan: its luff runs the mast from boom to head, the leech is one
+ * diagonal down to the clew, and the masthead stands clear above the head where it can be seen. The
+ * jib is a third the size and set well forward with daylight between the two, so it reads as a
+ * second sail rather than as the other half of a tent.
+ *
+ * **And the hull came down from 6.4 to 4.6 to pay for it.** A mast is read against the boat under
+ * it, so on the long hull a 1.79 rig was 0.28 of the waterline and looked like a mast that had
+ * snapped. At 4.6, with `SAIL_FREEBOARD` dropping the deck to buy the rig back up to 2.0, it is
+ * **0.43** — still short of a real sloop's 1.3, and enough. Nothing about the clearance chain
+ * wanted the long hull: the air draught is what the bridge cares about, and that is unchanged at
+ * 2.4 whatever the hull does. What the short hull does cost is that the boat the bridge opens for
+ * is now smaller than the barge that sails straight under it — which is also what a yacht and a
+ * lighter actually look like side by side, and the mast is the part that matters.
  *
  * The **peak of the rig is placed from `SAIL_AIR`**, the way the tug's mast was and for the same
  * reason: it is the tallest thing on the boat and the only number in the clearance chain a bit of
@@ -178,77 +206,82 @@ export function createSailboatMesh(rng) {
   const canvasCol = jitterColor(PALETTE.sailCanvas, rng, { l: 0.025 });
 
   const parts = [
-    hull(SAIL_LEN, hullCol, SAIL_BEAM),
-    deck(SAIL_LEN, 0.16, FREEBOARD, deckCol, SAIL_BEAM),
+    hull(SAIL_LEN, hullCol, SAIL_BEAM, SAIL_FREEBOARD),
+    deck(SAIL_LEN, 0.16, SAIL_FREEBOARD, deckCol, SAIL_BEAM),
   ];
 
-  const DECK_Y = FREEBOARD + 0.06;       // the top of the deck lid, which everything stands on
+  const DECK_Y = SAIL_FREEBOARD + 0.06;  // the top of the deck lid, which everything stands on
   const BOW = SAIL_LEN / 2;
-  // The mast sits 36% of the way aft from the bow, which is where a sloop's is. Far enough forward
-  // that the mainsail has the back half of the boat to fill, which is the whole silhouette.
-  const MAST_Z = BOW - SAIL_LEN * 0.36;
+  // The mast sits a third of the way aft from the bow, which is where a sloop's is: far enough
+  // forward to leave the whole back of the boat to the mainsail, far enough aft to leave a
+  // foretriangle the jib can fill.
+  const MAST_Z = BOW - SAIL_LEN * 0.34;
+  // Everything in the rig is measured off this. It is the one number in the clearance chain that a
+  // bit of styling can quietly break — the tug before this eyeballed a mast on top of its
+  // superstructure and came out at 2.81 against the 2.75 an arched span leaves, which would have
+  // left it unable to reach the drawbridge at all.
+  const mastH = SAIL_AIR - DECK_Y;
 
-  // A cabin trunk forward of the mast, and a cockpit coaming aft of it. Both low: this camera sees
-  // the deck from above at 33 degrees, so anything standing on it competes with the sail for the
-  // same pixels, and what has to win is the sail.
-  const trunk = new THREE.BoxGeometry(SAIL_BEAM * 0.54, 0.40, SAIL_LEN * 0.36);
-  trunk.translate(0, DECK_Y + 0.20, MAST_Z + SAIL_LEN * 0.17);
+  // A low cabin trunk forward of the mast and a cockpit coaming aft of it. Both deliberately squat:
+  // this camera looks down at 33 degrees, so anything standing on the deck competes with the sail
+  // for the same pixels, and what has to win is the sail.
+  const trunk = new THREE.BoxGeometry(SAIL_BEAM * 0.56, 0.32, SAIL_LEN * 0.34);
+  trunk.translate(0, DECK_Y + 0.16, MAST_Z + SAIL_LEN * 0.20);
   parts.push(bakeColor(trunk, trimCol));
 
-  const coaming = new THREE.BoxGeometry(SAIL_BEAM * 0.46, 0.14, SAIL_LEN * 0.30);
-  coaming.translate(0, DECK_Y + 0.07, -SAIL_LEN * 0.25);
+  const coaming = new THREE.BoxGeometry(SAIL_BEAM * 0.46, 0.12, SAIL_LEN * 0.26);
+  coaming.translate(0, DECK_Y + 0.06, -SAIL_LEN * 0.28);
   parts.push(bakeColor(coaming, deckCol));
 
-  // The mast: deck-stepped, running the full height to `SAIL_AIR`. Tapered, and thicker than the
-  // tug's 0.11 stick — at play zoom that was under a pixel, which is how a boat defined by its air
-  // draught ended up with nothing on screen to show it.
-  const mastH = SAIL_AIR - DECK_Y;
-  const mast = new THREE.CylinderGeometry(0.055, 0.09, mastH, 6);
+  // The mast: deck-stepped, running the full height to `SAIL_AIR`, and tapered. Thicker than the
+  // tug's 0.11 stick — at play zoom that was under a pixel, which is how a boat defined entirely by
+  // its air draught ended up with nothing on screen to show it.
+  const mast = new THREE.CylinderGeometry(0.05, 0.085, mastH, 6);
   mast.translate(0, DECK_Y + mastH / 2, MAST_Z);
   parts.push(bakeColor(mast, deckCol));
 
-  // The rig, in fore-and-aft `[z, y]` coordinates. Everything is measured off the masthead and the
-  // boom, so the sail can never poke out through its own spars.
+  // The rig, in fore-and-aft `[z, y]` coordinates.
   //
-  // **The boom rides low and the peak rides high, and that is the whole of the tuning.** A first
-  // cut hung the boom half a unit over the deck and slung the gaff 0.46 under the masthead, which
-  // is where they would sit on a boat with room over its head — and it left the sail occupying 0.97
-  // of the 1.79 units the rig actually has, 54% of the only budget this boat is allowed. Measured
-  // as a screen area that is 114 px against the 149 the same rig gives with the spars pushed to
-  // their stops. On a vessel whose entire job is to look too tall for a bridge, half the canvas is
-  // half the argument.
-  const boomY = DECK_Y + 0.30;                 // low enough to sweep the cockpit, as a gaff boom does
-  const clewZ = MAST_Z - SAIL_LEN * 0.52;      // how far aft the mainsail reaches, and it overhangs
-  const throatY = SAIL_AIR - 0.42;             // where the gaff is slung on the mast
-  const peakZ = MAST_Z - SAIL_LEN * 0.34;
-  const peakY = SAIL_AIR - 0.12;               // ...and its aft end, under the masthead by design
+  // **The head stops short of the masthead on purpose.** A triangle taken all the way to the top
+  // hides the spar it hangs on, and the bare masthead above the sail is what stops the silhouette
+  // reading as a wedge. 0.16 is two pixels at play zoom, which is the least that survives.
+  const boomY = DECK_Y + 0.16;                 // low, so the luff gets as much of the mast as it can
+  const headY = SAIL_AIR - 0.16;
+  // **The foot is short because the camera shears it.** A world X unit projects to 0.707 across the
+  // screen and 0.385 *down* it, against a world Y unit's 0.838 straight up — so on a boat running
+  // east-west the foot and the leech both travel up-screen as they go aft, and the triangle opens
+  // out into a shallow wedge. At 0.46 of the hull the leech came down at 19 degrees off horizontal
+  // and read as a pennant; at 0.36 it is 32 and reads as a sail. It costs a fifth of the mainsail's
+  // area, which is the same trade this whole rig is: the shape is what carries, not the square units.
+  const clewZ = MAST_Z - SAIL_LEN * 0.36;      // the foot, ending well short of the transom
 
-  parts.push(spar(MAST_Z - 0.05, boomY, clewZ - 0.05, boomY + 0.06, 0.10, deckCol));
-  parts.push(spar(MAST_Z - 0.05, throatY, peakZ, peakY, 0.09, deckCol));
+  parts.push(spar(MAST_Z - 0.04, boomY, clewZ - 0.06, boomY + 0.05, 0.09, deckCol));
 
-  // The mainsail, inside its spars by half their section on every edge.
+  // The mainsail. Its luff is the mast — the same z as the spar, offset only by half a section —
+  // which is the whole of what makes this read as a sail rather than as an awning.
   parts.push(sail([
-    [MAST_Z - 0.06, boomY + 0.07],             // tack
-    [clewZ, boomY + 0.09],                     // clew
-    [peakZ - 0.02, peakY - 0.06],              // peak
-    [MAST_Z - 0.06, throatY - 0.06],           // throat
+    [MAST_Z - 0.05, boomY + 0.06],             // tack
+    [clewZ, boomY + 0.08],                     // clew
+    [MAST_Z - 0.05, headY],                    // head
   ], 0.05, canvasCol));
 
-  // A jib forward of it, on a forestay to the stemhead. It is a third of the mainsail's area and it
-  // earns its place by filling the one part of the boat the mainsail cannot reach — without it a
-  // 6.4-unit hull carries all of its canvas abaft the mast and reads as unbalanced from above.
-  const stayHeadY = DECK_Y + (SAIL_AIR - DECK_Y) * 0.74;
-  parts.push(spar(BOW - 0.18, DECK_Y + 0.05, MAST_Z, stayHeadY + 0.1, 0.07, deckCol));
+  // The jib, on a forestay from the masthead to the stemhead. **Set with daylight between it and
+  // the main**: the gaff version ran the two together into one outline, and two sails that touch
+  // are one shape. The stay goes to the masthead rather than part way up, because a stay that stops
+  // short leaves the top of the mast looking broken off.
+  parts.push(spar(BOW - 0.16, DECK_Y + 0.04, MAST_Z, SAIL_AIR - 0.05, 0.06, deckCol));
+  const jibHeadY = DECK_Y + mastH * 0.62;
+  const jibHeadZ = MAST_Z + (BOW - 0.16 - MAST_Z) * (1 - 0.62);   // on the stay, where that height is
   parts.push(sail([
-    [BOW - 0.24, DECK_Y + 0.12],               // tack, at the stemhead
-    [MAST_Z + 0.04, stayHeadY],                // head, on the stay
-    [MAST_Z - 0.02, DECK_Y + 0.16],            // clew, at the mast foot
+    [BOW - 0.30, DECK_Y + 0.10],               // tack, at the stemhead
+    [jibHeadZ, jibHeadY],                      // head, on the stay
+    [MAST_Z + 0.24, DECK_Y + 0.12],            // clew, short of the mast so the two sails stay apart
   ], 0.05, canvasCol));
 
-  // The backstay, masthead to transom. A single 0.08 line and the longest diagonal on the boat —
-  // it costs nothing and it is the detail that makes the silhouette unmistakably a sailing boat at
-  // the close framings (`?shot=wake`) rather than a barge with a board on it.
-  parts.push(spar(MAST_Z, SAIL_AIR - 0.06, -BOW + 0.2, DECK_Y + 0.08, 0.08, deckCol));
+  // The backstay, masthead to transom. One 0.07 line and the longest diagonal on the boat — it
+  // costs nothing and it is what makes the mast read as stayed rather than as a pole stuck in a
+  // deck at the close framings (`?shot=18`).
+  parts.push(spar(MAST_Z, SAIL_AIR - 0.05, -BOW + 0.16, DECK_Y + 0.06, 0.07, deckCol));
 
   return merge(parts);
 }
