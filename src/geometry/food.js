@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bakeColor, propMaterial } from '../util/geo.js';
 import { burgerGeometry } from '../city/burgerjoint.js';
+import { CARGO_SCALE } from './parcel.js';
 import { PALETTE } from '../palette.js';
 
 // A food order waiting to be couriered: a burger and a soda cup, both several sizes too big, sitting
@@ -17,10 +18,15 @@ import { PALETTE } from '../palette.js';
 // in the game has, at the size they can be recognised at.
 //
 // So both are scaled to the same deliberate lie geometry/person.js and geometry/parcel.js tell. A
-// burger beside a 3.4-unit car is a crumb; this one is 1.24 across, which is nearly the parcel's
-// width, and the cup beside it stands as tall as the box does. It reads as an object on the corner
-// instead of grit on the screen, and it is unmistakably not a person: round and squat where the
-// figure is tall and thin.
+// burger beside a 3.4-unit car is a crumb; this one is 1.24 of the envelope's 1.35 — nearly the
+// parcel's width — and the cup beside it stands as tall as the box does. It reads as an object on the
+// corner instead of grit on the screen, and it is unmistakably not a person: round and squat where
+// the figure is tall and thin.
+//
+// **And the pair is what set `CARGO_SCALE`.** Those proportions were right and the drawn size was
+// not: the box spends its 1.38 on solid card and the order spends most of it on air between two
+// halves, so at the same envelope the order was the one that fell through the floor — reported off a
+// phone as "hard to read". The fix is the factor in parcel.js, not another number here.
 //
 // **The burger is the drive-through's own** (`burgerGeometry` in city/burgerjoint.js), the real mesh
 // shrunk rather than a second recipe for one. That sign is fourteen pixels on a pole and had to solve
@@ -42,6 +48,13 @@ import { PALETTE } from '../palette.js';
 // burger and a cup on a diagonal have nothing at the corners of their bounding box.
 // `tools/probe.mjs` asserts both against the mesh that actually gets built rather than against these
 // numbers, and `tools/smoke.mjs` asserts the HUD chip draws the whole of it with nothing on the rim.
+//
+// And like the box's, every number in this file is a **proportion**. The finished mesh is multiplied
+// by `CARGO_SCALE` (geometry/parcel.js) at the bottom, which is the one knob for how large a load
+// reads on the board — so the envelope below is stated in the same units the box states its own in,
+// and the two stay the same envelope however that knob is turned. It is imported rather than
+// restated for exactly that reason: `tools/probe.mjs` measures the two kinds against each other, and
+// two copies of one factor is a way for them to disagree.
 const TOTAL_H = 1.16;      // = BOX_H + LID_H in geometry/parcel.js
 
 /**
@@ -91,7 +104,7 @@ const BURGER_Z = 0.12;
  * parcel.js so that the two are asserted equal instead of assumed so: they are two meshes built by
  * two files, and the day one of them is restyled is the day the assumption would go quiet.
  */
-export const FOOD_CENTRE_Y = TOTAL_H / 2;
+export const FOOD_CENTRE_Y = (TOTAL_H / 2) * CARGO_SCALE;
 
 /**
  * @param pickable  the `userData.pickable` kind, or null for an order that is scenery. Same rule as
@@ -177,6 +190,12 @@ export function createFoodOrder({ pickable = 'parcel' } = {}) {
   merged.computeBoundingBox();
   const plan = merged.boundingBox;
   merged.translate(-(plan.min.x + plan.max.x) / 2, 0, -(plan.min.z + plan.max.z) / 2);
+
+  // The size, last — after the centring above, which is a scale-free operation either way, and on the
+  // geometry rather than the group for the reason `createParcel` gives. See `CARGO_SCALE`: this is
+  // the factor that took the order off the "hard to read" floor, and the two kinds have to carry the
+  // same one or they stop sharing an envelope.
+  merged.scale(CARGO_SCALE, CARGO_SCALE, CARGO_SCALE);
 
   const mesh = new THREE.Mesh(merged, propMaterial());
   mesh.castShadow = true;

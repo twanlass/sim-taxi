@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createCargo, CARGO_CENTRE_Y } from '../geometry/cargo.js';
+import { createCargo, CARGO_CENTRE_Y, CARGO_SCALE } from '../geometry/cargo.js';
 import { mirrorSceneLights } from './avatarlights.js';
 import { VIEW_DIR } from './camera.js';
 import { getMsaa, getPixelRatioCap } from '../util/shot.js';
@@ -66,21 +66,28 @@ const SIZE = 42;
 const CHIP_VIEW = new THREE.Vector3(-VIEW_DIR.x, VIEW_DIR.y, VIEW_DIR.z);
 
 // Framing, measured off the mesh rather than guessed — and it is one frustum for both kinds, because
-// the food order is built to the box's own envelope for exactly this reason (geometry/cargo.js). The
-// box stands 1.16 tall (BOX_H + LID_H) and
+// the food order is built to the box's own envelope for exactly this reason (geometry/cargo.js). In
+// the envelope's own units the box stands 1.16 tall (BOX_H + LID_H) and
 // 1.384 across at the lid, so at 45° its half-diagonal is 0.979 and its screen half-height is
 // 1.16·cos33/2 + 0.979·sin33 = 1.02 — near enough the same number as the half-width, so one square
-// frustum covers both. FIT is that plus 13%, which is margin for the drop shadow and for nothing
+// frustum covers both. The 1.15 is that plus 13%, which is margin for the drop shadow and for nothing
 // else: a *square* canvas has no corner for the box to foul. It was 1.42 while there was a disc
 // behind it, because a box framed to a circle's inscribed square has its corners hard against the
 // rim twice a turn — 25% of the frame was air paid to a plate that has since gone, and the box was
 // the thing that got smaller for it.
 //
+// **`CARGO_SCALE` is in the mesh, so it has to be in the frustum.** How large a load is drawn in the
+// *city* is one knob (geometry/parcel.js) and it moves the vertices themselves; a fixed half-height
+// here would mean the day that knob is turned up, the chip crops the load it is a picture of — the
+// straw out of the top of a 42px canvas, which nothing headless renders. Multiplying through keeps
+// this readout pixel-identical whatever the board does, which is right: 42px is 42px, and the chip's
+// job is to show the whole of what is aboard rather than to report how big it is.
+//
 // The centre is the mesh's own half-height, imported rather than the 0.58 it used to be typed as: the
 // point the world half of a pickup reports is the middle of the box (game/parcels.js), and the two
 // ends of that line should be the same point on it.
 const CENTRE_Y = CARGO_CENTRE_Y;
-const FIT = 1.15;
+const FIT = 1.15 * CARGO_SCALE;
 
 // --- Riding along -----------------------------------------------------------------------------
 //
@@ -102,9 +109,11 @@ const FIT = 1.15;
 // The bob is in world units against a frustum half-height of FIT, so 0.03 is ~0.5px of travel at the
 // chip's 42px — which is the point. Anything you can measure by eye at this size is a jitter. The
 // headroom is 0.13 (FIT less the box's 1.02 screen half-height), so the box cannot bob out of frame.
+// Both numbers are in the envelope's units and both are scaled by `CARGO_SCALE` with it, so the
+// ~0.5px and the headroom are what they say however large a load is drawn out in the city.
 const SPIN_MS = 20000;
 const BOB_MS = 4600;
-const BOB = 0.03;
+const BOB = 0.03 * CARGO_SCALE;
 
 // --- Coming in from the city ------------------------------------------------------------------
 //

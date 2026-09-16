@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createParcel, PARCEL_CENTRE_Y, PARCEL_DECK_SCALE } from './parcel.js';
+import { createParcel, PARCEL_CENTRE_Y, PARCEL_DECK_SCALE, CARGO_SCALE } from './parcel.js';
 import { createFoodOrder, FOOD_CENTRE_Y } from './food.js';
 
 // What a courier job is carrying: a taped cardboard box (geometry/parcel.js) or a food order
@@ -35,6 +35,17 @@ export const CARGO_CENTRE_Y = PARCEL_CENTRE_Y;
 
 /** What a load is drawn at when it is scaled down to the size the car handles one at. */
 export const CARGO_DECK_SCALE = PARCEL_DECK_SCALE;
+
+/**
+ * How large a load is drawn, as a multiple of the proportions the two geometry modules are written
+ * in. Re-exported from parcel.js — which owns it, because the box owns the envelope — so that
+ * anything framing a *picture* of a load (game/cargochip.js) can follow it without importing one
+ * kind to measure both.
+ *
+ * It is already in every number this file exports and in the meshes themselves, so nothing that
+ * measures a load needs it. Only something holding a constant of its own beside one does.
+ */
+export { CARGO_SCALE };
 
 /** Sanity, at import time: the two kinds have to agree about where their middle is. */
 if (Math.abs(FOOD_CENTRE_Y - PARCEL_CENTRE_Y) > 1e-6) {
