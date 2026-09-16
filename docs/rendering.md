@@ -3173,7 +3173,7 @@ Nothing calls `setColor`: a package has no clock to repaint for.
 A kraft box with a darker lid slab and a tape cross on top, merged into one mesh with one material
 the way every prop here is. Scale is the same deliberate lie [the
 figure](gameplay.md#the-taxis-roof-sign) tells: a real parcel beside a 3.4-unit car would be half a
-unit, which is four pixels at play zoom, so this is a crate a bit over one unit — squat and wide where
+unit, which is four pixels at play zoom, so this is a crate two units across — squat and wide where
 the figure is tall and thin.
 
 **It was 2.4 units and read about twice too big.** The mistake was matching the rider's 3.3-unit
@@ -3181,6 +3181,26 @@ the figure is tall and thin.
 is a tall thin sliver, so a 2.4 crate beside a rider read as a shipping container beside a person. At
 1.35 the two have roughly the same apparent area, with the box a shade under — which is what "the same
 size" means for shapes this different.
+
+**Every number in the two load modules is a proportion, and `CARGO_SCALE` is the one that turns them
+into a size.** It multiplies the finished geometry in `geometry/parcel.js` and `geometry/food.js`
+alike, and it is the only knob for how large cargo reads on the board. A factor rather than new
+literals because those literals argue one part against another — the label against the tape strip, the
+burger against the cup, the straw against the lid — and multiplying twenty tuned numbers by hand would
+leave every one of those arguments quoting a size that no longer exists.
+
+It is **set by the food order, not by the box**. At 1.0 a load stands 1.38 across, ~11px at play zoom,
+and the box clears the floor because it spends that width on solid card with a white label on it. The
+order spends most of it on air between two halves, and on a phone it read as a smudge on a 6.4-unit
+pad — reported as exactly that. At 1.45 a load is 2.0 across (~15px), which puts the burger back over
+the floor the box was tuned to and still stops a third of the way short of the 2.4 that failed. Both
+kinds move together because that is what the shared envelope *is*: a factor on one kind alone would be
+the three bugs below.
+
+The HUD chip's frustum carries the same factor (`FIT` in `game/cargochip.js`), so the readout is
+pixel-identical whatever the board does — 42px is 42px, and the chip's job is to show the whole of
+what is aboard rather than to report how big it is. The deck scale divides it back out, so the size a
+flight opens at is unchanged at 0.53.
 
 The cross is on the **top** face because the camera looks down the +X+Z diagonal, which makes the top
 the largest face on screen; a band around the girth would be mostly hidden. It is what says *parcel*
@@ -3353,8 +3373,10 @@ bag is a squat tapered block, it took two thirds of the envelope, and it left th
 as trinkets balanced on top of something that reads at ten pixels as *another box*. Cargo on this
 board is already a box. What is worth having here is the pair of shapes nothing else in the game has,
 at the size they can be recognised at — so both are several sizes too big, the same deliberate lie
-[the figure](gameplay.md#the-taxis-roof-sign) and the parcel both tell. The burger is 1.24 across,
-which is wider than the box.
+[the figure](gameplay.md#the-taxis-roof-sign) and the parcel both tell. The burger is 1.24 of the
+envelope's 1.35, nearly the box's own width, and the finished pair is multiplied by `CARGO_SCALE` like
+the box — **the order is what set that factor**, because the proportions here were right and the drawn
+size was not.
 
 **A different silhouette, not a different colour.** Hue on this board is spent: shape says what a
 thing is and hue says whose clock is paying for it, and a courier job has no clock — so a second load
