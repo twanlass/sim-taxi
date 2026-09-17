@@ -707,6 +707,25 @@ export function createRouteLine(scene) {
     if (at !== null) grabAt = at;
   }
 
+  /**
+   * Run the rollout sweep again over the route that is already up.
+   *
+   * The sweep is normally keyed on `pendingTarget`'s identity, which is exactly right for every
+   * re-plan the game does on its own: the drawbridge coming down and a drag's per-frame re-stitch
+   * both pass the *same* target object precisely so the band doesn't restart its draw on every
+   * frame of a gesture. The double-tap reset (game/pathdrag.js) passes the same object too, and it
+   * is the one re-plan that wants the animation anyway — the destination is unchanged, but the way
+   * there has just been thrown away and re-laid, and a band that silently snaps into a different
+   * shape under a finger reads as a glitch rather than as an answer.
+   *
+   * Deliberately not spelled as "pass a new target to force it": target identity is what tells
+   * `main.js` the taxi is being aimed somewhere else, and it is read by the burger run and the
+   * courier too. This is a statement about the *drawing*, so it lives here.
+   */
+  function replaySweep() {
+    revealElapsed = 0;
+  }
+
   function update(car, route, dt = 0) {
     material.uniforms.uTime.value += dt;
 
@@ -806,6 +825,7 @@ export function createRouteLine(scene) {
     /** What the band is painted right now, for tools with no GL context to read it back from. */
     color: () => material.uniforms.uColor.value,
     setGrab,
+    replaySweep,
     blend: () => blendName,
     hide: () => { mesh.visible = false; },
   };

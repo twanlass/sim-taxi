@@ -1038,6 +1038,72 @@ That last figure is also a warning about how to test this: "the waypoint is not 
 is *not* the same claim as "the waypoint costs a detour", and a cap check written against the first
 one goes red for a reason nobody can act on. It is asserted against real leg counts instead.
 
+#### Double tap the band to throw the detour away
+
+**Two presses on the band in a third of a second re-plan it the shortest way** — no waypoint at
+all, the route the taxi would have been given if nothing had ever been dragged. Same destination,
+same fare, same clock, same `directed`; only the *way there* is replaced, which is the one thing
+the drag ever changed.
+
+It exists because the gesture above has a failure mode that is not a bug in it. The band lies
+across the road, its grab radius is a fingertip wide (`GRAB_RADIUS = 6` units, ~46px), and
+**panning the map is a drag on the same surface** — so a player reaching past the taxi to see what
+is coming up lands on the band about as often as they mean to. The press is spoken for, the city
+does not move, and the route quietly grows a loop. Everything behaved; the player did not ask for
+any of it, and getting back meant dragging a waypoint onto a line they could no longer see the
+shape of.
+
+**It is an undo without an undo stack**, and deliberately. There is no history here: a route has
+one canonical shape — whatever `findRoute` answers with from where the car is *now* — and every
+detour is a departure from it, so "put it back" has one meaning however many waypoints were dragged
+through on the way. A stack would have to decide what a step even is on a route re-planned every
+frame of a gesture, and would restore a shortest path computed from a junction the taxi drove past
+ten seconds ago.
+
+The second press is an ordinary press on the band, and three things follow from that:
+
+- **It opens a grab like any other**, handle and bloom and all, so a reset can run straight into a
+  fresh drag without lifting. That is the recovery the pair is for: throw the accident away, then
+  aim properly.
+- **It answers on the press**, like the grab and the snap. Held back until the finger lifts, the
+  band would sit in the wrong shape under a thumb that has already asked twice.
+- **It swallows the click**, through the same `didDrag()` guard a drag uses, and it does so whether
+  or not the route actually moved. The band runs *through* other markers' tap targets on its way
+  into the drop-off ring, so a reset near the far end would otherwise also dispatch the taxi at
+  whatever pin the second press landed on — abandoning the fare it was trying to help with. "The
+  route was already the shortest way" is no comfort there, because that is exactly the case the
+  player cannot see before they act.
+
+`DOUBLE_TAP_MS` is **320** and `DOUBLE_TAP_SLOP` is **32px**. The window is short for a reason
+specific to this band: unlike most double taps, the *first* tap here is a live gesture in its own
+right — it takes hold — so a generous window would read a deliberate press, look, press-and-drag as
+a reset. The slop is not about aim (both presses have to hit the band anyway); it is about a band
+that can run the length of the screen, where two presses a hundred pixels apart are two grabs at
+two different places.
+
+**The band replays its rollout sweep**, and it has to be asked to. The sweep is keyed on
+`pendingTarget`'s *identity* — which is exactly right for every re-plan the game does on its own,
+since the drawbridge's replan and the drag's per-frame re-stitch both pass the same target object
+precisely so the draw doesn't restart on every frame. A reset passes it too, and is the one
+re-plan that wants the animation anyway: the destination is unchanged but the way there has just
+been re-laid, and a band that silently snaps into a different shape under a finger reads as a
+glitch rather than as an answer. Hence `routeLine.replaySweep()`, which is a statement about the
+drawing and so lives in `routeline.js` rather than being faked with a fresh target object.
+
+**One press, one buzz.** A reset that fired `grab` for the press *and* `pick` for the re-plan would
+put two transients ~30ms apart, which a thumb reads as one smeared buzz rather than as two events.
+So the second press fires whichever is the truer account of it: `pick` when the route actually
+changed — a tap that re-aimed the taxi, which is what `pick` has always meant — and the plain
+`grab` when it did not, because a double tap on a route that was already the shortest way is a
+press that took hold of the band and nothing more. Same gate as `snap`: the buzz reports a route
+the player actually caused, never one the router declined to change.
+
+`tools/smoke.mjs` is the only place this can be checked, because the whole of it is event handling
+and there is no DOM in the node suite. It dispatches the gesture in **one synchronous burst**,
+which is what makes the assertion exact rather than tolerant: no frame runs between building the
+detour and resetting it, so the taxi has not moved and the route afterwards is compared against the
+direct plan character for character instead of against a leg count that shrinks on its own.
+
 #### The grab flourish
 
 A finger landing on the band has to be answered **on the band**, and answered before anything has
@@ -1086,7 +1152,8 @@ the pair: a drag on the band re-routes and does not pan, and a drag anywhere els
 
 The click the browser synthesises after a drag is swallowed by the same `didDrag()` guard the
 camera's `didPan()` uses, so a pull that happens to finish over a rider does not also dispatch the
-taxi at them.
+taxi at them. A [double-tap reset](#double-tap-the-band-to-throw-the-detour-away) raises the same
+flag, for the same reason one layer along: it is the other gesture this band answers by itself.
 
 ## Picking
 
