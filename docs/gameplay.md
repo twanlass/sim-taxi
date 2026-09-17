@@ -1276,10 +1276,9 @@ none of that apparatus is needed.
 
 `src/geometry/diamond.js`. The diamond is a **vessel**, and the clock is the liquid in it. Below the
 surface the urgency colour is opaque, saturated and self-lit — exactly what the whole crystal used
-to be. Above it the same hue is emptied glass: the city visible straight through it at just over a
-quarter alpha, darker than the liquid, most of the emissive lift gone, and a sheen on the facets
-turned edge-on to the camera. A pale band rides the line between them, and that band is the part the
-eye actually reads.
+to be. Above it is emptied glass: the city visible straight through it at 0.15 alpha, darker than
+the liquid and mostly drained of its hue, with a sheen on the facets turned edge-on to the camera. A
+pale band rides the line between them, and that band is the part the eye actually reads.
 
 So the two hands of the clock are on one object. The **colour** steps in quarters and kicks, which
 is the alarm; the **level** moves every frame, which is where inside that quarter the fare actually
@@ -1321,25 +1320,24 @@ opposite of the usual habit.
 
 Three numbers were measured and moved:
 
-- The empty glass was **desaturated** at first (`s × 0.55`), and the empty half of a nearly-dead
-  marker came out a dusty rose — the most urgent state on the scale rendering as the least red thing
-  on the board. It keeps 90% of its saturation now, and alpha does the emptying rather than the
-  tint, which is what glass and liquid actually differ by.
 - The **sheen exponent** went from 2.5 to 5. At 2.5 it was not a highlight but a wash: very little
   of the crystal is truly head-on at this camera angle, so every visible facet picked up most of the
   lift. At 5 it stays on the two flanks either side of the front ridge.
-- The **emissive** above the line holds at 0.45 before alpha takes its share, so about 0.13 of the
-  liquid's reaches the frame. At 0.22 opaque the shape survived after dark but a nearly-drained
-  rider was genuinely hard to find on a night board.
+- The empty glass was **desaturated** at first (`s × 0.55`), and the empty half of a nearly-dead
+  marker came out a dusty rose — the most urgent state on the scale rendering as the least red thing
+  on the board. That measurement stood for a long time and the rule drawn from it has since been
+  overturned; see the next section, which is the story of why.
+- The **emissive** above the line, and the **alpha**, move as a pair. See below.
 
-### Why alpha is the contrast knob
+### Why alpha is the contrast knob, and what it cost to find out
 
-The first shipped vessel put the glass at `0.45` alpha and `l × 0.6`, and at play zoom an amber
+The first shipped vessel put the glass at `0.45` alpha, `s × 0.9`, `l × 0.6`. At play zoom an amber
 crystal in front of a **tan roof** read as one solid amber diamond: the level was in there, and you
-could not see it. The numbers now are `0.28` and `l × 0.42`, with the surface band widened from
-0.32 to 0.40 local units (2.5px to 3.1px) and taken a shade whiter.
+could not see it. It took two passes to fix, and the second one reversed a rule the first one had
+just written down.
 
-Which of those knobs to turn is not arbitrary, and the argument is worth keeping:
+**Pass one** went to `0.28` alpha and `l × 0.42`, widened the surface band from 0.32 to 0.40 local
+units (2.5px to 3.1px), and left the saturation alone on this argument:
 
 > The two halves are the same hue **by design** — the alarm has to carry across the whole
 > silhouette, which is what the dusty-rose failure above is about. So every other knob here
@@ -1348,17 +1346,45 @@ Which of those knobs to turn is not arbitrary, and the argument is worth keeping
 > crystal, which is by definition not the liquid's colour, so lowering it widens the gap whichever
 > direction the backdrop happens to lie in.
 
-Lightness does the rest: at `l × 0.6` the glass was near enough the liquid's own value that a marker
-over a dark road held both halves at one brightness, so the level had a gap but no *direction*. The
-emissive had to come down with the alpha rather than stay put, for the reason the bullet above
-names — it is the term the sun does not scale, so it is what the empty half is made of after dark,
-and leaving it high would have fixed the day marker and left the night one flat.
+That half of it is still right and is still the reason alpha gets turned first. The tan roof was
+fixed. On a phone it was still called too subtle, and the reason is in the sentence the argument
+opens with rather than anywhere in the numbers.
 
-The band's extra half-pixel is not free, and the price is paid at the **ends** of the clock: the
-fill overshoots the tips by exactly one band at each end (so no highlight is ever stranded on a
-vertex), which costs about 8% of the travel at each extreme rather than the old 7%. Nobody reads a
-clock at "full" or "empty" — the colour says that — so it is a cheap place to spend. Past about 0.22
-the band stops reading as a surface in the crystal and starts reading as a stripe across it.
+**Pass two** is `0.15` alpha, `s × 0.3`, `l × 0.38`. The rule about the hue carrying across the
+whole silhouette was written against an **opaque** build, and it was never re-tested at a third of
+that alpha. It does not survive the re-test: at 0.15 there is almost no ink in the empty half to be
+dusty-rose *with*. So what a saturation cut buys there is not a second hue competing with the alarm.
+It is a **segmentation** — the crystal splits into a saturated part and a glassy grey part, and the
+eye makes a categorical judgement at a glance where it has to *measure* a value difference. Value
+comparisons are precisely what kept failing at 22 pixels.
+
+The alarm still carries. It carries on the liquid, which is the dominant mass for three quarters of
+every clock, on the [disc on the kerb](#the-disc-says-it-again-on-the-ground) under the rider, and on the route band
+— all three at full hue. What it no longer has to do is carry on the part of the marker whose entire
+job is to look empty.
+
+**The emissive moves against the alpha, not with it**, and that is a correction rather than an
+inconsistency. What reaches the frame is the product of the two, and the product is what has to hold
+still: alpha does the separating by day, when there is a lit city behind the glass to separate
+against; after dark there is no city, the black rim is invisible on a black road, and the emissive
+is the only thing drawing the empty half at all. Each cut to the alpha has to be paid back, or the
+night marker loses its top half entirely — a worse bug than the one being fixed. `0.6` at α 0.45,
+`0.45` at α 0.28, `0.8` at α 0.15: all three land within a couple of hundredths of the same 0.12.
+
+Two notes on the band. Its extra half-pixel was **not** free, and the price is paid at the ends of
+the clock: the fill overshoots the tips by exactly one band at each end (so no highlight is ever
+stranded on a vertex), which costs about 8% of the travel at each extreme rather than the old 7%.
+Nobody reads a clock at "full" or "empty" — the colour says that — so it is a cheap place to spend,
+but past about 0.22 the band stops reading as a surface in the crystal and starts reading as a
+stripe across it. Which is why pass two spent the **core** instead (`0.4 → 0.65`): two thirds of the
+band held flat with a third left to feather arrives as an edge with a shoulder rather than as a
+gradient with a bright middle, and unlike the width it costs nothing at the ends.
+
+**What is still unspent.** The level is [linear in height](#the-crystal-is-a-glass-of-time), and the
+plumbob is widest two thirds of the way up with a long taper below — so the *area* below the line is
+not proportional to the fraction, and the back half of every clock lives in the narrow part. That is
+a deliberate trade (equal time has to be equal travel, and volume-true is much worse), but it is the
+remaining reason a half-spent fare looks emptier than it is, and no amount of contrast addresses it.
 
 ### The far wall, and why it isn't there
 
