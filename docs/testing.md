@@ -230,6 +230,15 @@ own fireballs. 12 and 17 ask whether the crash reads as an *event*; this one ask
 reads as a *pair of cars*, which is only askable once the fire is out. It is appended at the end of
 the list rather than filed beside 17 because inserting an entry renumbers every shot after it.
 
+Shot 38 (`median`) is the arterial's planted island at `zoom: 11`, and it is close for the reason
+`mouth` is close: everything on a median is decided by a sightline measured in fractions of a unit
+— how far a bed sits off the island's spine, whether a
+[small tree's crown](city.md#and-a-small-tree-in-some-of-the-bedding) reaches the far carriageway —
+and at play zoom the whole island is a green smudge fourteen pixels long. The probe asserts every
+one of those clearances; this is for looking at the planting. It frames an 8.4-unit run, the length
+that carries two trees rather than one, with a park across the road, so the ornamental and the
+broadleaf it is deliberately *not* are in the same frame. Appended, same rule as 37.
+
 Shot 13 (`flyover`) has the wreck's problem without the wreck's drama: the
 [ambient plane](rendering.md#the-flyover--gameflyoverjs) is up for six seconds every minute or so,
 so there is nothing to point a camera at unless one is staged. It launches a flight, steps it

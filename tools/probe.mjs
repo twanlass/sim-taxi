@@ -19,7 +19,7 @@ import {
 } from '../src/city/buildings.js';
 import {
   createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
-  BENCH_LEN, STATUE_PLAZA,
+  BENCH_LEN, STATUE_PLAZA, treeParts, MEDIAN_TREE_H, MEDIAN_TREE_TRUNK,
 } from '../src/city/props.js';
 import { planPond, pondParts, pondRadiusAt, POND_WATER_Y, POND_SET } from '../src/city/pond.js';
 import { createDucks } from '../src/game/ducks.js';
@@ -140,7 +140,7 @@ import { createDrawbridge, OPEN_SECONDS } from '../src/game/drawbridge.js';
 import { createBoats, BOAT_LANE, LANE_WANDER } from '../src/game/boats.js';
 import { FOAM_LIFE } from '../src/game/wake.js';
 import {
-  halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns, MEDIAN_W,
+  halfRoadX, halfRoadZ, laneOffX, laneOffZ, laneOffsetFor, medianRuns, MEDIAN_W, LANE_TO_KERB,
 } from '../src/city/grid.js';
 import { cityNetwork } from '../src/city/roadnet.js';
 import { routePath, nearestOnPath, HEAD_GAP, ROUTE_OPACITY } from '../src/game/routeline.js';
@@ -487,6 +487,112 @@ const onGrass = (city, i, j) => {
     escaped === 0 && beds > 0,
     `${escaped} of ${beds} over the edge, tightest ${tightest.toFixed(3)} to spare`);
   check('and no median is left bare', bare === 0, `${bare} islands with nothing on them`);
+}
+
+// --- The small trees standing in those beds -----------------------------------
+//
+// The one thing a median tree must not do is hide the far carriageway, and it is the reason the
+// height range in props.js is what it is — a park tree on an island buries the lane a player is
+// most likely to be driving down. Measured on the **built geometry** rather than off `treeShape`,
+// because the two things that reach furthest are the crown's extra lobes and `jitterVertices`, and
+// neither appears in the shape the generator reports. The rule it is checked against comes from
+// the camera and the grid, not from props.js: the sightline climbs `VIEW_DIR.y / VIEW_DIR.x` for
+// every unit it travels in both x and z, so a vertex at height y casts its silhouette
+// `y / rise` further across the road.
+{
+  // What each island has to keep clear, in that island's own units. The far lane centre is the
+  // bar the height range was set by; the flank is where a car's paint actually starts, and the
+  // claim held there is the stronger one — nothing a unit above the road is ever shaded that far.
+  const CAR_LEVEL = 1.0;
+  const rise = VIEW_DIR.y / VIEW_DIR.x;
+  // Off the grid rather than written down: an arterial's lane centre is its half-width less the
+  // 2 units every lane in the city keeps from its own kerb.
+  const ARTERIAL_LANE_OFF = HALF_ARTERIAL - LANE_TO_KERB;
+  let trees = 0;
+  let overLane = 0;
+  let overCar = 0;
+  let overKerb = 0;
+  let worstCast = -Infinity;
+  let worstAtCar = -Infinity;
+  let widest = 0;
+  let islands = 0;
+  let plantedRuns = 0;
+
+  for (let city = 0; city < 12; city++) {
+    createLayout(makeRng(seed + city * 53));
+    const runs = medianRuns();
+    const planted = new Set();
+    islands += runs.length;
+
+    for (const bed of planMedianBeds(makeRng(seed + city * 53 + 5), runs)) {
+      if (!bed.tree) continue;
+      trees += 1;
+      const run = runs.find((r) => bed.x >= r.x0 - 1 && bed.x <= r.x1 + 1
+        && bed.z >= r.z0 - 1 && bed.z <= r.z1 + 1);
+      if (!run) { overLane += 1; continue; }
+      planted.add(run);
+
+      const spine = run.axis === 'x' ? (run.z0 + run.z1) / 2 : (run.x0 + run.x1) / 2;
+      const laneOff = run.axis === 'x' ? laneOffX(run.line) : laneOffZ(run.line);
+      // The rng here is the probe's own — what is under test is the geometry a planned height
+      // produces, not which height this seed drew, and the jitter is the part that has to be
+      // sampled widely rather than reproduced exactly.
+      const parts = treeParts(bed.tree.x, bed.tree.z, makeRng(seed + city * 97 + trees), bed.tree);
+      for (const geo of parts) {
+        const pos = geo.attributes.position;
+        for (let v = 0; v < pos.count; v++) {
+          const across = (run.axis === 'x' ? pos.getZ(v) : pos.getX(v)) - spine;
+          const cast = across + pos.getY(v) / rise;
+          worstCast = Math.max(worstCast, cast);
+          worstAtCar = Math.max(worstAtCar, cast - CAR_LEVEL / rise);
+          widest = Math.max(widest, Math.abs(across));
+          if (cast > laneOff) overLane += 1;
+          if (cast - CAR_LEVEL / rise > laneOff - CAR_W / 2) overCar += 1;
+          if (Math.abs(across) > MEDIAN_BED_ROOM) overKerb += 1;
+        }
+        geo.dispose();
+      }
+    }
+    plantedRuns += planted.size;
+  }
+  createLayout(makeRng(seed));   // `createLayout` installs its network — put the probe's city back
+
+  check('a median tree never casts over the far lane centre',
+    trees > 0 && overLane === 0,
+    `${trees} trees, ${overLane} vertices past it, worst ${worstCast.toFixed(3)}`);
+  check('and nothing a unit above the road is ever behind one',
+    overCar === 0,
+    `${overCar} vertices, worst reaches ${worstAtCar.toFixed(3)} at car level`);
+  // A crown over the kerb would be over the carriageway at 1.1 up, which is inside a box truck.
+  check('its crown stays over the island rather than out over the traffic',
+    overKerb === 0,
+    `widest ${widest.toFixed(3)} off the spine, grass ends at ${MEDIAN_BED_ROOM.toFixed(3)}`);
+  // Some islands, not all of them — a uniformly planted arterial is a texture, and the check is
+  // here because a chance that quietly became 0 or 1 is exactly the kind of change nothing else
+  // would notice.
+  check('and they are on some islands but not every one',
+    plantedRuns > islands * 0.35 && plantedRuns < islands * 0.85,
+    `${plantedRuns} of ${islands} islands planted`);
+
+  // The sweep above is 116 trees, and what bounds this is a **jitter tail**: the lobe offsets and
+  // `jitterVertices` are three independent draws deep, so the furthest vertex the generator can
+  // produce is a long way out from the furthest one twelve cities happen to contain. Measured:
+  // 116 real trees reach 2.98, 1,000 at the top of the range reach 3.20, and 20,000 reach 3.23.
+  // The first cut of this took the 12-city figure for the worst case and set the range at 2.1,
+  // where the tail casts 3.45 and crosses the lane — so the sampling is the check, not a
+  // refinement of it. A thousand is where the number stops moving and costs half a second.
+  let tail = -Infinity;
+  for (let n = 0; n < 1000; n++) {
+    const height = MEDIAN_TREE_H[1];
+    for (const geo of treeParts(0, 0, makeRng(seed + n * 1013), { height, trunk: MEDIAN_TREE_TRUNK })) {
+      const pos = geo.attributes.position;
+      for (let v = 0; v < pos.count; v++) tail = Math.max(tail, pos.getZ(v) + pos.getY(v) / rise);
+      geo.dispose();
+    }
+  }
+  check('and the tallest one the generator can grow still clears the lane',
+    tail < ARTERIAL_LANE_OFF,
+    `1000 at h=${MEDIAN_TREE_H[1]} reach ${tail.toFixed(3)}, lane at ${ARTERIAL_LANE_OFF.toFixed(3)}`);
 }
 
 // The blooms are the one place this game paints a saturated colour on something the player must
