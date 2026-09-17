@@ -126,19 +126,53 @@ asserts that nothing but a passing taxi is ever over one.
 The ends are **stadium caps**, not square corners. At 2.4 across and eight long, a square-ended
 planter reads as a kerbstone dropped in the road.
 
-### Flowers, not trees
+### Flowers, not park trees
 
-Trees were the first thing planted there and the camera is why they are not there now. It looks
-down at 33°, so anything of height h hides the ground within `1.54h` behind it — and what sits
-behind a median is the far carriageway of the road the player is most likely to be driving down.
-That lane centre is 3.33 across, which is 4.71 along the view diagonal; even a stunted 2.9-unit
-tree with a 0.9 crown reaches about 5.7, so it passed in front of cars over there for roughly half
-of every block. Shortening it further just made it a shrub on a stick.
+The *park* tree was the first thing planted there and the camera is why it is not there now. It
+looks down at 33°, so anything of height h hides the ground within `1.54h` behind it — and what
+sits behind a median is the far carriageway of the road the player is most likely to be driving
+down. That lane centre is 3.33 across, which is 4.71 along the view diagonal; even a stunted
+2.9-unit tree with a 0.9 crown reaches about 5.7, so it passed in front of cars over there for
+roughly half of every block.
 
 A flower bed tops out **0.54 above the island**, 0.89 above the road, which casts 1.4 of occlusion
 against the 4.71 it would have to reach to touch the far lane. The question stops being "how often
 does this hide a car" and simply goes away. It also suits the strip better: a median is a planter,
 not a verge, and bedding is what a city puts in one.
+
+### And a small tree in some of the bedding
+
+Sixty per cent of islands carry one or two small ornamentals standing in the flowers — two on an
+8.4-unit run, one on a 7.07 — planted on the island's **spine** rather than at their host bed's own
+centre, because a bed may wander up to `BED_ROOM - footprint` off the middle and every unit of that
+spent toward the far carriageway comes straight off the sightline budget below. They are the park's
+tree (`treeParts`), on a leggier `0.5` trunk so the canopy clears the mound it grows out of, at
+`MEDIAN_TREE_H` = **1.65–1.95** against the park's 3.4–5.6.
+
+That height range is the whole feature. It is set off a measurement of the *built geometry* rather
+than off `treeShape`, because two things reach further than `crownReach` reports — the crown's
+extra lobes sit up to `0.5r` out with a radius of their own, and `jitterVertices` throws every
+corner another `0.1r` — and together they are worth about a fifth of the clearance.
+
+**A jitter tail has to be found by sampling the generator, not by looking at a city.** The lobe
+offsets and the vertex jitter are three independent draws deep, so the furthest vertex the
+generator *can* produce sits a long way out from the furthest one twelve cities happen to contain:
+116 real trees reach 2.98, a thousand at the top of the range reach 3.20, twenty thousand reach
+3.23. The first cut took the 12-city figure for the worst case and set the range at 2.1 — where the
+tail casts **3.45** and crosses the lane, on a city nobody had generated yet. `tools/probe.mjs`
+therefore checks both: the real planting over 12 cities, and a thousand trees built at the top of
+the range.
+
+What it holds to is better than the lane centre anyway. The bar the range was picked against is
+ground at 3.33; the number that matters is that nothing a whole unit above the road is shaded past
+**2.15**, while the far lane's near flank is **2.48** out. No part of a car above knee height is
+ever behind one of these. The crown stays over the island too — 0.75 off the spine at its widest
+against 1.05 of grass — so it never hangs over a passing truck.
+
+The trees are drawn in a **second pass**, after every bed in the city has been planned. Not for
+readability: a draw taken inside the bed loop would have reshuffled every bed downstream of the
+first island to grow one, and this way the bedding a seed already had stayed exactly where it was.
+Same argument the beds themselves are planted after the parks for.
 
 **A single flower is not a thing this game can draw.** At play zoom 1 world unit is 7.7px, so even
 a scaled-up bloom is three or four pixels and a stem is nothing at all. What has to read is the

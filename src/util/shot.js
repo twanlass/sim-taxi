@@ -216,6 +216,18 @@ export const SHOTS = [
   // Appended rather than filed beside 17 because inserting one renumbers every shot after it, and
   // those numbers are what docs/testing.md and every review habit refer to.
   { name: 'wreck-rest', description: 'the two wrecks lying in the road, after the fire', target: [0, 0], zoom: 26, warmup: 12, wreckAt: 3.2 },
+  // An arterial's planted island, close enough to see what is standing on it. Worth a framing of
+  // its own for the reason `mouth` is: everything on a median is decided by a sightline measured in
+  // fractions of a unit — how far a bed sits off the spine, whether a small tree's crown reaches
+  // the far lane — and at play zoom the whole island is a green smudge fourteen pixels long.
+  // The probe asserts the clearances; this is for looking at the planting.
+  //
+  // Pinned on the +x end of the x-line-3 arterial in the shot city, which is one of the 8.4-unit
+  // runs — the length that carries two trees rather than one — with a park across the road, so the
+  // ornamental and the broadleaf it is deliberately not are in the same frame.
+  //
+  // Appended, for the reason given above `parcel` and `wreck-rest`: shots are addressed by index.
+  { name: 'median', description: 'the arterial median, its bedding and its small trees', target: [20, 0], zoom: 11, warmup: 12 },
 ];
 
 export function getActiveShot() {

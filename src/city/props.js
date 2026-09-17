@@ -90,15 +90,16 @@ export function treeParts(x, z, rng, { low = 3.4, high = 5.6, height, trunk = 0.
 
 // --- Flower beds --------------------------------------------------------------
 //
-// What grows on an arterial's median. Trees were tried there first and the camera is why they are
-// not: it looks down at 33°, so anything of height h hides the ground within 1.54h behind it, and
-// what sits behind a median is the far carriageway of the road the player is most likely to be
-// driving down. That lane centre is 3.33 across — 4.71 along the view diagonal — which even a
-// stunted 2.9-unit tree reaches past. A bed tops out at 0.36 above the island and casts 0.55 of
+// What grows on an arterial's median. The *park* tree was tried there first and the camera is why
+// it is not: it looks down at 33°, so anything of height h hides the ground within 1.54h behind
+// it, and what sits behind a median is the far carriageway of the road the player is most likely
+// to be driving down. That lane centre is 3.33 across — 4.71 along the view diagonal — which even
+// a stunted 2.9-unit tree reaches past. A bed tops out at 0.36 above the island and casts 0.55 of
 // occlusion, so the question stops being "how often does this hide a car" and simply goes away.
 //
 // It also suits the strip better. A median is a planter, not a verge, and a row of bedding is what
-// a city puts in one.
+// a city puts in one — with the odd small ornamental standing in the bedding, which is what a city
+// puts in one too. See `MEDIAN_TREE_H` below for the height that buys back the sightline.
 
 /** Bed proportions. Flat and wide: it is read from above, and only ever from above. */
 const BED_SQUASH = 0.42;         // dome height as a fraction of its radius
@@ -192,6 +193,48 @@ const BED_END_GAP = MEDIAN_W / 2 + 0.1;
 /** Where the grass on an island stops — see `BED_ROOM` above. Exported for the probe. */
 export const MEDIAN_BED_ROOM = BED_ROOM;
 
+// --- The small tree standing in the bedding -----------------------------------
+//
+// The note over the beds is why a *park* tree cannot stand on a median, and what it is really a
+// statement about is height, not about trees. The sightline climbs 0.92 for every unit it travels
+// in both x and z, so a vertex at height y on the island hides the ground `y / 0.92` further
+// across the road, and the one thing that must stay visible is the far carriageway — lane centre
+// `laneOffX` = 3.33 from the island's spine. A 5.6-unit park tree buries it. A 2.9-unit one still
+// casts to 3.79. Somewhere under 2.4 the shadow stops reaching the lane at all, and what is left
+// is an ornamental: a clear stem with a crown the size of the bed it grows out of, which is the
+// thing a city actually plants in a central reservation.
+//
+// Exported so the probe can sample the tail itself rather than restate a number from this comment.
+// The range is set off a *measurement of the built geometry* rather than off `treeShape`, and the
+// difference is not academic: two things reach further than `crownReach` says — the crown's extra
+// lobes sit up to 0.5r out with a radius of their own, and `jitterVertices` throws every corner
+// another 0.1r — and together they are worth about a fifth of the whole clearance. The top of the
+// range was picked by building 20,000 trees at it and taking the furthest vertex any of them
+// produced: at 1.95 that is a cast of 3.23, inside the 3.33 with a tenth to spare, while the 2.1
+// the first cut used casts 3.45 and crosses the lane. A 12-city sweep of the real planner never
+// once reached 3.45, which is the point — it is a jitter tail, so it has to be found by sampling
+// the geometry rather than by looking at a city.
+//
+// The number that actually matters is better again: nothing a whole unit above the road is shaded
+// past 2.15, and the far lane's near flank is 2.48 out. No part of a car above knee height is ever
+// behind one of these. `tools/probe.mjs` re-measures both on the real geometry every run; that
+// check is the whole reason this is a small tree and not a tree.
+export const MEDIAN_TREE_H = [1.65, 1.95];
+// Leggier than the park's 0.42, for the reason the courtyard's is (`TREE_TRUNK`, buildings.js) and
+// one more: the crown has to clear the bed it stands in. At the bottom of the range that puts the
+// underside of the canopy 1.09 up — 0.40 clear of the mound's own 0.69 — so the bed reads as
+// bedding around a stem rather than as a shrub with a trunk through it. The crown stays over the
+// island either way: 0.75 off the spine at its widest against the 1.05 of grass there is.
+export const MEDIAN_TREE_TRUNK = 0.5;
+// One tree per this much usable island, so the 8.4-unit runs get two and the 7.07s get one. Their
+// crowns are ~1.35 across and two trees on a long run land 2.9 apart, which is a row of two trees
+// and not one lump; at a 1.4 pitch they touch and the island reads as a hedge.
+const MEDIAN_TREE_PITCH = 3.2;
+// And not on every island. An arterial planted uniformly end to end is a texture rather than a
+// street — the variation is the point, and a bare run of pure bedding is what the trees read
+// against.
+const MEDIAN_TREE_CHANCE = 0.6;
+
 /**
  * Where the beds go on every median in the city.
  *
@@ -201,6 +244,8 @@ export const MEDIAN_BED_ROOM = BED_ROOM;
  */
 export function planMedianBeds(rng, runs) {
   const beds = [];
+  // The beds each run got, in the order they were laid — the tree pass below needs them back.
+  const islands = [];
 
   for (const run of runs) {
     const usable = (run.to - run.from) - BED_END_GAP * 2;
@@ -208,6 +253,8 @@ export function planMedianBeds(rng, runs) {
 
     const count = Math.max(2, Math.round(usable / BED_PITCH));
     const centre = run.axis === 'x' ? (run.z0 + run.z1) / 2 : (run.x0 + run.x1) / 2;
+    const mine = [];
+    islands.push({ run, usable, centre, beds: mine });
 
     for (let n = 0; n < count; n++) {
       const radius = rng.range(BED_R_LOW, BED_R_HIGH);
@@ -232,9 +279,43 @@ export function planMedianBeds(rng, runs) {
       // widest bed simply gets no room to wander.
       const across = centre + rng.range(-1, 1) * Math.max(0, BED_ROOM - footprint);
 
-      beds.push(run.axis === 'x'
-        ? { x: along, z: across, radius, footprint }
-        : { x: across, z: along, radius, footprint });
+      const bed = run.axis === 'x'
+        ? { x: along, z: across, radius, footprint, along, tree: null }
+        : { x: across, z: along, radius, footprint, along, tree: null };
+      beds.push(bed);
+      mine.push(bed);
+    }
+  }
+
+  // The trees, in a pass of their own after every bed in the city has been drawn for. Not because
+  // the loop reads better this way — it is so that adding them left the bedding a seed already had
+  // exactly where it was. A draw taken inside the loop above would have reshuffled every bed
+  // downstream of the first island to grow a tree, which is the same argument the beds themselves
+  // are planted after the parks for.
+  for (const { run, usable, centre, beds: mine } of islands) {
+    if (!mine.length) continue;
+    if (!rng.chance(MEDIAN_TREE_CHANCE)) continue;
+
+    const count = Math.max(1, Math.round(usable / MEDIAN_TREE_PITCH));
+    for (let n = 0; n < count; n++) {
+      const want = run.from + BED_END_GAP + usable * ((n + 0.5) / count);
+      // Snapped to a bed rather than placed on its own. A trunk coming out of bare grass beside
+      // the bedding is a tree on a verge; a trunk coming out of the flowers is a planted island,
+      // and snapping is what guarantees it without a second clearance rule to keep in step.
+      let host = mine[0];
+      for (const bed of mine) {
+        if (Math.abs(bed.along - want) < Math.abs(host.along - want)) host = bed;
+      }
+      if (host.tree) continue;   // two trees fell on the same bed: the island is too short for two
+
+      // On the island's **spine**, not on the bed's own centre. A bed may sit up to
+      // `BED_ROOM - footprint` off the middle, and every unit of that spent toward the far
+      // carriageway comes straight off the sightline budget the height range is set by. The bed is
+      // wider than the wander, so the trunk still rises out of the flowers wherever it landed.
+      const height = rng.range(MEDIAN_TREE_H[0], MEDIAN_TREE_H[1]);
+      host.tree = run.axis === 'x'
+        ? { x: host.along, z: centre, height, trunk: MEDIAN_TREE_TRUNK }
+        : { x: centre, z: host.along, height, trunk: MEDIAN_TREE_TRUNK };
     }
   }
 
@@ -544,14 +625,22 @@ export function createProps(rng, blocks) {
 
   // --- The arterials' medians -------------------------------------------------
   //
-  // Flower beds down the middle of every main street. Planted last so the park draws above keep
-  // the stream they have always had — a seed's parks look the same as they did before medians
-  // existed. See `flowerBedParts` for why these are beds and not trees.
+  // Flower beds down the middle of every main street, with a small ornamental standing in some of
+  // them. Planted last so the park draws above keep the stream they have always had — a seed's
+  // parks look the same as they did before medians existed. See `flowerBedParts` for why the
+  // bedding is bedding, and `MEDIAN_TREE_H` for the height a tree here is held to.
   for (const bed of planMedianBeds(rng, medianRuns())) {
     const built = flowerBedParts(bed.x, bed.z, rng, bed);
     const rand = hash01(bed.x, bed.z);
     for (const part of built) stampEntry(part, bed.x, bed.z, rand);
     parts.push(...built);
+
+    // Stamped to the *bed's* anchor rather than its own, so the tree and the flowers it stands in
+    // arrive on the same frame of the entrance wave instead of the island growing in two goes.
+    if (!bed.tree) continue;
+    const tree = treeParts(bed.tree.x, bed.tree.z, rng, bed.tree);
+    for (const part of tree) stampEntry(part, bed.x, bed.z, rand);
+    parts.push(...tree);
   }
 
   const merged = mergeGeometries(parts, false);
