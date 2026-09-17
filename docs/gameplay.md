@@ -1276,9 +1276,10 @@ none of that apparatus is needed.
 
 `src/geometry/diamond.js`. The diamond is a **vessel**, and the clock is the liquid in it. Below the
 surface the urgency colour is opaque, saturated and self-lit — exactly what the whole crystal used
-to be. Above it the same hue is emptied glass: the city visible straight through it at just under
-half alpha, most of the emissive lift gone, and a sheen on the facets turned edge-on to the camera.
-A pale band rides the line between them, and that band is the part the eye actually reads.
+to be. Above it the same hue is emptied glass: the city visible straight through it at just over a
+quarter alpha, darker than the liquid, most of the emissive lift gone, and a sheen on the facets
+turned edge-on to the camera. A pale band rides the line between them, and that band is the part the
+eye actually reads.
 
 So the two hands of the clock are on one object. The **colour** steps in quarters and kicks, which
 is the alarm; the **level** moves every frame, which is where inside that quarter the fare actually
@@ -1327,9 +1328,37 @@ Three numbers were measured and moved:
 - The **sheen exponent** went from 2.5 to 5. At 2.5 it was not a highlight but a wash: very little
   of the crystal is truly head-on at this camera angle, so every visible facet picked up most of the
   lift. At 5 it stays on the two flanks either side of the front ridge.
-- The **emissive** above the line holds at 0.6 before alpha takes its share, so about 0.2 of the
+- The **emissive** above the line holds at 0.45 before alpha takes its share, so about 0.13 of the
   liquid's reaches the frame. At 0.22 opaque the shape survived after dark but a nearly-drained
   rider was genuinely hard to find on a night board.
+
+### Why alpha is the contrast knob
+
+The first shipped vessel put the glass at `0.45` alpha and `l × 0.6`, and at play zoom an amber
+crystal in front of a **tan roof** read as one solid amber diamond: the level was in there, and you
+could not see it. The numbers now are `0.28` and `l × 0.42`, with the surface band widened from
+0.32 to 0.40 local units (2.5px to 3.1px) and taken a shade whiter.
+
+Which of those knobs to turn is not arbitrary, and the argument is worth keeping:
+
+> The two halves are the same hue **by design** — the alarm has to carry across the whole
+> silhouette, which is what the dusty-rose failure above is about. So every other knob here
+> separates the halves by *value*, and a value gap can be swallowed whole by whatever the marker
+> happens to be floating over. **Alpha cannot.** What alpha lets through is the city behind the
+> crystal, which is by definition not the liquid's colour, so lowering it widens the gap whichever
+> direction the backdrop happens to lie in.
+
+Lightness does the rest: at `l × 0.6` the glass was near enough the liquid's own value that a marker
+over a dark road held both halves at one brightness, so the level had a gap but no *direction*. The
+emissive had to come down with the alpha rather than stay put, for the reason the bullet above
+names — it is the term the sun does not scale, so it is what the empty half is made of after dark,
+and leaving it high would have fixed the day marker and left the night one flat.
+
+The band's extra half-pixel is not free, and the price is paid at the **ends** of the clock: the
+fill overshoots the tips by exactly one band at each end (so no highlight is ever stranded on a
+vertex), which costs about 8% of the travel at each extreme rather than the old 7%. Nobody reads a
+clock at "full" or "empty" — the colour says that — so it is a cheap place to spend. Past about 0.22
+the band stops reading as a surface in the crystal and starts reading as a stripe across it.
 
 ### The far wall, and why it isn't there
 

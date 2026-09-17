@@ -179,12 +179,18 @@ export const HIGHLIGHT_EMISSIVE = 1.05;
 // decides anything. They stay well clear of the ghost outlines at 9990+, which run dead last and
 // already treated this marker as an occluder back when it was opaque.
 
-// Half-width of the surface band, in local units, so the band itself is twice this — 0.32 units,
-// about 2.5px at play zoom against the rim's 1.7. `MENISCUS_CORE` is the fraction of it held at
+// Half-width of the surface band, in local units, so the band itself is twice this — 0.40 units,
+// about 3.1px at play zoom against the rim's 1.7. `MENISCUS_CORE` is the fraction of it held at
 // full brightness before the falloff starts: a pure smoothstep from the centre out has no crisp
 // part at all at this size and the line read as a smudge rather than as a surface.
-const MENISCUS = 0.16;
-const MENISCUS_CORE = 0.4;
+//
+// It was 0.16 (2.5px) and the band is the thing the eye actually lands on, so the extra half-pixel
+// buys more legibility than anything else here does — but it is not free, and the price is paid at
+// the *ends* of the clock rather than in the middle, because the overshoot below is one band at
+// each tip. See FILL_BOTTOM. Past about 0.22 the band starts reading as a stripe across the
+// crystal rather than as a surface in it, and the overshoot eats a fifth of the travel.
+const MENISCUS = 0.2;
+const MENISCUS_CORE = 0.5;
 
 // Where the surface sits at a given fraction, in the geometry's own local Y. Linear in *height*,
 // not in volume: the player reads the line's position, and equal time has to be equal travel.
@@ -196,14 +202,23 @@ const MENISCUS_CORE = 0.4;
 // The overshoot is exactly one band past each tip, so no part of the meniscus still touches the
 // geometry at either extreme. A fresh fare is a solid crystal (what the marker looked like before
 // any of this) and a dead one is an empty vessel, with no stray highlight parked on a vertex. It
-// costs about 7% of the range at each end, which no clock is read at.
+// costs about 8% of the range at each end, which no clock is read at.
 const FILL_BOTTOM = BOT_Y - MENISCUS;
 const FILL_TOP = TOP_Y + MENISCUS;
 
 // How much of the empty half survives the blend. This is what makes it read as *empty* rather than
-// as a second colour: at a third, two thirds of every pixel up there is the city behind the marker,
-// so the vessel thins out over whatever it is floating in front of instead of sitting on it.
-const GLASS_ALPHA = 0.45;
+// as a second colour: at under a third, more than two thirds of every pixel up there is the city
+// behind the marker, so the vessel thins out over whatever it is floating in front of instead of
+// sitting on it.
+//
+// **This number is the level's contrast, and it is the only part of it that does not depend on the
+// backdrop.** The two halves are the same hue by design (see GLASS_SAT), so everything else here
+// separates them by *value* — and a value gap can be swallowed whole by what the marker happens to
+// be floating over. Alpha cannot: whatever is behind the crystal is by definition not the liquid's
+// colour, so lowering it always widens the gap, in whichever direction the backdrop happens to lie.
+// At 0.45 an amber crystal in front of a tan roof read as one solid amber shape at play zoom, which
+// is what took it to 0.28.
+const GLASS_ALPHA = 0.28;
 
 // Emptied glass, as a transform of the fare's own hue rather than a colour of its own: nearly the
 // same colour as the liquid, only much less of it. Which is what glass and liquid actually are —
@@ -213,14 +228,25 @@ const GLASS_ALPHA = 0.45;
 // of a nearly-dead marker came out a dusty rose — the most urgent state on the scale rendering as
 // the least red thing on the board. The hue has to carry the alarm across the *whole* silhouette;
 // the fill is a second reading laid over it, not a replacement.
+//
+// The lightness is the other half of that: what alpha lets through is the city, and what it holds
+// back is this. At 0.6 the glass was near enough the liquid's own value that a marker over a dark
+// road kept the two halves at the same brightness; at 0.42 the glass reads consistently *under* the
+// liquid, so the level has a direction as well as a gap. It is a lightness and not a saturation cut
+// for the reason directly above.
 const GLASS_SAT = 0.9;
-const GLASS_LIGHT = 0.6;
+const GLASS_LIGHT = 0.42;
 
 // How much of the emissive lift the empty half keeps, before alpha takes its share — so the light
-// actually reaching the frame is nearer 0.6 × 0.34 ≈ 0.2 of the liquid's. Not zero: at midnight the
-// sun is under 0.05 and the emissive is nearly all of what the marker is, so a vessel at 0 would
-// leave a bright puddle floating in the dark with no shape around it.
-const GLASS_EMISSIVE = 0.6;
+// actually reaching the frame is nearer 0.45 × 0.28 ≈ 0.13 of the liquid's. Not zero: at midnight
+// the sun is under 0.05 and the emissive is nearly all of what the marker is, so a vessel at 0
+// would leave a bright puddle floating in the dark with no shape around it.
+//
+// It has to come down with GLASS_ALPHA rather than stay put. Emissive is the one term the sun does
+// not scale, so it is what the empty half is made of after dark — leaving it at 0.6 while the alpha
+// dropped would have handed the night marker back exactly the flat, evenly-lit silhouette this
+// change is about, with the day version fixed and the night one not.
+const GLASS_EMISSIVE = 0.45;
 
 // The glass sheen: facets at a grazing angle to the camera catch the surface colour. Flat shading
 // makes this constant per face, so it lands as a couple of clean steps rather than a gradient — a
@@ -235,9 +261,11 @@ const GLASS_EMISSIVE = 0.6;
 const SHEEN = 0.3;
 const SHEEN_POWER = 5;
 
-// The liquid's surface, in the same terms: the hue at half saturation, most of the way to white.
-const SURFACE_SAT = 0.5;
-const SURFACE_WHITE = 0.82;
+// The liquid's surface, in the same terms: the hue at a third saturation, nearly all the way to
+// white. It is the brightest thing on the marker and it is meant to be — the band *is* the reading,
+// and the two halves either side of it are only the context that tells you which way up it is.
+const SURFACE_SAT = 0.35;
+const SURFACE_WHITE = 0.9;
 
 const hsl = { h: 0, s: 0, l: 0 };
 
