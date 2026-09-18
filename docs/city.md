@@ -758,9 +758,27 @@ cities faced +X.
 | | |
 |---|---|
 | **Rate** | A per-lot roll at 0.7, ≈2 rows and 7.6 houses a city. Unlike the courtyard and the helipad this is a *neighbourhood*, not a landmark, so "exactly one a city" is the wrong shape and the failure to avoid is the opposite one. One city in six gets none, which is allowed to stand — nothing flies to, spawns on or routes through a row house. |
-| **Height** | One or two storeys over the garden level: 4.14 or 6.44 to the top of the cornice, on a **house's** storey height of 2.3 rather than the 2.6 a block of flats gets. This is the one number that had to be measured — see below. |
+| **Height** | One or two storeys over the garden level, on a **house's** storey height of 2.3 rather than the 2.6 a block of flats gets — 4.1 to 6.7 to the top of the cornice, which is drawn per house. This is the one number that had to be measured — see below. |
 | **Stoop** | Five risers and a landing, laid at 33° rather than the 50° five risers would otherwise want. A step is 2.3 pixels of rise at play zoom, so the flight never reads as a staircase on its own; the stone **cheek walls** climbing beside it are what carry it. |
 | **Openings** | Two bays — a door bay and a window bay, mirrored in pairs down the run so the stoops come together two at a time. Floor-to-ceiling parlour windows, shrinking as they climb. Only the front, the back and the two *ends* of the run are glazed; a party wall is not. |
+
+#### Making a run read as houses rather than as one block
+
+The first build shared one envelope and one cornice height across a whole terrace, on the argument
+that a terrace is put up in one go and ought to be uniform. That is right about a *terrace* and
+wrong about a *street*, and what it produced was exactly what it sounds like: one long brick mass
+with a stripe of windows on it and some stairs in front of it. Three things fix it, in descending
+order of how far they carry:
+
+| | |
+|---|---|
+| **A stepped roofline** | `CORNICE_H` is a range drawn **per house**, so the cornice steps at each party wall. The roofline is the silhouette and the silhouette is most of a low building from 33° above, which makes this the one that counts houses at any distance. Taken on the cornice rather than on the wall so the windows stay on the floors they belong to. |
+| **A change of envelope mid-run** | Three row-house colours (`brownstone`, `rowBrick`, `rowStone`), picked per house, with a two-in-three chance of keeping the neighbour's — so a run comes out as a couple of pairs and an odd one rather than as a paint chart. Weighted warm: the painted stone front is one house in five, because the city already owns pale in three of its six tower envelopes and a terrace that came up mostly `rowStone` would stop being the warm block it exists to be. |
+| **Party-wall piers** | A 0.2-wide pier standing 0.11 proud of the front at each joint and each end of the run. One and a half pixels at play zoom, and not there to be seen as a pilaster — it breaks the front into bays, which a vertical does and a colour jitter does not. |
+
+Both of the first two are asserted as *rates* in `tools/probe.mjs` — a run is allowed to come up
+all one colour, and a range is allowed to draw two neighbours close — alongside a check that the
+run stays predominantly brick.
 
 #### The height is a gameplay number, not a taste one
 

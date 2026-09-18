@@ -1070,6 +1070,13 @@ const onGrass = (city, i, j) => {
   let rowTooTall = 0;
   let rowDoorHidden = 0;
   let rowNearestMark = Infinity;
+  // How a run tells its houses apart. Both were added because the first build did neither and the
+  // terrace came back, correctly, as "one big building block": a stepped roofline and a change of
+  // envelope mid-run are the two differences that survive to play zoom, where a whole terrace is
+  // ninety pixels and a party-wall pier is one.
+  let rowMixedRuns = 0;
+  let rowSteppedRuns = 0;
+  const rowFamilies = {};
   // How much bare trunk each courtyard tree shows, and how many crowns are inside a wing.
   const courtTrunk = [];
   const courtBest = [];      // the most trunk any one tree in a city's yard shows
@@ -1150,6 +1157,14 @@ const onGrass = (city, i, j) => {
         // camera only ever sees two of a building's four. See `rowHomeFits`.
         if (row.side !== 0 && row.side !== 1) rowFacingAway += 1;
         if (row.height > ROW_MAX_H + 1e-9) rowTooTall += 1;
+
+        const fams = row.units.map((u) => u.family);
+        for (const f of fams) rowFamilies[f] = (rowFamilies[f] ?? 0) + 1;
+        if (new Set(fams).size > 1) rowMixedRuns += 1;
+        // A stepped roofline: no two neighbours in the run wearing the same cornice height. Drawn
+        // from a range, so this is really asking that the draw is per house and not per row.
+        const steps = row.units.map((u) => u.cornice);
+        if (steps.some((h, n) => n > 0 && Math.abs(h - steps[n - 1]) > 0.02)) rowSteppedRuns += 1;
 
         const [nx, nz] = ROW_SIDE_OUT[row.side];
         const lotLine = row.frontCoord + row.areaway;
@@ -1395,6 +1410,22 @@ const onGrass = (city, i, j) => {
     `${rowDoorHidden} of ${rowHouses} doors with something in front of them`);
   check('and a terrace stays under the roofline it declares', rowTooTall === 0,
     `${rowTooTall} of ${rowsTotal} over ROW_MAX_H ${ROW_MAX_H.toFixed(2)}`);
+  // What makes a run of houses read as houses. The first build shared one envelope jittered four
+  // levels and one cornice height across the whole terrace, and it came back as a single brick
+  // mass with a stripe of windows on it — so both are asserted as *rates*, since a run is allowed
+  // to come up all one colour and a cornice range is allowed to draw two neighbours close.
+  check('a terrace reads as separate houses, not one block',
+    rowMixedRuns > rowsTotal * 0.5 && rowSteppedRuns > rowsTotal * 0.9,
+    `${rowMixedRuns}/${rowsTotal} runs change envelope mid-row, `
+    + `${rowSteppedRuns}/${rowsTotal} step their roofline`);
+  // And it is still a *brick* row: the painted stone front is the variation, not the theme. The
+  // city already owns pale — `concrete`, `pale` and `tan` are three of the six tower envelopes —
+  // so a terrace that comes up mostly `rowStone` stops being the warm block it exists to be.
+  const famTotal = Object.values(rowFamilies).reduce((a, n) => a + n, 0);
+  const warm = (rowFamilies.brownstone ?? 0) + (rowFamilies.rowBrick ?? 0);
+  check('and stays a brick one', famTotal > 0 && warm > famTotal * 0.7,
+    `${((warm / famTotal) * 100).toFixed(0)}% of houses brick or brownstone, `
+    + `${(((rowFamilies.rowStone ?? 0) / famTotal) * 100).toFixed(0)}% painted stone`);
   // The one that sizes the front garden. See the note where it is gathered.
   check('and no stoop stands on a kerb mark', rowOverMark === 0,
     `${rowOverMark} ring samples inside a stoop, nearest clears by `

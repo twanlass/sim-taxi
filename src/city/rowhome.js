@@ -88,25 +88,37 @@ const UNIT_MAX = 5;
 // of the roofline: there is no plant room, no water tower and no setback above it. `CORNICE_BACK`
 // is how far it reaches back onto the roof, which is what makes it a band rather than a lid — see
 // where it is built.
-const CORNICE_H = 0.34;
+//
+// **Its height is drawn per house, and that is the single thing that stops a terrace reading as one
+// building.** Everything else on a row of houses lines up — the floor heights, the sills, the
+// piers, the roof — because they were built together, and a run of that under a fixed camera is one
+// long mass with a stripe of windows on it, which is exactly how the first build came back. What a
+// real street of them has instead is a **stepped roofline**: runs put up by different builders in
+// different decades, each with its own cornice, meeting mid-block. The step is what the eye counts
+// houses by, because the roofline is the silhouette and the silhouette is most of a low building
+// from 33° above.
+//
+// A range rather than a single step so the count is not a rhythm, and taken on the cornice rather
+// than on the wall so the windows stay on the floors they belong to.
+const CORNICE_H = [0.3, 0.62];
 const CORNICE_OUT = 0.26;
 const CORNICE_BACK = 0.45;
-// The flat roof inside it. Thin enough that the cornice stands 0.16 proud of it, which is the
-// reveal that says parapet.
+// The flat roof inside it. Thin enough that the shortest cornice still stands 0.12 proud of it,
+// which is the reveal that says parapet.
 const ROOF_H = 0.18;
-// The party wall, carried through the front elevation as a shallow pier. 0.14 across is one pixel
-// at play zoom and it is not there to be seen as a pilaster — it is there to break the front into
-// bays, which a one-pixel vertical does and four levels of colour jitter does not.
-const PIER_W = 0.14;
-const PIER_OUT = 0.07;
+// The party wall, carried through the front elevation as a shallow pier. At 0.2 across it is a
+// pixel and a half at play zoom and it is not there to be seen as a pilaster — it is there to break
+// the front into bays, which a vertical does and a colour jitter does not.
+const PIER_W = 0.2;
+const PIER_OUT = 0.11;
 
 /**
- * The tallest a terrace can stand, cornice included — 6.44.
+ * The tallest a terrace can stand, cornice included — 6.72, on the tallest cornice of the run.
  *
  * Exported so `tools/probe.mjs` can hold the `STOREYS` note to a number instead of to a sentence.
  * A chimney goes above it; the roofline does not.
  */
-export const ROW_MAX_H = GARDEN_H + Math.max(...STOREYS) * ROW_FLOOR_H + CORNICE_H;
+export const ROW_MAX_H = GARDEN_H + Math.max(...STOREYS) * ROW_FLOOR_H + CORNICE_H[1];
 
 // --- The stoop -------------------------------------------------------------
 //
@@ -169,6 +181,32 @@ const PARLOUR_WIN_H = 1.6;
 const UPPER_WIN_H = [1.3, 1.15];
 const DOOR_H = 1.75;
 const GARDEN_WIN_H = 0.85;
+
+/**
+ * The three envelopes a row house can wear.
+ *
+ * A **pick per house**, not a jitter around one — and that is the second half of what stops a
+ * terrace reading as a single building (the first is the stepped cornice above).
+ *
+ * The first build jittered one `brownstone` by four levels of lightness per house, on the argument
+ * that a terrace is built in one go and ought to be uniform. That argument is right about a
+ * *terrace* and wrong about a *street*: four levels of lightness is invisible at any distance, so
+ * what came back was one long brick mass with a stripe of windows on it and some stoops in front.
+ * What a real block of these does is change hands mid-run — a painted stone front beside a
+ * brownstone beside a red brick — and colour is the one difference that survives all the way down
+ * to play zoom, where the whole terrace is ninety pixels and the piers are one.
+ *
+ * `KEEP_FAMILY` is what keeps it a terrace rather than a paint chart: a house takes its
+ * neighbour's envelope two times in three, so a run comes out as a couple of pairs and an odd one
+ * rather than as four houses that agree about nothing.
+ */
+// Weighted by repetition rather than by a table, the way `BUILDING_COLORS` is a plain list: the
+// warm pair carry the run and the painted stone front is the one in five. Even thirds was tried and
+// on a three-house run it puts two pale fronts in a terrace more often than not, which separates
+// the units beautifully and costs the row the thing it is for — a brownstone block that reads as
+// brick from across the map, against a city of concrete and tan offices that already owns pale.
+const ROW_FAMILIES = ['brownstone', 'brownstone', 'rowBrick', 'rowBrick', 'rowStone'];
+const KEEP_FAMILY = 0.66;
 
 // Where the residential stock stops. Height in this city is driven by a block's centrality, so a
 // 7-to-10-unit terrace dropped in the middle of the map punches a residential hole through the one
@@ -407,10 +445,10 @@ export function buildRowHomes(b, streetSides, centrality, rng, parts) {
   const floors = rng.pick(STOREYS);
   const bodyH = GARDEN_H + floors * ROW_FLOOR_H;
 
-  // The row's own envelope. `brownstone` stays out of `BUILDING_COLORS` for the same reason the
-  // depot's does: a terrace is not one of the shapes the tower generator draws, and letting the
-  // family turn up in the roll there would put a curtain wall on a row house.
-  const family = color('brownstone');
+  // The envelope the run opens on. All three stay out of `BUILDING_COLORS` for the same reason the
+  // depot's does: a terrace is not one of the shapes the tower generator draws, and letting one of
+  // these turn up in the roll there would put a curtain wall on a row house.
+  let family = rng.pick(ROW_FAMILIES);
 
   // Both camera-facing sides are the +ve end of their own axis, so the front wall is always the
   // lot's high coordinate less the areaway, and the houses run back from it toward the low one.
@@ -422,6 +460,7 @@ export function buildRowHomes(b, streetSides, centrality, rng, parts) {
   // the way it sweeps across a setback tower's tiers.
   const peak = streakPeak(b.cx, b.cz);
   const units = [];
+  let tallestCornice = 0;
 
   for (let i = 0; i < houses; i++) {
     const alongLo = (alongX ? b.x0 : b.z0) + i * uw;
@@ -431,11 +470,15 @@ export function buildRowHomes(b, streetSides, centrality, rng, parts) {
     const w = alongX ? uw : houseDepth;
     const d = alongX ? houseDepth : uw;
 
-    // Jittered per house, and this is the whole of what varies between them — the heights are
-    // shared, because a terrace is built in one go and a run of independently-sized houses reads
-    // as four buildings that happen to be touching rather than as one row.
-    const body = jitterColor(family, rng, { h: 0.014, l: 0.05 });
-    const unit = { uw, h: bodyH, floors, cx, cz, w, d };
+    // This house's envelope: its neighbour's two times in three, otherwise one of the others. The
+    // jitter on top is what keeps two houses of the same family from being the same house twice.
+    if (i > 0 && !rng.chance(KEEP_FAMILY)) {
+      family = rng.pick(ROW_FAMILIES.filter((f) => f !== family));
+    }
+    const body = jitterColor(color(family), rng, { h: 0.012, l: 0.045 });
+    // And its own cornice height, which is what breaks the roofline. See `CORNICE_H`.
+    const corniceH = rng.range(CORNICE_H[0], CORNICE_H[1]);
+    const unit = { uw, h: bodyH, floors, cx, cz, w, d, family, cornice: corniceH };
     units.push(unit);
 
     parts.push(box(w, bodyH, d, cx, KERB_H, cz, body));
@@ -468,18 +511,20 @@ export function buildRowHomes(b, streetSides, centrality, rng, parts) {
     const deckY = KERB_H + bodyH;
     parts.push(box(w, ROOF_H, d, cx, deckY, cz, color('roof')));
 
-    // The front band runs the length of the terrace as one line, turning the corner only at the two
-    // ends of the run. Neighbours meet edge to edge rather than overlapping: two bands at the same
-    // height crossing each other is the coplanar tie the party walls are lapped to avoid, one
-    // storey up and in the one place the eye is actually looking.
+    // The front band runs the length of the terrace, turning the corner only at the two ends of the
+    // run, and **steps** where two houses meet: `corniceH` is drawn per house, so what shows at
+    // each party wall is the side of the taller band. Neighbours still meet edge to edge rather
+    // than overlapping — two bands crossing is the coplanar tie the party walls are flush to avoid,
+    // one storey up and in the one place the eye is actually looking.
     const capLo = i === 0 ? CORNICE_OUT : 0;
     const capHi = i === houses - 1 ? CORNICE_OUT : 0;
     const bandDepth = CORNICE_BACK + CORNICE_OUT;
     const bandOff = (CORNICE_OUT - CORNICE_BACK) / 2;      // toward the street, off the front wall
     const corniceCol = shade(body, 0.72);
+    tallestCornice = Math.max(tallestCornice, corniceH);
     parts.push(box(
       alongX ? uw + capLo + capHi : bandDepth,
-      CORNICE_H,
+      corniceH,
       alongX ? bandDepth : uw + capLo + capHi,
       alongX ? cx + (capHi - capLo) / 2 : frontCoord + bandOff, deckY,
       alongX ? frontCoord + bandOff : cz + (capHi - capLo) / 2,
@@ -496,7 +541,7 @@ export function buildRowHomes(b, streetSides, centrality, rng, parts) {
       const endMid = (backCoord + frontCoord - CORNICE_BACK) / 2;
       parts.push(box(
         alongX ? bandDepth : endLen,
-        CORNICE_H,
+        corniceH,
         alongX ? endLen : bandDepth,
         alongX ? edge + outward * (CORNICE_OUT - CORNICE_BACK) / 2 : endMid, deckY,
         alongX ? endMid : edge + outward * (CORNICE_OUT - CORNICE_BACK) / 2,
@@ -538,6 +583,6 @@ export function buildRowHomes(b, streetSides, centrality, rng, parts) {
 
   return {
     side, alongX, houses, uw, floors, frontCoord, units,
-    reach: STOOP_REACH, areaway: AREAWAY, height: bodyH + CORNICE_H, parlour: KERB_H + GARDEN_H,
+    reach: STOOP_REACH, areaway: AREAWAY, height: bodyH + tallestCornice, parlour: KERB_H + GARDEN_H,
   };
 }
