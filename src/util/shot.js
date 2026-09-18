@@ -228,6 +228,24 @@ export const SHOTS = [
   //
   // Appended, for the reason given above `parcel` and `wreck-rest`: shots are addressed by index.
   { name: 'median', description: 'the arterial median, its bedding and its small trees', target: [20, 0], zoom: 11, warmup: 12 },
+  // The brick row houses (city/rowhome.js), and the one framing in the sweep whose subject is a
+  // *thing standing in front of a wall*. A stoop is 2.3 pixels of rise a step at play zoom, so
+  // nothing about whether it reads as a staircase can be settled at 52; the two questions it is
+  // actually asked are whether the flight and its cheeks say "stair" close up, and whether a run of
+  // four of them says "houses" rather than "one long wall" at the distance the game is played at.
+  // Hence a pair, the same shape the courier's pair has.
+  //
+  // `atRowHome` rather than a pinned target, and that is the whole reason this is not a two-line
+  // entry. A terrace's position is a draw from the building stream, so a framing written as
+  // coordinates would be a reference image that moves the day anything upstream of it changes — the
+  // river's mouth can be pinned because the coast is geometry; a house cannot. The flag aims at the
+  // middle of the first terrace the city built, which is stable under everything except the terrace
+  // not existing, and a city with no terrace at all falls back to the middle of the map rather than
+  // failing the shot (see `ROW_RATE` — one city in six has none).
+  //
+  // Appended, for the reason given above `parcel` and `median`: shots are addressed by index.
+  { name: 'rowhome', description: 'a terrace of brick row houses, close on the stoops', target: [0, 0], zoom: 10, warmup: 12, atRowHome: true },
+  { name: 'rowhome-far', description: 'the same terrace at play zoom', target: [0, 0], zoom: 30, warmup: 12, atRowHome: true },
 ];
 
 export function getActiveShot() {

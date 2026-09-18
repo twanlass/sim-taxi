@@ -15,8 +15,11 @@ import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
 } from '../src/city/ground.js';
 import {
-  createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
+  createBuildings, pitchedRoof, SKYLINE_CEILING,
 } from '../src/city/buildings.js';
+import { facadeQuads, wallCeiling } from '../src/city/facade.js';
+import { ROW_MAX_H, ROW_RATE } from '../src/city/rowhome.js';
+import { SIDE_OUT as ROW_SIDE_OUT, SIDE_TAN as ROW_SIDE_TAN } from '../src/city/facade.js';
 import {
   createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
   BENCH_LEN, STATUE_PLAZA, treeParts, MEDIAN_TREE_H, MEDIAN_TREE_TRUNK,
@@ -1056,6 +1059,24 @@ const onGrass = (city, i, j) => {
   let padsOffMesh = 0;
   let lowestPad = Infinity;
   const padHeights = [];
+  // The brick row houses (city/rowhome.js). Gathered here rather than in a sweep of their own
+  // because this block already builds the 24 cities they would need.
+  const rowCities = [];
+  let rowHouses = 0;
+  let rowFacingAway = 0;
+  let rowOverLot = 0;
+  let rowOverMark = 0;
+  let rowStairShort = 0;
+  let rowTooTall = 0;
+  let rowDoorHidden = 0;
+  let rowNearestMark = Infinity;
+  // How a run tells its houses apart. Both were added because the first build did neither and the
+  // terrace came back, correctly, as "one big building block": a stepped roofline and a change of
+  // envelope mid-run are the two differences that survive to play zoom, where a whole terrace is
+  // ninety pixels and a party-wall pier is one.
+  let rowMixedRuns = 0;
+  let rowSteppedRuns = 0;
+  const rowFamilies = {};
   // How much bare trunk each courtyard tree shows, and how many crowns are inside a wing.
   const courtTrunk = [];
   const courtBest = [];      // the most trunk any one tree in a city's yard shows
@@ -1121,6 +1142,93 @@ const onGrass = (city, i, j) => {
       // height. A `pad` handed back for a circle that was never built would sail past every other
       // check here and strand a helicopter in mid-air.
       if (onPad === 0) padsOffMesh += 1;
+    }
+
+    // The terraces, if this city drew any.
+    rowCities.push(built.rows.length);
+    if (built.rows.length) {
+      const rowPos = built.mesh.geometry.attributes.position;
+      const rowRay = new THREE.Raycaster();
+      rowRay.far = 400;
+      for (const row of built.rows) {
+        rowHouses += row.houses;
+        // Invariant, not a rate: a terrace facing −X or −Z shows the player a brick box, because
+        // the stoops, the doors and the tall parlour windows are all on the one elevation, and the
+        // camera only ever sees two of a building's four. See `rowHomeFits`.
+        if (row.side !== 0 && row.side !== 1) rowFacingAway += 1;
+        if (row.height > ROW_MAX_H + 1e-9) rowTooTall += 1;
+
+        const fams = row.units.map((u) => u.family);
+        for (const f of fams) rowFamilies[f] = (rowFamilies[f] ?? 0) + 1;
+        if (new Set(fams).size > 1) rowMixedRuns += 1;
+        // A stepped roofline: no two neighbours in the run wearing the same cornice height. Drawn
+        // from a range, so this is really asking that the draw is per house and not per row.
+        const steps = row.units.map((u) => u.cornice);
+        if (steps.some((h, n) => n > 0 && Math.abs(h - steps[n - 1]) > 0.02)) rowSteppedRuns += 1;
+
+        const [nx, nz] = ROW_SIDE_OUT[row.side];
+        const lotLine = row.frontCoord + row.areaway;
+        for (const unit of row.units) {
+          const { stoop } = unit;
+          // Nothing the terrace builds may stand on the pavement: the lot line is where the car
+          // clearance below is measured to, and a stoop over it is a staircase in the street.
+          const nose = row.alongX ? stoop.max.y : stoop.max.x;
+          if (nose > lotLine + 1e-9) rowOverLot += 1;
+
+          // The stair has to reach the door it climbs to, measured off the mesh rather than off
+          // the constants that built it: the landing's top face is the highest thing in the
+          // flight's footprint that is not a cheek, and it has to sit exactly at the threshold.
+          let top = 0;
+          for (let v = 0; v < rowPos.count; v++) {
+            const vy = rowPos.getY(v);
+            if (vy > row.parlour + 1e-4) continue;      // the wall behind it, and the cheeks
+            const vx = rowPos.getX(v);
+            const vz = rowPos.getZ(v);
+            if (vx < stoop.min.x || vx > stoop.max.x || vz < stoop.min.y || vz > stoop.max.y) {
+              continue;
+            }
+            top = Math.max(top, vy);
+          }
+          if (Math.abs(top - row.parlour) > 1e-3) rowStairShort += 1;
+
+          // And the front door is in the clear. A terrace is nothing but its front elevation, so a
+          // row built where the camera cannot see the doors is a row that may as well be a wall —
+          // cast rather than derived, the way the courtyard's trunks are.
+          const wallX = row.alongX ? unit.cx : row.frontCoord;
+          const wallZ = row.alongX ? row.frontCoord : unit.cz;
+          const [tx, tz] = ROW_SIDE_TAN[row.side];
+          const from = new THREE.Vector3(
+            wallX + nx * 0.45 + tx * unit.doorU, row.parlour + 0.9, wallZ + nz * 0.45 + tz * unit.doorU,
+          ).addScaledVector(VIEW_DIR, 0.4);
+          rowRay.set(from, VIEW_DIR);
+          if (rowRay.intersectObject(built.mesh, false).length) rowDoorHidden += 1;
+        }
+      }
+
+      // The clearance the front garden is sized by, taken from the board's own constants rather
+      // than from `rowhome.js`'s `MARK_CLEAR`. `cornerFor` pins a mark 0.5 inside its block and
+      // `cornerSeen` tests samples `RING_R / 2` further in again; a stoop standing in that strip
+      // both hides half the mark and — because it is 2.3 deep and under 2.5 tall — slips through
+      // the one cell `game/sightline.js` skips under a mark, which is the error that module exists
+      // to make impossible. It was 2 samples in 1008 and a pad kept at 56% visible.
+      for (let i = 0; i <= GRID_I; i++) {
+        for (let j = 0; j <= GRID_J; j++) {
+          const c = cornerFor(i, j);
+          for (const [u, v] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]]) {
+            const mx = c.x + u * (RING_R / 2);
+            const mz = c.z + v * (RING_R / 2);
+            for (const row of built.rows) {
+              for (const { stoop } of row.units) {
+                const gap = Math.max(
+                  stoop.min.x - mx, mx - stoop.max.x, stoop.min.y - mz, mz - stoop.max.y,
+                );
+                rowNearestMark = Math.min(rowNearestMark, gap);
+                if (gap < 0) rowOverMark += 1;
+              }
+            }
+          }
+        }
+      }
     }
 
     // What the yard actually shows the player. A courtyard's trees are the only reason to hollow a
@@ -1273,6 +1381,55 @@ const onGrass = (city, i, j) => {
   check('and it is on a building worth landing on', lowPads <= LOW_PAD_BUDGET && median >= 8,
     `lowest pad ${lowestPad.toFixed(1)} units, ${lowPads}/${padHeights.length} under `
     + `${PAD_FLOOR} (budget ${LOW_PAD_BUDGET}), median ${median.toFixed(1)}`);
+
+  // --- The brick row houses -------------------------------------------------
+  //
+  // A terrace is a *neighbourhood* rather than a landmark, so unlike the courtyard and the helipad
+  // it is a per-lot roll and the rate is the thing to hold. Everything after it is an invariant:
+  // each one is a way the massing stops being a row of houses and goes back to being a wall.
+  const rowsTotal = rowCities.reduce((a, n) => a + n, 0);
+  const rowless = rowCities.filter((n) => n === 0).length;
+  check('the city builds terraces of row houses',
+    rowsTotal / SEEDS > 1.2 && rowsTotal / SEEDS < 3.5,
+    `${(rowsTotal / SEEDS).toFixed(2)} rows and ${(rowHouses / SEEDS).toFixed(1)} houses per city `
+    + `at ROW_RATE ${ROW_RATE}`);
+  // A rate, not a guarantee, and deliberately the opposite call from the helipad's: nothing flies
+  // to, spawns on or routes through a row house, so a seed whose eligible blocks all came up
+  // towers is still a whole city. What must not come back is terraces being the exception.
+  check('and most cities get at least one', rowless < SEEDS * 0.4,
+    `${rowless}/${SEEDS} cities with none`);
+  check('every terrace faces the camera', rowFacingAway === 0,
+    `${rowFacingAway} of ${rowsTotal} built facing away`);
+  check('and no part of one stands on the pavement', rowOverLot === 0,
+    `${rowOverLot} stoops of ${rowHouses} past their lot line`);
+  // Off the mesh, not off the constants: the landing's top face has to be the threshold the door
+  // opens onto, or the stair stops a lip short of it and reads as a plinth.
+  check('and every stoop climbs to its own front door', rowStairShort === 0,
+    `${rowStairShort} of ${rowHouses} landing short of the threshold`);
+  check('and the camera can see every front door', rowDoorHidden === 0,
+    `${rowDoorHidden} of ${rowHouses} doors with something in front of them`);
+  check('and a terrace stays under the roofline it declares', rowTooTall === 0,
+    `${rowTooTall} of ${rowsTotal} over ROW_MAX_H ${ROW_MAX_H.toFixed(2)}`);
+  // What makes a run of houses read as houses. The first build shared one envelope jittered four
+  // levels and one cornice height across the whole terrace, and it came back as a single brick
+  // mass with a stripe of windows on it — so both are asserted as *rates*, since a run is allowed
+  // to come up all one colour and a cornice range is allowed to draw two neighbours close.
+  check('a terrace reads as separate houses, not one block',
+    rowMixedRuns > rowsTotal * 0.5 && rowSteppedRuns > rowsTotal * 0.9,
+    `${rowMixedRuns}/${rowsTotal} runs change envelope mid-row, `
+    + `${rowSteppedRuns}/${rowsTotal} step their roofline`);
+  // And it is still a *brick* row: the painted stone front is the variation, not the theme. The
+  // city already owns pale — `concrete`, `pale` and `tan` are three of the six tower envelopes —
+  // so a terrace that comes up mostly `rowStone` stops being the warm block it exists to be.
+  const famTotal = Object.values(rowFamilies).reduce((a, n) => a + n, 0);
+  const warm = (rowFamilies.brownstone ?? 0) + (rowFamilies.rowBrick ?? 0);
+  check('and stays a brick one', famTotal > 0 && warm > famTotal * 0.7,
+    `${((warm / famTotal) * 100).toFixed(0)}% of houses brick or brownstone, `
+    + `${(((rowFamilies.rowStone ?? 0) / famTotal) * 100).toFixed(0)}% painted stone`);
+  // The one that sizes the front garden. See the note where it is gathered.
+  check('and no stoop stands on a kerb mark', rowOverMark === 0,
+    `${rowOverMark} ring samples inside a stoop, nearest clears by `
+    + `${Number.isFinite(rowNearestMark) ? rowNearestMark.toFixed(2) : 'n/a'}`);
 }
 
 // --- Pitched roofs ----------------------------------------------------------

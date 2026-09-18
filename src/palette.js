@@ -71,6 +71,45 @@ export const PALETTE = {
   slate: '#767B85',
   roof: '#565A61',
   rooftop: '#6B6F76',
+  // The row houses (city/rowhome.js), and it stays **outside** `BUILDING_COLORS` on purpose — the
+  // same argument as the depot's envelope below. The tower generator picks its family from that
+  // list and derives the façade treatment from it, so a `brownstone` in there would sooner or
+  // later be a curtain-walled terrace or a ten-storey one.
+  //
+  // It is `brick` warmed five degrees and taken a stop down (16° / 0.62 / 0.18 against 11° / 0.57
+  // / 0.22 where `getHSL` measures — the working space, not the colour picker's, see the long note
+  // on `door`), which is very nearly the difference between red brick and brownstone in life. The
+  // pair have to sit next to each other on a street and read as two kinds of masonry rather than
+  // as one wall with a patch on it, and value is what does that at play zoom: four points of
+  // lightness across a forty-pixel façade is a legible step where five degrees of hue is nothing.
+  //
+  // The one thing it has to stay clear of is `cone` (6° / 0.96 / 0.44), which is the single most
+  // urgent colour in the game, and it clears it the way `brick` already does — on saturation and
+  // value, 0.62 against 0.96 and 0.18 against 0.44. `watertank` (23° / 0.61) is closer in
+  // saturation and six points darker, and is a five-pixel drum on a roof.
+  brownstone: '#94644A',
+  // And the two it shares a street with. A run of identical houses is one building with doors in
+  // it — see `ROW_FAMILIES` in city/rowhome.js for why the row picks per house rather than jittering
+  // one envelope — and what a real block of these does is change hands mid-run: a painted stone
+  // front beside a brownstone beside a red brick.
+  //
+  // `rowStone` is a painted limestone front, the one pale thing on a residential street. It is
+  // `tan` all but drained and lightened — 41° / 0.15 / 0.48 against 36° / 0.39 / 0.41 — rather than
+  // `tan` itself, because a house wearing the offices' own envelope reads as a small office.
+  //
+  // `rowBrick` is a pressed-brick house front, deeper and redder than the towers' commercial
+  // `brick`: 9° / 0.66 / 0.16 against 11° / 0.57 / 0.22. That is the **closest anything in this
+  // palette gets to `cone`** (6° / 0.96 / 0.44), the most urgent colour in the game, and closer
+  // than `brick` already was — so it is worth saying how it clears. Not on hue, which is three
+  // degrees: on the other two, at two thirds the saturation and **a third the value**. A cone is
+  // also a 30cm object standing in a lane, where this is a wall; the test the palette actually has
+  // to pass is that a dark red-brown façade cannot be mistaken for a bright orange marker, and
+  // nothing at L 0.16 can be. It was `#8E4F42` at 7° first, which bought nothing and sat one degree
+  // off, so it went the two degrees the other way.
+  //
+  // Both stay outside `BUILDING_COLORS` with `brownstone`, for the same reason it does.
+  rowStone: '#C3BCAB',
+  rowBrick: '#8E5343',
 
   // Windows stay dark in every lighting condition, which is what sells scale on a blocky mass.
   // This is the *bottom* of a pane now rather than the whole of it — see `windowSky`.

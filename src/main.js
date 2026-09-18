@@ -3345,6 +3345,22 @@ if (shot) {
     }
   }
 
+  // Frame the terrace of row houses, on the middle of its own run. A terrace's position comes out
+  // of the building stream rather than out of the grid, so the framing has to ask the city where
+  // it put one — see the note on `atRowHome` in util/shot.js.
+  if (shot.atRowHome && city.rows.length) {
+    const row = city.rows[0];
+    const mid = row.units[Math.floor(row.units.length / 2)];
+    // Aimed at the *stoops* rather than at the houses: the front wall stands `areaway` back off the
+    // lot line, and at zoom 10 a target on the building centre puts the thing this shot exists for
+    // at the bottom edge of the frame.
+    const toward = row.alongX ? [0, 1] : [1, 0];
+    controller.state.target.set(
+      mid.cx + toward[0] * (row.areaway / 2), 0, mid.cz + toward[1] * (row.areaway / 2),
+    );
+    controller.update(aspect());
+  }
+
   // Frame the waiting rider rather than the middle of the map.
   const framed = fares.focus();
   if (shot.atPassenger && framed) {
