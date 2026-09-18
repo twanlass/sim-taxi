@@ -551,6 +551,117 @@ try {
   check('letting go of the band ends the gesture',
     (await evaluate('window.__taxi.pathDrag.isGrabbing()')) === false);
 
+  // --- Double tap the band to throw a dragged detour away.
+  //
+  // The re-plan itself is `routeTo` with no waypoint, which tools/probe.mjs covers to death. What
+  // only a browser can check is that two presses in a third of a second are *read* as one gesture
+  // — and, just as much, what the second press does to everything else that listens to a press on
+  // this canvas: it must not pan the map, and it must mark the click it is about to synthesise as
+  // spoken for, or a reset on the stretch of band that runs into the drop-off ring re-dispatches
+  // the taxi at the pin underneath it.
+  //
+  // The whole gesture is dispatched in **one synchronous burst**, which is what makes this exact
+  // rather than tolerant: no frame runs between the detour and the reset, so the taxi has not
+  // moved an inch and the route after the double tap can be compared against the direct plan
+  // character for character, rather than against a leg count that shrinks on its own.
+  const doubleTap = JSON.parse(await evaluate(`(() => {
+    const T = window.__taxi;
+    const taxi = T.traffic.taxi;
+    const target = taxi.pendingTarget;
+    if (!target) return JSON.stringify({ ok: false, why: 'no destination to re-plan to' });
+
+    // The shape the reset has to come back to. Same target object, so the band's rollout sweep is
+    // not restarted by this — which is exactly why the reset has to ask for it by hand.
+    if (!T.routeTo(target)) return JSON.stringify({ ok: false, why: 'the direct route is unroutable' });
+    const direct = taxi.route.join(',');
+    const directLegs = taxi.route.length;
+
+    // Now bend it, the way a slipped finger does: every junction within two blocks of the
+    // destination tried as a waypoint, keeping whichever costs the most road. The cap is lifted
+    // because MAX_VIA_DETOUR exists to protect a player from their own thumb and this is trying to
+    // reproduce the accident. Out-of-grid candidates simply fail to route (findRoute answers null
+    // for a junction the network has never heard of), so no bounds check is needed here.
+    let best = null;
+    for (let di = -2; di <= 2; di++) {
+      for (let dj = -2; dj <= 2; dj++) {
+        const via = { i: target.i + di, j: target.j + dj };
+        if (!T.routeTo(target, { via, maxDetour: 99 })) continue;
+        if (!best || taxi.route.length > best.legs) best = { via, legs: taxi.route.length };
+      }
+    }
+    // Restored rather than left wherever the sweep finished, so the band under the finger is the
+    // longest one available and not whichever candidate happened to come last.
+    if (best) T.routeTo(target, { via: best.via, maxDetour: 99 });
+    else T.routeTo(target);
+    const detoured = taxi.route.join(',');
+    const detourLegs = taxi.route.length;
+
+    let pt = null;
+    for (const f of [0.45, 0.6, 0.35, 0.75, 0.25]) {
+      const p = T.routeScreenPosition(f);
+      if (p && T.pathDrag.hitTest(p.x, p.y)) { pt = p; break; }
+    }
+    if (!pt) return JSON.stringify({ ok: false, why: 'no grabbable point on the detoured band' });
+
+    const c = ${GAME_CANVAS};
+    c.setPointerCapture = () => {};
+    const ev = (type, cx, cy, id) => c.dispatchEvent(new PointerEvent(type, {
+      pointerId: id, isPrimary: true, clientX: cx, clientY: cy, bubbles: true, cancelable: true }));
+
+    window.__buzz = [];
+    window.__native = true;
+    window.webkit = { messageHandlers: { haptics: { postMessage: (m) => window.__buzz.push(m) } } };
+    const cam = T.camera.state.target.toArray().join();
+
+    // Two presses, two pixels apart — inside DOUBLE_TAP_SLOP and nowhere near GRAB_SLOP, so
+    // neither half is a drag.
+    ev('pointerdown', pt.x, pt.y, 7);
+    ev('pointerup', pt.x, pt.y, 7);
+    ev('pointerdown', pt.x + 2, pt.y + 1, 8);
+    // Read *before* the release: the click is synthesised off the pointerup, so the flag that
+    // swallows it has to be up by now, and letGo clears it on the next task.
+    const swallowed = T.pathDrag.didDrag();
+    const reset = taxi.route.join(',');
+    ev('pointerup', pt.x + 2, pt.y + 1, 8);
+
+    const buzz = window.__buzz.slice();
+    delete window.__native;
+    delete window.webkit;
+    return JSON.stringify({
+      ok: true,
+      detoured: detoured !== direct,
+      detourLegs,
+      directLegs,
+      restored: reset === direct,
+      changed: reset !== detoured,
+      swallowed,
+      buzz: buzz.join(','),
+      picks: buzz.filter((b) => b === 'pick').length,
+      grabs: buzz.filter((b) => b === 'grab').length,
+      panned: T.camera.state.target.toArray().join() !== cam,
+    });
+  })()`));
+
+  // The setup is half the check: a reset with nothing to undo would pass everything below while
+  // proving none of it, so say out loud that a detour was actually standing there first.
+  check('a waypoint really lengthens the route before the reset',
+    doubleTap.ok && doubleTap.detoured,
+    doubleTap.why ?? `${doubleTap.detourLegs} legs against a direct ${doubleTap.directLegs}`);
+  check('a double tap on the band re-plans it the shortest way',
+    doubleTap.ok && doubleTap.restored,
+    doubleTap.ok ? `${doubleTap.detourLegs} legs back to ${doubleTap.directLegs}` : doubleTap.why);
+  check('and does not pan the camera', doubleTap.ok && !doubleTap.panned);
+  // One press, one buzz. A reset that fired `grab` for the press and `pick` for the re-plan would
+  // put two transients ~30ms apart, which a thumb reads as one smeared buzz rather than as two
+  // events — so the first tap owes a `grab` and the second owes a `pick`, and that is all.
+  check('the reset buzzes once, and as a re-aim rather than as a grab',
+    doubleTap.ok && doubleTap.picks === 1 && doubleTap.grabs === 1,
+    `[${doubleTap.buzz}]`);
+  // The band runs into the drop-off ring, so a reset near the far end of it lands on the pin's own
+  // tap target. Without this the gesture would reset the route *and* re-dispatch the taxi at a
+  // destination it is already driving to.
+  check('and the click it synthesises is spoken for', doubleTap.ok && doubleTap.swallowed);
+
   // --- Tapping a rider-finder chip pans the camera to that rider rather than cutting to them.
   // The curve itself is covered in tools/probe.mjs; what only a browser can check is the wiring —
   // the chip's click reaching main.js, and the frame loop stepping the pan afterwards. Both are

@@ -131,14 +131,14 @@ particular, because the default insets by the safe area and would double up on t
   is right on the phone it is running on; a page that posted "8ms at 0.7" would have hard-coded one
   model.
 
-  Seven events, in two groups. **The player did something** — these fire under a thumb already on
+  Eight events, in two groups. **The player did something** — these fire under a thumb already on
   the glass, so they are sharp and short, and every one is gated on the input being *accepted*
   (a refused tap or an ignored press stays silent, because a confirming buzz on a refusal says the
   opposite of what the screen is saying):
 
   | Event | Fires on | Transient |
   |---|---|---|
-  | `pick` | a tap that re-aimed the taxi — rider, destination pin, package pin | `.light` |
+  | `pick` | a tap that re-aimed the taxi — rider, destination pin, package pin, or a double tap on the route band resetting it | `.light` |
   | `grab` | a press taking hold of the route band | `.soft` |
   | `snap` | the dragged route re-planning through a junction it wasn't using | `.rigid` at 0.55 |
   | `brake` | the brake going down, once per hold | `.rigid` |
@@ -180,6 +180,16 @@ particular, because the default insets by the safe area and would double up on t
   re-plan comes back with a *different* route: the first junction a gesture crosses is usually one
   the band already ran through, and a buzz there would report a detour that isn't on screen, one
   frame after the `grab` that already fired.
+
+  The [double-tap reset](../docs/gameplay.md#double-tap-the-band-to-throw-the-detour-away) borrows
+  `pick` rather than adding a ninth event, and its gating is the same shape as `snap`'s. Borrowing,
+  because the thing that just happened *is* a tap that re-aimed the taxi — the destination has not
+  moved, but the instruction the car is driving on has been replaced. And **one press, one buzz**:
+  a reset that fired `grab` for the press and `pick` for the re-plan would put two transients ~30ms
+  apart, which a thumb reads as one smeared buzz and not as two events, so the second press fires
+  whichever is the truer account of it — `pick` when the route changed, the plain `grab` when it
+  did not, because a double tap on a route that was already the shortest way is a press that took
+  hold of the band and nothing more.
 
   **A haptic is the one thing this game does that cannot be observed.** No pixel moves, nothing is
   logged, and the only witness is a thumb — so a dead bridge and a game that simply never fired

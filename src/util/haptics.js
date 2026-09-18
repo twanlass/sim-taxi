@@ -40,7 +40,11 @@ import { isNative } from './platform.js';
  * the input being *accepted* — a refused tap or a press the game ignored stays silent, because a
  * confirming buzz on a refusal says the opposite of what the screen is saying.
  *
- * - `pick`       — a tap that re-aimed the taxi: a rider, a destination pin, a package pin.
+ * - `pick`       — a tap that re-aimed the taxi: a rider, a destination pin, a package pin, or a
+ *                  double tap on the route band throwing a dragged detour away (game/pathdrag.js).
+ *                  That last one is the same event wearing the other half of the interface: the
+ *                  destination does not move, but the instruction the taxi is driving on has been
+ *                  replaced, which is what this has always reported.
  * - `grab`       — a press that took hold of the route band. `pick`'s twin for the other half of
  *                  the interface: the tap says *where*, this says *you have the route*. Its own
  *                  event rather than a second `pick` because it opens a hold rather than closing
