@@ -239,6 +239,21 @@ one of those clearances; this is for looking at the planting. It frames an 8.4-u
 that carries two trees rather than one, with a park across the road, so the ornamental and the
 broadleaf it is deliberately *not* are in the same frame. Appended, same rule as 37.
 
+Shots 39–40 (`rowhome`, `rowhome-far`) are the [brick row houses](city.md#the-row-houses-and-their-stoops),
+and they are a pair for the same reason the courier's are: the two questions are at different
+distances. Close, does the flight and its cheeks read as a **stair** at all — a step is 2.3 pixels
+of rise at play zoom, so that cannot be settled at 52. Far, does a run of them read as *houses*
+rather than as one long wall, which is the whole of what the party-wall piers and the per-house
+colour jitter are for and is not a question a close-up can ask.
+
+Both use `atRowHome` rather than a pinned target, and that is the part worth keeping. A terrace's
+position is a draw from the building stream, so a framing written as coordinates would be a
+reference image that moves the day anything upstream of it changes — the river's mouth can be
+pinned because a coast is geometry; a house cannot. The flag aims at the middle of the first
+terrace the city built, offset half the areaway toward the street so the stoops are not on the
+bottom edge of the frame, and a city with no terrace at all (one in six — see `ROW_RATE`) falls
+back to the middle of the map rather than failing the shot. Appended, same rule as 37 and 38.
+
 Shot 13 (`flyover`) has the wreck's problem without the wreck's drama: the
 [ambient plane](rendering.md#the-flyover--gameflyoverjs) is up for six seconds every minute or so,
 so there is nothing to point a camera at unless one is staged. It launches a flight, steps it

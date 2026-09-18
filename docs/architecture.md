@@ -23,7 +23,9 @@ src/
     roadnet.js          the road network: nodes/edges in, lanes/turns/signals/blocks out
     layout.js           decides what each block *is* (density, parks) before anything is built
     ground.js           roads, kerbs, block surfaces, crosswalks
+    facade.js           the façade kit every building cuts its elevations from
     buildings.js        one merged mesh of blocky towers
+    rowhome.js          a terrace of brick row houses, with a stoop to each front door
     props.js            trees, street furniture
     pond.js             the one duck pond: which park it lands in, and the water itself
     garage.js           the taxi's depot: which block it takes, and the roller door on the front

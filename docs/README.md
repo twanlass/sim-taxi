@@ -6,7 +6,7 @@ behind it that aren't obvious from the code.
 | Doc | Covers | Main files |
 |---|---|---|
 | [architecture.md](architecture.md) | Module map, the frame loop, seeding and determinism, how a change flows through the app, offline support | `src/main.js` |
-| [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts and the duck pond, the depot and the burger joint, ground/buildings/props | `src/city/` |
+| [city.md](city.md) | Coordinate system, direction encoding, block layout, park districts and the duck pond, the depot and the burger joint, the brick row houses, ground/buildings/props | `src/city/` |
 | [river.md](river.md) | The river, its three bridges, the span that lifts and the boats it lifts for | `src/city/river.js`, `src/game/drawbridge.js` |
 | [roadnet.md](roadnet.md) | The road network: nodes, edges, lanes, turns, derived signals, blocks as graph faces | `src/city/roadnet.js`, `src/city/curves.js` |
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, the police corridor and the bust chase | `src/sim/` |
@@ -62,6 +62,12 @@ junction**, which is what finally gives that gesture a reason to exist. A packag
 passenger, carries no clock and can never cost you a run — but the detour is paid out of the clock of
 whoever is in the back seat, and taking every one on offer halves how long you last. See
 [the package courier](gameplay.md#the-package-courier).
+
+Two or three blocks of a city are a **terrace of brick row houses** — a New York brownstone row:
+three to five narrow houses sharing party walls, a raised basement at the pavement and a **stoop**
+climbing to each front door one storey up. The one residential thing in a city otherwise made of
+offices and shops, and the only massing whose point is a thing standing *in front of* a façade. See
+[the row houses](city.md#the-row-houses-and-their-stoops).
 
 One block of every city is a **burger joint**: a low restaurant under a red band with a line of
 neon tracing its roofline, a burger turning slowly on a pole above that, and a drive-through lane

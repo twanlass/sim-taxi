@@ -671,7 +671,9 @@ destination with a pond in the way of it. `stopAtShore` clips the walk at the wa
 | File | Produces | Notes |
 |---|---|---|
 | `ground.js` | asphalt slab, road surface, kerbs (`KERB_H = 0.35`), block tops — a park's is a walk around a lawn, [above](#a-park-has-a-frontage) — crosswalks | One merged mesh, plus the edge fade as a child — alpha can't ride in the merge's 3-component colour. Crosswalks are omitted at unsignalised junctions — a crosswalk implies a signal. |
+| `facade.js` | the pieces every building cuts an elevation from: the hand-wound opening quads, the faux reflection, the punched grid and the curtain-wall ribbon | Knows nothing about lots. Split out of `buildings.js` when there was a second kind of building to draw — a terrace lays its own openings out but has to catch the light the same way the block behind it does. |
 | `buildings.js` | towers, courtyard blocks, façades, roof furniture | One merged mesh. Height ceiling is deliberately low; tall towers hid the taxi. See [what a building is made of](#what-a-building-is-made-of). |
+| `rowhome.js` | a terrace of brick row houses, three to five to a block frontage | Rides in the same merged mesh. See [the row houses](#the-row-houses-and-their-stoops). |
 | `props.js` | trees, park benches, the statue | Merged per material via `bakeColor`, so hundreds of props cost one draw call. Placement is [above](#benches-and-one-statue). |
 
 ### What a building is made of
@@ -729,6 +731,100 @@ downward faces on a city whose roofs were all correct.
 > 24.9 on the low side of its jitter and the probe asserts four units of clearance under it. The
 > water tower and the mast are built *conditional on fitting*, and the probe checks the tallest
 > thing across 24 seeds rather than trusting the one city the flyover check happens to fly over.
+
+### The row houses, and their stoops
+
+`city/rowhome.js`. A terrace of brick row houses — the New York brownstone, and the one
+residential thing in a city otherwise made of offices and shops. Three to five narrow houses share
+party walls across a whole block frontage: a raised basement at pavement level, a **stoop**
+climbing to a front door one storey up, one or two storeys over that, chimneys on the party walls
+and one cornice running the length of the run.
+
+It is the third massing the tower generator doesn't draw (the depot and the courtyard block are
+the others) and the only one whose point is a thing standing *in front of* a façade rather than
+the façade itself. Almost every number in it comes out of that.
+
+**Which lots, and which way they face.** A row house is nothing but its front elevation, and the
+camera only ever sees the +X and +Z ones — so a lot with no camera-facing street frontage doesn't
+get a terrace, it gets towers. The rest is room: enough frontage for three houses and enough depth
+for the front garden *plus* a house behind it, which in practice only ever passes on an
+**undivided block** (every eligible lot over 24 cities measured 9.0 to 10.3 across, because
+`splitLot` halves anything bigger). A terrace takes the whole block, which is what a terrace is.
+
+Both camera-facing sides usually qualify, so which one the front lands on is a **draw** rather than
+the first that fits. That is not tidiness: before it was a draw, every terrace in all nine sampled
+cities faced +X.
+
+| | |
+|---|---|
+| **Rate** | A per-lot roll at 0.7, ≈2 rows and 7.6 houses a city. Unlike the courtyard and the helipad this is a *neighbourhood*, not a landmark, so "exactly one a city" is the wrong shape and the failure to avoid is the opposite one. One city in six gets none, which is allowed to stand — nothing flies to, spawns on or routes through a row house. |
+| **Height** | One or two storeys over the garden level: 4.14 or 6.44 to the top of the cornice, on a **house's** storey height of 2.3 rather than the 2.6 a block of flats gets. This is the one number that had to be measured — see below. |
+| **Stoop** | Five risers and a landing, laid at 33° rather than the 50° five risers would otherwise want. A step is 2.3 pixels of rise at play zoom, so the flight never reads as a staircase on its own; the stone **cheek walls** climbing beside it are what carry it. |
+| **Openings** | Two bays — a door bay and a window bay, mirrored in pairs down the run so the stoops come together two at a time. Floor-to-ceiling parlour windows, shrinking as they climb. Only the front, the back and the two *ends* of the run are glazed; a party wall is not. |
+
+#### The height is a gameplay number, not a taste one
+
+A terrace fills a whole block frontage with one continuous wall, and the blocks it is allowed on
+are the outer ones, where `buildTower`'s own ceiling is 5 to 6 units. Built at the tower storey
+height it stood 6.8 or 9.4 units, and what that cost was not scale — it was the **kerb corners the
+fare board paints its marks on**.
+
+Measured as the worst kept corner across four cities on each of six top-level seeds, where
+`tools/probe.mjs` holds 60% of the pad visible and an unchanged city runs 64–80%:
+
+| | |
+|---|---|
+| 2.6-unit storeys over a 1.6 basement | **44–68%** — red on half the seeds, and the terrace was the blocker on every one |
+| the same, with the stoops deleted entirely | **44–48%** — which is what said the *massing* was the problem, not the thing in front of it |
+| 2.3-unit storeys over a 1.5 basement | **64–76%**, and no terrace is the worst blocker in any of the six |
+
+#### The front garden is sized by the fare mark
+
+The stoop stands 2.29 units out into the setback, and how much areaway is left between its bottom
+step and the lot line is not an aesthetic choice either. `cornerFor` pins a mark 0.5 inside its
+block past the kerb, `cornerSeen` tests samples `RING_R / 2` = 1.75 further in again, and a lot
+line is 0.85 off the block edge — so a mark reaches **1.4 past the lot line**, and anything
+standing in that strip is standing on it.
+
+Two things went wrong when the stoop did, and only one is the obvious one. Half the mark is behind
+a staircase, which [the sightline filter](#what-a-building-is-made-of) would simply drop the corner
+for. The other is that the filter **stops working**: it marches a height field that skips the first
+cell under a mark, on the stated grounds that a real occluder has units of mass ahead of it rather
+than one cell's worth — and a stoop, 2.3 deep and under 2.5 tall, does not. The sightline clears
+the last step before the march starts looking, and the field then calls a buried mark visible,
+which is the one error `game/sightline.js` exists to make impossible. It was 2 samples in 1008, and
+a pad kept on the board with 56% of it behind a staircase.
+
+So the areaway is 1.5, and `tools/probe.mjs` asserts the clearance from the board's own constants
+rather than from `rowhome.js`'s.
+
+#### A staircase is where the coplanar traps live
+
+Two of them, and both were fixed by a shape change rather than by a nudge:
+
+- **A step is a slab of its own tread's depth**, not a box run all the way back to the wall.
+  Nesting them that way is the obvious build, and two nested boxes at the same width share both
+  their side planes over the whole depth of the smaller one, both facing the same way — the
+  [exact tie](../CLAUDE.md) that draws as a hard-edged patchwork on a phone and as nothing at all
+  in a headless still. Disjoint slabs meet edge to edge, which is a seam.
+- **Houses butt up on their party walls.** They were lapped 0.04 at first, on that same reasoning —
+  wrongly, because a party wall is two faces pointing in *opposite* directions and culling draws
+  one of them. What the lap did buy was a 0.04 overlap between each pair of **roof decks**, which
+  is two horizontal faces at the same height pointing the same way, and a hairline down the roof of
+  every terrace.
+
+#### The cornice is a band, not a lid
+
+The first build ran the cornice the full depth of the house — one box, the whole roof, cut from the
+body colour darkened — and the terrace came out of its first screenshot as a plain brown box with
+windows in it. From 33° above, the roof is most of a low building's silhouette: a run of houses
+roofed in their own brickwork has no line where the wall stops, and the cornice, whose entire job
+is to draw that line, was the thing painting it out. The deck is `roof` grey like every other flat
+roof in the city and the cornice is a 0.45 band around the edges that are seen.
+
+The party walls come through the front as shallow **piers** for the same reason. At 0.14 across
+one is a pixel at play zoom and is not there to be seen as a pilaster — it is there to break the
+front into bays, which a one-pixel vertical does and four levels of colour jitter does not.
 
 ### The helipad
 
