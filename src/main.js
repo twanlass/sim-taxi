@@ -80,6 +80,7 @@ import { getActiveShot, getSeed, getRunSeed, getCarCount, getDifficultyPin, getA
   getSafeMode, safeModeSource, getMsaa, getShadowMapSize, getPixelRatioCap,
   getDiagnostics, getParcelsPin, getCrayon, getCartoon, getBloom, getHdr } from './util/shot.js';
 import { createParcelSystem, TAP_MAX_DETOUR } from './game/parcels.js';
+import { createRobbery } from './game/robbery.js';
 import { setCityOccluders } from './game/sightline.js';
 import { popHighlight, POP_TIME } from './game/selectpop.js';
 import { createDiagnostics } from './game/diag.js';
@@ -466,6 +467,37 @@ const burgerRun = driveThru
       haptic('burger');
     },
     onFinish: (handBack) => resumeAfterBurger(handBack),
+  })
+  : null;
+
+// The bank robbery — see game/robbery.js. `city.bank` is null on a city with nowhere to put a
+// bank (38 seeds in 40 have one), and the whole layer simply does not exist behind that: same
+// shape as the depot, the burger joint and the courier, and for the same reason — a city that
+// cannot host a feature should still be a playable city.
+//
+// Off in shot mode alongside the courier, for the same reason that one is: a screenshot warms the
+// sim forward on a scripted path, and an event that fires off *where the taxi happens to be* would
+// put a robber in half the shot list at random.
+const robbery = city.bank && !shot
+  ? createRobbery({
+    site: city.bank,
+    taxi: traffic.taxi,
+    fares,
+    traffic,
+    // The frame the robber is in the car. It is the ordinary `'pickup'` handler's job, said once
+    // here rather than smuggled into the event loop: the seat is full, the route the taxi was
+    // driving is void, and the getaway dispatches itself exactly as any other drop-off does.
+    onBoard: (fare) => {
+      traffic.taxi.route = [];
+      traffic.taxi.pendingTarget = null;
+      traffic.setTaxiOccupied(true);
+      dispatchToDropoff(fare);
+      // ...and the burger, if one was running, goes back in front of the car with the getaway as
+      // what to return to — the same line the `'pickup'` handler runs, and for the same reason: a
+      // detour the player asked for is still their standing instruction.
+      if (burgerRun?.active()) burgerRun.send();
+      haptic('pick');
+    },
   })
   : null;
 
@@ -2753,6 +2785,17 @@ function frame() {
     && !opening?.holdsCamera();
   controller.punchZoom(locoPunched && punchAllowed, dt, aspect());
 
+  // The bank robbery, ticked **before** the fare loop rather than after it, which is the opposite
+  // of where the courier sits and is deliberate. A robber that gets in on this frame is a fare on
+  // the board before `fares.update` snapshots it, so their clock starts, their crystal flies and
+  // their ring appears on the same frame the player sees them run out of the building — rather than
+  // on the one after, with a beat of nothing in between. It reads the taxi's settled position from
+  // `traffic.update` above, which is what the trigger's range is measured against.
+  //
+  // Held by the same gate the fare loop is: the opening vignette, the wipe and the Home Screen tip
+  // each stop the world, and an event firing behind any of them is one the player never saw.
+  if (!fareLoopHeld()) robbery?.update(dt);
+
   // More than one thing can land in a frame now — delivering the last fare clears the board and
   // spawns the next one in the same tick — so this is a list rather than a single event.
   for (const { type, fare } of
@@ -2809,7 +2852,7 @@ function frame() {
       // The seat is empty from this frame on — they are getting out of it in shot — so the roof
       // sign goes back to vacant rather than holding "occupied" over a cab nobody is in.
       traffic.setTaxiOccupied(false);
-    } else if (type === 'vip-missed') {
+    } else if (type === 'vip-missed' || type === 'robber-missed') {
       // The one fare whose clock running out isn't a run-ending event — see fares.js. The rider is
       // getting out and running off on their own (fares.js `beginBail`); what is left here is the
       // taxi, which is either holding an empty seat or still driving at a kerb nobody is standing
@@ -2818,6 +2861,11 @@ function frame() {
       // `directed` covers the second case: a VIP whose clock ran out while the taxi was on its way
       // to collect them leaves a live route and a `pendingTarget` aimed at a corner with nothing on
       // it, which is the same stale drive the courier's own arrivals retire below.
+      //
+      // A robber's clock running out lands here too, and it is the same event from the taxi's side:
+      // somebody getting out mid-street and the seat coming free. It is never the kerb case — a
+      // robber is aboard from the frame they appear — so only the first branch below can fire for
+      // one. See the timeout branch in game/fares.js for why a robbery cannot end a run.
       if (fare.stage === 'riding' || fare.directed) {
         traffic.taxi.route = [];
         traffic.taxi.pendingTarget = null;
@@ -3590,6 +3638,13 @@ window.__taxi = {
    */
   burger,
   driveThru,
+  /**
+   * The bank robbery, or null on a city with nowhere to put a bank and in shot mode.
+   * `robbery.site` is the building (`city/bank.js`), `robbery.state.active` is whether one is
+   * running and `robbery.range()` how far the taxi currently is from the door — which is how a
+   * browser test watches the trigger without guessing at wallclock. See game/robbery.js.
+   */
+  robbery,
   /**
    * The player's own trip through that lot, or null with it — `state`, `send()`, `active()`,
    * `holdsTaxi()`. `send()` is what a tap on the joint does, so a browser test can take the secret

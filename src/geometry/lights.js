@@ -126,3 +126,112 @@ export function turnSignalMaterial() {
     flatShading: true,
   });
 }
+
+// --- The siren bar ------------------------------------------------------------
+//
+// A police light bar, as a *pair of pods on the roof* built out of the same machinery the brake
+// and turn-signal pods are: one fixed emissive material per colour, and on/off as a scale about
+// each pod's own origin. It exists for the [bank robbery](../../docs/gameplay.md#the-bank-robbery)
+// — the cop cars that event puts into ambient traffic are ordinary cars off `carGeometry()`, and
+// the only thing that makes one read as a police car at play zoom is the livery underneath and
+// this alternating on the roof.
+//
+// It is **not** the cruiser's bar. `sim/police.js` builds its own, as two ordinary Meshes on a
+// group with a real PointLight behind each, because there is exactly one cruiser and it can afford
+// them. There can be half a dozen cop cars in ambient traffic and a point light each is not free,
+// so these are instanced and their spill is the bloom's (`emissiveMeshes` in sim/traffic.js) rather
+// than a light's. What the two *do* share is the rate below, so a city with both in it strobes on
+// one clock.
+
+/** Fore-aft, vertical and across — a squat slab, sized against the cruiser's own 0.55/0.26/0.5. */
+const SIREN_D = 0.5;
+const SIREN_H = 0.26;
+const SIREN_W = 0.46;
+
+/**
+ * How far each pod sits off the car's centreline.
+ *
+ * A car's cabin is `CAR_W * 0.86` = 1.462 across, so its half-width is 0.731 — and a pod centred
+ * 0.36 out reaches 0.59, which keeps both of them on the roof they are bolted to rather than
+ * overhanging the gutter. Wide enough apart to read as two lamps at play zoom: 0.72 between the
+ * centres is 5.5px, against pods that are 3.5px each.
+ */
+const SIREN_SPREAD = 0.36;
+
+/** Bar changes a second: six, matching the cruiser's corridor rate. */
+const SIREN_HZ = 6;
+/** ...and eleven once it has locked on, which is the only cue a chase gives. */
+const SIREN_HUNT_HZ = 11;
+
+/**
+ * Which half of the strobe a bar is in — true for red, false for blue.
+ *
+ * Three consumers and one clock: the cruiser's own bar (`sim/police.js`), the off-screen wash that
+ * stands in for it (`game/sirenglow.js`), and the instanced bars on the robbery's cop cars
+ * (`sim/traffic.js`). It lives here rather than with the cruiser because it stopped being the
+ * cruiser's the moment a second kind of police car existed — and a second clock keeping its own
+ * time would have the two blinking out of step on the same street.
+ */
+export function sirenOn(flash, hunting = false) {
+  return Math.floor(flash * (hunting ? SIREN_HUNT_HZ : SIREN_HZ)) % 2 === 0;
+}
+
+/**
+ * One siren pod, centred on its own origin — the same contract `lightPodGeometry()` keeps, and for
+ * the same reason: on/off here is a scale, and a scale is about the origin of whatever carries it.
+ * A pod holding its roof offset in its vertices would slide down into the cabin as it dimmed.
+ */
+export function sirenPodGeometry() {
+  return new THREE.BoxGeometry(SIREN_D, SIREN_H, SIREN_W);
+}
+
+/**
+ * Where one pod sits, in car-local space. `sz` picks a side, `-1` the car's own left.
+ *
+ * `roofY` is the top of the cabin the bar stands on, which the caller knows and this module does
+ * not — a cop car is an ordinary ambient car today, and nothing here should assume it stays one.
+ * `roofX` is the cabin's own centre along the car, so the bar sits on the roof rather than hanging
+ * off its back edge.
+ */
+export function sirenPodAnchor(sz, roofX, roofY) {
+  return new THREE.Vector3(roofX, roofY + SIREN_H / 2, sz * SIREN_SPREAD);
+}
+
+/**
+ * The bar's two pods — the same pair for both colours, so the **whole bar** goes red, then blue,
+ * rather than one lamp lighting at each end.
+ *
+ * A real bar does the second thing and this one deliberately does not, for a reason that is
+ * arithmetic rather than taste: a pod is 3.5px across at play zoom, so a bar split by colour
+ * alternates two specks a colour apart and reads as a flicker. Flashing both pods together is one
+ * mark 5.5px wide changing colour six times a second, which is what actually announces a police
+ * car from across a five-block city.
+ *
+ * It also keeps `LIGHT_PODS` honest as the instance stride, which is the half that would have
+ * bitten: a one-pod anchor list leaves the second slot of every car's stride untouched, and an
+ * `InstancedMesh` initialises its matrices to the **identity** — so every ambient car in the city
+ * would have parked a siren pod at the world origin.
+ */
+export function sirenBarAnchors(roofX, roofY) {
+  return [sirenPodAnchor(-1, roofX, roofY), sirenPodAnchor(1, roofX, roofY)];
+}
+
+/** The red half of the bar. Same `lightRed` the brake pods and the cruiser's own bar wear. */
+export function sirenRedMaterial() {
+  return new THREE.MeshLambertMaterial({
+    color: color('lightRed'),
+    emissive: color('lightRed'),
+    emissiveIntensity: LIGHT_EMISSIVE,
+    flatShading: true,
+  });
+}
+
+/** ...and the blue half. `sirenBlue` is deliberately brighter and bluer than `policeBody`. */
+export function sirenBlueMaterial() {
+  return new THREE.MeshLambertMaterial({
+    color: color('sirenBlue'),
+    emissive: color('sirenBlue'),
+    emissiveIntensity: LIGHT_EMISSIVE,
+    flatShading: true,
+  });
+}

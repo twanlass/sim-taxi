@@ -1910,6 +1910,39 @@ Three things the invitation changes, all of them at the mouth:
 A wreck in the lot — the run ending while the player is at the window — stops where it is, and the
 queue behind it holds, because each car's limit comes from its leader's position.
 
+## Cop cars in ambient traffic
+
+`setPoliceCars(n)` in `sim/traffic.js`, driven by [the bank robbery](gameplay.md#the-police). It takes
+the `n` ambient cars nearest the taxi, paints them `policeBody` and switches on a light bar on their
+roofs; `setPoliceCars(0)` puts every one of them back.
+
+**Nothing about how they drive changes.** `car.police` is read in exactly two places — the paint, and
+whether the bar is drawn — and it is deliberately not a behaviour flag. A cop car queues, indicates,
+stops at reds, yields to the corridor cruiser and can be crashed into exactly like the car it was a
+moment before. There is no pursuit AI in it and none anywhere else: the one police car that acknowledges
+the taxi is [the corridor cruiser](#police-priority-corridor), which is a different module and is not
+touched by any of this.
+
+Three things worth knowing about how it is drawn:
+
+- **The livery is a tint, not a mesh.** An ambient car's body is baked white and multiplied by its
+  instance colour (see `carGeometry`), so a cop car is one `setColorAt` away from an ordinary one.
+  Its `colorIndex` is never overwritten, which is what makes handing the paint back free rather than
+  something to remember.
+- **The bar is two pods on the roof**, off the same `lightPodGeometry` machinery the brake and
+  turn-signal pods use — one fixed emissive material per colour, and on/off as a scale about each
+  pod's own origin (`geometry/lights.js`). Both pods flash together, so the whole bar goes red then
+  blue: a pod is 3.5px across at play zoom, and a bar split by colour alternates two specks a colour
+  apart and reads as a flicker.
+- **Every ambient car writes the bar every frame**, not just the police ones — a car that is not a cop
+  writes a level of zero and its pods collapse. A loop that skipped the others would leave whatever
+  they last wrote standing on the road, which is the trap `game/bloom.js` records one layer up: in a
+  pass keyed on something other than the material, skipping the write does not skip the draw.
+
+`sirenOn()` moved out of `sim/police.js` into `geometry/lights.js` when this arrived. It stopped being
+the cruiser's own the moment there was a second kind of police car, and two clocks would have had the
+two blinking out of step on the same street.
+
 ## Police priority corridor
 
 `src/sim/police.js`. A police car crosses the city on a cycle, holding every signal on its road

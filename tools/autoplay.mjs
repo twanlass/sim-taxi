@@ -14,8 +14,10 @@ import * as THREE from 'three';
 import { makeRng } from '../src/util/rng.js';
 import { createTraffic } from '../src/sim/traffic.js';
 import { createLayout } from '../src/city/layout.js';
+import { createBuildings } from '../src/city/buildings.js';
 import { createPolice } from '../src/sim/police.js';
 import { createFareSystem } from '../src/game/fares.js';
+import { createRobbery } from '../src/game/robbery.js';
 import { findRoute, planOrigin } from '../src/game/route.js';
 import { isCityConnected } from '../src/city/grid.js';
 
@@ -40,26 +42,56 @@ const STEP = 1 / 60;
  */
 export function cityFor(seed) {
   for (let attempt = 0; attempt < 40; attempt++) {
-    createLayout(makeRng(seed + attempt));
-    if (isCityConnected()) return seed + attempt;
+    acceptedLayout = createLayout(makeRng(seed + attempt));
+    acceptedSeed = seed + attempt;
+    if (isCityConnected()) return acceptedSeed;
   }
   throw new Error(`no drivable city near seed ${seed}`);
 }
+
+// The blocks and the seed `cityFor` last accepted.
+//
+// Held here rather than returned because `cityFor`'s return value is the accepted *seed* and two
+// callers outside this file read it as such. What needs the blocks is `createBuildings`, and it
+// needs the ones the road network was actually installed from: `createLayout` is not a pure
+// function — it bakes the network and installs it as *the* city's — so calling it a second time to
+// get the same blocks back would silently replace the network every car in the sim is driving on.
+// That trap has cost this project eight red checks once already.
+let acceptedLayout = null;
+let acceptedSeed = null;
 
 /**
  * One full run: its own city, and its own situation on it.
  *
  * @param runSeed   the situation — car spawns, fare spawns, police timing
  * @param citySeed  the map
- * @param opts      {fares} deliveries to stop at, {reaction} seconds before the "player" reacts
+ * @param opts      {fares} deliveries to stop at, {reaction} seconds before the "player" reacts,
+ *                  {robbery} whether the bank robbery layer runs (default on — it is in the game,
+ *                  so it is in the number this harness reports). `false` is for measuring what it
+ *                  costs, which is the only reason the switch exists.
  */
-export function play(runSeed, citySeed, { fares: FARES = 40, reaction: REACTION = 1.5 } = {}) {
+export function play(runSeed, citySeed,
+  { fares: FARES = 40, reaction: REACTION = 1.5, robbery: ROBBERY = true } = {}) {
   cityFor(citySeed);
   const traffic = createTraffic(makeRng(runSeed + 44), new THREE.Scene(), CARS);
   const fares = createFareSystem(makeRng(runSeed + 55), new THREE.Scene());
   const police = createPolice(makeRng(runSeed + 66), new THREE.Scene());
   const taxi = traffic.taxi;
   traffic.warmup(10);
+
+  // The bank robbery (game/robbery.js). It is here rather than left out because it is **not** a
+  // cosmetic layer: an event that takes the seat for a cross-town getaway spends the clock of every
+  // rider standing on a kerb while it runs, which is a difficulty change whether or not anybody
+  // tuned it as one. A harness that skipped it would report the survival curve of a game nobody
+  // plays.
+  //
+  // The city's buildings have to be meshed for it, which is the one thing this harness did not
+  // previously need — the bank is a lot, and which lot is a fact about the tower generator's own
+  // draw. It costs about 30ms a run against runs that take seconds.
+  //
+  // `null` on a city with nowhere to put a bank, exactly as in main.js.
+  const city = ROBBERY ? createBuildings(makeRng(acceptedSeed + 22), acceptedLayout) : null;
+  let robbed = 0;
 
   let pending = null;      // fare awaiting our reaction
   let reactIn = 0;
@@ -77,9 +109,33 @@ export function play(runSeed, citySeed, { fares: FARES = 40, reaction: REACTION 
   // the strategy, and the only order one taxi can serve them in.
   const nextJob = () => fares.carrying() ?? fares.waiting();
 
+  // The robbery layer, wired the way main.js wires it: the trigger fires off where the taxi happens
+  // to be, and the robber's getaway dispatches itself on the frame they get in. A perfect player
+  // drives it because it is in the seat and `nextJob` returns whoever is carrying — the route is
+  // planned here rather than through `pending` because there is no reaction to pay for, exactly as
+  // for any other drop-off.
+  const robbery = city?.bank
+    ? createRobbery({
+      site: city.bank,
+      taxi,
+      fares,
+      traffic,
+      onBoard: (fare) => {
+        robbed += 1;
+        const route = findRoute(planOrigin(taxi), fare.target);
+        if (route === null) routeFailures += 1;
+        else { taxi.route = route; taxi.routeConsumed = false; }
+        pending = null;
+      },
+    })
+    : null;
+
   while (fares.state.delivered < FARES && !fares.state.gameOver && elapsed < 4000) {
     police.update(STEP);
     traffic.update(STEP);
+    // Before the fare loop, same as main.js — a robber who gets in on this frame is on the board
+    // before `fares.update` snapshots it.
+    robbery?.update(STEP);
     const events = fares.update(STEP, taxi);
     elapsed += STEP;
 
@@ -125,6 +181,8 @@ export function play(runSeed, citySeed, { fares: FARES = 40, reaction: REACTION 
     delivered: fares.state.delivered,
     money: fares.state.money,
     elapsed,
+    /** How many bank robberies happened during the run. See game/robbery.js. */
+    robbed,
     routeFailures,
     violations: traffic.stats.violations,
     worstMargin: margins.length ? Math.min(...margins) : 0,

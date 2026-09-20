@@ -551,6 +551,72 @@ all. So `createCityEntry` grew an `objects` list: a handful of transforms scaled
 same easeOutBack over the same delay, so the sign comes up with the building under it instead of
 hanging in the air over a hole in the ground.
 
+## The bank
+
+`src/city/bank.js`. One per city: a low, wide stone building with a colonnade under a pediment and a
+patinated dome behind it. It is the third building the tower generator does not draw, and the first
+of the three that is **a lot rather than a whole block** — the depot needs a forecourt to pull out of
+and the burger joint needs a drive-through lane, both of which are ground `splitLot` would divide out
+from under them. A bank is a building with a door on the street.
+
+It is placed from `createBuildings` alongside the courtyard rather than from `createLayout`
+alongside the other two, because which *lot* it takes is a fact about the tower generator's own
+draw. Same discipline either way: it is drawn last, with the courtyard's lot already excluded, so
+adding it cannot reshuffle a park, an arterial, a tower or the depot. `null` is a real answer —
+**38 cities in 40 have somewhere to put one**, and the two that do not simply never have a bank
+robbery ([gameplay.md](gameplay.md#the-bank-robbery)).
+
+### The silhouette is the feature
+
+A [robbery](gameplay.md#the-bank-robbery) starts when the empty taxi drives past this building, on a
+trigger the player never presses. So a player who has had one happen has to be able to find the thing
+that caused it, from across a five-block city, at play zoom, on a phone — which is a tighter brief
+than "a distinctive building" and is the whole of why it is shaped the way it is.
+
+| | |
+|---|---|
+| **Low and wide** | Roofline a flat 6.95, dome to 9.59 on average (9.39–9.73 over 40 seeds), against neighbours that run 5 to 16. The bank is a gap in the skyline before it is anything else — and the roofline is [derived rather than drawn](#the-roofline-is-derived-not-drawn). |
+| **A colonnade** | The one vertical rhythm in a city of plain boxes. `bankColumn` is a paler stone than `bankStone` for this: at play zoom a column is about three pixels, and what reads is the column against the wall rather than the shadow between them. |
+| **A pediment** | The one triangle at street level. Pitched roofs exist (`pitchedRoof`) but they sit on low-rise and never at the front. |
+| **A dome** | The one curved mass in the city, in the one colour nothing else wears. |
+
+The envelope stays **inside** the muted building family, unlike the depot's and the joint's. A bank
+is a bank among offices rather than a shed or a roadside box, and painting it to shout would have
+taken the shape's job away from it.
+
+**The front is not a choice**, for the same reason the drive-through's orientation is not: the camera
+looks down the +X+Z diagonal and never rotates, so of a building's four faces only +X and +Z are ever
+visible. `chooseBankLot` only offers lots with a +X or +Z street side, and the portico faces whichever
+of the two the lot has. The frontage measures 10.19 across on a 40-seed sweep, which is very nearly a
+whole block: the minimums (7.0 across, 5.5 back) are met by an undivided block and by essentially
+nothing else.
+
+### The roofline is derived, not drawn
+
+The one number on this building that was measured. A bank takes a whole block, so its **back wall** is
+a single flat 10-unit occluder standing directly up-screen of a kerb corner — and that corner is one a
+rider or a courier pad can be placed on ([the visible-corner filter](gameplay.md#corners-the-camera-cannot-see)).
+
+The geometry is fixed. A kerb corner stands `HALF_ROAD + 0.5` out from its junction, the block starts
+`HALF_ROAD` the other side of it, and the buildable rectangle is `INSET` inside that — so the back
+wall is **9.35 units away** on an ordinary street. The sightline climbs 0.92 per unit travelled, so it
+is 7.64 up when it reaches the nearest part of the mark and 10.86 by the furthest.
+
+Anything between those two **cuts the mark in half**, which is the one outcome `cornerSeen` cannot
+express: it scores six samples and a half-hidden corner comes out at three of six, on the wrong side
+of a threshold calibrated against towers that hide a mark outright or not at all. Measured over 840
+corners in 20 cities against real rays:
+
+| Bank roofline | Corners left on the board with <60% of their mark visible |
+|---|---|
+| 7.75 (the first draw) | **3**, and the score-4 bucket's worst case at 0.56 |
+| 6.95 (shipped) | **0**, worst corner kept 0.64 — where every other city already sat |
+
+So the mass ducks **under** 7.64 with margin rather than clearing 10.86: a taller bank would hide the
+corner honestly and cost the board a junction, and a low wide bank is what the silhouette wanted
+anyway. Everything at the front is then sized down to stay under the roof behind it, because a
+pediment poking above its own roofline is a gable rather than a portico.
+
 ## Park districts close roads
 
 A park district is **two adjacent blocks plus the road that used to separate them**, merged into

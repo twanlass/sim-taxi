@@ -9,6 +9,7 @@ import {
 import {
   lightPodGeometry, brakeLightAnchors, turnSignalAnchors, LIGHT_PODS,
   brakeLightMaterial, turnSignalMaterial,
+  sirenPodGeometry, sirenBarAnchors, sirenRedMaterial, sirenBlueMaterial, sirenOn,
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
@@ -1329,6 +1330,16 @@ export function steerToward(angle, yaw, prevYaw, ds, wheelbase = WHEELBASE) {
     Math.atan((wheelbase * dYaw) / ds) * STEER_GAIN));
   return angle + (target - angle) * Math.min(1, ds / STEER_EASE);
 }
+// The cabin, as named constants rather than literals inside `carGeometry()`, because the siren bar
+// a cop car wears has to stand on its roof and nothing else in the file knew where that was. Same
+// habit city/burgerjoint.js has for the three surfaces stacked on its lot: the module that *lays* a
+// surface exports the height anything standing on it needs.
+const CABIN_X = -0.2;                        // set back from the car's own centre
+const CABIN_H = 0.6;
+const CABIN_Y = 1.45 + CHASSIS_LIFT;         // its centre
+/** The roof: what a light bar is bolted to. */
+export const CABIN_TOP = CABIN_Y + CABIN_H / 2;
+
 function carGeometry() {
   // Body is left white so the per-instance colour tints it; the glass is dark enough that the
   // same multiply leaves it dark whatever colour the car is.
@@ -1339,8 +1350,8 @@ function carGeometry() {
   body.translate(0, 0.78 + CHASSIS_LIFT, 0);
   parts.push(bakeColor(body, new THREE.Color(1, 1, 1)));
 
-  const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, 0.6, CAR_W * 0.86);
-  cabin.translate(-0.2, 1.45 + CHASSIS_LIFT, 0);
+  const cabin = new THREE.BoxGeometry(CAR_LEN * 0.5, CABIN_H, CAR_W * 0.86);
+  cabin.translate(CABIN_X, CABIN_Y, 0);
   parts.push(bakeColor(cabin, color('carGlass')));
 
   parts.push(...wheelGeometries(CAR_LEN, CAR_W));
@@ -1640,6 +1651,13 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       turnLen: 1,
       entry: null, control: null, exit: null, hold: null, leadIn: 0, dOut: d,
       isTruck,
+      // Is this one wearing police livery this moment? Set and cleared by `setPoliceCars` while a
+      // bank robbery is running (game/robbery.js) and false the rest of the time. It changes two
+      // things and nothing else: the paint (see `paint` below) and whether the siren bar on the
+      // roof is drawn. It is deliberately **not** a behaviour flag — a cop car queues, indicates,
+      // stops at reds and can be crashed into exactly like the car it was a moment ago, which is
+      // the whole of what the event asked for.
+      police: false,
       // Same index, same array, whether this is a car or a truck's cab — see PALETTE.truckBox for
       // the one part of a truck that doesn't read this.
       colorIndex: rng.int(0, PALETTE.carBody.length - 1),
@@ -2092,9 +2110,9 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // geometry could only be scaled about the car's origin, and a dimming lamp would walk up the
   // body toward it. See lightPodGeometry() for what that measured.
   const lightMeshes = [];
-  const lightMesh = (name, material, anchors, vehicles) => {
+  const lightMesh = (name, material, anchors, vehicles, geometry = lightPodGeometry) => {
     const inst = neverCull(new THREE.InstancedMesh(
-      lightPodGeometry(), material(), MAX_AMBIENT * LIGHT_PODS,
+      geometry(), material(), MAX_AMBIENT * LIGHT_PODS,
     ));
     inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     inst.name = name;
@@ -2117,9 +2135,29 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const truckTurnRightMesh = lightMesh(
     'truckTurnSignalsRight', turnSignalMaterial, turnSignalAnchors(TRUCK_LEN, TRUCK_W, 1), trucks);
 
+  // The siren bar a cop car wears while a bank robbery is running — two more of exactly the same
+  // thing, one mesh per colour, so the strobe is one pod appearing as the other collapses. Cars
+  // only: the robbery never paints a box truck, because a police box truck is not a thing and the
+  // bar's anchor is measured off `CABIN_TOP`, which is a car's roof.
+  //
+  // Sized for every ambient slot like the rest of them, and drawn to `ambient.length` — an unlit
+  // bar is a zero-scale matrix in a buffer that is already there, so the cost of a fleet that is
+  // mostly *not* police is a matrix write per car per frame and nothing on screen.
+  const sirenRedMesh = lightMesh(
+    'carSirenRed', sirenRedMaterial, sirenBarAnchors(CABIN_X, CABIN_TOP), ambient,
+    sirenPodGeometry);
+  const sirenBlueMesh = lightMesh(
+    'carSirenBlue', sirenBlueMaterial, sirenBarAnchors(CABIN_X, CABIN_TOP), ambient,
+    sirenPodGeometry);
+
   const tint = new THREE.Color();
+  // A cop car is an ordinary car wearing `policeBody` instead of its own draw from `PALETTE.carBody`
+  // — the same blue the cruiser is built in, so the two read as the same force. Its `colorIndex` is
+  // left alone, which is what lets `setPoliceCars(0)` hand every one of them straight back to the
+  // livery it had before the event without remembering anything.
+  const bodyColor = (car) => (car.police ? PALETTE.policeBody : PALETTE.carBody[car.colorIndex]);
   const paint = (car, index) => {
-    tint.set(PALETTE.carBody[car.colorIndex]);
+    tint.set(bodyColor(car));
     mesh.setColorAt(index, tint);
     // Tinted with the body it belongs to, not left neutral. The tyre is baked dark and the
     // instance colour multiplies on top, so a front wheel that skipped this would sit a shade
@@ -2130,7 +2168,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // livery its colorIndex would have painted a car in. Only the cab and its wheels: the cargo box
   // (truckBoxMesh) is never touched here, see the note where that mesh is constructed above.
   const paintTruck = (car, index) => {
-    tint.set(PALETTE.carBody[car.colorIndex]);
+    tint.set(bodyColor(car));
     truckMesh.setColorAt(index, tint);
     for (let w = 0; w < TRUCK_FRONT.length; w++) {
       truckWheelMesh.setColorAt(index * TRUCK_FRONT.length + w, tint);
@@ -2187,7 +2225,50 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       brakeMesh.count = ambient.length * LIGHT_PODS;
       turnLeftMesh.count = ambient.length * LIGHT_PODS;
       turnRightMesh.count = ambient.length * LIGHT_PODS;
+      sirenRedMesh.count = ambient.length * LIGHT_PODS;
+      sirenBlueMesh.count = ambient.length * LIGHT_PODS;
     }
+  }
+
+  // --- Cop cars -------------------------------------------------------------
+  //
+  // The bank robbery (game/robbery.js) asks for police on the streets while it runs. What that
+  // means here is deliberately shallow: a set of ambient cars is repainted and given a bar on the
+  // roof for the length of the event, and **nothing about how they drive changes at all**. They
+  // queue, indicate, stop at reds and can be crashed into exactly like the cars they were a moment
+  // ago, which is the whole of the brief — no pursuit, no new fail state, "a louder version of the
+  // existing loop".
+  //
+  // Which are picked is "the ones nearest the taxi", because the point is streets the player can
+  // see. It is re-run each time the event asks rather than latched, so a cop car that has driven
+  // off across the map is handed back and a nearer one takes its place — that is what keeps the
+  // event *around the player* without any of them ever steering toward one.
+  //
+  // **The count is not clamped to what happens to be nearby.** Every ambient car is a candidate,
+  // sorted by distance, so a request for six on an empty-looking street still turns six cars blue
+  // — the nearest six, wherever they are. `game/robbery.js` also grows the fleet before it calls
+  // this (see `setCarCount` there), which is the half that actually adds vehicles.
+  const policeCars = [];
+  function setPoliceCars(n, from = taxi) {
+    const want = Math.max(0, Math.min(ambient.length, Math.round(n)));
+    const ranked = [...ambient]
+      .filter((car) => !car.crashed)
+      .sort((a, b) => Math.hypot(a.x - from.x, a.z - from.z) - Math.hypot(b.x - from.x, b.z - from.z));
+    const chosen = new Set(ranked.slice(0, want));
+
+    let repainted = false;
+    for (const car of ambient) {
+      const police = chosen.has(car);
+      if (car.police === police) continue;
+      car.police = police;
+      paint(car, car.instanceIndex);
+      repainted = true;
+    }
+    if (repainted && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (repainted && wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
+
+    policeCars.length = 0;
+    for (const car of ambient) if (car.police) policeCars.push(car);
   }
   // With ?cars=1 there are no ambient vehicles at all, so setColorAt is never called and
   // instanceColor is still null.
@@ -2392,10 +2473,21 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
       brakeInst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
       turnLeftInst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
       turnRightInst.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
+      // ...and the siren bar, for the same reason and with one of its own: a wrecked cop car is
+      // lying in the road for the rest of the run, and a bar still strobing on it says the police
+      // are still coming. Cars only — a truck has no bar to retire.
+      if (!car.isTruck) {
+        sirenRedMesh.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
+        sirenBlueMesh.setMatrixAt(car.instanceIndex * LIGHT_PODS + p, ZERO_MATRIX);
+      }
     }
     brakeInst.instanceMatrix.needsUpdate = true;
     turnLeftInst.instanceMatrix.needsUpdate = true;
     turnRightInst.instanceMatrix.needsUpdate = true;
+    if (!car.isTruck) {
+      sirenRedMesh.instanceMatrix.needsUpdate = true;
+      sirenBlueMesh.instanceMatrix.needsUpdate = true;
+    }
     if (car.isTruck) {
       truckBoxMesh.setMatrixAt(car.instanceIndex, matrix);
       truckBoxMesh.instanceMatrix.needsUpdate = true;
@@ -2466,6 +2558,21 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     writeLight(brakeInst, car, car.brakeLevel);
     writeLight(turnLeftInst, car, car.turnLeftLevel);
     writeLight(turnRightInst, car, car.turnRightLevel);
+
+    // The siren bar. Written for **every** car rather than only the police ones, because the level
+    // is what hides it: a car that is not a cop this frame writes zero and its pods collapse. A
+    // loop that skipped the others would leave whatever they last wrote standing, which is the same
+    // trap game/bloom.js records one layer up — skipping the write does not skip the draw.
+    //
+    // Cars only; a truck has no roof for one. Off the *sim*'s own clock rather than wallclock so a
+    // screenshot reproduces, and off `sirenOn` rather than a second timer so a cop car and the
+    // cruiser blink together if they meet on the same street.
+    if (!car.isTruck) {
+      const lit = car.police ? 1 : 0;
+      const red = sirenOn(stats.time) ? lit : 0;
+      writeLight(sirenRedMesh, car, red);
+      writeLight(sirenBlueMesh, car, lit - red);
+    }
   }
 
   /**
@@ -4081,6 +4188,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   return {
     cars, taxi, taxiGroup, setTaxiOccupied, setTaxiHighlight, setCarCount, mesh,
     wheelMesh, barMesh, update, warmup,
+    /**
+     * Put `n` ambient cars into police livery — the nearest `n` to the taxi — and hand every other
+     * one back to its own. `setPoliceCars(0)` ends it. See the note by the function itself: the
+     * livery is the whole of what changes, and the cars go on driving exactly as they were.
+     */
+    setPoliceCars,
+    /** The cars currently wearing it, for the probe and the tools. Live, not a copy. */
+    policeCars,
     /** Called with `{ x, z, yaw, v, deck }` on the frame the taxi's hop touches down. */
     onTaxiLand: (cb) => { landListeners.push(cb); },
     wreckShell, stats,

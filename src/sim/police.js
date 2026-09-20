@@ -8,6 +8,7 @@ import {
   entryPoint, exitPoint, turnControl,
   isSegmentClosed, nextIntersection, opposite,
 } from '../city/grid.js';
+import { sirenOn } from '../geometry/lights.js';
 import { deckHeightAt } from '../city/river.js';
 import { cityNetwork } from '../city/roadnet.js';
 import {
@@ -203,21 +204,11 @@ export const POLICE_BUST_RANGE = 20;
 // being caught by it.
 export const BUST_ARM_INSET = PITCH;
 
-// Bar changes a second: six on a corridor run, eleven once it has locked on. The rate change is the
-// only cue the player gets that the run has become about them.
-const SIREN_HZ = 6;
-const SIREN_HUNT_HZ = 11;
-
-/**
- * Which half of the strobe the bar is in — true for red, false for blue.
- *
- * Exported because `game/sirenglow.js` washes the same alternation over the frame edge while the
- * cruiser is off-screen, and a second clock keeping its own time would drift out of step with the
- * car it is standing in for. One function, two consumers, including the rate change.
- */
-export function sirenOn(flash, hunting = false) {
-  return Math.floor(flash * (hunting ? SIREN_HUNT_HZ : SIREN_HZ)) % 2 === 0;
-}
+// The strobe rate and `sirenOn` itself moved to geometry/lights.js, which is where the siren bar's
+// geometry and materials live. It stopped being the cruiser's own the moment a second kind of
+// police car existed: the bank robbery puts cop cars into ambient traffic wearing an instanced bar
+// off that module (see `sirenBarAnchors` there, and sim/traffic.js), and two clocks would have the
+// two blinking out of step on the same street. `game/sirenglow.js` reads it from there as well.
 
 // The car used to appear and vanish at full opacity out past the edge of the asphalt, against
 // bare background — a hard pop at both ends of every run. It now dissolves across this band,

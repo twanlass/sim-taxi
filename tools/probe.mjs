@@ -15,7 +15,7 @@ import {
   createGround, KERB_H, SLAB_X, SLAB_Z, SLAB_RADIUS, EDGE_FADE, PARK_EDGE, MEDIAN_EDGE,
 } from '../src/city/ground.js';
 import {
-  createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING,
+  createBuildings, facadeQuads, pitchedRoof, wallCeiling, SKYLINE_CEILING, INSET as BANK_LOT_INSET,
 } from '../src/city/buildings.js';
 import {
   createProps, parkPlots, planParkFurniture, planMedianBeds, MEDIAN_BED_ROOM,
@@ -39,7 +39,8 @@ import { createSparks } from '../src/game/sparks.js';
 import { barricadeParts, spoilParts, RAMP_RUN, RAMP_H, WORKS_Y, TRENCH_Y, SPLINTER_REST_Y } from '../src/geometry/roadworks.js';
 import { findRoute as planRoute, setRoadworkLanes, setBlockedLanes, laneCost } from '../src/game/route.js';
 import { createCollisions } from '../src/sim/collisions.js';
-import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET, sirenOn, CHASE_SPEED } from '../src/sim/police.js';
+import { createPolice, POLICE_BUST_RANGE, BUST_ARM_INSET, CHASE_SPEED } from '../src/sim/police.js';
+import { sirenOn } from '../src/geometry/lights.js';
 import {
   edgeGlow, sirenWash, GLOW_NEAR, GLOW_FAR, GLOW_FLOOR, SIREN_DIM,
 } from '../src/game/sirenglow.js';
@@ -63,6 +64,7 @@ import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import { createFoodOrder } from '../src/geometry/food.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
+import { createRobbery } from '../src/game/robbery.js';
 import {
   markEmissive, unmarkEmissive, emissiveList, BLOOM_LAYER, BLOOM_ORDER, BLOOM_INTENSITY,
   BLOOM_UNIFORMS, BLOOM_KINDS, refreshEmissive as bloomRefreshFor,
@@ -12756,6 +12758,223 @@ let chopperOrder; // likewise
   // `createLayout` installs the network it bakes as *the* city network (see CLAUDE.md), so the
   // sweep above has replaced the city everything below this point measures against. Put it back.
   createLayout(makeRng(seed));
+}
+
+// --- The bank, and the robbery that comes out of it ---------------------------
+//
+// One city block is a bank (city/bank.js) and driving past it with an empty cab starts a robbery
+// (game/robbery.js). What is checked here is in three parts, and the split matters: the building's
+// own geometry, the rules the trigger will not break, and the fact that none of it is a new
+// mechanic — a cop car is an ordinary car, and a robbery cannot end a run.
+{
+  const bank = buildings.bank;
+  check('the city has a bank', Boolean(bank),
+    bank ? `${bank.columns} columns, ${bank.width.toFixed(1)} across` : 'none placed');
+
+  if (bank) {
+    // It faces the camera. The view is a fixed +X+Z diagonal and never rotates, so a portico on
+    // either of the other two faces is a portico nobody ever sees — and the robbery would then be a
+    // rule firing off a building with nothing on the side it fires from.
+    check('the bank’s portico faces one of the two sides the camera can see',
+      bank.axis === 'x' || bank.axis === 'z', `faces +${bank.axis.toUpperCase()}`);
+
+    // The door point is where the robber runs out of and what the trigger measures from. It has to
+    // be on the **pavement**: outside the buildable rectangle (or it is inside the building) and
+    // inside the block (or it is in the carriageway).
+    const doorOut = bank.axis === 'x' ? bank.door.x - bank.b.x1 : bank.door.z - bank.b.z1;
+    check('the bank’s door stands clear of its own wall, on the pavement',
+      doorOut > 0.2 && doorOut < BANK_LOT_INSET, `${doorOut.toFixed(2)} out of a ${BANK_LOT_INSET} setback`);
+
+    // The roofline, which is the one number on this building that was derived rather than drawn.
+    // A bank takes a whole block, so its back wall is a single flat 10-unit occluder standing
+    // directly up-screen of a kerb corner — and that corner is one a rider or a courier pad can be
+    // placed on. The sightline off a mark climbs VIEW_DIR.y/VIEW_DIR.x per unit travelled in x and
+    // z alike, and the distance is fixed by the grid: a kerb corner stands HALF_ROAD + 0.5 out from
+    // its junction, the block starts HALF_ROAD the other side of it, and the buildable rectangle is
+    // one lot inset further in.
+    //
+    // A roof between the sightline's height at the NEAREST part of a mark and its height at the
+    // furthest cuts that mark in half — which is the one state `cornerSeen` cannot express, since
+    // it scores six samples and a half-hidden corner comes out at three of six. Measured over 840
+    // corners in 20 cities: a roofline at 7.75 left three corners on the board with under 60% of
+    // their mark visible; at 6.95 it leaves none.
+    //
+    // Asserted against the arithmetic rather than against the constant, so a change to the road
+    // width, the lot inset or the camera angle moves the bar rather than silently invalidating it.
+    const wallRun = 2 * HALF_ROAD + 0.5 + BANK_LOT_INSET;
+    const rise = VIEW_DIR.y / VIEW_DIR.x;
+    const grazeNear = KERB_H + RING_Y + (wallRun - RING_R / 2) * rise;
+    check('the bank’s roofline ducks under the sightline off the kerb corner behind it',
+      bank.roofY < grazeNear,
+      `roof ${bank.roofY.toFixed(2)} against ${grazeNear.toFixed(2)} at ${wallRun.toFixed(2)} units`);
+
+    // ...and the front is sized to stay under the roof behind it. A pediment poking above its own
+    // roofline is a gable, not a portico — and it is the one part of this building whose height is
+    // a sum of four other constants, so it is exactly the one that drifts when any of them moves.
+    check('the pediment sits below the roof behind it',
+      bank.pedimentY < bank.roofY,
+      `pediment ${bank.pedimentY.toFixed(2)}, roof ${bank.roofY.toFixed(2)}`);
+  }
+
+  // --- Cop cars are ordinary cars ---------------------------------------------
+  {
+    const copScene = new THREE.Scene();
+    // A dozen cars with a scattering of trucks, so the "never a truck" rule below has trucks to
+    // actually refuse rather than passing over an all-car fleet.
+    const copTraffic = createTraffic(makeRng(seed + 44), copScene, 14, 22, 0.25);
+    copTraffic.warmup(5);
+
+    copTraffic.setPoliceCars(4);
+    check('the robbery paints the number of cars it asked for',
+      copTraffic.policeCars.length === 4, `${copTraffic.policeCars.length} in livery`);
+    check('...and never the player’s own taxi',
+      !copTraffic.taxi.police && !copTraffic.policeCars.includes(copTraffic.taxi));
+    // A police box truck is not a thing, and the bar's anchor is measured off a car's roof.
+    check('...and never a box truck',
+      copTraffic.policeCars.every((car) => !car.isTruck));
+
+    // The whole claim the feature rests on: a cop car is an ordinary car. `police` is read in two
+    // places — the paint and the bar — and nowhere in the driving model at all. If it ever becomes
+    // a behaviour flag, this is what goes red.
+    const before = copTraffic.policeCars.map((car) => ({
+      car, v: car.v, lane: car.lane.id, state: car.state, colorIndex: car.colorIndex,
+    }));
+    copTraffic.update(1 / 60);
+    check('a cop car drives exactly like the car it was a moment ago',
+      before.every(({ car, lane, colorIndex }) => car.lane.id === lane && car.colorIndex === colorIndex),
+      `${before.length} cars, same lanes and same underlying paint`);
+
+    // The bar. One mesh per colour, both pods of a car switching together, and exactly one of the
+    // two colours up on any frame — a bar showing both at once is a lamp, not a siren.
+    const redMesh = copTraffic.emissiveMeshes.find((m) => m.name === 'carSirenRed');
+    const blueMesh = copTraffic.emissiveMeshes.find((m) => m.name === 'carSirenBlue');
+    const podScale = (mesh, index, pod) => {
+      const m = new THREE.Matrix4();
+      mesh.getMatrixAt(index * 2 + pod, m);
+      return new THREE.Vector3().setFromMatrixScale(m).x;
+    };
+    let litFrames = 0;
+    let bothUp = 0;
+    let civilianLit = 0;
+    let sawRed = 0;
+    let sawBlue = 0;
+    for (let f = 0; f < 120; f++) {
+      copTraffic.update(1 / 60);
+      for (const car of copTraffic.ambient) {
+        const red = podScale(redMesh, car.instanceIndex, 0);
+        const blue = podScale(blueMesh, car.instanceIndex, 0);
+        // Both pods of a colour move together — that is what makes the whole bar change colour
+        // rather than two specks alternating across the roof.
+        const redPair = podScale(redMesh, car.instanceIndex, 1);
+        if (car.police) {
+          litFrames += 1;
+          if (red > 0 && blue > 0) bothUp += 1;
+          if (red > 0) { sawRed += 1; if (redPair === 0) bothUp += 1; }
+          if (blue > 0) sawBlue += 1;
+        } else if (red > 0 || blue > 0) civilianLit += 1;
+      }
+    }
+    check('exactly one half of a siren bar is lit at a time',
+      bothUp === 0 && sawRed > 0 && sawBlue > 0,
+      `${sawRed} red and ${sawBlue} blue pod-frames of ${litFrames}, ${bothUp} showing both`);
+    check('a car that is not a cop has no bar on it at all',
+      civilianLit === 0, `${civilianLit} lit pod-frames on civilian cars`);
+
+    // Handing the paint back. The livery is a tint and `colorIndex` is never overwritten, which is
+    // what makes ending an event free rather than something to remember.
+    copTraffic.setPoliceCars(0);
+    check('ending a robbery hands every cop car back its own livery',
+      copTraffic.policeCars.length === 0 && copTraffic.ambient.every((car) => !car.police));
+  }
+
+  // --- The event's own rules ---------------------------------------------------
+  if (bank) {
+    // A scene per scenario: the trigger is a fact about where the taxi is, so each of these drives
+    // the taxi to the bank's own door and then changes exactly one of the gates.
+    const runEvent = ({ delivered = 5, carrying = false, cooldown = null } = {}) => {
+      const s2 = new THREE.Scene();
+      const t2 = createTraffic(makeRng(seed + 44), s2, 10, 18);
+      const f2 = createFareSystem(makeRng(seed + 55), s2);
+      t2.warmup(3);
+      f2.state.delivered = delivered;
+      const boarded = [];
+      const rob = createRobbery({
+        site: bank, taxi: t2.taxi, fares: f2, traffic: t2, onBoard: (fare) => boarded.push(fare),
+      });
+      if (cooldown !== null) rob.state.since = cooldown;
+      // Stand the taxi on the bank's doorstep rather than driving it there: what is under test is
+      // the gate, not the router, and a drive that happens not to pass the bank tests nothing.
+      t2.taxi.x = bank.door.x;
+      t2.taxi.z = bank.door.z;
+      if (carrying) {
+        // A rider aboard, made the way the loop makes one: spawn the board and let a pickup resolve
+        // would take a whole run, so this reaches for the state the gate actually reads.
+        f2.update(1 / 60, t2.taxi);
+        const fare = f2.state.fares[0];
+        if (fare) { fare.stage = 'riding'; fare.target = fare.dropoff; }
+      }
+      for (let f = 0; f < 5; f++) rob.update(1 / 60);
+      return { rob, fares: f2, traffic: t2, boarded };
+    };
+
+    const fired = runEvent();
+    check('driving past the bank with an empty cab starts a robbery',
+      fired.rob.state.active && fired.boarded.length === 1,
+      `${fired.boarded.length} robbers, ${fired.traffic.policeCars.length} cop cars out`);
+
+    if (fired.boarded.length) {
+      const robber = fired.boarded[0];
+      // Already in the car, already the thing the taxi is driving at. Both are what make this an
+      // ordinary fare starting from its second beat rather than a new kind of object.
+      check('the robber is aboard and dispatched from the frame they appear',
+        robber.stage === 'riding' && robber.directed && fired.fares.carrying() === robber);
+      // The invariant every fare's clock is held to. A getaway is meant to be urgent, not
+      // arithmetically impossible.
+      check('a robber’s clock still covers the driving it pays for',
+        robber.limit > robber.work, `${robber.limit}s against ${robber.work.toFixed(1)}s of driving`);
+      // ...and it is the tightest on the board. Budgeted over its own trip alone and at a slack
+      // factor under the VIP's, so an ordinary rider on the same trip gets strictly longer.
+      const ordinary = difficulty.fareLimit(robber.work, fired.fares.state.delivered);
+      check('...and is tighter than an ordinary rider’s on the same trip',
+        robber.limit < ordinary, `${robber.limit}s against ${ordinary.toFixed(0)}s`);
+      check('the getaway is a dash rather than a lap of the city',
+        robber.blocks > 0 && robber.blocks <= 4, `${robber.blocks} blocks`);
+      // The bonus is a ceiling stamped at spawn and cashed against the clock at the drop-off — the
+      // one price in the game not settled when the trip is.
+      check('the bonus is stamped as a ceiling, not paid up front',
+        robber.bonusMax > 0 && robber.value < robber.value + robber.bonusMax,
+        `base $${robber.value}, up to $${robber.bonusMax} more`);
+    }
+
+    check('...but not while somebody is already in the back',
+      !runEvent({ carrying: true }).rob.state.active);
+    check('...and not before the player has run the loop a couple of times',
+      !runEvent({ delivered: 0 }).rob.state.active);
+    check('...and not again until the cooldown has run',
+      !runEvent({ cooldown: 0 }).rob.state.active);
+
+    // The rule the whole event hangs off. It is imposed rather than chosen — nobody pressed
+    // anything — so it is not allowed to cost the player the run. A robber whose clock runs out
+    // gets out and goes, exactly as a missed VIP does.
+    {
+      const missed = runEvent();
+      const robber = missed.boarded[0];
+      robber.timeLeft = 0.001;
+      let sawMiss = false;
+      for (let f = 0; f < 20; f++) {
+        for (const e of missed.fares.update(1 / 60, missed.traffic.taxi)) {
+          if (e.type === 'robber-missed') sawMiss = true;
+        }
+      }
+      check('a robbery that runs out of clock never ends the run',
+        sawMiss && !missed.fares.state.gameOver && !missed.fares.carrying(),
+        sawMiss ? 'rider bailed, run continues' : 'no miss event fired');
+      // ...and the paint comes off on its own, off the same poll that ends a delivered one.
+      for (let f = 0; f < 10; f++) missed.rob.update(1 / 60);
+      check('...and the police go home afterwards',
+        !missed.rob.state.active && missed.traffic.policeCars.length === 0);
+    }
+  }
 }
 
 // --- Which kerb corners the camera can see ------------------------------------

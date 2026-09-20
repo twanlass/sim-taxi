@@ -54,6 +54,14 @@ the survival curve — p10 is the "did anyone die during the tutorial" number an
 It also reports how much of its budget the average fare ate, bucketed along the ramp, which is the
 direct read on whether the ramp is ramping: 50% → 56% → 73% → 87% is what the shipped curve does.
 
+**The harness plays the game as shipped, including the bank robbery.** `autoplay.mjs` builds the
+city's buildings as well as its layout (about 30ms a run) so the [bank](city.md#the-bank) exists, and
+runs [the robbery](gameplay.md#the-bank-robbery) exactly the way `main.js` does. That is not a
+cosmetic inclusion: an event that takes the seat for a getaway spends the clock of every rider
+standing on a kerb while it runs, which is a difficulty change whether or not anybody tuned it as
+one, and a harness that skipped it would report the survival curve of a game nobody plays. `play()`
+takes `{ robbery: false }` to measure what it costs, which is the only reason the switch exists.
+
 `difficulty-sweep.mjs` is what the numbers in [difficulty.md](difficulty.md#what-the-sweep-found)
 came from. It plays the same cities and situations through several tunings at three reaction times,
 so the comparison is paired. Both drive `tools/autoplay.mjs`, which holds the perfect-player harness

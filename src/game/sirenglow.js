@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { sirenOn } from '../sim/police.js';
+import { sirenOn } from '../geometry/lights.js';
 
 // Off-screen police warning: red and blue washing in over the viewport edge the cruiser is coming
 // from, strobing in step with its own light bar and fading out as it comes into frame.
