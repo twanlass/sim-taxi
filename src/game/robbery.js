@@ -48,12 +48,13 @@ const TRIGGER_RANGE = 12;
  * seat rather than offering itself from a kerb: a player who cannot stop it happening should not
  * meet it as often as one who can walk past it.
  *
- * **It is not the frequency knob it looks like.** Measured over 30 runs, nearly doubling it moved
- * the count of robberies from 33 to 34 — because the cooldown is not what limits the event. What
- * limits it is the taxi happening to drive past the bank with an empty cab and a calm kerb, which
- * on a five-block city is about once a run either way. The knob that *does* move the event is
- * `CALM_LEVEL` below; see the table on it. What this constant actually buys is the one thing its
- * own sentence says: two robberies can never run into each other.
+ * **It is not the frequency knob it looks like**, and that has now been measured twice. Nearly
+ * doubling it moved the count of robberies from 33 to 34 over 30 runs; doubling it again on top of
+ * a raised `MIN_DELIVERED` moved nothing at all — the same 8 robberies and the same 9.4-fare mean,
+ * to the digit. The cooldown is not what limits the event. What limits it is the taxi happening to
+ * drive past the bank with an empty cab and a calm kerb, which on a five-block city is about once a
+ * run whatever this says. What the constant actually buys is the one thing its own sentence says:
+ * two robberies can never run into each other.
  */
 const COOLDOWN = 70;
 
@@ -66,19 +67,23 @@ const COOLDOWN = 70;
  * absorb that; a rider who was already in trouble cannot, and *their* clock running out ends the
  * run. So the event that cannot end a run directly was ending runs by proxy.
  *
- * Measured with `tools/autoplay.mjs` over 30 paired runs at a 1.5s reaction, against a no-robbery
- * baseline of a 13.9-fare mean on $339:
+ * Measured with `tools/autoplay.mjs` over 30 paired runs per cell, against a no-robbery baseline
+ * of a 13.9-fare mean on $339 at a 1.5s reaction and 11.2 on $264 at 4s:
  *
- * | | mean fares | mean cash | robberies |
+ * | | 1.5s | 4s | robberies (1.5s) |
  * |---|---|---|---|
- * | no gate | 10.4 | $253 | 33 |
- * | no gate, cooldown near doubled | 11.0 | $266 | 34 |
- * | this gate | **12.6** | **$314** | 23 |
+ * | no gate at all | 9.8 fares · $239 | 8.4 · $206 | 28 |
+ * | **this gate** | **12.4 fares · $309** | **8.6 · $211** | 18 |
+ * | tightened to the top step | 14.0 fares · $349 | 11.2 · $264 | **2** |
  *
- * The middle row is the finding, and it is why the cooldown is not the knob: raising it barely
- * moved either number, because the cooldown is not what limits the event. What limits it is the
- * taxi happening to drive past the bank with an empty cab, which on a five-block city is about
- * once a run either way.
+ * Two findings, and the second is the reason this constant is not turned up. The gate is worth two
+ * and a half fares to a fast player, which is most of what a cross-town getaway costs. And it has
+ * **no usable room above it**: at the top step the event fires twice in thirty runs at 1.5s and
+ * never at all at 4s, which is not a rarer event, it is no event. What is left is the distance
+ * itself (`ROBBER_DROPOFF_DARTS` in game/fares.js), and that one is a design choice rather than a
+ * tuning knob.
+ *
+ * The cooldown is not a third lever, though it looks like one — see COOLDOWN above.
  *
  * Expressed as a **level** rather than a fraction so the rule is one the player can read off the
  * board: the urgency scale is four even quarters (game/urgency.js), so this is "every crystal on
@@ -94,6 +99,11 @@ const CALM_LEVEL = URGENCY_SEGMENTS / 2 + 1;
  * distinguished *from*. This is higher for a different reason: a robbery takes the wheel. A player
  * two fares in has seen a pickup, a drop-off, a payout and a refill, which is the whole loop — and
  * an event that overrides the loop is only legible to somebody who has one.
+ *
+ * It was measured as a difficulty knob too, since a cross-town getaway costs a slower player more
+ * than a fast one (see ROBBER_DROPOFF_DARTS in game/fares.js). At 4 it buys back 0.8 of a fare at a
+ * 4s reaction — and halves how often the event happens, from 14 robberies in 30 runs to 8. That is
+ * not a gentler event, it is less of one, which is why it stays at 2.
  */
 const MIN_DELIVERED = 2;
 

@@ -12,7 +12,7 @@ behind it that aren't obvious from the code.
 | [traffic.md](traffic.md) | Signal timing, arterials, the ring road, car physics, turns, the drive-through, cop cars in ambient traffic, the police corridor and the bust chase | `src/sim/` |
 | [gameplay.md](gameplay.md) | The opening vignette, the opening tutorial, the fare loop, routing, dragging the route, the bank robbery, the package courier, picking, the travelling clock, economy, crazy-taxi mode, pause | `src/game/` |
 | [difficulty.md](difficulty.md) | The ramp: budgeted fare clocks, board size, shifts, and how the numbers were swept | `src/game/difficulty.js` |
-| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, Crayon and Cartoon Mode, bloom, effects | `src/game/scene.js`, `src/geometry/` |
+| [rendering.md](rendering.md) | Low-poly technique, palette, camera, lighting, the day/night cycle, the island's faded edge, Crayon and Cartoon Mode, bloom, effects, sirens | `src/game/scene.js`, `src/geometry/` |
 | [testing.md](testing.md) | `npm run check`, the headless tools, screenshots, and the iteration workflow | `tools/` |
 | [lab.md](lab.md) | The passing lab at `/lab/` — one straight road with no lights, for watching Loco Mode overtake | `src/lab/`, `lab/` |
 | [ios.md](ios.md) | The App Store build: the WKWebView shell, why a custom URL scheme rather than `file://`, the native flag | `ios/`, `src/util/platform.js` |
@@ -80,12 +80,13 @@ because nobody is stopping you taking a rider through a drive-through. See
 
 One block of every city is a **bank** — low and wide under a colonnade, with a patinated dome behind
 it, the one curved mass and the one gap in the skyline. Drive past it with an **empty cab** and a
-robber comes down the steps and gets in, on the tightest clock in the game, while four of the cars
-already on the road turn blue and put light bars on. The cops are ordinary traffic in police paint:
-they queue, they stop at reds, and none of them ever comes after you — what they are is four more
-things to hit while you are in a hurry. It pays a bonus scaled to the clock you land it with, and
-missing one never ends a run: the event is imposed rather than chosen, so it is not allowed to cost
-the player the game. See [the bank robbery](gameplay.md#the-bank-robbery).
+masked robber comes down the steps with a sack and gets in, on the tightest clock in the game, bound
+for the far side of the city. Four of the cars already on the road turn blue and put flashing light
+bars on. The cops are ordinary traffic in police paint: they queue, they stop at reds, and none of
+them ever comes after you — what they are is four more things to hit while you are in a hurry. Lean
+on the pill and the loot starts coming out of the back. It pays a bonus scaled to the clock you land
+it with, and missing one never ends a run: the event is imposed rather than chosen, so it is not
+allowed to cost the player the game. See [the bank robbery](gameplay.md#the-bank-robbery).
 
 Once a run, a side street closes for **roadworks** — barricades at both ends, cones, a hole in the
 road and two workers standing over it. Ambient traffic routes around it while the taxi's own router

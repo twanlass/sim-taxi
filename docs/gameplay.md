@@ -1748,7 +1748,8 @@ description, and it is worth listing what is *not* new, because none of it is:
 
 - The robber is an ordinary fare that skipped the kerb. Same crystal over the roof, same ring on the
   road, same band of paint between them, same arrival test, same payout flight to the counter. Two
-  things differ: the clock, and a bonus that reads it.
+  things differ: the clock, and a bonus that reads it. What *looks* different is the figure — see
+  [the robber](#the-robber).
 - The cop cars are **ordinary ambient traffic wearing police livery**. They queue, indicate, stop at
   reds and can be crashed into exactly like the cars they were a moment before. Not one of them ever
   steers toward the taxi; [the one police car that does](traffic.md#the-bust-chase) is a different
@@ -1772,6 +1773,36 @@ clock runs out does exactly what a missed VIP does: gets out mid-street, swears 
 ([the outburst bubble](#they-leave-and-they-let-you-know)) and goes. The event costs the bonus and
 the seat it was occupying, and nothing else. There is no streak to lose, which is the one line of
 the VIP's version that is absent here rather than shared.
+
+### The robber
+
+`geometry/person.js`. A mask right across the eyes, a cap over the hair, a dark jacket pulled over
+the torso, the sleeves tinted to match, and a pale sack swinging off the left hand.
+
+**It is the figure that has to say this is not an ordinary fare**, because nothing else does: a
+robber's crystal is on the ordinary urgency scale on purpose — the clock is the drama, and a fixed
+hue like [a VIP's](#vip-pickups) would trade that away to say something the building and the police
+cars are already saying.
+
+It is **additive and switchable**, not a second person, and the reason is the pool. There is one
+figure per fare slot, built once and handed to every fare that occupies it, so a robber cannot be a
+differently-coloured `createPerson`. Nor can the base figure simply be repainted: its torso, head
+and hair are merged into one mesh with the colours baked into the vertices, so tinting the jacket
+tints the face with it. Five boxes that start hidden sidestep both — and the two that *are* a
+repaint (the sleeves) are separate meshes in one flat colour each, where `material.color` multiplies
+cleanly with nothing else on that mesh to spoil.
+
+The jacket was added after looking at the first build. A mask and a cap on a figure still wearing
+the board's pale shirt read as **a man in a hat**: at 24px the torso is the largest thing on the
+figure, and it was still saying "ordinary fare" louder than the head was saying anything. The sack
+is the opposite problem and the reason it is pale — against a black mask, a black cap and a black
+jacket, a dark bag is invisible, and it is the one part of the kit that says *why*.
+
+The kit is deliberately **not** cleared by `rest()`, unlike every other piece of pooled state on the
+rig. `rest()` runs mid-fare — a robber is rested on the frame they appear, and again when they get
+out at the far end — and a kit that came off there would take the mask off halfway through the
+event. What owns it is the spawn: `spawnRobber` puts it on, and `spawnFare` takes it off, which is
+the one place a slot changes hands.
 
 ### The clock, and the bonus that reads it
 
@@ -1817,46 +1848,59 @@ read off the board — the urgency scale is four even quarters
 one of its top two steps". A number like 0.45 would measure the same thing and mean nothing on
 screen.
 
-Measured over 30 paired runs at a 1.5s reaction, against a no-robbery baseline of a 13.9-fare mean
-on $339:
+Measured over 30 paired runs per cell, against a no-robbery baseline of a 13.9-fare mean on $339 at
+a 1.5s reaction and 11.2 on $264 at 4s:
 
-| | mean fares | mean cash | robberies |
-|---|---:|---:|---:|
-| no gate | 10.4 | $253 | 33 |
-| no gate, cooldown near doubled | 11.0 | $266 | 34 |
-| **this gate** | **12.6** | **$314** | 23 |
+| | perfect player (1.5s) | slower player (4s) | robberies (1.5s) |
+|---|---|---|---|
+| no gate at all | 9.8 fares · $239 | 8.4 · $206 | 28 |
+| **this gate** | **12.4 fares · $309** | **8.6 · $211** | 18 |
+| tightened to the top step | 14.0 fares · $349 | 11.2 · $264 | **2** |
 
-The middle row is the finding, and it is why the cooldown is not the knob: nearly doubling it barely
-moved either number, because the cooldown is not what limits the event. What limits it is the taxi
-happening to drive past the bank with an empty cab, which on a five-block city is about once a run
-either way.
+Two findings, and the second is why the gate is not simply turned up further. It is worth two and a
+half fares to a fast player, which is most of what a cross-town getaway costs. And there is **no
+usable room above it**: at the top step the event fires twice in thirty runs at 1.5s and never at
+all at 4s, which is not a rarer event, it is no event.
 
-### The getaway is short, and that is the whole of the tuning
+The cooldown is not a third lever, though it looks like one. Nearly doubling it moved the count of
+robberies from 33 to 34, because the cooldown is not what limits the event — what limits it is the
+taxi happening to drive past the bank with an empty cab and a calm kerb, which on a five-block city
+is about once a run either way.
 
-`ROBBER_MAX_BLOCKS` caps the drop-off at **4 blocks** from the bank, drawn three times with the
-furthest kept — so a getaway is a three-or-four-block dash rather than a lap of the city.
+### The getaway runs across town
 
-It did not start there, and the first draw is the measurement that matters. Drawn over the whole map
-and biased *long* (best of six, unbiased), against the same 30-run no-robbery baseline as the table
-above:
+`ROBBER_DROPOFF_DARTS` draws the drop-off **eight times over the whole map and keeps the furthest
+from the bank**. Measured over 55 cities that is a median of **7 blocks against a 10-block
+diameter**, range 5 to 9 — so a getaway is reliably a run to the far side of the city, and never a
+hop round the corner. It is the one event in this game whose whole point is the drive.
 
-| | mean fares | mean cash |
-|---|---:|---:|
-| no robbery | 13.9 | $339 |
-| the first draw: uncapped, biased long | 9.8 | $239 |
-| **capped at four blocks, with the calm gate** | **12.6** | **$314** |
+That distance is not free, and the mechanism is not subtle once it is named: a robbery takes the
+seat for the length of its trip, and every rider standing on a kerb while it runs is spending a
+clock that was budgeted without it. The longer the getaway, the more of other people's clocks it
+eats — and nothing about the robber's own clock touches that, because the robber's clock is not the
+one running out. 30 paired runs per cell through `tools/autoplay.mjs`:
 
-An event whose reward is a cash bonus should not make a run *poorer*, and the middle row does
-exactly that — shorter runs mean fewer fares, and fewer fares outweigh anything the bonus pays.
+| | perfect player (1.5s) | slower player (4s) |
+|---|---|---|
+| no robbery | 13.9 fares · $339 | 11.2 fares · $264 |
+| **across town, with the calm gate** | **12.4 fares · $309** | **8.6 fares · $211** |
+| across town, no gate at all | 9.8 fares · $239 | 8.4 fares · $206 |
 
-The mechanism is not subtle once it is named. A robbery takes the seat for the length of its trip,
-and every rider standing on a kerb while it runs is spending a clock that was budgeted without it.
-The longer the getaway, the more of other people's clocks it eats. Nothing about the robber's own
-clock fixes that, because the robber's clock is not the one running out.
+The bottom row is what [the calm gate](#the-gate-that-makes-it-fair) is buying: without it a long
+getaway is the difference between a 14-fare run and a 10-fare one. With it, a fast player pays about
+a fare and a half for the event.
 
-So the cost is paid by the robber and not by the board: a capped getaway is 15–25 seconds of
-driving, which is the same order as a [burger run](#the-burger-run) taken on a route that was going
-past anyway, and the game already tolerates that.
+**The slower player pays more, and that is the honest read on this.** At a 4s reaction the cost is
+2.6 fares — the p10 drops from 6 to 1, which is runs ending early rather than everyone landing a
+little shorter. A player who is already behind cannot absorb a sixty-second hijack they did not ask
+for, and the gate only checks the board at the moment the event *starts*.
+
+Two levers if that is ever judged too steep, and they are the two constants in this feature that
+were measured rather than chosen. `ROBBER_DROPOFF_DARTS` is the distance — capped at four blocks
+from the bank, the same sweep reads 12.6 / $314 and 11.4 / $276, which is about a fare cheaper at
+either speed and a materially shorter event. And `CALM_LEVEL` is the frequency, but only in one
+direction: tightened to the top step it fires **twice in thirty runs**, which is not a rarer event,
+it is no event. Everything else was measured and does nothing — see the cooldown.
 
 ### What it costs, as shipped
 
@@ -1866,13 +1910,12 @@ same cities, same situations, the robbery layer the only difference:
 | | perfect player (1.5s) | slower player (4s) |
 |---|---|---|
 | no robbery | 13.9 fares · $339 | 11.2 fares · $264 |
-| the first draw | 9.8 fares · $239 | 8.4 fares · $206 |
-| **shipped** | **12.6 fares · $314** | **11.4 fares · $276** |
+| **shipped** | **12.4 fares · $309** | **8.6 fares · $211** |
 
-Which is the shape it should have. A player who is already squeezing the board for everything it has
-pays about a fare for the event; a player driving at a human pace has room to absorb it and comes out
-ahead on cash. Neither is a number anybody set — the two knobs are the getaway cap and the calm gate,
-and this fell out of them.
+A fast player pays about a fare and a half for the event; a slower one pays two and a half, and
+their p10 drops from 6 to 1. See [the getaway](#the-getaway-runs-across-town) for why that asymmetry
+exists and which two constants move it — it is the price of a cross-town drive, and it is the one
+number in this feature that is a deliberate trade rather than a free win.
 
 One thing to know when reading `npm run check`: the suite's `fares` line runs the soak over **nine**
 seeds, which is a small enough sample that the first nine happen to be unlucky here — it reads a
@@ -1938,15 +1981,34 @@ never met a robbery. They are not painted and they are not un-spawned at the end
 on the frame an event ended would mean deleting cars out of the middle of an instance buffer while the
 player watched.
 
-The light bar is two pods on the roof off the same machinery the brake and turn-signal pods use
-(`geometry/lights.js`): one fixed emissive material per colour, and on/off as a scale about each pod's
-own origin. **Both pods flash together** — the whole bar goes red, then blue — rather than one lamp
-lighting at each end, which is what a real bar does. A pod is 3.5px across at play zoom, so a bar split
-by colour alternates two specks a colour apart and reads as a flicker; both together is one mark 5.5px
-wide changing colour six times a second. The rate is `sirenOn()`, shared with
-[the corridor cruiser](traffic.md#police-priority-corridor) and
-[the off-screen wash](rendering.md#off-screen-police-warning), so a city with both in it strobes on one
-clock.
+**Every one of them flashes, and the nearest two glow.** The siren comes from three places and the
+split matters, because the first two alone did not read:
+
+- **The bar**, two instanced emissive pods on the roof off the same machinery the brake and
+  turn-signal pods use (`geometry/lights.js`). Both pods flash together — the whole bar goes red,
+  then blue — rather than one lamp lighting at each end, which is what a real bar does: a pod is 4px
+  across at play zoom, and a bar split by colour alternates two specks a colour apart and reads as a
+  flicker. Together they are one 9.9px mark changing colour six times a second.
+- **The bloom**, which carries it at distance and took a fix. `main.js` marks every lamp the sim
+  owns in one loop, and marking them all `pod` gave a cop car's bar a brake light's 3.4 against the
+  cruiser's 4.2 — dimmer than the police car parked beside it, for no reason on screen. The kind
+  rides on the mesh now and the loop reads it.
+- **The wash on the road** (`game/coplights.js`), which is the part neither of the others can do —
+  two real point lights, parked on the nearest two cop cars and re-picked every frame. See
+  [cop cars' sirens](rendering.md#cop-cars-sirens---geometrylightsjs-gamecoplightsjs) for why it is
+  two lights against four cars, and what `?safe` drops.
+
+The rate is `sirenOn()`, shared with [the corridor cruiser](traffic.md#police-priority-corridor) and
+[the off-screen wash](rendering.md#off-screen-police-warning), so a city with both in it strobes on
+one clock.
+
+**And a boosting getaway throws cash out of the back.** `game/cashtrail.js` — banknotes tumbling out
+behind the taxi for as long as the pill is held with a robber aboard. It is the one part of the event
+that pays the player back *while* the risk is being taken: the bonus is real and the player does not
+see a penny of it until the drop-off resolves, and everything in between is a tight clock and four
+more cars to hit. The gate is the robbery rather than the boost, because money off the back of any
+boosting taxi is a fun effect with nothing behind it — and it is one condition, so widening it is one
+word. See [the cash trail](rendering.md#the-getaways-cash-trail---gamecashtrailjs).
 
 ## The package courier
 

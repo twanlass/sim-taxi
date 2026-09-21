@@ -2110,7 +2110,14 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // geometry could only be scaled about the car's origin, and a dimming lamp would walk up the
   // body toward it. See lightPodGeometry() for what that measured.
   const lightMeshes = [];
-  const lightMesh = (name, material, anchors, vehicles, geometry = lightPodGeometry) => {
+  // `bloomKind` rides on the mesh rather than being remembered by whoever marks it. `main.js` hands
+  // every one of these to the bloom in a single loop, so a kind stated at the call site there would
+  // have to be a second list to keep in step — and the one that went wrong is exactly this: a
+  // cruiser's bar blooms at `siren` (4.2) and a brake pod at `pod` (3.4), and a cop car's bar
+  // marked with the rest of the pods came out dimmer than the cruiser parked next to it for no
+  // reason on screen. See BLOOM_INTENSITY in game/bloom.js.
+  const lightMesh = (name, material, anchors, vehicles,
+    geometry = lightPodGeometry, bloomKind = 'pod') => {
     const inst = neverCull(new THREE.InstancedMesh(
       geometry(), material(), MAX_AMBIENT * LIGHT_PODS,
     ));
@@ -2118,6 +2125,7 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     inst.name = name;
     inst.count = vehicles.length * LIGHT_PODS;
     inst.userData.podAnchors = anchors;
+    inst.userData.bloomKind = bloomKind;
     lightMeshes.push(inst);
     return inst;
   };
@@ -2145,10 +2153,10 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // mostly *not* police is a matrix write per car per frame and nothing on screen.
   const sirenRedMesh = lightMesh(
     'carSirenRed', sirenRedMaterial, sirenBarAnchors(CABIN_X, CABIN_TOP), ambient,
-    sirenPodGeometry);
+    sirenPodGeometry, 'siren');
   const sirenBlueMesh = lightMesh(
     'carSirenBlue', sirenBlueMaterial, sirenBarAnchors(CABIN_X, CABIN_TOP), ambient,
-    sirenPodGeometry);
+    sirenPodGeometry, 'siren');
 
   const tint = new THREE.Color();
   // A cop car is an ordinary car wearing `policeBody` instead of its own draw from `PALETTE.carBody`

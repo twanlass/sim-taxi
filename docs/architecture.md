@@ -69,6 +69,8 @@ src/
     ducks.js            the birds on the pond: paddle, sit, dabble, never leave
     clouds.js           the weather ringing the island — placed on the screen, never over the city
     robbery.js          the bank robbery: who gets in outside the bank, and the cops that come with them
+    coplights.js        the red and blue a cop car throws on the road while a robbery runs
+    cashtrail.js        banknotes out of the back of a boosting getaway
     opening.js          the opening vignette: camera onto the garage door, door up, taxi out
     drivethru.js        who pulls into the burger joint, what they do in there, how they leave
     burgerrun.js        the secret: a tap on the joint sends the taxi through it for a splash of boost

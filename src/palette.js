@@ -237,6 +237,20 @@ export const PALETTE = {
   lettuce: '#7FB050',
   sesame: '#F7EDD6',
 
+  // The cash a getaway throws out of the back of the taxi (game/cashtrail.js). Two colours because
+  // a note tumbles: one instance is one colour, so rolling between a face and a back across the
+  // shower is what stops a stream of them reading as a stencil — the same reason the sparks spread
+  // their hue across a spray rather than walking it over one spark's life.
+  //
+  // Keyed off the HUD's own earnings green (#6BE08A, `.earning` in index.html) so the notes and
+  // the number that flies to the counter are visibly the same currency — but duller and warmer,
+  // because that one is 27px of type on a dark scrim and these are 4px objects on a road. At the
+  // HUD's saturation a note on grey asphalt read as a pill of light rather than as paper.
+  cashNote: '#7FC08A',
+  // The back of the note, and it has to be *pale* rather than a second green: what makes a tumble
+  // read at this size is the value flipping, not the hue.
+  cashBack: '#D6DCC0',
+
   // --- The bank ---------------------------------------------------------------
   // The city's one bank (city/bank.js), and the third building the tower generator does not draw.
   // Unlike the depot and the burger joint its envelope stays **inside** the muted family every

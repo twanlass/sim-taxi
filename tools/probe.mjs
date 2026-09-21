@@ -65,6 +65,8 @@ import { createFoodOrder } from '../src/geometry/food.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
 import { createRobbery } from '../src/game/robbery.js';
+import { createCashTrail } from '../src/game/cashtrail.js';
+import { createCopLights } from '../src/game/coplights.js';
 import {
   markEmissive, unmarkEmissive, emissiveList, BLOOM_LAYER, BLOOM_ORDER, BLOOM_INTENSITY,
   BLOOM_UNIFORMS, BLOOM_KINDS, refreshEmissive as bloomRefreshFor,
@@ -12848,6 +12850,20 @@ let chopperOrder; // likewise
     // two colours up on any frame — a bar showing both at once is a lamp, not a siren.
     const redMesh = copTraffic.emissiveMeshes.find((m) => m.name === 'carSirenRed');
     const blueMesh = copTraffic.emissiveMeshes.find((m) => m.name === 'carSirenBlue');
+    // ...and it blooms at the cruiser's strength rather than a brake pod's. `main.js` marks every
+    // mesh in this list in one loop and reads the kind off the mesh, which is the only way a new
+    // lamp can arrive at the right strength without a second list to keep in step. Marked at `pod`
+    // the bars came out dimmer than the cruiser parked beside them for no reason on screen.
+    check('a cop car\u2019s bar blooms at the cruiser\u2019s strength, not a brake light\u2019s',
+      redMesh.userData.bloomKind === 'siren' && blueMesh.userData.bloomKind === 'siren'
+        && BLOOM_INTENSITY.siren > BLOOM_INTENSITY.pod,
+      `siren ${BLOOM_INTENSITY.siren} against pod ${BLOOM_INTENSITY.pod}`);
+    // Every *other* lamp in the list still says pod, so the lookup is a real per-mesh answer rather
+    // than a blanket that happens to be right for two of them.
+    check('...and a brake pod still blooms as a brake pod',
+      copTraffic.emissiveMeshes
+        .filter((m) => m.name && !m.name.startsWith('carSiren'))
+        .every((m) => (m.userData.bloomKind ?? 'pod') === 'pod'));
     const podScale = (mesh, index, pod) => {
       const m = new THREE.Matrix4();
       mesh.getMatrixAt(index * 2 + pod, m);
@@ -12885,6 +12901,81 @@ let chopperOrder; // likewise
     copTraffic.setPoliceCars(0);
     check('ending a robbery hands every cop car back its own livery',
       copTraffic.policeCars.length === 0 && copTraffic.ambient.every((car) => !car.police));
+  }
+
+  // --- The wash a cop car throws on the road -----------------------------------
+  //
+  // The bar on the roof is the lamp *looking* bright; this is the only thing that puts colour on
+  // the tarmac, which is the half the cruiser has had since it existed. What is checked is the
+  // budget as much as the behaviour: two lights against however many cars are in livery, dark
+  // between events, and following the player rather than the cars.
+  {
+    const glowScene = new THREE.Scene();
+    const glowTraffic = createTraffic(makeRng(seed + 44), glowScene, 14, 22);
+    glowTraffic.warmup(5);
+    const glow = createCopLights(glowScene, {});
+
+    glow.update([], glowTraffic.taxi, 0);
+    const lampList = glow.lights.flatMap((l) => [l.red, l.blue]);
+    check('no robbery, no wash', lampList.every((l) => l.intensity === 0));
+
+    glowTraffic.setPoliceCars(4);
+    glow.update(glowTraffic.policeCars, glowTraffic.taxi, 0);
+    check('a robbery lights two lamps against however many cars are in livery',
+      glow.state.lit === 2 && glowTraffic.policeCars.length === 4,
+      `${glow.state.lit} lit of ${glowTraffic.policeCars.length} cop cars`);
+    // One colour up and the other on its floor, never both at peak — the same rule the bar keeps,
+    // and off the same `sirenOn` so the wash and the lamp over it cannot drift apart.
+    const up = glow.lights.map((l) => Math.max(l.red.intensity, l.blue.intensity));
+    const down = glow.lights.map((l) => Math.min(l.red.intensity, l.blue.intensity));
+    check('...with one colour up and the other on its floor',
+      up.every((v) => v > 0) && down.every((v, k) => v > 0 && v < up[k] * 0.3),
+      `peak ${up[0].toFixed(0)}, floor ${down[0].toFixed(0)}`);
+
+    // It stands on the *nearest* cars, which is the whole of how the event stays around the player
+    // without any of the cars ever steering at them.
+    const dist = (car) => Math.hypot(car.x - glowTraffic.taxi.x, car.z - glowTraffic.taxi.z);
+    const nearest = [...glowTraffic.policeCars].sort((a, b) => dist(a) - dist(b)).slice(0, 2);
+    const onACar = glow.lights.every((l) => nearest.some(
+      (car) => Math.abs(l.red.position.x - car.x) < 1e-6 && Math.abs(l.red.position.z - car.z) < 1e-6));
+    check('...and stands on the two nearest the taxi', onACar,
+      `nearest at ${dist(nearest[0]).toFixed(0)} and ${dist(nearest[1]).toFixed(0)} units`);
+
+    glow.update([], glowTraffic.taxi, 0);
+    check('and the wash goes out with the event',
+      lampList.every((l) => l.intensity === 0) && glow.state.lit === 0);
+
+    // `?safe` drops the whole thing rather than dimming it: two point lights is exactly the
+    // per-fragment cost a budget mode exists to skip, and the bars keep flashing without them.
+    const off = createCopLights(new THREE.Scene(), { enabled: false });
+    off.update(glowTraffic.policeCars, glowTraffic.taxi, 0);
+    check('safe mode builds no lamps at all', off.lights.length === 0);
+  }
+
+  // --- Cash out of the back of a getaway ---------------------------------------
+  //
+  // The one part of the event that pays the player back while the risk is being taken rather than
+  // at the drop-off. What is checked is the gate and the drain: it feeds only while asked, it
+  // empties on its own, and it never fills past its pool.
+  {
+    const trail = createCashTrail(new THREE.Scene(), makeRng(seed + 211));
+    const car = { x: 0, z: 0, yaw: 0.4, v: 20, crashed: false };
+    for (let f = 0; f < 120; f++) { trail.feed(1 / 60, false, car, 0.74); trail.update(1 / 60); }
+    check('no cash leaves the taxi while nothing is being robbed', trail.live() === 0);
+
+    for (let f = 0; f < 120; f++) { trail.feed(1 / 60, true, car, 0.74); trail.update(1 / 60); }
+    const streaming = trail.live();
+    // RATE 14/s over a LIFE of 1.6s is ~22 in the air at steady state, and the pool is 48. The
+    // bound that matters is the upper one: a stream that filled the pool would start recycling
+    // slots that are still in the air, which reads as notes blinking out mid-fall.
+    check('a boosting getaway trails cash without filling the pool',
+      streaming > 8 && streaming < 40, `${streaming} notes in the air`);
+
+    // A crashed taxi stops spilling, which is the one gate the caller cannot express: a run that
+    // ends mid-getaway leaves `boost.isActive()` true for a frame or two.
+    car.crashed = true;
+    for (let f = 0; f < 180; f++) { trail.feed(1 / 60, true, car, 0.74); trail.update(1 / 60); }
+    check('...and a wreck stops the stream and lets it fall out', trail.live() === 0);
   }
 
   // --- The event's own rules ---------------------------------------------------
@@ -12937,8 +13028,12 @@ let chopperOrder; // likewise
       const ordinary = difficulty.fareLimit(robber.work, fired.fares.state.delivered);
       check('...and is tighter than an ordinary rider’s on the same trip',
         robber.limit < ordinary, `${robber.limit}s against ${ordinary.toFixed(0)}s`);
-      check('the getaway is a dash rather than a lap of the city',
-        robber.blocks > 0 && robber.blocks <= 4, `${robber.blocks} blocks`);
+      // Across town, which is the event's whole drama. Drawn over the whole map and biased hard
+      // to the far side — see ROBBER_DROPOFF_DARTS. Measured over 55 cities the median is 7 on a
+      // 10-block diameter; the bar here is only that it is not a hop, since the draw is a bias
+      // rather than a floor and a crowded board can legitimately produce a near one.
+      check('the getaway runs across town rather than round the corner',
+        robber.blocks >= 4, `${robber.blocks} blocks of a 10-block diameter`);
       // The bonus is a ceiling stamped at spawn and cashed against the clock at the drop-off — the
       // one price in the game not settled when the trip is.
       check('the bonus is stamped as a ceiling, not paid up front',
@@ -12966,7 +13061,43 @@ let chopperOrder; // likewise
           if (e.type === 'robber-missed') sawMiss = true;
         }
       }
-      check('a robbery that runs out of clock never ends the run',
+      // --- The robber's own kit -------------------------------------------------
+    //
+    // The figure is what says this rider is not an ordinary fare: their crystal is on the ordinary
+    // urgency scale on purpose, because the clock is the drama. The slots are pooled, so what is
+    // actually under test is that the kit goes on for a robber and comes *off* again — a mask left
+    // on a reused slot puts a balaclava on the next person hailing a cab.
+    {
+      const kitted = runEvent();
+      const robber = kitted.boarded[0];
+      // Walked rather than read off `group.children`, because two of the four pieces are not
+      // there: the sack hangs off the left *arm*, so that it swings with it. A helper that only
+      // looked one level down would score the kit as two pieces and pass while the bag stayed on
+      // the next rider's hand.
+      const hidden = (slot) => {
+        let n = 0;
+        slot.passenger.standing.group.traverse((m) => { if (m.visible === false) n += 1; });
+        return n;
+      };
+      check('the robber comes out of the bank in a mask',
+        robber && hidden(robber.slot) === 0, 'every piece of the kit is visible');
+
+      // Hand the slot on to an ordinary rider and the kit has to go with the robber. `spawnFare`
+      // is the one place a slot changes hands, and the one place `rest()` cannot help — it
+      // deliberately leaves the kit alone, since it also runs mid-event.
+      const slot = robber.slot;
+      const at = kitted.fares.state.fares.indexOf(robber);
+      if (at !== -1) kitted.fares.state.fares.splice(at, 1);
+      for (let f = 0; f < 240 && !kitted.fares.state.fares.some((x) => x.slot === slot); f++) {
+        kitted.fares.update(1 / 60, kitted.traffic.taxi);
+      }
+      const reused = kitted.fares.state.fares.find((x) => x.slot === slot);
+      check('...and the next rider on that slot is not wearing it',
+        Boolean(reused) && hidden(slot) === 5,
+        reused ? `${hidden(slot)} of 5 pieces hidden` : 'slot never came back round');
+    }
+
+    check('a robbery that runs out of clock never ends the run',
         sawMiss && !missed.fares.state.gameOver && !missed.fares.carrying(),
         sawMiss ? 'rider bailed, run continues' : 'no miss event fired');
       // ...and the paint comes off on its own, off the same poll that ends a delivered one.

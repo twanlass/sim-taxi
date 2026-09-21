@@ -143,20 +143,29 @@ export function turnSignalMaterial() {
 // than a light's. What the two *do* share is the rate below, so a city with both in it strobes on
 // one clock.
 
-/** Fore-aft, vertical and across — a squat slab, sized against the cruiser's own 0.55/0.26/0.5. */
-const SIREN_D = 0.5;
-const SIREN_H = 0.26;
-const SIREN_W = 0.46;
+/**
+ * Fore-aft, vertical and across.
+ *
+ * A shade larger than the cruiser's own 0.55/0.26/0.5, which is the opposite of what a cop car in
+ * ambient traffic looks like it should get. The cruiser is one car the player is *hunting for* and
+ * it arrives with a screen-edge wash announcing it (game/sirenglow.js); these are four cars in the
+ * middle of ordinary traffic with nothing announcing them, so the bar is the entire cue and it has
+ * to survive being one vehicle among a dozen. At 7.7px per unit the pair spans 9.9px across the
+ * roof — two 4.5 x 4.0px lamps 5.9px apart — which is about a third of the car's drawn width.
+ */
+const SIREN_D = 0.58;
+const SIREN_H = 0.30;
+const SIREN_W = 0.52;
 
 /**
  * How far each pod sits off the car's centreline.
  *
  * A car's cabin is `CAR_W * 0.86` = 1.462 across, so its half-width is 0.731 — and a pod centred
- * 0.36 out reaches 0.59, which keeps both of them on the roof they are bolted to rather than
- * overhanging the gutter. Wide enough apart to read as two lamps at play zoom: 0.72 between the
- * centres is 5.5px, against pods that are 3.5px each.
+ * 0.38 out reaches 0.64, which keeps both of them on the roof they are bolted to rather than
+ * overhanging the gutter. Wide enough apart to read as two lamps rather than one blob: 0.76
+ * between the centres against pods 0.52 across.
  */
-const SIREN_SPREAD = 0.36;
+const SIREN_SPREAD = 0.38;
 
 /** Bar changes a second: six, matching the cruiser's corridor rate. */
 const SIREN_HZ = 6;
@@ -202,9 +211,9 @@ export function sirenPodAnchor(sz, roofX, roofY) {
  * rather than one lamp lighting at each end.
  *
  * A real bar does the second thing and this one deliberately does not, for a reason that is
- * arithmetic rather than taste: a pod is 3.5px across at play zoom, so a bar split by colour
+ * arithmetic rather than taste: a pod is 4px across at play zoom, so a bar split by colour
  * alternates two specks a colour apart and reads as a flicker. Flashing both pods together is one
- * mark 5.5px wide changing colour six times a second, which is what actually announces a police
+ * mark 9.9px wide changing colour six times a second, which is what actually announces a police
  * car from across a five-block city.
  *
  * It also keeps `LIGHT_PODS` honest as the instance stride, which is the half that would have

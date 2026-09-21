@@ -181,39 +181,34 @@ const ROBBER_MIN_SLACK = 1.05;
 const ROBBER_CLOCK_FLOOR = 12;
 
 /**
- * How far the getaway may run, in blocks from the bank, and how many draws it takes before the
- * furthest is kept.
+ * How many junctions are drawn for the getaway before the furthest from the bank is kept.
  *
- * **The cap is half of the event's tuning, and it was measured rather than chosen** — the other
- * half is `CALM_LEVEL` in game/robbery.js. The first version drew the getaway over the whole map
- * and biased it *long*, best of six over every junction, on the reasoning that a getaway next door
- * is not a getaway. Played through `tools/autoplay.mjs` over 30 paired runs at a 1.5s reaction,
- * against a no-robbery baseline of a 13.9-fare mean on $339:
+ * **A getaway runs across town.** It is drawn over the whole map and biased hard toward the far
+ * side. Measured over 55 cities: **median 7 blocks, range 5 to 9**, against a grid whose diameter
+ * is 10 — so the drop-off is reliably somewhere on the far side of the city from the bank, and it
+ * is never next door. A short hop is not a getaway, and this is the one event in the game whose
+ * whole point is the drive.
  *
- * | | mean fares | mean cash |
- * |---|---|---|
- * | the first draw: uncapped, biased long | 9.8 | $239 |
- * | capped at four blocks, with the calm gate | **12.6** | **$314** |
+ * It shipped capped at four blocks for one revision, and the measurement behind that cap is worth
+ * keeping because it names what a long getaway actually costs. A robbery takes the seat for the
+ * length of its trip, and every rider standing on a kerb while it runs is spending a clock that
+ * was budgeted without it (see `budgetFor`). The longer the getaway, the more of other people's
+ * clocks it eats — and nothing about the robber's own clock touches that, because the robber's
+ * clock is not the one running out. Uncapped *and* with no gate on the board's state, that took a
+ * perfect player from a 13.9-fare mean on $339 down to 9.8 on $239 over 30 paired runs: an event
+ * whose reward is a cash bonus made runs poorer.
  *
- * An event whose reward is a cash bonus must not make a run poorer, and the first row does exactly
- * that: shorter runs mean fewer fares, and fewer fares outweigh anything the bonus pays.
+ * What pays for the distance now is `CALM_LEVEL` in game/robbery.js, which is the gate rather than
+ * the cap: a robbery will not start while anybody on the kerb is already in trouble, so the clocks
+ * a long getaway spends are ones that had room to spare. The table on that constant is the
+ * measurement, and it is the one to move if this number is ever turned down again.
  *
- * The mechanism is not subtle once it is named. A robbery takes the seat for the length of its
- * trip, and every rider standing on a kerb while it runs is spending a clock that was budgeted
- * without it (see `budgetFor`). The longer the getaway, the more of other people's clocks it eats,
- * and nothing about the robber's own clock touches that — the robber's clock is not the one running
- * out. So the cost has to be paid by the robber, which means the trip has to be short: four blocks
- * is 15 to 25 seconds of driving, the same order as a burger run taken on a route that was going
- * past anyway, and the game already tolerates that.
- *
- * The darts are a bias *inside* the cap rather than a floor under it: a minimum block distance is
- * another rule `pickIntersection` would have to be able to satisfy, and on a board already holding
- * four fares and a courier's two corners it is a rule that can fail — at which point the honest
- * answer is a short trip, not no robbery. Three draws on a 42-junction grid mean a getaway is
- * usually the far end of the cap and occasionally a corner nearer.
+ * The darts are a *bias*, not a floor: a minimum block distance is another rule
+ * `pickIntersection` would have to be able to satisfy, and on a board already holding four fares
+ * and a courier's two corners it is a rule that can fail — at which point the honest answer is a
+ * short trip, not no robbery.
  */
-const ROBBER_MAX_BLOCKS = 4;
-const ROBBER_DROPOFF_DARTS = 3;
+const ROBBER_DROPOFF_DARTS = 8;
 
 /**
  * The bonus, as a multiple of the trip's own distance price, paid in full at a full clock and
@@ -1025,6 +1020,10 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     // the end of their board() pose. Reset so the new waiter starts clean on this frame — wave()
     // would fix it on the next tick, but there is one frame between spawn and first wave.
     slot.passenger.standing?.rest?.();
+    // ...and the previous rider on it may have been a robber. The mask, the cap and the sack are
+    // the one piece of pooled figure state `rest()` deliberately does not clear (see `setRobber`
+    // in geometry/person.js), so a spawn is the only place they can come off.
+    slot.passenger.standing?.setRobber?.(false);
 
     // Where they're going stays theirs until they're in the car — a pin on the far kerb as well
     // turned the board into three riders and three destinations to read at once.
@@ -1074,14 +1073,14 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
       && !exits.some((e) => e.slot === s));
     if (!slot) return null;
 
-    // The getaway. Drawn `ROBBER_DROPOFF_DARTS` times and the furthest kept — see that constant for
-    // why this is a bias and not a floor. Every draw goes through `pickIntersection`, so the
-    // getaway respects exactly the same rules every other drop-off does: not a corner another fare
-    // or the courier has claimed, not in the river, not behind a building, and not on the bank's
-    // own block.
+    // The getaway: across town. Drawn `ROBBER_DROPOFF_DARTS` times over the whole map and the
+    // furthest from the bank kept — see that constant for why this is a bias and not a floor.
+    // Every draw goes through `pickIntersection` unbiased, so the getaway respects exactly the same
+    // rules every other drop-off does: not a corner another fare or the courier has claimed, not in
+    // the river, not behind a building, and not on the bank's own block.
     let dropoff = null;
     for (let k = 0; k < ROBBER_DROPOFF_DARTS; k++) {
-      const spot = pickIntersection(taxiCar, at, ROBBER_MAX_BLOCKS, at);
+      const spot = pickIntersection(taxiCar, null, null, at);
       if (!dropoff || blockDistance(spot, at) > blockDistance(dropoff, at)) dropoff = spot;
     }
 
@@ -1142,6 +1141,11 @@ export function createFareSystem(rng, scene, { reserved = () => [] } = {}) {
     passenger.postGroup.scale.setScalar(1);
     passenger.group.visible = true;
     passenger.standing?.rest?.();
+    // The mask, the cap and the sack. It is the only thing on the board that says this rider is
+    // not an ordinary fare — their crystal is on the ordinary urgency scale on purpose, because
+    // the clock is what the event is about — so it goes on *after* `rest()`, which is the call
+    // that would otherwise have put the last rider's pose back and this one's kit with it.
+    passenger.standing?.setRobber?.(true);
 
     // ...and from here it is `beginRide`, beat for beat: the ring at the far end grows out of its
     // own centre, and the crystal launches off the doorstep and flies to the roof of the car. The
