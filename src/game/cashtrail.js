@@ -33,8 +33,9 @@ import { TAXI_TAILPIPE_BACK } from '../geometry/taxi.js';
 /**
  * The pool.
  *
- * `RATE` notes a second over a `LIFE` of 2.4s is 96 live at the top of a sustained hold, and the
- * `KICK` burst can put 24 more on top of that in one frame. 160 covers both with room for the
+ * The gust clock averages about 44 notes a second (see GUST), which over a `LIFE` of 2.4s is ~105
+ * live at the top of a sustained hold — and a gust's own peak runs well over that average while it
+ * lasts. The `KICK` burst can put 24 more on top in one frame. 160 covers both with room for the
  * frame a second robbery's first notes overlap the tail of the last one's; a wrapped slot silently
  * truncates the stream rather than failing.
  *
@@ -45,17 +46,40 @@ import { TAXI_TAILPIPE_BACK } from '../geometry/taxi.js';
 const MAX_NOTES = 160;
 
 /**
- * Notes per second while the pill is held, and the burst the press itself throws.
+ * The burst the press itself throws.
  *
- * 40/s rather than 14. A getaway's boost is spent in bursts of a second or two, so the stream has
- * to be dense enough to read *within* a burst rather than building over one — which is also why
- * there is a `KICK` at all: an effect that ramps up has nothing to say on the frame the player
- * actually pressed the button, and that frame is the one they are looking at. The kick is fired
- * from the same `kickLocoMode` in main.js that throws the tailpipe flame and stamps the launch
- * rubber, so the three land together as one event.
+ * An effect that ramps up has nothing to say on the frame the player actually pressed the button,
+ * and that frame is the one they are looking at. Fired from the same `kickLocoMode` in main.js
+ * that throws the tailpipe flame and stamps the launch rubber, so the three land together as one
+ * event. The hold's own rate is the gust clock below.
  */
-const RATE = 40;
 const KICK = 24;
+
+/**
+ * The gust, which is what turns a stream into a shower.
+ *
+ * At a flat `RATE` the trail is a rope: a constant-density ribbon paid out of the back of the car,
+ * and a constant anything reads as a machine rather than as money coming loose. What it should
+ * look like is a bag that keeps catching — a fistful, a gap, another fistful — so the stream is
+ * **modulated** rather than emitted.
+ *
+ * Not a sine, which was the first thing tried and is still a rope, just a lumpy one: the gaps have
+ * to be gaps. It is a two-state clock. A gust runs for `GUST` seconds at `GUST_RATE` and a lull
+ * for `LULL` at `LULL_RATE`, each drawn fresh, so no two bursts are the same length and the
+ * pattern never lands on a beat.
+ *
+ * The lull is not silent. A trickle carries the trail across the gap — at zero the stream visibly
+ * *stops*, which reads as the effect being switched off rather than as the flow being uneven, and
+ * the player is only ever looking at this out of the corner of an eye.
+ *
+ * The rates are set so the average over a full cycle is about the old flat 40: a mean gust of 0.3s
+ * at 78 and a mean lull of 0.28s at 7 averages 44. The density is unchanged and its *distribution*
+ * is the whole change.
+ */
+const GUST = [0.16, 0.44];
+const LULL = [0.14, 0.42];
+const GUST_RATE = 78;
+const LULL_RATE = 7;
 
 /**
  * Seconds a note is in the air.
@@ -119,16 +143,22 @@ const UP = [1.6, 4.8];
 const NOTE_CARRY = 0.3;
 
 /**
- * A note, in world units. At 7.7px per unit that is an 8.9 x 4.8px rectangle.
+ * A note, in world units. At 7.7px per unit that is a 6.8 x 3.7px rectangle.
  *
- * Nearly double the 0.62 x 0.34 it started at, which was 4.8 x 2.6px — about the size of a lane
- * dash, against a road already painted with lane dashes. This is a third of the drawn taxi's own
- * length, which is frankly enormous for a banknote and exactly right for this game: the burger on
- * the drive-through sign is 14px across and reads as a burger, and nothing else in the city is
- * built to scale either.
+ * It has been both too small and too big now, and this is the third setting. It started at 0.62 x
+ * 0.34 — 4.8 x 2.6px, about the size of a lane dash, on a road already painted with lane dashes —
+ * and went to 1.15 x 0.62 to fix that, which is a *third of the drawn taxi's length*: at that size
+ * the notes stop reading as a shower of small things and start reading as a few large ones, and
+ * the pale back of one is a bigger bright shape than anything else on the tarmac.
+ *
+ * What made the bigger size necessary was never the size. It was the density and the alpha (see
+ * `GUST` and `FADE_FROM`), and with those fixed the note can come back down to something that
+ * looks like paper. Still nowhere near to scale, which is right for this game — the burger on the
+ * drive-through sign is 14px across and reads as a burger, and nothing in the city is built to
+ * scale either.
  */
-const NOTE_L = 1.15;
-const NOTE_W = 0.62;
+const NOTE_L = 0.88;
+const NOTE_W = 0.48;
 const NOTE_T = 0.02;
 
 /**
@@ -140,6 +170,22 @@ const NOTE_T = 0.02;
  * mostly banknote with a scattering of notes caught edge-on, which is what a tumble looks like.
  */
 const BACK_MIX = 0.45;
+
+/**
+ * The spread of the note's own **face**, from `cashNote` to `cashPale`.
+ *
+ * A second, separate roll from `BACK_MIX`, and the distinction is the whole point of having two.
+ * `BACK_MIX` rolls toward `cashBack`, which is a near-white *flip* — it is there so a tumbling
+ * note flashes. This rolls along the greens, so that 160 notes are 160 slightly different notes
+ * rather than 160 copies of one swatch, which at this size is the difference between a shower and
+ * a texture.
+ *
+ * The full range, unlike `BACK_MIX`, because both ends are green and neither reads as litter. The
+ * roll is **squared** toward the saturated end: a uniform draw between two colours puts as much of
+ * the shower at the pale end as the green one and the trail washes out, where `t²` keeps the mass
+ * on `cashNote` and lets the pale ones be the highlights they are meant to be.
+ */
+const FACE_SPREAD = 1;
 
 /** How far above the tailpipe the stream starts, so it leaves the boot rather than the road. */
 const LIFT = 0.15;
@@ -217,6 +263,7 @@ export function createCashTrail(scene, rng) {
   const step = new THREE.Quaternion();
   const tint = new THREE.Color();
   const FACE = color('cashNote');
+  const PALE = color('cashPale');
   const BACK_COL = color('cashBack');
 
   // Collapsed and painted up front: `setColorAt` allocates `instanceColor` on its first call and
@@ -233,6 +280,18 @@ export function createCashTrail(scene, rng) {
 
   let next = 0;
   let pending = 0;      // fractional notes owed, so the rate survives a variable frame length
+  // The gust clock — see GUST. `left` counts the current phase down; a hold that ends resets both,
+  // so the next press opens on a gust rather than half way through whatever the last one was in.
+  let gusting = true;
+  let left = 0;
+
+  /** Start the next phase, and answer the rate it runs at. */
+  function turnover() {
+    gusting = !gusting;
+    const span = gusting ? GUST : LULL;
+    left = rng.range(span[0], span[1]);
+    return gusting ? GUST_RATE : LULL_RATE;
+  }
 
   /** One note, thrown out of the back of a car at (x, y, z) heading `yaw` at `speed` u/s. */
   function emit(x, y, z, yaw, speed) {
@@ -270,7 +329,13 @@ export function createCashTrail(scene, rng) {
     spin[slot] = SPIN * rng.range(0.6, 1.4) * (rng.chance(0.5) ? 1 : -1);
     quats[slot].identity();
 
-    mesh.setColorAt(slot, tint.copy(FACE).lerp(BACK_COL, rng.next() * BACK_MIX));
+    // Two rolls, in this order and not one: along the greens first (what kind of note is this),
+    // then toward the pale back (how edge-on is it). Collapsing them into a single lerp from
+    // `cashNote` to `cashBack` is what the first version did, and it cannot express a light green
+    // at all — every step toward pale is a step toward the same off-white.
+    const t = rng.next();
+    tint.copy(FACE).lerp(PALE, t * t * FACE_SPREAD);
+    mesh.setColorAt(slot, tint.lerp(BACK_COL, rng.next() * BACK_MIX));
     alphas[slot] = 1;
   }
 
@@ -297,12 +362,33 @@ export function createCashTrail(scene, rng) {
   }
 
   function feed(dt, on, car, y) {
-    if (!on || !car || car.crashed) { pending = 0; return; }
+    if (!on || !car || car.crashed) {
+      // Reset the clock as well as the accumulator. A hold that ends mid-lull and is pressed again
+      // a moment later would otherwise open on the quiet half, and the frame the button goes down
+      // is the one frame this effect cannot be quiet on. (The `KICK` covers that frame regardless,
+      // but a kick followed by nothing is worse than no kick at all.)
+      pending = 0;
+      gusting = false;
+      left = 0;
+      return;
+    }
     // Note the order this is called in relative to `update`: **feed first**. A note's instance
     // matrix is only written by the update pass, so a stream fed after it would put every note on
     // screen one frame late — which at the Loco top is 0.57 units of road, and reads as the trail
     // starting a car length back from the bumper.
-    pending += RATE * dt;
+    //
+    // The frame is spent phase by phase rather than at one rate, so a gust that ends mid-frame is
+    // paid at its own rate for the part of the frame it covered. At 60fps a frame is 16ms against
+    // a phase of 140ms and up, so this loop runs once nearly every time — it is there so that a
+    // long stalled frame does not silently swallow a whole gust.
+    let rest = dt;
+    while (rest > 0) {
+      if (left <= 0) turnover();
+      const slice = Math.min(rest, left);
+      pending += (gusting ? GUST_RATE : LULL_RATE) * slice;
+      left -= slice;
+      rest -= slice;
+    }
     // Capped at the pool, so a long stalled frame cannot spend every slot on one tick and leave
     // the stream empty for the whole of the next second.
     const count = Math.min(MAX_NOTES, Math.floor(pending));

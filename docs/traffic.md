@@ -1912,15 +1912,78 @@ queue behind it holds, because each car's limit comes from its leader's position
 
 ## Cop cars in ambient traffic
 
-`setPoliceCars(n)` in `sim/traffic.js`, driven by [the bank robbery](gameplay.md#the-police). It takes
-the `n` ambient cars nearest the taxi, paints them `policeBody` and switches on a light bar on their
-roofs; `setPoliceCars(0)` puts every one of them back.
+`enterPolice(n, near)` in `sim/traffic.js`, driven by [the bank robbery](gameplay.md#the-police). It
+brings `n` cop cars onto the map — real vehicles, painted `policeBody` with a light bar on the roof —
+entering from off screen as near the bank as the camera allows. `clearPolice()` takes them off again.
 
-**They cut you off; they do not follow you.** `car.chase` lifts that car's cruise ceiling by
-`CHASE_SPEED` and its cornering by `CHASE_CORNER_SPEED`, and `car.route` is a plain `findRoute` to a
-junction **on the taxi's own route, three to five ahead of it** (`CUT_OFF_AHEAD` in
-`game/robbery.js`) — after which [the one routing branch](#the-one-routing-branch) does everything.
-A chasing cop *is* a routed car, which is the same thing the player's own taxi is.
+### They are spawned, not repainted
+
+The first version took the `n` ambient cars nearest the taxi and turned them blue for the length of
+the event. It is cheap, it needs no buffer headroom, and it reads **wrong**: a car the player has
+been following for half a block becomes a police car in front of them, and a police car that falls
+behind turns back into a hatchback. Nothing in a world should change species, and there is no
+version of the repaint that fixes it — the repaint *is* the bug.
+
+So a robbery brings its own cars. Three things follow, and each is load-bearing:
+
+- **They live at the tail of `ambient`.** Removing a car out of the *middle* of an instance buffer
+  is the thing `setCarCount` refuses to do — every index after it shifts and the car vanishes off a
+  road it was visibly driving down. At the tail there is no index after it: the count comes down and
+  nothing else moves. `swapAmbient` is what lets the caller choose *which* cop leaves, by moving it
+  to the tail first; it is only ever used between two police cars, which are a contiguous block.
+- **`setCarCount` will not grow the fleet while they are out.** A density car appended behind the
+  police would break that contiguity and then be stranded above `mesh.count` the moment the event
+  ended — still in `cars`, still driving, still collidable, no longer drawn. The ramp catches up on
+  the next call.
+- **`POLICE_FLEET` is buffer headroom, not density.** The vehicle meshes are sized for the
+  difficulty ramp's ceiling *plus* the cop fleet, so a robbery at full density still has somewhere
+  to put its cars. `game/robbery.js` imports the constant rather than keeping its own, because the
+  fleet size and the reservation are the same fact.
+
+A cop is also **placed** on arrival — `spawnCars` builds a car at the origin, and every other caller
+either runs a warm-up or spawns before the first frame. This one spawns mid-run, so an unplaced car
+is a cop car drawn at the middle of the map for a frame.
+
+### Off screen, and as near the bank as that allows
+
+Two conditions that pull against each other. It has to be far enough from the taxi that the player
+does not watch it appear — `SPAWN_CLEARANCE` is the 50 units this file already uses for exactly
+that — and it should be near the bank, because a police response arriving from the far side of the
+city is one nobody sees.
+
+They cannot both be satisfied, and it is worth being plain about why: **the taxi is at the bank when
+a robbery starts.** "Within two blocks" is 40 units and "off screen" is 50, so on the frame the
+event fires the two sets do not intersect. The off-screen constraint is taken as hard — a car
+appearing out of nothing in frame is the one failure with no defence — and distance to the bank is
+minimised subject to it, by a search that relaxes one requirement at a time. `ENTRY_SPREAD` keeps
+four arrivals from stacking onto one street.
+
+### They are recycled, because a slower car cannot stay in the picture
+
+A cop that falls more than `LOST_RANGE` (56, just past the frame) behind is taken off the map and
+another comes in **behind the taxi**, on the straight it is already driving. That is not a
+concession, it is the only thing that works: a cop's *ceiling* is 20.4 against a boosting taxi's
+22.1, but cornering and queueing put its mean over a getaway at about 9 against the taxi's 27, so
+one simply left to drive recedes and keeps receding. Recycled, the road behind a getaway keeps
+refilling. `REENTRY_GAP` spaces the replacements so they arrive one at a time rather than as a rank.
+
+Measured over 40 seeds with the player boosting, against the same event without recycling: a cop is
+in frame for **89%** of a getaway rather than 85%, and there are two of them at a time rather than
+1.8. Swept at 72 and 52 as well — 72 leaves the fleet strung out and 52 buys nothing while cutting
+into the margin that keeps a retirement out of sight.
+
+**Half of them cut you off and half come after you.** `car.chase` lifts that car's cruise ceiling
+by `CHASE_SPEED` and its cornering by `CHASE_CORNER_SPEED`, and `car.route` is a plain `findRoute` to
+a junction **on the taxi's own route** — for two of the four that is the junction the taxi is at
+(a stern chase) and for the other two it is three or five ahead of it (`CUT_OFF_AHEAD` in
+`game/robbery.js`). After that [the one routing branch](#the-one-routing-branch) does everything. A
+chasing cop *is* a routed car, which is the same thing the player's own taxi is.
+
+The split is the point. A cop aimed down the road is doing the useful work and is usually off to the
+side doing it; a cop aimed at the taxi is *behind* the taxi, in the mirror, on the same straight,
+which is what a chase looks like from the driver's seat. Sending every car to a cut-off made the
+getaway read as an empty road with the occasional cop appearing at a junction. What makes the stern
+half viable at all is the recycling above.
 
 ### Why it is not a pursuit
 

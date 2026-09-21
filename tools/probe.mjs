@@ -30,7 +30,7 @@ import {
 import { createDriveThru } from '../src/game/drivethru.js';
 import { createBurgerRun } from '../src/game/burgerrun.js';
 import { createOpening, exitPath } from '../src/game/opening.js';
-import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, setPriorityCorridor, policeRoads, setPoliceRoads, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE,
+import { createTraffic, lightPhase, displayPhase, setPriorityJunction, getPriorityCorridor, setPriorityCorridor, policeRoads, setPoliceRoads, isUnsignalised, ringAxisAt, placeCar, approachRoom, setClosedLanes, isLaneClosed, ROAD_Y, HOP_LEN, STOP_SETBACK, SIGNAL_LEAD, SIGNAL_LINGER, wheelAnchors, WHEEL_R, STEER_MAX, SPEED, CAR_LEN, CAR_W, landingBounce, landingRoll, BOUNCE_DUR, TRUCK_W, SPAWN_CLEARANCE, POLICE_FLEET,
   LOCO_DEFAULTS, locoTuning, setLocoTuning, resetLocoTuning, locoRamp, boostCruise, overdriveTop, MPH_PER_UNIT, locoWeave, locoWeaveFade, MIN_GAP, ENVELOPE } from '../src/sim/traffic.js';
 import { loadLocoTuning, saveLocoTuning, clearLocoTuning } from '../src/game/locostash.js';
 import { createRoadwork, BARRIER_S, CONE_ROW } from '../src/game/roadwork.js';
@@ -64,7 +64,7 @@ import { createParcel, PARCEL_CENTRE_Y } from '../src/geometry/parcel.js';
 import { createFoodOrder } from '../src/geometry/food.js';
 import { createCargo, CARGO_KINDS, CARGO_CENTRE_Y } from '../src/geometry/cargo.js';
 import * as difficulty from '../src/game/difficulty.js';
-import { createRobbery } from '../src/game/robbery.js';
+import { createRobbery, LOST_RANGE } from '../src/game/robbery.js';
 import { createCashTrail } from '../src/game/cashtrail.js';
 import { createCopLights } from '../src/game/coplights.js';
 import {
@@ -12826,14 +12826,45 @@ let chopperOrder; // likewise
     const copTraffic = createTraffic(makeRng(seed + 44), copScene, 14, 22, 0.25);
     copTraffic.warmup(5);
 
-    copTraffic.setPoliceCars(4);
-    check('the robbery paints the number of cars it asked for',
-      copTraffic.policeCars.length === 4, `${copTraffic.policeCars.length} in livery`);
+    // **The cars are brought in, not borrowed.** What is under test here is the distinction that
+    // replaced the repaint: the fleet the city was driving a moment ago is untouched, and the cop
+    // cars are additional vehicles that were not on the map before.
+    const fleetBefore = copTraffic.ambient.length;
+    const wereAmbient = new Set(copTraffic.ambient);
+    const arrived = copTraffic.enterPolice(4, copTraffic.taxi);
+    check('the robbery brings the number of cars it asked for',
+      arrived === 4 && copTraffic.policeCars.length === 4,
+      `${arrived} arrived, ${copTraffic.policeCars.length} on the road`);
+    check('...as cars that were not on the map a moment ago, not repainted ones',
+      copTraffic.ambient.length === fleetBefore + 4
+        && copTraffic.policeCars.every((car) => !wereAmbient.has(car)),
+      `${copTraffic.policeCars.filter((c) => wereAmbient.has(c)).length} borrowed from traffic`);
+    // The whole reason they come in off screen. `SPAWN_CLEARANCE` is the 50 units this file already
+    // uses for "far enough that the player does not watch it appear"; a cop materialising in frame
+    // is the repaint's own bug with the colour change taken out.
+    check('...arriving off screen rather than in front of the player',
+      copTraffic.policeCars.every((car) =>
+        Math.hypot(car.x - copTraffic.taxi.x, car.z - copTraffic.taxi.z) >= SPAWN_CLEARANCE),
+      `nearest arrival ${Math.min(...copTraffic.policeCars.map((c) =>
+        Math.hypot(c.x - copTraffic.taxi.x, c.z - copTraffic.taxi.z))).toFixed(0)} units out`);
+    // ...and at the tail of the instance buffer, which is what makes taking them off again a count
+    // decrement rather than surgery on the middle of it.
+    check('...and at the tail of the instance buffer, where they can be taken off again',
+      copTraffic.policeCars.every((car, k) =>
+        car.instanceIndex === fleetBefore + k
+        && copTraffic.ambient[car.instanceIndex] === car),
+      'police are contiguous at the end of ambient');
     check('...and never the player’s own taxi',
       !copTraffic.taxi.police && !copTraffic.policeCars.includes(copTraffic.taxi));
     // A police box truck is not a thing, and the bar's anchor is measured off a car's roof.
     check('...and never a box truck',
       copTraffic.policeCars.every((car) => !car.isTruck));
+    // The density ramp is held off while they are out, for the same tail rule: a car appended
+    // behind the police would be stranded above `mesh.count` the moment the event ended.
+    const held = copTraffic.cars.length;
+    copTraffic.setCarCount(copTraffic.cars.length + 3);
+    check('...and the density ramp waits rather than appending behind them',
+      copTraffic.cars.length === held, `${copTraffic.cars.length - held} cars slipped in`);
 
     // The whole claim the feature rests on: a cop car is an ordinary car. `police` is read in two
     // places — the paint and the bar — and nowhere in the driving model at all. If it ever becomes
@@ -12896,11 +12927,17 @@ let chopperOrder; // likewise
     check('a car that is not a cop has no bar on it at all',
       civilianLit === 0, `${civilianLit} lit pod-frames on civilian cars`);
 
-    // Handing the paint back. The livery is a tint and `colorIndex` is never overwritten, which is
-    // what makes ending an event free rather than something to remember.
-    copTraffic.setPoliceCars(0);
-    check('ending a robbery hands every cop car back its own livery',
-      copTraffic.policeCars.length === 0 && copTraffic.ambient.every((car) => !car.police));
+    // Taking them off. The cars leave the map with the event rather than turning back into
+    // hatchbacks, and the fleet the city was driving before is exactly as it was.
+    copTraffic.clearPolice();
+    check('ending a robbery takes every cop car off the road',
+      copTraffic.policeCars.length === 0 && copTraffic.ambient.every((car) => !car.police)
+        && copTraffic.ambient.length === fleetBefore,
+      `${copTraffic.ambient.length} cars left against ${fleetBefore} before the event`);
+    // ...and the ones that were there all along still are, at the indices they had.
+    check('...leaving the traffic that was already there untouched',
+      copTraffic.ambient.every((car, k) => wereAmbient.has(car) && car.instanceIndex === k),
+      'every surviving car is one of the originals, at its own index');
   }
 
   // --- The wash a cop car throws on the road -----------------------------------
@@ -12919,7 +12956,7 @@ let chopperOrder; // likewise
     const lampList = glow.lights.flatMap((l) => [l.red, l.blue]);
     check('no robbery, no wash', lampList.every((l) => l.intensity === 0));
 
-    glowTraffic.setPoliceCars(4);
+    glowTraffic.enterPolice(4, glowTraffic.taxi);
     glow.update(glowTraffic.policeCars, glowTraffic.taxi, 0);
     check('a robbery lights two lamps against however many cars are in livery',
       glow.state.lit === 2 && glowTraffic.policeCars.length === 4,
@@ -12972,6 +13009,39 @@ let chopperOrder; // likewise
     // units of road was a scattering you had to go looking for.
     check('a boosting getaway trails cash without filling the pool',
       streaming > 45 && streaming < 130, `${streaming} notes in the air`);
+
+    // **And it comes in gusts rather than at one rate.** A flat stream is a rope paid out of the
+    // back of the car; what this should look like is a bag that keeps catching. Measured as the
+    // spread of per-frame emission counts over a two-second hold: a flat rate produces the same
+    // one or two notes every frame and a gusting one does not.
+    {
+      const gusty = createCashTrail(new THREE.Scene(), makeRng(seed + 213));
+      const car2 = { x: 0, z: 0, yaw: 0.4, v: 20, crashed: false };
+      // Counted over the first two seconds **only**, which is what makes `live()` a cumulative
+      // emission count rather than a population: LIFE is 2.4s, so not one note has expired yet and
+      // every rise is a note that was just thrown. Measured per tenth of a second, which is the
+      // scale the gust clock runs at — a per-frame count cannot tell these apart, since a flat
+      // 40/s is already 0 or 1 on any given frame and would score as "gusting" on its own noise.
+      const buckets = [];
+      let last = 0;
+      for (let b = 0; b < 20; b++) {
+        for (let f = 0; f < 6; f++) {
+          gusty.feed(1 / 60, true, car2, 0.74);
+          gusty.update(1 / 60);
+        }
+        buckets.push(gusty.live() - last);
+        last = gusty.live();
+      }
+      // A flat rate emits the same count every bucket: 40/s is 4 per tenth, every time, so busiest
+      // and quietest are equal and the ratio is 1. The clock runs 78/s in a gust against 7/s in a
+      // lull, so its buckets range about 8 down to 1. Three is a bar a flat rate cannot reach and
+      // a noisy one clears easily.
+      const busiest = Math.max(...buckets);
+      const quietest = Math.min(...buckets);
+      check('...and it comes in gusts rather than at one flat rate',
+        busiest >= quietest * 3 + 2,
+        `${quietest} notes in the quietest tenth of a second, ${busiest} in the busiest`);
+    }
 
     // ...and the press itself throws a fistful, so the frame the button goes down has something on
     // it. A stream that only ramps up says nothing on the one frame the player is looking at.
@@ -13230,9 +13300,38 @@ let chopperOrder; // likewise
         chased.traffic.stats.violations === 0,
         `${chased.traffic.stats.violations} violations over the whole chase`);
 
+      // **A cop that loses the taxi is taken off the map and another comes in behind.** This is
+      // what keeps a pursuer three times slower than its quarry in the picture at all — see
+      // LOST_RANGE. What is checked is that the fleet holds its size across a recycle and that the
+      // cars doing the work are not the ones that started: a fleet that never turned over would
+      // pass every other check here and still be four cars receding into the distance.
+      {
+        const cycled = runEvent();
+        const opened = new Set(cycled.traffic.policeCars);
+        const sizes = [];
+        for (let f = 0; f < 60 * 25 && cycled.rob.state.active; f++) {
+          cycled.traffic.update(1 / 60);
+          cycled.rob.update(1 / 60);
+          sizes.push(cycled.traffic.policeCars.length);
+        }
+        const fresh = cycled.traffic.policeCars.filter((c) => !opened.has(c)).length;
+        check('a cop that loses the taxi is replaced rather than left to recede',
+          fresh > 0, `${fresh} of ${cycled.traffic.policeCars.length} cars are replacements`);
+        // The count is the invariant. A recycle is a `leavePolice` and an `enterPolice`, and the
+        // one thing that must not happen is the fleet shrinking because the second half failed —
+        // a robbery that quietly ends up with one cop car is the event not happening.
+        check('...and the fleet never shrinks while doing it',
+          sizes.every((n) => n === POLICE_FLEET),
+          `fleet ranged ${Math.min(...sizes)}-${Math.max(...sizes)} against ${POLICE_FLEET}`);
+        // Off screen, always. A car vanishing in the mirror is the repaint's own bug with the
+        // colour change taken out.
+        check('...retiring them only well outside the frame',
+          LOST_RANGE > SPAWN_CLEARANCE, `retired at ${LOST_RANGE}, out of frame past ${SPAWN_CLEARANCE}`);
+      }
+
       // And it all comes off when the event does. A cop left chasing would go on driving at where
       // the taxi was, faster than the traffic around it, in an ordinary colour.
-      chased.traffic.setPoliceCars(0);
+      chased.traffic.clearPolice();
       check('...and the chase ends with the livery',
         chased.traffic.cars.every((car) => !car.chase && !car.route?.length || car.isTaxi));
     }

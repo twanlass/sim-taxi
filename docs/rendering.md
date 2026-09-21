@@ -1715,15 +1715,15 @@ second at 0.62 × 0.34 units into a pool of 48 — 22 notes in the air, each a 4
 on a road already painted with lane dashes. That is a scattering you have to go looking for, and
 the whole of this effect is that it should be impossible to miss. What changed, and why:
 
-| | first cut | now | why |
-|---|---|---|---|
-| Size | 0.62 × 0.34 (4.8 × 2.6px) | 1.15 × 0.62 (8.9 × 4.8px) | A third of the drawn taxi's length. Frankly enormous for a banknote, and right for a game whose drive-through sign is a 14px burger. |
-| Rate | 14/s | 40/s | A getaway's boost is spent in bursts of a second or two, so the stream has to read *within* a burst rather than build over one. |
-| Pool | 48 | 160 | 96 in the air at steady state, plus the kick. |
-| Life | 1.6s | 2.4s, fading from 74% | Money should hang, and still be lying there when the player looks back. Fading from 55% spent most of the effect half-transparent, which was the other half of why it was hard to see. |
-| Tumble | 7.5 rad/s | 4.2 | A note is a 0.02 plate and is **invisible edge-on**. At 1.2 revolutions a second every note was strobing through its own edge on the way down, which reads as flicker and costs a large fraction of the effect's frames. |
-| Colour | #7FC08A | #5FD182 | See below. |
-| The press | nothing | a 24-note kick | An effect that only ramps up says nothing on the frame the button went down, and that is the frame the player is looking at. |
+| | first cut | second | now | why |
+|---|---|---|---|---|
+| Size | 0.62 × 0.34 (4.8 × 2.6px) | 1.15 × 0.62 | **0.88 × 0.48** (6.8 × 3.7px) | It has been both too small and too big. 1.15 is *a third of the drawn taxi's length* — at that size the notes stop reading as a shower of small things and start reading as a few large ones. What made the big size necessary was never the size; it was the density and the alpha, and with those fixed a note can look like paper again. |
+| Rate | 14/s | 40/s flat | **a gust clock** | A flat rate is a rope paid out of the back of the car, and a constant anything reads as a machine. 78/s for 0.16–0.44s, then 7/s for 0.14–0.42s, each drawn fresh. Same mean density (~44/s); the *distribution* is the whole change. The lull is a trickle rather than silence — at zero the stream visibly stops, which reads as the effect switching off. |
+| Pool | 48 | 160 | 160 | ~105 in the air at steady state, plus the gust peak and the kick. |
+| Life | 1.6s | 2.4s, fading from 74% | 2.4s, fading from 74% | Money should hang, and still be lying there when the player looks back. Fading from 55% spent most of the effect half-transparent, which was the other half of why it was hard to see. |
+| Tumble | 7.5 rad/s | 4.2 | 4.2 | A note is a 0.02 plate and is **invisible edge-on**. At 1.2 revolutions a second every note was strobing through its own edge on the way down, which reads as flicker and costs a large fraction of the effect's frames. |
+| Colour | one swatch, #7FC08A | one swatch, #5FD182 | **a spread**, `cashNote` → `cashPale` | See below. |
+| The press | nothing | a 24-note kick | a 24-note kick | An effect that only ramps up says nothing on the frame the button went down, and that is the frame the player is looking at. |
 
 The **colour** is a reversal worth recording. The first cut pulled the hue toward a paper green on
 the argument that the HUD's earnings green is 27px of type on a dark scrim while these are small
@@ -1732,6 +1732,15 @@ dashes painted all over it are 210, so a note at 174 sat *between* the road and 
 competing with. At 179 with the saturation back it is nowhere near the dashes in hue and half again
 the road in value. The pale back went to 232 — brighter than the dashes — because the flash as a
 note turns over is what catches an eye that is on the road ahead.
+
+**And the face is now a spread rather than a swatch.** Every note rolls its own colour between
+`cashNote` and `cashPale`, which is a separate roll from the one toward `cashBack` — and the
+distinction is the whole reason there are two. `cashBack` is a near-white *flip*, there so a
+tumbling note flashes; the face spread is there so 160 notes are 160 slightly different notes rather
+than 160 copies of one colour, which at this size is the difference between a shower and a texture.
+The roll is **squared** toward the saturated end: a uniform draw puts as much of the shower at the
+pale end as the green one and the trail washes out, where `t²` keeps the mass on `cashNote` and lets
+the pale ones be the highlights they are meant to be.
 
 Measured on a rendered frame rather than argued: counting pixels that are bright green with more
 blue than red (which separates a banknote from park grass, whose blue sits *below* its red), a

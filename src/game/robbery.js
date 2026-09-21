@@ -1,6 +1,7 @@
 import { GRID_I, GRID_J, dirSign, isXAxis, lineX, lineZ } from '../city/grid.js';
 import { URGENCY_SEGMENTS, urgencyLevel } from './urgency.js';
 import { findRoute, planOrigin } from './route.js';
+import { POLICE_FLEET } from '../sim/traffic.js';
 
 // The bank robbery: the empty taxi drives past the bank, somebody gets in with a bag, and the
 // streets fill with police for as long as it takes to get them where they are going.
@@ -113,7 +114,11 @@ const CALM_LEVEL = URGENCY_SEGMENTS / 2 + 1;
 const MIN_DELIVERED = 2;
 
 /**
- * How many ambient cars wear police livery while it runs.
+ * How many cop cars the event puts on the road.
+ *
+ * `POLICE_FLEET` lives in sim/traffic.js and is imported rather than restated, because it is also
+ * the buffer headroom the vehicle meshes reserve over and above the density ramp's ceiling. Two
+ * copies of that number would be a fleet that quietly stops arriving the day somebody changes one.
  *
  * Flat rather than on the difficulty ramp, and that is a decision. The event already tightens with
  * the run: a robber's clock is budgeted off `difficulty.slack`, so the same getaway is a harder
@@ -121,46 +126,44 @@ const MIN_DELIVERED = 2;
  * make the event's difficulty a product of two curves neither of which could then be read on its
  * own — the trap `difficulty.md` describes as a survival curve going flat against every knob
  * because none of them was the one doing the work.
- *
- * Four is what a five-block city can show at once: at play zoom a block is about a third of a
- * phone's frame, so four cars spread around the taxi puts one or two in shot at any moment without
- * the road ever reading as a parade.
  */
-const POLICE_CARS = 4;
+const POLICE_CARS = POLICE_FLEET;
 
 /**
- * How many vehicles the event asks the fleet to grow by, on top of repainting the nearest four.
+ * How far a cop may fall behind before it is taken off the road and sent in again, in world units.
  *
- * This is the half that genuinely *adds* traffic, and it is bounded by something already in the
- * game rather than by a number of its own. `setCarCount` (sim/traffic.js) only ever grows and is
- * capped at the pool the difficulty ramp's own ceiling sized — so what a robbery does is spend that
- * ramp's headroom early. The cars it brings forward are cars the run was going to get anyway, a
- * shift or two later, and no run can end up with more traffic in it than one that never met a
- * robbery at all.
+ * **This is what makes the chase read, and it exists because the honest version cannot.** A cop
+ * cruises at 20.4 against a boosting taxi's 22.1, and that is its *ceiling* — cornering and
+ * queueing put its mean over a getaway at about 9, against the taxi's 27. Measured over 40 seeds,
+ * a cop simply left to drive after the taxi is 28 units back at the median and still falling. The
+ * arithmetic does not care how the route is planned: a pursuer three times slower than its quarry
+ * does not stay in the picture, and one that is not in the picture is not a chase.
  *
- * They are not marked police, and they are not un-spawned at the end. A permanent +2 that the ramp
- * was going to deliver regardless is honest; a fleet that shrank on the frame an event ended would
- * mean deleting cars out of the middle of an instance buffer while the player watched, which is the
- * thing `setCarCount` refuses to do for good reasons.
+ * So a cop that has lost the taxi does what a police force would: it stops being that car, and
+ * another one joins ahead. `leavePolice` takes it off the map and `enterPolice` brings a fresh one
+ * in off screen — which is exactly the machinery the event already uses to start, so this is a
+ * re-entry rather than a new mechanic.
+ *
+ * 56 units, which is just past `SPAWN_CLEARANCE` — the 50 this file's sibling already uses for
+ * "far enough that the player does not watch it happen". A cop is therefore only ever retired
+ * somewhere off screen, which matters: a car vanishing in the mirror is the repaint's own bug
+ * wearing a different hat.
+ *
+ * Swept against 72 and 52 over 40 seeds. 72 leaves the fleet strung out — the furthest cop sits at
+ * a median of 65 and the recycle fires on under a quarter of frames — and 52 buys nothing over 56
+ * while cutting into the margin that keeps a retirement out of sight. At 56 there is a cop in
+ * frame for **89%** of a getaway against 85% at 72, and two of them at a time rather than 1.8.
  */
-const EXTRA_CARS = 2;
+export const LOST_RANGE = 56;
 
 /**
- * How often the police are re-picked, in seconds.
+ * Seconds between re-entries, so the stream is a stream rather than a wall.
  *
- * `setPoliceCars` takes the nearest N to the taxi, so re-running it is what keeps the event around
- * the player: a cop car that has driven off across town is handed back its own paint and a nearer
- * one turns blue. That is the closest this module comes to the cars acknowledging the taxi, and it
- * is deliberately as far as it goes — the *set* follows the player, not the cars.
- *
- * Not every frame, because each change is a `setColorAt` plus an `instanceColor` upload, and not
- * much slower, because the swap has to happen off screen to read as a car that was always there.
- * `SPEED` is 8.5, so a car covers 17 units in two seconds — most of a 20-unit block — and anything
- * that turns over between two re-picks has been out of the frame it was last seen in for most of
- * that. It is a bound rather than a guarantee: a car stopped at a red does not move at all, which
- * is why the swap is a paint change on a car that is already there rather than a car appearing.
+ * Without it, four cops that all fall behind on the same straight are all replaced on the same
+ * frame and arrive as a rank. Spaced, they come into view one at a time, which is what a pursuit
+ * looks like from the car in front.
  */
-const REPICK = 2;
+const REENTRY_GAP = 1.1;
 
 /** The junction nearest a world point, clamped onto the grid. */
 function nearestJunction(x, z) {
@@ -196,7 +199,8 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
     active: false,
     /** Sim seconds since the last one ended. Starts clear, so the gates below are the only bar. */
     since: COOLDOWN,
-    sinceRepick: 0,
+    /** Seconds since a cop last came onto the map — see REENTRY_GAP. */
+    sinceEntry: 0,
     /** How many have happened this run, for the tools. */
     count: 0,
   };
@@ -238,13 +242,25 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
    * beat the taxi to *one* junction on its way, and the taxi has told everyone which ones those
    * are.
    *
-   * Three junctions, spread. A block is ~2.3s at ordinary cruise and about 0.75s at the Loco top,
-   * so aiming at the next junction lands the cop behind the taxi again; aiming ten ahead puts it
-   * somewhere the run may never reach. Three to five is the band where a cop starting a block or
-   * two off to the side arrives while the taxi is still coming. They are dealt round-robin rather
-   * than all sent to one, so the road ahead is seeded rather than barricaded at a single point.
+   * **Half of them are still sent at the taxi itself**, which is the `0`s here, and that is not a
+   * hedge — it is the half the player actually sees. A cop aimed three junctions down the road is
+   * doing the useful work and is usually somewhere off to the side doing it; a cop aimed at the
+   * taxi is *behind* the taxi, in the mirror, on the same straight, which is what a chase looks
+   * like from the driver's seat. The first version sent every car to a cut-off and the getaway
+   * read as an empty road with the occasional cop appearing at a junction.
+   *
+   * What makes the stern half viable now — and it was not, before — is that a cop which loses the
+   * taxi is taken off the map and another comes in behind (see `LOST_RANGE`). Left to drive, a
+   * pursuer three times slower than its quarry simply recedes; recycled, the road behind the taxi
+   * keeps refilling.
+   *
+   * For the two that do cut off: a block is ~2.3s at ordinary cruise and about 0.75s at the Loco
+   * top, so aiming at the next junction lands the cop behind the taxi again and aiming ten ahead
+   * puts it somewhere the run may never reach. Three and five straddle the band where a cop a
+   * block or two off to the side arrives while the taxi is still coming, and being different
+   * seeds the road rather than barricading one point of it.
    */
-  const CUT_OFF_AHEAD = [3, 4, 5];
+  const CUT_OFF_AHEAD = [0, 0, 3, 5];
 
   /**
    * Where a cop should be heading: a junction on the taxi's route, `steps` ahead of it.
@@ -256,7 +272,8 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
    */
   function cutOffFor(steps) {
     const route = taxi.route;
-    if (!route?.length) return { i: taxi.i, j: taxi.j };
+    // Zero steps is the taxi's own junction: a stern chase, deliberately. See CUT_OFF_AHEAD.
+    if (steps <= 0 || !route?.length) return { i: taxi.i, j: taxi.j };
     // `taxi.i/j` is the junction the taxi's lane runs *into*, so walking the route from there is
     // walking it from the first junction it has not decided yet — which is exactly what the route
     // steps describe. Each step is a grid direction: one junction along that axis.
@@ -369,35 +386,78 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
 
     state.active = true;
     state.count += 1;
-    state.sinceRepick = 0;
+    state.sinceEntry = 0;
     // The traffic first, so the police are already on the road on the frame the player looks up
-    // from the crystal appearing over their roof.
-    //
-    // One call per car: `setCarCount` adds **at most one vehicle per invocation** and gives up
-    // quietly when the draw cannot find a legal spot, so asking it for two in one go quietly
-    // delivers one. It is the target-count shape that makes that easy to miss.
-    for (let k = 0; k < EXTRA_CARS; k++) traffic.setCarCount(traffic.cars.length + 1);
-    traffic.setPoliceCars(POLICE_CARS);
+    // from the crystal appearing over their roof. They come in off screen near the bank —
+    // `enterPolice` in sim/traffic.js owns where, and why "near the bank" and "off screen" have to
+    // be traded off against each other.
+    traffic.enterPolice(POLICE_CARS, site.door);
     // `onBoard` first, and the order matters now. It is what dispatches the taxi to the getaway
     // (main.js), so it is what puts a route on the car — and the police are sent to junctions on
     // *that* route. Aiming before it ran left the whole set converging on the taxi's own junction
     // until it next crossed one, which is the stern chase this event was just taken off.
     onBoard(fare);
-    // Pointed down the getaway on the frame they turn blue rather than on the next re-pick, so the
-    // road is already filling up as the robber is still getting in.
+    // Pointed down the getaway on the frame they arrive rather than on the next tick, so the road
+    // is already filling up as the robber is still getting in.
     steerChase();
   }
 
-  /** Hand the cop cars back their own paint and start the clock on the next one. */
+  /** Take the cop cars off the road and start the clock on the next event. */
   function stop() {
     if (!state.active) return;
     state.active = false;
     state.since = 0;
     aimedAt = null;
-    // `setPoliceCars(0)` clears each car's `chase` and its route as it hands the paint back — see
-    // the note there. It is the one place a car leaves the set, so it is the one place that can be
-    // sure of catching every one of them.
-    traffic.setPoliceCars(0);
+    // The one place a car leaves the set, so the one place that can be sure of catching every one
+    // of them — and the cars go with it, rather than being handed back a colour.
+    traffic.clearPolice();
+  }
+
+  /**
+   * Retire the cops that have lost the taxi, and send the same number in again.
+   *
+   * See `LOST_RANGE`. `leavePolice` will only take the **last** car in the fleet, because anything
+   * else is a hole in the middle of an instance buffer — so a cop that is to be retired is first
+   * swapped to the tail of `policeCars`. That swap is safe for exactly the reason the tail rule
+   * exists: the police are a contiguous block at the end of `ambient`, so exchanging two of them
+   * only ever moves police indices past each other.
+   */
+  function recyclePolice(dt) {
+    state.sinceEntry += dt;
+    if (state.sinceEntry < REENTRY_GAP) return;
+
+    const fleet = traffic.policeCars;
+    // The furthest-gone first, and one per tick: the gap is what turns four simultaneous
+    // replacements into a stream arriving one at a time.
+    let worst = -1;
+    let worstD = LOST_RANGE;
+    for (let k = 0; k < fleet.length; k++) {
+      const cop = fleet[k];
+      const d = Math.hypot(cop.x - taxi.x, cop.z - taxi.z);
+      // A crashed cop is off the road as far as the player is concerned and will never close
+      // again, so it is always a candidate however near it stopped.
+      if (cop.crashed || d > worstD) { worst = k; worstD = cop.crashed ? Infinity : d; }
+    }
+    if (worst === -1) return;
+
+    // Swap to the tail, retire, replace.
+    const last = fleet.length - 1;
+    const tailCar = fleet[last];
+    fleet[last] = fleet[worst];
+    fleet[worst] = tailCar;
+    // ...and the same swap in `ambient`, which is the array the instance indices actually name.
+    // `policeCars` is only a view; moving a car within it changes nothing about what is drawn.
+    traffic.swapAmbient(fleet[last], tailCar);
+    if (!traffic.leavePolice(fleet[last])) return;
+    state.sinceEntry = 0;
+    // **Behind the taxi**, which is the whole point of recycling rather than simply letting a cop
+    // trail away. A replacement dropped on a ring around the player is as likely to turn up beside
+    // them or in front; dropped behind, it comes into frame in the mirror on the straight they are
+    // already driving, and the road behind a getaway keeps refilling.
+    traffic.enterPolice(1, taxi, { behind: true });
+    // A fresh cop has no route, and the aim is keyed on the taxi not having moved — so without
+    // this it would wait for the taxi to cross a junction before it was ever pointed anywhere.
+    aimedAt = null;
   }
 
   function update(dt) {
@@ -407,17 +467,17 @@ export function createRobbery({ site, taxi, fares, traffic, onBoard = () => {} }
       // The event ends when the robber does, whichever way that went: delivered, clock run out
       // (they bail — see the timeout branch in game/fares.js), or the run over. All three land here
       // as the same fact, which is why this is a poll on the fare loop rather than three callbacks
-      // that each have to remember to put the paint back.
+      // that each have to remember to take the cars off.
       if (!fares.robbing()) { stop(); return; }
-      state.sinceRepick += dt;
-      if (state.sinceRepick >= REPICK) {
-        state.sinceRepick = 0;
-        traffic.setPoliceCars(POLICE_CARS);
-        // A car that has just been handed the livery has no route and no chase yet, so the aim has
-        // to be forgotten along with the set — otherwise a fresh cop waits for the taxi to change
-        // junction before it is ever pointed anywhere.
-        aimedAt = null;
+      // Top the fleet up first: a saturated network can leave `enterPolice` short, and a robbery
+      // that opened with three cop cars should not run with three for the whole getaway.
+      if (traffic.policeCars.length < POLICE_CARS && state.sinceEntry >= REENTRY_GAP) {
+        if (traffic.enterPolice(1, taxi, { behind: true })) {
+          state.sinceEntry = 0;
+          aimedAt = null;
+        }
       }
+      recyclePolice(dt);
       steerChase();
       return;
     }

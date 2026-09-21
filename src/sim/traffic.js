@@ -13,7 +13,7 @@ import {
 } from '../geometry/lights.js';
 import { createTaxiMesh } from '../geometry/taxi.js';
 import {
-  GRID_I, GRID_J, HALF_ROAD, LANE, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
+  GRID_I, GRID_J, HALF_ROAD, LANE, PITCH, isXAxis, dirSign, dirYaw, leftOf, rightOf, opposite,
   ringAxisAt, isUnsignalised, lineX, lineZ, laneOffsetFor, riverBanks,
 } from '../city/grid.js';
 import { deckHeightAt } from '../city/river.js';
@@ -516,6 +516,21 @@ const SCATTER_STRAIGHT_W = 0.04;  // what the "carry straight on" turn weight co
 // frightened. Anything that clears a lane has to be able to outrun what it clears. 2.4 is the
 // midpoint of the only band that satisfies both ends, and both ends are asserted in the probe.
 const CHASE_SPEED = 2.4;
+
+/**
+ * How many cop cars a robbery puts on the road, and therefore how much buffer headroom the
+ * instanced meshes reserve for them.
+ *
+ * It lives here rather than in game/robbery.js because it is two facts that must not drift apart:
+ * the event's car count, and the number of slots the vehicle meshes are sized for over and above
+ * the density ramp's own ceiling. `game/robbery.js` imports it rather than keeping its own.
+ *
+ * Four is what a five-block city can show at once. At play zoom a block is about a third of a
+ * phone's frame, so four cars converging on the player puts one or two in shot at any moment
+ * without the road ever reading as a parade — and six was measured against four and bought four
+ * points of "a cop in the road ahead" and nothing else.
+ */
+export const POLICE_FLEET = 4;
 
 // --- Passing ------------------------------------------------------------------
 //
@@ -1697,7 +1712,8 @@ function spawnCars(rng, count, into = [], accept = null, truckChance = 0) {
       turnLen: 1,
       entry: null, control: null, exit: null, hold: null, leadIn: 0, dOut: d,
       isTruck,
-      // Is this one wearing police livery this moment? Set and cleared by `setPoliceCars` while a
+      // Is this one wearing police livery this moment? Set by `enterPolice` and cleared by
+      // `leavePolice` while a
       // bank robbery is running (game/robbery.js) and false the rest of the time. It changes two
       // things and nothing else: the paint (see `paint` below) and whether the siren bar on the
       // roof is drawn. It is deliberately **not** a behaviour flag — a cop car queues, indicates,
@@ -2049,7 +2065,13 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   // meshes are sized for every ambient slot even though only a fraction of them will ever be
   // trucks — cheap insurance against the buffer running out mid-run, for the same "nothing next to
   // rebuilding the mesh" reason MAX_CARS itself is sized for the ceiling rather than the opener.
-  const MAX_AMBIENT = Math.max(0, MAX_CARS - 1);
+  //
+  // Plus the cop fleet, which is headroom rather than density: a robbery brings its own cars (see
+  // `enterPolice`), and they are on top of whatever the difficulty ramp has the city running at.
+  // Reserved here rather than folded into `MAX_CARS` so that `setCarCount` — which clamps to
+  // `MAX_CARS` — cannot spend the police reservation on ordinary traffic and leave a robbery with
+  // nowhere to put its cars.
+  const MAX_AMBIENT = Math.max(0, MAX_CARS - 1) + POLICE_FLEET;
 
   /**
    * Take a vehicle mesh out of frustum culling, and say why.
@@ -2212,8 +2234,8 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
   const tint = new THREE.Color();
   // A cop car is an ordinary car wearing `policeBody` instead of its own draw from `PALETTE.carBody`
   // — the same blue the cruiser is built in, so the two read as the same force. Its `colorIndex` is
-  // left alone, which is what lets `setPoliceCars(0)` hand every one of them straight back to the
-  // livery it had before the event without remembering anything.
+  // left alone, so a cop car still carries the ordinary draw it would have had — which costs
+  // nothing and means a cop is never the only car in the city with no colour of its own.
   const bodyColor = (car) => (car.police ? PALETTE.policeBody : PALETTE.carBody[car.colorIndex]);
   const paint = (car, index) => {
     tint.set(bodyColor(car));
@@ -2247,6 +2269,12 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
    * a saturated network just tries again on the next frame rather than looping.
    */
   function setCarCount(n) {
+    // Not while the police are out. They live at the **tail** of `ambient` so that taking them off
+    // again is a count decrement rather than surgery on the middle of an instance buffer (see the
+    // cop-car section below); a density car appended behind them would break that, and would then
+    // be stranded above `mesh.count` the moment the event ended — a car still in `cars`, still
+    // driving, still collidable, and no longer drawn. The ramp catches up on the next call.
+    if (policeCars.length) return;
     const want = Math.max(cars.length, Math.min(MAX_CARS, Math.round(n)));
     if (cars.length >= want) return;
 
@@ -2291,51 +2319,203 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
 
   // --- Cop cars -------------------------------------------------------------
   //
-  // The bank robbery (game/robbery.js) asks for police on the streets while it runs. What that
-  // means here is deliberately shallow: a set of ambient cars is repainted and given a bar on the
-  // roof for the length of the event, and **nothing about how they drive changes at all**. They
-  // queue, indicate, stop at reds and can be crashed into exactly like the cars they were a moment
-  // ago, which is the whole of the brief — no pursuit, no new fail state, "a louder version of the
-  // existing loop".
+  // The bank robbery (game/robbery.js) asks for police on the streets while it runs. They are
+  // ordinary cars in every respect that matters — they queue, indicate, stop at reds, yield and
+  // can be crashed into — carrying police paint, a bar on the roof, a lifted cruise ceiling and a
+  // route (see CHASE_SPEED).
   //
-  // Which are picked is "the ones nearest the taxi", because the point is streets the player can
-  // see. It is re-run each time the event asks rather than latched, so a cop car that has driven
-  // off across the map is handed back and a nearer one takes its place — that is what keeps the
-  // event *around the player* without any of them ever steering toward one.
+  // **They are spawned and despawned, not repainted**, and that is the second version of this.
+  // The first took the ambient cars nearest the taxi and turned them blue for the length of the
+  // event, which is cheap, needs no buffer headroom, and reads *wrong*: a car the player has been
+  // following for half a block becomes a police car in front of them, and a police car that has
+  // fallen behind turns back into a hatchback. Nothing in the world should change species. Reported
+  // exactly that way — "one moment it's a normal car, the next it's a cop!" — and there is no
+  // version of the repaint that fixes it, because the repaint *is* the bug.
   //
-  // **The count is not clamped to what happens to be nearby.** Every ambient car is a candidate,
-  // sorted by distance, so a request for six on an empty-looking street still turns six cars blue
-  // — the nearest six, wherever they are. `game/robbery.js` also grows the fleet before it calls
-  // this (see `setCarCount` there), which is the half that actually adds vehicles.
+  // So a robbery brings its own cars. They enter from off screen (`enterPolice`), drive the event,
+  // and are taken off the road again at the end.
+  //
+  // **They live at the tail of `ambient`, which is what makes taking them off cheap.** Removing a
+  // car out of the *middle* of an instance buffer is the thing `setCarCount` refuses to do — every
+  // index after it shifts and the car vanishes off a road it was visibly driving down. At the tail
+  // there is no index after it: the count comes down, the matrices beyond it are never read, and
+  // nothing else moves. Keeping them contiguous is why `setCarCount` will not grow the fleet while
+  // they are out — a density car appended behind them would be stranded above the count the moment
+  // the event ended.
   const policeCars = [];
-  function setPoliceCars(n, from = taxi) {
-    const want = Math.max(0, Math.min(ambient.length, Math.round(n)));
-    const ranked = [...ambient]
-      .filter((car) => !car.crashed)
-      .sort((a, b) => Math.hypot(a.x - from.x, a.z - from.z) - Math.hypot(b.x - from.x, b.z - from.z));
-    const chosen = new Set(ranked.slice(0, want));
 
-    let repainted = false;
-    for (const car of ambient) {
-      const police = chosen.has(car);
-      if (car.police === police) continue;
-      car.police = police;
-      // A car handed back its own livery stops chasing, and stops holding the route it was given.
-      // Cleared here rather than by the caller because this is the one place a car leaves the set:
-      // a cop left with a stale route would go on driving at wherever the taxi was when the event
-      // ended, faster than the traffic around it, in an ordinary colour.
-      if (!police) {
-        car.chase = 0;
-        if (car.route?.length) car.route.length = 0;
+  /**
+   * Where a cop car may come onto the map.
+   *
+   * Two conditions, and they pull against each other. It has to be **far enough from the taxi that
+   * the player does not watch it appear** — `SPAWN_CLEARANCE` is the 50 units this file already
+   * uses for exactly that, about two and a half blocks, which is a little beyond the frame at play
+   * zoom. And it should be **near the bank**, because that is where the event is and a police
+   * response arriving from the far side of the city is a police response nobody sees.
+   *
+   * Those cannot both be fully satisfied, and it is worth being plain about why rather than
+   * quietly picking one: the taxi *is* at the bank when a robbery starts. "Within two blocks of
+   * the bank" is 40 units and "off screen" is 50, so the two sets do not intersect on the frame
+   * the event fires. What this does is take the off-screen constraint as hard — a car appearing
+   * out of nothing in frame is the one failure that has no defence — and then minimise distance to
+   * the bank subject to it. In practice the police come in on the ring of streets just outside the
+   * view, which is the nearest thing the camera allows to arriving from around the corner.
+   *
+   * `ENTRY_SPREAD` keeps them from stacking up on one street: each successive car is pushed to a
+   * lane at least this far from the ones already placed, so a response of four arrives spread over
+   * a couple of blocks rather than as a convoy down one road.
+   */
+  const ENTRY_SPREAD = PITCH;
+
+  /**
+   * Put `n` cop cars onto the map, entering from off screen near `near`.
+   *
+   * Answers how many actually made it. `spawnCars` gives up quietly when a draw cannot find a
+   * legal spot, which on a saturated or heavily closed network is a real outcome — the caller
+   * re-asks on a later frame rather than looping here.
+   */
+  function enterPolice(n, near = taxi, { behind = false } = {}) {
+    let added = 0;
+    // Where "behind" is, if the caller asked for it: the reverse of the taxi's own heading. A cop
+    // brought in behind the player comes into frame in the mirror on the straight they are already
+    // driving, which is what a pursuit looks like from the car in front; one brought in on a ring
+    // around them is as likely to appear off to the side, where it reads as another cop car
+    // existing rather than as a cop car chasing.
+    const fx = Math.cos(taxi.yaw);
+    const fz = -Math.sin(taxi.yaw);
+    for (let k = 0; k < n; k++) {
+      if (ambient.length >= MAX_AMBIENT) break;
+      const before = cars.length;
+      // Ranked rather than filtered: every acceptable lane is legal, and among the legal ones the
+      // nearest to `near` wins. `spawnCars` takes the first lane its draw accepts, so the ranking
+      // is expressed as a set of conditions that relax with each pass — start by asking for the
+      // best lane available and give up one requirement at a time until something is found.
+      // Twelve passes reaches right across the map, so this cannot fail for want of asking.
+      for (let ring = 0; ring < 12 && cars.length === before; ring++) {
+        const reach = PITCH + ring * PITCH * 0.5;
+        spawnCars(rng, 1, cars, ({ lane, s }) => {
+          if (closedLanes.has(lane.id)) return false;
+          const at = lane.path.at(s);
+          // Hard: never in frame.
+          if (Math.hypot(at.x - taxi.x, at.z - taxi.z) < SPAWN_CLEARANCE) return false;
+          // Behind the player, while that is still being asked for. Dropped after four passes:
+          // a re-entry that cannot be placed behind is better placed *somewhere* than not at all,
+          // and on a taxi that has just turned a corner the road behind it may be the river.
+          if (behind && ring < 4
+            && (at.x - taxi.x) * fx + (at.z - taxi.z) * fz > 0) return false;
+          // Soft: as near `near` as this pass allows.
+          if (Math.hypot(at.x - near.x, at.z - near.z) > reach) return false;
+          // Spread: not on top of a cop already placed. Dropped once the search is wide enough
+          // that it is competing with finding a lane at all.
+          return ring >= 6
+            || policeCars.every((cop) => Math.hypot(cop.x - at.x, cop.z - at.z) >= ENTRY_SPREAD);
+        });
       }
-      paint(car, car.instanceIndex);
-      repainted = true;
-    }
-    if (repainted && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    if (repainted && wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
+      if (cars.length === before) break;
 
+      const car = cars[cars.length - 1];
+      // A cop is never a truck. `spawnCars` rolls `isTruck` off the `truckChance` it is handed and
+      // this call passes none, so this is belt and braces — but the bar's anchor is measured off a
+      // car's roof and a police box truck is not a thing.
+      car.isTruck = false;
+      car.police = true;
+      car.chase = 1;
+      // Put it where it actually is, now, rather than leaving it at the origin until the first
+      // physics tick writes a position. `spawnCars` builds a car at `x: 0, z: 0` because every
+      // other caller either runs a warm-up or spawns before the first frame — this one spawns
+      // *mid-run*, so an unplaced car is a cop car drawn at the middle of the map for one frame,
+      // and anything measuring where it arrived (the probe's off-screen check, the wash in
+      // game/coplights.js) reads the origin instead of the street.
+      const at = car.lane.path.at(car.s);
+      car.x = at.x;
+      car.z = at.z;
+      car.yaw = dirYaw(car.d);
+      car.instanceIndex = ambient.length;
+      ambient.push(car);
+      policeCars.push(car);
+      paint(car, car.instanceIndex);
+      added += 1;
+    }
+
+    if (added) {
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
+      mesh.count = ambient.length;
+      wheelMesh.count = ambient.length * FRONT.length;
+      brakeMesh.count = ambient.length * LIGHT_PODS;
+      turnLeftMesh.count = ambient.length * LIGHT_PODS;
+      turnRightMesh.count = ambient.length * LIGHT_PODS;
+      sirenRedMesh.count = ambient.length * LIGHT_PODS;
+      sirenBlueMesh.count = ambient.length * LIGHT_PODS;
+    }
+    return added;
+  }
+
+  /**
+   * Take one cop car off the road.
+   *
+   * Only ever the **last** one in `ambient`, for the reason in the section note above: anything
+   * else is a hole in the middle of an instance buffer. The caller picks which cop to retire by
+   * swapping it to the tail of `policeCars` first — see `recyclePolice` in game/robbery.js — which
+   * is safe because the police are a contiguous block at the end and shuffling within it only ever
+   * moves police indices.
+   */
+  function leavePolice(car) {
+    const tail = ambient[ambient.length - 1];
+    if (!car || car !== tail || !car.police) return false;
+    ambient.pop();
+    const at = cars.indexOf(car);
+    if (at !== -1) cars.splice(at, 1);
+    const cop = policeCars.indexOf(car);
+    if (cop !== -1) policeCars.splice(cop, 1);
+    // Belt and braces for anything still holding the object: a retired cop is not in `cars`, so
+    // nothing drives it, but `sim/collisions.js` and the effects walk their own lists.
+    car.police = false;
+    car.chase = 0;
+    if (car.route?.length) car.route.length = 0;
+    mesh.count = ambient.length;
+    wheelMesh.count = ambient.length * FRONT.length;
+    brakeMesh.count = ambient.length * LIGHT_PODS;
+    turnLeftMesh.count = ambient.length * LIGHT_PODS;
+    turnRightMesh.count = ambient.length * LIGHT_PODS;
+    sirenRedMesh.count = ambient.length * LIGHT_PODS;
+    sirenBlueMesh.count = ambient.length * LIGHT_PODS;
+    return true;
+  }
+
+  /**
+   * Exchange two cars' places in `ambient`, instance indices and all.
+   *
+   * The one operation that makes `leavePolice`'s tail rule usable: the caller cannot choose *which*
+   * cop leaves without being able to move one to the end first. Both cars are repainted at their
+   * new indices, so the swap is invisible — the colour follows the car rather than the slot.
+   *
+   * Safe only between two cop cars, which is all it is used for. The police are a contiguous block
+   * at the end of `ambient`, so exchanging two of them moves police indices past each other and
+   * touches nothing an ordinary car owns; a swap that reached an ambient car would tear a hole in
+   * the density ramp's own ordering instead.
+   */
+  function swapAmbient(a, b) {
+    if (!a || !b || a === b || !a.police || !b.police) return false;
+    const ia = a.instanceIndex;
+    const ib = b.instanceIndex;
+    if (ambient[ia] !== a || ambient[ib] !== b) return false;
+    ambient[ia] = b;
+    ambient[ib] = a;
+    a.instanceIndex = ib;
+    b.instanceIndex = ia;
+    paint(a, ib);
+    paint(b, ia);
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (wheelMesh.instanceColor) wheelMesh.instanceColor.needsUpdate = true;
+    return true;
+  }
+
+  /** Every cop car off the road at once — the end of an event. */
+  function clearPolice() {
+    // Backwards, so each one is the tail as it goes.
+    for (let k = policeCars.length - 1; k >= 0; k--) leavePolice(policeCars[k]);
     policeCars.length = 0;
-    for (const car of ambient) if (car.police) policeCars.push(car);
   }
   // With ?cars=1 there are no ambient vehicles at all, so setColorAt is never called and
   // instanceColor is still null.
@@ -4300,12 +4480,19 @@ export function createTraffic(rng, scene, count = 24, maxCars = count, truckChan
     cars, taxi, taxiGroup, setTaxiOccupied, setTaxiHighlight, setCarCount, mesh,
     wheelMesh, barMesh, update, warmup,
     /**
-     * Put `n` ambient cars into police livery — the nearest `n` to the taxi — and hand every other
-     * one back to its own. `setPoliceCars(0)` ends it. See the note by the function itself: the
-     * livery is the whole of what changes, and the cars go on driving exactly as they were.
+     * Bring `n` cop cars onto the map, entering from off screen as near `near` as the camera
+     * allows. Answers how many actually arrived — a saturated network can legitimately place
+     * fewer, and the caller re-asks on a later frame. They are cars the robbery *brought*, not
+     * ambient cars repainted; see the cop-car section for why that distinction is the whole point.
      */
-    setPoliceCars,
-    /** The cars currently wearing it, for the probe and the tools. Live, not a copy. */
+    enterPolice,
+    /** Take one cop car off the road. Only the last one placed — see the function itself. */
+    leavePolice,
+    /** Exchange two cop cars' places in the instance buffer, so either can be made the last. */
+    swapAmbient,
+    /** Every cop car off the road at once: the end of an event. */
+    clearPolice,
+    /** The cars currently on it, for the probe and the tools. Live, not a copy. */
     policeCars,
     /**
      * The multiplier a chasing cop's cruise ceiling is lifted by — see CHASE_SPEED.

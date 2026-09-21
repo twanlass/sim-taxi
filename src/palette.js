@@ -258,6 +258,14 @@ export const PALETTE = {
   // the point — the flash as a note turns over is the thing that catches an eye that is on the road
   // ahead rather than on the trail.
   cashBack: '#EDE9CF',
+  // The pale end of the *face*, which is a different job from `cashBack` and was at first confused
+  // with it. The back is a flash — a value flip as a note turns over — and there is one of it. This
+  // is a **spread**: every note rolls its own face somewhere between `cashNote` and here, so the
+  // shower is a family of greens rather than 160 copies of one swatch. Kept green rather than run
+  // all the way to white, because the hue is the only thing on the road saying what these are; at
+  // 214 luma it is still under the lane dashes' 210-ish paint in saturation while being clearly a
+  // lighter note of the same colour.
+  cashPale: '#C3EFD0',
 
   // --- The bank ---------------------------------------------------------------
   // The city's one bank (city/bank.js), and the third building the tower generator does not draw.

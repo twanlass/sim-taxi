@@ -2018,16 +2018,21 @@ plain route to a junction on the taxi's own route, three to five ahead of it —
 [the one routing branch](traffic.md#the-one-routing-branch) does the rest. A chasing cop *is* a
 routed car, the same thing the player's own taxi is.
 
-**They cut you off rather than chase you, and that is not a flourish — it is the only version that
-works.** A cop's mean speed over a getaway is 9 against a boosting taxi's 27, because it is
-cornering and queueing where the taxi is flat out; sent to where the taxi *is*, it is aimed at a
-point already a second old and loses ground every frame. Tuning could not save it: scattering the
-traffic in front of it, doubling its cornering speed and (as an experiment) turning every light in
-the city green for it lifted its mean speed from 6.8 to 13.6 and moved its distance to the taxi by
-nothing at all. Sent three junctions down the **route the player drew**, it only has to win one
-race it can actually win. Measured over 40 seeds, that took a cop inside one block from 31% of the
-chase to 47%, and put one in the road *ahead* of the taxi for 38% of it — see
-[the chase](traffic.md#why-it-is-not-a-pursuit) for the full table.
+**Half cut you off, half come after you, and all of them get recycled.** A cop's mean speed over a
+getaway is 9 against a boosting taxi's 27, because it is cornering and queueing where the taxi is
+flat out; sent to where the taxi *is*, it is aimed at a point already a second old and loses ground
+every frame. Tuning could not save it — scattering the traffic in front of it, doubling its
+cornering speed and (as an experiment) turning every light in the city green for it lifted its mean
+speed from 6.8 to 13.6 and moved its distance to the taxi by nothing at all.
+
+Two answers, and the event needs both. Two of the four are sent three or five junctions down the
+**route the player drew**, which is a race a slower car can actually win: it only has to beat the
+taxi to one junction, and the taxi has announced which ones those are. The other two are sent
+straight at the taxi, and when one of them falls out of the picture it is taken off the map and
+another comes in **behind you on the straight you are already driving**. That is what a pursuit
+looks like from the driver's seat, and it is the half a cut-off cannot supply — see
+[the chase](traffic.md#they-are-recycled-because-a-slower-car-cannot-stay-in-the-picture). Measured
+over 40 seeds, a cop is in frame for 89% of a getaway, two at a time.
 
 A cop cruises at **20.4** against a boosting taxi's 22.1 and the traffic's 8.5. That gap is the
 mode — the pill outruns them in a straight line and lifting off does not — so Loco Mode becomes the
